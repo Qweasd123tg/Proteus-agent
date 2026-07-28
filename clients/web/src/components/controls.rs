@@ -1,5 +1,4 @@
 use leptos::prelude::*;
-use web_sys::MouseEvent;
 
 use crate::types::*;
 
@@ -111,51 +110,6 @@ pub(crate) fn QueuedPromptCard(text: String) -> impl IntoView {
             <div class="message system-message queued-message">
                 <p>{preview}</p>
                 <p class="muted">"Будет передано между шагами или следующим ходом"</p>
-            </div>
-        </article>
-    }
-}
-
-#[component]
-pub(crate) fn PlanActionsCard<R, E, X>(on_revise: R, on_execute: E, on_exit: X) -> impl IntoView
-where
-    R: Fn(MouseEvent) + Copy + 'static,
-    E: Fn(MouseEvent) + Copy + 'static,
-    X: Fn(MouseEvent) + Copy + 'static,
-{
-    view! {
-        <article class="task-card running plan-actions-card">
-            <div class="task-card-header">
-                <span class="status-badge running">
-                    <span class="dot"></span>
-                    "План готов"
-                </span>
-            </div>
-            <div class="message system-message plan-actions-message">
-                <button
-                    type="button"
-                    class="secondary"
-                    on:click=on_revise
-                    title="Уточнить последний план текстом из поля ввода"
-                >
-                    "Уточнить"
-                </button>
-                <button
-                    type="button"
-                    class="btn-primary"
-                    on:click=on_execute
-                    title="Переключиться в обычный режим и выполнить последний план"
-                >
-                    "Выполнить"
-                </button>
-                <button
-                    type="button"
-                    class="secondary"
-                    on:click=on_exit
-                    title="Вернуться в обычный режим"
-                >
-                    "Выйти"
-                </button>
             </div>
         </article>
     }

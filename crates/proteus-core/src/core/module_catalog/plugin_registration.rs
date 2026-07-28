@@ -5,8 +5,8 @@ use anyhow::{Result, bail};
 use super::{BuiltinModuleCatalog, ErasedFactory, ModuleEntry, arc_to_any, validate_plugin_id};
 use crate::{
     contracts::{
-        ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryStore, PatchApplier, Renderer,
-        SearchBackend, SubagentRunner, Tool, ToolExposure, Workflow,
+        ContextBuilder, HistoryCompactor, MemoryStore, PatchApplier, Renderer, SearchBackend,
+        SubagentRunner, Tool, ToolExposure, Workflow,
     },
     domain::{ModuleKind, ModuleManifest, slot},
     plugin_adapters::{
@@ -91,54 +91,6 @@ impl BuiltinModuleCatalog {
         // shared_renderer (Arc<dyn Renderer>) живёт в factory через clone —
         // отдельно хранить не нужно, Arc сам считает ссылки.
         drop(shared_renderer);
-        Ok(())
-    }
-
-    /// Регистрирует ApprovalPolicy от плагина под указанным module_id.
-    ///
-    /// Policy-адаптер создаётся на build, чтобы передать module-specific
-    /// config из `module_config.policy.<id>` через plugin JSON payload.
-    pub fn register_plugin_policy(
-        &mut self,
-        module_id: &str,
-        policy: proteus_contracts::plugin::PolicyObject,
-    ) -> Result<()> {
-        validate_plugin_id("approval policy module", module_id)?;
-        use crate::plugin_adapters::PluginPolicyAdapter;
-        let slot_id = slot::POLICY;
-        let key = (slot_id.clone(), module_id.to_owned());
-        if self.entries.contains_key(&key) {
-            bail!(
-                "approval policy module '{}' is already registered (slot: {})",
-                module_id,
-                slot_id
-            );
-        }
-
-        let module_id_for_factory = module_id.to_owned();
-        let shared_obj = Arc::new(policy);
-        let erased: ErasedFactory = Box::new(move |input| {
-            let ctx = input.policy()?;
-            let config = ctx
-                .config
-                .module_config_value(ModuleKind::Policy, &module_id_for_factory);
-            let adapter = PluginPolicyAdapter::from_shared(shared_obj.clone(), config);
-            Ok(arc_to_any(Arc::new(adapter) as Arc<dyn ApprovalPolicy>))
-        });
-
-        let mut manifest =
-            ModuleManifest::builtin(module_id, ModuleKind::Policy, &["plugin", "dylib"]);
-        manifest.description = Some(format!(
-            "Approval policy from plugin (module id: {module_id})"
-        ));
-
-        self.entries.insert(
-            key,
-            ModuleEntry {
-                manifest,
-                factory: erased,
-            },
-        );
         Ok(())
     }
 
@@ -303,8 +255,8 @@ impl BuiltinModuleCatalog {
 
     /// Регистрирует PatchApplier от плагина под указанным module_id.
     ///
-    /// В отличие от policy, patch-адаптер требует cwd из `ModuleBuildContext` —
-    /// поэтому адаптер создаётся внутри factory closure, не заранее. Сам
+    /// Patch-адаптер требует cwd из `ModuleBuildContext` — поэтому адаптер
+    /// создаётся внутри factory closure, не заранее. Сам
     /// `PatchApplierObject` хранится в `Arc` и клонируется между build'ами
     /// (sabi_trait объект переиспользуется).
     pub fn register_plugin_patch(
@@ -404,7 +356,8 @@ impl BuiltinModuleCatalog {
         }
 
         // Адаптер создаётся на build, чтобы прокинуть module-specific config
-        // из `module_config.compactor.<id>` в плагин (как у policy/context).
+        // из `module_config.compactor.<id>` в плагин (как у других
+        // context-зависимых модулей).
         let module_id_for_factory = module_id.to_owned();
         let shared_obj = Arc::new(compactor);
         let erased: ErasedFactory = Box::new(move |input| {

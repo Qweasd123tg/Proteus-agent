@@ -4,8 +4,8 @@ use crate::types::*;
 use crate::ui_utils::{short_path, shorten_home};
 
 /// Read-only панели runtime/model/reasoning над builder-ом. Здесь только
-/// текущее runtime-состояние; всё редактируемое (modules, provider, mode,
-/// tools) живёт в Config builder и не дублируется списками ниже.
+/// текущее runtime-состояние; всё редактируемое (modules, provider, tools)
+/// живёт в Config builder и не дублируется списками ниже.
 #[component]
 pub(super) fn ConfigOverview(summary: ConfigSummary) -> impl IntoView {
     let model_label = non_empty(summary.model.label.as_str(), "model не выбран");
@@ -49,10 +49,6 @@ pub(super) fn ConfigOverview(summary: ConfigSummary) -> impl IntoView {
                 <div class="config-kv">
                     <span>"config"</span>
                     <code title=config_path_full>{config_path}</code>
-                </div>
-                <div class="config-kv">
-                    <span>"mode"</span>
-                    <code>{non_empty(summary.permission_mode.as_str(), "-")}</code>
                 </div>
                 {(!config_files.is_empty())
                     .then(|| {

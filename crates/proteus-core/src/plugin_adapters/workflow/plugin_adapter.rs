@@ -408,7 +408,7 @@ mod tests {
     use super::*;
     use crate::{
         contracts::{EventEmitter, ToolRegistry},
-        core::{HeadlessApprovalTransport, InMemoryEventStore},
+        core::InMemoryEventStore,
         domain::{
             AgentOutput, Event, ModelRef, ReasoningConfig, new_session_id, new_thread_id,
             new_turn_id,
@@ -424,25 +424,6 @@ mod tests {
     };
 
     struct ContextSmokeWorkflow;
-
-    struct TestAllowAllPolicy;
-
-    impl crate::contracts::ApprovalPolicy for TestAllowAllPolicy {
-        fn evaluate(
-            &self,
-            _call: &crate::domain::ToolCall,
-            _ctx: &crate::contracts::PolicyContext,
-        ) -> crate::domain::PolicyDecision {
-            crate::domain::PolicyDecision::Allow
-        }
-
-        fn evaluate_visibility(
-            &self,
-            _ctx: &crate::contracts::PolicyVisibilityContext,
-        ) -> crate::domain::PolicyDecision {
-            crate::domain::PolicyDecision::Allow
-        }
-    }
 
     impl PluginWorkflow for ContextSmokeWorkflow {
         fn run_json(
@@ -526,8 +507,6 @@ mod tests {
                 Vec::new(),
             )),
             ToolRegistry::new(),
-            Arc::new(TestAllowAllPolicy),
-            Arc::new(HeadlessApprovalTransport),
             Arc::new(crate::core::HeadlessUserInputTransport),
             Arc::new(NullPatchApplier),
             Arc::new(NoCompactor),

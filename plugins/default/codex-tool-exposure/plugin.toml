@@ -2,4 +2,4 @@ name = "codex-tool-exposure"
 version = "0.1.0"
 description = "Codex-shaped ToolExposure plugin (module id: codex_dynamic)"
 [module_descriptions]
-codex_dynamic = "Держит cache-stable hot-set до 10 policy-видимых tools по codex-приоритетам; редкие tools доступны через deferred search/call, explicit query включает intent-ранжирование; в plan-фазе только read-only."
+codex_dynamic = "Держит cache-stable hot-set до 10 зарегистрированных tools по codex-приоритетам; редкие tools доступны через deferred search/call, explicit query включает intent-ранжирование; в plan-фазе только read-only."

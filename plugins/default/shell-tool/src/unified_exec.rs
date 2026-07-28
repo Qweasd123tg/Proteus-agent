@@ -5,8 +5,9 @@
 //! если процесс ещё жив, модель получает Session ID и продолжает диалог через
 //! `write_stdin` (в том числе Ctrl-C/Ctrl-D как "\u{3}"/"\u{4}"). Сессия
 //! принадлежит runtime session/thread/workspace, очищается после 30 минут
-//! простоя и умирает вместе с ядром; sandbox — тот же bubblewrap, что и у
-//! one-shot `shell`, с той же эскалацией через `with_escalated_permissions`.
+//! простоя и умирает вместе с ядром. По умолчанию команда исполняется напрямую;
+//! process-level `PROTEUS_SHELL_SANDBOX=1` включает тот же bubblewrap, что и у
+//! one-shot `shell`.
 
 use std::{
     collections::HashMap,
@@ -30,7 +31,7 @@ use serde_json::{Value, json};
 
 use crate::{
     omitted_marker,
-    sandbox::{EXEC_COMMAND_ENV, SandboxKind, SandboxPolicy, bwrap_args, resolve_workdir},
+    sandbox::{EXEC_COMMAND_ENV, SandboxKind, SandboxMode, bwrap_args, resolve_workdir},
 };
 
 const DEFAULT_EXEC_YIELD_MS: u64 = 10_000;
@@ -60,7 +61,7 @@ impl PluginTool for ExecCommandTool {
     fn spec_json(&self) -> RString {
         let spec = json!({
             "name": "exec_command",
-            "description": "Runs a shell command (sh -lc) in an interactive PTY session. Waits up to `yield_time_ms` for output; if the process is still running, returns a Session ID for follow-up interaction via `write_stdin`. Non-escalated commands require bwrap and run with no network access, a private PID namespace, and a read-only filesystem outside the workspace; execution fails closed when bwrap is unavailable or disabled. The sandbox network is isolated per session: a localhost server started in a sandboxed session is unreachable from other tool calls and from the user's machine; start servers that must stay reachable with `with_escalated_permissions: true`. Set `with_escalated_permissions: true` with a short `justification` to request an unsandboxed run (requires user approval). Non-escalated workdirs must stay inside the workspace. Live sessions belong to the current runtime session/thread/workspace, expire after 30 minutes idle, and are killed when the invocation is cancelled. At most 16 live sessions: the least recently used one is killed to make room, so close finished sessions via write_stdin (Ctrl-C/Ctrl-D). Safety: RunsCommands.",
+            "description": "Runs a shell command (sh -lc) with the rights of the Proteus process in an interactive PTY session. Waits up to `yield_time_ms` for output; if the process is still running, returns a Session ID for follow-up interaction via `write_stdin`. Direct trusted execution is the default. The process owner may set PROTEUS_SHELL_SANDBOX=1 to require a bwrap workspace sandbox with no network access, a private PID namespace, and a read-only filesystem outside the workspace; in that mode external workdirs are rejected. Live sessions belong to the current runtime session/thread/workspace, expire after 30 minutes idle, and are killed when the invocation is cancelled. At most 16 live sessions: the least recently used one is killed to make room, so close finished sessions via write_stdin (Ctrl-C/Ctrl-D). Safety: RunsCommands.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -76,14 +77,6 @@ impl PluginTool for ExecCommandTool {
                     "max_output_tokens": {
                         "type": "integer",
                         "description": "Approximate cap on returned output tokens; excess is truncated in the middle."
-                    },
-                    "with_escalated_permissions": {
-                        "type": "boolean",
-                        "description": "Request an unsandboxed run (network / writes outside workspace). Requires user approval."
-                    },
-                    "justification": {
-                        "type": "string",
-                        "description": "One sentence explaining why escalated permissions are needed."
                     }
                 },
                 "required": ["cmd"]
@@ -316,17 +309,12 @@ fn exec_command_impl(
         .and_then(|args| args.get("cmd"))
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("exec_command requires string arg 'cmd'"))?;
-    let escalated = args
-        .and_then(|args| args.get("with_escalated_permissions"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
     execute_command(
         call_id,
         args,
         cmd,
         &context,
-        escalated,
-        SandboxPolicy::detect(context.cwd.to_string_lossy().as_ref()),
+        SandboxMode::detect(context.cwd.to_string_lossy().as_ref()),
         host,
     )
 }
@@ -336,8 +324,7 @@ fn execute_command(
     args: Option<&Value>,
     cmd: &str,
     context: &PluginToolInvocationContext,
-    escalated: bool,
-    sandbox_policy: SandboxPolicy,
+    sandbox_mode: SandboxMode,
     host: &mut PluginToolHostMut<'_>,
 ) -> Result<String> {
     ensure_not_cancelled(host)?;
@@ -345,11 +332,11 @@ fn execute_command(
     let resolved = resolve_workdir(
         cwd.as_ref(),
         args.and_then(|args| args.get("workdir")),
-        escalated,
+        sandbox_mode.enabled(),
     )?;
     let yield_time_ms = resolve_yield_time_ms(args, DEFAULT_EXEC_YIELD_MS);
     let max_output_bytes = resolve_max_output_bytes(args);
-    let sandbox = sandbox_policy.select(escalated, false)?;
+    let sandbox = sandbox_mode.select(false)?;
 
     let started = Instant::now();
     let (session_id, session) = spawn_session(
@@ -375,7 +362,6 @@ fn execute_command(
         "yield_time_ms": yield_time_ms,
         "workdir": resolved.workdir,
         "sandbox": session.sandbox.as_ref().map(SandboxKind::label),
-        "escalated": escalated,
     });
     Ok(render_result(
         &call_id,

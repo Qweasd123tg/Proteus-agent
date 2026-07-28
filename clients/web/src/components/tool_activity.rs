@@ -4,7 +4,7 @@ use serde_json::Value;
 use crate::markdown::highlight_preview;
 use crate::tool_names::{APPLY_PATCH_TOOL, UPDATE_PLAN_TOOL};
 use crate::types::*;
-use crate::ui_utils::{compact_text, format_json, short_id};
+use crate::ui_utils::{compact_text, short_id};
 
 /// Превью tool-карточки раскрывается ступенями: компактно → расширенно → полностью.
 const TOOL_PREVIEW_COMPACT_LINES: usize = 5;
@@ -421,14 +421,6 @@ fn tool_activity_args_preview(tool: &ToolActivity) -> String {
     }
 }
 
-pub(crate) fn tool_args_preview(tool_name: &str, args: &Value) -> String {
-    if tool_name == APPLY_PATCH_TOOL {
-        apply_patch_text_from_args(args).unwrap_or_else(|| format_json(args))
-    } else {
-        format_json(args)
-    }
-}
-
 fn apply_patch_text_from_args_preview(args_preview: &str) -> Option<String> {
     let value = serde_json::from_str::<Value>(args_preview).ok()?;
     apply_patch_text_from_args(&value)
@@ -752,11 +744,9 @@ pub(crate) fn format_duration_ms(duration_ms: u64) -> String {
 
 pub(crate) fn tool_turn_card_class(status: ToolActivityStatus) -> String {
     let state_class = match status {
-        ToolActivityStatus::Running
-        | ToolActivityStatus::WaitingApproval
-        | ToolActivityStatus::Approved => "running",
+        ToolActivityStatus::Running => "running",
         ToolActivityStatus::Done => "success",
-        ToolActivityStatus::Denied | ToolActivityStatus::Failed => "error",
+        ToolActivityStatus::Failed => "error",
         ToolActivityStatus::Interrupted => "idle",
     };
     format!(
@@ -768,6 +758,7 @@ pub(crate) fn tool_turn_card_class(status: ToolActivityStatus) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui_utils::format_json;
 
     #[test]
     fn format_elapsed_seconds_keeps_short_and_minute_forms_compact() {
@@ -806,23 +797,6 @@ mod tests {
         assert_eq!(hidden_tool_lines_label(5), "ещё 5 строк");
         assert_eq!(hidden_tool_lines_label(11), "ещё 11 строк");
         assert_eq!(hidden_tool_lines_label(21), "ещё 21 строка");
-    }
-
-    #[test]
-    fn apply_patch_args_preview_extracts_patch_body() {
-        let patch = "*** Begin Patch\n*** Add File: a.txt\n+hi\n*** End Patch";
-        let args = serde_json::json!({ "patch": patch });
-
-        assert_eq!(tool_args_preview("apply_patch", &args), patch);
-        assert!(tool_args_preview("shell", &args).contains("\"patch\""));
-    }
-
-    #[test]
-    fn apply_patch_args_preview_extracts_freeform_input() {
-        let patch = "*** Begin Patch\n*** Update File: a.txt\n-old\n+new\n*** End Patch";
-        let args = serde_json::json!({ "input": patch });
-
-        assert_eq!(tool_args_preview("apply_patch", &args), patch);
     }
 
     #[test]

@@ -47,7 +47,7 @@ cargo run --bin proteus -- --config "$HOME/.config/Proteus-agent/configs"
 
 Если путь не найден, используется `AppConfig::default()`: безопасная
 заглушечная конфигурация без plugin-зависимостей (`workflow = "none"`,
-`context = "none"`, `policy = "deny_all"`, `compactor = "none"`,
+`context = "none"`, `compactor = "none"`,
 `tool_exposure = "all_visible"`, `renderer = "text"`). Она нужна,
 чтобы core мог стартовать без установленных plugin packs; для нормальной
 агентской работы используйте один из примеров ниже.
@@ -71,15 +71,15 @@ proteus init full
 Если передать named config, например `--config codex` или `--config dev-slim`,
 init создаст `<name>.config.toml` в default config dir, чтобы следующий
 `--config <name>` читал тот же файл.
-`coding` и `full` используют рабочий coding profile, `codex` использует
-экспериментальный Codex-shaped profile, `safe` использует
+Основной поддерживаемый профиль — `codex`. `coding` и `full` остаются
+альтернативными profile shapes, `safe` использует
 `examples/configs/proteus.example.toml` с fake model.
 
 ## UI Client Status
 
 Активное UI-направление разделено на два Leptos web-клиента. `clients/web` —
-ежедневный chat client: transcript, composer, approvals, typed user input,
-cancel, history/resume и control-plane mode/model/reasoning endpoints работают
+ежедневный chat client: transcript, composer, typed user input,
+cancel, history/resume и control-plane model/reasoning endpoints работают
 через `proteus server http`. `clients/inspector` — отдельный config/architecture
 client на другом dev-порту; он читает `/config` и `/inspect/topology*`, а также
 редактирует config через `GET`/`POST /config/builder` (см. раздел «Config
@@ -102,7 +102,7 @@ runtime internals во фронт.
 ```
 
 Для обычного запуска держите один явный `config.toml`: provider, profile,
-modules, tools, policy и event log видны в одном месте без скрытых override по
+modules, tools и event log видны в одном месте без скрытых override по
 именам файлов.
 
 Файл config-а при необходимости может подключать общий config через top-level
@@ -119,8 +119,8 @@ name = "coding-local"
 `include` принимает строку или массив строк. Относительные пути считаются от
 файла, где объявлен `include`; абсолютные пути и `~/...` тоже поддерживаются.
 Это полезно для нескольких profiles, но не требуется для обычного bootstrap:
-`proteus init coding` и `proteus init codex` создают один `config.toml` с
-`active_provider`, `providers.*`, workflow, modules, tools, policy и event log.
+`proteus init codex` создаёт один `config.toml` с `active_provider`,
+`providers.*`, workflow, modules, tools и event log.
 
 `examples/configs/config.example.json` - широкий single-file пример с
 `active_provider`, `providers`, modules, tools и runtime settings. Это не
@@ -159,10 +159,10 @@ baseline opt-in профилем OpenAI Responses с `web_search` и `file_searc
 Перед запуском замените `vs_replace_me` на существующий OpenAI vector store и
 задайте `OPENAI_API_KEY`.
 
-`configs/codex.config.toml` - packaged proxy-backed Codex-shaped profile
-`codex-proxy`. Он использует
+`configs/codex.config.toml` - основной packaged Codex-shaped profile `codex`.
+Он использует
 `coding.codex_loop`, `codex_context`, `rg`,
-`direct`, `codex_policy`, `modules.compactor = "codex"` и
+`direct`, `modules.compactor = "codex"` и
 cache-stable `tool_exposure = "codex_dynamic"`: базовый hot set не зависит от
 текста очередного turn-а, а редкие tools доступны через deferred
 search/describe/call. Collaboration controls добавляются поверх базового
@@ -384,13 +384,9 @@ bare domains без scheme/path. `vector_store_ids` не может быть п�
 ошибкой.
 
 Эти имена не добавляются в `tools.enabled`: их регистрирует выбранный model
-adapter. Но policy должна дать им явный `Allow`, например добавить
-`web_search` и `file_search` в
-`module_config.policy.ask_write.allow`/`codex_policy.allow`. Решение `Ask` не
-показывает hosted tool модели даже при interactive approval transport, потому
-что provider исполняет поиск до возврата ответа и локальный runtime уже не
-может запросить per-call approval. `plan` и `auto` также скрывают их как
-`ToolSafety::Network`.
+adapter. Их включение означает доверие provider-side выполнению: provider
+исполняет поиск до возврата ответа, а локальный `ToolOrchestrator` этот вызов
+не контролирует. `ToolSafety::Network` остаётся metadata для topology/UI.
 
 Текущий срез намеренно не мапит file metadata filters и новый
 `web_search.return_token_budget`. Поддерживаемая wire-форма сверена с
@@ -469,7 +465,6 @@ custom URL.
     "search": "null",
     "memory": "none",
     "context": "simple",
-    "policy": "ask_write",
     "patch": "null",
     "compactor": "none",
     "tool_exposure": "all_visible",
@@ -546,7 +541,7 @@ renderer = "statusline"
 ```
 
 Core не читает отдельные typed sections конкретных плагинов вроде
-`[policy.ask_write]`, `[context.simple]`, `[context.repo_aware]` или
+`[context.simple]`, `[context.repo_aware]` или
 `[context.codex_context]`.
 Plugin-specific настройки живут только в `module_config`, чтобы core не
 расширял `AppConfig` под каждую реализацию.
@@ -562,30 +557,28 @@ Inspector route `/configs` содержит Config builder для редакти
 модульного слоя активного config-а. Backend отдаёт `GET /config/builder`:
 
 - editable slots из `[modules]`: `workflow`, `context`, `tool_exposure`,
-  `policy`, `search`, `patch`, `memory`, `compactor`,
+  `search`, `patch`, `memory`, `compactor`,
   `subagent`, `renderer`;
 - список зарегистрированных реализаций каждого slot-а из текущего
   `BuiltinModuleCatalog` + загруженных plugin manifests;
 - текущие `module_config.<slot>.<module_id>` payloads;
 - каталог tools с флагами `enabled`/`registered` и текущий `tools.enabled`;
 - provider profiles из `[providers.*]` (id + provider/model label), выбранный
-  explicit `active_provider` и persisted `[permissions] mode` со списком
-  допустимых значений.
+  explicit `active_provider`.
 
 Сохранение идёт через `POST /config/builder`. Endpoint валидирует, что
 выбранный `module_id` зарегистрирован для своего slot-а и что
 `active_provider` определён в `[providers]`, проверяет, что `module_config`
 сериализуется в TOML, строит новый runtime registry и только после успешной
 сборки пишет TOML (`[modules]`, `[subagents]`, `[module_config]`,
-`[tools].enabled`, `active_provider`, `[permissions] mode`). После записи app-server применяет
+`[tools].enabled`, `active_provider`). После записи app-server применяет
 `runtime.reload_registry`, поэтому новый module selection начинает действовать
 без перезапуска процесса; смена `active_provider` дополнительно обновляет
-runtime model, а `permission_mode` — активный permission mode. Поля
-`tools_enabled`, `active_provider` и `permission_mode` в запросе опциональны:
+runtime model. Поля `tools_enabled` и `active_provider` в запросе опциональны:
 `null`/отсутствие означает «не трогать».
 
 Builder обновляет `[modules]`, `[subagents]`, `[module_config]`, `[tools].enabled`,
-`active_provider` и `[permissions].mode` в активном config file (или в
+и `active_provider` в активном config file (или в
 `config.toml` внутри активной config-директории). Он выбирает только
 уже описанный provider: сами `[providers.*]`, их `provider_config`,
 configured/MCP executors и secrets не редактируются. Остальные секции
@@ -665,7 +658,7 @@ retain_user_turns = 2
 ## Tool Exposure
 
 `modules.tool_exposure = "all_visible"` — безопасный default без plugin pack.
-Он сохраняет старое поведение: все policy-visible tools передаются workflow как
+Он сохраняет простое поведение: все зарегистрированные tools передаются workflow как
 model-facing tools. `ToolExposureRequest.phase` в этом режиме игнорируется;
 phase-aware фильтрация работает только в соответствующих selector-ах вроде
 `codex_dynamic`. Плагинная реализация может искать, ранжировать или
@@ -676,8 +669,8 @@ phase-aware фильтрация работает только в соответ
 `request_user_input` и профильные `always_include` tools в первом слое и
 стабильно ранжирует common coding tools Codex-oriented порядком. Intent boosts
 для `shell`, `apply_patch`, `write_file` и `remember_fact` применяются только
-при явно переданном query, не от текста каждого turn-а. Плагин видит только
-policy-visible candidates и не исполняет tools. Его metadata расширяет output полем
+при явно переданном query, не от текста каждого turn-а. Плагин видит
+зарегистрированные candidates и не исполняет tools. Его metadata расширяет output полем
 `selected_tool_reasons`. `module_config.tool_exposure.codex_dynamic`
 передаётся в `ToolExposureInput.config`; сейчас плагин читает `max_hot_tools` и
 `always_include`.
@@ -689,11 +682,11 @@ policy-visible candidates и не исполняет tools. Его metadata ра
 
 Когда active workflow — `coding.single_loop`, `coding.codex_loop` или
 `coding.plan_execute_review`,
-скрытые policy-visible tools остаются reachable через workflow-owned
+скрытые зарегистрированные tools остаются reachable через workflow-owned
 meta-tools: `proteus_tool_search`, `proteus_tool_describe`,
 `proteus_tool_call`. Они не являются registry tools. `proteus_tool_call`
-вызывает найденный tool через host `execute_tool_json`, поэтому policy,
-approval, validation, timeout и event log остаются теми же, что у прямого
+вызывает найденный tool через host `execute_tool_json`, поэтому validation,
+timeout, journal и event log остаются теми же, что у прямого
 вызова. В plan phase workflow даёт только search/describe; non-ReadOnly hidden
 calls дополнительно отклоняются handler-ом.
 
@@ -801,7 +794,7 @@ max_iterations = 15
 
 При непустом списке ролей core регистрирует facade-tool `task` с аргументами
 `agent_type`, `prompt`, optional `description` и optional `task_id`. Он проходит
-обычный `ToolRegistry`/policy/approval/orchestrator path и только внутри
+обычный `ToolRegistry`/orchestrator path и только внутри
 `Tool::invoke` вызывает выбранный `SubagentRunner` через `SubagentToolHost`.
 Батч из нескольких `task`-вызовов одного ответа модели исполняется
 конкурентно, только если каждая запрошенная роль объявлена `parallel_safe`
@@ -812,7 +805,7 @@ phase-aware exposure модулем; `all_visible` фазу не учитыва�
 allowlist остаётся страховкой для ограниченных ролей.
 
 Роль с `isolation = "worktree"` всегда (включая одиночный вызов) исполняется в
-собственном git worktree: policy-gated facade-tool `task` создаёт
+собственном git worktree: facade-tool `task` после schema validation создаёт
 `<repo_root>/.proteus/worktrees/<имя>` на ветке `proteus/<имя>` от текущего
 HEAD (каталог исключается через `.git/info/exclude`) и подменяет cwd ребёнка.
 После завершения чистый worktree удаляется; изменённый остаётся, а результат
@@ -858,7 +851,7 @@ name = "explore"
 description = "Read-only explorer running in an isolated process."
 config = "sub-explorer"              # named config или путь к config-файлу
 # prompt = "Focus on the build system." # опциональный префикс задачи
-# args = ["--permission-mode", "plan"]  # extra CLI-аргументы ребёнка
+# args = []                            # optional extra CLI-аргументы ребёнка
 # parallel_safe = true                # config ребёнка должен быть read-only профилем
 # isolation = "worktree"             # пишущая роль: свой git worktree на fresh запуск
 # max_processes = 2                  # одновременные children роли; default 4 при parallel_safe/worktree, иначе 1
@@ -869,11 +862,10 @@ config = "sub-explorer"              # named config или путь к config-ф
 #                                    # превышение = cancel + token_budget_exceeded
 ```
 
-Approval/user-input запросы ребёнка форвардятся в родительские transports
-(пользователь родительской session видит их с меткой роли), поэтому
-approval timeout ребёнка (`app_server.approval_timeout_ms` его конфига)
-должен быть достаточным для ручного решения. `Send`/`ClearHistory`/`Cancel`
-идут по стандартному stdio-протоколу. `max_processes` ограничивает
+Typed user-input запросы ребёнка форвардятся в родительский transport:
+пользователь родительской session видит их с меткой роли.
+`Send`/`ClearHistory`/`Cancel` идут по стандартному stdio-протоколу.
+`max_processes` ограничивает
 одновременные процессы роли (лишние запуски ждут permit), а
 `max_idle_processes` — общий для всех ролей resident idle pool. Сверх cap
 эвиктится самый давно использованный idle child; active и atomically reserved
@@ -913,15 +905,15 @@ Claude-compatible alias `AskUserQuestion`). Остальные стандарт�
 файловые (`read_file`, `write_file`, `list_dir`, `grep`, `find_files`,
 `read_many_files`), git helpers (`git_status`, `git_diff`) и `shell` — живут в плагинах `file-tools`,
 `git-tools` и `shell-tool`. `examples/configs/proteus.coding.example.toml` уже включает полный
-набор после `./install.sh`; в более безопасных профилях добавляйте эти имена в
+набор после `./install.sh`; в узких профилях добавляйте эти имена в
 `tools.enabled` явно.
 Если пользователь явно включает plugin tool, но его имя совпадает с
 builtin/configured tool, это считается ошибкой конфигурации. Два plugin tool'а
 с одним именем считаются ошибкой загрузки плагина.
 
 `read_file` из `file-tools` принимает optional args `start_line`, `limit` и
-`line_numbers`; имя tool'а совпадает с тем что было у builtin'а, поэтому старые
-конфиги и policy работают без правок — но теперь требуется плагин.
+`line_numbers`; имя tool'а совпадает с тем что было у builtin'а, но теперь
+требуется плагин.
 
 `find_files` из `file-tools` ищет пути через `rg --files --glob` и принимает
 `pattern`, optional `path`, `exclude` и `max_results`. `read_many_files`
@@ -971,7 +963,7 @@ Runtime читает `*.toml`/`*.json` файлы на первом уровне
 
 | Поле | Значение |
 |---|---|
-| `name` | уникальное имя tool для модели и policy |
+| `name` | уникальное имя tool для модели и registry |
 | `description` | описание tool в `ToolSpec` |
 | `input_schema` | JSON Schema для аргументов модели; default `{ "type": "object", "additionalProperties": true }` |
 | `surface` | optional model-facing форма tool; default `{ kind = "function", strict = false }`; `freeform` требует `supports_freeform_tools = true` у model profile |
@@ -1023,7 +1015,7 @@ optional `args`, optional `server`, remote `tool`, optional
 
 `process` запускает фиксированные `command` + `args` в рабочей директории
 задачи, передаёт JSON `ToolCall.args` в stdin и возвращает stdout/stderr как
-`ToolResult`. Запуск использует ту же fail-closed environment policy, что и
+`ToolResult`. Запуск использует ту же fail-closed environment hygiene, что и
 `ProcessSpec`: parent environment очищается, автоматически остаётся только
 platform-minimal набор (`PATH` на Unix), а остальные значения требуют явных
 `env_allowlist` или `env`.
@@ -1081,46 +1073,7 @@ prompts, subscriptions и non-stdio transports пока не implemented.
 
 Имена всех tools должны быть уникальными; duplicate tool registration считается ошибкой конфигурации. Для `native` config не может понизить safety ниже safety самого handler-а. Для `process`, inline `mcp` и `tools.mcp_servers` действует safety floor: даже если config укажет `ReadOnly` или `WritesFiles`, effective `ToolSafety` будет не ниже `RunsCommands`.
 
-## Permissions
-
-```json
-{
-  "permissions": {
-    "mode": "normal"
-  }
-}
-```
-
-`permissions.mode` поддерживает:
-
-- `plan` - только read-only tools;
-- `normal` - `ApprovalPolicy` + `ApprovalTransport`;
-- `auto` - `ReadOnly` и `WritesFiles` без approval; `RunsCommands`, `Network` и `Dangerous` запрещены.
-
-CLI flags `--plan`, `--auto` и `--permission-mode` переопределяют config для текущего запуска.
-Внешний UI-клиент может менять режим для следующих turns через app-server
-control-plane request `StdioRequest::SetPermissionMode` без restart процесса.
-Клиентский режим `plan` может формулировать следующий user request как
-interview-first planning turn: при нехватке существенных решений модель должна
-сначала вызвать typed question tool и только после ответов писать финальный
-план. Workflow-плагин может вставить typed question round-trip через tool
-`request_user_input` или alias `AskUserQuestion`; app-server держит turn
-открытым, UI показывает вопросы/single-choice/`multiSelect`/custom input и
-возвращает ответы через `StdioRequest::UserInput`.
-
-Более гибкая table-driven схема прав (`hide`/`deny`/`ask`/`allow`,
-priority, per-tool limits) пока является planned design. Текущая реализация
-использует `permissions.mode`, `ToolSafety` и `ApprovalPolicy`.
-
 ## App Server
-
-```json
-{
-  "app_server": {
-    "approval_timeout_ms": 0
-  }
-}
-```
 
 HTTP/SSE app-server нужен для локального web dogfood. Запускайте его на
 loopback:
@@ -1132,7 +1085,7 @@ proteus server http --port 8787
 Для loopback direct-запуск `proteus server http` допускает выключенный token
 auth. Любой non-loopback `--host` требует непустой `--token`; без него CLI и
 server boundary завершаются ошибкой до bind. App-server принимает prompts,
-approvals, user input, cancel, config/reload, history/resume и shutdown, поэтому
+user input, cancel, config/reload, history/resume и shutdown, поэтому
 даже authenticated bind не следует считать production-ready public service.
 
 Установленный wrapper `proteus` работает строже: если
@@ -1159,16 +1112,9 @@ App-server поддерживает control-plane reload для tools/config/MCP
 мутируется: новые tools видны только следующим turns/model requests. Остальные
 `modules.*` и provider settings эта команда намеренно не применяет.
 
-`app_server.approval_timeout_ms` задаёт, сколько app-server transport ждёт
-ответ UI-клиента на approval request и typed `request_user_input` round-trip.
-Значение `0` отключает timeout; это дефолт для интерактивных UI-клиентов, чтобы
-approval prompt или вопрос пользователю ждал, пока пользователь явно не
-ответит или не отменит turn. Если задано ненулевое значение и клиент не
-ответил вовремя, approval request закрывается как `approved: false`, pending
-approval удаляется, а turn продолжает работу с отказанным tool call. Для
-`request_user_input` timeout возвращает пустой `UserInputResponse`. При
-shutdown app-server также отклоняет все pending approvals и закрывает pending
-user-input requests пустым ответом.
+Typed `request_user_input` round-trip держит turn открытым до ответа, cancel
+или shutdown. При завершении app-server pending user-input requests закрываются
+пустым ответом, чтобы workflow не завис навсегда.
 
 ## Runtime
 
@@ -1202,58 +1148,7 @@ session `journal.jsonl` до adapter call; terminal response/error связыв�
 runtime toggle нет. Event log независимо продолжает писать telemetry-события
 вроде `ModelRequestPrepared`.
 
-## Policy
-
-`allow_all`, `ask_write` и `codex_policy` поставляются плагином
-`policy-pack`.
-
-```json
-{
-  "module_config": {
-    "policy": {
-      "ask_write": {
-        "ask_before": ["apply_patch", "remember_fact"],
-        "allow": ["search"]
-      }
-    }
-  }
-}
-```
-
-TOML:
-
-```toml
-[module_config.policy.ask_write]
-ask_before = ["apply_patch", "remember_fact"]
-allow = ["search"]
-```
-
-Пример покрывает только tools которые остаются в ядре. Если установлены плагины
-`file-tools` / `git-tools` / `shell-tool`, перечисляйте и их имена
-(`git_diff`, `write_file`, `shell` и пр.) в `ask_before` / `allow`.
-
-Core не валидирует внутреннюю схему `ask_write`: значение
-`module_config.policy.ask_write` передаётся в `policy-pack` как JSON. Сейчас
-неизвестные имена в `allow`/`ask_before` не дают эффекта, пока tool с таким
-именем реально не появится в `ToolRegistry`.
-
-`ask_write` сначала проверяет явные списки `allow` и `ask_before`, затем смотрит на `ToolSafety`.
-
-Codex-shaped профиль использует отдельную секцию:
-
-```toml
-[module_config.policy.codex_policy]
-allow = ["search", "read_file", "git_diff", "request_user_input"]
-ask_before = ["apply_patch", "write_file", "shell", "remember_fact", "playwright__browser_navigate"]
-deny = ["playwright__browser_run_code_unsafe"]
-```
-
-`codex_policy` сначала проверяет `deny`, затем `allow`, затем `ask_before`.
-Если tool не перечислен явно, `ReadOnly` разрешается, `WritesFiles` и
-`RunsCommands` требуют approval, а `Network`, `Dangerous` и неизвестные tools
-запрещаются. Как и для `ask_write`, core передаёт
-`module_config.policy.codex_policy` в plugin как JSON и не валидирует его
-внутреннюю схему.
+## Patch
 
 Builtin `apply_patch` принимает JSON строку `patch` и передаёт её выбранному
 `PatchApplier`. Named configs `codex` и `glm` используют именно эту function
@@ -1392,9 +1287,9 @@ Tool `lsp_diagnostics` поставляется `rust-lsp` и не создаё�
 bounded размером и запускает `rust-analyzer` из `PATH` через
 `proteus-process-host::ContentLengthFraming`. Один process переиспользуется для
 последовательных `didOpen`/`didChange` в текущем workspace и заменяется при
-смене workspace. Tool имеет `ToolSafety::RunsCommands`, поэтому в packaged
-`ask_write`/`codex_policy` профилях находится в `ask_before`; отсутствие
-`rust-analyzer` возвращает failed `ToolResult` с явной ошибкой. Настраиваемого
+смене workspace. Tool имеет `ToolSafety::RunsCommands`, но зарегистрированный
+tool исполняется напрямую; отсутствие `rust-analyzer` возвращает failed
+`ToolResult` с явной ошибкой. Настраиваемого
 multi-language server registry и fallback на `cargo check` в этом slice нет.
 
 `module_config.context.codex_context` использует тот же `ContextBuilder` slot и

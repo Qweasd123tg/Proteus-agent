@@ -48,14 +48,12 @@ pub(crate) fn InfoPanelView<T, R>(
     on_begin_resize: R,
     messages: ReadSignal<Vec<Message>>,
     model_name: ReadSignal<String>,
-    mode: ReadSignal<PermissionMode>,
     reasoning_enabled: ReadSignal<bool>,
     effort: ReadSignal<ReasoningEffort>,
     context_usage: ReadSignal<Option<ContextUsage>>,
     agent_status: ReadSignal<String>,
     event_count: ReadSignal<u64>,
     tool_activities: ReadSignal<Vec<ToolActivity>>,
-    pending_approvals: ReadSignal<Vec<ApprovalRequestInfo>>,
     pending_user_inputs: ReadSignal<Vec<UserInputRequestInfo>>,
     workspace_label: ReadSignal<String>,
 ) -> impl IntoView
@@ -87,9 +85,7 @@ where
             Some(format!("{completed}/{}", steps.len()))
         })
     });
-    let pending_total = Memo::new(move |_| {
-        pending_approvals.with(|items| items.len()) + pending_user_inputs.with(|items| items.len())
-    });
+    let pending_total = Memo::new(move |_| pending_user_inputs.with(|items| items.len()));
 
     view! {
         <aside
@@ -284,10 +280,6 @@ where
                     <div class="info-row">
                         <span>"Модель"</span>
                         <code>{move || model_name.get()}</code>
-                    </div>
-                    <div class="info-row">
-                        <span>"Режим"</span>
-                        <code>{move || mode.get().label()}</code>
                     </div>
                     <div class="info-row">
                         <span>"Reasoning"</span>

@@ -19,7 +19,6 @@ pub(super) fn ConfigBuilderView(
     draft_module_config: ReadSignal<BTreeMap<String, BTreeMap<String, Value>>>,
     draft_tools: ReadSignal<BTreeSet<String>>,
     draft_provider: ReadSignal<String>,
-    draft_mode: ReadSignal<String>,
     drafts: DraftSetters,
     set_builder: WriteSignal<Option<ConfigBuilderSnapshot>>,
     set_summary: WriteSignal<Option<ConfigSummary>>,
@@ -40,15 +39,17 @@ pub(super) fn ConfigBuilderView(
     // активна), пропуск реального изменения невозможен — сравнение точное.
     let saved_modules = builder_active_modules(&builder);
     let saved_texts = builder_config_texts(&builder, &saved_modules);
-    let saved_tools = builder.tools_enabled.iter().cloned().collect::<BTreeSet<_>>();
+    let saved_tools = builder
+        .tools_enabled
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
     let saved_provider = builder.active_provider.clone();
-    let saved_mode = builder.permission_mode.clone();
     let dirty = Memo::new(move |_| {
         draft_modules.with(|modules| *modules != saved_modules)
             || draft_config_texts.with(|texts| *texts != saved_texts)
             || draft_tools.with(|tools| *tools != saved_tools)
             || draft_provider.with(|provider| *provider != saved_provider)
-            || draft_mode.with(|mode| *mode != saved_mode)
     });
 
     let save = move |_| {
@@ -61,7 +62,6 @@ pub(super) fn ConfigBuilderView(
         let text_by_slot = draft_config_texts.get_untracked();
         let tools_enabled = draft_tools.get_untracked().into_iter().collect::<Vec<_>>();
         let active_provider = Some(draft_provider.get_untracked());
-        let permission_mode = Some(draft_mode.get_untracked()).filter(|mode| !mode.is_empty());
         let mut errors = Vec::new();
 
         for (slot, module_id) in &modules {
@@ -99,7 +99,6 @@ pub(super) fn ConfigBuilderView(
                 module_config,
                 tools_enabled: Some(tools_enabled),
                 active_provider,
-                permission_mode,
             };
             match post_json::<_, ConfigBuilderSnapshot>("/config/builder", &request).await {
                 Ok(next_builder) => {
@@ -160,7 +159,7 @@ pub(super) fn ConfigBuilderView(
                     </div>
                 }.into_any()
             }}
-            <RuntimeSettings builder=builder.clone() draft_provider draft_mode drafts/>
+            <RuntimeSettings builder=builder.clone() draft_provider drafts/>
             <div class="config-builder-grid">
                 <For
                     each=move || slots.clone()
@@ -183,17 +182,14 @@ pub(super) fn ConfigBuilderView(
     }
 }
 
-/// Provider (модель) и permission mode: config-уровневые настройки за
-/// пределами module slots.
+/// Provider (модель) — config-уровневая настройка за пределами module slots.
 #[component]
 fn RuntimeSettings(
     builder: ConfigBuilderSnapshot,
     draft_provider: ReadSignal<String>,
-    draft_mode: ReadSignal<String>,
     drafts: DraftSetters,
 ) -> impl IntoView {
     let providers = builder.providers.clone();
-    let modes = builder.permission_modes.clone();
 
     view! {
         <div class="config-builder-grid config-builder-runtime">
@@ -223,31 +219,6 @@ fn RuntimeSettings(
                                         {format!("{} · {}", provider.id, provider.label)}
                                     </option>
                                 }
-                            }
-                        />
-                    </select>
-                </label>
-            </article>
-            <article class="config-builder-slot">
-                <div class="config-builder-slot-head">
-                    <div>
-                        <span class="panel-kicker">"config"</span>
-                        <strong>"Permission mode"</strong>
-                    </div>
-                    <code>"permissions.mode"</code>
-                </div>
-                <p>"plan — только чтение, normal — approvals по policy, auto — авто-подтверждение."</p>
-                <label class="config-builder-field">
-                    <span>"mode"</span>
-                    <select
-                        prop:value=move || draft_mode.get()
-                        on:change:target=move |ev| drafts.mode.set(ev.target().value())
-                    >
-                        <For
-                            each=move || modes.clone()
-                            key=|mode| mode.clone()
-                            children=move |mode| {
-                                view! { <option value=mode.clone()>{mode.clone()}</option> }
                             }
                         />
                     </select>

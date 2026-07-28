@@ -4,8 +4,8 @@
 //! (модель → tools → модель), не вызывая slot `workflow`. Ребёнок изолирован:
 //! свой `ThreadId`, свой `CancellationToken` (child-токен родительского),
 //! своя история (только `role.prompt` + `request.prompt`), свой отбор tools
-//! по фазе роли. Tool calls ребёнка идут через тот же `ToolOrchestrator`
-//! (policy/approval-контур), что и родительские.
+//! по фазе роли. Tool calls ребёнка идут через тот же `ToolOrchestrator`,
+//! что и родительские.
 //!
 //! Исполнение — через `spawn`/`wait`/`cancel`: ребёнок живёт detached
 //! tokio-таской в реестре `PendingChildren`, поэтому несколько детей могут
@@ -449,13 +449,9 @@ impl SubagentRunner for SequentialSubagentRunner {
 }
 
 /// Контекст дочернего цикла поверх родительского: собственный `thread_id`,
-/// метка роли для attribution (approvals, user inputs, клиентский UX),
-/// пустые turn-scoped grants и child-токен отмены. Изоляция grants
-/// структурная: ребёнок не наследует права родителя (например,
-/// `escalated_exec` после approved-запроса) и не протаскивает свои granted
-/// permissions обратно в родительский ход. Child-токен: cancel родителя
-/// каскадится ребёнку, но ребёнка можно отменить отдельно (`cancel` по
-/// handle), не трогая родительский turn и соседних детей.
+/// метка роли для attribution user input и child-токен отмены. Cancel родителя
+/// каскадится ребёнку, но ребёнка можно отменить отдельно (`cancel` по handle),
+/// не трогая родительский turn и соседних детей.
 fn child_context(
     ctx: &RuntimeContext,
     child_thread_id: ThreadId,
@@ -464,7 +460,6 @@ fn child_context(
     let mut child_ctx = ctx.clone();
     child_ctx.thread_id = child_thread_id;
     child_ctx.thread_label = Some(role_name.to_owned());
-    child_ctx.turn_grants = Arc::default();
     child_ctx.cancellation = ctx.cancellation.child_token();
     child_ctx
 }

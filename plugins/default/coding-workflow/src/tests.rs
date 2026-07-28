@@ -1123,7 +1123,7 @@ fn single_loop_final_errors_when_model_calls_tool() {
 }
 
 #[test]
-fn proteus_tool_describe_returns_policy_visible_hidden_schema() {
+fn proteus_tool_describe_returns_available_hidden_schema() {
     let input = workflow_input("describe hidden tool");
     let git_log = test_tool("git_log", "Show commit history", ToolSafety::ReadOnly);
     let mut host = FakeHost::default().with_tools(vec![git_log], Vec::new());
@@ -1148,7 +1148,7 @@ fn proteus_tool_describe_returns_policy_visible_hidden_schema() {
 }
 
 #[test]
-fn proteus_tool_search_returns_compact_policy_visible_matches() {
+fn proteus_tool_search_returns_compact_available_matches() {
     let input = workflow_input("search hidden tools");
     let git_log = test_tool("git_log", "Show commit history", ToolSafety::ReadOnly);
     let shell = test_tool("shell", "Run terminal commands", ToolSafety::RunsCommands);

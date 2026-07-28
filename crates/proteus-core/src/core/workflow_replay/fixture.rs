@@ -44,7 +44,6 @@ pub(super) struct RecordedModelExchange {
 #[derive(Debug, Clone)]
 pub(super) struct RecordedToolInvocation {
     pub call: ToolCall,
-    pub approval_reason: Option<String>,
     pub resolution: ToolCallResolution,
     pub result: ToolResult,
 }
@@ -52,7 +51,6 @@ pub(super) struct RecordedToolInvocation {
 #[derive(Debug)]
 struct PendingToolInvocation {
     call: ToolCall,
-    approval_reason: Option<String>,
     resolution: Option<ToolCallResolution>,
     result: Option<ToolResult>,
 }
@@ -146,12 +144,12 @@ fn parse_snapshot(opened: &TurnOpened, turn_id: TurnId) -> Result<SessionConfigS
         })?;
     let snapshot = snapshot.ok_or_else(|| {
         anyhow!(
-            "turn {turn_id} has no runtime config snapshot; workflow replay cannot resolve the recorded workflow and policy"
+            "turn {turn_id} has no runtime config snapshot; workflow replay cannot resolve the recorded workflow"
         )
     })?;
-    if snapshot.schema_version != 2 {
+    if snapshot.schema_version != 3 {
         bail!(
-            "turn {turn_id} uses unsupported config snapshot schema_version {}; expected 2",
+            "turn {turn_id} uses unsupported config snapshot schema_version {}; expected 3",
             snapshot.schema_version
         );
     }
@@ -360,14 +358,9 @@ fn select_tools(
                     positions.insert(recorded.call.id.clone(), pending.len());
                     pending.push(PendingToolInvocation {
                         call: recorded.call.clone(),
-                        approval_reason: None,
                         resolution: None,
                         result: None,
                     });
-                }
-                ToolCallRecordPhase::ApprovalRequested { reason } => {
-                    let invocation = pending_tool(&mut pending, &positions, &recorded.call.id)?;
-                    invocation.approval_reason = Some(reason.clone());
                 }
                 ToolCallRecordPhase::Resolved { resolution } => {
                     let invocation = pending_tool(&mut pending, &positions, &recorded.call.id)?;
@@ -388,7 +381,6 @@ fn select_tools(
             let call_id = pending.call.id.clone();
             Ok(RecordedToolInvocation {
                 call: pending.call,
-                approval_reason: pending.approval_reason,
                 resolution: pending
                     .resolution
                     .ok_or_else(|| anyhow!("tool call {call_id} has no recorded resolution"))?,

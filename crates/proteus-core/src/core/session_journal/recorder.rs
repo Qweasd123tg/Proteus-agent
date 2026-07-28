@@ -78,30 +78,6 @@ impl ExecutionRecorder for SessionExecutionRecorder {
         Ok(())
     }
 
-    async fn tool_approval_requested(
-        &self,
-        session_id: SessionId,
-        thread_id: ThreadId,
-        turn_id: TurnId,
-        call: &ToolCall,
-        reason: &str,
-    ) -> Result<()> {
-        self.validate_session(session_id)?;
-        self.store
-            .append_journal_entry(
-                thread_id,
-                Some(turn_id),
-                JournalEntry::ToolCallRecorded(ToolCallRecorded {
-                    call: call.clone(),
-                    phase: ToolCallRecordPhase::ApprovalRequested {
-                        reason: reason.to_owned(),
-                    },
-                }),
-            )
-            .await?;
-        Ok(())
-    }
-
     async fn tool_result_recorded(
         &self,
         session_id: SessionId,

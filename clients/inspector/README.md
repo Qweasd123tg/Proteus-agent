@@ -2,8 +2,8 @@
 
 Отдельный Leptos/Trunk клиент для редко используемых config/architecture
 экранов. Он подключается к тому же локальному `proteus server http`, но не
-поднимает чатовый transcript, SSE event stream, composer, approvals или
-runtime-control state.
+поднимает чатовый transcript, SSE event stream, composer или runtime-control
+state.
 
 Текущий состав:
 
@@ -14,7 +14,7 @@ runtime-control state.
   списки slots/tools раскладываются в адаптивную сетку по ширине экрана;
 - `/configs` читает `/config` и `/config/builder`, показывает runtime
   overview (model/reasoning/config files) и plugins, а Config builder
-  редактирует `active_provider`, `[permissions] mode`, реализацию каждого
+  редактирует `active_provider`, реализацию каждого
   `[modules]` slot-а, `module_config.<slot>.<module_id>` JSON payload и
   `tools.enabled` через `POST /config/builder`.
 
@@ -69,7 +69,7 @@ Custom app-server origin и token можно совмещать как `?server=
 - `clients/web` остаётся чатовым клиентом;
 - оба клиента используют HTTP app-server boundary и локальные serde DTO, не
   импортируя runtime internals из `proteus-core`;
-- Config builder пишет `active_provider`, `[permissions] mode`, `[modules]`,
+- Config builder пишет `active_provider`, `[modules]`,
   `[module_config]` и `[tools].enabled` через `POST /config/builder`; provider
   profiles (`[providers.*]`) и secrets он не редактирует — только выбирает
   активный;

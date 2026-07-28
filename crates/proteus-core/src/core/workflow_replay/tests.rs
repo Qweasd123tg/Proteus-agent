@@ -6,8 +6,8 @@ use proteus_contracts::{
         std_types::{RResult, RString},
     },
     plugin::{
-        PluginApprovalPolicy_TO, PluginWorkflow, PluginWorkflow_TO, PluginWorkflowError,
-        PluginWorkflowHostMut, PluginWorkflowInput, PluginWorkflowOutput,
+        PluginWorkflow, PluginWorkflow_TO, PluginWorkflowError, PluginWorkflowHostMut,
+        PluginWorkflowInput, PluginWorkflowOutput,
     },
 };
 use serde_json::json;
@@ -21,9 +21,9 @@ use crate::{
         ToolCallRecorded, ToolResultRecorded, TurnOpened, TurnSettled,
     },
     domain::{
-        AgentOutput, AgentTask, ModelRef, PermissionMode, ReasoningConfig, ToolCall,
-        ToolCallResolution, ToolResult, ToolSafety, ToolSpec, new_exchange_id, new_session_id,
-        new_thread_id, new_turn_id,
+        AgentOutput, AgentTask, ModelRef, ReasoningConfig, ToolCall, ToolCallResolution,
+        ToolResult, ToolSafety, ToolSpec, new_exchange_id, new_session_id, new_thread_id,
+        new_turn_id,
     },
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
@@ -35,7 +35,6 @@ mod compaction;
 mod terminal;
 
 const WORKFLOW_ID: &str = "replay.probe";
-const POLICY_ID: &str = "replay.allow";
 
 #[derive(Clone, Copy)]
 struct ProbeWorkflow {
@@ -416,11 +415,10 @@ fn recorded_request(
 fn snapshot(spec: &ToolSpec) -> SessionConfigSnapshot {
     let modules = ModulesConfig {
         workflow: WORKFLOW_ID.to_owned(),
-        policy: POLICY_ID.to_owned(),
         ..ModulesConfig::default()
     };
     SessionConfigSnapshot {
-        schema_version: 2,
+        schema_version: 3,
         ts: 1,
         profile_name: "replay-test".to_owned(),
         active_provider: "missing-provider".to_owned(),
@@ -432,7 +430,6 @@ fn snapshot(spec: &ToolSpec) -> SessionConfigSnapshot {
             source: "test".to_owned(),
             spec: spec.clone(),
         }],
-        permission_mode_default: PermissionMode::Normal,
     }
 }
 
@@ -467,10 +464,6 @@ fn catalog(diverge: bool) -> BuiltinModuleCatalog {
     catalog
         .register_plugin_workflow(WORKFLOW_ID, workflow)
         .expect("register workflow");
-    let policy = PluginApprovalPolicy_TO::from_value(policy_pack::AllowAllPolicyPlugin, TD_Opaque);
-    catalog
-        .register_plugin_policy(POLICY_ID, policy)
-        .expect("register policy");
     catalog
 }
 

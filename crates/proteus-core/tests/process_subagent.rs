@@ -6,17 +6,10 @@
 use std::{path::PathBuf, sync::Arc};
 
 use proteus_core::{
-    contracts::{
-        ApprovalPolicy, EventEmitter, PolicyContext, PolicyVisibilityContext, SubagentRequest,
-        SubagentRunner, SubagentStatus, ToolRegistry,
-    },
-    core::{
-        HeadlessApprovalTransport, HeadlessUserInputTransport, InMemoryEventStore,
-        ProcessSubagentRunner,
-    },
+    contracts::{EventEmitter, SubagentRequest, SubagentRunner, SubagentStatus, ToolRegistry},
+    core::{HeadlessUserInputTransport, InMemoryEventStore, ProcessSubagentRunner},
     domain::{
-        AgentTask, Event, ModelRef, PolicyDecision, ReasoningConfig, ToolCall, new_session_id,
-        new_thread_id, new_turn_id,
+        AgentTask, Event, ModelRef, ReasoningConfig, new_session_id, new_thread_id, new_turn_id,
     },
     stubs::{
         AllVisibleToolExposure, EmptyContextBuilder, FakeModelClient, NoCompactor, NoMemory,
@@ -24,18 +17,6 @@ use proteus_core::{
     },
 };
 use serde_json::json;
-
-struct AllowAllPolicy;
-
-impl ApprovalPolicy for AllowAllPolicy {
-    fn evaluate(&self, _call: &ToolCall, _ctx: &PolicyContext) -> PolicyDecision {
-        PolicyDecision::Allow
-    }
-
-    fn evaluate_visibility(&self, _ctx: &PolicyVisibilityContext) -> PolicyDecision {
-        PolicyDecision::Allow
-    }
-}
 
 fn test_runtime_context(
     events: Arc<InMemoryEventStore>,
@@ -54,8 +35,6 @@ fn test_runtime_context(
         Arc::new(NoMemory),
         Arc::new(EmptyContextBuilder),
         ToolRegistry::new(),
-        Arc::new(AllowAllPolicy),
-        Arc::new(HeadlessApprovalTransport),
         Arc::new(HeadlessUserInputTransport),
         Arc::new(NullPatchApplier),
         Arc::new(NoCompactor),

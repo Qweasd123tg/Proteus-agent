@@ -427,7 +427,7 @@ pub(crate) fn update_tool_status(
                 return;
             }
             // Tool-вызовы дочернего цикла лежат внутри карточки субагента —
-            // Approval*/ToolFinished находят их по тому же call_id. Превью
+            // ToolFinished находит их по тому же call_id. Превью
             // результата усечено (см. NESTED_TOOL_PREVIEW_CHAR_LIMIT).
             if let Some(subagent) = message.subagent.as_mut()
                 && let Some(tool) = subagent
@@ -478,15 +478,9 @@ pub(crate) fn finalize_running_activity(
                 // а ребёнок продолжает жить между родительскими turn-ами. Его карточку
                 // и вложенные tools закроет настоящий SubagentFinished;
                 // граница TurnOutput родителя для них не терминальна.
-                let background = message
-                    .tool
-                    .as_ref()
-                    .is_some_and(|tool| {
-                        matches!(
-                            tool.name.as_str(),
-                            SPAWN_AGENT_TOOL | FOLLOWUP_TASK_TOOL
-                        )
-                    });
+                let background = message.tool.as_ref().is_some_and(|tool| {
+                    matches!(tool.name.as_str(), SPAWN_AGENT_TOOL | FOLLOWUP_TASK_TOOL)
+                });
                 if background {
                     if changed {
                         message.version += 1;
@@ -543,16 +537,12 @@ pub(crate) fn push_subagent_message(
         }
         if let Some(message) = items.iter_mut().rev().find(|message| {
             message.subagent.is_none()
-                && message
-                    .tool
-                    .as_ref()
-                    .is_some_and(|tool| {
-                        matches!(
-                            tool.name.as_str(),
-                            TASK_TOOL | SPAWN_AGENT_TOOL | FOLLOWUP_TASK_TOOL
-                        )
-                            && !tool.status.is_terminal()
-                    })
+                && message.tool.as_ref().is_some_and(|tool| {
+                    matches!(
+                        tool.name.as_str(),
+                        TASK_TOOL | SPAWN_AGENT_TOOL | FOLLOWUP_TASK_TOOL
+                    ) && !tool.status.is_terminal()
+                })
         }) {
             message.subagent = Some(activity);
             message.version += 1;
@@ -1278,10 +1268,7 @@ mod tests {
                 .tools
                 .push(tool_activity("call-nested", ToolActivityStatus::Running));
             let mut flat_tool_message = history_message(2, MessageRole::System, "");
-            flat_tool_message.tool = Some(tool_activity(
-                "call-flat",
-                ToolActivityStatus::WaitingApproval,
-            ));
+            flat_tool_message.tool = Some(tool_activity("call-flat", ToolActivityStatus::Running));
             let mut done_tool_message = history_message(3, MessageRole::System, "");
             done_tool_message.tool = Some(tool_activity("call-done", ToolActivityStatus::Done));
             let (messages, set_messages) = signal(vec![
@@ -1327,10 +1314,8 @@ mod tests {
     fn finalize_running_activity_preserves_spawned_background_subagent() {
         let owner = Owner::new();
         owner.with(|| {
-            let mut activity = subagent_activity(
-                "background-thread",
-                SubagentActivityStatus::Running,
-            );
+            let mut activity =
+                subagent_activity("background-thread", SubagentActivityStatus::Running);
             activity
                 .tools
                 .push(tool_activity("nested", ToolActivityStatus::Running));

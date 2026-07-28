@@ -1,28 +1,20 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    path::PathBuf,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
 use coding_workflow::CodingSingleLoopWorkflow;
 use context_pack::SimpleContextBuilderPlugin;
 use hyper::header::{AUTHORIZATION, ORIGIN};
-use policy_pack::AskWritePolicyPlugin;
 use proteus_contracts::{
     abi_stable::sabi_trait::TD_Opaque,
-    contracts::ApprovalCacheScope,
-    plugin::{PluginApprovalPolicy_TO, PluginContextBuilder_TO, PluginWorkflow_TO},
+    plugin::{PluginContextBuilder_TO, PluginWorkflow_TO},
 };
 use serde_json::Value;
 
 use super::*;
 use crate::contracts::{
-    ApprovalResponse, CancellationToken, UserInputAnswer,
-    UserInputRequest as ContractUserInputRequest, UserInputResponse,
+    CancellationToken, UserInputAnswer, UserInputRequest as ContractUserInputRequest,
+    UserInputResponse,
 };
 use crate::core::{AppConfig, BuiltinModuleCatalog};
-use crate::domain::{PermissionMode, ToolCall, new_call_id};
 
 use super::config::default_allowed_origins;
 use super::security::{
@@ -60,26 +52,6 @@ async fn test_state() -> (HttpAppState, AppServerHandle) {
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
     (state, server)
-}
-
-async fn register_pending_approval(
-    server: &AppServerHandle,
-    approval_id: &str,
-    responder: tokio::sync::oneshot::Sender<ApprovalResponse>,
-) {
-    crate::app_server::approvals::register_pending_approval(
-        &server.pending_approvals,
-        &server.events,
-        crate::app_server::AppApprovalRequest::new(
-            approval_id.to_owned(),
-            ToolCall::new(new_call_id(), "write_file", json!({ "path": "notes.txt" })),
-            PathBuf::from("/workspace"),
-            "test approval".to_owned(),
-            None,
-        ),
-        responder,
-    )
-    .await;
 }
 
 async fn register_pending_user_input(
@@ -125,20 +97,9 @@ fn dogfood_loop_config() -> AppConfig {
         .stream = false;
     config.modules.workflow = "coding.single_loop".to_owned();
     config.modules.context = "simple".to_owned();
-    config.modules.policy = "ask_write".to_owned();
     config.modules.patch = "null".to_owned();
     config.modules.renderer = "text".to_owned();
     config.tools.enabled = vec!["apply_patch".to_owned(), "request_user_input".to_owned()];
-    config.module_config.insert(
-        "policy".to_owned(),
-        BTreeMap::from([(
-            "ask_write".to_owned(),
-            json!({
-                "ask_before": ["apply_patch"],
-                "allow": ["request_user_input"],
-            }),
-        )]),
-    );
     config
 }
 
@@ -156,12 +117,6 @@ fn dogfood_loop_catalog() -> BuiltinModuleCatalog {
             PluginWorkflow_TO::from_value(CodingSingleLoopWorkflow::default(), TD_Opaque),
         )
         .expect("register test workflow");
-    catalog
-        .register_plugin_policy(
-            "ask_write",
-            PluginApprovalPolicy_TO::from_value(AskWritePolicyPlugin, TD_Opaque),
-        )
-        .expect("register test policy");
     catalog
 }
 
@@ -209,24 +164,6 @@ fn authed_json_request(path: &str, value: Value) -> Request<Full<Bytes>> {
         .header(CONTENT_TYPE, "application/json")
         .body(json_body(value))
         .expect("request")
-}
-
-async fn wait_for_approval_request(
-    event_rx: &mut broadcast::Receiver<AppServerEvent>,
-) -> crate::app_server::AppApprovalRequest {
-    loop {
-        let event = tokio::time::timeout(Duration::from_secs(2), event_rx.recv())
-            .await
-            .expect("approval request event should arrive")
-            .expect("event stream should stay open");
-        match event {
-            AppServerEvent::ApprovalRequested { request } => return *request,
-            AppServerEvent::Error { message } => {
-                panic!("unexpected app-server error: {message}")
-            }
-            _ => {}
-        }
-    }
 }
 
 async fn wait_for_user_input_request(
@@ -280,10 +217,8 @@ fn protected_endpoints_require_session_token_except_health_and_preflight() {
         (Method::POST, "/request"),
         (Method::POST, "/send"),
         (Method::POST, "/send-async"),
-        (Method::POST, "/approval"),
         (Method::POST, "/user-input"),
         (Method::POST, "/cancel"),
-        (Method::POST, "/mode"),
         (Method::POST, "/model"),
         (Method::POST, "/effort"),
         (Method::POST, "/reasoning"),
@@ -367,7 +302,6 @@ async fn route_config_builder_returns_editable_module_slots() {
             "context",
             "compactor",
             "tool_exposure",
-            "policy",
             "subagent",
             "renderer",
             "search",
@@ -391,15 +325,6 @@ async fn route_config_builder_returns_editable_module_slots() {
     assert!(snapshot.get("tools_enabled").is_some_and(Value::is_array));
     assert!(snapshot.get("tools").is_some_and(Value::is_array));
     assert!(snapshot.get("providers").is_some_and(Value::is_array));
-    assert_eq!(
-        snapshot.get("permission_mode").and_then(Value::as_str),
-        Some("normal")
-    );
-    assert_eq!(
-        snapshot.get("permission_modes"),
-        Some(&json!(["plan", "normal", "auto"]))
-    );
-
     server.shutdown().await;
 }
 
@@ -445,8 +370,7 @@ tool_exposure = "all_visible"
                     "subagent": "none"
                 },
                 "tools_enabled": ["apply_patch", "search"],
-                "active_provider": "smart",
-                "permission_mode": "auto"
+                "active_provider": "smart"
             }),
         ),
     )
@@ -473,7 +397,6 @@ tool_exposure = "all_visible"
         "{written}"
     );
     assert!(written.contains("active_provider = \"smart\""), "{written}");
-    assert!(written.contains("mode = \"auto\""), "{written}");
     assert_eq!(
         snapshot.get("tools_enabled"),
         Some(&json!(["apply_patch", "search"]))
@@ -481,10 +404,6 @@ tool_exposure = "all_visible"
     assert_eq!(
         snapshot.get("active_provider").and_then(Value::as_str),
         Some("smart")
-    );
-    assert_eq!(
-        snapshot.get("permission_mode").and_then(Value::as_str),
-        Some("auto")
     );
     assert!(
         snapshot
@@ -495,7 +414,6 @@ tool_exposure = "all_visible"
                     && provider.get("active").and_then(Value::as_bool) == Some(true)
             }))
     );
-    assert_eq!(server.permission_mode().await, PermissionMode::Auto);
     let model_ref = server.runtime.model_ref().await;
     assert_eq!(model_ref.model, "fake-smart");
 
@@ -904,11 +822,6 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
             && edge.get("kind").and_then(Value::as_str) == Some("runtime")
     }));
     assert!(edges.iter().any(|edge| {
-        edge.get("from").and_then(Value::as_str) == Some("slot:policy")
-            && edge.get("to").and_then(Value::as_str) == Some("tools")
-            && edge.get("kind").and_then(Value::as_str) == Some("runtime")
-    }));
-    assert!(edges.iter().any(|edge| {
         edge.get("from").and_then(Value::as_str) == Some("tools")
             && edge.get("to").and_then(Value::as_str) == Some(registered_tool_node.as_str())
             && edge.get("kind").and_then(Value::as_str) == Some("registered_tool")
@@ -1021,49 +934,6 @@ async fn event_stream_flushes_initial_heartbeat() {
         &Bytes::from_static(b": connected\n\n")
     );
     drop(body);
-    server.shutdown().await;
-}
-
-#[tokio::test]
-async fn request_dispatch_sets_permission_mode() {
-    let cwd = tempfile::tempdir().expect("cwd");
-    let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
-        .await
-        .expect("app server");
-    let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
-
-    let output = execute_app_request(
-        &state,
-        StdioRequest::SetPermissionMode {
-            id: Some("mode-1".to_owned()),
-            mode: PermissionMode::Auto,
-        },
-    )
-    .await;
-
-    match output {
-        StdioOutput::Response {
-            id,
-            ok,
-            output,
-            error,
-        } => {
-            assert_eq!(id.as_deref(), Some("mode-1"));
-            assert!(ok);
-            assert_eq!(
-                output
-                    .as_ref()
-                    .and_then(|value| value.get("mode"))
-                    .and_then(Value::as_str),
-                Some("auto")
-            );
-            assert!(error.is_none());
-        }
-        StdioOutput::Event { .. } => panic!("expected command response"),
-        _ => panic!("unexpected output variant"),
-    }
-    assert_eq!(server.permission_mode().await, PermissionMode::Auto);
     server.shutdown().await;
 }
 
@@ -1227,53 +1097,6 @@ async fn request_dispatch_sets_model_and_reasoning_enabled() {
 }
 
 #[tokio::test]
-async fn route_approval_resolves_pending_request_with_auth_and_cors() {
-    let (state, server) = test_state().await;
-    let (approval_tx, approval_rx) = tokio::sync::oneshot::channel();
-    let approval_id = "approval-route".to_owned();
-    register_pending_approval(&server, &approval_id, approval_tx).await;
-    let request = Request::builder()
-        .method(Method::POST)
-        .uri("/approval")
-        .header(ORIGIN, "http://127.0.0.1:1420")
-        .header(AUTHORIZATION, "Bearer session-secret")
-        .header(CONTENT_TYPE, "application/json")
-        .body(json_body(json!({
-            "id": "approval-1",
-            "approval_id": approval_id,
-            "approved": true,
-            "note": "route approval",
-            "cache": "exact_call",
-        })))
-        .expect("request");
-
-    let response = route_request(state, request).await.expect("response");
-
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(
-        response
-            .headers()
-            .get("access-control-allow-origin")
-            .and_then(|value| value.to_str().ok()),
-        Some("http://127.0.0.1:1420")
-    );
-    match response_output(response).await {
-        StdioOutput::Response { id, ok, error, .. } => {
-            assert_eq!(id.as_deref(), Some("approval-1"));
-            assert!(ok, "approval response should succeed: {error:?}");
-        }
-        other => panic!("expected response output, got {other:?}"),
-    }
-
-    let approval = approval_rx.await.expect("approval should resolve");
-    assert!(approval.approved);
-    assert_eq!(approval.note.as_deref(), Some("route approval"));
-    assert_eq!(approval.cache, ApprovalCacheScope::ExactCall);
-    assert!(server.pending_approvals.lock().await.is_empty());
-    server.shutdown().await;
-}
-
-#[tokio::test]
 async fn route_user_input_resolves_pending_request_with_auth_and_cors() {
     let (state, server) = test_state().await;
     let (input_tx, input_rx) = tokio::sync::oneshot::channel();
@@ -1331,9 +1154,6 @@ async fn route_user_input_resolves_pending_request_with_auth_and_cors() {
 #[tokio::test]
 async fn route_pending_returns_current_pending_requests_with_auth_and_cors() {
     let (state, server) = test_state().await;
-    let (approval_tx, _approval_rx) = tokio::sync::oneshot::channel();
-    let approval_id = "approval-pending".to_owned();
-    register_pending_approval(&server, &approval_id, approval_tx).await;
     let (input_tx, _input_rx) = tokio::sync::oneshot::channel();
     let request_id = "input-pending".to_owned();
     register_pending_user_input(&server, &request_id, input_tx).await;
@@ -1353,8 +1173,6 @@ async fn route_pending_returns_current_pending_requests_with_auth_and_cors() {
     let bytes = response_bytes(response).await;
     let pending: crate::app_server::AppPendingRequests =
         serde_json::from_slice(&bytes).expect("pending JSON");
-    assert_eq!(pending.approvals.len(), 1);
-    assert_eq!(pending.approvals[0].approval_id, approval_id);
     assert_eq!(pending.user_inputs.len(), 1);
     assert_eq!(pending.user_inputs[0].request_id, request_id);
     server.shutdown().await;
@@ -1841,63 +1659,6 @@ async fn route_resume_reuses_live_session_without_persisted_directory() {
 }
 
 #[tokio::test]
-async fn route_approval_resolves_background_session_request() {
-    let cwd = tempfile::tempdir().expect("cwd");
-    let config_dir = tempfile::tempdir().expect("config dir");
-    let config_path = config_dir.path().join("config.toml");
-    let server = AgentAppServer::launch(
-        AppConfig::default(),
-        cwd.path().to_path_buf(),
-        Some(&config_path),
-    )
-    .await
-    .expect("app server");
-    let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
-    let (responder, response_rx) = tokio::sync::oneshot::channel();
-    let approval_id = "approval-background".to_owned();
-    register_pending_approval(&server, &approval_id, responder).await;
-
-    let response = route_request(
-        state.clone(),
-        authed_json_request("/new-session", json!({ "id": "new-session" })),
-    )
-    .await
-    .expect("new session response");
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let response = route_request(
-        state.clone(),
-        authed_json_request(
-            "/approval",
-            json!({
-                "id": "approval-response",
-                "approval_id": approval_id,
-                "approved": true,
-                "note": "approved in background",
-                "cache": "none",
-            }),
-        ),
-    )
-    .await
-    .expect("approval response");
-
-    assert_eq!(response.status(), StatusCode::OK);
-    match response_output(response).await {
-        StdioOutput::Response { ok, error, .. } => {
-            assert!(ok, "approval response should succeed: {error:?}");
-        }
-        other => panic!("expected response output, got {other:?}"),
-    }
-    let approval = response_rx.await.expect("approval should resolve");
-    assert!(approval.approved);
-    assert_eq!(approval.note.as_deref(), Some("approved in background"));
-
-    server.shutdown().await;
-    state.current_server().await.shutdown().await;
-}
-
-#[tokio::test]
 async fn route_delete_unsaved_active_session_opens_new_one() {
     let cwd = tempfile::tempdir().expect("cwd");
     let config_dir = tempfile::tempdir().expect("config dir");
@@ -1978,7 +1739,7 @@ async fn route_send_async_acknowledges_while_turn_keeps_running() {
             "/send-async",
             json!({
                 "id": turn_id,
-                "text": "apply_patch",
+                "text": "request_user_input",
             }),
         ),
     )
@@ -2001,8 +1762,8 @@ async fn route_send_async_acknowledges_while_turn_keeps_running() {
         Some(turn_id.as_str())
     );
 
-    let approval = wait_for_approval_request(&mut event_rx).await;
-    assert_eq!(approval.call.name, "apply_patch");
+    let input = wait_for_user_input_request(&mut event_rx).await;
+    assert!(!input.request_id.is_empty());
     assert!(state.running_turns.lock().await.contains_key(&turn_id));
 
     let response = route_request(
@@ -2034,7 +1795,7 @@ async fn route_send_async_queues_second_message_for_same_session() {
         &state,
         server.clone(),
         Some("turn-existing".to_owned()),
-        "apply_patch".to_owned(),
+        "request_user_input".to_owned(),
         existing_cancellation.clone(),
     )
     .await
@@ -2043,7 +1804,7 @@ async fn route_send_async_queues_second_message_for_same_session() {
         SendDispatch::Started(receiver) => receiver,
         SendDispatch::Queued(_) => panic!("first message must start a turn"),
     };
-    let _approval = wait_for_approval_request(&mut event_rx).await;
+    let _input = wait_for_user_input_request(&mut event_rx).await;
 
     let response = route_request(
         state.clone(),
@@ -2096,7 +1857,7 @@ async fn send_turn_cleanup_survives_dropped_waiter() {
         &state,
         server.clone(),
         Some(turn_id.clone()),
-        "apply_patch".to_owned(),
+        "request_user_input".to_owned(),
         CancellationToken::new(),
     )
     .await
@@ -2106,26 +1867,30 @@ async fn send_turn_cleanup_survives_dropped_waiter() {
         SendDispatch::Queued(_) => panic!("first message must start a turn"),
     };
 
-    let approval = wait_for_approval_request(&mut event_rx).await;
+    let input = wait_for_user_input_request(&mut event_rx).await;
     assert!(state.running_turns.lock().await.contains_key(&turn_id));
     drop(receiver);
 
-    let approval_response = route_request(
+    let input_response = route_request(
         state.clone(),
         authed_json_request(
-            "/approval",
+            "/user-input",
             json!({
-                "id": "approval-after-dropped-waiter",
-                "approval_id": approval.approval_id,
-                "approved": true,
-                "note": "finish dropped waiter turn",
-                "cache": "none",
+                "id": "input-after-dropped-waiter",
+                "request_id": input.request_id,
+                "response": {
+                    "answers": {
+                        "scope": {
+                            "answers": ["small"]
+                        }
+                    }
+                }
             }),
         ),
     )
     .await
-    .expect("approval response");
-    assert_eq!(approval_response.status(), StatusCode::OK);
+    .expect("user-input response");
+    assert_eq!(input_response.status(), StatusCode::OK);
 
     for _ in 0..20 {
         if !state.running_turns.lock().await.contains_key(&turn_id) {
@@ -2138,92 +1903,6 @@ async fn send_turn_cleanup_survives_dropped_waiter() {
         "send turn should unregister itself even when the HTTP waiter is dropped"
     );
 
-    server.shutdown().await;
-}
-
-#[tokio::test]
-async fn route_send_approval_loop_completes_after_http_approval() {
-    let (state, server) = dogfood_loop_state().await;
-    let mut event_rx = server.subscribe();
-    let send_state = state.clone();
-    let send_task = tokio::spawn(async move {
-        let request = authed_json_request(
-            "/send",
-            json!({
-                "id": "turn-approval",
-                "text": "apply_patch",
-            }),
-        );
-        route_request(send_state, request)
-            .await
-            .expect("send response")
-    });
-
-    let approval = wait_for_approval_request(&mut event_rx).await;
-    assert_eq!(approval.call.name, "apply_patch");
-    assert_eq!(
-        approval.tool_spec.as_ref().map(|spec| spec.name.as_str()),
-        Some("apply_patch")
-    );
-    let preview = approval.preview.as_ref().expect("approval preview");
-    assert_eq!(preview.kind, "patch");
-    assert_eq!(preview.language.as_deref(), Some("diff"));
-    assert!(
-        preview
-            .body
-            .as_deref()
-            .is_some_and(|body| body.contains("*** Begin Patch"))
-    );
-
-    let approval_response = route_request(
-        state.clone(),
-        authed_json_request(
-            "/approval",
-            json!({
-                "id": "approval-response",
-                "approval_id": approval.approval_id,
-                "approved": true,
-                "note": "approved by route loop test",
-                "cache": "exact_call",
-            }),
-        ),
-    )
-    .await
-    .expect("approval response");
-    assert_eq!(approval_response.status(), StatusCode::OK);
-    match response_output(approval_response).await {
-        StdioOutput::Response { id, ok, error, .. } => {
-            assert_eq!(id.as_deref(), Some("approval-response"));
-            assert!(ok, "approval response should succeed: {error:?}");
-        }
-        other => panic!("expected approval response output, got {other:?}"),
-    }
-
-    let send_response = tokio::time::timeout(Duration::from_secs(2), send_task)
-        .await
-        .expect("send should finish after approval")
-        .expect("send task should join");
-    assert_eq!(send_response.status(), StatusCode::OK);
-    match response_output(send_response).await {
-        StdioOutput::Response {
-            id,
-            ok,
-            output,
-            error,
-        } => {
-            assert_eq!(id.as_deref(), Some("turn-approval"));
-            assert!(ok, "send should succeed after approval: {error:?}");
-            let text = output
-                .as_ref()
-                .and_then(|value| value.get("text"))
-                .and_then(Value::as_str)
-                .expect("send output text");
-            assert!(text.contains("Fake final answer after tool result"));
-            assert!(text.contains("patch applier is disabled"));
-        }
-        other => panic!("expected send response output, got {other:?}"),
-    }
-    assert!(server.pending_approvals.lock().await.is_empty());
     server.shutdown().await;
 }
 
@@ -2341,11 +2020,10 @@ async fn cancel_unknown_turn_returns_protocol_error() {
     server.shutdown().await;
 }
 
-/// Cancel turn-а больше не деняет pending approvals и user inputs сервера
-/// скопом: запись живёт, пока жив её запросивший, и убирается watcher-ом,
-/// когда orchestrator дропает свой future.
+/// Cancel turn-а не резолвит чужой pending user input скопом: запись живёт,
+/// пока жив её запросивший, и убирается watcher-ом, когда tool дропает future.
 #[tokio::test]
-async fn cancel_active_turn_keeps_foreign_pending_requests_until_requester_drops() {
+async fn cancel_active_turn_keeps_foreign_user_input_until_requester_drops() {
     let cwd = tempfile::tempdir().expect("cwd");
     let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
         .await
@@ -2358,10 +2036,6 @@ async fn cancel_active_turn_keeps_foreign_pending_requests_until_requester_drops
         turn_id.clone(),
         RunningTurn::new(cancellation.clone(), server.session_dir_path()),
     );
-
-    let (approval_tx, approval_rx) = tokio::sync::oneshot::channel();
-    let approval_id = "approval-cancel".to_owned();
-    register_pending_approval(&server, &approval_id, approval_tx).await;
 
     let (input_tx, input_rx) = tokio::sync::oneshot::channel();
     let request_id = "input-cancel".to_owned();
@@ -2387,19 +2061,15 @@ async fn cancel_active_turn_keeps_foreign_pending_requests_until_requester_drops
     assert!(cancellation.is_cancelled());
     assert!(state.running_turns.lock().await.is_empty());
     // Записи с живыми запросившими переживают cancel чужого turn-а.
-    assert!(server.has_pending_approval(&approval_id).await);
     assert!(server.has_pending_user_input(&request_id).await);
 
-    // Запросившие умирают (например, их turn отменили) -> watcher-ы чистят.
-    drop(approval_rx);
+    // Запросивший умирает (например, его turn отменили) -> watcher чистит.
     drop(input_rx);
     let deadline = std::time::Instant::now() + Duration::from_secs(1);
-    while server.has_pending_approval(&approval_id).await
-        || server.has_pending_user_input(&request_id).await
-    {
+    while server.has_pending_user_input(&request_id).await {
         assert!(
             std::time::Instant::now() < deadline,
-            "orphaned approval and user input should be removed by watchers"
+            "orphaned user input should be removed by watcher"
         );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }

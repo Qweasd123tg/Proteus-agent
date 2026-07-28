@@ -8,7 +8,7 @@ reference snapshots и эксперименты живут в `examples/source/`
 production-клиентом.
 
 Текущий статус: Leptos/Trunk app-server client с transcript, composer,
-permission mode controls, approval queue, пошаговой typed user-input карточкой,
+пошаговой typed user-input карточкой,
 cancel action, отправкой по `Enter` и переносом строки по `Ctrl+Enter`,
 очередью отложенных prompts во время running turn, autoscroll с отлипанием при
 любом скролле вверх,
@@ -40,15 +40,15 @@ Sidebar показывает sessions текущего workspace с коротк
 сообщения, умеет открывать, создавать и удалять чат, а также подсвечивает
 фоновые чаты со статусом running/pending; пустой чат подписывается как
 `Новый чат`.
-Mode, model, reasoning on/off и raw reasoning effort задаются компактным menu в
+Model, reasoning on/off и raw reasoning effort задаются компактным menu в
 строке composer actions; model выбирается только из config options, а effort —
 из config/capability options, чтобы не зашивать provider-specific значения во
 фронт. Shell по умолчанию
 подключается к
 `http://127.0.0.1:8787/events`, отправляет composer через быстрый `/send-async`
-(финальный ответ приходит через SSE), меняет mode через `/mode`, model через
+(финальный ответ приходит через SSE), меняет model через
 `/model`, reasoning через `/reasoning`, effort через `/effort`, отвечает на
-approval через `/approval`, отправляет typed input через `/user-input`,
+typed input через `/user-input`,
 отменяет turn через `/cancel`, очищает history через `/clear`, создаёт свежий
 чат через `/new-session` и удаляет чат через `/delete-session`.
 Боковой список чатов читает только sessions текущего workspace через
@@ -61,14 +61,8 @@ app-server на выбранную session через `/resume`. Переклю�
 через `/history`.
 Пустые session directories backend не показывает; при restart app-server
 автоматически открывает последнюю непустую session текущего workspace.
-Для `plan` mode composer переключается в planning controls с
-русской кнопкой `Спросить план`, а actions `Уточнить`, `Выполнить` и `Выйти`
-показываются отдельной карточкой в transcript после ответа плана: это
-client-side control plane поверх `/mode` и `/send`, enforcement остаётся в
-core `ModeAwarePolicy`. `Ask Plan` отправляет topic как planning interview:
-агент должен сам задавать typed questions через
-`request_user_input`/`AskUserQuestion`, а UI показывает пошаговую карточку в
-transcript с question tabs, choices и свободным `Other`.
+Агент может задавать typed questions через `request_user_input`; UI показывает
+пошаговую карточку в transcript с question tabs, choices и свободным `Other`.
 
 Config/architecture UI вынесен в отдельный web-клиент
 [`../inspector`](../inspector), который по умолчанию запускается на порту

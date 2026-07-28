@@ -18,25 +18,22 @@ use context_pack::{
 };
 use futures_util::stream;
 use memory_pack::JsonlMemoryStorePlugin;
-use policy_pack::{AllowAllPolicyPlugin, AskWritePolicyPlugin, CodexPolicyPlugin};
 use proteus_contracts::{
     abi_stable::{
         sabi_trait::TD_Opaque,
         std_types::{RResult, RString},
     },
     plugin::{
-        ContextProviderObject, PluginApprovalPolicy_TO, PluginContextBuilder_TO,
-        PluginContextError, PluginContextProvider, PluginContextProvider_TO,
-        PluginHistoryCompactor_TO, PluginMemoryStore_TO, PluginTool_TO, PluginToolExposure_TO,
-        PluginWorkflow_TO, WorkflowObject,
+        ContextProviderObject, PluginContextBuilder_TO, PluginContextError, PluginContextProvider,
+        PluginContextProvider_TO, PluginHistoryCompactor_TO, PluginMemoryStore_TO, PluginTool_TO,
+        PluginToolExposure_TO, PluginWorkflow_TO, WorkflowObject,
     },
 };
 use proteus_core::{
     contracts::{
-        ApprovalPolicy, ApprovalRequest, ApprovalResponse, ApprovalTransport, ContextBuildInput,
-        EventEmitter, Model, PatchApplier, PolicyContext, PolicyVisibilityContext, RequestOrigin,
-        SearchBackend, SearchQuery, Tool, ToolContext, ToolExposureInput, ToolExposureRequest,
-        ToolInvocationOwner, ToolRegistry, ToolSource, Workflow,
+        ContextBuildInput, EventEmitter, Model, PatchApplier, SearchBackend, SearchQuery, Tool,
+        ToolContext, ToolExposureInput, ToolExposureRequest, ToolInvocationOwner, ToolRegistry,
+        ToolSource, Workflow,
     },
     core::{
         AgentRuntime, AppConfig, BuiltinModuleCatalog, BuiltinRegistry, ConfiguredMcpServerConfig,
@@ -45,9 +42,9 @@ use proteus_core::{
     },
     domain::{
         AgentTask, CacheHints, ContextChunk, Event, EventContext, ModelLimits, ModelRef,
-        ModuleKind, Patch, PatchResult, PermissionMode, PolicyDecision, ReasoningConfig, ToolCall,
-        ToolCallSurface, ToolChoice, ToolResult, ToolSafety, ToolSpec, ToolSurface, new_call_id,
-        new_session_id, new_thread_id, new_turn_id,
+        ModuleKind, Patch, PatchResult, ReasoningConfig, ToolCall, ToolCallSurface, ToolChoice,
+        ToolResult, ToolSafety, ToolSpec, ToolSurface, new_call_id, new_session_id, new_thread_id,
+        new_turn_id,
     },
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
@@ -137,7 +134,6 @@ fn test_config() -> AppConfig {
     let mut config = AppConfig::default();
     config.modules.workflow = "coding.single_loop".to_owned();
     config.modules.context = "simple".to_owned();
-    config.modules.policy = "ask_write".to_owned();
     config.modules.patch = "null".to_owned();
     config.modules.renderer = "text".to_owned();
     config.tools.enabled = standard_tool_names()
@@ -145,7 +141,6 @@ fn test_config() -> AppConfig {
         .map(str::to_owned)
         .collect();
     config.tools.path = None;
-    set_ask_write_config(&mut config, &["search"], &["apply_patch", "remember_fact"]);
     config
 }
 
@@ -155,40 +150,6 @@ fn set_module_config(config: &mut AppConfig, slot: &str, id: &str, value: serde_
         .entry(slot.to_owned())
         .or_default()
         .insert(id.to_owned(), value);
-}
-
-fn set_ask_write_config(config: &mut AppConfig, allow: &[&str], ask_before: &[&str]) {
-    set_module_config(
-        config,
-        "policy",
-        "ask_write",
-        json!({
-            "allow": allow,
-            "ask_before": ask_before,
-        }),
-    );
-}
-
-fn set_codex_policy_config(
-    config: &mut AppConfig,
-    allow: &[&str],
-    ask_before: &[&str],
-    deny: &[&str],
-) {
-    set_module_config(
-        config,
-        "policy",
-        "codex_policy",
-        json!({
-            "allow": allow,
-            "ask_before": ask_before,
-            "deny": deny,
-        }),
-    );
-}
-
-fn clear_ask_write_config(config: &mut AppConfig) {
-    set_ask_write_config(config, &[], &[]);
 }
 
 fn set_repo_aware_config(config: &mut AppConfig, value: serde_json::Value) {
@@ -250,24 +211,6 @@ fn test_catalog() -> BuiltinModuleCatalog {
             PluginToolExposure_TO::from_value(CodexDynamicToolExposurePlugin, TD_Opaque),
         )
         .expect("register test codex_dynamic tool exposure");
-    catalog
-        .register_plugin_policy(
-            "allow_all",
-            PluginApprovalPolicy_TO::from_value(AllowAllPolicyPlugin, TD_Opaque),
-        )
-        .expect("register test allow_all policy");
-    catalog
-        .register_plugin_policy(
-            "ask_write",
-            PluginApprovalPolicy_TO::from_value(AskWritePolicyPlugin, TD_Opaque),
-        )
-        .expect("register test ask_write policy");
-    catalog
-        .register_plugin_policy(
-            "codex_policy",
-            PluginApprovalPolicy_TO::from_value(CodexPolicyPlugin, TD_Opaque),
-        )
-        .expect("register test codex_policy");
     catalog
         .register_plugin_renderer(
             "statusline",
@@ -369,10 +312,7 @@ fn codex_profile_enabled_tool_names() -> Vec<&'static str> {
         .position(|name| *name == "request_user_input")
         .map(|index| index + 1)
         .unwrap_or(names.len());
-    names.splice(
-        after_user_input..after_user_input,
-        ["update_plan", "request_permissions"],
-    );
+    names.splice(after_user_input..after_user_input, ["update_plan"]);
     let after_shell = names
         .iter()
         .position(|name| *name == "shell")
@@ -397,41 +337,6 @@ fn dev_slim_tool_names() -> Vec<&'static str> {
     ]
 }
 
-#[derive(Debug)]
-struct TestApprovalTransport {
-    interactive: bool,
-}
-
-struct ApprovingApprovalTransport;
-
-#[async_trait]
-impl ApprovalTransport for ApprovingApprovalTransport {
-    fn can_request_approval(&self) -> bool {
-        true
-    }
-
-    async fn request_approval(
-        &self,
-        _request: ApprovalRequest,
-    ) -> anyhow::Result<ApprovalResponse> {
-        Ok(ApprovalResponse::approve())
-    }
-}
-
-#[async_trait]
-impl ApprovalTransport for TestApprovalTransport {
-    fn can_request_approval(&self) -> bool {
-        self.interactive
-    }
-
-    async fn request_approval(
-        &self,
-        _request: ApprovalRequest,
-    ) -> anyhow::Result<ApprovalResponse> {
-        Ok(ApprovalResponse::deny("test approval denied"))
-    }
-}
-
 #[path = "module_swap/catalog_subagents.rs"]
 mod catalog_subagents;
 #[path = "module_swap/config_profiles.rs"]
@@ -444,8 +349,6 @@ mod context_backends;
 mod orchestrator;
 #[path = "module_swap/patch_model.rs"]
 mod patch_model;
-#[path = "module_swap/policy.rs"]
-mod policy;
 #[path = "module_swap/process_compactor.rs"]
 mod process_compactor;
 #[path = "module_swap/process_search.rs"]

@@ -341,8 +341,7 @@ async fn repo_aware_search_extracts_targeted_queries_from_task() {
         .context
         .build(ContextBuildInput {
             task: AgentTask::new(
-                "почему approval не работает где PermissionMode режет shell в ToolOrchestrator"
-                    .to_owned(),
+                "почему shell не работает и где ToolOrchestrator проверяет инструменты".to_owned(),
                 dir.path().to_path_buf(),
             ),
             search: Arc::new(RecordingSearch {
@@ -354,17 +353,11 @@ async fn repo_aware_search_extracts_targeted_queries_from_task() {
         .unwrap();
 
     let queries = queries.lock().unwrap().clone();
-    assert!(queries.iter().any(|query| query == "PermissionMode"));
     assert!(queries.iter().any(|query| query == "ToolOrchestrator"));
-    assert!(
-        !queries
-            .iter()
-            .any(|query| query.contains("почему approval"))
-    );
     assert!(bundle.chunks.iter().any(|chunk| {
         chunk.source == "repo_aware:search:recording"
             && chunk.metadata["provider"] == "search"
-            && chunk.metadata["query"] == "PermissionMode"
+            && chunk.metadata["query"] == "ToolOrchestrator"
     }));
 }
 

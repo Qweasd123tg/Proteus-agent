@@ -8,7 +8,8 @@ use crate::{
 };
 
 /// Registers provider-executed tools in the same registry as local tools so
-/// visibility, safety policy, topology, and duplicate-name checks stay shared.
+/// visibility, safety classification, topology, and duplicate-name checks stay
+/// shared.
 pub fn register_provider_hosted_tools(
     registry: &mut ToolRegistry,
     provider: &str,

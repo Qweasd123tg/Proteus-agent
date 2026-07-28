@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{ApprovalRequestInfo, SessionActivityInfo, UserInputRequestInfo};
+use super::{SessionActivityInfo, UserInputRequestInfo};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum TransportStatus {
@@ -51,13 +51,6 @@ pub(crate) enum AppServerEvent {
     },
     TurnOutput {
         output: Value,
-    },
-    ApprovalRequested {
-        request: Box<ApprovalRequestInfo>,
-    },
-    ApprovalResolved {
-        approval_id: String,
-        approved: bool,
     },
     UserInputRequested {
         request: Box<UserInputRequestInfo>,

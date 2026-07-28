@@ -61,13 +61,6 @@ impl TurnProgress {
             Event::ToolCallRequested { call } => {
                 self.append_tool_call(&envelope.thread_id.to_string(), call);
             }
-            Event::ApprovalRequested { call_id, .. } => {
-                self.set_tool_status(call_id, "waiting_approval", None, None);
-            }
-            Event::ApprovalResolved { call_id, approved } => {
-                let status = if *approved { "approved" } else { "denied" };
-                self.set_tool_status(call_id, status, None, None);
-            }
             Event::ToolFinished { result } => {
                 let status = if result.ok { "done" } else { "failed" };
                 self.set_tool_status(

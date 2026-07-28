@@ -4,13 +4,13 @@ use anyhow::Result;
 
 use crate::{
     contracts::{
-        ApprovalPolicy, ContextBuilder, EventEmitter, HistoryCompactor, MemoryStore, Model,
-        PatchApplier, Renderer, RuntimeContext, SearchBackend, SubagentRunner, ToolExposure,
-        ToolRegistry, UserInputTransport, Workflow,
+        ContextBuilder, EventEmitter, HistoryCompactor, MemoryStore, Model, PatchApplier, Renderer,
+        RuntimeContext, SearchBackend, SubagentRunner, ToolExposure, ToolRegistry,
+        UserInputTransport, Workflow,
     },
     core::{
-        AppConfig, BuiltinModuleCatalog, HeadlessUserInputTransport, ModeAwarePolicy, ModelService,
-        ModuleBuildContext, PolicyBuildContext,
+        AppConfig, BuiltinModuleCatalog, HeadlessUserInputTransport, ModelService,
+        ModuleBuildContext,
     },
     domain::{SessionId, ThreadId, TurnId},
 };
@@ -29,7 +29,6 @@ pub struct BuiltinRegistry {
     pub memory: Arc<dyn MemoryStore>,
     pub context: Arc<dyn ContextBuilder>,
     pub tools: ToolRegistry,
-    pub policy: Arc<dyn ApprovalPolicy>,
     pub patch: Arc<dyn PatchApplier>,
     pub compactor: Arc<dyn HistoryCompactor>,
     pub tool_exposure: Arc<dyn ToolExposure>,
@@ -85,12 +84,6 @@ impl BuiltinRegistry {
             model.id().as_ref(),
             model.provider_hosted_tools(&model_config.model_ref()),
         )?;
-        let policy_ctx = PolicyBuildContext {
-            config,
-            cwd: &cwd,
-            tools: &tools,
-        };
-        let policy = catalog.build_policy(&config.modules.policy, &policy_ctx)?;
         let workflow = catalog.build_workflow(&config.modules.workflow, &build_ctx)?;
         let renderer = catalog.build_renderer(&config.modules.renderer, &build_ctx)?;
 
@@ -104,7 +97,6 @@ impl BuiltinRegistry {
             memory,
             context,
             tools,
-            policy,
             patch,
             compactor,
             tool_exposure,
@@ -120,30 +112,23 @@ impl BuiltinRegistry {
         thread_id: ThreadId,
         turn_id: TurnId,
         events: Arc<EventEmitter>,
-        approval: Arc<dyn crate::contracts::ApprovalTransport>,
-        permission_mode: crate::domain::PermissionMode,
     ) -> RuntimeContext {
         self.runtime_context_with_user_input(
             session_id,
             thread_id,
             turn_id,
             events,
-            approval,
             Arc::new(HeadlessUserInputTransport),
-            permission_mode,
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn runtime_context_with_user_input(
         &self,
         session_id: SessionId,
         thread_id: ThreadId,
         turn_id: TurnId,
         events: Arc<EventEmitter>,
-        approval: Arc<dyn crate::contracts::ApprovalTransport>,
         user_input: Arc<dyn UserInputTransport>,
-        permission_mode: crate::domain::PermissionMode,
     ) -> RuntimeContext {
         RuntimeContext::new(
             session_id,
@@ -159,8 +144,6 @@ impl BuiltinRegistry {
             self.memory.clone(),
             self.context.clone(),
             self.tools.clone(),
-            Arc::new(ModeAwarePolicy::new(permission_mode, self.policy.clone())),
-            approval,
             user_input,
             self.patch.clone(),
             self.compactor.clone(),

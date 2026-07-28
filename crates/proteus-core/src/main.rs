@@ -6,21 +6,15 @@ use std::{
 };
 
 use anyhow::{Result, bail};
-use async_trait::async_trait;
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use proteus_core::app_server::{http::run_http_app_server, stdio::run_stdio_app_server};
-use proteus_core::domain::{
-    AgentOutput, ModuleManifest, PermissionMode, ToolSafety, new_thread_id,
+use proteus_core::core::{
+    AgentRuntime, AppConfig, ModuleBuildContext, ModuleEpoch, TopologyBuildInput, TopologyWarning,
+    build_topology_snapshot, normalize_session_dir_path, render_topology_map,
+    render_topology_markdown, render_topology_mermaid, render_topology_runtime_mermaid,
+    render_topology_runtime_path, render_topology_table,
 };
-use proteus_core::{
-    contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport},
-    core::{
-        AgentRuntime, AppConfig, ModuleBuildContext, ModuleEpoch, TopologyBuildInput,
-        TopologyWarning, build_topology_snapshot, normalize_session_dir_path, render_topology_map,
-        render_topology_markdown, render_topology_mermaid, render_topology_runtime_mermaid,
-        render_topology_runtime_path, render_topology_table,
-    },
-};
+use proteus_core::domain::{AgentOutput, ModuleManifest, ToolSafety, new_thread_id};
 use serde_json::Value;
 use tokio::time::sleep;
 
@@ -70,31 +64,8 @@ struct Cli {
     new_session: bool,
     #[arg(short, long)]
     interactive: bool,
-    #[arg(long)]
-    plan: bool,
-    #[arg(long = "auto")]
-    auto_mode: bool,
-    #[arg(long, value_enum)]
-    permission_mode: Option<CliPermissionMode>,
     #[arg(trailing_var_arg = true)]
     task: Vec<String>,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum CliPermissionMode {
-    Plan,
-    Normal,
-    Auto,
-}
-
-impl From<CliPermissionMode> for PermissionMode {
-    fn from(value: CliPermissionMode) -> Self {
-        match value {
-            CliPermissionMode::Plan => Self::Plan,
-            CliPermissionMode::Normal => Self::Normal,
-            CliPermissionMode::Auto => Self::Auto,
-        }
-    }
 }
 
 #[tokio::main]
@@ -129,7 +100,7 @@ async fn main() -> Result<()> {
         return run_doctor(cli.config.as_deref(), config_path.as_deref(), &cwd).await;
     }
 
-    let mut config = AppConfig::load(cli.config.as_deref()).await?;
+    let config = AppConfig::load(cli.config.as_deref()).await?;
     if let Some(command) = prompt_replay {
         println!("{}", run_prompt_replay(&config, command).await?);
         return Ok(());
@@ -138,14 +109,8 @@ async fn main() -> Result<()> {
         println!("{}", run_workflow_replay(&config, command).await?);
         return Ok(());
     }
-    config.permissions.mode = resolve_permission_mode(&cli, config.permissions.mode)?;
     if let Some(format) = parse_inspect_topology_command(&cli.task)? {
-        let snapshot = build_cli_topology(
-            &config,
-            config_path.as_deref(),
-            &cwd,
-            config.permissions.mode,
-        )?;
+        let snapshot = build_cli_topology(&config, config_path.as_deref(), &cwd)?;
         println!("{}", render_inspect_topology(&snapshot, format)?);
         return Ok(());
     }
@@ -200,9 +165,7 @@ async fn build_cli_runtime(
     config_path: Option<&std::path::Path>,
     resume_session: Option<PathBuf>,
 ) -> Result<AgentRuntime> {
-    let mut builder = AgentRuntime::builder(config, cwd)
-        .with_config_path(config_path)
-        .with_approval(terminal_approval_transport());
+    let mut builder = AgentRuntime::builder(config, cwd).with_config_path(config_path);
     if let Some(session_dir) = resume_session {
         let session_dir = normalize_session_dir_path(session_dir)?;
         builder = builder.resume_from_session_dir(session_dir, new_thread_id())?;
@@ -312,7 +275,6 @@ fn build_cli_topology(
     config: &AppConfig,
     config_path: Option<&std::path::Path>,
     cwd: &std::path::Path,
-    permission_mode: PermissionMode,
 ) -> Result<proteus_core::core::TopologySnapshot> {
     let (catalog, plugin_reports) = proteus_core::core::load_default_module_catalog();
     let catalog_entries = catalog.entry_summaries();
@@ -414,7 +376,6 @@ fn build_cli_topology(
         tools: &tool_entries,
         plugin_reports: &plugin_reports,
         module_epoch: ModuleEpoch::initial(),
-        permission_mode,
         extra_warnings,
     }))
 }
@@ -476,13 +437,6 @@ fn render_eval_report(report: &proteus_core::core::EvalReport) -> String {
     lines.push(format!(
         "Model calls: {}, tool calls: {} (failures={})",
         report.model_calls, report.tool_calls, report.tool_failures
-    ));
-    lines.push(format!(
-        "Approvals: requested={}, resolved={}, approved={}, denied={}",
-        report.approvals_requested,
-        report.approvals_resolved,
-        report.approvals_approved,
-        report.approvals_denied
     ));
     lines.push(format!(
         "Tokens: estimated_input={}, provider_input={}, provider_output={}",
@@ -549,92 +503,6 @@ fn tool_safety_label(safety: &ToolSafety) -> &'static str {
         ToolSafety::Network => "Network",
         ToolSafety::Dangerous => "Dangerous",
         _ => "Unknown",
-    }
-}
-
-fn resolve_permission_mode(cli: &Cli, configured: PermissionMode) -> Result<PermissionMode> {
-    let selected = [
-        cli.plan.then_some(PermissionMode::Plan),
-        cli.auto_mode.then_some(PermissionMode::Auto),
-        cli.permission_mode.map(Into::into),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>();
-
-    if selected.len() > 1 {
-        bail!("use only one of --plan, --auto, or --permission-mode");
-    }
-
-    Ok(selected.into_iter().next().unwrap_or(configured))
-}
-
-fn terminal_approval_transport() -> Arc<dyn ApprovalTransport> {
-    Arc::new(TerminalApprovalTransport {
-        enabled: io::stdin().is_terminal() && io::stdout().is_terminal(),
-        prompt_lock: tokio::sync::Mutex::new(()),
-    })
-}
-
-#[derive(Debug)]
-struct TerminalApprovalTransport {
-    enabled: bool,
-    /// Терминал — один: конкурентные approval-запросы (например, от
-    /// субагента и основного цикла) сериализуются, а не дерутся за stdin.
-    prompt_lock: tokio::sync::Mutex<()>,
-}
-
-#[async_trait]
-impl ApprovalTransport for TerminalApprovalTransport {
-    fn can_request_approval(&self) -> bool {
-        self.enabled
-    }
-
-    async fn request_approval(&self, request: ApprovalRequest) -> Result<ApprovalResponse> {
-        if !self.enabled {
-            return Ok(ApprovalResponse::deny(format!(
-                "approval transport is not interactive: {}",
-                request.reason
-            )));
-        }
-
-        let _guard = self.prompt_lock.lock().await;
-        let args = request.call.args.to_string();
-        let args = if args.chars().count() > 500 {
-            format!("{}...", args.chars().take(500).collect::<String>())
-        } else {
-            args
-        };
-        eprintln!();
-        eprintln!("Approval requested");
-        if let Some(label) = request
-            .origin
-            .as_ref()
-            .and_then(|origin| origin.label.as_deref())
-        {
-            eprintln!("from: subagent '{label}'");
-        }
-        eprintln!("tool: {}", request.call.name);
-        eprintln!("cwd: {}", request.cwd.display());
-        eprintln!("reason: {}", request.reason);
-        if let Some(spec) = &request.tool_spec {
-            eprintln!("safety: {:?}", spec.safety);
-        }
-        eprintln!("args: {args}");
-        eprint!("Approve this tool call? [y/N] ");
-        io::stderr().flush()?;
-
-        let mut answer = String::new();
-        io::stdin().read_line(&mut answer)?;
-        let approved = matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes");
-        if approved {
-            Ok(ApprovalResponse::approve())
-        } else {
-            Ok(ApprovalResponse::deny(format!(
-                "tool call was not approved: {}",
-                request.reason
-            )))
-        }
     }
 }
 

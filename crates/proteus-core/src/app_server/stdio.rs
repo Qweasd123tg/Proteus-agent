@@ -149,23 +149,6 @@ pub async fn run_stdio_app_server(
                 send_stdio_response(&output_tx, id, server.clear_history().await.map(|_| None))
                     .await;
             }
-            StdioRequest::Approval {
-                approval_id,
-                approved,
-                note,
-                cache,
-                ..
-            } => {
-                send_stdio_response(
-                    &output_tx,
-                    id,
-                    server
-                        .respond_approval(&approval_id, approved, note, cache)
-                        .await
-                        .map(|_| None),
-                )
-                .await;
-            }
             StdioRequest::UserInput {
                 request_id,
                 response,
@@ -185,15 +168,6 @@ pub async fn run_stdio_app_server(
                 let result =
                     cancel_stdio_turn(&mut keyed_turn_handles, &output_tx, &target_id).await;
                 send_stdio_response(&output_tx, id, result.map(|_| None)).await;
-            }
-            StdioRequest::SetPermissionMode { mode, .. } => {
-                server.set_permission_mode(mode).await;
-                send_stdio_response(
-                    &output_tx,
-                    id,
-                    Ok(Some(serde_json::json!({ "mode": mode }))),
-                )
-                .await;
             }
             StdioRequest::SetModel { model, .. } => {
                 server.set_model_name(model.clone()).await;
@@ -332,7 +306,7 @@ async fn cancel_stdio_turn(
         )
         .await;
     }
-    // Pending approvals и user inputs отменённого turn-а резолвятся
+    // Pending user inputs отменённого turn-а резолвятся
     // watcher-ами app-server-а, когда orchestrator дропает свои futures:
     // blanket-deny здесь затрагивал бы pending запросы других конкурентных
     // turn-ов.

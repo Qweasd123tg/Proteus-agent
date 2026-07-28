@@ -297,7 +297,6 @@ impl AgentRuntime {
                 session_store: self.session.session_store.clone(),
             });
         }
-        let permission_mode = *self.services.permission_mode.read().await;
         let model_ref = self.services.model_ref.read().await.clone();
         let reasoning = self.services.reasoning.read().await.clone();
         let mut runtime_context = snapshot.registry.runtime_context_with_user_input(
@@ -305,9 +304,7 @@ impl AgentRuntime {
             self.session.thread_id,
             turn_id,
             self.services.events.clone(),
-            self.services.approval.clone(),
             self.services.user_input.clone(),
-            permission_mode,
         );
         runtime_context.model_ref = model_ref;
         runtime_context.reasoning = reasoning;

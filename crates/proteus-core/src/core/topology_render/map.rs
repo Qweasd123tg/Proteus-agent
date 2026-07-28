@@ -8,9 +8,8 @@ pub fn render_topology_map(snapshot: &TopologySnapshot) -> String {
     let mut out = String::new();
     out.push_str("Proteus topology map\n");
     out.push_str(&format!(
-        "profile: {} | mode: {} | epoch: {}\n",
+        "profile: {} | epoch: {}\n",
         plain_text(&snapshot.profile),
-        plain_text(&snapshot.permission_mode),
         snapshot.module_epoch
     ));
     out.push_str(&format!("cwd: {}\n", plain_text(&snapshot.cwd)));

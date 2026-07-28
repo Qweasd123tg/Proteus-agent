@@ -8,11 +8,10 @@ use serde::Serialize;
 use tokio::sync::{Mutex, RwLock};
 
 use crate::{
-    contracts::{ApprovalTransport, EventEmitter, EventSink, ToolSource, UserInputTransport},
+    contracts::{EventEmitter, EventSink, ToolSource, UserInputTransport},
     core::{AppConfig, BuiltinRegistry, SessionConfigSnapshot, SessionStore},
     domain::{
-        AgentOutput, Event, EventContext, ModelRef, PermissionMode, ReasoningConfig, SessionId,
-        ThreadId, ToolSpec,
+        AgentOutput, Event, EventContext, ModelRef, ReasoningConfig, SessionId, ThreadId, ToolSpec,
     },
     model_standard::CanonicalMessage,
 };
@@ -106,9 +105,7 @@ struct RuntimeServices {
     snapshot: RwLock<RuntimeSnapshot>,
     reload_lock: Mutex<()>,
     events: Arc<EventEmitter>,
-    approval: Arc<dyn ApprovalTransport>,
     user_input: Arc<dyn UserInputTransport>,
-    permission_mode: RwLock<PermissionMode>,
     model_ref: RwLock<ModelRef>,
     reasoning: RwLock<ReasoningConfig>,
     default_reasoning: ReasoningConfig,
@@ -169,18 +166,6 @@ impl AgentRuntime {
             .build()
     }
 
-    pub fn new_with_config_path_and_approval_transport(
-        config: AppConfig,
-        cwd: PathBuf,
-        config_path: Option<&std::path::Path>,
-        approval: Arc<dyn ApprovalTransport>,
-    ) -> Result<Self> {
-        Self::builder(config, cwd)
-            .with_config_path(config_path)
-            .with_approval(approval)
-            .build()
-    }
-
     pub fn with_event_sink(
         config: AppConfig,
         cwd: PathBuf,
@@ -189,26 +174,6 @@ impl AgentRuntime {
         Self::builder(config, cwd)
             .with_event_sink(event_sink)
             .build()
-    }
-
-    pub fn with_event_sink_and_approval_transport(
-        config: AppConfig,
-        cwd: PathBuf,
-        event_sink: Arc<dyn EventSink>,
-        approval: Arc<dyn ApprovalTransport>,
-    ) -> Result<Self> {
-        Self::builder(config, cwd)
-            .with_event_sink(event_sink)
-            .with_approval(approval)
-            .build()
-    }
-
-    pub async fn set_permission_mode(&self, mode: PermissionMode) {
-        *self.services.permission_mode.write().await = mode;
-    }
-
-    pub async fn permission_mode(&self) -> PermissionMode {
-        *self.services.permission_mode.read().await
     }
 
     pub async fn set_model_name(&self, model: String) {
@@ -352,7 +317,6 @@ impl AgentRuntime {
         let mut config = snapshot.config_snapshot.clone()?;
         config.model = self.services.model_ref.read().await.clone();
         config.reasoning = self.services.reasoning.read().await.clone();
-        config.permission_mode_default = *self.services.permission_mode.read().await;
         Some(config)
     }
 

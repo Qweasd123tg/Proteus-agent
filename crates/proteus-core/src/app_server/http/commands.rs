@@ -8,7 +8,6 @@ use crate::{
     app_server::{AgentAppServer, AppServerHandle, StdioOutput, StdioRequest},
     contracts::CancellationToken,
     core::{SteeringQueueReceipt, UserMessageReservation, canonicalize_session_dir_path},
-    domain::PermissionMode,
 };
 
 use super::{
@@ -30,24 +29,6 @@ pub(super) async fn execute_app_request(
             .clear_history()
             .await
             .map(|_| None),
-        StdioRequest::Approval {
-            approval_id,
-            approved,
-            note,
-            cache,
-            ..
-        } => {
-            let server = match state.server_for_pending_approval(&approval_id).await {
-                Some(server) => server,
-                None => state.current_server().await,
-            };
-            let result = server
-                .respond_approval(&approval_id, approved, note, cache)
-                .await
-                .map(|_| None);
-            state.emit_session_activity_for_server(&server).await;
-            result
-        }
         StdioRequest::UserInput {
             request_id,
             response,
@@ -66,10 +47,6 @@ pub(super) async fn execute_app_request(
         }
         StdioRequest::Cancel { target_id, .. } => {
             execute_cancel(state, &target_id).await.map(|_| None)
-        }
-        StdioRequest::SetPermissionMode { mode, .. } => {
-            state.current_server().await.set_permission_mode(mode).await;
-            Ok(Some(json!({ "mode": mode })))
         }
         StdioRequest::SetModel { model, .. } => {
             state
@@ -238,21 +215,6 @@ fn queued_response_with_request_id(receipt: &SteeringQueueReceipt, request_id: &
     let mut response = queued_response(receipt);
     response["turn_id"] = Value::String(request_id.to_owned());
     response
-}
-
-pub(super) async fn execute_set_permission_mode(
-    state: &HttpAppState,
-    id: Option<String>,
-    mode: PermissionMode,
-    session_dir: Option<PathBuf>,
-) -> StdioOutput {
-    let result = async {
-        let server = server_for_optional_session(state, session_dir).await?;
-        server.set_permission_mode(mode).await;
-        Ok(Some(json!({ "mode": mode })))
-    }
-    .await;
-    command_response(id, result)
 }
 
 pub(super) async fn execute_set_model(
@@ -439,7 +401,7 @@ async fn cancel_work_for_server(state: &HttpAppState, server: &AppServerHandle) 
         cancellation.cancel();
     }
 
-    // Pending approvals и user inputs отменяемых turn-ов резолвятся
+    // Pending user inputs отменяемых turn-ов резолвятся
     // watcher-ами app-server-а после того, как orchestrator дропнет свои
     // futures.
     state.emit_session_activity_for_server(server).await;
@@ -478,7 +440,7 @@ async fn execute_cancel(state: &HttpAppState, target_id: &str) -> Result<()> {
         },
         None => state.current_server().await,
     };
-    // Pending approvals и user inputs отменённого turn-а резолвятся
+    // Pending user inputs отменённого turn-а резолвятся
     // watcher-ами app-server-а; blanket-deny здесь трогал бы pending запросы
     // других turn-ов той же сессии.
     state.emit_session_activity_for_server(&server).await;

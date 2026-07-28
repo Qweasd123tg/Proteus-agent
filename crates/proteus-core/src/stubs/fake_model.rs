@@ -392,7 +392,7 @@ mod tests {
         let client = FakeModelClient::default();
         let previous_result = ToolResult::error(
             new_call_id(),
-            "approval request could not be delivered to any app-server client",
+            "previous tool request failed before reaching an app-server client",
         );
         let request = CanonicalModelRequest::new(
             ModelRef::new("fake", "x"),

@@ -83,11 +83,10 @@ pub(super) fn build_edges(
         ("slot:workflow", "slot:context", "builds context"),
         ("slot:workflow", "slot:tool_exposure", "selects tools"),
         ("slot:workflow", "slot:model", "model call"),
-        ("slot:workflow", "slot:policy", "approval gate"),
         ("slot:workflow", "slot:subagent", "delegates"),
         ("slot:workflow", "slot:renderer", "final output"),
         ("slot:tool_exposure", "tools", "visible tools"),
-        ("slot:policy", "tools", "execution policy"),
+        ("slot:workflow", "tools", "executes tool calls"),
     ] {
         edges.push(edge(from, to, "runtime", Some(label)));
     }

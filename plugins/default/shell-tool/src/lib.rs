@@ -2,10 +2,9 @@
 //!
 //! Регистрирует tools `shell` (one-shot команда), `exec_command` и
 //! `write_stdin` (персистентные интерактивные PTY-сессии, см. `unified_exec`)
-//! через `PluginTool` ABI. Безопасность `RunsCommands` —
-//! `PermissionMode::Auto` запретит без approval, `plan` скроет вообще.
-//! Вынесен из ядра именно ради этого: shell — самая рискованная вещь,
-//! логично делать её opt-in через плагин, а не встраивать.
+//! через `PluginTool` ABI. Команды исполняются напрямую с правами процесса.
+//! Владелец процесса может включить ограниченный workspace sandbox через
+//! `PROTEUS_SHELL_SANDBOX=1`; модель не может переключать этот режим.
 //!
 //! Реализация держит stdout/stderr bounded и на Unix запускает shell в
 //! отдельной process group, чтобы timeout мог остановить не только `sh`, но и
@@ -48,7 +47,7 @@ use tempfile::TempDir;
 mod sandbox;
 mod unified_exec;
 
-use sandbox::{EXEC_COMMAND_ENV, SandboxKind, SandboxPolicy, bwrap_args, resolve_workdir};
+use sandbox::{EXEC_COMMAND_ENV, SandboxKind, SandboxMode, bwrap_args, resolve_workdir};
 
 /// Максимум stdout/stderr. Reader продолжает дренировать pipe после лимита,
 /// но сохраняет только head+tail: модель видит и начало вывода, и хвост
@@ -70,7 +69,7 @@ impl PluginTool for ShellTool {
     fn spec_json(&self) -> RString {
         let spec = json!({
             "name": "shell",
-            "description": "Run a shell command in the current workspace (sh -lc). Non-escalated commands require bwrap and run with no network access, a private PID namespace, and a read-only filesystem outside the workspace; execution fails closed when bwrap is unavailable or disabled. The sandbox network is isolated per call: a localhost server started by one sandboxed call is unreachable from any other call and from the user's machine. Start servers that must stay reachable with `with_escalated_permissions: true`. Set `with_escalated_permissions: true` with a short `justification` to request an unsandboxed run (requires user approval). Non-escalated workdirs must stay inside the workspace. External-terminal execution is unsandboxed and therefore also requires escalation. Set the `workdir` param to run in a subdirectory instead of using `cd` in the command. Interactive clients may choose to surface command output in their own UI; headless runs return captured stdout/stderr. Safety: RunsCommands.",
+            "description": "Run a shell command (sh -lc) with the rights of the Proteus process. Direct trusted execution is the default. The process owner may set PROTEUS_SHELL_SANDBOX=1 to require a bwrap workspace sandbox with no network access, a private PID namespace, and a read-only filesystem outside the workspace; in that mode external workdirs and external-terminal execution are rejected. Set the `workdir` param to run in another directory instead of using `cd` in the command. Interactive clients may choose to surface command output in their own UI; headless runs return captured stdout/stderr. Safety: RunsCommands.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -82,14 +81,6 @@ impl PluginTool for ShellTool {
                     "timeout_ms": {
                         "type": "integer",
                         "description": "Per-call timeout in milliseconds; capped at the tool default."
-                    },
-                    "with_escalated_permissions": {
-                        "type": "boolean",
-                        "description": "Request an unsandboxed run (network / writes outside workspace). Requires user approval."
-                    },
-                    "justification": {
-                        "type": "string",
-                        "description": "One sentence explaining why escalated permissions are needed."
                     }
                 },
                 "required": ["command"]
@@ -141,17 +132,12 @@ fn invoke_impl(call_json: &str, cwd: &str) -> Result<String> {
         .and_then(|args| args.get("command"))
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("shell requires string arg 'command'"))?;
-    let escalated = args
-        .and_then(|args| args.get("with_escalated_permissions"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
     invoke_command(
         call_id,
         args,
         command,
         cwd,
-        escalated,
-        SandboxPolicy::detect(cwd),
+        SandboxMode::detect(cwd),
         should_use_ptyxis(),
     )
 }
@@ -161,16 +147,19 @@ fn invoke_command(
     args: Option<&Value>,
     command: &str,
     cwd: &str,
-    escalated: bool,
-    sandbox_policy: SandboxPolicy,
+    sandbox_mode: SandboxMode,
     external_terminal_requested: bool,
 ) -> Result<String> {
-    let resolved = resolve_workdir(cwd, args.and_then(|args| args.get("workdir")), escalated)?;
+    let resolved = resolve_workdir(
+        cwd,
+        args.and_then(|args| args.get("workdir")),
+        sandbox_mode.enabled(),
+    )?;
     let timeout_ms = args
         .and_then(|args| args.get("timeout_ms"))
         .and_then(Value::as_u64)
         .map_or(TIMEOUT_MS, |requested| requested.clamp(1, TIMEOUT_MS));
-    let sandbox = sandbox_policy.select(escalated, external_terminal_requested)?;
+    let sandbox = sandbox_mode.select(external_terminal_requested)?;
 
     let (output, timed_out, external_terminal) = if external_terminal_requested {
         let (output, timed_out) = run_in_ptyxis(
@@ -227,7 +216,6 @@ fn invoke_command(
         "timeout_ms": timeout_ms,
         "workdir": resolved.workdir,
         "sandbox": sandbox.as_ref().map(SandboxKind::label),
-        "escalated": escalated,
         "external_terminal": external_terminal,
     });
 
@@ -665,7 +653,7 @@ pub fn get_plugin_root() -> PluginRoot_Ref {
     PluginRoot {
         name: RStr::from_str("shell-tool"),
         description: RStr::from_str(
-            "Shell tool plugin: opt-in RunsCommands tools, registers 'shell', 'exec_command', 'write_stdin'",
+            "Shell tools with trusted direct execution and optional process-level workspace sandbox",
         ),
         register_modules,
     }
@@ -705,6 +693,25 @@ mod tests {
             serde_json::from_str(ShellTool.spec_json().as_str()).expect("tool spec json");
 
         assert_eq!(spec["timeout_ms"], TIMEOUT_MS);
+        let properties = spec["input_schema"]["properties"]
+            .as_object()
+            .expect("shell input properties");
+        assert_eq!(properties.len(), 3);
+        assert!(properties.contains_key("command"));
+        assert!(properties.contains_key("timeout_ms"));
+        assert!(properties.contains_key("workdir"));
+
+        let exec_spec: Value =
+            serde_json::from_str(unified_exec::ExecCommandTool.spec_json().as_str())
+                .expect("exec_command spec json");
+        let exec_properties = exec_spec["input_schema"]["properties"]
+            .as_object()
+            .expect("exec_command input properties");
+        assert_eq!(exec_properties.len(), 4);
+        assert!(exec_properties.contains_key("cmd"));
+        assert!(exec_properties.contains_key("max_output_tokens"));
+        assert!(exec_properties.contains_key("workdir"));
+        assert!(exec_properties.contains_key("yield_time_ms"));
     }
 
     #[test]
@@ -880,7 +887,7 @@ mod tests {
     }
 
     #[test]
-    fn non_escalated_shell_fails_closed_without_bwrap() {
+    fn sandbox_mode_fails_closed_without_bwrap() {
         let dir = tempfile::tempdir().expect("workspace");
         let marker = dir.path().join("must-not-exist");
         let args = json!({ "command": "touch must-not-exist" });
@@ -890,43 +897,66 @@ mod tests {
             Some(&args),
             args["command"].as_str().unwrap(),
             &dir.path().display().to_string(),
-            false,
-            SandboxPolicy::disabled_for_test(),
+            SandboxMode::enabled_unavailable_for_test(),
             false,
         )
-        .expect_err("missing bwrap must reject non-escalated shell");
+        .expect_err("sandbox mode must fail closed without bwrap");
 
-        assert!(error.to_string().contains("PROTEUS_SHELL_SANDBOX=0"));
+        assert!(error.to_string().contains("PROTEUS_SHELL_SANDBOX=1"));
+        assert!(error.to_string().contains("bwrap"));
         assert!(!marker.exists(), "command must not be spawned");
     }
 
     #[test]
-    fn non_escalated_shell_rejects_external_workdir() {
+    fn trusted_shell_allows_external_workdir() {
         let workspace = tempfile::tempdir().expect("workspace");
         let external = tempfile::tempdir().expect("external workdir");
-        let call = json!({
-            "id": "call_shell",
-            "name": "shell",
-            "args": { "command": "pwd", "workdir": external.path() }
-        });
+        let args = json!({ "command": "pwd", "workdir": external.path() });
 
-        let error = invoke_impl(&call.to_string(), &workspace.path().display().to_string())
-            .expect_err("external workdir must require escalation");
+        let result = invoke_command(
+            "call_shell".to_owned(),
+            Some(&args),
+            "pwd",
+            &workspace.path().display().to_string(),
+            SandboxMode::disabled_for_test(),
+            false,
+        )
+        .map(|json| serde_json::from_str::<Value>(&json).expect("tool result"))
+        .expect("trusted external workdir");
+
+        assert_eq!(result["ok"], true);
+        assert_eq!(
+            result["metadata"]["workdir"],
+            external.path().display().to_string()
+        );
+        assert_eq!(result["metadata"]["sandbox"], Value::Null);
+    }
+
+    #[test]
+    fn sandbox_mode_rejects_external_workdir() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let external = tempfile::tempdir().expect("external workdir");
+        let args = json!({ "command": "pwd", "workdir": external.path() });
+
+        let error = invoke_command(
+            "call_shell".to_owned(),
+            Some(&args),
+            "pwd",
+            &workspace.path().display().to_string(),
+            SandboxMode::enabled_unavailable_for_test(),
+            false,
+        )
+        .expect_err("sandbox mode must reject external workdir");
 
         assert!(
             error.to_string().contains("outside the workspace"),
             "{error}"
         );
-        assert!(
-            error
-                .to_string()
-                .contains("with_escalated_permissions=true"),
-            "{error}"
-        );
+        assert!(error.to_string().contains("PROTEUS_SHELL_SANDBOX=1"));
     }
 
     #[test]
-    fn non_escalated_shell_rejects_unsandboxed_external_terminal() {
+    fn sandbox_mode_rejects_external_terminal() {
         let dir = tempfile::tempdir().expect("workspace");
         let args = json!({ "command": "true" });
 
@@ -935,57 +965,71 @@ mod tests {
             Some(&args),
             "true",
             &dir.path().display().to_string(),
-            false,
-            SandboxPolicy::unavailable_for_test(),
+            SandboxMode::enabled_unavailable_for_test(),
             true,
         )
-        .expect_err("Ptyxis requires escalation");
+        .expect_err("sandbox mode must reject Ptyxis");
 
         assert!(error.to_string().contains("external terminal"), "{error}");
+        assert!(error.to_string().contains("PROTEUS_SHELL_SANDBOX=1"));
     }
 
     #[test]
-    fn escalated_call_skips_sandbox_and_reports_metadata() {
+    fn trusted_direct_call_reports_no_sandbox() {
         let dir = tempfile::tempdir().expect("workspace");
-        let call = json!({
-            "id": "call_shell",
-            "name": "shell",
-            "args": {
-                "command": "printf ok",
-                "with_escalated_permissions": true,
-                "justification": "test"
-            }
-        });
+        let args = json!({ "command": "printf ok" });
 
-        let result = invoke_impl(&call.to_string(), &dir.path().display().to_string())
-            .map(|json| serde_json::from_str::<Value>(&json).expect("tool result"))
-            .expect("invoke");
+        let result = invoke_command(
+            "call_shell".to_owned(),
+            Some(&args),
+            "printf ok",
+            &dir.path().display().to_string(),
+            SandboxMode::disabled_for_test(),
+            false,
+        )
+        .map(|json| serde_json::from_str::<Value>(&json).expect("tool result"))
+        .expect("trusted direct invocation");
 
         assert_eq!(result["ok"], true);
-        assert_eq!(result["metadata"]["escalated"], true);
         assert_eq!(result["metadata"]["sandbox"], Value::Null);
     }
 
     #[test]
     fn sandboxed_run_blocks_network_when_bwrap_available() {
         let dir = tempfile::tempdir().expect("workspace");
-        if SandboxPolicy::detect(&dir.path().display().to_string())
-            .select(false, false)
-            .is_err()
-        {
+        let cwd = dir.path().display().to_string();
+        let sandbox_mode = SandboxMode::enabled_for_workspace_test(&cwd);
+        if sandbox_mode.select(false).is_err() {
             return; // окружение без bwrap — интеграцию пропускаем
         }
 
-        let ok = invoke(dir.path(), "printf sandboxed");
+        let ok_args = json!({ "command": "printf sandboxed" });
+        let ok = invoke_command(
+            "sandbox_ok".to_owned(),
+            Some(&ok_args),
+            ok_args["command"].as_str().expect("command"),
+            &cwd,
+            sandbox_mode.clone(),
+            false,
+        )
+        .map(|json| serde_json::from_str::<Value>(&json).expect("tool result"))
+        .expect("sandboxed invocation");
         assert_eq!(ok["ok"], true);
         assert_eq!(ok["metadata"]["sandbox"], "bwrap");
 
         // сеть в sandbox отрезана: getent/curl недоступны без сети;
         // используем /dev/tcp bash-исмуляцию через sh — надёжнее ping
-        let net = invoke(
-            dir.path(),
-            "sh -c 'echo x > /dev/tcp/127.0.0.1/9' 2>&1; true",
-        );
+        let net_args = json!({ "command": "sh -c 'echo x > /dev/tcp/127.0.0.1/9' 2>&1; true" });
+        let net = invoke_command(
+            "sandbox_net".to_owned(),
+            Some(&net_args),
+            net_args["command"].as_str().expect("command"),
+            &cwd,
+            sandbox_mode,
+            false,
+        )
+        .map(|json| serde_json::from_str::<Value>(&json).expect("tool result"))
+        .expect("sandboxed network invocation");
         assert_eq!(net["metadata"]["sandbox"], "bwrap");
     }
 
@@ -994,8 +1038,8 @@ mod tests {
     fn sandboxed_run_cannot_see_or_signal_external_process_when_bwrap_available() {
         let dir = tempfile::tempdir().expect("workspace");
         let cwd = dir.path().display().to_string();
-        let sandbox_policy = SandboxPolicy::detect(&cwd);
-        let Ok(Some(sandbox)) = sandbox_policy.select(false, false) else {
+        let sandbox_mode = SandboxMode::enabled_for_workspace_test(&cwd);
+        let Ok(Some(sandbox)) = sandbox_mode.select(false) else {
             return;
         };
 
@@ -1032,8 +1076,7 @@ mod tests {
             Some(&args),
             args["command"].as_str().expect("command"),
             &cwd,
-            false,
-            sandbox_policy,
+            sandbox_mode,
             false,
         );
         let external_survived = external

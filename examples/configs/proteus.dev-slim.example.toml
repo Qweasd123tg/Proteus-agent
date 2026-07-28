@@ -10,7 +10,6 @@ workflow = "coding.single_loop"
 search = "rg"
 memory = "none"
 context = "repo_aware"
-policy = "ask_write"
 patch = "direct"
 compactor = "codex"
 tool_exposure = "all_visible"
@@ -18,13 +17,6 @@ renderer = "statusline"
 
 [tools]
 enabled = ["search", "read_file", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "apply_patch", "shell"]
-
-[permissions]
-mode = "normal"
-
-[module_config.policy.ask_write]
-allow = ["search", "read_file", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input"]
-ask_before = ["apply_patch", "shell"]
 
 [module_config.compactor.codex]
 trigger_fraction = 0.8
@@ -52,9 +44,6 @@ repo_tree_skip_entries = [
 ]
 project_instruction_files = ["AGENTS.override.md", "AGENTS.md", "CLAUDE.md", ".cursorrules"]
 manifest_files = ["Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "composer.json"]
-
-[app_server]
-approval_timeout_ms = 0
 
 [runtime]
 model_timeout_ms = 10800000

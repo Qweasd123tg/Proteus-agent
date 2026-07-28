@@ -14,7 +14,6 @@ workflow = "coding.single_loop"
 search = "null"
 memory = "none"
 context = "simple"
-policy = "ask_write"
 patch = "null"
 compactor = "none"
 tool_exposure = "all_visible"
@@ -29,13 +28,6 @@ surface = "task"
 # plugins: install file-tools, git-tools, and shell-tool into ~/.proteus/plugins/
 # and extend this list.
 enabled = ["apply_patch", "remember_fact", "request_user_input", "search"]
-
-[permissions]
-mode = "normal"
-
-[module_config.policy.ask_write]
-ask_before = ["apply_patch", "remember_fact"]
-allow = ["search", "request_user_input"]
 
 [module_config.search.rg]
 max_results = 50
@@ -54,9 +46,6 @@ repo_tree_max_depth = 3
 repo_tree_skip_entries = [".git", "target", "node_modules", ".proteus", "sessions", "dist", "build", ".env", "secrets.json", "config.local.json"]
 project_instruction_files = ["AGENTS.override.md", "AGENTS.md", "CLAUDE.md", ".cursorrules"]
 manifest_files = ["Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "composer.json"]
-
-[app_server]
-approval_timeout_ms = 0
 
 [runtime]
 model_timeout_ms = 10800000

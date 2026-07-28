@@ -31,15 +31,11 @@ Codex pack: `codex-compactor` бережно сохраняет user-message
 | context metadata `model_visible_render = "verbatim"` | `context-pack` (`codex_context`) | OpenAI/Anthropic model adapters | `CONTEXT_RENDER_MODE_*` в contracts |
 | chunk source `repo_aware:*` / `codex_context:*`, metadata `provider`/`reason`/`context_profile` | `context-pack` | app-server `context_map`, UI/debug views | строковые префиксы и metadata keys |
 | tool metadata `hot`, `category`, `tags`, `aliases` | tool packs и `[tools.configured]` в config | `codex-tool-exposure` (`metadata_hot`) | metadata JSON у tool spec |
-| `always_include` / `allow` / `ask_before` / `deny` / `allow_sandboxed` списки | named config | `policy-pack`, `codex-tool-exposure` | имена tools; `proteus doctor` warn-ит на неизвестные. В codex profile collaboration-имена, включая messaging tools sequential runner-а, валидны только при `subagents.surface = "collaboration"` |
-| `with_escalated_permissions` + `justification` | `shell-tool` (аргументы tool) | `policy-pack` (`allow_sandboxed`), core `tool_orchestrator` | имена аргументов tool call |
-| `request_permissions` → `granted_permissions` | `policy-pack` tool | core `PolicyContext`, `policy-pack` при следующих вызовах | имя tool + семантика grant scope |
-| `approval.cache_scopes = ["workspace_write"]` | builtin `ApplyPatchTool` metadata | core `approval/cache` | metadata key + имя scope |
+| `always_include` | named config | `codex-tool-exposure` | имена tools; `proteus doctor` warn-ит на неизвестные. В codex profile collaboration-имена валидны только при `subagents.surface = "collaboration"` |
+| `PROTEUS_SHELL_SANDBOX=1` | operator environment | `shell-tool` | единый process-level opt-in workspace sandbox; model args не могут ослабить режим |
 | `<shell>sh</shell>` в environment chunk | `context-pack` | согласовано с `shell-tool` (`sh -lc`) | константа `EXEC_SHELL` в contracts |
 | `<available_skills>` + tool `skill {name}` | `skill-pack` context provider / named config | model prompt + `skill-pack` tool | provider id `skills`, tool name `skill`, project-over-user catalog lookup |
 | `lsp_diagnostics` → `ContentLengthFraming` | `rust-lsp` tool / named config | `proteus-process-host`, `rust-analyzer` | tool name, `RunsCommands`, LSP initialize + didOpen/didChange + publishDiagnostics |
-| opencode `groups.*.tools` (маппинг tool → permission-группа) | named config `opencode` | `policy-pack` (`opencode_policy`) | имена tools; `proteus doctor` проверяет вложенные `tools`-списки |
-| opencode `pattern_args` (`command`/`path`/`paths`) | named config `opencode` | `opencode_policy` читает эти ключи из `ToolCall.args` | имена аргументов tools из `shell-tool`/`file-tools`; при переименовании аргумента правила молча перестанут матчиться |
 | request metadata `tool_exposure` (telemetry селектора) | `coding-workflow` (`request_from_state`) | usage snapshots, event log, UI debug views | metadata key у `CanonicalModelRequest` |
 | structural shape и tool surface `CanonicalModelResponse` | model adapters | `ModelService`, workflow plugins, sequential subagent | общие contract helpers `validate_model_response_structure` / `validate_model_response_against_request`: assistant role, finish reason/tool consistency, ordered message projection, unique call ids, exact function/freeform round-trip для объявленного tool |
 | `CanonicalModelResponse.end_turn` | model adapter (`openai.responses`) | strict `coding.codex_loop`, sequential subagent | optional canonical field; `false` требует следующий model round без provider-specific parsing в consumer-е |
@@ -68,9 +64,8 @@ producer/consumer нигде не перечислены и не проверя�
    `EXEC_SHELL` (`shell-tool` ↔ `context-pack`). Это не меняет ABI и убирает
    дрейф написания; связка проверяется компилятором через общий crate.
 3. **[сделано] Проверки в `proteus doctor`.** Doctor warn-ит на имена tools в
-   `module_config.*` списках (`allow`, `allow_sandboxed`, `ask_before`,
-   `deny`, `always_include`, вложенные `tools` вроде opencode
-   permission groups), которых нет в собранном tool registry. Имена
+   `module_config.tool_exposure.*.always_include` и subagent role
+   tool-lists, которых нет в собранном tool registry. Имена
    `<server>__*` пропускаются, если MCP server сконфигурирован (discovery
    может быть недоступен при doctor run). Ловит опечатки и мёртвые записи
    после переименований.

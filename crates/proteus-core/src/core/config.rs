@@ -5,7 +5,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    domain::{ModelRef, ModuleKind, PermissionMode, ReasoningConfig},
+    domain::{ModelRef, ModuleKind, ReasoningConfig},
     model_standard::{InstructionBlock, InstructionKind},
 };
 
@@ -33,10 +33,6 @@ pub struct AppConfig {
     #[serde(default)]
     pub subagents: SubagentsConfig,
     #[serde(default)]
-    pub permissions: PermissionsConfig,
-    #[serde(default)]
-    pub app_server: AppServerConfig,
-    #[serde(default)]
     pub runtime: RuntimeConfig,
     #[serde(default)]
     pub event_log: EventLogConfig,
@@ -59,8 +55,6 @@ impl Default for AppConfig {
             module_config: BTreeMap::new(),
             tools: ToolsConfig::default(),
             subagents: SubagentsConfig::default(),
-            permissions: PermissionsConfig::default(),
-            app_server: AppServerConfig::default(),
             runtime: RuntimeConfig::default(),
             event_log: EventLogConfig::default(),
             web: WebConfig::default(),
@@ -267,8 +261,6 @@ pub struct ModulesConfig {
     pub memory: String,
     #[serde(default = "default_context")]
     pub context: String,
-    #[serde(default = "default_policy")]
-    pub policy: String,
     #[serde(default = "default_patch")]
     pub patch: String,
     #[serde(default = "default_compactor")]
@@ -288,7 +280,6 @@ impl Default for ModulesConfig {
             search: default_search(),
             memory: default_memory(),
             context: default_context(),
-            policy: default_policy(),
             patch: default_patch(),
             compactor: default_compactor(),
             tool_exposure: default_tool_exposure(),
@@ -317,7 +308,6 @@ impl ModulesConfig {
             ModuleKind::Search => Some(&self.search),
             ModuleKind::Memory => Some(&self.memory),
             ModuleKind::Context => Some(&self.context),
-            ModuleKind::Policy => Some(&self.policy),
             ModuleKind::Patch => Some(&self.patch),
             ModuleKind::Compactor => Some(&self.compactor),
             ModuleKind::ToolExposure => Some(&self.tool_exposure),
@@ -344,7 +334,6 @@ impl ModulesConfig {
             ModuleKind::Search => self.search = module_id,
             ModuleKind::Memory => self.memory = module_id,
             ModuleKind::Context => self.context = module_id,
-            ModuleKind::Policy => self.policy = module_id,
             ModuleKind::Patch => self.patch = module_id,
             ModuleKind::Compactor => self.compactor = module_id,
             ModuleKind::ToolExposure => self.tool_exposure = module_id,
@@ -462,12 +451,6 @@ pub struct ConfiguredMcpServerConfig {
     pub metadata: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PermissionsConfig {
-    #[serde(default)]
-    pub mode: PermissionMode,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventLogConfig {
     #[serde(default = "default_event_log_path")]
@@ -478,12 +461,6 @@ pub struct EventLogConfig {
     /// всё равно приходят подписчикам через broadcast (UI видит их).
     #[serde(default)]
     pub persist_deltas: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AppServerConfig {
-    #[serde(default = "default_approval_timeout_ms")]
-    pub approval_timeout_ms: u64,
 }
 
 /// Конфиг веб-клиента (`[web]`). Доставляется фронту через `/config`.
@@ -510,14 +487,6 @@ impl Default for EventLogConfig {
         Self {
             path: default_event_log_path(),
             persist_deltas: false,
-        }
-    }
-}
-
-impl Default for AppServerConfig {
-    fn default() -> Self {
-        Self {
-            approval_timeout_ms: default_approval_timeout_ms(),
         }
     }
 }
@@ -562,10 +531,6 @@ fn default_memory() -> String {
 
 fn default_context() -> String {
     "none".to_owned()
-}
-
-fn default_policy() -> String {
-    "deny_all".to_owned()
 }
 
 fn default_patch() -> String {
@@ -614,10 +579,6 @@ fn default_mcp_discovered_tool_safety() -> crate::domain::ToolSafety {
 
 fn default_event_log_path() -> PathBuf {
     PathBuf::from(".proteus/events.jsonl")
-}
-
-fn default_approval_timeout_ms() -> u64 {
-    0
 }
 
 fn default_model_timeout_ms() -> u64 {

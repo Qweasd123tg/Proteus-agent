@@ -18,15 +18,13 @@ binary и должны подключаться отдельным процес�
 
 ```bash
 cargo run --bin proteus -- summarize project
-cargo run --bin proteus -- --plan summarize project
-cargo run --bin proteus -- --auto apply patch
-cargo run --bin proteus -- --permission-mode normal summarize project
+PROTEUS_SHELL_SANDBOX=1 cargo run --bin proteus -- summarize project
 ```
 
 Диагностика окружения без запуска turn'а:
 
 ```bash
-cargo run --bin proteus -- init coding
+cargo run --bin proteus -- init codex
 cargo run --bin proteus -- doctor
 ```
 
@@ -157,7 +155,7 @@ chain-of-thought и без `event_log.persist_deltas = true` не восстан
 `session_seq`, timestamp, session/thread/turn ids, `kind` и payload.
 
 Journal фиксирует `turn_opened`, revisioned `history_mutated`, точные shaped
-model request/terminal response, tool request/approval/resolution/result и
+model request/terminal response, tool request/resolution/result и
 `turn_settled`. Conversation history для resume получается fold-ом
 `history_mutated`; request-scoped context в неё не попадает. Compaction пишет
 append-only replacement с lineage и не удаляет исходные records.
@@ -181,9 +179,9 @@ config для этой сессии. Текущая `schema_version = 2`: пол
 перезаписывается при открытии существующей сессии и при принятии user message.
 В snapshot входят profile name, active provider, актуальные model/ref и
 reasoning config, выбранные module ids, список
-зарегистрированных tools с source/spec, `subagent_surface` и default permission
-mode. Каждый `turn_opened` дополнительно содержит snapshot того же
-`RuntimeSnapshot`/`ModuleEpoch`, поэтому module reload и runtime model/mode
+зарегистрированных tools с source/spec и `subagent_surface`. Каждый
+`turn_opened` дополнительно содержит snapshot того же
+`RuntimeSnapshot`/`ModuleEpoch`, поэтому module reload и runtime model
 override не приписываются следующему turn-у задним числом.
 
 Полный формат и границы replay описаны в
@@ -199,8 +197,6 @@ override не приписываются следующему turn-у задни
 - `ModelResponseReceived`;
 - `TokenUsageUpdated`;
 - `ToolCallRequested`;
-- `ApprovalRequested`;
-- `ApprovalResolved`;
 - `ToolFinished`;
 - `SubagentStarted`;
 - `SubagentFinished`;
@@ -218,7 +214,7 @@ runtime не испускает.
 `subagent`: роль, краткое описание, статус, число итераций и
 `child_thread_id`. Эти события приходят в envelope родительского `thread_id`,
 потому что пользовательский turn остаётся родительским. Tool-события
-дочернего цикла (`ToolCallRequested`, `ApprovalRequested`, `ToolFinished`)
+дочернего цикла (`ToolCallRequested`, `ToolFinished`)
 приходят отдельными envelope с `thread_id = child_thread_id`. Streaming
 text-дельты дочернего цикла builtin runner (`sequential`) подавляются через
 request metadata `suppress_stream_deltas`: delta-контекст `ModelService`
@@ -271,8 +267,8 @@ parent turn: следующий `TurnStarted` и `TurnFinished` их не очи
 ограничивает число карточек, nested tools и размер tool payload. Это live
 process-resident UI state, не durable transcript: restart app-server-а не
 восстанавливает collaboration handles или незавершённые background cards.
-Вызов `task` является обычным registry tool. `ToolCallRequested`, approval
-events и `ToolFinished` испускает `ToolOrchestrator`; workflow и UI не создают
+Вызов `task` является обычным registry tool. `ToolCallRequested` и
+`ToolFinished` испускает `ToolOrchestrator`; workflow и UI не создают
 для него synthetic lifecycle.
 
 Статус tool-карточки в `/history` терминализуется на границах: в committed
@@ -359,8 +355,6 @@ system-строку в transcript.
 - `Runtime` - проброшенный runtime `EventEnvelope`;
 - `UserMessageSubmitted` - пользовательская команда принята;
 - `TurnOutput` - итоговый `AgentOutput`;
-- `ApprovalRequested` - tool approval ждёт решения UI-клиента;
-- `ApprovalResolved` - approval закрыт;
 - `UserInputRequested` - tool `request_user_input`/`AskUserQuestion` ждёт
   typed ответа UI;
 - `UserInputResolved` - pending user-input request закрыт;
@@ -371,40 +365,18 @@ system-строку в transcript.
   пересинхронизация;
 - `Shutdown` - процесс/сессия закрывается.
 
-`ApprovalRequested` несёт `AppApprovalRequest`: `approval_id`, исходный
-`ToolCall`, `cwd`, человекочитаемый `reason`, optional `tool_spec` и optional
-`preview`. `preview` является UI-метаданными, а не новым contract-ом
-исполнения. Клиент может показать affected files, diff/body или shell command
-до approve/deny, но показанный здесь registered tool всё равно исполняется
-через `ToolRegistry`, `ApprovalPolicy`, `ToolSafety` и validation самого tool.
-Facade-tool `task` следует тому же пути; отказ approval завершается error
-`ToolResult` до запуска ребёнка или создания worktree.
-
-Текущий WIP app-server генерирует `preview` для трёх approval UX:
-
-- `apply_patch` - `kind = "patch"`, affected files из internal patch format и
-  body с patch/diff;
-- `write_file` - `kind = "write_file"`, affected target file и body с новым
-  content или простым overwrite diff, если файл уже существует;
-- `shell` - `kind = "command"`, command body и cwd/cache metadata.
-
-Поле optional: старые клиенты должны игнорировать отсутствие `preview`, а новые
-клиенты не должны трактовать его как источник разрешений или как замену
-server-side проверкам.
-
 Команды `server stdio`:
 
 ```json
 {"id":"1","type":"send","text":"summarize project"}
 {"id":"2","type":"clear_history"}
-{"id":"3","type":"approval","approval_id":"...","approved":true,"note":null,"cache":"workspace_write"}
-{"id":"4","type":"cancel","target_id":"1"}
-{"id":"5","type":"shutdown"}
+{"id":"3","type":"cancel","target_id":"1"}
+{"id":"4","type":"shutdown"}
 ```
 
 Каждая строка stdout является либо `event`, либо `response`. Первый `send`
-запускает root turn асинхронно, поэтому UI может отправить `approval`, `cancel`
-или следующий `send`, пока turn работает. Следующий `send` той же session
+запускает root turn асинхронно, поэтому UI может отправить `cancel` или
+следующий `send`, пока turn работает. Следующий `send` той же session
 получает немедленный receipt с `queued = true`, `message_id`,
 `active_turn_id` и `queued_count`; его текст уже принадлежит runtime-очереди,
 а не transport task. `cancel.target_id` ссылается на `id` исходного активного
@@ -436,7 +408,7 @@ HTTP/SSE transport:
   live `activity` для sessions, открытых в текущем app-server process;
 - `GET /sessions/current` - тот же список, ограниченный workspace текущего
   app-server;
-- `GET /pending` - snapshot pending approval/user-input запросов и ещё не
+- `GET /pending` - snapshot pending user-input запросов и ещё не
   доставленных root steering messages выбранной session для восстановления UI
   после initial load или SSE reconnect;
 - `POST /request` - generic `StdioRequest`, ответом является `StdioOutput::Response`;
@@ -451,7 +423,7 @@ HTTP/SSE transport:
 - `POST /send-async` - принимает turn или steering message без ожидания
   финального ответа; response различает `queued = false|true`, а progress,
   `TurnOutput` или `Error` приходят через `GET /events`;
-- `POST /cancel`, `/approval`, `/user-input`, `/mode`, `/model`, `/reasoning`,
+- `POST /cancel`, `/user-input`, `/model`, `/reasoning`,
   `/effort` - короткие endpoint'ы над соответствующими командами; mutating
   request bodies могут передать `session_dir`, чтобы команда ушла в конкретную
   live session, а не в process-wide текущую session;
@@ -492,14 +464,14 @@ bounded runtime-очередь. Разные sessions по-прежнему ра
 `POST /request` сохраняет stdio-compatible поведение и работает с текущей
 выбранной session; для parallel-session UI нужно использовать короткие HTTP
 endpoint'ы с явным `session_dir`.
-Pending approval/user-input живут в app-server до ответа UI, timeout, cancel,
-delete или shutdown. Если SSE connection оборвался до доставки
-`ApprovalRequested`/`UserInputRequested`, новый клиент перечитывает `/pending`
+Pending user-input requests живут в app-server до ответа UI, cancel, delete
+или shutdown. Если SSE connection оборвался до доставки
+`UserInputRequested`, новый клиент перечитывает `/pending`
 и восстанавливает карточки без повторного запуска turn'а.
 После `/resume` web-клиент открывает новый SSE connection к выбранной session.
 Turns старой session продолжают работать в фоне в том же app-server process;
-sidebar получает `SessionActivityUpdated`, а pending approval/user-input старой
-session можно увидеть и закрыть после переключения обратно. Явная отмена
+sidebar получает `SessionActivityUpdated`, а pending user-input старой session
+можно увидеть и закрыть после переключения обратно. Явная отмена
 остаётся через `/cancel`, а удаление session отменяет только работу этой
 session.
 При переключении web-клиент закрывает старый SSE connection, оптимистично
@@ -567,7 +539,7 @@ session во время записи перемещать нельзя. Target w
 ## History
 
 `AgentRuntime` разделяет runtime services и session state. Runtime services
-держат cwd, registry, event emitter, approval transport и permission mode.
+держат cwd, registry и event emitter.
 `SessionState` держит `SessionId`, `ThreadId`, `run_lock`, in-memory history,
 optional session store и bounded root-steering queue.
 
@@ -679,18 +651,18 @@ journal с единственным turn-ом; при нескольких turns
 и перечисляет доступные значения. Путь может указывать на session directory
 или прямо на `journal.jsonl`.
 
-Module ids, model/reasoning, tool specs и default permission mode берутся из
+Module ids, model/reasoning и tool specs берутся из
 `turn_opened.config_snapshot`. Текущий `--config` предоставляет module factory
-settings и instruction blocks, необходимые для построения записанных Workflow и
-Policy. Реальные model adapters, process modules, subagents и tool
-implementations не создаются: model responses, approval decisions и tool
-results последовательно подставляются из journal, а context, compaction и tool
+settings и instruction blocks, необходимые для построения записанного Workflow.
+Реальные model adapters, process modules, subagents и tool implementations не
+создаются: model responses и tool results последовательно подставляются из
+journal, а context, compaction и tool
 exposure восстанавливаются из canonical records.
 
-Replay идёт через обычные Workflow, `ModelService`, `ApprovalPolicy`,
-`ToolRegistry` и `ToolOrchestrator`, поэтому проверяет фактический orchestration
+Replay идёт через обычные Workflow, `ModelService`, `ToolRegistry` и
+`ToolOrchestrator`, поэтому проверяет фактический orchestration
 path, но не повторяет provider-hosted или local side effects. Он сравнивает
-post-shaping model requests, tool request/approval/resolution/result, changed
+post-shaping model requests, tool request/resolution/result, changed
 compaction reports, settlement, output и итоговую history; построение финальной
 history проходит общий runtime validator. Допустимая нормализация ограничена
 заново создаваемыми message/part ids, generated inner call ids и
@@ -732,7 +704,7 @@ boundary. Если после settlement подходящего следующе
 первое сообщение становится новым follow-up turn; остаток повторяет тот же
 алгоритм.
 
-Доставка не обходит `ToolRegistry`, `ApprovalPolicy` или `ToolSafety`: она
+Доставка не обходит `ToolRegistry` и `ToolOrchestrator`: она
 меняет только следующий model request, а все tool calls после него проходят
 обычный orchestration path. Workflow host видит динамический
 `queued_user_messages`, но не может извлекать сообщения или управлять
@@ -809,46 +781,12 @@ persistent history projection. В историю сохраняются поль
 сообщение, tool results, execute draft/final assistant messages и итоговый
 review answer.
 
-Если approval требуется, `ToolOrchestrator` отправляет запрос через
-`ApprovalTransport`. CLI single-run и line REPL спрашивают пользователя в
-терминале; app-server transport публикует approval request и ждёт ответ
-UI-клиента. App-server может ограничивать ожидание через
-`app_server.approval_timeout_ms`: ненулевой timeout или shutdown закрывает
-pending approval как отказ. По умолчанию approval timeout отключён, чтобы
-интерактивный UI ждал явного решения пользователя.
+Внешний UI остаётся control plane для turn state: interrupt/cancel,
+typed user input, tools/model/doctor/events и export views. Эти команды
+принадлежат клиентскому слою поверх runtime/app-server boundary, а не visual
+business logic. Зарегистрированные tools исполняются напрямую через общий
+orchestrator; отдельной очереди разрешений в UI нет.
 
-Approval cache находится в transport-слое текущей runtime session. Если UI
-ответил `cache = "exact_call"`, следующий identical request с тем же `cwd`, tool
-name и canonical JSON args будет approved без нового pending app-server request.
-`cache = "exact_command"` использует тот же exact key, но даёт UI отдельный
-command-level label для shell/process approvals. Если UI ответил
-`cache = "workspace_write"`, следующие requests того же workspace-scoped write
-tool в том же `cwd` будут approved независимо от args; core принимает этот
-scope только для tools, которые явно opt-in через `ToolSpec.metadata.approval`.
-Этот cache не пишется в session journal и не восстанавливается при resume.
-
-Ближайшая продуктовая цель внешних UI-клиентов - быть местом контроля turn
-state: interrupt/cancel, approval queue с подсказочным preview,
-tools/model/doctor/events и export views. Эти команды должны оставаться
-клиентским слоем поверх runtime/app-server boundary, а не переносить business
-logic в visual layer.
-Режимы `plan`, `normal` и `auto` должны работать как control-plane команды:
-enforcement остаётся в core `ModeAwarePolicy`, а UI отправляет app-server
-request с новым permission override. В plan mode UI может дополнительно
-оборачивать следующий user request как read-only planning prompt. Prompt
-следует interview-first модели: для широких или недоопределённых задач модель
-должна сначала запросить существенные решения через typed question tool, а
-финальный staged plan писать только после ответов или явного skip.
-Web-клиент реализует минимальные plan controls так: русская кнопка
-`Спросить план` в composer отправляет planning prompt в `PermissionMode::Plan`,
-а `Уточнить`, `Выполнить` и `Выйти` показываются отдельной карточкой в
-transcript после ответа плана. `Уточнить` уточняет последний план, `Выполнить`
-переключает следующую команду в `PermissionMode::Normal`, а `Выйти` возвращает
-обычный режим без запуска turn.
-`Ask Plan` трактует composer text как topic для общего planning interview:
-модель должна сама вызвать `request_user_input`/`AskUserQuestion` с 1-3
-существенными вопросами и вариантами выбора, а UI показывает choices и
-свободный `Other`.
 Если модель вызывает tool `request_user_input` или alias `AskUserQuestion`,
 app-server публикует `AppServerEvent::UserInputRequested`, UI показывает
 пошаговую карточку в transcript с question tabs для
@@ -860,9 +798,7 @@ composer может поставить следующий prompt в очеред
 layout sizes сохраняются в browser `localStorage`, Markdown дополнительно
 обрабатывается MathJax для LaTeX delimiters, а running turn без pending input
 отображается compact working indicator. Turn остаётся
-открытым, а workflow получает typed `ToolResult` с ответами. После обычного
-plan `TurnOutput` UI может открыть
-chooser для execute/revise/dismiss.
+открытым, а workflow получает typed `ToolResult` с ответами.
 Web transcript держит sticky-bottom только пока пользователь не скроллит вверх:
 upward wheel/scroll отключает прилипание, повторное автоприлипание происходит
 только при реальном возврате к нижней границе, а browser scroll anchoring
@@ -871,10 +807,8 @@ keyed-list; во время streaming пересоздаётся только м
 а не весь transcript. Streaming assistant text рендерится через тот же Markdown
 pipeline, что и завершённое сообщение, но MathJax запускается только после
 окончания streaming turn, чтобы не перестраивать формулы на каждый token/delta.
-Ненулевой `app_server.approval_timeout_ms` закрывает pending user-input request
-пустым `UserInputResponse`; значение `0` отключает этот timeout и ждёт ответ
-пользователя до cancel или shutdown. Как и approvals, pending user inputs
-атрибуцированы и per-request scoped: `UserInputRequest.origin` несёт
+Pending user inputs ждут пользователя до ответа, cancel или shutdown и
+атрибуцированы per request: `UserInputRequest.origin` несёт
 `RequestOrigin` (thread/turn + метка роли субагента), `UserInputRequest.seq` —
 порядок очереди, а watcher app-server-а убирает запись, когда запросивший
 умирает (cancel turn-а), не трогая pending user inputs других turn-ов;
@@ -884,9 +818,9 @@ blanket-resolve остаётся только на shutdown (см.
 использовать эти labels в строке прогресса (`Language`, `Stack`, `Deploy`, ...),
 но не решает сам, какие вопросы задавать. Это остаётся ответственностью
 workflow/model через typed tool-call.
-Web-клиент показывает компактные selectors для `PermissionMode`, model name,
-reasoning on/off и `reasoning.effort` в строке composer actions, рядом с
-отправкой запроса. `POST /model` меняет имя модели в текущем provider adapter
+Web-клиент показывает компактные selectors для model name, reasoning on/off и
+`reasoning.effort` в строке composer actions, рядом с отправкой запроса.
+`POST /model` меняет имя модели в текущем provider adapter
 для следующих turns. `POST /reasoning` включает/выключает reasoning config,
 а `POST /effort` меняет только `ReasoningConfig.effort` и сохраняет остальные
 reasoning-поля из runtime config (`summary`, `budget_tokens`). UI получает
@@ -937,10 +871,7 @@ host-процессы, но это не dylib unload и не общий `reload_
 UI не знает domain-specific options; модель формирует вопросы через
 `request_user_input`/`AskUserQuestion`, а клиент рендерит только generic
 single-choice, multi-choice и custom форму. Это повторяет границу Claude/Codex:
-вопрос-ответ является tool/event round-trip, а approval финального плана
-остаётся отдельным UI-действием.
-
-`permissions.mode = "plan"` не запрашивает approval и не даёт исполнять write/shell/network tools. `permissions.mode = "auto"` пропускает `ReadOnly` и `WritesFiles` без approval, но запрещает shell/network/dangerous tools.
+вопрос-ответ является tool/event round-trip.
 
 `ToolSpec.timeout_ms` исполняется в `ToolOrchestrator`. При timeout он пишет failed `ToolResult` с `metadata.timed_out = true`; длинные outputs/errors обрезаются до общего лимита orchestrator-а (`200_000` bytes по умолчанию) с visible truncation marker и metadata о фактическом размере. Стандартные file/search/git tools задают `timeout_ms = 60000`, а shell tool задаёт `timeout_ms = 600000`, потому что тесты, сборки и генерация артефактов часто занимают больше старых 5-30 секунд.
 

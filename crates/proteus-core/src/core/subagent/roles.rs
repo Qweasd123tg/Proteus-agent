@@ -52,7 +52,7 @@ pub(super) struct SequentialRoleConfig {
     pub tools: Option<Vec<String>>,
     /// Роль можно запускать конкурентно рядом с другими субагентами
     /// (декларация оператора; для sequential-runner-а роль должна быть
-    /// фактически read-only через tools/policy).
+    /// фактически read-only через tools/config).
     #[serde(default)]
     pub parallel_safe: bool,
     /// Изоляция рабочей копии: `"worktree"` — каждый fresh запуск роли

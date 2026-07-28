@@ -72,7 +72,6 @@ pub(crate) fn load_web_settings(set_tool_cards_collapsed: WriteSignal<bool>) {
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn load_runtime_settings(
-    set_mode: WriteSignal<PermissionMode>,
     set_model_name: WriteSignal<String>,
     set_model_options: WriteSignal<Vec<String>>,
     set_reasoning_enabled: WriteSignal<bool>,
@@ -118,9 +117,6 @@ pub(crate) fn load_runtime_settings(
                         set_active_turn_id,
                         set_agent_status,
                     );
-                }
-                if let Some(mode) = config.get("permission_mode").and_then(Value::as_str) {
-                    set_mode.set(PermissionMode::from_value(mode));
                 }
                 if let Some(model) = config.pointer("/model/name").and_then(Value::as_str) {
                     set_model_name.set(model.to_owned());
@@ -331,9 +327,7 @@ fn transcript_messages(items: Vec<TranscriptMessage>) -> Vec<Message> {
 
 fn collaboration_parent_matches(tool: &ToolActivity, task_name: &str) -> bool {
     match tool.name.as_str() {
-        SPAWN_AGENT_TOOL => {
-            tool.args.get("task_name").and_then(Value::as_str) == Some(task_name)
-        }
+        SPAWN_AGENT_TOOL => tool.args.get("task_name").and_then(Value::as_str) == Some(task_name),
         FOLLOWUP_TASK_TOOL => tool
             .args
             .get("target")
@@ -420,7 +414,6 @@ pub(crate) fn sidebar_session_activity_label(
     let activity = activity?;
     match activity.status.as_str() {
         "waiting_input" => Some("ждёт ответ".to_owned()),
-        "waiting_approval" => Some("ждёт доступ".to_owned()),
         "running" => Some("работает".to_owned()),
         "idle" => None,
         other if !other.trim().is_empty() => Some(other.replace('_', " ")),
@@ -444,7 +437,6 @@ pub(crate) fn active_session_activity_state(
         .cloned();
     let agent_status = match activity.map(|activity| activity.status.as_str()) {
         Some("waiting_input") => "ждёт ответ",
-        Some("waiting_approval") => "ждёт доступ",
         Some("running") => "работает",
         Some("idle") | None => "ожидает",
         Some(other) if !other.trim().is_empty() => other,
@@ -473,19 +465,15 @@ pub(crate) fn apply_active_session_activity(
 
 fn session_activity_is_busy(activity: &SessionActivityInfo) -> bool {
     activity.running_turns > 0
-        || activity.pending_approvals > 0
         || activity.pending_user_inputs > 0
-        || matches!(
-            activity.status.as_str(),
-            "running" | "waiting_approval" | "waiting_input"
-        )
+        || matches!(activity.status.as_str(), "running" | "waiting_input")
 }
 
 pub(crate) fn sidebar_session_activity_dot_class(
     activity: Option<&SessionActivityInfo>,
 ) -> &'static str {
     match activity.map(|activity| activity.status.as_str()) {
-        Some("waiting_input" | "waiting_approval") => "session-status-dot warning",
+        Some("waiting_input") => "session-status-dot warning",
         Some("running") => "session-status-dot running",
         Some("idle") | None => "session-status-dot",
         Some(_) => "session-status-dot running",
@@ -508,7 +496,7 @@ pub(crate) fn sidebar_session_render_key(session: &SessionSummary) -> String {
             .map(|activity| activity.running_turn_ids.join(","))
             .unwrap_or_default(),
         activity
-            .map(|activity| activity.pending_approvals + activity.pending_user_inputs)
+            .map(|activity| activity.pending_user_inputs)
             .unwrap_or(0),
     )
 }
@@ -620,12 +608,7 @@ fn message_role_from_wire(role: &str) -> MessageRole {
 
 fn transcript_tool_activity(tool: TranscriptTool) -> ToolActivity {
     let status = tool_status_from_wire(&tool.status);
-    let started_at_ms = if matches!(
-        status,
-        ToolActivityStatus::Running
-            | ToolActivityStatus::WaitingApproval
-            | ToolActivityStatus::Approved
-    ) {
+    let started_at_ms = if matches!(status, ToolActivityStatus::Running) {
         crate::ui_utils::now_ms()
     } else {
         0
@@ -683,9 +666,6 @@ fn transcript_subagent_activity(subagent: TranscriptSubagent) -> SubagentActivit
 
 fn tool_status_from_wire(status: &str) -> ToolActivityStatus {
     match status {
-        "waiting_approval" => ToolActivityStatus::WaitingApproval,
-        "approved" => ToolActivityStatus::Approved,
-        "denied" => ToolActivityStatus::Denied,
         "done" => ToolActivityStatus::Done,
         "failed" => ToolActivityStatus::Failed,
         "interrupted" => ToolActivityStatus::Interrupted,
@@ -836,12 +816,7 @@ fn message_may_contain_math(text: &str) -> bool {
 }
 
 pub(crate) fn tool_activity_is_active(tool: &ToolActivity) -> bool {
-    matches!(
-        tool.status,
-        ToolActivityStatus::Running
-            | ToolActivityStatus::WaitingApproval
-            | ToolActivityStatus::Approved
-    )
+    matches!(tool.status, ToolActivityStatus::Running)
 }
 
 pub(crate) fn schedule_results_scroll(
@@ -922,7 +897,6 @@ mod tests {
             status: "running".to_owned(),
             running_turns: 1,
             running_turn_ids: vec!["turn-1".to_owned()],
-            pending_approvals: 0,
             pending_user_inputs: 0,
         });
 
@@ -935,7 +909,6 @@ mod tests {
             status: "running".to_owned(),
             running_turns: 1,
             running_turn_ids: vec!["turn-1".to_owned()],
-            pending_approvals: 0,
             pending_user_inputs: 0,
         };
 
@@ -955,7 +928,6 @@ mod tests {
             status: "idle".to_owned(),
             running_turns: 0,
             running_turn_ids: Vec::new(),
-            pending_approvals: 0,
             pending_user_inputs: 0,
         };
 

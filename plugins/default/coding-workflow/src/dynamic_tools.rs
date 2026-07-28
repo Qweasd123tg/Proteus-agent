@@ -53,7 +53,7 @@ pub fn meta_tool_specs_for_phase(phase: &str) -> Vec<ToolSpec> {
     let mut tools = vec![
         ToolSpec::new(
             TOOL_SEARCH,
-            "Search all policy-visible Proteus tools by capability, including tools that are not in the current hot set. Returns compact matches without full schemas.",
+            "Search all available Proteus tools by capability, including tools that are not in the current hot set. Returns compact matches without full schemas.",
             json!({
                 "type": "object",
                 "properties": {
@@ -80,7 +80,7 @@ pub fn meta_tool_specs_for_phase(phase: &str) -> Vec<ToolSpec> {
         })),
         ToolSpec::new(
             TOOL_DESCRIBE,
-            "Describe one policy-visible Proteus tool by exact name, including its input schema.",
+            "Describe one available Proteus tool by exact name, including its input schema.",
             json!({
                 "type": "object",
                 "properties": {
@@ -104,7 +104,7 @@ pub fn meta_tool_specs_for_phase(phase: &str) -> Vec<ToolSpec> {
     tools.push(
         ToolSpec::new(
             TOOL_CALL,
-            "Invoke a policy-visible Proteus tool that is not directly available through the normal policy, approval, validation, timeout, and event-log path.",
+            "Invoke an available Proteus tool that is not directly exposed through the normal validation, timeout, and event-log path.",
             json!({
                 "type": "object",
                 "properties": {
@@ -129,7 +129,7 @@ pub fn meta_tool_specs_for_phase(phase: &str) -> Vec<ToolSpec> {
     tools
 }
 
-pub fn all_policy_visible_tools(
+pub fn all_available_tools(
     host: &mut PluginWorkflowHostMut<'_>,
     input: &PluginWorkflowInput,
 ) -> Result<Vec<ToolSpec>, PluginWorkflowError> {
@@ -182,7 +182,7 @@ fn handle_search(
         .unwrap_or(8)
         .clamp(1, 20) as usize;
     let safety = args.get("safety").and_then(Value::as_str);
-    let tools = all_policy_visible_tools(host, input)?;
+    let tools = all_available_tools(host, input)?;
     let mut ranked = tools
         .iter()
         .filter(|tool| !is_meta_tool(&tool.name))
@@ -246,11 +246,11 @@ fn handle_describe(
         ));
     }
 
-    let tools = all_policy_visible_tools(host, input)?;
+    let tools = all_available_tools(host, input)?;
     let Some(tool) = tools.iter().find(|tool| tool.name == name) else {
         return Ok(ToolResult::error(
             call.id.clone(),
-            format!("tool '{name}' is not available or is denied by policy"),
+            format!("tool '{name}' is not registered or available in this workflow"),
         ));
     };
     let usage_hint = if matches!(tool.surface, ToolSurface::ProviderHosted { .. }) {
@@ -296,11 +296,11 @@ fn handle_deferred_call(
         ));
     }
 
-    let tools = all_policy_visible_tools(host, input)?;
+    let tools = all_available_tools(host, input)?;
     let Some(spec) = tools.iter().find(|tool| tool.name == name) else {
         return Ok(ToolResult::error(
             outer_call.id.clone(),
-            format!("tool '{name}' is not available or is denied by policy"),
+            format!("tool '{name}' is not registered or available in this workflow"),
         ));
     };
     if matches!(spec.surface, ToolSurface::ProviderHosted { .. }) {

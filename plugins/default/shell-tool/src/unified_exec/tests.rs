@@ -154,8 +154,7 @@ fn janitor_keeps_recently_exited_session_until_output_is_collected() {
         &context,
         json!({
             "cmd": "sleep 0.5; printf late-tail; exit 7",
-            "yield_time_ms": 250,
-            "with_escalated_permissions": true
+            "yield_time_ms": 250
         }),
     );
     assert_eq!(started["metadata"]["exited"], false, "{started}");
@@ -236,8 +235,7 @@ fn cancellation_kills_and_removes_interactive_session() {
         "name": "exec_command",
         "args": {
             "cmd": "cat",
-            "yield_time_ms": 30000,
-            "with_escalated_permissions": true
+            "yield_time_ms": 30000
         }
     });
     let cancelled = Arc::new(AtomicBool::new(false));
@@ -321,7 +319,7 @@ fn exec_command_requires_cmd_arg() {
 }
 
 #[test]
-fn exec_command_fails_closed_without_bwrap() {
+fn exec_command_sandbox_mode_fails_closed_without_bwrap() {
     let dir = tempfile::tempdir().expect("workspace");
     let marker = dir.path().join("must-not-exist");
     let args = json!({ "cmd": "touch must-not-exist" });
@@ -333,38 +331,69 @@ fn exec_command_fails_closed_without_bwrap() {
             Some(&args),
             args["cmd"].as_str().unwrap(),
             &context,
-            false,
-            SandboxPolicy::unavailable_for_test(),
+            SandboxMode::enabled_unavailable_for_test(),
             host,
         )
     })
-    .expect_err("missing bwrap must reject non-escalated exec_command");
+    .expect_err("sandbox mode must fail closed without bwrap");
 
-    assert!(error.to_string().contains("requires executable 'bwrap'"));
+    assert!(error.to_string().contains("PROTEUS_SHELL_SANDBOX=1"));
+    assert!(error.to_string().contains("bwrap"));
     assert!(!marker.exists(), "command must not be spawned");
 }
 
 #[test]
-fn exec_command_rejects_external_workdir_without_escalation() {
+fn exec_command_trusted_mode_allows_external_workdir() {
     let workspace = tempfile::tempdir().expect("workspace");
     let external = tempfile::tempdir().expect("external workdir");
-    let call = json!({
-        "id": "call_exec",
-        "name": "exec_command",
-        "args": { "cmd": "pwd", "workdir": external.path() }
-    });
-    let context_json =
-        serde_json::to_string(&invocation_context(workspace.path())).expect("context json");
+    let args = json!({ "cmd": "pwd", "workdir": external.path() });
+    let context = invocation_context(workspace.path());
+
+    let result = with_host(Arc::new(AtomicBool::new(false)), |host| {
+        execute_command(
+            "call_exec".to_owned(),
+            Some(&args),
+            "pwd",
+            &context,
+            SandboxMode::disabled_for_test(),
+            host,
+        )
+    })
+    .map(|json| serde_json::from_str::<Value>(&json).expect("tool result"))
+    .expect("trusted external workdir");
+
+    assert_eq!(result["ok"], true);
+    assert_eq!(
+        result["metadata"]["workdir"],
+        external.path().display().to_string()
+    );
+    assert_eq!(result["metadata"]["sandbox"], Value::Null);
+}
+
+#[test]
+fn exec_command_sandbox_mode_rejects_external_workdir() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let external = tempfile::tempdir().expect("external workdir");
+    let args = json!({ "cmd": "pwd", "workdir": external.path() });
+    let context = invocation_context(workspace.path());
 
     let error = with_host(Arc::new(AtomicBool::new(false)), |host| {
-        exec_command_impl(&call.to_string(), &context_json, host)
+        execute_command(
+            "call_exec".to_owned(),
+            Some(&args),
+            "pwd",
+            &context,
+            SandboxMode::enabled_unavailable_for_test(),
+            host,
+        )
     })
-    .expect_err("external workdir must require escalation");
+    .expect_err("sandbox mode must reject external workdir");
 
     assert!(
         error.to_string().contains("outside the workspace"),
         "{error}"
     );
+    assert!(error.to_string().contains("PROTEUS_SHELL_SANDBOX=1"));
 }
 
 #[test]

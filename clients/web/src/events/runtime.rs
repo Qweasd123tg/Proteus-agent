@@ -233,48 +233,6 @@ pub(crate) fn update_runtime_status_and_tools(
                 }
             });
         }
-    } else if let Some(approval_event) = event.get("ApprovalRequested") {
-        if let Some(call_id) = approval_event.get("call_id").and_then(Value::as_str) {
-            let nested = update_tool_status(
-                set_tool_activities,
-                set_messages,
-                call_id,
-                ToolActivityStatus::WaitingApproval,
-                None,
-                crate::ui_utils::now_ms(),
-            );
-            set_agent_status.set(if nested {
-                "субагент ждёт доступ".to_owned()
-            } else {
-                "ждёт доступ".to_owned()
-            });
-        } else {
-            set_agent_status.set("ждёт доступ".to_owned());
-        }
-    } else if let Some(approval_event) = event.get("ApprovalResolved") {
-        let approved = approval_event
-            .get("approved")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        set_agent_status.set(if approved {
-            "доступ разрешён".to_owned()
-        } else {
-            "доступ отклонён".to_owned()
-        });
-        if let Some(call_id) = approval_event.get("call_id").and_then(Value::as_str) {
-            update_tool_status(
-                set_tool_activities,
-                set_messages,
-                call_id,
-                if approved {
-                    ToolActivityStatus::Approved
-                } else {
-                    ToolActivityStatus::Denied
-                },
-                None,
-                crate::ui_utils::now_ms(),
-            );
-        }
     } else if let Some(tool_event) = event.get("ToolFinished") {
         if let Some(result) = tool_event.get("result") {
             let Some(call_id) = result.get("call_id").and_then(Value::as_str) else {

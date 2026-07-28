@@ -2,19 +2,17 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
 use coding_workflow::CodingPlanExecuteReviewWorkflow;
 use context_pack::SimpleContextBuilderPlugin;
-use policy_pack::AskWritePolicyPlugin;
 use proteus_contracts::{
     abi_stable::sabi_trait::TD_Opaque,
-    plugin::{PluginApprovalPolicy_TO, PluginContextBuilder_TO, PluginWorkflow_TO},
+    plugin::{PluginContextBuilder_TO, PluginWorkflow_TO},
 };
 use tokio::sync::{Mutex, broadcast, mpsc, oneshot};
 
 use super::*;
 use crate::{
-    app_server::approval_preview::approval_preview_for,
-    contracts::{ApprovalRequest, UserInputQuestion, UserInputQuestionOption, UserInputRequest},
-    core::{PendingApproval, PendingUserInput, SessionStore},
-    domain::{Event, PermissionMode, ToolCall, ToolResult, new_call_id, new_session_id},
+    contracts::{UserInputQuestion, UserInputQuestionOption, UserInputRequest},
+    core::{PendingUserInput, SessionStore},
+    domain::{Event, ToolCall, ToolResult, new_session_id},
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 
@@ -33,39 +31,6 @@ fn test_catalog() -> BuiltinModuleCatalog {
         )
         .expect("register test workflow");
     catalog
-        .register_plugin_policy(
-            "ask_write",
-            PluginApprovalPolicy_TO::from_value(AskWritePolicyPlugin, TD_Opaque),
-        )
-        .expect("register test policy");
-    catalog
-}
-
-fn test_approval_request(approval_id: &str) -> AppApprovalRequest {
-    AppApprovalRequest::new(
-        approval_id.to_owned(),
-        ToolCall::new(new_call_id(), "write_file", serde_json::json!({})),
-        PathBuf::from("."),
-        "test approval".to_owned(),
-        None,
-    )
-}
-
-/// Регистрирует pending approval так же, как это делает forwarder:
-/// запись в map + watcher, владеющий responder-ом.
-async fn register_test_approval(
-    pending_approvals: &PendingApprovalResponders,
-    events: &broadcast::Sender<AppServerEvent>,
-    approval_id: &str,
-    responder: oneshot::Sender<ApprovalResponse>,
-) {
-    approvals::register_pending_approval(
-        pending_approvals,
-        events,
-        test_approval_request(approval_id),
-        responder,
-    )
-    .await;
 }
 
 fn test_user_input_request(request_id: &str) -> UserInputRequest {
@@ -87,291 +52,6 @@ async fn register_test_user_input(
         responder,
     )
     .await;
-}
-
-#[test]
-fn apply_patch_approval_preview_extracts_affected_files() {
-    let call = ToolCall::new(
-        new_call_id(),
-        "apply_patch",
-        serde_json::json!({
-            "patch": "*** Begin Patch\n*** Update File: src/main.rs\n@@\n-old\n+new\n*** Add File: notes.txt\n+hello\n*** End Patch\n"
-        }),
-    );
-
-    let preview =
-        approval_preview_for(&call, Path::new("/workspace")).expect("apply_patch preview");
-
-    assert_eq!(preview.kind, "patch");
-    assert_eq!(preview.affected_files, vec!["notes.txt", "src/main.rs"]);
-    assert!(preview.summary.contains("2 files"));
-    assert!(
-        preview
-            .body
-            .unwrap()
-            .contains("*** Update File: src/main.rs")
-    );
-}
-
-#[test]
-fn apply_patch_approval_preview_accepts_freeform_input() {
-    let call = ToolCall::new(
-        new_call_id(),
-        "apply_patch",
-        serde_json::json!({
-            "input": "*** Begin Patch\n*** Add File: codex.txt\n+hello\n*** End Patch\n"
-        }),
-    );
-
-    let preview =
-        approval_preview_for(&call, Path::new("/workspace")).expect("apply_patch preview");
-
-    assert_eq!(preview.kind, "patch");
-    assert_eq!(preview.affected_files, vec!["codex.txt"]);
-    assert!(preview.body.unwrap().contains("*** Add File: codex.txt"));
-}
-
-#[test]
-fn write_file_approval_preview_shows_overwrite_diff() {
-    let cwd = tempfile::tempdir().expect("cwd");
-    std::fs::write(cwd.path().join("sample.txt"), "one\ntwo\n").expect("sample file");
-    let call = ToolCall::new(
-        new_call_id(),
-        "write_file",
-        serde_json::json!({
-            "path": "sample.txt",
-            "content": "one\nthree\n"
-        }),
-    );
-
-    let preview = approval_preview_for(&call, cwd.path()).expect("write_file preview");
-
-    assert_eq!(preview.kind, "write_file");
-    assert_eq!(preview.affected_files, vec!["sample.txt"]);
-    assert!(preview.summary.contains("Overwrite sample.txt"));
-    let body = preview.body.unwrap();
-    assert!(body.contains("-two"));
-    assert!(body.contains("+three"));
-}
-
-#[test]
-fn write_file_approval_preview_shows_create_body() {
-    let cwd = tempfile::tempdir().expect("cwd");
-    let call = ToolCall::new(
-        new_call_id(),
-        "write_file",
-        serde_json::json!({
-            "path": "new.txt",
-            "content": "hello\n"
-        }),
-    );
-
-    let preview = approval_preview_for(&call, cwd.path()).expect("write_file preview");
-
-    assert_eq!(preview.kind, "write_file");
-    assert_eq!(preview.affected_files, vec!["new.txt"]);
-    assert!(preview.summary.contains("Create new.txt"));
-    assert_eq!(preview.language.as_deref(), Some("text"));
-    assert_eq!(preview.body.as_deref(), Some("hello\n"));
-    assert_eq!(preview.metadata["operation"], "create");
-}
-
-#[test]
-fn write_file_approval_preview_does_not_read_outside_workspace() {
-    let cwd = tempfile::tempdir().expect("cwd");
-    let outside = tempfile::NamedTempFile::new().expect("outside file");
-    std::fs::write(outside.path(), "secret outside content\n").expect("outside content");
-    let outside_path = outside.path().display().to_string();
-    let call = ToolCall::new(
-        new_call_id(),
-        "write_file",
-        serde_json::json!({
-            "path": outside_path,
-            "content": "replacement\n"
-        }),
-    );
-
-    let preview = approval_preview_for(&call, cwd.path()).expect("write_file preview");
-
-    assert_eq!(preview.kind, "write_file");
-    assert_eq!(preview.language.as_deref(), Some("text"));
-    assert_eq!(preview.body.as_deref(), Some("replacement\n"));
-    assert_eq!(preview.metadata["operation"], "write");
-    assert_eq!(preview.metadata["workspace_scoped"], false);
-}
-
-#[test]
-fn shell_approval_preview_uses_exact_command_metadata() {
-    let call = ToolCall::new(
-        new_call_id(),
-        "shell",
-        serde_json::json!({ "command": "cargo test" }),
-    );
-
-    let preview = approval_preview_for(&call, Path::new("/workspace")).expect("shell preview");
-
-    assert_eq!(preview.kind, "command");
-    assert_eq!(preview.language.as_deref(), Some("shell"));
-    assert_eq!(preview.body.as_deref(), Some("cargo test"));
-    assert_eq!(preview.metadata["cache_scope"], "exact_command");
-}
-
-#[tokio::test]
-async fn app_server_updates_permission_mode_without_restart() {
-    let cwd = tempfile::tempdir().expect("cwd");
-    let mut config = AppConfig::default();
-    config.permissions.mode = PermissionMode::Normal;
-    let server = AgentAppServer::launch_with_module_catalog(
-        config,
-        cwd.path().to_path_buf(),
-        None,
-        test_catalog(),
-    )
-    .await
-    .expect("app server");
-
-    assert_eq!(server.permission_mode().await, PermissionMode::Normal);
-
-    server.set_permission_mode(PermissionMode::Plan).await;
-
-    assert_eq!(server.permission_mode().await, PermissionMode::Plan);
-}
-
-#[tokio::test]
-async fn approval_forwarder_keeps_request_when_no_client_can_receive_event() {
-    let (approval_tx, approval_rx) = mpsc::channel(1);
-    let (events, _) = broadcast::channel(1);
-    let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
-    approvals::spawn_approval_forwarder(
-        approval_rx,
-        events,
-        pending_approvals.clone(),
-        Duration::from_secs(60),
-    );
-
-    let (responder, mut response_rx) = oneshot::channel();
-    approval_tx
-        .send(PendingApproval {
-            request: ApprovalRequest::new(
-                ToolCall::new(new_call_id(), "write_file", serde_json::json!({})),
-                PathBuf::from("."),
-                "test approval",
-                None,
-            ),
-            responder,
-        })
-        .await
-        .unwrap();
-
-    tokio::time::sleep(Duration::from_millis(30)).await;
-
-    assert_eq!(pending_approvals.lock().await.len(), 1);
-    assert!(response_rx.try_recv().is_err());
-}
-
-#[tokio::test]
-async fn approval_forwarder_denies_when_client_does_not_answer_before_timeout() {
-    let (approval_tx, approval_rx) = mpsc::channel(1);
-    let (events, _) = broadcast::channel(8);
-    let mut event_rx = events.subscribe();
-    let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
-    approvals::spawn_approval_forwarder(
-        approval_rx,
-        events,
-        pending_approvals.clone(),
-        Duration::from_millis(20),
-    );
-
-    let (responder, response_rx) = oneshot::channel();
-    approval_tx
-        .send(PendingApproval {
-            request: ApprovalRequest::new(
-                ToolCall::new(new_call_id(), "write_file", serde_json::json!({})),
-                PathBuf::from("."),
-                "test approval",
-                None,
-            ),
-            responder,
-        })
-        .await
-        .unwrap();
-
-    let request_event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
-        .await
-        .expect("approval request event should arrive")
-        .expect("event stream should stay open");
-    let approval_id = match request_event {
-        AppServerEvent::ApprovalRequested { request } => request.approval_id,
-        other => panic!("expected approval request, got {other:?}"),
-    };
-
-    let response = tokio::time::timeout(Duration::from_secs(1), response_rx)
-        .await
-        .expect("approval response should not hang")
-        .expect("approval responder should send denial");
-
-    assert!(!response.approved);
-    assert!(
-        response
-            .note
-            .as_deref()
-            .is_some_and(|note| note.contains("timed out"))
-    );
-    assert!(pending_approvals.lock().await.is_empty());
-
-    let resolved_event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
-        .await
-        .expect("approval resolved event should arrive")
-        .expect("event stream should stay open");
-    assert!(matches!(
-        resolved_event,
-        AppServerEvent::ApprovalResolved {
-            approval_id: id,
-            approved: false,
-        } if id == approval_id
-    ));
-}
-
-#[tokio::test]
-async fn approval_forwarder_waits_without_timeout_when_timeout_is_zero() {
-    let (approval_tx, approval_rx) = mpsc::channel(1);
-    let (events, _) = broadcast::channel(8);
-    let mut event_rx = events.subscribe();
-    let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
-    approvals::spawn_approval_forwarder(
-        approval_rx,
-        events,
-        pending_approvals.clone(),
-        Duration::ZERO,
-    );
-
-    let (responder, mut response_rx) = oneshot::channel();
-    approval_tx
-        .send(PendingApproval {
-            request: ApprovalRequest::new(
-                ToolCall::new(new_call_id(), "write_file", serde_json::json!({})),
-                PathBuf::from("."),
-                "test approval",
-                None,
-            ),
-            responder,
-        })
-        .await
-        .unwrap();
-
-    let request_event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
-        .await
-        .expect("approval request event should arrive")
-        .expect("event stream should stay open");
-    let approval_id = match request_event {
-        AppServerEvent::ApprovalRequested { request } => request.approval_id,
-        other => panic!("expected approval request, got {other:?}"),
-    };
-
-    tokio::time::sleep(Duration::from_millis(30)).await;
-
-    assert!(pending_approvals.lock().await.contains_key(&approval_id));
-    assert!(response_rx.try_recv().is_err());
 }
 
 #[tokio::test]
@@ -422,42 +102,6 @@ async fn user_input_forwarder_waits_without_timeout_when_timeout_is_zero() {
 }
 
 #[tokio::test]
-async fn shutdown_denies_pending_approvals() {
-    let (events, _) = broadcast::channel(8);
-    let pending_approvals: PendingApprovalResponders = Arc::new(Mutex::new(HashMap::new()));
-    let (responder, response_rx) = oneshot::channel();
-    let approval_id = "approval-1".to_owned();
-    register_test_approval(&pending_approvals, &events, &approval_id, responder).await;
-    // Подписка после регистрации: первым событием интересует resolved.
-    let mut event_rx = events.subscribe();
-
-    approvals::deny_pending_approvals(
-        pending_approvals.clone(),
-        "app-server shutting down".to_owned(),
-    )
-    .await;
-
-    let response = response_rx
-        .await
-        .expect("shutdown should send approval response");
-    assert!(!response.approved);
-    assert_eq!(response.note.as_deref(), Some("app-server shutting down"));
-    assert!(pending_approvals.lock().await.is_empty());
-
-    let resolved_event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
-        .await
-        .expect("approval resolved event should arrive")
-        .expect("event stream should stay open");
-    assert!(matches!(
-        resolved_event,
-        AppServerEvent::ApprovalResolved {
-            approval_id: id,
-            approved: false,
-        } if id == approval_id
-    ));
-}
-
-#[tokio::test]
 async fn shutdown_resolves_pending_user_inputs() {
     let (events, _) = broadcast::channel(8);
     let pending_user_inputs: user_inputs::PendingUserInputResponders =
@@ -486,103 +130,7 @@ async fn shutdown_resolves_pending_user_inputs() {
     ));
 }
 
-/// Ключевое поведение очереди: если запросивший (orchestrator при отмене
-/// turn-а, субагент при timeout) дропает свой approval future, watcher
-/// убирает осиротевшую запись и сообщает клиентам resolved=false —
-/// без blanket-deny остальных pending approvals.
-#[tokio::test]
-async fn dropped_requester_removes_pending_approval_and_resolves_it() {
-    let (events, _) = broadcast::channel(8);
-    let pending_approvals: PendingApprovalResponders = Arc::new(Mutex::new(HashMap::new()));
-
-    let (cancelled_responder, cancelled_rx) = oneshot::channel();
-    let (survivor_responder, mut survivor_rx) = oneshot::channel();
-    register_test_approval(
-        &pending_approvals,
-        &events,
-        "approval-cancelled",
-        cancelled_responder,
-    )
-    .await;
-    register_test_approval(
-        &pending_approvals,
-        &events,
-        "approval-survivor",
-        survivor_responder,
-    )
-    .await;
-    let mut event_rx = events.subscribe();
-
-    // Отмена turn-а: orchestrator дропает свой future -> receiver закрыт.
-    drop(cancelled_rx);
-
-    let resolved_event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
-        .await
-        .expect("approval resolved event should arrive")
-        .expect("event stream should stay open");
-    assert!(matches!(
-        resolved_event,
-        AppServerEvent::ApprovalResolved {
-            approval_id: id,
-            approved: false,
-        } if id == "approval-cancelled"
-    ));
-
-    // Второй pending approval не задет.
-    let pending = pending_approvals.lock().await;
-    assert!(!pending.contains_key("approval-cancelled"));
-    assert!(pending.contains_key("approval-survivor"));
-    drop(pending);
-    assert!(survivor_rx.try_recv().is_err());
-}
-
-/// Ответ клиента резолвит именно свой запрос; событие эмитит watcher.
-#[tokio::test]
-async fn resolve_pending_approval_forwards_response_and_emits_event() {
-    let (events, _) = broadcast::channel(8);
-    let pending_approvals: PendingApprovalResponders = Arc::new(Mutex::new(HashMap::new()));
-    let (responder, response_rx) = oneshot::channel();
-    let approval_id = "approval-resolve".to_owned();
-    register_test_approval(&pending_approvals, &events, &approval_id, responder).await;
-    let mut event_rx = events.subscribe();
-
-    approvals::resolve_pending_approval(
-        &pending_approvals,
-        &approval_id,
-        ApprovalResponse::approve(),
-    )
-    .await
-    .expect("resolve should succeed");
-
-    let response = tokio::time::timeout(Duration::from_secs(1), response_rx)
-        .await
-        .expect("approval response should not hang")
-        .expect("approval responder should receive answer");
-    assert!(response.approved);
-    assert!(pending_approvals.lock().await.is_empty());
-
-    let resolved_event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
-        .await
-        .expect("approval resolved event should arrive")
-        .expect("event stream should stay open");
-    assert!(matches!(
-        resolved_event,
-        AppServerEvent::ApprovalResolved {
-            approval_id: id,
-            approved: true,
-        } if id == approval_id
-    ));
-
-    let unknown = approvals::resolve_pending_approval(
-        &pending_approvals,
-        &approval_id,
-        ApprovalResponse::approve(),
-    )
-    .await;
-    assert!(unknown.is_err(), "second resolve must report unknown id");
-}
-
-/// Ключевое поведение очереди user inputs (зеркало approvals): если
+/// Ключевое поведение очереди user inputs: если
 /// запросивший (tool при отмене turn-а) дропает свой future, watcher убирает
 /// осиротевшую запись и сообщает клиентам resolved — без blanket-resolve
 /// остальных pending user inputs.
@@ -731,7 +279,6 @@ async fn app_server_forwards_streaming_text_deltas_before_turn_output() {
     let mut config = AppConfig::default();
     config.modules.workflow = "coding.plan_execute_review".to_owned();
     config.modules.context = "simple".to_owned();
-    config.modules.policy = "ask_write".to_owned();
     config.modules.renderer = "text".to_owned();
     config.modules.patch = "null".to_owned();
 
@@ -787,7 +334,6 @@ async fn transcript_projects_runtime_history_for_resume_ui() {
     let mut config = AppConfig::default();
     config.modules.workflow = "coding.plan_execute_review".to_owned();
     config.modules.context = "simple".to_owned();
-    config.modules.policy = "ask_write".to_owned();
     config.modules.renderer = "text".to_owned();
     config.modules.patch = "null".to_owned();
 

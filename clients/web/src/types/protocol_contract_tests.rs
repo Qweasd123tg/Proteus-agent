@@ -32,52 +32,6 @@ fn assert_endpoint_body_matches_contract<T: Serialize, U: Serialize>(
     );
 }
 
-fn contract_approval_request() -> contract_protocol::AppApprovalRequest {
-    contract_protocol::AppApprovalRequest::new(
-        "approval-1".to_owned(),
-        contract_domain::ToolCall::new(
-            "call-1",
-            "write_file",
-            json!({ "path": "README.md", "content": "hello" }),
-        ),
-        PathBuf::from("/workspace"),
-        "Need write access".to_owned(),
-        Some(
-            contract_domain::ToolSpec::new(
-                "write_file",
-                "Writes a file",
-                json!({
-                    "type": "object",
-                    "properties": {
-                        "path": { "type": "string" },
-                        "content": { "type": "string" }
-                    }
-                }),
-                contract_domain::ToolSafety::WritesFiles,
-            )
-            .with_metadata(json!({ "approval_cache_scope": "workspace_write" })),
-        ),
-    )
-    .with_preview(Some(
-        contract_protocol::AppApprovalPreview::new(
-            "write_file",
-            "Write README.md",
-            "Updates README.md",
-        )
-        .with_affected_files(vec!["README.md".to_owned()])
-        .with_body("hello", "text")
-        .with_metadata(json!({ "operation": "update" })),
-    ))
-    .with_origin(Some(
-        contract_contracts::RequestOrigin::new(
-            contract_domain::new_thread_id(),
-            contract_domain::new_turn_id(),
-        )
-        .with_label("explore"),
-    ))
-    .with_seq(7)
-}
-
 fn contract_user_input_request() -> contract_contracts::UserInputRequest {
     contract_contracts::UserInputRequest::new(
         "input-1",
@@ -148,13 +102,6 @@ fn web_decodes_contract_stdio_output_events() {
                 json!({ "ok": true }),
             )),
         },
-        contract_protocol::AppServerEvent::ApprovalRequested {
-            request: Box::new(contract_approval_request()),
-        },
-        contract_protocol::AppServerEvent::ApprovalResolved {
-            approval_id: "approval-1".to_owned(),
-            approved: true,
-        },
         contract_protocol::AppServerEvent::UserInputRequested {
             request: Box::new(contract_user_input_request()),
         },
@@ -163,7 +110,7 @@ fn web_decodes_contract_stdio_output_events() {
         },
         contract_protocol::AppServerEvent::SessionActivityUpdated {
             session_dir: PathBuf::from("/workspace/session-1"),
-            activity: contract_protocol::AppSessionActivity::from_counts(1, 0, 0),
+            activity: contract_protocol::AppSessionActivity::from_counts(1, 0),
         },
         contract_protocol::AppServerEvent::ModulesReloaded {
             old_epoch: 1,
@@ -192,27 +139,6 @@ fn web_decodes_contract_stdio_output_events() {
             AppServerEvent::TurnOutput { output } => {
                 assert_eq!(output["text"], "done");
                 assert_eq!(output["metadata"]["ok"], true);
-            }
-            AppServerEvent::ApprovalRequested { request } => {
-                assert_eq!(request.approval_id, "approval-1");
-                assert_eq!(request.call.name, "write_file");
-                assert_eq!(request.cwd, "/workspace");
-                let preview = request.preview.expect("approval preview");
-                assert_eq!(preview.kind, "write_file");
-                assert_eq!(preview.affected_files, vec!["README.md"]);
-                assert_eq!(preview.metadata["operation"], "update");
-                let origin = request.origin.expect("approval origin");
-                assert_eq!(origin.label.as_deref(), Some("explore"));
-                assert!(!origin.thread_id.is_empty());
-                assert!(!origin.turn_id.is_empty());
-                assert_eq!(request.seq, 7);
-            }
-            AppServerEvent::ApprovalResolved {
-                approval_id,
-                approved,
-            } => {
-                assert_eq!(approval_id, "approval-1");
-                assert!(approved);
             }
             AppServerEvent::UserInputRequested { request } => {
                 assert_eq!(request.request_id, "input-1");
@@ -264,22 +190,16 @@ fn web_decodes_contract_stdio_output_events() {
 
 #[test]
 fn web_decodes_contract_pending_requests() {
-    let pending = contract_protocol::AppPendingRequests::new(
-        vec![contract_approval_request()],
-        vec![contract_user_input_request()],
-    )
-    .with_queued_user_messages(vec![contract_protocol::AppQueuedUserMessage::new(
-        contract_domain::new_message_id(),
-        "steer this",
-    )]);
+    let pending = contract_protocol::AppPendingRequests::new(vec![contract_user_input_request()])
+        .with_queued_user_messages(vec![contract_protocol::AppQueuedUserMessage::new(
+            contract_domain::new_message_id(),
+            "steer this",
+        )]);
 
     let value = serde_json::to_value(pending).expect("pending JSON");
     let decoded: PendingControlPlaneInfo =
         serde_json::from_value(value).expect("web pending requests");
 
-    assert_eq!(decoded.approvals.len(), 1);
-    assert_eq!(decoded.approvals[0].approval_id, "approval-1");
-    assert_eq!(decoded.approvals[0].call.args["path"], "README.md");
     assert_eq!(decoded.user_inputs.len(), 1);
     assert_eq!(decoded.user_inputs[0].request_id, "input-1");
     assert_eq!(
@@ -302,11 +222,7 @@ fn web_decodes_contract_session_summary() {
         Some("first message".to_owned()),
     )
     .with_activity(
-        contract_protocol::AppSessionActivity::from_running_turn_ids(
-            vec!["turn-1".to_owned()],
-            0,
-            0,
-        ),
+        contract_protocol::AppSessionActivity::from_running_turn_ids(vec!["turn-1".to_owned()], 0),
     );
 
     let value = serde_json::to_value(summary).expect("contract session summary JSON");
@@ -334,17 +250,6 @@ fn web_endpoint_request_bodies_match_contract_stdio_requests_without_transport_t
         contract_protocol::StdioRequest::Send {
             id: Some("send-1".to_owned()),
             text: "hello".to_owned(),
-        },
-    );
-    assert_endpoint_body_matches_contract(
-        SetPermissionModeRequest {
-            id: Some("mode-1".to_owned()),
-            mode: PermissionMode::Auto,
-            session_dir: None,
-        },
-        contract_protocol::StdioRequest::SetPermissionMode {
-            id: Some("mode-1".to_owned()),
-            mode: contract_domain::PermissionMode::Auto,
         },
     );
     assert_endpoint_body_matches_contract(
@@ -380,22 +285,6 @@ fn web_endpoint_request_bodies_match_contract_stdio_requests_without_transport_t
         contract_protocol::StdioRequest::SetReasoningEffort {
             id: Some("effort-2".to_owned()),
             effort: Some("none".to_owned()),
-        },
-    );
-    assert_endpoint_body_matches_contract(
-        ResolveApprovalRequest {
-            id: Some("approval-1".to_owned()),
-            approval_id: "approval-1".to_owned(),
-            approved: true,
-            note: Some("ok".to_owned()),
-            cache: ApprovalCacheScope::WorkspaceWrite,
-        },
-        contract_protocol::StdioRequest::Approval {
-            id: Some("approval-1".to_owned()),
-            approval_id: "approval-1".to_owned(),
-            approved: true,
-            note: Some("ok".to_owned()),
-            cache: contract_contracts::ApprovalCacheScope::WorkspaceWrite,
         },
     );
     assert_endpoint_body_matches_contract(

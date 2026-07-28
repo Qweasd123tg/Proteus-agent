@@ -64,7 +64,6 @@ async fn configured_native_tool_uses_config_spec_and_native_handler() {
     let dir = temp_workspace();
     let mut config = test_config();
     config.tools.enabled = Vec::new();
-    clear_ask_write_config(&mut config);
     config.tools.configured.push(ConfiguredToolConfig {
         name: "project_search".to_owned(),
         description: "Configured search tool".to_owned(),
@@ -99,12 +98,10 @@ async fn configured_native_tool_uses_config_spec_and_native_handler() {
         new_thread_id(),
         new_turn_id(),
         Arc::new(EventEmitter::new(events)),
-        Arc::new(TestApprovalTransport { interactive: false }),
-        PermissionMode::Plan,
     );
 
-    // ReadOnly tool under Plan mode — execution is allowed; search returns
-    // an empty result (NullSearch) but that is fine for the wiring check.
+    // Search returns an empty result (NullSearch), which is sufficient for the
+    // wiring check.
     let result = ToolOrchestrator::default()
         .execute(
             &ctx,
@@ -126,7 +123,6 @@ fn configured_native_tool_cannot_lower_handler_safety() {
     let dir = temp_workspace();
     let mut config = test_config();
     config.tools.enabled = Vec::new();
-    clear_ask_write_config(&mut config);
     // Handler apply_patch is WritesFiles by definition; a config that tries
     // to relabel it as ReadOnly must not be honoured.
     config.tools.configured.push(ConfiguredToolConfig {
@@ -160,7 +156,6 @@ async fn configured_process_tool_executes_through_orchestrator() {
     let dir = temp_workspace();
     let mut config = test_config();
     config.tools.enabled = Vec::new();
-    clear_ask_write_config(&mut config);
     config.tools.configured.push(ConfiguredToolConfig {
         name: "echo_args".to_owned(),
         description: "Echo JSON tool args from stdin".to_owned(),
@@ -183,7 +178,6 @@ async fn configured_process_tool_executes_through_orchestrator() {
             environment: ProcessEnvironmentConfig::default(),
         },
     });
-    config.modules.policy = "allow_all".to_owned();
     let registry = registry_from_test_config(&config, dir.path());
     let events = Arc::new(InMemoryEventStore::new());
     let ctx = registry.runtime_context(
@@ -191,8 +185,6 @@ async fn configured_process_tool_executes_through_orchestrator() {
         new_thread_id(),
         new_turn_id(),
         Arc::new(EventEmitter::new(events.clone())),
-        Arc::new(TestApprovalTransport { interactive: false }),
-        PermissionMode::Normal,
     );
     assert_eq!(
         registry.tools.spec("echo_args").unwrap().safety,
@@ -263,71 +255,6 @@ async fn configured_process_tool_clears_parent_environment() {
 }
 
 #[tokio::test]
-async fn configured_process_tool_still_obeys_permission_mode() {
-    let dir = temp_workspace();
-    let mut config = test_config();
-    config.tools.enabled = Vec::new();
-    clear_ask_write_config(&mut config);
-    config.tools.configured.push(ConfiguredToolConfig {
-        name: "touch_marker".to_owned(),
-        description: "Create a marker file".to_owned(),
-        input_schema: json!({ "type": "object", "properties": {} }),
-        surface: ToolSurface::default(),
-        safety: ToolSafety::RunsCommands,
-        timeout_ms: Some(1_000),
-        metadata: serde_json::Value::Null,
-        executor: ConfiguredToolExecutorConfig::Process {
-            command: "sh".to_owned(),
-            args: vec![
-                "-lc".to_owned(),
-                "touch should_not_exist_from_config_tool".to_owned(),
-            ],
-            environment: ProcessEnvironmentConfig::default(),
-        },
-    });
-    let registry = registry_from_test_config(&config, dir.path());
-    let events = Arc::new(InMemoryEventStore::new());
-    let ctx = registry.runtime_context(
-        new_session_id(),
-        new_thread_id(),
-        new_turn_id(),
-        Arc::new(EventEmitter::new(events)),
-        Arc::new(TestApprovalTransport { interactive: false }),
-        PermissionMode::Plan,
-    );
-    let orchestrator = ToolOrchestrator::default();
-
-    assert!(
-        orchestrator
-            .visible_tool_specs(&ctx, dir.path())
-            .into_iter()
-            .all(|spec| spec.name != "touch_marker")
-    );
-
-    let result = orchestrator
-        .execute(
-            &ctx,
-            &AgentTask::new("touch".to_owned(), dir.path().to_path_buf()),
-            ToolCall::new(new_call_id(), "touch_marker".to_owned(), json!({})),
-        )
-        .await
-        .unwrap();
-
-    assert!(!result.ok);
-    assert!(
-        result
-            .error
-            .as_deref()
-            .is_some_and(|error| error.contains("permission mode plan"))
-    );
-    assert!(
-        !dir.path()
-            .join("should_not_exist_from_config_tool")
-            .exists()
-    );
-}
-
-#[tokio::test]
 async fn configured_mcp_server_discovers_tools_into_registry() {
     let dir = temp_workspace();
     let server = dir.path().join("mcp_discovery_server.sh");
@@ -364,8 +291,6 @@ done
     .unwrap();
     let mut config = test_config();
     config.tools.enabled = Vec::new();
-    clear_ask_write_config(&mut config);
-    config.modules.policy = "allow_all".to_owned();
     config.tools.mcp_servers.push(ConfiguredMcpServerConfig {
         name: "demo-mcp".to_owned(),
         command: "sh".to_owned(),
@@ -401,8 +326,6 @@ done
         new_thread_id(),
         new_turn_id(),
         Arc::new(EventEmitter::new(events)),
-        Arc::new(TestApprovalTransport { interactive: false }),
-        PermissionMode::Normal,
     );
     let orchestrator = ToolOrchestrator::default();
     let result = orchestrator
@@ -472,8 +395,6 @@ done
     .unwrap();
     let mut config = test_config();
     config.tools.enabled = Vec::new();
-    clear_ask_write_config(&mut config);
-    config.modules.policy = "allow_all".to_owned();
     config.tools.configured.push(ConfiguredToolConfig {
         name: "mcp_echo".to_owned(),
         description: "Call a fixed MCP echo tool".to_owned(),
@@ -515,8 +436,6 @@ done
         new_thread_id(),
         new_turn_id(),
         Arc::new(EventEmitter::new(events.clone())),
-        Arc::new(TestApprovalTransport { interactive: false }),
-        PermissionMode::Normal,
     );
 
     let result = ToolOrchestrator::default()
@@ -568,8 +487,6 @@ done
     .unwrap();
     let mut config = test_config();
     config.tools.enabled = Vec::new();
-    clear_ask_write_config(&mut config);
-    config.modules.policy = "allow_all".to_owned();
     config.tools.configured.push(ConfiguredToolConfig {
         name: "mcp_counter".to_owned(),
         description: "Call a persistent MCP counter tool".to_owned(),
@@ -595,8 +512,6 @@ done
         new_thread_id(),
         new_turn_id(),
         Arc::new(EventEmitter::new(events)),
-        Arc::new(TestApprovalTransport { interactive: false }),
-        PermissionMode::Normal,
     );
     let orchestrator = ToolOrchestrator::default();
 
@@ -619,65 +534,4 @@ done
 
     assert_eq!(first.output, "call-1");
     assert_eq!(second.output, "call-2");
-}
-
-#[tokio::test]
-async fn configured_mcp_tool_still_obeys_permission_mode() {
-    let dir = temp_workspace();
-    let mut config = test_config();
-    config.tools.enabled = Vec::new();
-    clear_ask_write_config(&mut config);
-    config.tools.configured.push(ConfiguredToolConfig {
-        name: "mcp_hidden".to_owned(),
-        description: "Hidden MCP command tool".to_owned(),
-        input_schema: json!({ "type": "object", "properties": {} }),
-        surface: ToolSurface::default(),
-        safety: ToolSafety::ReadOnly,
-        timeout_ms: Some(1_000),
-        metadata: serde_json::Value::Null,
-        executor: ConfiguredToolExecutorConfig::Mcp {
-            server: Some("hidden-mcp".to_owned()),
-            command: "sh".to_owned(),
-            args: vec!["-c".to_owned(), "exit 99".to_owned()],
-            environment: ProcessEnvironmentConfig::default(),
-            tool: "remote".to_owned(),
-            protocol_version: "2025-06-18".to_owned(),
-            max_response_bytes: None,
-        },
-    });
-    let registry = registry_from_test_config(&config, dir.path());
-    let events = Arc::new(InMemoryEventStore::new());
-    let ctx = registry.runtime_context(
-        new_session_id(),
-        new_thread_id(),
-        new_turn_id(),
-        Arc::new(EventEmitter::new(events)),
-        Arc::new(TestApprovalTransport { interactive: false }),
-        PermissionMode::Plan,
-    );
-    let orchestrator = ToolOrchestrator::default();
-
-    assert!(
-        orchestrator
-            .visible_tool_specs(&ctx, dir.path())
-            .into_iter()
-            .all(|spec| spec.name != "mcp_hidden")
-    );
-
-    let result = orchestrator
-        .execute(
-            &ctx,
-            &AgentTask::new("mcp".to_owned(), dir.path().to_path_buf()),
-            ToolCall::new(new_call_id(), "mcp_hidden".to_owned(), json!({})),
-        )
-        .await
-        .unwrap();
-
-    assert!(!result.ok);
-    assert!(
-        result
-            .error
-            .as_deref()
-            .is_some_and(|error| error.contains("permission mode plan"))
-    );
 }

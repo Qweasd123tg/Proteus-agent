@@ -62,7 +62,6 @@ pub(crate) fn journal_transcript_messages(
                     ToolCallRecordPhase::Resolved { resolution } => {
                         state.apply_resolution(&tool.call.id, resolution)
                     }
-                    ToolCallRecordPhase::ApprovalRequested { .. } => {}
                 }
             }
             JournalEntry::ToolResultRecorded(tool)
@@ -236,11 +235,10 @@ impl TranscriptProjectionState {
             return;
         };
         let reason = match resolution {
-            ToolCallResolution::ApprovalDenied { reason }
-            | ToolCallResolution::PolicyDenied { reason }
-            | ToolCallResolution::ValidationFailed { reason }
-            | ToolCallResolution::Unsupported { reason } => reason.clone(),
-            _ => "tool call was not permitted".to_owned(),
+            ToolCallResolution::UnknownTool { reason }
+            | ToolCallResolution::ValidationFailed { reason } => reason.clone(),
+            ToolCallResolution::Allowed => return,
+            _ => "tool call could not be resolved".to_owned(),
         };
         tool.status = "failed".to_owned();
         tool.result = Some(reason);

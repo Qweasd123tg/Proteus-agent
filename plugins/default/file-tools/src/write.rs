@@ -32,10 +32,7 @@ impl PluginTool for WriteFileTool {
             "metadata": {
                 "category": "filesystem",
                 "tags": ["filesystem", "write", "file"],
-                "aliases": ["write file", "create file", "overwrite file"],
-                "approval": {
-                    "cache_scopes": ["workspace_write"]
-                }
+                "aliases": ["write file", "create file", "overwrite file"]
             }
         });
         RString::from(spec.to_string())

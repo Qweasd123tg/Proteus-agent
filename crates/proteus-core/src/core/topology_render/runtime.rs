@@ -8,9 +8,8 @@ pub fn render_topology_runtime_path(snapshot: &TopologySnapshot) -> String {
     let mut out = String::new();
     out.push_str("Proteus runtime path\n");
     out.push_str(&format!(
-        "profile: {} | mode: {} | epoch: {}\n",
+        "profile: {} | epoch: {}\n",
         plain_text(&snapshot.profile),
-        plain_text(&snapshot.permission_mode),
         snapshot.module_epoch
     ));
     if let Some(model) = &snapshot.model {
@@ -29,7 +28,6 @@ pub fn render_topology_runtime_path(snapshot: &TopologySnapshot) -> String {
     render_runtime_slot(snapshot, "context", "context build", &mut out);
     render_runtime_slot(snapshot, "tool_exposure", "tool selection", &mut out);
     render_runtime_slot(snapshot, "model", "model call", &mut out);
-    render_runtime_slot(snapshot, "policy", "approval gate", &mut out);
     out.push_str(&format!(
         "  tools           -> ToolRegistry             [{} registered, {} enabled]\n",
         snapshot.tools.iter().filter(|tool| tool.registered).count(),
@@ -96,7 +94,6 @@ pub fn render_topology_runtime_mermaid(snapshot: &TopologySnapshot) -> String {
         "context",
         "tool_exposure",
         "model",
-        "policy",
         "patch",
         "search",
         "renderer",
@@ -178,8 +175,7 @@ pub fn render_topology_runtime_mermaid(snapshot: &TopologySnapshot) -> String {
     add_edge("slot:workflow", "slot:tool_exposure", "selects tools");
     add_edge("slot:tool_exposure", "tools", "visible tools");
     add_edge("slot:model", "slot:workflow", "response/tool calls");
-    add_edge("slot:workflow", "slot:policy", "approval gate");
-    add_edge("slot:policy", "tools", "executes allowed calls");
+    add_edge("slot:workflow", "tools", "executes tool calls");
     add_edge("tools", "slot:search", "search tools");
     add_edge("tools", "slot:patch", "edit tools");
     add_edge("slot:workflow", "slot:renderer", "final answer");

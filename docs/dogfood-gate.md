@@ -3,7 +3,7 @@
 Этот документ фиксирует минимальный контур проверки реальности для v0. Его
 цель - не доказать, что агент уже хороший продукт, а регулярно получать
 воспроизводимый loop, в котором видно, где именно ломается стек:
-`core`, `workflow`, `context`, `tools`, `policy`, `patch`, provider adapter,
+`core`, `workflow`, `context`, `tools`, `patch`, provider adapter,
 app-server или текущий внешний UI-клиент.
 
 Это live-слой общего
@@ -17,7 +17,7 @@ readback сохраняют доказательство после него.
 одну маленькую coding-задачу на реальном репозитории и после прогона понятно:
 
 - какие действия агент пытался сделать;
-- какие tool calls и approvals были запрошены;
+- какие tool calls были запрошены и чем завершились;
 - какие файлы были изменены;
 - сохранился ли transcript/session/event log;
 - где находится главный сбой, если задача не выполнена.
@@ -68,7 +68,7 @@ Wrapper `proteus` включает ephemeral session token по умолчани
 ограничивает CORS локальным или явно разрешённым web origin. Non-loopback bind
 без token отклоняется до startup. Строгий token режим включается через
 `--token`; тогда `/events`, `/send`,
-approval/user-input/cancel/config/history/resume/reload/shutdown endpoints
+user-input/cancel/config/history/resume/reload/shutdown endpoints
 требуют token. Browser `EventSource` не умеет произвольные headers, поэтому
 для SSE допустим query token; для `fetch` предпочтителен header
 `Authorization: Bearer <token>`. Raw token не
@@ -84,8 +84,7 @@ proteus doctor
 запустить clients/web или другой app-server chat client
 отправить маленькую coding-задачу
 увидеть ход выполнения
-увидеть tool call / approval
-approve или deny действие
+увидеть tool call и terminal result
 получить финальный ответ или понятную ошибку
 проверить transcript/session journal/event log
 сформировать eval report или ручной postmortem
@@ -129,18 +128,15 @@ Gate зелёный, если сценарий можно пройти без п
 
 4. Проверить, что в sidebar нет auth-token ошибки, event stream подключён,
    `/config` и `/history` не показывают HTTP 401.
-5. Отправить маленькую задачу, которая требует tool call и approval.
+5. Отправить маленькую задачу, которая требует tool call.
 6. Убедиться, что tool activity card меняет состояние во время выполнения.
-7. Approve один pending approval и дождаться продолжения turn-а.
-8. На отдельном approval выбрать deny и убедиться, что UI показывает понятную
-   ошибку или финальный ответ с отказом.
-9. В сценарии с `request_user_input` отправить typed answer из UI.
-10. Во время активного turn-а нажать cancel и проверить, что pending approval и
-    typed input очищены или переходят в понятное terminal-состояние.
-11. Открыть `Сессии` в chat UI и `http://127.0.0.1:1421/configs` в inspector,
+7. В сценарии с `request_user_input` отправить typed answer из UI.
+8. Во время активного turn-а нажать cancel и проверить, что pending typed input
+   очищен или переходит в понятное terminal-состояние.
+9. Открыть `Сессии` в chat UI и `http://127.0.0.1:1421/configs` в inspector,
     проверить, что страницы загружаются без auth errors и показывают текущую
     session/config информацию.
-12. После run-а выполнить readback:
+10. После run-а выполнить readback:
 
     ```bash
     proteus doctor
@@ -155,7 +151,7 @@ Gate зелёный, если сценарий можно пройти без п
     `/history`. Этот отказ фиксирует известную границу replay, а не потерю
     durable данных.
 
-Gate считается зелёным только если шаги 4-12 прошли без потери контроля над
+Gate считается зелёным только если шаги 4-10 прошли без потери контроля над
 turn-ом. Если задача сама провалилась, но UI сохранил transcript/journal и
 ясно показал причину, фиксируйте это как `failed` или `inconclusive` в
 postmortem, а не как блокер web/app-server boundary.
@@ -166,7 +162,6 @@ postmortem, а не как блокер web/app-server boundary.
 
 - нельзя отправить prompt;
 - нельзя прочитать финальный результат или ошибку;
-- нельзя approve/deny действие, когда workflow ждёт approval;
 - tool activity невидима или вводит в заблуждение;
 - diff/result теряется до того, как его можно проверить;
 - session/transcript/journal не сохраняется или не читается;
@@ -176,9 +171,10 @@ postmortem, а не как блокер web/app-server boundary.
   продолжает исполнять или повторять такой ответ вместо protocol error;
 - HTTP app-server принимает non-loopback bind без token или оставляет wildcard
   CORS на защищённых endpoints.
-- model-callable action обходит `ToolRegistry`, mode-aware policy или approval;
-- sandboxed tool фактически запускается без sandbox либо получает RW-доступ вне
-  workspace без escalation;
+- model-callable action обходит `ToolRegistry`, `ToolOrchestrator`, validation
+  или journal;
+- при `PROTEUS_SHELL_SANDBOX=1` shell фактически запускается без sandbox,
+  получает RW-доступ вне workspace или делает unsandboxed fallback;
 - process/session lifecycle не имеет owner-а или оставляет неограниченное число
   живых child processes.
 
@@ -224,7 +220,7 @@ Changed files:
 Tests run:
 Session journal:
 Event log (optional telemetry):
-Main failure bucket: core | workflow | context | tools | policy | patch | provider | app-server | ui
+Main failure bucket: core | workflow | context | tools | patch | provider | app-server | ui
 Observed issue:
 Next smallest fix:
 Non-blocking irritants:

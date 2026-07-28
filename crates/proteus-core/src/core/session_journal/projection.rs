@@ -33,7 +33,6 @@ struct LifecycleOwner {
 struct ToolLifecycle {
     owner: Option<LifecycleOwner>,
     call: Option<proteus_contracts::domain::ToolCall>,
-    approval_requested: bool,
     resolved: bool,
     result: bool,
 }
@@ -150,34 +149,7 @@ impl JournalValidationState {
                         lifecycle.owner = Some(owner);
                         lifecycle.call = Some(tool.call.clone());
                     }
-                    ToolCallRecordPhase::ApprovalRequested { .. } => {
-                        let Some(requested) = lifecycle.call.as_ref() else {
-                            bail!(
-                                "tool call {} requested approval before it was recorded",
-                                tool.call.id
-                            );
-                        };
-                        if requested != &tool.call {
-                            bail!("tool call {} changed before approval request", tool.call.id);
-                        }
-                        if lifecycle.owner != Some(owner) {
-                            bail!("tool call {} changed lifecycle owner", tool.call.id);
-                        }
-                        if lifecycle.approval_requested {
-                            bail!(
-                                "tool call {} requested approval more than once",
-                                tool.call.id
-                            );
-                        }
-                        if lifecycle.resolved {
-                            bail!(
-                                "tool call {} requested approval after resolution",
-                                tool.call.id
-                            );
-                        }
-                        lifecycle.approval_requested = true;
-                    }
-                    ToolCallRecordPhase::Resolved { resolution } => {
+                    ToolCallRecordPhase::Resolved { .. } => {
                         let Some(requested) = lifecycle.call.as_ref() else {
                             bail!(
                                 "tool call {} resolved before it was requested",
@@ -195,13 +167,6 @@ impl JournalValidationState {
                         }
                         if lifecycle.resolved {
                             bail!("tool call {} was resolved more than once", tool.call.id);
-                        }
-                        if resolution.requested_approval() != lifecycle.approval_requested {
-                            bail!(
-                                "tool call {} approval lifecycle does not match resolution {:?}",
-                                tool.call.id,
-                                resolution
-                            );
                         }
                         lifecycle.resolved = true;
                     }

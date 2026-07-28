@@ -285,14 +285,6 @@ pub enum Event {
     ToolCallRequested {
         call: ToolCall,
     },
-    ApprovalRequested {
-        call_id: CallId,
-        reason: String,
-    },
-    ApprovalResolved {
-        call_id: CallId,
-        approved: bool,
-    },
     ToolFinished {
         result: ToolResult,
     },

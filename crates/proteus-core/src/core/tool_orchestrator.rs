@@ -11,13 +11,10 @@ use tokio::time::sleep;
 
 use crate::{
     contracts::{
-        ApprovalRequest, PolicyContext, PolicyVisibilityContext, RequestOrigin, RuntimeContext,
-        SubagentRequest, SubagentResult, SubagentToolHost, ToolContext,
+        RequestOrigin, RuntimeContext, SubagentRequest, SubagentResult, SubagentToolHost,
+        ToolContext,
     },
-    domain::{
-        AgentTask, Event, PolicyDecision, ToolCall, ToolCallResolution, ToolResult, ToolSpec,
-        ToolSurface,
-    },
+    domain::{AgentTask, Event, ToolCall, ToolCallResolution, ToolResult, ToolSpec},
 };
 
 const DEFAULT_MAX_OUTPUT_BYTES: usize = 200_000;
@@ -45,22 +42,8 @@ impl ToolOrchestrator {
         }
     }
 
-    pub fn visible_tool_specs(&self, ctx: &RuntimeContext, cwd: &Path) -> Vec<ToolSpec> {
-        ctx.tools
-            .specs()
-            .into_iter()
-            .filter(|spec| {
-                visibility_decision_allows(
-                    spec,
-                    ctx.policy
-                        .evaluate_visibility(&PolicyVisibilityContext::new(
-                            cwd.to_path_buf(),
-                            spec.clone(),
-                        )),
-                    ctx.approval.can_request_approval(),
-                )
-            })
-            .collect()
+    pub fn visible_tool_specs(&self, ctx: &RuntimeContext, _cwd: &Path) -> Vec<ToolSpec> {
+        ctx.tools.specs()
     }
 
     pub async fn execute(
@@ -75,8 +58,8 @@ impl ToolOrchestrator {
         // Responses function calls are string-valued on the wire. Keep that
         // raw payload authoritative for both replay and execution: otherwise
         // a malformed/corrupted DTO could show one call to the model while
-        // policy or the tool executes different parsed args. Invalid JSON is
-        // left in place and becomes a failed validation ToolResult below.
+        // validation or the tool executes different parsed args. Invalid JSON
+        // is left in place and becomes a failed validation ToolResult below.
         if let Some(raw_arguments) = call.raw_arguments.as_deref()
             && let Ok(parsed_arguments) = serde_json::from_str(raw_arguments)
         {
@@ -84,7 +67,7 @@ impl ToolOrchestrator {
         }
         // Codex-модели часто вызывают apply_patch как shell-команду
         // (`apply_patch <<'EOF' ...`). Роутим такой вызов в настоящий
-        // apply_patch tool, чтобы патч прошёл patch-flow (policy, applier,
+        // apply_patch tool, чтобы патч прошёл patch-flow (applier, journal,
         // события) вместо падения в шелле на несуществующем бинаре.
         let call = intercept_apply_patch_call(ctx, &call).unwrap_or(call);
         ctx.execution_recorder
@@ -93,10 +76,29 @@ impl ToolOrchestrator {
         ctx.emit(Event::ToolCallRequested { call: call.clone() })
             .await?;
 
-        let tool_spec = ctx.tools.spec(&call.name).ok();
-        if let Some(spec) = tool_spec.as_ref()
-            && let Some(error) = validate_tool_call_args(&call, spec)
-        {
+        let tool_spec = match ctx.tools.spec(&call.name) {
+            Ok(spec) => spec,
+            Err(_) => {
+                let reason = format!("unknown tool: {}", call.name);
+                ctx.execution_recorder
+                    .tool_call_resolved(
+                        ctx.session_id,
+                        ctx.thread_id,
+                        ctx.turn_id,
+                        &call,
+                        &ToolCallResolution::UnknownTool {
+                            reason: reason.clone(),
+                        },
+                    )
+                    .await?;
+                let result = ToolResult::error(call.id.clone(), reason).with_metadata(json!({
+                    "tool": call.name,
+                    "unknown_tool": true,
+                }));
+                return self.finish(ctx, result).await;
+            }
+        };
+        if let Some(error) = validate_tool_call_args(&call, &tool_spec) {
             ctx.execution_recorder
                 .tool_call_resolved(
                     ctx.session_id,
@@ -115,145 +117,16 @@ impl ToolOrchestrator {
             return self.finish(ctx, result).await;
         }
 
-        let decision = self.evaluate_access(ctx, &task.cwd, &call, tool_spec.clone());
-
-        match decision {
-            PolicyDecision::Allow => {
-                ctx.execution_recorder
-                    .tool_call_resolved(
-                        ctx.session_id,
-                        ctx.thread_id,
-                        ctx.turn_id,
-                        &call,
-                        &ToolCallResolution::Allowed,
-                    )
-                    .await?;
-                self.invoke_allowed(ctx, task, &call, tool_spec).await
-            }
-            PolicyDecision::Ask { reason } => {
-                ctx.execution_recorder
-                    .tool_approval_requested(
-                        ctx.session_id,
-                        ctx.thread_id,
-                        ctx.turn_id,
-                        &call,
-                        &reason,
-                    )
-                    .await?;
-                ctx.emit(Event::ApprovalRequested {
-                    call_id: call.id.clone(),
-                    reason: reason.clone(),
-                })
-                .await?;
-                let approval_request = ctx.approval.request_approval(
-                    ApprovalRequest::new(
-                        call.clone(),
-                        task.cwd.clone(),
-                        reason.clone(),
-                        tool_spec.clone(),
-                    )
-                    .with_origin(request_origin(ctx)),
-                );
-                let approval = tokio::select! {
-                    result = approval_request => result?,
-                    _ = ctx.cancellation.cancelled() => {
-                        return Err(anyhow!("turn canceled by client"));
-                    }
-                };
-                ctx.emit(Event::ApprovalResolved {
-                    call_id: call.id.clone(),
-                    approved: approval.approved,
-                })
-                .await?;
-                if approval.approved {
-                    ctx.execution_recorder
-                        .tool_call_resolved(
-                            ctx.session_id,
-                            ctx.thread_id,
-                            ctx.turn_id,
-                            &call,
-                            &ToolCallResolution::Approved,
-                        )
-                        .await?;
-                    let result = self.invoke_allowed(ctx, task, &call, tool_spec).await?;
-                    // Approval-gated grants: только результат явно одобренного
-                    // вызова может выдать turn-scoped права (см. contracts
-                    // TurnPermissionGrants).
-                    merge_granted_permissions(ctx, &result);
-                    return Ok(result);
-                }
-
-                let result = ToolResult::error(
-                    call.id.clone(),
-                    approval
-                        .note
-                        .unwrap_or_else(|| format!("tool call was not approved: {reason}")),
-                );
-                ctx.execution_recorder
-                    .tool_call_resolved(
-                        ctx.session_id,
-                        ctx.thread_id,
-                        ctx.turn_id,
-                        &call,
-                        &ToolCallResolution::ApprovalDenied {
-                            reason: result.text_or_status(),
-                        },
-                    )
-                    .await?;
-                self.finish(ctx, result).await
-            }
-            PolicyDecision::Deny { reason } => {
-                ctx.execution_recorder
-                    .tool_call_resolved(
-                        ctx.session_id,
-                        ctx.thread_id,
-                        ctx.turn_id,
-                        &call,
-                        &ToolCallResolution::PolicyDenied {
-                            reason: reason.clone(),
-                        },
-                    )
-                    .await?;
-                let result = ToolResult::error(call.id.clone(), reason);
-                self.finish(ctx, result).await
-            }
-            other => {
-                let reason = format!("unsupported policy decision: {other:?}");
-                ctx.execution_recorder
-                    .tool_call_resolved(
-                        ctx.session_id,
-                        ctx.thread_id,
-                        ctx.turn_id,
-                        &call,
-                        &ToolCallResolution::Unsupported {
-                            reason: reason.clone(),
-                        },
-                    )
-                    .await?;
-                let result = ToolResult::error(call.id.clone(), reason);
-                self.finish(ctx, result).await
-            }
-        }
-    }
-
-    fn evaluate_access(
-        &self,
-        ctx: &RuntimeContext,
-        cwd: &Path,
-        call: &ToolCall,
-        tool_spec: Option<ToolSpec>,
-    ) -> PolicyDecision {
-        let Some(spec) = tool_spec else {
-            return PolicyDecision::Deny {
-                reason: format!("unknown tool: {}", call.name),
-            };
-        };
-
-        ctx.policy.evaluate(
-            call,
-            &PolicyContext::new(cwd.to_path_buf(), Some(spec))
-                .with_granted_permissions(ctx.turn_grants.snapshot()),
-        )
+        ctx.execution_recorder
+            .tool_call_resolved(
+                ctx.session_id,
+                ctx.thread_id,
+                ctx.turn_id,
+                &call,
+                &ToolCallResolution::Allowed,
+            )
+            .await?;
+        self.invoke_allowed(ctx, task, &call, &tool_spec).await
     }
 
     async fn invoke_allowed(
@@ -261,16 +134,13 @@ impl ToolOrchestrator {
         ctx: &RuntimeContext,
         task: &AgentTask,
         call: &ToolCall,
-        tool_spec: Option<ToolSpec>,
+        tool_spec: &ToolSpec,
     ) -> Result<ToolResult> {
         let tool = ctx
             .tools
             .get(&call.name)
             .ok_or_else(|| anyhow!("unknown tool: {}", call.name))?;
-        let timeout_ms = tool_spec
-            .as_ref()
-            .and_then(|spec| spec.timeout_ms)
-            .unwrap_or(self.default_timeout_ms);
+        let timeout_ms = tool_spec.timeout_ms.unwrap_or(self.default_timeout_ms);
         let started = Instant::now();
         // Per-call child token lets an orchestrator timeout stop nested work
         // (notably a detached subagent) without cancelling the whole turn.
@@ -392,27 +262,6 @@ impl ToolOrchestrator {
     }
 }
 
-fn visibility_decision_allows(
-    spec: &ToolSpec,
-    decision: PolicyDecision,
-    can_request_approval: bool,
-) -> bool {
-    match decision {
-        PolicyDecision::Allow => true,
-        // Hosted execution happens inside the provider request, before a
-        // per-call approval can be requested. Only an explicit visibility
-        // Allow is valid pre-authorization.
-        PolicyDecision::Ask { .. }
-            if matches!(spec.surface, ToolSurface::ProviderHosted { .. }) =>
-        {
-            false
-        }
-        PolicyDecision::Ask { .. } => can_request_approval,
-        PolicyDecision::Deny { .. } => false,
-        _ => false,
-    }
-}
-
 /// Per-invocation adapter from the narrow tool capability back to the current
 /// runtime context. `TaskTool` cannot retain or construct RuntimeContext on its
 /// own; every call is therefore bound to the caller's thread/turn here.
@@ -457,7 +306,7 @@ impl SubagentToolHost for RuntimeSubagentToolHost {
     }
 }
 
-/// Attribution control-plane запроса (approval, user input) к исполняющему
+/// Attribution control-plane запроса user input к исполняющему
 /// контексту: thread/turn всегда известны orchestrator-у, метка
 /// (`thread_label`) приходит от субагентного runner-а и остаётся `None` для
 /// основного цикла.
@@ -570,26 +419,6 @@ fn normalized_patch(text: &str) -> Option<String> {
     text.starts_with("*** Begin Patch").then(|| text.to_owned())
 }
 
-/// Мержит `metadata.granted_permissions` успешного approved-результата в
-/// гранты текущего хода. Вызывается только с approved-пути `execute`.
-fn merge_granted_permissions(ctx: &RuntimeContext, result: &ToolResult) {
-    if !result.ok {
-        return;
-    }
-    let Some(permissions) = result.metadata.get("granted_permissions") else {
-        return;
-    };
-    let Some(permissions) = permissions.as_array() else {
-        return;
-    };
-    ctx.turn_grants.grant(
-        permissions
-            .iter()
-            .filter_map(Value::as_str)
-            .map(str::to_owned),
-    );
-}
-
 fn metadata_with(metadata: Value, key: &str, value: Value) -> Value {
     let mut object = match metadata {
         Value::Object(object) => object,
@@ -668,7 +497,6 @@ fn required_arg_error(tool_name: &str, arg_name: &str, expected_types: &[&str]) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{HostedToolConfig, ToolSafety, WebSearchHostedToolConfig};
 
     #[test]
     fn extract_apply_patch_body_supports_heredoc_quotes_and_bare() {
@@ -729,35 +557,5 @@ mod tests {
         assert!(output.len() <= 96);
         assert!(output.is_char_boundary(output.len()));
         assert!(output.contains("[tool error truncated:"));
-    }
-
-    #[test]
-    fn interactive_ask_keeps_local_tool_visible_but_hides_provider_hosted_tool() {
-        let local = ToolSpec::new(
-            "shell",
-            "Run a command",
-            json!({ "type": "object" }),
-            ToolSafety::RunsCommands,
-        );
-        let hosted = ToolSpec::new(
-            "web_search",
-            "Search the web",
-            json!({ "type": "object" }),
-            ToolSafety::Network,
-        )
-        .with_surface(ToolSurface::provider_hosted(HostedToolConfig::WebSearch {
-            config: WebSearchHostedToolConfig::default(),
-        }));
-        let ask = || PolicyDecision::Ask {
-            reason: "approval required".to_owned(),
-        };
-
-        assert!(visibility_decision_allows(&local, ask(), true));
-        assert!(!visibility_decision_allows(&hosted, ask(), true));
-        assert!(visibility_decision_allows(
-            &hosted,
-            PolicyDecision::Allow,
-            false
-        ));
     }
 }

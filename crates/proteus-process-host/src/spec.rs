@@ -95,7 +95,7 @@ impl ProcessSpec {
 
     /// Resolves the exact child environment after validating configured names
     /// and values. Callers using a process API other than `std::process` can
-    /// reuse the same fail-closed environment policy instead of reimplementing
+    /// reuse the same fail-closed environment rules instead of reimplementing
     /// it.
     pub fn resolved_environment(&self) -> Result<BTreeMap<String, OsString>> {
         for name in self.env_allowlist.iter().chain(self.env.keys()) {

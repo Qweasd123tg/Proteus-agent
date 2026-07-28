@@ -8,17 +8,17 @@
 git clone <repo> Agent
 cd Agent
 ./install.sh
-proteus init coding
+proteus init codex
 ```
 
-После `proteus init coding` проверь provider/key config:
+После `proteus init codex` проверь provider/key config:
 
 ```text
 ~/.config/Proteus-agent/configs/config.toml
 ```
 
-`config.toml` хранит `active_provider`, `providers.*`, рабочий coding profile,
-modules, tools, policy и event log. В синхронизируемых configs пути к секретам
+`config.toml` хранит `active_provider`, `providers.*`, основной `codex` profile,
+modules, tools и event log. В синхронизируемых configs пути к секретам
 должны быть переносимыми, например
 `$HOME/.config/Proteus-agent/secrets/anthropic.json`. На новом ПК создай
 локальные secret JSON по тем же относительным к home путям, например:
@@ -45,7 +45,7 @@ proteus doctor
 proteus tools list
 ```
 
-В `tools list` для coding profile должны быть видны основные tools:
+В `tools list` для `codex` profile должны быть видны основные tools:
 
 ```text
 read_file

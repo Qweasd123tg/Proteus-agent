@@ -14,7 +14,6 @@ workflow = "coding.single_loop"
 search = "null"
 memory = "none"
 context = "simple"
-policy = "ask_write"
 patch = "null"
 compactor = "none"
 tool_exposure = "all_visible"
@@ -34,18 +33,8 @@ timeout_ms = 30000
 # max_response_bytes = 100000  # поднять лимит ответа (default 20000 байт)
 metadata = { scope = "local-smoke-test" }
 
-[permissions]
-mode = "normal"
-
-[module_config.policy.ask_write]
-allow = ["request_user_input"]
-ask_before = ["local_echo__echo"]
-
 [module_config.context.simple]
 max_search_results = 50
-
-[app_server]
-approval_timeout_ms = 0
 
 [runtime]
 model_timeout_ms = 10800000

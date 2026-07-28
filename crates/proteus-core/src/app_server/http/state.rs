@@ -117,18 +117,6 @@ impl HttpAppState {
         servers
     }
 
-    pub(super) async fn server_for_pending_approval(
-        &self,
-        approval_id: &str,
-    ) -> Option<AppServerHandle> {
-        for server in self.all_servers().await {
-            if server.has_pending_approval(approval_id).await {
-                return Some(server);
-            }
-        }
-        None
-    }
-
     pub(super) async fn server_for_pending_user_input(
         &self,
         request_id: &str,
@@ -244,8 +232,6 @@ fn app_event_affects_session_activity(event: &AppServerEvent) -> bool {
         event,
         AppServerEvent::UserMessageSubmitted { .. }
             | AppServerEvent::TurnOutput { .. }
-            | AppServerEvent::ApprovalRequested { .. }
-            | AppServerEvent::ApprovalResolved { .. }
             | AppServerEvent::UserInputRequested { .. }
             | AppServerEvent::UserInputResolved { .. }
             | AppServerEvent::Error { .. }

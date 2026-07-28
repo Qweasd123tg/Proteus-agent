@@ -7,10 +7,9 @@ use anyhow::Result;
 use async_trait::async_trait;
 use coding_workflow::CodingPlanExecuteReviewWorkflow;
 use context_pack::SimpleContextBuilderPlugin;
-use policy_pack::AskWritePolicyPlugin;
 use proteus_contracts::{
     abi_stable::sabi_trait::TD_Opaque,
-    plugin::{PluginApprovalPolicy_TO, PluginContextBuilder_TO, PluginWorkflow_TO},
+    plugin::{PluginContextBuilder_TO, PluginWorkflow_TO},
 };
 use tokio::time::Duration;
 
@@ -39,12 +38,6 @@ fn test_catalog() -> BuiltinModuleCatalog {
             PluginWorkflow_TO::from_value(CodingPlanExecuteReviewWorkflow, TD_Opaque),
         )
         .expect("register test workflow");
-    catalog
-        .register_plugin_policy(
-            "ask_write",
-            PluginApprovalPolicy_TO::from_value(AskWritePolicyPlugin, TD_Opaque),
-        )
-        .expect("register test policy");
     catalog
 }
 
@@ -379,10 +372,8 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
     let config_path = config_root.path().join("configs").join("config.toml");
     let mut config = AppConfig::default();
     config.profile.name = "snapshot-profile".to_owned();
-    config.permissions.mode = PermissionMode::Auto;
     config.modules.workflow = "coding.plan_execute_review".to_owned();
     config.modules.context = "simple".to_owned();
-    config.modules.policy = "ask_write".to_owned();
     config.modules.compactor = "none".to_owned();
     config.modules.tool_exposure = "all_visible".to_owned();
     let runtime = AgentRuntime::builder(config, workspace.path().to_path_buf())
@@ -404,15 +395,13 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
     )
     .expect("config snapshot json");
 
-    assert_eq!(value["schema_version"], 2);
+    assert_eq!(value["schema_version"], 3);
     assert_eq!(value["active_provider"], "fake");
     assert_eq!(value["profile_name"], "snapshot-profile");
     assert_eq!(value["modules"]["workflow"], "coding.plan_execute_review");
     assert_eq!(value["modules"]["context"], "simple");
-    assert_eq!(value["modules"]["policy"], "ask_write");
     assert_eq!(value["modules"]["compactor"], "none");
     assert_eq!(value["modules"]["tool_exposure"], "all_visible");
-    assert_eq!(value["permission_mode_default"], "auto");
     assert!(value["tools"].as_array().is_some());
 
     let mut reloaded_config = AppConfig::default();
@@ -425,11 +414,8 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
     )
     .expect("reloaded registry");
     reloaded_registry.workflow = Arc::new(DelayedWorkflow);
-    let reloaded_snapshot = SessionConfigSnapshot::from_runtime_config(
-        &reloaded_config,
-        &reloaded_registry,
-        PermissionMode::Normal,
-    );
+    let reloaded_snapshot =
+        SessionConfigSnapshot::from_runtime_config(&reloaded_config, &reloaded_registry);
     runtime
         .reload_registry(reloaded_registry, Some(reloaded_snapshot))
         .await
@@ -438,7 +424,6 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
         .set_model_name("runtime-model-override".to_owned())
         .await;
     runtime.set_reasoning_effort(Some("high".to_owned())).await;
-    runtime.set_permission_mode(PermissionMode::Plan).await;
     runtime.run("after reload".to_owned()).await.unwrap();
 
     let records = runtime
@@ -462,7 +447,6 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
     assert_eq!(turn_snapshot.profile_name, "reloaded-profile");
     assert_eq!(turn_snapshot.model.model, "runtime-model-override");
     assert_eq!(turn_snapshot.reasoning.effort.as_deref(), Some("high"));
-    assert_eq!(turn_snapshot.permission_mode_default, PermissionMode::Plan);
 }
 
 #[tokio::test]

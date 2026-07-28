@@ -1,9 +1,9 @@
-//! Policy-gated facade-tool for the replaceable `SubagentRunner` slot.
+//! Facade-tool for the replaceable `SubagentRunner` slot.
 //!
 //! The tool owns only request shaping and optional worktree lifecycle. The
 //! child agent loop remains behind `SubagentToolHost`/`SubagentRunner`, while
-//! visibility, approval, timeout, events and output bounds stay in the normal
-//! `ToolRegistry -> ApprovalPolicy -> ToolOrchestrator -> Tool::invoke` path.
+//! visibility, timeout, events and output bounds stay in the normal
+//! `ToolRegistry -> ToolOrchestrator -> Tool::invoke` path.
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;

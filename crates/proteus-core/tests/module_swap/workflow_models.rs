@@ -134,8 +134,7 @@ fn task_with_persisted_user(
 #[tokio::test]
 async fn workflow_does_not_execute_tool_calls_from_length_response() {
     let dir = temp_workspace();
-    let mut config = test_config();
-    config.modules.policy = "allow_all".to_owned();
+    let config = test_config();
     let mut registry = registry_from_test_config(&config, dir.path());
     registry.model = Arc::new(LengthToolCallModel);
     let events = Arc::new(InMemoryEventStore::new());
@@ -144,8 +143,6 @@ async fn workflow_does_not_execute_tool_calls_from_length_response() {
         new_thread_id(),
         new_turn_id(),
         Arc::new(EventEmitter::new(events.clone())),
-        Arc::new(TestApprovalTransport { interactive: true }),
-        PermissionMode::Normal,
     );
 
     let (task, history) = task_with_persisted_user("write", dir.path());
@@ -167,18 +164,12 @@ async fn workflow_does_not_execute_tool_calls_from_length_response() {
             .iter()
             .any(|event| matches!(event, Event::ToolCallRequested { .. }))
     );
-    assert!(
-        !records
-            .iter()
-            .any(|event| matches!(event, Event::ApprovalRequested { .. }))
-    );
 }
 
 #[tokio::test]
 async fn workflow_requests_final_answer_without_tools_after_round_limit() {
     let dir = temp_workspace();
-    let mut config = test_config();
-    config.modules.policy = "allow_all".to_owned();
+    let config = test_config();
     let mut registry = registry_from_test_config(&config, dir.path());
     registry.model = Arc::new(FinalAfterToolLimitModel::default());
     let events = Arc::new(InMemoryEventStore::new());
@@ -187,8 +178,6 @@ async fn workflow_requests_final_answer_without_tools_after_round_limit() {
         new_thread_id(),
         new_turn_id(),
         Arc::new(EventEmitter::new(events.clone())),
-        Arc::new(TestApprovalTransport { interactive: true }),
-        PermissionMode::Normal,
     );
 
     let (task, history) = task_with_persisted_user("write then finish", dir.path());
@@ -228,8 +217,6 @@ async fn workflow_times_out_hung_model_request() {
         new_thread_id(),
         new_turn_id(),
         Arc::new(EventEmitter::new(events)),
-        Arc::new(TestApprovalTransport { interactive: true }),
-        PermissionMode::Normal,
     );
 
     let (task, history) = task_with_persisted_user("hang", dir.path());

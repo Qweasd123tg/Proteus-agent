@@ -1,39 +1,3 @@
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum PermissionMode {
-    Plan,
-    Normal,
-    Auto,
-}
-
-impl PermissionMode {
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Self::Plan => "plan",
-            Self::Normal => "normal",
-            Self::Auto => "auto",
-        }
-    }
-
-    pub(crate) fn description(self) -> &'static str {
-        match self {
-            Self::Plan => "только чтение",
-            Self::Normal => "спрашивать перед записью",
-            Self::Auto => "писать без запросов",
-        }
-    }
-
-    pub(crate) fn from_value(value: &str) -> Self {
-        match value.to_ascii_lowercase().as_str() {
-            "plan" => Self::Plan,
-            "auto" => Self::Auto,
-            _ => Self::Normal,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) enum ReasoningEffort {
     #[default]

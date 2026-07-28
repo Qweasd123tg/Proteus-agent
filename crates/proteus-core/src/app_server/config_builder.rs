@@ -6,13 +6,10 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 
-use crate::{
-    core::{
-        AppConfig, ModuleCatalogEntrySummary, ModuleSourceTopology, ModuleTopology, ModulesConfig,
-        ProviderProfileConfig, TopologySnapshot,
-        core_slots::{CoreSlotSelection, core_slot_descriptor_by_id},
-    },
-    domain::PermissionMode,
+use crate::core::{
+    AppConfig, ModuleCatalogEntrySummary, ModuleSourceTopology, ModuleTopology, ModulesConfig,
+    ProviderProfileConfig, TopologySnapshot,
+    core_slots::{CoreSlotSelection, core_slot_descriptor_by_id},
 };
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -22,10 +19,6 @@ pub struct ConfigBuilderSnapshot {
     pub writable: bool,
     pub active_provider: String,
     pub providers: Vec<ConfigBuilderProvider>,
-    /// Persisted `[permissions] mode` (snake_case) — то, что редактирует
-    /// builder. Runtime mode может отличаться после `POST /mode`.
-    pub permission_mode: String,
-    pub permission_modes: Vec<String>,
     pub active_modules: Vec<ConfigBuilderModuleSelection>,
     pub module_config: BTreeMap<String, BTreeMap<String, Value>>,
     pub tools_enabled: Vec<String>,
@@ -121,11 +114,6 @@ pub(super) fn config_builder_snapshot_from_topology(
         target_path: target_path.map(|path| path.display().to_string()),
         active_provider: config.active_provider.clone(),
         providers: config_builder_providers(config),
-        permission_mode: permission_mode_str(config.permissions.mode),
-        permission_modes: PERMISSION_MODES
-            .iter()
-            .map(|&mode| mode.to_owned())
-            .collect(),
         active_modules: config
             .modules
             .iter()
@@ -188,17 +176,6 @@ fn module_source_label(source: &ModuleSourceTopology) -> String {
 fn is_config_builder_module_slot(slot: &str) -> bool {
     core_slot_descriptor_by_id(slot)
         .is_some_and(|descriptor| descriptor.selection == CoreSlotSelection::ModulesConfig)
-}
-
-const PERMISSION_MODES: [&str; 3] = ["plan", "normal", "auto"];
-
-/// Snake_case-имя PermissionMode через serde: остаётся в согласии с wire
-/// форматом `POST /mode` и `[permissions] mode` без ручного match.
-fn permission_mode_str(mode: PermissionMode) -> String {
-    serde_json::to_value(mode)
-        .ok()
-        .and_then(|value| value.as_str().map(str::to_owned))
-        .unwrap_or_else(|| "normal".to_owned())
 }
 
 fn config_builder_providers(config: &AppConfig) -> Vec<ConfigBuilderProvider> {
@@ -307,14 +284,6 @@ pub(super) async fn persist_config_builder(path: &Path, config: &AppConfig) -> R
             .context("serialized providers TOML could not be parsed")?;
         doc["providers"] = providers_doc["providers"].clone();
     }
-
-    if doc
-        .get("permissions")
-        .is_none_or(|item| !item.is_table_like())
-    {
-        doc["permissions"] = toml_edit::table();
-    }
-    doc["permissions"]["mode"] = toml_edit::value(permission_mode_str(config.permissions.mode));
 
     if doc.get("modules").is_none_or(|item| !item.is_table_like()) {
         doc["modules"] = toml_edit::table();

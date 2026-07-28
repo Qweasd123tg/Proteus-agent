@@ -29,8 +29,7 @@ use proteus_contracts::{
     plugin::{
         CompactorObject, ContextBuilderObject, ContextProviderObject, MemoryStoreObject,
         PatchApplierObject, PluginRegisterError, PluginRegistry, PluginRegistry_TO, PluginRoot_Ref,
-        PluginToolObject, PolicyObject, SearchBackendObject, SubagentObject, ToolExposureObject,
-        WorkflowObject,
+        PluginToolObject, SearchBackendObject, SubagentObject, ToolExposureObject, WorkflowObject,
     },
 };
 
@@ -56,18 +55,6 @@ impl<'a> PluginRegistry for PluginRegistryAdapter<'a> {
 
     fn register_tool(&mut self, tool: PluginToolObject) -> RResult<(), PluginRegisterError> {
         match self.catalog.register_plugin_tool(tool) {
-            Ok(()) => RResult::ROk(()),
-            Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
-        }
-    }
-
-    fn register_approval_policy(
-        &mut self,
-        module_id: RString,
-        policy: PolicyObject,
-    ) -> RResult<(), PluginRegisterError> {
-        let id = module_id.into_string();
-        match self.catalog.register_plugin_policy(&id, policy) {
             Ok(()) => RResult::ROk(()),
             Err(error) => RResult::RErr(PluginRegisterError::new(error.to_string())),
         }

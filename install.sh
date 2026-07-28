@@ -10,7 +10,7 @@ releases_dir="${proteus_home}/releases"
 current_release="${proteus_home}/current"
 config_home="${PROTEUS_CONFIG_HOME:-${HOME}/.config/Proteus-agent}"
 configs_dir="${config_home}/configs"
-managed_plugins="file-tools git-tools shell-tool plan-tool rg-search direct-patch coding-workflow context-pack skill-pack rust-lsp codex-compactor codex-tool-exposure memory-pack policy-pack renderer-pack sqlite-memory"
+managed_plugins="file-tools git-tools shell-tool plan-tool rg-search direct-patch coding-workflow context-pack skill-pack rust-lsp codex-compactor codex-tool-exposure memory-pack renderer-pack sqlite-memory"
 
 cargo build --release --manifest-path "${project_dir}/Cargo.toml" \
   -p proteus-core \
@@ -27,10 +27,9 @@ cargo build --release --manifest-path "${project_dir}/Cargo.toml" \
   -p codex-compactor \
   -p codex-tool-exposure \
   -p memory-pack \
-  -p policy-pack \
   -p renderer-pack \
   -p sqlite-memory \
-  --features context-pack/plugin-entrypoint,skill-pack/plugin-entrypoint,rust-lsp/plugin-entrypoint,codex-compactor/plugin-entrypoint,codex-tool-exposure/plugin-entrypoint,memory-pack/plugin-entrypoint,policy-pack/plugin-entrypoint,renderer-pack/plugin-entrypoint
+  --features context-pack/plugin-entrypoint,skill-pack/plugin-entrypoint,rust-lsp/plugin-entrypoint,codex-compactor/plugin-entrypoint,codex-tool-exposure/plugin-entrypoint,memory-pack/plugin-entrypoint,renderer-pack/plugin-entrypoint
 
 mkdir -p "${bin_dir}"
 bin_tmp="${bin_path}.tmp.$$"
@@ -474,7 +473,7 @@ echo "Release:   ${release_dir}"
 echo "Plugins:   ${current_release}/plugins"
 echo "Personal:  ${plugins_dir}"
 echo "Configs:   ${configs_dir}"
-echo "Next:      ${bin_path} init coding && ${bin_path} doctor"
+echo "Next:      ${bin_path} init codex && ${bin_path} doctor"
 case ":${PATH}:" in
   *:"${bin_dir}":*) ;;
   *) echo "Add this to your shell config if needed: export PATH=\"${bin_dir}:\$PATH\"" ;;

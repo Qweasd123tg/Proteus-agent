@@ -1,8 +1,8 @@
 //! Codex-shaped request-time tool exposure.
 //!
-//! The plugin receives only policy-visible candidates and returns the subset
-//! that should be exposed to the next model request. It never executes tools
-//! and cannot bypass `ApprovalPolicy` or `ToolOrchestrator`.
+//! The plugin receives registered candidates and returns the subset that
+//! should be exposed to the next model request. It never executes tools; all
+//! calls still go through the core `ToolOrchestrator`.
 
 #![allow(non_local_definitions)]
 #![allow(non_camel_case_types)]
@@ -106,7 +106,7 @@ fn select_codex_tools(input: ToolExposureInput) -> ToolExposureOutput {
         .map(|tool| tool.name.as_str())
         .collect::<HashSet<_>>();
     // Provider-hosted tools cannot be invoked through the workflow's deferred
-    // meta-call. If policy allowed one, it must stay on the direct surface.
+    // meta-call. If one is registered, it must stay on the direct surface.
     let hosted_names = candidates
         .iter()
         .filter(|tool| matches!(tool.surface, ToolSurface::ProviderHosted { .. }))

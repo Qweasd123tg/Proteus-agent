@@ -131,55 +131,6 @@ pub trait PluginTool: Send + Sync + 'static {
 /// Ffi-safe trait object для PluginTool.
 pub type PluginToolObject = PluginTool_TO<abi_stable::std_types::RBox<()>>;
 
-/// Sync sabi_trait для approval-policy плагинов.
-///
-/// Ядро-trait `ApprovalPolicy` уже sync — маппинг 1:1, без spawn_blocking.
-/// DTO передаются через FFI как JSON (`RString`), аналогично `PluginTool`.
-///
-/// ## JSON-форма
-///
-/// - `call_json` — сериализованный `ToolCall`.
-/// - `ctx_json` для `evaluate_json` — `PluginPolicyContextDto` (см. ниже).
-/// - `ctx_json` для `evaluate_visibility_json` — `PluginPolicyVisibilityContextDto`.
-/// - Возврат — сериализованный `PolicyDecision`.
-#[sabi_trait]
-pub trait PluginApprovalPolicy: Send + Sync + 'static {
-    fn evaluate_json(
-        &self,
-        call_json: RString,
-        ctx_json: RString,
-    ) -> RResult<RString, PluginPolicyError>;
-
-    fn evaluate_visibility_json(&self, ctx_json: RString) -> RResult<RString, PluginPolicyError>;
-}
-
-/// Ошибка выполнения approval-policy плагина.
-#[repr(C)]
-#[derive(StableAbi, Debug, Clone)]
-#[non_exhaustive]
-pub struct PluginPolicyError {
-    pub message: RString,
-}
-
-impl PluginPolicyError {
-    pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into().into(),
-        }
-    }
-}
-
-impl std::fmt::Display for PluginPolicyError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.message.as_str())
-    }
-}
-
-impl std::error::Error for PluginPolicyError {}
-
-/// Ffi-safe trait object для PluginApprovalPolicy.
-pub type PolicyObject = PluginApprovalPolicy_TO<abi_stable::std_types::RBox<()>>;
-
 /// Sync sabi_trait для patch-applier плагинов.
 ///
 /// Ядро-trait `PatchApplier` async, поэтому адаптер в ядре оборачивает
@@ -433,7 +384,7 @@ pub trait PluginHistoryCompactor: Send + Sync + 'static {
 /// Host capabilities exposed to compactor plugins.
 ///
 /// A compactor may ask the runtime model to summarize history, but it does not
-/// receive tool, memory, policy, or session mutation capabilities.
+/// receive tool, memory, or session mutation capabilities.
 #[sabi_trait]
 pub trait PluginCompactorHost: Send + Sync {
     fn is_cancelled(&self) -> RResult<bool, PluginCompactionError>;
@@ -473,7 +424,7 @@ pub type PluginCompactorHostMut<'a> =
 
 /// Sync ABI for tool exposure/search plugins.
 ///
-/// Core computes policy-visible candidate tools first. This plugin selects the
+/// Core computes registered candidate tools first. This plugin selects the
 /// subset that should be exposed to a model request.
 #[sabi_trait]
 pub trait PluginToolExposure: Send + Sync + 'static {
@@ -577,7 +528,7 @@ pub trait PluginWorkflowHost: Send + Sync {
         input_json: RString,
     ) -> RResult<RString, PluginWorkflowHostError>;
 
-    /// Input: cwd string. Output JSON: `Vec<ToolSpec>` after visibility policy.
+    /// Input: cwd string. Output JSON: `Vec<ToolSpec>` after registry visibility.
     fn visible_tools_json(&self, cwd: RString) -> RResult<RString, PluginWorkflowHostError>;
 
     /// Input JSON: `ToolExposureRequest`. Output JSON: `ToolExposureOutput`.
@@ -756,14 +707,6 @@ pub trait PluginRegistry: Send + Sync {
     /// sync-версию `PluginTool` (поскольку sabi_trait не поддерживает async).
     /// Ядро оборачивает его в обычный async `Tool` через spawn_blocking.
     fn register_tool(&mut self, tool: PluginToolObject) -> RResult<(), PluginRegisterError>;
-
-    /// Регистрирует ApprovalPolicy под module_id в slot `policy`.
-    /// Ядро-trait `ApprovalPolicy` sync, маппинг прямой.
-    fn register_approval_policy(
-        &mut self,
-        module_id: RString,
-        policy: PolicyObject,
-    ) -> RResult<(), PluginRegisterError>;
 
     /// Регистрирует PatchApplier под module_id в slot `patch`.
     /// Ядро-trait `PatchApplier` async — адаптер в ядре мостит через

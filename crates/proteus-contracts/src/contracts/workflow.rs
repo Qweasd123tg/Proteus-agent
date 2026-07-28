@@ -8,10 +8,9 @@ use async_trait::async_trait;
 
 use crate::{
     contracts::{
-        ApprovalPolicy, ApprovalTransport, CancellationToken, ContextBuilder, EventEmitter,
-        ExecutionRecorder, HistoryCompactor, MemoryStore, Model, NoopExecutionRecorder,
-        PatchApplier, SearchBackend, SubagentRunner, ToolExposure, ToolRegistry,
-        TurnPermissionGrants, UserInputTransport,
+        CancellationToken, ContextBuilder, EventEmitter, ExecutionRecorder, HistoryCompactor,
+        MemoryStore, Model, NoopExecutionRecorder, PatchApplier, SearchBackend, SubagentRunner,
+        ToolExposure, ToolRegistry, UserInputTransport,
     },
     domain::{
         AgentOutput, AgentTask, Event, EventContext, HistoryCompactionReport, ModelRef,
@@ -38,8 +37,6 @@ pub struct RuntimeContext {
     pub memory: Arc<dyn MemoryStore>,
     pub context: Arc<dyn ContextBuilder>,
     pub tools: ToolRegistry,
-    pub policy: Arc<dyn ApprovalPolicy>,
-    pub approval: Arc<dyn ApprovalTransport>,
     pub user_input: Arc<dyn UserInputTransport>,
     pub patch: Arc<dyn PatchApplier>,
     pub compactor: Arc<dyn HistoryCompactor>,
@@ -49,15 +46,12 @@ pub struct RuntimeContext {
     /// Workflow не управляет доставкой: core меняет счётчик и вставляет
     /// сообщения на model boundary самостоятельно.
     pub queued_user_messages: Arc<AtomicUsize>,
-    /// Turn-scoped permission grants: контекст создаётся на каждый ход
-    /// заново, поэтому гранты не переживают ход (см. `TurnPermissionGrants`).
-    pub turn_grants: Arc<TurnPermissionGrants>,
     /// Core-owned durable lifecycle recorder. Modules can only invoke the
     /// narrow contract; journal storage and sequencing remain core details.
     pub execution_recorder: Arc<dyn ExecutionRecorder>,
-    /// Человекочитаемая метка исполняющего thread-а для attribution
-    /// (approvals, клиентский UX). `None` — основной цикл turn-а; субагентный
-    /// runner ставит имя роли.
+    /// Человекочитаемая метка исполняющего thread-а для human-input
+    /// attribution. `None` — основной цикл turn-а; субагентный runner ставит
+    /// имя роли.
     pub thread_label: Option<String>,
 }
 
@@ -77,8 +71,6 @@ impl RuntimeContext {
         memory: Arc<dyn MemoryStore>,
         context: Arc<dyn ContextBuilder>,
         tools: ToolRegistry,
-        policy: Arc<dyn ApprovalPolicy>,
-        approval: Arc<dyn ApprovalTransport>,
         user_input: Arc<dyn UserInputTransport>,
         patch: Arc<dyn PatchApplier>,
         compactor: Arc<dyn HistoryCompactor>,
@@ -101,15 +93,12 @@ impl RuntimeContext {
             memory,
             context,
             tools,
-            policy,
-            approval,
             user_input,
             patch,
             compactor,
             tool_exposure,
             subagent,
             queued_user_messages: Arc::new(AtomicUsize::new(0)),
-            turn_grants: Arc::default(),
             execution_recorder: Arc::new(NoopExecutionRecorder),
             thread_label: None,
         }

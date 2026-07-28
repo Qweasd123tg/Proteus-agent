@@ -1,186 +1,131 @@
 # Текущий Scope
 
-Этот документ отвечает только на один вопрос: **что сейчас находится на
-критическом пути Proteus**. Vision живёт в [spec.md](spec.md), подробная история
-решений — в [roadmap.md](roadmap.md).
+Этот документ отвечает только на один вопрос: что сейчас находится на
+критическом пути Proteus. Vision живёт в [spec.md](spec.md), история решений —
+в [roadmap.md](roadmap.md).
 
-Последнее обновление: 2026-07-24.
+Последнее обновление: 2026-07-28.
 
 ## Короткий Ответ
 
-Proteus сейчас — личный локальный coding-agent для реального dogfood:
+Proteus — личный локальный coding-agent runtime для реального dogfood. Основной
+поддерживаемый профиль формально называется `codex`:
 
 ```text
-model + context + workflow + tools + policy
+model + context + workflow + tools
   -> app-server
   -> web client
-  -> durable session и trace
+  -> durable session + canonical journal/replay
 ```
 
-Базовый стек уже собран. Текущая фаза — **«Месяц Гибкости» (2026-07-16 →
-2026-08-15, план в `roadmap.md`)**: снизить цену первого расширения — слоты
-из внешних процессов на любом языке и steering корневого цикла. Все четыре
-технических недели плана закрыты досрочно 2026-07-20: lifecycle interactive
-exec, внешние process `SearchBackend`/`HistoryCompactor`, root-session
-steering/follow-up и совместимый atomic install bundle. Общий safety path,
-fail-closed shell isolation и обязательный auth для non-loopback HTTP уже
-закрыты regression-тестами.
+Проект не строит универсальную permission platform. Зарегистрированные и
+включённые tools считаются доверенными и исполняются напрямую. Dylib, MCP и
+process extensions также являются доверенным кодом. Для shell оператор может
+заранее включить один process-level workspace sandbox через
+`PROTEUS_SHELL_SANDBOX=1`.
+
+## Что Остаётся Сильным Ядром
+
+- immutable `RuntimeSnapshot` на время turn-а;
+- canonical append-only session journal и durable projections;
+- prompt replay и side-effect-free workflow replay;
+- единый `ToolRegistry -> ToolOrchestrator -> Tool::invoke` path;
+- rejection неизвестных tools и schema validation;
+- timeout, cancellation, bounded output и call attribution;
+- session/thread/workspace ownership;
+- non-loopback HTTP auth boundary;
+- replaceable workflow, context, compactor, search, memory, patch, renderer,
+  tool exposure и subagent implementations;
+- HTTP/SSE app-server, основной web chat и отдельный Inspector;
+- persistent process host для MCP, configured tools, SearchBackend и
+  HistoryCompactor;
+- atomic binary/default-plugin install bundle.
+
+## Что Удалено Из Продуктовой Модели
+
+- `ApprovalPolicy` как slot и plugin ABI;
+- `policy-pack`, `allow_all`, `ask_write`, `codex_policy`,
+  `opencode_policy`;
+- permission modes `plan` / `normal` / `auto`;
+- approval requests, cache, grants и `request_permissions`;
+- model-driven shell escalation;
+- `[permissions]`, `modules.policy` и `module_config.policy.*`.
+
+Pre-release compatibility для этих поверхностей не сохраняется. Старые config
+должны завершаться явной ошибкой, а не молча мигрироваться.
 
 ## Что Работает
 
-- OpenAI, Anthropic и OpenAI-compatible model adapters;
+- OpenAI, Anthropic, OpenAI-compatible и fake model adapters;
+- `coding.codex_loop` в основном `codex` profile;
 - configurable workflows, context builders, compaction и tool exposure;
-- внешние process `SearchBackend` и pure-transform `HistoryCompactor` с
-  языконезависимым JSON-RPC протоколом;
-- file/git/shell/plan tools через default plugins;
-- mode-aware policy, approvals и session-scoped control plane;
-- canonical append-only session journal, config snapshots, resume/transcript
-  projections и eval report;
-- HTTP/SSE app-server, chat client и Inspector;
-- sequential и process subagents;
-- параллельные read-only роли и worktree isolation для пишущих ролей;
-- экспериментальный session-owned collaboration surface для bounded async
-  spawn/list/wait/interrupt read-only детей, sequential messaging/follow-up и
-  background UI lifecycle;
-- bounded root-session steering queue с model-boundary delivery,
-  settlement follow-up, HTTP/stdio receipts и web reconnect;
-- versioned binary/default-plugin releases с atomic `~/.proteus/current` и
-  отдельным personal plugin overlay;
-- `doctor`, `inspect topology`, `modules list`, `eval report`, read-only
-  `replay prompt` и side-effect-free `replay workflow`;
+- file/git/shell/plan/skills/Rust-LSP tools через default plugins;
+- process `SearchBackend` и pure-transform `HistoryCompactor`;
+- stdio MCP discovery и configured process tools;
+- sequential/process subagents и экспериментальный collaboration surface;
+- bounded root-session steering и follow-up;
+- session resume, reconnect, transcript projection и typed user input;
+- `doctor`, `inspect topology`, `modules list`, `tools list`, `eval report`,
+  `replay prompt` и `replay workflow`;
 - root boundary/swap tests и отдельные Trunk builds клиентов.
 
-«Работает» не означает «контракт стабилен навсегда». Проект пока свободно меняет
-ABI и внутренние DTO, если dogfood показывает неправильную границу.
+«Работает» не означает «контракт стабилен навсегда». Проект pre-release и
+удаляет устаревшую собственную форму вместе со всеми tracked producers,
+consumers, tests и docs.
 
-## Текущий Приоритет
+## Текущий Критический Путь
 
-Порядок месяца задаёт «План: Месяц Гибкости» в `roadmap.md`. Недели 1–4
-закрыты: raw seam и lifecycle interactive exec; внешние языконезависимые
-`SearchBackend` и pure-transform `HistoryCompactor` с runnable Python
-references; root-session steering/follow-up с server-owned web queue;
-versioned atomic install bundle и реализованный
-[canonical turn data](canonical-turn-data.md) cutover. Владелец выбрал compactor-трек;
-`pi_rpc_reasoner` оставлен дальней теорией для отдельного обсуждения.
+### 1. Architecture Collapse — закрыт 2026-07-28
 
-Readiness dogfood закрыт 2026-07-23: установленный strict-token web/app-server
-контур прошёл coding edit, steering, approve/deny, cancel и typed input, а
-journal + telemetry локализовали и позволили исправить потерю terminal error
-после reconnect. Подробности — в
-[postmortem](research/dogfood-readiness-checkpoint-2026-07-23.md).
+Approval/policy/permission слой удалён одним breaking cutover без legacy
+aliases: contracts, ABI, catalog, config, app protocol, CLI, Web и Inspector
+больше его не содержат. Зарегистрированный tool исполняется напрямую через
+`ToolRegistry -> ToolOrchestrator`; сохраняются только технические проверки
+schema, timeout/cancel, output bounds, path/ownership и journal linkage.
 
-Side-effect-free workflow replay закрыт 2026-07-24. Команда подставляет
-сохранённые canonical model/tool outcomes в записанные Workflow и Policy,
-сравнивает orchestration и итоговую history, не строит provider adapters, не
-исполняет реальные tools и не вводит новый session format.
+Основной profile id — `codex`. Старые pre-release config/session formats не
+мигрируются и не удаляются: они завершаются явной ошибкой schema mismatch.
 
-Первый live readback в тот же день прошёл на двух active dogfood journals:
-совпали простой turn, 10 model exchanges + 11 tool calls и approve/deny
-approval turns; source journals остались побайтово неизменными. Dogfood выявил
-и сразу закрыл ложный divergence производной token estimate из-за нового
-`duration_ms`. Turn с доставленным steering ожидаемо отклонён текущей v0
-границей.
+### 2. Trusted Execution — закрыт 2026-07-28
 
-Общий стандарт внедрения и проверки фич закрыт 2026-07-24. Integrated replay
-corpus теперь покрывает changed compaction с history replacement и
-воспроизводимый terminal workflow `Error`. Runtime-owned `Canceled`/`Timeout`
-явно отклоняются до replay: unit regression фиксирует границу, а существующий
-canceled dogfood journal подтвердил читаемую ошибку и побайтовую неизменность
-source. Их durable evidence остаётся canonical `TurnSettled` + cold `/history`.
+- default shell работает напрямую с текущими правами пользователя;
+- `PROTEUS_SHELL_SANDBOX=1` включает `bwrap` workspace sandbox на весь process;
+- в sandbox mode external cwd/terminal отклоняются без unsandboxed fallback;
+- отсутствие `bwrap` завершает sandboxed вызов до spawn;
+- process/MCP extensions описаны как trusted code, а не как sandbox.
 
-`plugins/default/skill-pack` v0 закрыт 2026-07-25 по согласованному
-docs-on-disk/context/tool плану без нового slot-а: user/project discovery,
-project precedence, `<available_skills>` и read-only tool `skill`; packaged
-fake-model run подтвердил canonical request и workflow replay. Узкий Rust LSP
-slice закрыт 2026-07-28 отдельным `rust-lsp` tool-плагином:
-`lsp_diagnostics` переиспользует `ContentLengthFraming`, держит один persistent
-`rust-analyzer` и покрыт mock protocol test. В текущей среде binary отсутствует,
-поэтому real success dogfood остаётся следующим evidence, а installed
-missing-binary smoke является ожидаемым fail-closed результатом. Общий LSP
-subsystem заранее не проектируется; replay/storage расширяются только по
-подтверждённому дефекту.
+Regression suites покрывают direct mode, sandbox mode, cancellation, timeout,
+output bounds и external-workdir boundary.
 
-### 1. Один Safety Path Для Всех Tools — закрыто 2026-07-10
+### 3. Пройти Реальный Release Path
 
-`task` переведён в общий путь
-`ToolRegistry -> ApprovalPolicy -> ToolOrchestrator -> Tool::invoke`:
+- `cargo fmt --all -- --check`;
+- `cargo clippy --workspace --all-targets -- -D warnings`;
+- `cargo test --workspace --all-targets`;
+- module-swap regressions;
+- оба `env -u NO_COLOR trunk build`;
+- `./install.sh`;
+- installed `proteus --config codex doctor` и runtime smoke.
 
-- `task` проходит visibility, validation, approval, timeout и events так же,
-  как остальные model-callable actions;
-- plan mode не создаёт worktree или ветку;
-- worktree lifecycle не протекает как Git-specific API в generic workflow host.
+### 4. Измерять Полезность
 
-### 2. Shell Fail-Closed — закрыто 2026-07-11
-
-Неэскалированный `shell`/`exec_command` запускается только через реально
-доступный `bwrap`; отсутствие или отключение sandbox завершает tool ошибкой до
-spawn. Canonical `workdir` вне workspace требует escalation и больше не
-становится дополнительным RW mount. Ptyxis-path считается unsandboxed, требует
-escalation и сообщает фактический sandbox status.
-
-### 3. Внешний HTTP Только С Auth — закрыто 2026-07-11
-
-Loopback без token остаётся удобным debug-режимом. Любой non-loopback bind
-требует непустой token и отклоняется до запуска runtime/bind без него;
-CORS/`Origin` не используются как замена auth.
-
-### 4. Ограниченный Lifecycle Процессов — interactive exec закрыт 2026-07-18
-
-Process subagents получили глобальный bounded idle/resume LRU-cap: уникальные
-worktree cwd больше не оставляют неограниченное число живых children; resume
-дополнительно привязан к session и cwd, а active/reserved child не эвиктится.
-Строгий wall-clock TTL/janitor process-subagent pool остаётся отдельным
-улучшением, не условием bounded resident state.
-
-Interactive exec хранит не больше 16 PTY sessions с LRU-eviction. Каждый
-handle принадлежит runtime session/thread/workspace: тот же thread может
-продолжить работу в следующем turn, чужой caller получает явную ошибку.
-Минутный janitor удаляет завершённые sessions и убивает процессы после 30 минут
-простоя; cancellation активного `exec_command`/`write_stdin` также убивает
-процесс и удаляет handle.
-
-Отдельный collaboration facade уже имеет session ownership и hard caps, но
-намеренно не поддерживает durable restart, fork, nesting, writer/worktree spawn
-и message capability у process/plugin runners. Эти ограничения не следует
-выдавать за Codex parity.
-
-## Readiness Checkpoint — закрыт 2026-07-23
-
-1. ✅ safety cases выше покрыты regression-тестами;
-2. ✅ полный root gate и оба Trunk build зелёные;
-3. ✅ `./install.sh` даёт совместимый versioned binary/plugin set и атомарно
-   переключает `current`;
-4. ✅ несколько небольших coding-задач проходят через web/app-server без
-   потери контроля, worktree или процесса;
-5. ✅ journal и telemetry позволяют объяснить failure без ручного чтения
-   исходников runtime.
-
-Выбранный измеримый шаг закрыт 2026-07-24: side-effect-free workflow replay
-работает поверх сохранённых canonical records; первые simple/tool/approve/deny
-dogfood turns совпали. Standardization checkpoint также закрыт: changed
-compaction и terminal `Error` добавлены в integrated corpus, внешний
-`Canceled`/`Timeout` отделён от replay и закреплён за journal/cold-history
-gate. Packaged skills dogfood и первый Rust LSP slice закрыты; следующий
-checkpoint — real rust-analyzer success dogfood при доступном binary и решение
-по его evidence. Новый session format без измеренного bottleneck не
-проектируется.
+Следующая продуктовая работа выбирается по dogfood/eval, а не по желанию
+добавить ещё один slot. Сравнение с Pi должно запускать отдельные harnesses на
+одинаковом repo, prompt и model configuration. Replay отвечает за
+orchestration correctness; eval — за task success, стоимость и устойчивость.
 
 ## Не На Критическом Пути
 
-Эти возможности могут существовать в коде или backlog, но не должны вытеснять
-real rust-analyzer dogfood или smallest подтверждённый dogfood defect:
-
-- marketplace, signed plugins и внешний package manager;
-- WASM plugin runtime и dylib hot-unload;
-- multi-agent DAG и автоматический merge worktree-веток;
-- большой UI rewrite и cosmetic renderer polish;
-- memory consolidation/background jobs;
-- полноценный RAG/index daemon;
+- новые slots и providers;
+- marketplace, WASM и dylib hot-unload;
+- multi-agent DAG и auto-merge;
+- расширение collaboration surface;
+- memory consolidation/background jobs и RAG daemon;
+- общий multi-language LSP subsystem;
 - MCP resources/prompts/subscriptions и новые transports;
-- общий multi-language LSP subsystem поверх первого Rust slice;
-- внешний onboarding и distribution для незнакомого пользователя;
-- `pi_rpc_reasoner` и Pi-specific runtime integration до отдельного решения
-  владельца.
+- TUI parity с Pi;
+- Pi-specific runtime integration;
+- публичный non-loopback service.
 
 ## Research / Quarantine
 
@@ -188,20 +133,21 @@ Research-код не считается production path и не должен а�
 root workspace или `install.sh`:
 
 - `plugins/research/tool-output-artifacts`;
-- новые best-of packs до появления измеримого eval;
+- новые best-of packs до измеримого eval;
 - `ArtifactStore` и `ToolResultProcessor`;
-- новые host-defined slots без двух уже работающих независимых реализаций;
-- provider/product-specific идеи, ещё не разложенные по существующим contracts.
+- новые host-defined slots без двух работающих независимых реализаций;
+- provider/product-specific идеи, ещё не разложенные по contracts.
 
 ## Правило Для Новой Задачи
 
-- Меняет порядок agent loop → `Workflow`.
-- Меняет контекст → `ContextBuilder`.
-- Меняет видимость tools → `ToolExposure`.
-- Меняет разрешения → `ApprovalPolicy`/`ToolOrchestrator`.
-- Добавляет model-callable действие → обычный policy-gated `Tool`.
-- Не укладывается в существующую границу → сначала research и второй use case,
-  потом новый contract.
+- меняет порядок agent loop → `Workflow`;
+- меняет контекст → `ContextBuilder`;
+- меняет видимость tools → `ToolExposure`;
+- добавляет model-callable действие → `Tool` через общий orchestrator;
+- меняет поиск → `SearchBackend`;
+- меняет patch semantics → `PatchApplier`;
+- не укладывается в существующую границу → сначала research и второй use case,
+  затем новый contract.
 
 Подробное дерево решений находится в
 [slot-governance.md](slot-governance.md).

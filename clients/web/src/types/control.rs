@@ -1,59 +1,10 @@
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-
-use super::ToolCallInfo;
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum ApprovalCacheScope {
-    #[default]
-    None,
-    ExactCall,
-    ExactCommand,
-    WorkspaceWrite,
-}
-
-impl ApprovalCacheScope {
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Self::None => "Один раз",
-            Self::ExactCall => "Точно",
-            Self::ExactCommand => "Команда",
-            Self::WorkspaceWrite => "Workspace",
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub(crate) struct ApprovalRequestInfo {
-    pub(crate) approval_id: String,
-    pub(crate) call: ToolCallInfo,
-    pub(crate) cwd: String,
-    pub(crate) reason: String,
-    pub(crate) tool_spec: Option<Value>,
-    pub(crate) preview: Option<ApprovalPreviewInfo>,
-    /// Атрибуция запроса: thread/turn + метка источника (роль субагента).
-    pub(crate) origin: Option<RequestOriginInfo>,
-    /// Порядковый номер в очереди approvals.
-    pub(crate) seq: u64,
-}
+use serde::Deserialize;
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 pub(crate) struct RequestOriginInfo {
     pub(crate) thread_id: String,
     pub(crate) turn_id: String,
     pub(crate) label: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub(crate) struct ApprovalPreviewInfo {
-    pub(crate) kind: String,
-    pub(crate) title: String,
-    pub(crate) summary: String,
-    pub(crate) affected_files: Vec<String>,
-    pub(crate) body: Option<String>,
-    pub(crate) language: Option<String>,
-    pub(crate) metadata: Value,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
@@ -88,7 +39,6 @@ pub(crate) struct UserInputRequestInfo {
 
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 pub(crate) struct PendingControlPlaneInfo {
-    pub(crate) approvals: Vec<ApprovalRequestInfo>,
     pub(crate) user_inputs: Vec<UserInputRequestInfo>,
     pub(crate) queued_user_messages: Vec<QueuedPromptInfo>,
 }

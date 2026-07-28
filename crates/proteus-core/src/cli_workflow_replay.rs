@@ -42,8 +42,8 @@ fn render_human_report(report: &WorkflowReplayReport) -> String {
         format!("Turn: {}", report.source.turn_id),
         format!("Thread: {}", report.source.thread_id),
         format!(
-            "Workflow: {} (policy={}, epoch={})",
-            report.source.workflow_id, report.source.policy_id, report.source.module_epoch
+            "Workflow: {} (epoch={})",
+            report.source.workflow_id, report.source.module_epoch
         ),
         format!("Recorded outcome: {}", outcome_label(&report.recorded)),
         format!("Replay outcome: {}", outcome_label(&report.replay)),

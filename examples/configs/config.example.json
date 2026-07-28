@@ -39,7 +39,6 @@
     "search": "null",
     "memory": "none",
     "context": "simple",
-    "policy": "ask_write",
     "patch": "null",
     "compactor": "codex",
     "tool_exposure": "all_visible",
@@ -50,12 +49,6 @@
     "surface": "task"
   },
   "module_config": {
-    "policy": {
-      "ask_write": {
-        "ask_before": ["apply_patch", "remember_fact"],
-        "allow": ["search", "request_user_input"]
-      }
-    },
     "search": {
       "rg": {
         "max_results": 50
@@ -108,12 +101,6 @@
   "tools": {
     "enabled": ["apply_patch", "remember_fact", "request_user_input", "search"],
     "path": null
-  },
-  "permissions": {
-    "mode": "normal"
-  },
-  "app_server": {
-    "approval_timeout_ms": 0
   },
   "runtime": {
     "model_timeout_ms": 10800000,

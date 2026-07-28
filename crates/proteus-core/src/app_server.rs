@@ -11,23 +11,19 @@ use tokio::sync::{Mutex, RwLock, broadcast};
 
 use crate::{
     contracts::{
-        ApprovalCacheScope, ApprovalResponse, CancellationToken, EventSink, FilteredEventSink,
-        UserInputResponse, is_streaming_delta,
+        CancellationToken, EventSink, FilteredEventSink, UserInputResponse, is_streaming_delta,
     },
     core::{
         AgentRuntime, AppConfig, BroadcastEventSink, BuiltinModuleCatalog,
-        ChannelApprovalTransport, ChannelUserInputTransport, FanoutEventSink, JsonlEventStore,
-        ModuleCatalogEntrySummary, ReservedRunCompletion, ReservedUserMessage, RuntimeReloadReport,
-        SessionConfigSnapshot, SessionStore, TopologyBuildInput, TopologySnapshot,
-        UserMessageReservation, build_topology_snapshot, config_store_root,
-        delete_workspace_session, list_session_summaries, list_workspace_session_summaries,
-        normalize_session_dir_path,
+        ChannelUserInputTransport, FanoutEventSink, JsonlEventStore, ModuleCatalogEntrySummary,
+        ReservedRunCompletion, ReservedUserMessage, RuntimeReloadReport, SessionConfigSnapshot,
+        SessionStore, TopologyBuildInput, TopologySnapshot, UserMessageReservation,
+        build_topology_snapshot, config_store_root, delete_workspace_session,
+        list_session_summaries, list_workspace_session_summaries, normalize_session_dir_path,
     },
-    domain::{AgentOutput, EventEnvelope, PermissionMode, SessionId, new_thread_id},
+    domain::{AgentOutput, EventEnvelope, SessionId, new_thread_id},
 };
 
-mod approval_preview;
-mod approvals;
 mod config_builder;
 mod config_summary;
 mod context_map;
@@ -61,14 +57,12 @@ use turn_progress::TurnProgress;
 // Публичный app-server façade экспортирует canonical wire types из contracts;
 // их определения не дублируются в core.
 pub use proteus_contracts::app_protocol::{
-    AppApprovalId, AppApprovalPreview, AppApprovalRequest, AppContextBuildSnapshot,
-    AppContextCompactionSnapshot, AppContextHistorySummary, AppContextMapSnapshot,
-    AppContextToolSummary, AppContextUsageCategory, AppContextUsageSnapshot, AppPendingRequests,
-    AppQueuedUserMessage, AppServerEvent, AppSessionActivity, AppSessionSummary,
-    AppUserInputRequestId, StdioOutput, StdioRequest,
+    AppContextBuildSnapshot, AppContextCompactionSnapshot, AppContextHistorySummary,
+    AppContextMapSnapshot, AppContextToolSummary, AppContextUsageCategory, AppContextUsageSnapshot,
+    AppPendingRequests, AppQueuedUserMessage, AppServerEvent, AppSessionActivity,
+    AppSessionSummary, AppUserInputRequestId, StdioOutput, StdioRequest,
 };
 
-use approvals::PendingApprovalResponders;
 use user_inputs::{PendingUserInputResponders, resolve_pending_user_inputs_empty};
 
 #[derive(Clone)]
@@ -80,7 +74,6 @@ pub struct AppServerHandle {
     catalog_entries: Arc<RwLock<Vec<ModuleCatalogEntrySummary>>>,
     plugin_reports: Arc<RwLock<Vec<crate::core::PluginLoadReport>>>,
     events: broadcast::Sender<AppServerEvent>,
-    pending_approvals: PendingApprovalResponders,
     pending_user_inputs: PendingUserInputResponders,
     turn_progress: Arc<Mutex<TurnProgress>>,
 }
@@ -185,15 +178,6 @@ impl AppServerHandle {
         self.runtime.clear_history().await
     }
 
-    pub async fn set_permission_mode(&self, mode: PermissionMode) {
-        self.runtime.set_permission_mode(mode).await;
-        self.config.write().await.permissions.mode = mode;
-    }
-
-    pub async fn permission_mode(&self) -> PermissionMode {
-        self.runtime.permission_mode().await
-    }
-
     pub async fn set_model_name(&self, model: String) {
         self.runtime.set_model_name(model).await;
     }
@@ -242,7 +226,6 @@ impl AppServerHandle {
     }
 
     pub async fn config_summary(&self) -> Value {
-        let mode = self.permission_mode().await;
         let model_ref = self.runtime.model_ref().await;
         let reasoning = self.runtime.reasoning().await;
         let module_epoch = self.runtime.module_epoch().await;
@@ -257,7 +240,6 @@ impl AppServerHandle {
                 &config,
                 self.config_path.as_deref(),
                 &self.cwd,
-                mode,
                 &tools,
                 &plugin_reports,
                 module_epoch,
@@ -296,7 +278,6 @@ impl AppServerHandle {
                 "summary": reasoning.summary,
                 "budget_tokens": reasoning.budget_tokens,
             },
-            "permission_mode": format!("{mode:?}"),
             "web": {
                 "tool_cards_collapsed": config.web.tool_cards_collapsed,
             },
@@ -328,7 +309,6 @@ impl AppServerHandle {
         module_config: BTreeMap<String, BTreeMap<String, Value>>,
         tools_enabled: Option<Vec<String>>,
         active_provider: Option<String>,
-        permission_mode: Option<PermissionMode>,
     ) -> Result<ConfigBuilderSnapshot> {
         let catalog_entries = self.catalog_entries.read().await.clone();
         validate_config_builder_modules(&modules, &catalog_entries)?;
@@ -356,9 +336,6 @@ impl AppServerHandle {
         if let Some(active_provider) = active_provider {
             next_config.active_provider = active_provider;
         }
-        if let Some(mode) = permission_mode {
-            next_config.permissions.mode = mode;
-        }
         validate_module_config_toml(&next_config.module_config)?;
 
         let (registry, plugin_reports, catalog_entries) =
@@ -367,11 +344,7 @@ impl AppServerHandle {
             .ok_or_else(|| anyhow!("config path is not available; cannot persist config"))?;
         persist_config_builder(&target_path, &next_config).await?;
 
-        let config_snapshot = SessionConfigSnapshot::from_runtime_config(
-            &next_config,
-            &registry,
-            next_config.permissions.mode,
-        );
+        let config_snapshot = SessionConfigSnapshot::from_runtime_config(&next_config, &registry);
         let report = self
             .runtime
             .reload_registry(registry, Some(config_snapshot))
@@ -379,9 +352,6 @@ impl AppServerHandle {
         if provider_changed {
             let model = next_config.active_model_config()?;
             self.runtime.set_model_ref(model.model_ref()).await;
-        }
-        if let Some(mode) = permission_mode {
-            self.runtime.set_permission_mode(mode).await;
         }
         *self.config.write().await = next_config;
         *self.plugin_reports.write().await = plugin_reports;
@@ -396,7 +366,6 @@ impl AppServerHandle {
     }
 
     pub async fn topology_snapshot(&self) -> TopologySnapshot {
-        let mode = self.permission_mode().await;
         let module_epoch = self.runtime.module_epoch().await;
         let config = self.config.read().await.clone();
         let tools = self.runtime.tool_entries().await;
@@ -410,7 +379,6 @@ impl AppServerHandle {
             tools: &tools,
             plugin_reports: &plugin_reports,
             module_epoch,
-            permission_mode: mode,
             extra_warnings: Vec::new(),
         })
     }
@@ -461,21 +429,6 @@ impl AppServerHandle {
     }
 
     pub async fn pending_requests(&self) -> AppPendingRequests {
-        let mut approvals = self
-            .pending_approvals
-            .lock()
-            .await
-            .values()
-            .map(|entry| entry.request.clone())
-            .collect::<Vec<_>>();
-        // Хронология очереди: seq присваивает forwarder; approval_id даёт
-        // детерминированный порядок при равных seq в тестовых fixtures.
-        approvals.sort_by(|left, right| {
-            left.seq
-                .cmp(&right.seq)
-                .then_with(|| left.approval_id.cmp(&right.approval_id))
-        });
-
         let mut user_inputs = self
             .pending_user_inputs
             .lock()
@@ -499,8 +452,7 @@ impl AppServerHandle {
             .map(|(message_id, text)| AppQueuedUserMessage::new(message_id, text))
             .collect();
 
-        AppPendingRequests::new(approvals, user_inputs)
-            .with_queued_user_messages(queued_user_messages)
+        AppPendingRequests::new(user_inputs).with_queued_user_messages(queued_user_messages)
     }
 
     pub async fn context_map_snapshot(
@@ -553,13 +505,6 @@ impl AppServerHandle {
         )
     }
 
-    pub async fn has_pending_approval(&self, approval_id: &str) -> bool {
-        self.pending_approvals
-            .lock()
-            .await
-            .contains_key(approval_id)
-    }
-
     pub async fn has_pending_user_input(&self, request_id: &str) -> bool {
         self.pending_user_inputs
             .lock()
@@ -568,28 +513,8 @@ impl AppServerHandle {
     }
 
     pub async fn session_activity(&self, running_turn_ids: Vec<String>) -> AppSessionActivity {
-        let pending_approvals = self.pending_approvals.lock().await.len();
         let pending_user_inputs = self.pending_user_inputs.lock().await.len();
-        AppSessionActivity::from_running_turn_ids(
-            running_turn_ids,
-            pending_approvals,
-            pending_user_inputs,
-        )
-    }
-
-    pub async fn respond_approval(
-        &self,
-        approval_id: &str,
-        approved: bool,
-        note: Option<String>,
-        cache: ApprovalCacheScope,
-    ) -> Result<()> {
-        approvals::resolve_pending_approval(
-            &self.pending_approvals,
-            approval_id,
-            ApprovalResponse::new(approved, note, cache),
-        )
-        .await
+        AppSessionActivity::from_running_turn_ids(running_turn_ids, pending_user_inputs)
     }
 
     pub async fn respond_user_input(
@@ -602,11 +527,6 @@ impl AppServerHandle {
     }
 
     pub async fn shutdown(&self) {
-        approvals::deny_pending_approvals(
-            self.pending_approvals.clone(),
-            "app-server shutting down".to_owned(),
-        )
-        .await;
         resolve_pending_user_inputs_empty(self.pending_user_inputs.clone()).await;
         let _ = self.events.send(AppServerEvent::Shutdown);
     }
@@ -615,8 +535,7 @@ impl AppServerHandle {
         let config = reload_tools_config(self.config_path.as_deref(), &self.config).await?;
         let (registry, plugin_reports, catalog_entries) =
             build_registry_and_plugin_reports(&config, &self.cwd).await?;
-        let config_snapshot =
-            SessionConfigSnapshot::from_runtime_config(&config, &registry, config.permissions.mode);
+        let config_snapshot = SessionConfigSnapshot::from_runtime_config(&config, &registry);
         let report = self
             .runtime
             .reload_registry(registry, Some(config_snapshot))
@@ -726,13 +645,10 @@ impl AgentAppServer {
         let event_sink: Arc<dyn EventSink> =
             Arc::new(FanoutEventSink::new(vec![jsonl, core_broadcast.clone()]));
 
-        let approval_timeout = Duration::from_millis(config.app_server.approval_timeout_ms);
-        let (approval_transport, approval_rx) = ChannelApprovalTransport::new(32);
         let (user_input_transport, user_input_rx) = ChannelUserInputTransport::new(32);
         let mut builder = AgentRuntime::builder(config, cwd)
             .with_config_path(config_path)
             .with_event_sink(event_sink)
-            .with_approval(Arc::new(approval_transport))
             .with_user_input(Arc::new(user_input_transport));
         if let Some(session_store) = resumed_session {
             builder = builder.resume_from_session_store(session_store, new_thread_id());
@@ -742,22 +658,15 @@ impl AgentAppServer {
         }
         let runtime = Arc::new(builder.build_async().await?);
         let (events, _) = broadcast::channel(1024);
-        let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
         let pending_user_inputs = Arc::new(Mutex::new(HashMap::new()));
         let turn_progress = Arc::new(Mutex::new(TurnProgress::default()));
 
         spawn_runtime_event_forwarder(core_broadcast, events.clone(), turn_progress.clone());
-        approvals::spawn_approval_forwarder(
-            approval_rx,
-            events.clone(),
-            pending_approvals.clone(),
-            approval_timeout,
-        );
         user_inputs::spawn_user_input_forwarder(
             user_input_rx,
             events.clone(),
             pending_user_inputs.clone(),
-            approval_timeout,
+            Duration::ZERO,
         );
 
         Ok(AppServerHandle {
@@ -768,7 +677,6 @@ impl AgentAppServer {
             catalog_entries: Arc::new(RwLock::new(catalog_entries)),
             plugin_reports: Arc::new(RwLock::new(plugin_reports)),
             events,
-            pending_approvals,
             pending_user_inputs,
             turn_progress,
         })

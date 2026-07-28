@@ -16,13 +16,12 @@ use serde_json::{Value, json};
 use super::*;
 use crate::{
     contracts::{
-        CancellationToken, EventEmitter, Model, PolicyContext, PolicyVisibilityContext,
-        SubagentIsolation, SubagentLimits, ToolRegistry,
+        CancellationToken, EventEmitter, Model, SubagentIsolation, SubagentLimits, ToolRegistry,
     },
-    core::{HeadlessApprovalTransport, HeadlessUserInputTransport, InMemoryEventStore},
+    core::{HeadlessUserInputTransport, InMemoryEventStore},
     domain::{
-        AgentTask, CacheHints, ModelRef, PolicyDecision, ReasoningConfig, ToolCall, new_call_id,
-        new_session_id, new_thread_id, new_turn_id,
+        AgentTask, CacheHints, ModelRef, ReasoningConfig, ToolCall, new_call_id, new_session_id,
+        new_thread_id, new_turn_id,
     },
     model_standard::{
         CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason, MessageRole,
@@ -34,18 +33,6 @@ use crate::{
     },
     tools::RememberFactTool,
 };
-
-struct AllowAllPolicy;
-
-impl crate::contracts::ApprovalPolicy for AllowAllPolicy {
-    fn evaluate(&self, _call: &ToolCall, _ctx: &PolicyContext) -> PolicyDecision {
-        PolicyDecision::Allow
-    }
-
-    fn evaluate_visibility(&self, _ctx: &PolicyVisibilityContext) -> PolicyDecision {
-        PolicyDecision::Allow
-    }
-}
 
 struct FailingModelClient;
 
@@ -318,8 +305,6 @@ where
         Arc::new(NoMemory),
         Arc::new(EmptyContextBuilder),
         tools,
-        Arc::new(AllowAllPolicy),
-        Arc::new(HeadlessApprovalTransport),
         Arc::new(HeadlessUserInputTransport),
         Arc::new(NullPatchApplier),
         Arc::new(NoCompactor),
@@ -530,31 +515,21 @@ fn markdown_role_duplicate_with_inline_role_is_rejected() {
     );
 }
 
-/// Изоляция turn-scoped grants структурная: ребёнок стартует с пустыми
-/// grants (escalated_exec родителя не протекает) и его собственные
-/// grants не видны родительскому ходу.
+/// Дочерний контекст сохраняет session/turn, но получает собственный thread id
+/// и явную role-label для attribution событий.
 #[test]
-fn child_context_isolates_turn_grants_and_labels_thread() {
+fn child_context_labels_child_thread_without_losing_parent_identity() {
     let events = Arc::new(InMemoryEventStore::new());
     let ctx = test_runtime_context(events);
-    ctx.turn_grants.grant(["escalated_exec".to_owned()]);
 
     let child_thread_id = new_thread_id();
     let child_ctx = child_context(&ctx, child_thread_id, "explore");
 
+    assert_eq!(child_ctx.session_id, ctx.session_id);
+    assert_eq!(child_ctx.turn_id, ctx.turn_id);
     assert_eq!(child_ctx.thread_id, child_thread_id);
+    assert_ne!(child_ctx.thread_id, ctx.thread_id);
     assert_eq!(child_ctx.thread_label.as_deref(), Some("explore"));
-    assert!(
-        child_ctx.turn_grants.snapshot().is_empty(),
-        "parent grants must not leak into the child"
-    );
-
-    child_ctx.turn_grants.grant(["child_grant".to_owned()]);
-    assert_eq!(
-        ctx.turn_grants.snapshot(),
-        vec!["escalated_exec"],
-        "child grants must not leak back into the parent"
-    );
 }
 
 /// Ребёнок живёт на child-токене: cancel родителя каскадится ребёнку,

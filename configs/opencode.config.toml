@@ -18,12 +18,11 @@ name = "opencode-experimental"
 
 [modules]
 # Experimental OpenCode-shaped profile: reuse codex_context/codex compactor
-# и codex loop, opencode-специфика — policy, tool surface и prompt.
+# и codex loop; opencode-специфика остаётся в tool surface и prompt.
 workflow = "coding.codex_loop"
 search = "rg"
 memory = "none"
 context = "codex_context"
-policy = "opencode_policy"
 patch = "direct"
 compactor = "codex"
 tool_exposure = "all_visible"
@@ -31,40 +30,6 @@ renderer = "statusline"
 
 [tools]
 enabled = ["skill", "read_file", "read_many_files", "list_dir", "grep", "find_files", "lsp_diagnostics", "edit_file", "write_file", "shell", "update_plan", "request_user_input"]
-
-[permissions]
-mode = "normal"
-
-# OpenCode-shaped permission engine: правила (permission, pattern, action),
-# последнее совпавшее правило побеждает, дефолт без совпадений — ask.
-# Рулсет повторяет upstream build-агент: allow-by-default с точечными ask
-# (env-файлы, push/destructive git/rm). Ужесточайте под свой уровень доверия.
-[module_config.policy.opencode_policy]
-rules = [
-  { permission = "*", action = "allow" },
-  { permission = "read", pattern = "*.env", action = "ask" },
-  { permission = "read", pattern = "*.env.*", action = "ask" },
-  { permission = "read", pattern = "*.env.example", action = "allow" },
-  { permission = "bash", pattern = "git push*", action = "ask" },
-  { permission = "bash", pattern = "git reset --hard*", action = "ask" },
-  { permission = "bash", pattern = "git checkout -- *", action = "ask" },
-  { permission = "bash", pattern = "rm -rf*", action = "ask" },
-]
-
-# В groups перечисляются только включённые tools; при добавлении
-# apply_patch/exec_command в tools.enabled допишите их в edit/bash группы.
-[module_config.policy.opencode_policy.groups.edit]
-tools = ["edit_file", "write_file"]
-pattern_args = ["path"]
-
-[module_config.policy.opencode_policy.groups.bash]
-tools = ["shell"]
-pattern_args = ["command"]
-split_commands = true
-
-[module_config.policy.opencode_policy.groups.read]
-tools = ["read_file", "read_many_files"]
-pattern_args = ["path", "paths"]
 
 # Context как у upstream: только project instructions (AGENTS.md и аналоги)
 # + environment; модель исследует репо сама через tools.
@@ -78,9 +43,6 @@ project_instruction_files = ["AGENTS.override.md", "AGENTS.md", "CLAUDE.md", ".c
 # для большого окна это примерно 0.95 доли.
 [module_config.compactor.codex]
 trigger_fraction = 0.95
-
-[app_server]
-approval_timeout_ms = 0
 
 [runtime]
 model_timeout_ms = 10800000

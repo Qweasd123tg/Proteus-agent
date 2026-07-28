@@ -1,7 +1,7 @@
 //! Pending-user-input control plane app-server-а.
 //!
-//! Зеркало `approvals.rs`: каждый user-input запрос регистрируется в общей
-//! map + получает watcher-таску, владеющую responder-ом tool-а. Watcher —
+//! Каждый user-input запрос регистрируется в общей map и получает
+//! watcher-таску, владеющую responder-ом tool-а. Watcher —
 //! единственное место разрешения запроса: явный ответ клиента
 //! (`resolve_pending_user_input`), timeout и массовый resolve при shutdown
 //! проходят через resolve-канал записи. Если сам запросивший умирает (отмена

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     core::{AppConfig, BuiltinRegistry, ModulesConfig},
-    domain::{ModelRef, PermissionMode, ReasoningConfig, ToolSpec},
+    domain::{ModelRef, ReasoningConfig, ToolSpec},
 };
 
 pub const CONFIG_SNAPSHOT_FILE: &str = "config_snapshot.json";
@@ -25,7 +25,6 @@ pub struct SessionConfigSnapshot {
     #[serde(default = "default_subagent_surface")]
     pub subagent_surface: String,
     pub tools: Vec<SessionConfigTool>,
-    pub permission_mode_default: PermissionMode,
 }
 
 pub type SessionConfigModules = ModulesConfig;
@@ -37,11 +36,7 @@ pub struct SessionConfigTool {
 }
 
 impl SessionConfigSnapshot {
-    pub fn from_runtime_config(
-        config: &AppConfig,
-        registry: &BuiltinRegistry,
-        permission_mode_default: PermissionMode,
-    ) -> Self {
+    pub fn from_runtime_config(config: &AppConfig, registry: &BuiltinRegistry) -> Self {
         let tools = registry
             .tools
             .entries()
@@ -52,7 +47,7 @@ impl SessionConfigSnapshot {
             })
             .collect();
         Self {
-            schema_version: 2,
+            schema_version: 3,
             ts: unix_timestamp_ms(),
             profile_name: config.profile.name.clone(),
             active_provider: config.active_provider.clone(),
@@ -61,7 +56,6 @@ impl SessionConfigSnapshot {
             modules: config.modules.clone(),
             subagent_surface: config.subagents.surface.as_str().to_owned(),
             tools,
-            permission_mode_default,
         }
     }
 }

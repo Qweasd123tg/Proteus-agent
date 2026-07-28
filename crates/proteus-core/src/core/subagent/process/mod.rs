@@ -3,11 +3,10 @@
 //!
 //! Родитель общается с ребёнком по stdio JSONL-протоколу app-server-а
 //! (`StdioRequest`/`StdioOutput`): отправляет turn через `Send`, форвардит
-//! approval/user-input запросы ребёнка в родительские transports (реальное
-//! решение принимает пользователь родительской session), пере-эмитит
+//! user-input запросы ребёнка в transport родительской session, пере-эмитит
 //! tool-события ребёнка под выделенным `child_thread_id` и возвращает
-//! финальный `AgentOutput` как summary. Изоляция структурная: policy,
-//! tools, model и permission mode ребёнка задаются его конфигом; сбой или
+//! финальный `AgentOutput` как summary. Изоляция структурная: tools и model
+//! ребёнка задаются его конфигом; сбой или
 //! kill ребёнка не задевает родительский runtime (cancel = `Cancel` +
 //! grace, затем kill).
 //!

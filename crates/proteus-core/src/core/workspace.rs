@@ -1,10 +1,10 @@
 //! Git worktree-workspace для пишущих субагентов (stage 2 параллельных
 //! субагентов).
 //!
-//! Lifecycle оркестрирует policy-gated facade-tool `task`: после approval он
-//! создаёт worktree, подменяет `task.cwd` ребёнка и после завершения просит
-//! cleanup. Здесь — только sync-механика поверх системного `git`; async tool
-//! вызывает её через `spawn_blocking`.
+//! Lifecycle оркестрирует facade-tool `task`: он создаёт worktree, подменяет
+//! `task.cwd` ребёнка и после завершения просит cleanup. Здесь — только
+//! sync-механика поверх системного `git`; async tool вызывает её через
+//! `spawn_blocking`.
 
 use std::{
     fs,

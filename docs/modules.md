@@ -28,17 +28,15 @@ adapter для plugin `MemoryStore`. `jsonl` вынесен в
 
 Core-owned no-op/fake fallback-и вынесены отдельно в
 `crates/proteus-core/src/stubs`: `FakeModelClient`, `NullSearch`, `NoMemory`,
-`EmptyContextBuilder`, `DenyAllPolicy`, `NullPatchApplier`, `NoCompactor`,
-`NoWorkflow`, `TextRenderer`. Catalog регистрирует их под безопасными ids
-(`fake`, `null`, `none`, `deny_all`, `text`), но они не лежат рядом с plugin
+`EmptyContextBuilder`, `NullPatchApplier`, `NoCompactor`, `NoWorkflow`,
+`TextRenderer`. Catalog регистрирует их под безопасными ids
+(`fake`, `null`, `none`, `text`), но они не лежат рядом с plugin
 adapters.
 
 Не всё host-side является module. Поэтому runtime support вынесен из этой
 папки:
 
-- `crates/proteus-core/src/core/approval` — transports и cache для approval UI;
 - `crates/proteus-core/src/core/model_service.rs` — shaping wrapper вокруг `Model`;
-- `crates/proteus-core/src/core/permission_mode.rs` — mode-aware wrapper для `ApprovalPolicy`;
 - `crates/proteus-core/src/tools` — concrete tools (`apply_patch`, `search`, `remember_fact`, `request_user_input`/`AskUserQuestion`) и configured tool wrappers; plugin tool ABI bridge лежит в `plugin_adapters/tool.rs`.
 
 Список встроенных manifests можно посмотреть без запуска runtime:
@@ -72,11 +70,11 @@ plugin, а не расширять таблицу ниже автоматиче�
 То же относится к MCP hot-swap: discovery и visibility проходят через
 `ToolRegistry`/`ToolExposure`, а не через отдельный feature-specific slot.
 
-`ModuleKind` содержит 12 вариантов. Десять из них выбираются полями
+`ModuleKind` содержит 11 вариантов. Девять из них выбираются полями
 `modules.*`; `Model` выбирается отдельно через `active_provider`/`providers`,
 а `Tool` служит catalog/registry kind для concrete tools и не имеет
-`modules.tool`. Поэтому таблица ниже показывает 11 выбираемых behavior slots:
-model provider плюс десять ключей `modules.*`. Сам `ToolRegistry`
+`modules.tool`. Поэтому таблица ниже показывает 10 выбираемых behavior slots:
+model provider плюс девять ключей `modules.*`. Сам `ToolRegistry`
 остаётся execution boundary, а не ещё одним config-selectable slot. Та же
 граница действует в `TopologySnapshot`: `slots` содержит behavior slots, а
 `ToolRegistry` строится как synthetic runtime node из отдельного списка
@@ -90,7 +88,6 @@ pseudo-slot из topology.
 | Search | `SearchBackend` | `modules.search` | `null`, `process`, plugin-provided (`rg` если подключён `rg-search`) |
 | Memory | `MemoryStore` | `modules.memory` | `none`, plugin-provided (`jsonl` из `memory-pack`, `sqlite` из `sqlite-memory`) |
 | Context | `ContextBuilder` | `modules.context` | `none`, plugin-provided (`simple`, `repo_aware`, `codex_context` из `context-pack`) |
-| Policy | `ApprovalPolicy` | `modules.policy` | `deny_all`, plugin-provided (`ask_write`, `codex_policy`, `opencode_policy`, `allow_all` из `policy-pack`) |
 | Patch | `PatchApplier` | `modules.patch` | `null`, plugin-provided (`direct` если подключён `direct-patch`) |
 | Compactor | `HistoryCompactor` | `modules.compactor` | `none`, `process`, plugin-provided (`codex` из `codex-compactor`) |
 | Tool Exposure | `ToolExposure` | `modules.tool_exposure` | `all_visible`, plugin-provided (`codex_dynamic` из `codex-tool-exposure`) |
@@ -164,7 +161,7 @@ compactor использует свой fallback threshold.
 Первый Responses-срез поддерживает OpenAI `web_search` и `file_search`. Это не
 новый slot и не локальные реализации поиска: выбранный `Model` возвращает
 настроенные `ToolSpec` с `ToolSurface::ProviderHosted`, registry регистрирует их
-рядом с обычными tools для duplicate checks, policy visibility, topology и
+рядом с обычными tools для duplicate checks, topology и
 tool exposure, а OpenAI adapter сериализует разрешённый subset в `tools`
 Responses-запроса.
 
@@ -179,7 +176,7 @@ Structured Outputs остаётся отдельной уже существую
 `ResponseFormat::JsonSchema` не зависит от hosted tools и может использоваться
 в том же Responses request. `computer`, hosted shell/code interpreter, image
 generation, remote MCP и programmatic tool calling в этот срез не входят:
-для них нужны отдельные execution, approval, artifact и replay semantics, а не
+для них нужны отдельные execution, artifact и replay semantics, а не
 расширение списка строк в OpenAI adapter-е.
 
 ## Search
@@ -256,9 +253,8 @@ JSON-массивом.
 
 `modules.memory` выбирает backend реализации `MemoryStore`. `MemoryItem` и `MemoryQuery` остаются в `crates/proteus-contracts/src/domain/memory.rs` и не зависят от выбранного backend.
 
-Автоматическая запись после каждого turn-а удалена вместе с
-`MemoryPolicy`/`modules.memory_policy`: эвристика `carry_forward` не доказала
-ценность, достаточную для отдельного public slot-а. `MemoryStore` отвечает
+Автоматическая запись после каждого turn-а удалена: эвристика `carry_forward`
+не доказала ценность, достаточную для отдельного public slot-а. `MemoryStore` отвечает
 только за хранение и retrieval. Запись остаётся явной и идёт через два канала:
 
 - Tool `remember_fact` — модель вызывает его в ходе turn'а, чтобы явно положить preference/fact. Spec принимает `{ kind: "preference" | "fact", content, metadata? }`.
@@ -394,10 +390,7 @@ Tools не являются slot-ом уровня `modules.*`. Это набо�
   и отклоняет неизвестные поля/status, но, как upstream handler, не навязывает
   cardinality/длину/непустой текст шагов; `at most one in_progress` остаётся
   model-facing инструкцией. Отдельного runtime-состояния и протокольных событий
-  нет, клиент рендерит карточку плана из аргументов последнего вызова;
-- `policy-pack` — `request_permissions` (из `plugins/default/policy-pack/`):
-  turn-scoped эскалация через approval-gated grants, см.
-  `docs/security-and-policy.md`.
+  нет, клиент рендерит карточку плана из аргументов последнего вызова.
 
 Plugin tool names должны быть непустыми и уникальными между плагинами. Если
 явно включённый через `tools.enabled` plugin tool совпадает с
@@ -406,12 +399,8 @@ runtime не выбирает победителя и не пропускает 
 
 Имена `shell` и `exec_command` несут неявный контракт ядра: оркестратор
 перехватывает их вызовы вида `apply_patch <<'EOF' ...` и переписывает в
-настоящий `apply_patch` tool (с тем же call id) до policy-оценки. Плагин,
-регистрирующий tool под этими именами, наследует это поведение. Второй
-неявный контракт — словарь grant-строк для `metadata.granted_permissions`
-(сейчас только `escalated_exec`): его семантику определяет активный policy
-plugin, новые гранты должны согласовываться с ним, см.
-`docs/security-and-policy.md`.
+настоящий `apply_patch` tool (с тем же call id) до schema validation. Плагин,
+регистрирующий tool под этими именами, наследует это поведение.
 
 Если `tools.path` не задан, config-first tools ищутся в директории `tools`
 рядом с config root. Для стандартного layout это
@@ -433,8 +422,8 @@ executor как обычный `Tool`. Для inline `mcp` host стартует
 `tools.mcp_servers` runtime стартует stdio host при сборке snapshot, делает
 стандартный `initialize` + `tools/list` и создаёт host tools с именами
 `<server>__<remote_tool>`, которые переиспользуют тот же host для
-`tools/call`. Вызов всё равно проходит через `ToolOrchestrator` и mode-aware
-`ApprovalPolicy`.
+`tools/call`. Вызов всё равно проходит через `ToolOrchestrator` и общие
+validation, timeout/cancel, output-bound и journal stages.
 
 Каждый tool возвращает `ToolSpec` с `ToolSafety` и model-facing
 `ToolSurface`. Default surface — `function`: provider adapters передают
@@ -443,77 +432,27 @@ executor как обычный `Tool`. Для inline `mcp` host стартует
 поддерживают такую форму, должны вернуть ошибку, а не превращать её в function
 fallback. `RequestShaper` требует для неё явный
 `ModelCapabilities.supports_freeform_tools`; `ModelService` затем требует от
-provider-а вернуть ту же surface. `ToolSurface` не решает безопасность и не
-выбирает executor: эти решения остаются в `ToolSafety`, `ApprovalPolicy` и
-`ToolOrchestrator`.
+provider-а вернуть ту же surface. `ToolSurface` не выбирает executor.
+`ToolSafety` остаётся описательной классификацией для UI и diagnostics, а
+обязательные runtime checks выполняет `ToolOrchestrator`.
 `ToolRegistry` хранит source каждого tool и показывает labels вида
 `builtin:<provider>`, `config:<origin>`, `mcp:<server>` или
 `dynamic:<origin>`. Duplicate names запрещены, а `specs()` возвращает tools в
 стабильном порядке по имени, чтобы model request не зависел от порядка
 `HashMap`.
 
-`ToolRegistry` хранит все включённые tools. Workflow обращается к `ToolOrchestrator`, а тот показывает модели tools через `ApprovalPolicy::evaluate_visibility`. Runtime заранее оборачивает configured policy в `ModeAwarePolicy`: в `plan` доступны только `ReadOnly`, в `normal` visibility делегируется configured policy/approval, в `auto` доступны только `ReadOnly` и `WritesFiles`. `RunsCommands`, `Network` и `Dangerous` в `auto` не показываются и не исполняются. Execution path повторно проверяет каждый настоящий `ToolCall` через `ApprovalPolicy::evaluate` перед `Tool::invoke`.
+`ToolRegistry` хранит все включённые tools. Workflow обращается к
+`ToolOrchestrator`, который отклоняет неизвестное имя и не даёт отдельного пути
+исполнения в обход registry. Зарегистрированный tool доступен напрямую; режима
+авторизации между registry и invoke нет.
 
-После policy visibility список проходит через `ToolExposure`. Этот slot не
-решает безопасность и не исполняет tools; он выбирает subset уже разрешённых
-`ToolSpec` для конкретного model request. `modules.tool_exposure =
-"all_visible"` возвращает все policy-visible tools, опционально учитывая
+Перед model request список проходит через `ToolExposure`. Этот slot не
+исполняет tools; он выбирает subset зарегистрированных `ToolSpec` для
+конкретного model request. `modules.tool_exposure = "all_visible"` возвращает
+все зарегистрированные tools, опционально учитывая
 `ToolExposureRequest.max_tools`. Плагинная реализация может индексировать,
 искать и ранжировать тысячи tools без изменения workflow или core
 orchestrator.
-
-## Permissions
-
-```toml
-[permissions]
-mode = "normal"
-```
-
-Поддерживаются `plan`, `normal` и `auto`. `plan` удобен для анализа без записи и shell. `normal` является default и использует `ApprovalPolicy`. `auto` нужен для доверенного workspace и не запрашивает approval для `ReadOnly` и `WritesFiles`, но запрещает `RunsCommands`, `Network` и `Dangerous`.
-
-## Policy
-
-`modules.policy = "deny_all"` — безопасный core stub: все tool calls и
-видимость tools запрещены. Он нужен как default без установленных плагинов, а
-не как production policy.
-
-`ask_write` поставляется плагином `policy-pack`. В `permissions.mode = "normal"`:
-
-- разрешает tools из `module_config.policy.ask_write.allow`;
-- требует approval для tools из `module_config.policy.ask_write.ask_before`;
-- разрешает `ReadOnly`;
-- требует approval для `WritesFiles`, `RunsCommands`, `Network`;
-- запрещает `Dangerous`;
-- запрещает неизвестные tools.
-
-Core не знает схему `ask_write` и передаёт
-`module_config.policy.ask_write` в plugin как JSON.
-
-`codex_policy` тоже поставляется плагином `policy-pack`, но предназначен для
-named config `codex` (`configs/codex.config.toml`): явный `deny` имеет приоритет, затем `allow`,
-затем `ask_before`, после чего `ReadOnly` разрешается, `WritesFiles` и
-`RunsCommands` требуют approval, а `Network`, `Dangerous` и неизвестные tools
-запрещаются. Core не знает эту схему и передаёт
-`module_config.policy.codex_policy` в plugin как JSON.
-
-`allow_all` поставляется плагином `policy-pack` и разрешает все tool calls.
-
-`opencode_policy` тоже поставляется плагином `policy-pack` и предназначен для
-named config `opencode` (`configs/opencode.config.toml`). Это порт permission engine
-из OpenCode: правила — упорядоченный список троек
-`(permission, pattern, action)` в `module_config.policy.opencode_policy.rules`,
-действует **последнее** совпавшее правило (last match wins), при отсутствии
-совпадений — `ask`. `permission` — это группа, а не имя tool-а: маппинг
-tool → группа задаётся в `groups` (например, `edit` покрывает
-`edit_file`/`write_file`), там же указываются `pattern_args` — ключи
-аргументов, из которых извлекается pattern (`command` для bash-группы,
-`path` для file-групп; составные команды при `split_commands = true`
-разбиваются по `&& || ; |` и матчатся по частям). Wildcard поддерживает `*`,
-`?` и upstream-спецслучай: pattern с хвостом `" *"` матчит и голый префикс
-(`"git push *"` матчит `"git push"`). Видимость: tool скрывается только если
-последнее совпавшее по permission правило — `deny` с pattern `*`; точечные
-deny по pattern оставляют tool видимым. Core не знает эту схему и передаёт
-config в plugin как JSON.
 
 ## Patch
 
@@ -599,7 +538,7 @@ max_input_tokens` активной модели; стандартные проф
 Плагинный workflow получает compactor только через host capability
 `compact_history_json`. Сам compactor получает отдельный узкий host:
 `is_cancelled` и `complete_model_json`. Это оставляет стиль workflow в плагине,
-а compactor не получает capabilities для tools, policy, memory или мутации
+а compactor не получает capabilities для tools, memory или мутации
 session history.
 
 `modules.compactor = "process"` строит persistent stdio-модуль из
@@ -642,7 +581,7 @@ retain_user_turns = 2
 ## Tool Exposure
 
 `modules.tool_exposure = "all_visible"` — core fallback, который сохраняет
-старое поведение: всё, что разрешила policy visibility, попадает в model
+простое поведение: весь зарегистрированный catalog попадает в model
 request. Он не учитывает `ToolExposureRequest.phase`; фазовые ограничения
 работают только в phase-aware selector-ах вроде `codex_dynamic`.
 
@@ -650,8 +589,8 @@ request. Он не учитывает `ToolExposureRequest.phase`; фазовы�
 `codex-tool-exposure`. Он сохраняет Codex-oriented hot set:
 `request_user_input` держится в `always_include`, common coding tools получают
 стабильный приоритет, а explicit query может поднять `shell`, `apply_patch`,
-`write_file` и `remember_fact` по intent match. Selector видит только
-policy-visible candidates и пишет
+`write_file` и `remember_fact` по intent match. Selector видит
+зарегистрированные candidates и пишет
 `selected_tool_reasons` в metadata. Selector phase-aware: workflow передаёт
 `ToolExposureRequest.phase`, и в `plan`-фазе non-ReadOnly кандидаты не
 попадают в hot set. Workflow сохраняет metadata селектора (hidden count,
@@ -663,21 +602,21 @@ schema-token savings и т.д.) в metadata запроса под ключом `
 Удалённый 2026-07-17 builtin id `dynamic` не мигрируется автоматически:
 `all_visible` и plugin-owned `codex_dynamic` имеют разную семантику выбора.
 
-Если selector скрывает часть policy-visible tools, `coding-workflow` добавляет
+Если selector скрывает часть зарегистрированных tools, `coding-workflow` добавляет
 workflow-owned meta-tools: `proteus_tool_search`, `proteus_tool_describe` и
-`proteus_tool_call`. Search/describe читают полный policy-visible каталог через
+`proteus_tool_call`. Search/describe читают полный каталог через
 host capability `visible_tools_json`; `proteus_tool_call` создаёт внутренний
 `ToolCall` и отправляет его через обычный `execute_tool_json`. Поэтому
-deferred discovery не обходит `ToolOrchestrator`, `ApprovalPolicy`, validation,
-timeout и event log. Результат для transcript remap-ится обратно на outer
+deferred discovery не обходит `ToolOrchestrator`, validation, timeout и event
+log. Результат для transcript remap-ится обратно на outer
 `proteus_tool_call` id, а inner id сохраняется в metadata.
 
 `ToolExposure` вызывается workflow host capability `select_tools_json`.
 Workflow передаёт `ToolExposureRequest` с task/cwd/query/max_tools/reason,
 ядро строит список candidates через `ToolOrchestrator::visible_tool_specs`, а
 selector возвращает `ToolExposureOutput.tools`. Поэтому чужой алгоритм
-tool-search/ranking можно вынести в плагин, не обходя `ApprovalPolicy` и не
-передавая workflow прямой доступ к `ToolRegistry`.
+tool-search/ranking можно вынести в плагин, не передавая workflow прямой доступ
+к `ToolRegistry` и не создавая второй execution path.
 
 ## Subagent
 
@@ -764,7 +703,7 @@ worktree (см. ниже). Core host batch использует оба флаг�
 последовательно. Ошибка одного вызова (аргументы, workspace, spawn, wait)
 даёт error `ToolResult` и не прерывает остальных детей батча.
 
-Worktree-lifecycle принадлежит facade-tool `task`: после policy/approval и до
+Worktree-lifecycle принадлежит facade-tool `task`: после schema validation и до
 запуска fresh задачи изолированной роли он создаёт
 `<repo_root>/.proteus/worktrees/<имя>` на ветке `proteus/<имя>` от текущего
 HEAD (каталог исключён через `.git/info/exclude`) и подменяет `task.cwd`
@@ -805,8 +744,8 @@ max_iterations = 15
 При `surface = "task"` facade-tool `task` получает `agent_type`, `prompt` и короткое `description`,
 собирает `SubagentRequest` с текущим `AgentTask` и возвращает summary ребёнка
 как обычный `ToolResult`. Сам `task` и tool calls ребёнка проходят общий
-policy/approval/tool контур. В `PermissionMode::Plan` task скрыт как
-`ToolSafety::WritesFiles`, поэтому worktree/branch не создаются. Ребёнок
+registry/orchestrator/tool контур. Worktree/branch создаются только после
+успешной проверки самого facade call. Ребёнок
 исполняется на child-токене отмены
 (`CancellationToken::child_token()`): cancel родительского turn-а каскадится
 ребёнку, а отмена ребёнка не трогает родителя; resumable snapshot сохраняется
@@ -821,7 +760,7 @@ assistant role, согласованность `finish_reason`, точную ord
 `response.tool_calls` в message parts и уникальность call id. Затем имена всего
 batch сверяются с точным набором `ToolSpec`, отправленным в соответствующем
 model request. При malformed response или скрытом имени весь batch отклоняется
-до `ToolOrchestrator`/policy/approval, а запуск завершается ошибкой; разрешённые
+до `ToolOrchestrator`, а запуск завершается ошибкой; разрешённые
 calls перед скрытым тоже не исполняются. Ответ без tools с `end_turn = false`
 не завершает ребёнка: он добавляется в history, после budget check запускается
 следующий sampling round.
@@ -839,13 +778,12 @@ Builtin `process` реализует путь B: ребёнок — отдель
 `proteus server stdio --new-session` со своим named config. Родитель общается
 с ним по стандартному app-server JSONL-протоколу: отправляет turn через
 `Send`, пере-эмитит tool-события ребёнка под выделенным `child_thread_id`
-(тот же набор, что у sequential: tool lifecycle, approvals, patch, memory,
+(тот же набор, что у sequential: tool lifecycle, patch, memory,
 nested subagent, error; модельная телеметрия и deltas остаются в event log
-ребёнка), форвардит `ApprovalRequested`/`UserInputRequested` в родительские
-transports (решение принимает пользователь родительской session; origin несёт
-имя роли) и возвращает `AgentOutput.text` как summary. Изоляция структурная:
-policy, tools, model, permission mode и промпты ребёнка задаёт config роли,
-а не родительский runtime; сбой ребёнка не задевает родителя. Cancel запуска
+ребёнка), форвардит `UserInputRequested` в родительский typed-input transport
+(origin несёт имя роли) и возвращает `AgentOutput.text` как summary. Изоляция
+структурная: tools, model и промпты ребёнка задаёт config роли, а не
+родительский runtime; сбой ребёнка не задевает родителя. Cancel запуска
 (по handle или каскадом от родительского turn-а) транслируется в `Cancel`
 ребёнку с grace-ожиданием (`cancel_grace_ms`), затем процесс убивается.
 
@@ -873,7 +811,7 @@ stub: runtime стартует, но turn завершается сообщен�
 
 - строит контекст;
 - вызывает модель;
-- исполняет tool calls через policy и registry;
+- исполняет tool calls через registry и orchestrator;
 - повторяет цикл до финального ответа или лимита rounds.
 
 `coding.single_loop` реализован поверх workflow host capabilities:

@@ -32,14 +32,13 @@ use commands::{SendDispatch, spawn_send_turn};
 use commands::{
     command_response, config_summary_with_activity, execute_app_request, execute_delete_session,
     execute_new_session, execute_resume, execute_send, execute_send_async, execute_set_model,
-    execute_set_permission_mode, execute_set_reasoning_effort, execute_set_reasoning_enabled,
-    execute_set_web_config,
+    execute_set_reasoning_effort, execute_set_reasoning_enabled, execute_set_web_config,
 };
 pub use config::HttpServerConfig;
 use requests::{
-    ApprovalRequest, CancelRequest, DeleteSessionRequest, NewSessionRequest, ResumeSessionRequest,
-    SendRequest, SetConfigBuilderRequest, SetModelRequest, SetPermissionModeRequest,
-    SetReasoningEffortRequest, SetReasoningEnabledRequest, SetWebConfigRequest, UserInputRequest,
+    CancelRequest, DeleteSessionRequest, NewSessionRequest, ResumeSessionRequest, SendRequest,
+    SetConfigBuilderRequest, SetModelRequest, SetReasoningEffortRequest,
+    SetReasoningEnabledRequest, SetWebConfigRequest, UserInputRequest,
 };
 use responses::{add_cors_headers, error_response, json_response, options_response, text_response};
 use security::{
@@ -233,23 +232,6 @@ where
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
-        (Method::POST, "/approval") => match read_json::<ApprovalRequest, _>(request).await {
-            Ok(command) => {
-                let output = execute_app_request(
-                    &state,
-                    StdioRequest::Approval {
-                        id: command.id,
-                        approval_id: command.approval_id,
-                        approved: command.approved,
-                        note: command.note,
-                        cache: command.cache,
-                    },
-                )
-                .await;
-                json_response(StatusCode::OK, &output)
-            }
-            Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
-        },
         (Method::POST, "/user-input") => match read_json::<UserInputRequest, _>(request).await {
             Ok(command) => {
                 let output = execute_app_request(
@@ -273,19 +255,6 @@ where
                         id: command.id,
                         target_id: command.target_id,
                     },
-                )
-                .await;
-                json_response(StatusCode::OK, &output)
-            }
-            Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
-        },
-        (Method::POST, "/mode") => match read_json::<SetPermissionModeRequest, _>(request).await {
-            Ok(command) => {
-                let output = execute_set_permission_mode(
-                    &state,
-                    command.id,
-                    command.mode,
-                    command.session_dir,
                 )
                 .await;
                 json_response(StatusCode::OK, &output)
@@ -339,7 +308,6 @@ where
                         command.module_config,
                         command.tools_enabled,
                         command.active_provider,
-                        command.permission_mode,
                     )
                     .await
                 {

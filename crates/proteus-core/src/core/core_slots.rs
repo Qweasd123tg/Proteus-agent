@@ -17,7 +17,7 @@ pub(crate) struct CoreSlotDescriptor {
     pub selection: CoreSlotSelection,
 }
 
-pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 11] = [
+pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 10] = [
     CoreSlotDescriptor {
         kind: ModuleKind::Workflow,
         title: "Workflow",
@@ -62,15 +62,6 @@ pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 11] = [
         order: 4,
         required: true,
         selection: CoreSlotSelection::ProviderConfig,
-    },
-    CoreSlotDescriptor {
-        kind: ModuleKind::Policy,
-        title: "Policy",
-        responsibility: "Evaluates tool execution and approval requirements.",
-        category: "pipeline",
-        order: 5,
-        required: true,
-        selection: CoreSlotSelection::ModulesConfig,
     },
     CoreSlotDescriptor {
         kind: ModuleKind::Subagent,
@@ -157,7 +148,7 @@ mod tests {
             .iter()
             .filter(|descriptor| descriptor.selection == CoreSlotSelection::ProviderConfig)
             .count();
-        assert_eq!(modules, 10);
+        assert_eq!(modules, 9);
         assert_eq!(providers, 1);
     }
 }

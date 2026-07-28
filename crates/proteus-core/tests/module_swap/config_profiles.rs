@@ -161,13 +161,6 @@ async fn openai_hosted_tools_example_is_opt_in_and_provider_scoped() {
             proteus_core::domain::HostedToolKind::FileSearch,
         ]
     );
-    let allow = config.module_config_value(ModuleKind::Policy, "ask_write")["allow"]
-        .as_array()
-        .unwrap()
-        .clone();
-    assert!(allow.iter().any(|name| name == "web_search"));
-    assert!(allow.iter().any(|name| name == "file_search"));
-
     let anthropic_config = config.providers["anthropic"].to_model_config().unwrap();
     let anthropic = catalog.build_model_adapter(&anthropic_config).unwrap();
     assert!(
@@ -216,7 +209,7 @@ async fn codex_toml_config_enables_proxy_compatible_codex_profile() {
     .await
     .unwrap();
 
-    assert_eq!(config.profile.name, "codex-proxy");
+    assert_eq!(config.profile.name, "codex");
     let model_config = config.active_model_config().unwrap();
     assert_eq!(
         model_config.provider_config["capabilities"]["supports_parallel_tool_calls"],
@@ -245,7 +238,6 @@ async fn codex_toml_config_enables_proxy_compatible_codex_profile() {
     );
     assert_eq!(config.modules.workflow, "coding.codex_loop");
     assert_eq!(config.modules.context, "codex_context");
-    assert_eq!(config.modules.policy, "codex_policy");
     assert_eq!(config.modules.search, "rg");
     // codex_dynamic держит стабильный hot set; per-turn task text не меняет
     // model-facing schemas, редкие tools доступны через deferred meta-tools.
@@ -316,55 +308,6 @@ async fn codex_toml_config_enables_proxy_compatible_codex_profile() {
             .any(|tool| tool.as_str().is_some_and(|t| t.starts_with("playwright__")))
     );
 
-    let codex_policy = config.module_config_value(ModuleKind::Policy, "codex_policy");
-    assert!(
-        codex_policy["allow"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|tool| tool == "git_diff")
-    );
-    for workspace_write in ["apply_patch", "write_file"] {
-        assert!(
-            codex_policy["allow"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|tool| tool == workspace_write)
-        );
-        assert!(
-            !codex_policy["ask_before"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|tool| tool == workspace_write)
-        );
-    }
-    assert!(
-        codex_policy["ask_before"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|tool| tool == "shell")
-    );
-    assert!(
-        codex_policy["ask_before"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|tool| tool == "lsp_diagnostics")
-    );
-    assert!(
-        codex_policy["ask_before"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|tool| tool == "playwright__browser_navigate")
-    );
-    let deny = codex_policy["deny"].as_array().unwrap();
-    assert_eq!(deny.len(), 1);
-    assert_eq!(deny[0], "playwright__browser_run_code_unsafe");
-
     let codex_context = config.module_config_value(ModuleKind::Context, "codex_context");
     assert_eq!(
         codex_context["providers"],
@@ -389,7 +332,6 @@ async fn opencode_toml_config_loads_strict_workflow_profile() {
     assert_eq!(config.profile.name, "opencode-experimental");
     assert_eq!(config.modules.workflow, "coding.codex_loop");
     assert_eq!(config.modules.context, "codex_context");
-    assert_eq!(config.modules.policy, "opencode_policy");
     assert_eq!(config.modules.renderer, "statusline");
 }
 
@@ -404,7 +346,6 @@ async fn glm_toml_config_loads_strict_workflow_profile() {
     assert_eq!(config.active_provider, "openai");
     assert_eq!(config.modules.workflow, "coding.codex_loop");
     assert_eq!(config.modules.context, "codex_context");
-    assert_eq!(config.modules.policy, "codex_policy");
     assert_eq!(config.modules.renderer, "statusline");
 }
 

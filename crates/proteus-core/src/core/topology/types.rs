@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     contracts::ToolSource,
     core::{AppConfig, ModuleCatalogEntrySummary, ModuleEpoch, PluginLoadReport},
-    domain::{PermissionMode, ToolSpec},
+    domain::ToolSpec,
 };
 
 pub struct TopologyBuildInput<'a> {
@@ -16,7 +16,6 @@ pub struct TopologyBuildInput<'a> {
     pub tools: &'a [(ToolSource, ToolSpec)],
     pub plugin_reports: &'a [PluginLoadReport],
     pub module_epoch: ModuleEpoch,
-    pub permission_mode: PermissionMode,
     pub extra_warnings: Vec<TopologyWarning>,
 }
 
@@ -27,7 +26,6 @@ pub struct TopologySnapshot {
     pub config_path: Option<String>,
     pub config_files: Vec<String>,
     pub module_epoch: u64,
-    pub permission_mode: String,
     pub model: Option<ModelTopology>,
     pub slots: Vec<SlotTopology>,
     pub modules: Vec<ModuleTopology>,

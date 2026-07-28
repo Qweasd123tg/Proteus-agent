@@ -42,9 +42,5 @@ include_results = false
 effort = "high"
 summary = true
 
-# Hosted tools are registered by the model adapter, not tools.enabled. Because
-# provider execution happens inside the model request, Ask cannot pause it:
-# explicitly Allow the canonical names or they remain hidden.
-[module_config.policy.ask_write]
-allow = ["search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "web_search", "file_search"]
-ask_before = ["apply_patch", "write_file", "shell", "remember_fact"]
+# Hosted tools are registered and executed by the model adapter rather than
+# tools.enabled. Enabling them therefore trusts the provider-side execution.

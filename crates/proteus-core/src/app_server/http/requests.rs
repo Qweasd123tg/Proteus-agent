@@ -1,9 +1,7 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
-use proteus_contracts::contracts::{ApprovalCacheScope, UserInputResponse};
+use proteus_contracts::contracts::UserInputResponse;
 use serde::Deserialize;
-
-use crate::domain::PermissionMode;
 
 #[derive(Debug, Deserialize)]
 pub(super) struct SendRequest {
@@ -11,16 +9,6 @@ pub(super) struct SendRequest {
     pub(super) text: String,
     #[serde(default)]
     pub(super) session_dir: Option<PathBuf>,
-}
-
-#[derive(Debug, Deserialize)]
-pub(super) struct ApprovalRequest {
-    pub(super) id: Option<String>,
-    pub(super) approval_id: String,
-    pub(super) approved: bool,
-    pub(super) note: Option<String>,
-    #[serde(default)]
-    pub(super) cache: ApprovalCacheScope,
 }
 
 #[derive(Debug, Deserialize)]
@@ -34,14 +22,6 @@ pub(super) struct UserInputRequest {
 pub(super) struct CancelRequest {
     pub(super) id: Option<String>,
     pub(super) target_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub(super) struct SetPermissionModeRequest {
-    pub(super) id: Option<String>,
-    pub(super) mode: PermissionMode,
-    #[serde(default)]
-    pub(super) session_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -80,9 +60,6 @@ pub(super) struct SetConfigBuilderRequest {
     /// `None` — не трогать `active_provider`.
     #[serde(default)]
     pub(super) active_provider: Option<String>,
-    /// `None` — не трогать `[permissions] mode`.
-    #[serde(default)]
-    pub(super) permission_mode: Option<PermissionMode>,
 }
 
 #[derive(Debug, Deserialize)]

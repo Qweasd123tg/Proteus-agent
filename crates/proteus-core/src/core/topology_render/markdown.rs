@@ -12,10 +12,6 @@ pub fn render_topology_markdown(snapshot: &TopologySnapshot) -> String {
     out.push_str(&format!("profile: `{}`\n", md_inline(&snapshot.profile)));
     out.push_str(&format!("cwd: `{}`\n", md_inline(&snapshot.cwd)));
     out.push_str(&format!("module_epoch: `{}`\n", snapshot.module_epoch));
-    out.push_str(&format!(
-        "permission_mode: `{}`\n",
-        md_inline(&snapshot.permission_mode)
-    ));
     if let Some(model) = &snapshot.model {
         out.push_str(&format!(
             "model: `{}/{}`\n",

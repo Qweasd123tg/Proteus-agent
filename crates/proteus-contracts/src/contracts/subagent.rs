@@ -345,9 +345,8 @@ impl SubagentHandle {
 ///
 /// Контракт владеет дочерним циклом целиком (модель → tools → модель), не
 /// вызывая slot `workflow` — это разрывает цикл зависимостей между слотами.
-/// Реализация обязана гонять tool calls ребёнка через тот же
-/// policy/approval-контур, что и родительские (безопасность не ослабляется
-/// делегированием), и уважать `ctx.cancellation`.
+/// Реализация обязана гонять tool calls ребёнка через тот же registry и
+/// orchestrator, что и родительские, и уважать `ctx.cancellation`.
 ///
 /// Исполнение — `run` (запустить и дождаться) либо `spawn`/`wait`/`cancel`
 /// (фоновый запуск нескольких детей). `spawn`-путь опционален: реализации
@@ -418,7 +417,7 @@ pub trait SubagentRunner: Send + Sync {
 /// Узкая capability, которую runtime выдаёт facade-tool `task` на время
 /// обычного `Tool::invoke`. Tool не получает весь [`RuntimeContext`] и не
 /// знает concrete runner: host сам связывает запрос с текущим thread/turn,
-/// policy, cancellation и event emitter.
+/// registry, cancellation и event emitter.
 #[async_trait]
 pub trait SubagentToolHost: Send + Sync {
     /// Session owner of model-facing facade calls. Collaboration handles are

@@ -54,7 +54,6 @@ pub struct AppSessionActivity {
     pub status: AppSessionActivityStatus,
     pub running_turns: usize,
     pub running_turn_ids: Vec<String>,
-    pub pending_approvals: usize,
     pub pending_user_inputs: usize,
 }
 
@@ -64,7 +63,6 @@ pub struct AppSessionActivity {
 pub enum AppSessionActivityStatus {
     Idle,
     Running,
-    WaitingApproval,
     WaitingInput,
 }
 
@@ -73,22 +71,15 @@ impl AppSessionActivityStatus {
         match self {
             Self::Idle => "idle",
             Self::Running => "running",
-            Self::WaitingApproval => "waiting_approval",
             Self::WaitingInput => "waiting_input",
         }
     }
 }
 
 impl AppSessionActivity {
-    pub fn from_counts(
-        running_turns: usize,
-        pending_approvals: usize,
-        pending_user_inputs: usize,
-    ) -> Self {
+    pub fn from_counts(running_turns: usize, pending_user_inputs: usize) -> Self {
         let status = if pending_user_inputs > 0 {
             AppSessionActivityStatus::WaitingInput
-        } else if pending_approvals > 0 {
-            AppSessionActivityStatus::WaitingApproval
         } else if running_turns > 0 {
             AppSessionActivityStatus::Running
         } else {
@@ -98,21 +89,15 @@ impl AppSessionActivity {
             status,
             running_turns,
             running_turn_ids: Vec::new(),
-            pending_approvals,
             pending_user_inputs,
         }
     }
 
     pub fn from_running_turn_ids(
         running_turn_ids: Vec<String>,
-        pending_approvals: usize,
         pending_user_inputs: usize,
     ) -> Self {
-        let mut activity = Self::from_counts(
-            running_turn_ids.len(),
-            pending_approvals,
-            pending_user_inputs,
-        );
+        let mut activity = Self::from_counts(running_turn_ids.len(), pending_user_inputs);
         activity.running_turn_ids = running_turn_ids;
         activity
     }
@@ -121,7 +106,6 @@ impl AppSessionActivity {
         self.status == AppSessionActivityStatus::Idle
             && self.running_turns == 0
             && self.running_turn_ids.is_empty()
-            && self.pending_approvals == 0
             && self.pending_user_inputs == 0
     }
 }
@@ -143,7 +127,7 @@ mod tests {
             Some(42),
             Some("first message".to_owned()),
         )
-        .with_activity(AppSessionActivity::from_counts(1, 0, 0));
+        .with_activity(AppSessionActivity::from_counts(1, 0));
 
         let value = serde_json::to_value(&summary).expect("summary JSON");
         assert_eq!(value["activity"]["status"], "running");

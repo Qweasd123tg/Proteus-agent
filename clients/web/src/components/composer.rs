@@ -12,7 +12,6 @@ pub(crate) fn ComposerView<S, K, R, T, DE, NB>(
     composer_height: ReadSignal<i32>,
     draft: ReadSignal<String>,
     set_draft: WriteSignal<String>,
-    mode: ReadSignal<PermissionMode>,
     model_name: ReadSignal<String>,
     model_options: ReadSignal<Vec<String>>,
     reasoning_enabled: ReadSignal<bool>,
@@ -38,7 +37,7 @@ where
     DE: Fn() -> bool + Copy + Send + 'static,
     NB: Fn() -> usize + Copy + Send + Sync + 'static,
 {
-    // Чип настроек: модель — ярко, режим и effort — приглушённой сноской.
+    // Чип настроек: модель — ярко, effort — приглушённой сноской.
     let trigger_model = move || {
         let model = model_name.get();
         if model.trim().is_empty() {
@@ -48,12 +47,11 @@ where
         }
     };
     let trigger_meta = move || {
-        let reasoning = if reasoning_enabled.get() {
+        if reasoning_enabled.get() {
             effort.get().label()
         } else {
             "none".to_owned()
-        };
-        format!("{} · {}", mode.get().label(), reasoning)
+        }
     };
     view! {
         <form
@@ -100,13 +98,7 @@ where
                 <textarea
                     node_ref=composer_ref
                     prop:value=move || draft.get()
-                    placeholder=move || {
-                        if mode.get() == PermissionMode::Plan {
-                            "Опиши тему; агент задаст уточняющие вопросы"
-                        } else {
-                            "Попроси Proteus посмотреть, изменить или объяснить код"
-                        }
-                    }
+                    placeholder="Попроси Proteus посмотреть, изменить или объяснить код"
                     on:input:target=move |ev| set_draft.set(ev.target().value())
                     on:keydown=on_keydown
                 />
@@ -180,48 +172,6 @@ where
                                     </div>
                                 </section>
 
-                                <section class="composer-menu-section">
-                                    <span class="composer-menu-label">"mode"</span>
-                                    <div class="composer-menu-options stacked">
-                                        <button
-                                            type="button"
-                                            class="menu-option menu-option-row"
-                                            class:active=move || mode.get() == PermissionMode::Plan
-                                            on:click=move |_| actions.set_permission_mode(PermissionMode::Plan)
-                                        >
-                                            <span class="menu-option-text">
-                                                <span class="menu-option-title">{PermissionMode::Plan.label()}</span>
-                                                <span class="menu-option-desc">{PermissionMode::Plan.description()}</span>
-                                            </span>
-                                            <span class="menu-option-check" aria-hidden="true">"✓"</span>
-                                        </button>
-                                        <button
-                                            type="button"
-                                            class="menu-option menu-option-row"
-                                            class:active=move || mode.get() == PermissionMode::Normal
-                                            on:click=move |_| actions.set_permission_mode(PermissionMode::Normal)
-                                        >
-                                            <span class="menu-option-text">
-                                                <span class="menu-option-title">{PermissionMode::Normal.label()}</span>
-                                                <span class="menu-option-desc">{PermissionMode::Normal.description()}</span>
-                                            </span>
-                                            <span class="menu-option-check" aria-hidden="true">"✓"</span>
-                                        </button>
-                                        <button
-                                            type="button"
-                                            class="menu-option menu-option-row"
-                                            class:active=move || mode.get() == PermissionMode::Auto
-                                            on:click=move |_| actions.set_permission_mode(PermissionMode::Auto)
-                                        >
-                                            <span class="menu-option-text">
-                                                <span class="menu-option-title">{PermissionMode::Auto.label()}</span>
-                                                <span class="menu-option-desc">{PermissionMode::Auto.description()}</span>
-                                            </span>
-                                            <span class="menu-option-check" aria-hidden="true">"✓"</span>
-                                        </button>
-                                    </div>
-                                </section>
-
                                 // Единственная ручка рассуждений: «none»
                                 // выключает их целиком, любой effort включает.
                                 <section class="composer-menu-section compact">
@@ -265,8 +215,6 @@ where
                             {move || {
                                 if is_sending.get() {
                                     "В очередь"
-                                } else if mode.get() == PermissionMode::Plan {
-                                    "Спросить план"
                                 } else {
                                     "Отправить"
                                 }

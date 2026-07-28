@@ -73,7 +73,7 @@ domain DTO -> contract trait -> module implementation
 ```text
 runtime -> concrete search
 workflow -> concrete model provider
-tool -> concrete approval UI
+tool -> concrete client component
 renderer -> workflow internals
 ```
 
@@ -97,10 +97,9 @@ renderer -> workflow internals
 | Memory | хранение и retrieval memory items |
 | Context | сбор ephemeral context для текущего turn |
 | Tools | registry и execution boundary |
-| Approval Policy | решение `allow`/`ask`/`deny` |
 | Patch | применение patch/edit операций |
 | Compactor | предлагает сокращённую request-time history; runtime решает persistence |
-| Tool Exposure | subset policy-visible tools для конкретного model request |
+| Tool Exposure | subset registered tools для конкретного model request |
 | Subagent | изоляция и запуск дочерних agent loops |
 | Workflow | ход agent loop |
 | Renderer | финальный вывод |
@@ -115,8 +114,7 @@ renderer -> workflow internals
 - provider adapters мапят canonical protocol в OpenAI/Anthropic/local wire
   format;
 - `RequestShaper` применяет `ModelCapabilities` перед provider call;
-- provider-specific fields не протекают в context, memory, workflow, tools или
-  policy.
+- provider-specific fields не протекают в context, memory, workflow или tools.
 
 Цель: замена provider-а не должна требовать правок workflow/runtime.
 
@@ -134,7 +132,7 @@ Runtime должен сохранять эти свойства:
 - conversation history отдельно от ephemeral context;
 - session resume fold-ит persistent `journal.jsonl`, не ephemeral context;
 - зарегистрированные tools, включая facade-tool `task`, исполняются через
-  `ToolRegistry`, mode-aware `ApprovalPolicy` и `ToolOrchestrator`.
+  `ToolRegistry` и `ToolOrchestrator`.
 
 Подробности текущих DTO и flow находятся в `runtime-and-events.md`.
 
@@ -145,7 +143,6 @@ Runtime должен сохранять эти свойства:
 - `proteus init` и `proteus doctor`, named configs и диагностика modules/tools;
 - plugin context builders `simple`, `repo_aware` и `codex_context`;
 - file/edit/git/shell/plan tools через `ToolRegistry` и default plugins;
-- approval preview для `apply_patch`, `write_file` и `shell`;
 - plugin workflows `coding.single_loop`, `coding.codex_loop` и
   `coding.plan_execute_review`;
 - `eval report` поверх canonical session journal;
@@ -154,19 +151,16 @@ Runtime должен сохранять эти свойства:
 
 ## Planned Направления
 
-Непосредственный приоритет — lifecycle stabilization: ownership PTY sessions и
-bounded retention process-subagent pool. Общий policy path для `task` закрыт
-2026-07-10, fail-closed shell sandbox и обязательный token для non-loopback
-HTTP — 2026-07-11. Актуальные blockers ведутся в `scope.md`, детали текущих
-gaps — в `security-and-policy.md`.
+Непосредственный приоритет — основной `codex` profile, простой trusted tool
+path, durable journal/replay и проверяемый release contour. Актуальные blockers
+ведутся в `scope.md`, модель доверия — в `security-and-policy.md`.
 
 После этого долгосрочный capability backlog должен развивать основание через
 существующие границы:
 
 - улучшение качества и observability `repo_aware` providers без записи
   ephemeral context в conversation history;
-- расширение structured diff/preview на остальные mutating tools;
-- table-driven tool rights: `hide`/`deny`/`ask`/`allow`, priority и limits;
+- расширение structured diff/result views на mutating tools;
 - MCP resources/prompts/subscriptions и non-stdio transports поверх текущих
   contracts, а не параллельный plugin runtime;
 - async plugin ABI для `Model` с сохранением streaming.
@@ -202,12 +196,12 @@ path CLI smoke test.
 
 ```text
 ставки на слабость модели      ставки на структуру мира
-(окно, внимание, память)       (права, действия, границы)
-- compactor                    - policy / approval
-- recitation-костыли           - tools / patch
-  (todo/plan как якорь)        - search (по репо, не по окну)
+(окно, внимание, память)       (действия, состояние, trace)
+- compactor                    - tools / patch
+- recitation-костыли           - search по реальному workspace
+  (todo/plan как якорь)        - journal / replay
 - context shuttling            - workflow как границы фаз
-- часть memory                 - subagent как граница прав/бюджета
+- часть memory                 - subagent как execution boundary
   -> декей с релизами моделей    -> живут, пока агент трогает мир
 ```
 
@@ -217,12 +211,11 @@ path CLI smoke test.
   `none`-fallback; вкладывать в их polish по минимуму (совпадает с parked
   статусом compactor/memory в `scope.md`).
 - Идеи из правой колонки — законные инвестиции: окно любого размера не
-  отменяет права, файлы и необратимые действия.
+  отменяет файлы, внешние действия и необходимость объяснимого trace.
 - Нюансы, не позволяющие списывать левую колонку досрочно: даже при
   1M-окне остаются линейная цена токенов, latency prefill и текущая
   деградация внимания на длине — compaction мутирует из "влезть" в
-  "оптимизация цены/качества"; plan-фаза остаётся как граница прав
-  (правая колонка), даже если её recitation-функция отомрёт.
+  "оптимизация цены/качества".
 - Prefix caching диктует дисциплину порядка (стабильный system/tools,
   append-only история, эфемерное в хвост) и воюет с динамическими фичами
   (dynamic tool exposure ломает префикс) — этот налог учитывать при
@@ -235,7 +228,7 @@ path CLI smoke test.
 
 1. ✅ `proteus-contracts` выделен в отдельный crate, plugin'ы depend только на него;
 2. ✅ dylib loader через `abi_stable` + `libloading`;
-3. ✅ единый `PluginRegistry` покрывает `tool`, `renderer`, `policy`, `patch`,
+3. ✅ единый `PluginRegistry` покрывает `tool`, `renderer`, `patch`,
    `search`, `memory`, request-time `compactor`,
    `tool_exposure`, full `context_builder`, `repo_aware` `context_provider`,
    `subagent` и `workflow`;
@@ -258,7 +251,6 @@ MCP registry/provider для resources/prompts/subscriptions.
 - поиск -> `SearchBackend` или `ContextBuilder`;
 - memory -> `MemoryStore` + explicit tools/workflow;
 - tools -> `Tool` / `ToolProvider` / `ToolRegistry`;
-- approval -> `ApprovalPolicy` / `ApprovalTransport`;
 - output -> `Renderer`;
 - agent loop -> `Workflow`.
 
@@ -274,8 +266,8 @@ v0 считается здоровым, если:
 
 - `cargo test` подтверждает заменяемость ключевых slots;
 - model provider меняется без правок workflow;
-- search/memory/policy меняются через config;
-- tools не исполняются в обход registry/policy/safety;
+- search/memory/patch меняются через config;
+- tools не исполняются в обход registry/orchestrator;
 - docs разделяют current state и planned state;
 - README остаётся quickstart, а reference details живут в профильных docs;
 - новые фичи не превращают CLI/UI в runtime layer.

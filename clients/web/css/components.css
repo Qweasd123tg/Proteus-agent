@@ -140,7 +140,7 @@ button.status-badge {
     min-height: 0;
 }
 
-/* Фоновая сессия ждёт доступа или ответа. */
+/* Фоновая сессия ждёт ответа. */
 .status-badge.attention {
     border-color: var(--accent-yellow-border);
     color: var(--accent-yellow);
@@ -163,10 +163,6 @@ button.status-badge {
     border-radius: var(--radius-card);
     background: var(--bg-panel);
     padding: var(--space-4);
-}
-
-.approval-card {
-    margin-bottom: var(--space-5);
 }
 
 .control-card-header {
@@ -734,33 +730,6 @@ button.status-badge {
     font-size: 13px;
 }
 
-/* Однострочная карточка: бейдж слева, кнопки справа — без пустого «второго
-   этажа», который делал карточку наполовину порожней. */
-.plan-actions-card {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: center;
-    gap: var(--space-3);
-    margin-bottom: var(--space-5);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-card);
-    background: var(--bg-panel);
-    padding: var(--space-3) var(--space-4);
-}
-
-.plan-actions-card .task-card-header {
-    margin-bottom: 0;
-}
-
-.plan-actions-message {
-    display: flex;
-    width: 100%;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: flex-end;
-    gap: var(--space-2);
-}
-
 .tool-activity-list {
     display: grid;
     gap: var(--space-2);
@@ -841,9 +810,7 @@ button.status-badge {
 
 /* Цвет несёт только узел (точка); звено всегда нейтральное, чтобы не рябило. */
 .agent-turn-item.running::before,
-.agent-turn-item.status-running::before,
-.agent-turn-item.status-waiting_approval::before,
-.agent-turn-item.status-approved::before {
+.agent-turn-item.status-running::before {
     animation: pulse 2s infinite;
     background: var(--accent-blue);
 }
@@ -854,7 +821,6 @@ button.status-badge {
 }
 
 .agent-turn-item.error::before,
-.agent-turn-item.status-denied::before,
 .agent-turn-item.status-failed::before {
     background: var(--accent-red);
 }

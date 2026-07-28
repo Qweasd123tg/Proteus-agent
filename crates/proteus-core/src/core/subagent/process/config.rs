@@ -59,14 +59,14 @@ pub(super) struct ProcessRoleConfig {
     pub name: String,
     pub description: String,
     /// Named config (или путь к config-файлу) ребёнка — передаётся в
-    /// `--config`. Безопасность роли структурная: policy/tools/model
-    /// задаются этим конфигом, а не промптом.
+    /// `--config`. Состав tools и model роли задаётся этим конфигом, а не
+    /// промптом.
     pub config: String,
     /// Опциональный префикс к тексту задачи (не системный prompt ребёнка —
     /// system-слой владеет config роли).
     #[serde(default)]
     pub prompt: Option<String>,
-    /// Дополнительные CLI-аргументы ребёнка (например, `--permission-mode`).
+    /// Дополнительные CLI-аргументы ребёнка.
     #[serde(default)]
     pub args: Vec<String>,
     /// Роль можно запускать конкурентно рядом с другими субагентами

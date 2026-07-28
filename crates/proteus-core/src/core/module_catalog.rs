@@ -12,8 +12,8 @@ mod plugin_registration;
 
 use crate::{
     contracts::{
-        ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryStore, Model, PatchApplier,
-        Renderer, SearchBackend, SubagentRunner, ToolExposure, ToolRegistry, Workflow,
+        ContextBuilder, HistoryCompactor, MemoryStore, Model, PatchApplier, Renderer,
+        SearchBackend, SubagentRunner, ToolExposure, ToolRegistry, Workflow,
         register_provider_tools,
     },
     core::{AppConfig, ModelConfig, RepoAwareContextProvider},
@@ -57,18 +57,11 @@ pub struct ModuleBuildContext<'a> {
     pub context_providers: &'a [(String, Arc<dyn RepoAwareContextProvider>)],
 }
 
-pub struct PolicyBuildContext<'a> {
-    pub config: &'a AppConfig,
-    pub cwd: &'a Path,
-    pub tools: &'a ToolRegistry,
-}
-
-/// Унифицированный вход для всех build-функций модулей. Разные slot'ы
-/// требуют разный контекст (ядро / policy / model); enum объединяет их
+/// Унифицированный вход для build-функций модулей. Обычные модули получают
+/// runtime config/cwd, model adapter — provider config.
 /// для того, чтобы в Registry можно было хранить одну фабрику любого slot.
 pub enum ModuleBuildInput<'a, 'b: 'a> {
     Module(&'a ModuleBuildContext<'b>),
-    Policy(&'a PolicyBuildContext<'b>),
     Model(&'a ModelConfig),
 }
 
@@ -77,13 +70,6 @@ impl<'a, 'b: 'a> ModuleBuildInput<'a, 'b> {
         match self {
             Self::Module(ctx) => Ok(ctx),
             _ => bail!("expected ModuleBuildInput::Module"),
-        }
-    }
-
-    pub fn policy(&self) -> Result<&'a PolicyBuildContext<'b>> {
-        match self {
-            Self::Policy(ctx) => Ok(ctx),
-            _ => bail!("expected ModuleBuildInput::Policy"),
         }
     }
 
@@ -269,20 +255,6 @@ impl BuiltinModuleCatalog {
         self.insert_entry(slot::MODEL, module_id, manifest, erased);
     }
 
-    fn register_policy(
-        &mut self,
-        module_id: &str,
-        manifest: ModuleManifest,
-        build: fn(&PolicyBuildContext<'_>) -> Result<Arc<dyn ApprovalPolicy>>,
-    ) {
-        let erased: ErasedFactory = Box::new(move |input| {
-            let ctx = input.policy()?;
-            let instance = build(ctx)?;
-            Ok(arc_to_any(instance))
-        });
-        self.insert_entry(slot::POLICY, module_id, manifest, erased);
-    }
-
     fn insert_entry(
         &mut self,
         slot_id: SlotId,
@@ -399,14 +371,6 @@ impl BuiltinModuleCatalog {
             module,
             &ModuleBuildInput::Module(ctx),
         )
-    }
-
-    pub fn build_policy(
-        &self,
-        module: &str,
-        ctx: &PolicyBuildContext<'_>,
-    ) -> Result<Arc<dyn ApprovalPolicy>> {
-        self.build_typed::<dyn ApprovalPolicy>(slot::POLICY, module, &ModuleBuildInput::Policy(ctx))
     }
 
     pub fn build_patch(

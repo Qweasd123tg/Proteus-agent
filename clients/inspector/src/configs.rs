@@ -25,7 +25,6 @@ pub(crate) fn ConfigsView() -> impl IntoView {
         signal(BTreeMap::<String, BTreeMap<String, Value>>::new());
     let (draft_tools, set_draft_tools) = signal(BTreeSet::<String>::new());
     let (draft_provider, set_draft_provider) = signal(String::new());
-    let (draft_mode, set_draft_mode) = signal(String::new());
     let (status, set_status) = signal("загружаю конфигурацию".to_owned());
 
     let drafts = DraftSetters {
@@ -34,7 +33,6 @@ pub(crate) fn ConfigsView() -> impl IntoView {
         module_config: set_draft_module_config,
         tools: set_draft_tools,
         provider: set_draft_provider,
-        mode: set_draft_mode,
     };
 
     load_config_page(set_summary, set_builder, drafts, set_status);
@@ -69,7 +67,6 @@ pub(crate) fn ConfigsView() -> impl IntoView {
                                                     draft_module_config
                                                     draft_tools
                                                     draft_provider
-                                                    draft_mode
                                                     drafts
                                                     set_builder
                                                     set_summary
@@ -118,7 +115,6 @@ struct DraftSetters {
     module_config: WriteSignal<BTreeMap<String, BTreeMap<String, Value>>>,
     tools: WriteSignal<BTreeSet<String>>,
     provider: WriteSignal<String>,
-    mode: WriteSignal<String>,
 }
 
 impl DraftSetters {
@@ -129,9 +125,9 @@ impl DraftSetters {
         self.module_config.set(builder.module_config.clone());
         self.modules.set(modules);
         self.config_texts.set(texts);
-        self.tools.set(builder.tools_enabled.iter().cloned().collect());
+        self.tools
+            .set(builder.tools_enabled.iter().cloned().collect());
         self.provider.set(builder.active_provider.clone());
-        self.mode.set(builder.permission_mode.clone());
     }
 }
 

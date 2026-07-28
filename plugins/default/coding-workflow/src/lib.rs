@@ -94,9 +94,9 @@ the final plan. You may use read-only tools to discover facts. For broad or \
 underspecified tasks, call request_user_input with one focused multiple-choice \
 question before writing a staged plan; ask follow-up questions only after prior \
 answers when the next question depends on them. If all material requirements \
-are already clear, produce a concise actionable plan. Do not ask whether the \
-plan is approved; the client handles approval after the final plan. Do not use \
-write, shell, network, or mutation-oriented tools in this phase.";
+are already clear, produce a concise actionable plan. Do not ask the user to \
+approve the plan; continue with the workflow's execute phase after producing it. \
+Do not use write, shell, network, or mutation-oriented tools in this phase.";
 const EXECUTE_DEVELOPER_INSTRUCTIONS: &str = "Execute phase: follow the plan, inspect relevant context, and use available tools when they are necessary. If you are ready to answer, provide a concise draft response without calling tools.";
 const REVIEW_DEVELOPER_INSTRUCTIONS: &str = "Review phase: produce the final user-facing answer. Mention what changed or what you found, and call out verification gaps if no verification was possible. Do not request tools in this phase.";
 

@@ -17,7 +17,6 @@ pub(crate) struct SessionActivityInfo {
     pub(crate) status: String,
     pub(crate) running_turns: usize,
     pub(crate) running_turn_ids: Vec<String>,
-    pub(crate) pending_approvals: usize,
     pub(crate) pending_user_inputs: usize,
 }
 

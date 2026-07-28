@@ -25,7 +25,7 @@ slot нужен для класса заменяемого поведения.
 Например, Cursor-like dynamic context, Codex-like tool search и Claude-like
 subagent routing не должны автоматически становиться slots. Сначала их надо
 разложить на уже существующие классы поведения: context building, tool
-exposure, workflow, approval, memory, compaction, storage, model capabilities и
+exposure, workflow, memory, compaction, storage, model capabilities и
 т.д.
 
 ## Когда Нужен Новый Slot
@@ -37,7 +37,7 @@ exposure, workflow, approval, memory, compaction, storage, model capabilities и
    реализации не считаются.
 2. Поведение не выражается существующими `Tool`, `Workflow`,
    `ContextBuilder`, `ToolExposure`, `SearchBackend`, `MemoryStore`,
-   `ApprovalPolicy`, `PatchApplier`, `Compactor`, `Renderer` или
+   `PatchApplier`, `Compactor`, `Renderer` или
    `Model`.
 3. Core обязан вызывать это место сам на стабильной точке lifecycle. Если код
    может быть обычным tool-ом, workflow step-ом или context provider-ом, новый
@@ -64,7 +64,6 @@ exposure, workflow, approval, memory, compaction, storage, model capabilities и
 | Нужно выбрать, какие tools показать модели? | `ToolExposure` |
 | Нужно найти данные в проекте? | `SearchBackend` или provider внутри `ContextBuilder` |
 | Нужно явно сохранить/найти долговременную память? | `MemoryStore` + `Tool`/`Workflow`; background lifecycle остаётся research до двух реализаций |
-| Нужно решить `allow` / `ask` / `deny`? | `ApprovalPolicy` / approval transport |
 | Нужно применить edit/patch? | `PatchApplier` или `Tool` поверх него |
 | Нужно изменить provider request/streaming/usage? | `Model` / model standard |
 | Нужно показать debug/UX? | app-server protocol, UI client или `Renderer` |
@@ -83,9 +82,9 @@ exposure, workflow, approval, memory, compaction, storage, model capabilities и
 | Codex-like deferred tool exposure | `ToolExposure`, `ToolRegistry` | возможно searchable tool catalog DTO | реализовывать через `ToolExposure`, не через отдельный `codex_tool_search` slot |
 | BM25/fuzzy search по tools | `ToolExposure` или будущий tool catalog facet | `SearchableToolCatalog` только если появятся несколько engines | пока module внутри `ToolExposure` plugin |
 | Codex-like fuzzy file path search | `SearchBackend` | streaming `SearchSession` только если нужен live progress | сначала обычный `SearchBackend` plugin |
-| Exec policy с prefix-rule suggestions | `ApprovalPolicy`, approval transport | structured amendment DTO уже ближе к policy/protocol | расширять policy DTO, не отдельный `exec_policy` slot |
-| Verified apply_patch preview | `PatchApplier`, events, approval transport | patch preview event DTO | расширять `PatchApplier`/events, не отдельный preview slot |
-| Auto-compaction before model call | `Compactor`, `Workflow`, model capabilities | `BudgetTracker` если нужен общий budget API | использовать `Compactor` + workflow policy |
+| Prefix-rule suggestions для exec | `Tool` metadata или client convention | отдельный typed suggestion DTO только после доказанного UX | не возвращать authorization slot ради подсказки |
+| Verified apply_patch preview | `PatchApplier`, events | patch preview event DTO | расширять `PatchApplier`/events, не отдельный preview slot |
+| Auto-compaction before model call | `Compactor`, `Workflow`, model capabilities | `BudgetTracker` если нужен общий budget API | использовать `Compactor` + workflow rule |
 | Skills / Agent Skills | `ContextBuilder`, `ToolProvider`/tools, docs on disk | `SkillCatalog` только если core должен discover/inject сам | пока context/tool plugin, не core subsystem |
 | Plugin mention injection | `ContextBuilder` / `context_provider` | `PluginDescriptor` если нужно стабильно показывать capabilities | сначала provider внутри context pack |
 | Long-term memory consolidation jobs | `MemoryStore`, `Workflow`, explicit tools | background jobs/mailbox contract может понадобиться | research/private prototype; не возвращать lifecycle slot без двух работающих реализаций |
@@ -116,7 +115,6 @@ quality baseline profile
   workflow       = "coding.plan_execute_review"
   context        = "repo_aware"
   search         = "path_fuzzy"
-  policy         = "exec_rules"
   patch          = "verified"
   tool_exposure  = "deferred_tools"
   renderer       = "statusline"

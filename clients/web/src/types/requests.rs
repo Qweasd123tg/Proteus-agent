@@ -2,20 +2,10 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 
-use super::{ApprovalCacheScope, PermissionMode};
-
 #[derive(Debug, Serialize)]
 pub(crate) struct SendRequest {
     pub(crate) id: Option<String>,
     pub(crate) text: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) session_dir: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct SetPermissionModeRequest {
-    pub(crate) id: Option<String>,
-    pub(crate) mode: PermissionMode,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) session_dir: Option<String>,
 }
@@ -34,15 +24,6 @@ pub(crate) struct SetReasoningEffortRequest {
     pub(crate) effort: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) session_dir: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct ResolveApprovalRequest {
-    pub(crate) id: Option<String>,
-    pub(crate) approval_id: String,
-    pub(crate) approved: bool,
-    pub(crate) note: Option<String>,
-    pub(crate) cache: ApprovalCacheScope,
 }
 
 #[derive(Debug, Serialize)]

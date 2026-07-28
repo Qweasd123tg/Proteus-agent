@@ -103,7 +103,7 @@ fn request_from_state_with_instruction_blocks_and_options(
     let exposure_metadata = selected.metadata;
     let mut tools = selected.tools;
     let dynamic_tools_enabled = if options.expose_tools && options.include_dynamic_meta_tools {
-        let all_visible_tools = dynamic_tools::all_policy_visible_tools(host, input)?;
+        let all_visible_tools = dynamic_tools::all_available_tools(host, input)?;
         dynamic_tools::has_hidden_tools(&tools, &all_visible_tools)
     } else {
         false
@@ -274,7 +274,7 @@ fn visible_tools(
 /// Выполняет батч tool calls одного ответа модели. Workflow-owned meta-tools
 /// динамической экспозиции обрабатываются локально; зарегистрированные tools
 /// (включая facade-tool `task`) уходят в host batch API, где core применяет
-/// registry/policy/orchestrator и выбирает допустимую concurrency.
+/// registry/orchestrator и выбирает допустимую concurrency.
 pub(super) fn execute_tools(
     host: &mut PluginWorkflowHostMut<'_>,
     input: &PluginWorkflowInput,
@@ -305,7 +305,7 @@ pub(super) fn execute_tools(
 
 /// Codex-compatible dispatch for one response batch. Calls omitted from the
 /// exact model request become failed tool results and are fed back into the
-/// next round; they never reach the host registry/policy/executor path.
+/// next round; they never reach the host registry/orchestrator path.
 pub(super) fn execute_codex_tools(
     host: &mut PluginWorkflowHostMut<'_>,
     input: &PluginWorkflowInput,

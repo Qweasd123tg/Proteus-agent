@@ -64,7 +64,7 @@ fn modules_config_iter_and_set_cover_all_selectable_slots() {
         .iter()
         .map(|(kind, _)| kind.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(slots.len(), 10);
+    assert_eq!(slots.len(), 9);
 
     for (index, slot) in slots.into_iter().enumerate() {
         assert!(modules.set_by_slot_id(slot, format!("module-{index}")));

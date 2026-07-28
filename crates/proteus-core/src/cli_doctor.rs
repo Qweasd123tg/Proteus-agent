@@ -275,8 +275,8 @@ fn check_selected_modules(
     }
 }
 
-/// Ключи-списки имён tools внутри opaque `module_config.*` (policy allow/deny
-/// списки, tool exposure hot set, opencode permission groups). Core не знает
+/// Ключи-списки имён tools внутри opaque `module_config.*` (например,
+/// tool exposure hot set). Core не знает
 /// схему plugin config-ов, но эти ключи — известные межпаковые contracts
 /// (см. docs/pack-contracts.md), и опечатка в имени tool-а иначе остаётся
 /// молчаливо мёртвой записью.
@@ -524,10 +524,6 @@ fn check_runtime_limits(findings: &mut DoctorFindings, config: &AppConfig) {
         config.runtime.workflow_timeout_ms,
         300_000,
     );
-    findings.ok(format!(
-        "app_server.approval_timeout_ms: {}",
-        format_timeout_ms(config.app_server.approval_timeout_ms)
-    ));
 }
 
 pub(crate) fn check_timeout_ms(

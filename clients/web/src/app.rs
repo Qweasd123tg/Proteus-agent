@@ -4,10 +4,7 @@ use leptos::{html, prelude::*, task::spawn_local};
 use wasm_bindgen::{JsCast, JsValue, closure::Closure, prelude::wasm_bindgen};
 use web_sys::{EventSource, KeyboardEvent, MouseEvent, SubmitEvent, window};
 
-use crate::actions::{
-    AppActions, cancel_active_turn, execute_plan_prompt, handle_command_response,
-    revise_plan_prompt, send_prompt_for_mode, take_request_id,
-};
+use crate::actions::{AppActions, cancel_active_turn, handle_command_response, take_request_id};
 use crate::api::{load_session_token, post_json};
 use crate::app_helpers::*;
 use crate::app_keyboard::install_global_keydown;
@@ -92,7 +89,6 @@ pub(crate) fn App() -> impl IntoView {
     };
     let (draft, set_draft) = signal(String::new());
     let (queued_prompts, set_queued_prompts) = signal(Vec::<QueuedPromptInfo>::new());
-    let (mode, set_mode) = signal(PermissionMode::Normal);
     let (model_name, set_model_name) = signal(String::new());
     let (model_options, set_model_options) = signal(Vec::<String>::new());
     let (reasoning_enabled, set_reasoning_enabled) = signal(true);
@@ -113,7 +109,6 @@ pub(crate) fn App() -> impl IntoView {
     let (tool_activities, set_tool_activities) = signal(Vec::<ToolActivity>::new());
     let (context_usage, set_context_usage) = signal(None::<ContextUsage>);
     let (transcript_generation, set_transcript_generation) = signal(0_u64);
-    let (pending_approvals, set_pending_approvals) = signal(Vec::<ApprovalRequestInfo>::new());
     let (pending_user_inputs, set_pending_user_inputs) = signal(Vec::<UserInputRequestInfo>::new());
     let (sidebar_sessions, set_sidebar_sessions) = signal(Vec::<SessionSummary>::new());
     let (sidebar_sessions_status, set_sidebar_sessions_status) =
@@ -304,7 +299,6 @@ pub(crate) fn App() -> impl IntoView {
     );
 
     let runtime_settings = RuntimeSettingsBindings {
-        set_mode,
         set_model_name,
         set_model_options,
         set_reasoning_enabled,
@@ -356,7 +350,6 @@ pub(crate) fn App() -> impl IntoView {
         set_tool_activities,
         set_context_usage,
         transcript_generation,
-        set_pending_approvals,
         set_pending_user_inputs,
         set_queued_prompts,
         set_sidebar_sessions,
@@ -377,7 +370,6 @@ pub(crate) fn App() -> impl IntoView {
         set_agent_status,
         set_tool_activities,
         set_queued_prompts,
-        set_pending_approvals,
         set_pending_user_inputs,
         set_stick_to_bottom,
         set_sidebar_sessions,
@@ -396,7 +388,7 @@ pub(crate) fn App() -> impl IntoView {
     let reconnect_transport = move |_| {
         reconnect_event_stream(event_source, event_stream_bindings);
     };
-    // Фоновые сессии, ждущие человека (доступ или ответ): сайдбар может быть
+    // Фоновые сессии, ждущие ответа человека: сайдбар может быть
     // свёрнут, поэтому индикатор дублируется в топбаре.
     let waiting_background_sessions = Memo::new(move |_| {
         let active = active_session_dir.get();
@@ -405,9 +397,10 @@ pub(crate) fn App() -> impl IntoView {
                 .iter()
                 .filter(|session| {
                     Some(session.session_dir.as_str()) != active.as_deref()
-                        && session.activity.as_ref().is_some_and(|activity| {
-                            activity.pending_approvals > 0 || activity.pending_user_inputs > 0
-                        })
+                        && session
+                            .activity
+                            .as_ref()
+                            .is_some_and(|activity| activity.pending_user_inputs > 0)
                 })
                 .cloned()
                 .collect::<Vec<_>>()
@@ -422,8 +415,6 @@ pub(crate) fn App() -> impl IntoView {
         active_session_dir,
         next_request_id,
         set_next_request_id,
-        mode,
-        set_mode,
         model_name,
         set_model_name,
         reasoning_enabled,
@@ -461,42 +452,6 @@ pub(crate) fn App() -> impl IntoView {
             let _ = menu.remove_attribute("open");
         }
     };
-    let resolve_approval = move |approval_id: String, approved: bool, cache: ApprovalCacheScope| {
-        let request_id = take_request_id(next_request_id, set_next_request_id, "approval");
-        spawn_local(async move {
-            match post_json(
-                "/approval",
-                &ResolveApprovalRequest {
-                    id: Some(request_id),
-                    approval_id,
-                    approved,
-                    note: None,
-                    cache,
-                },
-            )
-            .await
-            {
-                Ok(output) => handle_command_response(
-                    output,
-                    set_messages,
-                    next_message_id,
-                    set_next_message_id,
-                    set_transport_status,
-                ),
-                Err(error) => {
-                    report_error(
-                        set_messages,
-                        next_message_id,
-                        set_next_message_id,
-                        set_transport_status,
-                        "Approval response failed",
-                        error,
-                    );
-                }
-            }
-        });
-    };
-
     let submit_user_input =
         move |request_id_value: String, answers: HashMap<String, Vec<String>>| {
             set_stick_to_bottom.set(true);
@@ -560,30 +515,6 @@ pub(crate) fn App() -> impl IntoView {
     };
     let draft_is_empty = move || draft.get().trim().is_empty();
 
-    let revise_plan = move |_| {
-        let text = draft.get();
-        if text.trim().is_empty() {
-            set_draft.set("Уточни последний план:\n".to_owned());
-            return;
-        }
-        if is_sending.get() {
-            return;
-        }
-        set_draft.set(String::new());
-        set_stick_to_bottom.set(true);
-        actions.send_prompt(revise_plan_prompt(&text), Some(PermissionMode::Plan));
-    };
-    let execute_plan = move |_| {
-        if is_sending.get() {
-            return;
-        }
-        set_stick_to_bottom.set(true);
-        actions.send_prompt(execute_plan_prompt(), Some(PermissionMode::Normal));
-    };
-    let exit_plan = move |_| {
-        actions.set_permission_mode(PermissionMode::Normal);
-    };
-
     let submit_prompt = move || {
         let text = draft.get().trim().to_owned();
         if text.is_empty() {
@@ -597,7 +528,7 @@ pub(crate) fn App() -> impl IntoView {
             return;
         }
 
-        send_prompt_for_mode(actions, mode.get(), text);
+        actions.send_prompt(text);
     };
     let submit = move |ev: SubmitEvent| {
         ev.prevent_default();
@@ -724,7 +655,7 @@ pub(crate) fn App() -> impl IntoView {
                                     <button
                                         type="button"
                                         class="status-badge attention"
-                                        title="Другие сессии ждут доступа или ответа — открыть"
+                                        title="Другие сессии ждут ответа — открыть"
                                         on:click=move |_| session_actions
                                             .open_sidebar_session(first.clone())
                                     >
@@ -852,17 +783,11 @@ pub(crate) fn App() -> impl IntoView {
                                 set_active_user_message
                                 messages
                                 activity_now_ms
-                                pending_approvals
                                 pending_user_inputs
                                 queued_prompts
-                                mode
                                 is_sending
                                 agent_status
-                                on_resolve_approval=resolve_approval
                                 on_submit_user_input=submit_user_input
-                                on_revise_plan=revise_plan
-                                on_execute_plan=execute_plan
-                                on_exit_plan=exit_plan
                             />
 
                             <ComposerView
@@ -870,7 +795,6 @@ pub(crate) fn App() -> impl IntoView {
                                 composer_height=resize.composer_height
                                 draft
                                 set_draft
-                                mode
                                 model_name
                                 model_options
                                 reasoning_enabled
@@ -915,14 +839,12 @@ pub(crate) fn App() -> impl IntoView {
                         on_begin_resize=begin_info_resize
                         messages
                         model_name
-                        mode
                         reasoning_enabled
                         effort
                         context_usage
                         agent_status
                         event_count
                         tool_activities
-                        pending_approvals
                         pending_user_inputs
                         workspace_label
                     />

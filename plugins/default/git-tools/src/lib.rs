@@ -2,7 +2,7 @@
 //!
 //! These tools run fixed git subcommands in the current workspace. They are
 //! plugin tools, not core runtime behavior, so coding profiles can opt into
-//! them through `tools.enabled` and policy.
+//! them through `tools.enabled`.
 
 #![allow(non_local_definitions)]
 #![allow(non_camel_case_types)]

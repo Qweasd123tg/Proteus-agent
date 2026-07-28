@@ -1,4 +1,3 @@
-pub mod approval;
 pub mod config;
 pub mod config_snapshot;
 pub mod context_provider;
@@ -7,7 +6,6 @@ pub mod eval_report;
 pub mod event_store;
 pub mod model_service;
 pub mod module_catalog;
-pub mod permission_mode;
 pub mod plugin_loader;
 pub(crate) mod process_output;
 pub mod prompt_replay;
@@ -24,7 +22,6 @@ pub mod user_input;
 pub mod workflow_replay;
 pub mod workspace;
 
-pub use approval::*;
 pub use config::*;
 pub use config_snapshot::*;
 pub use context_provider::*;
@@ -32,7 +29,6 @@ pub use eval_report::*;
 pub use event_store::*;
 pub use model_service::*;
 pub use module_catalog::*;
-pub use permission_mode::*;
 pub use plugin_loader::*;
 pub use prompt_replay::*;
 pub use provider_hosted_tools::*;

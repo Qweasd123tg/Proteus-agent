@@ -107,11 +107,7 @@ async fn tool_invocation_error_is_returned_as_failed_tool_result() {
     // FakeModelClient emits `kind: "fact"` by default, so we construct the
     // tool call directly against the orchestrator to force the bad kind.
     let dir = temp_workspace();
-    let mut config = test_config();
-    // Allow remember_fact without interactive transport so the orchestrator
-    // actually reaches the tool implementation.
-    set_ask_write_config(&mut config, &["search", "remember_fact"], &["apply_patch"]);
-
+    let config = test_config();
     let registry = registry_from_test_config(&config, dir.path());
     let events = Arc::new(InMemoryEventStore::new());
     let ctx = registry.runtime_context(
@@ -119,8 +115,6 @@ async fn tool_invocation_error_is_returned_as_failed_tool_result() {
         new_thread_id(),
         new_turn_id(),
         Arc::new(EventEmitter::new(events.clone())),
-        Arc::new(TestApprovalTransport { interactive: false }),
-        PermissionMode::Normal,
     );
 
     let result = ToolOrchestrator::default()

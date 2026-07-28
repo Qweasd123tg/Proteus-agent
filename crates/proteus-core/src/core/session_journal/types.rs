@@ -7,7 +7,7 @@ use proteus_contracts::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const JOURNAL_SCHEMA_VERSION: u32 = 1;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -60,7 +60,6 @@ pub struct ModelResponseRecorded {
 #[serde(tag = "phase", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ToolCallRecordPhase {
     Requested,
-    ApprovalRequested { reason: String },
     Resolved { resolution: ToolCallResolution },
 }
 

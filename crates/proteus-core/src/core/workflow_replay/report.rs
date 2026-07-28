@@ -38,7 +38,6 @@ pub struct WorkflowReplaySource {
     pub module_epoch: u64,
     pub profile_name: String,
     pub workflow_id: String,
-    pub policy_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

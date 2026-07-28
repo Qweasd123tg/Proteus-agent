@@ -113,13 +113,8 @@ fn inspect_topology_reports_invalid_backend_without_building_it() {
     let mut config = AppConfig::default();
     config.modules.search = "missing-search".to_owned();
 
-    let snapshot = build_cli_topology(
-        &config,
-        None,
-        std::path::Path::new("."),
-        config.permissions.mode,
-    )
-    .expect("best-effort topology snapshot");
+    let snapshot = build_cli_topology(&config, None, std::path::Path::new("."))
+        .expect("best-effort topology snapshot");
 
     assert!(snapshot.slots.iter().any(|slot| slot.id == "search"));
     assert!(snapshot.warnings.iter().any(|warning| {
@@ -171,8 +166,7 @@ fn read_only_cli_paths_do_not_start_process_modules() {
         );
 
     let _tools = build_tool_registry_for_listing(&config, dir.path()).expect("tool list registry");
-    let _topology =
-        build_cli_topology(&config, None, dir.path(), config.permissions.mode).expect("topology");
+    let _topology = build_cli_topology(&config, None, dir.path()).expect("topology");
     let mut findings = DoctorFindings::default();
     check_external_commands(&mut findings, &config, dir.path());
 
@@ -574,7 +568,7 @@ async fn init_codex_writes_loadable_single_config_file() {
         .await
         .expect("generated config loads");
 
-    assert_eq!(config.profile.name, "codex-proxy");
+    assert_eq!(config.profile.name, "codex");
     assert_eq!(config.modules.workflow, "coding.codex_loop");
     assert_eq!(config.modules.context, "codex_context");
     assert_eq!(config.modules.compactor, "codex");
@@ -601,73 +595,6 @@ async fn init_codex_writes_loadable_single_config_file() {
         .join("\n");
     assert!(instructions.contains("Before running a command"));
     assert!(instructions.contains("High-quality plans"));
-}
-
-#[test]
-fn doctor_flags_unknown_tool_names_in_module_config_lists() {
-    struct StaticTool(&'static str);
-
-    #[async_trait::async_trait]
-    impl proteus_core::contracts::Tool for StaticTool {
-        fn spec(&self) -> proteus_core::domain::ToolSpec {
-            proteus_core::domain::ToolSpec::new(
-                self.0,
-                "static test tool",
-                serde_json::json!({ "type": "object" }),
-                ToolSafety::ReadOnly,
-            )
-        }
-
-        async fn invoke(
-            &self,
-            _call: &proteus_core::domain::ToolCall,
-            _ctx: proteus_core::contracts::ToolContext,
-        ) -> anyhow::Result<proteus_core::domain::ToolResult> {
-            unreachable!("doctor check never invokes tools")
-        }
-    }
-
-    let mut registry = proteus_core::contracts::ToolRegistry::new();
-    registry
-        .register(StaticTool("read_file"))
-        .expect("register read_file");
-
-    let mut config = AppConfig::default();
-    config.tools.mcp_servers.push(
-        serde_json::from_value(serde_json::json!({
-            "name": "playwright",
-            "command": "npx",
-        }))
-        .expect("mcp server config"),
-    );
-    config.module_config.insert(
-        "policy".to_owned(),
-        std::collections::BTreeMap::from([(
-            "codex_policy".to_owned(),
-            serde_json::json!({
-                "allow": ["read_file", "misspelled_tool"],
-                "ask_before": ["playwright__browser_click", "ghost__tool"],
-            }),
-        )]),
-    );
-
-    let mut findings = DoctorFindings::default();
-    check_module_config_tool_references(&mut findings, &config, &registry);
-
-    assert!(!findings.has_errors());
-    let warnings = findings
-        .entries
-        .iter()
-        .filter(|entry| entry.level == "warn")
-        .map(|entry| entry.message.as_str())
-        .collect::<Vec<_>>();
-    assert_eq!(
-        warnings,
-        vec![
-            "module_config.policy.codex_policy.allow references unknown tool 'misspelled_tool'",
-            "module_config.policy.codex_policy.ask_before references unknown tool 'ghost__tool'",
-        ]
-    );
 }
 
 #[test]
@@ -699,30 +626,6 @@ fn doctor_counts_resolved_module_config_tool_references() {
             .iter()
             .any(|entry| entry.message == "module_config tool references: 1 resolved")
     );
-}
-
-#[test]
-fn doctor_checks_nested_module_config_tool_lists() {
-    let registry = proteus_core::contracts::ToolRegistry::new();
-    let mut config = AppConfig::default();
-    config.module_config.insert(
-        "policy".to_owned(),
-        std::collections::BTreeMap::from([(
-            "opencode_policy".to_owned(),
-            serde_json::json!({
-                "groups": {
-                    "edit": { "tools": ["missing_edit_tool"], "pattern_args": ["path"] },
-                },
-            }),
-        )]),
-    );
-
-    let mut findings = DoctorFindings::default();
-    check_module_config_tool_references(&mut findings, &config, &registry);
-
-    assert!(findings.entries.iter().any(|entry| entry.level == "warn"
-        && entry.message
-            == "module_config.policy.opencode_policy.groups.edit.tools references unknown tool 'missing_edit_tool'"));
 }
 
 #[test]
@@ -846,10 +749,6 @@ fn eval_report_output_contains_core_metrics() {
         model_calls: 2,
         tool_calls: 3,
         tool_failures: 1,
-        approvals_requested: 1,
-        approvals_resolved: 1,
-        approvals_approved: 0,
-        approvals_denied: 1,
         estimated_input_tokens: 100,
         provider_input_tokens: 90,
         provider_output_tokens: 30,
@@ -975,7 +874,6 @@ fn workflow_replay_human_and_json_reports_contain_key_fields() {
             module_epoch: 4,
             profile_name: "codex".to_owned(),
             workflow_id: "coding.codex_loop".to_owned(),
-            policy_id: "codex_policy".to_owned(),
         },
         recorded: WorkflowReplayOutcome {
             status: TurnSettlementStatus::Success,
@@ -1010,7 +908,7 @@ fn workflow_replay_human_and_json_reports_contain_key_fields() {
     let human =
         cli_workflow_replay::render_workflow_replay_report(&report, false).expect("human report");
     assert!(human.contains("Workflow replay report"));
-    assert!(human.contains("Workflow: coding.codex_loop (policy=codex_policy, epoch=4)"));
+    assert!(human.contains("Workflow: coding.codex_loop (epoch=4)"));
     assert!(human.contains("Model exchanges: recorded=2, replayed=2"));
     assert!(human.contains("Tool calls: recorded=1, replayed=1"));
     assert!(human.contains("Status: matched"));

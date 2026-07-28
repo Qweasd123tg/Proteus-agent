@@ -15,7 +15,7 @@ const SIDEBAR_RAIL_LIMIT: usize = 10;
 /// «?» у ждущих человека, точка у остальных.
 fn rail_session_class(session: &SessionSummary) -> &'static str {
     match session.activity.as_ref().map(|a| a.status.as_str()) {
-        Some("waiting_input" | "waiting_approval") => "sidebar-rail-session waiting",
+        Some("waiting_input") => "sidebar-rail-session waiting",
         Some("running") => "sidebar-rail-session running",
         _ => "sidebar-rail-session",
     }

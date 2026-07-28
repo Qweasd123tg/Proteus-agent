@@ -330,7 +330,7 @@ mod tests {
     }
 
     #[test]
-    fn request_validation_leaves_unknown_tool_policy_to_the_workflow() {
+    fn request_validation_leaves_unknown_tool_selection_to_the_workflow() {
         let request = CanonicalModelRequest::new(
             ModelRef::new("openai", "model"),
             vec![CanonicalMessage::text(MessageRole::User, "answer")],
@@ -338,7 +338,7 @@ mod tests {
         let call = ToolCall::new(new_call_id(), "unknown_tool", json!({}));
 
         validate_model_response_against_request(&request, &response_with_call(call))
-            .expect("surface validation must not replace workflow visibility policy");
+            .expect("surface validation must not replace workflow visibility rules");
     }
 
     #[test]

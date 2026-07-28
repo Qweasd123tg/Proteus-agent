@@ -15,7 +15,7 @@
 - **Понять архитектуру:** [architecture.md](architecture.md), затем
   [modules.md](modules.md).
 - **Разобрать сбой:** [inspect.md](inspect.md), затем профильный документ по
-  runtime, config или policy.
+  runtime, config или tool execution.
 - **Добавить и проверить фичу:** [slot-governance.md](slot-governance.md),
   затем стандарт evidence в [testing.md](testing.md#стандарт-внедрения-и-проверки-фичи).
 - **Выбрать следующую работу:** [scope.md](scope.md),
@@ -60,8 +60,8 @@
    slots и synthetic runtime nodes, HTTP `/inspect/*`.
 2. [runtime-and-events.md](runtime-and-events.md) — CLI/REPL, session store,
    event log и AppServer HTTP/SSE/stdio.
-3. [security-and-policy.md](security-and-policy.md) — tools, permission modes,
-   approvals, workspace boundary и exec sandbox.
+3. [security-and-policy.md](security-and-policy.md) — доверие к tools,
+   workspace boundary и optional exec sandbox.
 4. [testing.md](testing.md) — regression gates, module swap tests и eval
    harness.
 
@@ -112,8 +112,9 @@
   postmortem первого readiness dogfood: несовпадение OpenAI custom/function
   surface, повторяющийся `apply_patch` и принятый fail-closed контракт;
 - [research/dogfood-readiness-checkpoint-2026-07-23.md](research/dogfood-readiness-checkpoint-2026-07-23.md) —
-  закрытие readiness checkpoint: strict-token web/app-server loop, approvals,
-  steering, cancel, typed input и durable terminal error после reconnect;
+  исторический checkpoint до упрощения tool path: strict-token
+  web/app-server loop, прежние approvals, steering, cancel, typed input и
+  durable terminal error после reconnect;
 - [research/memory-research.md](research/memory-research.md) — blueprint
   memory-плагинов и сравнение backend-ов;
 - [research/subagent-web-ui-handoff.md](research/subagent-web-ui-handoff.md) —

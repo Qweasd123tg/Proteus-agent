@@ -18,14 +18,14 @@ new turn/model request uses epoch=N+1
 
 ## Инварианты
 
-- Уже начатый `Workflow`, `Tool`, `ApprovalPolicy` decision или `PatchApplier`
+- Уже начатый `Workflow`, `Tool` или `PatchApplier`
   не меняет реализацию посреди вызова.
 - Новые snapshots публикуются атомарно; старые trait-object `Arc` доживают до
   конца активных turns.
 - Native dylib-плагины не выгружаются из процесса. Новая версия загружается как
   новый artifact/path/hash, старая остаётся в памяти до завершения процесса.
 - Tool execution после reload всё равно идёт через `ToolRegistry`,
-  `ToolOrchestrator`, `ToolSafety`, `ApprovalPolicy` и approval transport.
+  `ToolOrchestrator`, schema validation, timeout/cancel и journal.
 - Model-visible tool set может меняться чаще, чем сам registry, но только через
   `ToolExposure` или workflow host API.
 - Каждый turn/event должен быть привязан к module epoch, чтобы UI/eval/debug
@@ -35,14 +35,13 @@ new turn/model request uses epoch=N+1
 
 | Область | Граница reload | Комментарий |
 |---|---|---|
-| `Renderer` | per response / new request | Низкий риск, не влияет на permission. |
+| `Renderer` | per response / new request | Низкий риск, не влияет на execution. |
 | `ToolExposure` | per model request | Подходит для deferred tool catalog и dynamic tool visibility. |
 | `SearchBackend` | between turns или before context build | Нельзя менять во время одного context build. |
 | `ContextBuilder` | between turns или before model request | Snapshot должен быть единым для выбранного context bundle. |
 | `ToolRegistry` / tools | between turns, позже per model request | Исполнение всегда через `ToolOrchestrator`. |
 | MCP-discovered tools | after explicit reload/discovery | Discovery обновляет новый snapshot, не мутирует старый registry. |
-| `ApprovalPolicy` | only between turns | Иначе можно получить visibility по одной policy, execution по другой. |
-| `PatchApplier` | only between turns | Edit semantics и approval context должны быть стабильны. |
+| `PatchApplier` | only between turns | Edit semantics должны быть стабильны. |
 | `Workflow` | only new turn | Текущий workflow frame не заменяется. |
 | `MemoryStore` | only with durable-state rule | Нужен flush/migration или shared durable backend. |
 | `Model` | between turns/model requests | Требует явного event/debug, потому что меняет поведение агента. |
@@ -52,7 +51,7 @@ new turn/model request uses epoch=N+1
 Планируемый UX для запроса вроде "подключи github MCP":
 
 1. Агент находит команду запуска MCP server и необходимые args/env.
-2. Если нужно установить пакет или скачать binary, агент запрашивает approval.
+2. При необходимости оператор устанавливает пакет или binary.
 3. Агент добавляет `[[tools.mcp_servers]]` в config.
 4. Core получает явную команду `reload_tools` / `reload_modules`.
 5. Новый snapshot стартует stdio MCP host и выполняет MCP `initialize` +
@@ -72,7 +71,7 @@ Deferred/dynamic tool call не требует отдельного slot-а. Э�
 существующего `ToolExposure`:
 
 ```text
-policy-visible ToolSpec candidates
+registered ToolSpec candidates
     -> ToolExposure
     -> direct visible tools OR bridge tools
     -> model calls bridge tool
@@ -82,15 +81,15 @@ policy-visible ToolSpec candidates
 
 Bridge-tools называются `proteus_tool_search`, `proteus_tool_describe` и
 `proteus_tool_call` и принадлежат `coding-workflow`, а не `ToolRegistry`. Их
-каталог строится из policy-visible tools текущего snapshot через
+каталог строится из зарегистрированных tools текущего snapshot через
 `visible_tools_json` и не видит tools, не доступные session/profile.
 
 При вызове `proteus_tool_call` workflow создаёт внутренний `ToolCall` с
 реальным tool name и передаёт его в `execute_tool_json`. Transcript result
 получает outer call id, чтобы provider видел ответ на свой вызов
 `proteus_tool_call`, а inner call id сохраняется в metadata. Это сохраняет
-главный инвариант безопасности: dynamic discovery меняет только видимость и
-token cost, а не путь исполнения.
+главный инвариант orchestration: dynamic discovery меняет только видимость и
+token cost, а не путь исполнения, validation или journal.
 
 ## Минимальный Implementation Path
 
@@ -116,8 +115,8 @@ token cost, а не путь исполнения.
   config-defined/MCP/plugin tool graph;
 - расширить reload report до `changed_modules`, а не только `tool_names`;
 - покрыть failed plugin reload без повреждения активного snapshot;
-- реализовать `tool_call` bridge и проверить, что он не обходит
-  `ApprovalPolicy`.
+- расширить regression bridge-а: внутренний вызов не должен обходить registry,
+  schema validation или journal.
 
 ## Что Не Делать В v0
 

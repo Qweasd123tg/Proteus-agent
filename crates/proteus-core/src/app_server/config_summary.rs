@@ -5,14 +5,12 @@ use serde_json::{Value, json};
 use crate::{
     contracts::ToolSource,
     core::{AppConfig, PluginLoadReport},
-    domain::PermissionMode,
 };
 
 pub(super) fn render_config_summary(
     config: &AppConfig,
     config_path: Option<&Path>,
     cwd: &Path,
-    mode: PermissionMode,
     tools: &[(ToolSource, crate::domain::ToolSpec)],
     plugin_reports: &[PluginLoadReport],
     module_epoch: crate::core::ModuleEpoch,
@@ -38,7 +36,6 @@ pub(super) fn render_config_summary(
     if let Ok(model) = config.active_model_config() {
         lines.push(format!("model: {}/{}", model.provider, model.model));
     }
-    lines.push(format!("permission mode: {mode:?}"));
     lines.push("modules:".to_owned());
     for (kind, id) in config.modules.iter() {
         lines.push(format!("  {}: {id}", kind.as_str()));

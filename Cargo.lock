@@ -1144,16 +1144,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "policy-pack"
-version = "0.1.0"
-dependencies = [
- "abi_stable",
- "proteus-contracts",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "portable-pty"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1249,7 +1239,6 @@ dependencies = [
  "hyper-util",
  "libloading 0.8.9",
  "memory-pack",
- "policy-pack",
  "proteus-contracts",
  "proteus-process-host",
  "renderer-pack",

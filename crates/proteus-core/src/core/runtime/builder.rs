@@ -7,11 +7,10 @@ use anyhow::{Result, anyhow};
 use tokio::sync::{Mutex, RwLock};
 
 use crate::{
-    contracts::{ApprovalTransport, EventEmitter, EventSink, UserInputTransport},
+    contracts::{EventEmitter, EventSink, UserInputTransport},
     core::{
-        AppConfig, BuiltinModuleCatalog, BuiltinRegistry, CachedApprovalTransport,
-        HeadlessApprovalTransport, HeadlessUserInputTransport, JsonlEventStore,
-        SessionConfigSnapshot, SessionStore, write_config_snapshot,
+        AppConfig, BuiltinModuleCatalog, BuiltinRegistry, HeadlessUserInputTransport,
+        JsonlEventStore, SessionConfigSnapshot, SessionStore, write_config_snapshot,
     },
     domain::{SessionId, ThreadId, new_session_id, new_thread_id},
 };
@@ -21,16 +20,14 @@ use super::{
     event_log_path,
 };
 
-/// Builder for `AgentRuntime`. Every slot has a sensible default
-/// (headless approval, jsonl event log derived from the config, no session
-/// persistence) so callers only override what they actually want to change.
+/// Builder for `AgentRuntime`. Event storage and user input have headless
+/// defaults; callers override only the services they need.
 pub struct AgentRuntimeBuilder {
     config: AppConfig,
     cwd: PathBuf,
     module_catalog: Option<BuiltinModuleCatalog>,
     config_path: Option<PathBuf>,
     event_sink: Option<Arc<dyn EventSink>>,
-    approval: Option<Arc<dyn ApprovalTransport>>,
     user_input: Option<Arc<dyn UserInputTransport>>,
     session_id: Option<SessionId>,
     thread_id: Option<ThreadId>,
@@ -45,7 +42,6 @@ impl AgentRuntimeBuilder {
             module_catalog: None,
             config_path: None,
             event_sink: None,
-            approval: None,
             user_input: None,
             session_id: None,
             thread_id: None,
@@ -65,11 +61,6 @@ impl AgentRuntimeBuilder {
 
     pub fn with_event_sink(mut self, sink: Arc<dyn EventSink>) -> Self {
         self.event_sink = Some(sink);
-        self
-    }
-
-    pub fn with_approval(mut self, approval: Arc<dyn ApprovalTransport>) -> Self {
-        self.approval = Some(approval);
         self
     }
 
@@ -119,7 +110,6 @@ impl AgentRuntimeBuilder {
             module_catalog,
             config_path,
             event_sink,
-            approval,
             user_input,
             session_id,
             thread_id,
@@ -130,7 +120,6 @@ impl AgentRuntimeBuilder {
             Some(store) => store.workspace_path()?,
             None => cwd,
         };
-        let permission_mode = config.permissions.mode;
         let registry = if let Some(catalog) = module_catalog {
             BuiltinRegistry::from_catalog(&config, cwd.clone(), catalog)?
         } else {
@@ -153,9 +142,6 @@ impl AgentRuntimeBuilder {
             }
         });
         let events = Arc::new(EventEmitter::new(event_sink));
-        let approval: Arc<dyn ApprovalTransport> = Arc::new(CachedApprovalTransport::new(
-            approval.unwrap_or_else(|| Arc::new(HeadlessApprovalTransport)),
-        ));
         let user_input: Arc<dyn UserInputTransport> =
             user_input.unwrap_or_else(|| Arc::new(HeadlessUserInputTransport));
         let session_id = resumed_session
@@ -174,9 +160,9 @@ impl AgentRuntimeBuilder {
                 .map(|config_dir| SessionStore::new(&config_dir, &cwd, session_id))
                 .transpose()?
         };
-        let config_snapshot = session_store.as_ref().map(|_| {
-            SessionConfigSnapshot::from_runtime_config(&config, &registry, permission_mode)
-        });
+        let config_snapshot = session_store
+            .as_ref()
+            .map(|_| SessionConfigSnapshot::from_runtime_config(&config, &registry));
         if resume_history
             && let (Some(session_store), Some(snapshot)) = (&session_store, &config_snapshot)
             && session_store.session_dir().exists()
@@ -208,9 +194,7 @@ impl AgentRuntimeBuilder {
                 )),
                 reload_lock: Mutex::new(()),
                 events,
-                approval,
                 user_input,
-                permission_mode: RwLock::new(permission_mode),
                 model_ref: RwLock::new(model_ref),
                 reasoning: RwLock::new(reasoning),
                 default_reasoning,

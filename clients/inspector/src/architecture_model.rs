@@ -107,7 +107,7 @@ pub(crate) fn pipeline_steps(snapshot: &TopologySnapshot, slots: &[SlotView]) ->
         id: "config".to_owned(),
         label: "config".to_owned(),
         detail: non_empty(&snapshot.profile, "default"),
-        source: snapshot.permission_mode.to_lowercase(),
+        source: "runtime".to_owned(),
         missing: false,
     }];
 
@@ -151,10 +151,13 @@ pub(crate) fn pipeline_steps(snapshot: &TopologySnapshot, slots: &[SlotView]) ->
         source: format!("{enabled} enabled"),
         missing: registered == 0,
     };
+    // Tool inventory is a runtime boundary, not a selectable module slot.
+    // Keep it in the pipeline before the renderer without inventing another
+    // configurable stage.
     let tools_index = steps
         .iter()
-        .position(|step| step.id == "policy")
-        .map_or(steps.len(), |policy_index| policy_index + 1);
+        .position(|step| step.id == "renderer")
+        .unwrap_or(steps.len());
     steps.insert(tools_index, tools_step);
 
     steps
@@ -289,11 +292,10 @@ mod tests {
     }
 
     #[test]
-    fn pipeline_derives_one_tools_step_from_inventory_after_policy() {
+    fn pipeline_derives_one_tools_step_from_inventory_before_renderer() {
         let snapshot = TopologySnapshot {
             slots: vec![
                 slot("workflow", "orchestrator", 0),
-                slot("policy", "pipeline", 5),
                 slot("renderer", "pipeline", 7),
             ],
             tools: vec![
@@ -311,7 +313,7 @@ mod tests {
             .map(|step| step.id.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(ids, ["config", "workflow", "policy", "tools", "renderer"]);
+        assert_eq!(ids, ["config", "workflow", "tools", "renderer"]);
         let tools = steps
             .iter()
             .find(|step| step.id == "tools")
@@ -321,5 +323,4 @@ mod tests {
         assert_eq!(tools.source, "1 enabled");
         assert!(!tools.missing);
     }
-
 }

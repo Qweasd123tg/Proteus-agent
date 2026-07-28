@@ -36,7 +36,6 @@ pub(crate) fn extract_search_queries(task: &str) -> Vec<String> {
 
 const REPO_SEARCH_ALLOWLIST: &[&str] = &[
     "agent",
-    "approval",
     "cancel",
     "config",
     "context",
@@ -47,7 +46,6 @@ const REPO_SEARCH_ALLOWLIST: &[&str] = &[
     "module",
     "patch",
     "plugin",
-    "policy",
     "provider",
     "renderer",
     "runtime",

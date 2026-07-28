@@ -38,7 +38,6 @@ codex-compactor = { path = "../../plugins/default/codex-compactor" }
 codex-tool-exposure = { path = "../../plugins/default/codex-tool-exposure", default-features = false }
 context-pack = { path = "../../plugins/default/context-pack", default-features = false }
 memory-pack = { path = "../../plugins/default/memory-pack", default-features = false }
-policy-pack = { path = "../../plugins/default/policy-pack", default-features = false }
 renderer-pack = { path = "../../plugins/default/renderer-pack", default-features = false }
 skill-pack = { path = "../../plugins/default/skill-pack" }
 tempfile = "3"

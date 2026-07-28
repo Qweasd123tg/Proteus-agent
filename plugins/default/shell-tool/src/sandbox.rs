@@ -1,4 +1,4 @@
-//! Общая sandbox/workdir policy для one-shot и unified shell execution.
+//! Общий process-level sandbox/workdir режим для one-shot и unified shell.
 
 use std::path::{Path, PathBuf};
 
@@ -34,57 +34,52 @@ enum SandboxAvailability {
     Missing,
 }
 
-/// Process-level sandbox policy. Detection is kept separate from selection so
-/// both shell frontends can regression-test fail-closed behavior without
-/// mutating process environment variables in parallel tests.
+/// Process-level sandbox mode. Shell execution is trusted/direct by default;
+/// setting `PROTEUS_SHELL_SANDBOX=1` opts the whole process into the bwrap
+/// workspace sandbox. Detection is kept separate from selection so both shell
+/// frontends can test it without mutating process environment variables.
 #[derive(Clone, Debug)]
-pub(crate) struct SandboxPolicy {
+pub(crate) struct SandboxMode {
     availability: SandboxAvailability,
 }
 
-impl SandboxPolicy {
+impl SandboxMode {
     pub(crate) fn detect(workspace: &str) -> Self {
-        let availability = if std::env::var(SANDBOX_ENV).is_ok_and(|value| value == "0") {
-            SandboxAvailability::Disabled
-        } else if let Some(executable) = trusted_executable_in_path("bwrap", workspace) {
-            SandboxAvailability::Available(executable)
+        let setting = std::env::var(SANDBOX_ENV).ok();
+        let availability = if sandbox_requested(setting.as_deref()) {
+            sandbox_availability(workspace)
         } else {
-            SandboxAvailability::Missing
+            SandboxAvailability::Disabled
         };
         Self { availability }
     }
 
-    pub(crate) fn select(
-        &self,
-        escalated: bool,
-        uses_unsandboxed_backend: bool,
-    ) -> Result<Option<SandboxKind>> {
-        if escalated {
+    pub(crate) fn enabled(&self) -> bool {
+        !matches!(self.availability, SandboxAvailability::Disabled)
+    }
+
+    pub(crate) fn select(&self, uses_external_terminal: bool) -> Result<Option<SandboxKind>> {
+        if !self.enabled() {
             return Ok(None);
         }
-        if uses_unsandboxed_backend {
+        if uses_external_terminal {
             return Err(anyhow!(
-                "external terminal execution is unsandboxed and requires \
-                 with_escalated_permissions=true"
+                "external terminal execution is unavailable while {SANDBOX_ENV}=1"
             ));
         }
         match &self.availability {
             SandboxAvailability::Available(executable) => {
                 Ok(Some(SandboxKind::Bwrap(executable.clone())))
             }
-            SandboxAvailability::Disabled => Err(anyhow!(
-                "sandboxed shell execution is disabled by {SANDBOX_ENV}=0; retry with \
-                 with_escalated_permissions=true to request an unsandboxed run"
-            )),
+            SandboxAvailability::Disabled => Ok(None),
             SandboxAvailability::Missing => Err(anyhow!(
-                "sandboxed shell execution requires executable 'bwrap' in PATH; retry with \
-                 with_escalated_permissions=true to request an unsandboxed run"
+                "{SANDBOX_ENV}=1 requires executable 'bwrap' in PATH"
             )),
         }
     }
 
     #[cfg(test)]
-    pub(crate) fn unavailable_for_test() -> Self {
+    pub(crate) fn enabled_unavailable_for_test() -> Self {
         Self {
             availability: SandboxAvailability::Missing,
         }
@@ -96,6 +91,22 @@ impl SandboxPolicy {
             availability: SandboxAvailability::Disabled,
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn enabled_for_workspace_test(workspace: &str) -> Self {
+        Self {
+            availability: sandbox_availability(workspace),
+        }
+    }
+}
+
+fn sandbox_requested(value: Option<&str>) -> bool {
+    value == Some("1")
+}
+
+fn sandbox_availability(workspace: &str) -> SandboxAvailability {
+    trusted_executable_in_path("bwrap", workspace)
+        .map_or(SandboxAvailability::Missing, SandboxAvailability::Available)
 }
 
 #[cfg(unix)]
@@ -141,12 +152,12 @@ pub(crate) struct ResolvedWorkdir {
     pub(crate) workdir: String,
 }
 
-/// Резолвит `workdir` и проверяет его по canonical paths, чтобы `..` и symlink
-/// не позволяли неэскалированному вызову выйти из workspace.
+/// Резолвит `workdir` и при включённом process-level sandbox проверяет его по
+/// canonical paths, чтобы `..` и symlink не позволяли выйти из workspace.
 pub(crate) fn resolve_workdir(
     cwd: &str,
     workdir: Option<&Value>,
-    escalated: bool,
+    workspace_only: bool,
 ) -> Result<ResolvedWorkdir> {
     let requested = match workdir {
         None => Path::new(cwd).to_path_buf(),
@@ -182,10 +193,9 @@ pub(crate) fn resolve_workdir(
             requested.display()
         )
     })?;
-    if !escalated && !canonical_workdir.starts_with(&canonical_workspace) {
+    if workspace_only && !canonical_workdir.starts_with(&canonical_workspace) {
         return Err(anyhow!(
-            "shell workdir is outside the workspace and requires \
-             with_escalated_permissions=true: {}",
+            "shell workdir is outside the workspace while {SANDBOX_ENV}=1: {}",
             requested.display()
         ));
     }
@@ -213,7 +223,7 @@ pub(crate) const EXEC_COMMAND_ENV: [(&str, &str); 10] = [
 
 /// argv для bwrap: read-only корень, единственный rw-bind workspace, без сети,
 /// с отдельным PID namespace и свежими /dev,/proc,/tmp. Внешний workdir сюда
-/// попасть не может: policy отклоняет его до spawn.
+/// попасть не может: sandbox mode отклоняет его до spawn.
 pub(crate) fn bwrap_args(command: &str, workspace: &str, workdir: &str) -> Vec<String> {
     vec![
         "--die-with-parent".to_owned(),
@@ -244,29 +254,39 @@ mod tests {
     use super::*;
 
     #[test]
-    fn disabled_sandbox_is_fail_closed() {
-        let error = SandboxPolicy::disabled_for_test()
-            .select(false, false)
-            .expect_err("disabled sandbox must reject non-escalated execution");
-        assert!(error.to_string().contains("PROTEUS_SHELL_SANDBOX=0"));
+    fn only_explicit_one_enables_process_sandbox() {
+        assert!(!sandbox_requested(None));
+        assert!(!sandbox_requested(Some("0")));
+        assert!(!sandbox_requested(Some("true")));
+        assert!(sandbox_requested(Some("1")));
     }
 
     #[test]
-    fn external_terminal_requires_escalation() {
-        let error = SandboxPolicy::unavailable_for_test()
-            .select(false, true)
-            .expect_err("external terminal must reject non-escalated execution");
-        assert!(error.to_string().contains("external terminal"));
+    fn disabled_sandbox_selects_trusted_direct_execution() {
         assert_eq!(
-            SandboxPolicy::unavailable_for_test()
-                .select(true, true)
-                .expect("escalated external terminal"),
+            SandboxMode::disabled_for_test()
+                .select(false)
+                .expect("direct execution"),
             None
         );
     }
 
     #[test]
-    fn external_workdir_requires_escalation() {
+    fn external_terminal_is_allowed_only_when_sandbox_is_disabled() {
+        assert_eq!(
+            SandboxMode::disabled_for_test()
+                .select(true)
+                .expect("trusted external terminal"),
+            None
+        );
+        let error = SandboxMode::enabled_unavailable_for_test()
+            .select(true)
+            .expect_err("sandbox mode must reject external terminal");
+        assert!(error.to_string().contains("PROTEUS_SHELL_SANDBOX=1"));
+    }
+
+    #[test]
+    fn external_workdir_is_allowed_only_when_workspace_limit_is_disabled() {
         let workspace = tempfile::tempdir().expect("workspace");
         let external = tempfile::tempdir().expect("external");
         let requested = Value::String(external.path().display().to_string());
@@ -274,23 +294,23 @@ mod tests {
         let error = resolve_workdir(
             &workspace.path().display().to_string(),
             Some(&requested),
-            false,
+            true,
         )
-        .expect_err("external workdir must fail without escalation");
+        .expect_err("sandbox mode must reject external workdir");
         assert!(error.to_string().contains("outside the workspace"));
 
         let resolved = resolve_workdir(
             &workspace.path().display().to_string(),
             Some(&requested),
-            true,
+            false,
         )
-        .expect("escalated external workdir");
+        .expect("trusted direct external workdir");
         assert_eq!(resolved.workdir, external.path().display().to_string());
     }
 
     #[cfg(unix)]
     #[test]
-    fn symlink_escape_requires_escalation() {
+    fn sandboxed_workdir_rejects_symlink_escape() {
         use std::os::unix::fs::symlink;
 
         let workspace = tempfile::tempdir().expect("workspace");
@@ -302,9 +322,9 @@ mod tests {
         let error = resolve_workdir(
             &workspace.path().display().to_string(),
             Some(&requested),
-            false,
+            true,
         )
-        .expect_err("symlink escape must fail without escalation");
+        .expect_err("sandbox mode must reject symlink escape");
         assert!(error.to_string().contains("outside the workspace"));
     }
 

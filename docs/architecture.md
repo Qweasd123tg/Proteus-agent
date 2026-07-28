@@ -6,7 +6,7 @@
 - [modules.md](modules.md) — slots и реализации;
 - [configuration.md](configuration.md) — config schema;
 - [runtime-and-events.md](runtime-and-events.md) — sessions, events и transport;
-- [security-and-policy.md](security-and-policy.md) — tools, permissions и sandbox;
+- [security-and-policy.md](security-and-policy.md) — tools, доверие и sandbox;
 - [plugin-architecture.md](plugin-architecture.md) — dylib ABI.
 
 ## За Одну Минуту
@@ -30,10 +30,10 @@ Core -> Contract -> Module Implementation
 
 Core владеет lifecycle и wiring, contracts описывают границы, а конкретное
 поведение выбирается конфигом и приезжает из modules/plugins. Замена поиска,
-workflow, policy или compactor не должна требовать переписывания runtime.
+workflow или compactor не должна требовать переписывания runtime.
 
 Сегодня это уже рабочий dogfood-прототип: есть HTTP/SSE app-server, web client,
-Inspector, durable sessions, provider adapters, tools, approvals, плагины и
+Inspector, durable sessions, provider adapters, tools, плагины и
 subagents. Это ещё не готовая внешняя plugin platform: ABI меняется, dylib
 считаются доверенными, а часть новых subagent/worktree границ ещё стабилизируется.
 
@@ -49,11 +49,11 @@ CLI / Web / Inspector
       AgentRuntime
           |
           v
-   RuntimeSnapshot -------------------------------+
-     |       |       |       |       |            |
-   model   context  tools   policy  memory      subagent
-     |       |       |       |       |            |
-     +-------+-------+-------+-------+------------+
+   RuntimeSnapshot -------------------------+
+     |       |       |       |              |
+   model   context  tools   memory       subagent
+     |       |       |       |              |
+     +-------+-------+-------+--------------+
                      contracts
                          |
           builtin / dylib / process modules
@@ -71,10 +71,10 @@ app-server и получает contract-события. Runtime на старт�
 | Слой | Ответственность | Не должен делать |
 |---|---|---|
 | CLI и клиенты | ввод, навигация, отображение событий | принимать runtime-решения |
-| AppServer | HTTP/SSE/JSONL transport, sessions, approvals | реализовывать workflow |
-| Core | lifecycle, wiring, persistence, safety orchestration | знать алгоритм конкретного модуля |
+| AppServer | HTTP/SSE/JSONL transport, sessions, typed input | реализовывать workflow |
+| Core | lifecycle, wiring, persistence, tool orchestration | знать алгоритм конкретного модуля |
 | Contracts | traits и provider-neutral DTO | зависеть от core или UI |
-| Modules/plugins | search, workflow, policy, tools, memory и другие реализации | связываться друг с другом в обход contracts |
+| Modules/plugins | search, workflow, tools, memory и другие реализации | связываться друг с другом в обход contracts |
 | Provider adapters | OpenAI/Anthropic wire formats и streaming | протекать в generic runtime |
 
 ## Карта Репозитория
@@ -121,8 +121,8 @@ docs/                     документация
    вызывает `Model` и до передачи ответа workflow проверяет structural contract
    и совпадение объявленной/возвращённой tool surface.
 7. Обычный model tool call проходит через `ToolRegistry` и
-   `ToolOrchestrator`: validation → visibility/policy → approval → timeout →
-   execution → bounded result.
+   `ToolOrchestrator`: visibility → schema validation → journal record →
+   timeout/cancel → execution → bounded result.
 8. Runtime сохраняет canonical session journal, актуальный config snapshot и
    отдельный telemetry event trace.
 9. App-server транслирует события клиентам; UI строится по факту событий, а не
@@ -160,7 +160,7 @@ Read-only роли можно запускать параллельно. Рол�
 ## Slot, Module, Plugin И Pack
 
 - **Slot** — класс заменяемого поведения, описанный trait-ом: `workflow`,
-  `context`, `policy`, `search`, `subagent` и т.д.
+  `context`, `search`, `subagent` и т.д.
 - **Module** — реализация slot-а под строковым id, например `search = "rg"`.
 - **Plugin** — dylib, который регистрирует один или несколько modules.
 - **Pack** — config/profile + набор plugins + prompts + eval-договорённости.
@@ -184,9 +184,9 @@ registrations, после чего `BuiltinRegistry` строит trait-объе
 
 ```text
 ToolRegistry
-  -> mode-aware ApprovalPolicy
-  -> ApprovalTransport при Ask
+  -> ToolExposure
   -> ToolOrchestrator
+  -> schema validation / journal
   -> Tool::invoke
 ```
 
@@ -195,9 +195,9 @@ Core-owned `apply_patch`, `search`, `remember_fact`, `request_user_input` и
 Subagent facade выбирается через `subagents.surface` и регистрируется в
 `ToolRegistry` при сборке snapshot-а. `task` вызывает blocking `run`, а
 collaboration tools используют session-bound spawn/wait/cancel и optional
-message capability того же `SubagentToolHost`; generic workflow host не получает subagent/worktree
-capabilities. Поэтому visibility, validation, approval, timeout, events и
-bounded output любого subagent facade проходят тот же orchestrator path.
+message capability того же `SubagentToolHost`; generic workflow host не получает
+subagent/worktree capabilities. Поэтому visibility, validation, timeout, events
+и bounded output любого subagent facade проходят тот же orchestrator path.
 
 ### Providers
 
@@ -243,7 +243,6 @@ facts не используются. Формат и recovery rules описан
 - Меняется порядок model/tool loop → `Workflow`.
 - Меняется состав контекста → `ContextBuilder` или context provider.
 - Выбираются видимые tools → `ToolExposure`.
-- Решается allow/ask/deny → `ApprovalPolicy` и approval transport.
 - Выполняется действие модели → `Tool` через общий orchestrator.
 - Меняется поиск → `SearchBackend`.
 - Меняется применение patch → `PatchApplier`.
@@ -262,7 +261,7 @@ UI-state через generic host API, сначала стоит перепров
 - MCP поддерживает tools через stdio, но не полный resources/prompts surface;
 - app protocol и UI DTO ещё не стабилизированы как внешний API;
 - строгий wall-clock TTL/shutdown contract process-runner-а, дальнейшая
-  subagent/worktree policy и restart-durable collaboration state требуют
+  subagent/worktree lifecycle semantics и restart-durable collaboration state требуют
   решения; текущие process idle retention и collaboration control bounded, но
   живут только в процессе;
 - eval report анализирует canonical journal, но автоматического benchmark

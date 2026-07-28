@@ -200,7 +200,7 @@ async fn invoke_delegates_through_runtime_bound_host() {
 }
 
 #[tokio::test]
-async fn worktree_role_changes_only_isolated_checkout_after_approval_path_invokes_tool() {
+async fn worktree_role_changes_only_isolated_checkout_before_invoking_tool() {
     let repo = tempfile::tempdir().unwrap();
     for args in [
         vec!["init", "-q", "-b", "main"],

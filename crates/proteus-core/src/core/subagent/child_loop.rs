@@ -28,7 +28,7 @@ pub(super) struct ChildLoopState {
     pub usage: Option<TokenUsage>,
 }
 
-/// Отбор tools ребёнка: сперва policy-видимость и role allowlist, затем
+/// Отбор tools ребёнка: сперва registry-видимость и role allowlist, затем
 /// `ToolExposure::select` с фазой роли. Allowlist применяется до selector-а,
 /// чтобы его cap не занимали tools, которые роль всё равно отбросит: иначе
 /// dynamic exposure мог скрыть разрешённую capability без доступного ребёнку

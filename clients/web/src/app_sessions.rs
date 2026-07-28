@@ -14,7 +14,6 @@ use crate::ui_utils::short_id;
 
 #[derive(Clone, Copy)]
 pub(crate) struct RuntimeSettingsBindings {
-    pub(crate) set_mode: WriteSignal<PermissionMode>,
     pub(crate) set_model_name: WriteSignal<String>,
     pub(crate) set_model_options: WriteSignal<Vec<String>>,
     pub(crate) set_reasoning_enabled: WriteSignal<bool>,
@@ -34,7 +33,6 @@ pub(crate) struct RuntimeSettingsBindings {
 impl RuntimeSettingsBindings {
     pub(crate) fn load(self) {
         load_runtime_settings(
-            self.set_mode,
             self.set_model_name,
             self.set_model_options,
             self.set_reasoning_enabled,
@@ -123,7 +121,6 @@ pub(crate) struct AppSessionActions {
     pub(crate) set_agent_status: WriteSignal<String>,
     pub(crate) set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     pub(crate) set_queued_prompts: WriteSignal<Vec<QueuedPromptInfo>>,
-    pub(crate) set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
     pub(crate) set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
     pub(crate) set_stick_to_bottom: WriteSignal<bool>,
     pub(crate) set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
@@ -212,7 +209,6 @@ impl AppSessionActions {
             self.set_agent_status,
         );
         self.set_tool_activities.set(Vec::new());
-        self.set_pending_approvals.set(Vec::new());
         self.set_pending_user_inputs.set(Vec::new());
 
         let session_dir = session.session_dir.clone();
@@ -374,7 +370,6 @@ impl AppSessionActions {
         self.set_streamed_this_turn.set(false);
         self.set_tool_activities.set(Vec::new());
         self.set_queued_prompts.set(Vec::new());
-        self.set_pending_approvals.set(Vec::new());
         self.set_pending_user_inputs.set(Vec::new());
         self.set_is_sending.set(false);
         self.set_active_turn_id.set(None);

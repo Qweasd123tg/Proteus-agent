@@ -181,7 +181,7 @@ impl Tool for RequestUserInputTool {
         .with_metadata(json!({
             "hot": true,
             "category": "interaction",
-            "tags": ["user", "input", "question", "approval"],
+            "tags": ["user", "input", "question"],
             "aliases": ["ask user", "clarify", "request clarification"],
             "interactive": true,
             "ui": "request_user_input"

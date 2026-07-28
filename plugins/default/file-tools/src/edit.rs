@@ -37,10 +37,7 @@ impl PluginTool for EditFileTool {
             "metadata": {
                 "category": "filesystem",
                 "tags": ["filesystem", "edit", "file", "write"],
-                "aliases": ["edit file", "replace text", "modify file"],
-                "approval": {
-                    "cache_scopes": ["workspace_write"]
-                }
+                "aliases": ["edit file", "replace text", "modify file"]
             }
         });
         RString::from(spec.to_string())

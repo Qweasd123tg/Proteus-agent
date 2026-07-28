@@ -87,7 +87,6 @@ pub fn build_topology_snapshot(input: TopologyBuildInput<'_>) -> TopologySnapsho
             .map(|path| path.display().to_string())
             .collect(),
         module_epoch: input.module_epoch.as_u64(),
-        permission_mode: format!("{:?}", input.permission_mode),
         model,
         slots,
         modules,
@@ -216,7 +215,7 @@ mod tests {
                 .any(|edge| edge.from == "slot:tool" || edge.to == "slot:tool")
         );
         assert!(has_edge(&edges, "slot:tool_exposure", "tools", "runtime"));
-        assert!(has_edge(&edges, "slot:policy", "tools", "runtime"));
+        assert!(has_edge(&edges, "slot:workflow", "tools", "runtime"));
     }
 
     fn has_edge(edges: &[TopologyEdge], from: &str, to: &str, kind: &str) -> bool {
@@ -246,7 +245,6 @@ mod tests {
                 "compactor",
                 "tool_exposure",
                 "model",
-                "policy",
                 "subagent",
                 "renderer",
                 "search",

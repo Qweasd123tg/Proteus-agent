@@ -10,7 +10,9 @@
 Core -> Contract -> Module Implementation
 ```
 
-Core не должен знать детали конкретного поиска, памяти, модели, tools, policy, patch algorithm или renderer. Новая функциональность должна проходить через существующий slot или через явно добавленный contract.
+Core не должен знать детали конкретного поиска, памяти, модели, tools, patch
+algorithm или renderer. Новая функциональность должна проходить через
+существующий slot или через явно добавленный contract.
 
 ## Модульность Кода
 
@@ -65,7 +67,6 @@ plugins/
         skill-pack/          - docs-on-disk skills: context provider "skills" + tool "skill"
         rust-lsp/             - tool lsp_diagnostics: Rust/rust-analyzer через persistent stdio LSP
         memory-pack/         - MemoryStore "jsonl"
-        policy-pack/         - ApprovalPolicy плагины "allow_all", "ask_write", "codex_policy", "opencode_policy" + tool request_permissions
         renderer-pack/       - Renderer плагин "statusline"
 configs/                 - packaged named configs и prompts (источник install.sh)
 examples/
@@ -81,7 +82,8 @@ examples/
 - Не связывать модули напрямую друг с другом.
 - Не импортировать provider-specific типы OpenAI, Anthropic или локальных API за пределами `crates/proteus-core/src/adapters` и model shaping слоя.
 - Не добавлять runtime-логику в CLI, если она принадлежит `core` или `workflow`.
-- Не обходить `ToolRegistry`, `ApprovalPolicy` и `ToolSafety` при исполнении tools.
+- Не обходить `ToolRegistry`, `ToolOrchestrator`, schema validation и canonical
+  journal при исполнении tools.
 - Не менять DTO на границах модулей без обновления документации и тестов.
 - Не превращать `docs/spec.md` в описание фактического состояния без явного разделения `implemented` и `planned`.
 - Если модуль, профиль или workflow заявлен как копия/совместимый режим с
@@ -168,7 +170,7 @@ examples/
 - plugin ABI и waves: `docs/plugin-architecture.md`;
 - config schema и examples: `docs/configuration.md`;
 - event log, sessions, REPL: `docs/runtime-and-events.md`;
-- tools и approval: `docs/security-and-policy.md`;
+- tools, trust boundary и shell sandbox: `docs/security-and-policy.md`;
 - тестовые правила: `docs/testing.md`;
 - vision/spec: `docs/spec.md`;
 - roadmap: `docs/roadmap.md`;

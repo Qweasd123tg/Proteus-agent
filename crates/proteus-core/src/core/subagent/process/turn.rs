@@ -9,10 +9,7 @@ use tokio::time::{Instant, timeout_at};
 
 use super::child::ChildProcess;
 use crate::{
-    contracts::{
-        ApprovalRequest, BudgetTracker, RequestOrigin, RuntimeContext, SubagentStatus,
-        UserInputResponse,
-    },
+    contracts::{BudgetTracker, RequestOrigin, RuntimeContext, SubagentStatus, UserInputResponse},
     domain::{AgentOutput, Event, EventContext, ThreadId, new_call_id},
     model_standard::TokenUsage,
 };
@@ -111,39 +108,6 @@ impl ChildEventForwarder<'_> {
         let _ = self.ctx.events.emit(self.event_context(), event).await;
     }
 
-    async fn forward_approval(
-        &self,
-        request: proteus_contracts::app_protocol::AppApprovalRequest,
-    ) -> Option<StdioRequest> {
-        let approval_id = request.approval_id.clone();
-        let forwarded = ApprovalRequest::new(
-            request.call.clone(),
-            request.cwd.clone(),
-            request.reason.clone(),
-            request.tool_spec.clone(),
-        )
-        .with_origin(self.origin());
-        let response = tokio::select! {
-            response = self.ctx.approval.request_approval(forwarded) => response,
-            _ = self.ctx.cancellation.cancelled() => return None,
-        };
-        let (approved, note, cache) = match response {
-            Ok(response) => (response.approved, response.note, response.cache),
-            Err(error) => (
-                false,
-                Some(format!("parent approval transport failed: {error:#}")),
-                Default::default(),
-            ),
-        };
-        Some(StdioRequest::Approval {
-            id: None,
-            approval_id,
-            approved,
-            note,
-            cache,
-        })
-    }
-
     async fn forward_user_input(
         &self,
         request: crate::contracts::UserInputRequest,
@@ -167,8 +131,6 @@ pub(super) fn should_forward_child_event(event: &Event) -> bool {
     matches!(
         event,
         Event::ToolCallRequested { .. }
-            | Event::ApprovalRequested { .. }
-            | Event::ApprovalResolved { .. }
             | Event::ToolFinished { .. }
             | Event::PatchApplied { .. }
             | Event::SubagentStarted { .. }
@@ -272,15 +234,6 @@ async fn handle_output(
                 tracker.observe(&envelope.event);
                 forwarder.forward_runtime_event(envelope.event).await;
                 Ok(OutputVerdict::Continue)
-            }
-            AppServerEvent::ApprovalRequested { request } => {
-                match forwarder.forward_approval(*request).await {
-                    Some(reply) => {
-                        child.send(&reply).await?;
-                        Ok(OutputVerdict::Continue)
-                    }
-                    None => Ok(OutputVerdict::CancelRequested),
-                }
             }
             AppServerEvent::UserInputRequested { request } => {
                 match forwarder.forward_user_input(*request).await {

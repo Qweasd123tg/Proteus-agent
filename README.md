@@ -1,14 +1,15 @@
 # Proteus
 
 Локальный coding-agent runtime на Rust. Его задача — дать один рабочий агентный
-цикл, в котором модель, context, tools, policy, workflow и UI можно менять
+цикл, в котором модель, context, tools, workflow и UI можно менять
 независимо, не переписывая ядро.
 
 ## Короткий вердикт
 
 Proteus уже можно использовать для локального dogfood: он запускает coding
-turn-ы, вызывает tools с approvals, сохраняет сессии и event log, работает из
-CLI или через web-клиент и загружает стандартные реализации как dylib-плагины.
+turn-ы, исполняет tools, сохраняет сессии и event log, работает из CLI или
+через web-клиент и загружает стандартные реализации как dylib-плагины.
+Основной поддерживаемый профиль — `codex`.
 
 Это пока не готовая универсальная платформа. Текущая цель — надёжный локальный
 coding loop и проверяемые границы модулей. Marketplace, WASM runtime, полный
@@ -27,8 +28,8 @@ cargo install trunk --locked
 
 ```bash
 ./install.sh
-proteus init coding
-export ANTHROPIC_API_KEY="..."
+proteus init codex
+# настройте provider и secret в созданном config
 proteus doctor
 ```
 
@@ -37,9 +38,9 @@ Installer собирает binary и стандартные dylib как оди�
 в `~/.proteus/plugins`. Поэтому повторная установка не смешивает новый binary
 с частично обновлённым plugin pack.
 
-`proteus init coding` создаёт или перезаписывает
+`proteus init codex` создаёт или перезаписывает
 `~/.config/Proteus-agent/configs/config.toml`. Если рабочий config уже есть,
-этот шаг нужно пропустить. Профиль `coding` по умолчанию использует Anthropic;
+этот шаг нужно пропустить. Основной профиль `codex`;
 другие providers и способы хранения секрета описаны в
 [конфигурации](docs/configuration.md).
 
@@ -84,14 +85,15 @@ cargo run --bin proteus -- \
   история сообщений.
 - Models: встроенные adapters для `openai`, `openai_compatible`, `anthropic` и
   тестовый `fake` provider.
-- Модули: 11 выбираемых через config behavior slots (model provider плюс 10
-  ключей `modules.*`); стандартные
-  tool/search/context/workflow/policy/patch/memory/renderer реализации
+- Модули: model provider плюс 9 выбираемых ключей `modules.*`; стандартные
+  tool/search/context/workflow/patch/memory/renderer реализации
   поставляются как dylib-плагины. Tools сохраняют отдельный catalog/registry
   kind: в topology `ToolRegistry` показывается как runtime node, а не как
-  двенадцатый behavior slot.
-- Обычные tools: единый registry, permission modes `plan` / `normal` / `auto`,
-  approval policy и session approval cache. Process-subagent pool имеет
+  дополнительный behavior slot.
+- Обычные tools: единый registry, schema validation, timeout/cancel, bounded
+  output и canonical journal. Зарегистрированные включённые tools исполняются
+  напрямую; shell доверенный по умолчанию, а process-level workspace sandbox
+  включается через `PROTEUS_SHELL_SANDBOX=1`. Process-subagent pool имеет
   глобальный bounded LRU-cap для idle/resume children; оставшиеся lifecycle-
   ограничения shared exec sessions перечислены в [scope](docs/scope.md) и
   [security reference](docs/security-and-policy.md).
@@ -126,7 +128,7 @@ Core -> Contract -> Module Implementation
 ```
 
 Core управляет turn-ом и wiring, но не знает детали конкретного поиска,
-памяти, policy, patch algorithm, renderer или workflow. Реализация выбирается
+памяти, patch algorithm, renderer или workflow. Реализация выбирается
 по строковому id из config и подключается через contract. Provider-specific
 типы остаются внутри model adapters.
 
@@ -211,8 +213,8 @@ Provider-hosted tools блокируются по умолчанию, потом
 выполняется на стороне провайдера. Для намеренного повтора нужен явный
 `--allow-hosted-tools`; request при этом отправляется целиком без урезания.
 
-`replay workflow` повторяет записанный Workflow/Policy, но подменяет model,
-context, compactor, tool exposure, approvals и tools данными canonical journal.
+`replay workflow` повторяет записанный Workflow, но подменяет model,
+context, compactor, tool exposure и tools данными canonical journal.
 Реальные providers, process modules, subagents и tool side effects не
 запускаются; source journal остаётся побайтово неизменным. `--turn-id` можно
 опустить только для journal с одним turn-ом. V0 поддерживает root turns без
@@ -274,7 +276,7 @@ Inspector при необходимости запускается так же �
 - хочу добавить и доказательно проверить фичу —
   [slot-governance.md](docs/slot-governance.md), затем
   [testing.md](docs/testing.md#стандарт-внедрения-и-проверки-фичи);
-- хочу разобраться с tools, approvals и sandbox —
+- хочу разобраться с доверием к tools и optional shell sandbox —
   [security-and-policy.md](docs/security-and-policy.md);
 - хочу понять, что делать следующим — [scope.md](docs/scope.md), затем
   [roadmap.md](docs/roadmap.md);

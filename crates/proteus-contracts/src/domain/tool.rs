@@ -44,20 +44,13 @@ impl ToolCall {
 #[non_exhaustive]
 pub enum ToolCallResolution {
     Allowed,
-    Approved,
-    ApprovalDenied { reason: String },
-    PolicyDenied { reason: String },
+    UnknownTool { reason: String },
     ValidationFailed { reason: String },
-    Unsupported { reason: String },
 }
 
 impl ToolCallResolution {
     pub fn permits_side_effect(&self) -> bool {
-        matches!(self, Self::Allowed | Self::Approved)
-    }
-
-    pub fn requested_approval(&self) -> bool {
-        matches!(self, Self::Approved | Self::ApprovalDenied { .. })
+        matches!(self, Self::Allowed)
     }
 }
 
@@ -314,7 +307,7 @@ pub enum ToolSurface {
         format: FreeformToolFormat,
     },
     /// Tool executed by the selected model provider inside the model request.
-    /// It remains a normal `ToolSpec` for registry/policy/exposure purposes,
+    /// It remains a normal `ToolSpec` for registry/exposure purposes,
     /// but never becomes a client-executed `ToolCall`.
     ProviderHosted {
         config: HostedToolConfig,
@@ -398,22 +391,4 @@ pub enum ToolSafety {
     RunsCommands,
     Network,
     Dangerous,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
-#[non_exhaustive]
-pub enum PermissionMode {
-    Plan,
-    #[default]
-    Normal,
-    Auto,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum PolicyDecision {
-    Allow,
-    Ask { reason: String },
-    Deny { reason: String },
 }

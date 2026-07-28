@@ -222,8 +222,8 @@ fn TopologySnapshotView(
                         <code title=config_label_full>{config_label}</code>
                     </div>
                     <div class="config-kv">
-                        <span>"mode / epoch"</span>
-                        <code>{format!("{} / {}", non_empty(&snapshot.permission_mode, "-"), snapshot.module_epoch)}</code>
+                        <span>"epoch"</span>
+                        <code>{snapshot.module_epoch}</code>
                     </div>
                 </article>
                 <article class="config-panel">

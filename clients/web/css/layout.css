@@ -1934,7 +1934,7 @@ button.topbar-menu-item.danger:not(:disabled):hover {
     padding: var(--space-4);
 }
 
-/* Runtime-ряд builder-а (provider, permission mode) идёт перед grid slots:
+/* Runtime-ряд builder-а (provider) идёт перед grid slots:
    нижний padding убираем, чтобы не удваивать зазор между двумя grid. */
 .config-builder-runtime {
     padding-bottom: 0;

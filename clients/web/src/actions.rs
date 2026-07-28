@@ -14,8 +14,6 @@ pub(crate) struct AppActions {
     pub(crate) active_session_dir: ReadSignal<Option<String>>,
     pub(crate) next_request_id: ReadSignal<u64>,
     pub(crate) set_next_request_id: WriteSignal<u64>,
-    pub(crate) mode: ReadSignal<PermissionMode>,
-    pub(crate) set_mode: WriteSignal<PermissionMode>,
     pub(crate) model_name: ReadSignal<String>,
     pub(crate) set_model_name: WriteSignal<String>,
     pub(crate) reasoning_enabled: ReadSignal<bool>,
@@ -30,39 +28,6 @@ pub(crate) struct AppActions {
 }
 
 impl AppActions {
-    pub(crate) fn set_permission_mode(self, new_mode: PermissionMode) {
-        let previous_mode = self.mode.get();
-        let session_dir = self.active_session_dir.get_untracked();
-        self.set_mode.set(new_mode);
-        let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "mode");
-        spawn_local(async move {
-            match post_json(
-                "/mode",
-                &SetPermissionModeRequest {
-                    id: Some(request_id),
-                    mode: new_mode,
-                    session_dir,
-                },
-            )
-            .await
-            {
-                Ok(output) => {
-                    if !handle_control_response(
-                        output,
-                        self.set_transport_status,
-                        "Mode update failed",
-                    ) {
-                        self.set_mode.set(previous_mode);
-                    }
-                }
-                Err(error) => {
-                    self.set_mode.set(previous_mode);
-                    self.set_control_error("Mode update failed", error);
-                }
-            }
-        });
-    }
-
     pub(crate) fn set_model_name(self, new_model: String) {
         let new_model = new_model.trim().to_owned();
         if new_model.is_empty() {
@@ -143,14 +108,10 @@ impl AppActions {
         });
     }
 
-    pub(crate) fn send_prompt(self, text: String, forced_mode: Option<PermissionMode>) {
+    pub(crate) fn send_prompt(self, text: String) {
         let text = text.trim().to_owned();
         if text.is_empty() || self.is_sending.get() {
             return;
-        }
-
-        if let Some(new_mode) = forced_mode {
-            self.set_mode.set(new_mode);
         }
 
         self.set_is_sending.set(true);
@@ -160,53 +121,12 @@ impl AppActions {
             self.set_next_message_id,
             text.clone(),
         );
-        let mode_request_id = forced_mode
-            .map(|_| take_request_id(self.next_request_id, self.set_next_request_id, "mode"));
         let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "send");
         let turn_id = request_id.clone();
         let session_dir = self.active_session_dir.get_untracked();
         self.set_active_turn_id.set(Some(turn_id.clone()));
 
         spawn_local(async move {
-            if let Some(new_mode) = forced_mode {
-                match post_json(
-                    "/mode",
-                    &SetPermissionModeRequest {
-                        id: mode_request_id,
-                        mode: new_mode,
-                        session_dir: session_dir.clone(),
-                    },
-                )
-                .await
-                {
-                    Ok(output) => {
-                        if !self.is_active_turn(&turn_id) {
-                            return;
-                        }
-                        let ok = command_succeeded(&output);
-                        handle_command_response(
-                            output,
-                            self.set_messages,
-                            self.next_message_id,
-                            self.set_next_message_id,
-                            self.set_transport_status,
-                        );
-                        if !ok {
-                            self.finish_turn();
-                            return;
-                        }
-                    }
-                    Err(error) => {
-                        if !self.is_active_turn(&turn_id) {
-                            return;
-                        }
-                        self.finish_turn();
-                        self.push_error("Mode update failed", error);
-                        return;
-                    }
-                }
-            }
-
             match post_json(
                 "/send-async",
                 &SendRequest {
@@ -458,29 +378,6 @@ pub(crate) fn cancel_active_turn(
     });
 }
 
-pub(crate) fn send_prompt_for_mode(actions: AppActions, mode: PermissionMode, text: String) {
-    if mode == PermissionMode::Plan {
-        send_planning_request(actions, text);
-    } else {
-        actions.send_prompt(text, None);
-    }
-}
-
-pub(crate) fn send_planning_request(actions: AppActions, text: String) {
-    let prompt = planning_prompt(&text);
-    actions.send_prompt(prompt, Some(PermissionMode::Plan));
-}
-
-pub(crate) fn revise_plan_prompt(feedback: &str) -> String {
-    format!(
-        "Revise the latest plan using this feedback:\n\n{feedback}\n\nStay in read-only planning mode and return the updated staged plan."
-    )
-}
-
-pub(crate) fn execute_plan_prompt() -> String {
-    "Execute the latest approved plan from this transcript. If the plan is stale, unsafe, or underspecified, stop and explain what needs to change before execution.".to_owned()
-}
-
 /// Суффикс поколения загрузки страницы. Id запросов служат id ходов на
 /// сервере, а счётчик живёт в памяти приложения: после перезагрузки он снова
 /// начинается с 1, и без уникального суффикса новый «send-1» сталкивается с
@@ -513,10 +410,4 @@ pub(crate) fn take_request_id(
 
 fn command_succeeded(output: &StdioOutput) -> bool {
     matches!(output, StdioOutput::Response { ok: true, .. })
-}
-
-fn planning_prompt(topic: &str) -> String {
-    format!(
-        "Plan mode topic:\n\n{topic}\n\nRun a planning interview before implementation. Stay read-only. First inspect only if useful, then ask the user 1-3 concise typed questions with 2-4 concrete options via request_user_input/AskUserQuestion whenever product, scope, UX, architecture, risk, or priority choices are missing. Put the recommended option first. Do not include an Other option because the client adds free-form Other automatically. Do not write files. After the user answers, return a staged implementation plan with assumptions, target files, verification, and unresolved risks."
-    )
 }

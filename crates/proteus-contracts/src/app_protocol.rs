@@ -26,11 +26,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    contracts::{ApprovalCacheScope, RequestOrigin, UserInputRequest, UserInputResponse},
-    domain::{
-        AgentOutput, EventEnvelope, HistoryCompactionReport, MessageId, PermissionMode, SessionId,
-        ToolCall, ToolSpec, TurnId,
-    },
+    contracts::{UserInputRequest, UserInputResponse},
+    domain::{AgentOutput, EventEnvelope, HistoryCompactionReport, MessageId, SessionId, TurnId},
     model_standard::TokenUsage,
 };
 
@@ -38,8 +35,6 @@ mod session;
 
 pub use session::{AppSessionActivity, AppSessionActivityStatus, AppSessionSummary};
 
-/// ID approval'а — произвольная строка, уникальная для session агента.
-pub type AppApprovalId = String;
 pub type AppUserInputRequestId = String;
 
 /// События, которые ядро публикует внешним клиентам.
@@ -56,16 +51,6 @@ pub enum AppServerEvent {
 
     /// Финальный AgentOutput после завершения turn'а.
     TurnOutput { output: Box<AgentOutput> },
-
-    /// Запрос на approval от модели. Клиент должен показать пользователю
-    /// и ответить через `StdioRequest::Approval`.
-    ApprovalRequested { request: Box<AppApprovalRequest> },
-
-    /// Approval разрешён (через любой источник: клиент, timeout, shutdown).
-    ApprovalResolved {
-        approval_id: AppApprovalId,
-        approved: bool,
-    },
 
     /// Запрос typed user input от tool `request_user_input`.
     UserInputRequested { request: Box<UserInputRequest> },
@@ -103,123 +88,19 @@ pub enum AppServerEvent {
     Shutdown,
 }
 
-/// Approval request, адресованный клиенту.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[non_exhaustive]
-pub struct AppApprovalRequest {
-    pub approval_id: AppApprovalId,
-    pub call: ToolCall,
-    pub cwd: PathBuf,
-    pub reason: String,
-    pub tool_spec: Option<ToolSpec>,
-    pub preview: Option<AppApprovalPreview>,
-    /// Кто запросил approval (thread/turn + метка источника, например роль
-    /// субагента). `None` — запрос от транспорта без runtime-атрибуции.
-    pub origin: Option<RequestOrigin>,
-    /// Монотонный порядковый номер в очереди pending approvals текущего
-    /// app-server. Клиенты сортируют по нему.
-    pub seq: u64,
-}
-
-impl AppApprovalRequest {
-    pub fn new(
-        approval_id: AppApprovalId,
-        call: ToolCall,
-        cwd: PathBuf,
-        reason: String,
-        tool_spec: Option<ToolSpec>,
-    ) -> Self {
-        Self {
-            approval_id,
-            call,
-            cwd,
-            reason,
-            tool_spec,
-            preview: None,
-            origin: None,
-            seq: 0,
-        }
-    }
-
-    pub fn with_preview(mut self, preview: Option<AppApprovalPreview>) -> Self {
-        self.preview = preview;
-        self
-    }
-
-    pub fn with_origin(mut self, origin: Option<RequestOrigin>) -> Self {
-        self.origin = origin;
-        self
-    }
-
-    pub fn with_seq(mut self, seq: u64) -> Self {
-        self.seq = seq;
-        self
-    }
-}
-
-/// UI-oriented approval preview. It is advisory only: actual execution must
-/// still go through the tool's own validation and policy checks.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[non_exhaustive]
-pub struct AppApprovalPreview {
-    pub kind: String,
-    pub title: String,
-    pub summary: String,
-    pub affected_files: Vec<String>,
-    pub body: Option<String>,
-    pub language: Option<String>,
-    pub metadata: Value,
-}
-
-impl AppApprovalPreview {
-    pub fn new(
-        kind: impl Into<String>,
-        title: impl Into<String>,
-        summary: impl Into<String>,
-    ) -> Self {
-        Self {
-            kind: kind.into(),
-            title: title.into(),
-            summary: summary.into(),
-            affected_files: Vec::new(),
-            body: None,
-            language: None,
-            metadata: Value::Null,
-        }
-    }
-
-    pub fn with_affected_files(mut self, affected_files: Vec<String>) -> Self {
-        self.affected_files = affected_files;
-        self
-    }
-
-    pub fn with_body(mut self, body: impl Into<String>, language: impl Into<String>) -> Self {
-        self.body = Some(body.into());
-        self.language = Some(language.into());
-        self
-    }
-
-    pub fn with_metadata(mut self, metadata: Value) -> Self {
-        self.metadata = metadata;
-        self
-    }
-}
-
 /// Snapshot текущих интерактивных запросов app-server'а. UI использует его
-/// после reconnect/initial load, чтобы восстановить approval и typed input
-/// карточки, если live SSE event был пропущен.
+/// после reconnect/initial load, чтобы восстановить typed input и queued
+/// steering, если live SSE event был пропущен.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[non_exhaustive]
 pub struct AppPendingRequests {
-    pub approvals: Vec<AppApprovalRequest>,
     pub user_inputs: Vec<UserInputRequest>,
     pub queued_user_messages: Vec<AppQueuedUserMessage>,
 }
 
 impl AppPendingRequests {
-    pub fn new(approvals: Vec<AppApprovalRequest>, user_inputs: Vec<UserInputRequest>) -> Self {
+    pub fn new(user_inputs: Vec<UserInputRequest>) -> Self {
         Self {
-            approvals,
             user_inputs,
             queued_user_messages: Vec::new(),
         }
@@ -428,13 +309,6 @@ pub enum StdioRequest {
     ClearHistory {
         id: Option<String>,
     },
-    Approval {
-        id: Option<String>,
-        approval_id: String,
-        approved: bool,
-        note: Option<String>,
-        cache: ApprovalCacheScope,
-    },
     UserInput {
         id: Option<String>,
         request_id: String,
@@ -443,10 +317,6 @@ pub enum StdioRequest {
     Cancel {
         id: Option<String>,
         target_id: String,
-    },
-    SetPermissionMode {
-        id: Option<String>,
-        mode: PermissionMode,
     },
     SetModel {
         id: Option<String>,
@@ -476,10 +346,8 @@ impl StdioRequest {
         match self {
             Self::Send { id, .. }
             | Self::ClearHistory { id }
-            | Self::Approval { id, .. }
             | Self::UserInput { id, .. }
             | Self::Cancel { id, .. }
-            | Self::SetPermissionMode { id, .. }
             | Self::SetModel { id, .. }
             | Self::SetReasoningEffort { id, .. }
             | Self::SetReasoningEnabled { id, .. }
@@ -510,56 +378,12 @@ pub enum StdioOutput {
 mod tests {
     use std::path::PathBuf;
 
-    use serde_json::json;
-
     use super::*;
     use crate::domain::{
-        Event, EventContext, EventEnvelope, new_call_id, new_session_id, new_thread_id, new_turn_id,
+        Event, EventContext, EventEnvelope, new_session_id, new_thread_id, new_turn_id,
     };
 
-    #[test]
-    fn approval_request_rejects_incomplete_wire_payload() {
-        let payload = json!({
-            "approval_id": "approval-1",
-            "call": {
-                "id": "call-1",
-                "name": "shell",
-                "args": { "command": "cargo test" }
-            },
-            "cwd": "/workspace",
-            "reason": "test approval",
-            "tool_spec": null
-        });
-
-        serde_json::from_value::<AppApprovalRequest>(payload)
-            .expect_err("incomplete approval request must fail");
-    }
-
-    /// Attribution и порядок очереди переживают wire-сериализацию.
-    #[test]
-    fn approval_request_roundtrips_origin_and_seq() {
-        let origin = crate::contracts::RequestOrigin::new(new_thread_id(), new_turn_id())
-            .with_label("explore");
-        let request = AppApprovalRequest::new(
-            "approval-1".to_owned(),
-            ToolCall::new(new_call_id(), "shell", json!({ "command": "cargo test" })),
-            PathBuf::from("/workspace"),
-            "test approval".to_owned(),
-            None,
-        )
-        .with_origin(Some(origin.clone()))
-        .with_seq(42);
-
-        let payload = serde_json::to_value(&request).expect("serialize approval request");
-        let parsed: AppApprovalRequest =
-            serde_json::from_value(payload).expect("parse approval request");
-
-        assert_eq!(parsed.origin, Some(origin));
-        assert_eq!(parsed.seq, 42);
-    }
-
-    /// User-input запросы несут ту же attribution/queue-position схему, что
-    /// approvals.
+    /// User-input attribution and queue position survive the wire.
     #[test]
     fn user_input_request_roundtrips_origin_and_seq() {
         let origin = crate::contracts::RequestOrigin::new(new_thread_id(), new_turn_id())
@@ -573,35 +397,6 @@ mod tests {
             serde_json::from_value(payload).expect("parse user input request");
         assert_eq!(parsed.origin, Some(origin));
         assert_eq!(parsed.seq, 7);
-    }
-
-    #[test]
-    fn approval_request_roundtrips_preview() {
-        let request = AppApprovalRequest::new(
-            "approval-1".to_owned(),
-            ToolCall::new(
-                new_call_id(),
-                "write_file",
-                json!({ "path": "a.txt", "content": "hello" }),
-            ),
-            PathBuf::from("/workspace"),
-            "test approval".to_owned(),
-            None,
-        )
-        .with_preview(Some(
-            AppApprovalPreview::new("write_file", "File write preview", "Create a.txt")
-                .with_affected_files(vec!["a.txt".to_owned()])
-                .with_body("hello", "text")
-                .with_metadata(json!({ "operation": "create" })),
-        ));
-
-        let value = serde_json::to_value(&request).expect("serialize request");
-        let decoded: AppApprovalRequest = serde_json::from_value(value).expect("decode request");
-
-        let preview = decoded.preview.expect("preview");
-        assert_eq!(preview.kind, "write_file");
-        assert_eq!(preview.affected_files, vec!["a.txt"]);
-        assert_eq!(preview.metadata["operation"], "create");
     }
 
     #[test]
@@ -636,26 +431,22 @@ mod tests {
     #[test]
     fn session_activity_uses_stable_status_order() {
         assert_eq!(
-            AppSessionActivity::from_counts(0, 0, 0).status,
+            AppSessionActivity::from_counts(0, 0).status,
             AppSessionActivityStatus::Idle
         );
         assert_eq!(
-            AppSessionActivity::from_counts(1, 0, 0).status,
+            AppSessionActivity::from_counts(1, 0).status,
             AppSessionActivityStatus::Running
         );
         assert_eq!(
-            AppSessionActivity::from_counts(1, 1, 0).status,
-            AppSessionActivityStatus::WaitingApproval
-        );
-        assert_eq!(
-            AppSessionActivity::from_counts(1, 1, 1).status,
+            AppSessionActivity::from_counts(1, 1).status,
             AppSessionActivityStatus::WaitingInput
         );
     }
 
     #[test]
     fn session_activity_status_stays_string_on_wire() {
-        let activity = AppSessionActivity::from_counts(1, 0, 0);
+        let activity = AppSessionActivity::from_counts(1, 0);
         let value = serde_json::to_value(activity).expect("activity JSON");
 
         assert_eq!(value["status"], "running");
@@ -665,7 +456,6 @@ mod tests {
     fn session_activity_can_carry_running_turn_ids() {
         let activity = AppSessionActivity::from_running_turn_ids(
             vec!["turn-2".to_owned(), "turn-1".to_owned()],
-            0,
             0,
         );
         let value = serde_json::to_value(&activity).expect("activity JSON");
@@ -689,7 +479,6 @@ mod tests {
             "status": "paused",
             "running_turns": 0,
             "running_turn_ids": [],
-            "pending_approvals": 0,
             "pending_user_inputs": 0,
         }))
         .expect_err("unknown activity status must fail");

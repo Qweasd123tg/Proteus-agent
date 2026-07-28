@@ -4,7 +4,33 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::contracts::RequestOrigin;
+use crate::domain::{ThreadId, TurnId};
+
+/// Attribution of a human-input request to the runtime thread/turn that
+/// produced it. The optional label identifies a child role in the UI.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct RequestOrigin {
+    pub thread_id: ThreadId,
+    pub turn_id: TurnId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+impl RequestOrigin {
+    pub fn new(thread_id: ThreadId, turn_id: TurnId) -> Self {
+        Self {
+            thread_id,
+            turn_id,
+            label: None,
+        }
+    }
+
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]

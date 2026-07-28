@@ -6,7 +6,7 @@ use std::{
 use anyhow::{Result, anyhow, bail};
 
 use crate::{
-    contracts::{ApprovalResponse, CompactionInput, CompactionOutput, ToolExposureOutput},
+    contracts::{CompactionInput, CompactionOutput, ToolExposureOutput},
     core::ModelResponseOutcome,
     domain::{
         CacheHints, CallId, ContextBundle, HistoryCompactionReport, HostedToolKind,
@@ -26,8 +26,7 @@ use super::{
 mod adapters;
 
 pub(super) use adapters::{
-    ReplayApprovalTransport, ReplayCompactor, ReplayContextBuilder, ReplayModel,
-    ReplayToolExposure, register_replay_tools,
+    ReplayCompactor, ReplayContextBuilder, ReplayModel, ReplayToolExposure, register_replay_tools,
 };
 
 pub(super) struct ReplayState {
@@ -50,7 +49,6 @@ struct ReplayStateInner {
 struct ExpectedToolState {
     recorded: RecordedToolInvocation,
     requested: bool,
-    approval_requested: bool,
     resolved: bool,
     result_recorded: bool,
 }
@@ -85,7 +83,6 @@ impl ReplayState {
                     .map(|recorded| ExpectedToolState {
                         recorded,
                         requested: false,
-                        approval_requested: false,
                         resolved: false,
                         result_recorded: false,
                     })
@@ -228,21 +225,6 @@ impl ReplayState {
         Ok(output)
     }
 
-    pub fn approval_response(&self, actual_call_id: &str) -> Result<ApprovalResponse> {
-        let inner = self.lock();
-        let expected = expected_tool(&inner, actual_call_id)?;
-        match &expected.recorded.resolution {
-            ToolCallResolution::Approved => Ok(ApprovalResponse::approve()),
-            ToolCallResolution::ApprovalDenied { reason } => {
-                Ok(ApprovalResponse::deny(reason.clone()))
-            }
-            resolution => bail!(
-                "workflow requested replay approval for tool call {}, but recorded resolution is {resolution:?}",
-                expected.recorded.call.id
-            ),
-        }
-    }
-
     pub fn replay_tool_result(&self, actual_call_id: &str) -> Result<ToolResult> {
         let inner = self.lock();
         let expected = expected_tool(&inner, actual_call_id)?;
@@ -272,12 +254,7 @@ impl ReplayState {
         let missing = inner
             .tools
             .iter()
-            .filter(|tool| {
-                !tool.requested
-                    || !tool.resolved
-                    || !tool.result_recorded
-                    || (tool.recorded.approval_reason.is_some() && !tool.approval_requested)
-            })
+            .filter(|tool| !tool.requested || !tool.resolved || !tool.result_recorded)
             .map(|tool| tool.recorded.call.id.clone())
             .collect::<Vec<_>>();
         if !missing.is_empty() {
@@ -354,24 +331,6 @@ impl ReplayState {
             );
         }
         inner.tools[index].requested = true;
-        Ok(())
-    }
-
-    fn record_approval_requested(&self, call: &ToolCall, reason: &str) -> Result<()> {
-        let mut inner = self.lock();
-        let index = mapped_tool_index(&inner, &call.id)?;
-        let expected_reason = inner.tools[index].recorded.approval_reason.clone();
-        let expected_call_id = inner.tools[index].recorded.call.id.clone();
-        if expected_reason.as_deref() != Some(reason) {
-            return mismatch(
-                &mut inner,
-                format!(
-                    "approval reason for tool call {} differs: recorded={expected_reason:?}, replay={reason:?}",
-                    expected_call_id
-                ),
-            );
-        }
-        inner.tools[index].approval_requested = true;
         Ok(())
     }
 

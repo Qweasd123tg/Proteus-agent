@@ -2,19 +2,19 @@ use std::sync::Arc;
 
 use anyhow::{Result, bail};
 
-use super::{BuiltinModuleCatalog, ModuleBuildContext, PolicyBuildContext};
+use super::{BuiltinModuleCatalog, ModuleBuildContext};
 use crate::{
     adapters::{build_anthropic_messages_adapter, build_openai_responses_adapter},
     contracts::{
-        ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryStore, Model, PatchApplier,
-        Renderer, SearchBackend, SubagentRunner, ToolExposure, Workflow,
+        ContextBuilder, HistoryCompactor, MemoryStore, Model, PatchApplier, Renderer,
+        SearchBackend, SubagentRunner, ToolExposure, Workflow,
     },
     core::{ModelConfig, ProcessSubagentRunner, SequentialSubagentRunner},
     domain::{ModuleKind, ModuleManifest, slot},
     process_adapters::{ProcessHistoryCompactor, ProcessSearchBackend},
     stubs::{
-        AllVisibleToolExposure, DenyAllPolicy, EmptyContextBuilder, FakeModelClient, NoCompactor,
-        NoMemory, NoSubagent, NoWorkflow, NullPatchApplier, NullSearch, TextRenderer,
+        AllVisibleToolExposure, EmptyContextBuilder, FakeModelClient, NoCompactor, NoMemory,
+        NoSubagent, NoWorkflow, NullPatchApplier, NullSearch, TextRenderer,
     },
 };
 
@@ -109,18 +109,6 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
         build_empty_context,
     );
 
-    // Approval policies
-    catalog.register_policy(
-        "deny_all",
-        manifest(
-            "deny_all",
-            ModuleKind::Policy,
-            &["disabled", "safe_default"],
-            "Запрещает все tool-вызовы. Безопасный дефолт, пока не выбрана policy.",
-        ),
-        build_deny_all_policy,
-    );
-
     // Patch appliers
     catalog.register_module::<dyn PatchApplier>(
         slot::PATCH,
@@ -166,7 +154,7 @@ pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
             "all_visible",
             ModuleKind::ToolExposure,
             &["default"],
-            "Показывает модели все policy-видимые tools (опциональный лимит из запроса workflow).",
+            "Показывает модели все зарегистрированные tools (с опциональным лимитом из запроса workflow).",
         ),
         build_all_visible_tool_exposure,
     );
@@ -301,10 +289,6 @@ fn build_no_memory(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryStore>
 
 fn build_empty_context(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn ContextBuilder>> {
     Ok(Arc::new(EmptyContextBuilder))
-}
-
-fn build_deny_all_policy(_ctx: &PolicyBuildContext<'_>) -> Result<Arc<dyn ApprovalPolicy>> {
-    Ok(Arc::new(DenyAllPolicy))
 }
 
 fn build_null_patch(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn PatchApplier>> {

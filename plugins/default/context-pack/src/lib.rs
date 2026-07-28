@@ -988,9 +988,9 @@ mod tests {
 
     #[test]
     fn extract_search_queries_keeps_domain_lowercase_terms() {
-        let queries = extract_search_queries("почему approval не работает где shell policy?");
+        let queries = extract_search_queries("почему tool не работает где shell runtime?");
 
-        assert_eq!(queries, vec!["approval", "shell", "policy"]);
+        assert_eq!(queries, vec!["tool", "shell", "runtime"]);
     }
 
     #[test]

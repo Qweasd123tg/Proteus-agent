@@ -115,10 +115,6 @@ fn compaction_catalog(mode: CompactionProbeMode) -> BuiltinModuleCatalog {
     catalog
         .register_plugin_workflow(COMPACTION_WORKFLOW_ID, workflow)
         .expect("register compaction workflow");
-    let policy = PluginApprovalPolicy_TO::from_value(policy_pack::AllowAllPolicyPlugin, TD_Opaque);
-    catalog
-        .register_plugin_policy(POLICY_ID, policy)
-        .expect("register policy");
     catalog
 }
 

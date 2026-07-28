@@ -115,7 +115,7 @@ root/child threads. `record_id` идентифицирует record и дела�
   call, с `exchange_id`;
 - `model_response_recorded` — terminal canonical response или canonical error,
   связанный с `exchange_id`;
-- `tool_call_recorded` — call и policy/approval resolution до потенциального
+- `tool_call_recorded` — call и orchestrator resolution до потенциального
   side effect;
 - `tool_result_recorded` — post-orchestrator canonical result, связанный по
   `call_id`;
@@ -233,8 +233,8 @@ recorded/replay outcome и usage, text equality, local/hosted/citation counts и
 
 `proteus --config <profile> replay workflow
 <session-dir-or-journal-path> [--turn-id <id>] [--json]` повторяет один
-сохранённый root turn через записанный Workflow и Policy. Команда берёт module
-ids, model/reasoning, tool specs и default permission mode из
+сохранённый root turn через записанный Workflow. Команда берёт module ids,
+model/reasoning и tool specs из
 `turn_opened.config_snapshot`; текущий profile нужен для доступных module
 factories, их settings и instruction blocks. Если journal содержит несколько
 turns, `--turn-id` обязателен. Неизвестный id, child turn, незавершённый
@@ -244,13 +244,12 @@ model/tool record, overlap turns или runtime-owned `Canceled`/`Timeout`
 Replay runtime не строит real provider adapters, process modules, subagents или
 настоящие tools. Model responses и tool results последовательно берутся из
 `model_response_recorded`/`tool_result_recorded`; context, compaction и tool
-exposure восстанавливаются из canonical request/history records. Approval
-проходит обычный `ApprovalPolicy -> ToolOrchestrator` path, но ответ transport-а
-и результат tool invocation уже записаны в journal. Поэтому mutating tool и
+exposure восстанавливаются из canonical request/history records. Resolution и
+результат tool invocation уже записаны в journal, поэтому mutating tool и
 provider-hosted side effect повторно не выполняются.
 
-Runner сравнивает каждый post-shaping model request, tool request/approval/
-resolution/result, changed compaction report, settlement, `AgentOutput` и
+Runner сравнивает каждый post-shaping model request, tool
+request/resolution/result, changed compaction report, settlement, `AgentOutput` и
 итоговую persistent history. Workflow output проходит тот же core-owned
 history validation, что и обычный root runtime.
 Нормализация ограничена заново создаваемыми `MessageId`/`PartId`, внутренними

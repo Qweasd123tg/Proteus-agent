@@ -6,8 +6,8 @@ use crate::{
     contracts::{EventEmitter, RuntimeContext},
     core::{
         AppConfig, BuiltinModuleCatalog, DeltaEventContext, HeadlessUserInputTransport,
-        InMemoryEventStore, ModeAwarePolicy, ModelService, ModuleBuildContext, PolicyBuildContext,
-        TurnSettlementStatus, prepare_history_update,
+        InMemoryEventStore, ModelService, ModuleBuildContext, TurnSettlementStatus,
+        prepare_history_update,
     },
     stubs::{NoMemory, NoSubagent, NullPatchApplier, NullSearch},
 };
@@ -22,8 +22,8 @@ pub use report::*;
 use fixture::load_fixture;
 use normalize::changed_compactions_equal;
 use replay_runtime::{
-    ReplayApprovalTransport, ReplayCompactor, ReplayContextBuilder, ReplayModel, ReplayState,
-    ReplayToolExposure, register_replay_tools,
+    ReplayCompactor, ReplayContextBuilder, ReplayModel, ReplayState, ReplayToolExposure,
+    register_replay_tools,
 };
 
 /// Replays one recorded root turn through its selected Workflow module.
@@ -70,7 +70,6 @@ pub async fn replay_workflow(
     let mut replay_config = config.clone();
     replay_config.profile.name = fixture.snapshot.profile_name.clone();
     replay_config.modules = fixture.snapshot.modules.clone();
-    replay_config.permissions.mode = fixture.snapshot.permission_mode_default;
     let build_ctx = ModuleBuildContext {
         config: &replay_config,
         cwd: &fixture.opened.task.cwd,
@@ -84,24 +83,6 @@ pub async fn replay_workflow(
                 fixture.snapshot.modules.workflow
             )
         })?;
-    let policy_ctx = PolicyBuildContext {
-        config: &replay_config,
-        cwd: &fixture.opened.task.cwd,
-        tools: &tools,
-    };
-    let policy = catalog
-        .build_policy(&fixture.snapshot.modules.policy, &policy_ctx)
-        .with_context(|| {
-            format!(
-                "failed to build recorded policy module '{}'",
-                fixture.snapshot.modules.policy
-            )
-        })?;
-    let policy = Arc::new(ModeAwarePolicy::new(
-        fixture.snapshot.permission_mode_default,
-        policy,
-    ));
-
     let event_store = Arc::new(InMemoryEventStore::new());
     let events = Arc::new(EventEmitter::new(event_store));
     let model_service = Arc::new(ModelService::new(Arc::new(ReplayModel::new(state.clone()))));
@@ -113,8 +94,6 @@ pub async fn replay_workflow(
         session_store: None,
     });
     let model: Arc<dyn crate::contracts::Model> = model_service;
-    let approval: Arc<dyn crate::contracts::ApprovalTransport> =
-        Arc::new(ReplayApprovalTransport::new(state.clone()));
     let mut runtime_context = RuntimeContext::new(
         fixture.session_id,
         fixture.thread_id,
@@ -129,8 +108,6 @@ pub async fn replay_workflow(
         Arc::new(NoMemory),
         Arc::new(ReplayContextBuilder::new(state.clone())),
         tools,
-        policy,
-        approval,
         Arc::new(HeadlessUserInputTransport),
         Arc::new(NullPatchApplier),
         Arc::new(ReplayCompactor::new(state.clone())),
@@ -258,7 +235,6 @@ pub async fn replay_workflow(
             module_epoch: fixture.opened.module_epoch,
             profile_name: fixture.snapshot.profile_name,
             workflow_id: fixture.snapshot.modules.workflow,
-            policy_id: fixture.snapshot.modules.policy,
         },
         recorded: recorded_outcome,
         replay: replay_outcome,

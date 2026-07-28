@@ -6,10 +6,9 @@ use futures_util::stream;
 
 use crate::{
     contracts::{
-        ApprovalRequest, ApprovalResponse, ApprovalTransport, CompactionHost, CompactionInput,
-        CompactionOutput, ContextBuildInput, ContextBuilder, ExecutionRecorder, HistoryCompactor,
-        Model, ModelEventStream, Tool, ToolContext, ToolExposure, ToolExposureInput,
-        ToolExposureOutput, ToolSource,
+        CompactionHost, CompactionInput, CompactionOutput, ContextBuildInput, ContextBuilder,
+        ExecutionRecorder, HistoryCompactor, Model, ModelEventStream, Tool, ToolContext,
+        ToolExposure, ToolExposureInput, ToolExposureOutput, ToolSource,
     },
     core::ModelResponseOutcome,
     domain::{
@@ -127,27 +126,6 @@ impl Tool for ReplayTool {
     }
 }
 
-pub(in crate::core::workflow_replay) struct ReplayApprovalTransport {
-    state: Arc<ReplayState>,
-}
-
-impl ReplayApprovalTransport {
-    pub fn new(state: Arc<ReplayState>) -> Self {
-        Self { state }
-    }
-}
-
-#[async_trait]
-impl ApprovalTransport for ReplayApprovalTransport {
-    fn can_request_approval(&self) -> bool {
-        true
-    }
-
-    async fn request_approval(&self, request: ApprovalRequest) -> Result<ApprovalResponse> {
-        self.state.approval_response(&request.call.id)
-    }
-}
-
 #[async_trait]
 impl ExecutionRecorder for ReplayState {
     async fn tool_call_requested(
@@ -169,17 +147,6 @@ impl ExecutionRecorder for ReplayState {
         resolution: &ToolCallResolution,
     ) -> Result<()> {
         self.record_tool_resolved(call, resolution)
-    }
-
-    async fn tool_approval_requested(
-        &self,
-        _session_id: SessionId,
-        _thread_id: ThreadId,
-        _turn_id: TurnId,
-        call: &ToolCall,
-        reason: &str,
-    ) -> Result<()> {
-        self.record_approval_requested(call, reason)
     }
 
     async fn tool_result_recorded(

@@ -49,7 +49,7 @@ UX-боли:
 1. Какой наблюдаемый дефект, расход или ограничение подтверждает изменение.
 2. Какой результат можно проверить без субъективного «кажется лучше».
 3. Какой существующий `Tool`, `Workflow`, `ContextBuilder`, `ToolExposure`,
-   `SearchBackend`, `MemoryStore`, `ApprovalPolicy`, `PatchApplier`,
+   `SearchBackend`, `MemoryStore`, `PatchApplier`,
    `Compactor`, `Renderer`, `Model` или protocol boundary владеет поведением.
 4. Какой failure path должен остаться читаемым после restart/reconnect.
 
@@ -64,7 +64,7 @@ UX-боли:
 | Локальный алгоритм внутри module/plugin | Unit/focused regression в crate-е владельца и полный Rust gate |
 | Новая реализация существующего slot-а или новый selector | Один runtime path для старой и новой реализаций, `module_swap`, config/example и module docs |
 | Contract, DTO, plugin ABI, wire или storage | Все tracked producers/consumers, strict invalid-input case, boundary tests и документация без legacy shim |
-| Workflow, policy, context, tool exposure или tool orchestration | Focused lifecycle test, canonical journal fixture и `replay workflow` для поддерживаемого root turn-а |
+| Workflow, context, tool exposure или tool orchestration | Focused lifecycle test, canonical journal fixture и `replay workflow` для поддерживаемого root turn-а |
 | Provider shaping/adapter | Зафиксированный wire fixture, exact canonical request и `replay prompt`; live provider smoke только когда он нужен и доступен |
 | Root control plane, cancel, timeout или reconnect | App-server/protocol regression, canonical `TurnSettled` и cold `/history`; внешний момент cancel/timeout не подменяется workflow replay-ем |
 | Web/Inspector | Protocol test, `env -u NO_COLOR trunk build` затронутого клиента и внешний app-server smoke |
@@ -84,7 +84,7 @@ Workflow replay v0 воспроизводит `Success` и обычный termin
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo test --workspace --all-targets
 cargo build --workspace
 git diff --check
 ```
@@ -137,16 +137,15 @@ git diff --check
   подключаются через обычный `MemoryStore` slot;
 - после turn-а нет автоматической memory-записи; `remember_fact` и `/remember`
   пишут только через активный `MemoryStore`;
-- `policy = allow_all`, `policy = ask_write` и `policy = codex_policy` не ломают tool execution при явном allow (все регистрируются через test plugin pack);
 - `remember_fact` tool принимает `{kind, content}` и отвергает невалидный kind с `WritesFiles` safety;
-- tool visibility и execution policy разделены;
-- `ToolOrchestrator` применяет `ApprovalPolicy::evaluate_visibility` без fake `ToolCall` и исполняет `ToolSpec.timeout_ms`;
-- `ToolExposure` получает только policy-visible tools и выбирает subset для model request;
-- session-level approval cache переиспользует exact calls с canonical JSON args,
-  exact command approvals и workspace-write approvals только для opted-in tools;
-- app-server approval preview остаётся optional UI metadata для
-  `apply_patch`/`write_file`/`shell` и не заменяет `ToolRegistry`,
-  `ApprovalPolicy`, `ToolSafety` или validation самих tools;
+- `ToolOrchestrator` показывает зарегистрированные tools, отклоняет неизвестное
+  имя и schema-invalid args, записывает `Allowed` до invocation и исполняет
+  `ToolSpec.timeout_ms`;
+- `ToolExposure` получает зарегистрированные tools и выбирает subset для model
+  request, не создавая отдельный execution path;
+- timeout/cancel, output bounds и canonical tool
+  request/resolution/result остаются общими для builtin/plugin/configured/MCP
+  tools;
 - `SessionState` сохраняет один `SessionId` между turns, `AgentRuntime` создаёт новый `TurnId` на каждый `run()`;
 - root steering queue bounded по count/bytes, сохраняет FIFO и доставляет по
   одному user message перед model call после tool boundary; без такой boundary
@@ -165,8 +164,8 @@ git diff --check
 - `EventEmitter` создаёт один `EventEnvelope` перед fan-out, сохраняя общий `event_id`/`seq` для всех sinks;
 - `ContentPart::Context` попадает в model request текущего turn, но не сохраняется в runtime history;
 - provider-hosted tools требуют явной model capability и `Network` safety,
-  скрываются при visibility `Ask`, не исполняются локально/deferred и не
-  вытесняются `codex_dynamic` hot-tool budget; OpenAI adapter fixtures отдельно
+  не исполняются локально/deferred и не вытесняются `codex_dynamic` hot-tool
+  budget; OpenAI adapter fixtures отдельно
   проверяют request JSON, hosted activities, results и URL/file citations;
 - `ToolRegistry` запрещает duplicate names, хранит source и возвращает tool specs в стабильном порядке;
 - configured process tool очищает parent environment, сохраняет минимальный
@@ -182,7 +181,6 @@ git diff --check
   notification backlog; отдельные cases фиксируют default `env_clear`,
   минимальный runtime allowlist, scoped parent inheritance, explicit env и
   запрет неявного полного наследования parent environment;
-- `ModeAwarePolicy` применяет `PermissionMode::Plan` и `PermissionMode::Auto` без mode-specific логики в `ToolOrchestrator`;
 - `subagents.surface` взаимно исключительно переключает `task`, runner-backed
   collaboration tools и `none`, не смешивая model-facing surfaces;
 - `apply_patch` делегирует выполнение выбранному `PatchApplier`;
@@ -197,7 +195,11 @@ git diff --check
 - JSON config может переключиться на custom local provider URL;
 - workspace path encoding стабилен.
 
-Unit-тесты адаптеров в `plugin_adapters/{search,memory,policy,patch}/plugin_adapter.rs` покрывают success, RErr propagation и invalid JSON return для plugin-ready slot'ов. SSE-парсеры в `adapters/{openai,anthropic}.rs` тестируются на зафиксированных event-trace фикстурах.
+Unit-тесты адаптеров в
+`plugin_adapters/{search,memory,patch}/plugin_adapter.rs` покрывают success,
+RErr propagation и invalid JSON return для plugin-ready slot-ов. SSE-парсеры
+в `adapters/{openai,anthropic}.rs` тестируются на зафиксированных event-trace
+фикстурах.
 
 Коверидж builtin-tools из плагинов
 (read_file/write_file/list_dir/grep/find_files/read_many_files/git_status/git_diff/shell)
@@ -223,18 +225,18 @@ rendering и читаемый failed `ToolResult` при отсутствующ�
 Packaged smoke обязан видеть `lsp_diagnostics` как `RunsCommands`; real success
 smoke применим только когда `rust-analyzer` действительно есть в `PATH`.
 
-Тесты `shell-tool` отдельно фиксируют fail-closed boundary: невозможность или
-явное отключение sandbox не запускает команду, внешний canonical `workdir`
-отклоняется без escalation, Ptyxis требует escalation, а metadata отражает
-фактический sandbox mode. HTTP regression-тесты разрешают loopback без token,
-отклоняют non-loopback без token до bind и разрешают authenticated
+Тесты `shell-tool` отдельно фиксируют два режима: trusted direct execution по
+умолчанию и process-level `PROTEUS_SHELL_SANDBOX=1`. В sandbox mode отсутствие
+`bwrap`, внешний canonical `workdir` и external terminal отклоняются до spawn;
+unsandboxed fallback отсутствует. HTTP regression-тесты разрешают loopback без
+token, отклоняют non-loopback без token до bind и разрешают authenticated
 non-loopback config.
 
 Interactive `exec_command`/`write_stdin` дополнительно покрывает owner boundary:
 чужой session/thread/workspace не может управлять PTY, а тот же thread может
 продолжить её в новом turn; canonical и symlink-пути одного workspace считаются
 одним owner scope. Отдельные regression-тесты фиксируют остановку и удаление
-процесса при cancellation. Pure policy tests разделяют две причины cleanup:
+процесса при cancellation. Lifecycle tests разделяют две причины cleanup:
 при заполнении store завершённые sessions вытесняются первыми, но janitor
 удаляет завершённую или живую session только после idle timeout, сохраняя
 непрочитанный output и exit code между вызовами.
@@ -311,7 +313,7 @@ journal. Binary unit tests отдельно фиксируют строгий CL
 tool registry: отсутствие такого execution path является частью boundary.
 
 Focused workflow replay tests в `core/workflow_replay` проходят записанную
-цепочку model → tool → model через настоящий Workflow/Policy orchestration с
+цепочку model → tool → model через настоящий Workflow/orchestrator path с
 journal-backed зависимостями. Они проверяют равенство model requests, tool
 lifecycle/result, settlement/output/history и побайтовую неизменность source
 journal; отдельный regression намеренно вносит request divergence и доказывает,
@@ -370,7 +372,7 @@ canonical DTO не ломаются.
   research/background-job прототипе; новый public slot требует отдельного
   изменения contracts/core и двух работающих независимых реализаций;
 - новый model provider должен реализовать `Model`; `ModelService` отвечает за `Model` boundary и shaping;
-- новая policy не должна менять `ToolRegistry` или tools.
+- новый execution rule не должен создавать обход `ToolRegistry` или tools.
 
 ## Contract Tests
 
@@ -394,7 +396,7 @@ canonical DTO не ломаются.
 - config schema: `docs/configuration.md`;
 - slots и keys: `docs/modules.md`;
 - runtime events/session paths: `docs/runtime-and-events.md`;
-- tool safety или policy: `docs/security-and-policy.md`;
+- tool trust и shell sandbox: `docs/security-and-policy.md`;
 - архитектурные правила: `docs/architecture.md` и `AGENTS.md`.
 
 ## Inspect Topology Tests
@@ -439,16 +441,16 @@ canonical DTO не ломаются.
 
 Практический v0-критерий описан в `docs/dogfood-gate.md`: сначала нужен один
 manual dogfood loop, где после прогона можно локализовать сбой в `core`,
-`workflow`, `context`, `tools`, `policy`, `patch`, provider adapter, app-server
+`workflow`, `context`, `tools`, `patch`, provider adapter, app-server
 или текущем UI-клиенте. Evals и отчёты должны усиливать этот loop, а не превращаться в
 отдельную платформенную цель.
 
 Минимальный набор eval cases:
 
-- repo understanding: найти runtime boundary, policy path, model adapter flow;
+- repo understanding: найти runtime boundary, tool path, model adapter flow;
 - editing: добавить renderer/search backend/config example без нарушения slots;
-- debugging: failing test, сломанный approval, неверная context persistence;
-- UX: external UI interrupt, tools list, doctor output, diff approval.
+- debugging: failing test, schema-invalid tool call, неверная context persistence;
+- UX: external UI interrupt, tools list, doctor output, tool result/diff view.
 
 Первый слой уже доступен как:
 
@@ -457,7 +459,7 @@ cargo run --bin proteus -- eval report "/path/to/session-dir"
 ```
 
 Команда валидирует canonical session journal и фиксирует success/fail, turn count,
-model calls, tool calls, tool failures, approval count, duration, provider
+model calls, tool calls, tool failures, duration, provider
 tokens, estimated input tokens, changed files и failure reason. Changed files
 выводятся по успешным canonical `write_file` и `apply_patch` tool records; tests passed,
 diff size, unnecessary edits и стоимость остаются следующим расширением

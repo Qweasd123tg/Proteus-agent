@@ -36,7 +36,6 @@ pub(crate) struct ConfigSummary {
     pub(crate) model: ConfigModel,
     pub(crate) model_options: Vec<ConfigModel>,
     pub(crate) reasoning: ConfigReasoning,
-    pub(crate) permission_mode: String,
     pub(crate) modules: Vec<ConfigModule>,
     pub(crate) tools_enabled: Vec<String>,
     pub(crate) registered_tools: Vec<ConfigTool>,
@@ -88,8 +87,6 @@ pub(crate) struct ConfigBuilderSnapshot {
     pub(crate) writable: bool,
     pub(crate) active_provider: String,
     pub(crate) providers: Vec<ConfigBuilderProvider>,
-    pub(crate) permission_mode: String,
-    pub(crate) permission_modes: Vec<String>,
     pub(crate) active_modules: Vec<ConfigModule>,
     pub(crate) module_config: BTreeMap<String, BTreeMap<String, Value>>,
     pub(crate) tools_enabled: Vec<String>,
@@ -155,8 +152,6 @@ pub(crate) struct ConfigBuilderSaveRequest {
     pub(crate) tools_enabled: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) active_provider: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) permission_mode: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
@@ -166,7 +161,6 @@ pub(crate) struct TopologySnapshot {
     pub(crate) config_path: Option<String>,
     pub(crate) config_files: Vec<String>,
     pub(crate) module_epoch: u64,
-    pub(crate) permission_mode: String,
     pub(crate) model: Option<TopologyModel>,
     pub(crate) slots: Vec<TopologySlot>,
     pub(crate) modules: Vec<TopologyModule>,

@@ -10,7 +10,7 @@ use crate::{
         JournalEntry, JournalRecord, ModelResponseOutcome, SessionStore, ToolCallRecordPhase,
         TurnSettlementStatus, normalize_session_dir_path,
     },
-    domain::{CallId, ToolCall, ToolCallResolution, TurnId},
+    domain::{CallId, ToolCall, TurnId},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,10 +23,6 @@ pub struct EvalReport {
     pub model_calls: usize,
     pub tool_calls: usize,
     pub tool_failures: usize,
-    pub approvals_requested: usize,
-    pub approvals_resolved: usize,
-    pub approvals_approved: usize,
-    pub approvals_denied: usize,
     pub estimated_input_tokens: u64,
     pub provider_input_tokens: u64,
     pub provider_output_tokens: u64,
@@ -59,10 +55,6 @@ struct EvalAccumulator {
     model_calls: usize,
     tool_calls: usize,
     tool_failures: usize,
-    approvals_requested: usize,
-    approvals_resolved: usize,
-    approvals_approved: usize,
-    approvals_denied: usize,
     estimated_input_tokens: u64,
     provider_input_tokens: u64,
     provider_output_tokens: u64,
@@ -130,19 +122,7 @@ impl EvalAccumulator {
                     self.tool_calls += 1;
                     self.calls.insert(tool.call.id.clone(), tool.call.clone());
                 }
-                ToolCallRecordPhase::ApprovalRequested { .. } => {
-                    self.approvals_requested += 1;
-                }
-                ToolCallRecordPhase::Resolved { resolution } => {
-                    if resolution.requested_approval() {
-                        self.approvals_resolved += 1;
-                        match resolution {
-                            ToolCallResolution::Approved => self.approvals_approved += 1,
-                            ToolCallResolution::ApprovalDenied { .. } => self.approvals_denied += 1,
-                            _ => {}
-                        }
-                    }
-                }
+                ToolCallRecordPhase::Resolved { .. } => {}
             },
             JournalEntry::ToolResultRecorded(tool) => {
                 if !tool.result.ok {
@@ -202,10 +182,6 @@ impl EvalAccumulator {
             model_calls: self.model_calls,
             tool_calls: self.tool_calls,
             tool_failures: self.tool_failures,
-            approvals_requested: self.approvals_requested,
-            approvals_resolved: self.approvals_resolved,
-            approvals_approved: self.approvals_approved,
-            approvals_denied: self.approvals_denied,
             estimated_input_tokens: self.estimated_input_tokens,
             provider_input_tokens: self.provider_input_tokens,
             provider_output_tokens: self.provider_output_tokens,
@@ -338,11 +314,8 @@ mod tests {
         );
         for phase in [
             ToolCallRecordPhase::Requested,
-            ToolCallRecordPhase::ApprovalRequested {
-                reason: "write".to_owned(),
-            },
             ToolCallRecordPhase::Resolved {
-                resolution: ToolCallResolution::Approved,
+                resolution: ToolCallResolution::Allowed,
             },
         ] {
             store
@@ -383,14 +356,11 @@ mod tests {
         let report = read_eval_report(store.session_dir()).expect("report");
 
         assert!(report.succeeded());
-        assert_eq!(report.records, 8);
+        assert_eq!(report.records, 7);
         assert_eq!(report.turns_started, 1);
         assert_eq!(report.turns_finished, 1);
         assert_eq!(report.model_calls, 1);
         assert_eq!(report.tool_calls, 1);
-        assert_eq!(report.approvals_requested, 1);
-        assert_eq!(report.approvals_resolved, 1);
-        assert_eq!(report.approvals_approved, 1);
         assert_eq!(report.provider_input_tokens, 120);
         assert_eq!(report.provider_output_tokens, 30);
         assert_eq!(report.changed_files, vec!["src/output.rs"]);

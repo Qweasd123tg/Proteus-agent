@@ -31,7 +31,7 @@ proteus inspect topology --format mermaid
 ```
 
 `runtime` выводит короткую человеческую карту active product path: workflow,
-context, tool exposure, model, policy, ToolRegistry, patch/search и renderer.
+context, tool exposure, model, ToolRegistry, patch/search и renderer.
 `map` остаётся full diagnostic graph: slot/module wiring, plugin
 contributions, ToolRegistry, edge summary, dangling nodes и warnings. Markdown
 report включает runtime path и diagnostic map, а затем оставляет табличные
@@ -81,9 +81,9 @@ snapshot, `/inspect/topology.runtime` — короткий runtime path,
 
 `TopologySnapshot` показывает:
 
-- активный profile, cwd, config path/files, permission mode и module epoch;
+- активный profile, cwd, config path/files и module epoch;
 - active model provider/name;
-- 11 host-defined behavior slots с active module, responsibility, `category` и
+- 10 host-defined behavior slots с active module, responsibility, `category` и
   `order`: category (`orchestrator | pipeline | backend | post_turn | custom`)
   и порядок behavior slots задаются сервером;
 - synthetic runtime nodes, которые не выбираются через config и не имеют
@@ -134,13 +134,13 @@ enabled tools, registered tools и список plugins.
 - откуда module пришёл — builtin или plugin;
 - какой plugin что зарегистрировал;
 - какие plugin tools доступны, но disabled;
-- как workflow связан с context, model, tool exposure, policy, tools и
+- как workflow связан с context, model, tool exposure, tools и
   renderer.
 
 Web Architecture view отображает именно `TopologySnapshot` и показывает каждый
 факт один раз. Behavior slots идут по серверным `slot.category`/`slot.order`;
 в active pipeline получается config → workflow → context → compactor →
-tool_exposure → model → policy → ToolRegistry → subagent → renderer.
+tool_exposure → model → ToolRegistry → subagent → renderer.
 `ToolRegistry` — отдельный synthetic card, вычисленный из `snapshot.tools`, а
 не slot card с фиктивным active module. Backend/post-turn slots получают
 tool→backend связи из `edges` kind `uses`; slot cards показывают альтернативные
