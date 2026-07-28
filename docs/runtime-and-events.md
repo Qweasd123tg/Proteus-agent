@@ -174,7 +174,7 @@ corruption в середине файла завершает load ошибкой
 редактируются до записи.
 
 `config_snapshot.json` — последний turn/persist snapshot resolved runtime
-config для этой сессии. Текущая `schema_version = 2`: поле `active_provider`
+config для этой сессии. Текущая `schema_version = 3`: поле `active_provider`
 обязательно и содержит id точного профиля из `providers`. Snapshot
 перезаписывается при открытии существующей сессии и при принятии user message.
 В snapshot входят profile name, active provider, актуальные model/ref и
