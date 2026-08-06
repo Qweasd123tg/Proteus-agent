@@ -21,7 +21,7 @@ use crate::contracts::{
     ApprovalResponse, CancellationToken, UserInputAnswer,
     UserInputRequest as ContractUserInputRequest, UserInputResponse,
 };
-use crate::core::{AppConfig, BuiltinModuleCatalog};
+use crate::core::{AppConfig, ModuleCatalog};
 use crate::domain::{PermissionMode, ToolCall, new_call_id};
 
 use super::config::default_allowed_origins;
@@ -142,8 +142,8 @@ fn dogfood_loop_config() -> AppConfig {
     config
 }
 
-fn dogfood_loop_catalog() -> BuiltinModuleCatalog {
-    let mut catalog = BuiltinModuleCatalog::new();
+fn dogfood_loop_catalog() -> ModuleCatalog {
+    let mut catalog = ModuleCatalog::new();
     catalog
         .register_plugin_context_builder(
             "simple",

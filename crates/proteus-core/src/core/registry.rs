@@ -9,14 +9,14 @@ use crate::{
         ToolRegistry, UserInputTransport, Workflow,
     },
     core::{
-        AppConfig, BuiltinModuleCatalog, HeadlessUserInputTransport, ModeAwarePolicy, ModelService,
-        ModuleBuildContext, PolicyBuildContext,
+        AppConfig, HeadlessUserInputTransport, ModeAwarePolicy, ModelService, ModuleBuildContext,
+        ModuleCatalog, PolicyBuildContext,
     },
     domain::{SessionId, ThreadId, TurnId},
 };
 
 #[derive(Clone)]
-pub struct BuiltinRegistry {
+pub struct RuntimeRegistry {
     pub model_config: crate::core::ModelConfig,
     pub runtime_config: crate::core::RuntimeConfig,
     pub instructions: Vec<crate::model_standard::InstructionBlock>,
@@ -38,23 +38,19 @@ pub struct BuiltinRegistry {
     pub renderer: Arc<dyn Renderer>,
 }
 
-impl BuiltinRegistry {
+impl RuntimeRegistry {
     pub fn from_config(config: &AppConfig, cwd: PathBuf) -> Result<Self> {
         // Загружаем внешние плагины перед чтением модулей из config, чтобы
-        // config мог ссылаться на плагин по module_id как на обычный builtin.
+        // config мог выбирать их по module_id через тот же catalog lookup.
         // Успешные загрузки не логируем: для single-run агента это шум, а
         // полный список плагинов доступен через `modules list`. Ошибки
         // уже логируются из `load_plugins_from_dir` в stderr.
-        let (catalog, _) = crate::core::load_default_module_catalog();
+        let (catalog, _) = crate::core::load_runtime_module_catalog();
 
         Self::from_catalog(config, cwd, catalog)
     }
 
-    pub fn from_catalog(
-        config: &AppConfig,
-        cwd: PathBuf,
-        catalog: BuiltinModuleCatalog,
-    ) -> Result<Self> {
+    pub fn from_catalog(config: &AppConfig, cwd: PathBuf, catalog: ModuleCatalog) -> Result<Self> {
         let build_ctx = ModuleBuildContext {
             config,
             cwd: &cwd,

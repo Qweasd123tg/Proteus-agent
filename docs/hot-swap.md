@@ -98,7 +98,7 @@ token cost, а не путь исполнения.
 
 1. `ModuleEpoch`/`RuntimeSnapshot` добавлены как host-side concept без нового
    public slot.
-2. `BuiltinRegistry` живёт внутри snapshot holder; `AgentRuntime::run` берёт
+2. `RuntimeRegistry` живёт внутри snapshot holder; `AgentRuntime::run` берёт
    snapshot один раз на старте turn-а.
 3. App-server protocol поддерживает `StdioRequest::ReloadTools`; HTTP даёт
    `POST /reload-tools`. Эта команда применяет только `tools.*` из config path;

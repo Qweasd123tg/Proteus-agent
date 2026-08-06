@@ -1,6 +1,6 @@
 # Runtime И Events
 
-Runtime состоит из `AgentRuntime`, `BuiltinRegistry`, `RuntimeContext`, event sink и session store.
+Runtime состоит из `AgentRuntime`, `RuntimeRegistry`, `RuntimeContext`, event sink и session store.
 
 ## Режимы Запуска
 

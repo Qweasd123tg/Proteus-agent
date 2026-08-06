@@ -11,6 +11,12 @@ plugin-адаптеров в `proteus-core`, интеграционные тес
 тесты плагинов. Зелёный прогон — минимальное условие для
 любого PR.
 
+Эти dylib tests остаются обязательными, пока работает переходный runtime, но
+не являются шаблоном для новых implementations. Process-only cutover добавляет
+conformance gate из
+[process-module-architecture.md](process-module-architecture.md) и затем
+удаляет старые ABI tests вместе с loader-ом.
+
 Leptos-клиенты исключены из root workspace и проверяются отдельно:
 
 ```bash
@@ -61,9 +67,9 @@ UX-боли:
 
 | Граница изменения | Обязательное evidence |
 |---|---|
-| Локальный алгоритм внутри module/plugin | Unit/focused regression в crate-е владельца и полный Rust gate |
+| Локальный алгоритм внутри module | Unit/focused regression у владельца и полный применимый gate |
 | Новая реализация существующего slot-а или новый selector | Один runtime path для старой и новой реализаций, `module_swap`, config/example и module docs |
-| Contract, DTO, plugin ABI, wire или storage | Все tracked producers/consumers, strict invalid-input case, boundary tests и документация без legacy shim |
+| Contract, DTO, process wire или storage | Все tracked producers/consumers, strict invalid-input case, boundary tests и документация без legacy shim |
 | Workflow, policy, context, tool exposure или tool orchestration | Focused lifecycle test, canonical journal fixture и `replay workflow` для поддерживаемого root turn-а |
 | Provider shaping/adapter | Зафиксированный wire fixture, exact canonical request и `replay prompt`; live provider smoke только когда он нужен и доступен |
 | Root control plane, cancel, timeout или reconnect | App-server/protocol regression, canonical `TurnSettled` и cold `/history`; внешний момент cancel/timeout не подменяется workflow replay-ем |
@@ -129,7 +135,7 @@ git diff --check
   JSON-RPC error и невалидный slot DTO возвращаются как ошибка без fallback;
   current-thread regression подтверждает, что медленный handshake при async
   сборке snapshot не блокирует Tokio worker;
-- `BuiltinModuleCatalog` перечисляет built-in manifests для core-owned slots и
+- `ModuleCatalog` перечисляет built-in manifests для core-owned slots и
   не содержит production workflow/context без плагина;
 - `modules list` рендерит catalog без запуска runtime;
 - `memory = none` / `jsonl` — swap через config не меняет runtime (`jsonl` регистрируется через test plugin pack);
@@ -201,11 +207,11 @@ Unit-тесты адаптеров в `plugin_adapters/{search,memory,policy,pat
 
 Коверидж builtin-tools из плагинов
 (read_file/write_file/list_dir/grep/find_files/read_many_files/git_status/git_diff/shell)
-живёт **в самих плагинах** (`plugins/default/file-tools/src/*.rs`,
-`plugins/default/git-tools/src/lib.rs`, `plugins/default/shell-tool/src/lib.rs`),
+живёт **в самих плагинах** (`modules/reference/file-tools/src/*.rs`,
+`modules/reference/git-tools/src/lib.rs`, `modules/reference/shell-tool/src/lib.rs`),
 не в core-тестах. Алгоритм internal patch format и workspace-boundary для
 `modules.patch = "direct"` покрыт тестами
-`plugins/default/direct-patch/src/lib.rs`; core-тесты проверяют только делегацию
+`modules/reference/direct-patch/src/lib.rs`; core-тесты проверяют только делегацию
 `apply_patch` в активный `PatchApplier`.
 
 `skill-pack` тем же способом покрывает discovery двух roots, project-over-user
@@ -274,7 +280,7 @@ leased children не попадают в idle eviction; task/collaboration facad
 публикуют `task_id`/follow-up для результата с `resumable = false`.
 
 Codex-style request-time compactor `modules.compactor = "codex"` покрывается
-unit-тестами в `plugins/default/codex-compactor/src/tests.rs`: model-backed
+unit-тестами в `modules/reference/codex-compactor/src/tests.rs`: model-backed
 summary path, строгий `Stop`/assistant/no-tools ответ вместо fallback,
 фильтрация generated user messages, reinjection canonical context перед
 последним real user, summary-last replacement, bounded oversized current user,
@@ -339,17 +345,27 @@ validator, fail-closed `Canceled`/`Timeout`, а также нормализац�
 
 Тесты и адаптеры не должны конструировать эти типы через struct-expression: `#[non_exhaustive]` это блокирует по дизайну, чтобы добавление нового поля не ломало call-sites вне crate.
 
-## Плагины
+## Переходный Dylib Gate
 
-Plugin invariants покрыты отдельно:
+Пока dylib loader существует, его invariants покрыты отдельно:
 
 - unit-тесты `proteus-contracts::plugin` проверяют `export_root_module!` helper;
-- интеграционные тесты в `proteus-core` сканируют тестовую папку, загружают dylib и проверяют, что зарегистрированные tools/renderers попадают в `BuiltinModuleCatalog`;
+- интеграционные тесты в `proteus-core` сканируют тестовую папку, загружают dylib и проверяют, что зарегистрированные tools/renderers попадают в `ModuleCatalog`;
 - тест дубликатов проверяет, что явный plugin tool с именем builtin/configured
   tool считается ошибкой конфигурации;
 - `PROTEUS_PLUGINS_DISABLE=1` — escape hatch для тестов, которым плагины мешают (выставляется через `std::sync::Once`).
 
-При написании нового плагина минимум: добавить компилируемый Cargo project в `plugins/<name>/`, implement `PluginTool`/`PluginRenderer`, вызвать `export_root_module!`, и smoke-тест в `proteus-core` на загрузку.
+Новые dylib projects и registrations запрещены. Этот набор тестов можно только
+поддерживать, исправлять или удалять вместе с миграцией соответствующего slot.
+
+## Process Module Conformance
+
+Новая implementation существующего slot должна запускаться внешним worker-ом
+и проходить одинаковый для slot protocol gate: strict initialize, valid
+terminal response/stream, malformed frame, timeout/cancel, crash/restart,
+запрещённый host callback, module config/owner context и swap двух workers без
+core changes. Полная матрица — в
+`docs/process-module-architecture.md#обязательные-проверки`.
 
 ## Правило Для Нового Slot Module
 
@@ -435,7 +451,7 @@ canonical DTO не ломаются.
 Следующий уровень проверок - eval harness поверх canonical journal. Он должен
 дополнять, а не заменять module-swap tests: module-swap фиксирует границы
 контрактов, evals измеряют качество coding loop и показывают, выдерживают ли
-эти контракты будущий plugin-style swapping.
+эти контракты process-worker swapping.
 
 Практический v0-критерий описан в `docs/dogfood-gate.md`: сначала нужен один
 manual dogfood loop, где после прогона можно локализовать сбой в `core`,

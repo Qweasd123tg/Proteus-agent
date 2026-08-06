@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{Result, bail};
 
-use super::{BuiltinModuleCatalog, ModuleBuildContext, PolicyBuildContext};
+use super::{ModuleBuildContext, ModuleCatalog, PolicyBuildContext};
 use crate::{
     adapters::{build_anthropic_messages_adapter, build_openai_responses_adapter},
     contracts::{
@@ -18,7 +18,7 @@ use crate::{
     },
 };
 
-pub(super) fn register_builtins(catalog: &mut BuiltinModuleCatalog) {
+pub(super) fn register_builtins(catalog: &mut ModuleCatalog) {
     // Model adapters
     catalog.register_model(
         "fake",

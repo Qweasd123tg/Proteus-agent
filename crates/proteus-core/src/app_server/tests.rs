@@ -18,8 +18,8 @@ use crate::{
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 
-fn test_catalog() -> BuiltinModuleCatalog {
-    let mut catalog = BuiltinModuleCatalog::new();
+fn test_catalog() -> ModuleCatalog {
+    let mut catalog = ModuleCatalog::new();
     catalog
         .register_plugin_context_builder(
             "simple",

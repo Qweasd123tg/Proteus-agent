@@ -118,19 +118,20 @@ struct ModuleEntry {
     factory: ErasedFactory,
 }
 
-/// Единый реестр встроенных модулей. Все host-defined slot'ы хранятся в одной
-/// карте, ключ — `(SlotId, module_id)`. Строковый `SlotId` унифицирует ключи,
-/// но новый исполняемый slot всё равно требует contract и wiring в core.
-pub struct BuiltinModuleCatalog {
+/// Единый каталог реализаций модулей. Все host-defined slot'ы хранятся в
+/// одной карте, ключ — `(SlotId, module_id)`. Текущий transition runtime ещё
+/// наполняет каталог core-owned и dylib-реализациями; имя типа не выделяет
+/// ни один из этих origins в привилегированный класс.
+pub struct ModuleCatalog {
     entries: HashMap<(SlotId, String), ModuleEntry>,
     /// Tool-плагины, зарегистрированные через `register_plugin_tool`.
     /// Их специ получены и провалидированы при регистрации.
-    /// Во время `build_tools` они добавляются в `ToolRegistry` поверх builtin.
+    /// Во время `build_tools` они добавляются в общий `ToolRegistry`.
     plugin_tools: Vec<Arc<dyn crate::contracts::Tool>>,
     plugin_context_providers: Vec<(String, Arc<dyn RepoAwareContextProvider>)>,
 }
 
-impl BuiltinModuleCatalog {
+impl ModuleCatalog {
     pub fn new() -> Self {
         let mut catalog = Self {
             entries: HashMap::new(),
@@ -595,7 +596,7 @@ where
         .map(|boxed| (*boxed).clone())
 }
 
-impl Default for BuiltinModuleCatalog {
+impl Default for ModuleCatalog {
     fn default() -> Self {
         Self::new()
     }
@@ -627,7 +628,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        core::{BuiltinRegistry, SubagentSurface},
+        core::{RuntimeRegistry, SubagentSurface},
         domain::{ToolResult, ToolSafety, ToolSpec},
         stubs::NoSubagent,
     };
@@ -697,7 +698,7 @@ mod tests {
     #[test]
     fn registry_builds_selected_subagent_once() {
         SUBAGENT_BUILD_COUNT.store(0, Ordering::SeqCst);
-        let mut catalog = BuiltinModuleCatalog::new();
+        let mut catalog = ModuleCatalog::new();
         catalog.register_module::<dyn SubagentRunner>(
             slot::SUBAGENT,
             "counting",
@@ -710,7 +711,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("workspace");
 
         let _registry =
-            BuiltinRegistry::from_catalog(&config, workspace.path().to_path_buf(), catalog)
+            RuntimeRegistry::from_catalog(&config, workspace.path().to_path_buf(), catalog)
                 .expect("registry");
 
         assert_eq!(SUBAGENT_BUILD_COUNT.load(Ordering::SeqCst), 1);
@@ -718,7 +719,7 @@ mod tests {
 
     #[test]
     fn apply_module_descriptions_overrides_plugin_entries_only() {
-        let mut catalog = BuiltinModuleCatalog::new();
+        let mut catalog = ModuleCatalog::new();
         let checkpoint = catalog.checkpoint();
 
         catalog
@@ -759,7 +760,7 @@ mod tests {
 
     #[test]
     fn apply_module_descriptions_supports_slot_scoped_keys() {
-        let mut catalog = BuiltinModuleCatalog::new();
+        let mut catalog = ModuleCatalog::new();
         let checkpoint = catalog.checkpoint();
 
         catalog
@@ -784,7 +785,7 @@ mod tests {
 
     #[test]
     fn checkpoint_rolls_back_plugin_registrations() {
-        let mut catalog = BuiltinModuleCatalog::new();
+        let mut catalog = ModuleCatalog::new();
         let checkpoint = catalog.checkpoint();
 
         catalog
@@ -805,7 +806,7 @@ mod tests {
 
     #[test]
     fn register_plugin_tool_rejects_empty_and_duplicate_names() {
-        let mut catalog = BuiltinModuleCatalog::new();
+        let mut catalog = ModuleCatalog::new();
 
         let empty_error = catalog.register_plugin_tool(plugin_tool(" ")).unwrap_err();
         assert!(empty_error.to_string().contains("id must not be empty"));
@@ -823,7 +824,7 @@ mod tests {
 
     #[test]
     fn contributions_since_reports_plugin_registered_items() {
-        let mut catalog = BuiltinModuleCatalog::new();
+        let mut catalog = ModuleCatalog::new();
         let checkpoint = catalog.checkpoint();
 
         catalog
@@ -849,7 +850,7 @@ mod tests {
 
     #[test]
     fn real_provider_adapters_reject_non_object_provider_config() {
-        let catalog = BuiltinModuleCatalog::new();
+        let catalog = ModuleCatalog::new();
         for provider in ["openai", "openai_compatible", "anthropic"] {
             let config = ModelConfig {
                 provider: provider.to_owned(),

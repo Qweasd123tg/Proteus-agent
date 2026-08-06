@@ -33,10 +33,12 @@ modules, tools, policy и event log. В синхронизируемых configs
 Secret-файлы не синхронизируются через git и должны быть заведены на каждом ПК
 отдельно.
 
-`install.sh` хранит совместимый binary/default-plugin pack под
+До process-only cutover `install.sh` хранит совместимый binary/reference-dylib
+bundle под
 `~/.proteus/releases/<release-id>/` и атомарно переключает symlink
 `~/.proteus/current`. Каталог `~/.proteus/plugins/` предназначен для личных
-out-of-tree plugins и не перезаписывается стандартным pack.
+out-of-tree dylib и не перезаписывается reference bundle. Это текущий
+transition layout, а не standard/default pack.
 
 ## Проверка
 

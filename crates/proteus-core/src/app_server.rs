@@ -15,8 +15,8 @@ use crate::{
         UserInputResponse, is_streaming_delta,
     },
     core::{
-        AgentRuntime, AppConfig, BroadcastEventSink, BuiltinModuleCatalog,
-        ChannelApprovalTransport, ChannelUserInputTransport, FanoutEventSink, JsonlEventStore,
+        AgentRuntime, AppConfig, BroadcastEventSink, ChannelApprovalTransport,
+        ChannelUserInputTransport, FanoutEventSink, JsonlEventStore, ModuleCatalog,
         ModuleCatalogEntrySummary, ReservedRunCompletion, ReservedUserMessage, RuntimeReloadReport,
         SessionConfigSnapshot, SessionStore, TopologyBuildInput, TopologySnapshot,
         UserMessageReservation, build_topology_snapshot, config_store_root,
@@ -669,7 +669,7 @@ impl AgentAppServer {
         config: AppConfig,
         cwd: PathBuf,
         config_path: Option<&Path>,
-        module_catalog: BuiltinModuleCatalog,
+        module_catalog: ModuleCatalog,
     ) -> Result<AppServerHandle> {
         Self::launch_inner(config, cwd, config_path, Some(module_catalog), None).await
     }
@@ -678,7 +678,7 @@ impl AgentAppServer {
         config: AppConfig,
         mut cwd: PathBuf,
         config_path: Option<&Path>,
-        module_catalog: Option<BuiltinModuleCatalog>,
+        module_catalog: Option<ModuleCatalog>,
         resume_session_dir: Option<PathBuf>,
     ) -> Result<AppServerHandle> {
         let resumed_session = resume_session_dir
@@ -700,7 +700,7 @@ impl AgentAppServer {
             }
             None => {
                 let (catalog, reports, catalog_entries) = tokio::task::spawn_blocking(|| {
-                    let (catalog, reports) = crate::core::load_default_module_catalog();
+                    let (catalog, reports) = crate::core::load_runtime_module_catalog();
                     let catalog_entries = catalog.entry_summaries();
                     (catalog, reports, catalog_entries)
                 })
@@ -803,16 +803,16 @@ async fn build_registry_and_plugin_reports(
     config: &AppConfig,
     cwd: &Path,
 ) -> Result<(
-    crate::core::BuiltinRegistry,
+    crate::core::RuntimeRegistry,
     Vec<crate::core::PluginLoadReport>,
     Vec<ModuleCatalogEntrySummary>,
 )> {
     let config = config.clone();
     let cwd = cwd.to_path_buf();
     tokio::task::spawn_blocking(move || {
-        let (catalog, reports) = crate::core::load_default_module_catalog();
+        let (catalog, reports) = crate::core::load_runtime_module_catalog();
         let catalog_entries = catalog.entry_summaries();
-        let registry = crate::core::BuiltinRegistry::from_catalog(&config, cwd, catalog)?;
+        let registry = crate::core::RuntimeRegistry::from_catalog(&config, cwd, catalog)?;
         Ok((registry, reports, catalog_entries))
     })
     .await

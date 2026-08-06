@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{Result, bail};
 
-use super::{BuiltinModuleCatalog, ErasedFactory, ModuleEntry, arc_to_any, validate_plugin_id};
+use super::{ErasedFactory, ModuleCatalog, ModuleEntry, arc_to_any, validate_plugin_id};
 use crate::{
     contracts::{
         ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryStore, PatchApplier, Renderer,
@@ -15,7 +15,7 @@ use crate::{
     },
 };
 
-impl BuiltinModuleCatalog {
+impl ModuleCatalog {
     /// Регистрирует Tool от плагина.
     ///
     /// Плагин передаёт `PluginToolObject` (sabi_trait объект), мы заворачиваем

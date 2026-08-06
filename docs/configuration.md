@@ -46,11 +46,13 @@ cargo run --bin proteus -- --config "$HOME/.config/Proteus-agent/configs"
 используйте named config вроде `--config codex`.
 
 Если путь не найден, используется `AppConfig::default()`: безопасная
-заглушечная конфигурация без plugin-зависимостей (`workflow = "none"`,
+переходная заглушечная конфигурация без dylib-зависимостей (`workflow = "none"`,
 `context = "none"`, `policy = "deny_all"`, `compactor = "none"`,
 `tool_exposure = "all_visible"`, `renderer = "text"`). Она нужна,
-чтобы core мог стартовать без установленных plugin packs; для нормальной
-агентской работы используйте один из примеров ниже.
+чтобы текущий core мог стартовать без reference dylib; для нормальной
+агентской работы используйте один из примеров ниже. Process-only cutover
+удалит pseudo-module ids: required slot без worker станет config error, а
+optional absence будет представлено структурно.
 
 ## Init
 
@@ -565,7 +567,7 @@ Inspector route `/configs` содержит Config builder для редакти
   `policy`, `search`, `patch`, `memory`, `compactor`,
   `subagent`, `renderer`;
 - список зарегистрированных реализаций каждого slot-а из текущего
-  `BuiltinModuleCatalog` + загруженных plugin manifests;
+  `ModuleCatalog` + загруженных plugin manifests;
 - текущие `module_config.<slot>.<module_id>` payloads;
 - каталог tools с флагами `enabled`/`registered` и текущий `tools.enabled`;
 - provider profiles из `[providers.*]` (id + provider/model label), выбранный

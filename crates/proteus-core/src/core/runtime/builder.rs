@@ -9,9 +9,9 @@ use tokio::sync::{Mutex, RwLock};
 use crate::{
     contracts::{ApprovalTransport, EventEmitter, EventSink, UserInputTransport},
     core::{
-        AppConfig, BuiltinModuleCatalog, BuiltinRegistry, CachedApprovalTransport,
-        HeadlessApprovalTransport, HeadlessUserInputTransport, JsonlEventStore,
-        SessionConfigSnapshot, SessionStore, write_config_snapshot,
+        AppConfig, CachedApprovalTransport, HeadlessApprovalTransport, HeadlessUserInputTransport,
+        JsonlEventStore, ModuleCatalog, RuntimeRegistry, SessionConfigSnapshot, SessionStore,
+        write_config_snapshot,
     },
     domain::{SessionId, ThreadId, new_session_id, new_thread_id},
 };
@@ -27,7 +27,7 @@ use super::{
 pub struct AgentRuntimeBuilder {
     config: AppConfig,
     cwd: PathBuf,
-    module_catalog: Option<BuiltinModuleCatalog>,
+    module_catalog: Option<ModuleCatalog>,
     config_path: Option<PathBuf>,
     event_sink: Option<Arc<dyn EventSink>>,
     approval: Option<Arc<dyn ApprovalTransport>>,
@@ -58,7 +58,7 @@ impl AgentRuntimeBuilder {
         self
     }
 
-    pub fn with_module_catalog(mut self, catalog: BuiltinModuleCatalog) -> Self {
+    pub fn with_module_catalog(mut self, catalog: ModuleCatalog) -> Self {
         self.module_catalog = Some(catalog);
         self
     }
@@ -132,9 +132,9 @@ impl AgentRuntimeBuilder {
         };
         let permission_mode = config.permissions.mode;
         let registry = if let Some(catalog) = module_catalog {
-            BuiltinRegistry::from_catalog(&config, cwd.clone(), catalog)?
+            RuntimeRegistry::from_catalog(&config, cwd.clone(), catalog)?
         } else {
-            BuiltinRegistry::from_config(&config, cwd.clone())?
+            RuntimeRegistry::from_config(&config, cwd.clone())?
         };
         let event_sink: Arc<dyn EventSink> = event_sink.unwrap_or_else(|| {
             let event_log_path =

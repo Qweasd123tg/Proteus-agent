@@ -194,7 +194,7 @@ postmortem, а не как блокер web/app-server boundary.
 - неидеальные цвета и status labels;
 - отсутствие красивого retained renderer;
 - неполный onboarding для внешнего пользователя;
-- memory polish и production-ready состояние всех plugin packs.
+- memory polish и production-ready состояние всех reference modules.
 
 Такие пункты идут в UI polish backlog или профильный research doc, а не
 становятся причиной переписывать UI-контур до завершения dogfood run-а.

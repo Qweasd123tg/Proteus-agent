@@ -9,7 +9,7 @@ use tokio::sync::{Mutex, RwLock};
 
 use crate::{
     contracts::{ApprovalTransport, EventEmitter, EventSink, ToolSource, UserInputTransport},
-    core::{AppConfig, BuiltinRegistry, SessionConfigSnapshot, SessionStore},
+    core::{AppConfig, RuntimeRegistry, SessionConfigSnapshot, SessionStore},
     domain::{
         AgentOutput, Event, EventContext, ModelRef, PermissionMode, ReasoningConfig, SessionId,
         ThreadId, ToolSpec,
@@ -76,14 +76,14 @@ impl ModuleEpoch {
 #[derive(Clone)]
 pub struct RuntimeSnapshot {
     pub epoch: ModuleEpoch,
-    pub registry: BuiltinRegistry,
+    pub registry: RuntimeRegistry,
     pub config_snapshot: Option<SessionConfigSnapshot>,
 }
 
 impl RuntimeSnapshot {
     pub fn new(
         epoch: ModuleEpoch,
-        registry: BuiltinRegistry,
+        registry: RuntimeRegistry,
         config_snapshot: Option<SessionConfigSnapshot>,
     ) -> Self {
         Self {
@@ -290,7 +290,7 @@ impl AgentRuntime {
 
     pub async fn reload_registry(
         &self,
-        registry: BuiltinRegistry,
+        registry: RuntimeRegistry,
         config_snapshot: Option<SessionConfigSnapshot>,
     ) -> Result<RuntimeReloadReport> {
         if self.session.session_store.is_some() && config_snapshot.is_none() {

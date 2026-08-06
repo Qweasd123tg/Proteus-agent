@@ -109,8 +109,8 @@ fn compact(
     }
 }
 
-fn compaction_catalog(mode: CompactionProbeMode) -> BuiltinModuleCatalog {
-    let mut catalog = BuiltinModuleCatalog::new();
+fn compaction_catalog(mode: CompactionProbeMode) -> ModuleCatalog {
+    let mut catalog = ModuleCatalog::new();
     let workflow = PluginWorkflow_TO::from_value(CompactionProbeWorkflow { mode }, TD_Opaque);
     catalog
         .register_plugin_workflow(COMPACTION_WORKFLOW_ID, workflow)

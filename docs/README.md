@@ -38,11 +38,13 @@
    одного turn-а.
 2. [modules.md](modules.md) — все выбираемые behavior slots, catalog vocabulary,
    доступные реализации и правило заменяемости.
-3. [plugin-architecture.md](plugin-architecture.md) — dylib ABI, loader,
-   manifests и граница plugin/core.
-4. [slot-governance.md](slot-governance.md) — нужен ли новый slot, plugin,
+3. [process-module-architecture.md](process-module-architecture.md) — принятое
+   process-only решение, равенство реализаций slot и исполнимый план cutover.
+4. [dylib-transition.md](dylib-transition.md) — временный reference уже
+   реализованного dylib ABI и loader до их удаления.
+5. [slot-governance.md](slot-governance.md) — нужен ли новый slot, module,
    profile или feature pack.
-5. [testing.md](testing.md#стандарт-внедрения-и-проверки-фичи) — общий путь от
+6. [testing.md](testing.md#стандарт-внедрения-и-проверки-фичи) — общий путь от
    измеримой проблемы до focused/boundary/live/replay evidence и commit-а.
 
 Для более узких boundary-вопросов:
@@ -83,7 +85,8 @@
 | Тип документа | Как его читать |
 |---|---|
 | Корневой `README` | Короткая актуальная точка входа и проверенные команды |
-| `architecture`, `modules`, `configuration`, `runtime-and-events`, `security-and-policy`, `plugin-architecture`, `inspect`, `testing` | Reference текущей реализации |
+| `architecture`, `modules`, `configuration`, `runtime-and-events`, `security-and-policy`, `dylib-transition`, `inspect`, `testing` | Reference текущей реализации, включая временный dylib path |
+| `process-module-architecture` | Принятая целевая архитектура и активный cutover; planned не означает implemented |
 | `scope`, `slot-governance`, `dogfood-gate` | Правила приоритета и принятия решений |
 | `roadmap`, `spec` | План и направление; planned не означает implemented |
 | `research/*`, `examples/research/*` | Черновики и архивы, не действующий контракт |
@@ -121,5 +124,9 @@
 - [research/subagent-architecture-options.md](research/subagent-architecture-options.md) —
   research-разбор Codex/OpenCode semantics, граница реализованного первого
   collaboration slice и открытые варианты будущего control plane;
+- [research/prime-agent-process-lessons-2026-08-06.md](research/prime-agent-process-lessons-2026-08-06.md) —
+  применимые уроки Prime Agent для process-only module boundary: host-owned
+  lifecycle, typed callbacks, terminal state, capability probe и граница между
+  module worker и session daemon;
 - [examples/research/](../examples/research/) — заметки по upstream-агентам:
   Codex, OpenCode, Claude Code и ForgeCode.

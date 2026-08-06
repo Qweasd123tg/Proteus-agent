@@ -5,8 +5,8 @@ use anyhow::{Context, Result};
 use crate::{
     contracts::{EventEmitter, RuntimeContext},
     core::{
-        AppConfig, BuiltinModuleCatalog, DeltaEventContext, HeadlessUserInputTransport,
-        InMemoryEventStore, ModeAwarePolicy, ModelService, ModuleBuildContext, PolicyBuildContext,
+        AppConfig, DeltaEventContext, HeadlessUserInputTransport, InMemoryEventStore,
+        ModeAwarePolicy, ModelService, ModuleBuildContext, ModuleCatalog, PolicyBuildContext,
         TurnSettlementStatus, prepare_history_update,
     },
     stubs::{NoMemory, NoSubagent, NullPatchApplier, NullSearch},
@@ -35,7 +35,7 @@ use replay_runtime::{
 pub async fn replay_workflow(
     path: impl AsRef<Path>,
     config: &AppConfig,
-    catalog: &BuiltinModuleCatalog,
+    catalog: &ModuleCatalog,
     options: WorkflowReplayOptions,
 ) -> Result<WorkflowReplayReport> {
     let fixture = load_fixture(path.as_ref(), options)?;

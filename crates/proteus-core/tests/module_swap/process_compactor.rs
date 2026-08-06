@@ -53,8 +53,8 @@ fn fixture_config_with_marker(mode: &str, marker: &std::path::Path) -> AppConfig
     )
 }
 
-fn build_registry(config: &AppConfig, cwd: &std::path::Path) -> anyhow::Result<BuiltinRegistry> {
-    BuiltinRegistry::from_catalog(config, cwd.to_path_buf(), test_catalog())
+fn build_registry(config: &AppConfig, cwd: &std::path::Path) -> anyhow::Result<RuntimeRegistry> {
+    RuntimeRegistry::from_catalog(config, cwd.to_path_buf(), test_catalog())
 }
 
 #[derive(Default)]
@@ -85,7 +85,7 @@ fn compaction_input(cwd: &std::path::Path) -> proteus_core::contracts::Compactio
 }
 
 async fn compact(
-    registry: &BuiltinRegistry,
+    registry: &RuntimeRegistry,
     input: proteus_core::contracts::CompactionInput,
 ) -> anyhow::Result<proteus_core::contracts::CompactionOutput> {
     registry

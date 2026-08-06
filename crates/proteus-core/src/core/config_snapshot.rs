@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    core::{AppConfig, BuiltinRegistry, ModulesConfig},
+    core::{AppConfig, ModulesConfig, RuntimeRegistry},
     domain::{ModelRef, PermissionMode, ReasoningConfig, ToolSpec},
 };
 
@@ -39,7 +39,7 @@ pub struct SessionConfigTool {
 impl SessionConfigSnapshot {
     pub fn from_runtime_config(
         config: &AppConfig,
-        registry: &BuiltinRegistry,
+        registry: &RuntimeRegistry,
         permission_mode_default: PermissionMode,
     ) -> Self {
         let tools = registry

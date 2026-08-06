@@ -5,7 +5,7 @@
 plugin reports и `ToolRegistry`, а затем строит единый `TopologySnapshot`.
 
 Это не отдельный plugin slot. Introspection находится в core, потому что ей
-нужно видеть одновременно config, `BuiltinModuleCatalog`, plugin loader,
+нужно видеть одновременно config, `ModuleCatalog`, plugin loader,
 runtime tools и module epoch. Новые визуализации и debug reports должны читать
 этот snapshot и `snapshot.edges`, а не заново угадывать topology из `/config`.
 

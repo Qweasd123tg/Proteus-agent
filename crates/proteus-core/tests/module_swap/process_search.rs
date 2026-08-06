@@ -40,8 +40,8 @@ fn fixture_config(mode: &str) -> AppConfig {
     )
 }
 
-fn build_registry(config: &AppConfig, cwd: &std::path::Path) -> anyhow::Result<BuiltinRegistry> {
-    BuiltinRegistry::from_catalog(config, cwd.to_path_buf(), test_catalog())
+fn build_registry(config: &AppConfig, cwd: &std::path::Path) -> anyhow::Result<RuntimeRegistry> {
+    RuntimeRegistry::from_catalog(config, cwd.to_path_buf(), test_catalog())
 }
 
 #[tokio::test]

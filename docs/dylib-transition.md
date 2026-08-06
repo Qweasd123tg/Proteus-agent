@@ -1,8 +1,16 @@
-# Архитектура модульной системы
+# Переходная Dylib-Архитектура
 
-Документ описывает, как в проекте устроены плагины: какой формат поддерживает loader, какие контракты они реализуют, как ядро их загружает, как автор плагина его пишет и как ядро остаётся стабильным при их эволюции.
+Статус: **implemented transition reference, не целевая архитектура**.
 
-Это корневой документ плагинной архитектуры. Детали ABI и manifest-формата пока описаны прямо здесь; выделение в отдельные файлы — когда соответствующий кусок стабилизируется. MCP-интеграция документируется как tool/config/runtime integration, а не как упаковка плагинов.
+Документ описывает существующий до cutover dylib loader, ABI и установленный
+layout, чтобы текущий dogfood оставался диагностируемым. Новые dylib surfaces
+не добавляются. Принятое process-only решение, equality invariant и план
+удаления этой реализации находятся в
+[process-module-architecture.md](process-module-architecture.md).
+
+Содержимое ниже сохраняет терминологию работающего кода (`PluginRegistry`,
+`plugin.toml`, `PROTEUS_PLUGINS_DIR`). Эти имена не являются обещанием
+совместимости и удаляются одним pre-release cutover без aliases.
 
 Политика появления новых slots описана отдельно в
 `docs/slot-governance.md`. Новая agent-идея сначала раскладывается на
@@ -21,22 +29,29 @@
 - **Module** - конкретная реализация slot. Например `rg` это module в slot `search`. У module есть `(slot, id)` как уникальный ключ.
 - **Plugin** - физическая упаковка одного или нескольких modules: Rust dylib (`.so` / `.dylib` / `.dll`) с optional sidecar `plugin.toml`. Один плагин может предоставлять несколько modules, возможно в разные slots. YAML-файлы и MCP servers не являются plugin packaging для loader-а.
 - **Registry** - хранилище всех зарегистрированных modules в рантайме. Ядро и плагины регистрируют modules через один и тот же API.
-- **Builtin** - module, собранный вместе с ядром. Регистрируется в Registry при старте без загрузки файла. Часть этих builtins будут вынесены в плагины в поздних волнах.
+- **Builtin** - module, собранный вместе с ядром. Регистрируется в Registry при старте без загрузки файла. Это текущий origin, который удаляется как класс module implementations при process-only cutover.
 - **proteus-contracts** - отдельный Rust crate с traits, DTO и canonical model types. Ядро и плагины depend на него.
 
 ---
 
 ## Формат плагинов
 
-**Один формат — Rust dylib с `abi_stable`.** Изначально планировались три параллельные системы (dylib / YAML / MCP), но после первой итерации решили сократить: YAML declarative как отдельный loader не оправдывает дублирования кода (ядро и так имеет `ConfiguredProcessTool` для shell-обёрток в главном config'е), а MCP остаётся отдельной темой для совместимости с внешней экосистемой.
+**Текущий переходный формат — Rust dylib с `abi_stable`.** Изначально
+планировались три параллельные системы (dylib / YAML / MCP), но
+первая итерация сократила их до dylib loader и отдельных
+configured/MCP tool paths. Это история текущего кода, а не
+аргумент за сохранение трех origin-dependent surfaces.
 
 ### Dylib (Rust)
 
 Скомпилированная динамическая библиотека (`.so` / `.dylib` / `.dll`) на Rust. Использует `abi_stable` crate для стабильного ABI через границу.
 
-**Предназначение:** любой модуль, требующий логики — tools, context builders, search backends, memory stores, renderers, policies, patch appliers. Всё через один путь.
+**Фактический coverage:** tools, context builders, search backends, memory
+stores, renderers, policies, patch appliers и другие перечисленные ниже
+slots. Неполная parity этих paths с process implementations — причина
+отказа от dylib-направления.
 
-**Почему один формат, а не три:**
+**Почему на той итерации выбрали dylib:**
 - Плагин на Rust на практике получился компактным (~100 строк для Tool, ~70 для Renderer).
 - Параллельный YAML-loader дублировал бы код (сканирование папки, регистрация в catalog, error handling) без уникальной добавленной ценности.
 - `ConfiguredProcessTool` в ядре **остаётся** и покрывает сценарий "простая обёртка над shell-командой" через секцию `tools.configured` в главном config'е — без необходимости в отдельном формате плагина.
@@ -73,14 +88,14 @@
   пересобираются вместе с `proteus-contracts`.
 - `crates/proteus-core/src/core/plugin_loader.rs` — loader через `libloading` + `lib_header_from_raw_library` + `init_root_module` (не `RootModule::load_from_file`, у того type-keyed cache).
 
-### Layout установленного pack и personal plugins
+### Layout Переходного Release Bundle И Personal Plugins
 
 ```
 ~/.proteus/
     current -> releases/<release-id>
     releases/<release-id>/
         proteus
-        plugins/                          # совместимый default pack
+        plugins/                          # совместимые reference dylib текущего release
             renderer-pack/
                 librenderer_pack.so
                 plugin.toml
@@ -91,16 +106,18 @@
             plugin.toml
 ```
 
-`install.sh` сначала полностью staging-ит binary и все default dylib в новую
+`install.sh` сначала полностью staging-ит binary и используемые dogfood
+reference dylib в новую
 versioned release directory, затем одним atomic symlink rename переключает
 `current`. Поэтому loader не видит смесь binary и плагинов разных сборок.
 Старые managed directories из прежнего mutable layout переносятся в
-`legacy-default-plugins/<release-id>/`; personal plugins не удаляются.
+`legacy-reference-dylibs/<release-id>/`. Personal plugins не удаляются.
 
 Без override loader сначала читает `${PROTEUS_HOME:-$HOME/.proteus}/current/plugins`,
 затем personal overlay `${PROTEUS_HOME:-$HOME/.proteus}/plugins`. Env var
 `PROTEUS_PLUGINS_DIR` сохраняет прежнюю семантику полного override: если он
-задан, ни packaged set, ни default overlay автоматически не добавляются.
+задан, ни release-bundled reference dylib, ни personal overlay
+автоматически не добавляются.
 `PROTEUS_PACKAGED_PLUGINS_DIR` — внутренний explicit path установленного
 wrapper-а. Если задан `PROTEUS_PLUGINS_DISABLE`, всё сканирование плагинов
 отключается.
@@ -127,12 +144,14 @@ args = ["status", "--short"]
 
 — получает работающий tool без компиляции. Это fallback для "быстро обернуть shell-команду". Логически похоже на то, что мог бы делать YAML-plugin, но живёт в ядре и не требует loader.
 
-Для стандартного coding profile такой helper уже вынесен в обычный plugin:
-`plugins/default/git-tools` предоставляет `git_status` и `git_diff` как
+Для текущего dogfood coding profile такой helper уже вынесен в reference dylib:
+`modules/reference/git-tools` предоставляет `git_status` и `git_diff` как
 фиксированные read-only git tools. `ConfiguredProcessTool` остаётся для
-локальных одноразовых wrappers, а не как основной путь standard pack.
+локальных одноразовых wrappers, а не как особый standard pack.
 
-В далёком будущем (Волна 3) `ConfiguredProcessTool` можно будет вынести в отдельный default-плагин, но сейчас остаётся в ядре.
+Историческая идея вынести `ConfiguredProcessTool` в отдельный default-плагин
+отменена process-only решением: Tool surfaces должны сойтись на одном process
+contract без привилегированного package class.
 
 ### MCP (tools реализованы, остальное отложено)
 
@@ -149,7 +168,8 @@ non-stdio transports — отдельная задача. Если они поя
 
 ## Slots
 
-Ядро определяет фиксированный набор slots в первой волне. Каждый slot - trait в `proteus-contracts`.
+Ядро определяет текущий фиксированный набор slots. Каждый slot - trait в
+`proteus-contracts`.
 
 ### Доступны плагинам сейчас (sync, sabi_trait)
 
@@ -184,7 +204,7 @@ non-stdio transports — отдельная задача. Если они поя
   или произвольной session mutation.
 - **tool_exposure** - `PluginToolExposure::select_json(input_json) ->
   ToolExposureOutput`. Ядро передаёт только policy-visible candidates, а
-  плагин выбирает subset для model request. Default-плагин
+  плагин выбирает subset для model request. Reference implementation
   `codex-tool-exposure` регистрирует module id `codex_dynamic`.
   Module-owned payload `module_config.tool_exposure.<id>` передаётся в
   `ToolExposureInput.config`.
@@ -215,9 +235,11 @@ subagent) используют `tokio::task::spawn_blocking`. Короткие s
 вызываться напрямую: текущие policy и renderer adapters не получают
 автоматического `spawn_blocking`, поэтому их реализация не должна блокировать.
 
-### Остаются в ядре пока (async, вынос позже)
+### Текущая Core-Only Реализация
 
-- **model** - `Model::complete(request)` + `stream(request)`. Общение с LLM провайдерами. Остаётся async в ядре до Волны 4: streaming - обязательное требование, sync-версия потеряет его навсегда.
+- **model** - `Model::complete(request)` + `stream(request)`. Provider adapters
+  сейчас живут в core; целевой вынос идёт через streaming process
+  protocol, а не через новый async dylib ABI.
 ### Не существуют (решено не добавлять)
 
 - **tool_discovery provider** - отдельный discovery runtime поверх внешних
@@ -226,7 +248,7 @@ subagent) используют `tokio::task::spawn_blocking`. Короткие s
   для model request делает `ToolExposure`.
 - **context_strategy** - вариант context builder (Cursor Dynamic Context Discovery и подобные) реализуется как обычная реализация `ContextBuilder`. Отдельный slot не нужен.
 
-### Могут появиться позже
+### Новые Slots В Целевой Архитектуре
 
 Новый slot — host change, а не произвольная plugin registration: нужно
 согласованно изменить `proteus-contracts`, `ModuleKind`, config schema, typed
@@ -250,7 +272,7 @@ Contracts вынесены в отдельный crate `proteus-contracts`. Он
 - Plugin ABI и registry API для dylib-плагинов.
 - `tool_support` helper-ы для plugin tools: parsing serialized `ToolCall`,
   сборка JSON `ToolResult`/plugin error и workspace-contained path resolution.
-  Они лежат в contracts crate намеренно, чтобы default/behavior packs не
+  Они лежат в contracts crate намеренно, чтобы reference/behavior modules не
   копировали path-safety и ABI serialization вручную.
 
 Ядро (`proteus-core`) depends на `proteus-contracts`. Каждый плагин — отдельный
@@ -264,7 +286,7 @@ Workspace-плагины этого репозитория используют 
 `proteus-process-host`) и собираются вместе с workspace. Для standalone
 плагина нужен опубликованный/versioned источник совместимой версии contracts;
 пример `proteus-contracts = "^0.1"` описывает такой внешний layout, а не
-текущее содержимое default plugin `Cargo.toml`. Cargo проверяет dependency при
+текущее содержимое reference module `Cargo.toml`. Cargo проверяет dependency при
 сборке, а `abi_stable` проверяет совместимость ABI layout при загрузке dylib.
 
 `proteus-process-host` предоставляет protocol-neutral raw seam
@@ -281,7 +303,7 @@ allowlisted только минимальные runtime variables (`PATH`; на 
 adapter обязан перечислить через `env_allowlist` либо задать scoped literal
 через `env`. Полное наследование parent environment API не предоставляет.
 
-Production process-module adapters реализованы для `SearchBackend` и
+Текущие process-module proof adapters реализованы для `SearchBackend` и
 `HistoryCompactor` в `crates/proteus-core/src/process_adapters/search.rs` и
 `compactor.rs`. Оба используют generic JSON-RPC request/response API
 `ProcessHost<NewlineJsonFraming>`, но mapping методов, contract version и
@@ -310,7 +332,7 @@ mismatch.
 
 Registry - единое хранилище зарегистрированных modules. Один API для builtin и dylib-плагинов. MCP tools попадают в `ToolRegistry` через config/runtime discovery, но не являются plugin modules.
 
-Текущее состояние: `BuiltinModuleCatalog` в
+Текущее состояние: `ModuleCatalog` в
 `crates/proteus-core/src/core/module_catalog.rs` хранит модули через
 унифицированный `register_module<T>` — известные host slots лежат в одном
 `HashMap<(SlotId, String), ModuleEntry>`. `PluginRegistry` предоставляет
@@ -325,7 +347,7 @@ Loader регистрирует плагинные модули в те же `ca
 ## Папки personal plugins
 
 В personal overlay поддержаны обе прежние формы, а
-`PROTEUS_PLUGINS_DIR` полностью переопределяет весь default search path:
+`PROTEUS_PLUGINS_DIR` полностью переопределяет весь текущий dylib search path:
 
 ```
 ~/.proteus/plugins/
@@ -357,14 +379,16 @@ YAML declarative tools и MCP wrappers не являются содержимы�
 Для них используются `tools.configured`, `tools.path` и `tools.mcp_servers` в
 основном config'е.
 
-Локальные per-project плагины (`./plugins/` в cwd) добавятся позже. Сейчас есть
-только versioned installed pack и глобальный personal overlay.
+Per-project dylib discovery (`./plugins/` в cwd) не реализован и не
+добавляется до cutover. Сейчас есть только versioned release bundle и
+глобальный personal overlay.
 
 ---
 
 ## Cargo workspace
 
-В первой волне все плагины живут в одном Cargo workspace с ядром:
+В текущем transition checkout reference dylib живут в одном Cargo workspace
+с ядром:
 
 ```
 Agent/                      # root workspace
@@ -373,10 +397,10 @@ Agent/                      # root workspace
         proteus-contracts/    # публичный crate
         proteus-core/         # ядро
         proteus-process-host/ # утилитарный крейт без ABI-типов
-    plugins/
-        default/file-tools/   # отдельный plugin crate
-        default/skill-pack/   # context provider + tool без core subsystem
-        default/rust-lsp/     # Rust diagnostics tool поверх process-host
+    modules/
+        reference/file-tools/   # отдельный reference dylib crate
+        reference/skill-pack/   # context provider + tool без core subsystem
+        reference/rust-lsp/     # Rust diagnostics tool поверх process-host
         ...
 ```
 
@@ -385,13 +409,15 @@ contract boundary задаёт `proteus-contracts`, ABI glue может испо
 `abi_stable`, а общая stdio/process сантехника может браться из
 `proteus-process-host`, потому что крейт не вводит ABI-типов.
 
-Миграция на standalone repositories для плагинов произойдёт, когда появятся внешние (не собственные) плагины.
+Внешний standalone proof после cutover должен зависеть только от
+опубликованных process protocol/DTO, а не от этого Cargo workspace.
 
 ---
 
-## Sync vs async: итоговое решение
+## Sync vs Async: Текущее Dylib-Ограничение
 
-Все slots в первой волне - **sync trait**. Плагин возвращает готовый результат, не Future.
+Все текущие dylib slot traits — sync. Плагин возвращает готовый результат, не
+Future.
 
 Async внутри плагина разрешён, но инкапсулирован:
 
@@ -409,7 +435,9 @@ Trade-off:
 - Плюс: плагин пишется как обычный Rust код, без Pin, Box, Future, FfiFuture. Агент-кодер справляется за один заход.
 - Минус: плагин-tool не может стримить partial output в реальном времени.
 
-Model остаётся async (в ядре, не плагин). Streaming модели - обязателен, sync версия потеряет его навсегда. Когда придёт время выносить model adapters в плагины (Волна 4), одновременно добавляется async trait вариант через `FfiFuture` / `FfiStream` из `abi_stable`.
+Model остаётся async в core, потому что dylib ABI не закрыл streaming.
+Исторический план `FfiFuture` / `FfiStream` отменён; этот slot мигрирует
+на streaming process contract.
 
 Workflow plugin ABI выбран иначе: workflow сам sync, а async runtime операции
 идут через host capability callbacks. Это позволяет вынести agent behavior
@@ -420,7 +448,7 @@ calls, если хочет нормально реагировать на `/canc
 
 ---
 
-## Что остаётся в ядре (после Волны 3)
+## Текущий Split До Process-Only Cutover
 
 **Инфраструктура:**
 - Runtime: `AgentRuntime`, `SessionState`, `RuntimeServices`, builder.
@@ -431,9 +459,8 @@ calls, если хочет нормально реагировать на `/canc
 - Config parser и CLI stub.
 - `ConfiguredProcessTool`/`ConfiguredNativeTool`/`ConfiguredMcpTool` — встроенный механизм для tools из главного config'а без плагинов.
 
-**Async slots (до Волны 4):** Model. Workflow вынесен через sync
-plugin ABI + host callbacks, поэтому отдельный async ABI для него сейчас не
-нужен.
+**Async slot:** Model сейчас живёт в core. Workflow вынесен через
+sync plugin ABI + host callbacks. Оба пути заменяются process contracts.
 
 **Core fallbacks и оставшиеся реализации (не полный production-запуск без
 плагинов):**
@@ -452,7 +479,10 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 
 ---
 
-## Волны миграции
+## Архив Завершённых Dylib-Волн
+
+Этот раздел сохраняет историю того, как появился текущий runtime. Его
+future-пункты superseded планом из `process-module-architecture.md`.
 
 ### Волна 1: подготовка ядра
 
@@ -475,9 +505,9 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 - ✅ Capability-based `PluginContextBuilder` ABI + host callbacks добавлены.
   Плагин `context-pack` регистрирует `simple`, `repo_aware` и
   `codex_context`.
-- 🔜 `Model` как plugin ABI после async ABI.
-- 🔜 Дальнейшая зачистка DTO под стабильную внешнюю поверхность по мере
-  появления сторонних плагинов.
+- 🗑️ `Model` dylib и async ABI отменены process-only решением.
+- 🗑️ Стабилизация dylib DTO для внешних плагинов отменена; новая
+  внешняя поверхность — versioned process protocol.
 
 ### Волна 2: плагины (частично готово)
 
@@ -487,7 +517,7 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   `context_provider`, `context_builder`, `compactor`, `tool_exposure`,
   `subagent` и `workflow`.
 - ✅ Реальные плагины: `file-tools` (register_tool), `git-tools` (register_tool), `shell-tool` (register_tool), `plan-tool` (register_tool `update_plan`), `skill-pack` (register_context_provider `skills` + register_tool `skill`), `rust-lsp` (register_tool `lsp_diagnostics`, persistent `rust-analyzer` через `proteus-process-host`), `rg-search` (register_search_backend), `direct-patch` (register_patch_applier), `sqlite-memory` (register_memory_store через rusqlite+FTS5 bundled; id `sqlite`), `memory-pack` (register_memory_store `jsonl`), `policy-pack` (register_approval_policy `allow_all`, `ask_write`, `codex_policy`, `opencode_policy`; register_tool `request_permissions`), `renderer-pack` (register_renderer `statusline`), `coding-workflow` (register_workflow ids `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`), `context-pack` (register_context_builder ids `simple`, `repo_aware`, `codex_context`), `codex-compactor` (register_compactor id `codex`), `codex-tool-exposure` (register_tool_exposure id `codex_dynamic`). Retired ids не распознаются и не мигрируются.
-- 📝 Research plugin pack: `plugins/research/tool-output-artifacts` хранит черновик стратегии
+- 📝 Research plugin pack: `modules/research/tool-output-artifacts` хранит черновик стратегии
   `ToolResultProcessor` / `ToolOutputStore` для записи длинных tool outputs в
   workspace artifacts. Он компилируется как `rlib`, не имеет dylib entrypoint и
   не устанавливается через `install.sh`, пока такого slot-а нет в contracts.
@@ -528,7 +558,8 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
 - ✅ Persistent stdio MCP host реализован для configured/discovered tools:
   `initialize`, `tools/list`, переиспользуемый процесс и `tools/call` живут в
   текущем registry snapshot.
-- ⏳ MCP resources/prompts/subscriptions и non-stdio transports отложены.
+- ⏸️ MCP resources/prompts/subscriptions и non-stdio transports отложены за
+  process-only critical path.
 
 ### Волна 3: перенос builtin модулей в плагины (в основном завершено)
 
@@ -540,20 +571,20 @@ plugin ABI + host callbacks, поэтому отдельный async ABI для 
   `coding-workflow`; ✅ simple/repo-aware/Codex-shaped context builders →
   `context-pack`. `carry_forward` и отдельный MemoryPolicy slot были перенесены
   в plugin pack в этой wave, но затем удалены 2026-07-16.
-- Standard file/git/shell/plan tools, compactor и tool exposure также живут в
-  default plugins; host-bound `apply_patch`, `search`, `remember_fact` и
+- File/git/shell/plan reference tools, compactor и tool exposure также живут в
+  reference modules; host-bound `apply_patch`, `search`, `remember_fact` и
   user-input tools остаются в core осознанно.
 - `ConfiguredProcessTool` пока остаётся core-owned executor surface; его можно
-  вынести отдельно, но это не блокирует production plugin packs.
+  вынести отдельно, но это не меняет переходный статус dylib runtime.
 - В ядре остаются stubs, `sequential`/`process` SubagentRunner, runtime wiring,
   provider adapters и host-bound capabilities. Исторический builtin
   `dynamic` ToolExposure удалён 2026-07-17; bounded/deferred selection остаётся
   plugin-owned ответственностью `codex-tool-exposure`.
 
-### Волна 4: async slots
+### Волна 4: Async Slots — Отменена
 
-- Async ABI через `FfiFuture` и `FfiStream`.
-- Model plugins.
+- План async ABI через `FfiFuture`/`FfiStream` и Model dylib заменён
+  streaming process contract.
 
 ---
 
@@ -578,28 +609,31 @@ Stdio MCP server процессы изолированы через границ
 
 ---
 
-## Non-goals первой версии
+## Non-Goals Переходного Dylib Runtime
 
 - Hot-reload плагинов (перезапуск ядра — ок).
-- WASM формат (Rust dylib достаточно на этапе when plugins controlled by user).
+- WASM runtime как часть process-only cutover.
 - Sandbox для dylib плагинов (плагины доверенные).
-- Локальные per-project плагины (сейчас только installed pack и глобальный
+- Локальные per-project плагины (сейчас только release bundle и глобальный
   personal overlay `~/.proteus/plugins/`).
 - Signed plugins, marketplace (далёкое будущее).
-- Async Model plugins — отложено до Волны 4. Workflow уже вынесен
-  через sync plugin ABI + host callbacks.
+- Async Model dylib — отменён; целевой путь process-only.
 - Migration shim'ы для несовместимых ABI версий (пересборка плагина дешевле).
 - Произвольные plugin dependencies; разрешены `proteus-contracts` и узкие utility-крейты без ABI-типов (сейчас `proteus-process-host`).
-- **YAML declarative плагины как отдельный loader** — отменено. `ConfiguredProcessTool` в ядре + dylib-плагины покрывают все кейсы.
+- **YAML declarative плагины как отдельный loader** — отменено в
+  dylib-этапе и не добавляется перед process-only cutover.
 
 ---
 
-## Решения, зафиксированные по итогам первых экспериментов
+## Архив Решений Первых Dylib-Экспериментов
 
 Эти решения приняты на основе практики первых dylib-плагинов и последующего
-переноса runtime-модулей в `plugins/default`.
+переноса runtime-модулей в `modules/reference`. Они объясняют
+текущий код, но не задают целевую архитектуру.
 
-**Один формат — dylib через abi_stable.** Rust-плагин компактный (~70-100 строк), автор-нейронка справляется за один заход. YAML declarative loader исключён как дублирование кода: `ConfiguredProcessTool` в ядре уже позволяет описывать shell-обёртки в главном config'е без компиляции, дополнительная система не нужна.
+**Один формат этапа — dylib через abi_stable.** Rust-плагин был
+компактным, но сам выбор не закрыл async/streaming, language independence
+и equal-authority требования. Поэтому он не продолжается как target.
 
 **DTO через FFI — JSON-сериализация в RString**, не `#[repr(C)]`. Работает для всех serde-сериализуемых типов, включая `serde_json::Value`-поля. Overhead приемлем для per-turn / per-tool-call вызовов.
 
@@ -630,5 +664,5 @@ tracked плагины обновляются вместе с contracts без l
 - `docs/configuration.md` — как выбирается module в slot через `AppConfig`.
 - `crates/proteus-contracts/src/plugin.rs` — актуальный интерфейс плагинов (sabi_trait'ы и prefix type).
 - `crates/proteus-core/src/core/plugin_loader.rs` — реализация loader'а.
-- `plugins/default/file-tools/src/lib.rs` — полнофункциональный плагин с несколькими tools.
-- `plugins/default/renderer-pack/src/lib.rs` — renderer-плагин с production id `statusline`.
+- `modules/reference/file-tools/src/lib.rs` — полнофункциональный плагин с несколькими tools.
+- `modules/reference/renderer-pack/src/lib.rs` — reference renderer с id `statusline`.

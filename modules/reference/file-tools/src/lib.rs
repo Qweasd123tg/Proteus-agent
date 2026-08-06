@@ -1,13 +1,12 @@
 //! File tools plugin: read_file, write_file, list_dir, grep, find_files,
 //! read_many_files.
 //!
-//! Плагин-версия базовых файловых tools. Логика та же что у builtin-версий
-//! в ядре, но через sync `PluginTool` + `std::fs` (не `tokio::fs`).
+//! Reference-реализация файловых tools для текущего dylib transition.
+//! Она использует sync `PluginTool` + `std::fs` (не `tokio::fs`) и проверяет,
+//! что поведение tools можно вынести за границу core.
 //!
-//! Цель плагина — показать что builtin tools можно вынести из ядра в плагин
-//! без потери функциональности. В Волне 3 ядро будет содержать только
-//! fallback-stubs, всё остальное — плагины. Этот плагин — шаблон для такой
-//! миграции.
+//! Этот crate не является шаблоном для новых modules: целевая граница —
+//! process protocol из `docs/process-module-architecture.md`.
 //!
 //! ## Установка
 //!
@@ -15,7 +14,7 @@
 //! cargo build --release -p file-tools
 //! mkdir -p ~/.proteus/plugins/file-tools
 //! cp target/release/libfile_tools.so ~/.proteus/plugins/file-tools/
-//! cp plugins/default/file-tools/plugin.toml ~/.proteus/plugins/file-tools/
+//! cp modules/reference/file-tools/plugin.toml ~/.proteus/plugins/file-tools/
 //! ```
 //!
 //! После этого добавьте нужные имена (`read_file`, `write_file`, `list_dir`,

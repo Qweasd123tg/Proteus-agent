@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn builtin_module_catalog_lists_builtin_slots() {
-    let catalog = BuiltinModuleCatalog::new();
+    let catalog = ModuleCatalog::new();
 
     let model_ids = catalog
         .manifests_by_kind(ModuleKind::Model)

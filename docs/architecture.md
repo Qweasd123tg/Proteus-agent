@@ -7,7 +7,10 @@
 - [configuration.md](configuration.md) — config schema;
 - [runtime-and-events.md](runtime-and-events.md) — sessions, events и transport;
 - [security-and-policy.md](security-and-policy.md) — tools, permissions и sandbox;
-- [plugin-architecture.md](plugin-architecture.md) — dylib ABI.
+- [process-module-architecture.md](process-module-architecture.md) — принятая
+  единая process-only граница и план cutover;
+- [dylib-transition.md](dylib-transition.md) — временный реализованный dylib
+  path до завершения перехода.
 
 ## За Одну Минуту
 
@@ -29,13 +32,18 @@ Core -> Contract -> Module Implementation
 ```
 
 Core владеет lifecycle и wiring, contracts описывают границы, а конкретное
-поведение выбирается конфигом и приезжает из modules/plugins. Замена поиска,
+поведение выбирается конфигом и приезжает из modules. Замена поиска,
 workflow, policy или compactor не должна требовать переписывания runtime.
 
 Сегодня это уже рабочий dogfood-прототип: есть HTTP/SSE app-server, web client,
 Inspector, durable sessions, provider adapters, tools, approvals, плагины и
 subagents. Это ещё не готовая внешняя plugin platform: ABI меняется, dylib
 считаются доверенными, а часть новых subagent/worktree границ ещё стабилизируется.
+
+2026-08-06 принят более строгий инвариант: реализации одного slot не могут
+иметь разные права из-за происхождения `builtin/dylib/process`. Целевая внешняя
+граница — process worker для всех modules. До завершения cutover схема ниже
+честно показывает текущий смешанный runtime; она не является конечным дизайном.
 
 ## Карта Системы
 
@@ -56,7 +64,7 @@ CLI / Web / Inspector
      +-------+-------+-------+-------+------------+
                      contracts
                          |
-          builtin / dylib / process modules
+      builtin / dylib / process modules          transition only
 ```
 
 Внешний клиент не вызывает provider или tool напрямую. Он отправляет команды в
@@ -74,7 +82,7 @@ app-server и получает contract-события. Runtime на старт�
 | AppServer | HTTP/SSE/JSONL transport, sessions, approvals | реализовывать workflow |
 | Core | lifecycle, wiring, persistence, safety orchestration | знать алгоритм конкретного модуля |
 | Contracts | traits и provider-neutral DTO | зависеть от core или UI |
-| Modules/plugins | search, workflow, policy, tools, memory и другие реализации | связываться друг с другом в обход contracts |
+| Module implementations | search, workflow, policy, tools, memory и другие реализации | связываться друг с другом в обход contracts или получать права по module id/origin |
 | Provider adapters | OpenAI/Anthropic wire formats и streaming | протекать в generic runtime |
 
 ## Карта Репозитория
@@ -85,8 +93,8 @@ crates/
   proteus-core/          runtime, wiring, adapters, app-server, CLI
   proteus-process-host/  lifecycle persistent stdio процессов
 
-plugins/
-  default/               production/dogfood plugins
+modules/
+  reference/             reference/dogfood implementations, не standard pack
   research/              эксперименты вне обычного workspace
 
 clients/
@@ -106,8 +114,10 @@ docs/                     документация
 - `crates/proteus-core/src/core/tool_orchestrator.rs` — общий tool path;
 - `crates/proteus-core/src/app_server.rs` — client boundary;
 - `crates/proteus-contracts/src/contracts/` — публичные traits;
-- `crates/proteus-contracts/src/plugin.rs` — dylib ABI;
-- `plugins/default/coding-workflow/` — production workflows.
+- `crates/proteus-contracts/src/plugin.rs` — временный dylib ABI;
+- `modules/reference/coding-workflow/` — текущие reference workflows;
+- `docs/process-module-architecture.md` — целевой uniform process contract и
+  порядок удаления origin-dependent paths.
 
 ## Как Проходит Turn
 
@@ -159,6 +169,8 @@ Read-only роли можно запускать параллельно. Рол�
 
 ## Slot, Module, Plugin И Pack
 
+Ниже — терминология текущего transition runtime:
+
 - **Slot** — класс заменяемого поведения, описанный trait-ом: `workflow`,
   `context`, `policy`, `search`, `subagent` и т.д.
 - **Module** — реализация slot-а под строковым id, например `search = "rg"`.
@@ -166,8 +178,12 @@ Read-only роли можно запускать параллельно. Рол�
 - **Pack** — config/profile + набор plugins + prompts + eval-договорённости.
 - **Stub** — безопасная fallback-реализация в core.
 
-Config выбирает module ids. `BuiltinModuleCatalog` объединяет builtin и plugin
-registrations, после чего `BuiltinRegistry` строит trait-объекты для snapshot.
+В целевой архитектуре `plugin` исчезает как runtime origin, а pack/profile
+остаётся только явной композицией selection/config. Расположение
+исходников в pack не даёт module прав и не выбирает его неявно.
+
+Config выбирает module ids. `ModuleCatalog` объединяет builtin и plugin
+registrations, после чего `RuntimeRegistry` строит trait-объекты для snapshot.
 Плагины лежат в `~/.proteus/plugins/` и зависят от `proteus-contracts`, а не от
 `proteus-core`.
 
@@ -211,14 +227,18 @@ Anthropic и compatible API живут только в `crates/proteus-core/src/
 usage, пришёл tool lifecycle — появляется tool card. UI не должен угадывать
 возможности по module id или повторно собирать topology из config.
 
-### Plugins
+### Переходный Dylib Runtime
 
 Dylib-плагины — доверенный код в процессе Proteus, не sandbox. Они загружаются
 через `abi_stable`, но ABI пока не обещает внешнюю долгосрочную совместимость.
 После изменения `proteus-contracts::plugin` нужно пересобрать и переустановить
-весь набор через `./install.sh`. Installer staging-ит binary и default dylib
-как один versioned release и атомарно переключает `~/.proteus/current`;
+используемые reference implementations через `./install.sh`. Installer
+staging-ит binary и reference dylib как один versioned release и атомарно
+переключает `~/.proteus/current`;
 `~/.proteus/plugins` остаётся personal overlay.
+
+Это implemented transition, не отдельный класс будущих modules. После
+process-only cutover весь раздел удаляется вместе с loader-ом.
 
 ## Состояние И Хранение
 

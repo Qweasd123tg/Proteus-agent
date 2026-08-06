@@ -14,8 +14,33 @@ Roadmap хранит порядок работ и журнал уже приня
 
 ## Ближайший Порядок
 
-Детали текущего месяца — в разделе «План: Месяц Гибкости (2026-07-16 →
-2026-08-15)» ниже.
+Активный план и Definition of Done находятся в
+[process-module-architecture.md](process-module-architecture.md). Он заменяет
+прежний capability backlog как ближайший приоритет:
+
+1. ✅ Срез 0 закрыт 2026-08-06: equality invariant зафиксирован,
+   reference modules отделены от ложного default/standard pack, source
+   layout и neutral catalog/registry naming подготовлены без изменения
+   runtime behavior.
+2. Срез 1: generic `ProcessModuleSession`, strict protocol v1, bidirectional
+   dispatch, slot authority table и внешний conformance runner.
+3. Срез 2: process `Workflow` + Model/Tool support, достаточные для
+   out-of-tree agent-worker и реального coding turn-а.
+4. Срез 3: выровнять process capabilities остальных slots, включая полный
+   subagent lifecycle и compactor model callback.
+5. Срез 4: одним pre-release cutover удалить dylib loader, `abi_stable`,
+   concrete builtins, pseudo-module ids и старые config/layout без shims.
+6. Срез 5: journal-backed dogfood внешнего worker-а, crash/cancel/resume
+   evidence и временный protocol v1 freeze.
+
+Новые agent features, LSP expansion и новый dylib ABI до завершения vertical
+slice не добавляются.
+
+### Завершённый Фундамент 2026-07
+
+«Месяц Гибкости» закрыл process-host raw seam, два process-slot proofs,
+steering и canonical data, но не обеспечил равенство module implementations по
+origin. Эти завершённые пункты остаются фактической базой cutover:
 
 1. ✅ `task` переведён в единый safety path: это registry facade-tool через
    policy/approval/orchestrator; worktree создаётся только после разрешения.
@@ -56,9 +81,10 @@ model/tool outcomes и проверяет orchestration поверх canonical r
 10-exchange/11-tool и approve/deny dogfood turns совпали; ложный divergence
 производной token estimate исправлен. Integrated corpus дополнен changed
 compaction и terminal workflow `Error`; runtime-owned `Canceled`/`Timeout`
-отделены в fail-closed journal/cold-history gate. Ближайший новый capability
-slice — real rust-analyzer dogfood первого `lsp_diagnostics` prototype; общий
-multi-language LSP subsystem остаётся вне scope до его evidence.
+отделены в fail-closed journal/cold-history gate. Следующим capability slice на
+тот момент был real rust-analyzer dogfood; 2026-08-06 его вытеснил
+process-only agent-worker vertical slice. Общий multi-language LSP subsystem
+остаётся вне scope.
 
 ## Цель
 
@@ -84,11 +110,23 @@ module implementations без переписывания core или форка 
    просто читать всё подряд.
 5. Tests before platform claims: каждый новый slot/module behavior получает
    focused tests на boundary.
+6. Equal authority: module получает права по slot contract и invocation
+   context, а не по `builtin/dylib/process` origin или module id.
 
 ## Журнал Направления
 
 Ниже — датированные решения. Они сохраняются как контекст, но не заменяют
 текущий порядок выше.
+
+Обновление на 2026-08-06: принято process-only направление. Reference/dogfood
+реализации не образуют standard/default pack; source layout переименовывается
+в `modules/reference`, а текущий dylib runtime переводится в transition status.
+Все implementations одного slot должны иметь одинаковые config, cancellation,
+lifecycle, failure semantics и host capabilities. Существующие различия
+(model callback у dylib compactor, урезанный plugin subagent, отсутствие
+process workflow, origin-dependent module config) считаются одним
+архитектурным дефектом. План: protocol kernel → agent-worker vertical slice →
+slot parity → однократное удаление dylib/builtins → реальный dogfood и freeze.
 
 Обновление на 2026-07-24: принят единый стандарт внедрения фич. Replay не
 считается оценкой качества: он проверяет эквивалентность canonical
@@ -102,7 +140,7 @@ packaged fake-model/replay dogfood. Первый Rust consumer process host-а
 реализован 2026-07-28 как tool `lsp_diagnostics`; mock LSP покрывает protocol,
 а real success dogfood ждёт доступного `rust-analyzer` binary.
 
-Обновление на 2026-07-28: добавлен `plugins/default/rust-lsp` без нового
+Обновление на 2026-07-28: добавлен `modules/reference/rust-lsp` без нового
 slot-а и без multi-language registry. Tool принимает только
 workspace-relative `.rs`, через `ContentLengthFraming` выполняет
 `initialize`/`initialized`, persistent `didOpen`/`didChange`, обслуживает
@@ -383,7 +421,7 @@ regressions и Trunk build.
   `docs/research/pi-vs-proteus.md`, без experiment-обвязки.
 
 ✅ Хвосты закрыты 2026-07-20: docs описывают оба process slots; `install.sh`
-staging-ит binary и 14 default plugins в versioned release и атомарно
+staging-ит binary и 14 тогдашних reference dylib в versioned release и атомарно
 переключает `current`, сохраняя personal overlay; короткий
 [design canonical turn data](canonical-turn-data.md) стал входом для
 реализованного 2026-07-23 journal cutover-а.
@@ -602,7 +640,7 @@ UI/business logic в CLI.
 Оставшийся cleanup:
 
 - Поддерживать полный clippy/test baseline зелёным после изменений в core,
-  app-server и plugin packs.
+  app-server и reference modules.
 
 ### v0.1: Repo-Aware Context
 
@@ -835,12 +873,17 @@ Scope:
 - оставить `crates/proteus-core/src/main.rs` тонким launcher-ом;
 - не переносить runtime decisions в visual layer.
 
-### v0.5: Расширение plugin boundary
+### v0.5: Расширение Dylib Boundary — superseded 2026-08-06
 
 Цель — довести dylib-plugin систему до покрытия всех stateful slots и
 стабилизировать внешнюю границу.
 
-Статус (см. `plugin-architecture.md` по волнам):
+Эта цель больше не активна: origin-dependent ABI нарушает equality invariant.
+Завершённые пункты ниже остаются историей и reusable contract work, но
+незавершённый scope заменён process-only планом из
+`process-module-architecture.md`.
+
+Статус (см. `dylib-transition.md` по волнам):
 
 - ✅ Волна 1 — `proteus-contracts` выделен, DTO через builder/`#[non_exhaustive]`,
   Renderer через sabi_trait.
@@ -900,7 +943,7 @@ Scope:
   `~/.proteus/plugins/` personal overlay-ем, а packaged named configs ставит в
   `~/.config/Proteus-agent/configs/` автоматически.
 
-Следующий scope:
+Исторически планировавшийся scope (не активный):
 
 - усиление `coding.plan_execute_review`: фазовые настройки, diff/test runner
   tools, режимы auto-verify и компактный phase/debug report;
@@ -911,7 +954,8 @@ Scope:
 - MCP resources/prompts/subscriptions и non-stdio transports поверх уже
   реализованного stdio tools host;
 - Волна 3 — вынос builtin-модулей в плагины по одному;
-- Волна 4 — async model slot (`Model`) через `FfiFuture` / `FfiStream`.
+- Волна 4 — async model slot (`Model`) через `FfiFuture` /
+  `FfiStream`; этот пункт superseded streaming process contract-ом.
 
 ## Backlog Идей
 
@@ -985,7 +1029,7 @@ Scope:
   context/tool descriptions/history/artifacts находятся на диске и читаются по
   необходимости, а не всегда попадают в prompt.
 - Длинные tool/terminal outputs сохранять как artifacts и возвращать модели
-  краткий summary + path/tail. Черновик живёт в `plugins/research/tool-output-artifacts`;
+  краткий summary + path/tail. Черновик живёт в `modules/research/tool-output-artifacts`;
   публичный contract пока не стабилизирован.
 - Расширить уже реализованный `BudgetTracker` до phase/turn budget при появлении
   второго runtime-потребителя; `UsageMeter`, `ArtifactStore` и
@@ -1074,7 +1118,7 @@ Scope:
 ### Memory / Skills
 
 - **Skills v0 реализован 2026-07-25.** Plugin
-  `plugins/default/skill-pack` без нового
+  `modules/reference/skill-pack` без нового
   slot-а — discovery `~/.proteus/skills/` + `<workspace>/.proteus/skills/`
   (project > user), SKILL.md с frontmatter (совместимо с Claude/opencode),
   context provider `skills` инжектит `<available_skills>`, tool `skill {name}`
@@ -1136,7 +1180,7 @@ Scope:
   `slots[].id = "tool"` больше не принимается Inspector-ом.
   `ModuleKind::Tool` и `slot::TOOL` сохранены как public catalog vocabulary для
   concrete tool registrations и не означают наличие `modules.tool`.
-- Следить за ростом `RuntimeContext`/`BuiltinRegistry`: они неизбежно wiring
+- Следить за ростом `RuntimeContext`/`RuntimeRegistry`: они неизбежно wiring
   layer, но каждый новый slot не должен добавлять provider-specific детали или
   обходить existing contracts.
 - При дальнейшем развитии dynamic tools вынести общий lexical scoring/tokenize

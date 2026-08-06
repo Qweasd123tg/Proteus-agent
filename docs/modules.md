@@ -1,8 +1,14 @@
 # Модули
 
-Модульность v0 означает выбор реализации через config: встроенный fallback из
-ядра там, где он ещё нужен, dylib-плагин из установленного/default pack или
-personal overlay и поддержанный конкретным slot adapter-ом внешний процесс.
+Статус документа: таблицы ниже описывают **текущий переходный runtime**.
+Принятая целевая граница и порядок удаления origin-dependent путей находятся в
+[process-module-architecture.md](process-module-architecture.md).
+
+Сегодня выбор реализации через config может привести к встроенному fallback,
+reference/personal dylib или поддержанному конкретным slot adapter-ом внешнему
+процессу. Reference dylib не образуют installed/default pack в архитектурном
+смысле: это проверочные и dogfood implementations, временно публикуемые
+installer-ом до process-only cutover.
 Process-модули сейчас реализованы для `SearchBackend` и `HistoryCompactor`.
 Строки выбора и metadata встроенных и загруженных плагинных модулей описаны в
 `crates/proteus-core/src/core/module_catalog.rs`, а
@@ -17,8 +23,8 @@ dylib-плагинов, а не реализации модулей и не DTO.
 `crates/proteus-contracts/src/contracts/memory_store.rs` описывает trait
 `MemoryStore`, а `crates/proteus-core/src/plugin_adapters/memory` содержит
 adapter для plugin `MemoryStore`. `jsonl` вынесен в
-`plugins/default/memory-pack`, SQLite FTS5 backend — в
-`plugins/default/sqlite-memory`.
+`modules/reference/memory-pack`, SQLite FTS5 backend — в
+`modules/reference/sqlite-memory`.
 
 `crates/proteus-core/src/process_adapters/<slot>` содержит другой glue layer:
 он переводит generic stdio process protocol в конкретный contract. Сейчас там
@@ -32,6 +38,11 @@ Core-owned no-op/fake fallback-и вынесены отдельно в
 `NoWorkflow`, `TextRenderer`. Catalog регистрирует их под безопасными ids
 (`fake`, `null`, `none`, `deny_all`, `text`), но они не лежат рядом с plugin
 adapters.
+
+Эти stubs и pseudo ids перечислены как implemented fact, а не как целевой
+дизайн. Required slot после cutover должен fail-ить без implementation,
+optional slot — представлять отсутствие структурно; test doubles проходят тот
+же process protocol, что и остальные modules.
 
 Не всё host-side является module. Поэтому runtime support вынесен из этой
 папки:
@@ -47,7 +58,7 @@ adapters.
 proteus modules list
 ```
 
-Эта команда читает `BuiltinModuleCatalog`; она не устанавливает модули и не является package manager.
+Эта команда читает `ModuleCatalog`; она не устанавливает модули и не является package manager.
 
 Config-defined tools поддерживают process и stdio MCP executors, а
 `SearchBackend` и `HistoryCompactor` дополнительно могут быть внешними process
@@ -127,7 +138,7 @@ Anthropic/OpenAI-compatible endpoint, но workflow/runtime должны зав�
 от canonical model contract и выбранного adapter-а.
 
 Runtime зависит от единственного model contract `Model`: `id`, `capabilities`,
-`provider_hosted_tools`, `stream` и default `complete`. `BuiltinRegistry`
+`provider_hosted_tools`, `stream` и default `complete`. `RuntimeRegistry`
 использует `ModelService` как shaping wrapper: перед provider call он вызывает
 `RequestShaper` с `ModelCapabilities`. Поэтому OpenAI/Anthropic/local mapping
 остаётся внутри provider-а, а canonical shaping остаётся единым для всех
@@ -157,7 +168,7 @@ provider-ов, где adapter не может достоверно вывест�
 задавайте его в provider profile явно; иначе UI не показывает context ring, а
 compactor использует свой fallback threshold.
 
-`BuiltinModuleCatalog` описывает model providers как `ModuleKind::Model`, хотя в config они выбираются через `active_provider`/`providers`, а не через `modules.model`.
+`ModuleCatalog` описывает model providers как `ModuleKind::Model`, хотя в config они выбираются через `active_provider`/`providers`, а не через `modules.model`.
 
 ### Provider-hosted tools
 
@@ -364,20 +375,20 @@ enabled = ["apply_patch", "remember_fact", "request_user_input", "search"]
 
 Tools не являются slot-ом уровня `modules.*`. Это набор concrete `Tool`-реализаций, которые поставляются через config/catalog и регистрируются в `ToolRegistry`. Четыре host-side capability остаются в ядре: `apply_patch`, `search`, `remember_fact`, user-input tool (`request_user_input`; Claude-compatible alias `AskUserQuestion`). Остальные базовые tools вынесены в плагины:
 
-- `file-tools` — `read_file`, `write_file`, `edit_file`, `list_dir`, `grep`, `find_files`, `read_many_files` (из `plugins/default/file-tools/`); `write_file` создаёт недостающие parent directories внутри workspace; `edit_file` — точечная замена текста (opencode edit shape: `old_string` должен быть уникален, либо `replace_all`);
-- `git-tools` — `git_status`, `git_diff` (из `plugins/default/git-tools/`);
-- `skill-pack` — `skill { name }` (из `plugins/default/skill-pack/`): читает
+- `file-tools` — `read_file`, `write_file`, `edit_file`, `list_dir`, `grep`, `find_files`, `read_many_files` (из `modules/reference/file-tools/`); `write_file` создаёт недостающие parent directories внутри workspace; `edit_file` — точечная замена текста (opencode edit shape: `old_string` должен быть уникален, либо `replace_all`);
+- `git-tools` — `git_status`, `git_diff` (из `modules/reference/git-tools/`);
+- `skill-pack` — `skill { name }` (из `modules/reference/skill-pack/`): читает
   тело выбранного `SKILL.md` без YAML frontmatter. Имя должно присутствовать в
   `<available_skills>` текущего context snapshot; неизвестное имя возвращает
   failed `ToolResult`, а не читает произвольный путь;
 - `rust-lsp` — `lsp_diagnostics { path }` (из
-  `plugins/default/rust-lsp/`): для существующего workspace-relative `.rs`
+  `modules/reference/rust-lsp/`): для существующего workspace-relative `.rs`
   файла держит persistent `rust-analyzer`, выполняет LSP
   `initialize`/`initialized`, `didOpen`/`didChange` и возвращает bounded
   `publishDiagnostics`. Другие языки, navigation tools и общий LSP subsystem в
   v0 отсутствуют; неизвестный binary не заменяется `cargo check` fallback-ом;
 - `shell-tool` — `shell`, `exec_command`, `write_stdin` (из
-  `plugins/default/shell-tool/`); `exec_command`/`write_stdin` дают
+  `modules/reference/shell-tool/`); `exec_command`/`write_stdin` дают
   персистентные интерактивные PTY-сессии в духе Codex unified exec: команда
   живёт между tool-вызовами, модель докидывает stdin (включая Ctrl-C/Ctrl-D)
   и забирает свежий вывод. Все команды получают env-нейтрализацию
@@ -387,7 +398,7 @@ Tools не являются slot-ом уровня `modules.*`. Это набо�
   всегда `ok: true`: exit code процесса — данные в тексте/metadata, а не сбой
   tool-а (parity с upstream `ExecCommandToolOutput`); one-shot `shell`
   сохраняет `ok: false` при ненулевом exit;
-- `plan-tool` — `update_plan` (из `plugins/default/plan-tool/`): модель ведёт
+- `plan-tool` — `update_plan` (из `modules/reference/plan-tool/`): модель ведёт
   пошаговый план со статусами (`pending`/`in_progress`/`completed`) в духе
   Codex `update_plan` и Claude Code TodoWrite. Состояние плана живёт в
   transcript как последовательность tool calls: сервер десериализует аргументы
@@ -395,7 +406,7 @@ Tools не являются slot-ом уровня `modules.*`. Это набо�
   cardinality/длину/непустой текст шагов; `at most one in_progress` остаётся
   model-facing инструкцией. Отдельного runtime-состояния и протокольных событий
   нет, клиент рендерит карточку плана из аргументов последнего вызова;
-- `policy-pack` — `request_permissions` (из `plugins/default/policy-pack/`):
+- `policy-pack` — `request_permissions` (из `modules/reference/policy-pack/`):
   turn-scoped эскалация через approval-gated grants, см.
   `docs/security-and-policy.md`.
 
@@ -980,9 +991,13 @@ diagnostic view поверх `TopologySnapshot` в core/app-client слое. Е�
 
 ## Как Добавить Новый Модуль
 
-1. Реализовать подходящий trait из `crates/proteus-contracts/src/contracts`.
-2. Для внешней функциональности предпочтительно сделать dylib-плагин в `plugins/<name>`. Если нужен core-owned fallback, разместить его в `crates/proteus-core/src/stubs`; provider wire adapter — в `crates/proteus-core/src/adapters`; ABI glue для нового plugin slot — в `crates/proteus-core/src/plugin_adapters`.
-3. Добавить строковый ключ, manifest и factory в `BuiltinModuleCatalog`.
-4. Добавить config example.
-5. Добавить test, который доказывает заменяемость без изменения `AgentRuntime`.
-6. Обновить этот документ.
+1. Найти slot contract в `crates/proteus-contracts/src/contracts`.
+2. Если slot уже мигрирован на process protocol v1 — реализовать внешний
+   worker и пройти его conformance gate.
+3. Если slot ещё не мигрирован — сначала добавить общий process adapter для
+   всех implementations slot; новый dylib или concrete builtin запрещён.
+4. Выбрать module id и explicit config/profile без core branch по этому id.
+5. Добавить runtime swap test двух workers через один contract path.
+6. Reference implementation при необходимости разместить в
+   `modules/reference/<name>` и явно назвать reference, не default/standard.
+7. Обновить этот документ и `configuration.md`.

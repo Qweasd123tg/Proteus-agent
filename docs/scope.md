@@ -4,7 +4,7 @@
 критическом пути Proteus**. Vision живёт в [spec.md](spec.md), подробная история
 решений — в [roadmap.md](roadmap.md).
 
-Последнее обновление: 2026-07-24.
+Последнее обновление: 2026-08-06.
 
 ## Короткий Ответ
 
@@ -17,14 +17,16 @@ model + context + workflow + tools + policy
   -> durable session и trace
 ```
 
-Базовый стек уже собран. Текущая фаза — **«Месяц Гибкости» (2026-07-16 →
-2026-08-15, план в `roadmap.md`)**: снизить цену первого расширения — слоты
-из внешних процессов на любом языке и steering корневого цикла. Все четыре
-технических недели плана закрыты досрочно 2026-07-20: lifecycle interactive
-exec, внешние process `SearchBackend`/`HistoryCompactor`, root-session
-steering/follow-up и совместимый atomic install bundle. Общий safety path,
-fail-closed shell isolation и обязательный auth для non-loopback HTTP уже
-закрыты regression-тестами.
+Базовый стек уже собран. «Месяц Гибкости» доказал raw process seam двумя
+slot adapters и закрыл root steering, lifecycle и atomic install, но оставил
+реализации одного slot с разными правами в зависимости от
+`builtin/dylib/process` origin.
+
+2026-08-06 владелец принял новый приоритет: **единый process-only module
+runtime**. Целевой инвариант, protocol v1 и порядок однократного cutover
+описаны в [process-module-architecture.md](process-module-architecture.md).
+Существующий dylib path пока остаётся implemented transition, чтобы не ломать
+dogfood до готовности vertical slice; новые dylib surfaces не добавляются.
 
 ## Что Работает
 
@@ -32,7 +34,7 @@ fail-closed shell isolation и обязательный auth для non-loopback
 - configurable workflows, context builders, compaction и tool exposure;
 - внешние process `SearchBackend` и pure-transform `HistoryCompactor` с
   языконезависимым JSON-RPC протоколом;
-- file/git/shell/plan tools через default plugins;
+- file/git/shell/plan tools через текущие reference dylib;
 - mode-aware policy, approvals и session-scoped control plane;
 - canonical append-only session journal, config snapshots, resume/transcript
   projections и eval report;
@@ -44,8 +46,8 @@ fail-closed shell isolation и обязательный auth для non-loopback
   background UI lifecycle;
 - bounded root-session steering queue с model-boundary delivery,
   settlement follow-up, HTTP/stdio receipts и web reconnect;
-- versioned binary/default-plugin releases с atomic `~/.proteus/current` и
-  отдельным personal plugin overlay;
+- versioned binary/reference-dylib releases с atomic `~/.proteus/current` и
+  отдельным personal dylib overlay на время cutover;
 - `doctor`, `inspect topology`, `modules list`, `eval report`, read-only
   `replay prompt` и side-effect-free `replay workflow`;
 - root boundary/swap tests и отдельные Trunk builds клиентов.
@@ -54,6 +56,31 @@ fail-closed shell isolation и обязательный auth для non-loopback
 ABI и внутренние DTO, если dogfood показывает неправильную границу.
 
 ## Текущий Приоритет
+
+Активная работа — Срез 1 плана process-only cutover:
+
+1. generic `ProcessModuleSession` и strict protocol v1;
+2. единая slot authority table и conformance runner;
+3. process `Workflow` как первый bidirectional agent-worker vertical slice;
+4. process `Model`/Tool paths, достаточные для реального внешнего agent loop;
+5. parity остальных slots и однократное удаление dylib/builtin concrete
+   implementations без aliases.
+
+Подготовительный Срез 0 переименовывает source implementations из ложного
+`plugins/default` в `modules/reference`, отделяет текущий dylib reference от
+целевой архитектуры и фиксирует запрет origin-specific capabilities.
+Reference modules не считаются стандартным набором и не получают прав,
+недоступных любой другой implementation их slot.
+
+До завершения runtime cutover фактическое поведение остаётся смешанным:
+reference modules загружаются как dylib, process adapters существуют только
+для `SearchBackend` и pure-transform `HistoryCompactor`, а provider adapters и
+часть runners живут в core. Это известный migration state, не platform claim.
+
+Real `rust-analyzer` dogfood и новые agent capabilities отложены за process
+vertical slice: они не должны расширять старую dylib поверхность.
+
+### Завершённый Фундамент
 
 Порядок месяца задаёт «План: Месяц Гибкости» в `roadmap.md`. Недели 1–4
 закрыты: raw seam и lifecycle interactive exec; внешние языконезависимые
@@ -88,7 +115,7 @@ corpus теперь покрывает changed compaction с history replacement
 canceled dogfood journal подтвердил читаемую ошибку и побайтовую неизменность
 source. Их durable evidence остаётся canonical `TurnSettled` + cold `/history`.
 
-`plugins/default/skill-pack` v0 закрыт 2026-07-25 по согласованному
+`modules/reference/skill-pack` v0 закрыт 2026-07-25 по согласованному
 docs-on-disk/context/tool плану без нового slot-а: user/project discovery,
 project precedence, `<available_skills>` и read-only tool `skill`; packaged
 fake-model run подтвердил canonical request и workflow replay. Узкий Rust LSP
@@ -163,15 +190,16 @@ compaction и terminal `Error` добавлены в integrated corpus, внеш
 gate. Packaged skills dogfood и первый Rust LSP slice закрыты; следующий
 checkpoint — real rust-analyzer success dogfood при доступном binary и решение
 по его evidence. Новый session format без измеренного bottleneck не
-проектируется.
+проектируется. Этот локальный checkpoint был superseded process-only решением
+2026-08-06; LSP возвращается после agent-worker vertical slice.
 
 ## Не На Критическом Пути
 
 Эти возможности могут существовать в коде или backlog, но не должны вытеснять
-real rust-analyzer dogfood или smallest подтверждённый dogfood defect:
+process protocol v1, agent-worker vertical slice или defect текущего dogfood:
 
-- marketplace, signed plugins и внешний package manager;
-- WASM plugin runtime и dylib hot-unload;
+- marketplace, signed modules и внешний package manager;
+- WASM runtime и dylib hot-unload;
 - multi-agent DAG и автоматический merge worktree-веток;
 - большой UI rewrite и cosmetic renderer polish;
 - memory consolidation/background jobs;
@@ -187,7 +215,7 @@ real rust-analyzer dogfood или smallest подтверждённый dogfood 
 Research-код не считается production path и не должен автоматически попадать в
 root workspace или `install.sh`:
 
-- `plugins/research/tool-output-artifacts`;
+- `modules/research/tool-output-artifacts`;
 - новые best-of packs до появления измеримого eval;
 - `ArtifactStore` и `ToolResultProcessor`;
 - новые host-defined slots без двух уже работающих независимых реализаций;

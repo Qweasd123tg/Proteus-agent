@@ -10,7 +10,7 @@ releases_dir="${proteus_home}/releases"
 current_release="${proteus_home}/current"
 config_home="${PROTEUS_CONFIG_HOME:-${HOME}/.config/Proteus-agent}"
 configs_dir="${config_home}/configs"
-managed_plugins="file-tools git-tools shell-tool plan-tool rg-search direct-patch coding-workflow context-pack skill-pack rust-lsp codex-compactor codex-tool-exposure memory-pack policy-pack renderer-pack sqlite-memory"
+reference_dylibs="file-tools git-tools shell-tool plan-tool rg-search direct-patch coding-workflow context-pack skill-pack rust-lsp codex-compactor codex-tool-exposure memory-pack policy-pack renderer-pack sqlite-memory"
 
 cargo build --release --manifest-path "${project_dir}/Cargo.toml" \
   -p proteus-core \
@@ -38,8 +38,8 @@ release_id=$(date -u +%Y%m%dT%H%M%SZ)-$$
 release_tmp="${releases_dir}/.${release_id}.tmp"
 release_dir="${releases_dir}/${release_id}"
 current_tmp="${proteus_home}/.current.$$"
-legacy_stage="${proteus_home}/.legacy-default-plugins.${release_id}.tmp"
-legacy_dir="${proteus_home}/legacy-default-plugins/${release_id}"
+legacy_stage="${proteus_home}/.legacy-reference-dylibs.${release_id}.tmp"
+legacy_dir="${proteus_home}/legacy-reference-dylibs/${release_id}"
 release_published=0
 rm -f "${bin_tmp}" "${current_tmp}"
 rm -rf "${release_tmp}" "${legacy_stage}"
@@ -58,7 +58,7 @@ cleanup_install() {
       fi
     else
       mkdir -p "${plugins_dir}"
-      for plugin in ${managed_plugins}; do
+      for plugin in ${reference_dylibs}; do
         if [ -e "${legacy_stage}/${plugin}" ] || [ -L "${legacy_stage}/${plugin}" ]; then
           if [ ! -e "${plugins_dir}/${plugin}" ] && [ ! -L "${plugins_dir}/${plugin}" ]; then
             mv "${legacy_stage}/${plugin}" "${plugins_dir}/"
@@ -226,7 +226,7 @@ close_previous_inspector_server() {
 if [ ! -x "${proteus_bin}" ]; then
   echo "Proteus binary is missing; building release binary..." >&2
   "${project_dir}/install.sh"
-elif find "${project_dir}/crates" "${project_dir}/plugins/default" "${project_dir}/Cargo.toml" "${project_dir}/Cargo.lock" -newer "${proteus_bin}" -print -quit | grep -q .; then
+elif find "${project_dir}/crates" "${project_dir}/modules/reference" "${project_dir}/Cargo.toml" "${project_dir}/Cargo.lock" -newer "${proteus_bin}" -print -quit | grep -q .; then
   echo "Proteus binary is stale; rebuilding release binary..." >&2
   "${project_dir}/install.sh"
 fi
@@ -370,7 +370,7 @@ chmod 755 "${bin_tmp}"
 mkdir -p "${release_tmp}/plugins"
 cp "${project_dir}/target/release/proteus" "${release_tmp}/proteus"
 chmod 755 "${release_tmp}/proteus"
-install_plugin() {
+install_reference_dylib() {
   plugin="$1"
   source_dir="$2"
   src_so="${project_dir}/target/release/lib$(printf '%s' "${plugin}" | tr '-' '_').so"
@@ -386,14 +386,14 @@ install_plugin() {
   fi
 }
 
-for plugin in ${managed_plugins}; do
-  install_plugin "${plugin}" "plugins/default/${plugin}"
+for plugin in ${reference_dylibs}; do
+  install_reference_dylib "${plugin}" "modules/reference/${plugin}"
 done
 
-# Move default plugins from the old mutable layout out of the overlay before
-# publishing the bundle. Until `current` switches, the EXIT trap restores them;
-# afterwards it preserves them as a timestamped backup.
-for plugin in ${managed_plugins}; do
+# Move managed reference dylibs from the old mutable layout out of the overlay
+# before publishing the bundle. Until `current` switches, the EXIT trap
+# restores them; afterwards it preserves them as a timestamped backup.
+for plugin in ${reference_dylibs}; do
   if [ -e "${plugins_dir}/${plugin}" ] || [ -L "${plugins_dir}/${plugin}" ]; then
     mkdir -p "${legacy_stage}"
     mv "${plugins_dir}/${plugin}" "${legacy_stage}/"

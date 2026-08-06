@@ -461,8 +461,8 @@ fn probe_output(result: &ToolResult) -> AgentOutput {
     )
 }
 
-fn catalog(diverge: bool) -> BuiltinModuleCatalog {
-    let mut catalog = BuiltinModuleCatalog::new();
+fn catalog(diverge: bool) -> ModuleCatalog {
+    let mut catalog = ModuleCatalog::new();
     let workflow = PluginWorkflow_TO::from_value(ProbeWorkflow { diverge }, TD_Opaque);
     catalog
         .register_plugin_workflow(WORKFLOW_ID, workflow)

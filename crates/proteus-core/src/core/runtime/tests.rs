@@ -18,15 +18,15 @@ use super::turn::{TurnAbort, turn_settlement_status};
 use super::*;
 use crate::{
     contracts::{RuntimeContext, Workflow, WorkflowOutput},
-    core::{BuiltinModuleCatalog, ConfiguredToolConfig, ConfiguredToolExecutorConfig},
+    core::{ConfiguredToolConfig, ConfiguredToolExecutorConfig, ModuleCatalog},
     domain::{AgentOutput, AgentTask, HistoryCompactionReport, ToolSafety},
     model_standard::{CanonicalMessage, CanonicalModelRequest, MessageRole},
 };
 
 mod steering_integration;
 
-fn test_catalog() -> BuiltinModuleCatalog {
-    let mut catalog = BuiltinModuleCatalog::new();
+fn test_catalog() -> ModuleCatalog {
+    let mut catalog = ModuleCatalog::new();
     catalog
         .register_plugin_context_builder(
             "simple",
@@ -418,7 +418,7 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
     let mut reloaded_config = AppConfig::default();
     reloaded_config.profile.name = "reloaded-profile".to_owned();
     reloaded_config.modules.patch = "null".to_owned();
-    let mut reloaded_registry = BuiltinRegistry::from_catalog(
+    let mut reloaded_registry = RuntimeRegistry::from_catalog(
         &reloaded_config,
         workspace.path().to_path_buf(),
         test_catalog(),
@@ -537,7 +537,7 @@ async fn reload_registry_publishes_new_snapshot_without_mutating_running_turn() 
         },
     });
     let next_registry =
-        BuiltinRegistry::from_catalog(&next_config, cwd.path().to_path_buf(), test_catalog())
+        RuntimeRegistry::from_catalog(&next_config, cwd.path().to_path_buf(), test_catalog())
             .expect("next registry");
     let report = runtime
         .reload_registry(next_registry, None)

@@ -236,14 +236,16 @@ Move, даже если он указывает обратно внутрь work
 обычный function tool. Явно настроенный freeform custom tool всё равно проходит
 через тот же `ToolOrchestrator`, `ApprovalPolicy` и `PatchApplier`.
 
-Tools из плагинов `file-tools` (`read_file` / `write_file` / `list_dir` /
+Tools из текущих reference modules `file-tools` (`read_file` / `write_file` / `list_dir` /
 `grep` / `find_files` / `read_many_files`), `git-tools` (`git_status` /
 `git_diff`) и `shell-tool` применяют свои
 собственные проверки workspace-boundary. Core не гарантирует эту проверку за
-плагины — это обязанность автора плагина.
-Default/behavior tool-плагины должны использовать общие helper-ы
+implementations — это обязанность автора module.
+Reference tool implementations должны использовать общие helper-ы
 `proteus_contracts::tool_support::{workspace_path, workspace_path_for_write}`,
-чтобы read/write path handling не расходился между packs.
+чтобы read/write path handling не расходился. После process-only cutover
+одинаковый Tool invocation contract не отменяет implementation-local path
+validation или host policy.
 `write_file` может создавать недостающие parent directories, но только после
 лексической проверки пути, запрета `..` и проверки symlink parents, чтобы
 создание не уходило за пределы workspace.

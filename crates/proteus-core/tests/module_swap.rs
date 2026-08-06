@@ -39,9 +39,10 @@ use proteus_core::{
         ToolInvocationOwner, ToolRegistry, ToolSource, Workflow,
     },
     core::{
-        AgentRuntime, AppConfig, BuiltinModuleCatalog, BuiltinRegistry, ConfiguredMcpServerConfig,
-        ConfiguredToolConfig, ConfiguredToolExecutorConfig, FanoutEventSink, InMemoryEventStore,
-        ModelService, ProcessEnvironmentConfig, SessionStore, SubagentSurface, ToolOrchestrator,
+        AgentRuntime, AppConfig, ConfiguredMcpServerConfig, ConfiguredToolConfig,
+        ConfiguredToolExecutorConfig, FanoutEventSink, InMemoryEventStore, ModelService,
+        ModuleCatalog, ProcessEnvironmentConfig, RuntimeRegistry, SessionStore, SubagentSurface,
+        ToolOrchestrator,
     },
     domain::{
         AgentTask, CacheHints, ContextChunk, Event, EventContext, ModelLimits, ModelRef,
@@ -199,9 +200,9 @@ fn set_codex_context_config(config: &mut AppConfig, value: serde_json::Value) {
     set_module_config(config, "context", "codex_context", value);
 }
 
-fn test_catalog() -> BuiltinModuleCatalog {
+fn test_catalog() -> ModuleCatalog {
     disable_plugin_loader();
-    let mut catalog = BuiltinModuleCatalog::new();
+    let mut catalog = ModuleCatalog::new();
     catalog
         .register_plugin_context_builder(
             "simple",
@@ -307,8 +308,8 @@ fn test_memory_path() -> std::path::PathBuf {
     ))
 }
 
-fn registry_from_test_config(config: &AppConfig, cwd: &std::path::Path) -> BuiltinRegistry {
-    BuiltinRegistry::from_catalog(config, cwd.to_path_buf(), test_catalog()).unwrap()
+fn registry_from_test_config(config: &AppConfig, cwd: &std::path::Path) -> RuntimeRegistry {
+    RuntimeRegistry::from_catalog(config, cwd.to_path_buf(), test_catalog()).unwrap()
 }
 
 fn single_loop_workflow(max_tool_rounds: usize) -> PluginWorkflowAdapter {

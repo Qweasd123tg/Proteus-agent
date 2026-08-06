@@ -37,7 +37,7 @@ activity и nested tools через `/history` после reload посреди 
   дочерний цикл :545-595 использует `complete`, НЕ stream — текстовых дельт от
   ребёнка нет, наружу уходит только summary в ToolResult).
 - Обрывы were: (1) вызов `task` минует ToolOrchestrator
-  (`plugins/default/coding-workflow/src/host.rs:179-180`) — нет live-карточки
+  (`modules/reference/coding-workflow/src/host.rs:179-180`) — нет live-карточки
   самого task; (2) клиент не знал Subagent*-событий; (3) клиент игнорировал
   `envelope.thread_id`.
 - `ThreadId = Uuid`, в JSON — строка. Сравнивать `envelope.thread_id` (строка)

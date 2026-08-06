@@ -728,7 +728,7 @@ fn doctor_checks_nested_module_config_tool_lists() {
 #[test]
 fn doctor_accepts_fake_model_without_secret() {
     let config = AppConfig::default();
-    let catalog = BuiltinModuleCatalog::new();
+    let catalog = ModuleCatalog::new();
     let mut findings = DoctorFindings::default();
 
     check_model_config(&mut findings, &catalog, &config);

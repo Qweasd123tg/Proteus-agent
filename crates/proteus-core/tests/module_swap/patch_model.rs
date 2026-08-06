@@ -2,7 +2,7 @@ use super::*;
 
 // file-tools workspace-escape and error-message tests moved to the file-tools
 // plugin alongside the implementations themselves. Direct patch algorithm tests
-// live in plugins/default/direct-patch; core tests keep only the tool delegation
+// live in modules/reference/direct-patch; core tests keep only the tool delegation
 // boundary.
 
 #[tokio::test]

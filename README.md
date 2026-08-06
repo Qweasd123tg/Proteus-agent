@@ -8,11 +8,15 @@
 
 Proteus уже можно использовать для локального dogfood: он запускает coding
 turn-ы, вызывает tools с approvals, сохраняет сессии и event log, работает из
-CLI или через web-клиент и загружает стандартные реализации как dylib-плагины.
+CLI или через web-клиент. Текущий release временно загружает используемые
+dogfood/reference реализации как dylib; они не образуют standard/default pack.
 
 Это пока не готовая универсальная платформа. Текущая цель — надёжный локальный
-coding loop и проверяемые границы модулей. Marketplace, WASM runtime, полный
-hot-reload и полный MCP provider остаются за пределами рабочего v0.
+coding loop и единая process-only граница, на которой реализации одного slot
+имеют одинаковые права независимо от происхождения. План cutover зафиксирован
+в [process-module-architecture.md](docs/process-module-architecture.md).
+Marketplace, WASM runtime, полный hot-reload и полный MCP provider остаются за
+пределами рабочего v0.
 
 ## Запуск за 5 минут
 
@@ -32,10 +36,12 @@ export ANTHROPIC_API_KEY="..."
 proteus doctor
 ```
 
-Installer собирает binary и стандартные dylib как один versioned release и
-атомарно переключает `~/.proteus/current`; личные/out-of-tree плагины остаются
-в `~/.proteus/plugins`. Поэтому повторная установка не смешивает новый binary
-с частично обновлённым plugin pack.
+До process-only cutover installer собирает binary и выбранные текущими
+dogfood-профилями reference dylib как один versioned release и атомарно
+переключает `~/.proteus/current`; personal/out-of-tree dylib остаются в
+`~/.proteus/plugins`. Это переходный implemented layout, а не целевой module
+contract. Повторная установка не смешивает новый binary с частично
+обновлёнными dylib.
 
 `proteus init coding` создаёт или перезаписывает
 `~/.config/Proteus-agent/configs/config.toml`. Если рабочий config уже есть,
@@ -85,9 +91,9 @@ cargo run --bin proteus -- \
 - Models: встроенные adapters для `openai`, `openai_compatible`, `anthropic` и
   тестовый `fake` provider.
 - Модули: 11 выбираемых через config behavior slots (model provider плюс 10
-  ключей `modules.*`); стандартные
-  tool/search/context/workflow/policy/patch/memory/renderer реализации
-  поставляются как dylib-плагины. Tools сохраняют отдельный catalog/registry
+  ключей `modules.*`); используемые dogfood-профилями reference
+  tool/search/context/workflow/policy/patch/memory/renderer реализации сейчас
+  поставляются как переходные dylib. Tools сохраняют отдельный catalog/registry
   kind: в topology `ToolRegistry` показывается как runtime node, а не как
   двенадцатый behavior slot.
 - Обычные tools: единый registry, permission modes `plan` / `normal` / `auto`,
@@ -113,10 +119,10 @@ CLI / chat / Inspector
 AppServer + AgentRuntime                 core
           |
           v
-traits + DTO + canonical model           proteus-contracts
+traits + DTO + canonical model          proteus-contracts
           |
           v
-stub / provider adapter / dylib module   implementation
+module implementation                    process-only target
 ```
 
 Главный инвариант:
@@ -133,10 +139,11 @@ Core управляет turn-ом и wiring, но не знает детали �
 Карта репозитория следует тем же границам:
 
 ```text
-crates/proteus-contracts/    публичные traits, DTO и plugin ABI
+crates/proteus-contracts/    публичные traits, DTO и временный plugin ABI
 crates/proteus-core/         runtime, wiring, adapters, app-server и CLI
 crates/proteus-process-host/ lifecycle persistent stdio child-процессов
-plugins/default/             стандартные dylib-плагины
+modules/reference/           reference/dogfood implementations, не defaults
+modules/research/            нестабилизированные module experiments
 clients/web/                 основной chat-клиент
 clients/inspector/           config/topology-клиент
 configs/                     packaged named configs и prompts
@@ -151,7 +158,7 @@ docs/                        reference, правила и планы
 | Рабочий контур сейчас | Не является текущим обещанием |
 |---|---|
 | Локальный coding loop через CLI или HTTP/SSE | Публичный сетевой сервис |
-| Dylib-плагины, загружаемые при старте | Marketplace, WASM и sandbox для плагинов |
+| Переходные dylib и два process-module adapters | Завершённый единый process-only runtime |
 | Config/profile выбирает реализации slot-ов | Произвольный unload/reload всех dylib |
 | MCP stdio discovery для tools | MCP resources, prompts, subscriptions и другие transports |
 | Subagent slot для делегирования дочерним циклам | Общий multi-agent DAG/runtime |
@@ -270,7 +277,9 @@ Inspector при необходимости запускается так же �
 - хочу изменить config или provider —
   [configuration.md](docs/configuration.md);
 - хочу добавить или заменить модуль — [modules.md](docs/modules.md), затем
-  [plugin-architecture.md](docs/plugin-architecture.md);
+  [process-module-architecture.md](docs/process-module-architecture.md);
+- нужен точный reference ещё работающего dylib path —
+  [dylib-transition.md](docs/dylib-transition.md);
 - хочу добавить и доказательно проверить фичу —
   [slot-governance.md](docs/slot-governance.md), затем
   [testing.md](docs/testing.md#стандарт-внедрения-и-проверки-фичи);

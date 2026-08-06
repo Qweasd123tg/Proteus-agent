@@ -34,11 +34,11 @@ use proteus_contracts::{
     },
 };
 
-use crate::core::{BuiltinModuleCatalog, PluginContributions};
+use crate::core::{ModuleCatalog, PluginContributions};
 
 /// Адаптер, через который плагин регистрирует свои модули в ядре.
 struct PluginRegistryAdapter<'a> {
-    catalog: &'a mut BuiltinModuleCatalog,
+    catalog: &'a mut ModuleCatalog,
 }
 
 impl<'a> PluginRegistry for PluginRegistryAdapter<'a> {
@@ -252,7 +252,7 @@ pub struct PluginManifest {
 
 pub fn load_plugins_from_dir(
     plugins_dir: &Path,
-    catalog: &mut BuiltinModuleCatalog,
+    catalog: &mut ModuleCatalog,
 ) -> Vec<PluginLoadReport> {
     // Escape hatch для тестов и для запуска без плагинов:
     // `PROTEUS_PLUGINS_DISABLE=1` полностью отключает сканирование.
@@ -262,34 +262,34 @@ pub fn load_plugins_from_dir(
     scan_plugins_dir(plugins_dir, catalog)
 }
 
-/// Builds the builtin catalog and loads plugins from the standard directory.
+/// Builds the transition runtime catalog and loads configured dylib sources.
 ///
-/// Callers that only need builtins (notably isolated tests) should continue to
-/// use [`BuiltinModuleCatalog::new`] directly.
-pub fn load_default_module_catalog() -> (BuiltinModuleCatalog, Vec<PluginLoadReport>) {
-    let mut catalog = BuiltinModuleCatalog::new();
+/// Isolated tests that do not need dylib discovery should use
+/// [`ModuleCatalog::new`] directly.
+pub fn load_runtime_module_catalog() -> (ModuleCatalog, Vec<PluginLoadReport>) {
+    let mut catalog = ModuleCatalog::new();
     let mut reports = Vec::new();
-    for plugins_dir in default_plugin_dirs() {
+    for plugins_dir in dylib_search_dirs() {
         reports.extend(load_plugins_from_dir(&plugins_dir, &mut catalog));
     }
     (catalog, reports)
 }
 
-fn default_plugin_dirs() -> Vec<PathBuf> {
-    plugin_dirs(
+fn dylib_search_dirs() -> Vec<PathBuf> {
+    compose_dylib_search_dirs(
         std::env::var_os("PROTEUS_PLUGINS_DIR").map(PathBuf::from),
-        default_packaged_plugins_dir(),
-        default_personal_plugins_dir(),
+        packaged_reference_dylibs_dir(),
+        personal_dylibs_dir(),
     )
 }
 
-fn plugin_dirs(
+fn compose_dylib_search_dirs(
     explicit: Option<PathBuf>,
     packaged: Option<PathBuf>,
     personal: Option<PathBuf>,
 ) -> Vec<PathBuf> {
-    // Preserve the pre-bundle escape hatch exactly: an explicit plugins dir is
-    // a full override, not an overlay on top of the installed default pack.
+    // An explicit transition dylib directory is a full override, not an
+    // overlay on top of packaged references and the personal directory.
     if let Some(explicit) = explicit {
         return vec![explicit];
     }
@@ -318,10 +318,7 @@ fn same_directory(left: Option<&Path>, right: &Path) -> bool {
 
 /// Внутренний вариант `load_plugins_from_dir`, не смотрящий на env.
 /// Полезен в unit-тестах, которые не должны мутировать глобальные переменные.
-fn scan_plugins_dir(
-    plugins_dir: &Path,
-    catalog: &mut BuiltinModuleCatalog,
-) -> Vec<PluginLoadReport> {
+fn scan_plugins_dir(plugins_dir: &Path, catalog: &mut ModuleCatalog) -> Vec<PluginLoadReport> {
     let mut reports = Vec::new();
 
     let entries = match std::fs::read_dir(plugins_dir) {
@@ -380,7 +377,7 @@ fn scan_plugins_dir(
 fn load_from_manifest_dir(
     plugin_dir: &Path,
     manifest_path: &Path,
-    catalog: &mut BuiltinModuleCatalog,
+    catalog: &mut ModuleCatalog,
 ) -> PluginLoadReport {
     let manifest = match read_manifest(manifest_path) {
         Ok(m) => m,
@@ -492,7 +489,7 @@ fn is_dylib_file(path: &Path) -> bool {
 fn load_one_plugin(
     path: &Path,
     manifest: Option<PluginManifest>,
-    catalog: &mut BuiltinModuleCatalog,
+    catalog: &mut ModuleCatalog,
 ) -> PluginLoadReport {
     // Сохраняем manifest для отчёта даже если загрузка .so упадёт.
     let report_manifest = manifest.clone();
@@ -507,7 +504,7 @@ fn load_one_plugin(
 fn load_one_plugin_inner(
     path: &Path,
     manifest: Option<PluginManifest>,
-    catalog: &mut BuiltinModuleCatalog,
+    catalog: &mut ModuleCatalog,
 ) -> Result<PluginInfo> {
     // Загружаем raw library через abi_stable (он сам leak'нёт чтобы символы
     // оставались валидными — это требуется потому что мы потом держим trait
@@ -595,26 +592,26 @@ fn load_one_plugin_inner(
     }
 }
 
-/// Возвращает стандартный путь к папке плагинов.
+/// Возвращает explicit override или personal путь к transition dylib.
 ///
 /// Порядок разрешения:
 /// 1. `$PROTEUS_PLUGINS_DIR` если задан.
 /// 2. `~/.proteus/plugins` иначе.
-pub fn default_plugins_dir() -> Option<PathBuf> {
+pub fn personal_or_override_dylibs_dir() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("PROTEUS_PLUGINS_DIR") {
         return Some(PathBuf::from(dir));
     }
-    default_personal_plugins_dir()
+    personal_dylibs_dir()
 }
 
-fn default_personal_plugins_dir() -> Option<PathBuf> {
+fn personal_dylibs_dir() -> Option<PathBuf> {
     Some(default_proteus_home()?.join("plugins"))
 }
 
-/// Packaged default plugin set built by `install.sh` together with the active
-/// binary. The installed wrapper sets the explicit path; the default current
-/// symlink also keeps direct binary invocations on the compatible bundle.
-pub fn default_packaged_plugins_dir() -> Option<PathBuf> {
+/// Reference dylibs packaged by `install.sh` together with the active binary.
+/// The installed wrapper sets the explicit path; the `current` symlink also
+/// keeps direct binary invocations on a compatible transition bundle.
+pub fn packaged_reference_dylibs_dir() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("PROTEUS_PACKAGED_PLUGINS_DIR") {
         return Some(PathBuf::from(dir));
     }
@@ -781,7 +778,7 @@ requires_proteus_contracts = "^0.1"
         std::fs::create_dir(&sub).unwrap();
         std::fs::write(sub.join("plugin.toml"), "not = valid = toml").unwrap();
 
-        let mut catalog = BuiltinModuleCatalog::new();
+        let mut catalog = ModuleCatalog::new();
         let reports = scan_plugins_dir(plugins_dir.path(), &mut catalog);
 
         assert_eq!(reports.len(), 1);
@@ -805,7 +802,7 @@ requires_proteus_contracts = "^0.1"
         )
         .unwrap();
 
-        let mut catalog = BuiltinModuleCatalog::new();
+        let mut catalog = ModuleCatalog::new();
         let reports = scan_plugins_dir(plugins_dir.path(), &mut catalog);
 
         assert_eq!(reports.len(), 1);
@@ -822,13 +819,13 @@ requires_proteus_contracts = "^0.1"
         std::fs::create_dir(&sub).unwrap();
         std::fs::write(sub.join("readme.txt"), "hi").unwrap();
 
-        let mut catalog = BuiltinModuleCatalog::new();
+        let mut catalog = ModuleCatalog::new();
         let reports = scan_plugins_dir(plugins_dir.path(), &mut catalog);
         assert!(reports.is_empty());
     }
 
     #[test]
-    fn packaged_and_personal_plugin_dirs_are_ordered_and_deduplicated() {
+    fn packaged_and_personal_dylib_dirs_are_ordered_and_deduplicated() {
         let root = tempdir().unwrap();
         let packaged = root.path().join("packaged");
         let personal = root.path().join("personal");
@@ -836,15 +833,15 @@ requires_proteus_contracts = "^0.1"
         std::fs::create_dir_all(&personal).unwrap();
 
         assert_eq!(
-            plugin_dirs(None, Some(packaged.clone()), Some(personal.clone())),
+            compose_dylib_search_dirs(None, Some(packaged.clone()), Some(personal.clone())),
             vec![packaged.clone(), personal]
         );
         assert_eq!(
-            plugin_dirs(None, Some(packaged.clone()), Some(packaged.clone())),
+            compose_dylib_search_dirs(None, Some(packaged.clone()), Some(packaged.clone())),
             vec![packaged.clone()]
         );
         assert_eq!(
-            plugin_dirs(
+            compose_dylib_search_dirs(
                 Some(root.path().join("explicit")),
                 Some(packaged),
                 Some(root.path().join("ignored-personal")),
@@ -855,7 +852,7 @@ requires_proteus_contracts = "^0.1"
 
     #[cfg(unix)]
     #[test]
-    fn packaged_and_personal_plugin_dirs_deduplicate_symlink_aliases() {
+    fn packaged_and_personal_dylib_dirs_deduplicate_symlink_aliases() {
         let root = tempdir().unwrap();
         let packaged = root.path().join("packaged");
         let alias = root.path().join("alias");
@@ -863,7 +860,7 @@ requires_proteus_contracts = "^0.1"
         std::os::unix::fs::symlink(&packaged, &alias).unwrap();
 
         assert_eq!(
-            plugin_dirs(None, Some(packaged.clone()), Some(alias)),
+            compose_dylib_search_dirs(None, Some(packaged.clone()), Some(alias)),
             vec![packaged]
         );
     }

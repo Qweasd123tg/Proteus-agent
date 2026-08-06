@@ -23,7 +23,7 @@ use crate::{
 /// Источник контекста для эмиссии delta-событий из ModelService.
 ///
 /// Хранится под `RwLock<Option<...>>` потому что runtime-а (а значит и
-/// emitter'а) на момент создания ModelService ещё нет. BuiltinRegistry
+/// emitter'а) на момент создания ModelService ещё нет. RuntimeRegistry
 /// строится ДО runtime-контекста; выставляется перед вызовом
 /// `complete()` через `set_event_context`.
 #[derive(Clone, Default)]

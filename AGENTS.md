@@ -12,6 +12,19 @@ Core -> Contract -> Module Implementation
 
 Core не должен знать детали конкретного поиска, памяти, модели, tools, policy, patch algorithm или renderer. Новая функциональность должна проходить через существующий slot или через явно добавленный contract.
 
+Для всех реализаций одного slot действует дополнительный инвариант:
+
+```text
+authority(module) = authority(slot, invocation_context)
+```
+
+Права, host capabilities, config, cancellation, lifecycle и failure semantics
+не должны зависеть от `module_id`, языка или происхождения реализации
+(`builtin`, `dylib`, `process`). Целевая внешняя граница — единый process
+protocol; план однократного перехода описан в
+`docs/process-module-architecture.md`. Текущий dylib runtime является только
+переходным implemented state, а не поверхностью для дальнейшего расширения.
+
 ## Модульность Кода
 
 Модульность проекта должна отражаться и в структуре файлов. Не допускайте
@@ -43,14 +56,14 @@ rendering, UI state, tests и provider/module-specific детали.
 
 ```text
 crates/
-    proteus-contracts/     - публичный crate: traits, DTO, canonical model, plugin ABI
-    proteus-core/       - ядро: runtime, core wiring, plugin_adapters, stubs, adapters, app-server
+    proteus-contracts/     - публичный crate: traits, DTO, canonical model, временный dylib ABI
+    proteus-core/       - ядро: runtime, wiring, process/plugin adapters переходного периода, app-server
     proteus-process-host/ - утилитарный крейт: lifecycle persistent stdio child-процессов (framing, request/response, restart)
 clients/
     web/                 - основной Leptos chat-клиент
     inspector/           - отдельный Leptos config/architecture-клиент
-plugins/
-    default/             - стандартный набор плагинов и ABI-примеры
+modules/
+    reference/           - reference/dogfood implementations; не default и не привилегированный pack
         file-tools/          - полноразмерный tool-плагин (read/write/edit/list/grep)
         git-tools/           - read-only git_status/git_diff tool-плагин
         shell-tool/          - tools shell / exec_command / write_stdin (sh -lc, PTY-сессии)
@@ -67,18 +80,29 @@ plugins/
         memory-pack/         - MemoryStore "jsonl"
         policy-pack/         - ApprovalPolicy плагины "allow_all", "ask_write", "codex_policy", "opencode_policy" + tool request_permissions
         renderer-pack/       - Renderer плагин "statusline"
+    research/            - нестабилизированные module experiments вне production path
 configs/                 - packaged named configs и prompts (источник install.sh)
 examples/
     configs/             - example-профили (proteus.*.example.toml, config.example.json)
+    modules/             - runnable process-module protocol examples
     mcp/                 - локальный smoke-test MCP server
     research/            - tracked заметки по upstream агентам
 ```
 
-Плагины живут в `~/.proteus/plugins/` и не зависят от `proteus-core`; граница проходит через `proteus-contracts` и ABI glue на `abi_stable`. Допустимы зависимости от утилитарных крейтов без ABI-типов (сейчас `proteus-process-host`). Детали — `docs/plugin-architecture.md`.
+До cutover reference crates всё ещё собираются как dylib и устанавливаются в
+текущий release bundle ради работоспособности dogfood-профилей. Это переходная
+механика, описанная в `docs/dylib-transition.md`, а не standard pack и не
+образец для новых модулей. Целевой process contract и naming описаны в
+`docs/process-module-architecture.md`.
 
 ## Что Нельзя Ломать
 
 - Не связывать модули напрямую друг с другом.
+- Не добавлять новые dylib registrations, builtin concrete modules или
+  origin-specific capabilities. Сначала мигрировать соответствующий slot на
+  единый process contract.
+- Не делать исключения по конкретному `module_id`: host dispatch разрешает
+  методы по slot contract, а не по имени реализации.
 - Не импортировать provider-specific типы OpenAI, Anthropic или локальных API за пределами `crates/proteus-core/src/adapters` и model shaping слоя.
 - Не добавлять runtime-логику в CLI, если она принадлежит `core` или `workflow`.
 - Не обходить `ToolRegistry`, `ApprovalPolicy` и `ToolSafety` при исполнении tools.
@@ -124,15 +148,21 @@ examples/
 ## Как Добавлять Модуль
 
 1. Найти подходящий trait в `crates/proteus-contracts/src/contracts`.
-2. Реализовать модуль как dylib-плагин в `plugins/default/<name>` для стандартного набора или в отдельном pack-каталоге вроде `plugins/experimental/<name>`; core-owned fallback размещать в `crates/proteus-core/src/stubs`, provider adapter — в `crates/proteus-core/src/adapters`, ABI glue нового plugin slot — в `crates/proteus-core/src/plugin_adapters`.
-3. Зарегистрировать строковый ключ, manifest и factory в `BuiltinModuleCatalog`.
-4. Добавить или обновить конфиг-пример.
-5. Добавить тест на заменяемость, если модуль относится к slot.
-6. Обновить `docs/modules.md` и при необходимости `docs/configuration.md`.
+2. Проверить, мигрирован ли slot на protocol v1 из
+   `docs/process-module-architecture.md`.
+3. Если да — реализовать внешний worker, не зависящий от `proteus-core`, и
+   пройти conformance gate этого slot.
+4. Если нет — сначала реализовать общий process adapter для всего slot. Не
+   добавлять временный dylib/builtin путь для одной implementation.
+5. Добавить explicit config/profile selection; reference implementation при
+   необходимости разместить в `modules/reference/<name>`, не присваивая ей
+   default/standard статус.
+6. Добавить protocol и runtime swap evidence, затем обновить `docs/modules.md`
+   и `docs/configuration.md`.
 
-Альтернативно: модуль можно реализовать как отдельный dylib-плагин в `~/.proteus/plugins/`, depends на `proteus-contracts` и, при необходимости, утилитарные крейты без ABI-типов (сейчас `proteus-process-host`). См. `docs/plugin-architecture.md`.
-
-Для v0 модульность означает либо выбор встроенной реализации через config, либо загрузку dylib-плагина. Marketplace, WASM runtime, hot-reload и sandbox не являются текущей целью.
+Во время перехода существующие dylib crates можно менять для bugfix или самой
+миграции, но нельзя расширять их как будущий public ABI. Marketplace, package
+manager, hot reload и sandbox не входят в process-only cutover.
 
 ## Как Добавлять И Проверять Фичу
 
@@ -165,7 +195,8 @@ examples/
 - quickstart и CLI: `README.md`;
 - архитектурные границы: `docs/architecture.md`;
 - module slots: `docs/modules.md`;
-- plugin ABI и waves: `docs/plugin-architecture.md`;
+- целевая process-module архитектура: `docs/process-module-architecture.md`;
+- временный dylib implementation reference: `docs/dylib-transition.md`;
 - config schema и examples: `docs/configuration.md`;
 - event log, sessions, REPL: `docs/runtime-and-events.md`;
 - tools и approval: `docs/security-and-policy.md`;

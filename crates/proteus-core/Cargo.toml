@@ -33,12 +33,12 @@ toml_edit = "0.22"
 uuid = { version = "1", features = ["serde", "v4"] }
 
 [dev-dependencies]
-coding-workflow = { path = "../../plugins/default/coding-workflow" }
-codex-compactor = { path = "../../plugins/default/codex-compactor" }
-codex-tool-exposure = { path = "../../plugins/default/codex-tool-exposure", default-features = false }
-context-pack = { path = "../../plugins/default/context-pack", default-features = false }
-memory-pack = { path = "../../plugins/default/memory-pack", default-features = false }
-policy-pack = { path = "../../plugins/default/policy-pack", default-features = false }
-renderer-pack = { path = "../../plugins/default/renderer-pack", default-features = false }
-skill-pack = { path = "../../plugins/default/skill-pack" }
+coding-workflow = { path = "../../modules/reference/coding-workflow" }
+codex-compactor = { path = "../../modules/reference/codex-compactor" }
+codex-tool-exposure = { path = "../../modules/reference/codex-tool-exposure", default-features = false }
+context-pack = { path = "../../modules/reference/context-pack", default-features = false }
+memory-pack = { path = "../../modules/reference/memory-pack", default-features = false }
+policy-pack = { path = "../../modules/reference/policy-pack", default-features = false }
+renderer-pack = { path = "../../modules/reference/renderer-pack", default-features = false }
+skill-pack = { path = "../../modules/reference/skill-pack" }
 tempfile = "3"

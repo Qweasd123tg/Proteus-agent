@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::{Result, bail};
 use proteus_core::{
-    core::{AppConfig, BuiltinModuleCatalog, ConfiguredToolExecutorConfig, expand_user_path},
+    core::{AppConfig, ConfiguredToolExecutorConfig, ModuleCatalog, expand_user_path},
     domain::ModuleKind,
     process_adapters::{ProcessCompactorConfig, ProcessSearchConfig},
 };
@@ -58,17 +58,21 @@ pub(crate) async fn run_doctor(
         }
     };
 
-    match proteus_core::core::default_packaged_plugins_dir() {
-        Some(plugins_dir) => {
-            findings.ok(format!("packaged plugins dir: {}", plugins_dir.display()))
-        }
-        None => findings.warn("packaged plugins dir unavailable"),
+    match proteus_core::core::packaged_reference_dylibs_dir() {
+        Some(dylibs_dir) => findings.ok(format!(
+            "packaged reference dylibs: {}",
+            dylibs_dir.display()
+        )),
+        None => findings.warn("packaged reference dylibs unavailable"),
     }
-    match proteus_core::core::default_plugins_dir() {
-        Some(plugins_dir) => findings.ok(format!("plugins dir: {}", plugins_dir.display())),
-        None => findings.warn("plugins dir could not be resolved"),
+    match proteus_core::core::personal_or_override_dylibs_dir() {
+        Some(dylibs_dir) => findings.ok(format!(
+            "personal or override dylibs: {}",
+            dylibs_dir.display()
+        )),
+        None => findings.warn("personal or override dylib path could not be resolved"),
     }
-    let (catalog, plugin_reports) = proteus_core::core::load_default_module_catalog();
+    let (catalog, plugin_reports) = proteus_core::core::load_runtime_module_catalog();
 
     if plugin_reports.is_empty() {
         findings.warn("no plugins discovered");
@@ -108,7 +112,7 @@ pub(crate) async fn run_doctor(
 
 pub(crate) fn check_model_config(
     findings: &mut DoctorFindings,
-    catalog: &BuiltinModuleCatalog,
+    catalog: &ModuleCatalog,
     config: &AppConfig,
 ) {
     let model = match config.active_model_config() {
@@ -262,7 +266,7 @@ fn check_env_secret(findings: &mut DoctorFindings, env_name: &str) {
 
 fn check_selected_modules(
     findings: &mut DoctorFindings,
-    catalog: &BuiltinModuleCatalog,
+    catalog: &ModuleCatalog,
     config: &AppConfig,
 ) {
     for (kind, id) in config.modules.iter() {

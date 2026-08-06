@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn plugin_context_provider_rejects_empty_and_duplicate_ids() {
-    let mut catalog = BuiltinModuleCatalog::new();
+    let mut catalog = ModuleCatalog::new();
     let empty_error = catalog
         .register_plugin_context_provider(" ", noop_plugin_context_provider())
         .unwrap_err();

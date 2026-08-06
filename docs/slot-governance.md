@@ -17,6 +17,18 @@ slot нужен для класса заменяемого поведения.
 фиксированными. Поэтому новый slot всегда означает согласованное изменение
 `proteus-contracts`, core wiring/config, plugin ABI и boundary tests.
 
+На время process-only cutover последнее предложение описывает текущую механику,
+но не целевую упаковку. Новый slot должен сразу получать единый process
+contract; расширять `PluginRegistry`/dylib ABI запрещено. Для всех
+implementations slot действует:
+
+```text
+authority(module) = authority(slot, invocation_context)
+```
+
+Нельзя принимать slot, если его builtin/dylib/process implementations получают
+разные host methods, config, cancellation или lifecycle semantics.
+
 После выбора архитектурного места изменение проходит общий
 [feature evidence path](testing.md#стандарт-внедрения-и-проверки-фичи). Этот
 документ отвечает «куда положить поведение», а `testing.md` — «как доказать,
@@ -78,7 +90,7 @@ exposure, workflow, approval, memory, compaction, storage, model capabilities и
 | Feature idea | Existing slot | Missing generic contract | Решение сейчас |
 |---|---|---|---|
 | Cursor-like dynamic context discovery | `ContextBuilder`, `Compactor`, `SearchBackend`, `ToolExposure` | возможно `ToolResultProcessor`, `ArtifactStore`, `BudgetTracker` | держать как plugin/research pack, не добавлять `dynamic_context` slot |
-| Длинные outputs tools пишутся на диск | `Tool`, `Workflow` видит result; app-server показывает metadata | `ToolResultProcessor` или `ArtifactStore` | оставить draft `plugins/research/tool-output-artifacts`, contract не стабилизирован |
+| Длинные outputs tools пишутся на диск | `Tool`, `Workflow` видит result; app-server показывает metadata | `ToolResultProcessor` или `ArtifactStore` | оставить draft `modules/research/tool-output-artifacts`, contract не стабилизирован |
 | Token/context usage breakdown | event/runtime accounting, app-server, UI client | `BudgetTracker` / `UsageMeter` может понадобиться позже | сначала instrumentation/events, не новый UX slot |
 | Codex-like deferred tool exposure | `ToolExposure`, `ToolRegistry` | возможно searchable tool catalog DTO | реализовывать через `ToolExposure`, не через отдельный `codex_tool_search` slot |
 | BM25/fuzzy search по tools | `ToolExposure` или будущий tool catalog facet | `SearchableToolCatalog` только если появятся несколько engines | пока module внутри `ToolExposure` plugin |
@@ -137,7 +149,7 @@ quality baseline profile
 - docs запрещают считать его стабильным slot API;
 - перед стабилизацией нужен второй независимый use case.
 
-`plugins/research/tool-output-artifacts` - пример такого черновика: он полезен для
+`modules/research/tool-output-artifacts` - пример такого черновика: он полезен для
 Cursor-like output artifact идеи, но не доказывает, что нужен именно такой
 публичный ABI.
 
@@ -159,11 +171,12 @@ Cursor-like output artifact идеи, но не доказывает, что н�
 Перед merge нового slot должны быть:
 
 - описание в `proteus-contracts` DTO/trait docs;
-- plugin-facing ABI или явное объяснение, почему slot пока core-only;
-- no-op/fake fallback в `stubs`, если runtime не может стартовать без slot-а;
+- единый process protocol с одинаковой authority surface для всех
+  implementations;
+- явная required/optional семантика без привилегированного no-op/fake module;
 - config key и пример выбора реализации;
-- module swap/boundary test;
-- update `docs/modules.md`, `docs/plugin-architecture.md` и при необходимости
-  `docs/configuration.md`;
+- protocol conformance и module swap/boundary test;
+- update `docs/modules.md`, `docs/process-module-architecture.md` и при
+  необходимости `docs/configuration.md`;
 - минимум две работающие независимые реализации, не считая no-op, legacy alias
   или planned-вариант; swap test должен прогнать обе через один runtime path.

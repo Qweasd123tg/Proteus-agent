@@ -51,7 +51,7 @@ use cli_init::{
     mixed_config_files_warning, single_config_file_for_warning,
 };
 #[cfg(test)]
-use proteus_core::core::BuiltinModuleCatalog;
+use proteus_core::core::ModuleCatalog;
 #[cfg(test)]
 use std::path::Path;
 
@@ -104,7 +104,7 @@ async fn main() -> Result<()> {
         return run_init(profile, cli.config.as_deref());
     }
     if is_modules_list_command(&cli.task) {
-        let (catalog, plugin_reports) = proteus_core::core::load_default_module_catalog();
+        let (catalog, plugin_reports) = proteus_core::core::load_runtime_module_catalog();
         println!("{}", render_module_list(&catalog.manifests()));
         if !plugin_reports.is_empty() {
             println!();
@@ -284,7 +284,7 @@ fn build_tool_registry_for_listing(
     config: &AppConfig,
     cwd: &std::path::Path,
 ) -> Result<proteus_core::contracts::ToolRegistry> {
-    let (catalog, _) = proteus_core::core::load_default_module_catalog();
+    let (catalog, _) = proteus_core::core::load_runtime_module_catalog();
     let build_ctx = ModuleBuildContext {
         config,
         cwd,
@@ -314,7 +314,7 @@ fn build_cli_topology(
     cwd: &std::path::Path,
     permission_mode: PermissionMode,
 ) -> Result<proteus_core::core::TopologySnapshot> {
-    let (catalog, plugin_reports) = proteus_core::core::load_default_module_catalog();
+    let (catalog, plugin_reports) = proteus_core::core::load_runtime_module_catalog();
     let catalog_entries = catalog.entry_summaries();
     let build_ctx = ModuleBuildContext {
         config,

@@ -20,6 +20,15 @@ Core должен оставаться тонким composition/lifecycle сло
 Добавление slots регулируется отдельным правилом в `slot-governance.md`: slot
 нужен для класса заменяемого поведения, а не для одной конкретной фичи.
 
+Реализации одного slot равноправны:
+
+```text
+authority(module) = authority(slot, invocation_context)
+```
+
+`builtin`, `dylib`, язык и конкретный `module_id` не могут менять доступные
+host capabilities. Целевой transport всех implementations — process protocol.
+
 Практическая мотивация: новые agent-подходы должны встраиваться без форка
 чужого CLI и без повторной хирургии после каждого upstream release. Если новая
 статья, прототип или документация описывает полезный метод, он должен
@@ -38,24 +47,26 @@ workflow, tool, renderer, memory store или model adapter. Debug/visibility
 
 - marketplace и package manager;
 - WASM runtime и hot-reload modules;
-- sandbox-изоляцию для dylib плагинов (модель угроз: плагины пишутся автором);
+- sandbox-изоляцию module workers как автоматическое свойство process boundary
+  (до отдельного uniform sandbox contract workers считаются доверенными);
 - ACP/MCP как основу ядра;
 - обязательный RAG;
 - multi-agent DAG;
 - перенос runtime/business logic в CLI/UI;
 - provider-specific DTO за пределами adapters/model shaping слоя;
-- YAML declarative плагины как отдельный loader (отменено, см.
-  `plugin-architecture.md`).
+- YAML declarative modules как отдельный loader.
 
-Dylib-плагины через `abi_stable` **уже являются частью v0**: loader, PluginRegistry
-и рабочие примеры есть в `~/.proteus/plugins/`. Stdio MCP tools host для
-`ConfiguredMcpTool` / `tools.mcp_servers` уже работает через `ToolRegistry`.
-Что пока не закрыто — полный MCP provider для resources/prompts/subscriptions,
-non-stdio transports и async plugin ABI для `Model`. Большинство
-production-реализаций Волны 3 уже вынесено в `plugins/default`; core сохраняет
-host-bound tools, adapters и безопасные stubs. Config-defined process/MCP
-tools остаются executor surface-ом для простых shell-обёрток и не дублируют
-plugin boundary.
+2026-08-06 принято целевое решение: все implementations одного slot должны
+исполняться через единый process protocol и получать одинаковые права по slot
+contract. Dylib loader через `abi_stable`, core-owned concrete implementations
+и pseudo-modules являются переходным implemented state, описанным в
+`dylib-transition.md`, а не частью целевого v0. План удаления без compatibility
+shims находится в `process-module-architecture.md`.
+
+Stdio MCP tools host для `ConfiguredMcpTool` / `tools.mcp_servers` уже работает
+через `ToolRegistry`; при cutover он должен отображаться в те же Tool invocation
+semantics, что и любой process worker. Полный MCP provider для
+resources/prompts/subscriptions и non-stdio transports остаётся вне scope.
 
 ## Принцип Границ
 
@@ -81,8 +92,10 @@ renderer -> workflow internals
 
 - `crates/proteus-contracts/src/domain` - данные на границе;
 - `crates/proteus-contracts/src/contracts` - заменяемые traits;
-- `crates/proteus-core/src/plugin_adapters` - ABI glue для dylib-плагинов;
-- `crates/proteus-core/src/stubs` - no-op/fake fallback-и ядра;
+- `crates/proteus-core/src/plugin_adapters` - временный ABI glue, удаляемый при
+  process-only cutover;
+- `crates/proteus-core/src/stubs` - временные no-op/fake implementations,
+  заменяемые структурным отсутствием или process fixtures;
 - `crates/proteus-core/src/adapters` - внешние provider wire formats;
 - `crates/proteus-core/src/core` - config, wiring, runtime lifecycle.
 
@@ -144,7 +157,7 @@ Runtime должен сохранять эти свойства:
 
 - `proteus init` и `proteus doctor`, named configs и диагностика modules/tools;
 - plugin context builders `simple`, `repo_aware` и `codex_context`;
-- file/edit/git/shell/plan tools через `ToolRegistry` и default plugins;
+- file/edit/git/shell/plan tools через `ToolRegistry` и текущие reference modules;
 - approval preview для `apply_patch`, `write_file` и `shell`;
 - plugin workflows `coding.single_loop`, `coding.codex_loop` и
   `coding.plan_execute_review`;
@@ -154,11 +167,14 @@ Runtime должен сохранять эти свойства:
 
 ## Planned Направления
 
-Непосредственный приоритет — lifecycle stabilization: ownership PTY sessions и
-bounded retention process-subagent pool. Общий policy path для `task` закрыт
-2026-07-10, fail-closed shell sandbox и обязательный token для non-loopback
-HTTP — 2026-07-11. Актуальные blockers ведутся в `scope.md`, детали текущих
-gaps — в `security-and-policy.md`.
+Непосредственный приоритет — process-only module cutover из
+`process-module-architecture.md`: protocol kernel, agent-worker vertical slice,
+slot parity, затем однократное удаление dylib/builtin paths. Актуальный
+критический путь ведётся в `scope.md`.
+
+Ownership PTY sessions, bounded retention process-subagent pool, общий
+policy path для `task`, fail-closed shell sandbox и token для non-loopback
+HTTP уже закрытые foundation, а не будущий backlog.
 
 После этого долгосрочный capability backlog должен развивать основание через
 существующие границы:
@@ -169,7 +185,7 @@ gaps — в `security-and-policy.md`.
 - table-driven tool rights: `hide`/`deny`/`ask`/`allow`, priority и limits;
 - MCP resources/prompts/subscriptions и non-stdio transports поверх текущих
   contracts, а не параллельный plugin runtime;
-- async plugin ABI для `Model` с сохранением streaming.
+- streaming process contract для `Model` с exact terminal/cancel semantics.
 
 Каждое направление должно иметь focused tests на boundary, а не только happy
 path CLI smoke test.
@@ -230,8 +246,8 @@ path CLI smoke test.
 
 ## External Modules
 
-Стратегия выноса реализаций за границу ядра описана по волнам в
-`plugin-architecture.md`. Краткое текущее состояние:
+Целевая стратегия описана в
+`process-module-architecture.md`. Краткое текущее переходное состояние:
 
 1. ✅ `proteus-contracts` выделен в отдельный crate, plugin'ы depend только на него;
 2. ✅ dylib loader через `abi_stable` + `libloading`;
@@ -239,15 +255,17 @@ path CLI smoke test.
    `search`, `memory`, request-time `compactor`,
    `tool_exposure`, full `context_builder`, `repo_aware` `context_provider`,
    `subagent` и `workflow`;
-4. ✅ большинство production-реализаций Волны 3 уже живёт в
-   `plugins/default`; в core остаются stubs, host-bound tools,
+4. ✅ большинство dogfood/reference реализаций Волны 3 уже живёт в
+   `modules/reference`; в core остаются stubs, host-bound tools,
    `sequential`/`process` SubagentRunner, provider adapters и runtime wiring;
-5. ⏳ `Model` остаётся в core до async ABI через `FfiFuture` /
-   `FfiStream` с поддержкой streaming.
+5. ✅ два process proofs существуют для search и compactor, но имеют неравную
+   dylib/process capability surface;
+6. 🚧 следующий путь — protocol v1 и process agent-worker, затем slot parity и
+   полное удаление `PluginRegistry`/dylib/builtin implementations.
 
-`ConfiguredProcessTool` / `ConfiguredMcpTool` в ядре — это executor surface для
-простых shell-обёрток и stdio MCP tools, не замена plugin system и не полный
-MCP registry/provider для resources/prompts/subscriptions.
+`ConfiguredProcessTool` / `ConfiguredMcpTool` в ядре пока являются отдельными
+executor surfaces. Cutover обязан свести их к единому Tool contract; они не
+образуют вторую module system.
 
 ## Как Брать Идеи Из Других Проектов
 
@@ -275,6 +293,9 @@ v0 считается здоровым, если:
 - `cargo test` подтверждает заменяемость ключевых slots;
 - model provider меняется без правок workflow;
 - search/memory/policy меняются через config;
+- implementations одного slot имеют одинаковые host capabilities, lifecycle и
+  failure semantics независимо от языка и origin;
+- out-of-tree agent worker подключается без core changes;
 - tools не исполняются в обход registry/policy/safety;
 - docs разделяют current state и planned state;
 - README остаётся quickstart, а reference details живут в профильных docs;

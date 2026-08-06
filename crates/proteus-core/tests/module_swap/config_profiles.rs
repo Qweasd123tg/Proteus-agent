@@ -672,12 +672,12 @@ fn workspace_path_keeps_cyrillic_folder_names() {
 
 #[test]
 fn sqlite_memory_is_plugin_only_without_global_plugins() {
-    use proteus_core::core::{AppConfig, BuiltinModuleCatalog, ModuleBuildContext};
+    use proteus_core::core::{AppConfig, ModuleBuildContext, ModuleCatalog};
     disable_plugin_loader();
 
     let dir = tempfile::tempdir().unwrap();
     let config = AppConfig::default();
-    let catalog = BuiltinModuleCatalog::new();
+    let catalog = ModuleCatalog::new();
     let build_ctx = ModuleBuildContext {
         config: &config,
         cwd: dir.path(),
