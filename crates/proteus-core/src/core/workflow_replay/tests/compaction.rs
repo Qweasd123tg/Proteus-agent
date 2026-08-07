@@ -1,5 +1,6 @@
 use crate::{
     contracts::{CompactionInput, CompactionOutput},
+    core::RuntimeCompactionHost,
     domain::HistoryCompactionReport,
 };
 
@@ -27,7 +28,7 @@ fn compaction_comparison_ignores_only_duplicated_derived_metadata() {
         std::slice::from_ref(&expected),
     ));
 
-    replay.metadata = json!({ "plugin_signal": "changed" });
+    replay.metadata = json!({ "module_signal": "changed" });
     assert!(!super::super::normalize::changed_compactions_equal(
         std::slice::from_ref(&replay),
         std::slice::from_ref(&expected),
@@ -46,79 +47,61 @@ enum CompactionProbeMode {
     InvalidHistory,
 }
 
-impl PluginWorkflow for CompactionProbeWorkflow {
-    fn run_json(
+#[async_trait]
+impl Workflow for CompactionProbeWorkflow {
+    async fn run(
         &self,
-        input_json: RString,
-        host: &mut PluginWorkflowHostMut<'_>,
-    ) -> RResult<RString, PluginWorkflowError> {
-        match run_compaction_probe(self.mode, input_json.as_str(), host) {
-            Ok(output) => RResult::ROk(RString::from(
-                serde_json::to_string(&output).expect("serialize compaction probe output"),
-            )),
-            Err(error) => RResult::RErr(PluginWorkflowError::new(format!("{error:#}"))),
+        task: AgentTask,
+        history: Vec<CanonicalMessage>,
+        ctx: RuntimeContext,
+    ) -> anyhow::Result<WorkflowOutput> {
+        let compaction_input = replay_compaction_input(&task, &history, &ctx.model_ref);
+        let compacted = ctx
+            .compactor
+            .compact(
+                compaction_input.clone(),
+                Arc::new(RuntimeCompactionHost::new(ctx.clone())),
+            )
+            .await?;
+        let mut report =
+            HistoryCompactionReport::from_compaction_output(&compaction_input, &compacted);
+        if matches!(self.mode, CompactionProbeMode::DivergeReport) {
+            report.summary_source = Some("changed_implementation".to_owned());
         }
+        let request = CanonicalModelRequest::new(ctx.model_ref.clone(), compacted.messages.clone())
+            .with_tools(vec![probe_tool_spec()]);
+        let response = ctx.model.complete(request).await?;
+        Ok(
+            WorkflowOutput::new(AgentOutput::text("compacted"), vec![response.message])
+                .with_history_replacement(compacted.messages)
+                .with_compactions(
+                    if matches!(self.mode, CompactionProbeMode::InvalidHistory) {
+                        Vec::new()
+                    } else {
+                        vec![report]
+                    },
+                ),
+        )
     }
 }
 
-fn run_compaction_probe(
-    mode: CompactionProbeMode,
-    input_json: &str,
-    host: &mut PluginWorkflowHostMut<'_>,
-) -> anyhow::Result<PluginWorkflowOutput> {
-    let input: PluginWorkflowInput = serde_json::from_str(input_json)?;
-    let compaction_input = replay_compaction_input(&input);
-    let compacted = compact(host, &compaction_input)?;
-    let mut report = HistoryCompactionReport::from_compaction_output(&compaction_input, &compacted);
-    if matches!(mode, CompactionProbeMode::DivergeReport) {
-        report.summary_source = Some("changed_implementation".to_owned());
-    }
-    let request = CanonicalModelRequest::new(input.runtime.model_ref, compacted.messages.clone())
-        .with_tools(vec![probe_tool_spec()]);
-    let response = complete(host, &request)?;
-    Ok(PluginWorkflowOutput {
-        output: AgentOutput::text("compacted"),
-        new_messages: vec![response.message],
-        history_replacement: Some(compacted.messages),
-        compactions: if matches!(mode, CompactionProbeMode::InvalidHistory) {
-            Vec::new()
-        } else {
-            vec![report]
-        },
-    })
-}
-
-fn replay_compaction_input(input: &PluginWorkflowInput) -> CompactionInput {
-    CompactionInput::new(
-        input.task.clone(),
-        input.runtime.model_ref.clone(),
-        input.history.clone(),
-    )
-    .with_reason(COMPACTION_REASON)
-    .with_token_estimate(Some(400))
-}
-
-fn compact(
-    host: &mut PluginWorkflowHostMut<'_>,
-    input: &CompactionInput,
-) -> anyhow::Result<CompactionOutput> {
-    let input = RString::from(serde_json::to_string(input)?);
-    match host.compact_history_json(input) {
-        RResult::ROk(output) => Ok(serde_json::from_str(output.as_str())?),
-        RResult::RErr(error) => anyhow::bail!(error.message.into_string()),
-    }
+fn replay_compaction_input(
+    task: &AgentTask,
+    history: &[CanonicalMessage],
+    model_ref: &ModelRef,
+) -> CompactionInput {
+    CompactionInput::new(task.clone(), model_ref.clone(), history.to_vec())
+        .with_reason(COMPACTION_REASON)
+        .with_token_estimate(Some(400))
 }
 
 fn compaction_catalog(mode: CompactionProbeMode) -> ModuleCatalog {
     let mut catalog = ModuleCatalog::new();
-    let workflow = PluginWorkflow_TO::from_value(CompactionProbeWorkflow { mode }, TD_Opaque);
-    catalog
-        .register_plugin_workflow(COMPACTION_WORKFLOW_ID, workflow)
-        .expect("register compaction workflow");
-    let policy = PluginApprovalPolicy_TO::from_value(policy_pack::AllowAllPolicyPlugin, TD_Opaque);
-    catalog
-        .register_plugin_policy(POLICY_ID, policy)
-        .expect("register policy");
+    catalog.register_test_workflow(
+        COMPACTION_WORKFLOW_ID,
+        Arc::new(CompactionProbeWorkflow { mode }),
+    );
+    catalog.register_test_policy(POLICY_ID, Arc::new(ReplayAllowAll));
     catalog
 }
 
@@ -137,7 +120,7 @@ async fn compacted_journal() -> TestJournal {
     let user = CanonicalMessage::text(MessageRole::User, task.text.clone());
     let spec = probe_tool_spec();
     let mut recorded_snapshot = snapshot(&spec);
-    recorded_snapshot.modules.workflow = COMPACTION_WORKFLOW_ID.to_owned();
+    recorded_snapshot.modules.workflow = Some(COMPACTION_WORKFLOW_ID.to_owned());
 
     store
         .append_journal_entry(
@@ -157,22 +140,11 @@ async fn compacted_journal() -> TestJournal {
         .await
         .expect("user history");
 
-    let plugin_input = PluginWorkflowInput {
-        task: task.clone(),
-        history: vec![user.clone()],
-        runtime: proteus_contracts::plugin::PluginWorkflowRuntimeInfo {
-            session_id,
-            thread_id,
-            turn_id,
-            model_ref: ModelRef::new("missing-provider", "offline-model"),
-            instructions: Vec::new(),
-            reasoning: ReasoningConfig::default(),
-            max_input_tokens: None,
-            model_timeout_ms: 0,
-            context_timeout_ms: 1,
-        },
-    };
-    let compaction_input = replay_compaction_input(&plugin_input);
+    let compaction_input = replay_compaction_input(
+        &task,
+        std::slice::from_ref(&user),
+        &ModelRef::new("missing-provider", "offline-model"),
+    );
     let summary = CanonicalMessage::text(MessageRole::User, "recorded compacted summary");
     let compacted_messages = vec![summary, user];
     let mut compaction_output = CompactionOutput::changed(

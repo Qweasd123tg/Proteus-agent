@@ -44,6 +44,20 @@ impl ModuleManifest {
             description: None,
         }
     }
+
+    pub fn process(id: &str, kind: ModuleKind, capabilities: &[&str]) -> Self {
+        Self {
+            id: id.to_owned(),
+            kind,
+            version: "external".to_owned(),
+            api_version: "v1".to_owned(),
+            capabilities: capabilities
+                .iter()
+                .map(|capability| capability.to_string())
+                .collect(),
+            description: None,
+        }
+    }
 }
 
 /// Идентификатор namespace в Registry.
@@ -58,7 +72,7 @@ impl ModuleManifest {
 pub type SlotId = Cow<'static, str>;
 
 /// Константы для встроенных behavior slots и catalog kinds. Используются ядром
-/// и первыми плагинами как стабильные идентификаторы.
+/// и module implementations как стабильные идентификаторы.
 pub mod slot {
     use super::SlotId;
     use std::borrow::Cow;

@@ -1,12 +1,8 @@
-//! Git tools plugin: read-only git_status and git_diff.
+//! Git tools reference process module: read-only git_status and git_diff.
 //!
 //! These tools run fixed git subcommands in the current workspace. They are
-//! plugin tools, not core runtime behavior, so coding profiles can opt into
+//! process tools, not core runtime behavior, so coding profiles can opt into
 //! them through `tools.enabled` and policy.
-
-#![allow(non_local_definitions)]
-#![allow(non_camel_case_types)]
-#![allow(improper_ctypes_definitions)]
 
 use std::{
     io::Read,
@@ -16,18 +12,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use proteus_contracts::{
-    abi_stable::{
-        export_root_module,
-        prefix_type::PrefixTypeTrait,
-        sabi_trait::TD_Opaque,
-        std_types::{RResult, RStr, RString},
-    },
-    plugin::{
-        PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginTool,
-        PluginTool_TO, PluginToolError, PluginToolHostMut, PluginToolInvocationContext,
-        PluginToolObject,
-    },
+use proteus_contracts::process_module::{
+    ModuleRegistry, ProcessModuleError, ToolModule, ToolModuleHostMut, ToolModuleInvocationContext,
+    ToolModuleObject,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -39,8 +26,8 @@ const MAX_MAX_BYTES: usize = 200 * 1024;
 struct GitStatusTool;
 struct GitDiffTool;
 
-impl PluginTool for GitStatusTool {
-    fn spec_json(&self) -> RString {
+impl ToolModule for GitStatusTool {
+    fn spec_json(&self) -> String {
         let spec = json!({
             "name": "git_status",
             "description": "Show the current git branch and working tree status in short format.",
@@ -64,15 +51,15 @@ impl PluginTool for GitStatusTool {
                 "aliases": ["git status", "working tree", "changed files"]
             }
         });
-        RString::from(spec.to_string())
+        String::from(spec.to_string())
     }
 
     fn invoke_json(
         &self,
-        call_json: RString,
-        context_json: RString,
-        _host: &mut PluginToolHostMut<'_>,
-    ) -> RResult<RString, PluginToolError> {
+        call_json: String,
+        context_json: String,
+        _host: &mut ToolModuleHostMut<'_>,
+    ) -> Result<String, ProcessModuleError> {
         invoke_tool(
             call_json.as_str(),
             context_json.as_str(),
@@ -81,8 +68,8 @@ impl PluginTool for GitStatusTool {
     }
 }
 
-impl PluginTool for GitDiffTool {
-    fn spec_json(&self) -> RString {
+impl ToolModule for GitDiffTool {
+    fn spec_json(&self) -> String {
         let spec = json!({
             "name": "git_diff",
             "description": "Show a bounded git diff for the workspace, optionally scoped to staged changes or a relative path.",
@@ -123,15 +110,15 @@ impl PluginTool for GitDiffTool {
                 "aliases": ["git diff", "show changes", "review diff"]
             }
         });
-        RString::from(spec.to_string())
+        String::from(spec.to_string())
     }
 
     fn invoke_json(
         &self,
-        call_json: RString,
-        context_json: RString,
-        _host: &mut PluginToolHostMut<'_>,
-    ) -> RResult<RString, PluginToolError> {
+        call_json: String,
+        context_json: String,
+        _host: &mut ToolModuleHostMut<'_>,
+    ) -> Result<String, ProcessModuleError> {
         invoke_tool(call_json.as_str(), context_json.as_str(), GitCommand::Diff)
     }
 }
@@ -154,22 +141,22 @@ fn invoke_tool(
     call_json: &str,
     context_json: &str,
     command_kind: GitCommand,
-) -> RResult<RString, PluginToolError> {
+) -> Result<String, ProcessModuleError> {
     let call = match parse_call(call_json) {
         Ok(call) => call,
-        Err(error) => return RResult::RErr(PluginToolError::new(error)),
+        Err(error) => return Err(ProcessModuleError::new(error)),
     };
-    let context: PluginToolInvocationContext = match serde_json::from_str(context_json) {
+    let context: ToolModuleInvocationContext = match serde_json::from_str(context_json) {
         Ok(context) => context,
         Err(error) => {
-            return RResult::RErr(PluginToolError::new(format!(
-                "failed to parse PluginToolInvocationContext: {error}"
+            return Err(ProcessModuleError::new(format!(
+                "failed to parse ToolModuleInvocationContext: {error}"
             )));
         }
     };
     match invoke_impl(&call, &context.cwd, command_kind) {
-        Ok(result) => RResult::ROk(RString::from(result)),
-        Err(error) => RResult::ROk(RString::from(
+        Ok(result) => Ok(String::from(result)),
+        Err(error) => Ok(String::from(
             tool_result(&call.id, &call.name, false, "", Some(error), json!({})).to_string(),
         )),
     }
@@ -420,30 +407,18 @@ fn join_reader(
     }
 }
 
-extern "C" fn register_modules(
-    registry: &mut PluginRegistryMut<'_>,
-) -> RResult<(), PluginRegisterError> {
-    let status: PluginToolObject = PluginTool_TO::from_value(GitStatusTool, TD_Opaque);
-    if let RResult::RErr(err) = registry.register_tool(status) {
-        return RResult::RErr(err);
+pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), ProcessModuleError> {
+    let status: ToolModuleObject = Box::new(GitStatusTool);
+    if let Err(err) = registry.register_tool(status) {
+        return Err(err);
     }
 
-    let diff: PluginToolObject = PluginTool_TO::from_value(GitDiffTool, TD_Opaque);
-    if let RResult::RErr(err) = registry.register_tool(diff) {
-        return RResult::RErr(err);
+    let diff: ToolModuleObject = Box::new(GitDiffTool);
+    if let Err(err) = registry.register_tool(diff) {
+        return Err(err);
     }
 
-    RResult::ROk(())
-}
-
-#[export_root_module]
-pub fn get_plugin_root() -> PluginRoot_Ref {
-    PluginRoot {
-        name: RStr::from_str("git-tools"),
-        description: RStr::from_str("Read-only git status and diff tools"),
-        register_modules,
-    }
-    .leak_into_prefix()
+    Ok(())
 }
 
 #[cfg(test)]

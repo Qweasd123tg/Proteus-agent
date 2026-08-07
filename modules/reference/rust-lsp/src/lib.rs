@@ -1,9 +1,5 @@
 //! Narrow Rust diagnostics tool backed by persistent rust-analyzer LSP.
 
-#![allow(non_local_definitions)]
-#![allow(non_camel_case_types)]
-#![allow(improper_ctypes_definitions)]
-
 mod client;
 mod diagnostics;
 mod path;
@@ -13,21 +9,14 @@ use std::{
     time::Duration,
 };
 
-#[cfg(feature = "plugin-entrypoint")]
-use abi_stable::std_types::RStr;
-use abi_stable::std_types::{RResult, RString};
-#[cfg(feature = "plugin-entrypoint")]
-use abi_stable::{export_root_module, prefix_type::PrefixTypeTrait, sabi_trait::TD_Opaque};
 use anyhow::{Result, anyhow, bail};
 use client::{RustAnalyzerConfig, RustAnalyzerWorkspace};
-#[cfg(feature = "plugin-entrypoint")]
-use proteus_contracts::plugin::{
-    PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginTool_TO,
-    PluginToolObject,
-};
 use proteus_contracts::{
     domain::ToolResult,
-    plugin::{PluginTool, PluginToolError, PluginToolHostMut, PluginToolInvocationContext},
+    process_module::{
+        ModuleRegistry, ProcessModuleError, ToolModule, ToolModuleHostMut,
+        ToolModuleInvocationContext, ToolModuleObject,
+    },
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -74,8 +63,8 @@ impl RustLspDiagnosticsTool {
     fn invoke_diagnostics(
         &self,
         call: &ToolCallDto,
-        context: &PluginToolInvocationContext,
-        host: &mut PluginToolHostMut<'_>,
+        context: &ToolModuleInvocationContext,
+        host: &mut ToolModuleHostMut<'_>,
     ) -> Result<ToolResult> {
         if call.name != TOOL_NAME {
             bail!("unexpected tool name '{}'", call.name);
@@ -104,9 +93,9 @@ impl RustLspDiagnosticsTool {
     }
 }
 
-impl PluginTool for RustLspDiagnosticsTool {
-    fn spec_json(&self) -> RString {
-        RString::from(
+impl ToolModule for RustLspDiagnosticsTool {
+    fn spec_json(&self) -> String {
+        String::from(
             json!({
                 "name": TOOL_NAME,
                 "description": "Open or update one workspace-relative Rust file in a persistent rust-analyzer process and return bounded publishDiagnostics output. This v0 tool supports only Rust .rs files and runs rust-analyzer from PATH.",
@@ -137,24 +126,24 @@ impl PluginTool for RustLspDiagnosticsTool {
 
     fn invoke_json(
         &self,
-        call_json: RString,
-        context_json: RString,
-        host: &mut PluginToolHostMut<'_>,
-    ) -> RResult<RString, PluginToolError> {
+        call_json: String,
+        context_json: String,
+        host: &mut ToolModuleHostMut<'_>,
+    ) -> Result<String, ProcessModuleError> {
         let call: ToolCallDto = match serde_json::from_str(call_json.as_str()) {
             Ok(call) => call,
             Err(error) => {
-                return RResult::RErr(PluginToolError::new(format!(
+                return Err(ProcessModuleError::new(format!(
                     "failed to parse ToolCall: {error}"
                 )));
             }
         };
-        let context: PluginToolInvocationContext = match serde_json::from_str(context_json.as_str())
+        let context: ToolModuleInvocationContext = match serde_json::from_str(context_json.as_str())
         {
             Ok(context) => context,
             Err(error) => {
-                return RResult::RErr(PluginToolError::new(format!(
-                    "failed to parse PluginToolInvocationContext: {error}"
+                return Err(ProcessModuleError::new(format!(
+                    "failed to parse ToolModuleInvocationContext: {error}"
                 )));
             }
         };
@@ -167,8 +156,8 @@ impl PluginTool for RustLspDiagnosticsTool {
             })),
         };
         match serde_json::to_string(&result) {
-            Ok(result) => RResult::ROk(RString::from(result)),
-            Err(error) => RResult::RErr(PluginToolError::new(format!(
+            Ok(result) => Ok(String::from(result)),
+            Err(error) => Err(ProcessModuleError::new(format!(
                 "failed to serialize ToolResult: {error}"
             ))),
         }
@@ -189,11 +178,11 @@ struct DiagnosticsArgs {
     path: String,
 }
 
-fn invocation_is_cancelled(host: &mut PluginToolHostMut<'_>) -> Result<bool> {
+fn invocation_is_cancelled(host: &mut ToolModuleHostMut<'_>) -> Result<bool> {
     match host.is_cancelled() {
-        RResult::ROk(cancelled) => Ok(cancelled),
-        RResult::RErr(error) => Err(anyhow!(
-            "failed to query plugin tool cancellation: {}",
+        Ok(cancelled) => Ok(cancelled),
+        Err(error) => Err(anyhow!(
+            "failed to query module cancellation: {}",
             error.message
         )),
     }
@@ -207,24 +196,9 @@ fn lock_workspace(
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-#[cfg(feature = "plugin-entrypoint")]
-extern "C" fn register_modules(
-    registry: &mut PluginRegistryMut<'_>,
-) -> RResult<(), PluginRegisterError> {
-    let tool: PluginToolObject =
-        PluginTool_TO::from_value(RustLspDiagnosticsTool::default(), TD_Opaque);
+pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), ProcessModuleError> {
+    let tool: ToolModuleObject = Box::new(RustLspDiagnosticsTool::default());
     registry.register_tool(tool)
-}
-
-#[cfg(feature = "plugin-entrypoint")]
-#[export_root_module]
-pub fn get_plugin_root() -> PluginRoot_Ref {
-    PluginRoot {
-        name: RStr::from_str("rust-lsp"),
-        description: RStr::from_str("Rust lsp_diagnostics tool backed by persistent rust-analyzer"),
-        register_modules,
-    }
-    .leak_into_prefix()
 }
 
 #[cfg(test)]

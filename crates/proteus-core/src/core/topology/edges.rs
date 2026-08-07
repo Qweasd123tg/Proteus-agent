@@ -1,11 +1,10 @@
 use std::collections::BTreeMap;
 
-use super::{ModuleTopology, PluginTopology, ToolTopology, TopologyEdge};
+use super::{ModuleTopology, ToolTopology, TopologyEdge};
 
 pub(super) fn build_edges(
     active_modules: &BTreeMap<String, String>,
     modules: &[ModuleTopology],
-    plugins: &[PluginTopology],
     tools: &[ToolTopology],
 ) -> Vec<TopologyEdge> {
     let mut edges = Vec::new();
@@ -35,50 +34,6 @@ pub(super) fn build_edges(
             ));
         }
     }
-    for plugin in plugins {
-        let plugin_node = format!("plugin:{}", plugin.name);
-        if plugin.status != "loaded" {
-            edges.push(edge(
-                &plugin_node,
-                "warnings",
-                "load_error",
-                Some("load error"),
-            ));
-            continue;
-        }
-        for module in &plugin.provides.modules {
-            edges.push(edge(
-                &plugin_node,
-                &format!("module:{}:{}", module.slot, module.id),
-                "provides",
-                Some("module"),
-            ));
-        }
-        for tool in &plugin.provides.tools {
-            edges.push(edge(
-                &plugin_node,
-                &format!("tool:{}", tool.name),
-                "provides",
-                Some("tool"),
-            ));
-        }
-        for provider in &plugin.provides.context_providers {
-            let provider_node = format!("context_provider:{provider}");
-            edges.push(edge(
-                &plugin_node,
-                &provider_node,
-                "provides",
-                Some("context provider"),
-            ));
-            edges.push(edge(
-                &provider_node,
-                "slot:context",
-                "feeds",
-                Some("context provider"),
-            ));
-        }
-    }
-
     for (from, to, label) in [
         ("slot:workflow", "slot:context", "builds context"),
         ("slot:workflow", "slot:tool_exposure", "selects tools"),

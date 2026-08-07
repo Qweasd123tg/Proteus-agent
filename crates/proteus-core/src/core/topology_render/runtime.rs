@@ -52,17 +52,6 @@ pub fn render_topology_runtime_path(snapshot: &TopologySnapshot) -> String {
         out.push_str(&format!("\nParked/support slots: {}\n", parked.join(", ")));
     }
 
-    let loaded_plugins = snapshot
-        .plugins
-        .iter()
-        .filter(|plugin| plugin.status == "loaded")
-        .count();
-    out.push_str(&format!(
-        "Plugins: {}/{} loaded\n",
-        loaded_plugins,
-        snapshot.plugins.len()
-    ));
-
     if !snapshot.warnings.is_empty() {
         out.push_str("\nWarnings\n");
         for warning in &snapshot.warnings {
@@ -226,8 +215,6 @@ fn mermaid_node(id: &str, key: &str, label: &str) -> String {
         format!("{id}([\"{label}\"])")
     } else if key.starts_with("slot:") {
         format!("{id}{{\"{label}\"}}")
-    } else if key.starts_with("plugin:") {
-        format!("{id}([\"{label}\"])")
     } else {
         format!("{id}[\"{label}\"]")
     }

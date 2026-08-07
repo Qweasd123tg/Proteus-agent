@@ -1,19 +1,15 @@
-//! Shell tool как dylib-плагин.
+//! Shell tools как reference process module.
 //!
 //! Регистрирует tools `shell` (one-shot команда), `exec_command` и
 //! `write_stdin` (персистентные интерактивные PTY-сессии, см. `unified_exec`)
-//! через `PluginTool` ABI. Безопасность `RunsCommands` —
+//! через process `Tool` contract. Безопасность `RunsCommands` —
 //! `PermissionMode::Auto` запретит без approval, `plan` скроет вообще.
 //! Вынесен из ядра именно ради этого: shell — самая рискованная вещь,
-//! логично делать её opt-in через плагин, а не встраивать.
+//! логично делать её opt-in через module config, а не встраивать.
 //!
 //! Реализация держит stdout/stderr bounded и на Unix запускает shell в
 //! отдельной process group, чтобы timeout мог остановить не только `sh`, но и
 //! его дочерние процессы.
-
-#![allow(non_local_definitions)]
-#![allow(non_camel_case_types)]
-#![allow(improper_ctypes_definitions)]
 
 use std::{
     fs,
@@ -29,17 +25,10 @@ use std::os::unix::process::CommandExt;
 
 use anyhow::{Context, Result, anyhow};
 use proteus_contracts::{
-    abi_stable::{
-        export_root_module,
-        prefix_type::PrefixTypeTrait,
-        sabi_trait::TD_Opaque,
-        std_types::{RResult, RStr, RString},
-    },
     domain::EXEC_SHELL,
-    plugin::{
-        PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginTool,
-        PluginTool_TO, PluginToolError, PluginToolHostMut, PluginToolInvocationContext,
-        PluginToolObject,
+    process_module::{
+        ModuleRegistry, ProcessModuleError, ToolModule, ToolModuleHostMut,
+        ToolModuleInvocationContext, ToolModuleObject,
     },
 };
 use serde_json::{Value, json};
@@ -66,8 +55,8 @@ const PTYXIS_TERMINAL: &str = "ptyxis";
 
 struct ShellTool;
 
-impl PluginTool for ShellTool {
-    fn spec_json(&self) -> RString {
+impl ToolModule for ShellTool {
+    fn spec_json(&self) -> String {
         let spec = json!({
             "name": "shell",
             "description": "Run a shell command in the current workspace (sh -lc). Non-escalated commands require bwrap and run with no network access, a private PID namespace, and a read-only filesystem outside the workspace; execution fails closed when bwrap is unavailable or disabled. The sandbox network is isolated per call: a localhost server started by one sandboxed call is unreachable from any other call and from the user's machine. Start servers that must stay reachable with `with_escalated_permissions: true`. Set `with_escalated_permissions: true` with a short `justification` to request an unsandboxed run (requires user approval). Non-escalated workdirs must stay inside the workspace. External-terminal execution is unsandboxed and therefore also requires escalation. Set the `workdir` param to run in a subdirectory instead of using `cd` in the command. Interactive clients may choose to surface command output in their own UI; headless runs return captured stdout/stderr. Safety: RunsCommands.",
@@ -103,27 +92,27 @@ impl PluginTool for ShellTool {
                 "aliases": ["run command", "cargo test", "npm test", "execute"]
             }
         });
-        RString::from(spec.to_string())
+        String::from(spec.to_string())
     }
 
     fn invoke_json(
         &self,
-        call_json: RString,
-        context_json: RString,
-        _host: &mut PluginToolHostMut<'_>,
-    ) -> RResult<RString, PluginToolError> {
-        let context: PluginToolInvocationContext = match serde_json::from_str(context_json.as_str())
+        call_json: String,
+        context_json: String,
+        _host: &mut ToolModuleHostMut<'_>,
+    ) -> Result<String, ProcessModuleError> {
+        let context: ToolModuleInvocationContext = match serde_json::from_str(context_json.as_str())
         {
             Ok(context) => context,
             Err(error) => {
-                return RResult::RErr(PluginToolError::new(format!(
-                    "failed to parse PluginToolInvocationContext: {error}"
+                return Err(ProcessModuleError::new(format!(
+                    "failed to parse ToolModuleInvocationContext: {error}"
                 )));
             }
         };
         match invoke_impl(call_json.as_str(), &context.cwd.to_string_lossy()) {
-            Ok(result_json) => RResult::ROk(RString::from(result_json)),
-            Err(error) => RResult::RErr(PluginToolError::new(format!("{error:#}"))),
+            Ok(result_json) => Ok(String::from(result_json)),
+            Err(error) => Err(ProcessModuleError::new(format!("{error:#}"))),
         }
     }
 }
@@ -641,35 +630,19 @@ fn kill_child_tree(child: &mut Child) {
     let _ = child.kill();
 }
 
-extern "C" fn register_modules(
-    registry: &mut PluginRegistryMut<'_>,
-) -> RResult<(), PluginRegisterError> {
-    let tool: PluginToolObject = PluginTool_TO::from_value(ShellTool, TD_Opaque);
-    if let RResult::RErr(err) = registry.register_tool(tool) {
-        return RResult::RErr(err);
+pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), ProcessModuleError> {
+    let tool: ToolModuleObject = Box::new(ShellTool);
+    if let Err(err) = registry.register_tool(tool) {
+        return Err(err);
     }
 
-    let exec: PluginToolObject =
-        PluginTool_TO::from_value(unified_exec::ExecCommandTool, TD_Opaque);
-    if let RResult::RErr(err) = registry.register_tool(exec) {
-        return RResult::RErr(err);
+    let exec: ToolModuleObject = Box::new(unified_exec::ExecCommandTool);
+    if let Err(err) = registry.register_tool(exec) {
+        return Err(err);
     }
 
-    let stdin: PluginToolObject =
-        PluginTool_TO::from_value(unified_exec::WriteStdinTool, TD_Opaque);
+    let stdin: ToolModuleObject = Box::new(unified_exec::WriteStdinTool);
     registry.register_tool(stdin)
-}
-
-#[export_root_module]
-pub fn get_plugin_root() -> PluginRoot_Ref {
-    PluginRoot {
-        name: RStr::from_str("shell-tool"),
-        description: RStr::from_str(
-            "Shell tool plugin: opt-in RunsCommands tools, registers 'shell', 'exec_command', 'write_stdin'",
-        ),
-        register_modules,
-    }
-    .leak_into_prefix()
 }
 
 #[cfg(test)]

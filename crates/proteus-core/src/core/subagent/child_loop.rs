@@ -194,7 +194,7 @@ pub(super) fn child_cache_routing_key(thread_id: ThreadId) -> String {
 }
 
 /// Model call с таймаутом родительского runtime и отменой через
-/// `ctx.cancellation` — тот же контур, что у workflow plugin host.
+/// `ctx.cancellation` — тот же контур, что у process workflow host.
 async fn complete_model(
     ctx: &RuntimeContext,
     request: CanonicalModelRequest,

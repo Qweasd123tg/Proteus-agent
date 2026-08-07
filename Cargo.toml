@@ -26,4 +26,5 @@ members = [
     "modules/reference/memory-pack",
     "modules/reference/policy-pack",
     "modules/reference/renderer-pack",
+    "modules/reference/process-worker",
 ]

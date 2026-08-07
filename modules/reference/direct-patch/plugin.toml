@@ -1,6 +1,0 @@
-name = "direct-patch"
-version = "0.1.0"
-description = "Workspace-scoped PatchApplier for the internal patch format (module id: direct)"
-capabilities = ["patch"]
-[module_descriptions]
-direct = "Line-based патчи в стиле Codex apply_patch (Add/Update/Delete/Move File); хунки ищутся по содержимому, пути строго внутри workspace."

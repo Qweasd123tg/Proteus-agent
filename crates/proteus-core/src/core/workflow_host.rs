@@ -1,8 +1,7 @@
 //! Core-owned implementation of the Workflow host capability surface.
 //!
-//! Both the transitional dylib adapter and process Workflow v1 delegate here,
-//! so module origin cannot change model, tool, policy, cancellation, or event
-//! semantics.
+//! Process Workflow v1 delegates here, so module identity cannot change model,
+//! tool, policy, cancellation, or event semantics.
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
@@ -16,11 +15,10 @@ use crate::{
     },
     domain::{AgentTask, Event, ToolCall, ToolResult, ToolSpec},
     model_standard::{CanonicalModelRequest, CanonicalModelResponse},
-    plugin_adapters::compactor::RuntimeCompactionHost,
     tools::{TASK_TOOL, calls_are_parallel_eligible},
 };
 
-use super::ToolOrchestrator;
+use super::{RuntimeCompactionHost, ToolOrchestrator};
 
 /// Sync bridge used only from a blocking worker thread.
 pub(crate) struct WorkflowHostRuntime {

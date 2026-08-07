@@ -7,8 +7,15 @@ use crate::{
     model_standard::{CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse},
 };
 
-pub const PROCESS_COMPACTOR_CONTRACT_VERSION: &str = "v0";
+pub const PROCESS_COMPACTOR_CONTRACT_VERSION: &str = "v1";
 pub const PROCESS_COMPACTOR_METHOD: &str = "compact";
+pub const COMPACTOR_HOST_COMPLETE_MODEL_METHOD: &str = "host.model.complete";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessCompactorCompleteModelInput {
+    pub request: CanonicalModelRequest,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -22,7 +29,7 @@ pub struct CompactionInput {
     /// `trigger_fraction` из конфига. `None` — если окно неизвестно.
     pub window_tokens: Option<u32>,
     /// module-config компактора (`module_config.compactor.<id>`), который
-    /// хост прокидывает в плагин. Содержит, в частности, порог автокомпакта.
+    /// host передаёт выбранному process module.
     pub config: serde_json::Value,
     pub reason: Option<String>,
 }

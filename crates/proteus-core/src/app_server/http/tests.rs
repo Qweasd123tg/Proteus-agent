@@ -5,15 +5,8 @@ use std::{
     time::Duration,
 };
 
-use coding_workflow::CodingSingleLoopWorkflow;
-use context_pack::SimpleContextBuilderPlugin;
 use hyper::header::{AUTHORIZATION, ORIGIN};
-use policy_pack::AskWritePolicyPlugin;
-use proteus_contracts::{
-    abi_stable::sabi_trait::TD_Opaque,
-    contracts::ApprovalCacheScope,
-    plugin::{PluginApprovalPolicy_TO, PluginContextBuilder_TO, PluginWorkflow_TO},
-};
+use proteus_contracts::contracts::ApprovalCacheScope;
 use serde_json::Value;
 
 use super::*;
@@ -123,11 +116,7 @@ fn dogfood_loop_config() -> AppConfig {
         .get_mut(&active_provider)
         .expect("default provider")
         .stream = false;
-    config.modules.workflow = "coding.single_loop".to_owned();
-    config.modules.context = "simple".to_owned();
-    config.modules.policy = "ask_write".to_owned();
-    config.modules.patch = "null".to_owned();
-    config.modules.renderer = "text".to_owned();
+    crate::test_support::select_test_modules(&mut config, "coding.single_loop");
     config.tools.enabled = vec!["apply_patch".to_owned(), "request_user_input".to_owned()];
     config.module_config.insert(
         "policy".to_owned(),
@@ -143,26 +132,7 @@ fn dogfood_loop_config() -> AppConfig {
 }
 
 fn dogfood_loop_catalog() -> ModuleCatalog {
-    let mut catalog = ModuleCatalog::new();
-    catalog
-        .register_plugin_context_builder(
-            "simple",
-            PluginContextBuilder_TO::from_value(SimpleContextBuilderPlugin, TD_Opaque),
-        )
-        .expect("register test context builder");
-    catalog
-        .register_plugin_workflow(
-            "coding.single_loop",
-            PluginWorkflow_TO::from_value(CodingSingleLoopWorkflow::default(), TD_Opaque),
-        )
-        .expect("register test workflow");
-    catalog
-        .register_plugin_policy(
-            "ask_write",
-            PluginApprovalPolicy_TO::from_value(AskWritePolicyPlugin, TD_Opaque),
-        )
-        .expect("register test policy");
-    catalog
+    crate::test_support::module_catalog()
 }
 
 fn json_body(value: Value) -> Full<Bytes> {
@@ -375,12 +345,17 @@ async fn route_config_builder_returns_editable_module_slots() {
             "memory",
         ]
     );
+    assert!(
+        slots
+            .iter()
+            .all(|slot| { slot.get("modules").and_then(Value::as_array).is_some() })
+    );
     assert!(slots.iter().any(|slot| {
         slot.get("id").and_then(Value::as_str) == Some("workflow")
             && slot
                 .get("modules")
                 .and_then(Value::as_array)
-                .is_some_and(|modules| !modules.is_empty())
+                .is_some_and(Vec::is_empty)
     }));
     assert!(!slots.iter().any(|slot| {
         matches!(
@@ -421,8 +396,6 @@ model = "fake-fast"
 provider = "fake"
 model = "fake-smart"
 
-[modules]
-tool_exposure = "all_visible"
 "#,
     )
     .expect("write config");
@@ -442,7 +415,7 @@ tool_exposure = "all_visible"
             "/config/builder",
             json!({
                 "modules": {
-                    "subagent": "none"
+                    "subagent": "sequential"
                 },
                 "tools_enabled": ["apply_patch", "search"],
                 "active_provider": "smart",
@@ -462,12 +435,12 @@ tool_exposure = "all_visible"
             .and_then(Value::as_array)
             .is_some_and(|items| items.iter().any(|item| {
                 item.get("slot").and_then(Value::as_str) == Some("subagent")
-                    && item.get("id").and_then(Value::as_str) == Some("none")
+                    && item.get("id").and_then(Value::as_str) == Some("sequential")
             }))
     );
 
     let written = std::fs::read_to_string(&config_path).expect("read config");
-    assert!(written.contains("subagent = \"none\""), "{written}");
+    assert!(written.contains("subagent = \"sequential\""), "{written}");
     assert!(
         written.contains("enabled = [\"apply_patch\", \"search\"]"),
         "{written}"
@@ -506,7 +479,7 @@ tool_exposure = "all_visible"
             .and_then(Value::as_array)
             .is_some_and(|items| items.iter().any(|item| {
                 item.get("slot").and_then(Value::as_str) == Some("subagent")
-                    && item.get("id").and_then(Value::as_str) == Some("none")
+                    && item.get("id").and_then(Value::as_str) == Some("sequential")
             }))
     );
     assert!(
@@ -968,7 +941,6 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
     assert!(body.starts_with("Proteus runtime path"));
     assert!(body.contains("Active product path"));
     assert!(body.contains("ToolRegistry"));
-    assert!(!body.contains("Plugin contribution map"));
 
     let response = route_request(state, authed_get_request("/inspect/topology.runtime.mmd"))
         .await
@@ -985,7 +957,6 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
     assert!(body.starts_with("flowchart LR"));
     assert!(body.contains("ToolRegistry"));
     assert!(body.contains("Final output"));
-    assert!(!body.contains("Plugin contribution map"));
     server.shutdown().await;
 }
 

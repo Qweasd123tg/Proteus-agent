@@ -2,13 +2,12 @@
 
 use std::{path::Path, process::Command, time::Duration};
 
-use proteus_contracts::abi_stable::std_types::{RResult, RString};
-use proteus_contracts::plugin::{PluginTool, PluginToolError, PluginToolHostMut};
+use proteus_contracts::process_module::{ProcessModuleError, ToolModule, ToolModuleHostMut};
 use serde_json::{Value, json};
 
 use crate::util::{
-    err_result, ok_result, optional_positive_usize, optional_string_array, parse_call,
-    parse_invocation_context, plugin_error, required_string, run_lines_limited, workspace_path,
+    err_result, module_error, ok_result, optional_positive_usize, optional_string_array,
+    parse_call, parse_invocation_context, required_string, run_lines_limited, workspace_path,
 };
 
 const FIND_TIMEOUT: Duration = Duration::from_secs(60);
@@ -17,8 +16,8 @@ const MAX_MAX_RESULTS: usize = 1_000;
 
 pub struct FindFilesTool;
 
-impl PluginTool for FindFilesTool {
-    fn spec_json(&self) -> RString {
+impl ToolModule for FindFilesTool {
+    fn spec_json(&self) -> String {
         let spec = json!({
             "name": "find_files",
             "description": "Find workspace files by glob pattern using ripgrep --files. Prefer this over shell find/ls for read-only file discovery.",
@@ -56,22 +55,22 @@ impl PluginTool for FindFilesTool {
                 "aliases": ["find files", "list matching files", "file glob"]
             }
         });
-        RString::from(spec.to_string())
+        String::from(spec.to_string())
     }
 
     fn invoke_json(
         &self,
-        call_json: RString,
-        context_json: RString,
-        _host: &mut PluginToolHostMut<'_>,
-    ) -> RResult<RString, PluginToolError> {
+        call_json: String,
+        context_json: String,
+        _host: &mut ToolModuleHostMut<'_>,
+    ) -> Result<String, ProcessModuleError> {
         let call = match parse_call(call_json.as_str()) {
             Ok(c) => c,
-            Err(e) => return plugin_error(e),
+            Err(e) => return module_error(e),
         };
         let context = match parse_invocation_context(context_json.as_str()) {
             Ok(context) => context,
-            Err(error) => return plugin_error(error),
+            Err(error) => return module_error(error),
         };
 
         let pattern = match required_string(&call.args, "pattern", &call.name) {

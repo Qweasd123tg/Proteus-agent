@@ -50,12 +50,14 @@ cargo run --bin proteus -- --config codex replay workflow \
 (`~/.config/Proteus-agent/configs/config.toml`) или в путь, переданный через
 `--config`. Если `--config <name>` передан как bare name, init пишет строгий
 named config `<name>.config.toml` в default config dir. `coding`, `codex` и
-`full` включают real-provider coding profile с plugin tools после
+`full` включают real-provider coding profile с reference process tools после
 `./install.sh`, `safe` использует fake model.
 
-`doctor` проверяет default/explicit config, загрузку dylib-плагинов, выбранные
-module ids, активный model provider, наличие секрета провайдера, внешние
-команды вроде `rg`, runtime timeout'ы, event log path и tool registry.
+`doctor` проверяет default/explicit config, process descriptors и доступность
+их команд, выбранные module ids, активный model provider, наличие секрета
+провайдера, внешние команды вроде `rg`, runtime timeout'ы, event log path и
+tool registry. Строгий protocol handshake выполняется conformance gate-ом и
+при реальной сборке runtime snapshot, а не read-only командой `doctor`.
 
 Явный рабочий каталог:
 
@@ -284,7 +286,7 @@ history `ToolCall` без парного `ToolResult` отдаётся как `i
 событие после конца хода уже не придёт (пропущенный `ToolFinished`, обрыв
 SSE между `/history` и подпиской).
 
-`TokenUsageUpdated` испускается workflow-плагином после каждого model request.
+`TokenUsageUpdated` испускается workflow module после каждого model request.
 Событие содержит оценку input tokens по категориям (`instructions`, `messages`,
 `context`, `tool_calls`, `tool_results`, `files`, `patches`, `tool_schemas`) и
 фактический `TokenUsage`, если provider adapter вернул usage.
@@ -757,8 +759,8 @@ Terminal app event публикуется до снятия finalization gate se
 
 ## Workflow Loop
 
-Baseline `coding.single_loop` поставляется плагином `coding-workflow`. Он
-работает через host capabilities ядра:
+Baseline `coding.single_loop` экспортируется `proteus-reference-worker` из
+crate `coding-workflow`. Он работает через process workflow callbacks ядра:
 
 1. `AgentRuntime::run` берёт `run_lock`;
 2. гарантирует `SessionStarted` один раз на session; stdio app-server вызывает это сразу после запуска, чтобы внешний клиент знал модель, cwd и session directory до первого turn;
@@ -894,14 +896,14 @@ reasoning-поля из runtime config (`summary`, `budget_tokens`). UI полу
 переопределять effort поверх config.
 
 `StdioRequest::ReloadTools` и HTTP `POST /reload-tools` перечитывают `tools.*`
-из config path, заново сканируют dylib-плагины и MCP/configured tools, затем
+из config path, заново собирают process catalog и MCP/configured tools, затем
 публикуют новый `RuntimeSnapshot`. Остальные `modules.*`, provider и runtime
 settings остаются как в текущем app-server snapshot; для их замены нужен
 будущий `reload_modules`. Уже running turn держит старый snapshot; new turns
 берут новый. Клиент получает `AppServerEvent::ModulesReloaded { old_epoch,
 new_epoch, tool_names }`, а `GET /config` / `ConfigSummary` возвращает
 `module_epoch`. Это reload control-plane: новый snapshot получает свои MCP
-host-процессы, но это не dylib unload и не общий `reload_modules`.
+host-процессы, но это не общий `reload_modules`.
 
 Минимальный request contract:
 
@@ -947,11 +949,10 @@ single-choice, multi-choice и custom форму. Это повторяет гр
 `runtime.workflow_timeout_ms` ограничивает весь workflow turn и освобождает
 runtime lock при зависшем workflow. При timeout runtime также сигналит
 turn-level cancellation token. `RuntimeContext` передаёт этот token в tools,
-а workflow plugin host проверяет его перед/во время host calls
-(`build_context`, `complete_model`, `execute_tool`, `emit_event`). Для sync
-dylib-плагинов это cooperative cancellation: код, уже выполняющийся внутри
-плагина без host calls, не hard-kill'ится. Недоверенные или потенциально
-вечные плагины требуют отдельной process isolation.
+а process workflow host проверяет его перед/во время callbacks
+(`build_context`, `complete_model`, `execute_tool`, `emit_event`). Process
+session отправляет cancel и после bounded grace reset-ит/останавливает child;
+следующая invocation может запустить новый worker, но текущий turn не retry-ится.
 
 `runtime.model_timeout_ms = 0` отключает timeout одного model request,
 `runtime.workflow_timeout_ms = 0` отключает timeout всего workflow turn.

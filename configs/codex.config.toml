@@ -49,7 +49,6 @@ name = "codex-proxy"
 # baseline coding profiles do not inherit Codex parity experiments by accident.
 workflow = "coding.codex_loop"
 search = "rg"
-memory = "none"
 context = "codex_context"
 policy = "codex_policy"
 patch = "direct"
@@ -58,9 +57,53 @@ compactor = "codex"
 # схемы на каждом turn-е, редкие tools доступны через proteus_tool_search/call.
 tool_exposure = "codex_dynamic"
 subagent = "sequential"
-# Strict one-shot output stays model-authored text through the builtin renderer.
-# The interactive client may render its own status UI without polluting stdout/transcripts.
-renderer = "text"
+# Strict one-shot output stays model-authored text through the host projection.
+# The interactive client renders its own status UI without polluting transcripts.
+
+[[process_modules]]
+slot = "workflow"
+module_id = "coding.codex_loop"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "search"
+module_id = "rg"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "context"
+module_id = "codex_context"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "context_provider"
+module_id = "skills"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "policy"
+module_id = "codex_policy"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "patch"
+module_id = "direct"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "compactor"
+module_id = "codex"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "tool_exposure"
+module_id = "codex_dynamic"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "tool"
+module_id = "reference.tools"
+command = "proteus-reference-worker"
 
 [subagents]
 # Experimental Codex-like async control surface. Переключите на `task`,

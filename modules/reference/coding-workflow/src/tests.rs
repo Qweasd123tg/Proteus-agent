@@ -6,15 +6,11 @@ mod cache;
 use serde_json::Value;
 
 use proteus_contracts::{
-    abi_stable::sabi_trait::TD_Opaque,
     domain::{
         AgentTask, ContextChunk, HostedToolConfig, ModelRef, ReasoningConfig, ToolSurface,
         WebSearchHostedToolConfig, new_call_id, new_session_id, new_thread_id, new_turn_id,
     },
-    plugin::{
-        PluginWorkflowHost, PluginWorkflowHost_TO, PluginWorkflowHostError,
-        PluginWorkflowRuntimeInfo,
-    },
+    process_module::{ProcessModuleError, WorkflowModuleHost, WorkflowModuleRuntimeInfo},
 };
 
 #[test]
@@ -294,16 +290,16 @@ impl FakeHost {
     }
 }
 
-impl PluginWorkflowHost for FakeHost {
-    fn is_cancelled(&self) -> RResult<bool, PluginWorkflowHostError> {
-        RResult::ROk(false)
+impl WorkflowModuleHost for FakeHost {
+    fn is_cancelled(&self) -> Result<bool, ProcessModuleError> {
+        Ok(false)
     }
 
-    fn queued_user_messages(&self) -> RResult<u32, PluginWorkflowHostError> {
-        RResult::ROk(0)
+    fn queued_user_messages(&self) -> Result<u32, ProcessModuleError> {
+        Ok(0)
     }
 
-    fn build_context_json(&self, task_json: RString) -> RResult<RString, PluginWorkflowHostError> {
+    fn build_context_json(&self, task_json: String) -> Result<String, ProcessModuleError> {
         let task: AgentTask = serde_json::from_str(task_json.as_str()).expect("task json");
         let context = self
             .context_text
@@ -313,15 +309,12 @@ impl PluginWorkflowHost for FakeHost {
             .unwrap_or_else(|| format!("context for {}", task.text));
         let bundle =
             ContextBundle::new(vec![ContextChunk::new("test", context)]).with_token_estimate(7);
-        RResult::ROk(RString::from(
+        Ok(String::from(
             serde_json::to_string(&bundle).expect("bundle json"),
         ))
     }
 
-    fn complete_model_json(
-        &self,
-        request_json: RString,
-    ) -> RResult<RString, PluginWorkflowHostError> {
+    fn complete_model_json(&self, request_json: String) -> Result<String, ProcessModuleError> {
         let request: CanonicalModelRequest =
             serde_json::from_str(request_json.as_str()).expect("request json");
         self.requests.lock().expect("requests").push(request);
@@ -337,15 +330,12 @@ impl PluginWorkflowHost for FakeHost {
                     FinishReason::Stop,
                 )
             });
-        RResult::ROk(RString::from(
+        Ok(String::from(
             serde_json::to_string(&response).expect("response json"),
         ))
     }
 
-    fn compact_history_json(
-        &self,
-        input_json: RString,
-    ) -> RResult<RString, PluginWorkflowHostError> {
+    fn compact_history_json(&self, input_json: String) -> Result<String, ProcessModuleError> {
         let input: CompactionInput =
             serde_json::from_str(input_json.as_str()).expect("compaction input json");
         self.compactions
@@ -360,58 +350,55 @@ impl PluginWorkflowHost for FakeHost {
             .unwrap_or_else(|| {
                 proteus_contracts::contracts::CompactionOutput::unchanged(input.messages)
             });
-        RResult::ROk(RString::from(
+        Ok(String::from(
             serde_json::to_string(&output).expect("compaction output json"),
         ))
     }
 
-    fn visible_tools_json(&self, _cwd: RString) -> RResult<RString, PluginWorkflowHostError> {
-        RResult::ROk(RString::from(
+    fn visible_tools_json(&self, _cwd: String) -> Result<String, ProcessModuleError> {
+        Ok(String::from(
             serde_json::to_string(&*self.visible_tools.lock().expect("visible tools"))
                 .expect("visible tools json"),
         ))
     }
 
-    fn select_tools_json(
-        &self,
-        _request_json: RString,
-    ) -> RResult<RString, PluginWorkflowHostError> {
+    fn select_tools_json(&self, _request_json: String) -> Result<String, ProcessModuleError> {
         let output = proteus_contracts::contracts::ToolExposureOutput::new(
             self.selected_tools.lock().expect("selected tools").clone(),
         );
-        RResult::ROk(RString::from(
+        Ok(String::from(
             serde_json::to_string(&output).expect("tool exposure output json"),
         ))
     }
 
     fn execute_tools_json(
         &self,
-        task_json: RString,
-        calls_json: RString,
-    ) -> RResult<RString, PluginWorkflowHostError> {
+        task_json: String,
+        calls_json: String,
+    ) -> Result<String, ProcessModuleError> {
         let calls: Vec<ToolCall> =
             serde_json::from_str(calls_json.as_str()).expect("tool calls json");
         let mut results = Vec::new();
         for call in calls {
             let call_json = serde_json::to_string(&call).expect("tool call json");
-            match self.execute_tool_json(task_json.clone(), RString::from(call_json)) {
-                RResult::ROk(result_json) => results.push(
+            match self.execute_tool_json(task_json.clone(), String::from(call_json)) {
+                Ok(result_json) => results.push(
                     serde_json::from_str::<ToolResult>(result_json.as_str())
                         .expect("tool result json"),
                 ),
-                RResult::RErr(error) => return RResult::RErr(error),
+                Err(error) => return Err(error),
             }
         }
-        RResult::ROk(RString::from(
+        Ok(String::from(
             serde_json::to_string(&results).expect("tool results json"),
         ))
     }
 
     fn execute_tool_json(
         &self,
-        _task_json: RString,
-        call_json: RString,
-    ) -> RResult<RString, PluginWorkflowHostError> {
+        _task_json: String,
+        call_json: String,
+    ) -> Result<String, ProcessModuleError> {
         let call: ToolCall = serde_json::from_str(call_json.as_str()).expect("tool call json");
         self.executed_calls
             .lock()
@@ -419,25 +406,26 @@ impl PluginWorkflowHost for FakeHost {
             .push(call.clone());
         let result = ToolResult::ok(call.id.clone(), format!("{} ok", call.name))
             .with_metadata(json!({ "inner": true }));
-        RResult::ROk(RString::from(
+        Ok(String::from(
             serde_json::to_string(&result).expect("tool result json"),
         ))
     }
 
-    fn emit_event_json(&self, event_json: RString) -> RResult<(), PluginWorkflowHostError> {
+    fn emit_event_json(&self, event_json: String) -> Result<(), ProcessModuleError> {
         let event: Event = serde_json::from_str(event_json.as_str()).expect("event json");
         self.events.lock().expect("events").push(event);
-        RResult::ROk(())
+        Ok(())
     }
 }
 
-fn workflow_input(text: &str) -> PluginWorkflowInput {
+fn workflow_input(text: &str) -> WorkflowModuleInput {
     let task = AgentTask::new(text, std::env::current_dir().expect("cwd"));
     let history = vec![CanonicalMessage::text(MessageRole::User, task.text.clone())];
-    PluginWorkflowInput {
+    WorkflowModuleInput {
         task,
         history,
-        runtime: PluginWorkflowRuntimeInfo {
+        config: json!({}),
+        runtime: WorkflowModuleRuntimeInfo {
             session_id: new_session_id(),
             thread_id: new_thread_id(),
             turn_id: new_turn_id(),
@@ -447,6 +435,7 @@ fn workflow_input(text: &str) -> PluginWorkflowInput {
             max_input_tokens: Some(16_000),
             model_timeout_ms: 120_000,
             context_timeout_ms: 30_000,
+            workflow_timeout_ms: 300_000,
         },
     }
 }
@@ -507,17 +496,15 @@ fn codex_loop_runs_tool_round_then_stops_on_non_tool_response() {
         ),
     ])
     .with_tools(vec![read_file.clone(), apply_patch], vec![read_file]);
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
 
-    let output_json =
-        match CodingCodexLoopWorkflow.run_json(RString::from(input_json), &mut host_to) {
-            RResult::ROk(json) => json,
-            RResult::RErr(error) => panic!("workflow failed: {}", error.message),
-        };
-    let output: PluginWorkflowOutput =
+    let output_json = match CodingCodexLoopWorkflow.run_json(String::from(input_json), host_to) {
+        Ok(json) => json,
+        Err(error) => panic!("workflow failed: {}", error.message),
+    };
+    let output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
-    drop(host_to);
+    let _ = host_to;
 
     assert_eq!(output.output.text, "final answer");
     assert_eq!(
@@ -619,17 +606,15 @@ fn codex_loop_continues_when_provider_sets_end_turn_false() {
         )
         .with_end_turn(true),
     ]);
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
 
-    let output_json =
-        match CodingCodexLoopWorkflow.run_json(RString::from(input_json), &mut host_to) {
-            RResult::ROk(json) => json,
-            RResult::RErr(error) => panic!("workflow failed: {}", error.message),
-        };
-    let output: PluginWorkflowOutput =
+    let output_json = match CodingCodexLoopWorkflow.run_json(String::from(input_json), host_to) {
+        Ok(json) => json,
+        Err(error) => panic!("workflow failed: {}", error.message),
+    };
+    let output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
-    drop(host_to);
+    let _ = host_to;
 
     assert_eq!(output.output.text, "final answer");
     assert_eq!(host.requests.lock().expect("requests").len(), 2);
@@ -658,15 +643,13 @@ fn codex_loop_empty_final_response_stays_strict_by_default() {
         ),
     ])
     .with_tools(vec![read_file.clone()], vec![read_file]);
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
 
-    let output_json =
-        match CodingCodexLoopWorkflow.run_json(RString::from(input_json), &mut host_to) {
-            RResult::ROk(json) => json,
-            RResult::RErr(error) => panic!("workflow failed: {}", error.message),
-        };
-    let output: PluginWorkflowOutput =
+    let output_json = match CodingCodexLoopWorkflow.run_json(String::from(input_json), host_to) {
+        Ok(json) => json,
+        Err(error) => panic!("workflow failed: {}", error.message),
+    };
+    let output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
 
     assert_eq!(output.output.text, "<empty model response>");
@@ -690,14 +673,13 @@ fn codex_loop_errors_on_tool_finish_without_tool_calls() {
         Vec::new(),
         FinishReason::ToolCalls,
     )]);
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
 
-    let error = match CodingCodexLoopWorkflow.run_json(RString::from(input_json), &mut host_to) {
-        RResult::ROk(_) => panic!("workflow unexpectedly succeeded"),
-        RResult::RErr(error) => error,
+    let error = match CodingCodexLoopWorkflow.run_json(String::from(input_json), host_to) {
+        Ok(_) => panic!("workflow unexpectedly succeeded"),
+        Err(error) => error,
     };
-    drop(host_to);
+    let _ = host_to;
 
     assert!(
         error
@@ -729,14 +711,13 @@ fn codex_loop_errors_on_length_response() {
         Vec::new(),
         FinishReason::Length,
     )]);
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
 
-    let error = match CodingCodexLoopWorkflow.run_json(RString::from(input_json), &mut host_to) {
-        RResult::ROk(_) => panic!("workflow unexpectedly succeeded"),
-        RResult::RErr(error) => error,
+    let error = match CodingCodexLoopWorkflow.run_json(String::from(input_json), host_to) {
+        Ok(_) => panic!("workflow unexpectedly succeeded"),
+        Err(error) => error,
     };
-    drop(host_to);
+    let _ = host_to;
 
     assert!(error.message.as_str().contains("length limit"));
     assert!(
@@ -759,14 +740,13 @@ fn codex_loop_errors_when_tool_calls_do_not_match_message_parts() {
         FinishReason::ToolCalls,
     )])
     .with_tools(vec![read_file.clone()], vec![read_file]);
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
 
-    let error = match CodingCodexLoopWorkflow.run_json(RString::from(input_json), &mut host_to) {
-        RResult::ROk(_) => panic!("workflow unexpectedly succeeded"),
-        RResult::RErr(error) => error,
+    let error = match CodingCodexLoopWorkflow.run_json(String::from(input_json), host_to) {
+        Ok(_) => panic!("workflow unexpectedly succeeded"),
+        Err(error) => error,
     };
-    drop(host_to);
+    let _ = host_to;
 
     assert!(
         error
@@ -799,14 +779,13 @@ fn codex_loop_rejects_message_only_tool_call_before_finishing() {
         Vec::new(),
         FinishReason::Stop,
     )]);
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
 
-    let error = match CodingCodexLoopWorkflow.run_json(RString::from(input_json), &mut host_to) {
-        RResult::ROk(_) => panic!("workflow unexpectedly succeeded"),
-        RResult::RErr(error) => error,
+    let error = match CodingCodexLoopWorkflow.run_json(String::from(input_json), host_to) {
+        Ok(_) => panic!("workflow unexpectedly succeeded"),
+        Err(error) => error,
     };
-    drop(host_to);
+    let _ = host_to;
 
     assert!(
         error
@@ -837,17 +816,15 @@ fn codex_loop_returns_unrequested_tool_error_to_model_without_execution() {
         ),
     ])
     .with_tools(vec![read_file.clone(), apply_patch], vec![read_file]);
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
 
-    let output_json =
-        match CodingCodexLoopWorkflow.run_json(RString::from(input_json), &mut host_to) {
-            RResult::ROk(output) => output,
-            RResult::RErr(error) => panic!("workflow failed: {}", error.message),
-        };
-    let output: PluginWorkflowOutput =
+    let output_json = match CodingCodexLoopWorkflow.run_json(String::from(input_json), host_to) {
+        Ok(output) => output,
+        Err(error) => panic!("workflow failed: {}", error.message),
+    };
+    let output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
-    drop(host_to);
+    let _ = host_to;
 
     assert_eq!(output.output.text, "recovered final");
     assert!(
@@ -889,14 +866,13 @@ fn codex_loop_errors_when_changed_compaction_drops_current_user_message() {
         "output_token_estimate": 10,
     });
     let mut host = FakeHost::default().with_compaction_outputs(vec![bad_output]);
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
 
-    let error = match CodingCodexLoopWorkflow.run_json(RString::from(input_json), &mut host_to) {
-        RResult::ROk(_) => panic!("workflow unexpectedly succeeded"),
-        RResult::RErr(error) => error,
+    let error = match CodingCodexLoopWorkflow.run_json(String::from(input_json), host_to) {
+        Ok(_) => panic!("workflow unexpectedly succeeded"),
+        Err(error) => error,
     };
-    drop(host_to);
+    let _ = host_to;
 
     assert!(
         error
@@ -927,17 +903,15 @@ fn codex_loop_separates_compacted_history_from_new_turn_messages() {
     );
     let input_json = serde_json::to_string(&input).expect("input json");
     let mut host = FakeHost::default().with_compaction_outputs(vec![compacted_output]);
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
 
-    let output_json =
-        match CodingCodexLoopWorkflow.run_json(RString::from(input_json), &mut host_to) {
-            RResult::ROk(output) => output,
-            RResult::RErr(error) => panic!("workflow failed: {}", error.message),
-        };
-    let output: PluginWorkflowOutput =
+    let output_json = match CodingCodexLoopWorkflow.run_json(String::from(input_json), host_to) {
+        Ok(output) => output,
+        Err(error) => panic!("workflow failed: {}", error.message),
+    };
+    let output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
-    drop(host_to);
+    let _ = host_to;
 
     assert_eq!(output.history_replacement, Some(compacted_history));
     assert_eq!(output.new_messages.len(), 1);
@@ -950,18 +924,16 @@ fn single_loop_calls_host_and_returns_new_messages() {
     let input = workflow_input("hello");
     let input_json = serde_json::to_string(&input).expect("input json");
     let mut host = FakeHost::default();
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
 
-    let output_json = match CodingSingleLoopWorkflow::default()
-        .run_json(RString::from(input_json), &mut host_to)
-    {
-        RResult::ROk(json) => json,
-        RResult::RErr(error) => panic!("workflow failed: {}", error.message),
-    };
-    let output: PluginWorkflowOutput =
+    let output_json =
+        match CodingSingleLoopWorkflow::default().run_json(String::from(input_json), host_to) {
+            Ok(json) => json,
+            Err(error) => panic!("workflow failed: {}", error.message),
+        };
+    let output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
-    drop(host_to);
+    let _ = host_to;
 
     assert_eq!(output.output.text, "done");
     assert_eq!(
@@ -1028,18 +1000,16 @@ fn single_loop_adds_dynamic_meta_tools_when_tool_exposure_hides_candidates() {
     let git_log = test_tool("git_log", "Show commit history", ToolSafety::ReadOnly);
     let mut host =
         FakeHost::default().with_tools(vec![read_file.clone(), git_log], vec![read_file]);
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
 
-    let output_json = match CodingSingleLoopWorkflow::default()
-        .run_json(RString::from(input_json), &mut host_to)
-    {
-        RResult::ROk(json) => json,
-        RResult::RErr(error) => panic!("workflow failed: {}", error.message),
-    };
-    let _output: PluginWorkflowOutput =
+    let output_json =
+        match CodingSingleLoopWorkflow::default().run_json(String::from(input_json), host_to) {
+            Ok(json) => json,
+            Err(error) => panic!("workflow failed: {}", error.message),
+        };
+    let _output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
-    drop(host_to);
+    let _ = host_to;
 
     let requests = host.requests.lock().expect("requests");
     let tool_names = requests[0]
@@ -1077,16 +1047,14 @@ fn single_loop_errors_when_model_calls_unrequested_tool() {
     );
     let mut host = FakeHost::with_responses(vec![tool_call_response(call)])
         .with_tools(vec![read_file.clone(), apply_patch], vec![read_file]);
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
 
-    let error = match CodingSingleLoopWorkflow::default()
-        .run_json(RString::from(input_json), &mut host_to)
-    {
-        RResult::ROk(_) => panic!("workflow unexpectedly succeeded"),
-        RResult::RErr(error) => error,
-    };
-    drop(host_to);
+    let error =
+        match CodingSingleLoopWorkflow::default().run_json(String::from(input_json), host_to) {
+            Ok(_) => panic!("workflow unexpectedly succeeded"),
+            Err(error) => error,
+        };
+    let _ = host_to;
 
     assert!(
         error
@@ -1104,14 +1072,13 @@ fn single_loop_final_errors_when_model_calls_tool() {
     let call = ToolCall::new(new_call_id(), "read_file", json!({ "path": "src/lib.rs" }));
     let mut host = FakeHost::with_responses(vec![tool_call_response(call)])
         .with_tools(vec![read_file.clone()], vec![read_file]);
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
 
-    let error = match run_single_loop(input, &mut host_to, 0) {
+    let error = match run_single_loop(input, host_to, 0) {
         Ok(_) => panic!("workflow unexpectedly succeeded"),
         Err(error) => error,
     };
-    drop(host_to);
+    let _ = host_to;
 
     assert!(
         error
@@ -1127,17 +1094,15 @@ fn proteus_tool_describe_returns_policy_visible_hidden_schema() {
     let input = workflow_input("describe hidden tool");
     let git_log = test_tool("git_log", "Show commit history", ToolSafety::ReadOnly);
     let mut host = FakeHost::default().with_tools(vec![git_log], Vec::new());
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
     let call = ToolCall::new(
         new_call_id(),
         dynamic_tools::TOOL_DESCRIBE,
         json!({ "name": "git_log" }),
     );
 
-    let result =
-        dynamic_tools::handle_meta_tool_call(&mut host_to, &input, &call, "execute").unwrap();
-    drop(host_to);
+    let result = dynamic_tools::handle_meta_tool_call(host_to, &input, &call, "execute").unwrap();
+    let _ = host_to;
     let output: Value = serde_json::from_str(&result.output).expect("describe output json");
 
     assert!(result.ok);
@@ -1153,17 +1118,15 @@ fn proteus_tool_search_returns_compact_policy_visible_matches() {
     let git_log = test_tool("git_log", "Show commit history", ToolSafety::ReadOnly);
     let shell = test_tool("shell", "Run terminal commands", ToolSafety::RunsCommands);
     let mut host = FakeHost::default().with_tools(vec![git_log, shell], Vec::new());
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
     let call = ToolCall::new(
         new_call_id(),
         dynamic_tools::TOOL_SEARCH,
         json!({ "query": "commit history", "limit": 3 }),
     );
 
-    let result =
-        dynamic_tools::handle_meta_tool_call(&mut host_to, &input, &call, "execute").unwrap();
-    drop(host_to);
+    let result = dynamic_tools::handle_meta_tool_call(host_to, &input, &call, "execute").unwrap();
+    let _ = host_to;
     let output: Value = serde_json::from_str(&result.output).expect("search output json");
 
     assert!(result.ok);
@@ -1195,18 +1158,16 @@ fn proteus_tool_call_executes_hidden_tool_and_remaps_result_to_outer_call_id() {
         ),
     ])
     .with_tools(vec![hidden_echo], Vec::new());
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
 
-    let output_json = match CodingSingleLoopWorkflow::default()
-        .run_json(RString::from(input_json), &mut host_to)
-    {
-        RResult::ROk(json) => json,
-        RResult::RErr(error) => panic!("workflow failed: {}", error.message),
-    };
-    let output: PluginWorkflowOutput =
+    let output_json =
+        match CodingSingleLoopWorkflow::default().run_json(String::from(input_json), host_to) {
+            Ok(json) => json,
+            Err(error) => panic!("workflow failed: {}", error.message),
+        };
+    let output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
-    drop(host_to);
+    let _ = host_to;
 
     let executed_calls = host.executed_calls.lock().expect("executed calls");
     assert_eq!(executed_calls.len(), 1);
@@ -1238,8 +1199,7 @@ fn proteus_tool_call_executes_hidden_tool_and_remaps_result_to_outer_call_id() {
 fn proteus_tool_call_rejects_meta_tool_recursion_without_execution() {
     let input = workflow_input("bad recursive call");
     let mut host = FakeHost::default();
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
     let call = ToolCall::new(
         new_call_id(),
         dynamic_tools::TOOL_CALL,
@@ -1249,9 +1209,8 @@ fn proteus_tool_call_rejects_meta_tool_recursion_without_execution() {
         }),
     );
 
-    let result =
-        dynamic_tools::handle_meta_tool_call(&mut host_to, &input, &call, "execute").unwrap();
-    drop(host_to);
+    let result = dynamic_tools::handle_meta_tool_call(host_to, &input, &call, "execute").unwrap();
+    let _ = host_to;
 
     assert!(!result.ok);
     assert_eq!(result.call_id, call.id);
@@ -1279,17 +1238,15 @@ fn proteus_tool_call_rejects_provider_hosted_tool_without_execution() {
         }),
     );
     let mut host = FakeHost::default().with_tools(vec![web_search], Vec::new());
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
     let call = ToolCall::new(
         new_call_id(),
         dynamic_tools::TOOL_CALL,
         json!({ "name": "web_search", "args": {} }),
     );
 
-    let result =
-        dynamic_tools::handle_meta_tool_call(&mut host_to, &input, &call, "execute").unwrap();
-    drop(host_to);
+    let result = dynamic_tools::handle_meta_tool_call(host_to, &input, &call, "execute").unwrap();
+    let _ = host_to;
 
     assert!(!result.ok);
     assert_eq!(result.call_id, call.id);
@@ -1313,8 +1270,7 @@ fn proteus_tool_call_rejects_non_readonly_hidden_tool_in_plan_phase() {
     let input = workflow_input("plan write");
     let write_file = test_tool("write_file", "Write a file", ToolSafety::WritesFiles);
     let mut host = FakeHost::default().with_tools(vec![write_file], Vec::new());
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
     let call = ToolCall::new(
         new_call_id(),
         dynamic_tools::TOOL_CALL,
@@ -1324,8 +1280,8 @@ fn proteus_tool_call_rejects_non_readonly_hidden_tool_in_plan_phase() {
         }),
     );
 
-    let result = dynamic_tools::handle_meta_tool_call(&mut host_to, &input, &call, "plan").unwrap();
-    drop(host_to);
+    let result = dynamic_tools::handle_meta_tool_call(host_to, &input, &call, "plan").unwrap();
+    let _ = host_to;
 
     assert!(!result.ok);
     assert_eq!(result.call_id, call.id);
@@ -1366,17 +1322,16 @@ fn plan_execute_review_runs_plan_execute_and_review_requests() {
             FinishReason::Stop,
         ),
     ]);
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
 
     let output_json =
-        match CodingPlanExecuteReviewWorkflow.run_json(RString::from(input_json), &mut host_to) {
-            RResult::ROk(json) => json,
-            RResult::RErr(error) => panic!("workflow failed: {}", error.message),
+        match CodingPlanExecuteReviewWorkflow.run_json(String::from(input_json), host_to) {
+            Ok(json) => json,
+            Err(error) => panic!("workflow failed: {}", error.message),
         };
-    let output: PluginWorkflowOutput =
+    let output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
-    drop(host_to);
+    let _ = host_to;
 
     assert_eq!(output.output.text, "final");
     assert_eq!(
@@ -1456,17 +1411,16 @@ fn plan_execute_review_executes_read_only_plan_tool_calls_before_execute() {
         ),
     ])
     .with_tools(vec![read_file.clone()], vec![read_file]);
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
 
     let output_json =
-        match CodingPlanExecuteReviewWorkflow.run_json(RString::from(input_json), &mut host_to) {
-            RResult::ROk(json) => json,
-            RResult::RErr(error) => panic!("workflow failed: {}", error.message),
+        match CodingPlanExecuteReviewWorkflow.run_json(String::from(input_json), host_to) {
+            Ok(json) => json,
+            Err(error) => panic!("workflow failed: {}", error.message),
         };
-    let output: PluginWorkflowOutput =
+    let output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
-    drop(host_to);
+    let _ = host_to;
 
     let executed = host.executed_calls.lock().expect("executed calls");
     assert_eq!(executed.len(), 1);
@@ -1514,15 +1468,13 @@ fn plan_execute_review_errors_when_plan_calls_non_readonly_tool() {
     );
     let mut host = FakeHost::with_responses(vec![tool_call_response(call)])
         .with_tools(vec![read_file, apply_patch.clone()], vec![apply_patch]);
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
 
-    let error =
-        match CodingPlanExecuteReviewWorkflow.run_json(RString::from(input_json), &mut host_to) {
-            RResult::ROk(_) => panic!("workflow unexpectedly succeeded"),
-            RResult::RErr(error) => error,
-        };
-    drop(host_to);
+    let error = match CodingPlanExecuteReviewWorkflow.run_json(String::from(input_json), host_to) {
+        Ok(_) => panic!("workflow unexpectedly succeeded"),
+        Err(error) => error,
+    };
+    let _ = host_to;
 
     assert!(
         error
@@ -1553,15 +1505,13 @@ fn plan_execute_review_errors_when_execute_calls_unrequested_tool() {
         tool_call_response(call),
     ])
     .with_tools(vec![read_file.clone(), apply_patch], vec![read_file]);
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
 
-    let error =
-        match CodingPlanExecuteReviewWorkflow.run_json(RString::from(input_json), &mut host_to) {
-            RResult::ROk(_) => panic!("workflow unexpectedly succeeded"),
-            RResult::RErr(error) => error,
-        };
-    drop(host_to);
+    let error = match CodingPlanExecuteReviewWorkflow.run_json(String::from(input_json), host_to) {
+        Ok(_) => panic!("workflow unexpectedly succeeded"),
+        Err(error) => error,
+    };
+    let _ = host_to;
 
     assert!(
         error
@@ -1592,15 +1542,13 @@ fn plan_execute_review_errors_when_review_calls_tool() {
         tool_call_response(call),
     ])
     .with_tools(vec![read_file.clone()], vec![read_file]);
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
 
-    let error =
-        match CodingPlanExecuteReviewWorkflow.run_json(RString::from(input_json), &mut host_to) {
-            RResult::ROk(_) => panic!("workflow unexpectedly succeeded"),
-            RResult::RErr(error) => error,
-        };
-    drop(host_to);
+    let error = match CodingPlanExecuteReviewWorkflow.run_json(String::from(input_json), host_to) {
+        Ok(_) => panic!("workflow unexpectedly succeeded"),
+        Err(error) => error,
+    };
+    let _ = host_to;
 
     assert!(
         error
@@ -1641,17 +1589,16 @@ fn plan_execute_review_stops_plan_tool_loop_at_round_limit() {
     ));
     let mut host =
         FakeHost::with_responses(responses).with_tools(vec![read_file.clone()], vec![read_file]);
-    let mut host_to: PluginWorkflowHostMut<'_> =
-        PluginWorkflowHost_TO::from_ptr(&mut host, TD_Opaque);
+    let host_to = &mut host;
 
     let output_json =
-        match CodingPlanExecuteReviewWorkflow.run_json(RString::from(input_json), &mut host_to) {
-            RResult::ROk(json) => json,
-            RResult::RErr(error) => panic!("workflow failed: {}", error.message),
+        match CodingPlanExecuteReviewWorkflow.run_json(String::from(input_json), host_to) {
+            Ok(json) => json,
+            Err(error) => panic!("workflow failed: {}", error.message),
         };
-    let output: PluginWorkflowOutput =
+    let output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
-    drop(host_to);
+    let _ = host_to;
 
     // Максимум 3 tool-раунда в plan-фазе; последний plan-запрос идёт без tools.
     let executed = host.executed_calls.lock().expect("executed calls");

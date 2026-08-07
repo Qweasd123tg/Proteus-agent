@@ -8,15 +8,16 @@ newline-delimited JSON-RPC 2.0.
 
 ```toml
 [modules]
-search = "process"
+search = "python_rg"
 
-[module_config.search.process]
+[[process_modules]]
+slot = "search"
 module_id = "python_rg"
 command = "python3"
 args = ["examples/modules/search-process/search.py"]
 timeout_ms = 60000
 
-[module_config.search.process.config]
+[module_config.search.python_rg]
 # Любые поля здесь принадлежат worker-у; core их не интерпретирует.
 ```
 

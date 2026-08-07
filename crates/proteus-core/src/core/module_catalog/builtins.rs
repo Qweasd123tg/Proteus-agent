@@ -2,20 +2,13 @@ use std::sync::Arc;
 
 use anyhow::{Result, bail};
 
-use super::{ModuleBuildContext, ModuleCatalog, PolicyBuildContext};
+use super::{ModuleBuildContext, ModuleCatalog};
 use crate::{
     adapters::{build_anthropic_messages_adapter, build_openai_responses_adapter},
-    contracts::{
-        ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryStore, Model, PatchApplier,
-        Renderer, SearchBackend, SubagentRunner, ToolExposure, Workflow,
-    },
+    contracts::{Model, SubagentRunner},
     core::{ModelConfig, ProcessSubagentRunner, SequentialSubagentRunner},
     domain::{ModuleKind, ModuleManifest, slot},
-    process_adapters::{ProcessHistoryCompactor, ProcessSearchBackend, ProcessWorkflowAdapter},
-    stubs::{
-        AllVisibleToolExposure, DenyAllPolicy, EmptyContextBuilder, FakeModelClient, NoCompactor,
-        NoMemory, NoSubagent, NoWorkflow, NullPatchApplier, NullSearch, TextRenderer,
-    },
+    stubs::FakeModelClient,
 };
 
 pub(super) fn register_builtins(catalog: &mut ModuleCatalog) {
@@ -61,127 +54,7 @@ pub(super) fn register_builtins(catalog: &mut ModuleCatalog) {
         build_anthropic_model_adapter,
     );
 
-    // Search backends
-    catalog.register_module::<dyn SearchBackend>(
-        slot::SEARCH,
-        "null",
-        manifest(
-            "null",
-            ModuleKind::Search,
-            &["disabled"],
-            "Поиск отключён: всегда возвращает пустой результат.",
-        ),
-        build_null_search,
-    );
-    catalog.register_module::<dyn SearchBackend>(
-        slot::SEARCH,
-        "process",
-        manifest(
-            "process",
-            ModuleKind::Search,
-            &["config_defined", "process", "stdio", "newline_json"],
-            "SearchBackend из persistent stdio-процесса; команда и handshake identity задаются в module_config.search.process.",
-        ),
-        build_process_search,
-    );
-    // Memory stores
-    catalog.register_module::<dyn MemoryStore>(
-        slot::MEMORY,
-        "none",
-        manifest(
-            "none",
-            ModuleKind::Memory,
-            &["disabled"],
-            "Память отключена: ничего не сохраняет и не вспоминает.",
-        ),
-        build_no_memory,
-    );
-    // Context builders
-    catalog.register_module::<dyn ContextBuilder>(
-        slot::CONTEXT,
-        "none",
-        manifest(
-            "none",
-            ModuleKind::Context,
-            &["disabled"],
-            "Не добавляет контекст: в модель уходит только задача и история.",
-        ),
-        build_empty_context,
-    );
-
-    // Approval policies
-    catalog.register_policy(
-        "deny_all",
-        manifest(
-            "deny_all",
-            ModuleKind::Policy,
-            &["disabled", "safe_default"],
-            "Запрещает все tool-вызовы. Безопасный дефолт, пока не выбрана policy.",
-        ),
-        build_deny_all_policy,
-    );
-
-    // Patch appliers
-    catalog.register_module::<dyn PatchApplier>(
-        slot::PATCH,
-        "null",
-        manifest(
-            "null",
-            ModuleKind::Patch,
-            &["disabled"],
-            "Патчи отключены: apply возвращает неуспех с пометкой disabled.",
-        ),
-        build_null_patch,
-    );
-
-    // History compactors
-    catalog.register_module::<dyn HistoryCompactor>(
-        slot::COMPACTOR,
-        "none",
-        manifest(
-            "none",
-            ModuleKind::Compactor,
-            &["disabled"],
-            "Без компакции: история уходит в модель как есть.",
-        ),
-        build_no_compactor,
-    );
-    catalog.register_module::<dyn HistoryCompactor>(
-        slot::COMPACTOR,
-        "process",
-        manifest(
-            "process",
-            ModuleKind::Compactor,
-            &["config_defined", "process", "stdio", "newline_json"],
-            "HistoryCompactor из persistent stdio-процесса; pure-transform стратегия и handshake identity задаются в module_config.compactor.process.",
-        ),
-        build_process_compactor,
-    );
-
-    // Tool exposure/selectors
-    catalog.register_module::<dyn ToolExposure>(
-        slot::TOOL_EXPOSURE,
-        "all_visible",
-        manifest(
-            "all_visible",
-            ModuleKind::ToolExposure,
-            &["default"],
-            "Показывает модели все policy-видимые tools (опциональный лимит из запроса workflow).",
-        ),
-        build_all_visible_tool_exposure,
-    );
     // Subagent runners
-    catalog.register_module::<dyn SubagentRunner>(
-        slot::SUBAGENT,
-        "none",
-        manifest(
-            "none",
-            ModuleKind::Subagent,
-            &["disabled"],
-            "Делегирование выключено: ролей нет, run возвращает ошибку.",
-        ),
-        build_no_subagent,
-    );
     catalog.register_module::<dyn SubagentRunner>(
         slot::SUBAGENT,
         "sequential",
@@ -208,43 +81,6 @@ pub(super) fn register_builtins(catalog: &mut ModuleCatalog) {
             "Ребёнок — отдельный процесс proteus server stdio со своим named config (роль = профиль); concurrent permits на роль, глобальный bounded idle LRU pool и spawn/wait для parallel_safe-ролей; настройки в module_config.subagent.process.",
         ),
         build_process_subagent,
-    );
-
-    // Workflows
-    catalog.register_module::<dyn Workflow>(
-        slot::WORKFLOW,
-        "none",
-        manifest(
-            "none",
-            ModuleKind::Workflow,
-            &["disabled"],
-            "Заглушка: вместо запуска агента отвечает подсказкой выбрать workflow-плагин.",
-        ),
-        build_no_workflow,
-    );
-    catalog.register_module::<dyn Workflow>(
-        slot::WORKFLOW,
-        "process",
-        manifest(
-            "process",
-            ModuleKind::Workflow,
-            &["config_defined", "process", "bidirectional_rpc"],
-            "Workflow из persistent stdio-процесса; executable и module identity задаются в module_config.workflow.process, host capabilities — единым Workflow v1 contract.",
-        ),
-        build_process_workflow,
-    );
-
-    // Renderers
-    catalog.register_module::<dyn Renderer>(
-        slot::RENDERER,
-        "text",
-        manifest(
-            "text",
-            ModuleKind::Renderer,
-            &["plain_text"],
-            "Выводит текст ответа без оформления.",
-        ),
-        build_text_renderer,
     );
 }
 
@@ -293,56 +129,6 @@ fn provider_config_with_stream(config: &ModelConfig) -> Result<serde_json::Value
     Ok(serde_json::Value::Object(provider_config))
 }
 
-fn build_null_search(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SearchBackend>> {
-    Ok(Arc::new(NullSearch))
-}
-
-fn build_process_search(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SearchBackend>> {
-    let config = ctx
-        .config
-        .module_config_value(ModuleKind::Search, "process");
-    Ok(Arc::new(ProcessSearchBackend::from_config(
-        config, ctx.cwd,
-    )?))
-}
-
-fn build_no_memory(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn MemoryStore>> {
-    Ok(Arc::new(NoMemory))
-}
-
-fn build_empty_context(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn ContextBuilder>> {
-    Ok(Arc::new(EmptyContextBuilder))
-}
-
-fn build_deny_all_policy(_ctx: &PolicyBuildContext<'_>) -> Result<Arc<dyn ApprovalPolicy>> {
-    Ok(Arc::new(DenyAllPolicy))
-}
-
-fn build_null_patch(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn PatchApplier>> {
-    Ok(Arc::new(NullPatchApplier))
-}
-
-fn build_no_compactor(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn HistoryCompactor>> {
-    Ok(Arc::new(NoCompactor))
-}
-
-fn build_process_compactor(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn HistoryCompactor>> {
-    let config = ctx
-        .config
-        .module_config_value(ModuleKind::Compactor, "process");
-    Ok(Arc::new(ProcessHistoryCompactor::from_config(
-        config, ctx.cwd,
-    )?))
-}
-
-fn build_all_visible_tool_exposure(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn ToolExposure>> {
-    Ok(Arc::new(AllVisibleToolExposure))
-}
-
-fn build_no_subagent(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SubagentRunner>> {
-    Ok(Arc::new(NoSubagent))
-}
-
 fn build_sequential_subagent(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SubagentRunner>> {
     let config = ctx
         .config
@@ -357,23 +143,4 @@ fn build_process_subagent(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Subage
         .config
         .module_config_value(ModuleKind::Subagent, "process");
     Ok(Arc::new(ProcessSubagentRunner::from_config(config)?))
-}
-
-fn build_no_workflow(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Workflow>> {
-    Ok(Arc::new(NoWorkflow))
-}
-
-fn build_process_workflow(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Workflow>> {
-    let config = ctx
-        .config
-        .module_config_value(ModuleKind::Workflow, "process");
-    Ok(Arc::new(ProcessWorkflowAdapter::from_config(
-        config,
-        ctx.cwd,
-        ctx.config.runtime.workflow_timeout_ms,
-    )?))
-}
-
-fn build_text_renderer(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Renderer>> {
-    Ok(Arc::new(TextRenderer))
 }

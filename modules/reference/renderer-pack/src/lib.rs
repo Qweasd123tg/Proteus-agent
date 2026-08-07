@@ -1,52 +1,36 @@
-//! Renderer plugin pack.
-
-#![allow(non_local_definitions)]
-#![allow(non_camel_case_types)]
-#![allow(improper_ctypes_definitions)]
+//! Statusline renderer reference process module.
 
 use anyhow::{Result, bail};
-#[cfg(feature = "plugin-entrypoint")]
-use proteus_contracts::abi_stable::{export_root_module, prefix_type::PrefixTypeTrait};
 use proteus_contracts::{
-    abi_stable::std_types::{RResult, RString},
-    contracts::{RenderError, Renderer, parse_output_json},
     domain::AgentOutput,
-};
-#[cfg(feature = "plugin-entrypoint")]
-use proteus_contracts::{
-    abi_stable::{
-        sabi_trait::TD_Opaque,
-        std_types::{RStr, RString as AbiRString},
-    },
-    contracts::{Renderer_TO, RendererObject},
-    plugin::{PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref},
+    process_module::{ModuleRegistry, ProcessModuleError, RendererModule, RendererModuleObject},
 };
 use serde_json::Value;
 
 #[derive(Default)]
-pub struct StatuslineRendererPlugin {
+pub struct StatuslineRendererModule {
     config: StatuslineConfig,
 }
 
-impl StatuslineRendererPlugin {
+impl StatuslineRendererModule {
     pub fn with_config(config: StatuslineConfig) -> Self {
         Self { config }
     }
 }
 
-impl Renderer for StatuslineRendererPlugin {
-    fn render_json(&self, output_json: RString) -> RResult<RString, RenderError> {
-        let output = match parse_output_json(output_json.as_str()) {
+impl RendererModule for StatuslineRendererModule {
+    fn render_json(&self, output_json: String) -> Result<String, ProcessModuleError> {
+        let output = match serde_json::from_str::<AgentOutput>(output_json.as_str()) {
             Ok(output) => output,
             Err(error) => {
-                return RResult::RErr(RenderError::new(format!(
+                return Err(ProcessModuleError::new(format!(
                     "failed to parse agent output: {error}"
                 )));
             }
         };
         match render_statusline(&self.config, &output) {
-            Ok(text) => RResult::ROk(text.into()),
-            Err(error) => RResult::RErr(RenderError::new(error.to_string())),
+            Ok(text) => Ok(text),
+            Err(error) => Err(ProcessModuleError::new(error.to_string())),
         }
     }
 }
@@ -245,22 +229,7 @@ fn status_block(statusline: &str) -> String {
     )
 }
 
-#[cfg(feature = "plugin-entrypoint")]
-extern "C" fn register_modules(
-    registry: &mut PluginRegistryMut<'_>,
-) -> RResult<(), PluginRegisterError> {
-    let statusline: RendererObject =
-        Renderer_TO::from_value(StatuslineRendererPlugin::default(), TD_Opaque);
-    registry.register_renderer(AbiRString::from("statusline"), statusline)
-}
-
-#[cfg(feature = "plugin-entrypoint")]
-#[export_root_module]
-pub fn instantiate_root_module() -> PluginRoot_Ref {
-    PluginRoot {
-        name: RStr::from_str("renderer-pack"),
-        description: RStr::from_str("Statusline renderer plugin"),
-        register_modules,
-    }
-    .leak_into_prefix()
+pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), ProcessModuleError> {
+    let statusline: RendererModuleObject = Box::new(StatuslineRendererModule::default());
+    registry.register_renderer(String::from("statusline"), statusline)
 }

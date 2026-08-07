@@ -9,7 +9,7 @@
 
 ## Быстрый выбор
 
-- **Запустить Proteus локально:** [README](../README.md#запуск-за-5-минут).
+- **Запустить Proteus локально:** [README](../README.md#быстрый-запуск).
 - **Поднять на другой машине:**
   [second-pc-bootstrap.md](second-pc-bootstrap.md).
 - **Понять архитектуру:** [architecture.md](architecture.md), затем
@@ -17,7 +17,7 @@
 - **Разобрать сбой:** [inspect.md](inspect.md), затем профильный документ по
   runtime, config или policy.
 - **Добавить и проверить фичу:** [slot-governance.md](slot-governance.md),
-  затем стандарт evidence в [testing.md](testing.md#стандарт-внедрения-и-проверки-фичи).
+  затем standard evidence в [testing.md](testing.md#стандарт-изменения).
 - **Выбрать следующую работу:** [scope.md](scope.md),
   [dogfood-gate.md](dogfood-gate.md), затем [roadmap.md](roadmap.md).
 
@@ -38,13 +38,11 @@
    одного turn-а.
 2. [modules.md](modules.md) — все выбираемые behavior slots, catalog vocabulary,
    доступные реализации и правило заменяемости.
-3. [process-module-architecture.md](process-module-architecture.md) — принятое
-   process-only решение, равенство реализаций slot и исполнимый план cutover.
-4. [dylib-transition.md](dylib-transition.md) — временный reference уже
-   реализованного dylib ABI и loader до их удаления.
-5. [slot-governance.md](slot-governance.md) — нужен ли новый slot, module,
+3. [process-module-architecture.md](process-module-architecture.md) —
+   реализованный process-only contract, равенство реализаций и итог cutover.
+4. [slot-governance.md](slot-governance.md) — нужен ли новый slot, module,
    profile или feature pack.
-6. [testing.md](testing.md#стандарт-внедрения-и-проверки-фичи) — общий путь от
+5. [testing.md](testing.md#стандарт-изменения) — общий путь от
    измеримой проблемы до focused/boundary/live/replay evidence и commit-а.
 
 Для более узких boundary-вопросов:
@@ -85,8 +83,7 @@
 | Тип документа | Как его читать |
 |---|---|
 | Корневой `README` | Короткая актуальная точка входа и проверенные команды |
-| `architecture`, `modules`, `configuration`, `runtime-and-events`, `security-and-policy`, `dylib-transition`, `inspect`, `testing` | Reference текущей реализации, включая временный dylib path |
-| `process-module-architecture` | Принятая целевая архитектура и активный cutover; planned не означает implemented |
+| `architecture`, `modules`, `configuration`, `runtime-and-events`, `security-and-policy`, `inspect`, `testing`, `process-module-architecture` | Reference текущей реализации |
 | `scope`, `slot-governance`, `dogfood-gate` | Правила приоритета и принятия решений |
 | `roadmap`, `spec` | План и направление; planned не означает implemented |
 | `research/*`, `examples/research/*` | Черновики и архивы, не действующий контракт |
@@ -121,8 +118,8 @@
 - [research/dogfood-readiness-checkpoint-2026-07-23.md](research/dogfood-readiness-checkpoint-2026-07-23.md) —
   закрытие readiness checkpoint: strict-token web/app-server loop, approvals,
   steering, cancel, typed input и durable terminal error после reconnect;
-- [research/memory-research.md](research/memory-research.md) — blueprint
-  memory-плагинов и сравнение backend-ов;
+- [research/memory-research.md](research/memory-research.md) — исторический
+  blueprint memory modules и сравнение backend-ов;
 - [research/subagent-web-ui-handoff.md](research/subagent-web-ui-handoff.md) —
   архив завершённого UI handoff по карточкам субагентов;
 - [research/subagent-architecture-options.md](research/subagent-architecture-options.md) —

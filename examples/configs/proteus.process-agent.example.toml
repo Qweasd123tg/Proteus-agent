@@ -9,24 +9,16 @@ model = "fake-tool-model"
 stream = true
 
 [modules]
-workflow = "process"
-search = "null"
-memory = "none"
-context = "none"
-policy = "deny_all"
-patch = "null"
-compactor = "none"
-tool_exposure = "all_visible"
-subagent = "none"
-renderer = "text"
+workflow = "python_agent_loop"
 
-[module_config.workflow.process]
+[[process_modules]]
+slot = "workflow"
 module_id = "python_agent_loop"
 command = "python3"
 args = ["examples/modules/agent-worker/agent.py"]
 handshake_timeout_ms = 30000
 
-[module_config.workflow.process.config]
+[module_config.workflow.python_agent_loop]
 max_tool_rounds = 8
 system_instructions = "You are a small process-hosted modular agent. Use only tools exposed by the host."
 

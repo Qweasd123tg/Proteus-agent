@@ -1,29 +1,17 @@
 //! Codex-shaped request-time tool exposure.
 //!
-//! The plugin receives only policy-visible candidates and returns the subset
+//! The module receives only policy-visible candidates and returns the subset
 //! that should be exposed to the next model request. It never executes tools
 //! and cannot bypass `ApprovalPolicy` or `ToolOrchestrator`.
 
-#![allow(non_local_definitions)]
-#![allow(non_camel_case_types)]
-#![allow(improper_ctypes_definitions)]
-
 use std::collections::{HashMap, HashSet};
 
-#[cfg(feature = "plugin-entrypoint")]
 use proteus_contracts::{
-    abi_stable::std_types::RStr,
-    abi_stable::{export_root_module, prefix_type::PrefixTypeTrait, sabi_trait::TD_Opaque},
-    plugin::{
-        PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginToolExposure_TO,
-        ToolExposureObject,
-    },
-};
-use proteus_contracts::{
-    abi_stable::std_types::{RResult, RString},
     contracts::{ToolExposureInput, ToolExposureOutput},
     domain::{ToolSafety, ToolSpec, ToolSurface},
-    plugin::{PluginToolExposure, PluginToolExposureError},
+    process_module::{
+        ModuleRegistry, ProcessModuleError, ToolExposureModule, ToolExposureModuleObject,
+    },
 };
 use serde_json::{Map, Value, json};
 
@@ -64,16 +52,16 @@ const WRITE_TERMS: &[&str] = &["write", "create", "generate", "new", "file"];
 const MEMORY_TERMS: &[&str] = &["remember", "preference", "fact", "memory"];
 
 #[derive(Default)]
-pub struct CodexDynamicToolExposurePlugin;
+pub struct CodexDynamicToolExposureModule;
 
-impl PluginToolExposure for CodexDynamicToolExposurePlugin {
-    fn select_json(&self, input_json: RString) -> RResult<RString, PluginToolExposureError> {
+impl ToolExposureModule for CodexDynamicToolExposureModule {
+    fn select_json(&self, input_json: String) -> Result<String, ProcessModuleError> {
         let input: ToolExposureInput = match serde_json::from_str(input_json.as_str()) {
             Ok(input) => input,
             Err(error) => return exposure_err(error),
         };
         match serde_json::to_string(&select_codex_tools(input)) {
-            Ok(output) => RResult::ROk(RString::from(output)),
+            Ok(output) => Ok(String::from(output)),
             Err(error) => exposure_err(error),
         }
     }
@@ -462,28 +450,13 @@ fn metadata_category(metadata: &Value) -> Option<&str> {
     metadata.get("category").and_then(Value::as_str)
 }
 
-fn exposure_err(error: impl std::fmt::Display) -> RResult<RString, PluginToolExposureError> {
-    RResult::RErr(PluginToolExposureError::new(error.to_string()))
+fn exposure_err(error: impl std::fmt::Display) -> Result<String, ProcessModuleError> {
+    Err(ProcessModuleError::new(error.to_string()))
 }
 
-#[cfg(feature = "plugin-entrypoint")]
-extern "C" fn register_modules(
-    registry: &mut PluginRegistryMut<'_>,
-) -> RResult<(), PluginRegisterError> {
-    let exposure: ToolExposureObject =
-        PluginToolExposure_TO::from_value(CodexDynamicToolExposurePlugin, TD_Opaque);
-    registry.register_tool_exposure(RString::from(MODULE_ID), exposure)
-}
-
-#[cfg(feature = "plugin-entrypoint")]
-#[export_root_module]
-pub fn get_plugin_root() -> PluginRoot_Ref {
-    PluginRoot {
-        name: RStr::from_str("codex-tool-exposure"),
-        description: RStr::from_str("Codex-shaped request-time tool exposure"),
-        register_modules,
-    }
-    .leak_into_prefix()
+pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), ProcessModuleError> {
+    let exposure: ToolExposureModuleObject = Box::new(CodexDynamicToolExposureModule);
+    registry.register_tool_exposure(String::from(MODULE_ID), exposure)
 }
 
 #[cfg(test)]
@@ -527,9 +500,9 @@ mod tests {
 
     fn select_with_input(input: ToolExposureInput) -> ToolExposureOutput {
         let input_json = serde_json::to_string(&input).unwrap();
-        let output_json = match CodexDynamicToolExposurePlugin.select_json(input_json.into()) {
-            RResult::ROk(output) => output.into_string(),
-            RResult::RErr(error) => panic!("{error}"),
+        let output_json = match CodexDynamicToolExposureModule.select_json(input_json) {
+            Ok(output) => output,
+            Err(error) => panic!("{error}"),
         };
         serde_json::from_str(&output_json).unwrap()
     }

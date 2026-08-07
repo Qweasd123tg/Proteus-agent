@@ -8,15 +8,16 @@
 
 ```toml
 [modules]
-compactor = "process"
+compactor = "python_suffix"
 
-[module_config.compactor.process]
+[[process_modules]]
+slot = "compactor"
 module_id = "python_suffix"
 command = "python3"
 args = ["examples/modules/compactor-process/compact.py"]
 timeout_ms = 30000
 
-[module_config.compactor.process.strategy]
+[module_config.compactor.python_suffix]
 trigger_messages = 12
 retain_user_turns = 2
 ```
@@ -31,18 +32,18 @@ turns. Это проверяемый пример протокола, а не к
 родительских переменных перечисляются в `env_allowlist`, literal значения — в
 `env`.
 
-Worker использует общий process protocol v1, но переходный pure compactor
-contract пока имеет версию v0. Handshake можно проверить отдельно от core:
+Worker использует общий process protocol v1 и compactor contract v1. Handshake
+можно проверить отдельно от core:
 
 ```bash
 cargo run -p proteus-module-protocol --bin proteus-module-conformance -- \
   --slot compactor \
   --module-id python_suffix \
-  --contract-version v0 \
+  --contract-version v1 \
   --module-config '{"trigger_messages":12,"retain_user_turns":2}' \
   -- python3 examples/modules/compactor-process/compact.py
 ```
 
 Это только protocol handshake. Slot-level probe и runtime swap проверяются
-тестами `process_compactor`, потому что корректный `CompactionInput` содержит
-canonical model/message DTO.
+process conformance и `module_swap`, потому что корректный `CompactionInput`
+содержит canonical model/message DTO.

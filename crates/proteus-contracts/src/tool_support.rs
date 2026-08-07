@@ -1,6 +1,6 @@
-//! Общие helper-ы для tool-плагинов.
+//! Общие helper-ы для process tool modules.
 //!
-//! Они живут в `proteus-contracts`, чтобы plugin crates не копировали ABI JSON
+//! Они живут в `proteus-contracts`, чтобы module crates не копировали JSON
 //! serialization и workspace containment logic.
 
 use std::path::{Component, Path, PathBuf};
@@ -8,10 +8,7 @@ use std::path::{Component, Path, PathBuf};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::{
-    abi_stable::std_types::{RResult, RString},
-    plugin::{PluginToolError, PluginToolInvocationContext},
-};
+use crate::process_module::{ProcessModuleError, ProcessModuleResult, ToolModuleInvocationContext};
 
 /// Входные данные tool: разбор serialized `ToolCall` JSON.
 #[derive(Debug, Deserialize)]
@@ -27,10 +24,10 @@ pub fn parse_call(call_json: &str) -> Result<ToolCallDto, String> {
     serde_json::from_str(call_json).map_err(|e| format!("failed to parse ToolCall: {e}"))
 }
 
-/// Парсит обязательный runtime context одного plugin-tool invoke.
-pub fn parse_invocation_context(context_json: &str) -> Result<PluginToolInvocationContext, String> {
+/// Парсит обязательный runtime context одного process tool invoke.
+pub fn parse_invocation_context(context_json: &str) -> Result<ToolModuleInvocationContext, String> {
     serde_json::from_str(context_json)
-        .map_err(|e| format!("failed to parse PluginToolInvocationContext: {e}"))
+        .map_err(|e| format!("failed to parse ToolModuleInvocationContext: {e}"))
 }
 
 /// Сериализует успешный результат в JSON `ToolResult`.
@@ -39,7 +36,7 @@ pub fn ok_result(
     tool_name: &str,
     output: String,
     metadata: Value,
-) -> RResult<RString, PluginToolError> {
+) -> ProcessModuleResult<String> {
     let result = json!({
         "call_id": call_id,
         "ok": true,
@@ -48,15 +45,11 @@ pub fn ok_result(
         "error": null,
         "metadata": add_tool_name(metadata, tool_name),
     });
-    RResult::ROk(RString::from(result.to_string()))
+    Ok(result.to_string())
 }
 
 /// Сериализует ошибку как `ToolResult` с `ok=false`.
-pub fn err_result(
-    call_id: &str,
-    tool_name: &str,
-    error: String,
-) -> RResult<RString, PluginToolError> {
+pub fn err_result(call_id: &str, tool_name: &str, error: String) -> ProcessModuleResult<String> {
     let result = json!({
         "call_id": call_id,
         "ok": false,
@@ -65,13 +58,13 @@ pub fn err_result(
         "error": error,
         "metadata": { "tool": tool_name },
     });
-    RResult::ROk(RString::from(result.to_string()))
+    Ok(result.to_string())
 }
 
-/// Plugin-level error (не тот, что `ToolResult.error`). Используется когда
+/// Module-level error (не тот, что `ToolResult.error`). Используется когда
 /// tool не смог вообще выполниться - невалидный JSON call, crash и т.п.
-pub fn plugin_error(message: String) -> RResult<RString, PluginToolError> {
-    RResult::RErr(PluginToolError::new(message))
+pub fn module_error(message: String) -> ProcessModuleResult<String> {
+    Err(ProcessModuleError::new(message))
 }
 
 fn add_tool_name(mut metadata: Value, tool_name: &str) -> Value {
@@ -257,9 +250,10 @@ mod tests {
 
     #[test]
     fn invocation_context_is_required_and_strict() {
-        let context = PluginToolInvocationContext {
+        let context = ToolModuleInvocationContext {
             cwd: PathBuf::from("/workspace"),
             owner: ToolInvocationOwner::new(new_session_id(), new_thread_id(), new_turn_id()),
+            config: json!({}),
         };
         let value = serde_json::to_value(&context).expect("context value");
         parse_invocation_context(&value.to_string()).expect("valid context");

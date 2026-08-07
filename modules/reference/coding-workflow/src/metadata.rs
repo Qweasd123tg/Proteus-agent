@@ -1,6 +1,6 @@
 use proteus_contracts::{
     model_standard::{CanonicalMessage, CanonicalModelRequest},
-    plugin::PluginWorkflowInput,
+    process_module::WorkflowModuleInput,
 };
 use serde_json::{Value, json};
 
@@ -8,7 +8,7 @@ use crate::token_accounting::estimate_message_tokens;
 
 pub(crate) fn output_metadata(
     module_id: &str,
-    input: &PluginWorkflowInput,
+    input: &WorkflowModuleInput,
     messages: &[CanonicalMessage],
     context_chunks: usize,
     context_token_estimate: Option<u32>,
@@ -25,7 +25,7 @@ pub(crate) fn output_metadata(
 
 pub(crate) fn output_metadata_with_extra(
     module_id: &str,
-    input: &PluginWorkflowInput,
+    input: &WorkflowModuleInput,
     messages: &[CanonicalMessage],
     context_chunks: usize,
     context_token_estimate: Option<u32>,
@@ -46,7 +46,7 @@ pub(crate) fn output_metadata_with_extra(
             "initial_token_estimate": context_token_estimate,
         },
         "workflow": {
-            "source": "plugin",
+            "source": "process",
             "module_id": module_id,
         },
     });
@@ -125,6 +125,6 @@ pub(crate) fn insert_request_metadata_value(
 /// фактический prefix и переиспользует только совпавшую часть. Если включать в
 /// key tools/instructions, любое легитимное изменение prefix разбрасывает одну
 /// conversation по разным cache buckets и убивает reuse последующих turn-ов.
-pub(crate) fn cache_routing_key(input: &PluginWorkflowInput) -> String {
+pub(crate) fn cache_routing_key(input: &WorkflowModuleInput) -> String {
     format!("proteus:session:{}", input.runtime.session_id)
 }

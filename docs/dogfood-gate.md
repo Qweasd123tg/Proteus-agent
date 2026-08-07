@@ -7,7 +7,7 @@
 app-server или текущий внешний UI-клиент.
 
 Это live-слой общего
-[стандарта внедрения и проверки фичи](testing.md#стандарт-внедрения-и-проверки-фичи):
+[стандарта изменения](testing.md#стандарт-изменения):
 focused/boundary/full проверки выполняются до dogfood, а journal/replay/cold
 readback сохраняют доказательство после него.
 
@@ -254,7 +254,7 @@ blocking scope без нового измеримого defect-а:
 
 - разделение репозиториев;
 - большой retained/native UI rewrite;
-- новые plugin slots без явного blocker-а;
+- новые module slots без явного blocker-а;
 - новые feature packs ради сравнения идей;
 - memory polish;
 - внешний user onboarding;

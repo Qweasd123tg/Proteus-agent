@@ -2,19 +2,18 @@
 
 use std::path::Path;
 
-use proteus_contracts::abi_stable::std_types::{RResult, RString};
-use proteus_contracts::plugin::{PluginTool, PluginToolError, PluginToolHostMut};
+use proteus_contracts::process_module::{ProcessModuleError, ToolModule, ToolModuleHostMut};
 use serde_json::json;
 
 use crate::util::{
-    err_result, ok_result, parse_call, parse_invocation_context, plugin_error, required_string,
+    err_result, module_error, ok_result, parse_call, parse_invocation_context, required_string,
     workspace_path_for_write,
 };
 
 pub struct WriteFileTool;
 
-impl PluginTool for WriteFileTool {
-    fn spec_json(&self) -> RString {
+impl ToolModule for WriteFileTool {
+    fn spec_json(&self) -> String {
         let spec = json!({
             "name": "write_file",
             "description": "Write UTF-8 content to a file inside the current workspace. Creates missing parent directories and overwrites existing files.",
@@ -38,22 +37,22 @@ impl PluginTool for WriteFileTool {
                 }
             }
         });
-        RString::from(spec.to_string())
+        String::from(spec.to_string())
     }
 
     fn invoke_json(
         &self,
-        call_json: RString,
-        context_json: RString,
-        _host: &mut PluginToolHostMut<'_>,
-    ) -> RResult<RString, PluginToolError> {
+        call_json: String,
+        context_json: String,
+        _host: &mut ToolModuleHostMut<'_>,
+    ) -> Result<String, ProcessModuleError> {
         let call = match parse_call(call_json.as_str()) {
             Ok(c) => c,
-            Err(e) => return plugin_error(e),
+            Err(e) => return module_error(e),
         };
         let context = match parse_invocation_context(context_json.as_str()) {
             Ok(context) => context,
-            Err(error) => return plugin_error(error),
+            Err(error) => return module_error(error),
         };
 
         let path_str = match required_string(&call.args, "path", &call.name) {

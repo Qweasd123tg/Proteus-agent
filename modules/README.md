@@ -10,13 +10,12 @@
 profile и не даёт дополнительных host capabilities. Для всех реализаций одного
 slot действует один contract и один authority surface.
 
-Текущие crates в `reference/` ещё используют dylib ABI и `plugin.toml`, потому
-что runtime cutover не завершён. Это временный implemented path из
-[`docs/dylib-transition.md`](../docs/dylib-transition.md), а не шаблон для новых
-модулей.
+Crates в `reference/` — ordinary libraries, слинкованные в
+`proteus-reference-worker`. Единственная host boundary — process protocol;
+native ABI и per-crate manifests отсутствуют.
 
 Новые реализации создаются как внешние process workers по
 [`docs/process-module-architecture.md`](../docs/process-module-architecture.md).
-Если нужный slot ещё не мигрирован, сначала переносится общий adapter и
-conformance contract всего slot; отдельный dylib или builtin для одной
+Если нужного process slot ещё нет, сначала добавляется общий adapter и
+conformance contract всего slot; отдельный builtin/native путь для одной
 реализации не добавляется.

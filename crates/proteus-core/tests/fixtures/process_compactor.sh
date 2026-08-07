@@ -2,7 +2,8 @@
 set -eu
 
 mode=${1:?process compactor fixture mode is required}
-marker=${2:-}
+module_id=${2:-fixture}
+marker=${3:-}
 
 rpc_id() {
     printf '%s\n' "$1" | sed -n 's/^[[:space:]]*{"id":[[:space:]]*\([^,}]*\),.*/\1/p'
@@ -18,7 +19,7 @@ if [ "$mode" = "mismatch" ]; then
 else
     slot=compactor
 fi
-printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$initialize_id,\"result\":{\"protocol_version\":\"v1\",\"slot\":\"$slot\",\"module_id\":\"fixture\",\"contract_version\":\"v0\",\"composition\":\"select_one\",\"module_features\":[]}}"
+printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$initialize_id,\"result\":{\"protocol_version\":\"v1\",\"slot\":\"$slot\",\"module_id\":\"$module_id\",\"contract_version\":\"v1\",\"composition\":\"select_one\",\"module_features\":[]}}"
 
 while IFS= read -r compact_request; do
     request_id=$(rpc_id "$compact_request")

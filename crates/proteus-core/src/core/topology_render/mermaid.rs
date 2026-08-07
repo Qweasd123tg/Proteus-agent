@@ -4,10 +4,8 @@ use crate::core::TopologySnapshot;
 
 use super::helpers::{mermaid_label, ordered_slots};
 
-/// Diagnostic Mermaid map: пер-плагинные ноды, slots по `category`/`order`
-/// в subgraph-группах, ToolRegistry как контейнер реальных tool нод и
-/// рёбра runtime/provides/uses из snapshot. Активные contributions —
-/// сплошные рёбра, available/disabled — пунктир.
+/// Diagnostic Mermaid map: slots по `category`/`order`, ToolRegistry как
+/// контейнер реальных tool нод и runtime/uses edges из snapshot.
 pub fn render_topology_mermaid(snapshot: &TopologySnapshot) -> String {
     let mut ids = MermaidIds::default();
     let mut classes: Vec<(String, &'static str)> = Vec::new();
@@ -17,8 +15,6 @@ pub fn render_topology_mermaid(snapshot: &TopologySnapshot) -> String {
         "classDef slot fill:#172033,stroke:#5b8cff,color:#e6e7ea",
         "classDef missing fill:#172033,stroke:#d8a21e,color:#e6e7ea",
         "classDef backend fill:#161d2b,stroke:#808eaa,color:#e6e7ea",
-        "classDef plugin fill:#261f14,stroke:#d8a21e,color:#e6e7ea",
-        "classDef pluginerror fill:#2a1414,stroke:#e05252,color:#e6e7ea",
         "classDef tool fill:#14261f,stroke:#3fbf7f,color:#e6e7ea",
         "classDef tooldisabled fill:#241a1a,stroke:#e05252,color:#e6e7ea",
         "classDef context fill:#161d2b,stroke:#808eaa,color:#e6e7ea",
@@ -129,34 +125,6 @@ pub fn render_topology_mermaid(snapshot: &TopologySnapshot) -> String {
         classes.push(("sg_backends".to_owned(), "zone"));
     }
 
-    if !snapshot.plugins.is_empty() {
-        out.push_str("    subgraph sg_plugins[\"Plugins\"]\n");
-        for plugin in &snapshot.plugins {
-            let id = ids.get(&format!("plugin:{}", plugin.name));
-            let loaded = plugin.status == "loaded";
-            let label = if loaded {
-                format!("{}<br/>{}", plugin.name, plugin.version)
-            } else {
-                format!("{}<br/>load error", plugin.name)
-            };
-            out.push_str(&format!("        {id}([\"{}\"])\n", mermaid_label(&label)));
-            classes.push((id, if loaded { "plugin" } else { "pluginerror" }));
-        }
-        out.push_str("    end\n");
-        classes.push(("sg_plugins".to_owned(), "zone"));
-    }
-
-    for plugin in &snapshot.plugins {
-        for provider in &plugin.provides.context_providers {
-            let id = ids.get(&format!("context_provider:{provider}"));
-            out.push_str(&format!(
-                "    {id}[/\"{}\"/]\n",
-                mermaid_label(&format!("context: {provider}"))
-            ));
-            classes.push((id, "context"));
-        }
-    }
-
     for (id, class) in classes {
         out.push_str(&format!("    class {id} {class}\n"));
     }
@@ -211,65 +179,6 @@ pub fn render_topology_mermaid(snapshot: &TopologySnapshot) -> String {
             _ => {}
         }
     }
-    for plugin in &snapshot.plugins {
-        let plugin_key = format!("plugin:{}", plugin.name);
-        for module in &plugin.provides.modules {
-            let active = snapshot.modules.iter().any(|candidate| {
-                candidate.slot == module.slot && candidate.id == module.id && candidate.active
-            });
-            let label = if active {
-                module.id.clone()
-            } else {
-                format!("{} · available", module.id)
-            };
-            add_edge(
-                &ids,
-                &mut out,
-                &mut edges,
-                &plugin_key,
-                &format!("slot:{}", module.slot),
-                &label,
-                !active,
-            );
-        }
-        for tool in &plugin.provides.tools {
-            let registered = snapshot
-                .tools
-                .iter()
-                .any(|candidate| candidate.name == tool.name && candidate.registered);
-            add_edge(
-                &ids,
-                &mut out,
-                &mut edges,
-                &plugin_key,
-                &format!("tool:{}", tool.name),
-                "",
-                !registered,
-            );
-        }
-        for provider in &plugin.provides.context_providers {
-            let provider_key = format!("context_provider:{provider}");
-            add_edge(
-                &ids,
-                &mut out,
-                &mut edges,
-                &plugin_key,
-                &provider_key,
-                "",
-                false,
-            );
-            add_edge(
-                &ids,
-                &mut out,
-                &mut edges,
-                &provider_key,
-                "slot:context",
-                "feeds",
-                false,
-            );
-        }
-    }
-
     out
 }
 

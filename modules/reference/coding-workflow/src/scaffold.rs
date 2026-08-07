@@ -3,8 +3,8 @@ use proteus_contracts::{
         AgentOutput, CONTEXT_MESSAGE_NAME, Event, HistoryCompactionReport, MessageId, ToolResult,
     },
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
-    plugin::{
-        PluginWorkflowError, PluginWorkflowHostMut, PluginWorkflowInput, PluginWorkflowOutput,
+    process_module::{
+        ProcessModuleError, WorkflowModuleHostMut, WorkflowModuleInput, WorkflowModuleOutput,
     },
 };
 use serde_json::Value;
@@ -32,9 +32,9 @@ pub(crate) struct TurnScaffold {
 
 impl TurnScaffold {
     pub(crate) fn begin(
-        host: &mut PluginWorkflowHostMut<'_>,
-        input: &PluginWorkflowInput,
-    ) -> Result<Self, PluginWorkflowError> {
+        host: &mut WorkflowModuleHostMut<'_>,
+        input: &WorkflowModuleInput,
+    ) -> Result<Self, ProcessModuleError> {
         emit_event(
             host,
             &Event::TaskReceived {
@@ -55,14 +55,14 @@ impl TurnScaffold {
         let context_token_estimate = bundle.token_estimate;
         let persistent_messages = input.history.clone();
         let current_user_message = persistent_messages.last().ok_or_else(|| {
-            PluginWorkflowError::new(
+            ProcessModuleError::new(
                 "workflow input history must end with the persisted current user message",
             )
         })?;
         if current_user_message.role != MessageRole::User
             || message_text(current_user_message) != input.task.text
         {
-            return Err(PluginWorkflowError::new(
+            return Err(ProcessModuleError::new(
                 "workflow input history does not end with the current task user message",
             ));
         }
@@ -111,7 +111,7 @@ impl TurnScaffold {
         report: Option<&HistoryCompactionReport>,
         compacted_messages: &[CanonicalMessage],
         repair: PersistentRepair,
-    ) -> Result<bool, PluginWorkflowError> {
+    ) -> Result<bool, ProcessModuleError> {
         let Some(report) = report else {
             return Ok(false);
         };
@@ -140,7 +140,7 @@ impl TurnScaffold {
         let current_user_index =
             current_user_index(&self.model_messages, self.current_user_message_id).ok_or_else(
                 || {
-                    PluginWorkflowError::new(
+                    ProcessModuleError::new(
                         "compaction changed history but dropped the current user message",
                     )
                 },
@@ -152,10 +152,10 @@ impl TurnScaffold {
 
     pub(crate) fn finish(
         self,
-        host: &mut PluginWorkflowHostMut<'_>,
+        host: &mut WorkflowModuleHostMut<'_>,
         output_text: String,
         metadata: Value,
-    ) -> Result<PluginWorkflowOutput, PluginWorkflowError> {
+    ) -> Result<WorkflowModuleOutput, ProcessModuleError> {
         let output = AgentOutput::new(output_text, metadata);
         emit_event(
             host,
@@ -167,7 +167,7 @@ impl TurnScaffold {
         let (history_replacement, new_messages) = match self.history_replacement_len {
             Some(replacement_len) => {
                 if replacement_len > history_prefix.len() {
-                    return Err(PluginWorkflowError::new(
+                    return Err(ProcessModuleError::new(
                         "workflow history replacement boundary is beyond persistent history",
                     ));
                 }
@@ -178,7 +178,7 @@ impl TurnScaffold {
                 let current_user_position =
                     current_user_index(&history_prefix, self.current_user_message_id).ok_or_else(
                         || {
-                            PluginWorkflowError::new(
+                            ProcessModuleError::new(
                                 "workflow persistent history dropped the current user message",
                             )
                         },
@@ -187,7 +187,7 @@ impl TurnScaffold {
                 (None, new_messages)
             }
         };
-        Ok(PluginWorkflowOutput {
+        Ok(WorkflowModuleOutput {
             output,
             new_messages,
             history_replacement,

@@ -62,64 +62,6 @@ pub fn render_topology_markdown(snapshot: &TopologySnapshot) -> String {
         ));
     }
 
-    out.push_str("\n## Plugins\n\n");
-    if snapshot.plugins.is_empty() {
-        out.push_str("(none found)\n");
-    } else {
-        for plugin in &snapshot.plugins {
-            out.push_str(&format!(
-                "### {} {}\n\n",
-                md_inline(&plugin.name),
-                md_inline(&plugin.version)
-            ));
-            out.push_str(&format!("status: `{}`\n", md_inline(&plugin.status)));
-            out.push_str(&format!("path: `{}`\n", md_inline(&plugin.path)));
-            if let Some(description) = &plugin.description {
-                out.push_str(&format!("description: {}\n", md_cell(description)));
-            }
-            if plugin.provides.modules.is_empty()
-                && plugin.provides.tools.is_empty()
-                && plugin.provides.context_providers.is_empty()
-            {
-                out.push_str("provides: `(none reported)`\n\n");
-                continue;
-            }
-            if !plugin.provides.modules.is_empty() {
-                out.push_str("modules:\n");
-                for module in &plugin.provides.modules {
-                    out.push_str(&format!(
-                        "- `{}/{}` {}\n",
-                        md_inline(&module.slot),
-                        md_inline(&module.id),
-                        module
-                            .description
-                            .as_deref()
-                            .map(md_cell)
-                            .unwrap_or_default()
-                    ));
-                }
-            }
-            if !plugin.provides.tools.is_empty() {
-                out.push_str("tools:\n");
-                for tool in &plugin.provides.tools {
-                    out.push_str(&format!(
-                        "- `{}` `{}` {}\n",
-                        md_inline(&tool.name),
-                        md_inline(&tool.safety),
-                        md_cell(&tool.description)
-                    ));
-                }
-            }
-            if !plugin.provides.context_providers.is_empty() {
-                out.push_str("context providers:\n");
-                for provider in &plugin.provides.context_providers {
-                    out.push_str(&format!("- `{}`\n", md_inline(provider)));
-                }
-            }
-            out.push('\n');
-        }
-    }
-
     out.push_str("\n## Tools\n\n");
     out.push_str("| Tool | Safety | Source | Enabled | Registered | Description |\n");
     out.push_str("|---|---|---|---|---|---|\n");

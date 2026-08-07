@@ -26,8 +26,9 @@ Core должен оставаться тонким composition/lifecycle сло
 authority(module) = authority(slot, invocation_context)
 ```
 
-`builtin`, `dylib`, язык и конкретный `module_id` не могут менять доступные
-host capabilities. Целевой transport всех implementations — process protocol.
+Язык, расположение исходников и конкретный `module_id` не могут менять
+доступные host capabilities. Внешний transport implementations — process
+protocol.
 
 Практическая мотивация: новые agent-подходы должны встраиваться без форка
 чужого CLI и без повторной хирургии после каждого upstream release. Если новая
@@ -56,16 +57,14 @@ workflow, tool, renderer, memory store или model adapter. Debug/visibility
 - provider-specific DTO за пределами adapters/model shaping слоя;
 - YAML declarative modules как отдельный loader.
 
-2026-08-06 принято целевое решение: все implementations одного slot должны
-исполняться через единый process protocol и получать одинаковые права по slot
-contract. Dylib loader через `abi_stable`, core-owned concrete implementations
-и pseudo-modules являются переходным implemented state, описанным в
-`dylib-transition.md`, а не частью целевого v0. План удаления без compatibility
-shims находится в `process-module-architecture.md`.
+2026-08-07 единый process cutover бывшей module system завершён: native ABI и
+pseudo-module ids удалены без compatibility shims. Model provider adapters и
+`SubagentRunner` пока остаются двумя явно учтёнными core-owned boundaries;
+решение по ним вынесено в `scope.md`.
 
-Stdio MCP tools host для `ConfiguredMcpTool` / `tools.mcp_servers` уже работает
-через `ToolRegistry`; при cutover он должен отображаться в те же Tool invocation
-semantics, что и любой process worker. Полный MCP provider для
+Stdio MCP tools host для `ConfiguredMcpTool` / `tools.mcp_servers` работает
+через тот же `ToolRegistry` и те же Tool invocation semantics, что process
+worker. Полный MCP provider для
 resources/prompts/subscriptions и non-stdio transports остаётся вне scope.
 
 ## Принцип Границ
@@ -92,10 +91,10 @@ renderer -> workflow internals
 
 - `crates/proteus-contracts/src/domain` - данные на границе;
 - `crates/proteus-contracts/src/contracts` - заменяемые traits;
-- `crates/proteus-core/src/plugin_adapters` - временный ABI glue, удаляемый при
-  process-only cutover;
-- `crates/proteus-core/src/stubs` - временные no-op/fake implementations,
-  заменяемые структурным отсутствием или process fixtures;
+- `crates/proteus-core/src/process_adapters` - adapters единого process
+  protocol;
+- `crates/proteus-core/src/stubs` - host-owned structural absence и test
+  implementations, не catalog modules;
 - `crates/proteus-core/src/adapters` - внешние provider wire formats;
 - `crates/proteus-core/src/core` - config, wiring, runtime lifecycle.
 
@@ -156,10 +155,10 @@ Runtime должен сохранять эти свойства:
 Следующие возможности уже существуют и не являются roadmap promises:
 
 - `proteus init` и `proteus doctor`, named configs и диагностика modules/tools;
-- plugin context builders `simple`, `repo_aware` и `codex_context`;
+- process context builders `simple`, `repo_aware` и `codex_context`;
 - file/edit/git/shell/plan tools через `ToolRegistry` и текущие reference modules;
 - approval preview для `apply_patch`, `write_file` и `shell`;
-- plugin workflows `coding.single_loop`, `coding.codex_loop` и
+- process workflows `coding.single_loop`, `coding.codex_loop` и
   `coding.plan_execute_review`;
 - `eval report` поверх canonical session journal;
 - streaming model deltas через canonical model/event path;
@@ -167,10 +166,9 @@ Runtime должен сохранять эти свойства:
 
 ## Planned Направления
 
-Непосредственный приоритет — process-only module cutover из
-`process-module-architecture.md`: protocol kernel, agent-worker vertical slice,
-slot parity, затем однократное удаление dylib/builtin paths. Актуальный
-критический путь ведётся в `scope.md`.
+Process-only module cutover из `process-module-architecture.md` завершён.
+Непосредственный приоритет — installed dogfood, затем отдельные решения по
+model и subagent boundaries. Актуальный критический путь ведётся в `scope.md`.
 
 Ownership PTY sessions, bounded retention process-subagent pool, общий
 policy path для `task`, fail-closed shell sandbox и token для non-loopback
@@ -184,7 +182,7 @@ HTTP уже закрытые foundation, а не будущий backlog.
 - расширение structured diff/preview на остальные mutating tools;
 - table-driven tool rights: `hide`/`deny`/`ask`/`allow`, priority и limits;
 - MCP resources/prompts/subscriptions и non-stdio transports поверх текущих
-  contracts, а не параллельный plugin runtime;
+  contracts, а не параллельный runtime;
 - streaming process contract для `Model` с exact terminal/cancel semantics.
 
 Каждое направление должно иметь focused tests на boundary, а не только happy
@@ -198,7 +196,7 @@ path CLI smoke test.
 2. проверить, хватает ли существующего contract;
 3. сверить решение с `slot-governance.md`: новый host-defined slot допустим
    только для generic класса поведения минимум с двумя уже работающими
-   независимыми реализациями и требует изменений contracts/core/config/ABI;
+   независимыми реализациями и требует изменений contracts/core/config/wire;
 4. если хватает, реализовать новый module/adaptor и зарегистрировать его в
    catalog;
 5. если не хватает, сначала добавить минимальный contract и test boundary;
@@ -229,9 +227,8 @@ path CLI smoke test.
 
 Практические следствия:
 
-- Идеи из левой колонки реализуются только как выключаемые модули с дешёвым
-  `none`-fallback; вкладывать в их polish по минимуму (совпадает с parked
-  статусом compactor/memory в `scope.md`).
+- Идеи из левой колонки реализуются только как выключаемые модули со
+  structural absence; вкладывать в их polish по минимуму.
 - Идеи из правой колонки — законные инвестиции: окно любого размера не
   отменяет права, файлы и необратимые действия.
 - Нюансы, не позволяющие списывать левую колонку досрочно: даже при
@@ -246,27 +243,21 @@ path CLI smoke test.
 
 ## External Modules
 
-Целевая стратегия описана в
-`process-module-architecture.md`. Краткое текущее переходное состояние:
+Текущая стратегия описана в `process-module-architecture.md`:
 
-1. ✅ `proteus-contracts` выделен в отдельный crate, plugin'ы depend только на него;
-2. ✅ dylib loader через `abi_stable` + `libloading`;
-3. ✅ единый `PluginRegistry` покрывает `tool`, `renderer`, `policy`, `patch`,
-   `search`, `memory`, request-time `compactor`,
-   `tool_exposure`, full `context_builder`, `repo_aware` `context_provider`,
-   `subagent` и `workflow`;
-4. ✅ большинство dogfood/reference реализаций Волны 3 уже живёт в
-   `modules/reference`; в core остаются stubs, host-bound tools,
-   `sequential`/`process` SubagentRunner, provider adapters и runtime wiring;
-5. ✅ strict protocol v1 доказан на process search, compactor и bidirectional
-   agent-worker Workflow; Workflow host callbacks используют общий
+1. ✅ `proteus-contracts` содержит canonical DTO и worker helper API;
+2. ✅ strict process v1, authority table и conformance runner;
+3. ✅ process contracts для всех бывших native reference slots;
+4. ✅ bidirectional Workflow/Context/Compactor callbacks используют общий
    model/tool/policy path;
-6. 🚧 следующий путь — slot parity, затем полное удаление
-   `PluginRegistry`/dylib/builtin implementations одним cutover без shims.
+5. ✅ reference implementations живут в `modules/reference` и экспортируются
+   ordinary worker-ом без особого origin;
+6. ✅ native ABI/loader удалён без shims;
+7. 🚧 installed dogfood и решения по model/subagent boundaries.
 
-`ConfiguredProcessTool` / `ConfiguredMcpTool` в ядре пока являются отдельными
-executor surfaces. Cutover обязан свести их к единому Tool contract; они не
-образуют вторую module system.
+Configured process/MCP tool executors являются явными tool surfaces и всегда
+встраиваются в тот же `ToolRegistry`/policy/safety path; они не образуют вторую
+module system.
 
 ## Как Брать Идеи Из Других Проектов
 
@@ -282,7 +273,7 @@ executor surfaces. Cutover обязан свести их к единому Tool
 - agent loop -> `Workflow`.
 
 Если идея требует прямого импорта конкретной реализации в core, это сигнал, что
-нужен generic contract, research plugin или что идею пока рано добавлять. Нельзя
+нужен generic contract, research module или что идею пока рано добавлять. Нельзя
 добавлять slots с именем конкретного продукта или метода, например
 `cursor_context` или `codex_tool_search`: такие идеи должны раскладываться на
 локальные contracts.

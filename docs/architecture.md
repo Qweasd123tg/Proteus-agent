@@ -1,335 +1,246 @@
 # Архитектура Proteus
 
-Этот документ — карта системы, а не полный справочник. За точными настройками и
-форматами переходите в профильные документы:
+Этот документ описывает текущее состояние. Долгосрочные идеи находятся в
+[spec.md](spec.md), порядок будущей работы — в [roadmap.md](roadmap.md).
 
-- [modules.md](modules.md) — slots и реализации;
-- [configuration.md](configuration.md) — config schema;
-- [runtime-and-events.md](runtime-and-events.md) — sessions, events и transport;
-- [security-and-policy.md](security-and-policy.md) — tools, permissions и sandbox;
-- [process-module-architecture.md](process-module-architecture.md) — принятая
-  единая process-only граница и план cutover;
-- [dylib-transition.md](dylib-transition.md) — временный реализованный dylib
-  path до завершения перехода.
-
-## За Одну Минуту
-
-Proteus — локальный coding-agent harness. Его задача — выполнить один понятный
-цикл:
-
-```text
-задача пользователя
-  -> собрать контекст
-  -> вызвать модель
-  -> проверить и выполнить tools
-  -> сохранить результат и trace
-```
-
-Главный инвариант проекта:
+## Инвариант
 
 ```text
 Core -> Contract -> Module Implementation
 ```
 
-Core владеет lifecycle и wiring, contracts описывают границы, а конкретное
-поведение выбирается конфигом и приезжает из modules. Замена поиска,
-workflow, policy или compactor не должна требовать переписывания runtime.
+`proteus-core` знает, когда вызвать search, policy или workflow, но не знает
+алгоритм конкретной реализации. DTO и traits принадлежат
+`proteus-contracts`; внешняя implementation говорит с host через process
+protocol v1.
 
-Сегодня это уже рабочий dogfood-прототип: есть HTTP/SSE app-server, web client,
-Inspector, durable sessions, provider adapters, tools, approvals, плагины и
-subagents. Это ещё не готовая внешняя plugin platform: ABI меняется, dylib
-считаются доверенными, а часть новых subagent/worktree границ ещё стабилизируется.
+Для каждой invocation:
 
-2026-08-06 принят более строгий инвариант: реализации одного slot не могут
-иметь разные права из-за происхождения `builtin/dylib/process`. Целевая внешняя
-граница — process worker для всех modules. До завершения cutover схема ниже
-честно показывает текущий смешанный runtime; она не является конечным дизайном.
-С 2026-08-07 `SearchBackend`, `HistoryCompactor` и `Workflow` используют один
-strict protocol-v1 kernel; это завершает transport foundation и первый
-bidirectional vertical slice, но не origin cutover остальных slots.
+```text
+authority(module) = authority(slot, invocation_context)
+```
 
-## Карта Системы
+Host выбирает разрешённые module methods, callbacks, config, cancellation и
+failure semantics по `slot/contract_version`. `module_id`, язык worker-а и
+нахождение исходников не дают дополнительных прав.
+
+## Слои
 
 ```text
 CLI / Web / Inspector
           |
           v
-  AppServer / transport
+AppServer + AgentRuntime
           |
           v
-      AgentRuntime
+RuntimeRegistry + ToolRegistry
           |
           v
-   RuntimeSnapshot -------------------------------+
-     |        |       |       |       |       |            |
-  workflow  model   context  tools   policy  memory      subagent
-     |        |       |       |       |       |            |
-     +--------+-------+-------+-------+-------+------------+
-                     contracts
-                         |
-      builtin / dylib / process modules          transition only
+proteus-contracts DTO / traits
+          |
+          v
+process adapters <-> external workers
 ```
 
-Внешний клиент не вызывает provider или tool напрямую. Он отправляет команды в
-app-server и получает contract-события. Runtime на старте собирает immutable
-`RuntimeSnapshot`; активный turn заканчивается на своём snapshot, даже если
-следующий уже будет собран из обновлённого config/tool registry. Process-модуль
-не меняет эту границу: core-owned adapter связывает contract с доверенным
-внешним executable, а алгоритм остаётся за пределами core.
+- UI и CLI создают запросы, но не реализуют agent loop.
+- `AgentRuntime` владеет session/turn lifecycle, journal и snapshot.
+- `RuntimeRegistry` собирает выбранные реализации.
+- `ToolRegistry` — единственный runtime catalog исполняемых tools.
+- Process adapters переводят canonical Rust contract в strict JSON-RPC DTO.
+- Worker не зависит от `proteus-core` и может быть написан на любом языке.
 
-## Кто За Что Отвечает
-
-| Слой | Ответственность | Не должен делать |
-|---|---|---|
-| CLI и клиенты | ввод, навигация, отображение событий | принимать runtime-решения |
-| AppServer | HTTP/SSE/JSONL transport, sessions, approvals | реализовывать workflow |
-| Core | lifecycle, wiring, persistence, safety orchestration | знать алгоритм конкретного модуля |
-| Contracts | traits и provider-neutral DTO | зависеть от core или UI |
-| Module implementations | search, workflow, policy, tools, memory и другие реализации | связываться друг с другом в обход contracts или получать права по module id/origin |
-| Provider adapters | OpenAI/Anthropic wire formats и streaming | протекать в generic runtime |
+Native extension ABI отсутствует: нет dylib loader, `plugin.toml`,
+`abi_stable` или второго пути регистрации.
 
 ## Карта Репозитория
 
 ```text
 crates/
-  proteus-contracts/     traits, DTO, canonical model, plugin ABI
-  proteus-core/          runtime, wiring, adapters, app-server, CLI
-  proteus-module-protocol/ strict process v1 session, authority, conformance
-  proteus-process-host/  lifecycle persistent stdio процессов
-
+  proteus-contracts/       canonical DTO, traits, process worker helper API
+  proteus-module-protocol/ handshake, authority table, JSON-RPC session
+  proteus-process-host/    child lifecycle и framing без знания slots
+  proteus-core/            runtime, wiring, adapters, CLI, app-server
 modules/
-  reference/             reference/dogfood implementations, не standard pack
-  research/              эксперименты вне обычного workspace
-
+  reference/               test/dogfood implementations + process worker
+  research/                нестабилизированные experiments
 clients/
-  web/                    основной chat UI
-  inspector/              config и architecture UI
-
-configs/                  packaged named configs и prompts
-examples/                 config examples, MCP smoke и research
-docs/                     документация
+  web/                     chat
+  inspector/               config и topology
+configs/                   packaged profiles
+examples/                  configs, external workers, MCP smoke
 ```
 
-Ключевые точки входа в код:
+`modules/reference` — source organization, а не runtime trust tier.
+`proteus-reference-worker` линкует эти Rust crates в один executable для
+удобства dogfood. На host boundary он ничем не отличается от Python worker-а.
 
-- `crates/proteus-core/src/core/runtime.rs` — lifecycle одного turn;
-- `crates/proteus-core/src/core/registry.rs` — сборка runtime services;
-- `crates/proteus-core/src/core/module_catalog.rs` — manifests и factories;
-- `crates/proteus-core/src/core/tool_orchestrator.rs` — общий tool path;
-- `crates/proteus-core/src/app_server.rs` — client boundary;
-- `crates/proteus-contracts/src/contracts/` — публичные traits;
-- `crates/proteus-contracts/src/plugin.rs` — временный dylib ABI;
-- `crates/proteus-module-protocol/` — общий host-side process protocol v1 и
-  executable conformance gate;
-- `crates/proteus-core/src/process_adapters/` — slot-specific mapping process
-  protocol в `SearchBackend`, `HistoryCompactor` и `Workflow`;
-- `crates/proteus-core/src/core/workflow_host.rs` — единая реализация Workflow
-  capabilities для process v1 и переходного dylib ABI;
-- `modules/reference/coding-workflow/` — текущие reference workflows;
-- `examples/modules/agent-worker/` — out-of-tree Workflow v1 example, не
-  default pack;
-- `docs/process-module-architecture.md` — целевой uniform process contract и
-  порядок удаления origin-dependent paths.
-
-## Как Проходит Turn
-
-1. Клиент отправляет задачу через CLI, HTTP или JSONL transport.
-2. App-server выбирает session и вызывает `AgentRuntime`.
-3. Runtime берёт текущий `RuntimeSnapshot` и создаёт `TurnId`.
-4. `ContextBuilder` собирает ephemeral context. Он попадёт в model request, но
-   не смешается с пользовательской conversation history.
-5. Выбранный `Workflow` управляет model/tool loop. Process Workflow получает
-   только versioned host callbacks; его tool calls возвращаются в тот же
-   `ToolOrchestrator`, а не исполняются отдельным process-specific путём.
-6. `ModelService` формирует canonical request, применяет provider capabilities,
-   вызывает `Model` и до передачи ответа workflow проверяет structural contract
-   и совпадение объявленной/возвращённой tool surface.
-7. Обычный model tool call проходит через `ToolRegistry` и
-   `ToolOrchestrator`: validation → visibility/policy → approval → timeout →
-   execution → bounded result.
-8. Runtime сохраняет canonical session journal, актуальный config snapshot и
-   отдельный telemetry event trace.
-9. App-server транслирует события клиентам; UI строится по факту событий, а не
-   по имени активного plugin-а.
-
-Полный event/session protocol описан в
-[runtime-and-events.md](runtime-and-events.md).
-
-### Subagents
-
-`SubagentRunner` предоставляет роли и операции `run`/`spawn`/`wait`/`cancel`.
-Сейчас есть два builtin runner-а:
-
-- `sequential` — дочерний loop в процессе родителя;
-- `process` — отдельный `proteus server stdio` с собственным профилем.
-
-Runner и model-facing protocol выбираются по разным осям. Top-level
-`subagents.surface` не является slot-ом:
-
-- `task` (default) — один foreground facade-tool, который ждёт результат;
-- `collaboration` — экспериментальные `spawn_agent`/`list_agents`/
-  `wait_agent`/`interrupt_agent` поверх session-owned process-resident control;
-- `none` — model-facing subagent tools не регистрируются.
-
-Collaboration slice переиспользует тот же `SubagentRunner`, но требует от него
-реального spawn/wait/cancel lifecycle. Он ограничен root-owned детьми,
-`parallel_safe` ролями без worktree isolation и bounded in-process records; это
-не общий multi-agent DAG и не restart-durable control plane.
-
-Read-only роли можно запускать параллельно. Роль с
-`isolation = "worktree"` получает отдельную git-ветку и worktree; изменения не
-мержатся автоматически. Этот слой свежий и пока считается зоной стабилизации,
-а не завершённым multi-agent runtime.
-
-## Slot, Module, Plugin И Pack
-
-Ниже — терминология текущего transition runtime:
-
-- **Slot** — класс заменяемого поведения, описанный trait-ом: `workflow`,
-  `context`, `policy`, `search`, `subagent` и т.д.
-- **Module** — реализация slot-а под строковым id, например `search = "rg"`.
-- **Plugin** — dylib, который регистрирует один или несколько modules.
-- **Pack** — config/profile + набор plugins + prompts + eval-договорённости.
-- **Stub** — безопасная fallback-реализация в core.
-
-В целевой архитектуре `plugin` исчезает как runtime origin, а pack/profile
-остаётся только явной композицией selection/config. Расположение
-исходников в pack не даёт module прав и не выбирает его неявно.
-
-Config выбирает module ids. `ModuleCatalog` объединяет builtin и plugin
-registrations, после чего `RuntimeRegistry` строит trait-объекты для snapshot.
-Плагины лежат в `~/.proteus/plugins/` и зависят от `proteus-contracts`, а не от
-`proteus-core`.
-
-Новый slot нужен только для класса заменяемого поведения, уже доказанного
-минимум двумя независимо работающими non-noop реализациями. Planned-вариант не
-считается. Полные правила — в [slot-governance.md](slot-governance.md).
-
-### Process Modules
-
-`proteus-process-host` остаётся protocol-neutral lifecycle/framing utility.
-`proteus-module-protocol` добавляет strict initialize, host-defined
-composition, authority table, bidirectional JSON-RPC, bounded cancellation и
-terminal outcomes. Core adapters знают только имя метода и typed DTO своего
-slot-а. Worker зависит от wire contracts, но не от `proteus-core`.
-
-Process boundary пока не является OS sandbox: executable доверен настолько же,
-насколько любой запущенный пользователем процесс. Authority table ограничивает
-только protocol-visible `host.*`; uniform filesystem/network/process policy —
-отдельная незавершённая граница.
-
-## Главные Границы
-
-### Tools
-
-Модель не должна получать отдельный путь исполнения для «особенного» tool.
-Нормальный путь один:
+## Один Turn
 
 ```text
-ToolRegistry
-  -> mode-aware ApprovalPolicy
-  -> ApprovalTransport при Ask
-  -> ToolOrchestrator
-  -> Tool::invoke
+request
+  -> session lock + TurnStarted
+  -> selected Workflow process module
+       -> host.context.build
+       -> host.tools.select
+       -> host.model.complete
+       -> host.tools.execute[_batch]
+       -> host.history.compact
+       -> host.events.emit
+  -> validate WorkflowOutput
+  -> canonical journal + history
+  -> Renderer process module
+  -> CLI/HTTP response
 ```
 
-Core-owned `apply_patch`, `search`, `remember_fact`, `request_user_input` и
-`task` — facade tools: алгоритм всё равно делегируется выбранному slot/module.
-Subagent facade выбирается через `subagents.surface` и регистрируется в
-`ToolRegistry` при сборке snapshot-а. `task` вызывает blocking `run`, а
-collaboration tools используют session-bound spawn/wait/cancel и optional
-message capability того же `SubagentToolHost`; generic workflow host не получает subagent/worktree
-capabilities. Поэтому visibility, validation, approval, timeout, events и
-bounded output любого subagent facade проходят тот же orchestrator path.
-
-### Providers
-
-Generic runtime работает с canonical request/response. Форматы OpenAI,
-Anthropic и compatible API живут только в `crates/proteus-core/src/adapters/`
-и model shaping слое.
-
-### UI
-
-Клиент реагирует на contract-события: пришёл `TokenUsageUpdated` — появляется
-usage, пришёл tool lifecycle — появляется tool card. UI не должен угадывать
-возможности по module id или повторно собирать topology из config.
-
-### Переходный Dylib Runtime
-
-Dylib-плагины — доверенный код в процессе Proteus, не sandbox. Они загружаются
-через `abi_stable`, но ABI пока не обещает внешнюю долгосрочную совместимость.
-После изменения `proteus-contracts::plugin` нужно пересобрать и переустановить
-используемые reference implementations через `./install.sh`. Installer
-staging-ит binary и reference dylib как один versioned release и атомарно
-переключает `~/.proteus/current`;
-`~/.proteus/plugins` остаётся personal overlay.
-
-Это implemented transition, не отдельный класс будущих modules. После
-process-only cutover весь раздел удаляется вместе с loader-ом.
-
-## Состояние И Хранение
-
-Основные данные session:
+Workflow получает только callbacks, перечисленные contract authority. Tool
+callback не исполняет команду напрямую: он возвращается в core и проходит
+общий путь:
 
 ```text
-session.json                       identity, workspace и schema versions
-journal.jsonl                      canonical append-only execution records
-blobs/<sha256>.json                большие journal payloads
-config_snapshot.json               последний resolved config snapshot
+ToolRegistry -> visibility -> ApprovalPolicy -> ApprovalTransport
+             -> ToolSafety -> Tool::invoke
 ```
 
-`journal.jsonl` — source of truth для resume history, завершённого transcript,
-model/tool lifecycle и eval. Compaction добавляет revisioned replacement, но
-не удаляет прежние records. Глобальный event log остаётся telemetry/live-debug
-каналом: streaming deltas обычно не персистятся и для восстановления execution
-facts не используются. Формат и recovery rules описаны в
-[canonical-turn-data.md](canonical-turn-data.md).
+Module failure не переключает выбранную реализацию на другую. Ошибка, timeout,
+cancel, invalid response или смерть process классифицируются host-ом и
+завершают текущую операцию. Умерший persistent worker может быть лениво
+перезапущен только для следующего запроса той же выбранной реализации.
 
-## Как Решить, Куда Положить Код
+## Slot, Module, Worker И Profile
 
-- Меняется порядок model/tool loop → `Workflow`.
-- Меняется состав контекста → `ContextBuilder` или context provider.
-- Выбираются видимые tools → `ToolExposure`.
-- Решается allow/ask/deny → `ApprovalPolicy` и approval transport.
-- Выполняется действие модели → `Tool` через общий orchestrator.
-- Меняется поиск → `SearchBackend`.
-- Меняется применение patch → `PatchApplier`.
-- Меняется provider wire protocol → `Model`.
-- Меняется отображение → client или `Renderer`, не core.
-- Идея ещё не доказала новый contract → research plugin/doc.
+- **Slot** — host-defined contract и точка вызова: например `search`.
+- **Module** — реализация slot с конкретным `module_id`.
+- **Worker** — executable, публикующий одну выбранную identity во время
+  handshake. Один binary может уметь запускаться под разными identities.
+- **Profile** — config, который выбирает modules, provider, tools и policy.
+- **Reference module** — tracked тестовая/dogfood implementation без особых
+  прав.
 
-Если для реализации приходится протащить конкретный продукт, Git-операцию или
-UI-state через generic host API, сначала стоит перепроверить границу.
+Слово «plugin» допустимо как пользовательское название внешнего расширения, но
+не обозначает отдельный runtime origin или API.
 
-## Текущие Ограничения
+## Composition
 
-- проект оптимизирован под личный dogfood, а не внешний distribution;
-- model slot пока builtin-only;
-- dylib unload и общий `reload_modules` не реализованы;
-- MCP поддерживает tools через stdio, но не полный resources/prompts surface;
-- app protocol и UI DTO ещё не стабилизированы как внешний API;
-- строгий wall-clock TTL/shutdown contract process-runner-а, дальнейшая
-  subagent/worktree policy и restart-durable collaboration state требуют
-  решения; текущие process idle retention и collaboration control bounded, но
-  живут только в процессе;
-- eval report анализирует canonical journal, но автоматического benchmark
-  runner пока нет.
+Cardinality является частью contract:
 
-Актуальный рабочий фокус находится в [scope.md](scope.md), порядок следующих
-изменений — в [roadmap.md](roadmap.md).
+```text
+composition(contract) = select_one | ordered_many
+```
 
-## Проверка Архитектурных Изменений
+`workflow`, `search`, `memory`, `context`, `policy`, `patch`,
+`compactor`, `tool_exposure` и `renderer` используют `select_one`.
+`tool` и `context_provider` используют `ordered_many`.
 
-Минимальный root gate:
+Worker не может объявить новый composition mode или произвольный hook.
+Добавление нового slot проходит [slot-governance.md](slot-governance.md).
+
+## Config И Catalog
+
+```toml
+[modules]
+search = "rg"
+
+[[process_modules]]
+slot = "search"
+module_id = "rg"
+command = "proteus-reference-worker"
+
+[module_config.search.rg]
+max_results = 50
+```
+
+`ModuleCatalog::from_config`:
+
+1. добавляет явно учтённые core-owned model/subagent adapters;
+2. валидирует каждый `[[process_modules]]`;
+3. регистрирует process factory по точной паре `slot/module_id`;
+4. отклоняет duplicate identity и unsupported slot;
+5. при сборке registry требует, чтобы выбранный id существовал.
+
+Module config остаётся opaque JSON object для реализации. Core не ветвится по
+`module_id`.
+
+## Отсутствующий Slot
+
+Отсутствие selection — состояние wiring, а не скрытая module identity:
+
+- search возвращает пустой результат;
+- memory ничего не хранит;
+- context пуст;
+- patch запрещён;
+- compaction не меняет history;
+- policy закрывает исполнение;
+- workflow не может выполнить turn;
+- renderer использует host text projection;
+- tool exposure пропускает все policy-visible candidates;
+- subagents недоступны.
+
+Эти structural objects не входят в catalog, не отображаются как modules и не
+могут получить module-owned config. Если config явно выбрал id, любая проблема
+с ним является ошибкой; fallback к structural absence запрещён.
+
+## Process Boundary
+
+Launch descriptor определяет command, args, cwd, allowlisted environment и
+timeouts. После spawn host отправляет `initialize` с:
+
+- protocol version;
+- slot;
+- module id;
+- contract version;
+- composition;
+- module config;
+- host features.
+
+Worker обязан вернуть exact manifest. Старые/лишние поля отвергаются.
+Дальнейшие module и `host.*` methods проверяются общей authority table.
+Подробнее: [process-module-architecture.md](process-module-architecture.md).
+
+Process boundary даёт lifecycle isolation, но пока не OS sandbox. Worker
+остаётся доверенным executable с правами текущего пользователя. Config
+очищает environment и копирует только `PATH` плюс явный `env_allowlist` /
+`env`, однако filesystem/network/process права не ограничены отдельной
+sandbox policy.
+
+## Core-Owned Границы
+
+После удаления dylib остаются две явные категории selectable implementations,
+которые ещё не processized:
+
+- model provider adapters `fake`, `openai`, `openai_compatible`,
+  `anthropic`;
+- `SubagentRunner` implementations `sequential` и `process`.
+
+Provider shaping допускается только в
+`crates/proteus-core/src/adapters` и model shaping layer. Эти границы нельзя
+использовать для добавления произвольных modules; их миграция требует полного
+slot contract и parity evidence.
+
+## State И Snapshot
+
+Core владеет:
+
+- session/thread/turn ids;
+- canonical messages и event journal;
+- config snapshot;
+- approval state;
+- module epoch и runtime snapshot;
+- terminal `Success/Error/Canceled/Timeout`.
+
+Module не пишет canonical journal напрямую. Runtime reload строит новый
+snapshot; уже начатый turn продолжает на старом. Подробнее:
+[runtime-and-events.md](runtime-and-events.md) и [hot-swap.md](hot-swap.md).
+
+## Проверка Изменений
+
+Минимальный архитектурный gate:
 
 ```bash
-cargo fmt --all -- --check
+cargo fmt --all --check
 cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
+cargo test -p proteus-core --test module_swap
+cargo test -p proteus-reference-worker --test conformance
 ```
 
-Для web/Inspector используется `env -u NO_COLOR trunk build`. Изменения slots,
-canonical DTO или registry обязаны сохранять swap/boundary проверки в
-`crates/proteus-core/tests/module_swap.rs`.
-
-Полные правила — в [testing.md](testing.md).
+Изменения Inspector дополнительно проверяются `trunk build`. Точная evidence
+матрица находится в [testing.md](testing.md).

@@ -12,6 +12,7 @@ use crate::{
         CancellationToken, CompactionHost, EventSink, Model, ModelEventStream, RuntimeContext,
         Workflow, WorkflowOutput,
     },
+    core::RuntimeCompactionHost,
     domain::{
         AgentOutput, AgentTask, Event, EventEnvelope, ModelRef, SteeringDeliveryKind, ToolCall,
         ToolResult,
@@ -20,7 +21,6 @@ use crate::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
         MessageRole, ModelCapabilities, ModelStreamEvent,
     },
-    plugin_adapters::RuntimeCompactionHost,
 };
 
 struct TwoRoundSteeringWorkflow {

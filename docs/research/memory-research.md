@@ -8,7 +8,8 @@ background-job эксперимента и повторного contract review 
 работающих реализаций.
 
 > На основе этого research исторически строился план memory plugin boundary
-> (см. `roadmap.md` и `dylib-transition.md`).
+> (исторический контекст; текущая граница описана в
+> `../process-module-architecture.md`).
 >
 > Короткий исторический вывод: store-уровень через `PluginMemoryStore`
 > sabi_trait уже реализован. Для тогдашнего `MemoryPolicy` был рекомендован

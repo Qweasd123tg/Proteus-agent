@@ -64,6 +64,9 @@ impl ProcessModuleBinding {
         if self.contract_version.trim().is_empty() {
             bail!("process module contract version must not be empty");
         }
+        if !self.module_config.is_object() {
+            bail!("process module config must be an object");
+        }
         Ok(())
     }
 }
@@ -87,5 +90,16 @@ mod tests {
             .expect("binding shape");
 
         binding.authority().expect_err("unknown contract must fail");
+    }
+
+    #[test]
+    fn binding_requires_an_object_config() {
+        ProcessModuleBinding::new(
+            "search",
+            "fixture",
+            PROCESS_SEARCH_CONTRACT_VERSION,
+            json!(["not", "an", "object"]),
+        )
+        .expect_err("module config must be an object");
     }
 }

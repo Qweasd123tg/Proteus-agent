@@ -21,13 +21,56 @@ name = "opencode-experimental"
 # и codex loop, opencode-специфика — policy, tool surface и prompt.
 workflow = "coding.codex_loop"
 search = "rg"
-memory = "none"
 context = "codex_context"
 policy = "opencode_policy"
 patch = "direct"
 compactor = "codex"
-tool_exposure = "all_visible"
 renderer = "statusline"
+
+[[process_modules]]
+slot = "workflow"
+module_id = "coding.codex_loop"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "search"
+module_id = "rg"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "context"
+module_id = "codex_context"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "context_provider"
+module_id = "skills"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "policy"
+module_id = "opencode_policy"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "patch"
+module_id = "direct"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "compactor"
+module_id = "codex"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "renderer"
+module_id = "statusline"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "tool"
+module_id = "reference.tools"
+command = "proteus-reference-worker"
 
 [tools]
 enabled = ["skill", "read_file", "read_many_files", "list_dir", "grep", "find_files", "lsp_diagnostics", "edit_file", "write_file", "shell", "update_plan", "request_user_input"]

@@ -36,16 +36,39 @@
   },
   "modules": {
     "workflow": "coding.plan_execute_review",
-    "search": "null",
-    "memory": "none",
     "context": "simple",
     "policy": "ask_write",
-    "patch": "null",
     "compactor": "codex",
-    "tool_exposure": "all_visible",
     "subagent": "sequential",
     "renderer": "statusline"
   },
+  "process_modules": [
+    {
+      "slot": "workflow",
+      "module_id": "coding.plan_execute_review",
+      "command": "proteus-reference-worker"
+    },
+    {
+      "slot": "context",
+      "module_id": "simple",
+      "command": "proteus-reference-worker"
+    },
+    {
+      "slot": "policy",
+      "module_id": "ask_write",
+      "command": "proteus-reference-worker"
+    },
+    {
+      "slot": "compactor",
+      "module_id": "codex",
+      "command": "proteus-reference-worker"
+    },
+    {
+      "slot": "renderer",
+      "module_id": "statusline",
+      "command": "proteus-reference-worker"
+    }
+  ],
   "subagents": {
     "surface": "task"
   },
@@ -56,52 +79,9 @@
         "allow": ["search", "request_user_input"]
       }
     },
-    "search": {
-      "rg": {
-        "max_results": 50
-      }
-    },
     "context": {
       "simple": {
         "max_search_results": 50
-      },
-      "repo_aware": {
-        "providers": [
-          "project_instructions",
-          "manifest",
-          "git_status",
-          "repo_tree",
-          "memory",
-          "search"
-        ],
-        "max_context_bytes": 60000,
-        "max_bytes_per_file": 8000,
-        "max_search_results": 50,
-        "memory_limit": 5,
-        "repo_tree_max_entries": 300,
-        "repo_tree_max_depth": 3,
-        "repo_tree_skip_entries": [
-          ".git",
-          "target",
-          "node_modules",
-          ".proteus",
-          "sessions",
-          "dist",
-          "build",
-          ".env",
-          "secrets.json",
-          "config.local.json"
-        ],
-        "project_instruction_files": ["AGENTS.md", "CLAUDE.md", ".cursorrules"],
-        "manifest_files": [
-          "Cargo.toml",
-          "package.json",
-          "pyproject.toml",
-          "go.mod",
-          "pom.xml",
-          "build.gradle",
-          "composer.json"
-        ]
       }
     }
   },

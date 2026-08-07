@@ -2,11 +2,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::{
-    contracts::ToolSource,
-    core::{AppConfig, PluginLoadReport},
-    domain::PermissionMode,
-};
+use crate::{contracts::ToolSource, core::AppConfig, domain::PermissionMode};
 
 pub(super) fn render_config_summary(
     config: &AppConfig,
@@ -14,7 +10,6 @@ pub(super) fn render_config_summary(
     cwd: &Path,
     mode: PermissionMode,
     tools: &[(ToolSource, crate::domain::ToolSpec)],
-    plugin_reports: &[PluginLoadReport],
     module_epoch: crate::core::ModuleEpoch,
 ) -> String {
     let mut lines = Vec::new();
@@ -69,24 +64,6 @@ pub(super) fn render_config_summary(
                 spec.safety,
                 spec.description
             ));
-        }
-    }
-
-    lines.push("plugins:".to_owned());
-    if plugin_reports.is_empty() {
-        lines.push("  (none found)".to_owned());
-    } else {
-        for report in plugin_reports {
-            let (name, version, description) = plugin_display_fields(report);
-            let status = match &report.result {
-                Ok(_) => "loaded".to_owned(),
-                Err(error) => format!("error: {}", first_line(&error.to_string())),
-            };
-            if description.is_empty() {
-                lines.push(format!("  - {name} {version}: {status}"));
-            } else {
-                lines.push(format!("  - {name} {version}: {status} - {description}"));
-            }
         }
     }
 
@@ -207,55 +184,4 @@ pub(super) fn config_files(config_path: Option<&Path>) -> Vec<PathBuf> {
     }
     files.sort();
     files
-}
-
-pub(super) fn plugin_summary(reports: &[PluginLoadReport]) -> Vec<Value> {
-    reports
-        .iter()
-        .map(|report| {
-            let (name, version, description) = plugin_display_fields(report);
-            let status = match &report.result {
-                Ok(_) => "loaded".to_owned(),
-                Err(error) => format!("error: {}", first_line(&error.to_string())),
-            };
-            json!({
-                "name": name,
-                "version": version,
-                "status": status,
-                "description": description,
-            })
-        })
-        .collect()
-}
-
-fn plugin_display_fields(report: &PluginLoadReport) -> (String, String, String) {
-    match report.manifest.as_ref() {
-        Some(manifest) => (
-            manifest.name.clone(),
-            manifest.version.clone(),
-            manifest.description.clone().unwrap_or_default(),
-        ),
-        None => match report.result.as_ref() {
-            Ok(info) => (info.name.clone(), "-".to_owned(), info.description.clone()),
-            Err(_) => (
-                report
-                    .path
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| report.path.display().to_string()),
-                "-".to_owned(),
-                String::new(),
-            ),
-        },
-    }
-}
-
-fn first_line(text: &str) -> String {
-    let mut lines = text.lines();
-    let head = lines.next().unwrap_or("").trim_end().to_owned();
-    if lines.next().is_some() {
-        format!("{head} ...")
-    } else {
-        head
-    }
 }

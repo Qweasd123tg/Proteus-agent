@@ -13,6 +13,10 @@ use crate::{
         ModuleCatalog, PolicyBuildContext,
     },
     domain::{SessionId, ThreadId, TurnId},
+    stubs::{
+        DenyAllPolicy, EmptyContextBuilder, NoCompactor, NoMemory, NoSubagent, NoWorkflow,
+        NullPatchApplier, NullSearch, TextRenderer, UnfilteredToolExposure,
+    },
 };
 
 #[derive(Clone)]
@@ -23,7 +27,7 @@ pub struct RuntimeRegistry {
     pub model: Arc<dyn Model>,
     /// Отдельная ссылка на ModelService для доступа к `set_event_context`
     /// (не выражается через trait Model). `None` если model выбран
-    /// как кастомный плагинный Model, не ModelService.
+    /// как custom Model implementation, не ModelService.
     pub model_service: Option<Arc<ModelService>>,
     pub search: Arc<dyn SearchBackend>,
     pub memory: Arc<dyn MemoryStore>,
@@ -40,35 +44,49 @@ pub struct RuntimeRegistry {
 
 impl RuntimeRegistry {
     pub fn from_config(config: &AppConfig, cwd: PathBuf) -> Result<Self> {
-        // Загружаем внешние плагины перед чтением модулей из config, чтобы
-        // config мог выбирать их по module_id через тот же catalog lookup.
-        // Успешные загрузки не логируем: для single-run агента это шум, а
-        // полный список плагинов доступен через `modules list`. Ошибки
-        // уже логируются из `load_plugins_from_dir` в stderr.
-        let (catalog, _) = crate::core::load_runtime_module_catalog();
-
-        Self::from_catalog(config, cwd, catalog)
+        Self::from_catalog(config, cwd, ModuleCatalog::from_config(config)?)
     }
 
     pub fn from_catalog(config: &AppConfig, cwd: PathBuf, catalog: ModuleCatalog) -> Result<Self> {
+        let context_providers = catalog.build_context_providers(&cwd)?;
         let build_ctx = ModuleBuildContext {
             config,
             cwd: &cwd,
-            context_providers: catalog.context_providers(),
+            context_providers: &context_providers,
         };
         let model_config = config.active_model_config()?;
         let model_adapter = catalog.build_model_adapter(&model_config)?;
         let model_service = Arc::new(ModelService::new(model_adapter));
         let model: Arc<dyn Model> = model_service.clone();
 
-        let search = catalog.build_search(&config.modules.search, &build_ctx)?;
-        let memory = catalog.build_memory(&config.modules.memory, &build_ctx)?;
-        let context = catalog.build_context(&config.modules.context, &build_ctx)?;
-        let patch = catalog.build_patch(&config.modules.patch, &build_ctx)?;
-        let compactor = catalog.build_compactor(&config.modules.compactor, &build_ctx)?;
-        let tool_exposure =
-            catalog.build_tool_exposure(&config.modules.tool_exposure, &build_ctx)?;
-        let subagent = catalog.build_subagent(&config.modules.subagent, &build_ctx)?;
+        let search: Arc<dyn SearchBackend> = match config.modules.search.as_deref() {
+            Some(id) => catalog.build_search(id, &build_ctx)?,
+            None => Arc::new(NullSearch),
+        };
+        let memory: Arc<dyn MemoryStore> = match config.modules.memory.as_deref() {
+            Some(id) => catalog.build_memory(id, &build_ctx)?,
+            None => Arc::new(NoMemory),
+        };
+        let context: Arc<dyn ContextBuilder> = match config.modules.context.as_deref() {
+            Some(id) => catalog.build_context(id, &build_ctx)?,
+            None => Arc::new(EmptyContextBuilder),
+        };
+        let patch: Arc<dyn PatchApplier> = match config.modules.patch.as_deref() {
+            Some(id) => catalog.build_patch(id, &build_ctx)?,
+            None => Arc::new(NullPatchApplier),
+        };
+        let compactor: Arc<dyn HistoryCompactor> = match config.modules.compactor.as_deref() {
+            Some(id) => catalog.build_compactor(id, &build_ctx)?,
+            None => Arc::new(NoCompactor),
+        };
+        let tool_exposure: Arc<dyn ToolExposure> = match config.modules.tool_exposure.as_deref() {
+            Some(id) => catalog.build_tool_exposure(id, &build_ctx)?,
+            None => Arc::new(UnfilteredToolExposure),
+        };
+        let subagent: Arc<dyn SubagentRunner> = match config.modules.subagent.as_deref() {
+            Some(id) => catalog.build_subagent(id, &build_ctx)?,
+            None => Arc::new(NoSubagent),
+        };
         let mut tools = catalog.build_tools(
             &build_ctx,
             search.clone(),
@@ -86,9 +104,18 @@ impl RuntimeRegistry {
             cwd: &cwd,
             tools: &tools,
         };
-        let policy = catalog.build_policy(&config.modules.policy, &policy_ctx)?;
-        let workflow = catalog.build_workflow(&config.modules.workflow, &build_ctx)?;
-        let renderer = catalog.build_renderer(&config.modules.renderer, &build_ctx)?;
+        let policy: Arc<dyn ApprovalPolicy> = match config.modules.policy.as_deref() {
+            Some(id) => catalog.build_policy(id, &policy_ctx)?,
+            None => Arc::new(DenyAllPolicy),
+        };
+        let workflow: Arc<dyn Workflow> = match config.modules.workflow.as_deref() {
+            Some(id) => catalog.build_workflow(id, &build_ctx)?,
+            None => Arc::new(NoWorkflow),
+        };
+        let renderer: Arc<dyn Renderer> = match config.modules.renderer.as_deref() {
+            Some(id) => catalog.build_renderer(id, &build_ctx)?,
+            None => Arc::new(TextRenderer),
+        };
 
         Ok(Self {
             model_config,

@@ -19,11 +19,10 @@ authority(module) = authority(slot, invocation_context)
 ```
 
 Права, host capabilities, config, cancellation, lifecycle и failure semantics
-не должны зависеть от `module_id`, языка или происхождения реализации
-(`builtin`, `dylib`, `process`). Целевая внешняя граница — единый process
-protocol; план однократного перехода описан в
-`docs/process-module-architecture.md`. Текущий dylib runtime является только
-переходным implemented state, а не поверхностью для дальнейшего расширения.
+не должны зависеть от `module_id`, языка или расположения реализации. Внешняя
+граница — единый process protocol, описанный в
+`docs/process-module-architecture.md`. Dylib ABI и loader удалены; возвращать
+второй native extension path нельзя.
 
 Transport и cardinality не смешиваются. Host-defined process contract явно
 задаёт один из режимов:
@@ -74,8 +73,8 @@ rendering, UI state, tests и provider/module-specific детали.
 
 ```text
 crates/
-    proteus-contracts/     - публичный crate: traits, DTO, canonical model, временный dylib ABI
-    proteus-core/          - ядро: runtime, wiring, process/plugin adapters переходного периода, app-server
+    proteus-contracts/     - публичный crate: traits, DTO, canonical model и process-module helpers
+    proteus-core/          - ядро: runtime, wiring, process adapters, model adapters и app-server
     proteus-module-protocol/ - strict process v1 session, authority table и conformance runner
     proteus-process-host/  - protocol-neutral lifecycle persistent stdio child-процессов
 clients/
@@ -83,22 +82,23 @@ clients/
     inspector/           - отдельный Leptos config/architecture-клиент
 modules/
     reference/           - reference/dogfood implementations; не default и не привилегированный pack
-        file-tools/          - полноразмерный tool-плагин (read/write/edit/list/grep)
-        git-tools/           - read-only git_status/git_diff tool-плагин
+        process-worker/      - единый executable, публикующий reference modules по process v1
+        file-tools/          - полноразмерные tools read/write/edit/list/grep
+        git-tools/           - read-only git_status/git_diff tools
         shell-tool/          - tools shell / exec_command / write_stdin (sh -lc, PTY-сессии)
         plan-tool/           - tool update_plan (пошаговый план в transcript)
         rg-search/           - SearchBackend на ripgrep под id "rg"
         direct-patch/        - PatchApplier internal patch format под id "direct"
-        sqlite-memory/       - MemoryStore на SQLite FTS5 как dylib
+        sqlite-memory/       - MemoryStore на SQLite FTS5
         codex-compactor/     - HistoryCompactor под id "codex"
         codex-tool-exposure/ - ToolExposure под id "codex_dynamic"
-        coding-workflow/     - Workflow-плагины под ids "coding.single_loop", "coding.codex_loop" и "coding.plan_execute_review"
-        context-pack/        - ContextBuilder-плагины под ids "simple", "repo_aware" и "codex_context"
+        coding-workflow/     - Workflow modules под ids "coding.single_loop", "coding.codex_loop" и "coding.plan_execute_review"
+        context-pack/        - ContextBuilder modules под ids "simple", "repo_aware" и "codex_context"
         skill-pack/          - docs-on-disk skills: context provider "skills" + tool "skill"
         rust-lsp/             - tool lsp_diagnostics: Rust/rust-analyzer через persistent stdio LSP
         memory-pack/         - MemoryStore "jsonl"
-        policy-pack/         - ApprovalPolicy плагины "allow_all", "ask_write", "codex_policy", "opencode_policy" + tool request_permissions
-        renderer-pack/       - Renderer плагин "statusline"
+        policy-pack/         - ApprovalPolicy modules "allow_all", "ask_write", "codex_policy", "opencode_policy" + tool request_permissions
+        renderer-pack/       - Renderer module "statusline"
     research/            - нестабилизированные module experiments вне production path
 configs/                 - packaged named configs и prompts (источник install.sh)
 examples/
@@ -108,18 +108,17 @@ examples/
     research/            - tracked заметки по upstream агентам
 ```
 
-До cutover reference crates всё ещё собираются как dylib и устанавливаются в
-текущий release bundle ради работоспособности dogfood-профилей. Это переходная
-механика, описанная в `docs/dylib-transition.md`, а не standard pack и не
-образец для новых модулей. Целевой process contract и naming описаны в
-`docs/process-module-architecture.md`.
+Reference crates линкуются только внутрь `proteus-reference-worker` и не
+являются отдельным runtime ABI. Installer публикует `proteus` и этот worker в
+одном release, но любой внешний executable с тем же process contract имеет
+ровно тот же статус. Reference каталог не является standard/default pack.
 
 ## Что Нельзя Ломать
 
 - Не связывать модули напрямую друг с другом.
-- Не добавлять новые dylib registrations, builtin concrete modules или
-  origin-specific capabilities. Сначала мигрировать соответствующий slot на
-  единый process contract.
+- Не возвращать dylib registrations, in-process extension ABI, новые builtin
+  concrete modules или origin-specific capabilities. Сначала мигрировать
+  соответствующий slot на единый process contract.
 - Не делать исключения по конкретному `module_id`: host dispatch разрешает
   методы по slot contract, а не по имени реализации.
 - Не выдавать implementation дополнительные права из-за того, что она
@@ -142,7 +141,7 @@ examples/
 
 Проект находится в черновой pre-release фазе без внешних пользователей. Пока
 владелец проекта явно не объявит текущие поверхности стабилизированными,
-обратная совместимость для собственных config/API/DTO/wire/storage/plugin ABI
+обратная совместимость для собственных config/API/DTO/wire/storage форматов
 форматов не является целью.
 
 Практические правила:
@@ -175,16 +174,17 @@ examples/
 3. Если да — реализовать внешний worker, не зависящий от `proteus-core`, и
    пройти conformance gate этого slot.
 4. Если нет — сначала реализовать общий process adapter для всего slot. Не
-   добавлять временный dylib/builtin путь для одной implementation.
+   добавлять временный native/builtin путь для одной implementation.
 5. Добавить explicit config/profile selection; reference implementation при
    необходимости разместить в `modules/reference/<name>`, не присваивая ей
    default/standard статус.
 6. Добавить protocol и runtime swap evidence, затем обновить `docs/modules.md`
    и `docs/configuration.md`.
 
-Во время перехода существующие dylib crates можно менять для bugfix или самой
-миграции, но нельзя расширять их как будущий public ABI. Marketplace, package
-manager, hot reload и sandbox не входят в process-only cutover.
+Model provider adapters и `SubagentRunner` пока остаются явно учтёнными
+core-owned границами; это следующие кандидаты на отдельные process contracts,
+а не основание возвращать общий native loader. Marketplace, package manager,
+hot reload и sandbox не входят в текущий process runtime.
 
 ## Как Добавлять И Проверять Фичу
 
@@ -218,7 +218,6 @@ manager, hot reload и sandbox не входят в process-only cutover.
 - архитектурные границы: `docs/architecture.md`;
 - module slots: `docs/modules.md`;
 - целевая process-module архитектура: `docs/process-module-architecture.md`;
-- временный dylib implementation reference: `docs/dylib-transition.md`;
 - config schema и examples: `docs/configuration.md`;
 - event log, sessions, REPL: `docs/runtime-and-events.md`;
 - tools и approval: `docs/security-and-policy.md`;

@@ -369,15 +369,8 @@ impl AgentRuntime {
     }
 
     pub async fn render(&self, output: &AgentOutput) -> Result<String> {
-        let json =
-            proteus_contracts::abi_stable::std_types::RString::from(serde_json::to_string(output)?);
         let snapshot = self.snapshot().await;
-        match snapshot.registry.renderer.render_json(json) {
-            proteus_contracts::abi_stable::std_types::RResult::ROk(text) => Ok(text.into_string()),
-            proteus_contracts::abi_stable::std_types::RResult::RErr(err) => {
-                Err(anyhow::anyhow!("renderer error: {}", err.message))
-            }
-        }
+        snapshot.registry.renderer.render(output)
     }
 
     pub async fn clear_history(&self) -> Result<()> {

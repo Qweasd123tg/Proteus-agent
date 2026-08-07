@@ -49,7 +49,7 @@ Session journal задаёт эти правила один раз.
 - `AgentTask`, ids, usage и compaction report.
 
 Storage envelope, sequence allocation, fsync/rename и projection code
-принадлежат core storage-слою. Workflow, plugin, process module и provider
+принадлежат core storage-слою. Workflow/process module и provider
 adapter не получают права писать journal напрямую. Они возвращают contract
 DTO, а core фиксирует факт только в своей lifecycle boundary.
 

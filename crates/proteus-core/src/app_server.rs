@@ -49,7 +49,7 @@ use config_builder::{
 };
 use config_summary::{
     config_files, configured_model_options, configured_reasoning_effort_options, module_summary,
-    plugin_summary, render_config_summary,
+    render_config_summary,
 };
 use context_map::{ContextMapInput, build_context_map_snapshot};
 use path_utils::paths_equal;
@@ -78,7 +78,6 @@ pub struct AppServerHandle {
     config_path: Option<PathBuf>,
     cwd: PathBuf,
     catalog_entries: Arc<RwLock<Vec<ModuleCatalogEntrySummary>>>,
-    plugin_reports: Arc<RwLock<Vec<crate::core::PluginLoadReport>>>,
     events: broadcast::Sender<AppServerEvent>,
     pending_approvals: PendingApprovalResponders,
     pending_user_inputs: PendingUserInputResponders,
@@ -251,7 +250,6 @@ impl AppServerHandle {
         let tools = self.runtime.tool_entries().await;
         let config_files = config_files(self.config_path.as_deref());
         let model_options = configured_model_options(&config);
-        let plugin_reports = self.plugin_reports.read().await;
         json!({
             "display_text": render_config_summary(
                 &config,
@@ -259,7 +257,6 @@ impl AppServerHandle {
                 &self.cwd,
                 mode,
                 &tools,
-                &plugin_reports,
                 module_epoch,
             ),
             "config_path": self
@@ -312,7 +309,10 @@ impl AppServerHandle {
                     "description": spec.description,
                 }))
                 .collect::<Vec<_>>(),
-            "plugins": plugin_summary(&plugin_reports),
+            "process_modules": config.process_modules.iter().map(|module| json!({
+                "slot": module.slot(),
+                "module_id": module.module_id(),
+            })).collect::<Vec<_>>(),
         })
     }
 
@@ -361,8 +361,7 @@ impl AppServerHandle {
         }
         validate_module_config_toml(&next_config.module_config)?;
 
-        let (registry, plugin_reports, catalog_entries) =
-            build_registry_and_plugin_reports(&next_config, &self.cwd).await?;
+        let (registry, catalog_entries) = build_registry(&next_config, &self.cwd).await?;
         let target_path = config_builder_target_path(self.config_path.as_deref())
             .ok_or_else(|| anyhow!("config path is not available; cannot persist config"))?;
         persist_config_builder(&target_path, &next_config).await?;
@@ -384,7 +383,6 @@ impl AppServerHandle {
             self.runtime.set_permission_mode(mode).await;
         }
         *self.config.write().await = next_config;
-        *self.plugin_reports.write().await = plugin_reports;
         *self.catalog_entries.write().await = catalog_entries;
         let _ = self.events.send(AppServerEvent::ModulesReloaded {
             old_epoch: report.old_epoch,
@@ -400,7 +398,6 @@ impl AppServerHandle {
         let module_epoch = self.runtime.module_epoch().await;
         let config = self.config.read().await.clone();
         let tools = self.runtime.tool_entries().await;
-        let plugin_reports = self.plugin_reports.read().await;
         let catalog_entries = self.catalog_entries.read().await;
         build_topology_snapshot(TopologyBuildInput {
             config: &config,
@@ -408,7 +405,6 @@ impl AppServerHandle {
             cwd: &self.cwd,
             catalog_entries: &catalog_entries,
             tools: &tools,
-            plugin_reports: &plugin_reports,
             module_epoch,
             permission_mode: mode,
             extra_warnings: Vec::new(),
@@ -613,8 +609,7 @@ impl AppServerHandle {
 
     pub async fn reload_tools(&self) -> Result<RuntimeReloadReport> {
         let config = reload_tools_config(self.config_path.as_deref(), &self.config).await?;
-        let (registry, plugin_reports, catalog_entries) =
-            build_registry_and_plugin_reports(&config, &self.cwd).await?;
+        let (registry, catalog_entries) = build_registry(&config, &self.cwd).await?;
         let config_snapshot =
             SessionConfigSnapshot::from_runtime_config(&config, &registry, config.permissions.mode);
         let report = self
@@ -622,7 +617,6 @@ impl AppServerHandle {
             .reload_registry(registry, Some(config_snapshot))
             .await?;
         *self.config.write().await = config;
-        *self.plugin_reports.write().await = plugin_reports;
         *self.catalog_entries.write().await = catalog_entries;
         let _ = self.events.send(AppServerEvent::ModulesReloaded {
             old_epoch: report.old_epoch,
@@ -693,20 +687,21 @@ impl AgentAppServer {
         let config_snapshot = Arc::new(RwLock::new(config.clone()));
         let config_path_snapshot = config_path.map(Path::to_path_buf);
         let cwd_snapshot = cwd.clone();
-        let (module_catalog, plugin_reports, catalog_entries) = match module_catalog {
+        let (module_catalog, catalog_entries) = match module_catalog {
             Some(catalog) => {
                 let catalog_entries = catalog.entry_summaries();
-                (Some(catalog), Vec::new(), catalog_entries)
+                (Some(catalog), catalog_entries)
             }
             None => {
-                let (catalog, reports, catalog_entries) = tokio::task::spawn_blocking(|| {
-                    let (catalog, reports) = crate::core::load_runtime_module_catalog();
+                let catalog_config = config.clone();
+                let (catalog, catalog_entries) = tokio::task::spawn_blocking(move || {
+                    let catalog = crate::core::ModuleCatalog::from_config(&catalog_config)?;
                     let catalog_entries = catalog.entry_summaries();
-                    (catalog, reports, catalog_entries)
+                    anyhow::Ok((catalog, catalog_entries))
                 })
                 .await
-                .map_err(|error| anyhow!("module catalog blocking task failed: {error}"))?;
-                (Some(catalog), reports, catalog_entries)
+                .map_err(|error| anyhow!("module catalog blocking task failed: {error}"))??;
+                (Some(catalog), catalog_entries)
             }
         };
         let core_broadcast = Arc::new(BroadcastEventSink::new(1024));
@@ -766,7 +761,6 @@ impl AgentAppServer {
             config_path: config_path_snapshot,
             cwd: cwd_snapshot,
             catalog_entries: Arc::new(RwLock::new(catalog_entries)),
-            plugin_reports: Arc::new(RwLock::new(plugin_reports)),
             events,
             pending_approvals,
             pending_user_inputs,
@@ -799,21 +793,17 @@ async fn reload_tools_config(
     Ok(config)
 }
 
-async fn build_registry_and_plugin_reports(
+async fn build_registry(
     config: &AppConfig,
     cwd: &Path,
-) -> Result<(
-    crate::core::RuntimeRegistry,
-    Vec<crate::core::PluginLoadReport>,
-    Vec<ModuleCatalogEntrySummary>,
-)> {
+) -> Result<(crate::core::RuntimeRegistry, Vec<ModuleCatalogEntrySummary>)> {
     let config = config.clone();
     let cwd = cwd.to_path_buf();
     tokio::task::spawn_blocking(move || {
-        let (catalog, reports) = crate::core::load_runtime_module_catalog();
+        let catalog = crate::core::ModuleCatalog::from_config(&config)?;
         let catalog_entries = catalog.entry_summaries();
         let registry = crate::core::RuntimeRegistry::from_catalog(&config, cwd, catalog)?;
-        Ok((registry, reports, catalog_entries))
+        Ok((registry, catalog_entries))
     })
     .await
     .map_err(|error| anyhow!("registry builder blocking task failed: {error}"))?

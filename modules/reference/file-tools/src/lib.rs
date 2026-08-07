@@ -1,8 +1,8 @@
-//! File tools plugin: read_file, write_file, list_dir, grep, find_files,
+//! File tools reference process module: read_file, write_file, list_dir, grep, find_files,
 //! read_many_files.
 //!
-//! Reference-реализация файловых tools для текущего dylib transition.
-//! Она использует sync `PluginTool` + `std::fs` (не `tokio::fs`) и проверяет,
+//! Reference-реализация файловых tools, экспортируемая единым process worker.
+//! Она использует sync `ToolModule` + `std::fs` (не `tokio::fs`) и проверяет,
 //! что поведение tools можно вынести за границу core.
 //!
 //! Этот crate не является шаблоном для новых modules: целевая граница —
@@ -12,18 +12,13 @@
 //!
 //! ```bash
 //! cargo build --release -p file-tools
-//! mkdir -p ~/.proteus/plugins/file-tools
-//! cp target/release/libfile_tools.so ~/.proteus/plugins/file-tools/
-//! cp modules/reference/file-tools/plugin.toml ~/.proteus/plugins/file-tools/
+//! Реализация линкуется только внутрь `proteus-reference-worker`; host видит
+//! её через process Tool contract v1.
 //! ```
 //!
 //! После этого добавьте нужные имена (`read_file`, `write_file`, `list_dir`,
 //! `grep`, `find_files`, `read_many_files`) в `tools.enabled`. Установленный
-//! плагин расширяет namespace, но tools остаются opt-in через config.
-
-#![allow(non_local_definitions)]
-#![allow(non_camel_case_types)]
-#![allow(improper_ctypes_definitions)]
+//! module расширяет namespace, но tools остаются opt-in через config.
 
 mod edit;
 mod find;
@@ -34,89 +29,59 @@ mod search;
 mod util;
 mod write;
 
-use proteus_contracts::{
-    abi_stable::{
-        export_root_module,
-        prefix_type::PrefixTypeTrait,
-        sabi_trait::TD_Opaque,
-        std_types::{RResult, RStr},
-    },
-    plugin::{
-        PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginTool_TO,
-        PluginToolObject,
-    },
-};
+use proteus_contracts::process_module::{ModuleRegistry, ProcessModuleError, ToolModuleObject};
 
 use crate::{
     edit::EditFileTool, find::FindFilesTool, list::ListDirTool, read::ReadFileTool,
     read_many::ReadManyFilesTool, search::GrepTool, write::WriteFileTool,
 };
 
-extern "C" fn register_modules(
-    registry: &mut PluginRegistryMut<'_>,
-) -> RResult<(), PluginRegisterError> {
-    let read: PluginToolObject = PluginTool_TO::from_value(ReadFileTool, TD_Opaque);
-    if let RResult::RErr(err) = registry.register_tool(read) {
-        return RResult::RErr(err);
+pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), ProcessModuleError> {
+    let read: ToolModuleObject = Box::new(ReadFileTool);
+    if let Err(err) = registry.register_tool(read) {
+        return Err(err);
     }
 
-    let write: PluginToolObject = PluginTool_TO::from_value(WriteFileTool, TD_Opaque);
-    if let RResult::RErr(err) = registry.register_tool(write) {
-        return RResult::RErr(err);
+    let write: ToolModuleObject = Box::new(WriteFileTool);
+    if let Err(err) = registry.register_tool(write) {
+        return Err(err);
     }
 
-    let edit: PluginToolObject = PluginTool_TO::from_value(EditFileTool, TD_Opaque);
-    if let RResult::RErr(err) = registry.register_tool(edit) {
-        return RResult::RErr(err);
+    let edit: ToolModuleObject = Box::new(EditFileTool);
+    if let Err(err) = registry.register_tool(edit) {
+        return Err(err);
     }
 
-    let list: PluginToolObject = PluginTool_TO::from_value(ListDirTool, TD_Opaque);
-    if let RResult::RErr(err) = registry.register_tool(list) {
-        return RResult::RErr(err);
+    let list: ToolModuleObject = Box::new(ListDirTool);
+    if let Err(err) = registry.register_tool(list) {
+        return Err(err);
     }
 
-    let grep: PluginToolObject = PluginTool_TO::from_value(GrepTool, TD_Opaque);
-    if let RResult::RErr(err) = registry.register_tool(grep) {
-        return RResult::RErr(err);
+    let grep: ToolModuleObject = Box::new(GrepTool);
+    if let Err(err) = registry.register_tool(grep) {
+        return Err(err);
     }
 
-    let find_files: PluginToolObject = PluginTool_TO::from_value(FindFilesTool, TD_Opaque);
-    if let RResult::RErr(err) = registry.register_tool(find_files) {
-        return RResult::RErr(err);
+    let find_files: ToolModuleObject = Box::new(FindFilesTool);
+    if let Err(err) = registry.register_tool(find_files) {
+        return Err(err);
     }
 
-    let read_many: PluginToolObject = PluginTool_TO::from_value(ReadManyFilesTool, TD_Opaque);
-    if let RResult::RErr(err) = registry.register_tool(read_many) {
-        return RResult::RErr(err);
+    let read_many: ToolModuleObject = Box::new(ReadManyFilesTool);
+    if let Err(err) = registry.register_tool(read_many) {
+        return Err(err);
     }
 
-    RResult::ROk(())
-}
-
-#[export_root_module]
-pub fn get_plugin_root() -> PluginRoot_Ref {
-    PluginRoot {
-        name: RStr::from_str("file-tools"),
-        description: RStr::from_str(
-            "Basic file tools: read_file, write_file, edit_file, list_dir, grep, find_files, read_many_files",
-        ),
-        register_modules,
-    }
-    .leak_into_prefix()
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use proteus_contracts::{
-        abi_stable::{
-            sabi_trait::TD_Opaque,
-            std_types::{RResult, RString},
-        },
         contracts::ToolInvocationOwner,
         domain::{ToolSpec, new_session_id, new_thread_id, new_turn_id},
-        plugin::{
-            PluginTool, PluginToolError, PluginToolHost, PluginToolHost_TO, PluginToolHostMut,
-            PluginToolInvocationContext,
+        process_module::{
+            ProcessModuleError, ToolModule, ToolModuleHost, ToolModuleInvocationContext,
         },
     };
     use serde_json::{Value, json};
@@ -126,13 +91,13 @@ mod tests {
 
     struct TestToolHost;
 
-    impl PluginToolHost for TestToolHost {
-        fn is_cancelled(&self) -> RResult<bool, PluginToolError> {
-            RResult::ROk(false)
+    impl ToolModuleHost for TestToolHost {
+        fn is_cancelled(&self) -> Result<bool, ProcessModuleError> {
+            Ok(false)
         }
     }
 
-    fn invoke<T: PluginTool>(tool: &T, cwd: &std::path::Path, args: Value) -> Value {
+    fn invoke<T: ToolModule>(tool: &T, cwd: &std::path::Path, args: Value) -> Value {
         let call = json!({
             "id": "call_test",
             "name": serde_json::from_str::<Value>(tool.spec_json().as_str())
@@ -141,29 +106,29 @@ mod tests {
                 .expect("tool name"),
             "args": args
         });
-        let context = PluginToolInvocationContext {
+        let context = ToolModuleInvocationContext {
             cwd: cwd.to_path_buf(),
             owner: ToolInvocationOwner::new(new_session_id(), new_thread_id(), new_turn_id()),
+            config: json!({}),
         };
         let mut host = TestToolHost;
-        let mut host_to: PluginToolHostMut<'_> = PluginToolHost_TO::from_ptr(&mut host, TD_Opaque);
         match tool.invoke_json(
-            RString::from(call.to_string()),
-            RString::from(serde_json::to_string(&context).expect("context json")),
-            &mut host_to,
+            call.to_string(),
+            serde_json::to_string(&context).expect("context json"),
+            &mut host,
         ) {
-            RResult::ROk(result) => serde_json::from_str(result.as_str()).expect("tool result"),
-            RResult::RErr(err) => panic!("plugin error: {}", err.message),
+            Ok(result) => serde_json::from_str(result.as_str()).expect("tool result"),
+            Err(err) => panic!("module error: {}", err.message),
         }
     }
 
-    fn spec<T: PluginTool>(tool: &T) -> Value {
+    fn spec<T: ToolModule>(tool: &T) -> Value {
         serde_json::from_str(tool.spec_json().as_str()).expect("spec json")
     }
 
-    fn assert_canonical_spec<T: PluginTool>(tool: &T) {
+    fn assert_canonical_spec<T: ToolModule>(tool: &T) {
         serde_json::from_str::<ToolSpec>(tool.spec_json().as_str())
-            .expect("plugin spec must match strict ToolSpec");
+            .expect("module spec must match strict ToolSpec");
     }
 
     #[test]

@@ -1,10 +1,7 @@
-//! Ripgrep SearchBackend plugin.
+//! Ripgrep `SearchBackend` reference process module.
 //!
-//! Registers search backend id `"rg"` through the stable plugin ABI.
-
-#![allow(non_local_definitions)]
-#![allow(non_camel_case_types)]
-#![allow(improper_ctypes_definitions)]
+//! The implementation is linked into the reference worker; the host only
+//! sees the process-v1 contract.
 
 use std::{
     io::{BufRead, BufReader},
@@ -15,30 +12,21 @@ use std::{
 };
 
 use proteus_contracts::{
-    abi_stable::{
-        export_root_module,
-        prefix_type::PrefixTypeTrait,
-        sabi_trait::TD_Opaque,
-        std_types::{RResult, RStr, RString},
-    },
     contracts::SearchQuery,
     domain::ContextChunk,
-    plugin::{
-        PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginSearchBackend,
-        PluginSearchBackend_TO, PluginSearchError, SearchBackendObject,
-    },
+    process_module::{ModuleRegistry, ProcessModuleError, SearchModule, SearchModuleObject},
 };
 use serde_json::json;
 
-struct RgSearchPlugin;
+struct RgSearchModule;
 const RG_TIMEOUT: Duration = Duration::from_secs(60);
 
-impl PluginSearchBackend for RgSearchPlugin {
-    fn search_json(&self, query_json: RString) -> RResult<RString, PluginSearchError> {
+impl SearchModule for RgSearchModule {
+    fn search_json(&self, query_json: String) -> Result<String, ProcessModuleError> {
         let query: SearchQuery = match serde_json::from_str(query_json.as_str()) {
             Ok(query) => query,
             Err(error) => {
-                return RResult::RErr(PluginSearchError::new(format!(
+                return Err(ProcessModuleError::new(format!(
                     "invalid SearchQuery JSON: {error}"
                 )));
             }
@@ -46,12 +34,12 @@ impl PluginSearchBackend for RgSearchPlugin {
 
         match run_rg(query) {
             Ok(chunks) => match serde_json::to_string(&chunks) {
-                Ok(json) => RResult::ROk(RString::from(json)),
-                Err(error) => RResult::RErr(PluginSearchError::new(format!(
+                Ok(json) => Ok(String::from(json)),
+                Err(error) => Err(ProcessModuleError::new(format!(
                     "failed to serialize search chunks: {error}"
                 ))),
             },
-            Err(error) => RResult::RErr(PluginSearchError::new(error)),
+            Err(error) => Err(ProcessModuleError::new(error)),
         }
     }
 }
@@ -226,22 +214,9 @@ fn normalize_rg_path(path: &str) -> &str {
     path.strip_prefix("./").unwrap_or(path)
 }
 
-extern "C" fn register_modules(
-    registry: &mut PluginRegistryMut<'_>,
-) -> RResult<(), PluginRegisterError> {
-    let backend: SearchBackendObject =
-        PluginSearchBackend_TO::from_value(RgSearchPlugin, TD_Opaque);
-    registry.register_search_backend(RString::from("rg"), backend)
-}
-
-#[export_root_module]
-pub fn get_plugin_root() -> PluginRoot_Ref {
-    PluginRoot {
-        name: RStr::from_str("rg-search"),
-        description: RStr::from_str("Workspace SearchBackend backed by ripgrep"),
-        register_modules,
-    }
-    .leak_into_prefix()
+pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), ProcessModuleError> {
+    let backend: SearchModuleObject = Box::new(RgSearchModule);
+    registry.register_search(String::from("rg"), backend)
 }
 
 #[cfg(test)]

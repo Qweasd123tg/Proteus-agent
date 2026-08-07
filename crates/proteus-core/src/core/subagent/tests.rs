@@ -29,8 +29,8 @@ use crate::{
         TokenUsage,
     },
     stubs::{
-        AllVisibleToolExposure, EmptyContextBuilder, FakeModelClient, NoCompactor, NoMemory,
-        NoSubagent, NullPatchApplier, NullSearch,
+        EmptyContextBuilder, FakeModelClient, NoCompactor, NoMemory, NoSubagent, NullPatchApplier,
+        NullSearch, UnfilteredToolExposure,
     },
     tools::RememberFactTool,
 };
@@ -323,7 +323,7 @@ where
         Arc::new(HeadlessUserInputTransport),
         Arc::new(NullPatchApplier),
         Arc::new(NoCompactor),
-        Arc::new(AllVisibleToolExposure),
+        Arc::new(UnfilteredToolExposure),
         Arc::new(NoSubagent),
     )
 }

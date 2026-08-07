@@ -1,7 +1,7 @@
 use proteus_contracts::{
     domain::MessageId,
     model_standard::{CanonicalMessage, PartScope},
-    plugin::PluginWorkflowError,
+    process_module::ProcessModuleError,
 };
 use serde_json::Value;
 
@@ -44,10 +44,10 @@ pub(crate) fn replace_after_compaction(
     persistent_messages: &mut Vec<CanonicalMessage>,
     current_user_message_id: MessageId,
     excluded_persistent_phases: &[&str],
-) -> Result<usize, PluginWorkflowError> {
+) -> Result<usize, ProcessModuleError> {
     let current_user_position = current_user_index(compacted_messages, current_user_message_id)
         .ok_or_else(|| {
-            PluginWorkflowError::new(
+            ProcessModuleError::new(
                 "compaction changed history but dropped the current user message",
             )
         })?;
@@ -57,7 +57,7 @@ pub(crate) fn replace_after_compaction(
         excluded_persistent_phases,
     );
     if current_user_index(persistent_messages, current_user_message_id).is_none() {
-        return Err(PluginWorkflowError::new(
+        return Err(ProcessModuleError::new(
             "compaction changed persistent history but dropped the current user message",
         ));
     }

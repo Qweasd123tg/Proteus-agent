@@ -1,12 +1,8 @@
-//! Coding workflow plugin.
+//! Coding workflow reference process modules.
 //!
 //! Owns workflow control-flow, but every runtime capability goes through the
 //! narrow workflow host API: context build, model completion, tool visibility,
 //! tool execution, and event emission.
-
-#![allow(non_local_definitions)]
-#![allow(non_camel_case_types)]
-#![allow(improper_ctypes_definitions)]
 
 mod dynamic_tools;
 mod history;
@@ -19,18 +15,11 @@ mod validation;
 mod workflows;
 
 use proteus_contracts::{
-    abi_stable::{
-        export_root_module,
-        prefix_type::PrefixTypeTrait,
-        sabi_trait::TD_Opaque,
-        std_types::{RResult, RStr, RString},
-    },
     domain::{Event, ToolChoice, ToolSafety},
     model_standard::FinishReason,
-    plugin::{
-        PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginWorkflow_TO,
-        PluginWorkflowError, PluginWorkflowHostMut, PluginWorkflowInput, PluginWorkflowOutput,
-        WorkflowObject,
+    process_module::{
+        ModuleRegistry, ProcessModuleError, WorkflowModuleHostMut, WorkflowModuleInput,
+        WorkflowModuleObject, WorkflowModuleOutput,
     },
 };
 use serde_json::json;
@@ -43,7 +32,7 @@ pub(crate) use proteus_contracts::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart,
         InstructionBlock, InstructionKind, MessageRole, TokenUsage,
     },
-    plugin::PluginWorkflow,
+    process_module::WorkflowModule,
 };
 use token_accounting::LastModelUsage;
 #[cfg(test)]
@@ -101,10 +90,10 @@ const EXECUTE_DEVELOPER_INSTRUCTIONS: &str = "Execute phase: follow the plan, in
 const REVIEW_DEVELOPER_INSTRUCTIONS: &str = "Review phase: produce the final user-facing answer. Mention what changed or what you found, and call out verification gaps if no verification was possible. Do not request tools in this phase.";
 
 pub(crate) fn run_single_loop(
-    input: PluginWorkflowInput,
-    host: &mut PluginWorkflowHostMut<'_>,
+    input: WorkflowModuleInput,
+    host: &mut WorkflowModuleHostMut<'_>,
     max_tool_rounds: usize,
-) -> Result<PluginWorkflowOutput, PluginWorkflowError> {
+) -> Result<WorkflowModuleOutput, ProcessModuleError> {
     let mut turn = TurnScaffold::begin(host, &input)?;
     let mut last_usage: Option<LastModelUsage> = None;
 
@@ -223,10 +212,10 @@ pub(crate) fn run_single_loop(
 }
 
 pub(crate) fn run_codex_loop(
-    input: PluginWorkflowInput,
-    host: &mut PluginWorkflowHostMut<'_>,
+    input: WorkflowModuleInput,
+    host: &mut WorkflowModuleHostMut<'_>,
     module_id: &str,
-) -> Result<PluginWorkflowOutput, PluginWorkflowError> {
+) -> Result<WorkflowModuleOutput, ProcessModuleError> {
     let mut turn = TurnScaffold::begin(host, &input)?;
     let mut tool_rounds = 0usize;
     let mut executed_tools = Vec::new();
@@ -315,9 +304,9 @@ pub(crate) fn run_codex_loop(
 }
 
 pub(crate) fn run_plan_execute_review(
-    input: PluginWorkflowInput,
-    host: &mut PluginWorkflowHostMut<'_>,
-) -> Result<PluginWorkflowOutput, PluginWorkflowError> {
+    input: WorkflowModuleInput,
+    host: &mut WorkflowModuleHostMut<'_>,
+) -> Result<WorkflowModuleOutput, ProcessModuleError> {
     let mut turn = TurnScaffold::begin(host, &input)?;
 
     let mut plan_tool_rounds_used = 0usize;
@@ -486,40 +475,20 @@ pub(crate) fn run_plan_execute_review(
     turn.finish(host, text, metadata)
 }
 
-extern "C" fn register_modules(
-    registry: &mut PluginRegistryMut<'_>,
-) -> RResult<(), PluginRegisterError> {
-    let workflow: WorkflowObject =
-        PluginWorkflow_TO::from_value(CodingSingleLoopWorkflow::default(), TD_Opaque);
-    if let RResult::RErr(err) =
-        registry.register_workflow(RString::from(SINGLE_LOOP_MODULE_ID), workflow)
+pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), ProcessModuleError> {
+    let workflow: WorkflowModuleObject = Box::new(CodingSingleLoopWorkflow::default());
+    if let Err(err) = registry.register_workflow(String::from(SINGLE_LOOP_MODULE_ID), workflow) {
+        return Err(err);
+    }
+
+    let codex_workflow: WorkflowModuleObject = Box::new(CodingCodexLoopWorkflow);
+    if let Err(err) = registry.register_workflow(String::from(CODEX_LOOP_MODULE_ID), codex_workflow)
     {
-        return RResult::RErr(err);
+        return Err(err);
     }
 
-    let codex_workflow: WorkflowObject =
-        PluginWorkflow_TO::from_value(CodingCodexLoopWorkflow, TD_Opaque);
-    if let RResult::RErr(err) =
-        registry.register_workflow(RString::from(CODEX_LOOP_MODULE_ID), codex_workflow)
-    {
-        return RResult::RErr(err);
-    }
-
-    let plan_workflow: WorkflowObject =
-        PluginWorkflow_TO::from_value(CodingPlanExecuteReviewWorkflow, TD_Opaque);
-    registry.register_workflow(RString::from(PLAN_EXECUTE_REVIEW_MODULE_ID), plan_workflow)
-}
-
-#[export_root_module]
-pub fn get_plugin_root() -> PluginRoot_Ref {
-    PluginRoot {
-        name: RStr::from_str("coding-workflow"),
-        description: RStr::from_str(
-            "Workflow plugin providing coding.single_loop, coding.codex_loop, and coding.plan_execute_review through the workflow host API",
-        ),
-        register_modules,
-    }
-    .leak_into_prefix()
+    let plan_workflow: WorkflowModuleObject = Box::new(CodingPlanExecuteReviewWorkflow);
+    registry.register_workflow(String::from(PLAN_EXECUTE_REVIEW_MODULE_ID), plan_workflow)
 }
 
 #[cfg(test)]

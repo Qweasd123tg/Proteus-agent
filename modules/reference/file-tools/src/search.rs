@@ -3,24 +3,23 @@
 //! Требует установленный `rg` в `$PATH`. Если нет — tool всё ещё виден,
 //! но возвращает ошибку при вызове. Это feature не bug — пусть модель
 //! видит осмысленное сообщение "rg is not installed" вместо того чтобы
-//! плагин молчал.
+//! module молчал.
 
 use std::{path::Path, process::Command, time::Duration};
 
-use proteus_contracts::abi_stable::std_types::{RResult, RString};
-use proteus_contracts::plugin::{PluginTool, PluginToolError, PluginToolHostMut};
+use proteus_contracts::process_module::{ProcessModuleError, ToolModule, ToolModuleHostMut};
 use serde_json::{Value, json};
 
 use crate::util::{
-    err_result, ok_result, optional_positive_usize, parse_call, parse_invocation_context,
-    plugin_error, required_string, run_lines_limited, workspace_path,
+    err_result, module_error, ok_result, optional_positive_usize, parse_call,
+    parse_invocation_context, required_string, run_lines_limited, workspace_path,
 };
 
 pub struct GrepTool;
 const RG_TIMEOUT: Duration = Duration::from_secs(60);
 
-impl PluginTool for GrepTool {
-    fn spec_json(&self) -> RString {
+impl ToolModule for GrepTool {
+    fn spec_json(&self) -> String {
         let spec = json!({
             "name": "grep",
             "description": "Search for a regex pattern in workspace files using ripgrep. Returns lines that match.",
@@ -53,22 +52,22 @@ impl PluginTool for GrepTool {
                 "aliases": ["ripgrep", "find text", "search code", "search files"]
             }
         });
-        RString::from(spec.to_string())
+        String::from(spec.to_string())
     }
 
     fn invoke_json(
         &self,
-        call_json: RString,
-        context_json: RString,
-        _host: &mut PluginToolHostMut<'_>,
-    ) -> RResult<RString, PluginToolError> {
+        call_json: String,
+        context_json: String,
+        _host: &mut ToolModuleHostMut<'_>,
+    ) -> Result<String, ProcessModuleError> {
         let call = match parse_call(call_json.as_str()) {
             Ok(c) => c,
-            Err(e) => return plugin_error(e),
+            Err(e) => return module_error(e),
         };
         let context = match parse_invocation_context(context_json.as_str()) {
             Ok(context) => context,
-            Err(error) => return plugin_error(error),
+            Err(error) => return module_error(error),
         };
 
         let pattern = match required_string(&call.args, "pattern", &call.name) {

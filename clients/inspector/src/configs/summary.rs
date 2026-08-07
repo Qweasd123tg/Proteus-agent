@@ -108,41 +108,35 @@ pub(super) fn ConfigOverview(summary: ConfigSummary) -> impl IntoView {
     }
 }
 
-/// Read-only секция Plugins под builder-ом. Modules/tools/config files здесь
-/// не дублируются: modules и tools редактируются в builder, config files
-/// показаны в overview.
+/// Read-only список host-owned launch descriptors. Module selection и
+/// module-owned config редактируются отдельно в builder-е.
 #[component]
 pub(super) fn ConfigSections(summary: ConfigSummary) -> impl IntoView {
-    let plugins = summary.plugins.clone();
+    let process_modules = summary.process_modules.clone();
 
     view! {
         <section class="config-section">
             <div class="config-section-header">
-                <h3>"Plugins"</h3>
-                <span>{plugins.len()}</span>
+                <h3>"Process modules"</h3>
+                <span>{process_modules.len()}</span>
             </div>
             <div class="config-list">
                 <For
-                    each=move || plugins.clone()
-                    key=|plugin| format!("{}:{}", plugin.name, plugin.version)
-                    children=move |plugin| {
-                        let badge_class = if plugin.status.starts_with("error") {
-                            "status-badge failed"
-                        } else {
-                            "status-badge completed"
-                        };
+                    each=move || process_modules.clone()
+                    key=|module| format!("{}:{}", module.slot, module.module_id)
+                    children=move |module| {
                         view! {
                             <article class="config-list-item">
                                 <div class="config-list-main">
                                     <div class="config-list-title">
-                                        <strong>{plugin.name}</strong>
-                                        <code>{plugin.version}</code>
+                                        <strong>{module.module_id}</strong>
+                                        <code>{module.slot}</code>
                                     </div>
-                                    <p>{plugin.description}</p>
+                                    <p>"persistent stdio · protocol v1"</p>
                                 </div>
-                                <span class=badge_class>
+                                <span class="status-badge completed">
                                     <span class="dot"></span>
-                                    {plugin.status}
+                                    "configured"
                                 </span>
                             </article>
                         }

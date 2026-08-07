@@ -46,7 +46,7 @@ const REPO_SEARCH_ALLOWLIST: &[&str] = &[
     "model",
     "module",
     "patch",
-    "plugin",
+    "module",
     "policy",
     "provider",
     "renderer",

@@ -176,10 +176,7 @@ fn config_builder_module(module: &ModuleTopology) -> ConfigBuilderModule {
 fn module_source_label(source: &ModuleSourceTopology) -> String {
     match source {
         ModuleSourceTopology::Builtin => "builtin".to_owned(),
-        // Путь до .so в UI не нужен: плагины лежат в одном plugins dir, а
-        // длинные пути делают select нечитаемым. Полный путь остаётся в
-        // topology snapshot (`ModuleSourceTopology::Plugin.path`).
-        ModuleSourceTopology::Plugin { name, .. } => format!("plugin:{name}"),
+        ModuleSourceTopology::Process => "process".to_owned(),
         ModuleSourceTopology::Config => "config".to_owned(),
         ModuleSourceTopology::Unknown => "unknown".to_owned(),
     }

@@ -1,7 +1,7 @@
 //! Sync host for persistent stdio child processes with JSON-RPC style traffic.
 //!
 //! The crate intentionally has no dependency on `proteus-core` or
-//! `proteus-contracts`: it is shared plumbing for plugins and core code that need
+//! `proteus-contracts`: it is shared plumbing for workers and core code that need
 //! a blocking stdio protocol host. Child stderr is piped and drained into
 //! `std::io::sink()` by a background thread. This keeps verbose children from
 //! blocking on a full stderr pipe without mixing their diagnostics into the

@@ -1,8 +1,4 @@
-//! ContextBuilder plugin pack.
-
-#![allow(non_local_definitions)]
-#![allow(non_camel_case_types)]
-#![allow(improper_ctypes_definitions)]
+//! Context-builder reference process modules.
 
 use std::{
     cmp::Ordering,
@@ -14,29 +10,16 @@ mod config;
 mod search_queries;
 mod workspace_files;
 
-#[cfg(feature = "plugin-entrypoint")]
-use abi_stable::std_types::RStr;
-use abi_stable::std_types::{RResult, RString};
-#[cfg(feature = "plugin-entrypoint")]
-use abi_stable::{export_root_module, prefix_type::PrefixTypeTrait};
 use config::{CodexContextConfig, RepoAwareContextConfig, SimpleContextConfig};
-#[cfg(feature = "plugin-entrypoint")]
-use proteus_contracts::{
-    abi_stable::sabi_trait::TD_Opaque,
-    plugin::{
-        ContextBuilderObject, PluginContextBuilder_TO, PluginRegisterError, PluginRegistryMut,
-        PluginRoot, PluginRoot_Ref,
-    },
-};
 use proteus_contracts::{
     contracts::SearchQuery,
     domain::{
         CONTEXT_RENDER_MODE_KEY, CONTEXT_RENDER_MODE_VERBATIM, ContextBundle, ContextChunk,
         ENVIRONMENT_CONTEXT_TAG, EXEC_SHELL, MemoryItem, MemoryQuery,
     },
-    plugin::{
-        PluginContextBuilder, PluginContextBuilderHostMut, PluginContextBuilderInput,
-        PluginContextError, PluginContextProviderInput,
+    process_module::{
+        ContextBuilderModule, ContextBuilderModuleHostMut, ContextBuilderModuleInput,
+        ContextBuilderModuleObject, ContextProviderModuleInput, ModuleRegistry, ProcessModuleError,
     },
 };
 use search_queries::extract_search_queries;
@@ -46,29 +29,26 @@ use workspace_files::{
     collect_tree_entries, read_bounded_workspace_utf8_file, safe_relative_path, truncate_to_bytes,
 };
 
-#[cfg(feature = "plugin-entrypoint")]
 const SIMPLE_MODULE_ID: &str = "simple";
-#[cfg(feature = "plugin-entrypoint")]
 const REPO_AWARE_MODULE_ID: &str = "repo_aware";
-#[cfg(feature = "plugin-entrypoint")]
 const CODEX_CONTEXT_MODULE_ID: &str = "codex_context";
 
 #[derive(Default)]
-pub struct SimpleContextBuilderPlugin;
+pub struct SimpleContextBuilderModule;
 
 #[derive(Default)]
-pub struct RepoAwareContextBuilderPlugin;
+pub struct RepoAwareContextBuilderModule;
 
 #[derive(Default)]
-pub struct CodexContextBuilderPlugin;
+pub struct CodexContextBuilderModule;
 
-impl PluginContextBuilder for SimpleContextBuilderPlugin {
+impl ContextBuilderModule for SimpleContextBuilderModule {
     fn build_json(
         &self,
-        input_json: RString,
-        host: &mut PluginContextBuilderHostMut<'_>,
-    ) -> RResult<RString, PluginContextError> {
-        let input: PluginContextBuilderInput = match serde_json::from_str(input_json.as_str()) {
+        input_json: String,
+        host: &mut ContextBuilderModuleHostMut<'_>,
+    ) -> Result<String, ProcessModuleError> {
+        let input: ContextBuilderModuleInput = match serde_json::from_str(input_json.as_str()) {
             Ok(input) => input,
             Err(error) => return context_err(error),
         };
@@ -83,13 +63,13 @@ impl PluginContextBuilder for SimpleContextBuilderPlugin {
     }
 }
 
-impl PluginContextBuilder for RepoAwareContextBuilderPlugin {
+impl ContextBuilderModule for RepoAwareContextBuilderModule {
     fn build_json(
         &self,
-        input_json: RString,
-        host: &mut PluginContextBuilderHostMut<'_>,
-    ) -> RResult<RString, PluginContextError> {
-        let input: PluginContextBuilderInput = match serde_json::from_str(input_json.as_str()) {
+        input_json: String,
+        host: &mut ContextBuilderModuleHostMut<'_>,
+    ) -> Result<String, ProcessModuleError> {
+        let input: ContextBuilderModuleInput = match serde_json::from_str(input_json.as_str()) {
             Ok(input) => input,
             Err(error) => return context_err(error),
         };
@@ -104,13 +84,13 @@ impl PluginContextBuilder for RepoAwareContextBuilderPlugin {
     }
 }
 
-impl PluginContextBuilder for CodexContextBuilderPlugin {
+impl ContextBuilderModule for CodexContextBuilderModule {
     fn build_json(
         &self,
-        input_json: RString,
-        host: &mut PluginContextBuilderHostMut<'_>,
-    ) -> RResult<RString, PluginContextError> {
-        let input: PluginContextBuilderInput = match serde_json::from_str(input_json.as_str()) {
+        input_json: String,
+        host: &mut ContextBuilderModuleHostMut<'_>,
+    ) -> Result<String, ProcessModuleError> {
+        let input: ContextBuilderModuleInput = match serde_json::from_str(input_json.as_str()) {
             Ok(input) => input,
             Err(error) => return context_err(error),
         };
@@ -126,8 +106,8 @@ impl PluginContextBuilder for CodexContextBuilderPlugin {
 }
 
 fn build_simple_context(
-    input: PluginContextBuilderInput,
-    host: &mut PluginContextBuilderHostMut<'_>,
+    input: ContextBuilderModuleInput,
+    host: &mut ContextBuilderModuleHostMut<'_>,
     config: SimpleContextConfig,
 ) -> anyhow::Result<ContextBundle> {
     let mut chunks = vec![
@@ -159,8 +139,8 @@ fn build_simple_context(
 }
 
 fn build_repo_aware_context(
-    input: PluginContextBuilderInput,
-    host: &mut PluginContextBuilderHostMut<'_>,
+    input: ContextBuilderModuleInput,
+    host: &mut ContextBuilderModuleHostMut<'_>,
     config: RepoAwareContextConfig,
 ) -> anyhow::Result<ContextBundle> {
     let mut chunks = vec![
@@ -196,8 +176,8 @@ fn build_repo_aware_context(
 }
 
 fn build_codex_context(
-    input: PluginContextBuilderInput,
-    host: &mut PluginContextBuilderHostMut<'_>,
+    input: ContextBuilderModuleInput,
+    host: &mut ContextBuilderModuleHostMut<'_>,
     config: CodexContextConfig,
 ) -> anyhow::Result<ContextBundle> {
     let repo_config = RepoAwareContextConfig::from(&config);
@@ -266,7 +246,7 @@ fn mark_context_verbatim(chunk: &mut ContextChunk) {
 }
 
 fn project_instruction_chunks(
-    input: &PluginContextBuilderInput,
+    input: &ContextBuilderModuleInput,
     config: &RepoAwareContextConfig,
 ) -> anyhow::Result<Vec<ContextChunk>> {
     let root = project_instruction_root(&input.task.cwd)?;
@@ -352,7 +332,7 @@ fn project_instruction_chunk_for_dir(
 }
 
 fn manifest_chunks(
-    input: &PluginContextBuilderInput,
+    input: &ContextBuilderModuleInput,
     config: &RepoAwareContextConfig,
 ) -> anyhow::Result<Vec<ContextChunk>> {
     let mut chunks = Vec::new();
@@ -378,7 +358,7 @@ fn manifest_chunks(
     Ok(chunks)
 }
 
-fn environment_chunks(input: &PluginContextBuilderInput) -> Vec<ContextChunk> {
+fn environment_chunks(input: &ContextBuilderModuleInput) -> Vec<ContextChunk> {
     let content = format!(
         "{ENVIRONMENT_CONTEXT_TAG}\n  <cwd>{}</cwd>\n  <operating_system>{}</operating_system>\n  <architecture>{}</architecture>\n  <shell>{EXEC_SHELL}</shell>\n</environment_context>",
         input.task.cwd.display(),
@@ -395,7 +375,7 @@ fn environment_chunks(input: &PluginContextBuilderInput) -> Vec<ContextChunk> {
     )]
 }
 
-fn git_status_chunks(input: &PluginContextBuilderInput) -> anyhow::Result<Vec<ContextChunk>> {
+fn git_status_chunks(input: &ContextBuilderModuleInput) -> anyhow::Result<Vec<ContextChunk>> {
     let output = match Command::new("git")
         .args(["status", "--short", "--branch"])
         .current_dir(&input.task.cwd)
@@ -426,7 +406,7 @@ fn git_status_chunks(input: &PluginContextBuilderInput) -> anyhow::Result<Vec<Co
 }
 
 fn git_diff_chunks(
-    input: &PluginContextBuilderInput,
+    input: &ContextBuilderModuleInput,
     config: &CodexContextConfig,
 ) -> anyhow::Result<Vec<ContextChunk>> {
     let mut sections = Vec::new();
@@ -475,7 +455,7 @@ fn git_output(cwd: &Path, args: &[&str]) -> anyhow::Result<Option<String>> {
 }
 
 fn repo_tree_chunks(
-    input: &PluginContextBuilderInput,
+    input: &ContextBuilderModuleInput,
     config: &RepoAwareContextConfig,
 ) -> anyhow::Result<Vec<ContextChunk>> {
     let mut entries = Vec::new();
@@ -501,8 +481,8 @@ fn repo_tree_chunks(
 }
 
 fn memory_chunks(
-    input: &PluginContextBuilderInput,
-    host: &mut PluginContextBuilderHostMut<'_>,
+    input: &ContextBuilderModuleInput,
+    host: &mut ContextBuilderModuleHostMut<'_>,
     config: &RepoAwareContextConfig,
 ) -> anyhow::Result<Vec<ContextChunk>> {
     Ok(recall_memory(
@@ -519,8 +499,8 @@ fn memory_chunks(
 }
 
 fn search_chunks(
-    input: &PluginContextBuilderInput,
-    host: &mut PluginContextBuilderHostMut<'_>,
+    input: &ContextBuilderModuleInput,
+    host: &mut ContextBuilderModuleHostMut<'_>,
     config: &RepoAwareContextConfig,
 ) -> anyhow::Result<Vec<ContextChunk>> {
     let queries = extract_search_queries(&input.task.text);
@@ -568,35 +548,35 @@ fn search_chunks(
 }
 
 fn external_provider_chunks(
-    input: &PluginContextBuilderInput,
-    host: &mut PluginContextBuilderHostMut<'_>,
+    input: &ContextBuilderModuleInput,
+    host: &mut ContextBuilderModuleHostMut<'_>,
     provider_id: &str,
 ) -> anyhow::Result<Vec<ContextChunk>> {
-    let provider_input = PluginContextProviderInput {
+    let provider_input = ContextProviderModuleInput {
         provider_id: provider_id.to_owned(),
         task: input.task.clone(),
         metadata: Value::Null,
     };
     let input_json = serde_json::to_string(&provider_input)?;
-    match host.context_provider_json(RString::from(provider_id), RString::from(input_json)) {
-        RResult::ROk(output_json) => Ok(serde_json::from_str(output_json.as_str())?),
-        RResult::RErr(error) => Err(anyhow::anyhow!("{}", error.message)),
+    match host.context_provider_json(String::from(provider_id), String::from(input_json)) {
+        Ok(output_json) => Ok(serde_json::from_str(output_json.as_str())?),
+        Err(error) => Err(anyhow::anyhow!("{}", error.message)),
     }
 }
 
 fn search(
-    host: &mut PluginContextBuilderHostMut<'_>,
+    host: &mut ContextBuilderModuleHostMut<'_>,
     query: SearchQuery,
 ) -> anyhow::Result<Vec<ContextChunk>> {
     let query_json = serde_json::to_string(&query)?;
-    match host.search_json(RString::from(query_json)) {
-        RResult::ROk(output_json) => Ok(serde_json::from_str(output_json.as_str())?),
-        RResult::RErr(error) => Err(anyhow::anyhow!("{}", error.message)),
+    match host.search_json(String::from(query_json)) {
+        Ok(output_json) => Ok(serde_json::from_str(output_json.as_str())?),
+        Err(error) => Err(anyhow::anyhow!("{}", error.message)),
     }
 }
 
 fn search_best_effort(
-    host: &mut PluginContextBuilderHostMut<'_>,
+    host: &mut ContextBuilderModuleHostMut<'_>,
     query: SearchQuery,
     provider: &str,
 ) -> anyhow::Result<Vec<ContextChunk>> {
@@ -618,13 +598,13 @@ fn search_best_effort(
 }
 
 fn recall_memory(
-    host: &mut PluginContextBuilderHostMut<'_>,
+    host: &mut ContextBuilderModuleHostMut<'_>,
     query: MemoryQuery,
 ) -> anyhow::Result<Vec<MemoryItem>> {
     let query_json = serde_json::to_string(&query)?;
-    match host.recall_memory_json(RString::from(query_json)) {
-        RResult::ROk(output_json) => Ok(serde_json::from_str(output_json.as_str())?),
-        RResult::RErr(error) => Err(anyhow::anyhow!("{}", error.message)),
+    match host.recall_memory_json(String::from(query_json)) {
+        Ok(output_json) => Ok(serde_json::from_str(output_json.as_str())?),
+        Err(error) => Err(anyhow::anyhow!("{}", error.message)),
     }
 }
 
@@ -726,53 +706,30 @@ where
     }
 }
 
-fn json_ok<T: serde::Serialize>(value: &T) -> RResult<RString, PluginContextError> {
+fn json_ok<T: serde::Serialize>(value: &T) -> Result<String, ProcessModuleError> {
     match serde_json::to_string(value) {
-        Ok(json) => RResult::ROk(RString::from(json)),
+        Ok(json) => Ok(String::from(json)),
         Err(error) => context_err(error),
     }
 }
 
-fn context_err<T>(error: impl ToString) -> RResult<T, PluginContextError> {
-    RResult::RErr(PluginContextError::new(error.to_string()))
+fn context_err<T>(error: impl ToString) -> Result<T, ProcessModuleError> {
+    Err(ProcessModuleError::new(error.to_string()))
 }
 
-#[cfg(feature = "plugin-entrypoint")]
-extern "C" fn register_modules(
-    registry: &mut PluginRegistryMut<'_>,
-) -> RResult<(), PluginRegisterError> {
-    let simple: ContextBuilderObject =
-        PluginContextBuilder_TO::from_value(SimpleContextBuilderPlugin, TD_Opaque);
-    if let RResult::RErr(error) =
-        registry.register_context_builder(RString::from(SIMPLE_MODULE_ID), simple)
-    {
-        return RResult::RErr(error);
+pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), ProcessModuleError> {
+    let simple: ContextBuilderModuleObject = Box::new(SimpleContextBuilderModule);
+    if let Err(error) = registry.register_context(String::from(SIMPLE_MODULE_ID), simple) {
+        return Err(error);
     }
 
-    let repo_aware: ContextBuilderObject =
-        PluginContextBuilder_TO::from_value(RepoAwareContextBuilderPlugin, TD_Opaque);
-    if let RResult::RErr(error) =
-        registry.register_context_builder(RString::from(REPO_AWARE_MODULE_ID), repo_aware)
-    {
-        return RResult::RErr(error);
+    let repo_aware: ContextBuilderModuleObject = Box::new(RepoAwareContextBuilderModule);
+    if let Err(error) = registry.register_context(String::from(REPO_AWARE_MODULE_ID), repo_aware) {
+        return Err(error);
     }
 
-    let codex_context: ContextBuilderObject =
-        PluginContextBuilder_TO::from_value(CodexContextBuilderPlugin, TD_Opaque);
-    registry.register_context_builder(RString::from(CODEX_CONTEXT_MODULE_ID), codex_context)
-}
-
-#[cfg(feature = "plugin-entrypoint")]
-#[export_root_module]
-pub fn instantiate_root_module() -> PluginRoot_Ref {
-    PluginRoot {
-        name: RStr::from_str("context-pack"),
-        description: RStr::from_str(
-            "ContextBuilder plugin providing simple, repo_aware, and codex_context",
-        ),
-        register_modules,
-    }
-    .leak_into_prefix()
+    let codex_context: ContextBuilderModuleObject = Box::new(CodexContextBuilderModule);
+    registry.register_context(String::from(CODEX_CONTEXT_MODULE_ID), codex_context)
 }
 
 #[cfg(test)]
@@ -925,7 +882,7 @@ mod tests {
 
     #[test]
     fn environment_chunks_report_current_platform_and_sh() {
-        let input = PluginContextBuilderInput {
+        let input = ContextBuilderModuleInput {
             task: proteus_contracts::domain::AgentTask::new("task", PathBuf::from("/ws")),
             config: Value::Null,
         };

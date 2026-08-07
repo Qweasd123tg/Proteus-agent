@@ -126,9 +126,9 @@ impl FakeModelClient {
 
         // Trigger pattern `remember_fact <content>` emits a real tool call into
         // the remember_fact builtin. This lets integration tests exercise the
-        // full tool-call round trip without depending on any tool that lives
-        // in a plugin. Historical "read_file <path>" trigger was retired when
-        // file tools moved to the file-tools plugin.
+        // full tool-call round trip without depending on an external worker.
+        // Historical "read_file <path>" trigger was retired when file tools
+        // moved to the reference process worker.
         if let Some(patch) = parse_apply_patch_request(&user_text) {
             let call = ToolCall::new(new_call_id(), "apply_patch", json!({ "patch": patch }));
             let message = CanonicalMessage::new(

@@ -1,7 +1,0 @@
-name = "context-pack"
-version = "0.1.0"
-description = "ContextBuilder plugin that provides simple, repo_aware, and codex_context modules"
-[module_descriptions]
-simple = "Минимальный контекст: задача, до 5 записей памяти и результаты поиска по тексту задачи. Без файлов и git."
-repo_aware = "Контекст репозитория: project instructions (AGENTS.md и аналоги), манифесты, git status, дерево репо, память и поиск; бюджет 32 KB."
-codex_context = "repo_aware + блоки environment (os/shell/cwd) и git diff (до 16 KB); бюджет 60 KB, прячет .env и секреты из дерева."

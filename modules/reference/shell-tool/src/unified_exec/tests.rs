@@ -4,10 +4,9 @@ use std::sync::{
 };
 
 use proteus_contracts::{
-    abi_stable::sabi_trait::TD_Opaque,
     contracts::ToolInvocationOwner,
     domain::{new_session_id, new_thread_id, new_turn_id},
-    plugin::{PluginToolHost, PluginToolHost_TO},
+    process_module::ToolModuleHost,
 };
 use serde_json::{Value, json};
 
@@ -17,29 +16,29 @@ struct TestToolHost {
     cancelled: Arc<AtomicBool>,
 }
 
-impl PluginToolHost for TestToolHost {
-    fn is_cancelled(&self) -> RResult<bool, PluginToolError> {
-        RResult::ROk(self.cancelled.load(AtomicOrdering::SeqCst))
+impl ToolModuleHost for TestToolHost {
+    fn is_cancelled(&self) -> Result<bool, ProcessModuleError> {
+        Ok(self.cancelled.load(AtomicOrdering::SeqCst))
     }
 }
 
-fn invocation_context(cwd: &std::path::Path) -> PluginToolInvocationContext {
-    PluginToolInvocationContext {
+fn invocation_context(cwd: &std::path::Path) -> ToolModuleInvocationContext {
+    ToolModuleInvocationContext {
         cwd: cwd.to_path_buf(),
         owner: ToolInvocationOwner::new(new_session_id(), new_thread_id(), new_turn_id()),
+        config: json!({}),
     }
 }
 
 fn with_host<T>(
     cancelled: Arc<AtomicBool>,
-    invoke: impl FnOnce(&mut PluginToolHostMut<'_>) -> T,
+    invoke: impl FnOnce(&mut ToolModuleHostMut<'_>) -> T,
 ) -> T {
     let mut host = TestToolHost { cancelled };
-    let mut host_to: PluginToolHostMut<'_> = PluginToolHost_TO::from_ptr(&mut host, TD_Opaque);
-    invoke(&mut host_to)
+    invoke(&mut host)
 }
 
-fn exec_command_with_context(context: &PluginToolInvocationContext, args: Value) -> Value {
+fn exec_command_with_context(context: &ToolModuleInvocationContext, args: Value) -> Value {
     let call = json!({ "id": "call_exec", "name": "exec_command", "args": args });
     let context_json = serde_json::to_string(context).expect("context json");
     let result = with_host(Arc::new(AtomicBool::new(false)), |host| {
@@ -53,7 +52,7 @@ fn exec_command(cwd: &std::path::Path, args: Value) -> Value {
     exec_command_with_context(&invocation_context(cwd), args)
 }
 
-fn write_stdin_result(context: &PluginToolInvocationContext, args: Value) -> Result<String> {
+fn write_stdin_result(context: &ToolModuleInvocationContext, args: Value) -> Result<String> {
     let call = json!({ "id": "call_stdin", "name": "write_stdin", "args": args });
     let context_json = serde_json::to_string(context).expect("context json");
     with_host(Arc::new(AtomicBool::new(false)), |host| {
@@ -61,7 +60,7 @@ fn write_stdin_result(context: &PluginToolInvocationContext, args: Value) -> Res
     })
 }
 
-fn write_stdin(context: &PluginToolInvocationContext, args: Value) -> Value {
+fn write_stdin(context: &ToolModuleInvocationContext, args: Value) -> Value {
     let result = write_stdin_result(context, args).expect("invoke");
     serde_json::from_str(&result).expect("tool result")
 }

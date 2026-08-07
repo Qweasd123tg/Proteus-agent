@@ -1,8 +1,7 @@
 use anyhow::Result;
 
 use proteus_core::core::{
-    AppConfig, WorkflowReplayOutcome, WorkflowReplayReport, load_runtime_module_catalog,
-    replay_workflow,
+    AppConfig, ModuleCatalog, WorkflowReplayOutcome, WorkflowReplayReport, replay_workflow,
 };
 
 use crate::cli_commands::WorkflowReplayCommand;
@@ -11,7 +10,7 @@ pub(crate) async fn run_workflow_replay(
     config: &AppConfig,
     command: WorkflowReplayCommand,
 ) -> Result<String> {
-    let (catalog, _) = load_runtime_module_catalog();
+    let catalog = ModuleCatalog::from_config(config)?;
     let report = replay_workflow(
         command.source,
         config,

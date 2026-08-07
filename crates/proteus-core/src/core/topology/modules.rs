@@ -2,15 +2,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::core::ModuleCatalogEntrySummary;
 
-use super::{
-    ModuleSourceTopology, ModuleTopology, TopologyWarning,
-    plugins::{PluginSource, manifest_looks_plugin_owned},
-};
+use super::{ModuleSourceTopology, ModuleTopology, TopologyWarning};
 
 pub(super) fn build_modules(
     catalog_entries: &[ModuleCatalogEntrySummary],
     active_modules: &BTreeMap<String, String>,
-    plugin_module_sources: &BTreeMap<(String, String), PluginSource>,
     warnings: &mut Vec<TopologyWarning>,
 ) -> Vec<ModuleTopology> {
     let mut modules = catalog_entries
@@ -23,7 +19,7 @@ pub(super) fn build_modules(
                 id: entry.id.clone(),
                 slot: entry.slot.clone(),
                 active,
-                source: module_source(entry, plugin_module_sources),
+                source: module_source(entry),
                 version: entry.manifest.version.clone(),
                 api_version: entry.manifest.api_version.clone(),
                 capabilities: entry.manifest.capabilities.clone(),
@@ -62,18 +58,14 @@ pub(super) fn build_modules(
     modules
 }
 
-fn module_source(
-    entry: &ModuleCatalogEntrySummary,
-    plugin_module_sources: &BTreeMap<(String, String), PluginSource>,
-) -> ModuleSourceTopology {
-    if let Some(source) = plugin_module_sources.get(&(entry.slot.clone(), entry.id.clone())) {
-        return ModuleSourceTopology::Plugin {
-            name: source.name.clone(),
-            path: source.path.clone(),
-        };
-    }
-    if manifest_looks_plugin_owned(&entry.manifest) {
-        ModuleSourceTopology::Unknown
+fn module_source(entry: &ModuleCatalogEntrySummary) -> ModuleSourceTopology {
+    if entry
+        .manifest
+        .capabilities
+        .iter()
+        .any(|capability| capability == "process")
+    {
+        ModuleSourceTopology::Process
     } else if entry
         .manifest
         .capabilities
@@ -92,20 +84,13 @@ mod tests {
     use crate::domain::{ModuleKind, ModuleManifest};
 
     #[test]
-    fn config_defined_process_module_is_reported_as_config_source() {
+    fn process_module_is_reported_as_process_source() {
         let entry = ModuleCatalogEntrySummary {
             slot: "search".to_owned(),
-            id: "process".to_owned(),
-            manifest: ModuleManifest::builtin(
-                "process",
-                ModuleKind::Search,
-                &["config_defined", "process"],
-            ),
+            id: "rg".to_owned(),
+            manifest: ModuleManifest::process("rg", ModuleKind::Search, &["process"]),
         };
 
-        assert_eq!(
-            module_source(&entry, &BTreeMap::new()),
-            ModuleSourceTopology::Config
-        );
+        assert_eq!(module_source(&entry), ModuleSourceTopology::Process);
     }
 }

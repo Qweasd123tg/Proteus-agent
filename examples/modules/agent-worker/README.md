@@ -18,7 +18,7 @@ host.tools.select → host.model.complete
 
 `host.tools.execute_batch` не является прямым запуском команды. Core проводит
 каждый call через тот же `ToolRegistry -> ApprovalPolicy -> ApprovalTransport
--> ToolSafety -> Tool` путь, что и для временного dylib workflow. Worker не
+-> ToolSafety -> Tool` путь, что и для любого workflow. Worker не
 передаёт owner/session ids для tool-вызова и не может подменить attribution:
 их берёт host из текущего invocation context.
 
@@ -39,7 +39,7 @@ cargo run -p proteus-module-protocol --bin proteus-module-conformance -- \
 ```
 
 Conformance-команда без probe проверяет strict initialize/manifest. Полный
-callback/model/tool loop проверяет `module_swap::process_workflow`.
+callback/model/tool loop проверяет conformance suite reference worker-а.
 
 ## Запуск
 

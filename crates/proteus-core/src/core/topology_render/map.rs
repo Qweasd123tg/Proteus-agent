@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::core::{ModuleTopology, PluginTopology, ToolTopology, TopologyEdge, TopologySnapshot};
+use crate::core::{ModuleTopology, ToolTopology, TopologyEdge, TopologySnapshot};
 
 use super::helpers::{active_module_source, ordered_slots, plain_text};
 
@@ -56,33 +56,18 @@ pub fn render_topology_map(snapshot: &TopologySnapshot) -> String {
         out.push('\n');
     }
 
-    out.push_str("\nPlugin contribution map\n");
-    if snapshot.plugins.is_empty() {
-        out.push_str("  (none found)\n");
-    } else {
-        for plugin in &snapshot.plugins {
-            render_plugin_map(snapshot, plugin, &mut out);
-        }
-    }
-
     out.push_str("\nToolRegistry map\n");
     if snapshot.tools.is_empty() {
         out.push_str("  (no tools)\n");
     } else {
         for tool in &snapshot.tools {
             let state = tool_state(tool);
-            let provider = tool
-                .provider_plugin
-                .as_deref()
-                .map(|plugin| format!(" provider=plugin:{plugin}"))
-                .unwrap_or_default();
             out.push_str(&format!(
-                "  - tool:{:<22} {:<24} safety={:<12} source={}{}\n",
+                "  - tool:{:<22} {:<24} safety={:<12} source={}\n",
                 tool.name,
                 state,
                 tool.safety,
-                plain_text(&tool.source),
-                provider
+                plain_text(&tool.source)
             ));
         }
     }
@@ -147,60 +132,6 @@ fn module_alternatives(modules: &[&ModuleTopology], active: &str) -> Vec<String>
     alternatives
 }
 
-fn render_plugin_map(snapshot: &TopologySnapshot, plugin: &PluginTopology, out: &mut String) {
-    out.push_str(&format!(
-        "  plugin:{} {} [{}]\n",
-        plain_text(&plugin.name),
-        plain_text(&plugin.version),
-        plain_text(&plugin.status)
-    ));
-    if plugin.provides.modules.is_empty()
-        && plugin.provides.tools.is_empty()
-        && plugin.provides.context_providers.is_empty()
-    {
-        out.push_str("    (no contributions reported)\n");
-        return;
-    }
-    for module in &plugin.provides.modules {
-        out.push_str(&format!(
-            "    -> slot:{:<14} module:{:<22} {}\n",
-            module.slot,
-            module.id,
-            plugin_module_state(snapshot, &module.slot, &module.id)
-        ));
-    }
-    for tool in &plugin.provides.tools {
-        out.push_str(&format!(
-            "    -> tool:{:<28} {}\n",
-            tool.name,
-            snapshot
-                .tools
-                .iter()
-                .find(|candidate| candidate.name == tool.name)
-                .map(tool_state)
-                .unwrap_or("provided")
-        ));
-    }
-    for provider in &plugin.provides.context_providers {
-        out.push_str(&format!(
-            "    -> context_provider:{:<18} feeds slot:context\n",
-            provider
-        ));
-    }
-}
-
-fn plugin_module_state(snapshot: &TopologySnapshot, slot: &str, id: &str) -> &'static str {
-    match snapshot
-        .modules
-        .iter()
-        .find(|module| module.slot == slot && module.id == id)
-    {
-        Some(module) if module.active => "active",
-        Some(_) => "available",
-        None => "provided",
-    }
-}
-
 fn tool_state(tool: &ToolTopology) -> &'static str {
     match (tool.enabled, tool.registered) {
         (true, true) => "enabled + registered",
@@ -227,12 +158,6 @@ fn dangling_nodes(snapshot: &TopologySnapshot) -> Vec<String> {
     }
     for module in &snapshot.modules {
         nodes.insert(format!("module:{}:{}", module.slot, module.id));
-    }
-    for plugin in &snapshot.plugins {
-        nodes.insert(format!("plugin:{}", plugin.name));
-        for provider in &plugin.provides.context_providers {
-            nodes.insert(format!("context_provider:{provider}"));
-        }
     }
     for tool in &snapshot.tools {
         nodes.insert(format!("tool:{}", tool.name));

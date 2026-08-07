@@ -1,6 +1,6 @@
-//! Built-in no-op and fake implementations used as explicit fallback modules.
+//! Host-owned structural absence and test implementations. Structural objects
+//! are not registered as modules and have no module ids.
 
-mod all_visible_tool_exposure;
 mod deny_all_policy;
 mod empty_context;
 mod fake_model;
@@ -11,8 +11,8 @@ mod no_workflow;
 mod null_patch;
 mod null_search;
 mod text_renderer;
+mod unfiltered_tool_exposure;
 
-pub use all_visible_tool_exposure::*;
 pub use deny_all_policy::*;
 pub use empty_context::*;
 pub use fake_model::*;
@@ -23,3 +23,4 @@ pub use no_workflow::*;
 pub use null_patch::*;
 pub use null_search::*;
 pub use text_renderer::*;
+pub use unfiltered_tool_exposure::*;

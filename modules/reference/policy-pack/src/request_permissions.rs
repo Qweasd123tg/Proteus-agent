@@ -8,8 +8,7 @@
 //! стоять в `ask_before`: сам approval и есть выдача гранта.
 
 use proteus_contracts::{
-    abi_stable::std_types::{RResult, RString},
-    plugin::{PluginTool, PluginToolError, PluginToolHostMut},
+    process_module::{ProcessModuleError, ToolModule, ToolModuleHostMut},
     tool_support::parse_invocation_context,
 };
 use serde_json::{Value, json};
@@ -22,8 +21,8 @@ const KNOWN_PERMISSIONS: &[&str] = &[ESCALATED_EXEC_GRANT];
 
 pub struct RequestPermissionsTool;
 
-impl PluginTool for RequestPermissionsTool {
-    fn spec_json(&self) -> RString {
+impl ToolModule for RequestPermissionsTool {
+    fn spec_json(&self) -> String {
         let spec = json!({
             "name": "request_permissions",
             "description": "Requests turn-scoped permission grants from the user before running privileged tool calls. Supported permission: \"escalated_exec\" — run shell/exec_command with `with_escalated_permissions: true` (network, writes outside the workspace) without a separate approval for each call. The user's approval of this call is the grant; it lasts until the end of the current turn. Provide a short `justification`. Safety: RunsCommands.",
@@ -54,21 +53,21 @@ impl PluginTool for RequestPermissionsTool {
                 }
             }
         });
-        RString::from(spec.to_string())
+        String::from(spec.to_string())
     }
 
     fn invoke_json(
         &self,
-        call_json: RString,
-        context_json: RString,
-        _host: &mut PluginToolHostMut<'_>,
-    ) -> RResult<RString, PluginToolError> {
+        call_json: String,
+        context_json: String,
+        _host: &mut ToolModuleHostMut<'_>,
+    ) -> Result<String, ProcessModuleError> {
         if let Err(error) = parse_invocation_context(context_json.as_str()) {
-            return RResult::RErr(PluginToolError::new(error));
+            return Err(ProcessModuleError::new(error));
         }
         match invoke_impl(call_json.as_str()) {
-            Ok(result_json) => RResult::ROk(RString::from(result_json)),
-            Err(message) => RResult::RErr(PluginToolError::new(message)),
+            Ok(result_json) => Ok(String::from(result_json)),
+            Err(message) => Err(ProcessModuleError::new(message)),
         }
     }
 }

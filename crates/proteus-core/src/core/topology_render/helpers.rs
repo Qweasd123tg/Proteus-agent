@@ -22,7 +22,7 @@ pub(super) fn active_module_source(
 pub(super) fn module_source_label(source: &ModuleSourceTopology) -> String {
     match source {
         ModuleSourceTopology::Builtin => "builtin".to_owned(),
-        ModuleSourceTopology::Plugin { name, .. } => format!("plugin:{name}"),
+        ModuleSourceTopology::Process => "process".to_owned(),
         ModuleSourceTopology::Config => "config".to_owned(),
         ModuleSourceTopology::Unknown => "unknown".to_owned(),
     }

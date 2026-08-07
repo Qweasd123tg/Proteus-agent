@@ -1,5 +1,4 @@
 use proteus_contracts::{
-    abi_stable::std_types::{RResult, RString},
     contracts::{CompactionInput, ToolExposureRequest},
     domain::{
         CacheHints, ContextBundle, Event, HistoryCompactionReport, ToolCall, ToolResult, ToolSpec,
@@ -8,7 +7,7 @@ use proteus_contracts::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, InstructionBlock,
         InstructionKind, TokenUsage,
     },
-    plugin::{PluginWorkflowError, PluginWorkflowHostMut, PluginWorkflowInput},
+    process_module::{ProcessModuleError, WorkflowModuleHostMut, WorkflowModuleInput},
 };
 
 use super::{
@@ -35,14 +34,14 @@ struct RequestOptions<'a> {
 }
 
 pub(super) fn request_from_state(
-    input: &PluginWorkflowInput,
-    host: &mut PluginWorkflowHostMut<'_>,
+    input: &WorkflowModuleInput,
+    host: &mut WorkflowModuleHostMut<'_>,
     messages: &[CanonicalMessage],
     system_instructions: &str,
     developer_instructions: Option<&str>,
     phase: &str,
     last_usage: Option<&LastModelUsage>,
-) -> Result<PreparedRequest, PluginWorkflowError> {
+) -> Result<PreparedRequest, ProcessModuleError> {
     request_from_state_with_instruction_blocks_and_options(
         input,
         host,
@@ -63,14 +62,14 @@ pub(super) fn request_from_state(
 }
 
 pub(super) fn request_from_state_with_instruction_blocks(
-    input: &PluginWorkflowInput,
-    host: &mut PluginWorkflowHostMut<'_>,
+    input: &WorkflowModuleInput,
+    host: &mut WorkflowModuleHostMut<'_>,
     messages: &[CanonicalMessage],
     instructions: Vec<InstructionBlock>,
     developer_instructions: Option<&str>,
     phase: &str,
     last_usage: Option<&LastModelUsage>,
-) -> Result<PreparedRequest, PluginWorkflowError> {
+) -> Result<PreparedRequest, ProcessModuleError> {
     request_from_state_with_instruction_blocks_and_options(
         input,
         host,
@@ -87,14 +86,14 @@ pub(super) fn request_from_state_with_instruction_blocks(
 }
 
 fn request_from_state_with_instruction_blocks_and_options(
-    input: &PluginWorkflowInput,
-    host: &mut PluginWorkflowHostMut<'_>,
+    input: &WorkflowModuleInput,
+    host: &mut WorkflowModuleHostMut<'_>,
     messages: &[CanonicalMessage],
     mut instructions: Vec<InstructionBlock>,
     developer_instructions: Option<&str>,
     phase: &str,
     options: RequestOptions<'_>,
-) -> Result<PreparedRequest, PluginWorkflowError> {
+) -> Result<PreparedRequest, ProcessModuleError> {
     let selected = if options.expose_tools {
         visible_tools(host, input, phase)?
     } else {
@@ -103,8 +102,8 @@ fn request_from_state_with_instruction_blocks_and_options(
     let exposure_metadata = selected.metadata;
     let mut tools = selected.tools;
     let dynamic_tools_enabled = if options.expose_tools && options.include_dynamic_meta_tools {
-        let all_visible_tools = dynamic_tools::all_policy_visible_tools(host, input)?;
-        dynamic_tools::has_hidden_tools(&tools, &all_visible_tools)
+        let all_candidate_tools = dynamic_tools::all_policy_visible_tools(host, input)?;
+        dynamic_tools::has_hidden_tools(&tools, &all_candidate_tools)
     } else {
         false
     };
@@ -134,7 +133,7 @@ fn request_from_state_with_instruction_blocks_and_options(
             .with_cache(CacheHints::new(true, true).with_routing_key(cache_routing_key(input)));
     // Прокидываем потолок окна из capabilities в лимиты запроса, чтобы снимок
     // TokenUsageUpdated нёс max_input_tokens (хост-шейпер правит свою копию
-    // уже после того, как плагин собрал снимок, поэтому делаем это здесь).
+    // уже после того, как module собрал снимок, поэтому делаем это здесь).
     request.limits.max_input_tokens = input.runtime.max_input_tokens;
     // Порог автокомпакта считает компактор (он владеет конфигом), а возвращает
     // его в отчёте. Кладём в metadata запроса, чтобы снимок взял именно его —
@@ -159,11 +158,11 @@ fn request_from_state_with_instruction_blocks_and_options(
 }
 
 pub(super) fn execute_or_handle_tool(
-    host: &mut PluginWorkflowHostMut<'_>,
-    input: &PluginWorkflowInput,
+    host: &mut WorkflowModuleHostMut<'_>,
+    input: &WorkflowModuleInput,
     call: &ToolCall,
     phase: &str,
-) -> Result<ToolResult, PluginWorkflowError> {
+) -> Result<ToolResult, ProcessModuleError> {
     if dynamic_tools::is_meta_tool(&call.name) {
         dynamic_tools::handle_meta_tool_call(host, input, call, phase)
     } else {
@@ -172,12 +171,12 @@ pub(super) fn execute_or_handle_tool(
 }
 
 fn compact_messages(
-    input: &PluginWorkflowInput,
-    host: &mut PluginWorkflowHostMut<'_>,
+    input: &WorkflowModuleInput,
+    host: &mut WorkflowModuleHostMut<'_>,
     messages: &[CanonicalMessage],
     reason: &str,
     last_usage: Option<&LastModelUsage>,
-) -> Result<CompactedMessages, PluginWorkflowError> {
+) -> Result<CompactedMessages, ProcessModuleError> {
     ensure_not_cancelled(host)?;
     let compaction_input = CompactionInput::new(
         input.task.clone(),
@@ -188,14 +187,14 @@ fn compact_messages(
     .with_token_estimate(effective_token_estimate(messages, last_usage))
     .with_window_tokens(input.runtime.max_input_tokens);
     let input_json = to_json_string(&compaction_input)?;
-    let output_json = match host.compact_history_json(RString::from(input_json)) {
-        RResult::ROk(json) => json,
-        RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
+    let output_json = match host.compact_history_json(String::from(input_json)) {
+        Ok(json) => json,
+        Err(error) => return Err(ProcessModuleError::new(error.message)),
     };
     let output: proteus_contracts::contracts::CompactionOutput =
         from_json_string(output_json.as_str())?;
     if output.messages.is_empty() && !messages.is_empty() {
-        return Err(PluginWorkflowError::new(
+        return Err(ProcessModuleError::new(
             "compactor returned empty messages for non-empty history",
         ));
     }
@@ -207,28 +206,28 @@ fn compact_messages(
 }
 
 pub(super) fn build_context(
-    host: &mut PluginWorkflowHostMut<'_>,
-    input: &PluginWorkflowInput,
-) -> Result<ContextBundle, PluginWorkflowError> {
+    host: &mut WorkflowModuleHostMut<'_>,
+    input: &WorkflowModuleInput,
+) -> Result<ContextBundle, ProcessModuleError> {
     ensure_not_cancelled(host)?;
     let task_json = to_json_string(&input.task)?;
-    let bundle_json = match host.build_context_json(RString::from(task_json)) {
-        RResult::ROk(json) => json,
-        RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
+    let bundle_json = match host.build_context_json(String::from(task_json)) {
+        Ok(json) => json,
+        Err(error) => return Err(ProcessModuleError::new(error.message)),
     };
     from_json_string(bundle_json.as_str())
 }
 
 pub(super) fn complete_model(
-    host: &mut PluginWorkflowHostMut<'_>,
+    host: &mut WorkflowModuleHostMut<'_>,
     request: &CanonicalModelRequest,
     phase: &str,
-) -> Result<CanonicalModelResponse, PluginWorkflowError> {
+) -> Result<CanonicalModelResponse, ProcessModuleError> {
     ensure_not_cancelled(host)?;
     let request_json = to_json_string(request)?;
-    let response_json = match host.complete_model_json(RString::from(request_json)) {
-        RResult::ROk(json) => json,
-        RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
+    let response_json = match host.complete_model_json(String::from(request_json)) {
+        Ok(json) => json,
+        Err(error) => return Err(ProcessModuleError::new(error.message)),
     };
     let response: CanonicalModelResponse = from_json_string(response_json.as_str())?;
     emit_token_usage(host, request, response.usage.clone(), phase)?;
@@ -250,18 +249,18 @@ impl SelectedTools {
 }
 
 fn visible_tools(
-    host: &mut PluginWorkflowHostMut<'_>,
-    input: &PluginWorkflowInput,
+    host: &mut WorkflowModuleHostMut<'_>,
+    input: &WorkflowModuleInput,
     phase: &str,
-) -> Result<SelectedTools, PluginWorkflowError> {
+) -> Result<SelectedTools, ProcessModuleError> {
     ensure_not_cancelled(host)?;
     let request = ToolExposureRequest::new(input.task.clone())
         .with_reason("before_model_request")
         .with_phase(phase);
     let request_json = to_json_string(&request)?;
-    let tools_json = match host.select_tools_json(RString::from(request_json)) {
-        RResult::ROk(json) => json,
-        RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
+    let tools_json = match host.select_tools_json(String::from(request_json)) {
+        Ok(json) => json,
+        Err(error) => return Err(ProcessModuleError::new(error.message)),
     };
     let output: proteus_contracts::contracts::ToolExposureOutput =
         from_json_string(tools_json.as_str())?;
@@ -276,11 +275,11 @@ fn visible_tools(
 /// (включая facade-tool `task`) уходят в host batch API, где core применяет
 /// registry/policy/orchestrator и выбирает допустимую concurrency.
 pub(super) fn execute_tools(
-    host: &mut PluginWorkflowHostMut<'_>,
-    input: &PluginWorkflowInput,
+    host: &mut WorkflowModuleHostMut<'_>,
+    input: &WorkflowModuleInput,
     calls: &[ToolCall],
     phase: &str,
-) -> Result<Vec<ToolResult>, PluginWorkflowError> {
+) -> Result<Vec<ToolResult>, ProcessModuleError> {
     if calls.len() <= 1
         || calls
             .iter()
@@ -294,12 +293,11 @@ pub(super) fn execute_tools(
     ensure_not_cancelled(host)?;
     let task_json = to_json_string(&input.task)?;
     let calls_json = to_json_string(&calls)?;
-    let results_json = match host
-        .execute_tools_json(RString::from(task_json), RString::from(calls_json))
-    {
-        RResult::ROk(json) => json,
-        RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
-    };
+    let results_json =
+        match host.execute_tools_json(String::from(task_json), String::from(calls_json)) {
+            Ok(json) => json,
+            Err(error) => return Err(ProcessModuleError::new(error.message)),
+        };
     from_json_string(results_json.as_str())
 }
 
@@ -307,12 +305,12 @@ pub(super) fn execute_tools(
 /// exact model request become failed tool results and are fed back into the
 /// next round; they never reach the host registry/policy/executor path.
 pub(super) fn execute_codex_tools(
-    host: &mut PluginWorkflowHostMut<'_>,
-    input: &PluginWorkflowInput,
+    host: &mut WorkflowModuleHostMut<'_>,
+    input: &WorkflowModuleInput,
     calls: &[ToolCall],
     request_tools: &[ToolSpec],
     phase: &str,
-) -> Result<Vec<ToolResult>, PluginWorkflowError> {
+) -> Result<Vec<ToolResult>, ProcessModuleError> {
     let visible_names = request_tools
         .iter()
         .map(|tool| tool.name.as_str())
@@ -344,59 +342,56 @@ pub(super) fn execute_codex_tools(
 }
 
 pub(super) fn execute_tool(
-    host: &mut PluginWorkflowHostMut<'_>,
-    input: &PluginWorkflowInput,
+    host: &mut WorkflowModuleHostMut<'_>,
+    input: &WorkflowModuleInput,
     call: &ToolCall,
-) -> Result<ToolResult, PluginWorkflowError> {
+) -> Result<ToolResult, ProcessModuleError> {
     ensure_not_cancelled(host)?;
     let task_json = to_json_string(&input.task)?;
     let call_json = to_json_string(call)?;
-    let result_json = match host
-        .execute_tool_json(RString::from(task_json), RString::from(call_json))
+    let result_json = match host.execute_tool_json(String::from(task_json), String::from(call_json))
     {
-        RResult::ROk(json) => json,
-        RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
+        Ok(json) => json,
+        Err(error) => return Err(ProcessModuleError::new(error.message)),
     };
     from_json_string(result_json.as_str())
 }
 
-fn ensure_not_cancelled(host: &mut PluginWorkflowHostMut<'_>) -> Result<(), PluginWorkflowError> {
+fn ensure_not_cancelled(host: &mut WorkflowModuleHostMut<'_>) -> Result<(), ProcessModuleError> {
     match host.is_cancelled() {
-        RResult::ROk(false) => Ok(()),
-        RResult::ROk(true) => Err(PluginWorkflowError::new("turn canceled by client")),
-        RResult::RErr(error) => Err(PluginWorkflowError::new(error.message.into_string())),
+        Ok(false) => Ok(()),
+        Ok(true) => Err(ProcessModuleError::new("turn canceled by client")),
+        Err(error) => Err(ProcessModuleError::new(error.message)),
     }
 }
 
 pub(super) fn emit_event(
-    host: &mut PluginWorkflowHostMut<'_>,
+    host: &mut WorkflowModuleHostMut<'_>,
     event: &Event,
-) -> Result<(), PluginWorkflowError> {
+) -> Result<(), ProcessModuleError> {
     let event_json = to_json_string(event)?;
-    match host.emit_event_json(RString::from(event_json)) {
-        RResult::ROk(()) => Ok(()),
-        RResult::RErr(error) => Err(PluginWorkflowError::new(error.message.into_string())),
+    match host.emit_event_json(String::from(event_json)) {
+        Ok(()) => Ok(()),
+        Err(error) => Err(ProcessModuleError::new(error.message)),
     }
 }
 
-pub(super) fn to_json_string<T: serde::Serialize>(
-    value: &T,
-) -> Result<String, PluginWorkflowError> {
-    serde_json::to_string(value).map_err(|error| PluginWorkflowError::new(error.to_string()))
+pub(super) fn to_json_string<T: serde::Serialize>(value: &T) -> Result<String, ProcessModuleError> {
+    serde_json::to_string(value).map_err(|error| ProcessModuleError::new(error.to_string()))
 }
 
 pub(super) fn from_json_string<T: serde::de::DeserializeOwned>(
     value: &str,
-) -> Result<T, PluginWorkflowError> {
-    serde_json::from_str(value).map_err(|error| PluginWorkflowError::new(error.to_string()))
+) -> Result<T, ProcessModuleError> {
+    serde_json::from_str(value).map_err(|error| ProcessModuleError::new(error.to_string()))
 }
 
 fn emit_token_usage(
-    host: &mut PluginWorkflowHostMut<'_>,
+    host: &mut WorkflowModuleHostMut<'_>,
     request: &CanonicalModelRequest,
     actual: Option<TokenUsage>,
     phase: &str,
-) -> Result<(), PluginWorkflowError> {
+) -> Result<(), ProcessModuleError> {
     let usage = request_token_usage_snapshot(request, actual, phase);
     emit_event(host, &Event::TokenUsageUpdated { usage })
 }

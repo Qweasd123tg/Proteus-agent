@@ -2,13 +2,12 @@
 
 use std::{io::Read, path::Path};
 
-use proteus_contracts::abi_stable::std_types::{RResult, RString};
-use proteus_contracts::plugin::{PluginTool, PluginToolError, PluginToolHostMut};
+use proteus_contracts::process_module::{ProcessModuleError, ToolModule, ToolModuleHostMut};
 use serde_json::{Value, json};
 
 use crate::util::{
-    err_result, ok_result, optional_positive_usize, parse_call, parse_invocation_context,
-    plugin_error, workspace_path,
+    err_result, module_error, ok_result, optional_positive_usize, parse_call,
+    parse_invocation_context, workspace_path,
 };
 
 const DEFAULT_MAX_BYTES_TOTAL: usize = 120 * 1024;
@@ -19,8 +18,8 @@ const MAX_FILES: usize = 20;
 
 pub struct ReadManyFilesTool;
 
-impl PluginTool for ReadManyFilesTool {
-    fn spec_json(&self) -> RString {
+impl ToolModule for ReadManyFilesTool {
+    fn spec_json(&self) -> String {
         let spec = json!({
             "name": "read_many_files",
             "description": "Read multiple UTF-8 files inside the current workspace with a shared byte budget.",
@@ -59,22 +58,22 @@ impl PluginTool for ReadManyFilesTool {
                 "aliases": ["read files", "open multiple files", "inspect files"]
             }
         });
-        RString::from(spec.to_string())
+        String::from(spec.to_string())
     }
 
     fn invoke_json(
         &self,
-        call_json: RString,
-        context_json: RString,
-        _host: &mut PluginToolHostMut<'_>,
-    ) -> RResult<RString, PluginToolError> {
+        call_json: String,
+        context_json: String,
+        _host: &mut ToolModuleHostMut<'_>,
+    ) -> Result<String, ProcessModuleError> {
         let call = match parse_call(call_json.as_str()) {
             Ok(c) => c,
-            Err(e) => return plugin_error(e),
+            Err(e) => return module_error(e),
         };
         let context = match parse_invocation_context(context_json.as_str()) {
             Ok(context) => context,
-            Err(error) => return plugin_error(error),
+            Err(error) => return module_error(error),
         };
 
         let paths = match required_paths(&call.args, &call.name) {

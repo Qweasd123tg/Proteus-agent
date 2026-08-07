@@ -1,40 +1,26 @@
-//! SQLite FTS5 memory store как dylib-плагин.
+//! SQLite FTS5 memory store как reference process module.
 //!
-//! SQLite backend вынесен из ядра в cdylib чтобы `proteus-core` не зависел
-//! от `rusqlite`, а реальное persistent memory подключалось через plugin ABI.
+//! `proteus-core` не зависит от `rusqlite`; backend исполняется во внешнем
+//! worker process.
 //!
 //! Регистрируется под id `"sqlite"`.
 //!
-//! Путь к базе: `$HOME/.proteus/memory-plugin.sqlite` (создаётся при
-//! старте, если нет). Hardcoded для простоты первой итерации; в
-//! будущем — через per-plugin manifest/config.
-
-#![allow(non_local_definitions)]
-#![allow(non_camel_case_types)]
-#![allow(improper_ctypes_definitions)]
+//! Путь к базе задаётся `module_config.memory.sqlite.path`; без него worker
+//! использует `.proteus/memory.sqlite` относительно своего `cwd`.
 
 use std::{path::PathBuf, sync::Mutex};
 
 use anyhow::{Context, Result, anyhow};
-use proteus_contracts::{
-    abi_stable::{
-        export_root_module,
-        prefix_type::PrefixTypeTrait,
-        sabi_trait::TD_Opaque,
-        std_types::{RResult, RStr, RString},
-    },
-    plugin::{
-        MemoryStoreObject, PluginMemoryError, PluginMemoryStore, PluginMemoryStore_TO,
-        PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref,
-    },
+use proteus_contracts::process_module::{
+    MemoryModule, MemoryModuleObject, ModuleRegistry, ProcessModuleError,
 };
 use rusqlite::{Connection, OpenFlags, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Копия `MemoryItem` / `MemoryQuery` из `proteus-contracts::domain`.
-/// Плагин не может дёргать domain-типы напрямую (они не в trait
-/// interface), поэтому разбираем JSON вручную.
+/// Process contract передаёт эти значения как JSON, поэтому worker-side
+/// реализация разбирает локальную wire-форму вручную.
 #[derive(Serialize, Deserialize)]
 struct ItemWire {
     kind: String,
@@ -47,6 +33,17 @@ struct ItemWire {
 struct QueryWire {
     text: String,
     limit: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SqliteMemoryConfig {
+    #[serde(default = "default_memory_db_path")]
+    path: PathBuf,
+}
+
+fn default_memory_db_path() -> PathBuf {
+    PathBuf::from(".proteus/memory.sqlite")
 }
 
 const SCHEMA: &str = "
@@ -69,13 +66,12 @@ CREATE TRIGGER IF NOT EXISTS memory_items_ad AFTER DELETE ON memory_items BEGIN
 END;
 ";
 
-struct SqlitePluginStore {
+struct SqliteMemoryStore {
     conn: Mutex<Connection>,
 }
 
-impl SqlitePluginStore {
-    fn open() -> Result<Self> {
-        let path = plugin_db_path()?;
+impl SqliteMemoryStore {
+    fn open(path: PathBuf) -> Result<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create {}", parent.display()))?;
@@ -96,28 +92,20 @@ impl SqlitePluginStore {
     }
 }
 
-fn plugin_db_path() -> Result<PathBuf> {
-    let home = std::env::var_os("HOME")
-        .ok_or_else(|| anyhow!("HOME env not set, cannot resolve db path"))?;
-    Ok(PathBuf::from(home)
-        .join(".proteus")
-        .join("memory-plugin.sqlite"))
-}
-
-impl PluginMemoryStore for SqlitePluginStore {
-    fn remember_json(&self, item_json: RString) -> RResult<(), PluginMemoryError> {
-        let payload = item_json.into_string();
+impl MemoryModule for SqliteMemoryStore {
+    fn remember_json(&self, item_json: String) -> Result<(), ProcessModuleError> {
+        let payload = item_json;
         match remember_impl(&self.conn, &payload) {
-            Ok(()) => RResult::ROk(()),
-            Err(error) => RResult::RErr(PluginMemoryError::new(format!("{error:#}"))),
+            Ok(()) => Ok(()),
+            Err(error) => Err(ProcessModuleError::new(format!("{error:#}"))),
         }
     }
 
-    fn recall_json(&self, query_json: RString) -> RResult<RString, PluginMemoryError> {
-        let payload = query_json.into_string();
+    fn recall_json(&self, query_json: String) -> Result<String, ProcessModuleError> {
+        let payload = query_json;
         match recall_impl(&self.conn, &payload) {
-            Ok(body) => RResult::ROk(RString::from(body)),
-            Err(error) => RResult::RErr(PluginMemoryError::new(format!("{error:#}"))),
+            Ok(body) => Ok(String::from(body)),
+            Err(error) => Err(ProcessModuleError::new(format!("{error:#}"))),
         }
     }
 }
@@ -195,32 +183,29 @@ fn fts_match_expression(text: &str) -> String {
     tokens.join(" AND ")
 }
 
-extern "C" fn register_modules(
-    registry: &mut PluginRegistryMut<'_>,
-) -> RResult<(), PluginRegisterError> {
-    let store = match SqlitePluginStore::open() {
+pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), ProcessModuleError> {
+    let config: SqliteMemoryConfig = match serde_json::from_value(registry.module_config().clone())
+    {
+        Ok(config) => config,
+        Err(error) => {
+            return Err(ProcessModuleError::new(format!(
+                "invalid sqlite memory config: {error}"
+            )));
+        }
+    };
+    let store = match SqliteMemoryStore::open(config.path) {
         Ok(store) => store,
         Err(error) => {
-            return RResult::RErr(PluginRegisterError::new(format!(
+            return Err(ProcessModuleError::new(format!(
                 "sqlite-memory init failed: {error:#}"
             )));
         }
     };
-    let obj: MemoryStoreObject = PluginMemoryStore_TO::from_value(store, TD_Opaque);
-    if let RResult::RErr(err) = registry.register_memory_store(RString::from("sqlite"), obj) {
-        return RResult::RErr(err);
+    let obj: MemoryModuleObject = Box::new(store);
+    if let Err(err) = registry.register_memory(String::from("sqlite"), obj) {
+        return Err(err);
     }
-    RResult::ROk(())
-}
-
-#[export_root_module]
-pub fn get_plugin_root() -> PluginRoot_Ref {
-    PluginRoot {
-        name: RStr::from_str("sqlite-memory"),
-        description: RStr::from_str("SQLite FTS5 memory store plugin (registers 'sqlite')"),
-        register_modules,
-    }
-    .leak_into_prefix()
+    Ok(())
 }
 
 #[cfg(test)]

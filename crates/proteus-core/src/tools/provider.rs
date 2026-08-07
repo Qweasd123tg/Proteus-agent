@@ -45,8 +45,8 @@ impl BuiltinToolProvider {
             "AskUserQuestion" => Ok(Arc::new(RequestUserInputTool::new("AskUserQuestion"))),
             name => bail!(
                 "unsupported tool: '{name}'. File I/O (read_file/write_file/list_dir/grep) \
-                 is provided by the `file-tools` plugin; shell by `shell-tool`. Install those \
-                 plugins into ~/.proteus/plugins/ or remove the tool from tools.enabled."
+                 is provided by the `reference.tools` process module. Configure that worker \
+                 or remove the tool from tools.enabled."
             ),
         }
     }

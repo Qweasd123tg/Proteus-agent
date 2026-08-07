@@ -364,7 +364,7 @@ pub trait SubagentRunner: Send + Sync {
 
     /// Whether a running child owns a bounded mailbox that accepts messages
     /// at model/tool boundaries. This remains separate from basic
-    /// spawn/wait/cancel because process/plugin runners do not yet implement
+    /// spawn/wait/cancel because some child-process runners do not yet implement
     /// in-flight delivery.
     fn supports_collaboration_messages(&self) -> bool;
 

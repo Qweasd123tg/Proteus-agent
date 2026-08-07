@@ -1,6 +1,6 @@
 //! Round-trip тест process-subagent-а: реальный дочерний процесс
 //! `proteus server stdio` (бинарь из CARGO_BIN_EXE_proteus) с минимальным
-//! конфигом (fake model, workflow "none"), запуск роли, resume по task_id
+//! конфигом (fake model, workflow selection отсутствует), запуск роли, resume по task_id
 //! и сброс истории между свежими задачами.
 
 use std::{path::PathBuf, sync::Arc};
@@ -19,8 +19,8 @@ use proteus_core::{
         new_thread_id, new_turn_id,
     },
     stubs::{
-        AllVisibleToolExposure, EmptyContextBuilder, FakeModelClient, NoCompactor, NoMemory,
-        NoSubagent, NullPatchApplier, NullSearch,
+        EmptyContextBuilder, FakeModelClient, NoCompactor, NoMemory, NoSubagent, NullPatchApplier,
+        NullSearch, UnfilteredToolExposure,
     },
 };
 use serde_json::json;
@@ -59,13 +59,13 @@ fn test_runtime_context(
         Arc::new(HeadlessUserInputTransport),
         Arc::new(NullPatchApplier),
         Arc::new(NoCompactor),
-        Arc::new(AllVisibleToolExposure),
+        Arc::new(UnfilteredToolExposure),
         Arc::new(NoSubagent),
     )
 }
 
-/// Конфиг ребёнка: fake model (без сети), workflow "none" (мгновенный
-/// детерминированный ответ), event log внутри tempdir.
+/// Конфиг ребёнка: fake model (без сети), workflow selection отсутствует
+/// (мгновенный structural ответ), event log внутри tempdir.
 fn write_child_config(config_home: &std::path::Path) -> PathBuf {
     let configs_dir = config_home.join("configs");
     std::fs::create_dir_all(&configs_dir).expect("create configs dir");
@@ -76,9 +76,7 @@ fn write_child_config(config_home: &std::path::Path) -> PathBuf {
             "active_provider = \"fake\"\n\n",
             "[providers.fake]\n",
             "provider = \"fake\"\n",
-            "model = \"fake-tool-model\"\n\n",
-            "[modules]\n",
-            "workflow = \"none\"\n",
+            "model = \"fake-tool-model\"\n",
         ),
     )
     .expect("write child config");
@@ -132,7 +130,7 @@ async fn process_subagent_round_trips_turn_resume_and_fresh_task() {
 
     assert_eq!(first.status, SubagentStatus::Completed);
     assert!(
-        first.summary.contains("workflow is disabled"),
+        first.summary.contains("no workflow module is selected"),
         "summary: {}",
         first.summary
     );

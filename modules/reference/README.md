@@ -4,12 +4,12 @@
 текущие dogfood profiles. Это не стандартная библиотека модулей, не набор
 обязательных defaults и не привилегированный слой runtime.
 
-До process-only cutover `install.sh` явно перечисляет часть этих crates и
-публикует их как совместимые с binary reference dylib. Наличие crate в этой
-папке само по себе не означает auto-install: состав переходного release задаёт
-installer, а выбор поведения — конкретный config/profile.
+Все реализации экспортируются через один исполняемый
+`proteus-reference-worker`. Наличие crate в этой папке само по себе не означает
+активацию: config явно описывает process command и выбирает конкретный
+`module_id`.
 
-`plugin.toml`, `cdylib` entrypoints и зависимости от dylib ABI считаются
-переходными. При миграции slot reference implementation должна стать обычным
-process worker, пройти тот же conformance suite, что и out-of-tree worker, и не
-получать исключений по имени или расположению исходников.
+Reference worker использует тот же публичный process protocol, что и внешний
+worker, проходит тот же conformance gate и не получает исключений по имени или
+расположению исходников. Crates в этом каталоге — только implementation detail
+этого executable, а не особый способ загрузки модулей.

@@ -27,30 +27,6 @@ pub(crate) struct BackendView {
     pub(crate) missing: bool,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct ContributionChip {
-    pub(crate) key: String,
-    pub(crate) text: String,
-    pub(crate) state: ContributionState,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum ContributionState {
-    Active,
-    Available,
-    Inactive,
-}
-
-impl ContributionState {
-    pub(crate) fn chip_class(self) -> &'static str {
-        match self {
-            Self::Active => "contribution-chip active",
-            Self::Available => "contribution-chip available",
-            Self::Inactive => "contribution-chip inactive",
-        }
-    }
-}
-
 pub(crate) fn slot_views(snapshot: &TopologySnapshot) -> Vec<SlotView> {
     let mut views = snapshot
         .slots
@@ -89,11 +65,7 @@ pub(crate) fn slot_views(snapshot: &TopologySnapshot) -> Vec<SlotView> {
 
 pub(crate) fn module_source_label(source: &TopologyModuleSource) -> String {
     match source.kind.as_str() {
-        "plugin" => source
-            .name
-            .as_deref()
-            .map(|name| format!("plugin:{name}"))
-            .unwrap_or_else(|| "plugin".to_owned()),
+        "process" => "process".to_owned(),
         "builtin" => "builtin".to_owned(),
         "config" => "config".to_owned(),
         _ => "unknown".to_owned(),
@@ -196,65 +168,6 @@ pub(crate) fn backend_views(snapshot: &TopologySnapshot, slots: &[SlotView]) -> 
             }
         })
         .collect()
-}
-
-pub(crate) fn plugin_contributions(
-    snapshot: &TopologySnapshot,
-    plugin: &TopologyPlugin,
-) -> Vec<ContributionChip> {
-    let mut chips = Vec::new();
-    for module in &plugin.provides.modules {
-        let state = snapshot
-            .modules
-            .iter()
-            .find(|candidate| candidate.slot == module.slot && candidate.id == module.id)
-            .map(|candidate| {
-                if candidate.active {
-                    ContributionState::Active
-                } else {
-                    ContributionState::Available
-                }
-            })
-            .unwrap_or(ContributionState::Inactive);
-        let suffix = match state {
-            ContributionState::Active => "active",
-            ContributionState::Available => "available",
-            ContributionState::Inactive => "provided",
-        };
-        chips.push(ContributionChip {
-            key: format!("module:{}:{}", module.slot, module.id),
-            text: format!("{}/{} · {suffix}", module.slot, module.id),
-            state,
-        });
-    }
-    for tool in &plugin.provides.tools {
-        let (state, suffix) = snapshot
-            .tools
-            .iter()
-            .find(|candidate| candidate.name == tool.name)
-            .map(
-                |candidate| match (candidate.enabled, candidate.registered) {
-                    (true, true) => (ContributionState::Active, "enabled"),
-                    (false, true) => (ContributionState::Available, "registered"),
-                    (true, false) => (ContributionState::Inactive, "enabled, не registered"),
-                    (false, false) => (ContributionState::Inactive, "disabled"),
-                },
-            )
-            .unwrap_or((ContributionState::Inactive, "provided"));
-        chips.push(ContributionChip {
-            key: format!("tool:{}", tool.name),
-            text: format!("tool {} · {suffix}", tool.name),
-            state,
-        });
-    }
-    for provider in &plugin.provides.context_providers {
-        chips.push(ContributionChip {
-            key: format!("context:{provider}"),
-            text: format!("context {provider} → slot:context"),
-            state: ContributionState::Active,
-        });
-    }
-    chips
 }
 
 pub(crate) fn non_empty(value: &str, fallback: &str) -> String {

@@ -5,7 +5,7 @@ use leptos::prelude::*;
 use crate::types::*;
 
 /// Каталог tools с чекбоксами `tools.enabled`. Показывает и tools, которые
-/// включены в config, но не registered в runtime (например, plugin выключен).
+/// включены в config, но не registered в runtime (например, process module не настроен).
 #[component]
 pub(super) fn ToolsPicker(
     tools: Vec<ConfigBuilderTool>,

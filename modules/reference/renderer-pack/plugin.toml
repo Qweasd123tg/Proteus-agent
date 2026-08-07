@@ -1,5 +1,0 @@
-name = "renderer-pack"
-version = "0.1.0"
-description = "Statusline renderer plugin"
-[module_descriptions]
-statusline = "Текст ответа + статус-строка: модель, использование контекста, session id."

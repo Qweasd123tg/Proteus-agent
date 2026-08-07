@@ -1,12 +1,11 @@
 use proteus_contracts::{
-    abi_stable::std_types::{RResult, RString},
     contracts::CompactionInput,
     domain::{CacheHints, ToolChoice},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
         InstructionBlock, InstructionKind, MessageRole,
     },
-    plugin::PluginCompactorHostMut,
+    process_module::CompactorModuleHostMut,
 };
 use serde_json::json;
 
@@ -22,15 +21,15 @@ pub(crate) const SUMMARY_PREFIX: &str = "Another language model started to solve
 pub(crate) fn try_model_summary(
     input: &CompactionInput,
     summary_history: &[CanonicalMessage],
-    host: &mut PluginCompactorHostMut<'_>,
+    host: &mut CompactorModuleHostMut<'_>,
 ) -> Result<String, String> {
     ensure_not_cancelled(host)?;
     let summary_budget = summary_budget_tokens()?;
     let request = model_summary_request(input, summary_history, summary_budget);
     let request_json = serde_json::to_string(&request).map_err(|error| error.to_string())?;
-    let response_json = match host.complete_model_json(RString::from(request_json)) {
-        RResult::ROk(json) => json,
-        RResult::RErr(error) => return Err(error.message.into_string()),
+    let response_json = match host.complete_model_json(String::from(request_json)) {
+        Ok(json) => json,
+        Err(error) => return Err(error.message),
     };
     ensure_not_cancelled(host)?;
     let response: CanonicalModelResponse =
@@ -158,11 +157,11 @@ fn summary_with_prefix(text: &str, summary_budget: u32) -> String {
     truncate_to_tokens(&summary, summary_budget as usize)
 }
 
-fn ensure_not_cancelled(host: &mut PluginCompactorHostMut<'_>) -> Result<(), String> {
+fn ensure_not_cancelled(host: &mut CompactorModuleHostMut<'_>) -> Result<(), String> {
     match host.is_cancelled() {
-        RResult::ROk(false) => Ok(()),
-        RResult::ROk(true) => Err("turn canceled by client".to_owned()),
-        RResult::RErr(error) => Err(error.message.into_string()),
+        Ok(false) => Ok(()),
+        Ok(true) => Err("turn canceled by client".to_owned()),
+        Err(error) => Err(error.message),
     }
 }
 

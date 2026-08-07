@@ -5,7 +5,7 @@ use crate::contracts::{
     RuntimeContext, SubagentRequest, SubagentResult, SubagentRoleSpec, SubagentRunner,
 };
 
-/// Slot `subagent` выключен: ролей нет, `run` возвращает ошибку.
+/// Structural absence для slot `subagent`: ролей нет, `run` возвращает ошибку.
 ///
 /// Пустой `roles()` означает, что workflow не должен генерировать task-тул,
 /// поэтому `run` в нормальном сценарии никогда не вызывается.
@@ -27,6 +27,6 @@ impl SubagentRunner for NoSubagent {
     }
 
     async fn run(&self, _request: SubagentRequest, _ctx: RuntimeContext) -> Result<SubagentResult> {
-        Err(anyhow!("subagent slot is disabled (module 'none')"))
+        Err(anyhow!("no subagent module is selected"))
     }
 }

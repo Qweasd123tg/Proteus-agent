@@ -1,5 +1,0 @@
-name = "memory-pack"
-version = "0.1.0"
-description = "JSONL memory store"
-[module_descriptions]
-jsonl = "Append-only память в .proteus/memory.jsonl; recall — линейный скан с подстрочным совпадением."

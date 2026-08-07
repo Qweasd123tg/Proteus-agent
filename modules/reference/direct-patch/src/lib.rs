@@ -1,11 +1,7 @@
-//! Direct PatchApplier plugin.
+//! Direct `PatchApplier` reference process module.
 //!
 //! Registers patch applier id `"direct"` and applies the internal line-based
 //! patch format inside the workspace passed by the host.
-
-#![allow(non_local_definitions)]
-#![allow(non_camel_case_types)]
-#![allow(improper_ctypes_definitions)]
 
 use std::{
     fs,
@@ -13,28 +9,19 @@ use std::{
 };
 
 use proteus_contracts::{
-    abi_stable::{
-        export_root_module,
-        prefix_type::PrefixTypeTrait,
-        sabi_trait::TD_Opaque,
-        std_types::{RResult, RStr, RString},
-    },
     domain::{Patch, PatchResult},
-    plugin::{
-        PatchApplierObject, PluginPatchApplier, PluginPatchApplier_TO, PluginPatchError,
-        PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref,
-    },
+    process_module::{ModuleRegistry, PatchModule, PatchModuleObject, ProcessModuleError},
     tool_support::{workspace_path, workspace_path_for_write},
 };
 
-struct DirectPatchPlugin;
+struct DirectPatchModule;
 
-impl PluginPatchApplier for DirectPatchPlugin {
-    fn apply_json(&self, patch_json: RString, cwd: RString) -> RResult<RString, PluginPatchError> {
+impl PatchModule for DirectPatchModule {
+    fn apply_json(&self, patch_json: String, cwd: String) -> Result<String, ProcessModuleError> {
         let patch: Patch = match serde_json::from_str(patch_json.as_str()) {
             Ok(patch) => patch,
             Err(error) => {
-                return RResult::RErr(PluginPatchError::new(format!(
+                return Err(ProcessModuleError::new(format!(
                     "invalid Patch JSON: {error}"
                 )));
             }
@@ -42,12 +29,12 @@ impl PluginPatchApplier for DirectPatchPlugin {
 
         match apply_patch(&patch.content, Path::new(cwd.as_str())) {
             Ok(result) => match serde_json::to_string(&result) {
-                Ok(json) => RResult::ROk(json.into()),
-                Err(error) => RResult::RErr(PluginPatchError::new(format!(
+                Ok(json) => Ok(json.into()),
+                Err(error) => Err(ProcessModuleError::new(format!(
                     "failed to serialize PatchResult: {error}"
                 ))),
             },
-            Err(error) => RResult::RErr(PluginPatchError::new(error)),
+            Err(error) => Err(ProcessModuleError::new(error)),
         }
     }
 }
@@ -484,22 +471,9 @@ fn clean_relative_path(path: &Path) -> Result<PathBuf, String> {
     Ok(clean)
 }
 
-extern "C" fn register_modules(
-    registry: &mut PluginRegistryMut<'_>,
-) -> RResult<(), PluginRegisterError> {
-    let applier: PatchApplierObject =
-        PluginPatchApplier_TO::from_value(DirectPatchPlugin, TD_Opaque);
-    registry.register_patch_applier(RString::from("direct"), applier)
-}
-
-#[export_root_module]
-pub fn get_plugin_root() -> PluginRoot_Ref {
-    PluginRoot {
-        name: RStr::from_str("direct-patch"),
-        description: RStr::from_str("Workspace-scoped PatchApplier for internal patch format"),
-        register_modules,
-    }
-    .leak_into_prefix()
+pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), ProcessModuleError> {
+    let applier: PatchModuleObject = Box::new(DirectPatchModule);
+    registry.register_patch(String::from("direct"), applier)
 }
 
 #[cfg(test)]

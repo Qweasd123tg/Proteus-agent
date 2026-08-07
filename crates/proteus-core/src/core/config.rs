@@ -28,6 +28,11 @@ pub struct AppConfig {
     pub modules: ModulesConfig,
     #[serde(default)]
     pub module_config: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
+    /// Host-owned launch descriptors for all external process modules.
+    /// Module-owned configuration remains the opaque `config` object inside
+    /// each descriptor.
+    #[serde(default)]
+    pub process_modules: Vec<crate::process_adapters::ProcessAdapterConfig>,
     #[serde(default)]
     pub tools: ToolsConfig,
     #[serde(default)]
@@ -57,6 +62,7 @@ impl Default for AppConfig {
             instructions: Vec::new(),
             modules: ModulesConfig::default(),
             module_config: BTreeMap::new(),
+            process_modules: Vec::new(),
             tools: ToolsConfig::default(),
             subagents: SubagentsConfig::default(),
             permissions: PermissionsConfig::default(),
@@ -131,6 +137,19 @@ impl AppConfig {
             .and_then(|slot| slot.get(id))
             .cloned()
             .unwrap_or(serde_json::Value::Null)
+    }
+
+    pub fn process_module_config(&self, slot: &str, id: &str) -> Result<serde_json::Value> {
+        let value = self
+            .module_config
+            .get(slot)
+            .and_then(|modules| modules.get(id))
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+        if !value.is_object() {
+            bail!("module_config.{slot}.{id} must be an object");
+        }
+        Ok(value)
     }
 
     /// Собирает contract-level `InstructionBlock` list из уже резолвленных
@@ -259,41 +278,41 @@ impl Default for ModelConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModulesConfig {
-    #[serde(default = "default_workflow")]
-    pub workflow: String,
-    #[serde(default = "default_search")]
-    pub search: String,
-    #[serde(default = "default_memory")]
-    pub memory: String,
-    #[serde(default = "default_context")]
-    pub context: String,
-    #[serde(default = "default_policy")]
-    pub policy: String,
-    #[serde(default = "default_patch")]
-    pub patch: String,
-    #[serde(default = "default_compactor")]
-    pub compactor: String,
-    #[serde(default = "default_tool_exposure")]
-    pub tool_exposure: String,
-    #[serde(default = "default_subagent")]
-    pub subagent: String,
-    #[serde(default = "default_renderer")]
-    pub renderer: String,
+    #[serde(default)]
+    pub workflow: Option<String>,
+    #[serde(default)]
+    pub search: Option<String>,
+    #[serde(default)]
+    pub memory: Option<String>,
+    #[serde(default)]
+    pub context: Option<String>,
+    #[serde(default)]
+    pub policy: Option<String>,
+    #[serde(default)]
+    pub patch: Option<String>,
+    #[serde(default)]
+    pub compactor: Option<String>,
+    #[serde(default)]
+    pub tool_exposure: Option<String>,
+    #[serde(default)]
+    pub subagent: Option<String>,
+    #[serde(default)]
+    pub renderer: Option<String>,
 }
 
 impl Default for ModulesConfig {
     fn default() -> Self {
         Self {
-            workflow: default_workflow(),
-            search: default_search(),
-            memory: default_memory(),
-            context: default_context(),
-            policy: default_policy(),
-            patch: default_patch(),
-            compactor: default_compactor(),
-            tool_exposure: default_tool_exposure(),
-            subagent: default_subagent(),
-            renderer: default_renderer(),
+            workflow: None,
+            search: None,
+            memory: None,
+            context: None,
+            policy: None,
+            patch: None,
+            compactor: None,
+            tool_exposure: None,
+            subagent: None,
+            renderer: None,
         }
     }
 }
@@ -303,26 +322,21 @@ impl ModulesConfig {
         CORE_SLOT_DESCRIPTORS
             .iter()
             .filter(|descriptor| descriptor.selection == CoreSlotSelection::ModulesConfig)
-            .map(|descriptor| {
-                let id = self
-                    .get(descriptor.kind)
-                    .expect("ModulesConfig descriptor must have a typed field");
-                (descriptor.kind, id)
-            })
+            .filter_map(|descriptor| self.get(descriptor.kind).map(|id| (descriptor.kind, id)))
     }
 
     pub fn get(&self, kind: ModuleKind) -> Option<&str> {
         match kind {
-            ModuleKind::Workflow => Some(&self.workflow),
-            ModuleKind::Search => Some(&self.search),
-            ModuleKind::Memory => Some(&self.memory),
-            ModuleKind::Context => Some(&self.context),
-            ModuleKind::Policy => Some(&self.policy),
-            ModuleKind::Patch => Some(&self.patch),
-            ModuleKind::Compactor => Some(&self.compactor),
-            ModuleKind::ToolExposure => Some(&self.tool_exposure),
-            ModuleKind::Subagent => Some(&self.subagent),
-            ModuleKind::Renderer => Some(&self.renderer),
+            ModuleKind::Workflow => self.workflow.as_deref(),
+            ModuleKind::Search => self.search.as_deref(),
+            ModuleKind::Memory => self.memory.as_deref(),
+            ModuleKind::Context => self.context.as_deref(),
+            ModuleKind::Policy => self.policy.as_deref(),
+            ModuleKind::Patch => self.patch.as_deref(),
+            ModuleKind::Compactor => self.compactor.as_deref(),
+            ModuleKind::ToolExposure => self.tool_exposure.as_deref(),
+            ModuleKind::Subagent => self.subagent.as_deref(),
+            ModuleKind::Renderer => self.renderer.as_deref(),
             ModuleKind::Model | ModuleKind::Tool => None,
             _ => None,
         }
@@ -340,16 +354,16 @@ impl ModulesConfig {
 
     fn set(&mut self, kind: ModuleKind, module_id: String) -> bool {
         match kind {
-            ModuleKind::Workflow => self.workflow = module_id,
-            ModuleKind::Search => self.search = module_id,
-            ModuleKind::Memory => self.memory = module_id,
-            ModuleKind::Context => self.context = module_id,
-            ModuleKind::Policy => self.policy = module_id,
-            ModuleKind::Patch => self.patch = module_id,
-            ModuleKind::Compactor => self.compactor = module_id,
-            ModuleKind::ToolExposure => self.tool_exposure = module_id,
-            ModuleKind::Subagent => self.subagent = module_id,
-            ModuleKind::Renderer => self.renderer = module_id,
+            ModuleKind::Workflow => self.workflow = Some(module_id),
+            ModuleKind::Search => self.search = Some(module_id),
+            ModuleKind::Memory => self.memory = Some(module_id),
+            ModuleKind::Context => self.context = Some(module_id),
+            ModuleKind::Policy => self.policy = Some(module_id),
+            ModuleKind::Patch => self.patch = Some(module_id),
+            ModuleKind::Compactor => self.compactor = Some(module_id),
+            ModuleKind::ToolExposure => self.tool_exposure = Some(module_id),
+            ModuleKind::Subagent => self.subagent = Some(module_id),
+            ModuleKind::Renderer => self.renderer = Some(module_id),
             ModuleKind::Model | ModuleKind::Tool => return false,
             _ => return false,
         }
@@ -546,46 +560,6 @@ fn default_model_name() -> String {
 
 fn default_model_stream() -> bool {
     true
-}
-
-fn default_workflow() -> String {
-    "none".to_owned()
-}
-
-fn default_search() -> String {
-    "null".to_owned()
-}
-
-fn default_memory() -> String {
-    "none".to_owned()
-}
-
-fn default_context() -> String {
-    "none".to_owned()
-}
-
-fn default_policy() -> String {
-    "deny_all".to_owned()
-}
-
-fn default_patch() -> String {
-    "null".to_owned()
-}
-
-fn default_compactor() -> String {
-    "none".to_owned()
-}
-
-fn default_tool_exposure() -> String {
-    "all_visible".to_owned()
-}
-
-fn default_subagent() -> String {
-    "sequential".to_owned()
-}
-
-fn default_renderer() -> String {
-    "text".to_owned()
 }
 
 fn default_tools() -> Vec<String> {

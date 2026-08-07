@@ -1,29 +1,24 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
-use proteus_contracts::{
-    abi_stable::{
-        sabi_trait::TD_Opaque,
-        std_types::{RResult, RString},
-    },
-    plugin::{
-        PluginApprovalPolicy_TO, PluginWorkflow, PluginWorkflow_TO, PluginWorkflowError,
-        PluginWorkflowHostMut, PluginWorkflowInput, PluginWorkflowOutput,
-    },
-};
+use async_trait::async_trait;
 use serde_json::json;
 use tempfile::TempDir;
 
 use super::*;
+use crate::contracts::{
+    ApprovalPolicy, PolicyContext, PolicyVisibilityContext, RuntimeContext, Workflow,
+    WorkflowOutput,
+};
 use crate::{
     core::{
         JournalEntry, ModelRequestRecorded, ModelResponseOutcome, ModelResponseRecorded,
         ModulesConfig, SessionConfigSnapshot, SessionConfigTool, SessionStore, ToolCallRecordPhase,
-        ToolCallRecorded, ToolResultRecorded, TurnOpened, TurnSettled,
+        ToolCallRecorded, ToolOrchestrator, ToolResultRecorded, TurnOpened, TurnSettled,
     },
     domain::{
-        AgentOutput, AgentTask, ModelRef, PermissionMode, ReasoningConfig, ToolCall,
-        ToolCallResolution, ToolResult, ToolSafety, ToolSpec, new_exchange_id, new_session_id,
-        new_thread_id, new_turn_id,
+        AgentOutput, AgentTask, ModelRef, PermissionMode, PolicyDecision, ReasoningConfig,
+        ToolCall, ToolCallResolution, ToolResult, ToolSafety, ToolSpec, new_exchange_id,
+        new_session_id, new_thread_id, new_turn_id,
     },
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
@@ -42,85 +37,57 @@ struct ProbeWorkflow {
     diverge: bool,
 }
 
-impl PluginWorkflow for ProbeWorkflow {
-    fn run_json(
+#[async_trait]
+impl Workflow for ProbeWorkflow {
+    async fn run(
         &self,
-        input_json: RString,
-        host: &mut PluginWorkflowHostMut<'_>,
-    ) -> RResult<RString, PluginWorkflowError> {
-        match run_probe_workflow(self.diverge, input_json.as_str(), host) {
-            Ok(output) => RResult::ROk(RString::from(
-                serde_json::to_string(&output).expect("serialize probe output"),
-            )),
-            Err(error) => RResult::RErr(PluginWorkflowError::new(format!("{error:#}"))),
-        }
-    }
-}
-
-fn run_probe_workflow(
-    diverge: bool,
-    input_json: &str,
-    host: &mut PluginWorkflowHostMut<'_>,
-) -> anyhow::Result<PluginWorkflowOutput> {
-    let input: PluginWorkflowInput = serde_json::from_str(input_json)?;
-    let spec = probe_tool_spec();
-    let mut first =
-        CanonicalModelRequest::new(input.runtime.model_ref.clone(), input.history.clone())
+        task: AgentTask,
+        history: Vec<CanonicalMessage>,
+        ctx: RuntimeContext,
+    ) -> anyhow::Result<WorkflowOutput> {
+        let spec = probe_tool_spec();
+        let mut first = CanonicalModelRequest::new(ctx.model_ref.clone(), history.clone())
             .with_tools(vec![spec.clone()]);
-    if diverge {
-        first.metadata = json!({ "implementation_changed": true });
-    }
-    let first_response = complete(host, &first)?;
-    let mut new_messages = vec![first_response.message.clone()];
-    let call = first_response
-        .tool_calls
-        .first()
-        .ok_or_else(|| anyhow::anyhow!("probe response omitted tool call"))?;
-    let result = execute(host, &input.task, call)?;
-    let tool_message = CanonicalMessage::new(
-        MessageRole::Tool,
-        vec![ContentPart::ToolResult {
-            result: result.clone(),
-        }],
-    )
-    .with_tool_call_id(result.call_id.clone());
-    new_messages.push(tool_message.clone());
+        if self.diverge {
+            first.metadata = json!({ "implementation_changed": true });
+        }
+        let first_response = ctx.model.complete(first).await?;
+        let mut new_messages = vec![first_response.message.clone()];
+        let call = first_response
+            .tool_calls
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("probe response omitted tool call"))?;
+        let result = ToolOrchestrator::default()
+            .execute(&ctx, &task, call.clone())
+            .await?;
+        let tool_message = CanonicalMessage::new(
+            MessageRole::Tool,
+            vec![ContentPart::ToolResult {
+                result: result.clone(),
+            }],
+        )
+        .with_tool_call_id(result.call_id.clone());
+        new_messages.push(tool_message.clone());
 
-    let mut second_messages = input.history;
-    second_messages.extend(new_messages.iter().cloned());
-    let second =
-        CanonicalModelRequest::new(input.runtime.model_ref, second_messages).with_tools(vec![spec]);
-    let second_response = complete(host, &second)?;
-    new_messages.push(second_response.message);
-    Ok(PluginWorkflowOutput {
-        output: probe_output(&result),
-        new_messages,
-        history_replacement: None,
-        compactions: Vec::new(),
-    })
-}
-
-fn complete(
-    host: &mut PluginWorkflowHostMut<'_>,
-    request: &CanonicalModelRequest,
-) -> anyhow::Result<CanonicalModelResponse> {
-    let request = RString::from(serde_json::to_string(request)?);
-    match host.complete_model_json(request) {
-        RResult::ROk(response) => Ok(serde_json::from_str(response.as_str())?),
-        RResult::RErr(error) => anyhow::bail!(error.message.into_string()),
+        let mut second_messages = history;
+        second_messages.extend(new_messages.iter().cloned());
+        let second = CanonicalModelRequest::new(ctx.model_ref.clone(), second_messages)
+            .with_tools(vec![spec]);
+        let second_response = ctx.model.complete(second).await?;
+        new_messages.push(second_response.message);
+        Ok(WorkflowOutput::new(probe_output(&result), new_messages))
     }
 }
 
-fn execute(
-    host: &mut PluginWorkflowHostMut<'_>,
-    task: &AgentTask,
-    call: &ToolCall,
-) -> anyhow::Result<ToolResult> {
-    let task = RString::from(serde_json::to_string(task)?);
-    let call = RString::from(serde_json::to_string(call)?);
-    match host.execute_tool_json(task, call) {
-        RResult::ROk(result) => Ok(serde_json::from_str(result.as_str())?),
-        RResult::RErr(error) => anyhow::bail!(error.message.into_string()),
+struct ReplayAllowAll;
+
+impl ApprovalPolicy for ReplayAllowAll {
+    fn evaluate(&self, _call: &ToolCall, _ctx: &PolicyContext) -> PolicyDecision {
+        PolicyDecision::Allow
+    }
+
+    fn evaluate_visibility(&self, _ctx: &PolicyVisibilityContext) -> PolicyDecision {
+        PolicyDecision::Allow
     }
 }
 
@@ -415,8 +382,8 @@ fn recorded_request(
 
 fn snapshot(spec: &ToolSpec) -> SessionConfigSnapshot {
     let modules = ModulesConfig {
-        workflow: WORKFLOW_ID.to_owned(),
-        policy: POLICY_ID.to_owned(),
+        workflow: Some(WORKFLOW_ID.to_owned()),
+        policy: Some(POLICY_ID.to_owned()),
         ..ModulesConfig::default()
     };
     SessionConfigSnapshot {
@@ -463,14 +430,8 @@ fn probe_output(result: &ToolResult) -> AgentOutput {
 
 fn catalog(diverge: bool) -> ModuleCatalog {
     let mut catalog = ModuleCatalog::new();
-    let workflow = PluginWorkflow_TO::from_value(ProbeWorkflow { diverge }, TD_Opaque);
-    catalog
-        .register_plugin_workflow(WORKFLOW_ID, workflow)
-        .expect("register workflow");
-    let policy = PluginApprovalPolicy_TO::from_value(policy_pack::AllowAllPolicyPlugin, TD_Opaque);
-    catalog
-        .register_plugin_policy(POLICY_ID, policy)
-        .expect("register policy");
+    catalog.register_test_workflow(WORKFLOW_ID, Arc::new(ProbeWorkflow { diverge }));
+    catalog.register_test_policy(POLICY_ID, Arc::new(ReplayAllowAll));
     catalog
 }
 

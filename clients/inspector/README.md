@@ -8,12 +8,12 @@ runtime-control state.
 Текущий состав:
 
 - `/architecture` читает `/inspect/topology` и `/inspect/topology.mmd`,
-  показывает topology map, runtime pipeline, slots, tools, plugin
-  contributions и warnings; карта ограничена по высоте, поддерживает pan/zoom,
+  показывает topology map, runtime pipeline, slots, process modules, tools и
+  warnings; карта ограничена по высоте, поддерживает pan/zoom,
   автоматический `fit` и полноэкранный режим с выходом по `Escape`, а длинные
   списки slots/tools раскладываются в адаптивную сетку по ширине экрана;
 - `/configs` читает `/config` и `/config/builder`, показывает runtime
-  overview (model/reasoning/config files) и plugins, а Config builder
+  overview (model/reasoning/config files) и modules, а Config builder
   редактирует `active_provider`, `[permissions] mode`, реализацию каждого
   `[modules]` slot-а, `module_config.<slot>.<module_id>` JSON payload и
   `tools.enabled` через `POST /config/builder`.

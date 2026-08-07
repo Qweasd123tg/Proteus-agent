@@ -10,21 +10,37 @@ stream = true
 
 [modules]
 workflow = "coding.single_loop"
-search = "process"
-memory = "none"
+search = "python_rg"
 context = "simple"
 policy = "ask_write"
-patch = "null"
-compactor = "none"
-tool_exposure = "all_visible"
-subagent = "none"
 renderer = "statusline"
 
-[module_config.search.process]
+[[process_modules]]
+slot = "workflow"
+module_id = "coding.single_loop"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "search"
 module_id = "python_rg"
 command = "python3"
 args = ["examples/modules/search-process/search.py"]
 timeout_ms = 60000
+
+[[process_modules]]
+slot = "context"
+module_id = "simple"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "policy"
+module_id = "ask_write"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "renderer"
+module_id = "statusline"
+command = "proteus-reference-worker"
 
 [module_config.context.simple]
 max_search_results = 20

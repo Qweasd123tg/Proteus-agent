@@ -7,16 +7,9 @@ use std::{
 
 use anyhow::{Result, anyhow, bail};
 use proteus_contracts::{
-    abi_stable::{
-        sabi_trait::TD_Opaque,
-        std_types::{RResult, RString},
-    },
     contracts::ToolInvocationOwner,
     domain::{ToolResult, new_session_id, new_thread_id, new_turn_id},
-    plugin::{
-        PluginTool, PluginToolError, PluginToolHost, PluginToolHost_TO, PluginToolHostMut,
-        PluginToolInvocationContext,
-    },
+    process_module::{ProcessModuleError, ToolModule, ToolModuleHost, ToolModuleInvocationContext},
 };
 use proteus_process_host::{ContentLengthFraming, Framing};
 use rust_lsp::RustLspDiagnosticsTool;
@@ -133,9 +126,9 @@ fn missing_rust_analyzer_is_a_failed_tool_result() -> Result<()> {
 
 struct TestToolHost;
 
-impl PluginToolHost for TestToolHost {
-    fn is_cancelled(&self) -> RResult<bool, PluginToolError> {
-        RResult::ROk(false)
+impl ToolModuleHost for TestToolHost {
+    fn is_cancelled(&self) -> Result<bool, ProcessModuleError> {
+        Ok(false)
     }
 }
 
@@ -145,19 +138,19 @@ fn invoke(tool: &RustLspDiagnosticsTool, cwd: &Path, path: &str) -> Result<ToolR
         "name": "lsp_diagnostics",
         "args": { "path": path }
     });
-    let context = PluginToolInvocationContext {
+    let context = ToolModuleInvocationContext {
         cwd: cwd.to_path_buf(),
         owner: ToolInvocationOwner::new(new_session_id(), new_thread_id(), new_turn_id()),
+        config: json!({}),
     };
     let mut host = TestToolHost;
-    let mut host_to: PluginToolHostMut<'_> = PluginToolHost_TO::from_ptr(&mut host, TD_Opaque);
     match tool.invoke_json(
-        RString::from(call.to_string()),
-        RString::from(serde_json::to_string(&context)?),
-        &mut host_to,
+        call.to_string(),
+        serde_json::to_string(&context)?,
+        &mut host,
     ) {
-        RResult::ROk(result) => Ok(serde_json::from_str(result.as_str())?),
-        RResult::RErr(error) => Err(anyhow!("plugin error: {}", error.message)),
+        Ok(result) => Ok(serde_json::from_str(result.as_str())?),
+        Err(error) => Err(anyhow!("module error: {}", error.message)),
     }
 }
 

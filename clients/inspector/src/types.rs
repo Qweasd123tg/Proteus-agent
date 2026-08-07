@@ -40,7 +40,7 @@ pub(crate) struct ConfigSummary {
     pub(crate) modules: Vec<ConfigModule>,
     pub(crate) tools_enabled: Vec<String>,
     pub(crate) registered_tools: Vec<ConfigTool>,
-    pub(crate) plugins: Vec<ConfigPlugin>,
+    pub(crate) process_modules: Vec<ConfigProcessModule>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
@@ -74,11 +74,9 @@ pub(crate) struct ConfigTool {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
-pub(crate) struct ConfigPlugin {
-    pub(crate) name: String,
-    pub(crate) version: String,
-    pub(crate) status: String,
-    pub(crate) description: String,
+pub(crate) struct ConfigProcessModule {
+    pub(crate) slot: String,
+    pub(crate) module_id: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
@@ -170,7 +168,6 @@ pub(crate) struct TopologySnapshot {
     pub(crate) model: Option<TopologyModel>,
     pub(crate) slots: Vec<TopologySlot>,
     pub(crate) modules: Vec<TopologyModule>,
-    pub(crate) plugins: Vec<TopologyPlugin>,
     pub(crate) tools: Vec<TopologyTool>,
     pub(crate) edges: Vec<TopologyEdge>,
     pub(crate) warnings: Vec<TopologyWarning>,
@@ -209,43 +206,6 @@ pub(crate) struct TopologyModule {
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 pub(crate) struct TopologyModuleSource {
     pub(crate) kind: String,
-    pub(crate) name: Option<String>,
-    pub(crate) path: Option<String>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
-pub(crate) struct TopologyPlugin {
-    pub(crate) name: String,
-    pub(crate) version: String,
-    pub(crate) path: String,
-    pub(crate) status: String,
-    pub(crate) description: Option<String>,
-    pub(crate) author: Option<String>,
-    pub(crate) tags: Vec<String>,
-    pub(crate) provides: TopologyPluginProvides,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
-pub(crate) struct TopologyPluginProvides {
-    pub(crate) modules: Vec<TopologyPluginModuleContribution>,
-    pub(crate) tools: Vec<TopologyPluginToolContribution>,
-    pub(crate) context_providers: Vec<String>,
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
-pub(crate) struct TopologyPluginModuleContribution {
-    pub(crate) slot: String,
-    pub(crate) id: String,
-    pub(crate) description: Option<String>,
-    pub(crate) capabilities: Vec<String>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
-pub(crate) struct TopologyPluginToolContribution {
-    pub(crate) name: String,
-    pub(crate) description: String,
-    pub(crate) safety: String,
-    pub(crate) input_schema: Value,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
@@ -256,7 +216,6 @@ pub(crate) struct TopologyTool {
     pub(crate) source: String,
     pub(crate) enabled: bool,
     pub(crate) registered: bool,
-    pub(crate) provider_plugin: Option<String>,
     pub(crate) input_schema: Value,
 }
 

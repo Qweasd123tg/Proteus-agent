@@ -2,8 +2,8 @@
 """Dependency-free process HistoryCompactor example for Proteus.
 
 The module keeps a valid suffix beginning at one of the most recent user
-turns. It deliberately performs no model call: process compactors are pure
-transforms and receive no CompactionHost capabilities.
+turns. Contract v1 permits the same host.model.complete callback for every
+compactor, but this deterministic example does not need to call it.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import Any
 PROTOCOL_VERSION = "v1"
 SLOT = "compactor"
 MODULE_ID = "python_suffix"
-CONTRACT_VERSION = "v0"
+CONTRACT_VERSION = "v1"
 
 REQUEST_FIELDS = {"jsonrpc", "id", "method", "params"}
 INITIALIZE_FIELDS = {
@@ -82,7 +82,7 @@ def validate_initialize(params: Any) -> None:
     if actual_identity != expected_identity:
         raise ProtocolError(f"unsupported initialize params: {params!r}")
     if params["host_features"] != []:
-        raise ProtocolError("compactor v0 does not support host features")
+        raise ProtocolError("compactor v1 does not negotiate host features")
 
 
 def validate_input(params: Any) -> tuple[dict[str, Any], int, int]:

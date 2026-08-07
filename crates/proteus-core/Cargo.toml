@@ -11,7 +11,6 @@ path = "src/main.rs"
 proteus-contracts = { path = "../proteus-contracts" }
 proteus-module-protocol = { path = "../proteus-module-protocol" }
 proteus-process-host = { path = "../proteus-process-host" }
-libloading = "0.8"
 anyhow = "1"
 async-trait = "0.1"
 bytes = "1"
@@ -34,12 +33,4 @@ toml_edit = "0.22"
 uuid = { version = "1", features = ["serde", "v4"] }
 
 [dev-dependencies]
-coding-workflow = { path = "../../modules/reference/coding-workflow" }
-codex-compactor = { path = "../../modules/reference/codex-compactor" }
-codex-tool-exposure = { path = "../../modules/reference/codex-tool-exposure", default-features = false }
-context-pack = { path = "../../modules/reference/context-pack", default-features = false }
-memory-pack = { path = "../../modules/reference/memory-pack", default-features = false }
-policy-pack = { path = "../../modules/reference/policy-pack", default-features = false }
-renderer-pack = { path = "../../modules/reference/renderer-pack", default-features = false }
-skill-pack = { path = "../../modules/reference/skill-pack" }
 tempfile = "3"

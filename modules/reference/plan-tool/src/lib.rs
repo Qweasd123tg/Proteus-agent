@@ -1,4 +1,4 @@
-//! Plan tool как dylib-плагин.
+//! Plan tool как reference process module.
 //!
 //! Регистрирует tool `update_plan` в духе Codex `update_plan` и Claude Code
 //! TodoWrite: модель ведёт пошаговый план со статусами, сервер только
@@ -6,20 +6,9 @@
 //! последовательность tool calls — клиенты рендерят карточку плана из
 //! аргументов, отдельного runtime-состояния и протокольных событий нет.
 
-#![allow(non_local_definitions)]
-#![allow(non_camel_case_types)]
-#![allow(improper_ctypes_definitions)]
-
 use proteus_contracts::{
-    abi_stable::{
-        export_root_module,
-        prefix_type::PrefixTypeTrait,
-        sabi_trait::TD_Opaque,
-        std_types::{RResult, RStr, RString},
-    },
-    plugin::{
-        PluginRegisterError, PluginRegistryMut, PluginRoot, PluginRoot_Ref, PluginTool,
-        PluginTool_TO, PluginToolError, PluginToolHostMut, PluginToolObject,
+    process_module::{
+        ModuleRegistry, ProcessModuleError, ToolModule, ToolModuleHostMut, ToolModuleObject,
     },
     tool_support::parse_invocation_context,
 };
@@ -28,8 +17,8 @@ use serde_json::{Value, json};
 
 pub struct PlanTool;
 
-impl PluginTool for PlanTool {
-    fn spec_json(&self) -> RString {
+impl ToolModule for PlanTool {
+    fn spec_json(&self) -> String {
         let spec = json!({
             "name": "update_plan",
             "description": "Updates the task plan.\nProvide an optional explanation and a list of plan items, each with a step and status.\nAt most one step can be in_progress at a time.",
@@ -69,21 +58,21 @@ impl PluginTool for PlanTool {
                 "aliases": ["todo list", "task plan", "update plan"]
             }
         });
-        RString::from(spec.to_string())
+        String::from(spec.to_string())
     }
 
     fn invoke_json(
         &self,
-        call_json: RString,
-        context_json: RString,
-        _host: &mut PluginToolHostMut<'_>,
-    ) -> RResult<RString, PluginToolError> {
+        call_json: String,
+        context_json: String,
+        _host: &mut ToolModuleHostMut<'_>,
+    ) -> Result<String, ProcessModuleError> {
         if let Err(error) = parse_invocation_context(context_json.as_str()) {
-            return RResult::RErr(PluginToolError::new(error));
+            return Err(ProcessModuleError::new(error));
         }
         match invoke_impl(call_json.as_str()) {
-            Ok(result_json) => RResult::ROk(RString::from(result_json)),
-            Err(error) => RResult::RErr(PluginToolError::new(error)),
+            Ok(result_json) => Ok(String::from(result_json)),
+            Err(error) => Err(ProcessModuleError::new(error)),
         }
     }
 }
@@ -181,23 +170,9 @@ fn validate_plan(args: &Value) -> Result<PlanArgs, String> {
     })
 }
 
-extern "C" fn register_modules(
-    registry: &mut PluginRegistryMut<'_>,
-) -> RResult<(), PluginRegisterError> {
-    let tool: PluginToolObject = PluginTool_TO::from_value(PlanTool, TD_Opaque);
+pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), ProcessModuleError> {
+    let tool: ToolModuleObject = Box::new(PlanTool);
     registry.register_tool(tool)
-}
-
-#[export_root_module]
-pub fn get_plugin_root() -> PluginRoot_Ref {
-    PluginRoot {
-        name: RStr::from_str("plan-tool"),
-        description: RStr::from_str(
-            "Plan tool plugin: registers 'update_plan' for step-by-step task plans",
-        ),
-        register_modules,
-    }
-    .leak_into_prefix()
 }
 
 #[cfg(test)]

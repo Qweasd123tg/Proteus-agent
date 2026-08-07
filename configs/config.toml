@@ -22,24 +22,65 @@ budget_tokens = 8192
 name = "coding-local"
 
 [modules]
-# Provided by the coding-workflow plugin installed by ./install.sh.
+# Provided by the explicit reference process worker installed by ./install.sh.
 workflow = "coding.single_loop"
-# Provided by the rg-search plugin installed by ./install.sh.
 search = "rg"
-memory = "none"
 context = "repo_aware"
 policy = "ask_write"
-# Provided by the direct-patch plugin installed by ./install.sh.
 patch = "direct"
 compactor = "codex"
-tool_exposure = "all_visible"
 renderer = "statusline"
+
+[[process_modules]]
+slot = "workflow"
+module_id = "coding.single_loop"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "search"
+module_id = "rg"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "context"
+module_id = "repo_aware"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "context_provider"
+module_id = "skills"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "policy"
+module_id = "ask_write"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "patch"
+module_id = "direct"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "compactor"
+module_id = "codex"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "renderer"
+module_id = "statusline"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "tool"
+module_id = "reference.tools"
+command = "proteus-reference-worker"
 
 [tools]
 # Full local coding toolset. File I/O and repo navigation come from
 # file-tools, git helpers come from git-tools, shell comes from shell-tool,
 # and search/apply_patch/remember_fact are core slot facade tools.
-# Run ./install.sh before using this profile so plugin tools are registered.
+# Run ./install.sh before using this profile so the reference worker is on PATH.
 enabled = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "lsp_diagnostics", "git_status", "git_diff", "request_user_input", "apply_patch", "write_file", "shell", "remember_fact"]
 
 [permissions]

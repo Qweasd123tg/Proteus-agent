@@ -7,7 +7,6 @@ use anyhow::{Result, bail};
 use proteus_core::{
     core::{AppConfig, ConfiguredToolExecutorConfig, ModuleCatalog, expand_user_path},
     domain::ModuleKind,
-    process_adapters::{ProcessCompactorConfig, ProcessSearchConfig, ProcessWorkflowConfig},
 };
 use proteus_process_host::ProcessSpec;
 use serde_json::Value;
@@ -58,35 +57,14 @@ pub(crate) async fn run_doctor(
         }
     };
 
-    match proteus_core::core::packaged_reference_dylibs_dir() {
-        Some(dylibs_dir) => findings.ok(format!(
-            "packaged reference dylibs: {}",
-            dylibs_dir.display()
-        )),
-        None => findings.warn("packaged reference dylibs unavailable"),
-    }
-    match proteus_core::core::personal_or_override_dylibs_dir() {
-        Some(dylibs_dir) => findings.ok(format!(
-            "personal or override dylibs: {}",
-            dylibs_dir.display()
-        )),
-        None => findings.warn("personal or override dylib path could not be resolved"),
-    }
-    let (catalog, plugin_reports) = proteus_core::core::load_runtime_module_catalog();
-
-    if plugin_reports.is_empty() {
-        findings.warn("no plugins discovered");
-    }
-    for report in &plugin_reports {
-        match &report.result {
-            Ok(info) => findings.ok(format!("plugin loaded: {}", info.name)),
-            Err(error) => findings.error(format!(
-                "plugin failed: {}: {}",
-                report.path.display(),
-                super::first_line(&error.to_string())
-            )),
+    let catalog = match ModuleCatalog::from_config(&config) {
+        Ok(catalog) => catalog,
+        Err(error) => {
+            findings.error(format!("process module catalog: {error:#}"));
+            findings.print();
+            bail!("doctor found errors");
         }
-    }
+    };
 
     check_model_config(&mut findings, &catalog, &config);
     check_selected_modules(&mut findings, &catalog, &config);
@@ -281,7 +259,7 @@ fn check_selected_modules(
 
 /// Ключи-списки имён tools внутри opaque `module_config.*` (policy allow/deny
 /// списки, tool exposure hot set, opencode permission groups). Core не знает
-/// схему plugin config-ов, но эти ключи — известные межпаковые contracts
+/// схему module config-ов, но эти ключи — известные межпаковые contracts
 /// (см. docs/pack-contracts.md), и опечатка в имени tool-а иначе остаётся
 /// молчаливо мёртвой записью.
 const MODULE_CONFIG_TOOL_LIST_KEYS: [&str; 6] = [
@@ -385,12 +363,8 @@ pub(crate) fn check_external_commands(
     config: &AppConfig,
     cwd: &Path,
 ) {
-    if config.modules.workflow == "process" {
-        let process = ProcessWorkflowConfig::from_value(
-            config.module_config_value(ModuleKind::Workflow, "process"),
-        )
-        .and_then(|config| {
-            let spec = config.process_spec(cwd)?;
+    for module in &config.process_modules {
+        let process = module.process_spec(cwd).and_then(|spec| {
             spec.resolved_environment()?;
             Ok(spec)
         });
@@ -399,50 +373,13 @@ pub(crate) fn check_external_commands(
                 findings,
                 &spec.command,
                 spec.cwd.as_deref().unwrap_or(cwd),
-                "workflow process",
+                &format!("process module {}/{}", module.slot(), module.module_id()),
             ),
-            Err(error) => findings.error(format!("workflow process config: {error:#}")),
-        }
-    }
-    if config.modules.search == "rg" {
-        check_command(findings, "rg", cwd, "search backend rg");
-    }
-    if config.modules.search == "process" {
-        let process = ProcessSearchConfig::from_value(
-            config.module_config_value(ModuleKind::Search, "process"),
-        )
-        .and_then(|config| {
-            let spec = config.process_spec(cwd)?;
-            spec.resolved_environment()?;
-            Ok(spec)
-        });
-        match process {
-            Ok(spec) => check_command(
-                findings,
-                &spec.command,
-                spec.cwd.as_deref().unwrap_or(cwd),
-                "search backend process",
-            ),
-            Err(error) => findings.error(format!("search backend process config: {error:#}")),
-        }
-    }
-    if config.modules.compactor == "process" {
-        let process = ProcessCompactorConfig::from_value(
-            config.module_config_value(ModuleKind::Compactor, "process"),
-        )
-        .and_then(|config| {
-            let spec = config.process_spec(cwd)?;
-            spec.resolved_environment()?;
-            Ok(spec)
-        });
-        match process {
-            Ok(spec) => check_command(
-                findings,
-                &spec.command,
-                spec.cwd.as_deref().unwrap_or(cwd),
-                "compactor process",
-            ),
-            Err(error) => findings.error(format!("compactor process config: {error:#}")),
+            Err(error) => findings.error(format!(
+                "process module {}/{} config: {error:#}",
+                module.slot(),
+                module.module_id()
+            )),
         }
     }
 

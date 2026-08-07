@@ -1,7 +1,6 @@
 use std::sync::Mutex;
 
 use proteus_contracts::{
-    abi_stable::{sabi_trait::TD_Opaque, std_types::RString},
     contracts::{CompactionInput, CompactionOutput},
     domain::{
         AgentTask, CONTEXT_MESSAGE_NAME, ContextChunk, ModelRef, ToolCall, ToolChoice, new_call_id,
@@ -10,9 +9,7 @@ use proteus_contracts::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
         MessageRole, PartProvenance,
     },
-    plugin::{
-        PluginCompactionError, PluginCompactorHost, PluginCompactorHost_TO, PluginCompactorHostMut,
-    },
+    process_module::{CompactorModuleHost, ProcessModuleError},
 };
 use serde_json::json;
 
@@ -54,28 +51,19 @@ impl TestHost {
     }
 }
 
-impl PluginCompactorHost for TestHost {
-    fn is_cancelled(
-        &self,
-    ) -> proteus_contracts::abi_stable::std_types::RResult<bool, PluginCompactionError> {
-        proteus_contracts::abi_stable::std_types::RResult::ROk(self.cancelled)
+impl CompactorModuleHost for TestHost {
+    fn is_cancelled(&self) -> Result<bool, ProcessModuleError> {
+        Ok(self.cancelled)
     }
 
-    fn complete_model_json(
-        &self,
-        request_json: RString,
-    ) -> proteus_contracts::abi_stable::std_types::RResult<RString, PluginCompactionError> {
+    fn complete_model_json(&self, request_json: String) -> Result<String, ProcessModuleError> {
         let request: CanonicalModelRequest =
             serde_json::from_str(request_json.as_str()).expect("model request json");
         self.requests.lock().unwrap().push(request);
         let Some(response) = self.response.as_ref() else {
-            return proteus_contracts::abi_stable::std_types::RResult::RErr(
-                PluginCompactionError::new("model unavailable"),
-            );
+            return Err(ProcessModuleError::new("model unavailable"));
         };
-        proteus_contracts::abi_stable::std_types::RResult::ROk(RString::from(
-            serde_json::to_string(response).unwrap(),
-        ))
+        Ok(serde_json::to_string(response).unwrap())
     }
 }
 
@@ -98,8 +86,7 @@ fn compact_result_with_host(
     input: CompactionInput,
     host: &mut TestHost,
 ) -> Result<CompactionOutput, String> {
-    let mut host_to: PluginCompactorHostMut<'_> = PluginCompactorHost_TO::from_ptr(host, TD_Opaque);
-    compact(input, &mut host_to)
+    compact(input, host)
 }
 
 fn context_message(text: &str) -> CanonicalMessage {

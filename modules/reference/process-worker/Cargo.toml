@@ -1,0 +1,37 @@
+[package]
+name = "proteus-reference-worker"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "proteus-reference-worker"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+proteus-contracts = { path = "../../../crates/proteus-contracts" }
+proteus-module-protocol = { path = "../../../crates/proteus-module-protocol" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+codex-compactor = { path = "../codex-compactor", default-features = false }
+codex-tool-exposure = { path = "../codex-tool-exposure", default-features = false }
+coding-workflow = { path = "../coding-workflow", default-features = false }
+context-pack = { path = "../context-pack", default-features = false }
+direct-patch = { path = "../direct-patch", default-features = false }
+file-tools = { path = "../file-tools", default-features = false }
+git-tools = { path = "../git-tools", default-features = false }
+memory-pack = { path = "../memory-pack", default-features = false }
+plan-tool = { path = "../plan-tool", default-features = false }
+policy-pack = { path = "../policy-pack", default-features = false }
+renderer-pack = { path = "../renderer-pack", default-features = false }
+rg-search = { path = "../rg-search", default-features = false }
+rust-lsp = { path = "../rust-lsp", default-features = false }
+shell-tool = { path = "../shell-tool", default-features = false }
+skill-pack = { path = "../skill-pack", default-features = false }
+sqlite-memory = { path = "../sqlite-memory", default-features = false }
+
+[dev-dependencies]
+proteus-process-host = { path = "../../../crates/proteus-process-host" }
+tempfile = "3"

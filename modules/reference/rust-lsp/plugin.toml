@@ -1,5 +1,0 @@
-name = "rust-lsp"
-version = "0.1.0"
-description = "Narrow Rust diagnostics tool backed by a persistent rust-analyzer process"
-capabilities = ["tools", "process-host", "lsp"]
-tags = ["rust", "lsp", "diagnostics"]

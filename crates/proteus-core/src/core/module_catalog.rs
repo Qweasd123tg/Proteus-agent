@@ -1,14 +1,8 @@
-use std::{
-    any::Any,
-    collections::{HashMap, HashSet},
-    path::Path,
-    sync::Arc,
-};
+use std::{any::Any, collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::{Result, bail};
 
 mod builtins;
-mod plugin_registration;
 
 use crate::{
     contracts::{
@@ -18,31 +12,13 @@ use crate::{
     },
     core::{AppConfig, ModelConfig, RepoAwareContextProvider},
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
+    process_adapters::{
+        ProcessAdapterConfig, ProcessApprovalPolicy, ProcessContextBuilder, ProcessContextProvider,
+        ProcessHistoryCompactor, ProcessMemoryStore, ProcessPatchApplier, ProcessRenderer,
+        ProcessSearchBackend, ProcessToolExposure, ProcessWorkflowAdapter,
+    },
     tools::{BuiltinToolProvider, is_builtin_tool_name, register_configured_tools},
 };
-
-#[derive(Debug, Clone, Default, serde::Serialize)]
-pub struct PluginContributions {
-    pub modules: Vec<ModuleContribution>,
-    pub tools: Vec<ToolContribution>,
-    pub context_providers: Vec<String>,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct ModuleContribution {
-    pub slot: String,
-    pub id: String,
-    pub description: Option<String>,
-    pub capabilities: Vec<String>,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct ToolContribution {
-    pub name: String,
-    pub description: String,
-    pub safety: String,
-    pub input_schema: serde_json::Value,
-}
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ModuleCatalogEntrySummary {
@@ -107,133 +83,185 @@ type ErasedFactory = Box<
         + Sync,
 >;
 
-pub(crate) struct ModuleCatalogCheckpoint {
-    entry_keys: HashSet<(SlotId, String)>,
-    plugin_tools_len: usize,
-    plugin_context_providers_len: usize,
-}
-
 struct ModuleEntry {
     manifest: ModuleManifest,
     factory: ErasedFactory,
 }
 
 /// Единый каталог реализаций модулей. Все host-defined slot'ы хранятся в
-/// одной карте, ключ — `(SlotId, module_id)`. Текущий transition runtime ещё
-/// наполняет каталог core-owned и dylib-реализациями; имя типа не выделяет
-/// ни один из этих origins в привилегированный класс.
+/// одной карте, ключ — `(SlotId, module_id)`.
 pub struct ModuleCatalog {
     entries: HashMap<(SlotId, String), ModuleEntry>,
-    /// Tool-плагины, зарегистрированные через `register_plugin_tool`.
-    /// Их специ получены и провалидированы при регистрации.
-    /// Во время `build_tools` они добавляются в общий `ToolRegistry`.
-    plugin_tools: Vec<Arc<dyn crate::contracts::Tool>>,
-    plugin_context_providers: Vec<(String, Arc<dyn RepoAwareContextProvider>)>,
+    process_tools: Vec<ProcessAdapterConfig>,
+    process_context_providers: Vec<ProcessAdapterConfig>,
 }
 
 impl ModuleCatalog {
     pub fn new() -> Self {
         let mut catalog = Self {
             entries: HashMap::new(),
-            plugin_tools: Vec::new(),
-            plugin_context_providers: Vec::new(),
+            process_tools: Vec::new(),
+            process_context_providers: Vec::new(),
         };
         builtins::register_builtins(&mut catalog);
         catalog
     }
 
-    pub(crate) fn checkpoint(&self) -> ModuleCatalogCheckpoint {
-        ModuleCatalogCheckpoint {
-            entry_keys: self.entries.keys().cloned().collect(),
-            plugin_tools_len: self.plugin_tools.len(),
-            plugin_context_providers_len: self.plugin_context_providers.len(),
-        }
-    }
-
-    pub(crate) fn rollback_to(&mut self, checkpoint: ModuleCatalogCheckpoint) {
-        self.entries
-            .retain(|key, _| checkpoint.entry_keys.contains(key));
-        self.plugin_tools.truncate(checkpoint.plugin_tools_len);
-        self.plugin_context_providers
-            .truncate(checkpoint.plugin_context_providers_len);
-    }
-
-    /// Переопределяет описания модулей, зарегистрированных после checkpoint,
-    /// значениями из `plugin.toml [module_descriptions]`. Ключ — `module_id`
-    /// или `slot/module_id` (для редких коллизий id между slot-ами).
-    /// Возвращает ключи, не совпавшие ни с одним модулем плагина, — caller
-    /// логирует их как предупреждение, чтобы manifest не расходился с кодом.
-    pub(crate) fn apply_module_descriptions(
-        &mut self,
-        checkpoint: &ModuleCatalogCheckpoint,
-        descriptions: &std::collections::BTreeMap<String, String>,
-    ) -> Vec<String> {
-        let mut unmatched = Vec::new();
-        for (key, description) in descriptions {
-            let mut matched = false;
-            for ((slot, id), entry) in self.entries.iter_mut() {
-                if checkpoint.entry_keys.contains(&(slot.clone(), id.clone())) {
-                    continue;
-                }
-                if key == id || *key == format!("{slot}/{id}") {
-                    entry.manifest.description = Some(description.clone());
-                    matched = true;
-                }
-            }
-            if !matched {
-                unmatched.push(key.clone());
-            }
-        }
-        unmatched
-    }
-
-    pub(crate) fn contributions_since(
-        &self,
-        checkpoint: &ModuleCatalogCheckpoint,
-    ) -> PluginContributions {
-        let mut modules = self
-            .entries
+    pub fn from_config(config: &AppConfig) -> Result<Self> {
+        let mut catalog = Self::new();
+        let process_modules = config
+            .process_modules
             .iter()
-            .filter(|(key, _)| !checkpoint.entry_keys.contains(key))
-            .map(|((slot, id), entry)| ModuleContribution {
-                slot: slot.to_string(),
-                id: id.clone(),
-                description: entry.manifest.description.clone(),
-                capabilities: entry.manifest.capabilities.clone(),
+            .cloned()
+            .map(|module| {
+                let payload = config.process_module_config(module.slot(), module.module_id())?;
+                module.with_module_config(payload)
             })
-            .collect::<Vec<_>>();
-        modules.sort_by(|left, right| {
-            left.slot
-                .cmp(&right.slot)
-                .then_with(|| left.id.cmp(&right.id))
-        });
+            .collect::<Result<Vec<_>>>()?;
+        catalog.register_process_modules(&process_modules)?;
+        Ok(catalog)
+    }
 
-        let mut tools = self.plugin_tools[checkpoint.plugin_tools_len..]
-            .iter()
-            .map(|tool| {
-                let spec = tool.spec();
-                ToolContribution {
-                    name: spec.name,
-                    description: spec.description,
-                    safety: format!("{:?}", spec.safety),
-                    input_schema: spec.input_schema,
+    fn register_process_modules(&mut self, configs: &[ProcessAdapterConfig]) -> Result<()> {
+        let mut seen = std::collections::HashSet::new();
+        for (index, config) in configs.iter().cloned().enumerate() {
+            let path = format!("process_modules[{index}]");
+            config.validate_for(&path, 30_000)?;
+            let slot_name = config.slot().to_owned();
+            let module_id = config.module_id().to_owned();
+            if !seen.insert((slot_name.clone(), module_id.clone())) {
+                bail!("duplicate process module descriptor: {slot_name}/{module_id}");
+            }
+            let description = config
+                .description()
+                .map(str::to_owned)
+                .or_else(|| Some(format!("Process module {slot_name}/{module_id}.")));
+
+            match slot_name.as_str() {
+                "tool" => self.process_tools.push(config),
+                "context_provider" => self.process_context_providers.push(config),
+                "search" => {
+                    ensure_process_id_is_free(self, slot::SEARCH, &module_id)?;
+                    let launch = config.clone();
+                    self.register_module::<dyn SearchBackend>(
+                        slot::SEARCH,
+                        &module_id,
+                        process_manifest(&module_id, ModuleKind::Search, description),
+                        move |ctx| {
+                            Ok(Arc::new(ProcessSearchBackend::new(
+                                launch.clone(),
+                                ctx.cwd,
+                            )?))
+                        },
+                    );
                 }
-            })
-            .collect::<Vec<_>>();
-        tools.sort_by(|left, right| left.name.cmp(&right.name));
-
-        let mut context_providers = self.plugin_context_providers
-            [checkpoint.plugin_context_providers_len..]
-            .iter()
-            .map(|(id, _)| id.clone())
-            .collect::<Vec<_>>();
-        context_providers.sort();
-
-        PluginContributions {
-            modules,
-            tools,
-            context_providers,
+                "memory" => {
+                    ensure_process_id_is_free(self, slot::MEMORY, &module_id)?;
+                    let launch = config.clone();
+                    self.register_module::<dyn MemoryStore>(
+                        slot::MEMORY,
+                        &module_id,
+                        process_manifest(&module_id, ModuleKind::Memory, description),
+                        move |ctx| Ok(Arc::new(ProcessMemoryStore::new(launch.clone(), ctx.cwd)?)),
+                    );
+                }
+                "context" => {
+                    ensure_process_id_is_free(self, slot::CONTEXT, &module_id)?;
+                    let launch = config.clone();
+                    self.register_module::<dyn ContextBuilder>(
+                        slot::CONTEXT,
+                        &module_id,
+                        process_manifest(&module_id, ModuleKind::Context, description),
+                        move |ctx| {
+                            Ok(Arc::new(ProcessContextBuilder::new(
+                                launch.clone(),
+                                ctx.cwd,
+                                ctx.context_providers.to_vec(),
+                            )?))
+                        },
+                    );
+                }
+                "policy" => {
+                    ensure_process_id_is_free(self, slot::POLICY, &module_id)?;
+                    let launch = config.clone();
+                    self.register_policy(
+                        &module_id,
+                        process_manifest(&module_id, ModuleKind::Policy, description),
+                        move |ctx| {
+                            Ok(Arc::new(ProcessApprovalPolicy::new(
+                                launch.clone(),
+                                ctx.cwd,
+                            )?))
+                        },
+                    );
+                }
+                "patch" => {
+                    ensure_process_id_is_free(self, slot::PATCH, &module_id)?;
+                    let launch = config.clone();
+                    self.register_module::<dyn PatchApplier>(
+                        slot::PATCH,
+                        &module_id,
+                        process_manifest(&module_id, ModuleKind::Patch, description),
+                        move |ctx| Ok(Arc::new(ProcessPatchApplier::new(launch.clone(), ctx.cwd)?)),
+                    );
+                }
+                "compactor" => {
+                    ensure_process_id_is_free(self, slot::COMPACTOR, &module_id)?;
+                    let launch = config.clone();
+                    self.register_module::<dyn HistoryCompactor>(
+                        slot::COMPACTOR,
+                        &module_id,
+                        process_manifest(&module_id, ModuleKind::Compactor, description),
+                        move |ctx| {
+                            Ok(Arc::new(ProcessHistoryCompactor::new(
+                                launch.clone(),
+                                ctx.cwd,
+                            )?))
+                        },
+                    );
+                }
+                "tool_exposure" => {
+                    ensure_process_id_is_free(self, slot::TOOL_EXPOSURE, &module_id)?;
+                    let launch = config.clone();
+                    self.register_module::<dyn ToolExposure>(
+                        slot::TOOL_EXPOSURE,
+                        &module_id,
+                        process_manifest(&module_id, ModuleKind::ToolExposure, description),
+                        move |ctx| Ok(Arc::new(ProcessToolExposure::new(launch.clone(), ctx.cwd)?)),
+                    );
+                }
+                "workflow" => {
+                    ensure_process_id_is_free(self, slot::WORKFLOW, &module_id)?;
+                    let launch = config.clone();
+                    self.register_module::<dyn Workflow>(
+                        slot::WORKFLOW,
+                        &module_id,
+                        process_manifest(&module_id, ModuleKind::Workflow, description),
+                        move |ctx| {
+                            Ok(Arc::new(ProcessWorkflowAdapter::new(
+                                launch.clone(),
+                                ctx.cwd,
+                                ctx.config.runtime.workflow_timeout_ms,
+                            )?))
+                        },
+                    );
+                }
+                "renderer" => {
+                    ensure_process_id_is_free(self, slot::RENDERER, &module_id)?;
+                    let launch = config.clone();
+                    self.register_module::<dyn Renderer>(
+                        slot::RENDERER,
+                        &module_id,
+                        process_manifest(&module_id, ModuleKind::Renderer, description),
+                        move |ctx| Ok(Arc::new(ProcessRenderer::new(launch.clone(), ctx.cwd)?)),
+                    );
+                }
+                unsupported => bail!(
+                    "process module {unsupported}/{module_id} targets an unsupported process-v1 slot"
+                ),
+            }
         }
+        Ok(())
     }
 
     /// Регистрирует модуль в slot, принимающем `ModuleBuildContext`.
@@ -244,7 +272,7 @@ impl ModuleCatalog {
         slot_id: SlotId,
         module_id: &str,
         manifest: ModuleManifest,
-        build: for<'a> fn(&ModuleBuildContext<'a>) -> Result<Arc<T>>,
+        build: impl for<'a> Fn(&ModuleBuildContext<'a>) -> Result<Arc<T>> + Send + Sync + 'static,
     ) where
         T: ?Sized + Send + Sync + 'static,
     {
@@ -274,7 +302,10 @@ impl ModuleCatalog {
         &mut self,
         module_id: &str,
         manifest: ModuleManifest,
-        build: fn(&PolicyBuildContext<'_>) -> Result<Arc<dyn ApprovalPolicy>>,
+        build: impl for<'a> Fn(&PolicyBuildContext<'a>) -> Result<Arc<dyn ApprovalPolicy>>
+        + Send
+        + Sync
+        + 'static,
     ) {
         let erased: ErasedFactory = Box::new(move |input| {
             let ctx = input.policy()?;
@@ -336,8 +367,20 @@ impl ModuleCatalog {
             .collect()
     }
 
-    pub fn context_providers(&self) -> &[(String, Arc<dyn RepoAwareContextProvider>)] {
-        &self.plugin_context_providers
+    pub fn build_context_providers(
+        &self,
+        cwd: &Path,
+    ) -> Result<Vec<(String, Arc<dyn RepoAwareContextProvider>)>> {
+        self.process_context_providers
+            .iter()
+            .cloned()
+            .map(|config| {
+                let id = config.module_id().to_owned();
+                let provider: Arc<dyn RepoAwareContextProvider> =
+                    Arc::new(ProcessContextProvider::new(config, cwd)?);
+                Ok((id, provider))
+            })
+            .collect()
     }
 
     pub fn manifest(&self, kind: ModuleKind, id: &str) -> Option<&ModuleManifest> {
@@ -480,11 +523,8 @@ impl ModuleCatalog {
     ) -> Result<ToolRegistry> {
         let mut tools = ToolRegistry::new();
 
-        let plugin_tools_by_name = self
-            .plugin_tools
-            .iter()
-            .map(|tool| (tool.spec().name, Arc::clone(tool)))
-            .collect::<HashMap<_, _>>();
+        let process_tools_by_name =
+            crate::process_adapters::build_process_tools(&self.process_tools, ctx.cwd)?;
         let builtin_names = ctx
             .config
             .tools
@@ -498,12 +538,14 @@ impl ModuleCatalog {
             .tools
             .enabled
             .iter()
-            .filter(|name| !is_builtin_tool_name(name) && !plugin_tools_by_name.contains_key(*name))
+            .filter(|name| {
+                !is_builtin_tool_name(name) && !process_tools_by_name.contains_key(*name)
+            })
             .cloned()
             .collect::<Vec<_>>();
         if let Some(name) = unknown_enabled.first() {
             bail!(
-                "unsupported tool: '{name}'. Install a plugin that provides it or remove it from tools.enabled."
+                "unsupported tool: '{name}'. Configure a process Tool module that provides it or remove it from tools.enabled."
             );
         }
 
@@ -519,29 +561,22 @@ impl ModuleCatalog {
             patch.clone(),
         )?;
 
-        // Plugin tools are opt-in through `tools.enabled`. Installed plugins
-        // extend the available tool namespace, but do not become visible to
-        // the model until config names them explicitly.
-        //
-        // Политика конфликтов: если пользователь явно включил plugin tool, но
-        // имя уже занято builtin/configured tool, это ошибка конфигурации.
-        // Иначе плагин может успешно загрузиться, но оказаться неиспользуемым.
         for name in &ctx.config.tools.enabled {
-            let Some(plugin_tool) = plugin_tools_by_name.get(name) else {
+            let Some(process_tool) = process_tools_by_name.get(name) else {
                 continue;
             };
-            let spec = plugin_tool.spec();
+            let spec = process_tool.spec();
             if tools.get(&spec.name).is_some() {
                 bail!(
-                    "plugin tool '{}' conflicts with an already registered builtin/configured tool",
+                    "process tool '{}' conflicts with an already registered builtin/configured tool",
                     spec.name
                 );
             }
             tools.register_arc(
                 crate::contracts::ToolSource::Dynamic {
-                    origin: "plugin:dylib".to_owned(),
+                    origin: "process-module".to_owned(),
                 },
-                plugin_tool.clone(),
+                Arc::clone(process_tool),
             )?;
         }
 
@@ -559,7 +594,7 @@ impl ModuleCatalog {
                 if !roles.is_empty() && !subagent.supports_collaboration() {
                     bail!(
                         "subagent module '{}' does not support the spawn/wait/cancel lifecycle required by subagents.surface=collaboration",
-                        ctx.config.modules.subagent
+                        ctx.config.modules.subagent.as_deref().unwrap_or("<absent>")
                     );
                 }
                 crate::tools::register_collaboration_tools(
@@ -574,6 +609,19 @@ impl ModuleCatalog {
 
         Ok(tools)
     }
+}
+
+fn ensure_process_id_is_free(catalog: &ModuleCatalog, slot: SlotId, id: &str) -> Result<()> {
+    if catalog.entries.contains_key(&(slot.clone(), id.to_owned())) {
+        bail!("process module {slot}/{id} conflicts with an existing catalog entry");
+    }
+    Ok(())
+}
+
+fn process_manifest(id: &str, kind: ModuleKind, description: Option<String>) -> ModuleManifest {
+    let mut manifest = ModuleManifest::process(id, kind, &["process", "stdio", "newline_json"]);
+    manifest.description = description;
+    manifest
 }
 
 /// Преобразует `Arc<T: ?Sized>` в `Arc<dyn Any + Send + Sync>` через
@@ -602,272 +650,34 @@ impl Default for ModuleCatalog {
     }
 }
 
-fn validate_plugin_id(kind: &str, id: &str) -> Result<()> {
-    if id.trim().is_empty() {
-        bail!("{kind} id must not be empty");
-    }
-    Ok(())
-}
-
 #[cfg(test)]
-mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    use proteus_contracts::{
-        abi_stable::{
-            sabi_trait::TD_Opaque,
-            std_types::{RResult, RString},
-        },
-        plugin::{
-            ContextProviderObject, PluginContextError, PluginContextProvider,
-            PluginContextProvider_TO, PluginSearchBackend, PluginSearchBackend_TO,
-            PluginSearchError, PluginTool, PluginTool_TO, PluginToolError, PluginToolObject,
-            SearchBackendObject,
-        },
-    };
-
-    use super::*;
-    use crate::{
-        core::{RuntimeRegistry, SubagentSurface},
-        domain::{ToolResult, ToolSafety, ToolSpec},
-        stubs::NoSubagent,
-    };
-
-    static SUBAGENT_BUILD_COUNT: AtomicUsize = AtomicUsize::new(0);
-
-    fn build_counting_subagent(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SubagentRunner>> {
-        SUBAGENT_BUILD_COUNT.fetch_add(1, Ordering::SeqCst);
-        Ok(Arc::new(NoSubagent))
-    }
-
-    struct NoopContextProvider;
-
-    impl PluginContextProvider for NoopContextProvider {
-        fn provide_json(&self, _input_json: RString) -> RResult<RString, PluginContextError> {
-            RResult::ROk("[]".into())
-        }
-    }
-
-    struct NoopSearchBackend;
-
-    impl PluginSearchBackend for NoopSearchBackend {
-        fn search_json(&self, _query_json: RString) -> RResult<RString, PluginSearchError> {
-            RResult::ROk("[]".into())
-        }
-    }
-
-    struct NoopPluginTool {
-        name: &'static str,
-    }
-
-    impl PluginTool for NoopPluginTool {
-        fn spec_json(&self) -> RString {
-            serde_json::to_string(&ToolSpec::new(
-                self.name,
-                "noop",
-                serde_json::json!({"type": "object"}),
-                ToolSafety::ReadOnly,
-            ))
-            .unwrap()
-            .into()
-        }
-
-        fn invoke_json(
-            &self,
-            _call_json: RString,
-            _context_json: RString,
-            _host: &mut proteus_contracts::plugin::PluginToolHostMut<'_>,
-        ) -> RResult<RString, PluginToolError> {
-            let result = ToolResult::ok("call".into(), "noop");
-            RResult::ROk(serde_json::to_string(&result).unwrap().into())
-        }
-    }
-
-    fn context_provider() -> ContextProviderObject {
-        PluginContextProvider_TO::from_value(NoopContextProvider, TD_Opaque)
-    }
-
-    fn search_backend() -> SearchBackendObject {
-        PluginSearchBackend_TO::from_value(NoopSearchBackend, TD_Opaque)
-    }
-
-    fn plugin_tool(name: &'static str) -> PluginToolObject {
-        PluginTool_TO::from_value(NoopPluginTool { name }, TD_Opaque)
-    }
-
-    #[test]
-    fn registry_builds_selected_subagent_once() {
-        SUBAGENT_BUILD_COUNT.store(0, Ordering::SeqCst);
-        let mut catalog = ModuleCatalog::new();
-        catalog.register_module::<dyn SubagentRunner>(
-            slot::SUBAGENT,
-            "counting",
-            ModuleManifest::builtin("counting", ModuleKind::Subagent, &["test"]),
-            build_counting_subagent,
-        );
-        let mut config = AppConfig::default();
-        config.modules.subagent = "counting".to_owned();
-        config.subagents.surface = SubagentSurface::None;
-        let workspace = tempfile::tempdir().expect("workspace");
-
-        let _registry =
-            RuntimeRegistry::from_catalog(&config, workspace.path().to_path_buf(), catalog)
-                .expect("registry");
-
-        assert_eq!(SUBAGENT_BUILD_COUNT.load(Ordering::SeqCst), 1);
-    }
-
-    #[test]
-    fn apply_module_descriptions_overrides_plugin_entries_only() {
-        let mut catalog = ModuleCatalog::new();
-        let checkpoint = catalog.checkpoint();
-
-        catalog
-            .register_plugin_search_backend("repo_search", search_backend())
-            .unwrap();
-
-        let descriptions = std::collections::BTreeMap::from([
-            (
-                "repo_search".to_owned(),
-                "Ищет по рабочему дереву.".to_owned(),
-            ),
-            ("missing_module".to_owned(), "нет такого".to_owned()),
-            (
-                // Builtin из checkpoint не должен переопределяться.
-                "null".to_owned(),
-                "не должно примениться".to_owned(),
-            ),
-        ]);
-        let unmatched = catalog.apply_module_descriptions(&checkpoint, &descriptions);
-
-        assert_eq!(unmatched, vec!["missing_module", "null"]);
-        assert_eq!(
-            catalog
-                .manifest(ModuleKind::Search, "repo_search")
-                .and_then(|manifest| manifest.description.clone())
-                .as_deref(),
-            Some("Ищет по рабочему дереву.")
-        );
-        // Builtin "null" сохраняет своё описание.
-        assert_ne!(
-            catalog
-                .manifest(ModuleKind::Search, "null")
-                .and_then(|manifest| manifest.description.clone())
-                .as_deref(),
-            Some("не должно примениться")
+impl ModuleCatalog {
+    pub(crate) fn register_test_context(&mut self, id: &str, module: Arc<dyn ContextBuilder>) {
+        let factory = move |_ctx: &ModuleBuildContext<'_>| Ok(Arc::clone(&module));
+        self.register_module::<dyn ContextBuilder>(
+            slot::CONTEXT,
+            id,
+            ModuleManifest::builtin(id, ModuleKind::Context, &["test_only"]),
+            factory,
         );
     }
 
-    #[test]
-    fn apply_module_descriptions_supports_slot_scoped_keys() {
-        let mut catalog = ModuleCatalog::new();
-        let checkpoint = catalog.checkpoint();
-
-        catalog
-            .register_plugin_search_backend("repo_search", search_backend())
-            .unwrap();
-
-        let descriptions = std::collections::BTreeMap::from([(
-            "search/repo_search".to_owned(),
-            "Scoped описание.".to_owned(),
-        )]);
-        let unmatched = catalog.apply_module_descriptions(&checkpoint, &descriptions);
-
-        assert!(unmatched.is_empty());
-        assert_eq!(
-            catalog
-                .manifest(ModuleKind::Search, "repo_search")
-                .and_then(|manifest| manifest.description.clone())
-                .as_deref(),
-            Some("Scoped описание.")
+    pub(crate) fn register_test_workflow(&mut self, id: &str, module: Arc<dyn Workflow>) {
+        let factory = move |_ctx: &ModuleBuildContext<'_>| Ok(Arc::clone(&module));
+        self.register_module::<dyn Workflow>(
+            slot::WORKFLOW,
+            id,
+            ModuleManifest::builtin(id, ModuleKind::Workflow, &["test_only"]),
+            factory,
         );
     }
 
-    #[test]
-    fn checkpoint_rolls_back_plugin_registrations() {
-        let mut catalog = ModuleCatalog::new();
-        let checkpoint = catalog.checkpoint();
-
-        catalog
-            .register_plugin_context_provider("hello", context_provider())
-            .unwrap();
-        catalog
-            .register_plugin_search_backend("hello", search_backend())
-            .unwrap();
-
-        assert_eq!(catalog.context_providers().len(), 1);
-        assert!(catalog.manifest(ModuleKind::Search, "hello").is_some());
-
-        catalog.rollback_to(checkpoint);
-
-        assert!(catalog.context_providers().is_empty());
-        assert!(catalog.manifest(ModuleKind::Search, "hello").is_none());
-    }
-
-    #[test]
-    fn register_plugin_tool_rejects_empty_and_duplicate_names() {
-        let mut catalog = ModuleCatalog::new();
-
-        let empty_error = catalog.register_plugin_tool(plugin_tool(" ")).unwrap_err();
-        assert!(empty_error.to_string().contains("id must not be empty"));
-
-        catalog.register_plugin_tool(plugin_tool("hello")).unwrap();
-        let duplicate_error = catalog
-            .register_plugin_tool(plugin_tool("hello"))
-            .unwrap_err();
-        assert!(
-            duplicate_error
-                .to_string()
-                .contains("plugin tool 'hello' is already registered")
+    pub(crate) fn register_test_policy(&mut self, id: &str, module: Arc<dyn ApprovalPolicy>) {
+        let factory = move |_ctx: &PolicyBuildContext<'_>| Ok(Arc::clone(&module));
+        self.register_policy(
+            id,
+            ModuleManifest::builtin(id, ModuleKind::Policy, &["test_only"]),
+            factory,
         );
-    }
-
-    #[test]
-    fn contributions_since_reports_plugin_registered_items() {
-        let mut catalog = ModuleCatalog::new();
-        let checkpoint = catalog.checkpoint();
-
-        catalog
-            .register_plugin_context_provider("repo-notes", context_provider())
-            .unwrap();
-        catalog
-            .register_plugin_search_backend("repo_search", search_backend())
-            .unwrap();
-        catalog
-            .register_plugin_tool(plugin_tool("inspect_me"))
-            .unwrap();
-
-        let contributions = catalog.contributions_since(&checkpoint);
-
-        assert_eq!(contributions.context_providers, vec!["repo-notes"]);
-        assert_eq!(contributions.modules.len(), 1);
-        assert_eq!(contributions.modules[0].slot, "search");
-        assert_eq!(contributions.modules[0].id, "repo_search");
-        assert_eq!(contributions.tools.len(), 1);
-        assert_eq!(contributions.tools[0].name, "inspect_me");
-        assert_eq!(contributions.tools[0].safety, "ReadOnly");
-    }
-
-    #[test]
-    fn real_provider_adapters_reject_non_object_provider_config() {
-        let catalog = ModuleCatalog::new();
-        for provider in ["openai", "openai_compatible", "anthropic"] {
-            let config = ModelConfig {
-                provider: provider.to_owned(),
-                model: "test-model".to_owned(),
-                stream: true,
-                reasoning: Default::default(),
-                provider_config: serde_json::json!("not an object"),
-            };
-
-            let error = match catalog.build_model_adapter(&config) {
-                Ok(_) => panic!("expected provider_config validation error for {provider}"),
-                Err(error) => error,
-            };
-            assert!(
-                error.to_string().contains("provider_config for provider"),
-                "{error:#}"
-            );
-        }
     }
 }

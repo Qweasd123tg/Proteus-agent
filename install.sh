@@ -5,32 +5,14 @@ project_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 bin_dir="${HOME}/.local/bin"
 bin_path="${bin_dir}/proteus"
 proteus_home="${PROTEUS_HOME:-${HOME}/.proteus}"
-plugins_dir="${proteus_home}/plugins"
 releases_dir="${proteus_home}/releases"
 current_release="${proteus_home}/current"
 config_home="${PROTEUS_CONFIG_HOME:-${HOME}/.config/Proteus-agent}"
 configs_dir="${config_home}/configs"
-reference_dylibs="file-tools git-tools shell-tool plan-tool rg-search direct-patch coding-workflow context-pack skill-pack rust-lsp codex-compactor codex-tool-exposure memory-pack policy-pack renderer-pack sqlite-memory"
 
 cargo build --release --manifest-path "${project_dir}/Cargo.toml" \
   -p proteus-core \
-  -p file-tools \
-  -p git-tools \
-  -p shell-tool \
-  -p plan-tool \
-  -p rg-search \
-  -p direct-patch \
-  -p coding-workflow \
-  -p context-pack \
-  -p skill-pack \
-  -p rust-lsp \
-  -p codex-compactor \
-  -p codex-tool-exposure \
-  -p memory-pack \
-  -p policy-pack \
-  -p renderer-pack \
-  -p sqlite-memory \
-  --features context-pack/plugin-entrypoint,skill-pack/plugin-entrypoint,rust-lsp/plugin-entrypoint,codex-compactor/plugin-entrypoint,codex-tool-exposure/plugin-entrypoint,memory-pack/plugin-entrypoint,policy-pack/plugin-entrypoint,renderer-pack/plugin-entrypoint
+  -p proteus-reference-worker
 
 mkdir -p "${bin_dir}"
 bin_tmp="${bin_path}.tmp.$$"
@@ -38,11 +20,9 @@ release_id=$(date -u +%Y%m%dT%H%M%SZ)-$$
 release_tmp="${releases_dir}/.${release_id}.tmp"
 release_dir="${releases_dir}/${release_id}"
 current_tmp="${proteus_home}/.current.$$"
-legacy_stage="${proteus_home}/.legacy-reference-dylibs.${release_id}.tmp"
-legacy_dir="${proteus_home}/legacy-reference-dylibs/${release_id}"
 release_published=0
 rm -f "${bin_tmp}" "${current_tmp}"
-rm -rf "${release_tmp}" "${legacy_stage}"
+rm -rf "${release_tmp}"
 
 cleanup_install() {
   status=$?
@@ -50,24 +30,6 @@ cleanup_install() {
   set +e
   rm -f "${bin_tmp}" "${current_tmp}"
   rm -rf "${release_tmp}"
-  if [ -d "${legacy_stage}" ]; then
-    if [ "${release_published}" -eq 1 ]; then
-      mkdir -p "$(dirname -- "${legacy_dir}")"
-      if [ ! -e "${legacy_dir}" ]; then
-        mv "${legacy_stage}" "${legacy_dir}"
-      fi
-    else
-      mkdir -p "${plugins_dir}"
-      for plugin in ${reference_dylibs}; do
-        if [ -e "${legacy_stage}/${plugin}" ] || [ -L "${legacy_stage}/${plugin}" ]; then
-          if [ ! -e "${plugins_dir}/${plugin}" ] && [ ! -L "${plugins_dir}/${plugin}" ]; then
-            mv "${legacy_stage}/${plugin}" "${plugins_dir}/"
-          fi
-        fi
-      done
-      rmdir "${legacy_stage}" 2>/dev/null || true
-    fi
-  fi
   if [ "${release_published}" -eq 0 ]; then
     rm -rf "${release_dir}"
   fi
@@ -86,7 +48,7 @@ project_dir="__PROTEUS_PROJECT_DIR__"
 proteus_home="${PROTEUS_HOME:-${HOME}/.proteus}"
 current_release="${proteus_home}/current"
 proteus_bin="${current_release}/proteus"
-export PROTEUS_PACKAGED_PLUGINS_DIR="${current_release}/plugins"
+export PATH="${current_release}:${PATH}"
 web_dir="${project_dir}/clients/web"
 inspector_dir="${project_dir}/clients/inspector"
 app_port="${PROTEUS_APP_PORT:-8787}"
@@ -364,41 +326,13 @@ escaped_project_dir=$(printf '%s' "${project_dir}" | sed 's/[&|]/\\&/g')
 sed -i "s|__PROTEUS_PROJECT_DIR__|${escaped_project_dir}|g" "${bin_tmp}"
 chmod 755 "${bin_tmp}"
 
-# Stage one binary/plugin bundle completely before the `current` symlink makes
-# it visible. A killed/failed install leaves the previous compatible release
-# active instead of mixing a new binary with partially copied dylibs.
-mkdir -p "${release_tmp}/plugins"
+# Stage the host and reference worker before the `current` symlink makes the
+# release visible.
+mkdir -p "${release_tmp}"
 cp "${project_dir}/target/release/proteus" "${release_tmp}/proteus"
+cp "${project_dir}/target/release/proteus-reference-worker" "${release_tmp}/proteus-reference-worker"
 chmod 755 "${release_tmp}/proteus"
-install_reference_dylib() {
-  plugin="$1"
-  source_dir="$2"
-  src_so="${project_dir}/target/release/lib$(printf '%s' "${plugin}" | tr '-' '_').so"
-  if [ ! -f "${src_so}" ]; then
-    echo "Built plugin library is missing: ${src_so}" >&2
-    exit 1
-  fi
-  dest_dir="${release_tmp}/plugins/${plugin}"
-  mkdir -p "${dest_dir}"
-  cp "${src_so}" "${dest_dir}/"
-  if [ -f "${project_dir}/${source_dir}/plugin.toml" ]; then
-    cp "${project_dir}/${source_dir}/plugin.toml" "${dest_dir}/"
-  fi
-}
-
-for plugin in ${reference_dylibs}; do
-  install_reference_dylib "${plugin}" "modules/reference/${plugin}"
-done
-
-# Move managed reference dylibs from the old mutable layout out of the overlay
-# before publishing the bundle. Until `current` switches, the EXIT trap
-# restores them; afterwards it preserves them as a timestamped backup.
-for plugin in ${reference_dylibs}; do
-  if [ -e "${plugins_dir}/${plugin}" ] || [ -L "${plugins_dir}/${plugin}" ]; then
-    mkdir -p "${legacy_stage}"
-    mv "${plugins_dir}/${plugin}" "${legacy_stage}/"
-  fi
-done
+chmod 755 "${release_tmp}/proteus-reference-worker"
 
 mkdir -p "${releases_dir}"
 mv "${release_tmp}" "${release_dir}"
@@ -430,10 +364,6 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-if [ -d "${legacy_stage}" ]; then
-  mkdir -p "$(dirname -- "${legacy_dir}")"
-  mv "${legacy_stage}" "${legacy_dir}"
-fi
 mv "${bin_tmp}" "${bin_path}"
 
 trap - EXIT HUP INT TERM
@@ -471,8 +401,7 @@ install_prompt "opencode-default.md"
 
 echo "Installed: ${bin_path}"
 echo "Release:   ${release_dir}"
-echo "Plugins:   ${current_release}/plugins"
-echo "Personal:  ${plugins_dir}"
+echo "Worker:    ${current_release}/proteus-reference-worker"
 echo "Configs:   ${configs_dir}"
 echo "Next:      ${bin_path} init coding && ${bin_path} doctor"
 case ":${PATH}:" in

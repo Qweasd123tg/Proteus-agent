@@ -104,12 +104,9 @@ async fn main() -> Result<()> {
         return run_init(profile, cli.config.as_deref());
     }
     if is_modules_list_command(&cli.task) {
-        let (catalog, plugin_reports) = proteus_core::core::load_runtime_module_catalog();
+        let config = AppConfig::load(cli.config.as_deref()).await?;
+        let catalog = proteus_core::core::ModuleCatalog::from_config(&config)?;
         println!("{}", render_module_list(&catalog.manifests()));
-        if !plugin_reports.is_empty() {
-            println!();
-            println!("{}", render_plugin_list(&plugin_reports));
-        }
         return Ok(());
     }
     if let Some(path) = parse_eval_report_command(&cli.task)? {
@@ -226,71 +223,21 @@ fn render_module_list(manifests: &[ModuleManifest]) -> String {
     render_table(["kind", "id", "capabilities", "description"], &rows)
 }
 
-fn render_plugin_list(reports: &[proteus_core::core::PluginLoadReport]) -> String {
-    let rows = reports
-        .iter()
-        .map(|report| {
-            let (name, version, description) = match report.manifest.as_ref() {
-                Some(manifest) => (
-                    manifest.name.clone(),
-                    manifest.version.clone(),
-                    manifest.description.clone().unwrap_or_default(),
-                ),
-                None => match report.result.as_ref() {
-                    Ok(info) => (info.name.clone(), "-".to_owned(), info.description.clone()),
-                    // Нет ни manifest'а, ни загруженного info — fallback на путь.
-                    Err(_) => (
-                        report
-                            .path
-                            .file_name()
-                            .map(|n| n.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| report.path.display().to_string()),
-                        "-".to_owned(),
-                        String::new(),
-                    ),
-                },
-            };
-            let status = match &report.result {
-                Ok(_) => "loaded".to_owned(),
-                Err(error) => format!("error: {}", first_line(&error.to_string())),
-            };
-            [name, version, status, description]
-        })
-        .collect::<Vec<_>>();
-
-    let mut out = String::from("Plugins:\n");
-    out.push_str(&render_table(
-        ["name", "version", "status", "description"],
-        &rows,
-    ));
-    out
-}
-
-/// Сжимает многострочный текст в первую строку, добавляя " …" если
-/// были ещё строки. Нужно для table-рендеринга: `toml` parser возвращает
-/// многострочный message с caret'ами, который ломает колоночное
-/// выравнивание.
-fn first_line(text: &str) -> String {
-    let mut lines = text.lines();
-    let head = lines.next().unwrap_or("").trim_end().to_owned();
-    if lines.next().is_some() {
-        format!("{head} …")
-    } else {
-        head
-    }
-}
-
 fn build_tool_registry_for_listing(
     config: &AppConfig,
     cwd: &std::path::Path,
 ) -> Result<proteus_core::contracts::ToolRegistry> {
-    let (catalog, _) = proteus_core::core::load_runtime_module_catalog();
+    let catalog = proteus_core::core::ModuleCatalog::from_config(config)?;
+    let context_providers = catalog.build_context_providers(cwd)?;
     let build_ctx = ModuleBuildContext {
         config,
         cwd,
-        context_providers: catalog.context_providers(),
+        context_providers: &context_providers,
     };
-    let subagent = catalog.build_subagent(&config.modules.subagent, &build_ctx)?;
+    let subagent = match config.modules.subagent.as_deref() {
+        Some(id) => catalog.build_subagent(id, &build_ctx)?,
+        None => Arc::new(proteus_core::stubs::NoSubagent),
+    };
     let model_config = config.active_model_config()?;
     let model = catalog.build_model_adapter(&model_config)?;
     let mut tools = catalog.build_tools(
@@ -314,53 +261,27 @@ fn build_cli_topology(
     cwd: &std::path::Path,
     permission_mode: PermissionMode,
 ) -> Result<proteus_core::core::TopologySnapshot> {
-    let (catalog, plugin_reports) = proteus_core::core::load_runtime_module_catalog();
+    let catalog = proteus_core::core::ModuleCatalog::from_config(config)?;
     let catalog_entries = catalog.entry_summaries();
+    let context_providers = catalog.build_context_providers(cwd)?;
     let build_ctx = ModuleBuildContext {
         config,
         cwd,
-        context_providers: catalog.context_providers(),
+        context_providers: &context_providers,
     };
     let mut extra_warnings = Vec::new();
-    if config.modules.search == "process" {
-        let process_config = proteus_core::process_adapters::ProcessSearchConfig::from_value(
-            config.module_config_value(proteus_core::domain::ModuleKind::Search, "process"),
-        )
-        .and_then(|config| {
-            let spec = config.process_spec(cwd)?;
-            spec.resolved_environment()?;
-            Ok(())
-        });
-        if let Err(error) = process_config {
-            extra_warnings.push(TopologyWarning::error(format!(
-                "inspect found invalid process search config: {error:#}"
-            )));
-        }
-    }
-    if config.modules.compactor == "process" {
-        let process_config = proteus_core::process_adapters::ProcessCompactorConfig::from_value(
-            config.module_config_value(proteus_core::domain::ModuleKind::Compactor, "process"),
-        )
-        .and_then(|config| {
-            let spec = config.process_spec(cwd)?;
-            spec.resolved_environment()?;
-            Ok(())
-        });
-        if let Err(error) = process_config {
-            extra_warnings.push(TopologyWarning::error(format!(
-                "inspect found invalid process compactor config: {error:#}"
-            )));
-        }
-    }
-    let subagent = match catalog.build_subagent(&config.modules.subagent, &build_ctx) {
-        Ok(subagent) => subagent,
-        Err(error) => {
-            extra_warnings.push(TopologyWarning::error(format!(
-                "inspect could not build subagent module {}: {error:#}",
-                config.modules.subagent
-            )));
-            Arc::new(proteus_core::stubs::NoSubagent)
-        }
+    let subagent = match config.modules.subagent.as_deref() {
+        Some(id) => match catalog.build_subagent(id, &build_ctx) {
+            Ok(subagent) => subagent,
+            Err(error) => {
+                extra_warnings.push(TopologyWarning::error(format!(
+                    "inspect could not build subagent module {}: {error:#}",
+                    id
+                )));
+                Arc::new(proteus_core::stubs::NoSubagent)
+            }
+        },
+        None => Arc::new(proteus_core::stubs::NoSubagent),
     };
     let hosted_tools = config.active_model_config().and_then(|model_config| {
         let model = catalog.build_model_adapter(&model_config)?;
@@ -412,7 +333,6 @@ fn build_cli_topology(
         cwd,
         catalog_entries: &catalog_entries,
         tools: &tool_entries,
-        plugin_reports: &plugin_reports,
         module_epoch: ModuleEpoch::initial(),
         permission_mode,
         extra_warnings,
@@ -762,11 +682,11 @@ fn repl_header(
         format!("cwd: {}", cwd.display()),
         format!(
             "modules: workflow={} context={} memory={} search={} renderer={}",
-            config.modules.workflow,
-            config.modules.context,
-            config.modules.memory,
-            config.modules.search,
-            config.modules.renderer
+            config.modules.workflow.as_deref().unwrap_or("<absent>"),
+            config.modules.context.as_deref().unwrap_or("<absent>"),
+            config.modules.memory.as_deref().unwrap_or("<absent>"),
+            config.modules.search.as_deref().unwrap_or("<absent>"),
+            config.modules.renderer.as_deref().unwrap_or("<absent>")
         ),
         format!("tools: {}", config.tools.enabled.join(", ")),
     ];

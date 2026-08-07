@@ -2,9 +2,8 @@
 //!
 //! Принципы: каждый факт показывается один раз; группировка и порядок slots
 //! приходят с сервера (`slot.category`/`slot.order`); никакой абсолютной
-//! графики — pipeline рисуется потоком карточек; plugin contributions
-//! берутся строго из `provides`, а их состояние вычисляется по
-//! `modules`/`tools` snapshot-а.
+//! графики — pipeline рисуется потоком карточек, а source process modules
+//! берётся из server-owned topology snapshot.
 
 use leptos::{prelude::*, task::spawn_local};
 use serde_json::Value;
@@ -15,7 +14,7 @@ use crate::architecture_map::{
     MapViewState, TopologyMapView, install_mermaid_rendered_fit, render_mermaid_map,
 };
 use crate::architecture_model::{
-    backend_views, module_source_label, non_empty, pipeline_steps, plugin_contributions, slot_views,
+    backend_views, module_source_label, non_empty, pipeline_steps, slot_views,
 };
 use crate::types::*;
 use crate::ui_utils::{compact_json, copy_to_clipboard, shorten_home};
@@ -94,11 +93,15 @@ fn load_topology_snapshot(
             Ok(snapshot) => {
                 let slot_count = snapshot.slots.len();
                 let tool_count = snapshot.tools.iter().filter(|tool| tool.registered).count();
-                let plugin_count = snapshot.plugins.len();
+                let process_count = snapshot
+                    .modules
+                    .iter()
+                    .filter(|module| module.source.kind == "process")
+                    .count();
                 let warning_count = snapshot.warnings.len();
                 set_snapshot.set(Some(snapshot));
                 set_status.set(format!(
-                    "{slot_count} slots · {tool_count} tools · {plugin_count} plugins · {warning_count} warnings"
+                    "{slot_count} slots · {tool_count} tools · {process_count} process modules · {warning_count} warnings"
                 ));
                 match get_text("/inspect/topology.mmd").await {
                     Ok(mermaid) => set_mermaid.set(mermaid),
@@ -157,23 +160,12 @@ fn TopologySnapshotView(
     let cwd_label = shorten_home(&non_empty(&snapshot.cwd, "-"));
     let registered_tool_count = snapshot.tools.iter().filter(|tool| tool.registered).count();
     let provided_only_count = snapshot.tools.len() - registered_tool_count;
-    let loaded_plugin_count = snapshot
-        .plugins
+    let process_module_count = snapshot
+        .modules
         .iter()
-        .filter(|plugin| plugin.status == "loaded")
+        .filter(|module| module.source.kind == "process")
         .count();
 
-    let plugins = snapshot.plugins.clone();
-    let plugin_chips = plugins
-        .iter()
-        .map(|plugin| {
-            (
-                format!("{}:{}", plugin.name, plugin.path),
-                plugin.clone(),
-                plugin_contributions(&snapshot, plugin),
-            )
-        })
-        .collect::<Vec<_>>();
     let tools = snapshot.tools.clone();
     let warnings = snapshot.warnings.clone();
     let mermaid_preview = mermaid.clone();
@@ -198,7 +190,7 @@ fn TopologySnapshotView(
                 "disabled" => !tool.enabled || !tool.registered,
                 "read" => tool.safety == "ReadOnly",
                 "write" => tool.safety != "ReadOnly",
-                "plugin" => tool.provider_plugin.is_some(),
+                "process" => tool.source.contains("process-module"),
                 _ => true,
             })
             .filter(|tool| needle.is_empty() || tool.name.to_lowercase().contains(&needle))
@@ -246,8 +238,8 @@ fn TopologySnapshotView(
                         <strong>{format!("{registered_tool_count} tools")}</strong>
                     </div>
                     <div class="config-kv">
-                        <span>"plugins"</span>
-                        <code>{format!("{loaded_plugin_count}/{} loaded", snapshot.plugins.len())}</code>
+                        <span>"process modules"</span>
+                        <code>{process_module_count.to_string()}</code>
                     </div>
                     <div class="config-kv">
                         <span>"provided, не в registry"</span>
@@ -427,71 +419,6 @@ fn TopologySnapshotView(
 
             <section class="config-section">
                 <div class="config-section-header">
-                    <h3>"Plugins"</h3>
-                    <span>{plugins.len()}</span>
-                </div>
-                {if plugin_chips.is_empty() {
-                    view! { <div class="config-empty">"(plugins не найдены)"</div> }.into_any()
-                } else {
-                    view! {
-                        <div class="topology-node-grid plugins">
-                            <For
-                                each=move || plugin_chips.clone()
-                                key=|(key, _, _)| key.clone()
-                                children=move |(_, plugin, contributions)| {
-                                    let status = non_empty(&plugin.status, "unknown");
-                                    let badge_class = plugin_badge_class(&status);
-                                    let version = non_empty(&plugin.version, "-");
-                                    // Путь до .so — только в title: как текст он
-                                    // раздувает карточку и не заменяет описание.
-                                    let path_title = shorten_home(&plugin.path);
-                                    let description = plugin
-                                        .description
-                                        .clone()
-                                        .filter(|description| !description.trim().is_empty())
-                                        .unwrap_or_else(|| "(описание не задано)".to_owned());
-                                    view! {
-                                        <article class="topology-node-card plugin" title=path_title>
-                                            <div class="topology-node-head">
-                                                <div>
-                                                    <span class="panel-kicker">"plugin"</span>
-                                                    <strong>{plugin.name.clone()}</strong>
-                                                </div>
-                                                <span class=badge_class>
-                                                    <span class="dot"></span>
-                                                    {status}
-                                                </span>
-                                            </div>
-                                            <div class="topology-node-body">
-                                                <code>{version}</code>
-                                                <p>{description}</p>
-                                            </div>
-                                            {if contributions.is_empty() {
-                                                view! { <div class="topology-muted">"contributions не зарегистрированы"</div> }.into_any()
-                                            } else {
-                                                view! {
-                                                    <div class="topology-edge-row">
-                                                        <For
-                                                            each=move || contributions.clone()
-                                                            key=|chip| chip.key.clone()
-                                                            children=move |chip| {
-                                                                view! { <span class=chip.state.chip_class()>{chip.text}</span> }
-                                                            }
-                                                        />
-                                                    </div>
-                                                }.into_any()
-                                            }}
-                                        </article>
-                                    }
-                                }
-                            />
-                        </div>
-                    }.into_any()
-                }}
-            </section>
-
-            <section class="config-section">
-                <div class="config-section-header">
                     <h3>"Tools"</h3>
                     <span>{tools.len()}</span>
                 </div>
@@ -501,7 +428,7 @@ fn TopologySnapshotView(
                     <button type="button" class:active=move || tool_filter.get() == "disabled" on:click=move |_| set_tool_filter.set("disabled".to_owned())>"disabled"</button>
                     <button type="button" class:active=move || tool_filter.get() == "read" on:click=move |_| set_tool_filter.set("read".to_owned())>"read"</button>
                     <button type="button" class:active=move || tool_filter.get() == "write" on:click=move |_| set_tool_filter.set("write".to_owned())>"write"</button>
-                    <button type="button" class:active=move || tool_filter.get() == "plugin" on:click=move |_| set_tool_filter.set("plugin".to_owned())>"plugin"</button>
+                    <button type="button" class:active=move || tool_filter.get() == "process" on:click=move |_| set_tool_filter.set("process".to_owned())>"process"</button>
                     <input
                         type="search"
                         class="topology-filter-search"
@@ -527,11 +454,7 @@ fn TopologySnapshotView(
                                 "status-badge failed"
                             };
                             let enabled_label = if tool.enabled { "enabled" } else { "disabled" };
-                            let source = tool
-                                .provider_plugin
-                                .clone()
-                                .map(|plugin| format!("plugin:{plugin}"))
-                                .unwrap_or_else(|| tool.source.clone());
+                            let source = tool.source.clone();
                             view! {
                                 <article class="config-list-item topology-tool-item">
                                     <div class="config-list-main">
@@ -612,16 +535,6 @@ fn TopologySnapshotView(
                 <pre class="mermaid-preview">{mermaid_preview}</pre>
             </details>
         </div>
-    }
-}
-
-fn plugin_badge_class(status: &str) -> &'static str {
-    if status.starts_with("error") || status == "failed" {
-        "status-badge failed"
-    } else if status == "loaded" {
-        "status-badge completed"
-    } else {
-        "status-badge disconnected"
     }
 }
 

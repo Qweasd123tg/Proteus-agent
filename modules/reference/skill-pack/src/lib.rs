@@ -1,29 +1,16 @@
 //! Docs-on-disk skills exposed through an external context provider and tool.
 
-#![allow(non_local_definitions)]
-#![allow(non_camel_case_types)]
-#![allow(improper_ctypes_definitions)]
-
 mod discovery;
 
 use std::path::Path;
 
-#[cfg(feature = "plugin-entrypoint")]
-use abi_stable::std_types::RStr;
-use abi_stable::std_types::{RResult, RString};
-#[cfg(feature = "plugin-entrypoint")]
-use abi_stable::{export_root_module, prefix_type::PrefixTypeTrait, sabi_trait::TD_Opaque};
 use discovery::{SkillDocument, discover_skills};
-#[cfg(feature = "plugin-entrypoint")]
-use proteus_contracts::plugin::{
-    ContextProviderObject, PluginContextProvider_TO, PluginRegisterError, PluginRegistryMut,
-    PluginRoot, PluginRoot_Ref, PluginTool_TO, PluginToolObject,
-};
 use proteus_contracts::{
     domain::ContextChunk,
-    plugin::{
-        PluginContextError, PluginContextProvider, PluginContextProviderInput, PluginTool,
-        PluginToolError, PluginToolHostMut, PluginToolInvocationContext,
+    process_module::{
+        ContextProviderModule, ContextProviderModuleInput, ContextProviderModuleObject,
+        ModuleRegistry, ProcessModuleError, ToolModule, ToolModuleHostMut,
+        ToolModuleInvocationContext, ToolModuleObject,
     },
 };
 use serde::Deserialize;
@@ -35,39 +22,39 @@ const TOOL_NAME: &str = "skill";
 pub struct SkillsContextProvider;
 pub struct SkillTool;
 
-impl PluginContextProvider for SkillsContextProvider {
-    fn provide_json(&self, input_json: RString) -> RResult<RString, PluginContextError> {
-        let input: PluginContextProviderInput = match serde_json::from_str(input_json.as_str()) {
+impl ContextProviderModule for SkillsContextProvider {
+    fn provide_json(&self, input_json: String) -> Result<String, ProcessModuleError> {
+        let input: ContextProviderModuleInput = match serde_json::from_str(input_json.as_str()) {
             Ok(input) => input,
             Err(error) => {
-                return RResult::RErr(PluginContextError::new(format!(
-                    "failed to parse PluginContextProviderInput: {error}"
+                return Err(ProcessModuleError::new(format!(
+                    "failed to parse ContextProviderModuleInput: {error}"
                 )));
             }
         };
         if input.provider_id != PROVIDER_ID {
-            return RResult::RErr(PluginContextError::new(format!(
+            return Err(ProcessModuleError::new(format!(
                 "skill-pack received unexpected provider id '{}'",
                 input.provider_id
             )));
         }
         let skills = match discover_skills(&input.task.cwd) {
             Ok(skills) => skills,
-            Err(error) => return RResult::RErr(PluginContextError::new(error)),
+            Err(error) => return Err(ProcessModuleError::new(error)),
         };
         let chunks = vec![available_skills_chunk(&skills)];
         match serde_json::to_string(&chunks) {
-            Ok(output) => RResult::ROk(RString::from(output)),
-            Err(error) => RResult::RErr(PluginContextError::new(format!(
+            Ok(output) => Ok(String::from(output)),
+            Err(error) => Err(ProcessModuleError::new(format!(
                 "failed to serialize skills context: {error}"
             ))),
         }
     }
 }
 
-impl PluginTool for SkillTool {
-    fn spec_json(&self) -> RString {
-        RString::from(
+impl ToolModule for SkillTool {
+    fn spec_json(&self) -> String {
+        String::from(
             json!({
                 "name": TOOL_NAME,
                 "description": "Load the instruction body of one available docs-on-disk skill by name.",
@@ -98,29 +85,29 @@ impl PluginTool for SkillTool {
 
     fn invoke_json(
         &self,
-        call_json: RString,
-        context_json: RString,
-        _host: &mut PluginToolHostMut<'_>,
-    ) -> RResult<RString, PluginToolError> {
+        call_json: String,
+        context_json: String,
+        _host: &mut ToolModuleHostMut<'_>,
+    ) -> Result<String, ProcessModuleError> {
         let call: ToolCallDto = match serde_json::from_str(call_json.as_str()) {
             Ok(call) => call,
             Err(error) => {
-                return RResult::RErr(PluginToolError::new(format!(
+                return Err(ProcessModuleError::new(format!(
                     "failed to parse ToolCall: {error}"
                 )));
             }
         };
-        let context: PluginToolInvocationContext = match serde_json::from_str(context_json.as_str())
+        let context: ToolModuleInvocationContext = match serde_json::from_str(context_json.as_str())
         {
             Ok(context) => context,
             Err(error) => {
-                return RResult::RErr(PluginToolError::new(format!(
-                    "failed to parse PluginToolInvocationContext: {error}"
+                return Err(ProcessModuleError::new(format!(
+                    "failed to parse ToolModuleInvocationContext: {error}"
                 )));
             }
         };
         let result = invoke_skill(&call, &context.cwd);
-        RResult::ROk(RString::from(result.to_string()))
+        Ok(String::from(result.to_string()))
     }
 }
 
@@ -218,32 +205,13 @@ fn escape_xml(value: &str) -> String {
         .replace('\'', "&apos;")
 }
 
-#[cfg(feature = "plugin-entrypoint")]
-extern "C" fn register_modules(
-    registry: &mut PluginRegistryMut<'_>,
-) -> RResult<(), PluginRegisterError> {
-    let provider: ContextProviderObject =
-        PluginContextProvider_TO::from_value(SkillsContextProvider, TD_Opaque);
-    if let RResult::RErr(error) =
-        registry.register_context_provider(RString::from(PROVIDER_ID), provider)
-    {
-        return RResult::RErr(error);
+pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), ProcessModuleError> {
+    let provider: ContextProviderModuleObject = Box::new(SkillsContextProvider);
+    if let Err(error) = registry.register_context_provider(String::from(PROVIDER_ID), provider) {
+        return Err(error);
     }
-    let tool: PluginToolObject = PluginTool_TO::from_value(SkillTool, TD_Opaque);
+    let tool: ToolModuleObject = Box::new(SkillTool);
     registry.register_tool(tool)
-}
-
-#[cfg(feature = "plugin-entrypoint")]
-#[export_root_module]
-pub fn get_plugin_root() -> PluginRoot_Ref {
-    PluginRoot {
-        name: RStr::from_str("skill-pack"),
-        description: RStr::from_str(
-            "Docs-on-disk skills: context provider 'skills' and read-only tool 'skill'",
-        ),
-        register_modules,
-    }
-    .leak_into_prefix()
 }
 
 #[cfg(test)]

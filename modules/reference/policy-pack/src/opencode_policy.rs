@@ -11,9 +11,8 @@
 use std::collections::BTreeMap;
 
 use proteus_contracts::{
-    abi_stable::std_types::{RResult, RString},
     domain::{PolicyDecision, ToolCall},
-    plugin::{PluginApprovalPolicy, PluginPolicyError},
+    process_module::{PolicyModule, ProcessModuleError},
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -24,14 +23,14 @@ const DEFAULT_ACTION: RuleAction = RuleAction::Ask;
 const COMMAND_SEPARATORS: [&str; 4] = ["&&", "||", ";", "|"];
 
 #[derive(Default)]
-pub struct OpencodePolicyPlugin;
+pub struct OpencodePolicyModule;
 
-impl PluginApprovalPolicy for OpencodePolicyPlugin {
+impl PolicyModule for OpencodePolicyModule {
     fn evaluate_json(
         &self,
-        call_json: RString,
-        ctx_json: RString,
-    ) -> RResult<RString, PluginPolicyError> {
+        call_json: String,
+        ctx_json: String,
+    ) -> Result<String, ProcessModuleError> {
         let call: ToolCall = match serde_json::from_str(call_json.as_str()) {
             Ok(call) => call,
             Err(error) => return policy_error(format!("invalid ToolCall JSON: {error}")),
@@ -47,7 +46,7 @@ impl PluginApprovalPolicy for OpencodePolicyPlugin {
         decision(evaluate_opencode_call(&config, &call, &ctx.cwd))
     }
 
-    fn evaluate_visibility_json(&self, ctx_json: RString) -> RResult<RString, PluginPolicyError> {
+    fn evaluate_visibility_json(&self, ctx_json: String) -> Result<String, ProcessModuleError> {
         let ctx: PolicyVisibilityContextDto = match serde_json::from_str(ctx_json.as_str()) {
             Ok(ctx) => ctx,
             Err(error) => {

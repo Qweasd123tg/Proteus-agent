@@ -84,7 +84,7 @@ async fn terminal_journal(
 #[tokio::test]
 async fn terminal_workflow_error_replays_as_a_matching_outcome() {
     let model_error = "recorded provider failure";
-    let settlement_error = "workflow plugin error: model stream error: recorded provider failure";
+    let settlement_error = "model stream error: recorded provider failure";
     let journal = terminal_journal(
         TurnSettlementStatus::Error,
         Some(ModelResponseOutcome::Error {

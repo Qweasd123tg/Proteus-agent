@@ -1,6 +1,6 @@
 use proteus_contracts::{
     contracts::{CompactionInput, CompactionOutput},
-    plugin::PluginCompactorHostMut,
+    process_module::CompactorModuleHostMut,
 };
 use serde_json::json;
 
@@ -15,7 +15,7 @@ use crate::{
 
 pub(crate) fn compact(
     input: CompactionInput,
-    host: &mut PluginCompactorHostMut<'_>,
+    host: &mut CompactorModuleHostMut<'_>,
 ) -> Result<CompactionOutput, String> {
     if input.messages.is_empty() {
         return Ok(CompactionOutput::unchanged(input.messages));

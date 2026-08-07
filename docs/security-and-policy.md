@@ -17,19 +17,19 @@ gaps перечислены в разделе «Известные Ограни�
 
 В v0 нет универсального OS sandbox для всех tools. Текущая защита держится на
 workspace boundary, safety classes, permission mode и approval policy; для
-`shell`/`exec_command` плагин `shell-tool` дополнительно использует
+process tool module `shell-tool` дополнительно использует
 bwrap-песочницу (см. «Exec Sandbox В shell-tool» ниже). Общий network gate,
 protected paths и secrets policy являются следующими слоями, а не заменой
 текущего `ToolOrchestrator`.
 
 ## Доверенные Process-Модули
 
-`modules.search = "process"`, `modules.compactor = "process"` и
-`modules.workflow = "process"` запускают настроенный локальный executable при
+Каждый `[[process_modules]]` запускает настроенный локальный executable при
 сборке runtime snapshot. Это реализации module slots, а не model-callable
 tools: `ToolSafety`, approval policy и shell sandbox не оборачивают сам child
-process. Процесс работает с правами самого Proteus, поэтому в config нельзя
-подключать недоверенную команду.
+process. Worker работает с правами самого Proteus, поэтому в config нельзя
+подключать недоверенную команду. Выбор делается реальным `module_id`, а не
+служебным id `process`.
 
 При этом tool callback из process Workflow не получает исключения: методы
 `host.tools.execute`/`host.tools.execute_batch` возвращаются в core и проходят
@@ -111,8 +111,9 @@ dev-server port. Wildcard CORS допустим только для явно п�
 Runtime применяет режим через `ModeAwarePolicy` на границе сборки
 `RuntimeContext`. `ToolOrchestrator` не знает про конкретные режимы и
 делегирует visibility/execution одному `ApprovalPolicy`. Композиция
-deny-monotonic: явный `Deny` configured policy (`deny_all`, deny-правило
-`codex_policy`/`opencode_policy`) остаётся `Deny` в любом режиме. `plan` и
+deny-monotonic: явный `Deny` выбранной policy (или structural deny при её
+отсутствии), а также deny-правило `codex_policy`/`opencode_policy` остаётся
+`Deny` в любом режиме. `plan` и
 `auto` могут снять только `Ask` для разрешённого режимом safety class; их
 собственные запреты по `ToolSafety` по-прежнему являются верхней границей.
 
@@ -142,13 +143,14 @@ plan flow UI может просить модель вернуть staged read-o
 
 File I/O (`read_file`, `write_file`, `list_dir`, `grep`, `find_files`,
 `read_many_files`), git helpers (`git_status`, `git_diff`) и `shell` вынесены
-из ядра в плагины `file-tools`, `git-tools` и `shell-tool` соответственно. Подключите их через
-`~/.proteus/plugins/<name>/` и добавьте имена в `tools.enabled`. Safety каждого
-плагинного tool'а декларируется в его `ToolSpec` и проверяется тем же
-механизмом, что и ядерные.
+из ядра в process modules `file-tools`, `git-tools` и `shell-tool`
+соответственно. Добавьте `tool` descriptor (обычно
+`module_id = "reference.tools"`) и нужные имена в `tools.enabled`. Safety
+каждого process tool декларируется в его `ToolSpec` и проверяется тем же
+механизмом, что и core facade tools.
 
-Plugin tool names валидируются при регистрации: пустое имя и duplicate между
-плагинами отклоняются. Если явно включённый plugin tool совпал с
+Process tool names валидируются при регистрации: пустое имя и duplicate между
+modules отклоняются. Если явно включённый process tool совпал с
 builtin/configured tool, сборка registry завершается ошибкой конфигурации;
 приоритет или silent skip не применяются.
 
@@ -166,10 +168,10 @@ Collaboration control скоупится по `SessionId`: path `/root/<task_nam
 tools, поэтому nesting в первом slice невозможен. Records и terminal payloads
 bounded, active records не вытесняются; состояние process-resident и теряется
 при restart. Send/follow-up/fork и writer/worktree spawn в этом режиме не
-реализованы, а несовместимый blocking-only plugin runner отклоняется при сборке
+реализованы, а несовместимый blocking-only subagent runner отклоняется при сборке
 registry без fallback.
 
-Config-defined `native` tools не могут понизить safety ниже safety встроенного handler-а. Например `native.handler = "apply_patch"` останется `WritesFiles`, даже если config укажет `ReadOnly`. Handlers которые остались в ядре: `apply_patch`, `search`. File I/O и shell больше не доступны через `native.handler` — они пришли через плагины.
+Config-defined `native` tools не могут понизить safety ниже safety встроенного handler-а. Например `native.handler = "apply_patch"` останется `WritesFiles`, даже если config укажет `ReadOnly`. File I/O и shell больше не доступны через `native.handler` — они приходят из process tool modules.
 
 Config-defined `process`, inline stdio `mcp` и discovered
 `tools.mcp_servers` tools также считаются command execution boundary. Даже
@@ -233,7 +235,7 @@ duplicate-name и visibility checks, но выполняются OpenAI внут
 ## Workspace Boundary
 
 `apply_patch` остаётся core tool-ом, но сам алгоритм применения patch живёт в
-выбранном `PatchApplier`. Плагин `direct-patch` канонизирует `cwd` и target
+выбранном `PatchApplier`. Reference module `direct-patch` канонизирует `cwd` и target
 path перед записью и отклоняет absolute paths, parent traversal и
 symlink-escape; конечный symlink запрещён для Add/Update/Delete и обеих сторон
 Move, даже если он указывает обратно внутрь workspace. `ToolOrchestrator` не
@@ -259,8 +261,8 @@ validation или host policy.
 
 ## ask_write
 
-`ask_write` поставляется плагином `policy-pack`; core применяет его через
-обычный `ApprovalPolicy` slot.
+`ask_write` экспортируется reference worker-ом из `policy-pack`; core применяет
+его через обычный process `ApprovalPolicy` slot без исключений по id.
 
 `ask_write` принимает решение в таком порядке:
 
@@ -413,7 +415,7 @@ Core не валидирует внутреннюю схему `ask_write`: зн
 
 ## Exec Sandbox В shell-tool
 
-Плагин `shell-tool` (tools `shell`, `exec_command`) сам заворачивает
+Reference module `shell-tool` (tools `shell`, `exec_command`) сам заворачивает
 неэскалированные команды в OS-песочницу `bwrap` (bubblewrap):
 
 - `--unshare-net`: у каждой команды собственный network namespace, внешней сети
@@ -614,8 +616,8 @@ config не должен тихо превращать command/network/dangerous
 
 Для modules та же идея может появиться позже, но первый шаг должен быть по
 tools, потому что они уже имеют `ToolSafety`, `ToolRegistry`, approval и
-execution path. Package manager, marketplace, dynamic plugins, WASM и внешний
-process-module protocol в этот шаг не входят.
+execution path. Package manager, marketplace, WASM и OS sandbox в этот шаг не
+входят; единый внешний process-module protocol уже реализован.
 
 ## Правила Для Новых Tools
 

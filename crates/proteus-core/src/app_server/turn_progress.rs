@@ -21,7 +21,7 @@ pub(super) struct TurnProgress {
     /// в плоские фантомные tool-карточки.
     background_subagents: Vec<AppTranscriptMessage>,
     /// Thread бегущего хода (из envelope TurnStarted). Text-дельты других
-    /// threads (например, стрим дочернего цикла субагента из плагинного
+    /// threads (например, стрим дочернего цикла субагента из module
     /// runner-а) не подмешиваются в родительский текст.
     turn_thread_id: Option<ThreadId>,
 }

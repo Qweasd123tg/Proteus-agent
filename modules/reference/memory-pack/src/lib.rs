@@ -1,10 +1,6 @@
-//! Memory plugin pack.
+//! JSONL memory reference process module.
 //!
 //! Registers the `jsonl` memory store.
-
-#![allow(non_local_definitions)]
-#![allow(non_camel_case_types)]
-#![allow(improper_ctypes_definitions)]
 
 use std::{
     fs::{self, OpenOptions},
@@ -14,33 +10,35 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-#[cfg(feature = "plugin-entrypoint")]
-use proteus_contracts::abi_stable::{export_root_module, prefix_type::PrefixTypeTrait};
 use proteus_contracts::{
-    abi_stable::std_types::{RResult, RString},
     domain::{MemoryItem, MemoryQuery},
-    plugin::{PluginMemoryError, PluginMemoryStore},
+    process_module::{MemoryModule, MemoryModuleObject, ModuleRegistry, ProcessModuleError},
 };
-#[cfg(feature = "plugin-entrypoint")]
-use proteus_contracts::{
-    abi_stable::{
-        sabi_trait::TD_Opaque,
-        std_types::{RStr, RString as AbiRString},
-    },
-    plugin::{
-        MemoryStoreObject, PluginMemoryStore_TO, PluginRegisterError, PluginRegistryMut,
-        PluginRoot, PluginRoot_Ref,
-    },
-};
+use serde::Deserialize;
 #[cfg(test)]
 use serde_json::Value;
 
-pub struct JsonlMemoryStorePlugin {
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct JsonlMemoryConfig {
+    #[serde(default = "JsonlMemoryStoreModule::default_path")]
+    path: PathBuf,
+}
+
+impl Default for JsonlMemoryConfig {
+    fn default() -> Self {
+        Self {
+            path: JsonlMemoryStoreModule::default_path(),
+        }
+    }
+}
+
+pub struct JsonlMemoryStoreModule {
     path: PathBuf,
     lock: Mutex<()>,
 }
 
-impl JsonlMemoryStorePlugin {
+impl JsonlMemoryStoreModule {
     pub fn new(path: PathBuf) -> Self {
         Self {
             path,
@@ -49,36 +47,33 @@ impl JsonlMemoryStorePlugin {
     }
 
     pub fn default_path() -> PathBuf {
-        if let Some(path) = std::env::var_os("PROTEUS_MEMORY_JSONL_PATH") {
-            return PathBuf::from(path);
-        }
         PathBuf::from(".proteus/memory.jsonl")
     }
 }
 
-impl Default for JsonlMemoryStorePlugin {
+impl Default for JsonlMemoryStoreModule {
     fn default() -> Self {
         Self::new(Self::default_path())
     }
 }
 
-impl PluginMemoryStore for JsonlMemoryStorePlugin {
-    fn remember_json(&self, item_json: RString) -> RResult<(), PluginMemoryError> {
+impl MemoryModule for JsonlMemoryStoreModule {
+    fn remember_json(&self, item_json: String) -> Result<(), ProcessModuleError> {
         match remember_impl(&self.path, &self.lock, item_json.as_str()) {
-            Ok(()) => RResult::ROk(()),
-            Err(error) => RResult::RErr(PluginMemoryError::new(format!("{error:#}"))),
+            Ok(()) => Ok(()),
+            Err(error) => Err(ProcessModuleError::new(format!("{error:#}"))),
         }
     }
 
-    fn recall_json(&self, query_json: RString) -> RResult<RString, PluginMemoryError> {
+    fn recall_json(&self, query_json: String) -> Result<String, ProcessModuleError> {
         match recall_impl(&self.path, query_json.as_str()) {
             Ok(items) => match serde_json::to_string(&items) {
-                Ok(body) => RResult::ROk(body.into()),
-                Err(error) => RResult::RErr(PluginMemoryError::new(format!(
+                Ok(body) => Ok(body.into()),
+                Err(error) => Err(ProcessModuleError::new(format!(
                     "failed to serialize memory items: {error}"
                 ))),
             },
-            Err(error) => RResult::RErr(PluginMemoryError::new(format!("{error:#}"))),
+            Err(error) => Err(ProcessModuleError::new(format!("{error:#}"))),
         }
     }
 }
@@ -133,27 +128,16 @@ fn recall_impl(path: &PathBuf, query_json: &str) -> Result<Vec<MemoryItem>> {
     Ok(items)
 }
 
-#[cfg(feature = "plugin-entrypoint")]
-extern "C" fn register_modules(
-    registry: &mut PluginRegistryMut<'_>,
-) -> RResult<(), PluginRegisterError> {
-    let store: MemoryStoreObject =
-        PluginMemoryStore_TO::from_value(JsonlMemoryStorePlugin::default(), TD_Opaque);
-    if let RResult::RErr(error) = registry.register_memory_store(AbiRString::from("jsonl"), store) {
-        return RResult::RErr(error);
+pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), ProcessModuleError> {
+    let config: JsonlMemoryConfig = serde_json::from_value(registry.module_config().clone())
+        .map_err(|error| {
+            ProcessModuleError::new(format!("invalid jsonl memory config: {error}"))
+        })?;
+    let store: MemoryModuleObject = Box::new(JsonlMemoryStoreModule::new(config.path));
+    if let Err(error) = registry.register_memory(String::from("jsonl"), store) {
+        return Err(error);
     }
-    RResult::ROk(())
-}
-
-#[cfg(feature = "plugin-entrypoint")]
-#[export_root_module]
-pub fn instantiate_root_module() -> PluginRoot_Ref {
-    PluginRoot {
-        name: RStr::from_str("memory-pack"),
-        description: RStr::from_str("JSONL memory store"),
-        register_modules,
-    }
-    .leak_into_prefix()
+    Ok(())
 }
 
 #[cfg(test)]

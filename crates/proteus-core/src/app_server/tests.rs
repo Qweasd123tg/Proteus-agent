@@ -1,12 +1,5 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
-use coding_workflow::CodingPlanExecuteReviewWorkflow;
-use context_pack::SimpleContextBuilderPlugin;
-use policy_pack::AskWritePolicyPlugin;
-use proteus_contracts::{
-    abi_stable::sabi_trait::TD_Opaque,
-    plugin::{PluginApprovalPolicy_TO, PluginContextBuilder_TO, PluginWorkflow_TO},
-};
 use tokio::sync::{Mutex, broadcast, mpsc, oneshot};
 
 use super::*;
@@ -19,26 +12,7 @@ use crate::{
 };
 
 fn test_catalog() -> ModuleCatalog {
-    let mut catalog = ModuleCatalog::new();
-    catalog
-        .register_plugin_context_builder(
-            "simple",
-            PluginContextBuilder_TO::from_value(SimpleContextBuilderPlugin, TD_Opaque),
-        )
-        .expect("register test context builder");
-    catalog
-        .register_plugin_workflow(
-            "coding.plan_execute_review",
-            PluginWorkflow_TO::from_value(CodingPlanExecuteReviewWorkflow, TD_Opaque),
-        )
-        .expect("register test workflow");
-    catalog
-        .register_plugin_policy(
-            "ask_write",
-            PluginApprovalPolicy_TO::from_value(AskWritePolicyPlugin, TD_Opaque),
-        )
-        .expect("register test policy");
-    catalog
+    crate::test_support::module_catalog()
 }
 
 fn test_approval_request(approval_id: &str) -> AppApprovalRequest {
@@ -729,11 +703,13 @@ async fn zero_timeout_pending_user_input_resolves_on_shutdown() {
 async fn app_server_forwards_streaming_text_deltas_before_turn_output() {
     let cwd = tempfile::tempdir().expect("cwd");
     let mut config = AppConfig::default();
-    config.modules.workflow = "coding.plan_execute_review".to_owned();
-    config.modules.context = "simple".to_owned();
-    config.modules.policy = "ask_write".to_owned();
-    config.modules.renderer = "text".to_owned();
-    config.modules.patch = "null".to_owned();
+    crate::test_support::select_test_modules(&mut config, "coding.plan_execute_review");
+    let active_provider = config.active_provider.clone();
+    config
+        .providers
+        .get_mut(&active_provider)
+        .expect("default provider")
+        .provider_config = serde_json::json!({ "stream_delay_ms": 1 });
 
     let handle = AgentAppServer::launch_with_module_catalog(
         config,
@@ -785,11 +761,7 @@ async fn app_server_forwards_streaming_text_deltas_before_turn_output() {
 async fn transcript_projects_runtime_history_for_resume_ui() {
     let cwd = tempfile::tempdir().expect("cwd");
     let mut config = AppConfig::default();
-    config.modules.workflow = "coding.plan_execute_review".to_owned();
-    config.modules.context = "simple".to_owned();
-    config.modules.policy = "ask_write".to_owned();
-    config.modules.renderer = "text".to_owned();
-    config.modules.patch = "null".to_owned();
+    crate::test_support::select_test_modules(&mut config, "coding.plan_execute_review");
 
     let handle = AgentAppServer::launch_with_module_catalog(
         config,
@@ -998,12 +970,8 @@ args = ["ok"]
     let summary = handle.config_summary().await;
     assert_eq!(summary["module_epoch"].as_u64(), Some(1));
     assert!(
-        summary["modules"]
-            .as_array()
-            .expect("modules")
-            .iter()
-            .any(|module| module["slot"].as_str() == Some("workflow")
-                && module["id"].as_str() == Some("none"))
+        summary["modules"].as_array().expect("modules").is_empty(),
+        "reload_tools must preserve structural absence instead of selecting a module"
     );
     assert!(
         summary["registered_tools"]

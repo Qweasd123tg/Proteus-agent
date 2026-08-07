@@ -2,16 +2,6 @@ use super::*;
 use crate::cli_commands::{PromptReplayCommand, WorkflowReplayCommand};
 use proteus_core::domain::{ModuleKind, ModuleManifest};
 
-/// Disables plugin loading so tests don't pick up the developer's
-/// `~/.proteus/plugins/` contents. See also the same helper in the
-/// `module_swap` integration test.
-fn disable_plugins() {
-    static DISABLE: std::sync::Once = std::sync::Once::new();
-    DISABLE.call_once(|| unsafe {
-        std::env::set_var("PROTEUS_PLUGINS_DISABLE", "1");
-    });
-}
-
 #[test]
 fn modules_list_command_is_exact() {
     assert!(is_modules_list_command(&[
@@ -99,7 +89,6 @@ fn inspect_topology_command_parses_default_and_formats() {
         .expect("inspect command"),
         InspectTopologyFormat::Mermaid
     );
-    assert!(parse_inspect_topology_command(&["inspect".to_owned(), "plugins".to_owned()]).is_err());
     assert!(
         parse_inspect_topology_command(&["doctor".to_owned()])
             .expect("parse")
@@ -109,9 +98,8 @@ fn inspect_topology_command_parses_default_and_formats() {
 
 #[test]
 fn inspect_topology_reports_invalid_backend_without_building_it() {
-    disable_plugins();
     let mut config = AppConfig::default();
-    config.modules.search = "missing-search".to_owned();
+    config.modules.search = Some("missing-search".to_owned());
 
     let snapshot = build_cli_topology(
         &config,
@@ -131,59 +119,43 @@ fn inspect_topology_reports_invalid_backend_without_building_it() {
 
 #[test]
 fn read_only_cli_paths_do_not_start_process_modules() {
-    disable_plugins();
     let dir = tempfile::tempdir().expect("workspace");
     let marker = dir.path().join("process-search-started");
     let compactor_marker = dir.path().join("process-compactor-started");
     let workflow_marker = dir.path().join("process-workflow-started");
     let mut config = AppConfig::default();
-    config.modules.workflow = "process".to_owned();
-    config.modules.search = "process".to_owned();
-    config.modules.compactor = "process".to_owned();
-    config.modules.patch = "null".to_owned();
-    config.modules.subagent = "none".to_owned();
+    config.modules.workflow = Some("workflow-marker".to_owned());
+    config.modules.search = Some("search-marker".to_owned());
+    config.modules.compactor = Some("compactor-marker".to_owned());
     config.subagents.surface = proteus_core::core::SubagentSurface::None;
     config.tools.path = None;
     config.tools.enabled = vec!["search".to_owned()];
-    config
-        .module_config
-        .entry("workflow".to_owned())
-        .or_default()
-        .insert(
-            "process".to_owned(),
-            serde_json::json!({
-                "module_id": "marker",
-                "command": "/bin/sh",
-                "args": ["-c", format!("touch {}", workflow_marker.display())],
-                "handshake_timeout_ms": 1000
-            }),
-        );
-    config
-        .module_config
-        .entry("search".to_owned())
-        .or_default()
-        .insert(
-            "process".to_owned(),
-            serde_json::json!({
-                "module_id": "marker",
-                "command": "/bin/sh",
-                "args": ["-c", format!("touch {}", marker.display())],
-                "timeout_ms": 1000
-            }),
-        );
-    config
-        .module_config
-        .entry("compactor".to_owned())
-        .or_default()
-        .insert(
-            "process".to_owned(),
-            serde_json::json!({
-                "module_id": "marker",
-                "command": "/bin/sh",
-                "args": ["-c", format!("touch {}", compactor_marker.display())],
-                "timeout_ms": 1000
-            }),
-        );
+    config.process_modules = vec![
+        serde_json::from_value(serde_json::json!({
+            "slot": "workflow",
+            "module_id": "workflow-marker",
+            "command": "/bin/sh",
+            "args": ["-c", format!("touch {}", workflow_marker.display())],
+            "handshake_timeout_ms": 1000
+        }))
+        .expect("workflow descriptor"),
+        serde_json::from_value(serde_json::json!({
+            "slot": "search",
+            "module_id": "search-marker",
+            "command": "/bin/sh",
+            "args": ["-c", format!("touch {}", marker.display())],
+            "timeout_ms": 1000
+        }))
+        .expect("search descriptor"),
+        serde_json::from_value(serde_json::json!({
+            "slot": "compactor",
+            "module_id": "compactor-marker",
+            "command": "/bin/sh",
+            "args": ["-c", format!("touch {}", compactor_marker.display())],
+            "timeout_ms": 1000
+        }))
+        .expect("compactor descriptor"),
+    ];
 
     let _tools = build_tool_registry_for_listing(&config, dir.path()).expect("tool list registry");
     let _topology =
@@ -203,23 +175,24 @@ fn read_only_cli_paths_do_not_start_process_modules() {
         !workflow_marker.exists(),
         "read-only CLI path unexpectedly spawned process workflow"
     );
-    assert!(
-        findings.entries.iter().any(|entry| {
-            entry.level == "ok" && entry.message.contains("search backend process")
-        })
-    );
-    assert!(
-        findings
-            .entries
-            .iter()
-            .any(|entry| { entry.level == "ok" && entry.message.contains("compactor process") })
-    );
-    assert!(
-        findings
-            .entries
-            .iter()
-            .any(|entry| { entry.level == "ok" && entry.message.contains("workflow process") })
-    );
+    assert!(findings.entries.iter().any(|entry| {
+        entry.level == "ok"
+            && entry
+                .message
+                .contains("process module search/search-marker")
+    }));
+    assert!(findings.entries.iter().any(|entry| {
+        entry.level == "ok"
+            && entry
+                .message
+                .contains("process module compactor/compactor-marker")
+    }));
+    assert!(findings.entries.iter().any(|entry| {
+        entry.level == "ok"
+            && entry
+                .message
+                .contains("process module workflow/workflow-marker")
+    }));
 }
 
 #[test]
@@ -576,7 +549,10 @@ async fn init_coding_writes_loadable_single_config_file() {
     assert_eq!(config.profile.name, "coding-local");
     assert_eq!(config.active_provider, "anthropic");
     assert_eq!(model.provider, "anthropic");
-    assert_eq!(config.modules.workflow, "coding.single_loop");
+    assert_eq!(
+        config.modules.workflow.as_deref(),
+        Some("coding.single_loop")
+    );
 }
 
 #[tokio::test]
@@ -600,17 +576,23 @@ async fn init_codex_writes_loadable_single_config_file() {
         .expect("generated config loads");
 
     assert_eq!(config.profile.name, "codex-proxy");
-    assert_eq!(config.modules.workflow, "coding.codex_loop");
-    assert_eq!(config.modules.context, "codex_context");
-    assert_eq!(config.modules.compactor, "codex");
-    assert_eq!(config.modules.renderer, "text");
+    assert_eq!(
+        config.modules.workflow.as_deref(),
+        Some("coding.codex_loop")
+    );
+    assert_eq!(config.modules.context.as_deref(), Some("codex_context"));
+    assert_eq!(config.modules.compactor.as_deref(), Some("codex"));
+    assert!(config.modules.renderer.is_none());
     assert_eq!(
         config.module_config_value(ModuleKind::Context, "codex_context")["providers"],
         serde_json::json!(["project_instructions", "skills", "environment"])
     );
     // Cache-stable codex_dynamic не использует task text как implicit query;
     // hidden tools остаются доступны через deferred meta-tools workflow-а.
-    assert_eq!(config.modules.tool_exposure, "codex_dynamic");
+    assert_eq!(
+        config.modules.tool_exposure.as_deref(),
+        Some("codex_dynamic")
+    );
     assert!(dir.path().join("prompts/codex-default.md").exists());
     assert!(
         config
@@ -841,12 +823,10 @@ fn module_list_output_contains_catalog_rows() {
 
 #[test]
 fn tool_list_output_contains_registered_tools() {
-    disable_plugins();
     let mut config = AppConfig::default();
-    config.modules.patch = "null".to_owned();
     config.tools.path = None;
-    // File I/O and shell are plugin-provided; use the remaining builtin
-    // tools to exercise render_tool_list without depending on plugins.
+    // File I/O and shell are process-provided; use the remaining host tools
+    // to exercise render_tool_list without launching workers.
     config.tools.enabled = vec!["apply_patch".to_owned(), "search".to_owned()];
     let dir = tempfile::tempdir().expect("temp dir");
     let registry = build_tool_registry_for_listing(&config, dir.path()).unwrap();

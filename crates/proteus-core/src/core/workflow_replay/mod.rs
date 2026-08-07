@@ -39,6 +39,18 @@ pub async fn replay_workflow(
     options: WorkflowReplayOptions,
 ) -> Result<WorkflowReplayReport> {
     let fixture = load_fixture(path.as_ref(), options)?;
+    let workflow_id = fixture
+        .snapshot
+        .modules
+        .workflow
+        .clone()
+        .context("recorded turn has no workflow module")?;
+    let policy_id = fixture
+        .snapshot
+        .modules
+        .policy
+        .clone()
+        .context("recorded turn has no policy module")?;
     let journal_before = std::fs::read(&fixture.journal_path).with_context(|| {
         format!(
             "failed to read source journal {} before workflow replay",
@@ -71,32 +83,23 @@ pub async fn replay_workflow(
     replay_config.profile.name = fixture.snapshot.profile_name.clone();
     replay_config.modules = fixture.snapshot.modules.clone();
     replay_config.permissions.mode = fixture.snapshot.permission_mode_default;
+    let context_providers = catalog.build_context_providers(&fixture.opened.task.cwd)?;
     let build_ctx = ModuleBuildContext {
         config: &replay_config,
         cwd: &fixture.opened.task.cwd,
-        context_providers: catalog.context_providers(),
+        context_providers: &context_providers,
     };
     let workflow = catalog
-        .build_workflow(&fixture.snapshot.modules.workflow, &build_ctx)
-        .with_context(|| {
-            format!(
-                "failed to build recorded workflow module '{}'",
-                fixture.snapshot.modules.workflow
-            )
-        })?;
+        .build_workflow(&workflow_id, &build_ctx)
+        .with_context(|| format!("failed to build recorded workflow module '{}'", workflow_id))?;
     let policy_ctx = PolicyBuildContext {
         config: &replay_config,
         cwd: &fixture.opened.task.cwd,
         tools: &tools,
     };
     let policy = catalog
-        .build_policy(&fixture.snapshot.modules.policy, &policy_ctx)
-        .with_context(|| {
-            format!(
-                "failed to build recorded policy module '{}'",
-                fixture.snapshot.modules.policy
-            )
-        })?;
+        .build_policy(&policy_id, &policy_ctx)
+        .with_context(|| format!("failed to build recorded policy module '{}'", policy_id))?;
     let policy = Arc::new(ModeAwarePolicy::new(
         fixture.snapshot.permission_mode_default,
         policy,
@@ -257,8 +260,8 @@ pub async fn replay_workflow(
             turn_id: fixture.turn_id,
             module_epoch: fixture.opened.module_epoch,
             profile_name: fixture.snapshot.profile_name,
-            workflow_id: fixture.snapshot.modules.workflow,
-            policy_id: fixture.snapshot.modules.policy,
+            workflow_id,
+            policy_id,
         },
         recorded: recorded_outcome,
         replay: replay_outcome,

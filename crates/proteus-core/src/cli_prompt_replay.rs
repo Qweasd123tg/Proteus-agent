@@ -1,9 +1,8 @@
 use anyhow::Result;
 
 use proteus_core::core::{
-    AppConfig, PromptReplayCounts, PromptReplayNames, PromptReplayOptions,
-    PromptReplayOutcomeSummary, PromptReplayReport, PromptReplayUsage, load_runtime_module_catalog,
-    replay_prompt,
+    AppConfig, ModuleCatalog, PromptReplayCounts, PromptReplayNames, PromptReplayOptions,
+    PromptReplayOutcomeSummary, PromptReplayReport, PromptReplayUsage, replay_prompt,
 };
 
 use crate::cli_commands::PromptReplayCommand;
@@ -13,7 +12,7 @@ pub(crate) async fn run_prompt_replay(
     command: PromptReplayCommand,
 ) -> Result<String> {
     let model_config = config.active_model_config()?;
-    let (catalog, _) = load_runtime_module_catalog();
+    let catalog = ModuleCatalog::from_config(config)?;
     let adapter = catalog.build_model_adapter(&model_config)?;
     let report = replay_prompt(
         command.source,

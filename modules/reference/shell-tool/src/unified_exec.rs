@@ -22,9 +22,10 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use proteus_contracts::{
-    abi_stable::std_types::{RResult, RString},
     domain::{EXEC_SHELL, SessionId, ThreadId},
-    plugin::{PluginTool, PluginToolError, PluginToolHostMut, PluginToolInvocationContext},
+    process_module::{
+        ProcessModuleError, ToolModule, ToolModuleHostMut, ToolModuleInvocationContext,
+    },
 };
 use serde_json::{Value, json};
 
@@ -56,8 +57,8 @@ const EXIT_DRAIN_GRACE: Duration = Duration::from_millis(150);
 
 pub(crate) struct ExecCommandTool;
 
-impl PluginTool for ExecCommandTool {
-    fn spec_json(&self) -> RString {
+impl ToolModule for ExecCommandTool {
+    fn spec_json(&self) -> String {
         let spec = json!({
             "name": "exec_command",
             "description": "Runs a shell command (sh -lc) in an interactive PTY session. Waits up to `yield_time_ms` for output; if the process is still running, returns a Session ID for follow-up interaction via `write_stdin`. Non-escalated commands require bwrap and run with no network access, a private PID namespace, and a read-only filesystem outside the workspace; execution fails closed when bwrap is unavailable or disabled. The sandbox network is isolated per session: a localhost server started in a sandboxed session is unreachable from other tool calls and from the user's machine; start servers that must stay reachable with `with_escalated_permissions: true`. Set `with_escalated_permissions: true` with a short `justification` to request an unsandboxed run (requires user approval). Non-escalated workdirs must stay inside the workspace. Live sessions belong to the current runtime session/thread/workspace, expire after 30 minutes idle, and are killed when the invocation is cancelled. At most 16 live sessions: the least recently used one is killed to make room, so close finished sessions via write_stdin (Ctrl-C/Ctrl-D). Safety: RunsCommands.",
@@ -97,26 +98,26 @@ impl PluginTool for ExecCommandTool {
                 "aliases": ["interactive shell", "repl", "long-running command"]
             }
         });
-        RString::from(spec.to_string())
+        String::from(spec.to_string())
     }
 
     fn invoke_json(
         &self,
-        call_json: RString,
-        context_json: RString,
-        host: &mut PluginToolHostMut<'_>,
-    ) -> RResult<RString, PluginToolError> {
+        call_json: String,
+        context_json: String,
+        host: &mut ToolModuleHostMut<'_>,
+    ) -> Result<String, ProcessModuleError> {
         match exec_command_impl(call_json.as_str(), context_json.as_str(), host) {
-            Ok(result_json) => RResult::ROk(RString::from(result_json)),
-            Err(error) => RResult::RErr(PluginToolError::new(format!("{error:#}"))),
+            Ok(result_json) => Ok(String::from(result_json)),
+            Err(error) => Err(ProcessModuleError::new(format!("{error:#}"))),
         }
     }
 }
 
 pub(crate) struct WriteStdinTool;
 
-impl PluginTool for WriteStdinTool {
-    fn spec_json(&self) -> RString {
+impl ToolModule for WriteStdinTool {
+    fn spec_json(&self) -> String {
         let spec = json!({
             "name": "write_stdin",
             "description": "Writes characters to a running exec_command session owned by the current runtime session/thread/workspace and returns output produced within `yield_time_ms`. Send \"\\u0003\" (Ctrl-C) to interrupt or \"\\u0004\" (Ctrl-D) to close stdin; empty `chars` polls for more output. Cancelling the invocation kills and removes the session. Safety: RunsCommands.",
@@ -151,18 +152,18 @@ impl PluginTool for WriteStdinTool {
                 "aliases": ["send input", "interrupt process", "poll output"]
             }
         });
-        RString::from(spec.to_string())
+        String::from(spec.to_string())
     }
 
     fn invoke_json(
         &self,
-        call_json: RString,
-        context_json: RString,
-        host: &mut PluginToolHostMut<'_>,
-    ) -> RResult<RString, PluginToolError> {
+        call_json: String,
+        context_json: String,
+        host: &mut ToolModuleHostMut<'_>,
+    ) -> Result<String, ProcessModuleError> {
         match write_stdin_impl(call_json.as_str(), context_json.as_str(), host) {
-            Ok(result_json) => RResult::ROk(RString::from(result_json)),
-            Err(error) => RResult::RErr(PluginToolError::new(format!("{error:#}"))),
+            Ok(result_json) => Ok(String::from(result_json)),
+            Err(error) => Err(ProcessModuleError::new(format!("{error:#}"))),
         }
     }
 }
@@ -198,7 +199,7 @@ struct ExecSessionOwner {
 }
 
 impl ExecSessionOwner {
-    fn from_context(context: &PluginToolInvocationContext, canonical_workspace: &str) -> Self {
+    fn from_context(context: &ToolModuleInvocationContext, canonical_workspace: &str) -> Self {
         Self {
             session_id: context.owner.session_id,
             thread_id: context.owner.thread_id,
@@ -206,7 +207,7 @@ impl ExecSessionOwner {
         }
     }
 
-    fn matches(&self, context: &PluginToolInvocationContext) -> bool {
+    fn matches(&self, context: &ToolModuleInvocationContext) -> bool {
         let Ok(workspace) = context.cwd.canonicalize() else {
             return false;
         };
@@ -299,13 +300,13 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 fn exec_command_impl(
     call_json: &str,
     context_json: &str,
-    host: &mut PluginToolHostMut<'_>,
+    host: &mut ToolModuleHostMut<'_>,
 ) -> Result<String> {
     ensure_not_cancelled(host)?;
     let call: Value =
         serde_json::from_str(call_json).with_context(|| "failed to parse ToolCall JSON")?;
-    let context: PluginToolInvocationContext = serde_json::from_str(context_json)
-        .with_context(|| "failed to parse PluginToolInvocationContext")?;
+    let context: ToolModuleInvocationContext = serde_json::from_str(context_json)
+        .with_context(|| "failed to parse ToolModuleInvocationContext")?;
     let call_id = call
         .get("id")
         .and_then(Value::as_str)
@@ -335,10 +336,10 @@ fn execute_command(
     call_id: String,
     args: Option<&Value>,
     cmd: &str,
-    context: &PluginToolInvocationContext,
+    context: &ToolModuleInvocationContext,
     escalated: bool,
     sandbox_policy: SandboxPolicy,
-    host: &mut PluginToolHostMut<'_>,
+    host: &mut ToolModuleHostMut<'_>,
 ) -> Result<String> {
     ensure_not_cancelled(host)?;
     let cwd = context.cwd.to_string_lossy();
@@ -390,13 +391,13 @@ fn execute_command(
 fn write_stdin_impl(
     call_json: &str,
     context_json: &str,
-    host: &mut PluginToolHostMut<'_>,
+    host: &mut ToolModuleHostMut<'_>,
 ) -> Result<String> {
     ensure_not_cancelled(host)?;
     let call: Value =
         serde_json::from_str(call_json).with_context(|| "failed to parse ToolCall JSON")?;
-    let context: PluginToolInvocationContext = serde_json::from_str(context_json)
-        .with_context(|| "failed to parse PluginToolInvocationContext")?;
+    let context: ToolModuleInvocationContext = serde_json::from_str(context_json)
+        .with_context(|| "failed to parse ToolModuleInvocationContext")?;
     let call_id = call
         .get("id")
         .and_then(Value::as_str)
@@ -652,7 +653,7 @@ fn session_to_prune(meta: &[(i64, Instant, bool)]) -> Option<i64> {
 fn wait_and_collect(
     session: &ExecSession,
     yield_time: Duration,
-    host: &mut PluginToolHostMut<'_>,
+    host: &mut ToolModuleHostMut<'_>,
 ) -> Result<Collected> {
     let deadline = Instant::now() + yield_time;
     let mut output = lock(&session.output);
@@ -693,18 +694,18 @@ fn wait_and_collect(
     })
 }
 
-fn ensure_not_cancelled(host: &mut PluginToolHostMut<'_>) -> Result<()> {
+fn ensure_not_cancelled(host: &mut ToolModuleHostMut<'_>) -> Result<()> {
     if invocation_is_cancelled(host)? {
         anyhow::bail!("tool invocation canceled");
     }
     Ok(())
 }
 
-fn invocation_is_cancelled(host: &mut PluginToolHostMut<'_>) -> Result<bool> {
+fn invocation_is_cancelled(host: &mut ToolModuleHostMut<'_>) -> Result<bool> {
     match host.is_cancelled() {
-        RResult::ROk(cancelled) => Ok(cancelled),
-        RResult::RErr(error) => Err(anyhow!(
-            "failed to query plugin tool cancellation: {}",
+        Ok(cancelled) => Ok(cancelled),
+        Err(error) => Err(anyhow!(
+            "failed to query module cancellation: {}",
             error.message
         )),
     }

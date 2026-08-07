@@ -65,11 +65,13 @@ impl AppConfig {
 
     fn validate_module_config_slots(&self) -> Result<()> {
         for slot in self.module_config.keys() {
-            let Some(descriptor) = core_slot_descriptor_by_id(slot) else {
-                bail!("unknown module_config slot {slot:?}");
-            };
-            if descriptor.selection != CoreSlotSelection::ModulesConfig {
-                bail!("module_config is not supported for slot {slot:?}");
+            if matches!(slot.as_str(), "tool" | "context_provider") {
+                continue;
+            }
+            match core_slot_descriptor_by_id(slot) {
+                Some(descriptor) if descriptor.selection == CoreSlotSelection::ModulesConfig => {}
+                Some(_) => bail!("module_config is not supported for slot {slot:?}"),
+                None => bail!("unknown module_config slot {slot:?}"),
             }
         }
         Ok(())

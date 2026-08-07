@@ -243,7 +243,7 @@ fn configured_native_handler(
         other => bail!(
             "unsupported native tool handler: '{other}'. File I/O (read_file, \
              write_file, list_dir) and shell are now provided by the `file-tools` \
-             and `shell-tool` plugins — use tools.enabled with the plugin names, \
+             and `shell-tool` process modules — use tools.enabled with their tool names, \
              not configured.native.handler."
         ),
     }

@@ -1,9 +1,8 @@
 use std::collections::HashSet;
 
 use proteus_contracts::{
-    abi_stable::std_types::{RResult, RString},
     domain::{ToolCall, ToolResult, ToolSafety, ToolSpec, ToolSurface, new_call_id},
-    plugin::{PluginWorkflowError, PluginWorkflowHostMut, PluginWorkflowInput},
+    process_module::{ProcessModuleError, WorkflowModuleHostMut, WorkflowModuleInput},
 };
 use serde_json::{Value, json};
 
@@ -27,12 +26,12 @@ pub fn is_meta_tool(name: &str) -> bool {
     matches!(name, TOOL_SEARCH | TOOL_DESCRIBE | TOOL_CALL)
 }
 
-pub fn has_hidden_tools(selected: &[ToolSpec], all_visible: &[ToolSpec]) -> bool {
+pub fn has_hidden_tools(selected: &[ToolSpec], all_candidates: &[ToolSpec]) -> bool {
     let selected_names = selected
         .iter()
         .map(|tool| tool.name.as_str())
         .collect::<HashSet<_>>();
-    all_visible
+    all_candidates
         .iter()
         .any(|tool| !selected_names.contains(tool.name.as_str()))
 }
@@ -130,24 +129,23 @@ pub fn meta_tool_specs_for_phase(phase: &str) -> Vec<ToolSpec> {
 }
 
 pub fn all_policy_visible_tools(
-    host: &mut PluginWorkflowHostMut<'_>,
-    input: &PluginWorkflowInput,
-) -> Result<Vec<ToolSpec>, PluginWorkflowError> {
-    let tools_json = match host
-        .visible_tools_json(RString::from(input.task.cwd.display().to_string()))
-    {
-        RResult::ROk(json) => json,
-        RResult::RErr(error) => return Err(PluginWorkflowError::new(error.message.into_string())),
-    };
+    host: &mut WorkflowModuleHostMut<'_>,
+    input: &WorkflowModuleInput,
+) -> Result<Vec<ToolSpec>, ProcessModuleError> {
+    let tools_json =
+        match host.visible_tools_json(String::from(input.task.cwd.display().to_string())) {
+            Ok(json) => json,
+            Err(error) => return Err(ProcessModuleError::new(error.message)),
+        };
     from_json_string(tools_json.as_str())
 }
 
 pub fn handle_meta_tool_call(
-    host: &mut PluginWorkflowHostMut<'_>,
-    input: &PluginWorkflowInput,
+    host: &mut WorkflowModuleHostMut<'_>,
+    input: &WorkflowModuleInput,
     call: &ToolCall,
     phase: &str,
-) -> Result<ToolResult, PluginWorkflowError> {
+) -> Result<ToolResult, ProcessModuleError> {
     match call.name.as_str() {
         TOOL_SEARCH => handle_search(host, input, call),
         TOOL_DESCRIBE => handle_describe(host, input, call),
@@ -160,10 +158,10 @@ pub fn handle_meta_tool_call(
 }
 
 fn handle_search(
-    host: &mut PluginWorkflowHostMut<'_>,
-    input: &PluginWorkflowInput,
+    host: &mut WorkflowModuleHostMut<'_>,
+    input: &WorkflowModuleInput,
     call: &ToolCall,
-) -> Result<ToolResult, PluginWorkflowError> {
+) -> Result<ToolResult, ProcessModuleError> {
     let Some(args) = call.args.as_object() else {
         return Ok(ToolResult::error(
             call.id.clone(),
@@ -223,10 +221,10 @@ fn handle_search(
 }
 
 fn handle_describe(
-    host: &mut PluginWorkflowHostMut<'_>,
-    input: &PluginWorkflowInput,
+    host: &mut WorkflowModuleHostMut<'_>,
+    input: &WorkflowModuleInput,
     call: &ToolCall,
-) -> Result<ToolResult, PluginWorkflowError> {
+) -> Result<ToolResult, ProcessModuleError> {
     let Some(args) = call.args.as_object() else {
         return Ok(ToolResult::error(
             call.id.clone(),
@@ -272,11 +270,11 @@ fn handle_describe(
 }
 
 fn handle_deferred_call(
-    host: &mut PluginWorkflowHostMut<'_>,
-    input: &PluginWorkflowInput,
+    host: &mut WorkflowModuleHostMut<'_>,
+    input: &WorkflowModuleInput,
     outer_call: &ToolCall,
     phase: &str,
-) -> Result<ToolResult, PluginWorkflowError> {
+) -> Result<ToolResult, ProcessModuleError> {
     let Some(args) = outer_call.args.as_object() else {
         return Ok(ToolResult::error(
             outer_call.id.clone(),
@@ -339,7 +337,7 @@ fn handle_deferred_call(
     Ok(result)
 }
 
-fn json_result(call: &ToolCall, value: Value) -> Result<ToolResult, PluginWorkflowError> {
+fn json_result(call: &ToolCall, value: Value) -> Result<ToolResult, ProcessModuleError> {
     Ok(
         ToolResult::ok(call.id.clone(), to_json_string(&value)?).with_metadata(json!({
             "tool": call.name,

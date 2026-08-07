@@ -5,14 +5,14 @@ use proteus_contracts::{
     model_standard::{
         CanonicalModelRequest, CanonicalModelResponse, validate_model_response_against_request,
     },
-    plugin::PluginWorkflowError,
+    process_module::ProcessModuleError,
 };
 
 pub(crate) fn validate_model_response(
     workflow: &str,
     request: &CanonicalModelRequest,
     response: &CanonicalModelResponse,
-) -> Result<(), PluginWorkflowError> {
+) -> Result<(), ProcessModuleError> {
     validate_model_response_impl(workflow, request, response, true)
 }
 
@@ -24,7 +24,7 @@ pub(crate) fn validate_codex_model_response(
     workflow: &str,
     request: &CanonicalModelRequest,
     response: &CanonicalModelResponse,
-) -> Result<(), PluginWorkflowError> {
+) -> Result<(), ProcessModuleError> {
     validate_model_response_impl(workflow, request, response, false)
 }
 
@@ -33,9 +33,9 @@ fn validate_model_response_impl(
     request: &CanonicalModelRequest,
     response: &CanonicalModelResponse,
     require_request_visible_tools: bool,
-) -> Result<(), PluginWorkflowError> {
+) -> Result<(), ProcessModuleError> {
     validate_model_response_against_request(request, response)
-        .map_err(|error| PluginWorkflowError::new(format!("{workflow} {error}")))?;
+        .map_err(|error| ProcessModuleError::new(format!("{workflow} {error}")))?;
     if require_request_visible_tools {
         validate_tool_calls_are_request_visible(workflow, &request.tools, &response.tool_calls)?;
     }
@@ -46,14 +46,14 @@ fn validate_tool_calls_are_request_visible(
     workflow: &str,
     request_tools: &[ToolSpec],
     tool_calls: &[ToolCall],
-) -> Result<(), PluginWorkflowError> {
+) -> Result<(), ProcessModuleError> {
     let visible_names = request_tools
         .iter()
         .map(|tool| tool.name.as_str())
         .collect::<HashSet<_>>();
     for call in tool_calls {
         if !visible_names.contains(call.name.as_str()) {
-            return Err(PluginWorkflowError::new(format!(
+            return Err(ProcessModuleError::new(format!(
                 "{workflow} model requested tool '{}' that was not present in the model request",
                 call.name
             )));

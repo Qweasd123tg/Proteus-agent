@@ -5,13 +5,6 @@ use std::sync::{
 
 use anyhow::Result;
 use async_trait::async_trait;
-use coding_workflow::CodingPlanExecuteReviewWorkflow;
-use context_pack::SimpleContextBuilderPlugin;
-use policy_pack::AskWritePolicyPlugin;
-use proteus_contracts::{
-    abi_stable::sabi_trait::TD_Opaque,
-    plugin::{PluginApprovalPolicy_TO, PluginContextBuilder_TO, PluginWorkflow_TO},
-};
 use tokio::time::Duration;
 
 use super::turn::{TurnAbort, turn_settlement_status};
@@ -26,26 +19,7 @@ use crate::{
 mod steering_integration;
 
 fn test_catalog() -> ModuleCatalog {
-    let mut catalog = ModuleCatalog::new();
-    catalog
-        .register_plugin_context_builder(
-            "simple",
-            PluginContextBuilder_TO::from_value(SimpleContextBuilderPlugin, TD_Opaque),
-        )
-        .expect("register test context builder");
-    catalog
-        .register_plugin_workflow(
-            "coding.plan_execute_review",
-            PluginWorkflow_TO::from_value(CodingPlanExecuteReviewWorkflow, TD_Opaque),
-        )
-        .expect("register test workflow");
-    catalog
-        .register_plugin_policy(
-            "ask_write",
-            PluginApprovalPolicy_TO::from_value(AskWritePolicyPlugin, TD_Opaque),
-        )
-        .expect("register test policy");
-    catalog
+    crate::test_support::module_catalog()
 }
 
 fn message_text_for_test(message: &CanonicalMessage) -> String {
@@ -226,8 +200,7 @@ impl Workflow for SnapshotProbeWorkflow {
 #[tokio::test]
 async fn run_errors_when_workflow_returns_no_turn_messages() {
     let cwd = tempfile::tempdir().expect("temp dir");
-    let mut config = AppConfig::default();
-    config.modules.patch = "null".to_owned();
+    let config = AppConfig::default();
     let runtime = AgentRuntime::builder(config, cwd.path().to_path_buf())
         .with_module_catalog(test_catalog())
         .build()
@@ -258,8 +231,7 @@ async fn failed_turn_keeps_user_message_in_runtime_and_session_store() {
     let config_root = tempfile::tempdir().expect("config root");
     let workspace = tempfile::tempdir().expect("workspace");
     let config_path = config_root.path().join("configs").join("config.toml");
-    let mut config = AppConfig::default();
-    config.modules.patch = "null".to_owned();
+    let config = AppConfig::default();
     let runtime = AgentRuntime::builder(config, workspace.path().to_path_buf())
         .with_config_path(Some(&config_path))
         .with_module_catalog(test_catalog())
@@ -296,8 +268,7 @@ async fn compaction_replaces_runtime_and_session_history() {
     let config_root = tempfile::tempdir().expect("config root");
     let workspace = tempfile::tempdir().expect("workspace");
     let config_path = config_root.path().join("configs").join("config.toml");
-    let mut config = AppConfig::default();
-    config.modules.patch = "null".to_owned();
+    let config = AppConfig::default();
     let runtime = AgentRuntime::builder(config, workspace.path().to_path_buf())
         .with_config_path(Some(&config_path))
         .with_module_catalog(test_catalog())
@@ -344,8 +315,7 @@ async fn model_exchange_is_recorded_in_session_journal() {
     let config_root = tempfile::tempdir().expect("config root");
     let workspace = tempfile::tempdir().expect("workspace");
     let config_path = config_root.path().join("configs").join("config.toml");
-    let mut config = AppConfig::default();
-    config.modules.patch = "null".to_owned();
+    let config = AppConfig::default();
     let runtime = AgentRuntime::builder(config, workspace.path().to_path_buf())
         .with_config_path(Some(&config_path))
         .with_module_catalog(test_catalog())
@@ -380,11 +350,7 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
     let mut config = AppConfig::default();
     config.profile.name = "snapshot-profile".to_owned();
     config.permissions.mode = PermissionMode::Auto;
-    config.modules.workflow = "coding.plan_execute_review".to_owned();
-    config.modules.context = "simple".to_owned();
-    config.modules.policy = "ask_write".to_owned();
-    config.modules.compactor = "none".to_owned();
-    config.modules.tool_exposure = "all_visible".to_owned();
+    crate::test_support::select_test_modules(&mut config, "coding.plan_execute_review");
     let runtime = AgentRuntime::builder(config, workspace.path().to_path_buf())
         .with_config_path(Some(&config_path))
         .with_module_catalog(test_catalog())
@@ -410,14 +376,13 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
     assert_eq!(value["modules"]["workflow"], "coding.plan_execute_review");
     assert_eq!(value["modules"]["context"], "simple");
     assert_eq!(value["modules"]["policy"], "ask_write");
-    assert_eq!(value["modules"]["compactor"], "none");
-    assert_eq!(value["modules"]["tool_exposure"], "all_visible");
+    assert!(value["modules"]["compactor"].is_null());
+    assert!(value["modules"]["tool_exposure"].is_null());
     assert_eq!(value["permission_mode_default"], "auto");
     assert!(value["tools"].as_array().is_some());
 
     let mut reloaded_config = AppConfig::default();
     reloaded_config.profile.name = "reloaded-profile".to_owned();
-    reloaded_config.modules.patch = "null".to_owned();
     let mut reloaded_registry = RuntimeRegistry::from_catalog(
         &reloaded_config,
         workspace.path().to_path_buf(),

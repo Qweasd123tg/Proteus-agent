@@ -8,13 +8,51 @@ name = "dev-slim"
 # coding-agent path; parked/research capabilities stay out of the hot surface.
 workflow = "coding.single_loop"
 search = "rg"
-memory = "none"
 context = "repo_aware"
 policy = "ask_write"
 patch = "direct"
 compactor = "codex"
-tool_exposure = "all_visible"
 renderer = "statusline"
+
+[[process_modules]]
+slot = "workflow"
+module_id = "coding.single_loop"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "search"
+module_id = "rg"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "context"
+module_id = "repo_aware"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "policy"
+module_id = "ask_write"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "patch"
+module_id = "direct"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "compactor"
+module_id = "codex"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "renderer"
+module_id = "statusline"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "tool"
+module_id = "reference.tools"
+command = "proteus-reference-worker"
 
 [tools]
 enabled = ["search", "read_file", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "apply_patch", "shell"]

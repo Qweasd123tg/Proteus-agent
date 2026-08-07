@@ -1,312 +1,199 @@
 # Proteus
 
-Локальный coding-agent runtime на Rust. Его задача — дать один рабочий агентный
-цикл, в котором модель, context, tools, policy, workflow и UI можно менять
-независимо, не переписывая ядро.
+Proteus — локальный coding-agent runtime на Rust. Его основная граница:
 
-## Короткий вердикт
+```text
+Core -> Contract -> Process Module
+```
 
-Proteus уже можно использовать для локального dogfood: он запускает coding
-turn-ы, вызывает tools с approvals, сохраняет сессии и event log, работает из
-CLI или через web-клиент. Текущий release временно загружает используемые
-dogfood/reference реализации как dylib; они не образуют standard/default pack.
+Core управляет turn lifecycle, canonical history, approvals и wiring. Поиск,
+память, context, policy, patch, compaction, tool exposure, workflow, renderer и
+tools подключаются как внешние процессы по strict JSON-RPC protocol v1.
+`module_id` выбирает реализацию, но не меняет её права:
 
-Это пока не готовая универсальная платформа. Текущая цель — надёжный локальный
-coding loop и единая process-only граница, на которой реализации одного slot
-имеют одинаковые права независимо от происхождения. План cutover зафиксирован
-в [process-module-architecture.md](docs/process-module-architecture.md).
-Marketplace, WASM runtime, полный hot-reload и полный MCP provider остаются за
-пределами рабочего v0.
+```text
+authority(module) = authority(slot, invocation_context)
+```
 
-## Запуск за 5 минут
+Native dylib ABI, `plugin.toml`, `abi_stable` и loader удалены. Reference
+реализации в `modules/reference` — тестовые/dogfood образцы, а не стандартный
+или привилегированный пакет.
 
-Один раз установите зависимости web-клиентов:
+## Быстрый Запуск
+
+Для web-клиентов один раз нужны:
 
 ```bash
 rustup target add wasm32-unknown-unknown
 cargo install trunk --locked
 ```
 
-Затем из корня Proteus:
+Установка:
 
 ```bash
 ./install.sh
 proteus init coding
-export ANTHROPIC_API_KEY="..."
 proteus doctor
 ```
 
-До process-only cutover installer собирает binary и выбранные текущими
-dogfood-профилями reference dylib как один versioned release и атомарно
-переключает `~/.proteus/current`; personal/out-of-tree dylib остаются в
-`~/.proteus/plugins`. Это переходный implemented layout, а не целевой module
-contract. Повторная установка не смешивает новый binary с частично
-обновлёнными dylib.
+`install.sh` собирает `proteus` и `proteus-reference-worker`, публикует их
+одним versioned release под `~/.proteus/current` и атомарно переключает
+`current`. Wrapper добавляет release directory в `PATH`, поэтому process
+descriptors с `command = "proteus-reference-worker"` работают без абсолютного
+пути.
 
-`proteus init coding` создаёт или перезаписывает
-`~/.config/Proteus-agent/configs/config.toml`. Если рабочий config уже есть,
-этот шаг нужно пропустить. Профиль `coding` по умолчанию использует Anthropic;
-другие providers и способы хранения секрета описаны в
-[конфигурации](docs/configuration.md).
-
-Для запуска перейдите в репозиторий, с которым должен работать агент:
+`proteus init coding` создаёт config только когда вы явно вызываете init. Уже
+существующий рабочий config перезаписывать не нужно. Затем перейдите в целевой
+репозиторий и запустите:
 
 ```bash
 cd /path/to/project
 proteus
 ```
 
-Wrapper использует текущую директорию как workspace и поднимает:
+Wrapper поднимает:
 
-- app-server — `http://127.0.0.1:8787`;
-- chat — `http://127.0.0.1:1420`;
-- Inspector — `http://127.0.0.1:1421`.
+- app-server: `http://127.0.0.1:8787`;
+- chat: `http://127.0.0.1:1420`;
+- Inspector: `http://127.0.0.1:1421`.
 
-Порты меняются через `PROTEUS_APP_PORT`, `PROTEUS_WEB_PORT` и
+Порты задаются `PROTEUS_APP_PORT`, `PROTEUS_WEB_PORT` и
 `PROTEUS_INSPECTOR_PORT`; Inspector отключается через
-`PROTEUS_INSPECTOR=0`. Wrapper создаёт ephemeral session token и сам открывает
-chat в браузере с query-параметром `token`, который клиент сохраняет в
-`sessionStorage`. App-server рассчитан на локальный loopback dogfood — не
-публикуйте его наружу.
+`PROTEUS_INSPECTOR=0`. App-server предназначен для локального loopback
+dogfood, не для публикации в интернет.
 
-Быстрый smoke без внешнего API и секретов:
+Smoke без внешнего API:
 
 ```bash
-cargo run --bin proteus -- \
-  --config examples/configs/proteus.example.toml doctor
-cargo run --bin proteus -- \
-  --config examples/configs/proteus.example.toml "describe the project layout"
+PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config examples/configs/proteus.example.toml doctor
 
-# out-of-tree Workflow v1 worker, fake model, tools disabled
-cargo run --bin proteus -- \
-  --config examples/configs/proteus.process-agent.example.toml \
-  "explain this process-agent profile"
+PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config examples/configs/proteus.process-agent.example.toml "explain this profile"
 ```
 
-Установка на другой компьютер разобрана отдельно:
-[docs/second-pc-bootstrap.md](docs/second-pc-bootstrap.md).
+## Как Подключается Модуль
 
-## Что реально работает
+Выбор и запуск разделены явно:
 
-- CLI: REPL, one-shot task, `doctor`, `modules list`, `tools list`,
-  `inspect topology`, `eval report`, canonical `replay prompt` и
-  side-effect-free `replay workflow`.
-- Runtime: session/turn lifecycle, resume, JSONL event log и сохранённая
-  история сообщений.
-- Models: встроенные adapters для `openai`, `openai_compatible`, `anthropic` и
-  тестовый `fake` provider.
-- Модули: 11 выбираемых через config behavior slots (model provider плюс 10
-  ключей `modules.*`); используемые dogfood-профилями reference
-  tool/search/context/workflow/policy/patch/memory/renderer реализации сейчас
-  поставляются как переходные dylib. `SearchBackend`, `HistoryCompactor` и
-  `Workflow` уже имеют общий config-defined process path; out-of-tree Workflow
-  v1 способен выполнить настоящий model/tool loop через host callbacks. Tools
-  сохраняют отдельный catalog/registry kind: в topology `ToolRegistry`
-  показывается как runtime node, а не как двенадцатый behavior slot.
-- Обычные tools: единый registry, permission modes `plan` / `normal` / `auto`,
-  approval policy и session approval cache. Process-subagent pool имеет
-  глобальный bounded LRU-cap для idle/resume children; оставшиеся lifecycle-
-  ограничения shared exec sessions перечислены в [scope](docs/scope.md) и
-  [security reference](docs/security-and-policy.md).
-- Внешний интерфейс: HTTP/SSE app-server, Leptos chat для ежедневного loop-а и
-  отдельный Inspector для config/topology.
-- Диагностика: проверка config/plugins/tools без model request, runtime topology,
-  базовый eval-отчёт и prompt replay по canonical session journal.
+```toml
+[modules]
+search = "python_rg"
 
-Полная таблица slot-ов и реализаций находится в
-[docs/modules.md](docs/modules.md), протокол и данные runtime — в
-[docs/runtime-and-events.md](docs/runtime-and-events.md).
+[[process_modules]]
+slot = "search"
+module_id = "python_rg"
+command = "python3"
+args = ["examples/modules/search-process/search.py"]
+timeout_ms = 60000
 
-## Простая карта слоёв
-
-```text
-CLI / chat / Inspector
-          |
-          v
-AppServer + AgentRuntime                 core
-          |
-          v
-traits + DTO + canonical model          proteus-contracts
-          |
-          v
-module implementation                    process-only target
+[module_config.search.python_rg]
+roots = ["src", "crates"]
 ```
 
-Главный инвариант:
+- `modules.<slot>` выбирает `module_id` для `select_one` slot;
+- `[[process_modules]]` описывает executable;
+- `module_config.<slot>.<module_id>` — непрозрачный объект реализации;
+- `tool` и `context_provider` имеют `ordered_many` composition и потому
+  не выбираются через `[modules]`;
+- выбранный id без точного descriptor-а — ошибка;
+- неизвестные поля, duplicate `slot/module_id`, неверный handshake и старые
+  response shapes — ошибки без fallback;
+- отсутствие необязательного slot означает host-owned structural behavior, а
+  не скрытый модуль с id `none`, `default` или `all_visible`.
 
-```text
-Core -> Contract -> Module Implementation
-```
+Process boundary пока не sandbox: worker получает очищенное окружение, но
+работает с обычными OS-правами пользователя. Protocol-visible callbacks
+разрешаются общей authority table по паре `slot/contract_version`, никогда по
+`module_id`.
 
-Core управляет turn-ом и wiring, но не знает детали конкретного поиска,
-памяти, policy, patch algorithm, renderer или workflow. Реализация выбирается
-по строковому id из config и подключается через contract. Provider-specific
-типы остаются внутри model adapters.
+## Что Реализовано
 
-Карта репозитория следует тем же границам:
+- process v1 slots: `workflow`, `search`, `memory`, `context`,
+  `context_provider`, `policy`, `patch`, `compactor`,
+  `tool_exposure`, `renderer`, `tool`;
+- persistent stdio worker lifecycle, strict initialize/manifest handshake,
+  bidirectional host callbacks, cancellation, timeout и lazy restart после
+  смерти child process;
+- единый safety path для tools:
+  `ToolRegistry -> ApprovalPolicy -> ToolSafety -> Tool`;
+- canonical model DTO, durable session journal, resume, HTTP/SSE app-server,
+  CLI, chat и Inspector;
+- reference worker с 26 selectors и отдельный Python workflow/search/compactor
+  examples;
+- conformance, real-worker execution и runtime swap regression gates.
 
-```text
-crates/proteus-contracts/    публичные traits, DTO и временный plugin ABI
-crates/proteus-core/         runtime, wiring, adapters, app-server и CLI
-crates/proteus-module-protocol/ strict process v1 session и conformance runner
-crates/proteus-process-host/ lifecycle persistent stdio child-процессов
-modules/reference/           reference/dogfood implementations, не defaults
-modules/research/            нестабилизированные module experiments
-clients/web/                 основной chat-клиент
-clients/inspector/           config/topology-клиент
-configs/                     packaged named configs и prompts
-examples/configs/            читаемые и запускаемые примеры
-docs/                        reference, правила и планы
-```
+Оставшиеся core-owned selectable границы названы явно: model provider adapters
+(`fake`, `openai`, `openai_compatible`, `anthropic`) и
+`SubagentRunner` (`sequential`, `process`). Это не dylib-путь и не
+исключение для reference modules; их возможная миграция требует отдельных
+полных process contracts.
 
-Архитектура подробнее: [docs/architecture.md](docs/architecture.md).
+Marketplace, package manager, live module replacement, WASM runtime и OS
+sandbox в текущий cutover не входят.
 
-## Текущая граница
-
-| Рабочий контур сейчас | Не является текущим обещанием |
-|---|---|
-| Локальный coding loop через CLI или HTTP/SSE | Публичный сетевой сервис |
-| Переходные dylib и process adapters для search/compactor/workflow | Завершённый единый process-only runtime |
-| Config/profile выбирает реализации slot-ов | Произвольный unload/reload всех dylib |
-| MCP stdio discovery для tools | MCP resources, prompts, subscriptions и другие transports |
-| Subagent slot для делегирования дочерним циклам | Общий multi-agent DAG/runtime |
-| Dogfood web UI и отдельный Inspector | Законченный product UI |
-
-Что считать активной работой, parked-возможностью или research, зафиксировано в
-[docs/scope.md](docs/scope.md). Ближайшие этапы — в
-[docs/roadmap.md](docs/roadmap.md); более широкий замысел — в
-[docs/spec.md](docs/spec.md). `spec` и `roadmap` не следует читать как описание
-уже реализованного поведения.
-
-## Полезные команды
+## Полезные Команды
 
 ```bash
-# REPL или один turn
-cargo run --bin proteus
-cargo run --bin proteus -- "describe the project layout"
+# one-shot или REPL
+cargo run -p proteus-core -- "describe the project"
+cargo run -p proteus-core
 
-# проверить config, plugins, modules, tools и секреты без model request
-cargo run --bin proteus -- doctor
+# config/catalog/tools без model request
+cargo run -p proteus-core -- --config configs/config.toml doctor
+cargo run -p proteus-core -- --config configs/config.toml modules list
+cargo run -p proteus-core -- --config configs/config.toml tools list
 
-# короткий runtime path или полный diagnostic graph
-cargo run --bin proteus -- inspect topology --format runtime
-cargo run --bin proteus -- inspect topology --format map
+# runtime topology
+cargo run -p proteus-core -- --config configs/config.toml inspect topology --format runtime
+cargo run -p proteus-core -- --config configs/config.toml inspect topology --format map
 
-# named config из ~/.config/Proteus-agent/configs/
-cargo run --bin proteus -- --config codex doctor
-
-# отчёт по canonical session journal
-cargo run --bin proteus -- eval report \
-  "/path/to/session-dir"
-
-# повтор exact post-shaping model request без workflow и local tools
-cargo run --bin proteus -- --config codex replay prompt \
-  "/path/to/session-dir-or-journal.jsonl" \
-  --exchange-id 7c25efa9-81b7-4412-863a-d90e46d2c894
-
-# тот же versioned machine-readable отчёт
-cargo run --bin proteus -- --config codex replay prompt \
-  "/path/to/session-dir" --json
-
-# повтор одного root workflow только на записанных model/tool outcomes
-cargo run --bin proteus -- --config codex replay workflow \
-  "/path/to/session-dir-or-journal.jsonl" \
-  --turn-id 71a908f9-e7f2-45ce-afbf-4eaf0f4f3bad
-
-# versioned machine-readable workflow comparison
-cargo run --bin proteus -- --config codex replay workflow \
-  "/path/to/session-dir" --json
+# protocol handshake отдельного worker-а
+cargo run -p proteus-module-protocol --bin proteus-module-conformance -- --slot search --module-id python_rg --contract-version v1 --probe-method search --probe-params '{"text":"","cwd":".","max_results":0,"use_case":"conformance","starts_with":[],"ends_with":[]}' -- python3 examples/modules/search-process/search.py
 ```
 
-`--exchange-id` можно опустить только когда в journal ровно один завершённый
-model exchange. Команда повторно отправляет сохранённый canonical request
-напрямую выбранному model adapter-у, не запускает workflow и не исполняет
-полученные local tool calls; исходный journal остаётся неизменным.
-Provider-hosted tools блокируются по умолчанию, потому что их side effect
-выполняется на стороне провайдера. Для намеренного повтора нужен явный
-`--allow-hosted-tools`; request при этом отправляется целиком без урезания.
+Prompt/workflow replay и journal semantics описаны в
+[runtime-and-events.md](docs/runtime-and-events.md).
 
-`replay workflow` повторяет записанный Workflow/Policy, но подменяет model,
-context, compactor, tool exposure, approvals и tools данными canonical journal.
-Реальные providers, process modules, subagents и tool side effects не
-запускаются; source journal остаётся побайтово неизменным. `--turn-id` можно
-опустить только для journal с одним turn-ом. V0 поддерживает root turns без
-доставленного steering/follow-up и воспроизводит обычный terminal `Error`.
-Runtime-owned `Canceled`/`Timeout` отклоняются fail-closed: их проверяют через
-canonical journal и cold `/history`, потому что момент внешнего сигнала не
-является workflow outcome. Результат сравнения находится в
-`comparison.matched` и `comparison.issues` human/JSON отчёта.
-
-Ручной запуск UI без wrapper-а:
-
-```bash
-cargo run --bin proteus -- server http \
-  --port 8787 \
-  --allow-origin http://127.0.0.1:1420 \
-  --allow-origin http://localhost:1420
-```
-
-Direct loopback-запуск может работать без token для local debug. Любой
-non-loopback `--host` без непустого `--token` отклоняется до запуска runtime и
-bind; authenticated app-server всё равно не является публичным production
-service.
-
-В другом терминале:
-
-```bash
-cd clients/web
-env -u NO_COLOR trunk serve
-```
-
-Inspector при необходимости запускается так же из `clients/inspector`.
-
-## Где лежат config и данные
+## Структура Репозитория
 
 ```text
-~/.local/bin/proteus
-~/.proteus/plugins/<plugin>/
-~/.config/Proteus-agent/configs/config.toml
-~/.config/Proteus-agent/configs/<name>.config.toml
-~/.config/Proteus-agent/sessions/<encoded-workspace>/<10-digit-id>/session.json
-~/.config/Proteus-agent/sessions/<encoded-workspace>/<10-digit-id>/journal.jsonl
-~/.config/Proteus-agent/sessions/<encoded-workspace>/<10-digit-id>/blobs/<sha256>.json
-~/.config/Proteus-agent/.proteus/events.jsonl
+crates/proteus-contracts/       traits, DTO, canonical model, worker helpers
+crates/proteus-module-protocol/ process v1 session, authority, conformance CLI
+crates/proteus-process-host/    persistent child lifecycle и framing
+crates/proteus-core/            runtime, wiring, process/model adapters, server
+modules/reference/              reference implementations и один worker
+modules/research/               нестабилизированные experiments
+clients/web/                    chat client
+clients/inspector/              config/topology client
+configs/                        packaged named configs и prompts
+examples/                       runnable configs, workers и MCP smoke
+docs/                           reference, testing rules и roadmap
 ```
 
-Без `--config` runtime ищет config через `PROTEUS_CONFIG_PATH`, затем в
-`$PROTEUS_CONFIG_HOME/configs/config.toml` и стандартном XDG/Home location.
-Точные правила merge, named configs, providers и secrets:
-[docs/configuration.md](docs/configuration.md).
+## Документация
 
-## Куда идти дальше
+- [architecture.md](docs/architecture.md) — границы core и turn flow;
+- [modules.md](docs/modules.md) — slots, composition и reference inventory;
+- [process-module-architecture.md](docs/process-module-architecture.md) —
+  protocol, authority и результат cutover;
+- [configuration.md](docs/configuration.md) — schema и process descriptors;
+- [security-and-policy.md](docs/security-and-policy.md) — tools и approvals;
+- [testing.md](docs/testing.md) — обязательные evidence gates;
+- [scope.md](docs/scope.md) и [roadmap.md](docs/roadmap.md) — что дальше.
 
-- хочу понять один turn и app-server —
-  [runtime-and-events.md](docs/runtime-and-events.md);
-- хочу изменить config или provider —
-  [configuration.md](docs/configuration.md);
-- хочу добавить или заменить модуль — [modules.md](docs/modules.md), затем
-  [process-module-architecture.md](docs/process-module-architecture.md);
-- нужен точный reference ещё работающего dylib path —
-  [dylib-transition.md](docs/dylib-transition.md);
-- хочу добавить и доказательно проверить фичу —
-  [slot-governance.md](docs/slot-governance.md), затем
-  [testing.md](docs/testing.md#стандарт-внедрения-и-проверки-фичи);
-- хочу разобраться с tools, approvals и sandbox —
-  [security-and-policy.md](docs/security-and-policy.md);
-- хочу понять, что делать следующим — [scope.md](docs/scope.md), затем
-  [roadmap.md](docs/roadmap.md);
-- нужен полный маршрут по документации — [docs/README.md](docs/README.md).
-
-Правила работы для агентов и контрибьюторов: [AGENTS.md](AGENTS.md).
+Полный индекс: [docs/README.md](docs/README.md). Правила изменений:
+[AGENTS.md](AGENTS.md).
 
 ## Проверка
 
 ```bash
+cargo fmt --all --check
 cargo test --workspace
 (cd clients/web && env -u NO_COLOR trunk build)
 (cd clients/inspector && env -u NO_COLOR trunk build)
+git diff --check
 ```
 
-Ключевой regression gate для архитектурных изменений —
-`crates/proteus-core/tests/module_swap.rs`: замена реализации slot-а или
-добавление плагина не должны менять core runtime.
+Ключевые gates process boundary:
+
+- `crates/proteus-core/tests/module_swap.rs`;
+- `modules/reference/process-worker/tests/conformance.rs`.

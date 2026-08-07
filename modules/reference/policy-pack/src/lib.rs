@@ -1,27 +1,11 @@
-//! ApprovalPolicy plugin pack.
-
-#![allow(non_local_definitions)]
-#![allow(non_camel_case_types)]
-#![allow(improper_ctypes_definitions)]
+//! Approval-policy reference process modules.
 
 use std::collections::HashSet;
 
-#[cfg(feature = "plugin-entrypoint")]
-use proteus_contracts::abi_stable::{export_root_module, prefix_type::PrefixTypeTrait};
 use proteus_contracts::{
-    abi_stable::std_types::{RResult, RString},
     domain::{PolicyDecision, ToolCall, ToolSafety, ToolSpec},
-    plugin::{PluginApprovalPolicy, PluginPolicyError},
-};
-#[cfg(feature = "plugin-entrypoint")]
-use proteus_contracts::{
-    abi_stable::{
-        sabi_trait::TD_Opaque,
-        std_types::{RStr, RString as AbiRString},
-    },
-    plugin::{
-        PluginApprovalPolicy_TO, PluginRegisterError, PluginRegistryMut, PluginRoot,
-        PluginRoot_Ref, PluginTool_TO, PluginToolObject, PolicyObject,
+    process_module::{
+        ModuleRegistry, PolicyModule, PolicyModuleObject, ProcessModuleError, ToolModuleObject,
     },
 };
 use serde::Deserialize;
@@ -31,31 +15,31 @@ pub mod opencode_policy;
 pub mod request_permissions;
 
 #[derive(Default)]
-pub struct AllowAllPolicyPlugin;
+pub struct AllowAllPolicyModule;
 
-impl PluginApprovalPolicy for AllowAllPolicyPlugin {
+impl PolicyModule for AllowAllPolicyModule {
     fn evaluate_json(
         &self,
-        _call_json: RString,
-        _ctx_json: RString,
-    ) -> RResult<RString, PluginPolicyError> {
+        _call_json: String,
+        _ctx_json: String,
+    ) -> Result<String, ProcessModuleError> {
         decision(PolicyDecision::Allow)
     }
 
-    fn evaluate_visibility_json(&self, _ctx_json: RString) -> RResult<RString, PluginPolicyError> {
+    fn evaluate_visibility_json(&self, _ctx_json: String) -> Result<String, ProcessModuleError> {
         decision(PolicyDecision::Allow)
     }
 }
 
 #[derive(Default)]
-pub struct AskWritePolicyPlugin;
+pub struct AskWritePolicyModule;
 
-impl PluginApprovalPolicy for AskWritePolicyPlugin {
+impl PolicyModule for AskWritePolicyModule {
     fn evaluate_json(
         &self,
-        call_json: RString,
-        ctx_json: RString,
-    ) -> RResult<RString, PluginPolicyError> {
+        call_json: String,
+        ctx_json: String,
+    ) -> Result<String, ProcessModuleError> {
         let call: ToolCall = match serde_json::from_str(call_json.as_str()) {
             Ok(call) => call,
             Err(error) => return policy_error(format!("invalid ToolCall JSON: {error}")),
@@ -71,7 +55,7 @@ impl PluginApprovalPolicy for AskWritePolicyPlugin {
         decision(evaluate_call(&config, &call.name, ctx.tool_spec.as_ref()))
     }
 
-    fn evaluate_visibility_json(&self, ctx_json: RString) -> RResult<RString, PluginPolicyError> {
+    fn evaluate_visibility_json(&self, ctx_json: String) -> Result<String, ProcessModuleError> {
         let ctx: PolicyVisibilityContextDto = match serde_json::from_str(ctx_json.as_str()) {
             Ok(ctx) => ctx,
             Err(error) => {
@@ -87,14 +71,14 @@ impl PluginApprovalPolicy for AskWritePolicyPlugin {
 }
 
 #[derive(Default)]
-pub struct CodexPolicyPlugin;
+pub struct CodexPolicyModule;
 
-impl PluginApprovalPolicy for CodexPolicyPlugin {
+impl PolicyModule for CodexPolicyModule {
     fn evaluate_json(
         &self,
-        call_json: RString,
-        ctx_json: RString,
-    ) -> RResult<RString, PluginPolicyError> {
+        call_json: String,
+        ctx_json: String,
+    ) -> Result<String, ProcessModuleError> {
         let call: ToolCall = match serde_json::from_str(call_json.as_str()) {
             Ok(call) => call,
             Err(error) => return policy_error(format!("invalid ToolCall JSON: {error}")),
@@ -151,7 +135,7 @@ impl PluginApprovalPolicy for CodexPolicyPlugin {
         ))
     }
 
-    fn evaluate_visibility_json(&self, ctx_json: RString) -> RResult<RString, PluginPolicyError> {
+    fn evaluate_visibility_json(&self, ctx_json: String) -> Result<String, ProcessModuleError> {
         let ctx: PolicyVisibilityContextDto = match serde_json::from_str(ctx_json.as_str()) {
             Ok(ctx) => ctx,
             Err(error) => {
@@ -325,69 +309,41 @@ fn evaluate_codex_tool_spec(config: &CodexPolicyConfig, tool_spec: &ToolSpec) ->
     evaluate_codex_call(config, &tool_spec.name, Some(tool_spec))
 }
 
-pub(crate) fn decision(decision: PolicyDecision) -> RResult<RString, PluginPolicyError> {
+pub(crate) fn decision(decision: PolicyDecision) -> Result<String, ProcessModuleError> {
     match serde_json::to_string(&decision) {
-        Ok(body) => RResult::ROk(body.into()),
+        Ok(body) => Ok(body.into()),
         Err(error) => policy_error(format!("failed to serialize PolicyDecision: {error}")),
     }
 }
 
-pub(crate) fn policy_error(message: String) -> RResult<RString, PluginPolicyError> {
-    RResult::RErr(PluginPolicyError::new(message))
+pub(crate) fn policy_error(message: String) -> Result<String, ProcessModuleError> {
+    Err(ProcessModuleError::new(message))
 }
 
-#[cfg(feature = "plugin-entrypoint")]
-extern "C" fn register_modules(
-    registry: &mut PluginRegistryMut<'_>,
-) -> RResult<(), PluginRegisterError> {
-    let allow_all: PolicyObject =
-        PluginApprovalPolicy_TO::from_value(AllowAllPolicyPlugin, TD_Opaque);
-    if let RResult::RErr(error) =
-        registry.register_approval_policy(AbiRString::from("allow_all"), allow_all)
-    {
-        return RResult::RErr(error);
+pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), ProcessModuleError> {
+    let allow_all: PolicyModuleObject = Box::new(AllowAllPolicyModule);
+    if let Err(error) = registry.register_policy(String::from("allow_all"), allow_all) {
+        return Err(error);
     }
 
-    let ask_write: PolicyObject =
-        PluginApprovalPolicy_TO::from_value(AskWritePolicyPlugin, TD_Opaque);
-    if let RResult::RErr(error) =
-        registry.register_approval_policy(AbiRString::from("ask_write"), ask_write)
-    {
-        return RResult::RErr(error);
+    let ask_write: PolicyModuleObject = Box::new(AskWritePolicyModule);
+    if let Err(error) = registry.register_policy(String::from("ask_write"), ask_write) {
+        return Err(error);
     }
 
-    let codex_policy: PolicyObject =
-        PluginApprovalPolicy_TO::from_value(CodexPolicyPlugin, TD_Opaque);
-    if let RResult::RErr(error) =
-        registry.register_approval_policy(AbiRString::from("codex_policy"), codex_policy)
-    {
-        return RResult::RErr(error);
+    let codex_policy: PolicyModuleObject = Box::new(CodexPolicyModule);
+    if let Err(error) = registry.register_policy(String::from("codex_policy"), codex_policy) {
+        return Err(error);
     }
 
-    let opencode_policy: PolicyObject =
-        PluginApprovalPolicy_TO::from_value(opencode_policy::OpencodePolicyPlugin, TD_Opaque);
-    if let RResult::RErr(error) =
-        registry.register_approval_policy(AbiRString::from("opencode_policy"), opencode_policy)
-    {
-        return RResult::RErr(error);
+    let opencode_policy: PolicyModuleObject = Box::new(opencode_policy::OpencodePolicyModule);
+    if let Err(error) = registry.register_policy(String::from("opencode_policy"), opencode_policy) {
+        return Err(error);
     }
 
-    let request_permissions: PluginToolObject =
-        PluginTool_TO::from_value(request_permissions::RequestPermissionsTool, TD_Opaque);
+    let request_permissions: ToolModuleObject =
+        Box::new(request_permissions::RequestPermissionsTool);
     registry.register_tool(request_permissions)
-}
-
-#[cfg(feature = "plugin-entrypoint")]
-#[export_root_module]
-pub fn instantiate_root_module() -> PluginRoot_Ref {
-    PluginRoot {
-        name: RStr::from_str("policy-pack"),
-        description: RStr::from_str(
-            "ApprovalPolicy plugins (allow_all, ask_write, codex_policy, opencode_policy) plus the 'request_permissions' tool for turn-scoped escalation grants",
-        ),
-        register_modules,
-    }
-    .leak_into_prefix()
 }
 
 #[cfg(test)]
@@ -397,7 +353,7 @@ mod tests {
     use serde_json::json;
 
     fn evaluate(tool_name: &str, safety: ToolSafety, config: Value) -> PolicyDecision {
-        let plugin = CodexPolicyPlugin;
+        let module = CodexPolicyModule;
         let call = ToolCall::new(new_call_id(), tool_name.to_owned(), json!({}));
         let spec = ToolSpec::new(tool_name, "Test tool", json!({}), safety);
         let ctx = json!({
@@ -405,39 +361,39 @@ mod tests {
             "tool_spec": spec,
             "config": config,
         });
-        let result = plugin.evaluate_json(
+        let result = module.evaluate_json(
             serde_json::to_string(&call).unwrap().into(),
             serde_json::to_string(&ctx).unwrap().into(),
         );
         let body = match result {
-            RResult::ROk(body) => body,
-            RResult::RErr(error) => panic!("policy error: {error}"),
+            Ok(body) => body,
+            Err(error) => panic!("policy error: {error}"),
         };
         serde_json::from_str(body.as_str()).unwrap()
     }
 
     fn evaluate_visibility(tool_name: &str, safety: ToolSafety, config: Value) -> PolicyDecision {
-        let plugin = CodexPolicyPlugin;
+        let module = CodexPolicyModule;
         let spec = ToolSpec::new(tool_name, "Test tool", json!({}), safety);
         let ctx = json!({
             "cwd": "/tmp/proteus-policy-test",
             "tool_spec": spec,
             "config": config,
         });
-        let result = plugin.evaluate_visibility_json(serde_json::to_string(&ctx).unwrap().into());
+        let result = module.evaluate_visibility_json(serde_json::to_string(&ctx).unwrap().into());
         let body = match result {
-            RResult::ROk(body) => body,
-            RResult::RErr(error) => panic!("policy error: {error}"),
+            Ok(body) => body,
+            Err(error) => panic!("policy error: {error}"),
         };
         serde_json::from_str(body.as_str()).unwrap()
     }
 
-    fn evaluate_plugin_result<P: PluginApprovalPolicy>(
-        plugin: &P,
+    fn evaluate_module_result<P: PolicyModule>(
+        module: &P,
         tool_name: &str,
         safety: ToolSafety,
         config: Value,
-    ) -> RResult<RString, PluginPolicyError> {
+    ) -> Result<String, ProcessModuleError> {
         let call = ToolCall::new(new_call_id(), tool_name.to_owned(), json!({}));
         let spec = ToolSpec::new(tool_name, "Test tool", json!({}), safety);
         let ctx = json!({
@@ -445,7 +401,7 @@ mod tests {
             "tool_spec": spec,
             "config": config,
         });
-        plugin.evaluate_json(
+        module.evaluate_json(
             serde_json::to_string(&call).unwrap().into(),
             serde_json::to_string(&ctx).unwrap().into(),
         )
@@ -512,7 +468,7 @@ mod tests {
     }
 
     fn evaluate_escalated_shell(granted_permissions: Value) -> PolicyDecision {
-        let plugin = CodexPolicyPlugin;
+        let module = CodexPolicyModule;
         let call = ToolCall::new(
             new_call_id(),
             "shell".to_owned(),
@@ -529,13 +485,13 @@ mod tests {
             "config": { "allow_sandboxed": ["shell"] },
             "granted_permissions": granted_permissions,
         });
-        let result = plugin.evaluate_json(
+        let result = module.evaluate_json(
             serde_json::to_string(&call).unwrap().into(),
             serde_json::to_string(&ctx).unwrap().into(),
         );
         let body = match result {
-            RResult::ROk(body) => body,
-            RResult::RErr(error) => panic!("policy error: {error}"),
+            Ok(body) => body,
+            Err(error) => panic!("policy error: {error}"),
         };
         serde_json::from_str(body.as_str()).unwrap()
     }
@@ -571,15 +527,15 @@ mod tests {
 
     #[test]
     fn ask_write_policy_rejects_invalid_config_shape() {
-        let result = evaluate_plugin_result(
-            &AskWritePolicyPlugin,
+        let result = evaluate_module_result(
+            &AskWritePolicyModule,
             "read_file",
             ToolSafety::ReadOnly,
             json!({ "allow": "read_file" }),
         );
 
         match result {
-            RResult::RErr(error) => {
+            Err(error) => {
                 assert!(
                     error
                         .message
@@ -587,21 +543,21 @@ mod tests {
                         .contains("invalid ask_write policy config")
                 );
             }
-            RResult::ROk(body) => panic!("expected policy config error, got {body}"),
+            Ok(body) => panic!("expected policy config error, got {body}"),
         }
     }
 
     #[test]
     fn codex_policy_rejects_invalid_config_shape() {
-        let result = evaluate_plugin_result(
-            &CodexPolicyPlugin,
+        let result = evaluate_module_result(
+            &CodexPolicyModule,
             "shell",
             ToolSafety::RunsCommands,
             json!({ "allow": "shell" }),
         );
 
         match result {
-            RResult::RErr(error) => {
+            Err(error) => {
                 assert!(
                     error
                         .message
@@ -609,7 +565,7 @@ mod tests {
                         .contains("invalid codex_policy config")
                 );
             }
-            RResult::ROk(body) => panic!("expected policy config error, got {body}"),
+            Ok(body) => panic!("expected policy config error, got {body}"),
         }
     }
 }

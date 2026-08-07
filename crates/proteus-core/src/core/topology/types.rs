@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     contracts::ToolSource,
-    core::{AppConfig, ModuleCatalogEntrySummary, ModuleEpoch, PluginLoadReport},
+    core::{AppConfig, ModuleCatalogEntrySummary, ModuleEpoch},
     domain::{PermissionMode, ToolSpec},
 };
 
@@ -14,7 +14,6 @@ pub struct TopologyBuildInput<'a> {
     pub cwd: &'a Path,
     pub catalog_entries: &'a [ModuleCatalogEntrySummary],
     pub tools: &'a [(ToolSource, ToolSpec)],
-    pub plugin_reports: &'a [PluginLoadReport],
     pub module_epoch: ModuleEpoch,
     pub permission_mode: PermissionMode,
     pub extra_warnings: Vec<TopologyWarning>,
@@ -31,7 +30,6 @@ pub struct TopologySnapshot {
     pub model: Option<ModelTopology>,
     pub slots: Vec<SlotTopology>,
     pub modules: Vec<ModuleTopology>,
-    pub plugins: Vec<PluginTopology>,
     pub tools: Vec<ToolTopology>,
     pub edges: Vec<TopologyEdge>,
     pub warnings: Vec<TopologyWarning>,
@@ -76,44 +74,9 @@ pub struct ModuleTopology {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ModuleSourceTopology {
     Builtin,
-    Plugin { name: String, path: String },
+    Process,
     Config,
     Unknown,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginTopology {
-    pub name: String,
-    pub version: String,
-    pub path: String,
-    pub status: String,
-    pub description: Option<String>,
-    pub author: Option<String>,
-    pub tags: Vec<String>,
-    pub provides: PluginProvidesTopology,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct PluginProvidesTopology {
-    pub modules: Vec<PluginModuleContributionTopology>,
-    pub tools: Vec<PluginToolContributionTopology>,
-    pub context_providers: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginModuleContributionTopology {
-    pub slot: String,
-    pub id: String,
-    pub description: Option<String>,
-    pub capabilities: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginToolContributionTopology {
-    pub name: String,
-    pub description: String,
-    pub safety: String,
-    pub input_schema: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,7 +87,6 @@ pub struct ToolTopology {
     pub source: String,
     pub enabled: bool,
     pub registered: bool,
-    pub provider_plugin: Option<String>,
     pub input_schema: serde_json::Value,
 }
 

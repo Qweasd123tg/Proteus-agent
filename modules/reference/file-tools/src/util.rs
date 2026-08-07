@@ -9,8 +9,8 @@ use std::{
 };
 
 pub(crate) use proteus_contracts::tool_support::{
-    err_result, ok_result, optional_positive_usize, optional_string_array, parse_call,
-    parse_invocation_context, plugin_error, required_string, workspace_path,
+    err_result, module_error, ok_result, optional_positive_usize, optional_string_array,
+    parse_call, parse_invocation_context, required_string, workspace_path,
     workspace_path_for_write,
 };
 

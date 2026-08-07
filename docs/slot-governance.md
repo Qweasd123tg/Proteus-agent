@@ -1,7 +1,7 @@
 # Slot Governance
 
 Этот документ фиксирует правило появления новых slots/contracts. Цель - не
-позволить plugin system превратиться в набор одноразовых интерфейсов под каждую
+позволить module system превратиться в набор одноразовых интерфейсов под каждую
 новую статью, agent UX-фичу или чужую архитектурную находку.
 
 Короткое правило для обычного заменяемого поведения:
@@ -24,26 +24,24 @@ composition(contract) = select_one | ordered_many
 динамические slots. Это такой же host-defined typed contract с одинаковой
 authority для каждого участника; меняются только cardinality и chain semantics.
 
-Набор runtime slots host-defined, а не расширяется плагином одной строкой.
+Набор runtime slots host-defined, а не расширяется worker-ом одной строкой.
 Строковый `SlotId` унифицирует catalog keys для уже известных core slots, но
-`ModuleKind`, config schema, typed factories и `PluginRegistry` остаются
+`ModuleKind`, config schema, typed factories и authority table остаются
 фиксированными. Поэтому новый slot всегда означает согласованное изменение
-`proteus-contracts`, core wiring/config, plugin ABI и boundary tests.
+`proteus-contracts`, process protocol, core wiring/config и boundary tests.
 
-На время process-only cutover последнее предложение описывает текущую механику,
-но не целевую упаковку. Новый slot должен сразу получать единый process
-contract; расширять `PluginRegistry`/dylib ABI запрещено. Для всех
-implementations slot действует:
+Новый slot сразу получает единый process contract; второй native extension
+path запрещён. Для всех implementations slot действует:
 
 ```text
 authority(module) = authority(slot, invocation_context)
 ```
 
-Нельзя принимать slot, если его builtin/dylib/process implementations получают
-разные host methods, config, cancellation или lifecycle semantics.
+Нельзя принимать slot, если его implementations получают разные host methods,
+config, cancellation или lifecycle semantics.
 
 После выбора архитектурного места изменение проходит общий
-[feature evidence path](testing.md#стандарт-внедрения-и-проверки-фичи). Этот
+[feature evidence path](testing.md#стандарт-изменения). Этот
 документ отвечает «куда положить поведение», а `testing.md` — «как доказать,
 что оно работает, не ломает границу и остаётся читаемым после reconnect».
 
@@ -68,7 +66,7 @@ exposure, workflow, approval, memory, compaction, storage, model capabilities и
    может быть обычным tool-ом, workflow step-ом или context provider-ом, новый
    slot не нужен.
 4. Contract можно описать через provider-neutral DTO без UI-, provider-,
-   plugin- или implementation-specific типов.
+   product- или implementation-specific типов.
 5. Slot не заставляет runtime знать детали конкретного алгоритма, продукта или
    внешнего agent-а.
 6. Для slot-а можно написать boundary/swap tests, которые доказывают
@@ -92,8 +90,8 @@ session mutation, не принимается автоматически тол�
 нужно решить, является ли surface одним честным contract или скрытым
 агрегированием прав разных slots.
 
-Если хотя бы один пункт не проходит, идея идёт в существующий module/plugin,
-черновой research plugin или docs backlog.
+Если хотя бы один пункт не проходит, идея идёт в существующий module,
+черновой research module или docs backlog.
 
 ## Дерево Решений
 
@@ -121,20 +119,20 @@ session mutation, не принимается автоматически тол�
 
 | Feature idea | Existing slot | Missing generic contract | Решение сейчас |
 |---|---|---|---|
-| Cursor-like dynamic context discovery | `ContextBuilder`, `Compactor`, `SearchBackend`, `ToolExposure` | возможно `ToolResultProcessor`, `ArtifactStore`, `BudgetTracker` | держать как plugin/research pack, не добавлять `dynamic_context` slot |
+| Cursor-like dynamic context discovery | `ContextBuilder`, `Compactor`, `SearchBackend`, `ToolExposure` | возможно `ToolResultProcessor`, `ArtifactStore`, `BudgetTracker` | держать как module/research pack, не добавлять `dynamic_context` slot |
 | Длинные outputs tools пишутся на диск | `Tool`, `Workflow` видит result; app-server показывает metadata | `ToolResultProcessor` или `ArtifactStore` | оставить draft `modules/research/tool-output-artifacts`, contract не стабилизирован |
 | Token/context usage breakdown | event/runtime accounting, app-server, UI client | `BudgetTracker` / `UsageMeter` может понадобиться позже | сначала instrumentation/events, не новый UX slot |
 | Codex-like deferred tool exposure | `ToolExposure`, `ToolRegistry` | возможно searchable tool catalog DTO | реализовывать через `ToolExposure`, не через отдельный `codex_tool_search` slot |
-| BM25/fuzzy search по tools | `ToolExposure` или будущий tool catalog facet | `SearchableToolCatalog` только если появятся несколько engines | пока module внутри `ToolExposure` plugin |
-| Codex-like fuzzy file path search | `SearchBackend` | streaming `SearchSession` только если нужен live progress | сначала обычный `SearchBackend` plugin |
+| BM25/fuzzy search по tools | `ToolExposure` или будущий tool catalog facet | `SearchableToolCatalog` только если появятся несколько engines | пока module внутри `ToolExposure` |
+| Codex-like fuzzy file path search | `SearchBackend` | streaming `SearchSession` только если нужен live progress | сначала обычный `SearchBackend` module |
 | Exec policy с prefix-rule suggestions | `ApprovalPolicy`, approval transport | structured amendment DTO уже ближе к policy/protocol | расширять policy DTO, не отдельный `exec_policy` slot |
 | Verified apply_patch preview | `PatchApplier`, events, approval transport | patch preview event DTO | расширять `PatchApplier`/events, не отдельный preview slot |
 | Auto-compaction before model call | `Compactor`, `Workflow`, model capabilities | `BudgetTracker` если нужен общий budget API | использовать `Compactor` + workflow policy |
-| Skills / Agent Skills | `ContextBuilder`, `ToolProvider`/tools, docs on disk | `SkillCatalog` только если core должен discover/inject сам | пока context/tool plugin, не core subsystem |
-| Plugin mention injection | `ContextBuilder` / `context_provider` | `PluginDescriptor` если нужно стабильно показывать capabilities | сначала provider внутри context pack |
+| Skills / Agent Skills | `ContextBuilder`, `ToolProvider`/tools, docs on disk | `SkillCatalog` только если core должен discover/inject сам | пока context/tool module, не core subsystem |
+| Module mention injection | `ContextBuilder` / `context_provider` | `ModuleDescriptor` если нужно стабильно показывать capabilities | сначала provider внутри context pack |
 | Long-term memory consolidation jobs | `MemoryStore`, `Workflow`, explicit tools | background jobs/mailbox contract может понадобиться | research/private prototype; не возвращать lifecycle slot без двух работающих реализаций |
-| Subagents / cheaper model delegation | `SubagentRunner`, host-bound tools/app-server | persistent agent tree/mailbox/reload contract только после dogfood | slot `subagent` владеет child loop; model-facing protocol отдельно выбирается top-level `subagents.surface = task|collaboration|none` без нового slot. Текущий collaboration slice — bounded session-owned lifecycle + optional sequential messaging/follow-up, не parity и не доказательство стабильного plugin ABI |
-| OAuth model provider | `Model` | token store/auth helper можно держать provider-owned | provider plugin/adapter, не auth slot |
+| Subagents / cheaper model delegation | `SubagentRunner`, host-bound tools/app-server | persistent agent tree/mailbox/reload contract только после dogfood | slot `subagent` владеет child loop; model-facing protocol отдельно выбирается top-level `subagents.surface = task|collaboration|none` без нового slot. Текущий collaboration slice — bounded session-owned lifecycle + optional sequential messaging/follow-up, не доказательство стабильного process contract |
+| OAuth model provider | `Model` | token store/auth helper можно держать provider-owned | provider adapter/module, не auth slot |
 | Resume/session picker | app-server protocol + UI client | session listing/search DTO уже protocol-level | client feature, не core slot |
 | Command autocomplete | UI/input routing | runtime request DTO только для команд, требующих runtime action | client feature, не core slot |
 | Markdown/table rendering | UI renderer/client | none | client feature, не core slot |
@@ -147,7 +145,7 @@ feature pack/profile, а не как один большой slot.
 В этом репозитории `pack` означает:
 
 ```text
-pack = config/profile + набор plugin implementations + docs/evals
+pack = config/profile + набор module implementations + docs/evals
 ```
 
 Pack нужен, чтобы проверить композицию уже существующих slots. Он не получает
@@ -171,19 +169,19 @@ quality baseline profile
 продуктов допустимы в research notes/profile description, но не должны
 становиться названиями baseline, production profile или generic slots.
 
-## Research Plugin Правило
+## Research Module Правило
 
-Если идея перспективная, но contract ещё не ясен, допустим research plugin:
+Если идея перспективная, но contract ещё не ясен, допустим research module:
 
 - он не регистрируется в production profile по умолчанию;
 - README явно пишет, какого generic contract не хватает;
-- реализация живёт как `rlib`/draft или experimental dylib;
+- реализация живёт как source/draft и не подключена к production config;
 - docs запрещают считать его стабильным slot API;
 - перед стабилизацией нужен второй независимый use case.
 
 `modules/research/tool-output-artifacts` - пример такого черновика: он полезен для
 Cursor-like output artifact идеи, но не доказывает, что нужен именно такой
-публичный ABI.
+публичный process contract.
 
 ## Запреты
 
@@ -192,9 +190,9 @@ Cursor-like output artifact идеи, но не доказывает, что н�
 - slots с именем конкретного продукта (`cursor_context`, `codex_tool_search`,
   `claude_subagent`);
 - slots, которые просто прокидывают UI state в core;
-- slots, которые существуют только ради одного plugin-а;
+- slots, которые существуют только ради одного module;
 - contracts с provider-specific request/response типами;
-- contracts, которые требуют от core знать порядок внутренних шагов plugin-а;
+- contracts, которые требуют от core знать порядок внутренних шагов module;
 - `ordered_many` chains, порядок которых не закреплён snapshot/config-ом;
 - broad extension contract, который даёт tool implementation дополнительные права только из-за способа регистрации;
 - compatibility fallback-и к старым experimental форматам без отдельной

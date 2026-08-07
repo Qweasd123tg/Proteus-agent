@@ -60,9 +60,12 @@ fn process_environment_config_is_flat_and_defaults_to_empty() {
 #[test]
 fn modules_config_iter_and_set_cover_all_selectable_slots() {
     let mut modules = ModulesConfig::default();
-    let slots = modules
+    assert!(modules.iter().next().is_none());
+
+    let slots = CORE_SLOT_DESCRIPTORS
         .iter()
-        .map(|(kind, _)| kind.as_str())
+        .filter(|descriptor| descriptor.selection == CoreSlotSelection::ModulesConfig)
+        .map(|descriptor| descriptor.kind.as_str())
         .collect::<Vec<_>>();
     assert_eq!(slots.len(), 10);
 
@@ -352,6 +355,53 @@ active_provider = "fake"
         error
             .to_string()
             .contains("unknown module_config slot \"memory_policy\"")
+    );
+}
+
+#[tokio::test]
+async fn load_accepts_module_config_for_ordered_process_slots() {
+    let dir = tempfile::tempdir().expect("config dir");
+    let config_path = dir.path().join("ordered.config.toml");
+    std::fs::write(
+        &config_path,
+        r#"
+active_provider = "fake"
+
+[providers.fake]
+
+[[process_modules]]
+slot = "tool"
+module_id = "custom_tools"
+command = "worker"
+
+[[process_modules]]
+slot = "context_provider"
+module_id = "custom_context"
+command = "worker"
+
+[module_config.tool.custom_tools]
+mode = "strict"
+
+[module_config.context_provider.custom_context]
+roots = ["docs"]
+"#,
+    )
+    .expect("ordered config");
+
+    let config = AppConfig::load(Some(&config_path))
+        .await
+        .expect("ordered process module config");
+    assert_eq!(
+        config
+            .process_module_config("tool", "custom_tools")
+            .expect("tool config")["mode"],
+        "strict"
+    );
+    assert_eq!(
+        config
+            .process_module_config("context_provider", "custom_context")
+            .expect("context provider config")["roots"],
+        serde_json::json!(["docs"])
     );
 }
 
