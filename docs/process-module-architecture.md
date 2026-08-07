@@ -1,6 +1,6 @@
 # Единая Process-Архитектура Модулей
 
-Статус: **принятое целевое решение, ещё не полностью реализовано**.
+Статус: **принятое целевое решение; срезы 0–1 реализованы, cutover не завершён**.
 
 Дата решения: 2026-08-06.
 
@@ -9,9 +9,17 @@
 архитектуру и порядок перехода. Planned здесь не следует читать как уже
 работающий runtime contract.
 
+Implemented checkpoint 2026-08-07: `proteus-module-protocol` владеет strict v1
+session/authority/cancel/terminal semantics, Search переведён на contract v1,
+а переходный Compactor использует тот же protocol runtime с прежним slot
+contract v0. Остальные строки migration matrix остаются planned.
+
 Research-сверка с Prime Agent и границы применимости его process-worker
 паттернов сохранены в
 [prime-agent-process-lessons-2026-08-06.md](research/prime-agent-process-lessons-2026-08-06.md).
+Проверка композиционной модели актуального Pi Extension API и поправка к
+первоначальному slot-only плану сохранены в
+[pi-extension-composition-2026-08-07.md](research/pi-extension-composition-2026-08-07.md).
 
 ## Решение
 
@@ -46,6 +54,25 @@ authority(module) = origin(builtin | dylib | process) + module_id
   может создавать привилегированный builtin/dylib путь;
 - отсутствие реализации не маскируется fake/no-op module с особыми правами.
 
+Process transport и способ композиции — разные решения. Первый отвечает, где
+исполняется module, второй — сколько implementations одной contract surface
+участвуют в одном runtime boundary. Для process contracts допустимы два
+host-defined режима:
+
+```text
+composition(contract) = select_one | ordered_many
+```
+
+- `select_one` — одна выбранная implementation заменяемого поведения;
+- `ordered_many` — явная упорядоченная цепочка однотипных contributions, где
+  каждая implementation получает тот же DTO, authority и failure contract.
+
+Текущие behavior slots являются `select_one`. `ordered_many` включён в kernel
+v1 как модель композиции, но ни одна production surface не получает этот режим
+до отдельного slot-governance решения, двух независимых use cases и
+детерминированных chain/conflict semantics. Это не разрешение модулю произвольно
+объявлять hook или расширять core lifecycle.
+
 ## Почему Текущая Граница Не Подходит
 
 Текущая реализация доказала полезность contracts, но создала origin-dependent
@@ -76,6 +103,9 @@ Dylib дополнительно сочетает нежелательные с�
 
 - **Slot** — host-defined класс заменяемого поведения и его contract.
 - **Module** — одна implementation существующего slot.
+- **Composition mode** — host-defined cardinality contract: ровно одна
+  implementation (`select_one`) или упорядоченный набор равноправных
+  contributions (`ordered_many`).
 - **Module worker** — persistent child process, исполняющий выбранную module
   instance `(slot, module_id, config snapshot)`.
 - **Reference module** — проверочный consumer публичного module protocol. Он не
@@ -117,6 +147,17 @@ module worker (Rust, Python, TypeScript, Go, ...)
 Core зависит от `proteus-contracts` и protocol/lifecycle utility. Module worker
 не зависит от `proteus-core`: он реализует wire contract выбранного slot.
 
+Текущий разрез реализации намеренно состоит из четырёх слоёв:
+
+- `proteus-process-host` — protocol-neutral spawn, framing, bounds и restart;
+- `proteus-contracts` — wire DTO и версии slot contracts;
+- `proteus-module-protocol` — handshake, authority table, bidirectional
+  envelopes, progress, cancel и terminal classification;
+- `proteus-core::process_adapters` — только mapping method/DTO конкретного
+  slot-а в существующий Rust trait.
+
+Conformance binary живёт вместе с protocol runtime и не зависит от core.
+
 Один executable может поддерживать несколько module ids, но host запускает
 отдельную worker instance для каждого выбранного `(slot, module_id, config
 snapshot)`. Один process не агрегирует права разных slots. Для Tool допустим
@@ -126,6 +167,12 @@ snapshot)`. Один process не агрегирует права разных s
 Module worker не равен daemon или root-session worker: переход на process
 modules не требует второго session owner, нового transport для UI или переноса
 journal из core. Worker владеет только поведением одной module instance.
+
+Это правило сохраняется в первом cutover. Если реальные cross-surface cases
+потребуют одной живой connection/state instance для нескольких contracts,
+multi-binding worker проходит отдельный authority review: права могут быть
+только объединением явно выбранных contract bindings, никогда следствием
+`module_id` или физического package origin.
 
 ## Что Остаётся В Core
 
@@ -187,23 +234,25 @@ cutover. Старые ids удаляются без aliases и migration shims.
 ```json
 {
   "jsonrpc": "2.0",
-  "id": 1,
+  "id": "initialize",
   "method": "initialize",
   "params": {
     "protocol_version": "v1",
     "slot": "workflow",
     "module_id": "example.agent_loop",
     "contract_version": "v1",
+    "composition": "select_one",
     "module_config": {},
     "host_features": []
   }
 }
 ```
 
-Ответ подтверждает точные protocol/slot/module/contract versions и
-поддержанные protocol features. Unknown fields и version mismatch завершают
-snapshot build. Module не может объявить другой slot или получить методы,
-которых нет в contract выбранного slot.
+Ответ подтверждает точные protocol/slot/module/contract versions, composition
+mode и поддержанные protocol features. Unknown fields, необъявленная feature,
+дубликаты features и version/composition mismatch завершают snapshot build.
+Module не может объявить другой slot, изменить `select_one` на `ordered_many`
+или получить методы, которых нет в contract выбранного slot.
 
 Negotiation относится только к versioned wire features. При одинаковых slot и
 invocation context она не может дать одному module id дополнительный host
@@ -234,6 +283,11 @@ contracts. Диспетчер проверяет slot authority перед ка�
 Worker не получает ссылку на `RuntimeContext`, session store или concrete core
 object. Только versioned JSON DTO и методы своего slot.
 
+Тот же dispatcher используется для будущих `ordered_many` surfaces. Порядок
+цепочки приходит из immutable snapshot; runtime не сортирует её по module id,
+языку или origin. После каждого mutating contribution host повторно проверяет
+canonical DTO до передачи следующему участнику.
+
 ### Streaming, Progress И Cancellation
 
 - streaming slots используют bounded notifications с terminal response;
@@ -245,6 +299,24 @@ object. Только versioned JSON DTO и методы своего slot.
 - process crash завершает текущий invocation ошибкой без fallback;
 - следующий invocation может сделать lazy restart и новый handshake.
 
+### Authority: Host И OS
+
+Slot authority table управляет только protocol-visible `host.*` methods,
+events и DTO. Сам process boundary не ограничивает прямой доступ executable к
+OS. Пока workers запускаются с правами пользователя без uniform sandbox,
+реализованный инвариант точнее записывается так:
+
+```text
+host_authority(module) = host_authority(slot, invocation_context)
+```
+
+Полный целевой `authority(...)` дополнительно требует одинакового
+launch-policy class: filesystem mounts, network, environment inheritance,
+process spawning и resource limits. Разные command/args являются identity
+реализации, но не могут неявно создавать разные host grants. До появления
+uniform sandbox process modules считаются доверенными; process-only cutover не
+продаётся как security isolation.
+
 ### State И Journal
 
 Каждая instance получает одинаковый scoped data root, вычисленный из slot и
@@ -253,9 +325,23 @@ module id. Process boundary сам по себе не является sandbox: 
 
 Canonical journal остаётся core-owned. Module может возвращать только данные,
 разрешённые contract, и эмитить bounded generic activity. Произвольная запись
-во внутренние journal records запрещена. Если нескольким slots понадобится
-durable extension state, сначала добавляется отдельный provider-neutral
-contract и replay semantics.
+во внутренние journal records запрещена.
+
+Scoped data root сам по себе не даёт корректное session state: внешний файл
+или SQLite не откатываются автоматически при fork/tree navigation и не
+восстанавливаются из canonical replay после worker restart. Поэтому до
+миграции первого stateful либо `ordered_many` contract нужно принять один
+provider-neutral механизм:
+
+- namespaced state transitions/checkpoints записывает host;
+- запись связана с session branch/turn и имеет versioned schema identity;
+- worker получает точный branch snapshot при initialize/session bind;
+- fork, cold resume, reload и lazy restart имеют один reconstruction path;
+- state, видимый модели, отделён от служебного module state.
+
+Search v1 остаётся stateless proof и не притворяется доказательством этой
+семантики. Stateful slot нельзя считать мигрированным только потому, что его
+worker получил постоянный data directory.
 
 ## Slot Migration Matrix
 
@@ -263,12 +349,12 @@ contract и replay semantics.
 |---|---|---|---|
 | Model | core provider adapters | streamed canonical model protocol | deltas, terminal response, capabilities, hosted-tool specs, usage |
 | Tool | core/config/dylib/MCP paths | process Tool provider; MCP maps into the same invocation semantics | specs, owner context, progress, cancel, safety attribution |
-| Search | process v0 + dylib | process v1 | lift existing reference, remove origin branches |
+| Search | process v1 + dylib | process v1 only | remove dylib/null origin branches during one cutover |
 | Memory | dylib + core absence | process v1 request/response | remember/recall DTO, instance data root |
 | ContextBuilder | capability-based dylib | bidirectional process v1 | search/memory callbacks, config, cancellation |
 | ApprovalPolicy | sync core/dylib | process v1 decision service | async boundary or bounded dispatcher, visibility/evaluation parity |
 | PatchApplier | dylib + core absence | process v1 request/response | workspace context, result validation |
-| HistoryCompactor | dylib with model callback + pure process v0 | one bidirectional process v1 contract | give every implementation identical model/cancel surface |
+| HistoryCompactor | dylib with model callback + process protocol v1 / pure slot contract v0 | one bidirectional process v1 contract | give every implementation identical model/cancel surface |
 | ToolExposure | dylib + core fallback | process v1 request/response | policy-visible candidates, config, metadata |
 | SubagentRunner | core full lifecycle + restricted dylib | process v1 full lifecycle | roles, spawn/wait/cancel/send, ownership, bounds |
 | Workflow | capability-based dylib | bidirectional process v1 | model/context/tools/compaction/events/cancel callbacks |
@@ -313,7 +399,7 @@ reference dylib; после cutover reference workers используются t
 - обновить scope/roadmap/spec и запретить новые dylib surfaces;
 - не менять runtime behavior до готовности protocol vertical slice.
 
-### Срез 1: Protocol Kernel И Conformance
+### Срез 1: Protocol Kernel И Conformance — Завершён 2026-08-07
 
 - выделить generic `ProcessModuleSession` поверх raw seam
   `proteus-process-host`;
@@ -321,9 +407,17 @@ reference dylib; после cutover reference workers используются t
   cancellation и terminal classification;
 - сделать slot authority table единственным source of truth для разрешённых
   host methods;
+- передавать и проверять host-defined composition mode, не предполагая в wire,
+  что любой будущий contract обязательно `select_one`;
 - добавить conformance runner, который можно запустить против любого
   executable без подключения к `proteus-core` internals;
 - перенести search reference с v0 на v1 как простой request/response proof.
+
+Срез 1 не добавляет production `ordered_many` surface и arbitrary extension
+API. Он только не цементирует protocol kernel под неверную cardinality.
+Protocol harness, Search/Compactor runtime swap и внешний safe Search probe
+составляют evidence этого среза; равенство stateful и callback-heavy slots ими
+ещё не доказано.
 
 ### Срез 2: Agent Worker Vertical Slice
 
@@ -412,6 +506,7 @@ Process-only cutover завершён, когда одновременно ве�
 - security sandbox как автоматическое следствие process boundary;
 - distributed workers и remote orchestration;
 - hot reload active module instance;
+- arbitrary TUI components и in-process object/callback extension API;
 - compatibility со старым dylib/config/layout;
 - добавление новых agent features одновременно с transport migration.
 

@@ -3,10 +3,15 @@ set -eu
 
 mode=${1:?process search fixture mode is required}
 
-# ProcessSession starts request ids at 1. This fixture deliberately avoids a
-# JSON parser: protocol shaping belongs to Proteus tests, not to the host
-# language available on the machine running them.
-IFS= read -r _initialize_request
+# The host emits compact envelopes with the top-level id first. This fixture
+# deliberately avoids a JSON parser: strict envelope shaping is covered by the
+# protocol crate, while this script only supplies slot-level swap evidence.
+rpc_id() {
+    printf '%s\n' "$1" | sed -n 's/^[[:space:]]*{"id":[[:space:]]*\([^,}]*\),.*/\1/p'
+}
+
+IFS= read -r initialize_request
+initialize_id=$(rpc_id "$initialize_request")
 if [ "$mode" = "slow_initialize" ]; then
     sleep 0.4
 fi
@@ -15,10 +20,10 @@ if [ "$mode" = "mismatch" ]; then
 else
     slot=search
 fi
-printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocol_version\":\"v0\",\"slot\":\"$slot\",\"module_id\":\"fixture\",\"contract_version\":\"v0\"}}"
+printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$initialize_id,\"result\":{\"protocol_version\":\"v1\",\"slot\":\"$slot\",\"module_id\":\"fixture\",\"contract_version\":\"v1\",\"composition\":\"select_one\",\"module_features\":[]}}"
 
-request_id=2
-while IFS= read -r _search_request; do
+while IFS= read -r search_request; do
+    request_id=$(rpc_id "$search_request")
     case "$mode" in
         exit)
             exit 9
@@ -33,5 +38,4 @@ while IFS= read -r _search_request; do
             printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$request_id,\"result\":{\"chunks\":[{\"source\":\"process:fixture\",\"path\":\"sample.txt\",\"content\":\"hit needle\",\"score\":1.0,\"metadata\":{\"fixture\":true}}]}}"
             ;;
     esac
-    request_id=$((request_id + 1))
 done

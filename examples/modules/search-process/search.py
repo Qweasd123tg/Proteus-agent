@@ -16,12 +16,20 @@ from pathlib import PurePath
 from typing import Any
 
 
-PROTOCOL_VERSION = "v0"
+PROTOCOL_VERSION = "v1"
 SLOT = "search"
 MODULE_ID = "python_rg"
-CONTRACT_VERSION = "v0"
+CONTRACT_VERSION = "v1"
 
-INITIALIZE_FIELDS = {"protocol_version", "slot", "contract_version"}
+INITIALIZE_FIELDS = {
+    "protocol_version",
+    "slot",
+    "module_id",
+    "contract_version",
+    "composition",
+    "module_config",
+    "host_features",
+}
 QUERY_FIELDS = {
     "text",
     "cwd",
@@ -60,13 +68,27 @@ def require_string_list(value: Any, label: str) -> list[str]:
 
 def validate_initialize(params: Any) -> None:
     params = require_object(params, INITIALIZE_FIELDS, "initialize params")
-    expected = {
-        "protocol_version": PROTOCOL_VERSION,
-        "slot": SLOT,
-        "contract_version": CONTRACT_VERSION,
-    }
-    if params != expected:
+    expected_identity = (
+        PROTOCOL_VERSION,
+        SLOT,
+        MODULE_ID,
+        CONTRACT_VERSION,
+        "select_one",
+    )
+    actual_identity = (
+        params["protocol_version"],
+        params["slot"],
+        params["module_id"],
+        params["contract_version"],
+        params["composition"],
+    )
+    if actual_identity != expected_identity:
         raise ProtocolError(f"unsupported initialize params: {params!r}")
+    host_features = require_string_list(
+        params["host_features"], "initialize host_features"
+    )
+    if host_features:
+        raise ProtocolError(f"unsupported host features: {host_features!r}")
 
 
 def validate_query(params: Any) -> dict[str, Any]:
@@ -205,7 +227,7 @@ def search(query: dict[str, Any]) -> dict[str, Any]:
     return {"chunks": chunks}
 
 
-def response(request_id: int, result: Any) -> dict[str, Any]:
+def response(request_id: Any, result: Any) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
 
 
@@ -220,8 +242,8 @@ def error_response(request_id: Any, code: int, message: str) -> dict[str, Any]:
 def handle_request(raw: Any, initialized: bool) -> tuple[dict[str, Any], bool]:
     request = require_object(raw, REQUEST_FIELDS, "JSON-RPC request")
     request_id = request["id"]
-    if not isinstance(request_id, int) or isinstance(request_id, bool):
-        raise ProtocolError("JSON-RPC id must be an integer")
+    if not isinstance(request_id, (int, str)) or isinstance(request_id, bool):
+        raise ProtocolError("JSON-RPC id must be a string or integer")
     if request["jsonrpc"] != "2.0":
         raise ProtocolError("JSON-RPC version must be 2.0")
     method = request["method"]
@@ -237,6 +259,8 @@ def handle_request(raw: Any, initialized: bool) -> tuple[dict[str, Any], bool]:
             "slot": SLOT,
             "module_id": MODULE_ID,
             "contract_version": CONTRACT_VERSION,
+            "composition": "select_one",
+            "module_features": [],
         }
         return response(request_id, manifest), True
     if not initialized:

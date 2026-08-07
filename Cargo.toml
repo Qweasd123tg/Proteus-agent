@@ -8,6 +8,7 @@ exclude = [
 members = [
     "crates/proteus-contracts",
     "crates/proteus-core",
+    "crates/proteus-module-protocol",
     "crates/proteus-process-host",
     "modules/reference/file-tools",
     "modules/reference/git-tools",

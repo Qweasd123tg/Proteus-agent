@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::ContextChunk;
 
-pub const PROCESS_SEARCH_CONTRACT_VERSION: &str = "v0";
+pub const PROCESS_SEARCH_CONTRACT_VERSION: &str = "v1";
 pub const PROCESS_SEARCH_METHOD: &str = "search";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,7 +111,7 @@ mod tests {
     #[test]
     fn process_search_response_rejects_old_array_and_unknown_fields() {
         serde_json::from_value::<ProcessSearchResponse>(serde_json::json!([]))
-            .expect_err("bare array is not the v0 response envelope");
+            .expect_err("bare array is not the v1 response envelope");
         serde_json::from_value::<ProcessSearchResponse>(serde_json::json!({
             "chunks": [],
             "legacy_results": []

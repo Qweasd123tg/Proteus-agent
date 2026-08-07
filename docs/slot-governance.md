@@ -4,12 +4,25 @@
 позволить plugin system превратиться в набор одноразовых интерфейсов под каждую
 новую статью, agent UX-фичу или чужую архитектурную находку.
 
-Короткое правило:
+Короткое правило для обычного заменяемого поведения:
 
 ```text
 slot нужен не для фичи,
 slot нужен для класса заменяемого поведения.
 ```
+
+Аудит Pi 2026-08-07 показал вторую, ортогональную потребность: несколько
+равноправных implementations иногда должны не заменять друг друга, а образовывать
+детерминированную цепочку на одной lifecycle boundary. Поэтому contract обязан
+явно выбрать cardinality:
+
+```text
+composition(contract) = select_one | ordered_many
+```
+
+`ordered_many` не является обходом правил ниже и не превращает strings/hooks в
+динамические slots. Это такой же host-defined typed contract с одинаковой
+authority для каждого участника; меняются только cardinality и chain semantics.
 
 Набор runtime slots host-defined, а не расширяется плагином одной строкой.
 Строковый `SlotId` унифицирует catalog keys для уже известных core slots, но
@@ -61,6 +74,24 @@ exposure, workflow, approval, memory, compaction, storage, model capabilities и
 6. Для slot-а можно написать boundary/swap tests, которые доказывают
    заменяемость реализаций.
 
+Для `ordered_many` вместо обычного swap evidence дополнительно обязательны:
+
+1. минимум два независимо полезных contributions, которые должны работать
+   одновременно, а не только быть альтернативами;
+2. стабильный typed input/output либо notification contract без доступа к
+   concrete core/UI objects;
+3. явный порядок из config snapshot, conflict policy и повторная validation
+   после mutating contribution;
+4. per-handler deadline/cancellation и решение fail-open/fail-closed;
+5. branch/reload/restart semantics для stateful handlers;
+6. chain tests: `A -> B`, `B -> A`, failure одного участника и отсутствие
+   module-id-specific authority.
+
+Один широкий `ExtensionAPI`, объединяющий tools, provider internals, raw UI и
+session mutation, не принимается автоматически только ради удобства. Сначала
+нужно решить, является ли surface одним честным contract или скрытым
+агрегированием прав разных slots.
+
 Если хотя бы один пункт не проходит, идея идёт в существующий module/plugin,
 черновой research plugin или docs backlog.
 
@@ -80,6 +111,7 @@ exposure, workflow, approval, memory, compaction, storage, model capabilities и
 | Нужно применить edit/patch? | `PatchApplier` или `Tool` поверх него |
 | Нужно изменить provider request/streaming/usage? | `Model` / model standard |
 | Нужно показать debug/UX? | app-server protocol, UI client или `Renderer` |
+| Несколько независимых обработчиков должны последовательно менять один DTO? | кандидат на `ordered_many` contract; сначала два simultaneous use cases и chain semantics |
 | Нужно обработать tool result перед возвратом модели? | Пока research: кандидат на generic `ToolResultProcessor`, не feature-specific slot |
 | Нужно складывать большие файлы/артефакты? | Пока research: кандидат на generic `ArtifactStore`, не Cursor-specific slot |
 
@@ -163,6 +195,8 @@ Cursor-like output artifact идеи, но не доказывает, что н�
 - slots, которые существуют только ради одного plugin-а;
 - contracts с provider-specific request/response типами;
 - contracts, которые требуют от core знать порядок внутренних шагов plugin-а;
+- `ordered_many` chains, порядок которых не закреплён snapshot/config-ом;
+- broad extension contract, который даёт tool implementation дополнительные права только из-за способа регистрации;
 - compatibility fallback-и к старым experimental форматам без отдельной
   миграционной причины.
 

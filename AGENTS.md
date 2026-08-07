@@ -25,6 +25,24 @@ protocol; план однократного перехода описан в
 `docs/process-module-architecture.md`. Текущий dylib runtime является только
 переходным implemented state, а не поверхностью для дальнейшего расширения.
 
+Transport и cardinality не смешиваются. Host-defined process contract явно
+задаёт один из режимов:
+
+```text
+composition(contract) = select_one | ordered_many
+```
+
+Текущие behavior slots — `select_one`. `ordered_many` допустим только для
+typed chain surface с одинаковой authority всех участников, явным порядком,
+повторной validation и отдельным slot-governance evidence. Module не может
+сам объявить новый hook или изменить composition mode.
+
+Process boundary сам по себе не sandbox. Пока нет uniform launch policy,
+таблица slot authority доказывает равенство protocol-visible `host.*` прав, но
+workers остаются доверенными executable с OS-правами пользователя. Полный
+инвариант включает одинаковый класс filesystem/network/env/process/resource
+ограничений, когда такая sandbox surface появится.
+
 ## Модульность Кода
 
 Модульность проекта должна отражаться и в структуре файлов. Не допускайте
@@ -57,8 +75,9 @@ rendering, UI state, tests и provider/module-specific детали.
 ```text
 crates/
     proteus-contracts/     - публичный crate: traits, DTO, canonical model, временный dylib ABI
-    proteus-core/       - ядро: runtime, wiring, process/plugin adapters переходного периода, app-server
-    proteus-process-host/ - утилитарный крейт: lifecycle persistent stdio child-процессов (framing, request/response, restart)
+    proteus-core/          - ядро: runtime, wiring, process/plugin adapters переходного периода, app-server
+    proteus-module-protocol/ - strict process v1 session, authority table и conformance runner
+    proteus-process-host/  - protocol-neutral lifecycle persistent stdio child-процессов
 clients/
     web/                 - основной Leptos chat-клиент
     inspector/           - отдельный Leptos config/architecture-клиент
@@ -103,6 +122,9 @@ examples/
   единый process contract.
 - Не делать исключения по конкретному `module_id`: host dispatch разрешает
   методы по slot contract, а не по имени реализации.
+- Не выдавать implementation дополнительные права из-за того, что она
+  зарегистрировала tool через broad extension/hook path; одинаковая behavior
+  surface должна проходить один contract и safety path.
 - Не импортировать provider-specific типы OpenAI, Anthropic или локальных API за пределами `crates/proteus-core/src/adapters` и model shaping слоя.
 - Не добавлять runtime-логику в CLI, если она принадлежит `core` или `workflow`.
 - Не обходить `ToolRegistry`, `ApprovalPolicy` и `ToolSafety` при исполнении tools.

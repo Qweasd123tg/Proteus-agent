@@ -28,9 +28,11 @@ adapter для plugin `MemoryStore`. `jsonl` вынесен в
 
 `crates/proteus-core/src/process_adapters/<slot>` содержит другой glue layer:
 он переводит generic stdio process protocol в конкретный contract. Сейчас там
-есть search и compactor adapters; protocol framing и lifecycle принадлежат
-`proteus-process-host`, а алгоритм поиска или compaction strategy остаётся во
-внешнем child-е.
+есть search и compactor adapters. Raw framing/lifecycle принадлежат
+`proteus-process-host`; strict handshake, authority, bidirectional JSON-RPC,
+cancel и terminal outcomes — `proteus-module-protocol`; mapping метода и slot
+DTO остаётся в adapter-е. Алгоритм поиска или compaction strategy живёт только
+во внешнем child-е.
 
 Core-owned no-op/fake fallback-и вынесены отдельно в
 `crates/proteus-core/src/stubs`: `FakeModelClient`, `NullSearch`, `NoMemory`,
@@ -213,11 +215,12 @@ timeout.
 `module_config.search.process`. Выбор и запуск fail-closed: config обязан
 задать ожидаемый `module_id`, команду и при необходимости args/cwd/environment;
 snapshot build сразу запускает child и проверяет handshake. Несовпадение
-protocol/slot/module/contract — config error до turn-а. Смерть child-а,
-JSON-RPC error или неправильная форма результата возвращаются как ошибка
-выбранного search slot-а; `NullSearch` автоматически не подставляется. После
-ошибки текущая process session удаляется, следующий search делает lazy restart
-и повторяет handshake.
+protocol/slot/module/contract/composition — config error до turn-а. Смерть
+child-а, module error или неправильная форма результата возвращаются как
+ошибка выбранного search slot-а; `NullSearch` автоматически не подставляется.
+Transport/protocol/DTO failure отбрасывает session, следующий search делает
+lazy restart и повторяет handshake. Обычный terminal module error остаётся
+ошибкой invocation, но сам по себе не объявляет wire session повреждённой.
 
 В async entrypoints сборка snapshot, включая spawn и handshake, уходит в
 blocking pool и не занимает Tokio worker. Read-only пути `tools list`,
@@ -225,23 +228,26 @@ blocking pool и не занимает Tokio worker. Read-only пути `tools l
 tool metadata на безопасных заглушках и отдельно валидируют process config и
 доступность команды без запуска child-а.
 
-Wire v0 — compact JSON-RPC 2.0, один объект на строку. Первый вызов:
+Wire protocol v1 — compact JSON-RPC 2.0, один объект на строку. Первый вызов:
 
 ```json
-{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocol_version":"v0","slot":"search","contract_version":"v0"}}
+{"jsonrpc":"2.0","id":"initialize","method":"initialize","params":{"protocol_version":"v1","slot":"search","module_id":"python_rg","contract_version":"v1","composition":"select_one","module_config":{},"host_features":[]}}
 ```
 
 Ответ содержит строгий manifest:
 
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"protocol_version":"v0","slot":"search","module_id":"python_rg","contract_version":"v0"}}
+{"jsonrpc":"2.0","id":"initialize","result":{"protocol_version":"v1","slot":"search","module_id":"python_rg","contract_version":"v1","composition":"select_one","module_features":[]}}
 ```
 
 Затем метод `search` получает canonical `SearchQuery`, а result имеет строгую
 форму `{ "chunks": [ContextChunk, ...] }`. Bare array, неизвестные поля и
-неполные DTO отклоняются; старой формы и auto-detection нет. Generic JSON-RPC
-envelope/framing не знает деталей search, а mapping метода и DTO живёт только в
-search process adapter-е.
+неполные DTO отклоняются; старой формы и auto-detection нет. Module-owned
+`config` из `module_config.search.process` передаётся как `module_config` и не
+интерпретируется core. Generic protocol runtime не знает деталей search, а
+mapping метода и DTO живёт только в search process adapter-е. Authority
+`search/v1` не содержит `host.*` callbacks; worker с таким запросом
+отбрасывается fail-closed независимо от его `module_id`.
 
 Reference в `examples/modules/search-process/search.py` использует Python
 stdlib и `rg`, но язык не является частью контракта: любой executable с тем же
@@ -622,13 +628,17 @@ transform и не может делать скрытые model calls. Module-own
 команда, cwd и окружение через границу не протекают.
 
 При сборке snapshot core запускает child и делает строгий `initialize`
-handshake для slot `compactor`, ожидаемого `module_id` и contract `v0`.
-Метод `compact` возвращает envelope `{ "output": CompactionOutput }`: bare
-output, неизвестные поля, JSON-RPC error, смерть child или timeout являются
-ошибкой выбранного slot-а без fallback на `none`. После process/protocol/DTO
-ошибки session сбрасывается; следующий вызов лениво запускает новый child и
-повторяет handshake. Read-only `modules list`, `inspect topology` и `doctor`
-валидируют config/command, но не запускают процесс.
+handshake protocol v1 для slot `compactor`, ожидаемого `module_id`,
+`composition = "select_one"` и пока ещё slot contract `v0`. Метод `compact`
+возвращает envelope `{ "output": CompactionOutput }`: bare output, неизвестные
+поля, module error, смерть child или timeout являются ошибкой выбранного
+slot-а без fallback на `none`. После transport/protocol/DTO/cancel/timeout
+session сбрасывается; следующий вызов лениво запускает новый child и повторяет
+handshake. `strategy` передаётся и как snapshot `module_config`, и в
+`CompactionInput.config`: это явно переходная форма старого compactor contract
+v0 до выравнивания capability surface в срезе 3, а не новый шаблон DTO.
+Read-only `modules list`, `inspect topology` и `doctor` валидируют
+config/command, но не запускают процесс.
 
 Dependency-free reference находится в
 `examples/modules/compactor-process/compact.py`. Он сохраняет canonical

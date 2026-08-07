@@ -1251,6 +1251,7 @@ dependencies = [
  "memory-pack",
  "policy-pack",
  "proteus-contracts",
+ "proteus-module-protocol",
  "proteus-process-host",
  "renderer-pack",
  "reqwest",
@@ -1264,6 +1265,18 @@ dependencies = [
  "toml",
  "toml_edit",
  "uuid",
+]
+
+[[package]]
+name = "proteus-module-protocol"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "proteus-contracts",
+ "proteus-process-host",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

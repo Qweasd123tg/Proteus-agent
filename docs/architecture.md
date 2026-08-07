@@ -44,6 +44,8 @@ subagents. Это ещё не готовая внешняя plugin platform: ABI
 иметь разные права из-за происхождения `builtin/dylib/process`. Целевая внешняя
 граница — process worker для всех modules. До завершения cutover схема ниже
 честно показывает текущий смешанный runtime; она не является конечным дизайном.
+С 2026-08-07 два process adapters используют один strict protocol-v1 kernel;
+это завершает transport foundation, но не origin cutover остальных slots.
 
 ## Карта Системы
 
@@ -91,6 +93,7 @@ app-server и получает contract-события. Runtime на старт�
 crates/
   proteus-contracts/     traits, DTO, canonical model, plugin ABI
   proteus-core/          runtime, wiring, adapters, app-server, CLI
+  proteus-module-protocol/ strict process v1 session, authority, conformance
   proteus-process-host/  lifecycle persistent stdio процессов
 
 modules/
@@ -115,6 +118,8 @@ docs/                     документация
 - `crates/proteus-core/src/app_server.rs` — client boundary;
 - `crates/proteus-contracts/src/contracts/` — публичные traits;
 - `crates/proteus-contracts/src/plugin.rs` — временный dylib ABI;
+- `crates/proteus-module-protocol/` — общий host-side process protocol v1 и
+  executable conformance gate;
 - `modules/reference/coding-workflow/` — текущие reference workflows;
 - `docs/process-module-architecture.md` — целевой uniform process contract и
   порядок удаления origin-dependent paths.
@@ -190,6 +195,19 @@ registrations, после чего `RuntimeRegistry` строит trait-объе
 Новый slot нужен только для класса заменяемого поведения, уже доказанного
 минимум двумя независимо работающими non-noop реализациями. Planned-вариант не
 считается. Полные правила — в [slot-governance.md](slot-governance.md).
+
+### Process Modules
+
+`proteus-process-host` остаётся protocol-neutral lifecycle/framing utility.
+`proteus-module-protocol` добавляет strict initialize, host-defined
+composition, authority table, bidirectional JSON-RPC, bounded cancellation и
+terminal outcomes. Core adapters знают только имя метода и typed DTO своего
+slot-а. Worker зависит от wire contracts, но не от `proteus-core`.
+
+Process boundary пока не является OS sandbox: executable доверен настолько же,
+насколько любой запущенный пользователем процесс. Authority table ограничивает
+только protocol-visible `host.*`; uniform filesystem/network/process policy —
+отдельная незавершённая граница.
 
 ## Главные Границы
 

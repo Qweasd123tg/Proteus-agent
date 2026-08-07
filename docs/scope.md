@@ -196,7 +196,8 @@ checkpoint — real rust-analyzer success dogfood при доступном bina
 ## Не На Критическом Пути
 
 Эти возможности могут существовать в коде или backlog, но не должны вытеснять
-process protocol v1, agent-worker vertical slice или defect текущего dogfood:
+process `Workflow`/Model/Tool agent-worker vertical slice или defect текущего
+dogfood:
 
 - marketplace, signed modules и внешний package manager;
 - WASM runtime и dylib hot-unload;

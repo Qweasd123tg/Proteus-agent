@@ -22,9 +22,12 @@ Roadmap хранит порядок работ и журнал уже приня
    reference modules отделены от ложного default/standard pack, source
    layout и neutral catalog/registry naming подготовлены без изменения
    runtime behavior.
-2. Срез 1: generic `ProcessModuleSession`, strict protocol v1, bidirectional
-   dispatch, slot authority table и внешний conformance runner.
-3. Срез 2: process `Workflow` + Model/Tool support, достаточные для
+2. ✅ Срез 1 закрыт 2026-08-07: generic `ProcessModuleSession`, strict protocol
+   v1, bidirectional dispatch, slot authority table, host-defined
+   `select_one | ordered_many` composition metadata и внешний conformance
+   runner. Stateless Search переведён на v1; production `ordered_many` surface
+   в этот срез не входит.
+3. **Следующий:** срез 2 — process `Workflow` + Model/Tool support, достаточные для
    out-of-tree agent-worker и реального coding turn-а.
 4. Срез 3: выровнять process capabilities остальных slots, включая полный
    subagent lifecycle и compactor model callback.
@@ -112,11 +115,31 @@ module implementations без переписывания core или форка 
    focused tests на boundary.
 6. Equal authority: module получает права по slot contract и invocation
    context, а не по `builtin/dylib/process` origin или module id.
+7. Two-dimensional extensibility: process transport не подменяет composition;
+   contracts явно выбирают `select_one` или доказанный `ordered_many`.
 
 ## Журнал Направления
 
 Ниже — датированные решения. Они сохраняются как контекст, но не заменяют
 текущий порядок выше.
+
+Обновление на 2026-08-07: повторная сверка с актуальным Pi Extension API нашла
+недооценённую ось. Узкие slots хорошо обеспечивают заменяемость, но сами по
+себе не выражают additive lifecycle composition, session/fork-aware extension
+state и одну живую extension instance на нескольких surfaces. Process-only
+решение сохранено; protocol kernel теперь различает host-defined
+`select_one | ordered_many`, а stateful cutover блокируется до namespaced
+branch/replay semantics. `ordered_many` пока не production slot: перед ним
+нужны два simultaneous use cases и отдельный governance gate. Process boundary
+также больше не трактуется как OS sandbox: до uniform launch policy доказано
+только равенство protocol-visible host authority.
+
+В тот же день срез 1 доведён до executable evidence: protocol harness покрывает
+strict/malformed/cancel/timeout/crash/forbidden-callback cases, внешний runner
+делает disposable handshake и optional safe probe, Search reference говорит на
+contract v1, а переходный Compactor использует тот же общий session runtime.
+Это не закрывает stateful semantics и не выравнивает compactor model callback;
+они остаются в следующих срезах.
 
 Обновление на 2026-08-06: принято process-only направление. Reference/dogfood
 реализации не образуют standard/default pack; source layout переименовывается

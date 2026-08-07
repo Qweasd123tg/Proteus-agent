@@ -6,10 +6,10 @@
 cargo test --workspace
 ```
 
-Текущий workspace гоняет unit-тесты `proteus-contracts`, адаптеров и
-plugin-адаптеров в `proteus-core`, интеграционные тесты `module_swap.rs` и
-тесты плагинов. Зелёный прогон — минимальное условие для
-любого PR.
+Текущий workspace гоняет unit-тесты `proteus-contracts`, общий harness
+`proteus-module-protocol`, адаптеры и plugin-адаптеры в `proteus-core`,
+интеграционные тесты `module_swap.rs` и тесты модулей. Зелёный прогон —
+минимальное условие для любого PR.
 
 Эти dylib tests остаются обязательными, пока работает переходный runtime, но
 не являются шаблоном для новых implementations. Process-only cutover добавляет
@@ -128,10 +128,11 @@ git diff --check
 `crates/proteus-core/tests/module_swap.rs` проверяет:
 
 - `search = null` и `search = rg` не требуют изменений runtime;
-- `search = process` проходит тот же `SearchBackend` contract: тестовый процесс
+- `search = process` проходит тот же `SearchBackend` contract v1: тестовый процесс
   на POSIX `sh` и Python + `rg` reference меняются с in-process backend без
   изменений runtime; обязательные protocol cases не скипаются при отсутствии
-  Python. Handshake mismatch отклоняется при сборке snapshot, а смерть child,
+  Python. Strict protocol v1 handshake mismatch отклоняется при сборке snapshot,
+  module authority не зависит от id реализации, а смерть child,
   JSON-RPC error и невалидный slot DTO возвращаются как ошибка без fallback;
   current-thread regression подтверждает, что медленный handshake при async
   сборке snapshot не блокирует Tokio worker;
@@ -367,6 +368,37 @@ terminal response/stream, malformed frame, timeout/cancel, crash/restart,
 core changes. Полная матрица — в
 `docs/process-module-architecture.md#обязательные-проверки`.
 
+Host-side protocol kernel проверяется отдельно от core и конкретного slot DTO:
+
+```bash
+cargo test -p proteus-module-protocol
+```
+
+Harness поднимает настоящий disposable worker и покрывает strict initialize,
+module config, version/composition/feature mismatch, success/error terminal,
+contract-bounded outgoing methods, count/byte-bounded progress/activity
+notifications, malformed и out-of-order frame, запрещённый `host.*`,
+cooperative cancel, deadline с non-cooperative worker, crash и lazy restart.
+Authority table индексируется только по
+`(slot, contract_version)`, поэтому `module_id` не участвует в выдаче host
+methods.
+
+Для внешнего executable доступен runner без зависимости от
+`proteus-core`:
+
+```bash
+cargo run -p proteus-module-protocol --bin proteus-module-conformance -- \
+  --slot search --module-id python_rg --contract-version v1 \
+  --probe-method search \
+  --probe-params '{"text":"","cwd":".","max_results":0,"use_case":"conformance","starts_with":[],"ends_with":[]}' \
+  -- python3 examples/modules/search-process/search.py
+```
+
+Без `--probe-method` runner проверяет только handshake. С probe он проверяет
+generic terminal envelope и notifications; typed result конкретного slot-а и
+заменяемость по-прежнему обязаны пройти adapter/swap tests. Успешный handshake
+не является доказательством качества алгоритма или OS isolation.
+
 ## Правило Для Нового Slot Module
 
 Если добавляется новая реализация существующего slot, нужен тест, который доказывает:
@@ -441,8 +473,9 @@ canonical DTO не ломаются.
 - `tools list`, CLI inspect и doctor при `modules.search = "process"` или
   `modules.compactor = "process"` валидируют metadata/config/command, но не
   запускают внешний child;
-- process compactor проходит тот же swap-gate, что `none`/plugin реализации:
-  strict handshake и response envelope, fail-closed process/JSON-RPC/DTO
+- process compactor использует тот же protocol-v1 runtime и проходит тот же
+  swap-gate, что `none`/plugin реализации, сохраняя переходный slot contract
+  v0: strict handshake и response envelope, fail-closed process/JSON-RPC/DTO
   errors, lazy restart после crash и настоящий Python reference без доступа к
   `CompactionHost`.
 

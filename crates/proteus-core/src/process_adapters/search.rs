@@ -7,15 +7,17 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
-use proteus_process_host::{NewlineJsonFraming, ProcessHost, ProcessSession, ProcessSpec};
+use proteus_module_protocol::{
+    ProcessModuleBinding, ProcessModuleSession, ProcessModuleSessionOptions, ProcessModuleTerminal,
+};
+use proteus_process_host::ProcessSpec;
 use serde::Deserialize;
 use serde_json::Value;
 
 use crate::{
     contracts::{
-        PROCESS_MODULE_INITIALIZE_METHOD, PROCESS_MODULE_PROTOCOL_VERSION,
-        PROCESS_SEARCH_CONTRACT_VERSION, PROCESS_SEARCH_METHOD, ProcessModuleInitialize,
-        ProcessModuleManifest, ProcessSearchResponse, SearchBackend, SearchQuery,
+        PROCESS_SEARCH_CONTRACT_VERSION, PROCESS_SEARCH_METHOD, ProcessSearchResponse,
+        SearchBackend, SearchQuery,
     },
     core::expand_user_path,
     domain::ContextChunk,
@@ -36,12 +38,19 @@ pub struct ProcessSearchConfig {
     env_allowlist: Vec<String>,
     #[serde(default)]
     env: BTreeMap<String, String>,
+    /// Module-owned payload sent only through the v1 initialize contract.
+    #[serde(default = "default_module_config")]
+    config: Value,
     #[serde(default = "default_timeout_ms")]
     timeout_ms: u64,
 }
 
 fn default_timeout_ms() -> u64 {
     DEFAULT_PROCESS_SEARCH_TIMEOUT_MS
+}
+
+fn default_module_config() -> Value {
+    Value::Object(serde_json::Map::new())
 }
 
 impl ProcessSearchConfig {
@@ -75,7 +84,7 @@ impl ProcessSearchConfig {
 pub struct ProcessSearchBackend {
     module_id: String,
     timeout: Duration,
-    host: Arc<ProcessHost<NewlineJsonFraming>>,
+    session: Arc<ProcessModuleSession>,
 }
 
 impl ProcessSearchBackend {
@@ -84,23 +93,25 @@ impl ProcessSearchBackend {
         let spec = config.process_spec(workspace)?;
         let timeout = config.timeout();
         let expected_module_id = config.module_id.clone();
-        let initializer_module_id = expected_module_id.clone();
-        let host = Arc::new(ProcessHost::with_initializer(
+        let binding = ProcessModuleBinding::new(
+            "search",
+            expected_module_id.clone(),
+            PROCESS_SEARCH_CONTRACT_VERSION,
+            config.config,
+        )?;
+        let session = Arc::new(ProcessModuleSession::connect(
             spec,
-            NewlineJsonFraming::default(),
-            move |session| initialize_search_process(session, &initializer_module_id, timeout),
-        ));
-
-        // Handshake is part of snapshot construction: an incompatible command
-        // is a config error now, not a surprise on the first model turn.
-        drop(host.ensure_session().with_context(|| {
-            format!("process search module {expected_module_id:?} handshake failed")
-        })?);
+            binding,
+            ProcessModuleSessionOptions {
+                handshake_timeout: timeout,
+                ..ProcessModuleSessionOptions::default()
+            },
+        )?);
 
         Ok(Self {
             module_id: expected_module_id,
             timeout,
-            host,
+            session,
         })
     }
 }
@@ -108,22 +119,23 @@ impl ProcessSearchBackend {
 #[async_trait]
 impl SearchBackend for ProcessSearchBackend {
     async fn search(&self, query: SearchQuery) -> Result<Vec<ContextChunk>> {
-        let host = Arc::clone(&self.host);
+        let session = Arc::clone(&self.session);
         let module_id = self.module_id.clone();
         let timeout = self.timeout;
         tokio::task::spawn_blocking(move || {
             let params = serde_json::to_value(query)
                 .context("process search: failed to serialize SearchQuery")?;
-            let value = host
-                .request(PROCESS_SEARCH_METHOD, params, timeout)
+            let invocation = session
+                .invoke(PROCESS_SEARCH_METHOD, params, timeout)
                 .with_context(|| format!("process search module {module_id:?} request failed"))?;
+            let value = terminal_value(invocation.terminal, &module_id)?;
             match serde_json::from_value::<ProcessSearchResponse>(value) {
                 Ok(response) => Ok(response.chunks),
                 Err(error) => {
                     // A syntactically valid JSON-RPC response with the wrong
                     // slot payload poisons this session. Restart lazily on the
                     // next call instead of continuing an unknown protocol.
-                    host.reset();
+                    session.reset();
                     Err(error).with_context(|| {
                         format!("process search module {module_id:?} returned invalid response")
                     })
@@ -135,52 +147,18 @@ impl SearchBackend for ProcessSearchBackend {
     }
 }
 
-fn initialize_search_process(
-    session: &mut ProcessSession<NewlineJsonFraming>,
-    expected_module_id: &str,
-    timeout: Duration,
-) -> Result<()> {
-    let params = serde_json::to_value(ProcessModuleInitialize::new(
-        "search",
-        PROCESS_SEARCH_CONTRACT_VERSION,
-    ))?;
-    let value = session
-        .request(PROCESS_MODULE_INITIALIZE_METHOD, params, timeout)
-        .context("initialize request failed")?;
-    let manifest: ProcessModuleManifest =
-        serde_json::from_value(value).context("initialize returned an invalid manifest")?;
-    validate_manifest(&manifest, expected_module_id)
-}
-
-fn validate_manifest(manifest: &ProcessModuleManifest, expected_module_id: &str) -> Result<()> {
-    if manifest.protocol_version != PROCESS_MODULE_PROTOCOL_VERSION {
-        bail!(
-            "process module protocol mismatch: expected {:?}, got {:?}",
-            PROCESS_MODULE_PROTOCOL_VERSION,
-            manifest.protocol_version
-        );
+fn terminal_value(terminal: ProcessModuleTerminal, module_id: &str) -> Result<Value> {
+    match terminal {
+        ProcessModuleTerminal::Success(value) => Ok(value),
+        ProcessModuleTerminal::ModuleError(error) => Err(anyhow::anyhow!(error))
+            .with_context(|| format!("process search module {module_id:?} returned an error")),
+        ProcessModuleTerminal::Canceled => {
+            bail!("process search module {module_id:?} invocation was canceled")
+        }
+        ProcessModuleTerminal::TimedOut => {
+            bail!("process search module {module_id:?} invocation timed out")
+        }
     }
-    if manifest.slot != "search" {
-        bail!(
-            "process module slot mismatch: expected \"search\", got {:?}",
-            manifest.slot
-        );
-    }
-    if manifest.module_id != expected_module_id {
-        bail!(
-            "process module id mismatch: expected {:?}, got {:?}",
-            expected_module_id,
-            manifest.module_id
-        );
-    }
-    if manifest.contract_version != PROCESS_SEARCH_CONTRACT_VERSION {
-        bail!(
-            "process search contract mismatch: expected {:?}, got {:?}",
-            PROCESS_SEARCH_CONTRACT_VERSION,
-            manifest.contract_version
-        );
-    }
-    Ok(())
 }
 
 fn validate_config(config: &ProcessSearchConfig) -> Result<()> {
@@ -211,30 +189,15 @@ fn resolve_process_cwd(configured: Option<&Path>, workspace: &Path) -> Result<Pa
 mod tests {
     use super::*;
 
-    fn manifest() -> ProcessModuleManifest {
-        ProcessModuleManifest {
-            protocol_version: "v0".to_owned(),
-            slot: "search".to_owned(),
-            module_id: "fixture".to_owned(),
-            contract_version: "v0".to_owned(),
-        }
-    }
-
     #[test]
-    fn manifest_requires_exact_protocol_slot_module_and_contract() {
-        validate_manifest(&manifest(), "fixture").expect("valid manifest");
+    fn omitted_module_config_becomes_an_empty_object() {
+        let config = ProcessSearchConfig::from_value(serde_json::json!({
+            "module_id": "fixture",
+            "command": "python3"
+        }))
+        .expect("minimal process search config");
 
-        let mut wrong = manifest();
-        wrong.slot = "memory".to_owned();
-        assert!(validate_manifest(&wrong, "fixture").is_err());
-
-        let mut wrong = manifest();
-        wrong.module_id = "other".to_owned();
-        assert!(validate_manifest(&wrong, "fixture").is_err());
-
-        let mut wrong = manifest();
-        wrong.contract_version = "v1".to_owned();
-        assert!(validate_manifest(&wrong, "fixture").is_err());
+        assert_eq!(config.config, serde_json::json!({}));
     }
 
     #[test]
@@ -254,6 +217,7 @@ mod tests {
             cwd: None,
             env_allowlist: Vec::new(),
             env: BTreeMap::new(),
+            config: Value::Null,
             timeout_ms: 0,
         };
         assert!(validate_config(&zero_timeout).is_err());

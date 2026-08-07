@@ -107,6 +107,10 @@
   30-дневные continue/pivot/freeze criteria; эксперимент не запущен решением
   владельца 2026-07-16, идеи этапов 1–2 переиспользованы в плане
   «Месяц Гибкости» (`roadmap.md`);
+- [research/pi-extension-composition-2026-08-07.md](research/pi-extension-composition-2026-08-07.md) —
+  актуальная повторная сверка Pi Extension API: replaceability против additive
+  composition, branch-aware state, dynamic contributions и точная поправка к
+  process-only kernel без возврата dylib;
 - [research/extensibility-cost-model-2026-07-16.md](research/extensibility-cost-model-2026-07-16.md) —
   ценовые категории добавления будущих возможностей в Proteus и Pi:
   slot/pack/process-модуль против hook surface, наследование безопасности и

@@ -7,16 +7,17 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
-use proteus_process_host::{NewlineJsonFraming, ProcessHost, ProcessSession, ProcessSpec};
+use proteus_module_protocol::{
+    ProcessModuleBinding, ProcessModuleSession, ProcessModuleSessionOptions, ProcessModuleTerminal,
+};
+use proteus_process_host::ProcessSpec;
 use serde::Deserialize;
 use serde_json::Value;
 
 use crate::{
     contracts::{
         CompactionHost, CompactionInput, CompactionOutput, HistoryCompactor,
-        PROCESS_COMPACTOR_CONTRACT_VERSION, PROCESS_COMPACTOR_METHOD,
-        PROCESS_MODULE_INITIALIZE_METHOD, PROCESS_MODULE_PROTOCOL_VERSION,
-        ProcessCompactionResponse, ProcessModuleInitialize, ProcessModuleManifest,
+        PROCESS_COMPACTOR_CONTRACT_VERSION, PROCESS_COMPACTOR_METHOD, ProcessCompactionResponse,
     },
     core::expand_user_path,
 };
@@ -85,7 +86,7 @@ pub struct ProcessHistoryCompactor {
     module_id: String,
     timeout: Duration,
     strategy: Value,
-    process: Arc<ProcessHost<NewlineJsonFraming>>,
+    process: Arc<ProcessModuleSession>,
 }
 
 impl ProcessHistoryCompactor {
@@ -94,16 +95,20 @@ impl ProcessHistoryCompactor {
         let spec = config.process_spec(workspace)?;
         let timeout = config.timeout();
         let expected_module_id = config.module_id.clone();
-        let initializer_module_id = expected_module_id.clone();
-        let process = Arc::new(ProcessHost::with_initializer(
+        let binding = ProcessModuleBinding::new(
+            "compactor",
+            expected_module_id.clone(),
+            PROCESS_COMPACTOR_CONTRACT_VERSION,
+            config.strategy.clone(),
+        )?;
+        let process = Arc::new(ProcessModuleSession::connect(
             spec,
-            NewlineJsonFraming::default(),
-            move |session| initialize_compactor_process(session, &initializer_module_id, timeout),
-        ));
-
-        drop(process.ensure_session().with_context(|| {
-            format!("process compactor module {expected_module_id:?} handshake failed")
-        })?);
+            binding,
+            ProcessModuleSessionOptions {
+                handshake_timeout: timeout,
+                ..ProcessModuleSessionOptions::default()
+            },
+        )?);
 
         Ok(Self {
             module_id: expected_module_id,
@@ -127,16 +132,20 @@ impl HistoryCompactor for ProcessHistoryCompactor {
 
         let input = input.with_config(self.strategy.clone());
         let process = Arc::clone(&self.process);
+        let cancellation_host = Arc::clone(&host);
         let module_id = self.module_id.clone();
         let timeout = self.timeout;
         let response = tokio::task::spawn_blocking(move || {
             let params = serde_json::to_value(input)
                 .context("process compactor: failed to serialize CompactionInput")?;
-            let value = process
-                .request(PROCESS_COMPACTOR_METHOD, params, timeout)
+            let invocation = process
+                .invoke_with_cancel_check(PROCESS_COMPACTOR_METHOD, params, timeout, || {
+                    cancellation_host.is_cancelled()
+                })
                 .with_context(|| {
                     format!("process compactor module {module_id:?} request failed")
                 })?;
+            let value = terminal_value(invocation.terminal, &module_id)?;
             match serde_json::from_value::<ProcessCompactionResponse>(value) {
                 Ok(response) => Ok(response),
                 Err(error) => {
@@ -157,52 +166,18 @@ impl HistoryCompactor for ProcessHistoryCompactor {
     }
 }
 
-fn initialize_compactor_process(
-    session: &mut ProcessSession<NewlineJsonFraming>,
-    expected_module_id: &str,
-    timeout: Duration,
-) -> Result<()> {
-    let params = serde_json::to_value(ProcessModuleInitialize::new(
-        "compactor",
-        PROCESS_COMPACTOR_CONTRACT_VERSION,
-    ))?;
-    let value = session
-        .request(PROCESS_MODULE_INITIALIZE_METHOD, params, timeout)
-        .context("initialize request failed")?;
-    let manifest: ProcessModuleManifest =
-        serde_json::from_value(value).context("initialize returned an invalid manifest")?;
-    validate_manifest(&manifest, expected_module_id)
-}
-
-fn validate_manifest(manifest: &ProcessModuleManifest, expected_module_id: &str) -> Result<()> {
-    if manifest.protocol_version != PROCESS_MODULE_PROTOCOL_VERSION {
-        bail!(
-            "process module protocol mismatch: expected {:?}, got {:?}",
-            PROCESS_MODULE_PROTOCOL_VERSION,
-            manifest.protocol_version
-        );
+fn terminal_value(terminal: ProcessModuleTerminal, module_id: &str) -> Result<Value> {
+    match terminal {
+        ProcessModuleTerminal::Success(value) => Ok(value),
+        ProcessModuleTerminal::ModuleError(error) => Err(anyhow::anyhow!(error))
+            .with_context(|| format!("process compactor module {module_id:?} returned an error")),
+        ProcessModuleTerminal::Canceled => {
+            bail!("process compactor module {module_id:?} invocation was canceled")
+        }
+        ProcessModuleTerminal::TimedOut => {
+            bail!("process compactor module {module_id:?} invocation timed out")
+        }
     }
-    if manifest.slot != "compactor" {
-        bail!(
-            "process module slot mismatch: expected \"compactor\", got {:?}",
-            manifest.slot
-        );
-    }
-    if manifest.module_id != expected_module_id {
-        bail!(
-            "process module id mismatch: expected {:?}, got {:?}",
-            expected_module_id,
-            manifest.module_id
-        );
-    }
-    if manifest.contract_version != PROCESS_COMPACTOR_CONTRACT_VERSION {
-        bail!(
-            "process compactor contract mismatch: expected {:?}, got {:?}",
-            PROCESS_COMPACTOR_CONTRACT_VERSION,
-            manifest.contract_version
-        );
-    }
-    Ok(())
 }
 
 fn validate_config(config: &ProcessCompactorConfig) -> Result<()> {
@@ -232,32 +207,6 @@ fn resolve_process_cwd(configured: Option<&Path>, workspace: &Path) -> Result<Pa
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn manifest() -> ProcessModuleManifest {
-        ProcessModuleManifest {
-            protocol_version: "v0".to_owned(),
-            slot: "compactor".to_owned(),
-            module_id: "fixture".to_owned(),
-            contract_version: "v0".to_owned(),
-        }
-    }
-
-    #[test]
-    fn manifest_requires_exact_protocol_slot_module_and_contract() {
-        validate_manifest(&manifest(), "fixture").expect("valid manifest");
-
-        let mut wrong = manifest();
-        wrong.slot = "search".to_owned();
-        assert!(validate_manifest(&wrong, "fixture").is_err());
-
-        let mut wrong = manifest();
-        wrong.module_id = "other".to_owned();
-        assert!(validate_manifest(&wrong, "fixture").is_err());
-
-        let mut wrong = manifest();
-        wrong.contract_version = "v1".to_owned();
-        assert!(validate_manifest(&wrong, "fixture").is_err());
-    }
 
     #[test]
     fn config_rejects_unknown_fields_and_zero_timeout() {

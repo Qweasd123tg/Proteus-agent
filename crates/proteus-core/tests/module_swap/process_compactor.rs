@@ -136,7 +136,7 @@ async fn compactor_process_failure_is_returned_without_none_fallback() {
         .expect_err("process error must propagate");
 
     let message = format!("{error:#}");
-    assert!(message.contains("request failed"), "{message}");
+    assert!(message.contains("returned an error"), "{message}");
     assert!(message.contains("fixture compaction failure"), "{message}");
 }
 

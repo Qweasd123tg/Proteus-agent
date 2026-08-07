@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 proteus-contracts = { path = "../proteus-contracts" }
+proteus-module-protocol = { path = "../proteus-module-protocol" }
 proteus-process-host = { path = "../proteus-process-host" }
 libloading = "0.8"
 anyhow = "1"

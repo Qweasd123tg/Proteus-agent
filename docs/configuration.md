@@ -659,7 +659,10 @@ retain_user_turns = 2
 несуществующий cwd завершают сборку registry ошибкой. Parent environment
 очищается по тем же правилам `ProcessSpec`, что у process search: кроме
 минимального platform allowlist передаются только `env_allowlist` и literal
-`env`. В `CompactionInput.config` попадает только значение `strategy`.
+`env`. Handshake использует общий process protocol v1 и проверяет exact
+`module_id`, slot, contract и `composition = "select_one"`; compactor slot DTO
+пока остаётся v0. Значение `strategy` передаётся в snapshot `module_config` и
+в `CompactionInput.config` для текущего переходного contract v0.
 Процесс не получает `CompactionHost`, model/tools/session capabilities и не
 может сам менять durable history. Строгий wire contract и runnable reference
 описаны в `examples/modules/compactor-process/README.md`.
@@ -1308,6 +1311,10 @@ args = ["examples/modules/search-process/search.py"]
 # env_allowlist = ["TOKEN"]
 # env = { MODE = "local" }
 timeout_ms = 60000         # initialize и каждый search; default 30000, > 0
+
+# Необязательная module-owned JSON/TOML table. Core её не интерпретирует.
+[module_config.search.process.config]
+# roots = ["src", "crates"]
 ```
 
 `command` обязателен и запускается через `ProcessSpec`: parent environment
@@ -1316,7 +1323,11 @@ Unix), затем добавляются только `env_allowlist` и literal
 `cwd` считается от текущего workspace, `~` разворачивается; несуществующий cwd,
 пустые `module_id`/`command`, нулевой timeout и неизвестные config fields —
 ошибка сборки registry. `module_id` сверяется с handshake, поэтому случайная
-подмена executable не принимается молча.
+подмена executable не принимается молча. Handshake и invocation используют
+strict process protocol v1, Search contract v1 и host-defined
+`composition = "select_one"`; выбранный worker не может добавить себе
+`host.*` методы или объявить protocol feature. Если блок `config` отсутствует,
+worker получает пустой JSON object.
 
 Полный runnable пример —
 `examples/configs/proteus.process-search.example.toml`. Путь к script в нём

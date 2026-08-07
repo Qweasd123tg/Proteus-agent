@@ -141,6 +141,7 @@ Core управляет turn-ом и wiring, но не знает детали �
 ```text
 crates/proteus-contracts/    публичные traits, DTO и временный plugin ABI
 crates/proteus-core/         runtime, wiring, adapters, app-server и CLI
+crates/proteus-module-protocol/ strict process v1 session и conformance runner
 crates/proteus-process-host/ lifecycle persistent stdio child-процессов
 modules/reference/           reference/dogfood implementations, не defaults
 modules/research/            нестабилизированные module experiments

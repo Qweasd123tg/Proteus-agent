@@ -13,13 +13,21 @@ import sys
 from typing import Any
 
 
-PROTOCOL_VERSION = "v0"
+PROTOCOL_VERSION = "v1"
 SLOT = "compactor"
 MODULE_ID = "python_suffix"
 CONTRACT_VERSION = "v0"
 
 REQUEST_FIELDS = {"jsonrpc", "id", "method", "params"}
-INITIALIZE_FIELDS = {"protocol_version", "slot", "contract_version"}
+INITIALIZE_FIELDS = {
+    "protocol_version",
+    "slot",
+    "module_id",
+    "contract_version",
+    "composition",
+    "module_config",
+    "host_features",
+}
 INPUT_FIELDS = {
     "task",
     "model_ref",
@@ -57,13 +65,24 @@ def positive_int(value: Any, label: str) -> int:
 
 def validate_initialize(params: Any) -> None:
     params = require_object(params, INITIALIZE_FIELDS, "initialize params")
-    expected = {
-        "protocol_version": PROTOCOL_VERSION,
-        "slot": SLOT,
-        "contract_version": CONTRACT_VERSION,
-    }
-    if params != expected:
+    expected_identity = (
+        PROTOCOL_VERSION,
+        SLOT,
+        MODULE_ID,
+        CONTRACT_VERSION,
+        "select_one",
+    )
+    actual_identity = (
+        params["protocol_version"],
+        params["slot"],
+        params["module_id"],
+        params["contract_version"],
+        params["composition"],
+    )
+    if actual_identity != expected_identity:
         raise ProtocolError(f"unsupported initialize params: {params!r}")
+    if params["host_features"] != []:
+        raise ProtocolError("compactor v0 does not support host features")
 
 
 def validate_input(params: Any) -> tuple[dict[str, Any], int, int]:
@@ -158,7 +177,7 @@ def compact(params: Any) -> dict[str, Any]:
     }
 
 
-def response(request_id: int, result: Any) -> dict[str, Any]:
+def response(request_id: Any, result: Any) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
 
 
@@ -172,7 +191,11 @@ def error_response(request_id: Any, code: int, message: str) -> dict[str, Any]:
 
 def handle_request(raw: Any, initialized: bool) -> tuple[dict[str, Any], bool]:
     request = require_object(raw, REQUEST_FIELDS, "JSON-RPC request")
-    if request["jsonrpc"] != "2.0" or not isinstance(request["id"], int):
+    if (
+        request["jsonrpc"] != "2.0"
+        or not isinstance(request["id"], (int, str))
+        or isinstance(request["id"], bool)
+    ):
         raise ProtocolError("unsupported JSON-RPC envelope")
     method = request["method"]
     if method == "initialize":
@@ -186,6 +209,8 @@ def handle_request(raw: Any, initialized: bool) -> tuple[dict[str, Any], bool]:
                 "slot": SLOT,
                 "module_id": MODULE_ID,
                 "contract_version": CONTRACT_VERSION,
+                "composition": "select_one",
+                "module_features": [],
             },
         ), True
     if not initialized:

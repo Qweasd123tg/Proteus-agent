@@ -30,3 +30,19 @@ turns. Это проверяемый пример протокола, а не к
 Процесс получает очищенное окружение с `PATH`; дополнительные имена
 родительских переменных перечисляются в `env_allowlist`, literal значения — в
 `env`.
+
+Worker использует общий process protocol v1, но переходный pure compactor
+contract пока имеет версию v0. Handshake можно проверить отдельно от core:
+
+```bash
+cargo run -p proteus-module-protocol --bin proteus-module-conformance -- \
+  --slot compactor \
+  --module-id python_suffix \
+  --contract-version v0 \
+  --module-config '{"trigger_messages":12,"retain_user_turns":2}' \
+  -- python3 examples/modules/compactor-process/compact.py
+```
+
+Это только protocol handshake. Slot-level probe и runtime swap проверяются
+тестами `process_compactor`, потому что корректный `CompactionInput` содержит
+canonical model/message DTO.
