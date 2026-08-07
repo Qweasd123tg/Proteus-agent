@@ -76,6 +76,11 @@ cargo run --bin proteus -- \
   --config examples/configs/proteus.example.toml doctor
 cargo run --bin proteus -- \
   --config examples/configs/proteus.example.toml "describe the project layout"
+
+# out-of-tree Workflow v1 worker, fake model, tools disabled
+cargo run --bin proteus -- \
+  --config examples/configs/proteus.process-agent.example.toml \
+  "explain this process-agent profile"
 ```
 
 Установка на другой компьютер разобрана отдельно:
@@ -93,9 +98,11 @@ cargo run --bin proteus -- \
 - Модули: 11 выбираемых через config behavior slots (model provider плюс 10
   ключей `modules.*`); используемые dogfood-профилями reference
   tool/search/context/workflow/policy/patch/memory/renderer реализации сейчас
-  поставляются как переходные dylib. Tools сохраняют отдельный catalog/registry
-  kind: в topology `ToolRegistry` показывается как runtime node, а не как
-  двенадцатый behavior slot.
+  поставляются как переходные dylib. `SearchBackend`, `HistoryCompactor` и
+  `Workflow` уже имеют общий config-defined process path; out-of-tree Workflow
+  v1 способен выполнить настоящий model/tool loop через host callbacks. Tools
+  сохраняют отдельный catalog/registry kind: в topology `ToolRegistry`
+  показывается как runtime node, а не как двенадцатый behavior slot.
 - Обычные tools: единый registry, permission modes `plan` / `normal` / `auto`,
   approval policy и session approval cache. Process-subagent pool имеет
   глобальный bounded LRU-cap для idle/resume children; оставшиеся lifecycle-
@@ -159,7 +166,7 @@ docs/                        reference, правила и планы
 | Рабочий контур сейчас | Не является текущим обещанием |
 |---|---|
 | Локальный coding loop через CLI или HTTP/SSE | Публичный сетевой сервис |
-| Переходные dylib и два process-module adapters | Завершённый единый process-only runtime |
+| Переходные dylib и process adapters для search/compactor/workflow | Завершённый единый process-only runtime |
 | Config/profile выбирает реализации slot-ов | Произвольный unload/reload всех dylib |
 | MCP stdio discovery для tools | MCP resources, prompts, subscriptions и другие transports |
 | Subagent slot для делегирования дочерним циклам | Общий multi-agent DAG/runtime |

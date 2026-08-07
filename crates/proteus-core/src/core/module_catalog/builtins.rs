@@ -11,7 +11,7 @@ use crate::{
     },
     core::{ModelConfig, ProcessSubagentRunner, SequentialSubagentRunner},
     domain::{ModuleKind, ModuleManifest, slot},
-    process_adapters::{ProcessHistoryCompactor, ProcessSearchBackend},
+    process_adapters::{ProcessHistoryCompactor, ProcessSearchBackend, ProcessWorkflowAdapter},
     stubs::{
         AllVisibleToolExposure, DenyAllPolicy, EmptyContextBuilder, FakeModelClient, NoCompactor,
         NoMemory, NoSubagent, NoWorkflow, NullPatchApplier, NullSearch, TextRenderer,
@@ -222,6 +222,17 @@ pub(super) fn register_builtins(catalog: &mut ModuleCatalog) {
         ),
         build_no_workflow,
     );
+    catalog.register_module::<dyn Workflow>(
+        slot::WORKFLOW,
+        "process",
+        manifest(
+            "process",
+            ModuleKind::Workflow,
+            &["config_defined", "process", "bidirectional_rpc"],
+            "Workflow из persistent stdio-процесса; executable и module identity задаются в module_config.workflow.process, host capabilities — единым Workflow v1 contract.",
+        ),
+        build_process_workflow,
+    );
 
     // Renderers
     catalog.register_module::<dyn Renderer>(
@@ -350,6 +361,17 @@ fn build_process_subagent(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Subage
 
 fn build_no_workflow(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Workflow>> {
     Ok(Arc::new(NoWorkflow))
+}
+
+fn build_process_workflow(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Workflow>> {
+    let config = ctx
+        .config
+        .module_config_value(ModuleKind::Workflow, "process");
+    Ok(Arc::new(ProcessWorkflowAdapter::from_config(
+        config,
+        ctx.cwd,
+        ctx.config.runtime.workflow_timeout_ms,
+    )?))
 }
 
 fn build_text_renderer(_ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn Renderer>> {

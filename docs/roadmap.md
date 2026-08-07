@@ -27,9 +27,14 @@ Roadmap хранит порядок работ и журнал уже приня
    `select_one | ordered_many` composition metadata и внешний conformance
    runner. Stateless Search переведён на v1; production `ordered_many` surface
    в этот срез не входит.
-3. **Следующий:** срез 2 — process `Workflow` + Model/Tool support, достаточные для
-   out-of-tree agent-worker и реального coding turn-а.
-4. Срез 3: выровнять process capabilities остальных slots, включая полный
+3. ✅ Срез 2 закрыт 2026-08-07: process `Workflow` v1 с bidirectional
+   invocation-scoped callbacks, общий с dylib host executor, out-of-tree
+   Python agent worker и реальный model/tool turn через registry/policy/safety.
+   Success проходит canonical journal + replay + fresh-worker resume;
+   cancel/timeout — durable settlement + cold history. Отдельный process
+   `Model` streaming wire намеренно не зафиксирован: fixture использует
+   host-owned `ModelService` и terminal canonical callback.
+4. **Следующий:** срез 3 — выровнять process capabilities остальных slots, включая полный
    subagent lifecycle и compactor model callback.
 5. Срез 4: одним pre-release cutover удалить dylib loader, `abi_stable`,
    concrete builtins, pseudo-module ids и старые config/layout без shims.

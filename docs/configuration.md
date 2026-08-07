@@ -487,10 +487,57 @@ custom URL.
 Поддерживаемые значения перечислены в [modules.md](modules.md).
 Production workflow больше не живёт в core. `modules.workflow = "none"` —
 только заглушка, поэтому для нормального запуска нужно установить
-workflow-плагин, обычно `coding-workflow`, и выбрать
-baseline `modules.workflow = "coding.single_loop"`. Более тяжёлый staged
-workflow `coding.plan_execute_review` лучше включать явно для экспериментов с
-многофазным agent loop.
+process worker либо переходный workflow-плагин. Для dylib dogfood обычно
+выбирается baseline `modules.workflow = "coding.single_loop"`; более тяжёлый
+staged workflow `coding.plan_execute_review` лучше включать явно для
+экспериментов с многофазным agent loop.
+
+### Внешний process Workflow
+
+`modules.workflow = "process"` выбирает общий Workflow v1 adapter, а не
+конкретный встроенный agent loop:
+
+```toml
+[modules]
+workflow = "process"
+
+[module_config.workflow.process]
+module_id = "python_agent_loop"
+command = "python3"
+args = ["examples/modules/agent-worker/agent.py"]
+# cwd = "."
+# env_allowlist = ["SCOPED_TOKEN"]
+# env = { FIXTURE_MODE = "safe" }
+handshake_timeout_ms = 30000
+
+[module_config.workflow.process.config]
+max_tool_rounds = 8
+system_instructions = "Use only host-exposed tools."
+```
+
+Обязательны непустые `module_id` и `command`. `args`, `cwd`,
+`env_allowlist`, `env` и `config` опциональны; unknown fields и нулевой
+`handshake_timeout_ms` завершают config build ошибкой. Относительный `cwd`
+считается от workspace. Parent environment очищается; кроме минимальных
+process/system variables наследуются только имена из `env_allowlist`, а `env`
+добавляет literal значения. Весь блок `config` передаётся worker-у только как
+`initialize.module_config`; launch/env детали через protocol не раскрываются.
+
+`runtime.workflow_timeout_ms` — единый внешний deadline для любого Workflow.
+Ноль отключает этот deadline. Для process worker host после timeout/cancel
+посылает `$/cancelRequest`, ограниченно ждёт terminal response и сбрасывает
+session; canonical `TurnSettled` остаётся `timeout`/`canceled`, а не зависит от
+формулировки ошибки worker-а.
+
+Workflow v1 имеет фиксированный slot-level callback allowlist. Model callback
+использует выбранный provider/`ModelService`, а tool callbacks всегда проходят
+через текущие `ToolRegistry`, policy, approval и safety. Поля config не могут
+добавить отдельный host method одному `module_id`.
+
+Полный runnable профиль находится в
+`examples/configs/proteus.process-agent.example.toml`. Он безопасно стартует с
+`tools.enabled = []` и `policy = "deny_all"`; для tool dogfood явно выберите
+tools и policy своего профиля, не меняя process adapter.
 
 ## Instructions
 

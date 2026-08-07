@@ -258,10 +258,11 @@ path CLI smoke test.
 4. ✅ большинство dogfood/reference реализаций Волны 3 уже живёт в
    `modules/reference`; в core остаются stubs, host-bound tools,
    `sequential`/`process` SubagentRunner, provider adapters и runtime wiring;
-5. ✅ два process proofs существуют для search и compactor, но имеют неравную
-   dylib/process capability surface;
-6. 🚧 следующий путь — protocol v1 и process agent-worker, затем slot parity и
-   полное удаление `PluginRegistry`/dylib/builtin implementations.
+5. ✅ strict protocol v1 доказан на process search, compactor и bidirectional
+   agent-worker Workflow; Workflow host callbacks используют общий
+   model/tool/policy path;
+6. 🚧 следующий путь — slot parity, затем полное удаление
+   `PluginRegistry`/dylib/builtin implementations одним cutover без shims.
 
 `ConfiguredProcessTool` / `ConfiguredMcpTool` в ядре пока являются отдельными
 executor surfaces. Cutover обязан свести их к единому Tool contract; они не

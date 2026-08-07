@@ -357,7 +357,7 @@ worker получил постоянный data directory.
 | HistoryCompactor | dylib with model callback + process protocol v1 / pure slot contract v0 | one bidirectional process v1 contract | give every implementation identical model/cancel surface |
 | ToolExposure | dylib + core fallback | process v1 request/response | policy-visible candidates, config, metadata |
 | SubagentRunner | core full lifecycle + restricted dylib | process v1 full lifecycle | roles, spawn/wait/cancel/send, ownership, bounds |
-| Workflow | capability-based dylib | bidirectional process v1 | model/context/tools/compaction/events/cancel callbacks |
+| Workflow | bidirectional process v1 + transition capability-based dylib | bidirectional process v1 only | port dogfood/parity workers, then remove dylib path in atomic cutover |
 | Renderer | core/dylib | governance decision: retire to clients or processize uniformly | no privileged text/statusline implementation |
 | context provider extension | dylib side registration | fold into ContextBuilder worker composition | remove non-slot registration tier |
 
@@ -419,7 +419,7 @@ Protocol harness, Search/Compactor runtime swap и внешний safe Search pr
 составляют evidence этого среза; равенство stateful и callback-heavy slots ими
 ещё не доказано.
 
-### Срез 2: Agent Worker Vertical Slice
+### Срез 2: Agent Worker Vertical Slice — Завершён 2026-08-07
 
 - реализовать process `Workflow` с существующими host capabilities;
 - реализовать process `Model` streaming boundary либо journal-backed fake
@@ -431,6 +431,36 @@ Protocol harness, Search/Compactor runtime swap и внешний safe Search pr
 
 Это первый product checkpoint: новый agent shape должен подключаться через
 config и executable, а не через новый Rust adapter для его module id.
+
+Реализованный checkpoint использует `workflow/v1` и strict
+`ProcessWorkflowInput/ProcessWorkflowResponse`. Authority table выдаёт всем
+реализациям этого contract один набор `host.runtime/context/model/history/tools/events`
+callbacks. Dispatcher создаётся на invocation, поэтому persistent process не
+сохраняет authority предыдущего turn-а. Переходный dylib adapter и process
+adapter делегируют в один `core/workflow_host.rs`: model timeout, context,
+compaction, tool visibility/execution, policy, approval, safety, recorder и
+events не ветвятся по origin.
+
+Отдельный process `Model` slot в этом срезе не введён. Разрешённый планом
+journal-backed вариант закрыт так: worker вызывает `host.model.complete`,
+host `ModelService` продолжает владеть provider stream/deltas и записывает
+полный model exchange, а protocol tests используют deterministic fake model.
+Worker получает только terminal canonical response. Это даёт реальный agent
+turn сейчас, не закрепляя временный provider-specific wire как Model v1.
+
+Tool boundary доказан не прямым executor-ом worker-а, а
+`host.tools.execute[_batch] -> ToolOrchestrator -> ToolRegistry -> policy ->
+approval/safety -> Tool`. Deny-policy regression подтверждает отсутствие
+обхода. Out-of-tree `examples/modules/agent-worker/agent.py` делает настоящий
+`model -> tool -> model` loop без зависимости от core crate; executable и
+module config выбираются профилем.
+
+Evidence: разрешённый и запрещённый callback protocol cases, strict DTO и
+handshake mismatch, process-vs-none Workflow swap, настоящий tool loop,
+policy deny, canonical success journal + `replay workflow`, cold reopen,
+fresh-worker resume, а также durable `Canceled`/`Timeout` settlements с cold
+history. Этот срез **не удаляет dylib**: немигрированные slots и текущие
+dogfood profiles остаются на переходном runtime до однократного среза 4.
 
 ### Срез 3: Slot Parity
 

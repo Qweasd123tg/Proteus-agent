@@ -4,7 +4,7 @@
 //! `spawn_blocking` and exposes a narrow host capability API back into the
 //! async runtime.
 
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
@@ -18,18 +18,13 @@ use proteus_contracts::{
         PluginWorkflowHostMut, PluginWorkflowInput, PluginWorkflowOutput, WorkflowObject,
     },
 };
-use tokio::{runtime::Handle, time::timeout};
+use tokio::runtime::Handle;
 
 use crate::{
-    contracts::{
-        CompactionInput, ContextBuildInput, RuntimeContext, ToolExposureInput, ToolExposureRequest,
-        Workflow, WorkflowOutput,
-    },
-    core::ToolOrchestrator,
+    contracts::{CompactionInput, RuntimeContext, ToolExposureRequest, Workflow, WorkflowOutput},
+    core::workflow_host::WorkflowHostRuntime,
     domain::{AgentTask, Event, ToolCall},
     model_standard::CanonicalModelRequest,
-    plugin_adapters::compactor::RuntimeCompactionHost,
-    tools::{TASK_TOOL, calls_are_parallel_eligible},
 };
 
 pub struct PluginWorkflowAdapter {
@@ -99,35 +94,21 @@ impl Workflow for PluginWorkflowAdapter {
 /// Переиспользуется адаптером slot'а `subagent` — см.
 /// `plugin_adapters/subagent.rs`.
 pub(crate) struct WorkflowHost {
-    ctx: RuntimeContext,
-    handle: Handle,
-    tool_orchestrator: ToolOrchestrator,
+    runtime: WorkflowHostRuntime,
 }
 
 impl WorkflowHost {
     pub(crate) fn new(ctx: RuntimeContext, handle: Handle) -> Self {
         Self {
-            ctx,
-            handle,
-            tool_orchestrator: ToolOrchestrator::default(),
+            runtime: WorkflowHostRuntime::new(ctx, handle),
         }
     }
 
-    fn block_on_json<T, F>(&self, future: F) -> RResult<RString, PluginWorkflowHostError>
+    fn json_result<T>(&self, result: Result<T>) -> RResult<RString, PluginWorkflowHostError>
     where
         T: serde::Serialize,
-        F: std::future::Future<Output = Result<T>>,
     {
-        let cancellation = self.ctx.cancellation.clone();
-        match self.handle.block_on(async move {
-            if cancellation.is_cancelled() {
-                anyhow::bail!("turn canceled by client");
-            }
-            tokio::select! {
-                result = future => result,
-                _ = cancellation.cancelled() => Err(anyhow!("turn canceled by client")),
-            }
-        }) {
+        match result {
             Ok(value) => match serde_json::to_string(&value) {
                 Ok(json) => RResult::ROk(RString::from(json)),
                 Err(error) => RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
@@ -139,11 +120,11 @@ impl WorkflowHost {
 
 impl PluginWorkflowHost for WorkflowHost {
     fn is_cancelled(&self) -> RResult<bool, PluginWorkflowHostError> {
-        RResult::ROk(self.ctx.is_cancelled())
+        RResult::ROk(self.runtime.status().cancelled)
     }
 
     fn queued_user_messages(&self) -> RResult<u32, PluginWorkflowHostError> {
-        RResult::ROk(self.ctx.queued_user_messages().min(u32::MAX as usize) as u32)
+        RResult::ROk(self.runtime.status().queued_user_messages)
     }
 
     fn build_context_json(&self, task_json: RString) -> RResult<RString, PluginWorkflowHostError> {
@@ -151,19 +132,7 @@ impl PluginWorkflowHost for WorkflowHost {
             Ok(task) => task,
             Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
         };
-        let ctx = self.ctx.clone();
-        self.block_on_json(async move {
-            timeout(
-                Duration::from_millis(ctx.context_timeout_ms),
-                ctx.context.build(ContextBuildInput {
-                    task,
-                    search: ctx.search.clone(),
-                    memory: ctx.memory.clone(),
-                }),
-            )
-            .await
-            .map_err(|_| anyhow!("context build timed out after {}ms", ctx.context_timeout_ms))?
-        })
+        self.json_result(self.runtime.build_context(task))
     }
 
     fn complete_model_json(
@@ -174,19 +143,7 @@ impl PluginWorkflowHost for WorkflowHost {
             Ok(request) => request,
             Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
         };
-        let ctx = self.ctx.clone();
-        self.block_on_json(async move {
-            if ctx.model_timeout_ms == 0 {
-                ctx.model.complete(request).await
-            } else {
-                timeout(
-                    Duration::from_millis(ctx.model_timeout_ms),
-                    ctx.model.complete(request),
-                )
-                .await
-                .map_err(|_| anyhow!("model request timed out after {}ms", ctx.model_timeout_ms))?
-            }
-        })
+        self.json_result(self.runtime.complete_model(request))
     }
 
     fn compact_history_json(
@@ -197,52 +154,12 @@ impl PluginWorkflowHost for WorkflowHost {
             Ok(input) => input,
             Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
         };
-        let ctx = self.ctx.clone();
-        self.block_on_json(async move {
-            ctx.emit(Event::HistoryCompactionStarted {
-                reason: input.reason.clone(),
-                input_messages: input.messages.len(),
-                token_estimate: input.token_estimate,
-                trigger_tokens: None,
-            })
-            .await?;
-            let host = Arc::new(RuntimeCompactionHost::new(ctx.clone()));
-            match ctx.compactor.compact(input.clone(), host).await {
-                Ok(output) => {
-                    let report =
-                        proteus_contracts::domain::HistoryCompactionReport::from_compaction_output(
-                            &input, &output,
-                        );
-                    ctx.emit(Event::HistoryCompactionCompleted {
-                        report: report.clone(),
-                    })
-                    .await?;
-                    Ok(output)
-                }
-                Err(error) => {
-                    ctx.emit(Event::HistoryCompactionFailed {
-                        reason: input.reason.clone(),
-                        input_messages: input.messages.len(),
-                        token_estimate: input.token_estimate,
-                        trigger_tokens: None,
-                        message: format!("{error:#}"),
-                    })
-                    .await?;
-                    Err(error)
-                }
-            }
-        })
+        self.json_result(self.runtime.compact_history(input))
     }
 
     fn visible_tools_json(&self, cwd: RString) -> RResult<RString, PluginWorkflowHostError> {
-        if self.ctx.is_cancelled() {
-            return RResult::RErr(PluginWorkflowHostError::new("turn canceled by client"));
-        }
         let cwd = PathBuf::from(cwd.as_str());
-        match serde_json::to_string(&self.tool_orchestrator.visible_tool_specs(&self.ctx, &cwd)) {
-            Ok(json) => RResult::ROk(RString::from(json)),
-            Err(error) => RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
-        }
+        self.json_result(self.runtime.visible_tools(cwd))
     }
 
     fn select_tools_json(
@@ -253,15 +170,7 @@ impl PluginWorkflowHost for WorkflowHost {
             Ok(request) => request,
             Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
         };
-        let candidates = self
-            .tool_orchestrator
-            .visible_tool_specs(&self.ctx, &request.cwd);
-        let ctx = self.ctx.clone();
-        self.block_on_json(async move {
-            ctx.tool_exposure
-                .select(ToolExposureInput::new(request, candidates))
-                .await
-        })
+        self.json_result(self.runtime.select_tools(request))
     }
 
     fn execute_tool_json(
@@ -277,9 +186,7 @@ impl PluginWorkflowHost for WorkflowHost {
             Ok(call) => call,
             Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
         };
-        let ctx = self.ctx.clone();
-        let orchestrator = self.tool_orchestrator.clone();
-        self.block_on_json(async move { orchestrator.execute(&ctx, &task, call).await })
+        self.json_result(self.runtime.execute_tool(task, call))
     }
 
     fn execute_tools_json(
@@ -295,11 +202,7 @@ impl PluginWorkflowHost for WorkflowHost {
             Ok(calls) => calls,
             Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
         };
-        let ctx = self.ctx.clone();
-        let orchestrator = self.tool_orchestrator.clone();
-        self.block_on_json(
-            async move { execute_tool_batch(&orchestrator, &ctx, &task, calls).await },
-        )
+        self.json_result(self.runtime.execute_tools(task, calls))
     }
 
     fn emit_event_json(&self, event_json: RString) -> RResult<(), PluginWorkflowHostError> {
@@ -307,85 +210,11 @@ impl PluginWorkflowHost for WorkflowHost {
             Ok(event) => event,
             Err(error) => return RResult::RErr(PluginWorkflowHostError::new(error.to_string())),
         };
-        let ctx = self.ctx.clone();
-        match self.handle.block_on(async move {
-            if ctx.is_cancelled() {
-                anyhow::bail!("turn canceled by client");
-            }
-            tokio::select! {
-                result = ctx.emit(event) => result,
-                _ = ctx.cancellation.cancelled() => Err(anyhow!("turn canceled by client")),
-            }
-        }) {
+        match self.runtime.emit_event(event) {
             Ok(()) => RResult::ROk(()),
             Err(error) => RResult::RErr(PluginWorkflowHostError::new(format!("{error:#}"))),
         }
     }
-}
-
-/// Выполняет батч tool calls: подряд идущие ReadOnly tools конкурентно
-/// (join_all поверх spawn_blocking-исполнителей), остальные — по одному в
-/// порядке вызовов. Результаты возвращаются в исходном порядке.
-async fn execute_tool_batch(
-    orchestrator: &ToolOrchestrator,
-    ctx: &RuntimeContext,
-    task: &AgentTask,
-    calls: Vec<ToolCall>,
-) -> anyhow::Result<Vec<proteus_contracts::domain::ToolResult>> {
-    use proteus_contracts::domain::ToolSafety;
-
-    let specs = orchestrator.visible_tool_specs(ctx, &task.cwd);
-    let read_only = |call: &ToolCall| {
-        specs
-            .iter()
-            .find(|spec| spec.name == call.name)
-            .is_some_and(|spec| matches!(spec.safety, ToolSafety::ReadOnly))
-    };
-
-    let mut results = Vec::with_capacity(calls.len());
-    let mut queue = calls.into_iter().peekable();
-    while let Some(call) = queue.next() {
-        if call.name == TASK_TOOL {
-            let mut group = vec![call];
-            while queue.peek().is_some_and(|call| call.name == TASK_TOOL) {
-                group.push(queue.next().expect("peeked task call"));
-            }
-            if calls_are_parallel_eligible(&group, &ctx.subagent.roles()) {
-                let outputs = futures_util::future::join_all(
-                    group
-                        .into_iter()
-                        .map(|call| orchestrator.execute(ctx, task, call)),
-                )
-                .await;
-                for output in outputs {
-                    results.push(output?);
-                }
-            } else {
-                for call in group {
-                    results.push(orchestrator.execute(ctx, task, call).await?);
-                }
-            }
-            continue;
-        }
-        if read_only(&call) {
-            let mut group = vec![call];
-            while queue.peek().is_some_and(&read_only) {
-                group.push(queue.next().expect("peeked call"));
-            }
-            let outputs = futures_util::future::join_all(
-                group
-                    .into_iter()
-                    .map(|call| orchestrator.execute(ctx, task, call)),
-            )
-            .await;
-            for output in outputs {
-                results.push(output?);
-            }
-        } else {
-            results.push(orchestrator.execute(ctx, task, call).await?);
-        }
-    }
-    Ok(results)
 }
 
 #[cfg(test)]

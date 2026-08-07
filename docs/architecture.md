@@ -44,8 +44,9 @@ subagents. Это ещё не готовая внешняя plugin platform: ABI
 иметь разные права из-за происхождения `builtin/dylib/process`. Целевая внешняя
 граница — process worker для всех modules. До завершения cutover схема ниже
 честно показывает текущий смешанный runtime; она не является конечным дизайном.
-С 2026-08-07 два process adapters используют один strict protocol-v1 kernel;
-это завершает transport foundation, но не origin cutover остальных slots.
+С 2026-08-07 `SearchBackend`, `HistoryCompactor` и `Workflow` используют один
+strict protocol-v1 kernel; это завершает transport foundation и первый
+bidirectional vertical slice, но не origin cutover остальных slots.
 
 ## Карта Системы
 
@@ -60,10 +61,10 @@ CLI / Web / Inspector
           |
           v
    RuntimeSnapshot -------------------------------+
-     |       |       |       |       |            |
-   model   context  tools   policy  memory      subagent
-     |       |       |       |       |            |
-     +-------+-------+-------+-------+------------+
+     |        |       |       |       |       |            |
+  workflow  model   context  tools   policy  memory      subagent
+     |        |       |       |       |       |            |
+     +--------+-------+-------+-------+-------+------------+
                      contracts
                          |
       builtin / dylib / process modules          transition only
@@ -120,7 +121,13 @@ docs/                     документация
 - `crates/proteus-contracts/src/plugin.rs` — временный dylib ABI;
 - `crates/proteus-module-protocol/` — общий host-side process protocol v1 и
   executable conformance gate;
+- `crates/proteus-core/src/process_adapters/` — slot-specific mapping process
+  protocol в `SearchBackend`, `HistoryCompactor` и `Workflow`;
+- `crates/proteus-core/src/core/workflow_host.rs` — единая реализация Workflow
+  capabilities для process v1 и переходного dylib ABI;
 - `modules/reference/coding-workflow/` — текущие reference workflows;
+- `examples/modules/agent-worker/` — out-of-tree Workflow v1 example, не
+  default pack;
 - `docs/process-module-architecture.md` — целевой uniform process contract и
   порядок удаления origin-dependent paths.
 
@@ -131,7 +138,9 @@ docs/                     документация
 3. Runtime берёт текущий `RuntimeSnapshot` и создаёт `TurnId`.
 4. `ContextBuilder` собирает ephemeral context. Он попадёт в model request, но
    не смешается с пользовательской conversation history.
-5. Выбранный `Workflow` управляет model/tool loop.
+5. Выбранный `Workflow` управляет model/tool loop. Process Workflow получает
+   только versioned host callbacks; его tool calls возвращаются в тот же
+   `ToolOrchestrator`, а не исполняются отдельным process-specific путём.
 6. `ModelService` формирует canonical request, применяет provider capabilities,
    вызывает `Model` и до передачи ответа workflow проверяет structural contract
    и совпадение объявленной/возвращённой tool surface.

@@ -1,12 +1,29 @@
 use proteus_contracts::contracts::{
     PROCESS_COMPACTOR_CONTRACT_VERSION, PROCESS_COMPACTOR_METHOD, PROCESS_SEARCH_CONTRACT_VERSION,
-    PROCESS_SEARCH_METHOD, ProcessModuleComposition,
+    PROCESS_SEARCH_METHOD, PROCESS_WORKFLOW_CONTRACT_VERSION, PROCESS_WORKFLOW_METHOD,
+    ProcessModuleComposition, WORKFLOW_HOST_BUILD_CONTEXT_METHOD,
+    WORKFLOW_HOST_COMPACT_HISTORY_METHOD, WORKFLOW_HOST_COMPLETE_MODEL_METHOD,
+    WORKFLOW_HOST_EMIT_EVENT_METHOD, WORKFLOW_HOST_EXECUTE_TOOL_METHOD,
+    WORKFLOW_HOST_EXECUTE_TOOLS_METHOD, WORKFLOW_HOST_RUNTIME_STATUS_METHOD,
+    WORKFLOW_HOST_SELECT_TOOLS_METHOD, WORKFLOW_HOST_VISIBLE_TOOLS_METHOD,
 };
 
 const NO_HOST_METHODS: &[&str] = &[];
 const NO_PROTOCOL_FEATURES: &[&str] = &[];
 const SEARCH_METHODS: &[&str] = &[PROCESS_SEARCH_METHOD];
 const COMPACTOR_METHODS: &[&str] = &[PROCESS_COMPACTOR_METHOD];
+const WORKFLOW_METHODS: &[&str] = &[PROCESS_WORKFLOW_METHOD];
+const WORKFLOW_HOST_METHODS: &[&str] = &[
+    WORKFLOW_HOST_RUNTIME_STATUS_METHOD,
+    WORKFLOW_HOST_BUILD_CONTEXT_METHOD,
+    WORKFLOW_HOST_COMPLETE_MODEL_METHOD,
+    WORKFLOW_HOST_COMPACT_HISTORY_METHOD,
+    WORKFLOW_HOST_VISIBLE_TOOLS_METHOD,
+    WORKFLOW_HOST_SELECT_TOOLS_METHOD,
+    WORKFLOW_HOST_EXECUTE_TOOL_METHOD,
+    WORKFLOW_HOST_EXECUTE_TOOLS_METHOD,
+    WORKFLOW_HOST_EMIT_EVENT_METHOD,
+];
 
 /// One host-defined process contract and its complete callback authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +66,15 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         composition: ProcessModuleComposition::SelectOne,
         module_methods: COMPACTOR_METHODS,
         host_methods: NO_HOST_METHODS,
+        host_features: NO_PROTOCOL_FEATURES,
+        required_features: NO_PROTOCOL_FEATURES,
+    },
+    ProcessContractAuthority {
+        slot: "workflow",
+        contract_version: PROCESS_WORKFLOW_CONTRACT_VERSION,
+        composition: ProcessModuleComposition::SelectOne,
+        module_methods: WORKFLOW_METHODS,
+        host_methods: WORKFLOW_HOST_METHODS,
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
     },
@@ -98,5 +124,15 @@ mod tests {
         assert_eq!(authority.composition, ProcessModuleComposition::SelectOne);
         assert_eq!(authority.module_methods, [PROCESS_SEARCH_METHOD]);
         assert!(authority.host_methods.is_empty());
+    }
+
+    #[test]
+    fn workflow_authority_is_complete_and_module_id_independent() {
+        let authority = process_contract_authority("workflow", PROCESS_WORKFLOW_CONTRACT_VERSION)
+            .expect("workflow authority");
+
+        assert_eq!(authority.composition, ProcessModuleComposition::SelectOne);
+        assert_eq!(authority.module_methods, [PROCESS_WORKFLOW_METHOD]);
+        assert_eq!(authority.host_methods, WORKFLOW_HOST_METHODS);
     }
 }

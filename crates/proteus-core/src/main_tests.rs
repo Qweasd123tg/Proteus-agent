@@ -135,7 +135,9 @@ fn read_only_cli_paths_do_not_start_process_modules() {
     let dir = tempfile::tempdir().expect("workspace");
     let marker = dir.path().join("process-search-started");
     let compactor_marker = dir.path().join("process-compactor-started");
+    let workflow_marker = dir.path().join("process-workflow-started");
     let mut config = AppConfig::default();
+    config.modules.workflow = "process".to_owned();
     config.modules.search = "process".to_owned();
     config.modules.compactor = "process".to_owned();
     config.modules.patch = "null".to_owned();
@@ -143,6 +145,19 @@ fn read_only_cli_paths_do_not_start_process_modules() {
     config.subagents.surface = proteus_core::core::SubagentSurface::None;
     config.tools.path = None;
     config.tools.enabled = vec!["search".to_owned()];
+    config
+        .module_config
+        .entry("workflow".to_owned())
+        .or_default()
+        .insert(
+            "process".to_owned(),
+            serde_json::json!({
+                "module_id": "marker",
+                "command": "/bin/sh",
+                "args": ["-c", format!("touch {}", workflow_marker.display())],
+                "handshake_timeout_ms": 1000
+            }),
+        );
     config
         .module_config
         .entry("search".to_owned())
@@ -185,6 +200,10 @@ fn read_only_cli_paths_do_not_start_process_modules() {
         "read-only CLI path unexpectedly spawned process compactor"
     );
     assert!(
+        !workflow_marker.exists(),
+        "read-only CLI path unexpectedly spawned process workflow"
+    );
+    assert!(
         findings.entries.iter().any(|entry| {
             entry.level == "ok" && entry.message.contains("search backend process")
         })
@@ -194,6 +213,12 @@ fn read_only_cli_paths_do_not_start_process_modules() {
             .entries
             .iter()
             .any(|entry| { entry.level == "ok" && entry.message.contains("compactor process") })
+    );
+    assert!(
+        findings
+            .entries
+            .iter()
+            .any(|entry| { entry.level == "ok" && entry.message.contains("workflow process") })
     );
 }
 

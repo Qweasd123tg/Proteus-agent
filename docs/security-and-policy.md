@@ -24,11 +24,18 @@ protected paths и secrets policy являются следующими слоя
 
 ## Доверенные Process-Модули
 
-`modules.search = "process"` запускает настроенный локальный executable при
-сборке runtime snapshot. Это реализация module slot, а не model-callable tool:
-`ToolSafety`, approval policy и shell sandbox не оборачивают этот child process.
-Процесс работает с правами самого Proteus, поэтому в config нельзя подключать
-недоверенную команду.
+`modules.search = "process"`, `modules.compactor = "process"` и
+`modules.workflow = "process"` запускают настроенный локальный executable при
+сборке runtime snapshot. Это реализации module slots, а не model-callable
+tools: `ToolSafety`, approval policy и shell sandbox не оборачивают сам child
+process. Процесс работает с правами самого Proteus, поэтому в config нельзя
+подключать недоверенную команду.
+
+При этом tool callback из process Workflow не получает исключения: методы
+`host.tools.execute`/`host.tools.execute_batch` возвращаются в core и проходят
+обычный `ToolRegistry -> mode-aware ApprovalPolicy -> ToolOrchestrator ->
+Tool::invoke`. Worker не задаёт `ToolInvocationOwner` и не может выдать себе
+turn grants; owner и cancellation берутся из текущего host invocation context.
 
 Host очищает parent environment и передаёт только минимальные runtime variables,
 явный `env_allowlist` и literal `env`. Строгий handshake защищает от ошибочно
@@ -190,7 +197,7 @@ Persistent stdio host дополнительно ограничивает receiv
 останавливается с явной ошибкой; он не продолжает накапливать валидные, но
 невостребованные сообщения.
 
-Process search, inline/discovered MCP и configured executor `kind = "process"`
+Process modules, inline/discovered MCP и configured executor `kind = "process"`
 используют одну fail-closed environment policy из `ProcessSpec`. На Unix по
 умолчанию наследуется только `PATH`; Windows дополнительно сохраняет
 необходимые system/process/temp variables. Все эти config-пути принимают

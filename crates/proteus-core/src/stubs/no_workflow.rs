@@ -19,7 +19,7 @@ impl Workflow for NoWorkflow {
         _ctx: RuntimeContext,
     ) -> Result<WorkflowOutput> {
         let output = AgentOutput::text(
-            "workflow is disabled; select a workflow plugin such as coding.plan_execute_review",
+            "workflow is disabled; select a Workflow implementation such as modules.workflow = process",
         );
         let assistant_message = CanonicalMessage::text(MessageRole::Assistant, output.text.clone());
         Ok(WorkflowOutput::new(output, vec![assistant_message]))

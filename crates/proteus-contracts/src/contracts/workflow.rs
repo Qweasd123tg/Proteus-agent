@@ -5,6 +5,7 @@ use std::sync::{
 
 use anyhow::Result;
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     contracts::{
@@ -15,10 +16,128 @@ use crate::{
     },
     domain::{
         AgentOutput, AgentTask, Event, EventContext, HistoryCompactionReport, ModelRef,
-        ReasoningConfig, SessionId, ThreadId, TurnId,
+        ReasoningConfig, SessionId, ThreadId, ToolCall, TurnId,
     },
-    model_standard::{CanonicalMessage, InstructionBlock},
+    model_standard::{CanonicalMessage, CanonicalModelRequest, InstructionBlock},
 };
+
+pub const PROCESS_WORKFLOW_CONTRACT_VERSION: &str = "v1";
+pub const PROCESS_WORKFLOW_METHOD: &str = "run";
+
+pub const WORKFLOW_HOST_RUNTIME_STATUS_METHOD: &str = "host.runtime.status";
+pub const WORKFLOW_HOST_BUILD_CONTEXT_METHOD: &str = "host.context.build";
+pub const WORKFLOW_HOST_COMPLETE_MODEL_METHOD: &str = "host.model.complete";
+pub const WORKFLOW_HOST_COMPACT_HISTORY_METHOD: &str = "host.history.compact";
+pub const WORKFLOW_HOST_VISIBLE_TOOLS_METHOD: &str = "host.tools.visible";
+pub const WORKFLOW_HOST_SELECT_TOOLS_METHOD: &str = "host.tools.select";
+pub const WORKFLOW_HOST_EXECUTE_TOOL_METHOD: &str = "host.tools.execute";
+pub const WORKFLOW_HOST_EXECUTE_TOOLS_METHOD: &str = "host.tools.execute_batch";
+pub const WORKFLOW_HOST_EMIT_EVENT_METHOD: &str = "host.events.emit";
+
+/// Strict invocation payload for process Workflow contract v1.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessWorkflowInput {
+    pub task: AgentTask,
+    /// Persistent history through the current user message.
+    pub history: Vec<CanonicalMessage>,
+    pub runtime: ProcessWorkflowRuntimeInfo,
+}
+
+/// Provider-neutral invocation context visible to every Workflow v1 module.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessWorkflowRuntimeInfo {
+    pub session_id: SessionId,
+    pub thread_id: ThreadId,
+    pub turn_id: TurnId,
+    pub model_ref: ModelRef,
+    pub instructions: Vec<InstructionBlock>,
+    pub reasoning: ReasoningConfig,
+    pub max_input_tokens: Option<u32>,
+    pub model_timeout_ms: u64,
+    pub context_timeout_ms: u64,
+    /// Zero means that the core-owned outer workflow deadline is disabled.
+    pub workflow_timeout_ms: u64,
+}
+
+/// Strict terminal result envelope for process Workflow contract v1.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessWorkflowResponse {
+    pub result: WorkflowOutput,
+}
+
+impl ProcessWorkflowResponse {
+    pub fn new(result: WorkflowOutput) -> Self {
+        Self { result }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct WorkflowRuntimeStatusRequest {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct WorkflowRuntimeStatus {
+    pub cancelled: bool,
+    pub queued_user_messages: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct WorkflowBuildContextRequest {
+    pub task: AgentTask,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct WorkflowCompleteModelRequest {
+    pub request: CanonicalModelRequest,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkflowCompactHistoryRequest {
+    pub input: crate::contracts::CompactionInput,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct WorkflowVisibleToolsRequest {
+    pub cwd: std::path::PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkflowSelectToolsRequest {
+    pub request: crate::contracts::ToolExposureRequest,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct WorkflowExecuteToolRequest {
+    pub task: AgentTask,
+    pub call: ToolCall,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct WorkflowExecuteToolsRequest {
+    pub task: AgentTask,
+    pub calls: Vec<ToolCall>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct WorkflowEmitEventRequest {
+    pub event: Event,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct WorkflowHostAck {}
 
 #[derive(Clone)]
 #[non_exhaustive]
@@ -166,7 +285,8 @@ pub trait Workflow: Send + Sync {
     ) -> Result<WorkflowOutput>;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct WorkflowOutput {
     pub output: AgentOutput,
@@ -201,5 +321,68 @@ impl WorkflowOutput {
     pub fn with_compactions(mut self, compactions: Vec<HistoryCompactionReport>) -> Self {
         self.compactions = compactions;
         self
+    }
+}
+
+#[cfg(test)]
+mod process_contract_tests {
+    use std::path::PathBuf;
+
+    use serde_json::json;
+
+    use super::*;
+    use crate::{
+        domain::{new_session_id, new_thread_id, new_turn_id},
+        model_standard::{CanonicalMessage, MessageRole},
+    };
+
+    fn process_input() -> ProcessWorkflowInput {
+        ProcessWorkflowInput {
+            task: AgentTask::new("hello", PathBuf::from(".")),
+            history: vec![CanonicalMessage::text(MessageRole::User, "hello")],
+            runtime: ProcessWorkflowRuntimeInfo {
+                session_id: new_session_id(),
+                thread_id: new_thread_id(),
+                turn_id: new_turn_id(),
+                model_ref: ModelRef::new("fake", "fake-model"),
+                instructions: Vec::new(),
+                reasoning: ReasoningConfig::default(),
+                max_input_tokens: Some(128_000),
+                model_timeout_ms: 30_000,
+                context_timeout_ms: 10_000,
+                workflow_timeout_ms: 300_000,
+            },
+        }
+    }
+
+    #[test]
+    fn process_workflow_input_is_strict() {
+        let mut value = serde_json::to_value(process_input()).expect("workflow input");
+        value["legacy_runtime"] = json!(true);
+
+        serde_json::from_value::<ProcessWorkflowInput>(value)
+            .expect_err("unknown process workflow fields must fail");
+    }
+
+    #[test]
+    fn process_workflow_response_requires_the_v1_envelope() {
+        let output = WorkflowOutput::new(AgentOutput::text("done"), Vec::new());
+        let bare = serde_json::to_value(output.clone()).expect("bare output");
+        serde_json::from_value::<ProcessWorkflowResponse>(bare)
+            .expect_err("bare WorkflowOutput is not a v1 response");
+
+        let wrapped =
+            serde_json::to_value(ProcessWorkflowResponse::new(output)).expect("wrapped response");
+        serde_json::from_value::<ProcessWorkflowResponse>(wrapped).expect("valid v1 response");
+    }
+
+    #[test]
+    fn workflow_callback_params_reject_unknown_fields() {
+        serde_json::from_value::<WorkflowExecuteToolsRequest>(json!({
+            "task": { "text": "hello", "cwd": "." },
+            "calls": [],
+            "origin": "builtin"
+        }))
+        .expect_err("origin-specific callback fields must fail");
     }
 }

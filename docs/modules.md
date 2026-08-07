@@ -9,7 +9,8 @@ reference/personal dylib или поддержанному конкретным 
 процессу. Reference dylib не образуют installed/default pack в архитектурном
 смысле: это проверочные и dogfood implementations, временно публикуемые
 installer-ом до process-only cutover.
-Process-модули сейчас реализованы для `SearchBackend` и `HistoryCompactor`.
+Process-модули сейчас реализованы для `SearchBackend`, `HistoryCompactor` и
+`Workflow`.
 Строки выбора и metadata встроенных и загруженных плагинных модулей описаны в
 `crates/proteus-core/src/core/module_catalog.rs`, а
 `crates/proteus-core/src/core/registry.rs` использует catalog для сборки
@@ -28,11 +29,13 @@ adapter для plugin `MemoryStore`. `jsonl` вынесен в
 
 `crates/proteus-core/src/process_adapters/<slot>` содержит другой glue layer:
 он переводит generic stdio process protocol в конкретный contract. Сейчас там
-есть search и compactor adapters. Raw framing/lifecycle принадлежат
+есть search, compactor и workflow adapters. Raw framing/lifecycle принадлежат
 `proteus-process-host`; strict handshake, authority, bidirectional JSON-RPC,
 cancel и terminal outcomes — `proteus-module-protocol`; mapping метода и slot
-DTO остаётся в adapter-е. Алгоритм поиска или compaction strategy живёт только
-во внешнем child-е.
+DTO остаётся в adapter-е. Алгоритм поиска, compaction strategy или agent loop
+живёт только во внешнем child-е. Общий `core/workflow_host.rs` реализует
+capabilities одновременно для process и переходного dylib adapter-а, поэтому
+origin не меняет model/tool/policy/cancel semantics.
 
 Core-owned no-op/fake fallback-и вынесены отдельно в
 `crates/proteus-core/src/stubs`: `FakeModelClient`, `NullSearch`, `NoMemory`,
@@ -63,9 +66,9 @@ proteus modules list
 Эта команда читает `ModuleCatalog`; она не устанавливает модули и не является package manager.
 
 Config-defined tools поддерживают process и stdio MCP executors, а
-`SearchBackend` и `HistoryCompactor` дополнительно могут быть внешними process
-modules. Для остальных slots external process adapters и package manager ещё
-не реализованы.
+`SearchBackend`, `HistoryCompactor` и `Workflow` дополнительно могут быть
+внешними process modules. Для остальных slots external process adapters и
+package manager ещё не реализованы.
 Для config-defined tools и MCP discovery есть app-server reload:
 `StdioRequest::ReloadTools` / HTTP `POST /reload-tools` перечитывает `tools.*`
 из config, пересобирает catalog/registry и публикует новый `RuntimeSnapshot`.
@@ -108,7 +111,7 @@ pseudo-slot из topology.
 | Compactor | `HistoryCompactor` | `modules.compactor` | `none`, `process`, plugin-provided (`codex` из `codex-compactor`) |
 | Tool Exposure | `ToolExposure` | `modules.tool_exposure` | `all_visible`, plugin-provided (`codex_dynamic` из `codex-tool-exposure`) |
 | Subagent | `SubagentRunner` | `modules.subagent` | `none`, `sequential`, `process`, plugin-provided через `PluginSubagent` |
-| Workflow | `Workflow` | `modules.workflow` | `none`, plugin-provided (`coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review` если подключён `coding-workflow`) |
+| Workflow | `Workflow` | `modules.workflow` | `none`, `process`, plugin-provided (`coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review` если подключён `coding-workflow`) |
 | Renderer | `Renderer` | `modules.renderer` | `text`, plugin-provided (`statusline` из `renderer-pack`) |
 
 ## Model Providers
@@ -888,8 +891,48 @@ child до ожидания semaphore и проверяет исходные ses
 
 Core не содержит production workflow. `modules.workflow = "none"` — inert
 stub: runtime стартует, но turn завершается сообщением, что workflow отключён.
-Для реальной работы `modules.workflow` должен ссылаться на workflow,
-зарегистрированный плагином. `coding-workflow` поставляет baseline
+Для реальной работы `modules.workflow` должен ссылаться на process worker или
+workflow, зарегистрированный переходным плагином.
+
+`modules.workflow = "process"` строит persistent process-module session из
+`module_config.workflow.process`. Handshake фиксирует `workflow/v1`,
+`select_one` и точный `module_id`; module method — только `run`. Worker получает
+strict `ProcessWorkflowInput`, а terminal result обязан быть обёрнут в
+`ProcessWorkflowResponse`. Для каждого invocation adapter привязывает отдельный
+dispatcher с текущим `RuntimeContext`: persistent worker не может случайно
+получить callbacks следующего turn-а со старой session/thread/turn authority.
+
+Workflow v1 разрешает одинаковый для любого `module_id` набор callbacks:
+`host.runtime.status`, `host.context.build`, `host.model.complete`,
+`host.history.compact`, `host.tools.visible`, `host.tools.select`,
+`host.tools.execute`, `host.tools.execute_batch` и `host.events.emit`. Никакой
+callback не принимает произвольный owner или grant. В частности, tool calls
+идут через общий `ToolOrchestrator`, а значит через `ToolRegistry`, visibility,
+`ApprovalPolicy`, approval transport, `ToolSafety`, lifecycle recorder и
+canonical events. Выбранный process workflow не может вызвать зарегистрированный
+tool в обход этого пути.
+
+Текущий `host.model.complete` возвращает worker-у полный terminal
+`CanonicalModelResponse`. Provider streaming остаётся в host `ModelService`:
+дельты и model exchange пишутся/эмитятся core, пока worker ждёт terminal
+callback response. Отдельный внешний process `Model` slot ещё не мигрирован.
+Core-owned outer `runtime.workflow_timeout_ms` остаётся источником canonical
+`Timeout`; process deadline только более поздний guard. Cancel передаётся как
+`$/cancelRequest`, после чего session сбрасывается и следующий turn делает
+lazy handshake при необходимости.
+
+Runnable out-of-tree пример находится в
+`examples/modules/agent-worker/agent.py`, профиль —
+`examples/configs/proteus.process-agent.example.toml`. Это маленький
+multi-language proof, не default/standard pack и не Codex-compatible режим.
+Он выполняет реальный `model -> tool batch -> model` loop без импорта
+`proteus-core`; подробности — в `examples/modules/agent-worker/README.md`.
+
+Process boundary не является sandbox: executable пока считается доверенным и
+имеет обычные OS-права пользователя, хотя parent environment очищается по
+`ProcessSpec` и расширяется только явным allowlist/literal config.
+
+Переходный `coding-workflow` поставляет baseline
 `coding.single_loop`; он:
 
 - строит контекст;

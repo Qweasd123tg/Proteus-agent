@@ -151,6 +151,39 @@ impl ProcessModuleSession {
         timeout: Duration,
         is_cancelled: impl Fn() -> bool,
     ) -> Result<ProcessModuleInvocationResult> {
+        self.invoke_inner(
+            method,
+            params,
+            timeout,
+            Arc::clone(&self.dispatcher),
+            is_cancelled,
+        )
+    }
+
+    /// Invokes the module with turn-scoped callback state.
+    ///
+    /// Persistent sessions can serve multiple turns, but a callback-heavy
+    /// contract must never keep one turn's host context in the session. The
+    /// dispatcher is therefore bound to this invocation only.
+    pub fn invoke_with_dispatcher_and_cancel_check(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+        dispatcher: Arc<dyn HostRequestDispatcher>,
+        is_cancelled: impl Fn() -> bool,
+    ) -> Result<ProcessModuleInvocationResult> {
+        self.invoke_inner(method, params, timeout, dispatcher, is_cancelled)
+    }
+
+    fn invoke_inner(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+        dispatcher: Arc<dyn HostRequestDispatcher>,
+        is_cancelled: impl Fn() -> bool,
+    ) -> Result<ProcessModuleInvocationResult> {
         if method.trim().is_empty() {
             bail!("process module method must not be empty");
         }
@@ -185,7 +218,13 @@ impl ProcessModuleSession {
                 )
             })?;
             session.send_frame(envelope::request(json!(invocation_id), method, params))?;
-            self.wait_for_invocation(&mut session, invocation_id.clone(), timeout, &is_cancelled)
+            self.wait_for_invocation(
+                &mut session,
+                invocation_id.clone(),
+                timeout,
+                dispatcher.as_ref(),
+                &is_cancelled,
+            )
         })();
 
         match run {
@@ -215,6 +254,7 @@ impl ProcessModuleSession {
         session: &mut ProcessSession<NewlineJsonFraming>,
         invocation_id: String,
         timeout: Duration,
+        dispatcher: &dyn HostRequestDispatcher,
         is_cancelled: &impl Fn() -> bool,
     ) -> Result<InvocationRun> {
         let started = Instant::now();
@@ -228,6 +268,7 @@ impl ProcessModuleSession {
                     ProcessModuleTerminal::Canceled,
                     notifications,
                     notification_bytes,
+                    dispatcher,
                 ));
             }
 
@@ -238,6 +279,7 @@ impl ProcessModuleSession {
                     ProcessModuleTerminal::TimedOut,
                     notifications,
                     notification_bytes,
+                    dispatcher,
                 ));
             };
             if remaining.is_zero() {
@@ -247,6 +289,7 @@ impl ProcessModuleSession {
                     ProcessModuleTerminal::TimedOut,
                     notifications,
                     notification_bytes,
+                    dispatcher,
                 ));
             }
 
@@ -262,6 +305,7 @@ impl ProcessModuleSession {
                 &invocation_id,
                 &mut notifications,
                 &mut notification_bytes,
+                dispatcher,
             )? {
                 let reset_session = matches!(terminal, ProcessModuleTerminal::Canceled);
                 return Ok(InvocationRun {
@@ -283,6 +327,7 @@ impl ProcessModuleSession {
         invocation_id: &str,
         notifications: &mut Vec<ProcessModuleNotification>,
         notification_bytes: &mut usize,
+        dispatcher: &dyn HostRequestDispatcher,
     ) -> Result<Option<ProcessModuleTerminal>> {
         match envelope::parse(frame)? {
             IncomingMessage::Response { id, result } => {
@@ -300,7 +345,7 @@ impl ProcessModuleSession {
                 }))
             }
             IncomingMessage::Request { id, method, params } => {
-                self.dispatch_host_request(session, id, method, params, invocation_id)?;
+                self.dispatch_host_request(session, id, method, params, invocation_id, dispatcher)?;
                 Ok(None)
             }
             IncomingMessage::Notification { method, params } => {
@@ -325,6 +370,7 @@ impl ProcessModuleSession {
         method: String,
         params: Value,
         invocation_id: &str,
+        dispatcher: &dyn HostRequestDispatcher,
     ) -> Result<()> {
         if !self.authority.allows_host_method(&method) {
             let error = ProcessModuleRpcError::new(
@@ -346,7 +392,7 @@ impl ProcessModuleSession {
             method,
             params,
         };
-        match self.dispatcher.dispatch(request) {
+        match dispatcher.dispatch(request) {
             Ok(value) => session.send_frame(envelope::response(id, value)),
             Err(error) => session.send_frame(envelope::error_response(id, &error)?),
         }
@@ -359,6 +405,7 @@ impl ProcessModuleSession {
         cause: ProcessModuleTerminal,
         mut notifications: Vec<ProcessModuleNotification>,
         mut notification_bytes: usize,
+        dispatcher: &dyn HostRequestDispatcher,
     ) -> InvocationRun {
         let cancel = serde_json::to_value(ProcessModuleCancel::new(invocation_id.clone()))
             .expect("ProcessModuleCancel serialization cannot fail");
@@ -383,6 +430,7 @@ impl ProcessModuleSession {
                     &invocation_id,
                     &mut notifications,
                     &mut notification_bytes,
+                    dispatcher,
                 ) {
                     Ok(Some(_)) | Err(_) => break,
                     Ok(None) => {}

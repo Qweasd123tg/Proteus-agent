@@ -136,6 +136,14 @@ git diff --check
   JSON-RPC error и невалидный slot DTO возвращаются как ошибка без fallback;
   current-thread regression подтверждает, что медленный handshake при async
   сборке snapshot не блокирует Tokio worker;
+- `workflow = process` проходит bidirectional Workflow v1 boundary с
+  invocation-scoped dispatcher: out-of-tree Python worker делает настоящий
+  `model -> remember_fact tool -> model` turn, а tool call виден через общие
+  `ToolCallRequested`/`ToolFinished`; отдельный deny case подтверждает, что
+  worker не обходит выбранную policy. Success записывается в canonical journal,
+  совпадает в `replay workflow`, переживает cold reopen и fresh-worker resume;
+  внешние cancel/timeout проверяются как `TurnSettled::Canceled/Timeout` и
+  cold history без искусственного replay;
 - `ModuleCatalog` перечисляет built-in manifests для core-owned slots и
   не содержит production workflow/context без плагина;
 - `modules list` рендерит catalog без запуска runtime;
@@ -378,7 +386,8 @@ Harness поднимает настоящий disposable worker и покрыв�
 module config, version/composition/feature mismatch, success/error terminal,
 contract-bounded outgoing methods, count/byte-bounded progress/activity
 notifications, malformed и out-of-order frame, запрещённый `host.*`,
-cooperative cancel, deadline с non-cooperative worker, crash и lazy restart.
+разрешённый Workflow callback через invocation-scoped dispatcher, cooperative
+cancel, deadline с non-cooperative worker, crash и lazy restart.
 Authority table индексируется только по
 `(slot, contract_version)`, поэтому `module_id` не участвует в выдаче host
 methods.
@@ -398,6 +407,18 @@ cargo run -p proteus-module-protocol --bin proteus-module-conformance -- \
 generic terminal envelope и notifications; typed result конкретного slot-а и
 заменяемость по-прежнему обязаны пройти adapter/swap tests. Успешный handshake
 не является доказательством качества алгоритма или OS isolation.
+
+Handshake внешнего agent worker-а:
+
+```bash
+cargo run -p proteus-module-protocol --bin proteus-module-conformance -- \
+  --slot workflow --module-id python_agent_loop --contract-version v1 \
+  -- python3 examples/modules/agent-worker/agent.py
+```
+
+Conformance runner намеренно не подставляет fake host callbacks для Workflow.
+Полный typed callback/tool/journal gate находится в
+`module_swap::process_workflow`.
 
 ## Правило Для Нового Slot Module
 
@@ -470,9 +491,10 @@ canonical DTO не ломаются.
   multiple config files остаются видимыми как warnings/diagnostic nodes;
 - CLI inspect строит best-effort snapshot при сломанном backend/tool registry и
   добавляет ошибку в warnings вместо abort до renderer-а;
-- `tools list`, CLI inspect и doctor при `modules.search = "process"` или
-  `modules.compactor = "process"` валидируют metadata/config/command, но не
-  запускают внешний child;
+- `tools list`, CLI inspect и doctor при `modules.search = "process"`,
+  `modules.compactor = "process"` или `modules.workflow = "process"`
+  валидируют metadata/config/command, но read-only doctor сам не запускает
+  внешний child;
 - process compactor использует тот же protocol-v1 runtime и проходит тот же
   swap-gate, что `none`/plugin реализации, сохраняя переходный slot contract
   v0: strict handshake и response envelope, fail-closed process/JSON-RPC/DTO

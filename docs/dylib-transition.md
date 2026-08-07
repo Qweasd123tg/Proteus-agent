@@ -303,11 +303,12 @@ allowlisted только минимальные runtime variables (`PATH`; на 
 adapter обязан перечислить через `env_allowlist` либо задать scoped literal
 через `env`. Полное наследование parent environment API не предоставляет.
 
-Текущие process-module proof adapters реализованы для `SearchBackend` и
-`HistoryCompactor` в `crates/proteus-core/src/process_adapters/search.rs` и
-`compactor.rs`. Оба используют generic JSON-RPC request/response API
+Текущие process-module adapters реализованы для `SearchBackend`,
+`HistoryCompactor` и `Workflow` в
+`crates/proteus-core/src/process_adapters/{search,compactor,workflow}.rs`.
+Все используют `ProcessModuleSession` поверх
 `ProcessHost<NewlineJsonFraming>`, но mapping методов, contract version и
-строгий response DTO принадлежат конкретному slot adapter-у. Snapshot build
+строгий slot DTO принадлежат конкретному adapter-у. Snapshot build
 сразу выполняет handshake, а mismatch не подменяется builtin/dylib backend-ом.
 После process/JSON-RPC/DTO error host сбрасывает session; следующий вызов
 делает lazy restart с новым handshake.
@@ -319,6 +320,13 @@ Compactor получает `CompactionInput`, но намеренно не по�
 `CompactionHost`: внешний модуль остаётся pure transform без скрытых model
 calls. Это второй независимый slot поверх общего process protocol и проверка,
 что framing/host не содержат search-specific знания.
+
+Workflow использует strict bidirectional protocol v1. Его callbacks разрешает
+slot authority table, а transition dylib adapter и process adapter вызывают
+один `core/workflow_host.rs`; model/tool/policy/cancel semantics не копируются
+по origin. Runnable worker находится в `examples/modules/agent-worker`, но не
+является default pack. Наличие рабочего process Workflow не разрешает удалить
+dylib loader раньше parity остальных slots.
 
 Breaking changes в plugin ABI требуют пересборки соответствующих плагинов. Это
 не стоит прятать config-флагом: если layout/vtable реально несовместимы,
@@ -471,11 +479,14 @@ sync plugin ABI + host callbacks. Оба пути заменяются process c
   core-owned реализациями subagent slot.
 - `process_adapters/search.rs` — host-side adapter, а не алгоритм поиска:
   concrete implementation живёт в выбранном внешнем executable.
+- `process_adapters/workflow.rs` — такой же host-side adapter для любого
+  `workflow/v1` executable; конкретный agent loop и stop conditions принадлежат
+  worker-у, а capabilities исполняет общий core host.
 - Core tools, тесно связанные с host-side сервисами: `apply_patch` (через `PatchApplier`), `search` (через `SearchBackend`), `remember_fact` (через `MemoryStore`), `request_user_input`/`AskUserQuestion` (через `UserInputTransport`) и subagent facades `task` либо collaboration lifecycle + optional `send_message`/`followup_task` (через `SubagentToolHost`). Остальные базовые tools (read_file, write_file, list_dir, grep, find_files, read_many_files, git_status, git_diff, shell) живут в плагинах `file-tools`, `git-tools` и `shell-tool`.
 - HeadlessApprovalTransport.
 - Production workflow в core отсутствует: `NoWorkflow` только позволяет core
-  стартовать без plugin pack; для полноценного runtime нужен workflow plugin,
-  например `coding-workflow`.
+  стартовать без implementation; полноценный runtime выбирает process worker
+  либо временный workflow plugin, например `coding-workflow`.
 
 ---
 

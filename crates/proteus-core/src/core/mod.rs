@@ -21,6 +21,7 @@ pub mod tool_orchestrator;
 pub mod topology;
 pub mod topology_render;
 pub mod user_input;
+pub(crate) mod workflow_host;
 pub mod workflow_replay;
 pub mod workspace;
 

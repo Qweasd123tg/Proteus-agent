@@ -17,9 +17,10 @@ model + context + workflow + tools + policy
   -> durable session и trace
 ```
 
-Базовый стек уже собран. «Месяц Гибкости» доказал raw process seam двумя
-slot adapters и закрыл root steering, lifecycle и atomic install, но оставил
-реализации одного slot с разными правами в зависимости от
+Базовый стек уже собран. «Месяц Гибкости» доказал raw process seam, а первые
+три protocol-v1 adapters закрыли pure и bidirectional proof; root steering,
+lifecycle и atomic install тоже готовы, но реализации одного slot всё ещё
+имеют разные права в зависимости от
 `builtin/dylib/process` origin.
 
 2026-08-06 владелец принял новый приоритет: **единый process-only module
@@ -32,8 +33,8 @@ dogfood до готовности vertical slice; новые dylib surfaces не
 
 - OpenAI, Anthropic и OpenAI-compatible model adapters;
 - configurable workflows, context builders, compaction и tool exposure;
-- внешние process `SearchBackend` и pure-transform `HistoryCompactor` с
-  языконезависимым JSON-RPC протоколом;
+- внешние process `SearchBackend`, pure-transform `HistoryCompactor` и
+  bidirectional `Workflow` с языконезависимым JSON-RPC протоколом;
 - file/git/shell/plan tools через текущие reference dylib;
 - mode-aware policy, approvals и session-scoped control plane;
 - canonical append-only session journal, config snapshots, resume/transcript
@@ -57,7 +58,8 @@ ABI и внутренние DTO, если dogfood показывает непр�
 
 ## Текущий Приоритет
 
-Активная работа — Срез 1 плана process-only cutover:
+Активная работа — parity и удаление переходного runtime после завершённых
+Срезов 1–2 process-only cutover:
 
 1. generic `ProcessModuleSession` и strict protocol v1;
 2. единая slot authority table и conformance runner;
@@ -73,9 +75,10 @@ Reference modules не считаются стандартным набором 
 недоступных любой другой implementation их slot.
 
 До завершения runtime cutover фактическое поведение остаётся смешанным:
-reference modules загружаются как dylib, process adapters существуют только
-для `SearchBackend` и pure-transform `HistoryCompactor`, а provider adapters и
-часть runners живут в core. Это известный migration state, не platform claim.
+reference modules загружаются как dylib, process adapters существуют для
+`SearchBackend`, pure-transform `HistoryCompactor` и `Workflow`, а provider
+adapters и часть runners живут в core. Это известный migration state, не
+platform claim.
 
 Real `rust-analyzer` dogfood и новые agent capabilities отложены за process
 vertical slice: они не должны расширять старую dylib поверхность.

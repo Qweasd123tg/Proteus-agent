@@ -7,7 +7,7 @@ use anyhow::{Result, bail};
 use proteus_core::{
     core::{AppConfig, ConfiguredToolExecutorConfig, ModuleCatalog, expand_user_path},
     domain::ModuleKind,
-    process_adapters::{ProcessCompactorConfig, ProcessSearchConfig},
+    process_adapters::{ProcessCompactorConfig, ProcessSearchConfig, ProcessWorkflowConfig},
 };
 use proteus_process_host::ProcessSpec;
 use serde_json::Value;
@@ -385,6 +385,25 @@ pub(crate) fn check_external_commands(
     config: &AppConfig,
     cwd: &Path,
 ) {
+    if config.modules.workflow == "process" {
+        let process = ProcessWorkflowConfig::from_value(
+            config.module_config_value(ModuleKind::Workflow, "process"),
+        )
+        .and_then(|config| {
+            let spec = config.process_spec(cwd)?;
+            spec.resolved_environment()?;
+            Ok(spec)
+        });
+        match process {
+            Ok(spec) => check_command(
+                findings,
+                &spec.command,
+                spec.cwd.as_deref().unwrap_or(cwd),
+                "workflow process",
+            ),
+            Err(error) => findings.error(format!("workflow process config: {error:#}")),
+        }
+    }
     if config.modules.search == "rg" {
         check_command(findings, "rg", cwd, "search backend rg");
     }

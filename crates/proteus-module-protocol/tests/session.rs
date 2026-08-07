@@ -12,11 +12,13 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use proteus_contracts::contracts::{
     PROCESS_MODULE_CANCEL_METHOD, PROCESS_MODULE_INITIALIZE_METHOD,
-    PROCESS_MODULE_PROTOCOL_VERSION, PROCESS_SEARCH_CONTRACT_VERSION, ProcessModuleComposition,
-    ProcessModuleInitialize, ProcessModuleManifest,
+    PROCESS_MODULE_PROTOCOL_VERSION, PROCESS_SEARCH_CONTRACT_VERSION,
+    PROCESS_WORKFLOW_CONTRACT_VERSION, ProcessModuleComposition, ProcessModuleInitialize,
+    ProcessModuleManifest, WORKFLOW_HOST_RUNTIME_STATUS_METHOD,
 };
 use proteus_module_protocol::{
-    ProcessModuleBinding, ProcessModuleSession, ProcessModuleSessionOptions, ProcessModuleTerminal,
+    HostRequestDispatcher, ProcessModuleBinding, ProcessModuleHostRequest, ProcessModuleRpcError,
+    ProcessModuleSession, ProcessModuleSessionOptions, ProcessModuleTerminal,
 };
 use proteus_process_host::{Framing, NewlineJsonFraming, ProcessSpec, ReceiveLimits};
 use serde_json::{Value, json};
@@ -83,6 +85,10 @@ fn run_tests() -> Result<()> {
         (
             "forbidden_host_callback_fails_closed",
             forbidden_host_callback_fails_closed,
+        ),
+        (
+            "allowed_host_callback_uses_invocation_dispatcher",
+            allowed_host_callback_uses_invocation_dispatcher,
         ),
         (
             "unknown_notification_poison_session",
@@ -262,6 +268,41 @@ fn forbidden_host_callback_fails_closed() -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug)]
+struct RuntimeStatusDispatcher;
+
+impl HostRequestDispatcher for RuntimeStatusDispatcher {
+    fn dispatch(&self, request: ProcessModuleHostRequest) -> Result<Value, ProcessModuleRpcError> {
+        assert_eq!(request.invocation_id, "invocation-1");
+        assert_eq!(request.method, WORKFLOW_HOST_RUNTIME_STATUS_METHOD);
+        assert_eq!(request.params, json!({}));
+        Ok(json!({
+            "cancelled": false,
+            "queued_user_messages": 2,
+        }))
+    }
+}
+
+fn allowed_host_callback_uses_invocation_dispatcher() -> Result<()> {
+    let session = connect_workflow("allowed_host")?;
+    let result = session.invoke_with_dispatcher_and_cancel_check(
+        "run",
+        json!({}),
+        SHORT_TIMEOUT,
+        Arc::new(RuntimeStatusDispatcher),
+        || false,
+    )?;
+
+    assert_eq!(
+        result.terminal,
+        ProcessModuleTerminal::Success(json!({
+            "cancelled": false,
+            "queued_user_messages": 2,
+        }))
+    );
+    Ok(())
+}
+
 fn unknown_notification_poison_session() -> Result<()> {
     let session = connect("unknown_notification", &[])?;
     let error = session
@@ -389,6 +430,29 @@ fn connect_with(
     )
 }
 
+fn connect_workflow(mode: &str) -> Result<ProcessModuleSession> {
+    let exe = env::current_exe()?;
+    let exe = exe
+        .to_str()
+        .ok_or_else(|| anyhow!("test binary path is not UTF-8"))?;
+    let binding = ProcessModuleBinding::new(
+        "workflow",
+        "fixture",
+        PROCESS_WORKFLOW_CONTRACT_VERSION,
+        json!({ "fixture": true }),
+    )?;
+    ProcessModuleSession::connect(
+        ProcessSpec::new(exe).args(["__mock_module", mode]),
+        binding,
+        ProcessModuleSessionOptions {
+            handshake_timeout: SHORT_TIMEOUT,
+            cancel_grace: CANCEL_GRACE,
+            receive_limits: ReceiveLimits::default(),
+            notification_limits: ReceiveLimits::default(),
+        },
+    )
+}
+
 fn unique_marker(name: &str) -> PathBuf {
     env::temp_dir().join(format!(
         "proteus-module-protocol-{name}-{}",
@@ -435,13 +499,18 @@ fn initialize_mock<R: BufRead, W: Write>(
     ensure!(request["method"] == PROCESS_MODULE_INITIALIZE_METHOD);
     let initialize: ProcessModuleInitialize =
         serde_json::from_value(request["params"].clone()).context("strict initialize params")?;
-    assert_initialize(&initialize)?;
+    let (slot, contract_version) = if mode == "allowed_host" {
+        ("workflow", PROCESS_WORKFLOW_CONTRACT_VERSION)
+    } else {
+        ("search", PROCESS_SEARCH_CONTRACT_VERSION)
+    };
+    assert_initialize(&initialize, slot, contract_version)?;
 
     let mut manifest = serde_json::to_value(ProcessModuleManifest {
         protocol_version: PROCESS_MODULE_PROTOCOL_VERSION.to_owned(),
-        slot: "search".to_owned(),
+        slot: slot.to_owned(),
         module_id: "fixture".to_owned(),
-        contract_version: PROCESS_SEARCH_CONTRACT_VERSION.to_owned(),
+        contract_version: contract_version.to_owned(),
         composition: ProcessModuleComposition::SelectOne,
         module_features: Vec::new(),
     })?;
@@ -457,11 +526,15 @@ fn initialize_mock<R: BufRead, W: Write>(
     write_result(framing, writer, request["id"].clone(), manifest)
 }
 
-fn assert_initialize(initialize: &ProcessModuleInitialize) -> Result<()> {
+fn assert_initialize(
+    initialize: &ProcessModuleInitialize,
+    slot: &str,
+    contract_version: &str,
+) -> Result<()> {
     ensure!(initialize.protocol_version == PROCESS_MODULE_PROTOCOL_VERSION);
-    ensure!(initialize.slot == "search");
+    ensure!(initialize.slot == slot);
     ensure!(initialize.module_id == "fixture");
-    ensure!(initialize.contract_version == PROCESS_SEARCH_CONTRACT_VERSION);
+    ensure!(initialize.contract_version == contract_version);
     ensure!(initialize.composition == ProcessModuleComposition::SelectOne);
     ensure!(initialize.module_config == json!({ "fixture": true }));
     ensure!(initialize.host_features.is_empty());
@@ -527,6 +600,21 @@ fn handle_invocation<R: BufRead, W: Write>(
             )?;
             let _ = framing.read_frame(reader)?;
             Ok(())
+        }
+        "allowed_host" => {
+            framing.write_frame(
+                writer,
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": "callback-1",
+                    "method": WORKFLOW_HOST_RUNTIME_STATUS_METHOD,
+                    "params": {},
+                }),
+            )?;
+            let callback = framing.read_frame(reader)?;
+            ensure!(callback["id"] == "callback-1");
+            ensure!(callback.get("error").is_none());
+            write_result(framing, writer, id, callback["result"].clone())
         }
         "unknown_notification" => {
             write_notification(framing, writer, "module.private", json!({}))?;
