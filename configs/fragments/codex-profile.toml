@@ -1,0 +1,23 @@
+# Строгий Codex-shaped behavior overlay. Provider задаётся отдельно.
+[profile]
+name = "codex-proxy"
+
+[subagents]
+# Experimental Codex-like async control surface. Переключите на `task`,
+# чтобы оставить только прежний blocking facade; `none` скрывает оба режима.
+surface = "collaboration"
+
+[module_config.policy.codex_policy]
+allow = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan", "apply_patch", "write_file", "write_stdin"]
+allow_sandboxed = ["shell", "exec_command"]
+ask_before = ["lsp_diagnostics", "shell", "exec_command", "request_permissions", "remember_fact"]
+
+# Playwright отсутствует намеренно. При подключении MCP server его discovered
+# tool names нужно явно добавить в policy; неактивные имена здесь лишь создают
+# ложные doctor warnings.
+
+[module_config.context.codex_context]
+# Strict Codex-shaped context: upstream expects the model to inspect the repo
+# through tools instead of preloading git/tree/manifest/search results.
+providers = ["project_instructions", "skills", "environment"]
+project_instruction_files = ["AGENTS.override.md", "AGENTS.md"]

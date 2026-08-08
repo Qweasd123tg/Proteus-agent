@@ -19,6 +19,10 @@ Native dylib ABI, `plugin.toml`, `abi_stable` и loader удалены. Referenc
 реализации в `modules/reference` — тестовые/dogfood образцы, а не стандартный
 или привилегированный пакет.
 
+Tracked named profiles могут явно собираться через `include` из
+`configs/fragments/`. Fragment не активируется автоматически и не является
+standard pack; итоговый profile всё равно содержит точные slot selections.
+
 ## Быстрый Запуск
 
 Для web-клиентов один раз нужны:

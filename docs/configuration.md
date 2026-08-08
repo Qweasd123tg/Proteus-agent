@@ -20,6 +20,11 @@ fake-model профиль: [proteus.example.toml](../examples/configs/proteus.ex
 используется как путь. Config может быть одним файлом или directory; в
 directory файлы `.toml` / `.json` merge-ятся лексикографически.
 
+Directory mode предназначен для одного profile, разложенного на fragments.
+Каталог `configs/` в репозитории содержит альтернативные named profiles
+(`codex`, `glm`, `opencode`) и потому не должен передаваться целиком через
+`--config configs`: выбирайте конкретный файл или named config.
+
 ```toml
 include = "../../configs/proteus.provider.example.toml"
 ```
@@ -28,6 +33,20 @@ include = "../../configs/proteus.provider.example.toml"
 config file. Includes merge-ятся слева направо, затем текущий file
 перекрывает результат. Objects merge recursively; arrays и scalar values
 заменяются целиком. Include cycle — ошибка.
+
+Tracked `codex`/`glm` profiles используют явные fragments:
+
+```text
+configs/fragments/openai-proxy.toml  provider launch/credential references
+configs/fragments/codex-runtime.toml modules, tools, roles и runtime limits
+configs/fragments/codex-profile.toml strict Codex policy/context overlay
+```
+
+Fragment не является profile, module pack или неявным default: он не
+загружается без `include`, а итоговый config по-прежнему явно выбирает
+provider и каждый behavior slot. Массивы не append-ятся. Например, `glm`
+повторяет полный `process_modules` array, потому что добавляет renderer;
+скрытого order-dependent слияния descriptors нет.
 
 `~`, `$HOME` и `${HOME}` раскрываются в path fields.
 
@@ -125,6 +144,11 @@ base_url_json_key = "base_url"
 
 Не храните secret literal в tracked config. `proteus doctor` проверяет
 provider selection и доступность credential без model request.
+
+`proteus init codex` создаёт top-level `config.toml`, managed fragment
+`fragments/codex-runtime.toml` и prompt `prompts/codex-default.md`. Provider
+example остаётся явно встроенным в создаваемый config; локальный OpenAI proxy
+из tracked `codex.config.toml` туда не протекает.
 
 ## Выбор Behavior Modules
 

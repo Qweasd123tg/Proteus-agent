@@ -29,8 +29,7 @@ pub struct AppConfig {
     #[serde(default)]
     pub module_config: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
     /// Host-owned launch descriptors for all external process modules.
-    /// Module-owned configuration remains the opaque `config` object inside
-    /// each descriptor.
+    /// Module-owned configuration remains separate in `module_config`.
     #[serde(default)]
     pub process_modules: Vec<crate::process_adapters::ProcessAdapterConfig>,
     #[serde(default)]

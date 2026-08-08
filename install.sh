@@ -383,12 +383,15 @@ install_config "codex.config.toml" "configs/codex.config.toml"
 install_config "opencode.config.toml" "configs/opencode.config.toml"
 install_config "proteus.provider.example.toml" "configs/proteus.provider.example.toml"
 
-# Prompt-файлы обновляются при каждой установке: это код профиля, а не
-# пользовательские правки (в отличие от configs, которые не перезаписываются).
+# Managed fragments и prompt-файлы обновляются при каждой установке: это код
+# профиля, а не пользовательские правки (в отличие от named configs, которые
+# не перезаписываются).
+mkdir -p "${configs_dir}/fragments"
 mkdir -p "${configs_dir}/prompts"
-install_prompt() {
-  source_path="${project_dir}/configs/prompts/$1"
-  dest_path="${configs_dir}/prompts/$1"
+install_managed_config_asset() {
+  relative_path="$1"
+  source_path="${project_dir}/configs/${relative_path}"
+  dest_path="${configs_dir}/${relative_path}"
   # configs_dir может быть симлинком на репозиторный configs/ — тогда source
   # и dest являются одним файлом и копирование не нужно.
   if [ "${source_path}" -ef "${dest_path}" ]; then
@@ -396,8 +399,11 @@ install_prompt() {
   fi
   cp "${source_path}" "${dest_path}"
 }
-install_prompt "codex-default.md"
-install_prompt "opencode-default.md"
+install_managed_config_asset "fragments/openai-proxy.toml"
+install_managed_config_asset "fragments/codex-runtime.toml"
+install_managed_config_asset "fragments/codex-profile.toml"
+install_managed_config_asset "prompts/codex-default.md"
+install_managed_config_asset "prompts/opencode-default.md"
 
 echo "Installed: ${bin_path}"
 echo "Release:   ${release_dir}"

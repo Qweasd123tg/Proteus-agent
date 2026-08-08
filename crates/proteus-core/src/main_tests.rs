@@ -556,7 +556,7 @@ async fn init_coding_writes_loadable_single_config_file() {
 }
 
 #[tokio::test]
-async fn init_codex_writes_loadable_single_config_file() {
+async fn init_codex_writes_loadable_config_with_runtime_fragment() {
     let dir = tempfile::tempdir().expect("config dir");
 
     run_init(InitProfile::Codex, Some(dir.path())).expect("init codex");
@@ -564,18 +564,19 @@ async fn init_codex_writes_loadable_single_config_file() {
     let profile = dir.path().join(INIT_CONFIG_FILE);
     assert!(profile.exists());
     let profile_body = std::fs::read_to_string(&profile).expect("profile body");
-    assert!(profile_body.starts_with("active_provider = \"anthropic\""));
-    assert!(
-        !profile_body
-            .lines()
-            .any(|line| line.trim_start().starts_with("include = "))
-    );
+    assert!(profile_body.starts_with("include = \"fragments/codex-runtime.toml\""));
+    assert!(profile_body.contains("active_provider = \"anthropic\""));
 
     let config = AppConfig::load(Some(dir.path()))
         .await
         .expect("generated config loads");
 
     assert_eq!(config.profile.name, "codex-proxy");
+    assert_eq!(config.active_provider, "anthropic");
+    assert_eq!(
+        config.active_model_config().expect("active model").provider,
+        "anthropic"
+    );
     assert_eq!(
         config.modules.workflow.as_deref(),
         Some("coding.codex_loop")
@@ -594,6 +595,7 @@ async fn init_codex_writes_loadable_single_config_file() {
         Some("codex_dynamic")
     );
     assert!(dir.path().join("prompts/codex-default.md").exists());
+    assert!(dir.path().join("fragments/codex-runtime.toml").exists());
     assert!(
         config
             .instruction_blocks()

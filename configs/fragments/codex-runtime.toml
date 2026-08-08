@@ -1,0 +1,143 @@
+# Общий Codex-shaped runtime для tracked codex/glm профилей и `proteus init
+# codex`. Это config fragment, а не самостоятельный профиль или standard pack:
+# provider, profile-specific policy/context и renderer selection задаёт overlay.
+
+# Base prompt: адаптированный upstream Codex base prompt из
+# codex-rs/protocol/src/prompts/base_instructions/default.md на commit
+# 2cf2a6a844f1fc2ddd489c8a67fa8bc2f59a6f3d. Harness-dependent divergence:
+# identity/renderer говорят Proteus/client вместо Codex CLI; proxy-safe
+# apply_patch остаётся function tool; permission-режимы названы auto/normal;
+# добавлены фактическая per-command sandbox/netns семантика и предпочтение
+# structured read/search tools.
+[[instructions]]
+kind = "System"
+file = "prompts/codex-default.md"
+priority = 100
+
+[modules]
+workflow = "coding.codex_loop"
+search = "rg"
+context = "codex_context"
+policy = "codex_policy"
+patch = "direct"
+compactor = "codex"
+tool_exposure = "codex_dynamic"
+subagent = "sequential"
+
+[[process_modules]]
+slot = "workflow"
+module_id = "coding.codex_loop"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "search"
+module_id = "rg"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "context"
+module_id = "codex_context"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "context_provider"
+module_id = "skills"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "policy"
+module_id = "codex_policy"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "patch"
+module_id = "direct"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "compactor"
+module_id = "codex"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "tool_exposure"
+module_id = "codex_dynamic"
+command = "proteus-reference-worker"
+
+[[process_modules]]
+slot = "tool"
+module_id = "reference.tools"
+command = "proteus-reference-worker"
+
+[tools]
+enabled = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "lsp_diagnostics", "git_status", "git_diff", "request_user_input", "update_plan", "request_permissions", "apply_patch", "write_file", "shell", "exec_command", "write_stdin", "remember_fact"]
+
+[permissions]
+mode = "normal"
+
+[module_config.compactor.codex]
+trigger_fraction = 0.8
+
+[module_config.subagent.sequential]
+max_resumable = 8
+
+[[module_config.subagent.sequential.roles]]
+name = "explore"
+description = "Read-only codebase explorer for focused research questions (find definitions, trace call paths, map structure). Returns concise findings with file paths and line numbers."
+prompt = """You are a read-only codebase researcher inside the Proteus harness. Answer the specific question you were given — nothing more.
+
+Rules:
+- Inspect, never modify: you have only read/search tools.
+- Be fast and authoritative: prefer targeted search over broad reading.
+- Map before reading: start with list_dir/find_files to locate relevant paths instead of guessing file locations.
+- Batch your work: emit several independent tool calls in one response and read related files together via read_many_files instead of one read_file at a time.
+- Read whole files: for files under ~2000 lines skip the limit parameter entirely; chunked reading is only for very large files.
+- Final answer must be a concise report: findings with file paths and line numbers, short quotes only where they carry the answer.
+- If you cannot find something, say so explicitly and list where you looked."""
+tools = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff"]
+# Строго read-only allowlist выше делает роль безопасной для конкурентного
+# запуска: несколько task-вызовов explore в одном ответе модели идут параллельно.
+parallel_safe = true
+max_iterations = 15
+max_summary_bytes = 8192
+# Потолок суммарного spend запуска (input+output всех model-запросов ребёнка).
+max_total_tokens = 300000
+
+[[module_config.subagent.sequential.roles]]
+name = "coder"
+description = "Isolated coder for a self-contained code change. Works in its own git worktree and commits to its own branch; the parent reviews and merges the branch afterwards."
+prompt = """You are a focused coding subagent inside the Proteus harness, working in your own git worktree on a dedicated branch. Implement exactly the change you were asked for — nothing more.
+
+Rules:
+- Your cwd is an isolated worktree: edit freely, the parent checkout is untouched.
+- Stay on task: no refactors, cleanups, or extras beyond the request.
+- Verify what you can (build/tests via shell) before finishing.
+- Commit your work to the current branch with a clear message; uncommitted changes also survive, but a commit is preferred.
+- Final answer must be a concise report: what changed (files), how it was verified, and anything the parent must know before merging."""
+tools = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "lsp_diagnostics", "git_status", "git_diff", "write_file", "shell"]
+# Изоляция структурная: каждый fresh запуск получает собственный worktree,
+# поэтому несколько coder-вызовов в одном ответе модели идут параллельно.
+isolation = "worktree"
+max_iterations = 25
+max_summary_bytes = 8192
+# Пишущая роль дороже: больше итераций, растущая история.
+max_total_tokens = 1500000
+
+[module_config.tool_exposure.codex_dynamic]
+max_hot_tools = 10
+always_include = ["skill", "lsp_diagnostics", "request_user_input", "update_plan", "request_permissions", "exec_command", "write_stdin", "apply_patch"]
+
+[module_config.context.codex_context]
+max_context_bytes = 60000
+max_bytes_per_file = 12000
+
+[app_server]
+approval_timeout_ms = 0
+
+[runtime]
+model_timeout_ms = 10800000
+context_timeout_ms = 30000
+workflow_timeout_ms = 14400000
+
+[event_log]
+path = ".proteus/events.jsonl"

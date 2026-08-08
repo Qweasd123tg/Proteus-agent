@@ -1,6 +1,6 @@
 # Roadmap
 
-Последнее обновление: 2026-08-07.
+Последнее обновление: 2026-08-08.
 
 Roadmap описывает порядок, а не обещание API. Текущее реализованное состояние
 смотрите в [scope.md](scope.md), архитектурные правила — в
@@ -224,6 +224,19 @@ Pi-like additive hooks удобны для локального extension UX, н
 authority и порядок. В Proteus новая cross-cutting возможность сначала
 пытается поместиться в существующий slot/tool/profile. Новый hook surface
 нуждается в slot governance и composition contract.
+
+### Component-Aware Config
+
+Текущая schema честно описывает одну process instance одного slot и использует
+`include` только для явного layering. Multi-facet process и host-broker imports
+потребуют отдельной модели `executable -> component -> exports/imports ->
+profile bindings`; нельзя маскировать общий lifecycle простым сокращением
+нескольких `[[process_modules]]`.
+
+До installed dogfood и отдельного contract decision не добавлять implicit
+package activation, array append merge или standard module pack. Текущая
+config-cleanup только выносит общие tracked fragments и не меняет runtime
+семантику.
 
 ### General LSP
 

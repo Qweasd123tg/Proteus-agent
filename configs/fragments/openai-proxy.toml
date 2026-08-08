@@ -1,0 +1,25 @@
+# Общая machine-local основа OpenAI-compatible proxy профилей.
+# Фрагмент не является самостоятельным config: конкретный профиль обязан
+# задать providers.openai.model.
+active_provider = "openai"
+
+[providers.openai]
+provider = "openai"
+stream = true
+
+[providers.openai.provider_config]
+api_key_file = "$HOME/.config/Proteus-agent/secrets/openai.json"
+api_key_json_key = "openai_api_key"
+base_url_file = "$HOME/.config/Proteus-agent/secrets/openai.json"
+base_url_json_key = "base_url"
+max_input_tokens = 400000
+
+[providers.openai.provider_config.capabilities]
+supports_parallel_tool_calls = true
+supports_freeform_tools = false
+supports_json_schema = true
+supports_reasoning_config = true
+
+[providers.openai.reasoning]
+effort = "high"
+summary = true

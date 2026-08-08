@@ -8,7 +8,8 @@ use proteus_core::core::AppConfig;
 
 const CODING_PROFILE_CONFIG: &str =
     include_str!("../../../examples/configs/proteus.coding.example.toml");
-const CODEX_PROFILE_CONFIG: &str = include_str!("../../../configs/codex.config.toml");
+const CODEX_PROFILE_CONFIG: &str = include_str!("../../../configs/fragments/codex-profile.toml");
+const CODEX_RUNTIME_CONFIG: &str = include_str!("../../../configs/fragments/codex-runtime.toml");
 const PROVIDER_PROFILE_CONFIG: &str =
     include_str!("../../../configs/proteus.provider.example.toml");
 const SAFE_PROFILE_CONFIG: &str = include_str!("../../../examples/configs/proteus.example.toml");
@@ -16,6 +17,7 @@ const CODEX_DEFAULT_PROMPT: &str = include_str!("../../../configs/prompts/codex-
 /// Относительный путь совпадает с `file` в codex-конфиге: резолвится от
 /// каталога config-файла.
 const CODEX_PROMPT_FILE: &str = "prompts/codex-default.md";
+const CODEX_RUNTIME_FILE: &str = "fragments/codex-runtime.toml";
 pub(crate) const INIT_CONFIG_FILE: &str = "config.toml";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,10 +48,15 @@ impl InitProfile {
 
     fn config_body_for_init(self) -> String {
         match self {
-            Self::Coding | Self::Codex | Self::Full => {
+            Self::Coding | Self::Full => {
                 let profile_body = strip_profile_include(self.config_body()).trim_start();
                 format!("{}\n\n{}", PROVIDER_PROFILE_CONFIG.trim_end(), profile_body)
             }
+            Self::Codex => format!(
+                "include = \"{CODEX_RUNTIME_FILE}\"\n\n{}\n\n{}",
+                PROVIDER_PROFILE_CONFIG.trim_end(),
+                CODEX_PROFILE_CONFIG.trim_start()
+            ),
             Self::Safe => self.config_body().to_owned(),
         }
     }
@@ -57,7 +64,10 @@ impl InitProfile {
     /// Файлы, на которые ссылается config profile; кладутся рядом с ним.
     fn support_files(self) -> &'static [(&'static str, &'static str)] {
         match self {
-            Self::Codex => &[(CODEX_PROMPT_FILE, CODEX_DEFAULT_PROMPT)],
+            Self::Codex => &[
+                (CODEX_RUNTIME_FILE, CODEX_RUNTIME_CONFIG),
+                (CODEX_PROMPT_FILE, CODEX_DEFAULT_PROMPT),
+            ],
             Self::Coding | Self::Full | Self::Safe => &[],
         }
     }

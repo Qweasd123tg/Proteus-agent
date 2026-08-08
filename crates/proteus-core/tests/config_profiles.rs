@@ -72,3 +72,67 @@ async fn tracked_profiles_use_exact_catalog_ids_without_legacy_pseudo_modules() 
         }
     }
 }
+
+#[tokio::test]
+async fn codex_family_fragments_preserve_profile_specific_overlays() {
+    let root = workspace_root();
+    let codex = AppConfig::load(Some(&root.join("configs/codex.config.toml")))
+        .await
+        .expect("codex config");
+    let glm = AppConfig::load(Some(&root.join("configs/glm.config.toml")))
+        .await
+        .expect("glm config");
+
+    for config in [&codex, &glm] {
+        assert_eq!(
+            config.modules.workflow.as_deref(),
+            Some("coding.codex_loop")
+        );
+        assert_eq!(config.modules.context.as_deref(), Some("codex_context"));
+        assert_eq!(config.modules.policy.as_deref(), Some("codex_policy"));
+        assert_eq!(
+            config.modules.tool_exposure.as_deref(),
+            Some("codex_dynamic")
+        );
+        assert_eq!(config.modules.subagent.as_deref(), Some("sequential"));
+        assert!(
+            config
+                .tools
+                .enabled
+                .iter()
+                .any(|tool| tool == "exec_command")
+        );
+
+        let roles = config.module_config["subagent"]["sequential"]["roles"]
+            .as_array()
+            .expect("shared subagent roles");
+        assert_eq!(roles.len(), 2);
+
+        let module_config = serde_json::to_string(&config.module_config).expect("module config");
+        assert!(
+            !module_config.contains("playwright__"),
+            "inactive Playwright policy references must not survive cleanup"
+        );
+    }
+
+    assert_eq!(codex.profile.name, "codex-proxy");
+    assert!(codex.modules.renderer.is_none());
+    assert_eq!(codex.process_modules.len(), 9);
+    let codex_model = codex.active_model_config().expect("codex model");
+    assert_eq!(codex_model.model, "gpt-5.6-luna");
+    assert_eq!(codex_model.provider_config["support_verbosity"], true);
+    assert!(
+        codex_model
+            .provider_config
+            .get("stream_error_fallback")
+            .is_none()
+    );
+
+    assert_eq!(glm.profile.name, "glm-proxy");
+    assert_eq!(glm.modules.renderer.as_deref(), Some("statusline"));
+    assert_eq!(glm.process_modules.len(), 10);
+    let glm_model = glm.active_model_config().expect("glm model");
+    assert_eq!(glm_model.model, "glm-5.2");
+    assert_eq!(glm_model.provider_config["stream_error_fallback"], true);
+    assert!(glm_model.provider_config.get("support_verbosity").is_none());
+}
