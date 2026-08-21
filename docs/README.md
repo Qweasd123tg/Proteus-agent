@@ -129,5 +129,9 @@
   применимые уроки Prime Agent для process-only module boundary: host-owned
   lifecycle, typed callbacks, terminal state, capability probe и граница между
   module worker и session daemon;
+- [research/deepseek-harness-lessons-2026-08-21.md](research/deepseek-harness-lessons-2026-08-21.md) —
+  Proteus-specific решение после разбора DeepSeek Harness: подтверждённые
+  invariants, реальные входы для R2–R4 и явный отказ от Cordis/plugin-system
+  pivot до installed dogfood и protocol freeze;
 - [examples/research/](../examples/research/) — заметки по upstream-агентам:
-  Codex, OpenCode, Claude Code и ForgeCode.
+  Codex, OpenCode, Claude Code, ForgeCode и DeepSeek Harness.

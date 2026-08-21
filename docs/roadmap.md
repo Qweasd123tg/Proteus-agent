@@ -1,6 +1,6 @@
 # Roadmap
 
-Последнее обновление: 2026-08-08.
+Последнее обновление: 2026-08-21.
 
 Roadmap описывает порядок, а не обещание API. Текущее реализованное состояние
 смотрите в [scope.md](scope.md), архитектурные правила — в
@@ -63,7 +63,8 @@ Checklist:
 7. intentional worker death и следующий successful invocation;
 8. steering/cancel;
 9. cold history;
-10. workflow replay.
+10. prompt replay с recorded effective request;
+11. workflow replay.
 
 Exit criterion: несколько реальных coding sessions без ручного вмешательства в
 component config или `PATH`; найденные protocol/runtime defects получают
@@ -278,6 +279,7 @@ Research docs не являются current contract:
 - [Pi vs Proteus](research/pi-vs-proteus.md);
 - [Pi extension composition](research/pi-extension-composition-2026-08-07.md);
 - [Prime Agent process lessons](research/prime-agent-process-lessons-2026-08-06.md);
+- [DeepSeek Harness lessons](research/deepseek-harness-lessons-2026-08-21.md);
 - [Codex parity audit](research/codex-parity-audit-2026-07-14.md);
 - [Subagent options](research/subagent-architecture-options.md);
 - [Memory research](research/memory-research.md).
