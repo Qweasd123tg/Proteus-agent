@@ -11,6 +11,29 @@
   `f4585b8bec581d005cbb1edfc07edfcce723d0ae`, OpenCode
   `77429f59823c8c6df9cfee95d4c663043b017f46` и tracked Claude Code notes.
 
+## Sequencing Addendum
+
+Последующий transport-аудит
+[component-runtime-v2-plan-2026-08-21.md](component-runtime-v2-plan-2026-08-21.md)
+уточнил порядок, но не отменил coupling findings этого документа.
+
+Core-owned spine spike больше не рекомендуется первым production/research
+изменением. Сначала должен пройти bounded P0 spike multiplexed component
+broker-а. Иначе AgentSession/Policy boundary снова будет спроектирована вокруг
+single-flight transport limitation, а не вокруг долгосрочного contract.
+
+Текущий порядок решения:
+
+```text
+P0 broker spike
+  -> go/no-go по Component Runtime v2
+  -> только затем Agent/Workflow contract spike на новом substrate
+```
+
+Описанные ниже ownership options, scenarios и kill criteria сохраняют ценность
+для второго шага. Указания «сначала core-owned spike» ниже следует читать как
+исторический вывод coupling-аудита, superseded только в части sequencing.
+
 ## Зачем Нужен Этот Аудит
 
 Process-only cutover и Component Runtime v1 закрыли реальную проблему:

@@ -136,6 +136,11 @@
 - [research/agent-spine-coupling-2026-08-21.md](research/agent-spine-coupling-2026-08-21.md) —
   повторный source-level coupling-аудит после DeepSeek/Codex/Pi/OpenCode:
   разрыв ownership между runtime, Workflow, steering и child loop, три варианта
-  spine architecture, рекомендуемый core-owned spike и его kill criteria;
+  spine architecture, core-owned вариант и его kill criteria; sequencing
+  уточнён последующим Component Runtime v2 планом;
+- [research/component-runtime-v2-plan-2026-08-21.md](research/component-runtime-v2-plan-2026-08-21.md) —
+  подробный план следующего architecture-level шага после ABI → process:
+  multiplexed bidirectional broker, wire v3, authority/cancel/failure semantics,
+  этапы миграции, оценки, evidence и bounded go/no-go spike;
 - [examples/research/](../examples/research/) — заметки по upstream-агентам:
   Codex, OpenCode, Claude Code, ForgeCode и DeepSeek Harness.
