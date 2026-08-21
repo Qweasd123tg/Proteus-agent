@@ -1,6 +1,6 @@
 # Roadmap
 
-Последнее обновление: 2026-08-21.
+Последнее обновление: 2026-08-22.
 
 Roadmap описывает порядок, а не обещание API. Текущее реализованное состояние
 смотрите в [scope.md](scope.md), архитектурные правила — в
@@ -48,29 +48,71 @@ Runtime остаётся single-flight. Components разделяются на c
 boundaries; reentrant callback в соседний export того же process не
 поддерживается.
 
-### R1. Installed Dogfood — следующий
+## Активное Направление: Component Runtime v2
 
-Цель: доказать весь установленный контур, не отдельные crates.
+Proteus развивается как платформа внешних agent capabilities, а не как
+агрегатор Pi, DeepSeek, Codex или другого готового agent-а. Внешние проекты
+дают research evidence, но не задают compatibility mode, product API или
+привилегированный execution path.
 
-Checklist:
+Следующий architecture-level шаг — нейтральный multiplexed substrate:
+Component Runtime v2 / wire v3. Он должен позволить одному configured
+component обслуживать несколько invocation, корректно маршрутизировать
+invocation-scoped callbacks и notifications и сохранять authority на уровне
+активного export. Это не новый agent slot и не generic actor runtime.
 
-1. release install host + worker;
-2. doctor и topology packaged profiles;
-3. read-only coding turn;
-4. approved write + shell turn;
-5. skills/context provider;
-6. compaction;
-7. intentional worker death и следующий successful invocation;
-8. steering/cancel;
-9. cold history;
-10. prompt replay с recorded effective request;
-11. workflow replay.
+### R1. P0 — Bounded Multiplexed Broker Spike
 
-Exit criterion: несколько реальных coding sessions без ручного вмешательства в
-component config или `PATH`; найденные protocol/runtime defects получают
-focused regression.
+Ближайший этап — ограниченный research changeset без production config, новых
+slots или migration wire v2. Пять базовых сценариев:
 
-### R2. Model Slot Decision
+1. две invocation одного process завершаются в обратном порядке;
+2. callback invocation A запускает export B того же process, после чего A
+   продолжает работу;
+3. cooperative cancel A не отменяет B и не меняет PID/generation;
+4. игнорируемый cancel A завершает generation, а A и B получают корректные
+   terminal causes;
+5. forged или terminal parent invocation id fail-closed завершает generation.
+
+Полная acceptance matrix находится в
+`research/component-runtime-v2-plan-2026-08-21.md`: она дополнительно покрывает
+cancel/terminal races, backpressure и control-frame priority, nested admission,
+duplicate ids, sibling-parent misuse и минимальный non-Rust worker.
+
+Spike обязан использовать language-neutral worker evidence, сохранять
+host-owned authority, workspace/session ownership, deadlines и bounds. Его
+результат — явное решение владельца:
+
+```text
+GO       -> P1-P4
+REVISE   -> сузить contract и повторить P0
+STOP     -> оставить Runtime v1
+```
+
+### R2. P1-P4 — Runtime v2 Только При GO
+
+После `GO` следующие этапы идут последовательно, с отдельной переоценкой после
+broker kernel:
+
+1. **P1. Protocol-neutral duplex transport.** Разделить lifecycle, reader и
+   writer в `proteus-process-host`, сохранив последовательный facade для MCP и
+   LSP.
+2. **P2. Component broker и wire v3.** Добавить bounded concurrent pending
+   invocations, lineage, correlated callbacks/notifications, targeted
+   cooperative cancel и generation-wide failure fan-out.
+3. **P3. Atomic tracked cutover.** Одновременно перевести host, worker,
+   adapters, examples, configs, conformance и docs на v3; v2 reader и
+   single-flight path удалить без compatibility mode.
+4. **P4. Reentrancy evidence и topology cleanup.** Доказать nested
+   same-component invocation, один PID, раздельную authority, cancellation и
+   journal; заменить v1 cycle rejection на depth/count/deadline bounds.
+
+Component остаётся lifecycle/failure boundary. Direct cross-export dispatch,
+union authority, automatic retry и fallback не появляются. Разделять exports
+по нескольким processes по желаемому failure domain по-прежнему допустимо;
+исчезает только разбиение, нужное исключительно для single-flight deadlock.
+
+### R3. Model Contract Migration
 
 Проблема: model providers selectable, но implementations core-owned.
 
@@ -85,16 +127,17 @@ focused regression.
 - token usage/events;
 - replay parity.
 
-Затем выбрать:
+Затем принять отдельное решение:
 
 - process `model/v1`; или
 - documented core shaping boundary.
 
-Рекомендуемый вариант при подтверждённой потребности во внешних providers —
-process contract, но только с exact parity тестами. One-off provider builtin
-запрещён.
+Process `model/v1` возможен только как полная contract migration с минимум двумя
+независимыми implementations, exact parity tests и явной моделью credentials,
+network и provider-hosted side effects. До этого model shaping остаётся
+документированной core-owned boundary. Это не prerequisite P0-P4.
 
-### R3. Subagent Slot Decision
+### R4. Subagent Contract Migration
 
 Проблема: `SubagentRunner` включает больше lifecycle, чем обычный module call.
 
@@ -110,9 +153,11 @@ Contract audit должен покрыть:
 - journal terminal semantics.
 
 До audit не переносить runner механически и не смешивать subagent control plane
-с workflow callbacks.
+с workflow callbacks. `subagent/v1` — отдельная migration с governance,
+несколькими implementations и parity evidence; он не входит в Runtime v2
+cutover.
 
-### R4. Uniform Worker Trust Policy
+### R5. Uniform Worker Trust Policy
 
 Process boundary сейчас lifecycle isolation, не sandbox. Требуется дизайн,
 единый для всех slots:
@@ -127,7 +172,7 @@ Process boundary сейчас lifecycle isolation, не sandbox. Требует�
 
 Никаких allowlist по конкретным reference ids.
 
-### R5. Protocol Freeze
+### R6. Protocol Freeze
 
 Перед объявлением стабильности:
 
@@ -137,9 +182,16 @@ Process boundary сейчас lifecycle isolation, не sandbox. Требует�
 - version negotiation и upgrade policy;
 - conformance package usable вне workspace;
 - compatibility declaration;
-- long-running dogfood evidence.
+- long-running external-component evidence.
 
 До этого schema меняется атомарно без legacy aliases.
+
+### R7. P6 — Optional Contract DX
+
+Только после v3 cutover и хотя бы одной новой contract migration измерить
+повторяющийся bridge code. Небольшой typed descriptor/code generation допустим
+лишь при сохранении canonical traits/DTO и измеримом net-negative LOC. Generic
+`Value -> Value` registry не является целью и P6 не блокирует другие этапы.
 
 ## Завершённый Фундамент
 
@@ -196,9 +248,15 @@ Process boundary сейчас lifecycle isolation, не sandbox. Требует�
 - first session-owned collaboration surface;
 - budgets and resumable child state within current limitations.
 
-## Практическое Качество Агента
+## Практическое Evidence Платформы
 
-После R1 улучшения принимаются по evidence:
+Installed и manual runs остаются полезным evidence для конкретного contract,
+installer или UI, но не являются gate или sequencing prerequisite для
+архитектурных изменений. Для каждого changeset выбирается evidence из
+`docs/testing.md`: protocol/conformance/swap/journal/replay, а live run нужен
+только когда он проверяет затронутое runtime behavior.
+
+Качество capability и agent workflows оценивается по evidence:
 
 - fewer failed tool rounds;
 - less unnecessary context;
@@ -215,10 +273,10 @@ Process boundary сейчас lifecycle isolation, не sandbox. Требует�
 - compaction quality/cost;
 - provider parity fixtures;
 - shell output/progress UX;
-- installed crash diagnostics.
+- crash diagnostics для installed component.
 
-Каждое направление должно улучшать measurable dogfood result, а не просто
-увеличивать число knobs.
+Каждое направление должно улучшать измеримое поведение capability или workflow,
+а не просто увеличивать число knobs.
 
 ## Parked
 
@@ -247,20 +305,12 @@ authority и порядок. В Proteus новая cross-cutting возможн�
 
 ### Component Imports И Hooks
 
-Multi-export components и shared lifecycle реализованы. Не реализованы general
-imports, reentrant calls и Pi-like hooks. Для них нужен отдельный
-мультиплексированный host broker с:
-
-- import declaration и binding validation;
-- call graph/cycle policy;
-- per-edge authority и invocation ownership;
-- cancellation/backpressure;
-- state reconstruction после общего restart;
-- deterministic ordering и failure semantics.
-
-До такого contract decision не добавлять direct module links, hidden
-same-process dispatch, implicit package activation или special authority по
-`component_id`.
+R1 P0 проверяет только нейтральный multiplexed broker substrate. General
+imports, Pi-like additive hooks, implicit package activation и arbitrary hook
+surface остаются parked: они не следуют из same-component reentrancy и требуют
+отдельного slot-governance decision. До P0 `GO`, а затем до явного contract,
+не добавлять direct module links, hidden same-process dispatch или special
+authority по `component_id`.
 
 ### General LSP
 
@@ -316,11 +366,11 @@ contract placement, security model и evidence plan.
 
 Порядок вопросов:
 
-1. Это блокирует installed dogfood?
+1. Это P0, его непосредственное evidence или уже принятый этап после `GO`?
 2. Это дефект существующего contract или новая capability?
 3. Можно решить existing slot/tool/profile?
-4. Какие authority и failure semantics?
-5. Какой focused и boundary evidence?
+4. Какие authority, ownership и failure semantics?
+5. Какой focused, protocol/conformance/swap или journal evidence нужен?
 6. Что нужно обновить в docs/configs?
 
 Если задача не проходит эти вопросы, она остаётся в parked/research, а не

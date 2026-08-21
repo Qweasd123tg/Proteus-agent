@@ -2,6 +2,9 @@
 
 - Статус: research/decision input, не reference текущей реализации.
 - Дата решения: 2026-08-21.
+- Sequencing status: исходный вывод `R1 Installed Dogfood next` сохранён как
+  исторический, но отменён решением владельца 2026-08-22. Текущий порядок —
+  bounded Component Runtime v2 P0 из `scope.md` и `roadmap.md`.
 - Upstream: [`deepseek-ai/deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness).
 - Проверенный upstream-срез: `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`.
 - Исходный подробный разбор:
@@ -18,11 +21,13 @@
 > какие наблюдения Harness подтверждают текущий курс Proteus, какие выявляют
 > конкретный пробел, а какие относятся к другому product/runtime trade-off?
 
-## Короткое Решение
+## Короткое Решение На 2026-08-21
 
-DeepSeek Harness **не меняет позиционирование и порядок roadmap Proteus**.
-Следующим этапом остаётся R1 Installed Dogfood, а не новый plugin runtime,
-переписывание session model или перенос Cordis.
+Исходное решение не меняло позиционирование Proteus и оставляло следующим R1
+Installed Dogfood. Sequencing отменён 2026-08-22: текущий следующий этап —
+bounded Component Runtime v2 P0. Сохраняется содержательный вывод этого
+документа: Harness не требует переносить Cordis, переписывать session model или
+собирать чужие product capabilities внутри core.
 
 Harness независимо подтверждает четыре уже выбранных архитектурных решения:
 
@@ -35,11 +40,11 @@ Harness независимо подтверждает четыре уже выб
 
 Полезные новые входные данные распределяются по существующим этапам:
 
-- R2 Model Slot Decision — streamed identity, retry ownership и запись
+- Model Contract Migration — streamed identity, retry ownership и запись
   effective request;
-- R3 Subagent Slot Decision — различие `followup`, `steer` и model-context
+- Subagent Contract Migration — различие `followup`, `steer` и model-context
   injection в long-lived agent lifecycle;
-- R4 Uniform Worker Trust Policy — отдельная network/SSRF policy и uniform
+- Uniform Worker Trust Policy — отдельная network/SSRF policy и uniform
   resource boundary для всех process components.
 
 ## Сверка С Текущим Proteus
@@ -49,16 +54,16 @@ Harness независимо подтверждает четыре уже выб
 | Service definition → provider → consumer | Реализовано как `Core -> Contract -> Component Export Implementation` | Сохранять; не добавлять import concrete implementation в core |
 | Replaceable agent loop | `Workflow` является process slot | Проверять swap только по measurable behavior; не создавать hooks вокруг workflow |
 | Append-only session event log | Есть canonical journal, cold history и terminal settlement | Сохранять как единственный durable evidence path |
-| Реконструируемый model request | Есть `model_request_recorded`, prompt replay и config snapshot | Включить installed prompt replay в R1 gate |
+| Реконструируемый model request | Есть `model_request_recorded`, prompt replay и config snapshot | Сохранять prompt replay как automated evidence затронутого model/runtime path |
 | Provider-neutral stream/model API | Canonical model существует, adapters пока core-owned | Использовать Harness cases в R2 audit; не добавлять one-off provider builtin |
 | Tool registry + schema + policy pipeline | Есть `ToolRegistry -> ApprovalPolicy -> ToolOrchestrator -> Tool::invoke` | Уже current invariant; не создавать bypass для component tools |
 | Reversible plugin effects/disposers | Process component имеет host-owned lifecycle и общий failure domain | Cordis/HMR disposer model не нужен без dynamic in-process plugins |
-| Parallel tool classifier | Есть explicit parallel eligibility в tool surface | Resource-aware scheduler добавлять только после dogfood failure/eval evidence |
+| Parallel tool classifier | Есть explicit parallel eligibility в tool surface | Resource-aware scheduler добавлять только после измеримого concurrency defect/eval evidence |
 | Approval как отдельная capability | Реализовано contract-bound | Сохранять одинаковый путь для всех origins |
 | Sandbox как отдельная capability | Shell имеет fail-closed sandbox, но uniform worker sandbox отсутствует | Закрывать в R4, не считать process boundary sandbox |
 | Scoped long-lived agent/inbox | Root steering и первый session-owned subagent control реализованы частично | Использовать как comparison input для R3, не переносить API дословно |
 | Dynamic extension/plugin ecosystem | Намеренно отсутствует | Оставить parked до protocol freeze |
-| ACP/SDK/remote agent transports | Не входят в текущую цель | Не добавлять раньше local dogfood и protocol freeze |
+| ACP/SDK/remote agent transports | Не входят в текущую цель | Не добавлять раньше local runtime evidence и protocol freeze |
 
 ## Главное Различие Runtime Models
 
@@ -84,15 +89,16 @@ authority(invocation) = authority(slot, invocation_context)
 ```
 
 Компонент может экспортировать несколько `slot/module_id`, но не получает
-union их прав. General imports и same-process reentrancy требуют отдельного
-broker contract и остаются parked.
+union их прав. General imports остаются parked; same-process reentrancy теперь
+проверяется отдельным bounded Component Runtime v2 P0 без direct dispatch.
 
 ## Что Добавить В Evidence, А Не В Архитектуру
 
-### R1 Installed Dogfood
+### Исторический Installed Evidence Checklist
 
-Harness усиливает уже существующее требование: недостаточно сохранить
-assistant transcript; нужно доказать реконструкцию фактического model request.
+Этот checklist больше не является gate или sequencing prerequisite. Он сохраняет
+полезные automated/optional проверки: недостаточно сохранить assistant
+transcript, если changeset затрагивает реконструкцию фактического model request.
 
 В installed session следует проверить:
 
@@ -165,20 +171,21 @@ reference component или конкретному `module_id`.
 - не возвращать dylib/native ABI ради in-process extensions;
 - не вводить arbitrary additive hooks без slot governance;
 - не строить marketplace, dynamic install или hot reload до protocol freeze;
-- не копировать session tree/fork UI без dogfood/eval потребности;
+- не копировать session tree/fork UI без измеримой/eval потребности;
 - не добавлять ACP, SDK или remote worker transport раньше local evidence;
 - не создавать resource-aware scheduler без конкретного concurrency defect;
 - не расширять число модулей только ради повторения package inventory Harness.
 
 ## Порядок Дальнейшей Работы
 
-1. Закрыть R1 Installed Dogfood на установленном host + reference worker.
-2. Все найденные runtime defects закрывать focused regression-ом в текущем
-   contract boundary.
-3. После dogfood принять R2 Model Slot Decision с provider parity fixtures.
-4. Отдельно провести R3 lifecycle audit и R4 trust-policy design.
-5. Вернуться к ecosystem/runtime-composition идеям только после R5 Protocol
-   Freeze и доказанной потребности внешних авторов модулей.
+1. Выполнить bounded Component Runtime v2 P0 и зафиксировать
+   `GO / REVISE / STOP`.
+2. Только при `GO` переходить к P1-P4; каждый runtime defect закрывать focused
+   protocol/conformance regression-ом.
+3. Model и subagent migrations принимать отдельно по parity/governance evidence.
+4. Отдельно провести trust-policy design.
+5. Вернуться к ecosystem/runtime-composition идеям только после Protocol Freeze
+   и доказанной потребности внешних авторов модулей.
 
 ## Первичные Источники
 

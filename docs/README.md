@@ -19,7 +19,8 @@
 - **Добавить и проверить фичу:** [slot-governance.md](slot-governance.md),
   затем standard evidence в [testing.md](testing.md#стандарт-изменения).
 - **Выбрать следующую работу:** [scope.md](scope.md),
-  [dogfood-gate.md](dogfood-gate.md), затем [roadmap.md](roadmap.md).
+  затем [roadmap.md](roadmap.md). [dogfood-gate.md](dogfood-gate.md) — только
+  необязательный manual diagnostic.
 
 ## Маршруты по задачам
 
@@ -70,10 +71,10 @@
 Читайте в таком порядке:
 
 1. [scope.md](scope.md) — active, parked, research и замороженные зоны.
-2. [dogfood-gate.md](dogfood-gate.md) — минимальный воспроизводимый рабочий
-   контур и blocking bugs.
-3. [roadmap.md](roadmap.md) — ближайшие этапы и backlog.
-4. [spec.md](spec.md) — долгосрочный замысел и non-goals.
+2. [roadmap.md](roadmap.md) — ближайшие этапы и backlog.
+3. [spec.md](spec.md) — долгосрочный замысел и non-goals.
+4. [dogfood-gate.md](dogfood-gate.md) — необязательный ручной diagnostic и
+   исторический список blocking symptoms.
 
 Такой порядок важен: `spec` отвечает «куда проект может прийти», но не
 подтверждает, что возможность уже реализована.
@@ -84,7 +85,8 @@
 |---|---|
 | Корневой `README` | Короткая актуальная точка входа и проверенные команды |
 | `architecture`, `modules`, `configuration`, `runtime-and-events`, `security-and-policy`, `inspect`, `testing`, `process-module-architecture` | Reference текущей реализации |
-| `scope`, `slot-governance`, `dogfood-gate` | Правила приоритета и принятия решений |
+| `scope`, `slot-governance` | Правила приоритета и принятия решений |
+| `dogfood-gate` | Необязательный manual diagnostic; не roadmap gate |
 | `roadmap`, `spec` | План и направление; planned не означает implemented |
 | `research/*`, `examples/research/*` | Черновики и архивы, не действующий контракт |
 
@@ -131,15 +133,16 @@
   module worker и session daemon;
 - [research/deepseek-harness-lessons-2026-08-21.md](research/deepseek-harness-lessons-2026-08-21.md) —
   Proteus-specific решение после разбора DeepSeek Harness: подтверждённые
-  invariants, реальные входы для R2–R4 и явный отказ от Cordis/plugin-system
-  pivot до installed dogfood и protocol freeze;
+  invariants, реальные входы для будущих contracts и явный отказ от
+  Cordis/plugin-system pivot; исходный dogfood-first sequencing отменён
+  последующим Runtime v2 решением;
 - [research/agent-spine-coupling-2026-08-21.md](research/agent-spine-coupling-2026-08-21.md) —
   повторный source-level coupling-аудит после DeepSeek/Codex/Pi/OpenCode:
   разрыв ownership между runtime, Workflow, steering и child loop, три варианта
   spine architecture, core-owned вариант и его kill criteria; sequencing
   уточнён последующим Component Runtime v2 планом;
 - [research/component-runtime-v2-plan-2026-08-21.md](research/component-runtime-v2-plan-2026-08-21.md) —
-  подробный план следующего architecture-level шага после ABI → process:
+  одобренное P0 platform direction после ABI → process:
   multiplexed bidirectional broker, wire v3, authority/cancel/failure semantics,
   этапы миграции, оценки, evidence и bounded go/no-go spike;
 - [examples/research/](../examples/research/) — заметки по upstream-агентам:

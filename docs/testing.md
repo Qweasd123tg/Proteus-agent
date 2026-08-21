@@ -30,13 +30,14 @@
 | Slot adapter | adapter unit | real worker invocation | `module_swap` |
 | Module implementation | module unit | reference conformance | runtime smoke при side effects |
 | Tool/policy | tool unit | full safety path | approval deny/allow |
-| Workflow/runtime | workflow unit | canonical journal/replay | live dogfood при behavior change |
+| Workflow/runtime | workflow unit | canonical journal/replay | terminal/cancel/recovery evidence при behavior change |
 | HTTP/session | handler unit | reconnect/cold history | auth/SSE smoke |
 | Inspector/web | Rust unit | `trunk build` | browser smoke при UX change |
 | Docs only | link/config inspection | обычно не нужен | сообщить, если tests не запускались |
 
-Не каждый change требует live dogfood. Но protocol или architecture change без
-boundary evidence неполон.
+Manual dogfood не является обязательным gate или sequencing prerequisite.
+Protocol или architecture change без automated boundary evidence всё равно
+неполон.
 
 ## Общий Rust Gate
 
@@ -203,7 +204,7 @@ Module-owned command execution внутри workflow запрещён: workflow 
 - `TurnSettled` для terminal state.
 
 Replay отвечает «сохранилась ли эквивалентность». Он не отвечает «стал ли
-агент лучше» — для этого нужен eval/dogfood.
+агент лучше» — для этого нужен отдельный eval или добровольный ручной сценарий.
 
 Поддерживаемый workflow replay проверяет root `Success` и `Error`.
 Runtime-owned `Canceled` / `Timeout` проверяются через journal и cold

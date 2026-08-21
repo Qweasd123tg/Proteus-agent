@@ -1,18 +1,25 @@
 # Текущий Scope
 
-Последнее обновление: 2026-08-08.
+Последнее обновление: 2026-08-22.
 
 Этот документ отвечает «что сейчас на критическом пути». Vision —
 [spec.md](spec.md), история и backlog — [roadmap.md](roadmap.md).
 
 ## Короткий Ответ
 
-Proteus — личный локальный coding-agent для реального dogfood:
+Proteus — платформа для внешних agent capabilities. Она предоставляет
+language-neutral process contracts, host-owned authority/lifecycle и runtime
+evidence; reference worker — dogfood implementation, не privileged pack и не
+стандарт для внешнего автора.
+
+Проект не агрегирует Pi, DeepSeek, Codex или другой готовый agent runtime:
+upstream-разборы дают research evidence, но не создают compatibility mode,
+product API или особую capability authority.
 
 ```text
-model + process workflow/context/tools/policy
-  -> AgentRuntime
-  -> app-server + web
+external component exports
+  -> host-owned contracts / authority / lifecycle
+  -> AgentRuntime + app-server
   -> canonical journal + replay
 ```
 
@@ -59,24 +66,58 @@ Process-only и Component Runtime cutover:
 
 Точный итог: [process-module-architecture.md](process-module-architecture.md).
 
-## Текущий Приоритет После Cutover
+## Текущий Приоритет: Component Runtime v2 P0
 
-### 1. Installed Dogfood Gate
+Текущий Component Runtime v1 / wire v2 — завершённый baseline, но его
+single-flight transport запрещает reentrant вызов в другой export того же
+component и вынуждает разрезать components по callback dependency boundaries.
+Активное направление — нейтральный multiplexed substrate Runtime v2 / wire v3,
+а не новый agent loop, generic actor runtime или интеграция архитектур другого
+проекта.
 
-Нужно подтвердить не только test binary, но установленный профиль:
+### Bounded P0: Multiplexed Broker Spike
 
-1. `./install.sh`;
-2. `proteus --config codex doctor`;
-3. один read-only coding turn;
-4. один approved write/tool turn;
-5. compaction либо targeted threshold smoke;
-6. worker crash/restart smoke;
-7. cold history и workflow replay.
+Первый changeset ограничен test/research evidence и не меняет production
+config, slot catalog или current wire v2. Он должен доказать:
 
-Это проверяет packaging, `PATH`, component config, secrets, app-server и
-journal как один реальный контур.
+1. out-of-order terminal responses двух invocation одного process;
+2. same-component callback chain `A -> host -> B` без direct module link;
+3. cooperative cancel A без отмены B и без restart PID/generation;
+4. generation-wide reset при uncooperative cancel, crash или protocol fault;
+5. fail-closed обработку forged/stale/terminal parent invocation id;
+6. bounds, deadlines и отсутствие утечки workspace/session/tool ownership между
+   concurrent invocation.
 
-### 2. Model Boundary Decision
+Расширенная matrix в
+`research/component-runtime-v2-plan-2026-08-21.md` дополнительно требует
+cancel/terminal races, backpressure/control priority, nested admission,
+duplicate ids и минимальный non-Rust worker.
+
+Результат P0 всегда фиксируется как `GO`, `REVISE` или `STOP`. Только `GO`
+разрешает планировать P1-P4. При `REVISE` contract сужается и spike повторяется;
+при `STOP` Runtime v1 остаётся current path. P0 не утверждает model/subagent
+slot и не открывает direct same-process dispatch.
+
+### P1-P4 Только После GO
+
+При `GO` работа идёт отдельными атомарными этапами:
+
+1. protocol-neutral duplex transport с сохранением sequential facade для MCP и
+   LSP;
+2. async component broker и строгий wire v3 с invocation-scoped authority,
+   correlated callbacks/notifications и generation failure fan-out;
+3. единый cutover host, workers, adapters, examples, configs, conformance,
+   tests и docs на v3 с удалением v2 reader;
+4. реальное evidence same-component reentrancy, authority/cancel isolation и
+   замена v1 cycle rejection на bounded lineage/deadline semantics.
+
+Компонент остаётся shared lifecycle/failure boundary. Его exports не получают
+union authority; host не добавляет retry, fallback или module-id exceptions.
+Разделение components ради выбранного failure domain остаётся допустимым.
+
+## Отдельные Contract Migrations
+
+### Model Boundary Decision
 
 Model остается selectable core-owned adapter. Для полного буквального
 `Core -> Contract -> Module` нужно решить отдельный проект:
@@ -88,11 +129,13 @@ Model остается selectable core-owned adapter. Для полного бу
 До решения нельзя добавлять новые provider implementations в случайные слои
 или выдавать им provider-specific DTO за пределами adapters.
 
-Рекомендация: processize model только после installed dogfood gate. Это
-сложнее прежних slots из-за streaming и provider-hosted side effects, и
-поспешная абстракция здесь опаснее честного временного core boundary.
+Process `model/v1` рассматривается только после provider parity matrix и как полный
+contract migration: минимум две независимые implementations, exact streaming /
+hosted-tool / retry / usage / replay parity и явная authority для credentials
+и network. До такого решения model shaping остаётся честной core boundary.
+Это отдельный vertical slice и не prerequisite P0-P4.
 
-### 3. Subagent Boundary Decision
+### Subagent Boundary Decision
 
 `sequential` и `process` runners пока core-owned. Общий
 `subagent/v1` потребует:
@@ -105,9 +148,11 @@ Model остается selectable core-owned adapter. Для полного бу
 - terminal state/journal parity.
 
 Это не следует смешивать с обычным workflow contract. Сначала нужен contract
-audit существующей collaboration surface.
+audit существующей collaboration surface; затем `subagent/v1` проходит
+отдельный slot-governance и parity gate. Он не входит в Component Runtime v2
+cutover.
 
-### 4. Process Trust Policy
+### Process Trust Policy
 
 Единый protocol не является sandbox. Следующий security layer должен быть
 одинаковым для всех workers:
@@ -121,12 +166,12 @@ audit существующей collaboration surface.
 Нельзя делать sandbox exception по `module_id` или расположению reference
 worker-а.
 
-### 5. Protocol Freeze
+### Protocol Freeze
 
 До public freeze ещё нужны:
 
 - несколько out-of-tree workers не на Rust;
-- real long-running dogfood;
+- long-running evidence внешних components;
 - malformed/hostile peer tests;
 - payload/backpressure measurements;
 - upgrade/version negotiation decision;
@@ -143,11 +188,11 @@ worker-а.
 - live replacement внутри текущего turn;
 - общий multi-agent DAG;
 - расширение LSP за доказанный Rust slice;
-- новая memory architecture без измеримой dogfood-проблемы;
+- новая memory architecture без измеримой проблемы внешнего component-а;
 - cosmetic UI polish без blocker-а.
 
-Эти идеи не отменены, но не должны размывать installed dogfood и оставшиеся
-две core-owned boundaries.
+Эти идеи не отменены, но не должны размывать P0, принятые этапы после `GO` и
+отдельные model/subagent migrations.
 
 ## Readiness Criteria
 
@@ -159,11 +204,12 @@ Module system можно считать пригодной для повседн
 - module error никогда не меняет выбранную semantics;
 - permissions одинаковы для reference и out-of-tree worker;
 - install/doctor/topology объясняют, что реально запущено;
-- real coding sessions переживают несколько часов и restart;
+- component evidence покрывает restart, cancel, terminal state и recovery;
 - docs не требуют знания удалённого dylib пути.
 
-Первые шесть пунктов покрыты кодом/tests этого cutover. Long-running installed
-dogfood остаётся практическим подтверждением.
+Первые шесть пунктов покрыты кодом/tests этого cutover. Installed и manual
+runs могут дополнять evidence конкретного installer/UI/runtime change, но не
+являются gate или sequencing prerequisite.
 
 ## Research / Quarantine
 
@@ -181,7 +227,8 @@ production path. Идея возвращается из research только с
 
 Если задача:
 
-- улучшает installed coding loop — делать;
+- реализует P0 или его focused evidence — делать;
+- относится к P1-P4 без зафиксированного `GO` — оставить в плане;
 - закрывает model/subagent contract gap — сначала contract design и parity
   matrix;
 - добавляет module того же processized slot — external worker + conformance,

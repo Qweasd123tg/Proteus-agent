@@ -2,9 +2,10 @@
 
 Дата: 2026-08-21.
 
-Статус: research / architecture decision input. Документ не меняет текущий
-production contract, roadmap или config schema. Реализация начинается только
-после отдельного подтверждения владельца проекта.
+Статус: направление одобрено владельцем проекта 2026-08-22; активный этап —
+bounded P0 spike. Текущий production contract остаётся Component Runtime v1 /
+wire v2 до отдельного решения `GO` после P0. P1-P6 не считаются автоматически
+одобренными, config schema этим решением не меняется.
 
 Текущий Proteus snapshot: `ffbc0a1`.
 
@@ -14,12 +15,17 @@ production contract, roadmap или config schema. Реализация начи
   реализованный Component Runtime v1 / wire protocol v2;
 - [agent-spine-coupling-2026-08-21.md](agent-spine-coupling-2026-08-21.md) —
   coupling-аудит agent lifecycle;
-- [deepseek-harness-lessons-2026-08-21.md](../../examples/research/deepseek/deepseek-research-report.md) —
+- [DeepSeek detailed research report](../../examples/research/deepseek/deepseek-research-report.md) —
   upstream evidence по cohesive agent harness;
 - [slot-governance.md](../slot-governance.md) — правила добавления contracts;
 - [testing.md](../testing.md) — обязательный evidence path.
 
 ## Короткое Решение
+
+Proteus не объединяет возможности Pi, DeepSeek Harness, Codex или других
+агентов внутри core. Цель платформы — дать внешним implementations небольшой
+language-neutral runtime substrate, на котором concurrent, streaming и
+long-lived behavior реализуется без нового special transport в core.
 
 Рекомендуемое следующее фундаментальное изменение:
 
@@ -494,8 +500,17 @@ Multiplexing без bounds превращает component в resource amplificat
 - per-invocation notification frame/byte budget;
 - component-wide receive frame/byte budget;
 - bounded writer queue;
+- reserved control capacity или отдельная priority lane для callback responses,
+  cancel, terminal и process-exit;
+- nested admission capacity, которую не могут целиком занять top-level calls;
 - deadline включает ожидание admission, если contract явно не задаёт иначе;
 - cancellation admission-aware: отменённый queued call не отправляется worker-у.
+
+Overflow policy задаётся по типу frame. Потеря optional progress notification
+может быть отмечена gap-событием, но callback response, cancel и terminal не
+дропаются. Если гарантированная доставка control frame невозможна в пределах
+bounds, generation завершается явным protocol/resource failure вместо
+неограниченного ожидания.
 
 Начальные консервативные defaults для spike:
 
@@ -564,6 +579,20 @@ component-а сам отвечает за свои locks. Host гарантир�
 transport deadlock; внутренний deadlock worker-а заканчивается обычным
 timeout/cancel escalation.
 
+Multiplexed transport сам по себе не объявляет любое module behavior безопасным
+для параллельного исполнения. До P3 contract получает host-defined execution
+semantics, одинаковую для всех implementations:
+
+```text
+concurrency(contract) = serial | bounded_parallel
+```
+
+Без отдельного evidence действует `serial` для одного export. Разные exports
+component могут быть активны одновременно, что достаточно для основного
+reentrant callback case. Long-lived contracts с одновременными `run`/`steer`
+или несколькими streams явно выбирают `bounded_parallel`. Режим не зависит от
+`module_id` и не является worker-declared privilege.
+
 ## Sync Bootstrap И Async Runtime
 
 Текущий `ModuleCatalog` и `AgentRuntimeBuilder` создаются синхронно. Во время
@@ -618,6 +647,20 @@ workflow/x invocation h:1
 На каждом `h:*` host заново применяет contract и authority target export.
 `workflow/x` не получает search authority, а process не получает union rights.
 
+Это protocol-visible dispatch invariant для conforming component: host берёт
+target, authority и invocation context только из своего `InvocationRecord`, а
+не из переданных worker-ом `slot/module_id`. При этом configured component
+остаётся одним trusted executable, а не sandbox между его exports. Такой
+process видит frames всех своих active invocations и теоретически может назвать
+id соседней invocation; wire protocol не является защитой от намеренно
+злонамеренного кода внутри общего address space. Поэтому exports разных OS
+launch trust classes разделяются по components, а P0 отдельно фиксирует
+поведение sibling-parent misuse и границу гарантий SDK/conformance.
+
+`invocation_id` является correlation key, не секретным capability token. Host
+всё равно fail-closed отклоняет stale, terminal, wrong-generation и запрещённый
+для названного parent-а callback.
+
 Static `callback_dependency_slots` и component cycle rejection после cutover
 больше не нужны для deadlock avoidance. Но contract authority table с exact
 host methods остаётся.
@@ -657,7 +700,7 @@ tool session. Multiplexed invocation уже даёт необходимый ме
 
 ### P0. Executable Broker Spike
 
-Цель: проверить три самых рискованных свойства без интеграции в ModuleCatalog.
+Цель: проверить самые рискованные свойства без интеграции в ModuleCatalog.
 
 Сценарии:
 
@@ -668,12 +711,26 @@ tool session. Multiplexed invocation уже даёт необходимый ме
 4. worker игнорирует cancel A: process убивается, A и B получают разные
    корректные terminal causes;
 5. callback с forged/terminal parent id fail-closed ломает generation.
+6. callback не может случайно привязаться к соседней active invocation с другой
+   authority; deliberately malicious shared executable отдельно учитывается как
+   trusted-component limitation, а не как изоляция exports внутри process;
+7. cancel до admission, во время callback и в гонке с terminal завершает каждую
+   pending invocation ровно один раз;
+8. late response/notification после terminal не меняет уже выбранный outcome;
+9. notification flood и slow consumer не блокируют callback response, cancel,
+   terminal или process-exit signal;
+10. насыщенные top-level calls, каждый из которых запускает nested invocation,
+    не образуют admission deadlock;
+11. duplicate/reused ids и collision пространств `h:*`/`m:*` fail-closed;
+12. один сценарий проходит с минимальным worker-ом не на Rust, предпочтительно
+    Python, без скрытой зависимости от Tokio semantics.
 
 Расположение:
 
 ```text
 crates/proteus-module-protocol/tests/multiplex_spike.rs
 crates/proteus-module-protocol/tests/fixtures/multiplex_worker.*
+crates/proteus-module-protocol/tests/fixtures/multiplex_worker.py
 ```
 
 Spike не добавляет config, slot или production adapter. Код либо превращается
@@ -682,9 +739,9 @@ Spike не добавляет config, slot или production adapter. Код л�
 Оценка:
 
 ```text
-1-2 commits
-0.5-1.5 focused engineering days
-примерно 600-1 200 строк fixture/test code
+2-3 commits
+1.5-3 focused engineering days
+примерно 1 200-2 500 строк fixture/test code
 ```
 
 Go criteria:
@@ -693,7 +750,12 @@ Go criteria:
 - authority однозначно восстанавливается по parent id;
 - reader не блокируется callback-ом;
 - cancel isolation не требует отдельного process на invocation;
-- bounds можно применить без slot-specific веток.
+- control frames не starvation-ятся data/notification traffic;
+- nested admission не блокируется исчерпанием top-level permits;
+- terminal/cancel races завершают pending records exactly once;
+- bounds можно применить без `module_id`-specific веток;
+- Python fixture остаётся небольшим и объяснимым без второго специального
+  protocol.
 
 Kill criteria:
 
@@ -701,7 +763,11 @@ Kill criteria:
 - framing невозможно разделить без параллельного второго process host;
 - cooperative cancel одной invocation неизбежно corrupt-ит соседние state;
 - reference worker требует глобальной сериализации из-за публичных module
-  contracts, которую нельзя локализовать adapter-ом.
+  contracts, которую нельзя локализовать adapter-ом;
+- bounded control path требует неограниченной очереди или slow notification
+  consumer может заблокировать cancel/callback/terminal;
+- безопасная reentrancy требует считать exports внутри одного process взаимно
+  недоверенными isolation domains, чего process boundary не предоставляет.
 
 ### P1. Protocol-Neutral Duplex Transport
 
@@ -795,10 +861,14 @@ invoke(...) -> convenience await terminal
 - id collision между направлениями;
 - valid nested same-component invocation;
 - overlapping callbacks разных authority;
+- sibling active parent misuse и документированная trusted-component boundary;
 - forged, stale и wrong-generation parent;
 - callback depth и count bounds;
 - live notification routing и overflow;
+- control-frame priority при slow/flooded notification consumer;
+- nested admission без исчерпания permits;
 - targeted cancel isolation;
+- cancel-before-admission и cancel/callback/terminal races;
 - uncooperative cancel generation reset;
 - crash/protocol-error fan-out;
 - lazy restart и новый exact handshake;
@@ -865,6 +935,11 @@ cargo test -p proteus-reference-worker --test conformance
 cargo test
 ```
 
+Дополнительно обязательны automated install/doctor/topology checks, canonical
+journal/replay evidence для `Canceled`/`TimedOut`/`ComponentLost` mapping и
+проверка внешнего non-Rust worker-а. Ручная coding session или dogfood run не
+является sequencing prerequisite.
+
 Static audit:
 
 ```bash
@@ -905,8 +980,10 @@ rg 'PROCESS_COMPONENT_PROTOCOL_VERSION.*v2|callback_dependency_slots|spawn_block
 
 ### P5. Первый Новый Contract Поверх Broker
 
-Runtime v2 считается архитектурно подтверждённым только после нового use case,
-который v1 выражал специальным путём.
+P5 не входит в acceptance Runtime v2 и не превращает Proteus в реализацию
+конкретного agent runtime. Это отдельные contract migrations, которые проверяют,
+насколько легко внешняя implementation выражает use case, ранее обслуживаемый
+core-owned special path.
 
 Рекомендуемый порядок:
 
@@ -1000,9 +1077,9 @@ client/worker routing. Но canonical Rust traits и DTO остаются явн
 P0-P4:
 
 ```text
-10-17 atomic commits
-8.5-16.5 focused engineering days
-7 000-13 000 строк touched
+11-18 atomic commits
+9.5-18 focused engineering days
+8 000-15 000 строк touched
 неопределённость ±50% до P0
 ```
 
@@ -1016,9 +1093,9 @@ slot DTO/configs и должен остаться заметно уже.
 P0-P5b:
 
 ```text
-20-33 atomic commits
-17-32 focused engineering days
-13 000-25 000 строк touched
+21-34 atomic commits
+18-34 focused engineering days
+14 000-27 000 строк touched
 ```
 
 Это уже не один epic. Его нельзя принимать одним архитектурным коммитом.
@@ -1041,29 +1118,28 @@ P0 spike
 ```
 
 Если P0 показывает неожиданно большой worker-language burden, полноценный
-cutover не начинается, а текущий R1 dogfood продолжается на Runtime v1.
+cutover не начинается, Runtime v1 сохраняется, а roadmap возвращается к другим
+подтверждённым platform gaps.
 
 ## Порядок Относительно Roadmap
 
-Сейчас roadmap называет R1 Installed Dogfood следующим этапом. Этот research
-док сам по себе порядок не меняет.
+Владелец проекта утвердил platform direction 2026-08-22. Активный roadmap не
+требует manual dogfood или coding-session baseline перед broker research:
 
-Если направление одобрено, рекомендуемый порядок:
+1. P0 executable spike;
+2. `GO / REVISE / STOP` по его evidence;
+3. при `GO` — P1-P2 broker kernel;
+4. повторная архитектурная оценка;
+5. при повторном `GO` — P3 atomic cutover и P4 real reentrancy evidence;
+6. отдельно — `model/v1` decision и vertical slice;
+7. отдельно — `subagent/v1` decision и vertical slice;
+8. optional P6 SDK simplification;
+9. uniform worker trust policy и protocol freeze по собственным gates.
 
-1. короткий installed baseline smoke на Runtime v1;
-2. P0 executable spike;
-3. go/no-go decision;
-4. при `go` — Runtime v2 P1-P4;
-5. полный R1 Installed Dogfood уже на v2;
-6. R2 `model/v1` decision и vertical slice;
-7. R3 `subagent/v1` decision и vertical slice;
-8. R4 uniform worker trust policy;
-9. protocol freeze только после out-of-tree v3 workers.
-
-Почему не полный dogfood до broker: большая часть lifecycle evidence будет
-проверять single-flight path, который затем удаляется. Почему baseline всё же
-нужен: он фиксирует текущую установленную работоспособность и даёт сравнение
-для cutover.
+Каждый production этап всё равно проходит automated focused, protocol,
+conformance, swap, journal/replay и install/doctor проверки из `testing.md`.
+Ручной dogfood остаётся доступным диагностическим приёмом, но не блокирует
+sequencing и не является обязательным доказательством.
 
 ## Что Должно Упроститься
 
@@ -1211,8 +1287,8 @@ reference implementation другой путь, чем внешнему componen
 
 ## Decision Checklist
 
-Перед командой «реализовывать» владелец проекта подтверждает или меняет пять
-пунктов:
+Владелец проекта подтвердил эти пять пунктов 2026-08-22. Они задают направление
+P0; P1-P4 требуют положительного результата spike:
 
 1. Runtime v2 остаётся одним multiplexed invocation primitive; generic actor
    не добавляется.
@@ -1221,8 +1297,8 @@ reference implementation другой путь, чем внешнему componen
    generation.
 4. Same-component reentrancy всегда проходит через host и новую target
    invocation.
-5. Сначала выполняется bounded P0 spike; полный roadmap меняется только после
-   его результата.
+5. Сначала выполняется bounded P0 spike; production contract меняется только
+   после его результата.
 
 ## Рекомендуемый Следующий Шаг
 
@@ -1234,13 +1310,13 @@ reference implementation другой путь, чем внешнему componen
 test/research: prove multiplexed component broker semantics
 ```
 
-Он реализует только P0 fixtures и пять go/kill сценариев. После него должны
+Он реализует только P0 fixtures и расширенную go/kill matrix. После него должны
 быть доступны три честных решения:
 
 ```text
 GO       -> проектировать P1/P2 production broker
 REVISE   -> сузить protocol и повторить spike
-STOP     -> оставить Runtime v1 и вернуться к installed dogfood
+STOP     -> оставить Runtime v1 и выбрать другой подтверждённый platform gap
 ```
 
 Такой порядок ограничивает стоимость ещё одного неверного архитектурного

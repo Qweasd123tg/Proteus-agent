@@ -8,7 +8,8 @@ reference по текущей реализации: фактическое со�
 
 ## Главная Идея
 
-Проект является маленьким модульным каркасом для coding-agent:
+Проект является маленькой платформой для внешних реализаций возможностей
+coding-agent:
 
 ```text
 Core -> Contract -> Module Implementation
@@ -19,6 +20,12 @@ Core должен оставаться тонким composition/lifecycle сло
 через прямую связку конкретных modules между собой.
 Добавление slots регулируется отдельным правилом в `slot-governance.md`: slot
 нужен для класса заменяемого поведения, а не для одной конкретной фичи.
+
+Proteus не собирает возможности Pi, DeepSeek Harness, Codex или другого
+конкретного agent runtime внутри core. Их идеи используются как requirements,
+сценарии и comparison evidence. Платформа предоставляет нейтральные process
+primitives и typed contracts, а конкретный agent loop, streaming provider или
+subagent lifecycle реализуется внешним component.
 
 Реализации одного slot равноправны:
 
@@ -167,8 +174,12 @@ Runtime должен сохранять эти свойства:
 ## Planned Направления
 
 Process-only module cutover из `process-module-architecture.md` завершён.
-Непосредственный приоритет — installed dogfood, затем отдельные решения по
-model и subagent boundaries. Актуальный критический путь ведётся в `scope.md`.
+Непосредственный приоритет — bounded P0 spike multiplexed Component Runtime v2.
+Он проверяет общий substrate для concurrent, streaming и long-lived external
+components без добавления generic actor или конкретного agent behavior в core.
+P1-P4 начинаются только после `GO`; model и subagent boundaries остаются
+отдельными contract decisions. Актуальный критический путь ведётся в
+`scope.md`.
 
 Ownership PTY sessions, bounded retention process-subagent pool, общий
 policy path для `task`, fail-closed shell sandbox и token для non-loopback
@@ -253,7 +264,9 @@ path CLI smoke test.
 5. ✅ reference implementations живут в `modules/reference` и экспортируются
    ordinary worker-ом без особого origin;
 6. ✅ native ABI/loader удалён без shims;
-7. 🚧 installed dogfood и решения по model/subagent boundaries.
+7. 🚧 bounded Runtime v2 P0 spike и `GO / REVISE / STOP` по multiplexed broker;
+8. ⏳ при `GO` — atomic wire-v3 cutover, затем отдельные решения по
+   model/subagent contracts.
 
 Configured process/MCP tool executors являются явными tool surfaces и всегда
 встраиваются в тот же `ToolRegistry`/policy/safety path; они не образуют вторую
@@ -288,6 +301,8 @@ v0 считается здоровым, если:
 - implementations одного slot имеют одинаковые host capabilities, lifecycle и
   failure semantics независимо от языка и origin;
 - out-of-tree agent worker подключается без core changes;
+- long-lived или streaming external component не требует второго special
+  transport в core;
 - tools не исполняются в обход registry/policy/safety;
 - docs разделяют current state и planned state;
 - README остаётся quickstart, а reference details живут в профильных docs;
