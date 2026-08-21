@@ -133,5 +133,9 @@
   Proteus-specific решение после разбора DeepSeek Harness: подтверждённые
   invariants, реальные входы для R2–R4 и явный отказ от Cordis/plugin-system
   pivot до installed dogfood и protocol freeze;
+- [research/agent-spine-coupling-2026-08-21.md](research/agent-spine-coupling-2026-08-21.md) —
+  повторный source-level coupling-аудит после DeepSeek/Codex/Pi/OpenCode:
+  разрыв ownership между runtime, Workflow, steering и child loop, три варианта
+  spine architecture, рекомендуемый core-owned spike и его kill criteria;
 - [examples/research/](../examples/research/) — заметки по upstream-агентам:
   Codex, OpenCode, Claude Code, ForgeCode и DeepSeek Harness.
