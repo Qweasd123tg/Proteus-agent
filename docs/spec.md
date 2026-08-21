@@ -246,7 +246,7 @@ path CLI smoke test.
 Текущая стратегия описана в `process-module-architecture.md`:
 
 1. ✅ `proteus-contracts` содержит canonical DTO и worker helper API;
-2. ✅ strict process v1, authority table и conformance runner;
+2. ✅ strict component wire v2, per-export authority table и conformance runner;
 3. ✅ process contracts для всех бывших native reference slots;
 4. ✅ bidirectional Workflow/Context/Compactor callbacks используют общий
    model/tool/policy path;

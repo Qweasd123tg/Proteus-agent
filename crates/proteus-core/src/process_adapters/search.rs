@@ -11,19 +11,19 @@ use crate::{
     domain::ContextChunk,
 };
 
-use super::{ProcessAdapterConfig, ProcessModuleClient};
+use super::{ProcessExportClient, ProcessExportConfig};
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 
 /// `SearchBackend` implemented by one persistent process module.
 pub struct ProcessSearchBackend {
-    client: Arc<ProcessModuleClient>,
+    client: Arc<ProcessExportClient>,
 }
 
 impl ProcessSearchBackend {
-    pub fn new(config: ProcessAdapterConfig, workspace: &Path) -> Result<Self> {
+    pub fn new(config: ProcessExportConfig, workspace: &Path) -> Result<Self> {
         Ok(Self {
-            client: Arc::new(ProcessModuleClient::connect(
+            client: Arc::new(ProcessExportClient::connect(
                 "search",
                 PROCESS_SEARCH_CONTRACT_VERSION,
                 config,

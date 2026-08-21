@@ -3,12 +3,13 @@
 Proteus — локальный coding-agent runtime на Rust. Его основная граница:
 
 ```text
-Core -> Contract -> Process Module
+Core -> Contract -> Process Component Export
 ```
 
 Core управляет turn lifecycle, canonical history, approvals и wiring. Поиск,
 память, context, policy, patch, compaction, tool exposure, workflow, renderer и
-tools подключаются как внешние процессы по strict JSON-RPC protocol v1.
+tools подключаются как exports внешних компонентов по strict JSON-RPC
+component protocol v2. Версии slot contracts пока остаются `v1`.
 `module_id` выбирает реализацию, но не меняет её права:
 
 ```text
@@ -42,8 +43,8 @@ proteus doctor
 
 `install.sh` собирает `proteus` и `proteus-reference-worker`, публикует их
 одним versioned release под `~/.proteus/current` и атомарно переключает
-`current`. Wrapper добавляет release directory в `PATH`, поэтому process
-descriptors с `command = "proteus-reference-worker"` работают без абсолютного
+`current`. Wrapper добавляет release directory в `PATH`, поэтому components с
+`command = "proteus-reference-worker"` работают без абсолютного
 пути.
 
 `proteus init coding` создаёт config только когда вы явно вызываете init. Уже
@@ -82,11 +83,11 @@ PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config examples/co
 [modules]
 search = "python_rg"
 
-[[process_modules]]
-slot = "search"
-module_id = "python_rg"
+[components.python-search]
 command = "python3"
 args = ["examples/modules/search-process/search.py"]
+
+[components.python-search.exports.search.python_rg]
 timeout_ms = 60000
 
 [module_config.search.python_rg]
@@ -94,15 +95,23 @@ roots = ["src", "crates"]
 ```
 
 - `modules.<slot>` выбирает `module_id` для `select_one` slot;
-- `[[process_modules]]` описывает executable;
+- `components.<component_id>` описывает один executable и общий lifecycle;
+- `components.<id>.exports.<slot>.<module_id>` объявляет точный export;
 - `module_config.<slot>.<module_id>` — непрозрачный объект реализации;
 - `tool` и `context_provider` имеют `ordered_many` composition и потому
   не выбираются через `[modules]`;
-- выбранный id без точного descriptor-а — ошибка;
+- выбранный id без точного export-а — ошибка;
 - неизвестные поля, duplicate `slot/module_id`, неверный handshake и старые
   response shapes — ошибки без fallback;
 - отсутствие необязательного slot означает host-owned structural behavior, а
   не скрытый модуль с id `none`, `default` или `all_visible`.
+
+Все exports одного запущенного component делят один persistent child process, очередь
+вызовов, crash/cancel/reset и lazy restart. При этом callback authority
+вычисляется заново по активному `slot/contract_version`: соседний export не
+расширяет права вызова. Component protocol v2 пока single-flight, поэтому
+config build отклоняет component dependency cycle, где синхронный callback
+вернулся бы в уже занятую session.
 
 Process boundary пока не sandbox: worker получает очищенное окружение, но
 работает с обычными OS-правами пользователя. Protocol-visible callbacks
@@ -111,10 +120,11 @@ Process boundary пока не sandbox: worker получает очищенно
 
 ## Что Реализовано
 
-- process v1 slots: `workflow`, `search`, `memory`, `context`,
+- component runtime v1 / wire protocol v2 для slots: `workflow`, `search`, `memory`, `context`,
   `context_provider`, `policy`, `patch`, `compactor`,
   `tool_exposure`, `renderer`, `tool`;
-- persistent stdio worker lifecycle, strict initialize/manifest handshake,
+- multi-export persistent stdio component lifecycle, exact-set
+  initialize/manifest handshake,
   bidirectional host callbacks, cancellation, timeout и lazy restart после
   смерти child process;
 - единый safety path для tools:
@@ -151,7 +161,7 @@ cargo run -p proteus-core -- --config configs/config.toml inspect topology --for
 cargo run -p proteus-core -- --config configs/config.toml inspect topology --format map
 
 # protocol handshake отдельного worker-а
-cargo run -p proteus-module-protocol --bin proteus-module-conformance -- --slot search --module-id python_rg --contract-version v1 --probe-method search --probe-params '{"text":"","cwd":".","max_results":0,"use_case":"conformance","starts_with":[],"ends_with":[]}' -- python3 examples/modules/search-process/search.py
+cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-search --export '{"slot":"search","module_id":"python_rg","contract_version":"v1","module_config":{}}' --probe-export search/python_rg --probe-method search --probe-params '{"text":"","cwd":".","max_results":0,"use_case":"conformance","starts_with":[],"ends_with":[]}' -- python3 examples/modules/search-process/search.py
 ```
 
 Prompt/workflow replay и journal semantics описаны в
@@ -161,7 +171,7 @@ Prompt/workflow replay и journal semantics описаны в
 
 ```text
 crates/proteus-contracts/       traits, DTO, canonical model, worker helpers
-crates/proteus-module-protocol/ process v1 session, authority, conformance CLI
+crates/proteus-module-protocol/ component v2 session, authority, conformance CLI
 crates/proteus-process-host/    persistent child lifecycle и framing
 crates/proteus-core/            runtime, wiring, process/model adapters, server
 modules/reference/              reference implementations и один worker
@@ -179,7 +189,7 @@ docs/                           reference, testing rules и roadmap
 - [modules.md](docs/modules.md) — slots, composition и reference inventory;
 - [process-module-architecture.md](docs/process-module-architecture.md) —
   protocol, authority и результат cutover;
-- [configuration.md](docs/configuration.md) — schema и process descriptors;
+- [configuration.md](docs/configuration.md) — schema, components и exports;
 - [security-and-policy.md](docs/security-and-policy.md) — tools и approvals;
 - [testing.md](docs/testing.md) — обязательные evidence gates;
 - [scope.md](docs/scope.md) и [roadmap.md](docs/roadmap.md) — что дальше.

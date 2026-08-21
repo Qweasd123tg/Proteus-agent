@@ -5,7 +5,8 @@ use proteus_contracts::{
         CONTEXT_HOST_RECALL_MEMORY_METHOD, CONTEXT_HOST_SEARCH_METHOD, PROCESS_COMPACTOR_METHOD,
         PROCESS_CONTEXT_BUILD_METHOD, PROCESS_CONTEXT_PROVIDER_METHOD,
         PROCESS_MEMORY_RECALL_METHOD, PROCESS_MEMORY_REMEMBER_METHOD, PROCESS_PATCH_APPLY_METHOD,
-        PROCESS_POLICY_EVALUATE_METHOD, PROCESS_RENDERER_RENDER_METHOD, PROCESS_SEARCH_METHOD,
+        PROCESS_POLICY_CONTRACT_VERSION, PROCESS_POLICY_EVALUATE_METHOD,
+        PROCESS_RENDERER_CONTRACT_VERSION, PROCESS_RENDERER_RENDER_METHOD, PROCESS_SEARCH_METHOD,
         PROCESS_TOOL_EXPOSURE_SELECT_METHOD, PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD,
         PROCESS_WORKFLOW_METHOD, ProcessCompactionResponse, ProcessContextChunksResponse,
         ProcessContextInput, ProcessContextProviderInput, ProcessContextResponse,
@@ -30,8 +31,9 @@ use proteus_contracts::{
     model_standard::{CanonicalMessage, CanonicalModelResponse, FinishReason, MessageRole},
 };
 use proteus_module_protocol::{
-    HostRequestDispatcher, ProcessModuleBinding, ProcessModuleHostRequest, ProcessModuleRpcError,
-    ProcessModuleSession, ProcessModuleSessionOptions, ProcessModuleTerminal,
+    HostRequestDispatcher, ProcessComponentBinding, ProcessComponentSession,
+    ProcessComponentSessionOptions, ProcessExportBinding, ProcessModuleHostRequest,
+    ProcessModuleInvocationResult, ProcessModuleRpcError, ProcessModuleTerminal,
 };
 use proteus_process_host::ProcessSpec;
 use serde::{Serialize, de::DeserializeOwned};
@@ -43,18 +45,59 @@ fn worker_spec(workspace: &Path) -> ProcessSpec {
     ProcessSpec::new(env!("CARGO_BIN_EXE_proteus-reference-worker")).cwd(workspace)
 }
 
-fn connect(workspace: &Path, slot: &str, module_id: &str, config: Value) -> ProcessModuleSession {
-    let binding =
-        ProcessModuleBinding::new(slot, module_id, "v1", config).expect("admitted process binding");
-    ProcessModuleSession::connect(
-        worker_spec(workspace),
-        binding,
-        ProcessModuleSessionOptions::default(),
-    )
-    .unwrap_or_else(|error| panic!("failed to connect {slot}/{module_id}: {error:#}"))
+struct TestExportSession {
+    inner: ProcessComponentSession,
+    target: proteus_contracts::contracts::ProcessComponentExportRef,
 }
 
-fn invoke<T: DeserializeOwned>(session: &ProcessModuleSession, method: &str, params: Value) -> T {
+impl TestExportSession {
+    fn invoke(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> anyhow::Result<ProcessModuleInvocationResult> {
+        self.inner.invoke(&self.target, method, params, timeout)
+    }
+
+    fn invoke_with_dispatcher_and_cancel_check(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+        dispatcher: Arc<dyn HostRequestDispatcher>,
+        is_cancelled: impl Fn() -> bool,
+    ) -> anyhow::Result<ProcessModuleInvocationResult> {
+        self.inner.invoke_with_dispatcher_and_cancel_check(
+            &self.target,
+            method,
+            params,
+            timeout,
+            dispatcher,
+            is_cancelled,
+        )
+    }
+}
+
+fn connect(workspace: &Path, slot: &str, module_id: &str, config: Value) -> TestExportSession {
+    let export =
+        ProcessExportBinding::new(slot, module_id, "v1", config).expect("admitted export binding");
+    let target = export.export_ref();
+    let binding = ProcessComponentBinding::new(
+        format!("reference-{slot}-{}", module_id.replace('.', "-")),
+        [export],
+    )
+    .expect("component binding");
+    let inner = ProcessComponentSession::connect(
+        worker_spec(workspace),
+        binding,
+        ProcessComponentSessionOptions::default(),
+    )
+    .unwrap_or_else(|error| panic!("failed to connect {slot}/{module_id}: {error:#}"));
+    TestExportSession { inner, target }
+}
+
+fn invoke<T: DeserializeOwned>(session: &TestExportSession, method: &str, params: Value) -> T {
     let invocation = session
         .invoke(method, params, TIMEOUT)
         .unwrap_or_else(|error| panic!("{method} transport failed: {error:#}"));
@@ -72,7 +115,7 @@ fn encode_callback<T: Serialize>(value: T) -> Result<Value, ProcessModuleRpcErro
 }
 
 #[test]
-fn every_reference_module_completes_the_same_strict_v1_handshake() {
+fn every_reference_export_completes_the_same_strict_v2_component_handshake() {
     let workspace = tempfile::tempdir().expect("workspace");
     let modules = [
         ("tool", "reference.tools"),
@@ -105,10 +148,83 @@ fn every_reference_module_completes_the_same_strict_v1_handshake() {
 
     for (slot, module_id) in modules {
         let session = connect(workspace.path(), slot, module_id, json!({}));
-        assert_eq!(session.binding().slot, slot);
-        assert_eq!(session.binding().module_id, module_id);
-        session.terminate().expect("terminate worker");
+        assert_eq!(session.target.slot, slot);
+        assert_eq!(session.target.module_id, module_id);
+        session.inner.terminate().expect("terminate worker");
     }
+}
+
+#[test]
+fn one_reference_component_routes_multiple_exports_over_one_session() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let policy = ProcessExportBinding::new(
+        "policy",
+        "allow_all",
+        PROCESS_POLICY_CONTRACT_VERSION,
+        json!({}),
+    )
+    .expect("policy binding");
+    let policy_target = policy.export_ref();
+    let renderer = ProcessExportBinding::new(
+        "renderer",
+        "statusline",
+        PROCESS_RENDERER_CONTRACT_VERSION,
+        json!({}),
+    )
+    .expect("renderer binding");
+    let renderer_target = renderer.export_ref();
+    let binding = ProcessComponentBinding::new("reference-multi-export", [policy, renderer])
+        .expect("component binding");
+    let session = ProcessComponentSession::connect(
+        worker_spec(workspace.path()),
+        binding,
+        ProcessComponentSessionOptions::default(),
+    )
+    .expect("multi-export component");
+
+    let policy_input = ProcessPolicyEvaluateInput {
+        call: ToolCall::new(new_call_id(), "read_file", json!({"path": "x"})),
+        cwd: workspace.path().to_path_buf(),
+        tool_spec: Some(ToolSpec::new(
+            "read_file",
+            "read",
+            json!({"type": "object"}),
+            ToolSafety::ReadOnly,
+        )),
+        granted_permissions: Vec::new(),
+    };
+    let policy_result = session
+        .invoke(
+            &policy_target,
+            PROCESS_POLICY_EVALUATE_METHOD,
+            serde_json::to_value(policy_input).expect("policy input"),
+            TIMEOUT,
+        )
+        .expect("policy invocation");
+    let ProcessModuleTerminal::Success(policy_result) = policy_result.terminal else {
+        panic!("policy export did not succeed")
+    };
+    let policy_result: ProcessPolicyResponse =
+        serde_json::from_value(policy_result).expect("policy response");
+    assert!(matches!(policy_result.result, PolicyDecision::Allow));
+
+    let renderer_result = session
+        .invoke(
+            &renderer_target,
+            PROCESS_RENDERER_RENDER_METHOD,
+            serde_json::to_value(ProcessRendererInput {
+                output: AgentOutput::text("shared component"),
+            })
+            .expect("renderer input"),
+            TIMEOUT,
+        )
+        .expect("renderer invocation");
+    let ProcessModuleTerminal::Success(renderer_result) = renderer_result.terminal else {
+        panic!("renderer export did not succeed")
+    };
+    let renderer_result: ProcessRendererResponse =
+        serde_json::from_value(renderer_result).expect("renderer response");
+    assert!(renderer_result.result.starts_with("shared component"));
 }
 
 #[test]

@@ -1,8 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-/// Текущая pre-release версия общего stdio process-module protocol.
-pub const PROCESS_MODULE_PROTOCOL_VERSION: &str = "v1";
-pub const PROCESS_MODULE_INITIALIZE_METHOD: &str = "initialize";
+/// Текущая pre-release версия общего stdio component protocol.
+///
+/// `v2` — намеренно несовместимый cutover от one-export process-module
+/// handshake к одному process component с явным списком exports.
+pub const PROCESS_COMPONENT_PROTOCOL_VERSION: &str = "v2";
+pub const PROCESS_COMPONENT_INITIALIZE_METHOD: &str = "initialize";
 pub const PROCESS_MODULE_CANCEL_METHOD: &str = "$/cancelRequest";
 pub const PROCESS_MODULE_PROGRESS_METHOD: &str = "module.progress";
 pub const PROCESS_MODULE_ACTIVITY_METHOD: &str = "module.activity";
@@ -21,11 +24,27 @@ pub enum ProcessModuleComposition {
     OrderedMany,
 }
 
-/// Параметры первого JSON-RPC вызова к freshly spawned process module.
+/// Стабильная identity одного export внутри process component.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct ProcessModuleInitialize {
-    pub protocol_version: String,
+pub struct ProcessComponentExportRef {
+    pub slot: String,
+    pub module_id: String,
+}
+
+impl ProcessComponentExportRef {
+    pub fn new(slot: impl Into<String>, module_id: impl Into<String>) -> Self {
+        Self {
+            slot: slot.into(),
+            module_id: module_id.into(),
+        }
+    }
+}
+
+/// Host binding одного export, передаваемый при component initialization.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessComponentExportInitialize {
     pub slot: String,
     pub module_id: String,
     pub contract_version: String,
@@ -34,7 +53,7 @@ pub struct ProcessModuleInitialize {
     pub host_features: Vec<String>,
 }
 
-impl ProcessModuleInitialize {
+impl ProcessComponentExportInitialize {
     pub fn new(
         slot: impl Into<String>,
         module_id: impl Into<String>,
@@ -44,7 +63,6 @@ impl ProcessModuleInitialize {
         host_features: impl IntoIterator<Item = impl Into<String>>,
     ) -> Self {
         Self {
-            protocol_version: PROCESS_MODULE_PROTOCOL_VERSION.to_owned(),
             slot: slot.into(),
             module_id: module_id.into(),
             contract_version: contract_version.into(),
@@ -55,16 +73,61 @@ impl ProcessModuleInitialize {
     }
 }
 
-/// Манифест, который process module возвращает из `initialize`.
+/// Параметры первого JSON-RPC вызова к freshly spawned process component.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct ProcessModuleManifest {
+pub struct ProcessComponentInitialize {
     pub protocol_version: String,
+    pub component_id: String,
+    pub exports: Vec<ProcessComponentExportInitialize>,
+}
+
+impl ProcessComponentInitialize {
+    pub fn new(
+        component_id: impl Into<String>,
+        exports: impl IntoIterator<Item = ProcessComponentExportInitialize>,
+    ) -> Self {
+        Self {
+            protocol_version: PROCESS_COMPONENT_PROTOCOL_VERSION.to_owned(),
+            component_id: component_id.into(),
+            exports: exports.into_iter().collect(),
+        }
+    }
+}
+
+/// Один export, подтверждённый component manifest-ом.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessComponentExportManifest {
     pub slot: String,
     pub module_id: String,
     pub contract_version: String,
     pub composition: ProcessModuleComposition,
     pub module_features: Vec<String>,
+}
+
+/// Манифест, который process component возвращает из `initialize`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessComponentManifest {
+    pub protocol_version: String,
+    pub component_id: String,
+    pub exports: Vec<ProcessComponentExportManifest>,
+}
+
+/// Обёртка каждого module-method вызова: один transport обслуживает несколько
+/// exports, поэтому target identity является частью каждого request.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessComponentCall {
+    pub export: ProcessComponentExportRef,
+    pub params: serde_json::Value,
+}
+
+impl ProcessComponentCall {
+    pub fn new(export: ProcessComponentExportRef, params: serde_json::Value) -> Self {
+        Self { export, params }
+    }
 }
 
 /// Parameters of the protocol-wide cooperative cancellation notification.
@@ -85,8 +148,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn process_module_handshake_is_strict() {
-        let initialize = ProcessModuleInitialize::new(
+    fn process_component_handshake_is_strict() {
+        let export = ProcessComponentExportInitialize::new(
             "search",
             "python_rg",
             "v1",
@@ -94,23 +157,25 @@ mod tests {
             serde_json::json!({ "roots": ["src"] }),
             ["branch_state"],
         );
+        let initialize = ProcessComponentInitialize::new("python-search", [export]);
         let value = serde_json::to_value(&initialize).expect("initialize value");
-        assert_eq!(value["protocol_version"], "v1");
-        assert_eq!(value["composition"], "select_one");
-        assert_eq!(value["module_id"], "python_rg");
+        assert_eq!(value["protocol_version"], "v2");
+        assert_eq!(value["component_id"], "python-search");
+        assert_eq!(value["exports"][0]["composition"], "select_one");
+        assert_eq!(value["exports"][0]["module_id"], "python_rg");
 
         let mut unknown = value;
         unknown
             .as_object_mut()
             .expect("initialize object")
             .insert("legacy_version".to_owned(), serde_json::json!(0));
-        serde_json::from_value::<ProcessModuleInitialize>(unknown)
+        serde_json::from_value::<ProcessComponentInitialize>(unknown)
             .expect_err("unknown handshake fields must be rejected");
     }
 
     #[test]
     fn ordered_many_is_explicit_wire_metadata_not_a_module_feature() {
-        let initialize = ProcessModuleInitialize::new(
+        let initialize = ProcessComponentExportInitialize::new(
             "runtime_contribution",
             "audit",
             "v1",
@@ -122,6 +187,22 @@ mod tests {
         let value = serde_json::to_value(initialize).expect("initialize value");
         assert_eq!(value["composition"], "ordered_many");
         assert_eq!(value["host_features"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn component_call_carries_an_explicit_export_target() {
+        let call = ProcessComponentCall::new(
+            ProcessComponentExportRef::new("search", "rg"),
+            serde_json::json!({"query": "needle"}),
+        );
+
+        assert_eq!(
+            serde_json::to_value(call).expect("call"),
+            serde_json::json!({
+                "export": {"slot": "search", "module_id": "rg"},
+                "params": {"query": "needle"}
+            })
+        );
     }
 
     #[test]

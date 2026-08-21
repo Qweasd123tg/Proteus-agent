@@ -44,9 +44,10 @@ configs/fragments/codex-profile.toml strict Codex policy/context overlay
 
 Fragment не является profile, module pack или неявным default: он не
 загружается без `include`, а итоговый config по-прежнему явно выбирает
-provider и каждый behavior slot. Массивы не append-ятся. Например, `glm`
-повторяет полный `process_modules` array, потому что добавляет renderer;
-скрытого order-dependent слияния descriptors нет.
+provider и каждый behavior slot. Массивы не append-ятся. `components` — map и
+merge-ится рекурсивно: например, `glm` добавляет
+`components.reference-capabilities.exports.renderer.statusline`, не повторяя
+launch-параметры и остальные exports.
 
 `~`, `$HOME` и `${HOME}` раскрываются в path fields.
 
@@ -69,25 +70,22 @@ context = "simple"
 policy = "ask_write"
 renderer = "statusline"
 
-[[process_modules]]
-slot = "workflow"
-module_id = "coding.single_loop"
+[components.reference-workflow]
 command = "proteus-reference-worker"
 
-[[process_modules]]
-slot = "context"
-module_id = "simple"
+[components.reference-workflow.exports.workflow."coding.single_loop"]
+
+[components.reference-context]
 command = "proteus-reference-worker"
 
-[[process_modules]]
-slot = "policy"
-module_id = "ask_write"
+[components.reference-context.exports.context.simple]
+
+[components.reference-capabilities]
 command = "proteus-reference-worker"
 
-[[process_modules]]
-slot = "renderer"
-module_id = "statusline"
-command = "proteus-reference-worker"
+[components.reference-capabilities.exports.policy.ask_write]
+
+[components.reference-capabilities.exports.renderer.statusline]
 
 [tools]
 enabled = []
@@ -168,7 +166,7 @@ subagent = "sequential"
 renderer = "statusline"
 ```
 
-Все кроме `subagent` должны иметь process descriptor. `subagent` пока
+Все кроме `subagent` должны иметь exact component export. `subagent` пока
 выбирает явно учтённую core-owned implementation. Model выбирается через
 provider profile и потому не находится в `[modules]`.
 
@@ -176,40 +174,47 @@ provider profile и потому не находится в `[modules]`.
 автоматический выбор какого-либо reference module. Специальных ids `none`,
 `default`, `process`, `text` и `all_visible` нет.
 
-## Process Descriptors
+## Process Components И Exports
 
 ```toml
-[[process_modules]]
-slot = "search"
-module_id = "python_rg"
+[components.python-search]
 command = "python3"
 args = ["examples/modules/search-process/search.py"]
 cwd = "."
 env_allowlist = ["SEARCH_TOKEN"]
 env = { SEARCH_MODE = "local" }
-timeout_ms = 60000
 handshake_timeout_ms = 30000
 description = "Python ripgrep example"
+
+[components.python-search.exports.search.python_rg]
+timeout_ms = 60000
+description = "Python ripgrep export"
 ```
 
-Поля:
+Поля component:
 
 | Key | Значение |
 |---|---|
-| `slot` | host-defined contract id, обязательно |
-| `module_id` | identity внутри slot, обязательно |
 | `command` | executable, обязательно |
 | `args` | argv после executable |
 | `cwd` | absolute или relative к workspace |
 | `env_allowlist` | parent env names, разрешённые child process |
 | `env` | scoped literal env; перекрывает allowlist |
-| `timeout_ms` | invocation timeout override |
 | `handshake_timeout_ms` | initialize timeout override |
-| `description` | observability text |
+| `description` | fallback observability text для exports |
+| `exports.<slot>.<module_id>` | непустая exact export map, обязательно |
+
+Поля export:
+
+| Key | Значение |
+|---|---|
+| `timeout_ms` | invocation timeout override только этого export |
+| `description` | observability text только этого export |
 
 Environment процесса очищается. Process host сохраняет минимальный `PATH`,
-затем применяет allowlist и literal env. Descriptor не принимает вложенный
-`config`.
+затем применяет allowlist и literal env. Один component запускается один раз
+на canonical workspace; все его exports делят child lifecycle и restart.
+Launch config не принимает вложенный module `config`.
 
 Module-owned config:
 
@@ -219,40 +224,47 @@ roots = ["src", "crates"]
 max_results = 50
 ```
 
-Core требует object, но не интерпретирует его поля. Один и тот же object
-передаётся в initialize и slot input там, где contract это предусматривает.
+Core требует object, но не интерпретирует его поля. Object соответствующего
+export передаётся в component initialize.
 
 Ошибки без compatibility fallback:
 
 - selected id не зарегистрирован;
-- duplicate `slot/module_id`;
+- duplicate `slot/module_id` внутри или между components;
 - unsupported process slot;
-- пустые identity/command;
+- пустые component id/export identity/command;
+- component без exports;
 - zero timeout;
-- unknown descriptor field;
+- unknown component/export field;
 - non-object module config;
-- handshake identity mismatch.
+- handshake component id или exact export-set mismatch;
+- callback dependency cycle между active components.
+
+Один component может экспортировать несколько slots. Это общий lifecycle, а
+не объединение authority: callbacks проверяются по активному export. Runtime
+v1 single-flight, поэтому config build вычисляет contract callback dependencies
+активных exports и отклоняет прямой или транзитивный component cycle.
+Подробности и безопасный reference-разрез — в
+`process-module-architecture.md`.
 
 ## Ordered-Many Modules
 
-`tool` и `context_provider` не имеют keys в `[modules]`. Их descriptors
-являются ordered contributions:
+`tool` и `context_provider` не имеют keys в `[modules]`. Все объявленные
+exports этих slots являются contributions:
 
 ```toml
-[[process_modules]]
-slot = "context_provider"
-module_id = "skills"
+[components.reference-capabilities]
 command = "proteus-reference-worker"
 
-[[process_modules]]
-slot = "tool"
-module_id = "reference.tools"
-command = "proteus-reference-worker"
+[components.reference-capabilities.exports.context_provider.skills]
+
+[components.reference-capabilities.exports.tool."reference.tools"]
 ```
 
-Порядок равен порядку descriptors. Tool registration ещё фильтруется
-`tools.enabled`; context builder сам запрашивает provider по id через
-`host.context.provide`.
+Map iteration даёт детерминированный key order, но не является пользовательской
+priority surface. Tool registration фильтруется `tools.enabled`; context
+builder запрашивает provider по id через `host.context.provide`, а нужный
+порядок providers задаёт его собственный `module_config`.
 
 ## Reference Inventory
 
@@ -311,12 +323,12 @@ enabled = [
 
 - core facade tools: `search`, `apply_patch`, `remember_fact`,
   `request_user_input`;
-- выбранные process tool modules;
+- объявленные component tool exports;
 - `[[tools.configured]]`;
 - discovered `[[tools.mcp_servers]]`;
 - provider-hosted tools.
 
-Unknown enabled tool и name collision — ошибка. Process tool descriptor сам по
+Unknown enabled tool и name collision — ошибка. Tool export сам по
 себе не делает tool model-visible; имя должно быть в `enabled`.
 
 ### Configured Process Tool
@@ -381,10 +393,10 @@ reference implementation с той же authority.
 [modules]
 tool_exposure = "codex_dynamic"
 
-[[process_modules]]
-slot = "tool_exposure"
-module_id = "codex_dynamic"
+[components.reference-capabilities]
 command = "proteus-reference-worker"
+
+[components.reference-capabilities.exports.tool_exposure.codex_dynamic]
 
 [module_config.tool_exposure.codex_dynamic]
 max_hot_tools = 16
@@ -436,15 +448,15 @@ tool_cards_collapsed = false
 ```
 
 Zero `approval_timeout_ms` означает отсутствие server-side deadline для
-ожидания ответа пользователя. Process module timeouts задаются descriptor-ом
+ожидания ответа пользователя. Export timeouts задаются в component config
 и не заменяют общие runtime limits.
 
 ## Config Builder
 
 Inspector/config builder меняет selection, provider, permission mode и enabled
-tools, затем строит новый runtime snapshot. Он не создаёт process descriptors
+tools, затем строит новый runtime snapshot. Он не создаёт components/exports
 из воздуха: selection доступен только для entries текущего catalog. Existing
-`process_modules` и opaque `module_config` сохраняются.
+`components` и opaque `module_config` сохраняются.
 
 ## Проверка
 
@@ -456,7 +468,7 @@ PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config configs/con
 PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config configs/config.toml tools list
 ```
 
-`doctor` не отправляет model request и не запускает process modules. Он
-проверяет descriptor, selection, доступность команды и catalog/tool surface;
+`doctor` не отправляет model request и не запускает components. Он проверяет
+config, exports, selection, доступность каждой component command и catalog/tool surface;
 строгий handshake проверяют conformance gate и реальная сборка runtime
 snapshot.

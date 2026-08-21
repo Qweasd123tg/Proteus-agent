@@ -2,58 +2,50 @@ use std::{path::Path, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use proteus_module_protocol::{
-    HostRequestDispatcher, ProcessModuleBinding, ProcessModuleSession, ProcessModuleSessionOptions,
-    ProcessModuleTerminal,
+    HostRequestDispatcher, ProcessComponentSession, ProcessModuleTerminal,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
-use super::ProcessAdapterConfig;
+use super::ProcessExportConfig;
 
-/// Shared strict client used by typed process slot adapters.
-pub struct ProcessModuleClient {
+/// Typed view of one export on a shared strict-v2 process component session.
+pub struct ProcessExportClient {
+    component_id: String,
     module_id: String,
+    target: proteus_contracts::contracts::ProcessComponentExportRef,
     timeout: Duration,
-    session: Arc<ProcessModuleSession>,
+    session: Arc<ProcessComponentSession>,
 }
 
-impl ProcessModuleClient {
+impl ProcessExportClient {
     pub fn connect(
         slot: &str,
         contract_version: &str,
-        config: ProcessAdapterConfig,
+        config: ProcessExportConfig,
         workspace: &Path,
         default_timeout_ms: u64,
     ) -> Result<Self> {
-        config.validate_for("process_modules[]", default_timeout_ms)?;
-        if config.slot() != slot {
+        config.validate_for(slot, default_timeout_ms)?;
+        if config.binding().contract_version != contract_version {
             bail!(
-                "process module {:?} declares slot {:?}, expected {:?}",
-                config.module_id(),
+                "component {:?} export {}/{} uses contract {:?}, expected {:?}",
+                config.component_id(),
                 config.slot(),
-                slot
+                config.module_id(),
+                config.binding().contract_version,
+                contract_version
             );
         }
-        let spec = config.process_spec(workspace)?;
         let timeout = config.timeout(default_timeout_ms);
-        let handshake_timeout = config.handshake_timeout(default_timeout_ms);
+        let component_id = config.component_id().to_owned();
         let module_id = config.module_id().to_owned();
-        let binding = ProcessModuleBinding::new(
-            slot,
-            module_id.clone(),
-            contract_version,
-            config.module_config(),
-        )?;
-        let session = Arc::new(ProcessModuleSession::connect(
-            spec,
-            binding,
-            ProcessModuleSessionOptions {
-                handshake_timeout,
-                ..ProcessModuleSessionOptions::default()
-            },
-        )?);
+        let target = config.binding().export_ref();
+        let session = config.connect(workspace)?;
         Ok(Self {
+            component_id,
             module_id,
+            target,
             timeout,
             session,
         })
@@ -72,11 +64,11 @@ impl ProcessModuleClient {
         })?;
         let invocation = self
             .session
-            .invoke(method, value, self.timeout)
+            .invoke(&self.target, method, value, self.timeout)
             .with_context(|| {
                 format!(
-                    "process module {:?}: {method} invocation failed",
-                    self.module_id
+                    "process component {:?} export {:?}: {method} invocation failed",
+                    self.component_id, self.module_id
                 )
             })?;
         self.decode(method, invocation.terminal)
@@ -102,6 +94,7 @@ impl ProcessModuleClient {
         let invocation = self
             .session
             .invoke_with_dispatcher_and_cancel_check(
+                &self.target,
                 method,
                 value,
                 self.timeout,
@@ -110,8 +103,8 @@ impl ProcessModuleClient {
             )
             .with_context(|| {
                 format!(
-                    "process module {:?}: {method} invocation failed",
-                    self.module_id
+                    "process component {:?} export {:?}: {method} invocation failed",
+                    self.component_id, self.module_id
                 )
             })?;
         self.decode(method, invocation.terminal)
@@ -119,6 +112,10 @@ impl ProcessModuleClient {
 
     pub fn module_id(&self) -> &str {
         &self.module_id
+    }
+
+    pub fn component_id(&self) -> &str {
+        &self.component_id
     }
 
     fn decode<R: DeserializeOwned>(
@@ -133,8 +130,8 @@ impl ProcessModuleClient {
                 self.session.reset();
                 Err(error).with_context(|| {
                     format!(
-                        "process module {:?}: {method} returned an invalid response",
-                        self.module_id
+                        "process component {:?} export {:?}: {method} returned an invalid response",
+                        self.component_id, self.module_id
                     )
                 })
             }

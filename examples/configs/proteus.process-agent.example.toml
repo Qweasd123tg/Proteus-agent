@@ -11,12 +11,12 @@ stream = true
 [modules]
 workflow = "python_agent_loop"
 
-[[process_modules]]
-slot = "workflow"
-module_id = "python_agent_loop"
+[components.python-agent]
 command = "python3"
 args = ["examples/modules/agent-worker/agent.py"]
 handshake_timeout_ms = 30000
+
+[components.python-agent.exports.workflow.python_agent_loop]
 
 [module_config.workflow.python_agent_loop]
 max_tool_rounds = 8

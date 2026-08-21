@@ -24,7 +24,7 @@ proteus --config codex inspect topology --format map
 - map — человекочитаемая карта wiring.
 
 Команда строит catalog и tool surface, но не отправляет model request.
-Process descriptors валидируются; worker handshake выполняется там, где
+Process components/exports валидируются; worker handshake выполняется там, где
 нужна реальная registry/tool сборка.
 
 ## HTTP
@@ -60,7 +60,7 @@ Module source:
 builtin | process | config | unknown
 ```
 
-- `process` — descriptor из `[[process_modules]]`;
+- `process` — export из `[components.<id>.exports...]`;
 - `builtin` — явно учтённые model/subagent adapters;
 - `config` — config-defined runtime contribution;
 - `unknown` — selected id, которого нет в catalog.
@@ -91,9 +91,11 @@ Graph различает:
 - tool registry -> registered tool;
 - runtime dependencies между slots.
 
-Нет отдельного уровня «plugin -> contributions»: native package origin удалён,
-а process descriptor уже содержит точную `slot/module_id` identity.
-`tool/reference.tools` отражается как ordinary process source.
+Нет native package origin. Topology graph остаётся contract/export projection:
+каждый `slot/module_id` отражается как ordinary process source. Группировку
+exports по общему launch/failure domain показывает read-only component section
+страницы Configs (`GET /config`). `tool/reference.tools` не имеет особого
+статуса.
 
 ## Warnings
 
@@ -112,7 +114,7 @@ warning/fallback.
 
 `clients/inspector` использует JSON snapshot и config summary. UI показывает:
 
-- process descriptors;
+- process components и exports;
 - slot selections;
 - module source;
 - enabled tools;

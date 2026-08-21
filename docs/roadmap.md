@@ -12,7 +12,7 @@ Roadmap описывает порядок, а не обещание API. Тек�
 
 Результат:
 
-- единый process protocol v1;
+- единый process boundary;
 - authority table по slot;
 - strict handshake и bidirectional JSON-RPC;
 - 11 external contracts: workflow, search, memory, context,
@@ -20,7 +20,7 @@ Roadmap описывает порядок, а не обещание API. Тек�
 - все бывшие native reference implementations перенесены в
   `proteus-reference-worker`;
 - старый dylib ABI/loader/manifests/dependencies удалён;
-- exact descriptors и explicit selection;
+- exact exports и explicit selection;
 - structural absence вместо фиктивных module ids;
 - runtime swap/failure/restart suite;
 - 26-selector real-worker conformance;
@@ -28,6 +28,25 @@ Roadmap описывает порядок, а не обещание API. Тек�
 
 Это закрывает главный риск «у reference modules больше прав, чем у внешнего
 worker-а».
+
+### R0.5. Component Runtime v1 — завершён
+
+Результат:
+
+- component wire protocol v2 с exact multi-export handshake;
+- config map `components.<id>.exports.<slot>.<module_id>`;
+- один persistent child/session на component и canonical workspace;
+- shared crash/cancel/reset/restart failure domain;
+- routing каждого вызова по explicit export target;
+- callback authority вычисляется по активному export, не union component;
+- active callback dependency cycles отклоняются до spawn;
+- recursive include merge без повторения descriptor arrays;
+- reference worker и внешние Python examples переведены без legacy reader;
+- protocol, one-PID lifecycle, authority и real-worker regressions.
+
+Runtime остаётся single-flight. Components разделяются на callback dependency
+boundaries; reentrant callback в соседний export того же process не
+поддерживается.
 
 ### R1. Installed Dogfood — следующий
 
@@ -47,7 +66,7 @@ Checklist:
 10. workflow replay.
 
 Exit criterion: несколько реальных coding sessions без ручного вмешательства в
-process descriptors или `PATH`; найденные protocol/runtime defects получают
+component config или `PATH`; найденные protocol/runtime defects получают
 focused regression.
 
 ### R2. Model Slot Decision
@@ -225,18 +244,22 @@ authority и порядок. В Proteus новая cross-cutting возможн�
 пытается поместиться в существующий slot/tool/profile. Новый hook surface
 нуждается в slot governance и composition contract.
 
-### Component-Aware Config
+### Component Imports И Hooks
 
-Текущая schema честно описывает одну process instance одного slot и использует
-`include` только для явного layering. Multi-facet process и host-broker imports
-потребуют отдельной модели `executable -> component -> exports/imports ->
-profile bindings`; нельзя маскировать общий lifecycle простым сокращением
-нескольких `[[process_modules]]`.
+Multi-export components и shared lifecycle реализованы. Не реализованы general
+imports, reentrant calls и Pi-like hooks. Для них нужен отдельный
+мультиплексированный host broker с:
 
-До installed dogfood и отдельного contract decision не добавлять implicit
-package activation, array append merge или standard module pack. Текущая
-config-cleanup только выносит общие tracked fragments и не меняет runtime
-семантику.
+- import declaration и binding validation;
+- call graph/cycle policy;
+- per-edge authority и invocation ownership;
+- cancellation/backpressure;
+- state reconstruction после общего restart;
+- deterministic ordering и failure semantics.
+
+До такого contract decision не добавлять direct module links, hidden
+same-process dispatch, implicit package activation или special authority по
+`component_id`.
 
 ### General LSP
 

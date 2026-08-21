@@ -12,7 +12,7 @@ use proteus_core::{
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, MessageRole,
     },
-    process_adapters::ProcessAdapterConfig,
+    process_adapters::ProcessComponentConfig,
 };
 use serde_json::json;
 
@@ -22,34 +22,56 @@ fn workspace_file(path: &str) -> PathBuf {
         .join(path)
 }
 
-fn descriptor(slot: &str, module_id: &str, fixture: &str, args: &[&str]) -> ProcessAdapterConfig {
+fn component(slot: &str, module_id: &str, fixture: &str, args: &[&str]) -> ProcessComponentConfig {
     let mut process_args = vec![workspace_file(fixture).display().to_string()];
     process_args.extend(args.iter().map(|value| (*value).to_owned()));
+    let mut slots = serde_json::Map::new();
+    slots.insert(module_id.to_owned(), json!({"timeout_ms": 3_000}));
+    let mut exports = serde_json::Map::new();
+    exports.insert(slot.to_owned(), serde_json::Value::Object(slots));
     serde_json::from_value(json!({
-        "slot": slot,
-        "module_id": module_id,
         "command": "sh",
         "args": process_args,
-        "timeout_ms": 3_000,
-        "handshake_timeout_ms": 3_000
+        "handshake_timeout_ms": 3_000,
+        "exports": exports,
     }))
-    .expect("valid process descriptor")
+    .expect("valid process component")
+}
+
+fn component_exports(exports: &[(&str, &str)]) -> ProcessComponentConfig {
+    let mut slots = serde_json::Map::new();
+    for (slot, module_id) in exports {
+        slots
+            .entry((*slot).to_owned())
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+            .expect("slot export map")
+            .insert((*module_id).to_owned(), json!({}));
+    }
+    serde_json::from_value(json!({
+        "command": "worker",
+        "exports": slots,
+    }))
+    .expect("component exports")
 }
 
 fn search_config(module_id: &str, mode: &str) -> AppConfig {
     let mut config = AppConfig::default();
     config.modules.search = Some(module_id.to_owned());
-    config.process_modules.push(descriptor(
-        "search",
-        module_id,
-        "crates/proteus-core/tests/fixtures/process_search.sh",
-        &[mode, module_id],
-    ));
+    config.components.insert(
+        "search-fixture".to_owned(),
+        component(
+            "search",
+            module_id,
+            "crates/proteus-core/tests/fixtures/process_search.sh",
+            &[mode, module_id, "search-fixture"],
+        ),
+    );
     config
 }
 
 fn compactor_config(module_id: &str, mode: &str, marker: Option<&Path>) -> AppConfig {
-    let mut args = vec![mode, module_id];
+    let mut args = vec![mode, module_id, "compactor-fixture"];
     let marker_text;
     if let Some(marker) = marker {
         marker_text = marker.display().to_string();
@@ -58,12 +80,15 @@ fn compactor_config(module_id: &str, mode: &str, marker: Option<&Path>) -> AppCo
 
     let mut config = AppConfig::default();
     config.modules.compactor = Some(module_id.to_owned());
-    config.process_modules.push(descriptor(
-        "compactor",
-        module_id,
-        "crates/proteus-core/tests/fixtures/process_compactor.sh",
-        &args,
-    ));
+    config.components.insert(
+        "compactor-fixture".to_owned(),
+        component(
+            "compactor",
+            module_id,
+            "crates/proteus-core/tests/fixtures/process_compactor.sh",
+            &args,
+        ),
+    );
     config
 }
 
@@ -72,7 +97,7 @@ fn registry(config: &AppConfig, cwd: &Path) -> anyhow::Result<RuntimeRegistry> {
 }
 
 #[tokio::test]
-async fn search_slot_swaps_process_modules_without_changing_canonical_contract() {
+async fn search_slot_swaps_component_exports_without_changing_canonical_contract() {
     let workspace = tempfile::tempdir().expect("workspace");
     let absent = registry(&AppConfig::default(), workspace.path()).expect("absent search");
     assert!(
@@ -109,7 +134,7 @@ async fn search_slot_swaps_process_modules_without_changing_canonical_contract()
 }
 
 #[test]
-fn selected_module_requires_an_exact_process_descriptor() {
+fn selected_module_requires_an_exact_component_export() {
     let workspace = tempfile::tempdir().expect("workspace");
     let mut config = AppConfig::default();
     config.modules.search = Some("missing".to_owned());
@@ -126,24 +151,54 @@ fn selected_module_requires_an_exact_process_descriptor() {
 }
 
 #[test]
-fn duplicate_process_identity_is_rejected_before_runtime_build() {
+fn duplicate_component_export_identity_is_rejected_before_runtime_build() {
     let mut config = search_config("fixture", "static");
-    config.process_modules.push(descriptor(
-        "search",
-        "fixture",
-        "crates/proteus-core/tests/fixtures/process_search.sh",
-        &["static", "fixture"],
-    ));
+    config.components.insert(
+        "duplicate-fixture".to_owned(),
+        component(
+            "search",
+            "fixture",
+            "crates/proteus-core/tests/fixtures/process_search.sh",
+            &["static", "fixture", "duplicate-fixture"],
+        ),
+    );
 
     let error = match ModuleCatalog::from_config(&config) {
-        Ok(_) => panic!("duplicate descriptor must fail"),
+        Ok(_) => panic!("duplicate export must fail"),
         Err(error) => error,
     };
     assert!(
         error
             .to_string()
-            .contains("duplicate process module descriptor: search/fixture")
+            .contains("duplicate process component export: search/fixture")
     );
+}
+
+#[test]
+fn callback_dependency_cycle_is_rejected_before_any_component_starts() {
+    let mut config = AppConfig::default();
+    config.modules.workflow = Some("fixture-workflow".to_owned());
+    config.modules.context = Some("fixture-context".to_owned());
+    config.components.insert(
+        "loop-entry".to_owned(),
+        component_exports(&[
+            ("workflow", "fixture-workflow"),
+            ("context_provider", "fixture-provider"),
+        ]),
+    );
+    config.components.insert(
+        "loop-context".to_owned(),
+        component_exports(&[("context", "fixture-context")]),
+    );
+
+    let error = match ModuleCatalog::from_config(&config) {
+        Ok(_) => panic!("single-flight callback cycle must fail"),
+        Err(error) => error,
+    };
+    let message = error.to_string();
+    assert!(message.contains("callback dependency cycle"), "{message}");
+    assert!(message.contains("loop-entry"), "{message}");
+    assert!(message.contains("loop-context"), "{message}");
 }
 
 #[test]
@@ -155,7 +210,10 @@ fn handshake_mismatch_is_a_snapshot_build_error() {
     };
     let message = format!("{error:#}");
     assert!(message.contains("handshake"), "{message}");
-    assert!(message.contains("slot mismatch"), "{message}");
+    assert!(
+        message.contains("returned undeclared export memory/fixture"),
+        "{message}"
+    );
 }
 
 #[tokio::test]
@@ -273,4 +331,55 @@ async fn dead_process_is_restarted_lazily_for_the_same_selected_module() {
     assert!(marker.exists());
     assert!(!output.changed);
     assert_eq!(output.metadata["fixture"], true);
+}
+
+#[tokio::test]
+async fn multiple_exports_share_one_component_process_and_lifecycle() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let marker = workspace.path().join("component-starts");
+    let component: ProcessComponentConfig = serde_json::from_value(json!({
+        "command": "sh",
+        "args": [
+            workspace_file("crates/proteus-core/tests/fixtures/process_component.sh"),
+            "multi-fixture",
+            "fixture-search",
+            "fixture-compactor",
+            marker,
+        ],
+        "handshake_timeout_ms": 3_000,
+        "exports": {
+            "search": {"fixture-search": {"timeout_ms": 3_000}},
+            "compactor": {"fixture-compactor": {"timeout_ms": 3_000}},
+        },
+    }))
+    .expect("multi-export component config");
+    let mut config = AppConfig::default();
+    config.modules.search = Some("fixture-search".to_owned());
+    config.modules.compactor = Some("fixture-compactor".to_owned());
+    config
+        .components
+        .insert("multi-fixture".to_owned(), component);
+
+    let selected = registry(&config, workspace.path()).expect("multi-export registry");
+    let chunks = selected
+        .search
+        .search(SearchQuery::new(
+            "needle",
+            workspace.path().to_path_buf(),
+            5,
+        ))
+        .await
+        .expect("shared search export");
+    assert_eq!(chunks[0].source, "shared-component");
+    let output = compact(&selected, workspace.path())
+        .await
+        .expect("shared compactor export");
+    assert_eq!(output.metadata["fixture"], true);
+
+    let starts = std::fs::read_to_string(&marker).expect("startup marker");
+    assert_eq!(
+        starts.lines().count(),
+        1,
+        "exports spawned separate component processes: {starts:?}"
+    );
 }

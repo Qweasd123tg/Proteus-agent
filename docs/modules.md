@@ -8,22 +8,24 @@ composition, cancellation и failure semantics; `module_id` только выб�
 authority(module) = authority(slot, invocation_context)
 ```
 
-Все внешние modules используют process protocol v1. Dylib ABI и native loader
-в проекте отсутствуют.
+Все внешние modules являются exports process components: Component Runtime v1
+использует wire protocol v2, slot contracts остаются v1. Dylib ABI и native
+loader в проекте отсутствуют.
 
 ## Словарь
 
 - **behavior slot** — одна выбранная реализация (`select_one`);
 - **ordered contribution slot** — явно упорядоченный набор
   (`ordered_many`);
-- **module descriptor** — host-owned launch config;
+- **component** — host-owned launch config, process и общий failure domain;
+- **component export** — exact `slot/module_id` binding;
 - **module config** — непрозрачный object реализации;
 - **reference module** — tracked dogfood/test implementation без привилегий;
 - **structural absence** — поведение host при отсутствии selection, не module.
 
 ## Матрица Slots
 
-| Slot | Composition | Selection | Process v1 | Reference ids |
+| Slot | Composition | Selection | Component export | Reference ids |
 |---|---|---|---|---|
 | `workflow` | `select_one` | `modules.workflow` | да | `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review` |
 | `search` | `select_one` | `modules.search` | да | `rg` |
@@ -34,8 +36,8 @@ authority(module) = authority(slot, invocation_context)
 | `compactor` | `select_one` | `modules.compactor` | да | `codex` |
 | `tool_exposure` | `select_one` | `modules.tool_exposure` | да | `codex_dynamic` |
 | `renderer` | `select_one` | `modules.renderer` | да | `statusline` |
-| `tool` | `ordered_many` | descriptors + `tools.enabled` | да | `reference.tools` и узкие selectors |
-| `context_provider` | `ordered_many` | descriptors + context config | да | `skills` |
+| `tool` | `ordered_many` | exports + `tools.enabled` | да | `reference.tools` и узкие selectors |
+| `context_provider` | `ordered_many` | exports + context config | да | `skills` |
 | `model` | `select_one` | active provider profile | пока core-owned | `fake`, `openai`, `openai_compatible`, `anthropic` |
 | `subagent` | `select_one` | `modules.subagent` | пока core-owned | `sequential`, `process` |
 
@@ -43,18 +45,17 @@ authority(module) = authority(slot, invocation_context)
 path. Новую реализацию этих slots нельзя добавлять как builtin: сначала нужен
 единый process contract всего slot.
 
-## Descriptor И Selection
+## Component, Export И Selection
 
 ```toml
 [modules]
 memory = "sqlite"
 
-[[process_modules]]
-slot = "memory"
-module_id = "sqlite"
+[components.reference-memory]
 command = "proteus-reference-worker"
+
+[components.reference-memory.exports.memory.sqlite]
 timeout_ms = 30000
-handshake_timeout_ms = 30000
 
 [module_config.memory.sqlite]
 path = ".proteus/memory.sqlite"
@@ -62,43 +63,50 @@ path = ".proteus/memory.sqlite"
 
 Правила:
 
-1. Для `select_one` id в `[modules]` должен точно совпасть с descriptor.
-2. Descriptor identity — пара `slot/module_id`; duplicate запрещён.
-3. `slot`, `module_id` и `command` обязательны.
+1. Для `select_one` id в `[modules]` должен точно совпасть с export.
+2. Export identity — пара `slot/module_id`; global duplicate запрещён.
+3. Component id, `command` и хотя бы один export обязательны.
 4. `cwd` относительно workspace; environment очищается.
 5. `env_allowlist` копирует только названные parent variables.
 6. `env` задаёт literal значения и перекрывает allowlist.
 7. Module config находится только в
    `module_config.<slot>.<module_id>` и обязан быть object.
 8. Unknown config/wire fields отвергаются.
+9. Несколько exports одного component делят process lifecycle, но не authority.
 
 Нет специальных ids `default`, `none`, `process` или `all_visible`.
 Чтобы не выбирать module, поле slot просто не указывается.
 
 ## Handshake
 
-Каждый process запускается persistent stdio host-ом. Первая request:
+Каждый component запускается persistent stdio host-ом. Первая request:
 
 ```json
 {
   "jsonrpc": "2.0",
-  "id": 1,
+  "id": "initialize",
   "method": "initialize",
   "params": {
-    "protocol_version": "v1",
-    "slot": "search",
-    "module_id": "rg",
-    "contract_version": "v1",
-    "composition": "select_one",
-    "module_config": {},
-    "host_features": []
+    "protocol_version": "v2",
+    "component_id": "reference-capabilities",
+    "exports": [
+      {
+        "slot": "search",
+        "module_id": "rg",
+        "contract_version": "v1",
+        "composition": "select_one",
+        "module_config": {},
+        "host_features": []
+      }
+    ]
   }
 }
 ```
 
-Worker возвращает exact identity manifest. Несовпадение slot/id/version/
-composition завершает build snapshot-а ошибкой. Module methods и callbacks
-после handshake сверяются с общей authority table.
+Worker возвращает exact-set manifest. Missing/extra/duplicate export и
+несовпадение component id/slot/id/version/composition завершают build
+snapshot-а ошибкой. Каждый вызов содержит target export; module methods и
+callbacks сверяются с его authority, а не с объединением component.
 
 ## Slots По Назначению
 
@@ -157,7 +165,7 @@ host text projection, которая не считается catalog module.
 
 ### Tool
 
-Process tool module сначала отвечает на `list`, затем host регистрирует
+Tool export сначала отвечает на `list`, затем host регистрирует
 возвращённые `ToolSpec`. `invoke` получает canonical `ToolCall`, cwd и
 host-owned `ToolInvocationOwner`. Любой вызов всё равно проходит
 `ToolRegistry`, policy, approval и safety.
@@ -188,7 +196,7 @@ Canonical model request/response уже provider-neutral, но transport adapter
 
 `sequential` выполняет child loop in-process; `process` запускает
 `proteus server stdio` с role profiles. Это существующий core-owned contract,
-не общий module process v1. `subagents.surface = task | collaboration | none`
+не общий component export contract. `subagents.surface = task | collaboration | none`
 задаёт model-facing tools, но не добавляет новый slot.
 
 ## Structural Absence
@@ -200,14 +208,15 @@ Canonical model request/response уже provider-neutral, но transport adapter
 - не появляется в catalog;
 - не читает `module_config`;
 - не получает special callbacks;
-- не используется как fallback после ошибки выбранного process module.
+- не используется как fallback после ошибки выбранного component export.
 
 Это принципиально отличает отсутствие реализации от «стандартного модуля».
 
 ## Reference Worker
 
-`proteus-reference-worker` содержит 26 selectors и публикует каждый через
-тот же protocol, что out-of-tree worker. Его Rust helper traits в
+`proteus-reference-worker` содержит 26 selectors и может подтвердить несколько
+из них как exports одного component. Он использует тот же protocol, что
+out-of-tree worker. Его Rust helper traits в
 `proteus-contracts::process_module` действуют только внутри executable и не
 являются host ABI.
 
@@ -225,8 +234,8 @@ memory/policy/context/compactor/workflow paths, включая callbacks.
 1. Найти slot contract в `proteus-contracts`.
 2. Проверить authority в `proteus-module-protocol/src/authority.rs`.
 3. Реализовать executable без зависимости от `proteus-core`.
-4. Добавить descriptor и explicit selection.
-5. Пройти protocol conformance и slot boundary test.
+4. Добавить component export и explicit selection.
+5. Пройти component conformance и slot boundary test.
 6. Для заменяемого behavior добавить swap evidence.
 7. Обновить этот документ и [configuration.md](configuration.md).
 

@@ -309,9 +309,12 @@ impl AppServerHandle {
                     "description": spec.description,
                 }))
                 .collect::<Vec<_>>(),
-            "process_modules": config.process_modules.iter().map(|module| json!({
-                "slot": module.slot(),
-                "module_id": module.module_id(),
+            "components": config.components.iter().map(|(component_id, component)| json!({
+                "id": component_id,
+                "exports": component.exports().map(|(slot, module_id, _)| json!({
+                    "slot": slot,
+                    "module_id": module_id,
+                })).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
         })
     }

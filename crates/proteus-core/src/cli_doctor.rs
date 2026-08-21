@@ -363,8 +363,8 @@ pub(crate) fn check_external_commands(
     config: &AppConfig,
     cwd: &Path,
 ) {
-    for module in &config.process_modules {
-        let process = module.process_spec(cwd).and_then(|spec| {
+    for (component_id, component) in &config.components {
+        let process = component.process_spec(cwd).and_then(|spec| {
             spec.resolved_environment()?;
             Ok(spec)
         });
@@ -373,12 +373,14 @@ pub(crate) fn check_external_commands(
                 findings,
                 &spec.command,
                 spec.cwd.as_deref().unwrap_or(cwd),
-                &format!("process module {}/{}", module.slot(), module.module_id()),
+                &format!(
+                    "process component {} ({} exports)",
+                    component_id,
+                    component.exports().count()
+                ),
             ),
             Err(error) => findings.error(format!(
-                "process module {}/{} config: {error:#}",
-                module.slot(),
-                module.module_id()
+                "process component {component_id} config: {error:#}"
             )),
         }
     }

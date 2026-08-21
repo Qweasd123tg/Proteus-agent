@@ -3,6 +3,7 @@ set -eu
 
 mode=${1:?process search fixture mode is required}
 module_id=${2:-fixture}
+component_id=${3:-search-fixture}
 
 # The host emits compact envelopes with the top-level id first. This fixture
 # deliberately avoids a JSON parser: strict envelope shaping is covered by the
@@ -21,7 +22,7 @@ if [ "$mode" = "mismatch" ]; then
 else
     slot=search
 fi
-printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$initialize_id,\"result\":{\"protocol_version\":\"v1\",\"slot\":\"$slot\",\"module_id\":\"$module_id\",\"contract_version\":\"v1\",\"composition\":\"select_one\",\"module_features\":[]}}"
+printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$initialize_id,\"result\":{\"protocol_version\":\"v2\",\"component_id\":\"$component_id\",\"exports\":[{\"slot\":\"$slot\",\"module_id\":\"$module_id\",\"contract_version\":\"v1\",\"composition\":\"select_one\",\"module_features\":[]}]}}"
 
 while IFS= read -r search_request; do
     request_id=$(rpc_id "$search_request")

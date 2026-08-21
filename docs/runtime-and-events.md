@@ -53,8 +53,8 @@ named config `<name>.config.toml` в default config dir. `coding`, `codex` и
 `full` включают real-provider coding profile с reference process tools после
 `./install.sh`, `safe` использует fake model.
 
-`doctor` проверяет default/explicit config, process descriptors и доступность
-их команд, выбранные module ids, активный model provider, наличие секрета
+`doctor` проверяет default/explicit config, process components/exports и
+доступность их команд, выбранные module ids, активный model provider, наличие секрета
 провайдера, внешние команды вроде `rg`, runtime timeout'ы, event log path и
 tool registry. Строгий protocol handshake выполняется conformance gate-ом и
 при реальной сборке runtime snapshot, а не read-only командой `doctor`.

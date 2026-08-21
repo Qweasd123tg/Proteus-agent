@@ -42,33 +42,38 @@
     "subagent": "sequential",
     "renderer": "statusline"
   },
-  "process_modules": [
-    {
-      "slot": "workflow",
-      "module_id": "coding.plan_execute_review",
-      "command": "proteus-reference-worker"
+  "components": {
+    "reference-workflow": {
+      "command": "proteus-reference-worker",
+      "exports": {
+        "workflow": {
+          "coding.plan_execute_review": {}
+        }
+      }
     },
-    {
-      "slot": "context",
-      "module_id": "simple",
-      "command": "proteus-reference-worker"
+    "reference-context": {
+      "command": "proteus-reference-worker",
+      "exports": {
+        "context": {
+          "simple": {}
+        }
+      }
     },
-    {
-      "slot": "policy",
-      "module_id": "ask_write",
-      "command": "proteus-reference-worker"
-    },
-    {
-      "slot": "compactor",
-      "module_id": "codex",
-      "command": "proteus-reference-worker"
-    },
-    {
-      "slot": "renderer",
-      "module_id": "statusline",
-      "command": "proteus-reference-worker"
+    "reference-capabilities": {
+      "command": "proteus-reference-worker",
+      "exports": {
+        "policy": {
+          "ask_write": {}
+        },
+        "compactor": {
+          "codex": {}
+        },
+        "renderer": {
+          "statusline": {}
+        }
+      }
     }
-  ],
+  },
   "subagents": {
     "surface": "task"
   },

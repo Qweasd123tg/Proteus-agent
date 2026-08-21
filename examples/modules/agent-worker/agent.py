@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Dependency-free out-of-tree Workflow v1 agent worker for Proteus.
+"""Dependency-free out-of-tree Workflow v1 component for Proteus.
 
 The worker owns a small model/tool loop. Models, tools, policy, approvals,
 safety, events, and cancellation remain host capabilities reached only through
-the versioned bidirectional process-module protocol.
+the versioned bidirectional process-component protocol.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import uuid
 from typing import Any, NoReturn
 
 
-PROTOCOL_VERSION = "v1"
+PROTOCOL_VERSION = "v2"
 SLOT = "workflow"
 MODULE_ID = "python_agent_loop"
 CONTRACT_VERSION = "v1"
@@ -23,6 +23,10 @@ CANCELLED_CODE = -32800
 
 INITIALIZE_FIELDS = {
     "protocol_version",
+    "component_id",
+    "exports",
+}
+EXPORT_INITIALIZE_FIELDS = {
     "slot",
     "module_id",
     "contract_version",
@@ -30,6 +34,8 @@ INITIALIZE_FIELDS = {
     "module_config",
     "host_features",
 }
+CALL_FIELDS = {"export", "params"}
+EXPORT_REF_FIELDS = {"slot", "module_id"}
 INPUT_FIELDS = {"task", "history", "runtime"}
 RUNTIME_FIELDS = {
     "session_id",
@@ -75,6 +81,14 @@ def require_string_list(value: Any, label: str) -> list[str]:
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
         raise ProtocolError(f"{label} must be an array of strings")
     return value
+
+
+def unwrap_call(params: Any) -> Any:
+    call = require_object(params, CALL_FIELDS, "component call")
+    export = require_object(call["export"], EXPORT_REF_FIELDS, "component call export")
+    if export != {"slot": SLOT, "module_id": MODULE_ID}:
+        raise ProtocolError(f"unknown component export: {export!r}")
+    return call["params"]
 
 
 def compact_json(value: Any) -> str:
@@ -444,26 +458,41 @@ def initialize(raw: Any) -> dict[str, Any]:
     if request["jsonrpc"] != "2.0" or request["method"] != "initialize":
         raise ProtocolError("first request must be JSON-RPC initialize")
     params = require_object(request["params"], INITIALIZE_FIELDS, "initialize params")
-    expected = (PROTOCOL_VERSION, SLOT, MODULE_ID, CONTRACT_VERSION, "select_one")
+    if params["protocol_version"] != PROTOCOL_VERSION:
+        raise ProtocolError(f"unsupported component protocol: {params['protocol_version']!r}")
+    component_id = params["component_id"]
+    if not isinstance(component_id, str) or not component_id.strip():
+        raise ProtocolError("initialize component_id must be a non-empty string")
+    exports = params["exports"]
+    if not isinstance(exports, list) or len(exports) != 1:
+        raise ProtocolError("python agent component requires exactly one export")
+    export = require_object(
+        exports[0], EXPORT_INITIALIZE_FIELDS, "initialize export"
+    )
+    expected = (SLOT, MODULE_ID, CONTRACT_VERSION, "select_one")
     actual = (
-        params["protocol_version"],
-        params["slot"],
-        params["module_id"],
-        params["contract_version"],
-        params["composition"],
+        export["slot"],
+        export["module_id"],
+        export["contract_version"],
+        export["composition"],
     )
     if actual != expected:
         raise ProtocolError(f"unsupported initialize identity: {actual!r}")
-    if require_string_list(params["host_features"], "host_features"):
+    if require_string_list(export["host_features"], "host_features"):
         raise ProtocolError("workflow v1 has no negotiated optional features")
-    config = parse_config(params["module_config"])
+    config = parse_config(export["module_config"])
     manifest = {
         "protocol_version": PROTOCOL_VERSION,
-        "slot": SLOT,
-        "module_id": MODULE_ID,
-        "contract_version": CONTRACT_VERSION,
-        "composition": "select_one",
-        "module_features": [],
+        "component_id": component_id,
+        "exports": [
+            {
+                "slot": SLOT,
+                "module_id": MODULE_ID,
+                "contract_version": CONTRACT_VERSION,
+                "composition": "select_one",
+                "module_features": [],
+            }
+        ],
     }
     send(result_response(request["id"], manifest))
     return config
@@ -507,7 +536,7 @@ def main() -> int:
                 raise ProtocolError("workflow invocation id must be a string")
             peer.active_invocation = request_id
             peer.cancelled = False
-            output = run_workflow(peer, request["params"], config)
+            output = run_workflow(peer, unwrap_call(request["params"]), config)
             send(result_response(request_id, output))
         except InvocationCanceled as error:
             send(error_response(request_id, CANCELLED_CODE, str(error)))

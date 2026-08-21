@@ -146,10 +146,10 @@ fn load_config_page(
             Ok(summary) => {
                 let module_count = summary.modules.len();
                 let tool_count = summary.registered_tools.len();
-                let process_count = summary.process_modules.len();
+                let component_count = summary.components.len();
                 set_summary.set(Some(summary));
                 set_status.set(format!(
-                    "{module_count} selected modules · {tool_count} tools · {process_count} process workers"
+                    "{module_count} selected modules · {tool_count} tools · {component_count} components"
                 ));
             }
             Err(error) => {

@@ -15,32 +15,29 @@ policy = "ask_write"
 subagent = "sequential"
 renderer = "statusline"
 
-[[process_modules]]
-slot = "workflow"
-module_id = "coding.single_loop"
+[components.reference-workflow]
 command = "proteus-reference-worker"
 
-[[process_modules]]
-slot = "context"
-module_id = "simple"
+[components.reference-workflow.exports.workflow."coding.single_loop"]
+
+[components.reference-context]
 command = "proteus-reference-worker"
 
-[[process_modules]]
-slot = "policy"
-module_id = "ask_write"
+[components.reference-context.exports.context.simple]
+
+[components.reference-capabilities]
 command = "proteus-reference-worker"
 
-[[process_modules]]
-slot = "renderer"
-module_id = "statusline"
-command = "proteus-reference-worker"
+[components.reference-capabilities.exports.policy.ask_write]
+
+[components.reference-capabilities.exports.renderer.statusline]
 
 [subagents]
 surface = "task"
 
 [tools]
 # Core-resident slot facade tools. Add a `tool/reference.tools` process
-# descriptor before enabling file, git, shell, plan, skill, or LSP tools.
+# export before enabling file, git, shell, plan, skill, or LSP tools.
 enabled = ["apply_patch", "remember_fact", "request_user_input", "search"]
 
 [permissions]

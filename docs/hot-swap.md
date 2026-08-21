@@ -1,10 +1,10 @@
 # Hot-Swap И Runtime Snapshots
 
 Текущая реализация поддерживает snapshot-based `reload_tools`, а не полный
-live reload process modules.
+live reload process components.
 
 ```text
-AppConfig + Process descriptors + MCP discovery
+AppConfig + Process components/exports + MCP discovery
   -> RuntimeSnapshot(epoch=N)
 
 reload tools config
@@ -34,19 +34,20 @@ next turn sees N+1
 4. публикуют новый epoch;
 5. испускают `ModulesReloaded { old_epoch, new_epoch, tool_names }`.
 
-`modules.*`, `process_modules`, provider и opaque module config этим
+`modules.*`, `components`, provider и opaque module config этим
 endpoint не переключаются. Для них app-server restart остаётся честной
 границей.
 
 ## Process Lifecycle
 
-Process module session принадлежит snapshot adapter-у. Когда старый snapshot
-больше никем не удерживается, worker завершается вместе с adapter/host
-lifecycle. Никакой native library в address space нет.
+Process component session разделяется его export adapters внутри snapshot-а.
+Когда старый snapshot больше никем не удерживается, worker завершается вместе
+с launcher/host lifecycle. Никакой native library в address space нет.
 
 Смерть worker-а во время invocation даёт ошибку текущему вызову. Следующая
-invocation той же session abstraction может lazily spawn child и повторить
-handshake. Это recovery, не config hot-swap и не retry текущей операции.
+invocation любого export той же session abstraction может lazily spawn child
+и повторить exact-set handshake. Это recovery, не config hot-swap и не retry
+текущей операции.
 
 ## Dynamic MCP
 
@@ -79,7 +80,7 @@ Bridge меняет model-visible catalog, но не execution authority.
 
 Если он понадобится, минимальные требования:
 
-- атомарно перечитать selection + descriptors + config;
+- атомарно перечитать selection + components/exports + config;
 - handshake всех новых selected workers до публикации;
 - сохранить старый snapshot для активных turns;
 - завершить новые workers при failed build;

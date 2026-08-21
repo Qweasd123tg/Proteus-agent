@@ -28,10 +28,10 @@ pub struct AppConfig {
     pub modules: ModulesConfig,
     #[serde(default)]
     pub module_config: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
-    /// Host-owned launch descriptors for all external process modules.
-    /// Module-owned configuration remains separate in `module_config`.
+    /// Host-owned persistent process components keyed by component id.
+    /// Module-owned export configuration remains separate in `module_config`.
     #[serde(default)]
-    pub process_modules: Vec<crate::process_adapters::ProcessAdapterConfig>,
+    pub components: BTreeMap<String, crate::process_adapters::ProcessComponentConfig>,
     #[serde(default)]
     pub tools: ToolsConfig,
     #[serde(default)]
@@ -61,7 +61,7 @@ impl Default for AppConfig {
             instructions: Vec::new(),
             modules: ModulesConfig::default(),
             module_config: BTreeMap::new(),
-            process_modules: Vec::new(),
+            components: BTreeMap::new(),
             tools: ToolsConfig::default(),
             subagents: SubagentsConfig::default(),
             permissions: PermissionsConfig::default(),
@@ -138,7 +138,7 @@ impl AppConfig {
             .unwrap_or(serde_json::Value::Null)
     }
 
-    pub fn process_module_config(&self, slot: &str, id: &str) -> Result<serde_json::Value> {
+    pub fn process_export_config(&self, slot: &str, id: &str) -> Result<serde_json::Value> {
         let value = self
             .module_config
             .get(slot)

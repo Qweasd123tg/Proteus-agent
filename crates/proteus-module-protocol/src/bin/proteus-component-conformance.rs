@@ -2,26 +2,26 @@ use std::{path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
+use proteus_contracts::contracts::{PROCESS_COMPONENT_PROTOCOL_VERSION, ProcessComponentExportRef};
 use proteus_module_protocol::{
-    ProcessModuleBinding, ProcessModuleSession, ProcessModuleSessionOptions, ProcessModuleTerminal,
+    ProcessComponentBinding, ProcessComponentSession, ProcessComponentSessionOptions,
+    ProcessExportBinding, ProcessModuleTerminal,
 };
 use proteus_process_host::ProcessSpec;
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "proteus-module-conformance",
-    about = "Run the strict Proteus process-module v1 handshake and an optional contract probe"
+    name = "proteus-component-conformance",
+    about = "Run the strict Proteus process-component v2 handshake and an optional export probe"
 )]
 struct Cli {
     #[arg(long)]
-    slot: String,
-    #[arg(long)]
-    module_id: String,
-    #[arg(long)]
-    contract_version: String,
-    #[arg(long, default_value = "{}")]
-    module_config: String,
+    component_id: String,
+    /// Export binding as strict JSON: {"slot":"search","module_id":"rg","contract_version":"v1","module_config":{}}.
+    #[arg(long = "export", required = true)]
+    exports: Vec<String>,
     #[arg(long, default_value_t = 30_000)]
     timeout_ms: u64,
     #[arg(long)]
@@ -30,13 +30,30 @@ struct Cli {
     env_allowlist: Vec<String>,
     #[arg(long = "env", value_parser = parse_env)]
     env: Vec<(String, String)>,
+    /// Probe target in `slot/module_id` form.
+    #[arg(long)]
+    probe_export: Option<String>,
     #[arg(long)]
     probe_method: Option<String>,
-    #[arg(long, requires = "probe_method")]
+    #[arg(long)]
     probe_params: Option<String>,
     /// Worker command and arguments. Must follow `--`.
     #[arg(required = true, last = true, num_args = 1..)]
     command: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExportArgument {
+    slot: String,
+    module_id: String,
+    contract_version: String,
+    #[serde(default = "empty_object")]
+    module_config: Value,
+}
+
+fn empty_object() -> Value {
+    json!({})
 }
 
 fn main() {
@@ -50,7 +67,29 @@ fn run(cli: Cli) -> Result<()> {
     if cli.timeout_ms == 0 {
         bail!("--timeout-ms must be greater than zero");
     }
-    let module_config = parse_json("--module-config", &cli.module_config)?;
+    if cli.probe_method.is_some() != cli.probe_export.is_some() {
+        bail!("--probe-method and --probe-export must be supplied together");
+    }
+    if cli.probe_params.is_some() && cli.probe_method.is_none() {
+        bail!("--probe-params requires --probe-method");
+    }
+
+    let exports = cli
+        .exports
+        .iter()
+        .map(|value| {
+            let export: ExportArgument = serde_json::from_str(value)
+                .with_context(|| format!("--export must be strict JSON: {value}"))?;
+            ProcessExportBinding::new(
+                export.slot,
+                export.module_id,
+                export.contract_version,
+                export.module_config,
+            )
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let binding = ProcessComponentBinding::new(cli.component_id.clone(), exports)?;
+
     let (command, args) = cli
         .command
         .split_first()
@@ -63,41 +102,47 @@ fn run(cli: Cli) -> Result<()> {
         spec = spec.cwd(cwd);
     }
 
-    let binding = ProcessModuleBinding::new(
-        cli.slot.clone(),
-        cli.module_id.clone(),
-        cli.contract_version.clone(),
-        module_config,
-    )?;
     let timeout = Duration::from_millis(cli.timeout_ms);
-    let session = ProcessModuleSession::connect(
+    let session = ProcessComponentSession::connect(
         spec,
-        binding,
-        ProcessModuleSessionOptions {
+        binding.clone(),
+        ProcessComponentSessionOptions {
             handshake_timeout: timeout,
-            ..ProcessModuleSessionOptions::default()
+            ..ProcessComponentSessionOptions::default()
         },
     )?;
-    let authority = session.authority();
+    let exports = binding
+        .exports
+        .iter()
+        .map(|export| {
+            let authority = export.authority()?;
+            Ok(json!({
+                "slot": export.slot,
+                "module_id": export.module_id,
+                "contract_version": export.contract_version,
+                "composition": authority.composition,
+                "module_methods": authority.module_methods,
+                "host_methods": authority.host_methods,
+                "callback_dependency_slots": authority.callback_dependency_slots,
+                "host_features": authority.host_features,
+                "required_features": authority.required_features,
+            }))
+        })
+        .collect::<Result<Vec<_>>>()?;
     let mut report = json!({
-        "protocol_version": "v1",
-        "slot": cli.slot,
-        "module_id": cli.module_id,
-        "contract_version": cli.contract_version,
-        "composition": authority.composition,
-        "module_methods": authority.module_methods,
-        "host_methods": authority.host_methods,
-        "host_features": authority.host_features,
-        "required_features": authority.required_features,
+        "protocol_version": PROCESS_COMPONENT_PROTOCOL_VERSION,
+        "component_id": cli.component_id,
+        "exports": exports,
         "handshake": "success"
     });
 
-    if let Some(method) = cli.probe_method {
+    if let (Some(target), Some(method)) = (cli.probe_export, cli.probe_method) {
+        let target = parse_export_ref(&target)?;
         let params = parse_json(
             "--probe-params",
             cli.probe_params.as_deref().unwrap_or("{}"),
         )?;
-        let invocation = session.invoke(&method, params, timeout)?;
+        let invocation = session.invoke(&target, &method, params, timeout)?;
         let output = match invocation.terminal {
             ProcessModuleTerminal::Success(output) => output,
             ProcessModuleTerminal::ModuleError(error) => {
@@ -117,6 +162,7 @@ fn run(cli: Cli) -> Result<()> {
             })
             .collect::<Vec<_>>();
         report["probe"] = json!({
+            "export": target,
             "method": method,
             "invocation_id": invocation.invocation_id,
             "terminal": "success",
@@ -128,6 +174,16 @@ fn run(cli: Cli) -> Result<()> {
     session.terminate()?;
     println!("{}", serde_json::to_string_pretty(&report)?);
     Ok(())
+}
+
+fn parse_export_ref(value: &str) -> Result<ProcessComponentExportRef> {
+    let Some((slot, module_id)) = value.split_once('/') else {
+        bail!("--probe-export must use slot/module_id form");
+    };
+    if slot.trim().is_empty() || module_id.trim().is_empty() {
+        bail!("--probe-export slot and module id must not be empty");
+    }
+    Ok(ProcessComponentExportRef::new(slot, module_id))
 }
 
 fn parse_json(argument: &str, value: &str) -> Result<Value> {
@@ -149,6 +205,15 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
+
+    #[test]
+    fn export_ref_parser_is_strict() {
+        assert_eq!(
+            parse_export_ref("search/rg").expect("target"),
+            ProcessComponentExportRef::new("search", "rg")
+        );
+        parse_export_ref("search").expect_err("missing module id must fail");
+    }
 
     #[test]
     fn env_parser_preserves_equals_in_value() {

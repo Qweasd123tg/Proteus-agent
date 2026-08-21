@@ -10,19 +10,17 @@ use crate::contracts::{
 };
 use crate::domain::{ToolCall, ToolResult, ToolSpec};
 
-use super::{ProcessAdapterConfig, ProcessModuleClient};
+use super::{ProcessExportClient, ProcessExportConfig};
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 
 pub fn build_process_tools(
-    configs: &[ProcessAdapterConfig],
+    configs: &[ProcessExportConfig],
     workspace: &Path,
 ) -> Result<HashMap<String, Arc<dyn Tool>>> {
     let mut tools = HashMap::new();
-    for (index, config) in configs.iter().cloned().enumerate() {
-        let path = format!("process_modules[{index}]");
-        config.validate_for(&path, DEFAULT_TIMEOUT_MS)?;
-        let client = Arc::new(ProcessModuleClient::connect(
+    for config in configs.iter().cloned() {
+        let client = Arc::new(ProcessExportClient::connect(
             "tool",
             PROCESS_TOOL_CONTRACT_VERSION,
             config,
@@ -52,7 +50,7 @@ pub fn build_process_tools(
 
 struct ProcessTool {
     spec: ToolSpec,
-    client: Arc<ProcessModuleClient>,
+    client: Arc<ProcessExportClient>,
 }
 
 #[async_trait]

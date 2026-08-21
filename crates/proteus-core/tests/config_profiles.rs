@@ -117,7 +117,15 @@ async fn codex_family_fragments_preserve_profile_specific_overlays() {
 
     assert_eq!(codex.profile.name, "codex-proxy");
     assert!(codex.modules.renderer.is_none());
-    assert_eq!(codex.process_modules.len(), 9);
+    assert_eq!(codex.components.len(), 3);
+    assert_eq!(
+        codex
+            .components
+            .values()
+            .map(|component| component.exports().count())
+            .sum::<usize>(),
+        9
+    );
     let codex_model = codex.active_model_config().expect("codex model");
     assert_eq!(codex_model.model, "gpt-5.6-luna");
     assert_eq!(codex_model.provider_config["support_verbosity"], true);
@@ -130,7 +138,14 @@ async fn codex_family_fragments_preserve_profile_specific_overlays() {
 
     assert_eq!(glm.profile.name, "glm-proxy");
     assert_eq!(glm.modules.renderer.as_deref(), Some("statusline"));
-    assert_eq!(glm.process_modules.len(), 10);
+    assert_eq!(glm.components.len(), 3);
+    assert_eq!(
+        glm.components
+            .values()
+            .map(|component| component.exports().count())
+            .sum::<usize>(),
+        10
+    );
     let glm_model = glm.active_model_config().expect("glm model");
     assert_eq!(glm_model.model, "glm-5.2");
     assert_eq!(glm_model.provider_config["stream_error_fallback"], true);

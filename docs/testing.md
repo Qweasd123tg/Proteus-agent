@@ -80,12 +80,16 @@ cargo test -p proteus-core --test module_swap -- --nocapture
 - две process implementations одного slot заменяются без изменения canonical
   contract;
 - отсутствие selection является structural behavior;
-- selected id требует exact descriptor;
+- selected id требует exact component export;
 - duplicate identity отклоняется;
 - handshake mismatch ломает snapshot build;
 - module error не вызывает fallback;
 - old/bare response shape отвергается;
 - handshake не блокирует async runtime;
+- два exports одного component используют один child/session;
+- callback authority остаётся request-scoped и не объединяется;
+- cancel одного export reset-ит общий component failure domain;
+- direct/transitive single-flight callback cycle отклоняется до spawn;
 - умерший persistent process lazily перезапускается для следующей invocation.
 
 Test fixtures — внешние shell workers. Они не линкуют reference crates и
@@ -99,7 +103,8 @@ cargo test -p proteus-reference-worker --test conformance -- --nocapture
 
 Suite подтверждает:
 
-- strict v1 handshake всех 26 selectors;
+- strict component-v2 handshake всех 26 selectors;
+- multi-export routing по одному persistent session;
 - aggregate tool `list` и реальный `read_file`;
 - real `rg`, patch и обе memory implementations;
 - policy, renderer, tool exposure, skills provider и compactor;
@@ -114,19 +119,19 @@ Reference modules не получают отдельный облегчённы�
 Handshake отдельного Python worker-а:
 
 ```bash
-cargo run -p proteus-module-protocol --bin proteus-module-conformance -- --slot search --module-id python_rg --contract-version v1 --probe-method search --probe-params '{"text":"","cwd":".","max_results":0,"use_case":"conformance","starts_with":[],"ends_with":[]}' -- python3 examples/modules/search-process/search.py
+cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-search --export '{"slot":"search","module_id":"python_rg","contract_version":"v1","module_config":{}}' --probe-export search/python_rg --probe-method search --probe-params '{"text":"","cwd":".","max_results":0,"use_case":"conformance","starts_with":[],"ends_with":[]}' -- python3 examples/modules/search-process/search.py
 ```
 
 Compactor:
 
 ```bash
-cargo run -p proteus-module-protocol --bin proteus-module-conformance -- --slot compactor --module-id python_suffix --contract-version v1 --module-config '{"trigger_messages":12,"retain_user_turns":2}' -- python3 examples/modules/compactor-process/compact.py
+cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-compactor --export '{"slot":"compactor","module_id":"python_suffix","contract_version":"v1","module_config":{"trigger_messages":12,"retain_user_turns":2}}' -- python3 examples/modules/compactor-process/compact.py
 ```
 
 Workflow handshake:
 
 ```bash
-cargo run -p proteus-module-protocol --bin proteus-module-conformance -- --slot workflow --module-id python_agent_loop --contract-version v1 -- python3 examples/modules/agent-worker/agent.py
+cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-agent --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v1","module_config":{}}' -- python3 examples/modules/agent-worker/agent.py
 ```
 
 Conformance CLI без probe доказывает identity/authority, но не поведение slot.
@@ -138,7 +143,8 @@ Strict draft protocol должен иметь tests минимум на:
 
 - unknown request/response fields;
 - missing required fields;
-- wrong protocol/contract/slot/module/composition;
+- wrong protocol/component/contract/slot/module/composition;
+- missing/extra/duplicate export и неверный invocation target;
 - forbidden module method;
 - forbidden host callback;
 - mismatched response id;

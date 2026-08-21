@@ -81,7 +81,7 @@ producer/consumer нигде не перечислены и не проверя�
    общими константами из п.2: producer и consumer тестируют один маркер.
 5. **Profile contract declaration (позже, если 1–4 не хватит).** Отдельная
    typed config section может перечислять `produces`/`consumes` contract ids;
-   doctor сверит пары активного профиля. Не добавлять это в module descriptor:
+   doctor сверит пары активного профиля. Не добавлять это в component/export launch config:
    launch identity не должна знать композицию конкретного pack-а.
 6. **Typed message origin (отдельное решение).** Сниффинг префиксов текста в
    compactor-е — следствие того, что у `CanonicalMessage` нет поля

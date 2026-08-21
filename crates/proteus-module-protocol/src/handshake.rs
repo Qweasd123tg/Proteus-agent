@@ -1,29 +1,31 @@
-use std::{collections::BTreeSet, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Duration,
+};
 
 use anyhow::{Context, Result, bail};
 use proteus_contracts::contracts::{
-    PROCESS_MODULE_INITIALIZE_METHOD, PROCESS_MODULE_PROTOCOL_VERSION, ProcessModuleInitialize,
-    ProcessModuleManifest,
+    PROCESS_COMPONENT_INITIALIZE_METHOD, PROCESS_COMPONENT_PROTOCOL_VERSION,
+    ProcessComponentExportManifest, ProcessComponentInitialize, ProcessComponentManifest,
 };
 use proteus_process_host::{NewlineJsonFraming, ProcessSession};
 use serde_json::json;
 
 use crate::{
-    ProcessContractAuthority, ProcessModuleBinding,
+    ProcessComponentBinding, ProcessContractAuthority, ProcessExportBinding,
     envelope::{self, IncomingMessage},
 };
 
 pub(crate) fn initialize_session(
     session: &mut ProcessSession<NewlineJsonFraming>,
-    initialize: &ProcessModuleInitialize,
-    binding: &ProcessModuleBinding,
-    authority: ProcessContractAuthority,
+    initialize: &ProcessComponentInitialize,
+    binding: &ProcessComponentBinding,
     timeout: Duration,
 ) -> Result<()> {
     let id = json!("initialize");
     session.send_frame(envelope::request(
         id.clone(),
-        PROCESS_MODULE_INITIALIZE_METHOD,
+        PROCESS_COMPONENT_INITIALIZE_METHOD,
         serde_json::to_value(initialize)?,
     ))?;
     let frame = session
@@ -41,37 +43,73 @@ pub(crate) fn initialize_session(
         bail!("initialize response id {response_id} did not match {id}");
     }
     let value = result.map_err(anyhow::Error::from)?;
-    let manifest: ProcessModuleManifest =
+    let manifest: ProcessComponentManifest =
         serde_json::from_value(value).context("initialize returned an invalid manifest")?;
-    validate_manifest(&manifest, binding, authority)
+    validate_manifest(&manifest, binding)
 }
 
 fn validate_manifest(
-    manifest: &ProcessModuleManifest,
-    binding: &ProcessModuleBinding,
-    authority: ProcessContractAuthority,
+    manifest: &ProcessComponentManifest,
+    binding: &ProcessComponentBinding,
 ) -> Result<()> {
-    if manifest.protocol_version != PROCESS_MODULE_PROTOCOL_VERSION {
+    if manifest.protocol_version != PROCESS_COMPONENT_PROTOCOL_VERSION {
         bail!(
-            "process module protocol mismatch: expected {:?}, got {:?}",
-            PROCESS_MODULE_PROTOCOL_VERSION,
+            "process component protocol mismatch: expected {:?}, got {:?}",
+            PROCESS_COMPONENT_PROTOCOL_VERSION,
             manifest.protocol_version
         );
     }
-    if manifest.slot != binding.slot {
+    if manifest.component_id != binding.component_id {
         bail!(
-            "process module slot mismatch: expected {:?}, got {:?}",
-            binding.slot,
-            manifest.slot
+            "process component id mismatch: expected {:?}, got {:?}",
+            binding.component_id,
+            manifest.component_id
         );
     }
-    if manifest.module_id != binding.module_id {
+
+    let expected = binding
+        .exports
+        .iter()
+        .map(|export| ((export.slot.as_str(), export.module_id.as_str()), export))
+        .collect::<BTreeMap<_, _>>();
+    let mut seen = BTreeSet::new();
+    for export in &manifest.exports {
+        let key = (export.slot.as_str(), export.module_id.as_str());
+        if !seen.insert(key) {
+            bail!(
+                "process component manifest repeats export {}/{}",
+                export.slot,
+                export.module_id
+            );
+        }
+        let Some(binding) = expected.get(&key) else {
+            bail!(
+                "process component returned undeclared export {}/{}",
+                export.slot,
+                export.module_id
+            );
+        };
+        validate_export_manifest(export, binding, *binding.authority()?)?;
+    }
+    if seen.len() != expected.len() {
+        let missing = expected
+            .keys()
+            .find(|key| !seen.contains(*key))
+            .expect("different set sizes imply a missing export");
         bail!(
-            "process module id mismatch: expected {:?}, got {:?}",
-            binding.module_id,
-            manifest.module_id
+            "process component manifest omitted export {}/{}",
+            missing.0,
+            missing.1
         );
     }
+    Ok(())
+}
+
+fn validate_export_manifest(
+    manifest: &ProcessComponentExportManifest,
+    binding: &ProcessExportBinding,
+    authority: ProcessContractAuthority,
+) -> Result<()> {
     if manifest.contract_version != binding.contract_version {
         bail!(
             "process module contract mismatch: expected {:?}, got {:?}",

@@ -27,7 +27,7 @@ use crate::{
     model_standard::CanonicalMessage,
 };
 
-use super::{ProcessAdapterConfig, ProcessModuleClient};
+use super::{ProcessExportClient, ProcessExportConfig};
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const HOST_CALLBACK_ERROR: i64 = -32_100;
@@ -35,12 +35,12 @@ const HOST_CALLBACK_ERROR: i64 = -32_100;
 /// One persistent external Workflow implementation selected through config.
 pub struct ProcessWorkflowAdapter {
     workflow_timeout_ms: u64,
-    client: Arc<ProcessModuleClient>,
+    client: Arc<ProcessExportClient>,
 }
 
 impl ProcessWorkflowAdapter {
     pub fn new(
-        config: ProcessAdapterConfig,
+        config: ProcessExportConfig,
         workspace: &Path,
         workflow_timeout_ms: u64,
     ) -> Result<Self> {
@@ -49,7 +49,7 @@ impl ProcessWorkflowAdapter {
         } else {
             workflow_timeout_ms.saturating_add(1_000)
         };
-        let client = ProcessModuleClient::connect(
+        let client = ProcessExportClient::connect(
             "workflow",
             PROCESS_WORKFLOW_CONTRACT_VERSION,
             config,

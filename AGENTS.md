@@ -18,11 +18,17 @@ Core не должен знать детали конкретного поиск
 authority(module) = authority(slot, invocation_context)
 ```
 
-Права, host capabilities, config, cancellation, lifecycle и failure semantics
-не должны зависеть от `module_id`, языка или расположения реализации. Внешняя
-граница — единый process protocol, описанный в
+Права, host capabilities, config, cancellation и failure semantics не должны
+зависеть от `module_id`, языка или расположения реализации. Внешняя граница —
+Component Runtime v1 с wire protocol v2, описанный в
 `docs/process-module-architecture.md`. Dylib ABI и loader удалены; возвращать
 второй native extension path нельзя.
+
+Один configured component может экспортировать несколько `slot/module_id` и
+даёт им общий process lifecycle/failure domain. Authority всё равно
+вычисляется по активному export, а не объединяется на component. Текущая
+session single-flight: не группируйте exports, если синхронный callback одного
+из них маршрутизируется в другой export того же component.
 
 Transport и cardinality не смешиваются. Host-defined process contract явно
 задаёт один из режимов:
@@ -75,14 +81,14 @@ rendering, UI state, tests и provider/module-specific детали.
 crates/
     proteus-contracts/     - публичный crate: traits, DTO, canonical model и process-module helpers
     proteus-core/          - ядро: runtime, wiring, process adapters, model adapters и app-server
-    proteus-module-protocol/ - strict process v1 session, authority table и conformance runner
+    proteus-module-protocol/ - strict component-v2 session, authority table и conformance runner
     proteus-process-host/  - protocol-neutral lifecycle persistent stdio child-процессов
 clients/
     web/                 - основной Leptos chat-клиент
     inspector/           - отдельный Leptos config/architecture-клиент
 modules/
     reference/           - reference/dogfood implementations; не default и не привилегированный pack
-        process-worker/      - единый executable, публикующий reference modules по process v1
+        process-worker/      - executable, публикующий exact reference exports по component v2
         file-tools/          - полноразмерные tools read/write/edit/list/grep
         git-tools/           - read-only git_status/git_diff tools
         shell-tool/          - tools shell / exec_command / write_stdin (sh -lc, PTY-сессии)
@@ -103,7 +109,7 @@ modules/
 configs/                 - packaged named configs и prompts (источник install.sh)
 examples/
     configs/             - example-профили (proteus.*.example.toml, config.example.json)
-    modules/             - runnable process-module protocol examples
+    modules/             - runnable process-component protocol examples
     mcp/                 - локальный smoke-test MCP server
     research/            - tracked заметки по upstream агентам
 ```
@@ -169,13 +175,13 @@ Reference crates линкуются только внутрь `proteus-reference
 ## Как Добавлять Модуль
 
 1. Найти подходящий trait в `crates/proteus-contracts/src/contracts`.
-2. Проверить, мигрирован ли slot на protocol v1 из
+2. Проверить, имеет ли slot component export contract из
    `docs/process-module-architecture.md`.
 3. Если да — реализовать внешний worker, не зависящий от `proteus-core`, и
    пройти conformance gate этого slot.
 4. Если нет — сначала реализовать общий process adapter для всего slot. Не
    добавлять временный native/builtin путь для одной implementation.
-5. Добавить explicit config/profile selection; reference implementation при
+5. Добавить explicit component export и config/profile selection; reference implementation при
    необходимости разместить в `modules/reference/<name>`, не присваивая ей
    default/standard статус.
 6. Добавить protocol и runtime swap evidence, затем обновить `docs/modules.md`

@@ -11,8 +11,8 @@ Core -> Contract -> Module Implementation
 
 `proteus-core` знает, когда вызвать search, policy или workflow, но не знает
 алгоритм конкретной реализации. DTO и traits принадлежат
-`proteus-contracts`; внешняя implementation говорит с host через process
-protocol v1.
+`proteus-contracts`; внешняя implementation говорит с host через component
+wire protocol v2, сохраняя slot contract v1.
 
 Для каждой invocation:
 
@@ -79,7 +79,7 @@ examples/                  configs, external workers, MCP smoke
 ```text
 request
   -> session lock + TurnStarted
-  -> selected Workflow process module
+  -> selected Workflow component export
        -> host.context.build
        -> host.tools.select
        -> host.model.complete
@@ -88,7 +88,7 @@ request
        -> host.events.emit
   -> validate WorkflowOutput
   -> canonical journal + history
-  -> Renderer process module
+  -> Renderer component export
   -> CLI/HTTP response
 ```
 
@@ -103,15 +103,19 @@ ToolRegistry -> visibility -> ApprovalPolicy -> ApprovalTransport
 
 Module failure не переключает выбранную реализацию на другую. Ошибка, timeout,
 cancel, invalid response или смерть process классифицируются host-ом и
-завершают текущую операцию. Умерший persistent worker может быть лениво
-перезапущен только для следующего запроса той же выбранной реализации.
+завершают текущую операцию. Если component имеет несколько exports, они делят
+этот failure domain; следующая invocation любого export может лениво поднять
+новый process и повторить полный handshake.
 
 ## Slot, Module, Worker И Profile
 
 - **Slot** — host-defined contract и точка вызова: например `search`.
 - **Module** — реализация slot с конкретным `module_id`.
-- **Worker** — executable, публикующий одну выбранную identity во время
-  handshake. Один binary может уметь запускаться под разными identities.
+- **Component** — один configured executable, persistent process и shared
+  lifecycle/failure domain.
+- **Export** — точная пара `slot/module_id`, опубликованная component.
+- **Worker** — executable, который подтверждает exact set exports во время
+  handshake. Один binary может обслуживать разные component bindings.
 - **Profile** — config, который выбирает modules, provider, tools и policy.
 - **Reference module** — tracked тестовая/dogfood implementation без особых
   прав.
@@ -140,10 +144,10 @@ Worker не может объявить новый composition mode или пр�
 [modules]
 search = "rg"
 
-[[process_modules]]
-slot = "search"
-module_id = "rg"
+[components.reference-capabilities]
 command = "proteus-reference-worker"
+
+[components.reference-capabilities.exports.search.rg]
 
 [module_config.search.rg]
 max_results = 50
@@ -152,8 +156,8 @@ max_results = 50
 `ModuleCatalog::from_config`:
 
 1. добавляет явно учтённые core-owned model/subagent adapters;
-2. валидирует каждый `[[process_modules]]`;
-3. регистрирует process factory по точной паре `slot/module_id`;
+2. валидирует каждый component и его непустой exact export set;
+3. создаёт один shared launcher и регистрирует process factory каждого export;
 4. отклоняет duplicate identity и unsupported slot;
 5. при сборке registry требует, чтобы выбранный id существовал.
 
@@ -181,19 +185,22 @@ Module config остаётся opaque JSON object для реализации. C
 
 ## Process Boundary
 
-Launch descriptor определяет command, args, cwd, allowlisted environment и
-timeouts. После spawn host отправляет `initialize` с:
+Component config определяет command, args, cwd, allowlisted environment,
+handshake timeout и per-export invocation timeouts. После spawn host отправляет
+`initialize` с:
 
 - protocol version;
-- slot;
-- module id;
-- contract version;
-- composition;
-- module config;
-- host features.
+- component id;
+- полным массивом exports;
+- для каждого export: slot, module id, contract version, composition, module
+  config и host features.
 
-Worker обязан вернуть exact manifest. Старые/лишние поля отвергаются.
-Дальнейшие module и `host.*` methods проверяются общей authority table.
+Worker обязан вернуть manifest с тем же exact export set. Каждый module call
+несёт target export; дальнейшие module и `host.*` methods проверяются общей
+authority table именно активного target. Все exports делят одну single-flight
+session, reset и lazy restart. Синхронный callback в соседний export того же
+component запрещён архитектурно, потому что создаёт reentrant cycle.
+Старые/лишние поля отвергаются.
 Подробнее: [process-module-architecture.md](process-module-architecture.md).
 
 Process boundary даёт lifecycle isolation, но пока не OS sandbox. Worker

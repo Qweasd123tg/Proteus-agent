@@ -40,7 +40,7 @@ pub(crate) struct ConfigSummary {
     pub(crate) modules: Vec<ConfigModule>,
     pub(crate) tools_enabled: Vec<String>,
     pub(crate) registered_tools: Vec<ConfigTool>,
-    pub(crate) process_modules: Vec<ConfigProcessModule>,
+    pub(crate) components: Vec<ConfigComponent>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
@@ -74,7 +74,13 @@ pub(crate) struct ConfigTool {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
-pub(crate) struct ConfigProcessModule {
+pub(crate) struct ConfigComponent {
+    pub(crate) id: String,
+    pub(crate) exports: Vec<ConfigComponentExport>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
+pub(crate) struct ConfigComponentExport {
     pub(crate) slot: String,
     pub(crate) module_id: String,
 }

@@ -16,13 +16,17 @@ from pathlib import PurePath
 from typing import Any
 
 
-PROTOCOL_VERSION = "v1"
+PROTOCOL_VERSION = "v2"
 SLOT = "search"
 MODULE_ID = "python_rg"
 CONTRACT_VERSION = "v1"
 
 INITIALIZE_FIELDS = {
     "protocol_version",
+    "component_id",
+    "exports",
+}
+EXPORT_INITIALIZE_FIELDS = {
     "slot",
     "module_id",
     "contract_version",
@@ -30,6 +34,8 @@ INITIALIZE_FIELDS = {
     "module_config",
     "host_features",
 }
+CALL_FIELDS = {"export", "params"}
+EXPORT_REF_FIELDS = {"slot", "module_id"}
 QUERY_FIELDS = {
     "text",
     "cwd",
@@ -66,29 +72,49 @@ def require_string_list(value: Any, label: str) -> list[str]:
     return value
 
 
-def validate_initialize(params: Any) -> None:
+def validate_initialize(params: Any) -> str:
     params = require_object(params, INITIALIZE_FIELDS, "initialize params")
+    if params["protocol_version"] != PROTOCOL_VERSION:
+        raise ProtocolError(f"unsupported component protocol: {params['protocol_version']!r}")
+    component_id = params["component_id"]
+    if not isinstance(component_id, str) or not component_id.strip():
+        raise ProtocolError("initialize component_id must be a non-empty string")
+    exports = params["exports"]
+    if not isinstance(exports, list) or len(exports) != 1:
+        raise ProtocolError("python search component requires exactly one export")
+    export = require_object(
+        exports[0], EXPORT_INITIALIZE_FIELDS, "initialize export"
+    )
     expected_identity = (
-        PROTOCOL_VERSION,
         SLOT,
         MODULE_ID,
         CONTRACT_VERSION,
         "select_one",
     )
     actual_identity = (
-        params["protocol_version"],
-        params["slot"],
-        params["module_id"],
-        params["contract_version"],
-        params["composition"],
+        export["slot"],
+        export["module_id"],
+        export["contract_version"],
+        export["composition"],
     )
     if actual_identity != expected_identity:
-        raise ProtocolError(f"unsupported initialize params: {params!r}")
+        raise ProtocolError(f"unsupported initialize export: {export!r}")
+    if not isinstance(export["module_config"], dict):
+        raise ProtocolError("initialize module_config must be an object")
     host_features = require_string_list(
-        params["host_features"], "initialize host_features"
+        export["host_features"], "initialize host_features"
     )
     if host_features:
         raise ProtocolError(f"unsupported host features: {host_features!r}")
+    return component_id
+
+
+def unwrap_call(params: Any) -> Any:
+    call = require_object(params, CALL_FIELDS, "component call")
+    export = require_object(call["export"], EXPORT_REF_FIELDS, "component call export")
+    if export != {"slot": SLOT, "module_id": MODULE_ID}:
+        raise ProtocolError(f"unknown component export: {export!r}")
+    return call["params"]
 
 
 def validate_query(params: Any) -> dict[str, Any]:
@@ -239,7 +265,7 @@ def error_response(request_id: Any, code: int, message: str) -> dict[str, Any]:
     }
 
 
-def handle_request(raw: Any, initialized: bool) -> tuple[dict[str, Any], bool]:
+def handle_request(raw: Any, component_id: str | None) -> tuple[dict[str, Any], str]:
     request = require_object(raw, REQUEST_FIELDS, "JSON-RPC request")
     request_id = request["id"]
     if not isinstance(request_id, (int, str)) or isinstance(request_id, bool):
@@ -251,22 +277,28 @@ def handle_request(raw: Any, initialized: bool) -> tuple[dict[str, Any], bool]:
         raise ProtocolError("JSON-RPC method must be a string")
 
     if method == "initialize":
-        if initialized:
+        if component_id is not None:
             raise ProtocolError("initialize may be called only once")
-        validate_initialize(request["params"])
+        component_id = validate_initialize(request["params"])
         manifest = {
             "protocol_version": PROTOCOL_VERSION,
-            "slot": SLOT,
-            "module_id": MODULE_ID,
-            "contract_version": CONTRACT_VERSION,
-            "composition": "select_one",
-            "module_features": [],
+            "component_id": component_id,
+            "exports": [
+                {
+                    "slot": SLOT,
+                    "module_id": MODULE_ID,
+                    "contract_version": CONTRACT_VERSION,
+                    "composition": "select_one",
+                    "module_features": [],
+                }
+            ],
         }
-        return response(request_id, manifest), True
-    if not initialized:
-        raise ProtocolError("module must be initialized before method calls")
+        return response(request_id, manifest), component_id
+    if component_id is None:
+        raise ProtocolError("component must be initialized before method calls")
     if method == "search":
-        return response(request_id, search(validate_query(request["params"]))), initialized
+        query = validate_query(unwrap_call(request["params"]))
+        return response(request_id, search(query)), component_id
     raise ProtocolError(f"unknown method: {method}")
 
 
@@ -278,7 +310,7 @@ def terminate_from_signal(_signum: int, _frame: Any) -> None:
 def main() -> int:
     signal.signal(signal.SIGTERM, terminate_from_signal)
     signal.signal(signal.SIGINT, terminate_from_signal)
-    initialized = False
+    component_id: str | None = None
     for line in sys.stdin:
         if not line.strip():
             continue
@@ -287,7 +319,7 @@ def main() -> int:
             raw = json.loads(line)
             if isinstance(raw, dict):
                 request_id = raw.get("id")
-            message, initialized = handle_request(raw, initialized)
+            message, component_id = handle_request(raw, component_id)
         except ProtocolError as error:
             message = error_response(request_id, -32602, str(error))
         except Exception as error:  # explicit JSON-RPC failure, never stdout noise

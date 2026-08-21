@@ -143,6 +143,27 @@ fn app_config_requires_explicit_provider_selection_and_rejects_model_field() {
 }
 
 #[test]
+fn app_config_rejects_the_removed_one_export_process_modules_shape() {
+    let error = serde_json::from_value::<AppConfig>(serde_json::json!({
+        "active_provider": "fake",
+        "providers": {"fake": {}},
+        "process_modules": [{
+            "slot": "search",
+            "module_id": "legacy",
+            "command": "worker"
+        }]
+    }))
+    .expect_err("pre-component config must not have a compatibility reader");
+
+    assert!(
+        error
+            .to_string()
+            .contains("unknown field `process_modules`"),
+        "{error}"
+    );
+}
+
+#[test]
 fn configured_tool_default_schema_allows_additional_properties() {
     let tool: ConfiguredToolConfig = serde_json::from_value(serde_json::json!({
         "name": "echo_args",
@@ -359,7 +380,7 @@ active_provider = "fake"
 }
 
 #[tokio::test]
-async fn load_accepts_module_config_for_ordered_process_slots() {
+async fn load_accepts_module_config_for_ordered_component_exports() {
     let dir = tempfile::tempdir().expect("config dir");
     let config_path = dir.path().join("ordered.config.toml");
     std::fs::write(
@@ -369,15 +390,12 @@ active_provider = "fake"
 
 [providers.fake]
 
-[[process_modules]]
-slot = "tool"
-module_id = "custom_tools"
+[components.custom]
 command = "worker"
 
-[[process_modules]]
-slot = "context_provider"
-module_id = "custom_context"
-command = "worker"
+[components.custom.exports.tool.custom_tools]
+
+[components.custom.exports.context_provider.custom_context]
 
 [module_config.tool.custom_tools]
 mode = "strict"
@@ -390,16 +408,16 @@ roots = ["docs"]
 
     let config = AppConfig::load(Some(&config_path))
         .await
-        .expect("ordered process module config");
+        .expect("ordered component export config");
     assert_eq!(
         config
-            .process_module_config("tool", "custom_tools")
+            .process_export_config("tool", "custom_tools")
             .expect("tool config")["mode"],
         "strict"
     );
     assert_eq!(
         config
-            .process_module_config("context_provider", "custom_context")
+            .process_export_config("context_provider", "custom_context")
             .expect("context provider config")["roots"],
         serde_json::json!(["docs"])
     );

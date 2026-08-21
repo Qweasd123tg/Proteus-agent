@@ -9,7 +9,8 @@ use std::{
 use anyhow::{Context, Result, bail};
 use proteus_contracts::contracts::{
     PROCESS_MODULE_ACTIVITY_METHOD, PROCESS_MODULE_CANCEL_METHOD, PROCESS_MODULE_CANCELLED_CODE,
-    PROCESS_MODULE_PROGRESS_METHOD, ProcessModuleCancel,
+    PROCESS_MODULE_PROGRESS_METHOD, ProcessComponentCall, ProcessComponentExportRef,
+    ProcessModuleCancel,
 };
 use proteus_process_host::{
     NewlineJsonFraming, ProcessHost, ProcessSession, ProcessSpec, ReceiveFrameError, ReceiveLimits,
@@ -17,7 +18,7 @@ use proteus_process_host::{
 use serde_json::{Value, json};
 
 use crate::{
-    HostRequestDispatcher, NoHostRequests, ProcessContractAuthority, ProcessModuleBinding,
+    HostRequestDispatcher, NoHostRequests, ProcessComponentBinding, ProcessContractAuthority,
     ProcessModuleHostRequest, ProcessModuleInvocationResult, ProcessModuleNotification,
     ProcessModuleRpcError, ProcessModuleTerminal,
     envelope::{self, IncomingMessage},
@@ -29,14 +30,14 @@ pub const DEFAULT_CANCEL_GRACE: Duration = Duration::from_millis(250);
 const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ProcessModuleSessionOptions {
+pub struct ProcessComponentSessionOptions {
     pub handshake_timeout: Duration,
     pub cancel_grace: Duration,
     pub receive_limits: ReceiveLimits,
     pub notification_limits: ReceiveLimits,
 }
 
-impl Default for ProcessModuleSessionOptions {
+impl Default for ProcessComponentSessionOptions {
     fn default() -> Self {
         Self {
             handshake_timeout: DEFAULT_HANDSHAKE_TIMEOUT,
@@ -47,10 +48,10 @@ impl Default for ProcessModuleSessionOptions {
     }
 }
 
-/// Persistent strict-v1 session for one explicitly bound process module.
-pub struct ProcessModuleSession {
-    binding: ProcessModuleBinding,
-    authority: &'static ProcessContractAuthority,
+/// Persistent strict-v2 session for one explicitly bound process component.
+/// Callback authority is resolved from the active export on every invocation.
+pub struct ProcessComponentSession {
+    binding: ProcessComponentBinding,
     host: ProcessHost<NewlineJsonFraming>,
     dispatcher: Arc<dyn HostRequestDispatcher>,
     next_invocation_id: AtomicU64,
@@ -58,12 +59,11 @@ pub struct ProcessModuleSession {
     notification_limits: ReceiveLimits,
 }
 
-impl std::fmt::Debug for ProcessModuleSession {
+impl std::fmt::Debug for ProcessComponentSession {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
-            .debug_struct("ProcessModuleSession")
+            .debug_struct("ProcessComponentSession")
             .field("binding", &self.binding)
-            .field("authority", &self.authority)
             .field("host", &self.host)
             .field("cancel_grace", &self.cancel_grace)
             .field("notification_limits", &self.notification_limits)
@@ -71,42 +71,33 @@ impl std::fmt::Debug for ProcessModuleSession {
     }
 }
 
-impl ProcessModuleSession {
+impl ProcessComponentSession {
     pub fn connect(
         spec: ProcessSpec,
-        binding: ProcessModuleBinding,
-        options: ProcessModuleSessionOptions,
+        binding: ProcessComponentBinding,
+        options: ProcessComponentSessionOptions,
     ) -> Result<Self> {
         Self::connect_with_dispatcher(spec, binding, options, Arc::new(NoHostRequests))
     }
 
     pub fn connect_with_dispatcher(
         spec: ProcessSpec,
-        binding: ProcessModuleBinding,
-        options: ProcessModuleSessionOptions,
+        binding: ProcessComponentBinding,
+        options: ProcessComponentSessionOptions,
         dispatcher: Arc<dyn HostRequestDispatcher>,
     ) -> Result<Self> {
         validate_options(options)?;
-        let authority = binding.authority()?;
-        let initialize = binding.initialize(*authority);
+        let initialize = binding.initialize()?;
         let handshake_binding = binding.clone();
-        let handshake_authority = *authority;
         let handshake_timeout = options.handshake_timeout;
         let host =
             ProcessHost::with_initializer(spec, NewlineJsonFraming::default(), move |session| {
-                initialize_session(
-                    session,
-                    &initialize,
-                    &handshake_binding,
-                    handshake_authority,
-                    handshake_timeout,
-                )
+                initialize_session(session, &initialize, &handshake_binding, handshake_timeout)
             })
             .receive_limits(options.receive_limits);
 
         let connected = Self {
             binding,
-            authority,
             host,
             dispatcher,
             next_invocation_id: AtomicU64::new(1),
@@ -117,19 +108,22 @@ impl ProcessModuleSession {
         Ok(connected)
     }
 
-    pub fn binding(&self) -> &ProcessModuleBinding {
+    pub fn binding(&self) -> &ProcessComponentBinding {
         &self.binding
     }
 
-    pub fn authority(&self) -> ProcessContractAuthority {
-        *self.authority
+    pub fn authority(
+        &self,
+        target: &ProcessComponentExportRef,
+    ) -> Result<ProcessContractAuthority> {
+        Ok(*self.binding.export(target)?.authority()?)
     }
 
     pub fn ensure_initialized(&self) -> Result<()> {
         drop(self.host.ensure_session().with_context(|| {
             format!(
-                "process module {:?}/{:?} handshake failed",
-                self.binding.slot, self.binding.module_id
+                "process component {:?} handshake failed",
+                self.binding.component_id
             )
         })?);
         Ok(())
@@ -137,21 +131,24 @@ impl ProcessModuleSession {
 
     pub fn invoke(
         &self,
+        target: &ProcessComponentExportRef,
         method: &str,
         params: Value,
         timeout: Duration,
     ) -> Result<ProcessModuleInvocationResult> {
-        self.invoke_with_cancel_check(method, params, timeout, || false)
+        self.invoke_with_cancel_check(target, method, params, timeout, || false)
     }
 
     pub fn invoke_with_cancel_check(
         &self,
+        target: &ProcessComponentExportRef,
         method: &str,
         params: Value,
         timeout: Duration,
         is_cancelled: impl Fn() -> bool,
     ) -> Result<ProcessModuleInvocationResult> {
         self.invoke_inner(
+            target,
             method,
             params,
             timeout,
@@ -167,31 +164,35 @@ impl ProcessModuleSession {
     /// dispatcher is therefore bound to this invocation only.
     pub fn invoke_with_dispatcher_and_cancel_check(
         &self,
+        target: &ProcessComponentExportRef,
         method: &str,
         params: Value,
         timeout: Duration,
         dispatcher: Arc<dyn HostRequestDispatcher>,
         is_cancelled: impl Fn() -> bool,
     ) -> Result<ProcessModuleInvocationResult> {
-        self.invoke_inner(method, params, timeout, dispatcher, is_cancelled)
+        self.invoke_inner(target, method, params, timeout, dispatcher, is_cancelled)
     }
 
     fn invoke_inner(
         &self,
+        target: &ProcessComponentExportRef,
         method: &str,
         params: Value,
         timeout: Duration,
         dispatcher: Arc<dyn HostRequestDispatcher>,
         is_cancelled: impl Fn() -> bool,
     ) -> Result<ProcessModuleInvocationResult> {
+        let export = self.binding.export(target)?;
+        let authority = *export.authority()?;
         if method.trim().is_empty() {
             bail!("process module method must not be empty");
         }
-        if !self.authority.allows_module_method(method) {
+        if !authority.allows_module_method(method) {
             bail!(
                 "module method {method:?} is not part of {}/{}",
-                self.authority.slot,
-                self.authority.contract_version
+                authority.slot,
+                authority.contract_version
             );
         }
         if timeout.is_zero() {
@@ -213,15 +214,22 @@ impl ProcessModuleSession {
         let run = (|| -> Result<InvocationRun> {
             let mut session = self.host.ensure_session().with_context(|| {
                 format!(
-                    "process module {:?}/{:?} failed to start",
-                    self.binding.slot, self.binding.module_id
+                    "process component {:?} export {}/{} failed to start",
+                    self.binding.component_id, target.slot, target.module_id
                 )
             })?;
-            session.send_frame(envelope::request(json!(invocation_id), method, params))?;
+            let call = ProcessComponentCall::new(target.clone(), params);
+            session.send_frame(envelope::request(
+                json!(invocation_id),
+                method,
+                serde_json::to_value(call)?,
+            ))?;
             self.wait_for_invocation(
                 &mut session,
                 invocation_id.clone(),
                 timeout,
+                authority,
+                target,
                 dispatcher.as_ref(),
                 &is_cancelled,
             )
@@ -254,6 +262,8 @@ impl ProcessModuleSession {
         session: &mut ProcessSession<NewlineJsonFraming>,
         invocation_id: String,
         timeout: Duration,
+        authority: ProcessContractAuthority,
+        target: &ProcessComponentExportRef,
         dispatcher: &dyn HostRequestDispatcher,
         is_cancelled: &impl Fn() -> bool,
     ) -> Result<InvocationRun> {
@@ -268,6 +278,8 @@ impl ProcessModuleSession {
                     ProcessModuleTerminal::Canceled,
                     notifications,
                     notification_bytes,
+                    authority,
+                    target,
                     dispatcher,
                 ));
             }
@@ -279,6 +291,8 @@ impl ProcessModuleSession {
                     ProcessModuleTerminal::TimedOut,
                     notifications,
                     notification_bytes,
+                    authority,
+                    target,
                     dispatcher,
                 ));
             };
@@ -289,6 +303,8 @@ impl ProcessModuleSession {
                     ProcessModuleTerminal::TimedOut,
                     notifications,
                     notification_bytes,
+                    authority,
+                    target,
                     dispatcher,
                 ));
             }
@@ -305,6 +321,8 @@ impl ProcessModuleSession {
                 &invocation_id,
                 &mut notifications,
                 &mut notification_bytes,
+                authority,
+                target,
                 dispatcher,
             )? {
                 let reset_session = matches!(terminal, ProcessModuleTerminal::Canceled);
@@ -327,6 +345,8 @@ impl ProcessModuleSession {
         invocation_id: &str,
         notifications: &mut Vec<ProcessModuleNotification>,
         notification_bytes: &mut usize,
+        authority: ProcessContractAuthority,
+        target: &ProcessComponentExportRef,
         dispatcher: &dyn HostRequestDispatcher,
     ) -> Result<Option<ProcessModuleTerminal>> {
         match envelope::parse(frame)? {
@@ -345,7 +365,16 @@ impl ProcessModuleSession {
                 }))
             }
             IncomingMessage::Request { id, method, params } => {
-                self.dispatch_host_request(session, id, method, params, invocation_id, dispatcher)?;
+                self.dispatch_host_request(
+                    session,
+                    id,
+                    method,
+                    params,
+                    invocation_id,
+                    authority,
+                    target,
+                    dispatcher,
+                )?;
                 Ok(None)
             }
             IncomingMessage::Notification { method, params } => {
@@ -370,20 +399,24 @@ impl ProcessModuleSession {
         method: String,
         params: Value,
         invocation_id: &str,
+        authority: ProcessContractAuthority,
+        target: &ProcessComponentExportRef,
         dispatcher: &dyn HostRequestDispatcher,
     ) -> Result<()> {
-        if !self.authority.allows_host_method(&method) {
+        if !authority.allows_host_method(&method) {
             let error = ProcessModuleRpcError::new(
                 -32601,
                 format!(
                     "host method {method:?} is forbidden for {}/{}",
-                    self.authority.slot, self.authority.contract_version
+                    authority.slot, authority.contract_version
                 ),
             );
             session.send_frame(envelope::error_response(id, &error)?)?;
             bail!(
-                "process module {:?} requested forbidden host method {method:?}",
-                self.binding.module_id
+                "process component {:?} export {}/{} requested forbidden host method {method:?}",
+                self.binding.component_id,
+                target.slot,
+                target.module_id
             );
         }
 
@@ -405,6 +438,8 @@ impl ProcessModuleSession {
         cause: ProcessModuleTerminal,
         mut notifications: Vec<ProcessModuleNotification>,
         mut notification_bytes: usize,
+        authority: ProcessContractAuthority,
+        target: &ProcessComponentExportRef,
         dispatcher: &dyn HostRequestDispatcher,
     ) -> InvocationRun {
         let cancel = serde_json::to_value(ProcessModuleCancel::new(invocation_id.clone()))
@@ -430,6 +465,8 @@ impl ProcessModuleSession {
                     &invocation_id,
                     &mut notifications,
                     &mut notification_bytes,
+                    authority,
+                    target,
                     dispatcher,
                 ) {
                     Ok(Some(_)) | Err(_) => break,
@@ -492,7 +529,7 @@ fn retain_notification(
     Ok(())
 }
 
-fn validate_options(options: ProcessModuleSessionOptions) -> Result<()> {
+fn validate_options(options: ProcessComponentSessionOptions) -> Result<()> {
     if options.handshake_timeout.is_zero() {
         bail!("process module handshake timeout must be greater than zero");
     }

@@ -14,18 +14,18 @@ use crate::contracts::{
     ProcessCompactionResponse, ProcessCompactorCompleteModelInput,
 };
 
-use super::{ProcessAdapterConfig, ProcessModuleClient};
+use super::{ProcessExportClient, ProcessExportConfig};
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 
 pub struct ProcessHistoryCompactor {
-    client: Arc<ProcessModuleClient>,
+    client: Arc<ProcessExportClient>,
 }
 
 impl ProcessHistoryCompactor {
-    pub fn new(config: ProcessAdapterConfig, workspace: &Path) -> Result<Self> {
+    pub fn new(config: ProcessExportConfig, workspace: &Path) -> Result<Self> {
         Ok(Self {
-            client: Arc::new(ProcessModuleClient::connect(
+            client: Arc::new(ProcessExportClient::connect(
                 "compactor",
                 PROCESS_COMPACTOR_CONTRACT_VERSION,
                 config,

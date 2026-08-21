@@ -13,7 +13,7 @@ import sys
 from typing import Any
 
 
-PROTOCOL_VERSION = "v1"
+PROTOCOL_VERSION = "v2"
 SLOT = "compactor"
 MODULE_ID = "python_suffix"
 CONTRACT_VERSION = "v1"
@@ -21,6 +21,10 @@ CONTRACT_VERSION = "v1"
 REQUEST_FIELDS = {"jsonrpc", "id", "method", "params"}
 INITIALIZE_FIELDS = {
     "protocol_version",
+    "component_id",
+    "exports",
+}
+EXPORT_INITIALIZE_FIELDS = {
     "slot",
     "module_id",
     "contract_version",
@@ -28,6 +32,8 @@ INITIALIZE_FIELDS = {
     "module_config",
     "host_features",
 }
+CALL_FIELDS = {"export", "params"}
+EXPORT_REF_FIELDS = {"slot", "module_id"}
 INPUT_FIELDS = {
     "task",
     "model_ref",
@@ -63,26 +69,46 @@ def positive_int(value: Any, label: str) -> int:
     return value
 
 
-def validate_initialize(params: Any) -> None:
+def validate_initialize(params: Any) -> str:
     params = require_object(params, INITIALIZE_FIELDS, "initialize params")
+    if params["protocol_version"] != PROTOCOL_VERSION:
+        raise ProtocolError(f"unsupported component protocol: {params['protocol_version']!r}")
+    component_id = params["component_id"]
+    if not isinstance(component_id, str) or not component_id.strip():
+        raise ProtocolError("initialize component_id must be a non-empty string")
+    exports = params["exports"]
+    if not isinstance(exports, list) or len(exports) != 1:
+        raise ProtocolError("python compactor component requires exactly one export")
+    export = require_object(
+        exports[0], EXPORT_INITIALIZE_FIELDS, "initialize export"
+    )
     expected_identity = (
-        PROTOCOL_VERSION,
         SLOT,
         MODULE_ID,
         CONTRACT_VERSION,
         "select_one",
     )
     actual_identity = (
-        params["protocol_version"],
-        params["slot"],
-        params["module_id"],
-        params["contract_version"],
-        params["composition"],
+        export["slot"],
+        export["module_id"],
+        export["contract_version"],
+        export["composition"],
     )
     if actual_identity != expected_identity:
-        raise ProtocolError(f"unsupported initialize params: {params!r}")
-    if params["host_features"] != []:
+        raise ProtocolError(f"unsupported initialize export: {export!r}")
+    if not isinstance(export["module_config"], dict):
+        raise ProtocolError("initialize module_config must be an object")
+    if export["host_features"] != []:
         raise ProtocolError("compactor v1 does not negotiate host features")
+    return component_id
+
+
+def unwrap_call(params: Any) -> Any:
+    call = require_object(params, CALL_FIELDS, "component call")
+    export = require_object(call["export"], EXPORT_REF_FIELDS, "component call export")
+    if export != {"slot": SLOT, "module_id": MODULE_ID}:
+        raise ProtocolError(f"unknown component export: {export!r}")
+    return call["params"]
 
 
 def validate_input(params: Any) -> tuple[dict[str, Any], int, int]:
@@ -189,7 +215,7 @@ def error_response(request_id: Any, code: int, message: str) -> dict[str, Any]:
     }
 
 
-def handle_request(raw: Any, initialized: bool) -> tuple[dict[str, Any], bool]:
+def handle_request(raw: Any, component_id: str | None) -> tuple[dict[str, Any], str]:
     request = require_object(raw, REQUEST_FIELDS, "JSON-RPC request")
     if (
         request["jsonrpc"] != "2.0"
@@ -199,36 +225,41 @@ def handle_request(raw: Any, initialized: bool) -> tuple[dict[str, Any], bool]:
         raise ProtocolError("unsupported JSON-RPC envelope")
     method = request["method"]
     if method == "initialize":
-        if initialized:
-            raise ProtocolError("process module is already initialized")
-        validate_initialize(request["params"])
+        if component_id is not None:
+            raise ProtocolError("process component is already initialized")
+        component_id = validate_initialize(request["params"])
         return response(
             request["id"],
             {
                 "protocol_version": PROTOCOL_VERSION,
-                "slot": SLOT,
-                "module_id": MODULE_ID,
-                "contract_version": CONTRACT_VERSION,
-                "composition": "select_one",
-                "module_features": [],
+                "component_id": component_id,
+                "exports": [
+                    {
+                        "slot": SLOT,
+                        "module_id": MODULE_ID,
+                        "contract_version": CONTRACT_VERSION,
+                        "composition": "select_one",
+                        "module_features": [],
+                    }
+                ],
             },
-        ), True
-    if not initialized:
+        ), component_id
+    if component_id is None:
         raise ProtocolError("initialize must be the first request")
     if method != "compact":
         raise ProtocolError(f"unknown method: {method!r}")
-    return response(request["id"], compact(request["params"])), initialized
+    return response(request["id"], compact(unwrap_call(request["params"]))), component_id
 
 
 def main() -> int:
-    initialized = False
+    component_id: str | None = None
     for line in sys.stdin:
         request_id: Any = None
         try:
             raw = json.loads(line)
             if isinstance(raw, dict):
                 request_id = raw.get("id")
-            result, initialized = handle_request(raw, initialized)
+            result, component_id = handle_request(raw, component_id)
         except (ProtocolError, ValueError, TypeError) as error:
             result = error_response(request_id, -32602, str(error))
         except Exception as error:

@@ -22,14 +22,19 @@ bwrap-песочницу (см. «Exec Sandbox В shell-tool» ниже). Общ
 protected paths и secrets policy являются следующими слоями, а не заменой
 текущего `ToolOrchestrator`.
 
-## Доверенные Process-Модули
+## Доверенные Process Components
 
-Каждый `[[process_modules]]` запускает настроенный локальный executable при
-сборке runtime snapshot. Это реализации module slots, а не model-callable
-tools: `ToolSafety`, approval policy и shell sandbox не оборачивают сам child
-process. Worker работает с правами самого Proteus, поэтому в config нельзя
-подключать недоверенную команду. Выбор делается реальным `module_id`, а не
-служебным id `process`.
+Каждый `[components.<id>]`, у которого snapshot строит используемый export,
+запускает настроенный локальный executable. Его exports реализуют module slots, но component сам
+не является model-callable tool: `ToolSafety`, approval policy и shell sandbox
+не оборачивают child process. Worker работает с правами самого Proteus,
+поэтому в config нельзя подключать недоверенную команду. Выбор делается
+реальным `module_id`, а не служебным id `process`.
+
+Несколько exports одного component делят те же ambient OS-права и process
+state. Protocol-visible authority при этом не объединяется: host разрешает
+callback только по активному export. Это защищает control plane от случайного
+или ошибочного вызова, но не изолирует private code внутри доверенного binary.
 
 При этом tool callback из process Workflow не получает исключения: методы
 `host.tools.execute`/`host.tools.execute_batch` возвращаются в core и проходят
@@ -39,7 +44,8 @@ turn grants; owner и cancellation берутся из текущего host inv
 
 Host очищает parent environment и передаёт только минимальные runtime variables,
 явный `env_allowlist` и literal `env`. Строгий handshake защищает от ошибочно
-подключённого executable, но не является sandbox или границей доверия.
+подключённого executable и exact export set, но не является sandbox или
+границей доверия.
 
 ## Rust LSP Process Boundary
 
@@ -144,8 +150,8 @@ plan flow UI может просить модель вернуть staged read-o
 File I/O (`read_file`, `write_file`, `list_dir`, `grep`, `find_files`,
 `read_many_files`), git helpers (`git_status`, `git_diff`) и `shell` вынесены
 из ядра в process modules `file-tools`, `git-tools` и `shell-tool`
-соответственно. Добавьте `tool` descriptor (обычно
-`module_id = "reference.tools"`) и нужные имена в `tools.enabled`. Safety
+соответственно. Добавьте `tool/reference.tools` component export и нужные имена
+в `tools.enabled`. Safety
 каждого process tool декларируется в его `ToolSpec` и проверяется тем же
 механизмом, что и core facade tools.
 

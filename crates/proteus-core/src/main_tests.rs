@@ -118,7 +118,7 @@ fn inspect_topology_reports_invalid_backend_without_building_it() {
 }
 
 #[test]
-fn read_only_cli_paths_do_not_start_process_modules() {
+fn read_only_cli_paths_do_not_start_process_components() {
     let dir = tempfile::tempdir().expect("workspace");
     let marker = dir.path().join("process-search-started");
     let compactor_marker = dir.path().join("process-compactor-started");
@@ -130,32 +130,25 @@ fn read_only_cli_paths_do_not_start_process_modules() {
     config.subagents.surface = proteus_core::core::SubagentSurface::None;
     config.tools.path = None;
     config.tools.enabled = vec!["search".to_owned()];
-    config.process_modules = vec![
-        serde_json::from_value(serde_json::json!({
-            "slot": "workflow",
-            "module_id": "workflow-marker",
+    config.components = serde_json::from_value(serde_json::json!({
+        "workflow-fixture": {
             "command": "/bin/sh",
             "args": ["-c", format!("touch {}", workflow_marker.display())],
-            "handshake_timeout_ms": 1000
-        }))
-        .expect("workflow descriptor"),
-        serde_json::from_value(serde_json::json!({
-            "slot": "search",
-            "module_id": "search-marker",
+            "handshake_timeout_ms": 1000,
+            "exports": {"workflow": {"workflow-marker": {}}}
+        },
+        "search-fixture": {
             "command": "/bin/sh",
             "args": ["-c", format!("touch {}", marker.display())],
-            "timeout_ms": 1000
-        }))
-        .expect("search descriptor"),
-        serde_json::from_value(serde_json::json!({
-            "slot": "compactor",
-            "module_id": "compactor-marker",
+            "exports": {"search": {"search-marker": {"timeout_ms": 1000}}}
+        },
+        "compactor-fixture": {
             "command": "/bin/sh",
             "args": ["-c", format!("touch {}", compactor_marker.display())],
-            "timeout_ms": 1000
-        }))
-        .expect("compactor descriptor"),
-    ];
+            "exports": {"compactor": {"compactor-marker": {"timeout_ms": 1000}}}
+        }
+    }))
+    .expect("component configs");
 
     let _tools = build_tool_registry_for_listing(&config, dir.path()).expect("tool list registry");
     let _topology =
@@ -179,19 +172,19 @@ fn read_only_cli_paths_do_not_start_process_modules() {
         entry.level == "ok"
             && entry
                 .message
-                .contains("process module search/search-marker")
+                .contains("process component search-fixture (1 exports)")
     }));
     assert!(findings.entries.iter().any(|entry| {
         entry.level == "ok"
             && entry
                 .message
-                .contains("process module compactor/compactor-marker")
+                .contains("process component compactor-fixture (1 exports)")
     }));
     assert!(findings.entries.iter().any(|entry| {
         entry.level == "ok"
             && entry
                 .message
-                .contains("process module workflow/workflow-marker")
+                .contains("process component workflow-fixture (1 exports)")
     }));
 }
 

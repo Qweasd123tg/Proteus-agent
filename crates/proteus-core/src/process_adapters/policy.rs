@@ -10,18 +10,18 @@ use crate::{
 };
 use anyhow::Result;
 
-use super::{ProcessAdapterConfig, ProcessModuleClient};
+use super::{ProcessExportClient, ProcessExportConfig};
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 
 pub struct ProcessApprovalPolicy {
-    client: Arc<ProcessModuleClient>,
+    client: Arc<ProcessExportClient>,
 }
 
 impl ProcessApprovalPolicy {
-    pub fn new(config: ProcessAdapterConfig, workspace: &Path) -> Result<Self> {
+    pub fn new(config: ProcessExportConfig, workspace: &Path) -> Result<Self> {
         Ok(Self {
-            client: Arc::new(ProcessModuleClient::connect(
+            client: Arc::new(ProcessExportClient::connect(
                 "policy",
                 PROCESS_POLICY_CONTRACT_VERSION,
                 config,

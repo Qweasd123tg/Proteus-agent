@@ -13,50 +13,32 @@ compactor = "codex"
 subagent = "sequential"
 renderer = "statusline"
 
-[[process_modules]]
-slot = "workflow"
-module_id = "coding.single_loop"
+[components.reference-workflow]
 command = "proteus-reference-worker"
 
-[[process_modules]]
-slot = "search"
-module_id = "rg"
+[components.reference-workflow.exports.workflow."coding.single_loop"]
+
+[components.reference-context]
 command = "proteus-reference-worker"
 
-[[process_modules]]
-slot = "context"
-module_id = "repo_aware"
+[components.reference-context.exports.context.repo_aware]
+
+[components.reference-capabilities]
 command = "proteus-reference-worker"
 
-[[process_modules]]
-slot = "context_provider"
-module_id = "skills"
-command = "proteus-reference-worker"
+[components.reference-capabilities.exports.search.rg]
 
-[[process_modules]]
-slot = "policy"
-module_id = "ask_write"
-command = "proteus-reference-worker"
+[components.reference-capabilities.exports.context_provider.skills]
 
-[[process_modules]]
-slot = "patch"
-module_id = "direct"
-command = "proteus-reference-worker"
+[components.reference-capabilities.exports.policy.ask_write]
 
-[[process_modules]]
-slot = "compactor"
-module_id = "codex"
-command = "proteus-reference-worker"
+[components.reference-capabilities.exports.patch.direct]
 
-[[process_modules]]
-slot = "renderer"
-module_id = "statusline"
-command = "proteus-reference-worker"
+[components.reference-capabilities.exports.compactor.codex]
 
-[[process_modules]]
-slot = "tool"
-module_id = "reference.tools"
-command = "proteus-reference-worker"
+[components.reference-capabilities.exports.renderer.statusline]
+
+[components.reference-capabilities.exports.tool."reference.tools"]
 
 [subagents]
 surface = "task"

@@ -108,31 +108,38 @@ pub(super) fn ConfigOverview(summary: ConfigSummary) -> impl IntoView {
     }
 }
 
-/// Read-only список host-owned launch descriptors. Module selection и
-/// module-owned config редактируются отдельно в builder-е.
+/// Read-only список host-owned process components и их exact exports.
 #[component]
 pub(super) fn ConfigSections(summary: ConfigSummary) -> impl IntoView {
-    let process_modules = summary.process_modules.clone();
+    let components = summary.components.clone();
 
     view! {
         <section class="config-section">
             <div class="config-section-header">
-                <h3>"Process modules"</h3>
-                <span>{process_modules.len()}</span>
+                <h3>"Process components"</h3>
+                <span>{components.len()}</span>
             </div>
             <div class="config-list">
                 <For
-                    each=move || process_modules.clone()
-                    key=|module| format!("{}:{}", module.slot, module.module_id)
-                    children=move |module| {
+                    each=move || components.clone()
+                    key=|component| component.id.clone()
+                    children=move |component| {
+                        let export_count = component.exports.len();
+                        let exports = component
+                            .exports
+                            .iter()
+                            .map(|export| format!("{}/{}", export.slot, export.module_id))
+                            .collect::<Vec<_>>()
+                            .join(", ");
                         view! {
                             <article class="config-list-item">
                                 <div class="config-list-main">
                                     <div class="config-list-title">
-                                        <strong>{module.module_id}</strong>
-                                        <code>{module.slot}</code>
+                                        <strong>{component.id}</strong>
+                                        <code>{format!("{export_count} exports")}</code>
                                     </div>
-                                    <p>"persistent stdio · protocol v1"</p>
+                                    <p>{exports}</p>
+                                    <p>"persistent stdio · component protocol v2"</p>
                                 </div>
                                 <span class="status-badge completed">
                                     <span class="dot"></span>

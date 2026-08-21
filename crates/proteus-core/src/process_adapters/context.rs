@@ -22,24 +22,24 @@ use crate::{
     domain::{ContextBundle, ContextChunk},
 };
 
-use super::{ProcessAdapterConfig, ProcessModuleClient};
+use super::{ProcessExportClient, ProcessExportConfig};
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const HOST_CALLBACK_ERROR: i64 = -32_100;
 
 pub struct ProcessContextBuilder {
-    client: Arc<ProcessModuleClient>,
+    client: Arc<ProcessExportClient>,
     providers: Vec<(String, Arc<dyn RepoAwareContextProvider>)>,
 }
 
 impl ProcessContextBuilder {
     pub fn new(
-        config: ProcessAdapterConfig,
+        config: ProcessExportConfig,
         workspace: &Path,
         providers: Vec<(String, Arc<dyn RepoAwareContextProvider>)>,
     ) -> Result<Self> {
         Ok(Self {
-            client: Arc::new(ProcessModuleClient::connect(
+            client: Arc::new(ProcessExportClient::connect(
                 "context",
                 PROCESS_CONTEXT_CONTRACT_VERSION,
                 config,
@@ -138,15 +138,15 @@ impl HostRequestDispatcher for ContextDispatcher {
 
 pub struct ProcessContextProvider {
     provider_id: String,
-    client: Arc<ProcessModuleClient>,
+    client: Arc<ProcessExportClient>,
 }
 
 impl ProcessContextProvider {
-    pub fn new(config: ProcessAdapterConfig, workspace: &Path) -> Result<Self> {
+    pub fn new(config: ProcessExportConfig, workspace: &Path) -> Result<Self> {
         let provider_id = config.module_id().to_owned();
         Ok(Self {
             provider_id,
-            client: Arc::new(ProcessModuleClient::connect(
+            client: Arc::new(ProcessExportClient::connect(
                 "context_provider",
                 PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION,
                 config,

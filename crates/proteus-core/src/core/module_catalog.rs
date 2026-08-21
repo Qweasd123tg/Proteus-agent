@@ -3,6 +3,7 @@ use std::{any::Any, collections::HashMap, path::Path, sync::Arc};
 use anyhow::{Result, bail};
 
 mod builtins;
+mod components;
 
 use crate::{
     contracts::{
@@ -12,11 +13,7 @@ use crate::{
     },
     core::{AppConfig, ModelConfig, RepoAwareContextProvider},
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
-    process_adapters::{
-        ProcessAdapterConfig, ProcessApprovalPolicy, ProcessContextBuilder, ProcessContextProvider,
-        ProcessHistoryCompactor, ProcessMemoryStore, ProcessPatchApplier, ProcessRenderer,
-        ProcessSearchBackend, ProcessToolExposure, ProcessWorkflowAdapter,
-    },
+    process_adapters::{ProcessContextProvider, ProcessExportConfig},
     tools::{BuiltinToolProvider, is_builtin_tool_name, register_configured_tools},
 };
 
@@ -92,8 +89,8 @@ struct ModuleEntry {
 /// одной карте, ключ — `(SlotId, module_id)`.
 pub struct ModuleCatalog {
     entries: HashMap<(SlotId, String), ModuleEntry>,
-    process_tools: Vec<ProcessAdapterConfig>,
-    process_context_providers: Vec<ProcessAdapterConfig>,
+    process_tools: Vec<ProcessExportConfig>,
+    process_context_providers: Vec<ProcessExportConfig>,
 }
 
 impl ModuleCatalog {
@@ -109,159 +106,8 @@ impl ModuleCatalog {
 
     pub fn from_config(config: &AppConfig) -> Result<Self> {
         let mut catalog = Self::new();
-        let process_modules = config
-            .process_modules
-            .iter()
-            .cloned()
-            .map(|module| {
-                let payload = config.process_module_config(module.slot(), module.module_id())?;
-                module.with_module_config(payload)
-            })
-            .collect::<Result<Vec<_>>>()?;
-        catalog.register_process_modules(&process_modules)?;
+        catalog.register_process_components(config)?;
         Ok(catalog)
-    }
-
-    fn register_process_modules(&mut self, configs: &[ProcessAdapterConfig]) -> Result<()> {
-        let mut seen = std::collections::HashSet::new();
-        for (index, config) in configs.iter().cloned().enumerate() {
-            let path = format!("process_modules[{index}]");
-            config.validate_for(&path, 30_000)?;
-            let slot_name = config.slot().to_owned();
-            let module_id = config.module_id().to_owned();
-            if !seen.insert((slot_name.clone(), module_id.clone())) {
-                bail!("duplicate process module descriptor: {slot_name}/{module_id}");
-            }
-            let description = config
-                .description()
-                .map(str::to_owned)
-                .or_else(|| Some(format!("Process module {slot_name}/{module_id}.")));
-
-            match slot_name.as_str() {
-                "tool" => self.process_tools.push(config),
-                "context_provider" => self.process_context_providers.push(config),
-                "search" => {
-                    ensure_process_id_is_free(self, slot::SEARCH, &module_id)?;
-                    let launch = config.clone();
-                    self.register_module::<dyn SearchBackend>(
-                        slot::SEARCH,
-                        &module_id,
-                        process_manifest(&module_id, ModuleKind::Search, description),
-                        move |ctx| {
-                            Ok(Arc::new(ProcessSearchBackend::new(
-                                launch.clone(),
-                                ctx.cwd,
-                            )?))
-                        },
-                    );
-                }
-                "memory" => {
-                    ensure_process_id_is_free(self, slot::MEMORY, &module_id)?;
-                    let launch = config.clone();
-                    self.register_module::<dyn MemoryStore>(
-                        slot::MEMORY,
-                        &module_id,
-                        process_manifest(&module_id, ModuleKind::Memory, description),
-                        move |ctx| Ok(Arc::new(ProcessMemoryStore::new(launch.clone(), ctx.cwd)?)),
-                    );
-                }
-                "context" => {
-                    ensure_process_id_is_free(self, slot::CONTEXT, &module_id)?;
-                    let launch = config.clone();
-                    self.register_module::<dyn ContextBuilder>(
-                        slot::CONTEXT,
-                        &module_id,
-                        process_manifest(&module_id, ModuleKind::Context, description),
-                        move |ctx| {
-                            Ok(Arc::new(ProcessContextBuilder::new(
-                                launch.clone(),
-                                ctx.cwd,
-                                ctx.context_providers.to_vec(),
-                            )?))
-                        },
-                    );
-                }
-                "policy" => {
-                    ensure_process_id_is_free(self, slot::POLICY, &module_id)?;
-                    let launch = config.clone();
-                    self.register_policy(
-                        &module_id,
-                        process_manifest(&module_id, ModuleKind::Policy, description),
-                        move |ctx| {
-                            Ok(Arc::new(ProcessApprovalPolicy::new(
-                                launch.clone(),
-                                ctx.cwd,
-                            )?))
-                        },
-                    );
-                }
-                "patch" => {
-                    ensure_process_id_is_free(self, slot::PATCH, &module_id)?;
-                    let launch = config.clone();
-                    self.register_module::<dyn PatchApplier>(
-                        slot::PATCH,
-                        &module_id,
-                        process_manifest(&module_id, ModuleKind::Patch, description),
-                        move |ctx| Ok(Arc::new(ProcessPatchApplier::new(launch.clone(), ctx.cwd)?)),
-                    );
-                }
-                "compactor" => {
-                    ensure_process_id_is_free(self, slot::COMPACTOR, &module_id)?;
-                    let launch = config.clone();
-                    self.register_module::<dyn HistoryCompactor>(
-                        slot::COMPACTOR,
-                        &module_id,
-                        process_manifest(&module_id, ModuleKind::Compactor, description),
-                        move |ctx| {
-                            Ok(Arc::new(ProcessHistoryCompactor::new(
-                                launch.clone(),
-                                ctx.cwd,
-                            )?))
-                        },
-                    );
-                }
-                "tool_exposure" => {
-                    ensure_process_id_is_free(self, slot::TOOL_EXPOSURE, &module_id)?;
-                    let launch = config.clone();
-                    self.register_module::<dyn ToolExposure>(
-                        slot::TOOL_EXPOSURE,
-                        &module_id,
-                        process_manifest(&module_id, ModuleKind::ToolExposure, description),
-                        move |ctx| Ok(Arc::new(ProcessToolExposure::new(launch.clone(), ctx.cwd)?)),
-                    );
-                }
-                "workflow" => {
-                    ensure_process_id_is_free(self, slot::WORKFLOW, &module_id)?;
-                    let launch = config.clone();
-                    self.register_module::<dyn Workflow>(
-                        slot::WORKFLOW,
-                        &module_id,
-                        process_manifest(&module_id, ModuleKind::Workflow, description),
-                        move |ctx| {
-                            Ok(Arc::new(ProcessWorkflowAdapter::new(
-                                launch.clone(),
-                                ctx.cwd,
-                                ctx.config.runtime.workflow_timeout_ms,
-                            )?))
-                        },
-                    );
-                }
-                "renderer" => {
-                    ensure_process_id_is_free(self, slot::RENDERER, &module_id)?;
-                    let launch = config.clone();
-                    self.register_module::<dyn Renderer>(
-                        slot::RENDERER,
-                        &module_id,
-                        process_manifest(&module_id, ModuleKind::Renderer, description),
-                        move |ctx| Ok(Arc::new(ProcessRenderer::new(launch.clone(), ctx.cwd)?)),
-                    );
-                }
-                unsupported => bail!(
-                    "process module {unsupported}/{module_id} targets an unsupported process-v1 slot"
-                ),
-            }
-        }
-        Ok(())
     }
 
     /// Регистрирует модуль в slot, принимающем `ModuleBuildContext`.
@@ -609,19 +455,6 @@ impl ModuleCatalog {
 
         Ok(tools)
     }
-}
-
-fn ensure_process_id_is_free(catalog: &ModuleCatalog, slot: SlotId, id: &str) -> Result<()> {
-    if catalog.entries.contains_key(&(slot.clone(), id.to_owned())) {
-        bail!("process module {slot}/{id} conflicts with an existing catalog entry");
-    }
-    Ok(())
-}
-
-fn process_manifest(id: &str, kind: ModuleKind, description: Option<String>) -> ModuleManifest {
-    let mut manifest = ModuleManifest::process(id, kind, &["process", "stdio", "newline_json"]);
-    manifest.description = description;
-    manifest
 }
 
 /// Преобразует `Arc<T: ?Sized>` в `Arc<dyn Any + Send + Sync>` через

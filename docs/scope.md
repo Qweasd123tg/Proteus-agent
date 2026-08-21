@@ -1,6 +1,6 @@
 # Текущий Scope
 
-Последнее обновление: 2026-08-07.
+Последнее обновление: 2026-08-08.
 
 Этот документ отвечает «что сейчас на критическом пути». Vision —
 [spec.md](spec.md), история и backlog — [roadmap.md](roadmap.md).
@@ -17,17 +17,17 @@ model + process workflow/context/tools/policy
 ```
 
 Главный module-system blocker закрыт: бывшая dylib система полностью удалена,
-tracked implementations перенесены на единый process protocol v1, а
-reference worker проходит handshake/real-call/callback conformance. Больше нет
-двух extension paths и ложного default pack.
+tracked implementations перенесены на Component Runtime v1 / wire v2, а
+reference worker проходит multi-export handshake/real-call/callback
+conformance. Больше нет двух extension paths и ложного default pack.
 
 ## Что Работает
 
 - OpenAI, OpenAI-compatible, Anthropic и fake model adapters;
-- process v1 workflow, search, memory, context, context provider, policy,
+- component exports для workflow, search, memory, context, context provider, policy,
   patch, compactor, tool exposure, renderer и tools;
-- bidirectional callbacks с authority по slot, cancellation, timeout и lazy
-  restart persistent worker-а;
+- bidirectional callbacks с authority по активному export, cancellation,
+  timeout и общий lazy restart persistent component;
 - reference worker с 26 selectors и внешние Python examples;
 - единый tool safety/approval path;
 - canonical session journal, config snapshots, history, resume, prompt replay
@@ -43,17 +43,18 @@ schema меняется атомарно без legacy shims.
 
 ## Что Только Что Закрыто
 
-Process-only cutover:
+Process-only и Component Runtime cutover:
 
 - удалены `abi_stable`, `libloading`, dylib loader и ABI wrappers;
 - удалены `plugin.toml`, `cdylib` crate types и plugin scan directory;
 - все бывшие reference dylib implementations экспортируются
   `proteus-reference-worker`;
-- configs используют exact `slot/module_id` descriptors;
+- configs используют exact `components.<id>.exports.<slot>.<module_id>`;
 - отсутствующий slot больше не маскируется id `none/default/all_visible`;
-- topology/Inspector показывают process descriptors без plugin cards;
+- topology/Inspector показывают components и exports без plugin cards;
 - runtime swap tests больше не линкуют implementation crates;
-- real-worker conformance проверяет все selectors и callbacks;
+- real-worker conformance проверяет все selectors, callbacks и multi-export routing;
+- один component делит child/session/reset/restart между exports, но не их authority;
 - installer публикует host + worker одним release.
 
 Точный итог: [process-module-architecture.md](process-module-architecture.md).
@@ -72,7 +73,7 @@ Process-only cutover:
 6. worker crash/restart smoke;
 7. cold history и workflow replay.
 
-Это проверяет packaging, `PATH`, process descriptors, secrets, app-server и
+Это проверяет packaging, `PATH`, component config, secrets, app-server и
 journal как один реальный контур.
 
 ### 2. Model Boundary Decision
@@ -131,7 +132,7 @@ worker-а.
 - upgrade/version negotiation decision;
 - стабильная documentation + conformance artifact.
 
-Пока действует strict single `v1` без automatic downgrade.
+Пока действует strict component wire `v2` без automatic downgrade.
 
 ## Не На Критическом Пути
 
