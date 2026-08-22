@@ -104,6 +104,17 @@ union authority, automatic retry и fallback не появляются. Разд
 по нескольким processes по желаемому failure domain по-прежнему допустимо;
 исчезает только разбиение, нужное исключительно для single-flight deadlock.
 
+### Фиксированная Граница v0.1 Alpha
+
+После P1-P4 первая публичная `v0.1.0-alpha.1` закрывается Linux developer
+release contour, clean install/doctor/fake-profile/topology smoke, CI и одним
+внешним component demo. Model/subagent migrations, sandbox, protocol freeze,
+marketplace, Hermes/OpenClaw research и session branching не двигают этот тег.
+
+Долгосрочный тезис конструктора, strict-contract guardrails и отложенные
+expressiveness/replay вопросы собраны в
+[research/platform-expressiveness-after-runtime-v2-2026-08-22.md](research/platform-expressiveness-after-runtime-v2-2026-08-22.md).
+
 ### R3. Model Contract Migration
 
 Проблема: model providers selectable, но implementations core-owned.

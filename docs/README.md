@@ -145,5 +145,9 @@
   одобренный Runtime v2 plan и записанный технический P0 `GO`: test-only
   multiplexed broker, wire-v3 direction, authority/cancel/failure semantics и
   границы следующего production этапа; действующий contract пока v1/v2;
+- [research/platform-expressiveness-after-runtime-v2-2026-08-22.md](research/platform-expressiveness-after-runtime-v2-2026-08-22.md) —
+  единый parking lot для lifelong-constructor thesis, strict-contract
+  bottleneck guardrails, пяти agent archetypes, Hermes/OpenClaw research и
+  session view/branch/simulate/rerun; эти идеи не двигают v0.1 alpha;
 - [examples/research/](../examples/research/) — заметки по upstream-агентам:
   Codex, OpenCode, Claude Code, ForgeCode и DeepSeek Harness.
