@@ -15,3 +15,8 @@ serde_json = "1"
 name = "session"
 path = "tests/session.rs"
 harness = false
+
+[[test]]
+name = "multiplex_spike"
+path = "tests/multiplex_spike.rs"
+harness = false
