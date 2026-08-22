@@ -61,38 +61,30 @@ component обслуживать несколько invocation, корректн
 invocation-scoped callbacks и notifications и сохранять authority на уровне
 активного export. Это не новый agent slot и не generic actor runtime.
 
-### R1. P0 — Bounded Multiplexed Broker Spike
+### R1. P0 — завершён, технический GO
 
-Ближайший этап — ограниченный research changeset без production config, новых
-slots или migration wire v2. Пять базовых сценариев:
+P0 реализован changeset-ом `176d39f` как test-only research spike: 18
+автоматизированных сценариев и внешний Python worker подтвердили multiplexing,
+same-component reentrancy, targeted cancel, causal control ordering, bounded
+duplex queues, nested reserve и generation failure fan-out. Полная matrix,
+команда gate и честные границы результата записаны в
+[Component Runtime v2 plan](research/component-runtime-v2-plan-2026-08-21.md#результат-p0).
 
-1. две invocation одного process завершаются в обратном порядке;
-2. callback invocation A запускает export B того же process, после чего A
-   продолжает работу;
-3. cooperative cancel A не отменяет B и не меняет PID/generation;
-4. игнорируемый cancel A завершает generation, а A и B получают корректные
-   terminal causes;
-5. forged или terminal parent invocation id fail-closed завершает generation.
+Результат — технический `GO` для планирования P1/P2. Production contract,
+config, adapters и wire v2 не менялись; начало следующего production changeset
+требует отдельного подтверждения владельца. P0 подтвердил host-owned authority
+model, generation, cancellation, deadlines и bounds внутри test-only spike.
+Workspace/session ownership остаётся production evidence P2/P3, потому что
+spike сознательно работает вне `ModuleCatalog`.
 
-Полная acceptance matrix находится в
-`research/component-runtime-v2-plan-2026-08-21.md`: она дополнительно покрывает
-cancel/terminal races, backpressure и control-frame priority, nested admission,
-duplicate ids, sibling-parent misuse и минимальный non-Rust worker.
+Malicious export общего trusted component всё ещё может назвать active parent
+соседнего export. Это зафиксированная trust boundary, а не обещание изоляции
+внутри одного process.
 
-Spike обязан использовать language-neutral worker evidence, сохранять
-host-owned authority, workspace/session ownership, deadlines и bounds. Его
-результат — явное решение владельца:
+### R2. P1-P4 — Только После Отдельного Подтверждения Владельца
 
-```text
-GO       -> P1-P4
-REVISE   -> сузить contract и повторить P0
-STOP     -> оставить Runtime v1
-```
-
-### R2. P1-P4 — Runtime v2 Только При GO
-
-После `GO` следующие этапы идут последовательно, с отдельной переоценкой после
-broker kernel:
+После технического P0 `GO` и отдельного подтверждения владельца следующие
+этапы идут последовательно, с отдельной переоценкой после broker kernel:
 
 1. **P1. Protocol-neutral duplex transport.** Разделить lifecycle, reader и
    writer в `proteus-process-host`, сохранив последовательный facade для MCP и
@@ -305,12 +297,12 @@ authority и порядок. В Proteus новая cross-cutting возможн�
 
 ### Component Imports И Hooks
 
-R1 P0 проверяет только нейтральный multiplexed broker substrate. General
+R1 P0 проверил только нейтральный multiplexed broker substrate. General
 imports, Pi-like additive hooks, implicit package activation и arbitrary hook
 surface остаются parked: они не следуют из same-component reentrancy и требуют
-отдельного slot-governance decision. До P0 `GO`, а затем до явного contract,
-не добавлять direct module links, hidden same-process dispatch или special
-authority по `component_id`.
+отдельного slot-governance decision. Технический P0 `GO` сам по себе не является
+таким contract: не добавлять direct module links, hidden same-process dispatch
+или special authority по `component_id`.
 
 ### General LSP
 
@@ -366,7 +358,8 @@ contract placement, security model и evidence plan.
 
 Порядок вопросов:
 
-1. Это P0, его непосредственное evidence или уже принятый этап после `GO`?
+1. Это исправление P0 evidence или этап с отдельным подтверждением владельца
+   после технического P0 `GO`?
 2. Это дефект существующего contract или новая capability?
 3. Можно решить existing slot/tool/profile?
 4. Какие authority, ownership и failure semantics?

@@ -142,8 +142,8 @@
   spine architecture, core-owned вариант и его kill criteria; sequencing
   уточнён последующим Component Runtime v2 планом;
 - [research/component-runtime-v2-plan-2026-08-21.md](research/component-runtime-v2-plan-2026-08-21.md) —
-  одобренное P0 platform direction после ABI → process:
-  multiplexed bidirectional broker, wire v3, authority/cancel/failure semantics,
-  этапы миграции, оценки, evidence и bounded go/no-go spike;
+  одобренный Runtime v2 plan и записанный технический P0 `GO`: test-only
+  multiplexed broker, wire-v3 direction, authority/cancel/failure semantics и
+  границы следующего production этапа; действующий contract пока v1/v2;
 - [examples/research/](../examples/research/) — заметки по upstream-агентам:
   Codex, OpenCode, Claude Code, ForgeCode и DeepSeek Harness.

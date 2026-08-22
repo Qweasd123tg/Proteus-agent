@@ -2,10 +2,10 @@
 
 Дата: 2026-08-21.
 
-Статус: направление одобрено владельцем проекта 2026-08-22; активный этап —
-bounded P0 spike. Текущий production contract остаётся Component Runtime v1 /
-wire v2 до отдельного решения `GO` после P0. P1-P6 не считаются автоматически
-одобренными, config schema этим решением не меняется.
+Статус: направление одобрено владельцем проекта 2026-08-22; bounded P0 spike
+завершён и получил технический `GO`. Текущий production contract остаётся
+Component Runtime v1 / wire v2. P1-P6 не считаются автоматически одобренными,
+config schema этим результатом не меняется.
 
 Текущий Proteus snapshot: `ffbc0a1`.
 
@@ -769,6 +769,55 @@ Kill criteria:
 - безопасная reentrancy требует считать exports внутри одного process взаимно
   недоверенными isolation domains, чего process boundary не предоставляет.
 
+### Результат P0
+
+Дата результата: 2026-08-22. Evidence changeset: `176d39f`.
+
+Статус: технический `GO` для планирования P1/P2; их реализация требует
+отдельного подтверждения владельца. Это не production cutover и не
+автоматическое разрешение следующего changeset: Component Runtime v1 / wire v2
+остаётся единственным действующим contract до отдельного P3 atomic migration.
+
+Автоматизированный gate:
+
+```bash
+cargo test -p proteus-module-protocol --test multiplex_spike -- --nocapture
+```
+
+Test-only spike содержит 18 сценариев и минимальный Python worker. Он
+подтвердил:
+
+- concurrent out-of-order calls одного process и host-routed
+  same-component reentrancy;
+- targeted user/timeout cancel без потери sibling invocation;
+- разные terminal causes и lazy new generation после protocol fault, process
+  exit и uncooperative cancel;
+- causal ordering `run -> cancel`: queued dispatch отменяется до write, а
+  записываемый `run` нельзя обогнать priority control frame-ом;
+- отдельные bounded reader, data writer и priority control lanes, включая
+  progress flood, slow consumer, blocked stdin writer и queue overflow;
+- component-wide active cap, nested reserve, root pending cap, callback
+  depth/count, admission-aware deadline и bounded retained output;
+- exactly-once terminal, live-callback causality, stale/terminal parent и
+  разделённые пространства id `h:*` / `m:*`.
+
+`invocation_id` остаётся correlation key, не capability token. Malicious export
+общего trusted component может назвать active parent соседнего export и получить
+его host-selected authority. Spike намеренно показывает эту границу доверия, а
+не заявляет security isolation между exports одного process.
+
+Ни один kill criterion не сработал. При этом spike оказался больше начальной
+оценки: changeset содержит 3 221 добавленную строку, из них Python fixture —
+377. Основную цену дали hostile cases и test-only duplex lifecycle, а не новый
+agent-specific protocol. Поэтому P1/P2 должен сохранить разрез transport /
+broker state / wire validation и не переносить test harness в production
+механически.
+
+P0 не заменяет P2/P3 conformance, `module_swap`, strict public DTO review,
+journal/replay, workspace/session ownership, install или `doctor` evidence.
+Test-only `nested_export_for` иллюстрирует parent-based routing, но production
+authority по-прежнему должна идти из общей contract authority table.
+
 ### P1. Protocol-Neutral Duplex Transport
 
 Цель: разделить process lifecycle, frame input и frame output без знания slot
@@ -1080,7 +1129,7 @@ P0-P4:
 11-18 atomic commits
 9.5-18 focused engineering days
 8 000-15 000 строк touched
-неопределённость ±50% до P0
+исходная неопределённость ±50% до P0
 ```
 
 Это меньше полного ABI -> process cutover. Для ориентира прошлый переход
@@ -1104,9 +1153,9 @@ P0-P5b:
 ### Реалистичный Ближайший Заход
 
 ```text
-P0 spike
-  -> architecture decision
-  -> P1-P2 broker kernel
+P0 spike: technical GO
+  -> отдельное решение владельца
+  -> P1-P2 transport/broker kernel
   -> повторная оценка
 ```
 
@@ -1117,18 +1166,19 @@ P0 spike
 5-9 engineering days
 ```
 
-Если P0 показывает неожиданно большой worker-language burden, полноценный
-cutover не начинается, Runtime v1 сохраняется, а roadmap возвращается к другим
-подтверждённым platform gaps.
+P0 не показал отдельного worker-language blocker, но оказался больше исходной
+оценки из-за hostile transport/lifecycle cases. Поэтому production cutover не
+начинается автоматически: Runtime v1 сохраняется до P1/P2 evidence и повторной
+оценки.
 
 ## Порядок Относительно Roadmap
 
 Владелец проекта утвердил platform direction 2026-08-22. Активный roadmap не
 требует manual dogfood или coding-session baseline перед broker research:
 
-1. P0 executable spike;
-2. `GO / REVISE / STOP` по его evidence;
-3. при `GO` — P1-P2 broker kernel;
+1. ✅ P0 executable spike;
+2. ✅ технический `GO` по его evidence;
+3. после отдельного подтверждения — P1-P2 broker kernel;
 4. повторная архитектурная оценка;
 5. при повторном `GO` — P3 atomic cutover и P4 real reentrancy evidence;
 6. отдельно — `model/v1` decision и vertical slice;
@@ -1287,8 +1337,9 @@ reference implementation другой путь, чем внешнему componen
 
 ## Decision Checklist
 
-Владелец проекта подтвердил эти пять пунктов 2026-08-22. Они задают направление
-P0; P1-P4 требуют положительного результата spike:
+Владелец проекта подтвердил эти пять пунктов 2026-08-22. Они задали направление
+P0; spike дал положительный технический результат, а начало P1-P4 остаётся
+отдельным решением:
 
 1. Runtime v2 остаётся одним multiplexed invocation primitive; generic actor
    не добавляется.
@@ -1297,28 +1348,29 @@ P0; P1-P4 требуют положительного результата spike
    generation.
 4. Same-component reentrancy всегда проходит через host и новую target
    invocation.
-5. Сначала выполняется bounded P0 spike; production contract меняется только
-   после его результата.
+5. Bounded P0 spike выполняется до production work; его технический `GO` не
+   меняет contract без отдельных P1-P3 changesets и evidence.
 
 ## Рекомендуемый Следующий Шаг
 
 Не трогать `Workflow`, root steering или `SubagentRunner` в production.
 
-Следующий самостоятельный changeset после одобрения этого направления:
+После явного подтверждения владельца следующий самостоятельный changeset — P1:
 
 ```text
-test/research: prove multiplexed component broker semantics
+refactor(process-host): split bounded duplex transport
 ```
 
-Он реализует только P0 fixtures и расширенную go/kill matrix. После него должны
-быть доступны три честных решения:
+Он переносит только доказанный protocol-neutral transport primitive из spike в
+`proteus-process-host`, сохраняет sequential facade для MCP/LSP и не меняет
+Component Runtime wire. Затем отдельный P2 changeset строит broker/wire v3.
 
 ```text
-GO       -> проектировать P1/P2 production broker
-REVISE   -> сузить protocol и повторить spike
-STOP     -> оставить Runtime v1 и выбрать другой подтверждённый platform gap
+P1 -> bounded duplex transport + старый sequential facade
+P2 -> multiplexed component broker + wire v3 contract
+P3 -> только atomic tracked cutover после повторной переоценки
 ```
 
-Такой порядок ограничивает стоимость ещё одного неверного архитектурного
-направления и одновременно проверяет решение достаточно глубоко, чтобы не
-строить следующий слой на предположениях.
+Test-only broker не переносится целиком: production authority, async API,
+workspace/session ownership и strict public DTO появляются через действующие
+contracts и собственное evidence.

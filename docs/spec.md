@@ -174,12 +174,12 @@ Runtime должен сохранять эти свойства:
 ## Planned Направления
 
 Process-only module cutover из `process-module-architecture.md` завершён.
-Непосредственный приоритет — bounded P0 spike multiplexed Component Runtime v2.
-Он проверяет общий substrate для concurrent, streaming и long-lived external
-components без добавления generic actor или конкретного agent behavior в core.
-P1-P4 начинаются только после `GO`; model и subagent boundaries остаются
-отдельными contract decisions. Актуальный критический путь ведётся в
-`scope.md`.
+Bounded P0 spike multiplexed Component Runtime v2 завершён changeset-ом
+`176d39f` и получил технический `GO`. Следующее решение — начинать ли P1/P2
+production transport/broker kernel; до отдельного подтверждения действуют
+Component Runtime v1 / wire v2. Generic actor не добавляется, model и subagent
+boundaries остаются отдельными contract decisions. Актуальный критический путь
+ведётся в `scope.md`.
 
 Ownership PTY sessions, bounded retention process-subagent pool, общий
 policy path для `task`, fail-closed shell sandbox и token для non-loopback
@@ -264,8 +264,9 @@ path CLI smoke test.
 5. ✅ reference implementations живут в `modules/reference` и экспортируются
    ordinary worker-ом без особого origin;
 6. ✅ native ABI/loader удалён без shims;
-7. 🚧 bounded Runtime v2 P0 spike и `GO / REVISE / STOP` по multiplexed broker;
-8. ⏳ при `GO` — atomic wire-v3 cutover, затем отдельные решения по
+7. ✅ bounded Runtime v2 P0 spike: 18 automated scenarios и технический `GO`;
+8. ⏳ после отдельного подтверждения — P1/P2, затем atomic wire-v3 cutover и
+   отдельные решения по
    model/subagent contracts.
 
 Configured process/MCP tool executors являются явными tool surfaces и всегда

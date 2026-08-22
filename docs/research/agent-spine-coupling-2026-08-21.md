@@ -18,15 +18,15 @@
 уточнил порядок, но не отменил coupling findings этого документа.
 
 Core-owned spine spike больше не рекомендуется первым production/research
-изменением. Сначала должен пройти bounded P0 spike multiplexed component
-broker-а. Иначе AgentSession/Policy boundary снова будет спроектирована вокруг
-single-flight transport limitation, а не вокруг долгосрочного contract.
+изменением. Bounded P0 spike multiplexed component broker-а уже дал технический
+`GO`; до P1-P3 production runtime всё равно остаётся single-flight, поэтому
+AgentSession/Policy boundary ещё не следует менять.
 
 Текущий порядок решения:
 
 ```text
-P0 broker spike
-  -> go/no-go по Component Runtime v2
+P0 broker spike: GO
+  -> P1-P3 transport/broker/cutover после отдельного подтверждения
   -> только затем Agent/Workflow contract spike на новом substrate
 ```
 

@@ -66,7 +66,7 @@ Process-only и Component Runtime cutover:
 
 Точный итог: [process-module-architecture.md](process-module-architecture.md).
 
-## Текущий Приоритет: Component Runtime v2 P0
+## Текущий Приоритет: Решение По P1/P2 Component Runtime v2
 
 Текущий Component Runtime v1 / wire v2 — завершённый baseline, но его
 single-flight transport запрещает reentrant вызов в другой export того же
@@ -75,30 +75,28 @@ component и вынуждает разрезать components по callback depe
 а не новый agent loop, generic actor runtime или интеграция архитектур другого
 проекта.
 
-### Bounded P0: Multiplexed Broker Spike
+### Bounded P0: завершён, технический GO
 
-Первый changeset ограничен test/research evidence и не меняет production
-config, slot catalog или current wire v2. Он должен доказать:
+Test/research changeset `176d39f` не изменил production config, slot catalog
+или current wire v2. Его 18 автоматизированных сценариев с Python worker-ом
+доказали:
 
 1. out-of-order terminal responses двух invocation одного process;
 2. same-component callback chain `A -> host -> B` без direct module link;
 3. cooperative cancel A без отмены B и без restart PID/generation;
 4. generation-wide reset при uncooperative cancel, crash или protocol fault;
 5. fail-closed обработку forged/stale/terminal parent invocation id;
-6. bounds, deadlines и отсутствие утечки workspace/session/tool ownership между
-   concurrent invocation.
+6. bounded receive/write/pending/callback/notification state, causal
+   control ordering и admission-aware deadlines.
 
-Расширенная matrix в
-`research/component-runtime-v2-plan-2026-08-21.md` дополнительно требует
-cancel/terminal races, backpressure/control priority, nested admission,
-duplicate ids и минимальный non-Rust worker.
+Расширенная matrix и результат находятся в
+[research/component-runtime-v2-plan-2026-08-21.md](research/component-runtime-v2-plan-2026-08-21.md#результат-p0).
+P0 получил технический `GO`, но не является production authority,
+workspace/session, conformance или cutover evidence. Он не утверждает
+model/subagent slot и не открывает direct same-process dispatch. Начало P1/P2
+требует отдельного подтверждения владельца.
 
-Результат P0 всегда фиксируется как `GO`, `REVISE` или `STOP`. Только `GO`
-разрешает планировать P1-P4. При `REVISE` contract сужается и spike повторяется;
-при `STOP` Runtime v1 остаётся current path. P0 не утверждает model/subagent
-slot и не открывает direct same-process dispatch.
-
-### P1-P4 Только После GO
+### P1-P4 После P0 GO И Отдельного Подтверждения
 
 При `GO` работа идёт отдельными атомарными этапами:
 
@@ -191,8 +189,8 @@ worker-а.
 - новая memory architecture без измеримой проблемы внешнего component-а;
 - cosmetic UI polish без blocker-а.
 
-Эти идеи не отменены, но не должны размывать P0, принятые этапы после `GO` и
-отдельные model/subagent migrations.
+Эти идеи не отменены, но не должны размывать исправления P0 evidence, отдельно
+подтверждённые этапы после технического `GO` и model/subagent migrations.
 
 ## Readiness Criteria
 
@@ -227,8 +225,9 @@ production path. Идея возвращается из research только с
 
 Если задача:
 
-- реализует P0 или его focused evidence — делать;
-- относится к P1-P4 без зафиксированного `GO` — оставить в плане;
+- исправляет или укрепляет focused P0 evidence — делать в test/research scope;
+- относится к P1-P4 без отдельного подтверждения владельца после технического
+  P0 `GO` — оставить в плане;
 - закрывает model/subagent contract gap — сначала contract design и parity
   matrix;
 - добавляет module того же processized slot — external worker + conformance,

@@ -39,6 +39,22 @@ Manual dogfood не является обязательным gate или sequen
 Protocol или architecture change без automated boundary evidence всё равно
 неполон.
 
+### P0 Multiplexed Broker Spike
+
+```bash
+cargo test -p proteus-module-protocol --test multiplex_spike -- --nocapture
+```
+
+Это language-neutral automated research evidence для Runtime v2 P0. Gate
+проверяет multiplexing, reentrancy, targeted cancellation, causal priority,
+failure fan-out, admission/deadline semantics и bounded reader/writer/retained
+state на внешнем Python worker-е.
+
+Spike не является production contract. Он не заменяет P2/P3 conformance,
+`module_swap`, strict public DTO review, journal/replay, workspace/session,
+install или `doctor` gates. Действующий runtime по-прежнему проверяется
+обычными Component Runtime v1 / wire v2 suites ниже.
+
 ## Общий Rust Gate
 
 ```bash

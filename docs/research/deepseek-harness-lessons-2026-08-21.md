@@ -4,7 +4,8 @@
 - Дата решения: 2026-08-21.
 - Sequencing status: исходный вывод `R1 Installed Dogfood next` сохранён как
   исторический, но отменён решением владельца 2026-08-22. Текущий порядок —
-  bounded Component Runtime v2 P0 из `scope.md` и `roadmap.md`.
+  решение о P1/P2 после технического `GO` Runtime v2 P0 из `scope.md` и
+  `roadmap.md`.
 - Upstream: [`deepseek-ai/deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness).
 - Проверенный upstream-срез: `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`.
 - Исходный подробный разбор:
@@ -24,10 +25,11 @@
 ## Короткое Решение На 2026-08-21
 
 Исходное решение не меняло позиционирование Proteus и оставляло следующим R1
-Installed Dogfood. Sequencing отменён 2026-08-22: текущий следующий этап —
-bounded Component Runtime v2 P0. Сохраняется содержательный вывод этого
-документа: Harness не требует переносить Cordis, переписывать session model или
-собирать чужие product capabilities внутри core.
+Installed Dogfood. Sequencing отменён 2026-08-22, а bounded Component Runtime
+v2 P0 уже завершён с техническим `GO`. Текущее решение — начинать ли P1/P2;
+сохраняется содержательный вывод этого документа: Harness не требует переносить
+Cordis, переписывать session model или собирать чужие product capabilities
+внутри core.
 
 Harness независимо подтверждает четыре уже выбранных архитектурных решения:
 
@@ -178,10 +180,9 @@ reference component или конкретному `module_id`.
 
 ## Порядок Дальнейшей Работы
 
-1. Выполнить bounded Component Runtime v2 P0 и зафиксировать
-   `GO / REVISE / STOP`.
-2. Только при `GO` переходить к P1-P4; каждый runtime defect закрывать focused
-   protocol/conformance regression-ом.
+1. ✅ Bounded Component Runtime v2 P0 завершён с техническим `GO`.
+2. После отдельного подтверждения переходить к P1/P2; каждый runtime defect
+   закрывать focused protocol/conformance regression-ом.
 3. Model и subagent migrations принимать отдельно по parity/governance evidence.
 4. Отдельно провести trust-policy design.
 5. Вернуться к ecosystem/runtime-composition идеям только после Protocol Freeze
