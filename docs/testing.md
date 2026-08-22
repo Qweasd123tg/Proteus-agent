@@ -55,6 +55,27 @@ Spike не является production contract. Он не заменяет P2/P
 install или `doctor` gates. Действующий runtime по-прежнему проверяется
 обычными Component Runtime v1 / wire v2 suites ниже.
 
+### P1 Duplex Transport Foundation
+
+```bash
+cargo test -p proteus-process-host -- --nocapture
+cargo test -p rust-lsp
+```
+
+Process-host suite дополнительно фиксирует protocol-neutral P1 boundary:
+
+- concurrent frame writers не смешивают байты разных кадров;
+- slow consumer не обходит aggregate receive frame/byte limits;
+- child exit имеет lifecycle signal отдельно от frame queue;
+- repeated terminate идемпотентен и будит blocked reader и всех lifecycle
+  waiters;
+- `ProcessHost::terminate` прерывает blocked sequential request до его timeout;
+- initializer выполняется ровно один раз на generation и повторяется после
+  lazy restart.
+
+P1 не является wire-v3 evidence. Действующий component-v2 facade отдельно
+проверяют `proteus-module-protocol`, `module_swap` и reference conformance.
+
 ## Общий Rust Gate
 
 ```bash
@@ -78,7 +99,8 @@ cargo test -p proteus-module-protocol
 Они фиксируют:
 
 - newline framing и receive limits;
-- persistent child lifecycle;
+- bounded duplex writer, persistent child lifecycle и independent exit signal;
+- sequential MCP/LSP/component-v2 facade поверх общего transport;
 - strict JSON-RPC envelopes;
 - exact initialize/manifest;
 - authority lookup по `slot/contract_version`;

@@ -3,11 +3,11 @@
 Дата: 2026-08-21.
 
 Статус: направление одобрено владельцем проекта 2026-08-22; bounded P0 spike
-завершён и получил технический `GO`. Текущий production contract остаётся
-Component Runtime v1 / wire v2. P1-P6 не считаются автоматически одобренными,
-config schema этим результатом не меняется.
+получил технический `GO`, отдельно подтверждённый P1 duplex transport завершён.
+Текущий production component contract остаётся Component Runtime v1 / wire v2.
+P2-P6 не считаются автоматически одобренными, config schema P1 не менял.
 
-Текущий Proteus snapshot: `ffbc0a1`.
+Исходный snapshot плана: `ffbc0a1`; baseline P1: `d953aea`.
 
 Связанные документы:
 
@@ -275,8 +275,8 @@ target invocation и authority lookup.
 - process-only extension path.
 
 Не меняются и protocol-neutral consumers `proteus-process-host`: MCP и Rust LSP
-могут продолжать пользоваться последовательным request facade. Он должен быть
-переоснован на общем duplex transport, но не становится module runtime.
+продолжают пользоваться последовательным request facade. В P1 он переоснован
+на общем duplex transport, но не стал module runtime.
 
 ## Целевая Архитектура
 
@@ -773,10 +773,10 @@ Kill criteria:
 
 Дата результата: 2026-08-22. Evidence changeset: `176d39f`.
 
-Статус: технический `GO` для планирования P1/P2; их реализация требует
-отдельного подтверждения владельца. Это не production cutover и не
-автоматическое разрешение следующего changeset: Component Runtime v1 / wire v2
-остаётся единственным действующим contract до отдельного P3 atomic migration.
+Статус P0: технический `GO` для планирования P1/P2. Позднее владелец отдельно
+подтвердил завершённый P1; P2 по-прежнему требует нового решения. Это не
+production cutover: Component Runtime v1 / wire v2 остаётся единственным
+действующим contract до отдельного P3 atomic migration.
 
 Автоматизированный gate:
 
@@ -809,8 +809,8 @@ Test-only spike содержит 18 сценариев и минимальный
 Ни один kill criterion не сработал. При этом spike оказался больше начальной
 оценки: changeset содержит 3 221 добавленную строку, из них Python fixture —
 377. Основную цену дали hostile cases и test-only duplex lifecycle, а не новый
-agent-specific protocol. Поэтому P1/P2 должен сохранить разрез transport /
-broker state / wire validation и не переносить test harness в production
+agent-specific protocol. P1 сохранил разрез transport / broker state / wire
+validation; P2 также не должен переносить test harness в production
 механически.
 
 P0 не заменяет P2/P3 conformance, `module_swap`, strict public DTO review,
@@ -818,7 +818,7 @@ journal/replay, workspace/session ownership, install или `doctor` evidence.
 Test-only `nested_export_for` иллюстрирует parent-based routing, но production
 authority по-прежнему должна идти из общей contract authority table.
 
-### P1. Protocol-Neutral Duplex Transport
+### P1. Protocol-Neutral Duplex Transport — Завершён
 
 Цель: разделить process lifecycle, frame input и frame output без знания slot
 protocol.
@@ -861,6 +861,44 @@ Evidence:
 - slow consumer не обходит receive byte/frame limits;
 - terminate будит reader и всех waiters;
 - initializer выполняется ровно один раз на generation.
+
+### Результат P1
+
+Дата результата: 2026-08-22. Статус: завершён после отдельного подтверждения
+владельца.
+
+Production `proteus-process-host` теперь содержит:
+
+- `ProcessTransport` с single-consumer frame reader и bounded dedicated stdin
+  writer;
+- cloneable `ProcessLifecycle`, чей monitor владеет child и публикует exit
+  независимо от frame queue;
+- идемпотентный terminate, который прерывает blocked transport read и blocked
+  sequential request;
+- `ProcessSession` как тонкий JSON-RPC-style sequential facade без собственного
+  child/stdin/thread ownership;
+- generation-aware `ProcessHost`, который не убивает новую generation при
+  позднем reset старого вызова и выполняет initializer ровно один раз.
+
+Focused evidence:
+
+```bash
+cargo test -p proteus-process-host -- --nocapture
+cargo test -p rust-lsp
+cargo test -p proteus-module-protocol
+cargo test -p proteus-core --test module_swap -- --nocapture
+cargo test -p proteus-reference-worker --test conformance -- --nocapture
+```
+
+Config, component handshake, authority table и wire v2 не менялись. P1 не
+доказывает multiplexed component invocation и не разрешает начинать P2 без
+отдельного решения.
+
+Фактический code/test scope — 1 503 touched lines. Начальная оценка
+`1 200-2 500 touched` выдержана, но ожидание net LOC около нуля не подтвердилось:
+production вырос net на 867 строк из-за отдельного lifecycle monitor,
+bounded writer и явных handles; старое child/stdin/thread ownership из
+`session.rs` при этом удалено.
 
 ### P2. Component Broker И Wire v3
 
@@ -1154,22 +1192,23 @@ P0-P5b:
 
 ```text
 P0 spike: technical GO
-  -> отдельное решение владельца
-  -> P1-P2 transport/broker kernel
+  -> ✅ отдельное решение владельца и завершённый P1 transport
+  -> отдельное решение владельца по P2
+  -> P2 broker/wire-v3 kernel
   -> повторная оценка
 ```
 
-Стоимость до второй точки решения:
+Оставшаяся engineering estimate до следующей точки переоценки:
 
 ```text
-6-10 commits
-5-9 engineering days
+3-5 commits
+3-5 engineering days
 ```
 
 P0 не показал отдельного worker-language blocker, но оказался больше исходной
-оценки из-за hostile transport/lifecycle cases. Поэтому production cutover не
-начинается автоматически: Runtime v1 сохраняется до P1/P2 evidence и повторной
-оценки.
+оценки из-за hostile transport/lifecycle cases. P1 закрыл transport foundation,
+но production cutover не начинается автоматически: Runtime v1 сохраняется до
+P2 evidence и повторной оценки.
 
 ## Порядок Относительно Roadmap
 
@@ -1178,13 +1217,14 @@ P0 не показал отдельного worker-language blocker, но ока
 
 1. ✅ P0 executable spike;
 2. ✅ технический `GO` по его evidence;
-3. после отдельного подтверждения — P1-P2 broker kernel;
-4. повторная архитектурная оценка;
-5. при повторном `GO` — P3 atomic cutover и P4 real reentrancy evidence;
-6. отдельно — `model/v1` decision и vertical slice;
-7. отдельно — `subagent/v1` decision и vertical slice;
-8. optional P6 SDK simplification;
-9. uniform worker trust policy и protocol freeze по собственным gates.
+3. ✅ после отдельного подтверждения — P1 duplex transport;
+4. после нового отдельного подтверждения — P2 broker/wire-v3 kernel;
+5. повторная архитектурная оценка;
+6. при повторном `GO` — P3 atomic cutover и P4 real reentrancy evidence;
+7. отдельно — `model/v1` decision и vertical slice;
+8. отдельно — `subagent/v1` decision и vertical slice;
+9. optional P6 SDK simplification;
+10. uniform worker trust policy и protocol freeze по собственным gates.
 
 Каждый production этап всё равно проходит automated focused, protocol,
 conformance, swap, journal/replay и install/doctor проверки из `testing.md`.
@@ -1338,8 +1378,8 @@ reference implementation другой путь, чем внешнему componen
 ## Decision Checklist
 
 Владелец проекта подтвердил эти пять пунктов 2026-08-22. Они задали направление
-P0; spike дал положительный технический результат, а начало P1-P4 остаётся
-отдельным решением:
+P0; spike дал положительный технический результат. P1 позднее получил отдельное
+подтверждение и завершён, а P2-P4 остаются отдельными решениями:
 
 1. Runtime v2 остаётся одним multiplexed invocation primitive; generic actor
    не добавляется.
@@ -1355,15 +1395,16 @@ P0; spike дал положительный технический резуль�
 
 Не трогать `Workflow`, root steering или `SubagentRunner` в production.
 
-После явного подтверждения владельца следующий самостоятельный changeset — P1:
+P1 changeset завершён:
 
 ```text
 refactor(process-host): split bounded duplex transport
 ```
 
-Он переносит только доказанный protocol-neutral transport primitive из spike в
-`proteus-process-host`, сохраняет sequential facade для MCP/LSP и не меняет
-Component Runtime wire. Затем отдельный P2 changeset строит broker/wire v3.
+Он перенёс доказанный protocol-neutral transport primitive в
+`proteus-process-host`, сохранил sequential facade для MCP/LSP и не изменил
+Component Runtime wire. Следующее решение владельца — начинать ли отдельный P2
+changeset с broker/wire v3. До такого решения production code не менять.
 
 ```text
 P1 -> bounded duplex transport + старый sequential facade

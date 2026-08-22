@@ -1,13 +1,20 @@
 use std::{
+    collections::BTreeSet,
     env,
     io::{self, BufReader, Write},
-    time::Duration,
+    sync::{
+        Arc, Barrier,
+        atomic::{AtomicUsize, Ordering},
+    },
+    thread,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Result, anyhow};
 use proteus_process_host::{
     ContentLengthFraming, DEFAULT_ENV_ALLOWLIST, Framing, NewlineJsonFraming, ProcessHost,
-    ProcessSession, ProcessSpec, ReceiveFrameError, ReceiveLimits,
+    ProcessSession, ProcessSpec, ProcessTransport, ProcessTransportLimits, ReceiveFrameError,
+    ReceiveLimits,
 };
 use serde_json::{Value, json};
 
@@ -43,6 +50,22 @@ fn run_tests() -> Result<()> {
             raw_timeout_does_not_terminate_child,
         ),
         (
+            "duplex_transport_serializes_concurrent_frames",
+            duplex_transport_serializes_concurrent_frames,
+        ),
+        (
+            "slow_transport_consumer_remains_receive_bounded",
+            slow_transport_consumer_remains_receive_bounded,
+        ),
+        (
+            "terminate_wakes_reader_and_exit_waiters",
+            terminate_wakes_reader_and_exit_waiters,
+        ),
+        (
+            "host_terminate_interrupts_blocked_request",
+            host_terminate_interrupts_blocked_request,
+        ),
+        (
             "notifications_buffered_during_request_and_drained",
             notifications_buffered_during_request_and_drained,
         ),
@@ -61,6 +84,10 @@ fn run_tests() -> Result<()> {
         (
             "explicit_terminate_and_reset_restart_child",
             explicit_terminate_and_reset_restart_child,
+        ),
+        (
+            "initializer_runs_once_per_generation",
+            initializer_runs_once_per_generation,
         ),
         (
             "receive_frame_count_bounds_notification_backlog",
@@ -168,6 +195,159 @@ fn raw_timeout_does_not_terminate_child() -> Result<()> {
     Ok(())
 }
 
+fn duplex_transport_serializes_concurrent_frames() -> Result<()> {
+    const WRITERS: usize = 32;
+
+    let spec = mock_spec("newline")?;
+    let mut transport = ProcessTransport::spawn(&spec, NewlineJsonFraming::default())?;
+    let barrier = Arc::new(Barrier::new(WRITERS + 1));
+    let mut writers = Vec::new();
+    for id in 0..WRITERS {
+        let writer = transport.frame_writer();
+        let barrier = Arc::clone(&barrier);
+        writers.push(thread::spawn(move || {
+            barrier.wait();
+            writer.send_frame(json!({
+                "jsonrpc": "2.0",
+                "id": format!("concurrent-{id}"),
+                "method": "echo",
+                "params": { "writer": id }
+            }))
+        }));
+    }
+
+    barrier.wait();
+    for writer in writers {
+        writer
+            .join()
+            .map_err(|_| anyhow!("concurrent writer thread panicked"))??;
+    }
+
+    let mut observed = BTreeSet::new();
+    for _ in 0..WRITERS {
+        let response = transport.recv_frame(SHORT_TIMEOUT)?;
+        let id = response["id"]
+            .as_str()
+            .ok_or_else(|| anyhow!("concurrent response id is not a string"))?;
+        let writer = response["result"]["writer"]
+            .as_u64()
+            .ok_or_else(|| anyhow!("concurrent response is missing writer id"))?;
+        assert_eq!(id, format!("concurrent-{writer}"));
+        observed.insert(writer);
+    }
+    assert_eq!(observed.len(), WRITERS);
+    Ok(())
+}
+
+fn slow_transport_consumer_remains_receive_bounded() -> Result<()> {
+    let spec = mock_spec("newline")?;
+    let limits = ProcessTransportLimits::new(ReceiveLimits::new(2, 1024 * 1024), 8);
+    let mut transport =
+        ProcessTransport::spawn_with_limits(&spec, NewlineJsonFraming::default(), limits)?;
+
+    transport.send_frame(json!({
+        "jsonrpc": "2.0",
+        "id": "slow-consumer",
+        "method": "three_notifications_then_echo",
+        "params": {}
+    }))?;
+    thread::sleep(Duration::from_millis(30));
+
+    assert_eq!(transport.recv_frame(SHORT_TIMEOUT)?["method"], "mock/burst");
+    assert_eq!(transport.recv_frame(SHORT_TIMEOUT)?["method"], "mock/burst");
+    let error = transport
+        .recv_frame(SHORT_TIMEOUT)
+        .expect_err("a slow consumer must trip the bounded frame queue");
+    assert!(
+        error
+            .to_string()
+            .contains("receive buffer exceeded frame count limit")
+            || error
+                .to_string()
+                .contains("receive channel exceeded frame count limit"),
+        "unexpected slow-consumer error: {error}"
+    );
+    Ok(())
+}
+
+fn terminate_wakes_reader_and_exit_waiters() -> Result<()> {
+    let spec = mock_spec("newline")?;
+    let mut transport = ProcessTransport::spawn(&spec, NewlineJsonFraming::default())?;
+    let lifecycle = transport.lifecycle();
+    let barrier = Arc::new(Barrier::new(4));
+
+    let reader_barrier = Arc::clone(&barrier);
+    let reader = thread::spawn(move || {
+        reader_barrier.wait();
+        let started = Instant::now();
+        let result = transport.recv_frame(Duration::from_secs(5));
+        (result, started.elapsed())
+    });
+
+    let mut waiters = Vec::new();
+    for _ in 0..2 {
+        let waiter_lifecycle = lifecycle.clone();
+        let waiter_barrier = Arc::clone(&barrier);
+        waiters.push(thread::spawn(move || {
+            waiter_barrier.wait();
+            waiter_lifecycle.wait_for_exit(Duration::from_secs(5))
+        }));
+    }
+
+    barrier.wait();
+    thread::sleep(Duration::from_millis(20));
+    let first_exit = lifecycle.terminate()?;
+    let second_exit = lifecycle.terminate()?;
+    assert_eq!(first_exit, second_exit, "terminate must be idempotent");
+
+    let (reader_result, elapsed) = reader
+        .join()
+        .map_err(|_| anyhow!("transport reader thread panicked"))?;
+    assert!(
+        matches!(reader_result, Err(ReceiveFrameError::ReaderStopped { .. })),
+        "terminate must wake the frame reader: {reader_result:?}"
+    );
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "reader waited for its original timeout: {elapsed:?}"
+    );
+    for waiter in waiters {
+        assert_eq!(
+            waiter
+                .join()
+                .map_err(|_| anyhow!("lifecycle waiter thread panicked"))??,
+            Some(first_exit.clone())
+        );
+    }
+    Ok(())
+}
+
+fn host_terminate_interrupts_blocked_request() -> Result<()> {
+    let spec = mock_spec("newline")?;
+    let host = Arc::new(ProcessHost::new(spec, NewlineJsonFraming::default()));
+    let request_host = Arc::clone(&host);
+    let request = thread::spawn(move || {
+        let started = Instant::now();
+        let result = request_host.request("never_respond", json!({}), Duration::from_secs(5));
+        (result, started.elapsed())
+    });
+
+    thread::sleep(Duration::from_millis(30));
+    host.terminate()?;
+    let (result, elapsed) = request
+        .join()
+        .map_err(|_| anyhow!("blocked host request thread panicked"))?;
+    assert!(result.is_err(), "terminated request unexpectedly succeeded");
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "host terminate waited for the request timeout: {elapsed:?}"
+    );
+
+    let response = host.request("echo", json!({ "restarted": true }), SHORT_TIMEOUT)?;
+    assert_eq!(response, json!({ "restarted": true }));
+    Ok(())
+}
+
 fn notifications_buffered_during_request_and_drained() -> Result<()> {
     let spec = mock_spec("newline")?;
     let mut session = ProcessSession::spawn(&spec, NewlineJsonFraming::default())?;
@@ -239,6 +419,47 @@ fn explicit_terminate_and_reset_restart_child() -> Result<()> {
     Ok(())
 }
 
+fn initializer_runs_once_per_generation() -> Result<()> {
+    const CALLERS: usize = 8;
+
+    let spec = mock_spec("newline")?;
+    let initialized = Arc::new(AtomicUsize::new(0));
+    let initializer_count = Arc::clone(&initialized);
+    let host = Arc::new(ProcessHost::with_initializer(
+        spec,
+        NewlineJsonFraming::default(),
+        move |session| {
+            initializer_count.fetch_add(1, Ordering::SeqCst);
+            session
+                .request("echo", json!({ "initialize": true }), SHORT_TIMEOUT)
+                .map(|_| ())
+        },
+    ));
+
+    let barrier = Arc::new(Barrier::new(CALLERS + 1));
+    let mut callers = Vec::new();
+    for id in 0..CALLERS {
+        let host = Arc::clone(&host);
+        let barrier = Arc::clone(&barrier);
+        callers.push(thread::spawn(move || {
+            barrier.wait();
+            host.request("echo", json!({ "caller": id }), SHORT_TIMEOUT)
+        }));
+    }
+    barrier.wait();
+    for caller in callers {
+        caller
+            .join()
+            .map_err(|_| anyhow!("process host caller thread panicked"))??;
+    }
+    assert_eq!(initialized.load(Ordering::SeqCst), 1);
+
+    host.terminate()?;
+    host.request("echo", json!({ "generation": 2 }), SHORT_TIMEOUT)?;
+    assert_eq!(initialized.load(Ordering::SeqCst), 2);
+    Ok(())
+}
+
 fn receive_frame_count_bounds_notification_backlog() -> Result<()> {
     let spec = mock_spec("newline")?;
     let limits = ReceiveLimits::new(2, 1024 * 1024);
@@ -295,6 +516,19 @@ fn invalid_receive_limits_fail_before_spawn() -> Result<()> {
             .to_string()
             .contains("max_buffered_frames must be greater than zero"),
         "unexpected receive-limit validation error: {error}"
+    );
+
+    let error = ProcessTransport::spawn_with_limits(
+        &spec,
+        NewlineJsonFraming::default(),
+        ProcessTransportLimits::new(ReceiveLimits::default(), 0),
+    )
+    .expect_err("zero writer queue must fail before command spawn");
+    assert!(
+        error
+            .to_string()
+            .contains("max_queued_writes must be greater than zero"),
+        "unexpected writer-limit validation error: {error}"
     );
     Ok(())
 }

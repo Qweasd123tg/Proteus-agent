@@ -1,7 +1,8 @@
 # Process Components И Module Contracts
 
 Статус: process-only cutover бывшей dylib system завершён 2026-08-07;
-Component Runtime v1 реализован 2026-08-08.
+Component Runtime v1 реализован 2026-08-08; protocol-neutral P1 duplex
+transport foundation завершён 2026-08-22 без изменения wire v2.
 
 Текущая внешняя граница:
 
@@ -53,10 +54,14 @@ AppConfig.components
   -> ProcessExportClient
   -> Arc<ProcessComponentSession> (общий для workspace)
   -> ProcessHost<NewlineJsonFraming>
+  -> ProcessSession (sequential facade)
+  -> ProcessTransport (frame reader + bounded writer + lifecycle)
   -> worker stdin/stdout
 ```
 
-- `proteus-process-host` знает только child lifecycle и framing.
+- `proteus-process-host` знает только child lifecycle, framing и
+  protocol-neutral duplex transport; slot, module id, callbacks и authority в
+  нём отсутствуют.
 - `proteus-module-protocol` знает component handshake, exact export set,
   authority, bidirectional RPC, cancel и terminal states, но не зависит от
   `proteus-core`.
@@ -261,9 +266,16 @@ DTO, adapter, protocol/conformance и swap evidence в одном commit.
 
 - один child process и handshake;
 - одну последовательную очередь invocation;
-- stderr/transport state;
+- один duplex transport generation и stderr state;
 - cancel, timeout, crash и protocol failure domain;
 - reset и lazy restart.
+
+Нижний `proteus-process-host` после P1 уже разделяет single-consumer frame
+reader, bounded dedicated writer и cloneable lifecycle. Concurrent callers
+могут атомарно отправлять целые кадры, child exit наблюдается отдельно от frame
+queue, а terminate прерывает blocked read. Последовательность ниже остаётся
+свойством действующего `ProcessComponentSession`/wire v2, а не ограничением
+stdio framing.
 
 Текущий runtime **single-flight**: пока один export ждёт response, другой
 request в тот же component не отправляется. Это упрощает framing, callback
@@ -298,6 +310,9 @@ reference-capabilities   search, provider, policy, patch, compactor,
 General imports, hooks и reentrant cross-export calls потребуют отдельного
 мультиплексированного broker contract. Они не имитируются скрытым direct call
 или исключением по `component_id`.
+
+P1 transport foundation сам по себе такой broker не добавляет: wire v2 всё ещё
+ожидает один active invocation id. P2 остаётся отдельным contract changeset.
 
 ## Cancellation И Failure
 

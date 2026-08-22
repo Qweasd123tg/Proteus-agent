@@ -1,36 +1,28 @@
-use std::{
-    io::{self, BufReader, Read},
-    process::{Child, ChildStdin, Command, Stdio},
-    sync::mpsc::{self, Receiver, RecvTimeoutError, TryRecvError, TrySendError},
-    thread::JoinHandle,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
 
 use crate::{
-    Framing, ProcessSpec, ReceiveFrameError, ReceiveLimits,
-    receive::{BufferedFrame, ReaderStatus, ReceiveBudget, compact_json_len},
+    Framing, ProcessFrameWriter, ProcessLifecycle, ProcessSpec, ProcessTransport,
+    ProcessTransportLimits, ReceiveFrameError, ReceiveLimits, receive::BufferedFrame,
 };
 
-/// Live persistent child process session.
+/// Sequential JSON-RPC-style facade over a protocol-neutral duplex transport.
+///
+/// MCP, LSP and the current component-v2 runtime keep their existing
+/// single-caller semantics here. New multiplexed protocol layers use
+/// [`ProcessTransport`] directly instead of duplicating child ownership.
 #[derive(Debug)]
 pub struct ProcessSession<F: Framing> {
-    child: Child,
-    stdin: ChildStdin,
-    stdout_rx: Receiver<BufferedFrame>,
-    reader_status: ReaderStatus,
+    transport: ProcessTransport<F>,
     next_request_id: i64,
     notifications: Vec<BufferedFrame>,
-    framing: F,
-    stdout_thread: Option<JoinHandle<()>>,
-    stderr_thread: Option<JoinHandle<()>>,
 }
 
 impl<F: Framing> ProcessSession<F> {
     pub fn spawn(spec: &ProcessSpec, framing: F) -> Result<Self> {
-        Self::spawn_with_receive_limits(spec, framing, ReceiveLimits::default())
+        Self::spawn_with_transport_limits(spec, framing, ProcessTransportLimits::default())
     }
 
     pub fn spawn_with_receive_limits(
@@ -38,49 +30,40 @@ impl<F: Framing> ProcessSession<F> {
         framing: F,
         receive_limits: ReceiveLimits,
     ) -> Result<Self> {
-        receive_limits.validate()?;
-        let mut command = Command::new(&spec.command);
-        command
-            .args(&spec.args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        spec.apply_environment(&mut command)?;
-        if let Some(cwd) = &spec.cwd {
-            command.current_dir(cwd);
-        }
+        Self::spawn_with_transport_limits(
+            spec,
+            framing,
+            ProcessTransportLimits::new(receive_limits, crate::DEFAULT_MAX_QUEUED_WRITES),
+        )
+    }
 
-        let mut child = command.spawn()?;
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| anyhow!("failed to open child stdin"))?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| anyhow!("failed to open child stdout"))?;
-        let stderr = child.stderr.take();
-
-        let (stdout_rx, reader_status, stdout_thread) =
-            spawn_stdout_reader(stdout, framing.clone(), receive_limits);
-        let stderr_thread = stderr.map(spawn_stderr_drain);
-
+    pub fn spawn_with_transport_limits(
+        spec: &ProcessSpec,
+        framing: F,
+        limits: ProcessTransportLimits,
+    ) -> Result<Self> {
         Ok(Self {
-            child,
-            stdin,
-            stdout_rx,
-            reader_status,
+            transport: ProcessTransport::spawn_with_limits(spec, framing, limits)?,
             next_request_id: 1,
             notifications: Vec::new(),
-            framing,
-            stdout_thread: Some(stdout_thread),
-            stderr_thread,
         })
+    }
+
+    pub fn pid(&self) -> u32 {
+        self.transport.pid()
+    }
+
+    pub fn lifecycle(&self) -> ProcessLifecycle {
+        self.transport.lifecycle()
+    }
+
+    pub fn frame_writer(&self) -> ProcessFrameWriter {
+        self.transport.frame_writer()
     }
 
     /// Sends one protocol-neutral frame to the child.
     pub fn send_frame(&mut self, message: Value) -> Result<()> {
-        self.framing.write_frame(&mut self.stdin, &message)
+        self.transport.send_frame(message).map_err(Into::into)
     }
 
     /// Waits for one protocol-neutral frame without changing process state on
@@ -207,27 +190,13 @@ impl<F: Framing> ProcessSession<F> {
         &mut self,
         timeout: Duration,
     ) -> std::result::Result<BufferedFrame, ReceiveFrameError> {
-        match self.stdout_rx.recv_timeout(timeout) {
-            Ok(frame) => Ok(frame),
-            Err(RecvTimeoutError::Timeout) => Err(self
-                .reader_status
-                .failure_if_any()
-                .unwrap_or(ReceiveFrameError::Timeout { timeout })),
-            Err(RecvTimeoutError::Disconnected) => Err(self.reader_status.failure()),
-        }
+        self.transport.recv_buffered_frame(timeout)
     }
 
     fn try_recv_buffered_frame(
         &mut self,
     ) -> std::result::Result<Option<BufferedFrame>, ReceiveFrameError> {
-        match self.stdout_rx.try_recv() {
-            Ok(frame) => Ok(Some(frame)),
-            Err(TryRecvError::Empty) => match self.reader_status.failure_if_any() {
-                Some(error) => Err(error),
-                None => Ok(None),
-            },
-            Err(TryRecvError::Disconnected) => Err(self.reader_status.failure()),
-        }
+        self.transport.try_recv_buffered_frame()
     }
 
     fn next_request_id(&mut self) -> i64 {
@@ -238,91 +207,12 @@ impl<F: Framing> ProcessSession<F> {
 
     /// Terminates the child without creating a replacement session.
     pub fn terminate(&mut self) -> Result<()> {
-        if self.child.try_wait()?.is_none() {
-            self.child.kill()?;
-            self.child.wait()?;
-        }
-        Ok(())
+        self.transport.terminate()
     }
 
     fn terminate_best_effort(&mut self) {
         let _ = self.terminate();
     }
-}
-
-impl<F: Framing> Drop for ProcessSession<F> {
-    fn drop(&mut self) {
-        self.terminate_best_effort();
-        if let Some(thread) = self.stdout_thread.take() {
-            let _ = thread.join();
-        }
-        if let Some(thread) = self.stderr_thread.take() {
-            let _ = thread.join();
-        }
-    }
-}
-
-fn spawn_stdout_reader<R, F>(
-    reader: R,
-    framing: F,
-    receive_limits: ReceiveLimits,
-) -> (Receiver<BufferedFrame>, ReaderStatus, JoinHandle<()>)
-where
-    R: Read + Send + 'static,
-    F: Framing,
-{
-    let (tx, rx) = mpsc::sync_channel(receive_limits.max_buffered_frames());
-    let budget = ReceiveBudget::new(receive_limits);
-    let reader_status = ReaderStatus::default();
-    let thread_status = reader_status.clone();
-    let thread = std::thread::spawn(move || {
-        let mut reader = BufReader::new(reader);
-        loop {
-            let value = match framing.read_frame(&mut reader) {
-                Ok(value) => value,
-                Err(error) => {
-                    thread_status.fail(error.to_string());
-                    break;
-                }
-            };
-            let serialized_bytes = match compact_json_len(&value) {
-                Ok(serialized_bytes) => serialized_bytes,
-                Err(error) => {
-                    thread_status.fail(format!("failed to measure received JSON frame: {error}"));
-                    break;
-                }
-            };
-            let permit = match budget.reserve(serialized_bytes) {
-                Ok(permit) => permit,
-                Err(error) => {
-                    thread_status.fail(error);
-                    break;
-                }
-            };
-            let frame = BufferedFrame::new(value, permit);
-            match tx.try_send(frame) {
-                Ok(()) => {}
-                Err(TrySendError::Full(_)) => {
-                    thread_status.fail(format!(
-                        "receive channel exceeded frame count limit: max {}",
-                        receive_limits.max_buffered_frames()
-                    ));
-                    break;
-                }
-                Err(TrySendError::Disconnected(_)) => break,
-            }
-        }
-    });
-    (rx, reader_status, thread)
-}
-
-fn spawn_stderr_drain<R>(mut reader: R) -> JoinHandle<()>
-where
-    R: Read + Send + 'static,
-{
-    std::thread::spawn(move || {
-        let _ = io::copy(&mut reader, &mut io::sink());
-    })
 }
 
 fn is_notification(message: &Value) -> bool {

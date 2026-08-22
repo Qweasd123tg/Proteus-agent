@@ -66,11 +66,27 @@ Process-only и Component Runtime cutover:
 
 Точный итог: [process-module-architecture.md](process-module-architecture.md).
 
-## Текущий Приоритет: Решение По P1/P2 Component Runtime v2
+### P1 Duplex Transport Foundation
+
+После отдельного подтверждения владельца P1 завершён 2026-08-22:
+
+- `proteus-process-host` разделяет single-consumer frame reader, bounded
+  dedicated writer и cloneable lifecycle одного поколения процесса;
+- child exit наблюдается отдельно от frame queue;
+- concurrent writes не смешивают кадры, slow consumer остаётся внутри receive
+  limits, terminate будит blocked reader и lifecycle waiters;
+- `ProcessSession` стал тонким последовательным JSON-RPC facade;
+- MCP, Rust LSP и действующий component wire v2 проходят прежние gates;
+- initializer выполняется ровно один раз на каждое новое поколение.
+
+P1 не меняет component config, slot contracts или wire: production runtime всё
+ещё Component Runtime v1 / wire v2 и single-flight.
+
+## Текущий Приоритет: Решение По P2 Component Runtime v2
 
 Текущий Component Runtime v1 / wire v2 — завершённый baseline, но его
-single-flight transport запрещает reentrant вызов в другой export того же
-component и вынуждает разрезать components по callback dependency boundaries.
+single-flight component session запрещает reentrant вызов в другой export того
+же component и вынуждает разрезать components по callback dependency boundaries.
 Активное направление — нейтральный multiplexed substrate Runtime v2 / wire v3,
 а не новый agent loop, generic actor runtime или интеграция архитектур другого
 проекта.
@@ -94,19 +110,19 @@ Test/research changeset `176d39f` не изменил production config, slot ca
 P0 получил технический `GO`, но не является production authority,
 workspace/session, conformance или cutover evidence. Он не утверждает
 model/subagent slot и не открывает direct same-process dispatch. Начало P1/P2
-требует отдельного подтверждения владельца.
+требовало отдельного подтверждения владельца; такое подтверждение получено и
+выполнено только для P1.
 
-### P1-P4 После P0 GO И Отдельного Подтверждения
+### Оставшиеся P2-P4 После Отдельного Подтверждения
 
-При `GO` работа идёт отдельными атомарными этапами:
+P1 transport foundation завершён. Дальнейшая работа идёт отдельными атомарными
+этапами только после нового подтверждения:
 
-1. protocol-neutral duplex transport с сохранением sequential facade для MCP и
-   LSP;
-2. async component broker и строгий wire v3 с invocation-scoped authority,
+1. async component broker и строгий wire v3 с invocation-scoped authority,
    correlated callbacks/notifications и generation failure fan-out;
-3. единый cutover host, workers, adapters, examples, configs, conformance,
+2. единый cutover host, workers, adapters, examples, configs, conformance,
    tests и docs на v3 с удалением v2 reader;
-4. реальное evidence same-component reentrancy, authority/cancel isolation и
+3. реальное evidence same-component reentrancy, authority/cancel isolation и
    замена v1 cycle rejection на bounded lineage/deadline semantics.
 
 Компонент остаётся shared lifecycle/failure boundary. Его exports не получают
@@ -226,8 +242,8 @@ production path. Идея возвращается из research только с
 Если задача:
 
 - исправляет или укрепляет focused P0 evidence — делать в test/research scope;
-- относится к P1-P4 без отдельного подтверждения владельца после технического
-  P0 `GO` — оставить в плане;
+- относится к оставшимся P2-P4 без отдельного подтверждения владельца —
+  оставить в плане;
 - закрывает model/subagent contract gap — сначала contract design и parity
   matrix;
 - добавляет module того же processized slot — external worker + conformance,

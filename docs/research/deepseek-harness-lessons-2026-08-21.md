@@ -3,9 +3,9 @@
 - Статус: research/decision input, не reference текущей реализации.
 - Дата решения: 2026-08-21.
 - Sequencing status: исходный вывод `R1 Installed Dogfood next` сохранён как
-  исторический, но отменён решением владельца 2026-08-22. Текущий порядок —
-  решение о P1/P2 после технического `GO` Runtime v2 P0 из `scope.md` и
-  `roadmap.md`.
+  исторический, но отменён решением владельца 2026-08-22. P0 получил
+  технический `GO`, отдельно подтверждённый P1 transport завершён; текущее
+  решение по P2 ведётся в `scope.md` и `roadmap.md`.
 - Upstream: [`deepseek-ai/deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness).
 - Проверенный upstream-срез: `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`.
 - Исходный подробный разбор:
@@ -25,11 +25,11 @@
 ## Короткое Решение На 2026-08-21
 
 Исходное решение не меняло позиционирование Proteus и оставляло следующим R1
-Installed Dogfood. Sequencing отменён 2026-08-22, а bounded Component Runtime
-v2 P0 уже завершён с техническим `GO`. Текущее решение — начинать ли P1/P2;
-сохраняется содержательный вывод этого документа: Harness не требует переносить
-Cordis, переписывать session model или собирать чужие product capabilities
-внутри core.
+Installed Dogfood. Sequencing отменён 2026-08-22, bounded Component Runtime v2
+P0 получил технический `GO`, а отдельно подтверждённый P1 transport завершён.
+Текущее решение — начинать ли P2; сохраняется содержательный вывод этого
+документа: Harness не требует переносить Cordis, переписывать session model или
+собирать чужие product capabilities внутри core.
 
 Harness независимо подтверждает четыре уже выбранных архитектурных решения:
 
@@ -181,11 +181,12 @@ reference component или конкретному `module_id`.
 ## Порядок Дальнейшей Работы
 
 1. ✅ Bounded Component Runtime v2 P0 завершён с техническим `GO`.
-2. После отдельного подтверждения переходить к P1/P2; каждый runtime defect
-   закрывать focused protocol/conformance regression-ом.
-3. Model и subagent migrations принимать отдельно по parity/governance evidence.
-4. Отдельно провести trust-policy design.
-5. Вернуться к ecosystem/runtime-composition идеям только после Protocol Freeze
+2. ✅ Отдельно подтверждённый P1 duplex transport завершён.
+3. После нового подтверждения переходить к P2; каждый runtime defect закрывать
+   focused protocol/conformance regression-ом.
+4. Model и subagent migrations принимать отдельно по parity/governance evidence.
+5. Отдельно провести trust-policy design.
+6. Вернуться к ecosystem/runtime-composition идеям только после Protocol Freeze
    и доказанной потребности внешних авторов модулей.
 
 ## Первичные Источники

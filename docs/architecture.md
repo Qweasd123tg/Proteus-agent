@@ -58,7 +58,7 @@ Native extension ABI отсутствует: нет dylib loader, `plugin.toml`,
 crates/
   proteus-contracts/       canonical DTO, traits, process worker helper API
   proteus-module-protocol/ handshake, authority table, JSON-RPC session
-  proteus-process-host/    child lifecycle и framing без знания slots
+  proteus-process-host/    bounded duplex stdio + lifecycle без знания slots
   proteus-core/            runtime, wiring, adapters, CLI, app-server
 modules/
   reference/               test/dogfood implementations + process worker

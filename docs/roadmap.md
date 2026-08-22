@@ -70,10 +70,9 @@ duplex queues, nested reserve и generation failure fan-out. Полная matrix
 команда gate и честные границы результата записаны в
 [Component Runtime v2 plan](research/component-runtime-v2-plan-2026-08-21.md#результат-p0).
 
-Результат — технический `GO` для планирования P1/P2. Production contract,
-config, adapters и wire v2 не менялись; начало следующего production changeset
-требует отдельного подтверждения владельца. P0 подтвердил host-owned authority
-model, generation, cancellation, deadlines и bounds внутри test-only spike.
+Результат дал технический `GO` для планирования P1/P2. Владелец отдельно
+подтвердил P1, и protocol-neutral transport foundation завершён 2026-08-22.
+P0 сам по себе не менял production contract, config, adapters или wire v2.
 Workspace/session ownership остаётся production evidence P2/P3, потому что
 spike сознательно работает вне `ModuleCatalog`.
 
@@ -81,14 +80,16 @@ Malicious export общего trusted component всё ещё может наз�
 соседнего export. Это зафиксированная trust boundary, а не обещание изоляции
 внутри одного process.
 
-### R2. P1-P4 — Только После Отдельного Подтверждения Владельца
+### R2. P1 Завершён; P2-P4 Требуют Следующего Решения
 
-После технического P0 `GO` и отдельного подтверждения владельца следующие
-этапы идут последовательно, с отдельной переоценкой после broker kernel:
+После технического P0 `GO` владелец отдельно подтвердил только P1. Этапы идут
+последовательно, с отдельным решением перед P2 и переоценкой после broker
+kernel:
 
-1. **P1. Protocol-neutral duplex transport.** Разделить lifecycle, reader и
-   writer в `proteus-process-host`, сохранив последовательный facade для MCP и
-   LSP.
+1. ✅ **P1. Protocol-neutral duplex transport — завершён.** В
+   `proteus-process-host` разделены bounded frame reader/writer и lifecycle
+   generation; child exit имеет отдельный сигнал, terminate будит blocked
+   reader, а прежний последовательный facade для MCP, LSP и wire v2 сохранён.
 2. **P2. Component broker и wire v3.** Добавить bounded concurrent pending
    invocations, lineage, correlated callbacks/notifications, targeted
    cooperative cancel и generation-wide failure fan-out.
@@ -103,6 +104,10 @@ Component остаётся lifecycle/failure boundary. Direct cross-export dispa
 union authority, automatic retry и fallback не появляются. Разделять exports
 по нескольким processes по желаемому failure domain по-прежнему допустимо;
 исчезает только разбиение, нужное исключительно для single-flight deadlock.
+
+P1 не сделал Component Runtime multiplexed: `ProcessComponentSession` всё ещё
+single-flight и использует wire v2. Следующий production changeset P2 нельзя
+начинать без отдельного подтверждения владельца.
 
 ### Фиксированная Граница v0.1 Alpha
 

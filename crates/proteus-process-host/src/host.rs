@@ -4,29 +4,43 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 use serde_json::Value;
 
-use crate::{Framing, ProcessSession, ProcessSpec, ReceiveLimits};
+use crate::{Framing, ProcessLifecycle, ProcessSession, ProcessSpec, ReceiveLimits};
 
 /// Protocol handshake executed on a freshly spawned session before first use.
 pub type SessionInitializer<F> = dyn Fn(&mut ProcessSession<F>) -> Result<()> + Send + Sync;
 
-/// Lazy-starting process host that drops failed sessions for restart on next use.
+/// Lazy-starting sequential facade that drops failed generations for restart
+/// on next use.
+///
+/// Session traffic remains single-caller for MCP, LSP and wire v2. Lifecycle is
+/// tracked separately so `terminate`/`reset` can stop a child while that caller
+/// is blocked waiting for input.
 pub struct ProcessHost<F: Framing> {
     spec: ProcessSpec,
     framing: F,
     receive_limits: ReceiveLimits,
     initializer: Option<Box<SessionInitializer<F>>>,
     session: Mutex<Option<ProcessSession<F>>>,
+    active_lifecycle: Mutex<Option<ProcessLifecycle>>,
 }
 
 impl<F: Framing> std::fmt::Debug for ProcessHost<F> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ProcessHost")
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let active_pid = self
+            .active_lifecycle
+            .lock()
+            .expect("process host lifecycle mutex poisoned")
+            .as_ref()
+            .map(ProcessLifecycle::pid);
+        formatter
+            .debug_struct("ProcessHost")
             .field("spec", &self.spec)
             .field("receive_limits", &self.receive_limits)
             .field("has_initializer", &self.initializer.is_some())
+            .field("active_pid", &active_pid)
             .finish_non_exhaustive()
     }
 }
@@ -39,12 +53,13 @@ impl<F: Framing> ProcessHost<F> {
             receive_limits: ReceiveLimits::default(),
             initializer: None,
             session: Mutex::new(None),
+            active_lifecycle: Mutex::new(None),
         }
     }
 
     /// Like [`ProcessHost::new`], but runs `initializer` on every freshly
-    /// spawned session (first start and each lazy restart) before the session
-    /// serves traffic. Initialization failure discards the session.
+    /// spawned generation (first start and each lazy restart) before it serves
+    /// traffic. Initialization failure discards that generation.
     pub fn with_initializer(
         spec: ProcessSpec,
         framing: F,
@@ -56,6 +71,7 @@ impl<F: Framing> ProcessHost<F> {
             receive_limits: ReceiveLimits::default(),
             initializer: Some(Box::new(initializer)),
             session: Mutex::new(None),
+            active_lifecycle: Mutex::new(None),
         }
     }
 
@@ -68,14 +84,40 @@ impl<F: Framing> ProcessHost<F> {
 
     pub fn ensure_session(&self) -> Result<ProcessSessionGuard<'_, F>> {
         let mut guard = self.session.lock().expect("process host mutex poisoned");
+        self.discard_stopped_session(&mut guard);
         if guard.is_none() {
             let mut session = ProcessSession::spawn_with_receive_limits(
                 &self.spec,
                 self.framing.clone(),
                 self.receive_limits,
             )?;
-            if let Some(initializer) = &self.initializer {
-                initializer(&mut session)?;
+            let lifecycle = session.lifecycle();
+            self.set_active_lifecycle(Some(lifecycle.clone()));
+
+            if let Some(initializer) = &self.initializer
+                && let Err(error) = initializer(&mut session)
+            {
+                self.clear_active_lifecycle(&lifecycle);
+                drop(session);
+                return Err(error);
+            }
+
+            match lifecycle.try_exit() {
+                Ok(None) => {}
+                Ok(Some(exit)) => {
+                    self.clear_active_lifecycle(&lifecycle);
+                    drop(session);
+                    bail!(
+                        "child process {} exited {exit} during session initialization",
+                        lifecycle.pid()
+                    );
+                }
+                Err(error) => {
+                    self.clear_active_lifecycle(&lifecycle);
+                    drop(session);
+                    return Err(error)
+                        .context("child lifecycle failed during session initialization");
+                }
             }
             *guard = Some(session);
         }
@@ -103,34 +145,34 @@ impl<F: Framing> ProcessHost<F> {
     }
 
     pub fn request(&self, method: &str, params: Value, timeout: Duration) -> Result<Value> {
-        let result = {
-            let mut session = self.ensure_session()?;
-            session.request(method, params, timeout)
-        };
+        let mut session = self.ensure_session()?;
+        let lifecycle = session.lifecycle();
+        let result = session.request(method, params, timeout);
+        drop(session);
         if result.is_err() {
-            self.reset();
+            self.reset_generation(&lifecycle);
         }
         result
     }
 
     pub fn notify(&self, method: &str, params: Value) -> Result<()> {
-        let result = {
-            let mut session = self.ensure_session()?;
-            session.notify(method, params)
-        };
+        let mut session = self.ensure_session()?;
+        let lifecycle = session.lifecycle();
+        let result = session.notify(method, params);
+        drop(session);
         if result.is_err() {
-            self.reset();
+            self.reset_generation(&lifecycle);
         }
         result
     }
 
     pub fn wait_notification(&self, method: &str, timeout: Duration) -> Result<Value> {
-        let result = {
-            let mut session = self.ensure_session()?;
-            session.wait_notification(method, timeout)
-        };
+        let mut session = self.ensure_session()?;
+        let lifecycle = session.lifecycle();
+        let result = session.wait_notification(method, timeout);
+        drop(session);
         if result.is_err() {
-            self.reset();
+            self.reset_generation(&lifecycle);
         }
         result
     }
@@ -143,29 +185,98 @@ impl<F: Framing> ProcessHost<F> {
             .unwrap_or_default()
     }
 
-    /// Terminates and discards the current session. A later operation starts a
-    /// fresh child and reruns the initializer.
+    /// Terminates and discards the current generation. A later operation
+    /// starts a fresh child and reruns the initializer. The lifecycle signal is
+    /// sent without waiting for the sequential session mutex, so a blocked
+    /// reader wakes immediately.
     pub fn terminate(&self) -> Result<()> {
-        let session = self
-            .session
-            .lock()
-            .expect("process host mutex poisoned")
-            .take();
-        match session {
-            Some(mut session) => session.terminate(),
+        let lifecycle = self.active_lifecycle();
+        let result = match &lifecycle {
+            Some(lifecycle) => lifecycle.terminate().map(|_| ()),
             None => Ok(()),
+        };
+        self.discard_generation(lifecycle.as_ref());
+        result
+    }
+
+    /// Discards the current generation with best-effort termination. A later
+    /// operation lazily starts a fresh child.
+    pub fn reset(&self) {
+        let lifecycle = self.active_lifecycle();
+        if let Some(lifecycle) = &lifecycle {
+            let _ = lifecycle.terminate();
+        }
+        self.discard_generation(lifecycle.as_ref());
+    }
+
+    fn reset_generation(&self, lifecycle: &ProcessLifecycle) {
+        let _ = lifecycle.terminate();
+        self.discard_generation(Some(lifecycle));
+    }
+
+    fn discard_stopped_session(&self, guard: &mut Option<ProcessSession<F>>) {
+        let stopped = guard.as_ref().is_some_and(|session| {
+            session
+                .lifecycle()
+                .try_exit()
+                .map_or(true, |exit| exit.is_some())
+        });
+        if !stopped {
+            return;
+        }
+        if let Some(session) = guard.take() {
+            let lifecycle = session.lifecycle();
+            self.clear_active_lifecycle(&lifecycle);
+            drop(session);
         }
     }
 
-    /// Discards the current session with best-effort termination. A later
-    /// operation lazily starts a fresh child.
-    pub fn reset(&self) {
-        let session = self
-            .session
+    fn discard_generation(&self, generation: Option<&ProcessLifecycle>) {
+        let session = {
+            let mut guard = self.session.lock().expect("process host mutex poisoned");
+            let matches = match (guard.as_ref(), generation) {
+                (Some(session), Some(generation)) => {
+                    session.lifecycle().same_generation(generation)
+                }
+                (Some(_), None) => true,
+                (None, _) => false,
+            };
+            matches.then(|| guard.take()).flatten()
+        };
+        if let Some(session) = session {
+            let lifecycle = session.lifecycle();
+            self.clear_active_lifecycle(&lifecycle);
+            drop(session);
+        } else if let Some(generation) = generation {
+            self.clear_active_lifecycle(generation);
+        }
+    }
+
+    fn active_lifecycle(&self) -> Option<ProcessLifecycle> {
+        self.active_lifecycle
             .lock()
-            .expect("process host mutex poisoned")
-            .take();
-        drop(session);
+            .expect("process host lifecycle mutex poisoned")
+            .clone()
+    }
+
+    fn set_active_lifecycle(&self, lifecycle: Option<ProcessLifecycle>) {
+        *self
+            .active_lifecycle
+            .lock()
+            .expect("process host lifecycle mutex poisoned") = lifecycle;
+    }
+
+    fn clear_active_lifecycle(&self, generation: &ProcessLifecycle) {
+        let mut active = self
+            .active_lifecycle
+            .lock()
+            .expect("process host lifecycle mutex poisoned");
+        if active
+            .as_ref()
+            .is_some_and(|active| active.same_generation(generation))
+        {
+            *active = None;
+        }
     }
 }
 

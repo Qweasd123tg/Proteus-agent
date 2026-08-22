@@ -33,18 +33,19 @@ pub(crate) fn compact_json_len(value: &Value) -> Result<usize> {
     Ok(counter.bytes)
 }
 
-/// Default maximum number of frames retained inside one process session.
+/// Default maximum number of frames retained inside one process transport.
 pub const DEFAULT_MAX_BUFFERED_FRAMES: usize = 256;
 
-/// Default maximum compact-JSON size retained inside one process session.
+/// Default maximum compact-JSON size retained inside one process transport.
 pub const DEFAULT_MAX_BUFFERED_BYTES: usize = 32 * 1024 * 1024;
 
 /// Bounds for frames waiting inside the host.
 ///
-/// The budget covers both the stdout reader queue and JSON-RPC notifications
-/// retained by [`crate::ProcessSession`]. Frames already returned to the caller
-/// are no longer part of this budget. Per-frame wire limits remain a framing
-/// concern (`NewlineJsonFraming` / `ContentLengthFraming`).
+/// The budget always covers the stdout reader queue. Through the sequential
+/// [`crate::ProcessSession`] facade it also remains attached to retained
+/// JSON-RPC notifications. Frames returned by the protocol-neutral transport
+/// caller are no longer part of this budget. Per-frame wire limits remain a
+/// framing concern (`NewlineJsonFraming` / `ContentLengthFraming`).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ReceiveLimits {
     max_buffered_frames: usize,
@@ -183,6 +184,10 @@ impl ReceiveBudget {
             budget: self.clone(),
             bytes,
         })
+    }
+
+    pub(crate) fn limits(&self) -> ReceiveLimits {
+        self.limits
     }
 }
 
