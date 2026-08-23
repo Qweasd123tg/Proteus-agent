@@ -19,16 +19,16 @@
 
 Core-owned spine spike больше не рекомендуется первым production/research
 изменением. Bounded P0 spike multiplexed component broker-а уже дал технический
-`GO`; отдельно подтверждённые P1-P3 завершены, и production runtime теперь
-multiplexed. AgentSession/Policy boundary всё равно не следует менять без
+`GO`; отдельно подтверждённые P1-P4 завершены, и production runtime теперь
+multiplexed с topology/journal evidence. AgentSession/Policy boundary всё
+равно не следует менять без
 собственного contract evidence.
 
 Текущий порядок решения:
 
 ```text
 P0 broker spike: GO
-  -> ✅ P1-P3 transport/broker/cutover после отдельных подтверждений
-  -> отдельное решение по P4 topology/journal evidence
+  -> ✅ P1-P4 transport/broker/cutover/evidence после отдельных подтверждений
   -> только затем возможный Agent/Workflow contract spike
 ```
 

@@ -113,6 +113,13 @@ duplex transport, crash/reset и lazy restart. Несколько invocation м�
 вычисляется заново по активному `slot/contract_version`: соседний export не
 расширяет права вызова. Callback может через host открыть nested invocation
 другого export того же component; lineage/depth/deadline остаются host-owned.
+Process adapters автоматически сохраняют этот parent только при повторном
+входе в тот же broker; вызов другого configured component остаётся новым root.
+
+Полный однопроцессный пример находится в
+`examples/configs/proteus.one-component.example.toml`. Он намеренно объединяет
+workflow, context, compactor и capabilities для evidence; обычные profiles
+могут разделять их по желаемым failure domains.
 
 Process boundary пока не sandbox: worker получает очищенное окружение, но
 работает с обычными OS-правами пользователя. Protocol-visible callbacks
@@ -135,6 +142,8 @@ Process boundary пока не sandbox: worker получает очищенно
 - reference worker с 26 selectors и отдельный Python workflow/search/compactor
   examples;
 - conformance, real-worker execution и runtime swap regression gates.
+- P4 topology/journal gate: один PID выполняет callback-связанный workflow,
+  переживает адресную отмену и даёт совпадающий canonical workflow replay.
 
 Оставшиеся core-owned selectable границы названы явно: model provider adapters
 (`fake`, `openai`, `openai_compatible`, `anthropic`) и

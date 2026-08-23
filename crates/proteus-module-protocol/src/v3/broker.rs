@@ -382,7 +382,7 @@ impl ComponentBroker {
         params: Value,
         timeout: Duration,
     ) -> Result<InvocationTerminal, ComponentBrokerError> {
-        self.invoke_blocking_inner(target, method, params, timeout, true)
+        self.invoke_blocking_inner(None, target, method, params, timeout, true)
     }
 
     /// Callback-free invocation for a synchronous slot contract. It uses the
@@ -395,11 +395,26 @@ impl ComponentBroker {
         params: Value,
         timeout: Duration,
     ) -> Result<InvocationTerminal, ComponentBrokerError> {
-        self.invoke_blocking_inner(target, method, params, timeout, false)
+        self.invoke_blocking_inner(None, target, method, params, timeout, false)
+    }
+
+    /// Callback-free synchronous child of an active invocation. This keeps
+    /// synchronous policy/renderer traits inside the same lineage and cancel
+    /// tree when a process callback re-enters another export of this broker.
+    pub fn invoke_nested_blocking(
+        &self,
+        parent: &InvocationRef,
+        target: &ProcessComponentExportRef,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<InvocationTerminal, ComponentBrokerError> {
+        self.invoke_blocking_inner(Some(parent.clone()), target, method, params, timeout, false)
     }
 
     fn invoke_blocking_inner(
         &self,
+        parent: Option<InvocationRef>,
         target: &ProcessComponentExportRef,
         method: &str,
         params: Value,
@@ -422,7 +437,7 @@ impl ComponentBroker {
             method: method.to_owned(),
             params,
             deadline,
-            parent: None,
+            parent: parent.clone(),
             dispatcher: Arc::new(NoAsyncHostRequests),
             executor: None,
             terminal: TerminalSender::Blocking(terminal_tx),
@@ -430,12 +445,24 @@ impl ComponentBroker {
             ack: StartAck::Blocking(ack_tx),
             bootstrap,
         };
-        self.inner.root_tx.try_send(request).map_err(|error| {
-            ComponentBrokerError::new(
-                ComponentBrokerErrorKind::Admission,
-                format!("component-v3 blocking admission failed: {error}"),
-            )
-        })?;
+        if parent.is_some() {
+            self.inner
+                .control_tx
+                .try_send(ControlCommand::StartNested(Box::new(request)))
+                .map_err(|error| {
+                    ComponentBrokerError::new(
+                        ComponentBrokerErrorKind::Admission,
+                        format!("component-v3 blocking nested admission failed: {error}"),
+                    )
+                })?;
+        } else {
+            self.inner.root_tx.try_send(request).map_err(|error| {
+                ComponentBrokerError::new(
+                    ComponentBrokerErrorKind::Admission,
+                    format!("component-v3 blocking admission failed: {error}"),
+                )
+            })?;
+        }
         ack_rx
             .recv_timeout(
                 self.inner

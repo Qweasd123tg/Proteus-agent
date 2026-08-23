@@ -120,6 +120,29 @@ cargo test -p proteus-reference-worker --test conformance
 process adapters. Real-worker suite проверяет same-component nested invocation
 и targeted cancel при живом sibling/PID/generation.
 
+### P4 Topology / Journal Evidence
+
+```bash
+cargo test -p proteus-core \
+  process_adapters::client::tests::callback_reentry_preserves_lineage_for_async_and_blocking_same_broker_calls
+cargo test -p proteus-reference-worker --test topology_journal -- --nocapture
+```
+
+Первый test доказывает, что production adapters автоматически продолжают
+broker-owned lineage при async и callback-free blocking reentry, но не
+оставляют parent после выхода из callback. Второй загружает
+`proteus.one-component.example.toml` и проверяет одним собранным profile:
+
+- workflow/context/search/memory/compactor/tool exposure/policy/tool/renderer
+  используют один configured component и один live PID;
+- во время заблокированного workflow независимый memory export завершается;
+- targeted cancellation записывается как `TurnSettled(Canceled)`, не меняет
+  PID и не мешает следующему успешному turn;
+- успешный turn реально исполняет process `read_file`, сохраняет context,
+  model/tool/result/settlement records и проходит side-effect-free workflow
+  replay без изменения source journal;
+- authority остаётся раздельной по slot, несмотря на общий process.
+
 ## Общий Rust Gate
 
 ```bash

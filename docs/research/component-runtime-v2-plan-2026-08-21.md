@@ -6,7 +6,8 @@
 получил технический `GO`, отдельно подтверждённые P1 duplex transport и P2
 broker/wire-v3 kernel завершены. Отдельно подтверждённый P3 atomic cutover
 завершён 2026-08-23: текущий configured contract — Component Runtime v2 /
-wire v3. P4-P6 не считаются автоматически одобренными.
+wire v3. Отдельно подтверждённый P4 topology/journal slice завершён
+2026-08-23. P5-P6 не считаются автоматически одобренными.
 
 Исходный snapshot плана: `ffbc0a1`; baseline P1: `d953aea`.
 
@@ -1113,11 +1114,13 @@ Atomic cutover завершён 2026-08-23:
 - real-worker conformance доказывает nested callback в sibling export того же
   process и targeted cancel без потери sibling PID/generation.
 
-Это закрывает transport cutover. Полный workflow profile с одним PID и
-canonical journal/replay остаётся отдельным P4 evidence, а не скрытым
-расширением P3.
+Это закрыло transport cutover. Полный workflow profile с одним PID и
+canonical journal/replay был сохранён отдельным P4 evidence, а не скрытым
+расширением P3, и позднее завершён отдельно.
 
-### P4. Topology Simplification И Real Reentrancy Evidence
+### P4. Topology Simplification И Real Reentrancy Evidence — Завершён
+
+Статус: отдельно подтверждён и завершён 2026-08-23.
 
 Цель: доказать, что новая возможность реально удаляет архитектурное
 ограничение, а не только проходит synthetic protocol tests.
@@ -1136,6 +1139,23 @@ canonical journal/replay остаётся отдельным P4 evidence, а н�
 Не обязательно объединять все packaged components по умолчанию. Разделение по
 желаемому failure domain остаётся полезным. Удаляется только вынужденное
 разделение ради transport deadlock.
+
+Результат:
+
+- добавлен runnable `proteus.one-component.example.toml` с workflow, context,
+  search, memory, compactor, tool exposure, policy, patch, renderer и tool
+  exports одного reference process;
+- production process adapters автоматически продолжают broker-owned lineage
+  при async и callback-free blocking reentry в тот же broker; другой broker
+  остаётся root;
+- `topology_journal.rs` доказывает один live PID, concurrent independent
+  memory invocation, targeted cancel, следующий успешный `read_file` turn и
+  отсутствие transport-specific topology workaround;
+- canonical projection содержит typed Canceled/Success settlements, context,
+  model/tool/result records, а side-effect-free workflow replay совпадает с
+  успешным turn и не изменяет journal;
+- authority проверяется отдельно для активных workflow/context/compactor/tool
+  contracts и не объединяется на component.
 
 Оценка:
 
@@ -1275,11 +1295,11 @@ P0 spike: technical GO
   -> ✅ отдельное решение владельца и завершённый P1 transport
   -> ✅ отдельное решение владельца и завершённый P2 broker/wire-v3 kernel
   -> ✅ отдельное решение владельца и завершённый P3 atomic cutover
-  -> отдельное решение перед P4 topology/journal slice
+  -> ✅ отдельное решение владельца и завершённый P4 topology/journal slice
 ```
 
-Следующая точка — не изменение topology по умолчанию, а повторная оценка P3
-evidence и границы P4. Исходная оценка P2 была:
+Следующая точка — фиксированный v0.1 alpha release contour, а не изменение
+topology по умолчанию или автоматический старт P5. Исходная оценка P2 была:
 
 ```text
 3-5 commits
@@ -1288,8 +1308,8 @@ evidence и границы P4. Исходная оценка P2 была:
 
 P0 не показал отдельного worker-language blocker, но оказался больше исходной
 оценки из-за hostile transport/lifecycle cases. P1 закрыл transport foundation,
-P2 дал production broker evidence, а P3 атомарно подключил его ко всем tracked
-producers/consumers. P4 не начинается автоматически.
+P2 дал production broker evidence, P3 атомарно подключил его ко всем tracked
+producers/consumers, а P4 доказал итоговую topology/journal semantics.
 
 ## Порядок Относительно Roadmap
 
@@ -1301,7 +1321,7 @@ producers/consumers. P4 не начинается автоматически.
 3. ✅ после отдельного подтверждения — P1 duplex transport;
 4. ✅ после нового отдельного подтверждения — P2 broker/wire-v3 kernel;
 5. ✅ после отдельного подтверждения — P3 atomic tracked cutover;
-6. текущая точка: отдельное решение по P4 topology/journal evidence;
+6. ✅ после отдельного подтверждения — P4 topology/journal evidence;
 7. отдельно — `model/v1` decision и vertical slice;
 8. отдельно — `subagent/v1` decision и vertical slice;
 9. optional P6 SDK simplification;
@@ -1314,7 +1334,7 @@ sequencing и не является обязательным доказател�
 
 ## Что Должно Упроститься
 
-После P4 ожидается удаление или исчезновение необходимости в:
+После P4 подтверждено удаление или исчезновение необходимости в:
 
 - `callback_dependency_slots` как transport deadlock graph;
 - `validate_callback_dependency_graph` и cycle-specific config rejection;
@@ -1460,8 +1480,8 @@ reference implementation другой путь, чем внешнему componen
 
 Владелец проекта подтвердил эти пять пунктов 2026-08-22. Они задали направление
 P0; spike дал положительный технический результат. P1 и P2 позднее получили
-отдельные подтверждения и завершены; P3 также отдельно подтверждён и завершён.
-P4 остаётся отдельным решением:
+отдельные подтверждения и завершены; P3 и P4 также отдельно подтверждены и
+завершены:
 
 1. Runtime v2 остаётся одним multiplexed invocation primitive; generic actor
    не добавляется.
@@ -1471,31 +1491,33 @@ P4 остаётся отдельным решением:
 4. Same-component reentrancy всегда проходит через host и новую target
    invocation.
 5. Bounded P0 spike выполняется до production work; его технический `GO` не
-   меняет contract без отдельных P1-P3 changesets и evidence.
+   меняет contract без отдельных P1-P4 changesets и evidence.
 
 ## Рекомендуемый Следующий Шаг
 
 Не трогать `Workflow`, root steering или `SubagentRunner` в production.
 
-P1-P3 changesets завершены:
+P1-P4 changesets завершены:
 
 ```text
 refactor(process-host): split bounded duplex transport
 feat(module-protocol): add multiplexed component-v3 broker
 feat(module-runtime): cut over tracked components to wire v3
+test(module-runtime): prove one-component topology and replay
 ```
 
 Первый перенёс protocol-neutral transport primitive в `proteus-process-host`.
 Второй добавил bounded production broker и strict v3 contract. Третий
 подключил его к core, reference worker и внешним examples и удалил component
-wire v2. Следующий шаг — review P3 evidence и отдельное решение по P4; менять
-`Workflow`, root steering или `SubagentRunner` для этого не требуется.
+wire v2. Четвёртый доказал production adapter lineage, однопроцессную topology,
+cancellation и journal/replay. Следующий шаг — v0.1 alpha release contour;
+`Workflow`, root steering и `SubagentRunner` не расширялись.
 
 ```text
 P1 -> bounded duplex transport + старый sequential facade
 P2 -> ✅ multiplexed component broker + wire v3 contract
 P3 -> ✅ atomic tracked cutover
-P4 -> только topology/journal evidence после отдельного GO
+P4 -> ✅ topology/journal evidence после отдельного GO
 ```
 
 Test-only broker не переносится целиком: production authority, async API,

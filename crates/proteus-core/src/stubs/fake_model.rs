@@ -128,7 +128,23 @@ impl FakeModelClient {
         // the remember_fact builtin. This lets integration tests exercise the
         // full tool-call round trip without depending on an external worker.
         // Historical "read_file <path>" trigger was retired when file tools
-        // moved to the reference process worker.
+        // moved to the reference process worker. It is now available again
+        // only when the request explicitly exposes that process tool, which
+        // makes it useful for installed/component integration evidence without
+        // inventing a hidden builtin fallback.
+        if let Some(path) = parse_read_file_request(&user_text)
+            && request.tools.iter().any(|tool| tool.name == "read_file")
+        {
+            let call = ToolCall::new(new_call_id(), "read_file", json!({ "path": path }));
+            let message = CanonicalMessage::new(
+                MessageRole::Assistant,
+                vec![ContentPart::ToolCall { call: call.clone() }],
+            );
+            return Ok(
+                CanonicalModelResponse::new(message, vec![call], FinishReason::ToolCalls)
+                    .with_provider_metadata(json!({"provider": "fake"})),
+            );
+        }
         if let Some(patch) = parse_apply_patch_request(&user_text) {
             let call = ToolCall::new(new_call_id(), "apply_patch", json!({ "patch": patch }));
             let message = CanonicalMessage::new(
@@ -278,6 +294,11 @@ fn parse_apply_patch_request(text: &str) -> Option<String> {
     }
 }
 
+fn parse_read_file_request(text: &str) -> Option<String> {
+    let path = text.trim().strip_prefix("read_file ")?.trim();
+    (!path.is_empty()).then(|| path.to_owned())
+}
+
 fn parse_request_user_input_request(text: &str) -> Option<String> {
     let trimmed = text.trim();
     if trimmed.eq_ignore_ascii_case("request_user_input")
@@ -295,7 +316,7 @@ fn parse_request_user_input_request(text: &str) -> Option<String> {
 mod tests {
     use super::*;
     use crate::{
-        domain::ToolResult,
+        domain::{ToolResult, ToolSafety, ToolSpec},
         model_standard::{CanonicalMessage, MessageRole, ModelStreamEvent},
     };
     use futures_util::StreamExt;
@@ -361,6 +382,46 @@ mod tests {
             response.tool_calls[0].args["patch"].as_str(),
             Some("*** Begin Patch\n*** Add File: smoke.txt\n+smoke\n*** End Patch")
         );
+    }
+
+    #[tokio::test]
+    async fn fake_model_triggers_read_file_only_when_the_process_tool_is_exposed() {
+        let client = FakeModelClient::default();
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("fake", "x"),
+            vec![CanonicalMessage::text(
+                MessageRole::User,
+                "read_file probe.txt",
+            )],
+        )
+        .with_tools(vec![ToolSpec::new(
+            "read_file",
+            "read a file",
+            json!({"type": "object"}),
+            ToolSafety::ReadOnly,
+        )]);
+        let mut stream = client.stream(request).await.unwrap();
+        let response = match stream.next().await.unwrap().unwrap() {
+            ModelStreamEvent::Response { response } => response,
+            other => panic!("expected response event, got {other:?}"),
+        };
+        assert_eq!(response.tool_calls.len(), 1);
+        assert_eq!(response.tool_calls[0].name, "read_file");
+        assert_eq!(response.tool_calls[0].args["path"], "probe.txt");
+
+        let without_tool = CanonicalModelRequest::new(
+            ModelRef::new("fake", "x"),
+            vec![CanonicalMessage::text(
+                MessageRole::User,
+                "read_file probe.txt",
+            )],
+        );
+        let mut stream = client.stream(without_tool).await.unwrap();
+        let response = match stream.next().await.unwrap().unwrap() {
+            ModelStreamEvent::Response { response } => response,
+            other => panic!("expected response event, got {other:?}"),
+        };
+        assert!(response.tool_calls.is_empty());
     }
 
     #[tokio::test]

@@ -2,13 +2,17 @@ use std::{path::Path, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use proteus_module_protocol::v3::{
-    AsyncHostRequestDispatcher, CancelCause, ComponentBroker, InvocationTerminal,
+    AsyncHostRequestDispatcher, CancelCause, ComponentBroker, ComponentBrokerError,
+    InvocationHandle, InvocationTerminal, NoAsyncHostRequests,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use tokio::time::{MissedTickBehavior, interval};
 
-use super::ProcessExportConfig;
+use super::{
+    ProcessExportConfig,
+    invocation_scope::{current_parent, scoped_dispatcher},
+};
 
 const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
@@ -60,9 +64,12 @@ impl ProcessExportClient {
         R: DeserializeOwned,
     {
         let value = self.encode(method, params)?;
-        let terminal = self
-            .broker
-            .invoke(&self.target, method, value, self.timeout)
+        let mut handle = self
+            .start(method, value, Arc::new(NoAsyncHostRequests))
+            .await
+            .with_context(|| self.invocation_context(method))?;
+        let terminal = handle
+            .result()
             .await
             .with_context(|| self.invocation_context(method))?;
         self.decode(method, terminal)
@@ -79,9 +86,12 @@ impl ProcessExportClient {
         R: DeserializeOwned,
     {
         let value = self.encode(method, params)?;
-        let terminal = self
-            .broker
-            .invoke_with_dispatcher(&self.target, method, value, self.timeout, dispatcher)
+        let mut handle = self
+            .start(method, value, dispatcher)
+            .await
+            .with_context(|| self.invocation_context(method))?;
+        let terminal = handle
+            .result()
             .await
             .with_context(|| self.invocation_context(method))?;
         self.decode(method, terminal)
@@ -104,8 +114,7 @@ impl ProcessExportClient {
         }
         let value = self.encode(method, params)?;
         let mut handle = self
-            .broker
-            .start_invocation_with_dispatcher(&self.target, method, value, self.timeout, dispatcher)
+            .start(method, value, dispatcher)
             .await
             .with_context(|| self.invocation_context(method))?;
         let cancel = handle.cancel_handle();
@@ -149,10 +158,19 @@ impl ProcessExportClient {
         R: DeserializeOwned,
     {
         let value = self.encode(method, params)?;
-        let terminal = self
-            .broker
-            .invoke_blocking(&self.target, method, value, self.timeout)
-            .with_context(|| self.invocation_context(method))?;
+        let terminal = match current_parent(&self.broker) {
+            Some(parent) => self.broker.invoke_nested_blocking(
+                &parent,
+                &self.target,
+                method,
+                value,
+                self.timeout,
+            ),
+            None => self
+                .broker
+                .invoke_blocking(&self.target, method, value, self.timeout),
+        }
+        .with_context(|| self.invocation_context(method))?;
         self.decode(method, terminal)
     }
 
@@ -162,6 +180,40 @@ impl ProcessExportClient {
 
     pub fn component_id(&self) -> &str {
         &self.component_id
+    }
+
+    async fn start(
+        &self,
+        method: &str,
+        params: Value,
+        dispatcher: Arc<dyn AsyncHostRequestDispatcher>,
+    ) -> Result<InvocationHandle, ComponentBrokerError> {
+        let dispatcher = scoped_dispatcher(&self.broker, dispatcher);
+        match current_parent(&self.broker) {
+            Some(parent) => {
+                self.broker
+                    .start_nested_invocation(
+                        &parent,
+                        &self.target,
+                        method,
+                        params,
+                        self.timeout,
+                        dispatcher,
+                    )
+                    .await
+            }
+            None => {
+                self.broker
+                    .start_invocation_with_dispatcher(
+                        &self.target,
+                        method,
+                        params,
+                        self.timeout,
+                        dispatcher,
+                    )
+                    .await
+            }
+        }
     }
 
     fn encode<P: Serialize>(&self, method: &str, params: &P) -> Result<Value> {
@@ -216,12 +268,26 @@ fn terminal_value(terminal: InvocationTerminal, module_id: &str, method: &str) -
 
 #[cfg(test)]
 mod tests {
-    use proteus_module_protocol::{
-        ProcessModuleRpcError,
-        v3::{ComponentFailure, InvocationTerminal},
-    };
+    use std::{path::Path, sync::Arc};
 
-    use super::terminal_value;
+    use proteus_module_protocol::{
+        ProcessExportBinding, ProcessModuleRpcError,
+        v3::{
+            AsyncHostRequestDispatcher, ComponentFailure, ComponentHostRequest, HostRequestFuture,
+            InvocationTerminal,
+        },
+    };
+    use serde_json::{Value, json};
+
+    use super::{ProcessExportClient, terminal_value};
+    use crate::{
+        contracts::{
+            PROCESS_CONTEXT_BUILD_METHOD, PROCESS_CONTEXT_CONTRACT_VERSION,
+            PROCESS_POLICY_CONTRACT_VERSION, PROCESS_POLICY_EVALUATE_METHOD,
+            PROCESS_SEARCH_CONTRACT_VERSION, PROCESS_SEARCH_METHOD,
+        },
+        process_adapters::{ProcessComponentConfig, ProcessComponentLauncher},
+    };
 
     #[test]
     fn invocation_terminals_preserve_their_failure_class_in_adapter_errors() {
@@ -243,5 +309,153 @@ mod tests {
                 .expect_err("non-success terminal must remain an error");
             assert!(format!("{error:#}").contains(expected), "{error:#}");
         }
+    }
+
+    struct NestedProbeDispatcher {
+        search: Arc<ProcessExportClient>,
+        policy: Arc<ProcessExportClient>,
+    }
+
+    impl AsyncHostRequestDispatcher for NestedProbeDispatcher {
+        fn dispatch(&self, request: ComponentHostRequest) -> HostRequestFuture {
+            let search = Arc::clone(&self.search);
+            let outer_id = request.invocation.id().to_owned();
+            let blocking: Result<Value, ProcessModuleRpcError> = self
+                .policy
+                .invoke_blocking(PROCESS_POLICY_EVALUATE_METHOD, &json!({"op": "lineage"}))
+                .map_err(callback_error);
+            Box::pin(async move {
+                let asynchronous: Value = search
+                    .invoke(PROCESS_SEARCH_METHOD, &json!({"op": "lineage"}))
+                    .await
+                    .map_err(callback_error)?;
+                let blocking = blocking?;
+                Ok(json!({
+                    "outer_id": outer_id,
+                    "asynchronous": asynchronous,
+                    "blocking": blocking,
+                }))
+            })
+        }
+    }
+
+    fn callback_error(error: anyhow::Error) -> ProcessModuleRpcError {
+        ProcessModuleRpcError::new(-32_100, format!("nested probe failed: {error:#}"))
+    }
+
+    fn fixture_path() -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../proteus-module-protocol/tests/fixtures/multiplex_worker.py")
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn callback_reentry_preserves_lineage_for_async_and_blocking_same_broker_calls() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let component: ProcessComponentConfig = serde_json::from_value(json!({
+            "command": "python3",
+            "args": [fixture_path()],
+            "handshake_timeout_ms": 3_000,
+            "exports": {
+                "context": {"scope.context": {"timeout_ms": 3_000}},
+                "search": {"scope.search": {"timeout_ms": 3_000}},
+                "policy": {"scope.policy": {"timeout_ms": 3_000}}
+            }
+        }))
+        .expect("component config");
+        let bindings = [
+            ProcessExportBinding::new(
+                "context",
+                "scope.context",
+                PROCESS_CONTEXT_CONTRACT_VERSION,
+                json!({}),
+            )
+            .expect("context binding"),
+            ProcessExportBinding::new(
+                "search",
+                "scope.search",
+                PROCESS_SEARCH_CONTRACT_VERSION,
+                json!({}),
+            )
+            .expect("search binding"),
+            ProcessExportBinding::new(
+                "policy",
+                "scope.policy",
+                PROCESS_POLICY_CONTRACT_VERSION,
+                json!({}),
+            )
+            .expect("policy binding"),
+        ];
+        let launcher = ProcessComponentLauncher::new("scope-probe", component, bindings.to_vec())
+            .expect("launcher");
+        let context = Arc::new(
+            ProcessExportClient::connect(
+                "context",
+                PROCESS_CONTEXT_CONTRACT_VERSION,
+                launcher
+                    .export("context", "scope.context")
+                    .expect("context export"),
+                workspace.path(),
+                3_000,
+            )
+            .expect("context client"),
+        );
+        let search = Arc::new(
+            ProcessExportClient::connect(
+                "search",
+                PROCESS_SEARCH_CONTRACT_VERSION,
+                launcher
+                    .export("search", "scope.search")
+                    .expect("search export"),
+                workspace.path(),
+                3_000,
+            )
+            .expect("search client"),
+        );
+        let policy = Arc::new(
+            ProcessExportClient::connect(
+                "policy",
+                PROCESS_POLICY_CONTRACT_VERSION,
+                launcher
+                    .export("policy", "scope.policy")
+                    .expect("policy export"),
+                workspace.path(),
+                3_000,
+            )
+            .expect("policy client"),
+        );
+
+        let response: Value = context
+            .invoke_with_dispatcher(
+                PROCESS_CONTEXT_BUILD_METHOD,
+                &json!({"op": "callback"}),
+                Arc::new(NestedProbeDispatcher {
+                    search: Arc::clone(&search),
+                    policy,
+                }),
+            )
+            .await
+            .expect("outer invocation");
+        let callback = &response["value"]["callback_result"];
+        let outer_id = callback["outer_id"].as_str().expect("outer id");
+        for kind in ["asynchronous", "blocking"] {
+            let lineage = &callback[kind]["value"];
+            assert_eq!(lineage["root_invocation_id"], outer_id, "{kind}");
+            assert_eq!(lineage["parent_invocation_id"], outer_id, "{kind}");
+            assert_eq!(lineage["depth"], 1, "{kind}");
+        }
+
+        let standalone: Value = search
+            .invoke(PROCESS_SEARCH_METHOD, &json!({"op": "lineage"}))
+            .await
+            .expect("standalone search");
+        let lineage = &standalone["value"];
+        assert_eq!(lineage["parent_invocation_id"], Value::Null);
+        assert_eq!(lineage["depth"], 0);
+        assert!(
+            lineage["root_invocation_id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with("h:")),
+            "standalone invocation must own a host-generated root id"
+        );
     }
 }

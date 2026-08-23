@@ -1108,6 +1108,7 @@ name = "proteus-reference-worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "codex-compactor",
  "codex-tool-exposure",
  "coding-workflow",
@@ -1119,6 +1120,7 @@ dependencies = [
  "plan-tool",
  "policy-pack",
  "proteus-contracts",
+ "proteus-core",
  "proteus-module-protocol",
  "proteus-process-host",
  "renderer-pack",

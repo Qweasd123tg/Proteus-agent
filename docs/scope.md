@@ -28,6 +28,8 @@ tracked implementations перенесены на multiplexed Component Runtime 
 v3, а reference worker проходит multi-export handshake, concurrent calls,
 same-component reentrancy и targeted-cancel conformance. Больше нет двух
 extension paths, старого sequential component reader и ложного default pack.
+P4 также закрыт: полный однопроцессный workflow прошёл cancellation,
+canonical journal и replay evidence.
 
 ## Что Работает
 
@@ -123,12 +125,12 @@ Rust LSP.
 Это transport/runtime cutover, а не новый agent loop, generic actor runtime
 или интеграция архитектур другого проекта.
 
-## Текущий Приоритет: P4 Topology И Journal Evidence
+## Текущий Приоритет: v0.1 Alpha Release Contour
 
-Следующий отдельный этап может упростить packaged topology и провести полный
-workflow turn с same-component callbacks через canonical journal/replay. P3
-уже снял transport deadlock и config cycle rejection, но не обязан объединять
-все reference components в один failure domain.
+P1-P4 завершены. Следующий bounded production contour — clean Linux install,
+`doctor`, fake-profile run, topology smoke, CI/release notes/security scope и
+один внешний component demo. Model/subagent contracts, sandbox и marketplace
+не входят в этот contour и требуют отдельных решений.
 
 ### Bounded P0: завершён, технический GO
 
@@ -151,11 +153,21 @@ workspace/session, conformance или cutover evidence. Он не утвержд
 model/subagent slot и не открывает direct same-process dispatch. P1 и P2 позже
 получили отдельные подтверждения и собственные production tests.
 
-### Оставшийся P4 После Отдельного Подтверждения
+### P4 Topology И Journal Evidence — Завершён
 
-P1 transport foundation, P2 broker kernel и P3 tracked cutover завершены.
-Полный P4 topology/journal slice требует нового подтверждения; P3 уже содержит
-focused real-worker evidence reentrancy и cancel isolation.
+После отдельного подтверждения владельца P4 завершён 2026-08-23:
+
+- `proteus.one-component.example.toml` собирает workflow, context, search,
+  memory, compactor, tool exposure, policy, patch, renderer и tools в один
+  configured component без transport-specific разбиения;
+- process adapters продолжают broker-owned parent при async и synchronous
+  callback reentry в тот же component, не добавляя protocol state в Core;
+- полный workflow turn вызывает context/compactor/process tool, а concurrent
+  independent memory invocation завершается в том же PID;
+- targeted cancel даёт canonical `TurnSettled(Canceled)`, сохраняет PID и
+  позволяет следующему успешному turn;
+- cold journal projection и side-effect-free workflow replay совпадают с
+  записанным успешным turn и не изменяют source journal.
 
 Компонент остаётся shared lifecycle/failure boundary. Его exports не получают
 union authority; host не добавляет retry, fallback или module-id exceptions.
@@ -274,8 +286,7 @@ production path. Идея возвращается из research только с
 Если задача:
 
 - исправляет или укрепляет focused P0 evidence — делать в test/research scope;
-- относится к оставшемуся P4 без отдельного подтверждения владельца —
-  оставить в плане;
+- относится к v0.1 alpha contour — сверять с clean install/CI/demo gates;
 - закрывает model/subagent contract gap — сначала contract design и parity
   matrix;
 - добавляет module того же processized slot — external worker + conformance,

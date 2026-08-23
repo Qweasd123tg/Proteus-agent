@@ -205,9 +205,15 @@ deadline; direct module-to-module dispatch отсутствует. Cooperative c
 адресен, а crash, protocol/resource failure и cancel-grace reset относятся ко
 всему generation. Старые/лишние поля отвергаются.
 
+Process adapter сохраняет parent в локальном callback scope только при вызове
+того же exact broker. Поэтому Core продолжает работать с обычными typed traits
+и не знает wire ids, а другой component не может случайно стать descendant.
+
 P3 атомарно подключил `proteus-module-protocol::v3` к core, reference worker,
 examples и conformance. Старый wire-v2 session удалён без dual-read/dual-write
-или автоматического выбора версии.
+или автоматического выбора версии. P4 затем подтвердил full workflow topology:
+один component/PID, concurrent sibling, targeted cancel, process tool и
+canonical journal/replay.
 Подробнее: [process-module-architecture.md](process-module-architecture.md).
 
 Process boundary даёт lifecycle isolation, но пока не OS sandbox. Worker

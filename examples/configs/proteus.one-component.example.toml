@@ -1,0 +1,69 @@
+active_provider = "fake"
+
+[profile]
+name = "component-runtime-evidence"
+
+[providers.fake]
+provider = "fake"
+model = "fake-tool-model"
+stream = true
+
+[modules]
+workflow = "coding.codex_loop"
+search = "rg"
+memory = "jsonl"
+context = "simple"
+policy = "allow_all"
+patch = "direct"
+compactor = "codex"
+tool_exposure = "codex_dynamic"
+renderer = "statusline"
+
+# Этот профиль намеренно собирает callback-связанные exports в один process.
+# Это отдельный failure domain для P4 evidence, а не новый обязательный default.
+[components.reference-agent]
+command = "proteus-reference-worker"
+
+[components.reference-agent.exports.workflow."coding.codex_loop"]
+
+[components.reference-agent.exports.search.rg]
+
+[components.reference-agent.exports.memory.jsonl]
+
+[components.reference-agent.exports.context.simple]
+
+[components.reference-agent.exports.policy.allow_all]
+
+[components.reference-agent.exports.patch.direct]
+
+[components.reference-agent.exports.compactor.codex]
+
+[components.reference-agent.exports.tool_exposure.codex_dynamic]
+
+[components.reference-agent.exports.renderer.statusline]
+
+[components.reference-agent.exports.tool."reference.tools"]
+
+[tools]
+enabled = ["read_file", "request_user_input"]
+
+[permissions]
+mode = "normal"
+
+[module_config.context.simple]
+max_search_results = 5
+
+[module_config.memory.jsonl]
+path = ".proteus/p4-memory.jsonl"
+
+[module_config.tool_exposure.codex_dynamic]
+max_hot_tools = 8
+always_include = ["read_file", "request_user_input"]
+
+[runtime]
+model_timeout_ms = 10000
+context_timeout_ms = 10000
+workflow_timeout_ms = 30000
+
+[event_log]
+path = ".proteus/events.jsonl"

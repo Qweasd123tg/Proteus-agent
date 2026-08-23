@@ -4,6 +4,7 @@ pub mod client;
 pub mod compactor;
 pub mod config;
 pub mod context;
+mod invocation_scope;
 pub mod memory;
 pub mod patch;
 pub mod policy;

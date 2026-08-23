@@ -246,6 +246,11 @@ depth, counts и deadlines задаёт host, поэтому transport-cycle val
 config больше нет. Подробности — в
 `process-module-architecture.md`.
 
+Отдельный runnable пример с workflow, context, compactor и capabilities в
+одном component — `examples/configs/proteus.one-component.example.toml`.
+Это evidence topology, а не новый default: несколько components по-прежнему
+нужны, когда владелец хочет разные failure domains.
+
 ## Ordered-Many Modules
 
 `tool` и `context_provider` не имеют keys в `[modules]`. Все объявленные

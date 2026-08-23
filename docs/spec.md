@@ -179,8 +179,9 @@ Bounded P0 spike multiplexed Component Runtime v2 завершён changeset-о�
 protocol-neutral duplex transport и отдельно подтверждённый P2
 broker/wire-v3 kernel завершены. Atomic P3 cutover завершён 2026-08-23:
 tracked host, workers и examples используют Component Runtime v2 / wire v3,
-а старый v2 path удалён без compatibility reader. Следующее отдельное решение
-— P4 topology/journal evidence.
+а старый v2 path удалён без compatibility reader. P4 topology/journal evidence
+также завершён 2026-08-23: one-component profile проходит полный workflow,
+cancel, один PID и canonical replay.
 Generic actor не добавляется, model и subagent boundaries остаются отдельными
 contract decisions. Актуальный критический путь ведётся в `scope.md`.
 
@@ -271,8 +272,9 @@ path CLI smoke test.
 8. ✅ отдельно подтверждённый P1 duplex transport завершён;
 9. ✅ отдельно подтверждённый P2 broker/wire-v3 kernel завершён;
 10. ✅ отдельно подтверждённый P3 atomic tracked cutover завершён;
-11. ⏳ P4 topology/journal evidence и model/subagent contracts требуют
-    отдельных решений.
+11. ✅ отдельно подтверждённый P4 topology/journal evidence завершён;
+12. ⏳ model/subagent contracts требуют отдельных решений и не входят в
+    Runtime v2 acceptance.
 
 Configured process/MCP tool executors являются явными tool surfaces и всегда
 встраиваются в тот же `ToolRegistry`/policy/safety path; они не образуют вторую

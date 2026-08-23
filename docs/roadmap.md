@@ -83,9 +83,9 @@ Malicious export общего trusted component всё ещё может наз�
 соседнего export. Это зафиксированная trust boundary, а не обещание изоляции
 внутри одного process.
 
-### R2. P1-P3 Завершены; P4 Требует Отдельного Решения
+### R2. P1-P4 Component Runtime Завершены
 
-После технического P0 `GO` владелец отдельно подтвердил P1, P2 и P3:
+После технического P0 `GO` владелец отдельно подтвердил P1, P2, P3 и P4:
 
 1. ✅ **P1. Protocol-neutral duplex transport — завершён.** В
    `proteus-process-host` разделены bounded frame reader/writer и lifecycle
@@ -101,9 +101,10 @@ Malicious export общего trusted component всё ещё может наз�
    переведены host, worker, adapters, examples, configs, conformance и docs на
    v3; v2 reader и single-flight path удалены без compatibility mode. Focused
    real-worker tests уже доказывают reentrancy и targeted cancel isolation.
-4. **P4. Topology и journal evidence.** Доказать полный nested
-   same-component invocation, один PID, раздельную authority, cancellation и
-   canonical journal/replay на собранном workflow profile.
+4. ✅ **P4. Topology и journal evidence — завершён 2026-08-23.** Отдельный
+   one-component profile и real-worker test проводят полный nested workflow,
+   concurrent sibling, targeted cancel, следующий успешный process-tool turn,
+   один live PID, раздельную slot authority и canonical journal/replay.
 
 Component остаётся lifecycle/failure boundary. Direct cross-export dispatch,
 union authority, automatic retry и fallback не появляются. Разделять exports
@@ -112,7 +113,8 @@ union authority, automatic retry и fallback не появляются. Разд
 
 Configured runtime теперь multiplexed. Старый `ProcessComponentSession`,
 callback dependency graph и wire-v2 DTO удалены. Следующий production этап —
-только отдельный P4 topology/journal slice после решения владельца.
+фиксированный `v0.1.0-alpha.1` Linux release contour, а не новая contract
+migration.
 
 ### Фиксированная Граница v0.1 Alpha
 

@@ -318,6 +318,11 @@ class Worker:
                 response = self._callback(invocation, input_value)
                 self._finish_callback(invocation, response)
                 return
+            if operation == "lineage":
+                params = invocation.request.get("params")
+                lineage = params.get("lineage") if isinstance(params, dict) else None
+                self.send_result(invocation.invocation_id, lineage)
+                return
 
             delay = self._milliseconds(input_value)
             if operation == "exit_process":

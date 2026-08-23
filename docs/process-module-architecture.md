@@ -299,6 +299,12 @@ Ids разделены на host `h:<generation>:<sequence>` и module
 явным parent, bounded depth/count и deadline не длиннее parent. Direct
 module-to-module dispatch и union authority отсутствуют.
 
+Core не хранит protocol-specific lineage. Process adapter оборачивает callback
+dispatcher в task-local scope: повторный вход в export того же exact broker
+использует broker-owned parent, а вызов другого component остаётся root. Это
+одинаково действует для async adapters и callback-free blocking policy/
+renderer traits.
+
 Для tracked reference profile безопасный разрез такой:
 
 ```text
@@ -331,7 +337,11 @@ Exports с callback-связями разрешено объединять; comp
 
 Runtime доказан hostile Python worker-ом в `tests/broker_v3.rs` и реальным
 reference worker-ом: nested callback входит в другой export того же PID, а
-targeted cancel сохраняет sibling и generation. Malicious
+targeted cancel сохраняет sibling и generation. Отдельный P4 profile
+`examples/configs/proteus.one-component.example.toml` и test
+`topology_journal.rs` проводят полный process-backed workflow, параллельный
+sibling, cancel, process tool, renderer и canonical replay; live run остаётся
+на одном PID. Malicious
 export общего trusted executable всё ещё может назвать id активного sibling:
 correlation id не является secret capability и не создаёт sandbox внутри
 process.
