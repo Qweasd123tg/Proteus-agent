@@ -32,7 +32,7 @@ CompactionOutput` и не использует разрешённый contract-�
 родительских переменных перечисляются в `env_allowlist`, literal значения — в
 `env`.
 
-Worker использует общий component protocol v2 и compactor contract v1. Handshake
+Worker использует общий component protocol v3 и compactor contract v1. Handshake
 можно проверить отдельно от core:
 
 ```bash

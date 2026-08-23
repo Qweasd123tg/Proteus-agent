@@ -1,15 +1,18 @@
 use anyhow::{Context, Result, bail};
 use proteus_contracts::contracts::{
     PROCESS_COMPONENT_INITIALIZE_METHOD, PROCESS_MODULE_CANCEL_METHOD, ProcessComponentExportRef,
+    ProcessComponentInvocation, ProcessInvocationLineage, ProcessModuleCallbackParams,
+    ProcessModuleCancel, ProcessModuleCancelCause, ProcessModuleNotificationParams,
 };
-use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
+use serde_json::Value;
+use serde_json::{Map, json};
 
 use crate::ProcessModuleRpcError;
 
 use super::invocation::CancelCause;
 
-pub const COMPONENT_PROTOCOL_V3: &str = "v3";
+pub const COMPONENT_PROTOCOL_V3: &str =
+    proteus_contracts::contracts::PROCESS_COMPONENT_PROTOCOL_VERSION;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum IdDirection {
@@ -41,35 +44,8 @@ pub(crate) enum IncomingFrame {
     },
 }
 
-#[derive(Debug, Serialize)]
-#[serde(deny_unknown_fields)]
-struct InvocationRequest<'a> {
-    export: &'a ProcessComponentExportRef,
-    lineage: InvocationLineage<'a>,
-    params: Value,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(deny_unknown_fields)]
-struct InvocationLineage<'a> {
-    root_invocation_id: &'a str,
-    parent_invocation_id: Option<&'a str>,
-    depth: usize,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct CallbackParams {
-    pub invocation_id: String,
-    pub params: Value,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct NotificationParams {
-    pub invocation_id: String,
-    pub payload: Value,
-}
+pub(crate) type CallbackParams = ProcessModuleCallbackParams;
+pub(crate) type NotificationParams = ProcessModuleNotificationParams;
 
 pub(crate) fn host_id(generation: u64, sequence: u64) -> String {
     format!("h:{generation}:{sequence}")
@@ -130,11 +106,11 @@ pub(crate) fn invocation_request(
     Ok(request(
         id,
         method,
-        serde_json::to_value(InvocationRequest {
-            export,
-            lineage: InvocationLineage {
-                root_invocation_id: root_id,
-                parent_invocation_id: parent_id,
+        serde_json::to_value(ProcessComponentInvocation {
+            export: export.clone(),
+            lineage: ProcessInvocationLineage {
+                root_invocation_id: root_id.to_owned(),
+                parent_invocation_id: parent_id.map(str::to_owned),
                 depth,
             },
             params,
@@ -145,7 +121,15 @@ pub(crate) fn invocation_request(
 pub(crate) fn cancel_notification(id: &str, cause: CancelCause) -> Value {
     notification(
         PROCESS_MODULE_CANCEL_METHOD,
-        json!({"invocation_id": id, "cause": cause.wire_name()}),
+        serde_json::to_value(ProcessModuleCancel::new(
+            id,
+            match cause {
+                CancelCause::User => ProcessModuleCancelCause::User,
+                CancelCause::Timeout => ProcessModuleCancelCause::Timeout,
+                CancelCause::Shutdown => ProcessModuleCancelCause::Shutdown,
+            },
+        ))
+        .expect("cancel payload is serializable"),
     )
 }
 

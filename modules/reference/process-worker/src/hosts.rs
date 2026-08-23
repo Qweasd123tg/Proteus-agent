@@ -19,24 +19,26 @@ use proteus_contracts::{
 };
 use serde_json::{Value, json};
 
-use crate::transport::{SharedTransport, host_call};
+use crate::transport::WorkerTransport;
 
 #[derive(Clone)]
 pub struct HostBridge {
-    transport: SharedTransport,
+    transport: Arc<WorkerTransport>,
+    invocation_id: String,
     canceled: Arc<AtomicBool>,
 }
 
 impl HostBridge {
-    pub fn new(transport: SharedTransport, canceled: Arc<AtomicBool>) -> Self {
+    pub fn new(
+        transport: Arc<WorkerTransport>,
+        invocation_id: String,
+        canceled: Arc<AtomicBool>,
+    ) -> Self {
         Self {
             transport,
+            invocation_id,
             canceled,
         }
-    }
-
-    pub fn reset_cancellation(&self) {
-        self.canceled.store(false, Ordering::SeqCst);
     }
 
     pub fn is_cancelled(&self) -> bool {
@@ -44,7 +46,8 @@ impl HostBridge {
     }
 
     fn call(&self, method: &str, params: Value) -> anyhow::Result<Value> {
-        host_call(&self.transport, method, params)
+        self.transport
+            .call_host(&self.invocation_id, method, params)
     }
 }
 

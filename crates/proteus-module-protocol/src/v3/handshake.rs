@@ -1,9 +1,8 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use proteus_contracts::contracts::{ProcessComponentExportInitialize, ProcessComponentManifest};
+use proteus_contracts::contracts::ProcessComponentManifest;
 use proteus_process_host::{NewlineJsonFraming, ProcessTransport};
-use serde::Serialize;
 
 use crate::{ProcessComponentBinding, handshake::validate_manifest};
 
@@ -12,30 +11,13 @@ use super::wire::{
     parse_id,
 };
 
-#[derive(Serialize)]
-#[serde(deny_unknown_fields)]
-struct InitializeV3 {
-    protocol_version: &'static str,
-    component_id: String,
-    exports: Vec<ProcessComponentExportInitialize>,
-}
-
 pub(crate) fn initialize_transport(
     transport: &mut ProcessTransport<NewlineJsonFraming>,
     binding: &ProcessComponentBinding,
     generation: u64,
     timeout: Duration,
 ) -> Result<()> {
-    let exports = binding
-        .exports
-        .iter()
-        .map(|export| Ok(export.initialize(*export.authority()?)))
-        .collect::<Result<Vec<_>>>()?;
-    let initialize = InitializeV3 {
-        protocol_version: COMPONENT_PROTOCOL_V3,
-        component_id: binding.component_id.clone(),
-        exports,
-    };
+    let initialize = binding.initialize()?;
     let params = serde_json::to_value(initialize)?;
     transport
         .send_control_frame(initialize_request(generation, params))

@@ -1,10 +1,10 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// Текущая pre-release версия общего stdio component protocol.
 ///
-/// `v2` — намеренно несовместимый cutover от one-export process-module
-/// handshake к одному process component с явным списком exports.
-pub const PROCESS_COMPONENT_PROTOCOL_VERSION: &str = "v2";
+/// `v3` добавляет multiplexing нескольких одновременных invocation поверх
+/// одного persistent component process и строгую invocation-scoped routing.
+pub const PROCESS_COMPONENT_PROTOCOL_VERSION: &str = "v3";
 pub const PROCESS_COMPONENT_INITIALIZE_METHOD: &str = "initialize";
 pub const PROCESS_MODULE_CANCEL_METHOD: &str = "$/cancelRequest";
 pub const PROCESS_MODULE_PROGRESS_METHOD: &str = "module.progress";
@@ -115,31 +115,96 @@ pub struct ProcessComponentManifest {
     pub exports: Vec<ProcessComponentExportManifest>,
 }
 
-/// Обёртка каждого module-method вызова: один transport обслуживает несколько
-/// exports, поэтому target identity является частью каждого request.
+/// Host-owned lineage одного module-method invocation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct ProcessComponentCall {
-    pub export: ProcessComponentExportRef,
-    pub params: serde_json::Value,
+pub struct ProcessInvocationLineage {
+    pub root_invocation_id: String,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub parent_invocation_id: Option<String>,
+    pub depth: usize,
 }
 
-impl ProcessComponentCall {
-    pub fn new(export: ProcessComponentExportRef, params: serde_json::Value) -> Self {
-        Self { export, params }
+fn deserialize_required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}
+
+impl ProcessInvocationLineage {
+    pub fn root(invocation_id: impl Into<String>) -> Self {
+        Self {
+            root_invocation_id: invocation_id.into(),
+            parent_invocation_id: None,
+            depth: 0,
+        }
     }
 }
 
-/// Parameters of the protocol-wide cooperative cancellation notification.
+/// Обёртка каждого module-method invocation. Target и lineage задаёт host;
+/// module получает их только как routing metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessComponentInvocation {
+    pub export: ProcessComponentExportRef,
+    pub lineage: ProcessInvocationLineage,
+    pub params: serde_json::Value,
+}
+
+impl ProcessComponentInvocation {
+    pub fn new(
+        export: ProcessComponentExportRef,
+        lineage: ProcessInvocationLineage,
+        params: serde_json::Value,
+    ) -> Self {
+        Self {
+            export,
+            lineage,
+            params,
+        }
+    }
+}
+
+/// Invocation-scoped callback request emitted by a component.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessModuleCallbackParams {
+    pub invocation_id: String,
+    pub params: serde_json::Value,
+}
+
+/// Invocation-scoped progress/activity notification emitted by a component.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessModuleNotificationParams {
+    pub invocation_id: String,
+    pub payload: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProcessModuleCancelCause {
+    User,
+    Timeout,
+    Shutdown,
+}
+
+/// Parameters of the invocation-scoped cooperative cancellation notification.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessModuleCancel {
-    pub id: String,
+    pub invocation_id: String,
+    pub cause: ProcessModuleCancelCause,
 }
 
 impl ProcessModuleCancel {
-    pub fn new(id: impl Into<String>) -> Self {
-        Self { id: id.into() }
+    pub fn new(invocation_id: impl Into<String>, cause: ProcessModuleCancelCause) -> Self {
+        Self {
+            invocation_id: invocation_id.into(),
+            cause,
+        }
     }
 }
 
@@ -159,7 +224,7 @@ mod tests {
         );
         let initialize = ProcessComponentInitialize::new("python-search", [export]);
         let value = serde_json::to_value(&initialize).expect("initialize value");
-        assert_eq!(value["protocol_version"], "v2");
+        assert_eq!(value["protocol_version"], "v3");
         assert_eq!(value["component_id"], "python-search");
         assert_eq!(value["exports"][0]["composition"], "select_one");
         assert_eq!(value["exports"][0]["module_id"], "python_rg");
@@ -190,9 +255,10 @@ mod tests {
     }
 
     #[test]
-    fn component_call_carries_an_explicit_export_target() {
-        let call = ProcessComponentCall::new(
+    fn component_invocation_carries_target_and_lineage() {
+        let call = ProcessComponentInvocation::new(
             ProcessComponentExportRef::new("search", "rg"),
+            ProcessInvocationLineage::root("h:1:7"),
             serde_json::json!({"query": "needle"}),
         );
 
@@ -200,19 +266,41 @@ mod tests {
             serde_json::to_value(call).expect("call"),
             serde_json::json!({
                 "export": {"slot": "search", "module_id": "rg"},
+                "lineage": {
+                    "root_invocation_id": "h:1:7",
+                    "parent_invocation_id": null,
+                    "depth": 0
+                },
                 "params": {"query": "needle"}
             })
         );
+
+        serde_json::from_value::<ProcessComponentInvocation>(serde_json::json!({
+            "export": {"slot": "search", "module_id": "rg"},
+            "lineage": {
+                "root_invocation_id": "h:1:7",
+                "depth": 0
+            },
+            "params": {"query": "needle"}
+        }))
+        .expect_err("nullable parent_invocation_id must still be present on wire");
     }
 
     #[test]
     fn cancel_payload_is_strict() {
-        let value =
-            serde_json::to_value(ProcessModuleCancel::new("invocation-7")).expect("cancel value");
-        assert_eq!(value, serde_json::json!({ "id": "invocation-7" }));
+        let value = serde_json::to_value(ProcessModuleCancel::new(
+            "h:1:7",
+            ProcessModuleCancelCause::Timeout,
+        ))
+        .expect("cancel value");
+        assert_eq!(
+            value,
+            serde_json::json!({ "invocation_id": "h:1:7", "cause": "timeout" })
+        );
 
         serde_json::from_value::<ProcessModuleCancel>(serde_json::json!({
-            "id": "invocation-7",
+            "invocation_id": "h:1:7",
+            "cause": "timeout",
             "request_id": 7
         }))
         .expect_err("unknown cancel fields must be rejected");

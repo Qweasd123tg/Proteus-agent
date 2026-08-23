@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::{Result, bail};
 use async_trait::async_trait;
-use proteus_module_protocol::NoHostRequests;
+use proteus_module_protocol::v3::NoAsyncHostRequests;
 
 use crate::contracts::{
     PROCESS_TOOL_CONTRACT_VERSION, PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD,
@@ -27,7 +27,8 @@ pub fn build_process_tools(
             workspace,
             DEFAULT_TIMEOUT_MS,
         )?);
-        let response: ProcessToolListResponse = client.invoke(PROCESS_TOOL_LIST_METHOD, &())?;
+        let response: ProcessToolListResponse =
+            client.invoke_bootstrap(PROCESS_TOOL_LIST_METHOD, &())?;
         if response.result.is_empty() {
             bail!(
                 "process Tool module {:?} returned no tool specs",
@@ -60,23 +61,21 @@ impl Tool for ProcessTool {
     }
 
     async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult> {
-        let client = Arc::clone(&self.client);
         let request = ProcessToolInvokeInput {
             call: call.clone(),
             cwd: ctx.cwd,
             owner: ctx.owner,
         };
         let cancellation = ctx.cancellation;
-        tokio::task::spawn_blocking(move || {
-            let response: ProcessToolInvokeResponse = client.invoke_with_dispatcher(
+        let response: ProcessToolInvokeResponse = self
+            .client
+            .invoke_with_dispatcher_and_cancel_check(
                 PROCESS_TOOL_INVOKE_METHOD,
                 &request,
-                Arc::new(NoHostRequests),
+                Arc::new(NoAsyncHostRequests),
                 || cancellation.is_cancelled(),
-            )?;
-            Ok(response.result)
-        })
-        .await
-        .map_err(|error| anyhow::anyhow!("process tool join error: {error}"))?
+            )
+            .await?;
+        Ok(response.result)
     }
 }

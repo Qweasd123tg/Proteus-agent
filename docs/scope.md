@@ -1,6 +1,6 @@
 # Текущий Scope
 
-Последнее обновление: 2026-08-22.
+Последнее обновление: 2026-08-23.
 
 Этот документ отвечает «что сейчас на критическом пути». Vision —
 [spec.md](spec.md), история и backlog — [roadmap.md](roadmap.md).
@@ -24,17 +24,19 @@ external component exports
 ```
 
 Главный module-system blocker закрыт: бывшая dylib система полностью удалена,
-tracked implementations перенесены на Component Runtime v1 / wire v2, а
-reference worker проходит multi-export handshake/real-call/callback
-conformance. Больше нет двух extension paths и ложного default pack.
+tracked implementations перенесены на multiplexed Component Runtime v2 / wire
+v3, а reference worker проходит multi-export handshake, concurrent calls,
+same-component reentrancy и targeted-cancel conformance. Больше нет двух
+extension paths, старого sequential component reader и ложного default pack.
 
 ## Что Работает
 
 - OpenAI, OpenAI-compatible, Anthropic и fake model adapters;
 - component exports для workflow, search, memory, context, context provider, policy,
   patch, compactor, tool exposure, renderer и tools;
-- bidirectional callbacks с authority по активному export, cancellation,
-  timeout и общий lazy restart persistent component;
+- multiplexed bidirectional callbacks с authority по активному export,
+  host-owned lineage, targeted cancellation, timeout и общий lazy restart
+  persistent component;
 - reference worker с 26 selectors и внешние Python examples;
 - единый tool safety/approval path;
 - canonical session journal, config snapshots, history, resume, prompt replay
@@ -61,7 +63,7 @@ Process-only и Component Runtime cutover:
 - topology/Inspector показывают components и exports без plugin cards;
 - runtime swap tests больше не линкуют implementation crates;
 - real-worker conformance проверяет все selectors, callbacks и multi-export routing;
-- один component делит child/session/reset/restart между exports, но не их authority;
+- один component делит child/broker/reset/restart между exports, но не их authority;
 - installer публикует host + worker одним release.
 
 Точный итог: [process-module-architecture.md](process-module-architecture.md).
@@ -76,11 +78,12 @@ Process-only и Component Runtime cutover:
 - concurrent writes не смешивают кадры, slow consumer остаётся внутри receive
   limits, terminate будит blocked reader и lifecycle waiters;
 - `ProcessSession` стал тонким последовательным JSON-RPC facade;
-- MCP, Rust LSP и действующий component wire v2 проходят прежние gates;
+- MCP/Rust LSP sequential facade и component broker проходят свои gates;
 - initializer выполняется ровно один раз на каждое новое поколение.
 
-P1 не меняет component config, slot contracts или wire: production runtime всё
-ещё Component Runtime v1 / wire v2 и single-flight.
+На этапе P1 component runtime ещё оставался single-flight; P3 позднее удалил
+этот transitional component path. Sequential facade сохранён только для MCP и
+Rust LSP.
 
 ### P2 Multiplexed Broker / Wire v3 Kernel
 
@@ -100,25 +103,38 @@ P1 не меняет component config, slot contracts или wire: production ru
 - exact wire-v3 handshake и hostile semantics проходят на внешнем Python
   worker-е.
 
-P2 не менял config schema и не подключал новый broker к core/reference worker.
-Tracked runtime остаётся Component Runtime v1 / wire v2 до P3; старый и новый
-wire не читаются одним session и не выбираются автоматически.
+На этапе P2 config schema и core/reference worker ещё не переключались. P3
+позднее выполнил атомарный cutover; wire v2 удалён и не читается как legacy.
 
-## Текущий Приоритет: Повторная Оценка Перед P3 Cutover
+### P3 Atomic Tracked Cutover
 
-Текущий Component Runtime v1 / wire v2 — завершённый baseline, но его
-single-flight component session запрещает reentrant вызов в другой export того
-же component и вынуждает разрезать components по callback dependency boundaries.
-Нейтральный multiplexed substrate Runtime v2 / wire v3 теперь реализован как
-P2 kernel. Следующее решение — выполнять ли atomic P3 cutover всего tracked
-runtime; это по-прежнему не новый agent loop, generic actor runtime или
-интеграция архитектур другого проекта.
+После отдельного подтверждения владельца P3 завершён 2026-08-23:
+
+- core adapters используют общий `ComponentBroker`; старые
+  `spawn_blocking`/`Handle::block_on` adapters и callback dependency graph
+  удалены;
+- reference worker разделяет stdin reader/stdout writer, исполняет bounded
+  concurrent invocation и маршрутизирует callbacks/cancel по invocation id;
+- wire v2 session/DTO/tests удалены без compatibility reader;
+- Python search/compactor/workflow examples используют общий strict-v3 helper;
+- real-worker tests доказывают nested callback в другой export того же process
+  и targeted cancel при живом sibling без смены PID/generation.
+
+Это transport/runtime cutover, а не новый agent loop, generic actor runtime
+или интеграция архитектур другого проекта.
+
+## Текущий Приоритет: P4 Topology И Journal Evidence
+
+Следующий отдельный этап может упростить packaged topology и провести полный
+workflow turn с same-component callbacks через canonical journal/replay. P3
+уже снял transport deadlock и config cycle rejection, но не обязан объединять
+все reference components в один failure domain.
 
 ### Bounded P0: завершён, технический GO
 
 Test/research changeset `176d39f` не изменил production config, slot catalog
-или current wire v2. Его 18 автоматизированных сценариев с Python worker-ом
-доказали:
+или действовавший тогда wire v2. Его 18 автоматизированных сценариев с Python
+worker-ом доказали:
 
 1. out-of-order terminal responses двух invocation одного process;
 2. same-component callback chain `A -> host -> B` без direct module link;
@@ -135,15 +151,11 @@ workspace/session, conformance или cutover evidence. Он не утвержд
 model/subagent slot и не открывает direct same-process dispatch. P1 и P2 позже
 получили отдельные подтверждения и собственные production tests.
 
-### Оставшиеся P3-P4 После Отдельного Подтверждения
+### Оставшийся P4 После Отдельного Подтверждения
 
-P1 transport foundation и P2 broker kernel завершены. Дальнейшая работа идёт
-отдельными атомарными этапами только после нового подтверждения:
-
-1. единый P3 cutover host, workers, adapters, examples, configs, conformance,
-   tests и docs на v3 с удалением v2 reader;
-2. P4 real evidence same-component reentrancy, authority/cancel isolation и
-   замена v1 cycle rejection на bounded lineage/deadline semantics.
+P1 transport foundation, P2 broker kernel и P3 tracked cutover завершены.
+Полный P4 topology/journal slice требует нового подтверждения; P3 уже содержит
+focused real-worker evidence reentrancy и cancel isolation.
 
 Компонент остаётся shared lifecycle/failure boundary. Его exports не получают
 union authority; host не добавляет retry, fallback или module-id exceptions.
@@ -262,7 +274,7 @@ production path. Идея возвращается из research только с
 Если задача:
 
 - исправляет или укрепляет focused P0 evidence — делать в test/research scope;
-- относится к оставшимся P3-P4 без отдельного подтверждения владельца —
+- относится к оставшемуся P4 без отдельного подтверждения владельца —
   оставить в плане;
 - закрывает model/subagent contract gap — сначала contract design и parity
   matrix;

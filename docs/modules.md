@@ -8,9 +8,10 @@ composition, cancellation и failure semantics; `module_id` только выб�
 authority(module) = authority(slot, invocation_context)
 ```
 
-Все внешние modules являются exports process components: Component Runtime v1
-использует wire protocol v2, slot contracts остаются v1. Dylib ABI и native
-loader в проекте отсутствуют.
+Все внешние modules являются exports process components: Component Runtime v2
+использует wire protocol v3, slot contracts остаются v1. Runtime допускает
+несколько одновременных и вложенных invocation одного component. Dylib ABI и
+native loader в проекте отсутствуют.
 
 ## Словарь
 
@@ -84,10 +85,10 @@ path = ".proteus/memory.sqlite"
 ```json
 {
   "jsonrpc": "2.0",
-  "id": "initialize",
+  "id": "h:1:0",
   "method": "initialize",
   "params": {
-    "protocol_version": "v2",
+    "protocol_version": "v3",
     "component_id": "reference-capabilities",
     "exports": [
       {
@@ -106,7 +107,9 @@ path = ".proteus/memory.sqlite"
 Worker возвращает exact-set manifest. Missing/extra/duplicate export и
 несовпадение component id/slot/id/version/composition завершают build
 snapshot-а ошибкой. Каждый вызов содержит target export; module methods и
-callbacks сверяются с его authority, а не с объединением component.
+callbacks сверяются с его authority, а не с объединением component. Wire ids
+разделены на host `h:<generation>:<sequence>` и module
+`m:<generation>:<sequence>`; `h:<generation>:0` зарезервирован для handshake.
 
 ## Slots По Назначению
 

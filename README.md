@@ -9,7 +9,7 @@ Core -> Contract -> Process Component Export
 Core управляет turn lifecycle, canonical history, approvals и wiring. Поиск,
 память, context, policy, patch, compaction, tool exposure, workflow, renderer и
 tools подключаются как exports внешних компонентов по strict JSON-RPC
-component protocol v2. Версии slot contracts пока остаются `v1`.
+component protocol v3. Версии slot contracts пока остаются `v1`.
 `module_id` выбирает реализацию, но не меняет её права:
 
 ```text
@@ -106,12 +106,13 @@ roots = ["src", "crates"]
 - отсутствие необязательного slot означает host-owned structural behavior, а
   не скрытый модуль с id `none`, `default` или `all_visible`.
 
-Все exports одного запущенного component делят один persistent child process, очередь
-вызовов, crash/cancel/reset и lazy restart. При этом callback authority
+Все exports одного запущенного component делят один persistent child process,
+duplex transport, crash/reset и lazy restart. Несколько invocation могут идти
+одновременно; cooperative cancel адресен, а crash, protocol/resource failure
+или истёкший cancel grace завершают всё поколение. Callback authority
 вычисляется заново по активному `slot/contract_version`: соседний export не
-расширяет права вызова. Component protocol v2 пока single-flight, поэтому
-config build отклоняет component dependency cycle, где синхронный callback
-вернулся бы в уже занятую session.
+расширяет права вызова. Callback может через host открыть nested invocation
+другого export того же component; lineage/depth/deadline остаются host-owned.
 
 Process boundary пока не sandbox: worker получает очищенное окружение, но
 работает с обычными OS-правами пользователя. Protocol-visible callbacks
@@ -120,7 +121,7 @@ Process boundary пока не sandbox: worker получает очищенно
 
 ## Что Реализовано
 
-- component runtime v1 / wire protocol v2 для slots: `workflow`, `search`, `memory`, `context`,
+- component runtime v2 / wire protocol v3 для slots: `workflow`, `search`, `memory`, `context`,
   `context_provider`, `policy`, `patch`, `compactor`,
   `tool_exposure`, `renderer`, `tool`;
 - multi-export persistent stdio component lifecycle, exact-set
@@ -171,7 +172,7 @@ Prompt/workflow replay и journal semantics описаны в
 
 ```text
 crates/proteus-contracts/       traits, DTO, canonical model, worker helpers
-crates/proteus-module-protocol/ component v2 session, authority, conformance CLI
+crates/proteus-module-protocol/ multiplexed component broker, authority, conformance CLI
 crates/proteus-process-host/    persistent child lifecycle и framing
 crates/proteus-core/            runtime, wiring, process/model adapters, server
 modules/reference/              reference implementations и один worker

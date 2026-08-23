@@ -15,7 +15,7 @@ pub type SessionInitializer<F> = dyn Fn(&mut ProcessSession<F>) -> Result<()> + 
 /// Lazy-starting sequential facade that drops failed generations for restart
 /// on next use.
 ///
-/// Session traffic remains single-caller for MCP, LSP and wire v2. Lifecycle is
+/// Session traffic remains single-caller for MCP and LSP. Lifecycle is
 /// tracked separately so `terminate`/`reset` can stop a child while that caller
 /// is blocked waiting for input.
 pub struct ProcessHost<F: Framing> {

@@ -12,11 +12,19 @@ import json
 import signal
 import subprocess
 import sys
-from pathlib import PurePath
+import threading
+from pathlib import Path, PurePath
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from component_runtime import (  # noqa: E402
+    PROTOCOL_VERSION,
+    InvocationContext,
+    ProtocolError,
+    require_object,
+    run_component,
+)
 
-PROTOCOL_VERSION = "v2"
 SLOT = "search"
 MODULE_ID = "python_rg"
 CONTRACT_VERSION = "v1"
@@ -34,8 +42,6 @@ EXPORT_INITIALIZE_FIELDS = {
     "module_config",
     "host_features",
 }
-CALL_FIELDS = {"export", "params"}
-EXPORT_REF_FIELDS = {"slot", "module_id"}
 QUERY_FIELDS = {
     "text",
     "cwd",
@@ -44,26 +50,9 @@ QUERY_FIELDS = {
     "starts_with",
     "ends_with",
 }
-REQUEST_FIELDS = {"jsonrpc", "id", "method", "params"}
 
-active_rg: subprocess.Popen[str] | None = None
-
-
-class ProtocolError(Exception):
-    pass
-
-
-def require_object(value: Any, fields: set[str], label: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ProtocolError(f"{label} must be an object")
-    actual = set(value)
-    if actual != fields:
-        missing = sorted(fields - actual)
-        unknown = sorted(actual - fields)
-        raise ProtocolError(
-            f"{label} fields mismatch: missing={missing}, unknown={unknown}"
-        )
-    return value
+active_rg: set[subprocess.Popen[str]] = set()
+active_rg_lock = threading.Lock()
 
 
 def require_string_list(value: Any, label: str) -> list[str]:
@@ -107,14 +96,6 @@ def validate_initialize(params: Any) -> str:
     if host_features:
         raise ProtocolError(f"unsupported host features: {host_features!r}")
     return component_id
-
-
-def unwrap_call(params: Any) -> Any:
-    call = require_object(params, CALL_FIELDS, "component call")
-    export = require_object(call["export"], EXPORT_REF_FIELDS, "component call export")
-    if export != {"slot": SLOT, "module_id": MODULE_ID}:
-        raise ProtocolError(f"unknown component export: {export!r}")
-    return call["params"]
 
 
 def validate_query(params: Any) -> dict[str, Any]:
@@ -166,11 +147,8 @@ def rg_text(value: Any, label: str) -> str:
     return value["text"]
 
 
-def stop_active_rg() -> None:
-    global active_rg
-    process = active_rg
-    if process is None or process.poll() is not None:
-        active_rg = None
+def stop_process(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
         return
     process.terminate()
     try:
@@ -178,11 +156,11 @@ def stop_active_rg() -> None:
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait()
-    active_rg = None
+    with active_rg_lock:
+        active_rg.discard(process)
 
 
-def search(query: dict[str, Any]) -> dict[str, Any]:
-    global active_rg
+def search(query: dict[str, Any], context: InvocationContext) -> dict[str, Any]:
     text = query["text"]
     max_results = query["max_results"]
     if not text.strip() or max_results == 0:
@@ -200,7 +178,7 @@ def search(query: dict[str, Any]) -> dict[str, Any]:
         *safe_search_roots(query["starts_with"]),
     ]
     chunks: list[dict[str, Any]] = []
-    active_rg = subprocess.Popen(
+    process = subprocess.Popen(
         command,
         cwd=query["cwd"],
         stdin=subprocess.DEVNULL,
@@ -210,10 +188,14 @@ def search(query: dict[str, Any]) -> dict[str, Any]:
         encoding="utf-8",
         errors="replace",
     )
-    assert active_rg.stdout is not None
+    with active_rg_lock:
+        active_rg.add(process)
+    context.on_cancel(lambda: stop_process(process))
+    assert process.stdout is not None
     reached_limit = False
     try:
-        for line in active_rg.stdout:
+        for line in process.stdout:
+            context.ensure_active()
             event = json.loads(line)
             if event.get("type") != "match":
                 continue
@@ -240,93 +222,58 @@ def search(query: dict[str, Any]) -> dict[str, Any]:
                 reached_limit = True
                 break
     except Exception:
-        stop_active_rg()
+        stop_process(process)
         raise
 
     if reached_limit:
-        stop_active_rg()
+        stop_process(process)
     else:
-        status = active_rg.wait()
-        active_rg = None
+        status = process.wait()
+        with active_rg_lock:
+            active_rg.discard(process)
+        context.ensure_active()
         if status not in (0, 1):
             raise RuntimeError(f"ripgrep exited with status {status}")
     return {"chunks": chunks}
 
 
-def response(request_id: Any, result: Any) -> dict[str, Any]:
-    return {"jsonrpc": "2.0", "id": request_id, "result": result}
-
-
-def error_response(request_id: Any, code: int, message: str) -> dict[str, Any]:
+def initialize(params: Any) -> dict[str, Any]:
+    component_id = validate_initialize(params)
     return {
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "error": {"code": code, "message": message},
+        "protocol_version": PROTOCOL_VERSION,
+        "component_id": component_id,
+        "exports": [
+            {
+                "slot": SLOT,
+                "module_id": MODULE_ID,
+                "contract_version": CONTRACT_VERSION,
+                "composition": "select_one",
+                "module_features": [],
+            }
+        ],
     }
 
 
-def handle_request(raw: Any, component_id: str | None) -> tuple[dict[str, Any], str]:
-    request = require_object(raw, REQUEST_FIELDS, "JSON-RPC request")
-    request_id = request["id"]
-    if not isinstance(request_id, (int, str)) or isinstance(request_id, bool):
-        raise ProtocolError("JSON-RPC id must be a string or integer")
-    if request["jsonrpc"] != "2.0":
-        raise ProtocolError("JSON-RPC version must be 2.0")
-    method = request["method"]
-    if not isinstance(method, str):
-        raise ProtocolError("JSON-RPC method must be a string")
-
-    if method == "initialize":
-        if component_id is not None:
-            raise ProtocolError("initialize may be called only once")
-        component_id = validate_initialize(request["params"])
-        manifest = {
-            "protocol_version": PROTOCOL_VERSION,
-            "component_id": component_id,
-            "exports": [
-                {
-                    "slot": SLOT,
-                    "module_id": MODULE_ID,
-                    "contract_version": CONTRACT_VERSION,
-                    "composition": "select_one",
-                    "module_features": [],
-                }
-            ],
-        }
-        return response(request_id, manifest), component_id
-    if component_id is None:
-        raise ProtocolError("component must be initialized before method calls")
-    if method == "search":
-        query = validate_query(unwrap_call(request["params"]))
-        return response(request_id, search(query)), component_id
-    raise ProtocolError(f"unknown method: {method}")
+def invoke(context: InvocationContext, method: str, params: Any) -> dict[str, Any]:
+    if context.export != {"slot": SLOT, "module_id": MODULE_ID}:
+        raise ProtocolError(f"unknown component export: {context.export!r}")
+    if method != "search":
+        raise ProtocolError(f"unknown method: {method}")
+    return search(validate_query(params), context)
 
 
 def terminate_from_signal(_signum: int, _frame: Any) -> None:
-    stop_active_rg()
+    with active_rg_lock:
+        processes = list(active_rg)
+    for process in processes:
+        stop_process(process)
     raise SystemExit(143)
 
 
 def main() -> int:
     signal.signal(signal.SIGTERM, terminate_from_signal)
     signal.signal(signal.SIGINT, terminate_from_signal)
-    component_id: str | None = None
-    for line in sys.stdin:
-        if not line.strip():
-            continue
-        request_id: Any = None
-        try:
-            raw = json.loads(line)
-            if isinstance(raw, dict):
-                request_id = raw.get("id")
-            message, component_id = handle_request(raw, component_id)
-        except ProtocolError as error:
-            message = error_response(request_id, -32602, str(error))
-        except Exception as error:  # explicit JSON-RPC failure, never stdout noise
-            message = error_response(request_id, -32603, str(error))
-        print(json.dumps(message, ensure_ascii=False, separators=(",", ":")), flush=True)
-    stop_active_rg()
-    return 0
+    run_component(initialize, invoke)
 
 
 if __name__ == "__main__":

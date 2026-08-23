@@ -1,52 +1,9 @@
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    time::Duration,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
-use anyhow::{Context, Result, bail};
-use proteus_contracts::contracts::{
-    PROCESS_COMPONENT_INITIALIZE_METHOD, PROCESS_COMPONENT_PROTOCOL_VERSION,
-    ProcessComponentExportManifest, ProcessComponentInitialize, ProcessComponentManifest,
-};
-use proteus_process_host::{NewlineJsonFraming, ProcessSession};
-use serde_json::json;
+use anyhow::{Result, bail};
+use proteus_contracts::contracts::{ProcessComponentExportManifest, ProcessComponentManifest};
 
-use crate::{
-    ProcessComponentBinding, ProcessContractAuthority, ProcessExportBinding,
-    envelope::{self, IncomingMessage},
-};
-
-pub(crate) fn initialize_session(
-    session: &mut ProcessSession<NewlineJsonFraming>,
-    initialize: &ProcessComponentInitialize,
-    binding: &ProcessComponentBinding,
-    timeout: Duration,
-) -> Result<()> {
-    let id = json!("initialize");
-    session.send_frame(envelope::request(
-        id.clone(),
-        PROCESS_COMPONENT_INITIALIZE_METHOD,
-        serde_json::to_value(initialize)?,
-    ))?;
-    let frame = session
-        .recv_frame(timeout)
-        .map_err(anyhow::Error::from)
-        .context("initialize request failed")?;
-    let IncomingMessage::Response {
-        id: response_id,
-        result,
-    } = envelope::parse(frame).context("invalid initialize response envelope")?
-    else {
-        bail!("initialize must receive one terminal JSON-RPC response");
-    };
-    if response_id != id {
-        bail!("initialize response id {response_id} did not match {id}");
-    }
-    let value = result.map_err(anyhow::Error::from)?;
-    let manifest: ProcessComponentManifest =
-        serde_json::from_value(value).context("initialize returned an invalid manifest")?;
-    validate_manifest(&manifest, binding, PROCESS_COMPONENT_PROTOCOL_VERSION)
-}
+use crate::{ProcessComponentBinding, ProcessContractAuthority, ProcessExportBinding};
 
 pub(crate) fn validate_manifest(
     manifest: &ProcessComponentManifest,

@@ -40,16 +40,16 @@ impl ProcessPatchApplier {
 #[async_trait]
 impl PatchApplier for ProcessPatchApplier {
     async fn apply(&self, patch: Patch) -> Result<PatchResult> {
-        let client = Arc::clone(&self.client);
-        let cwd = self.cwd.clone();
-        tokio::task::spawn_blocking(move || {
-            let response: ProcessPatchResponse = client.invoke(
+        let response: ProcessPatchResponse = self
+            .client
+            .invoke(
                 PROCESS_PATCH_APPLY_METHOD,
-                &ProcessPatchInput { patch, cwd },
-            )?;
-            Ok(response.result)
-        })
-        .await
-        .map_err(|error| anyhow::anyhow!("process patch join error: {error}"))?
+                &ProcessPatchInput {
+                    patch,
+                    cwd: self.cwd.clone(),
+                },
+            )
+            .await?;
+        Ok(response.result)
     }
 }

@@ -35,3 +35,4 @@ sqlite-memory = { path = "../sqlite-memory", default-features = false }
 [dev-dependencies]
 proteus-process-host = { path = "../../../crates/proteus-process-host" }
 tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }

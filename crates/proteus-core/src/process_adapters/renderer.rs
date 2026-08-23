@@ -31,7 +31,7 @@ impl ProcessRenderer {
 
 impl Renderer for ProcessRenderer {
     fn render(&self, output: &AgentOutput) -> Result<String> {
-        let response: ProcessRendererResponse = self.client.invoke(
+        let response: ProcessRendererResponse = self.client.invoke_blocking(
             PROCESS_RENDERER_RENDER_METHOD,
             &ProcessRendererInput {
                 output: output.clone(),

@@ -3,11 +3,11 @@ use std::{path::Path, sync::Arc};
 use anyhow::Result;
 use async_trait::async_trait;
 use proteus_module_protocol::{
-    HostRequestDispatcher, ProcessModuleHostRequest, ProcessModuleRpcError,
+    ProcessModuleRpcError,
+    v3::{AsyncHostRequestDispatcher, ComponentHostRequest, HostRequestFuture},
 };
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
-use tokio::runtime::Handle;
 
 use crate::{
     contracts::{
@@ -88,77 +88,128 @@ impl Workflow for ProcessWorkflowAdapter {
                 workflow_timeout_ms: self.workflow_timeout_ms,
             },
         };
-        let client = Arc::clone(&self.client);
         let cancellation = ctx.cancellation.clone();
-        let dispatcher: Arc<dyn HostRequestDispatcher> = Arc::new(ProcessWorkflowDispatcher {
-            runtime: WorkflowHostRuntime::new(ctx, Handle::current()),
+        let dispatcher: Arc<dyn AsyncHostRequestDispatcher> = Arc::new(ProcessWorkflowDispatcher {
+            runtime: Arc::new(WorkflowHostRuntime::new(ctx)),
         });
 
-        tokio::task::spawn_blocking(move || {
-            let response: ProcessWorkflowResponse = client.invoke_with_dispatcher(
+        let response: ProcessWorkflowResponse = self
+            .client
+            .invoke_with_dispatcher_and_cancel_check(
                 PROCESS_WORKFLOW_METHOD,
                 &input,
                 dispatcher,
                 || cancellation.is_cancelled(),
-            )?;
-            Ok(response.result)
-        })
-        .await
-        .map_err(|error| anyhow::anyhow!("process workflow join error: {error}"))?
+            )
+            .await?;
+        Ok(response.result)
     }
 }
 
 struct ProcessWorkflowDispatcher {
-    runtime: WorkflowHostRuntime,
+    runtime: Arc<WorkflowHostRuntime>,
 }
 
-impl HostRequestDispatcher for ProcessWorkflowDispatcher {
-    fn dispatch(&self, request: ProcessModuleHostRequest) -> Result<Value, ProcessModuleRpcError> {
-        let method = request.method.as_str();
-        match method {
+impl AsyncHostRequestDispatcher for ProcessWorkflowDispatcher {
+    fn dispatch(&self, request: ComponentHostRequest) -> HostRequestFuture {
+        let method = request.method;
+        match method.as_str() {
             WORKFLOW_HOST_RUNTIME_STATUS_METHOD => {
-                decode::<WorkflowRuntimeStatusRequest>(request.params, method)?;
-                encode(self.runtime.status(), method)
+                let result = decode::<WorkflowRuntimeStatusRequest>(request.params, &method)
+                    .and_then(|_| encode(self.runtime.status(), &method));
+                Box::pin(async move { result })
             }
             WORKFLOW_HOST_BUILD_CONTEXT_METHOD => {
-                let input = decode::<WorkflowBuildContextRequest>(request.params, method)?;
-                host_result(self.runtime.build_context(input.task), method)
+                let input = match decode::<WorkflowBuildContextRequest>(request.params, &method) {
+                    Ok(input) => input,
+                    Err(error) => return Box::pin(async move { Err(error) }),
+                };
+                let runtime = Arc::clone(&self.runtime);
+                Box::pin(
+                    async move { host_result(runtime.build_context(input.task).await, &method) },
+                )
             }
             WORKFLOW_HOST_COMPLETE_MODEL_METHOD => {
-                let input = decode::<WorkflowCompleteModelRequest>(request.params, method)?;
-                host_result(self.runtime.complete_model(input.request), method)
+                let input = match decode::<WorkflowCompleteModelRequest>(request.params, &method) {
+                    Ok(input) => input,
+                    Err(error) => return Box::pin(async move { Err(error) }),
+                };
+                let runtime = Arc::clone(&self.runtime);
+                Box::pin(async move {
+                    host_result(runtime.complete_model(input.request).await, &method)
+                })
             }
             WORKFLOW_HOST_COMPACT_HISTORY_METHOD => {
-                let input = decode::<WorkflowCompactHistoryRequest>(request.params, method)?;
-                host_result(self.runtime.compact_history(input.input), method)
+                let input = match decode::<WorkflowCompactHistoryRequest>(request.params, &method) {
+                    Ok(input) => input,
+                    Err(error) => return Box::pin(async move { Err(error) }),
+                };
+                let runtime = Arc::clone(&self.runtime);
+                Box::pin(
+                    async move { host_result(runtime.compact_history(input.input).await, &method) },
+                )
             }
             WORKFLOW_HOST_VISIBLE_TOOLS_METHOD => {
-                let input = decode::<WorkflowVisibleToolsRequest>(request.params, method)?;
-                host_result(self.runtime.visible_tools(input.cwd), method)
+                let input = match decode::<WorkflowVisibleToolsRequest>(request.params, &method) {
+                    Ok(input) => input,
+                    Err(error) => return Box::pin(async move { Err(error) }),
+                };
+                let result = host_result(self.runtime.visible_tools(input.cwd), &method);
+                Box::pin(async move { result })
             }
             WORKFLOW_HOST_SELECT_TOOLS_METHOD => {
-                let input = decode::<WorkflowSelectToolsRequest>(request.params, method)?;
-                host_result(self.runtime.select_tools(input.request), method)
+                let input = match decode::<WorkflowSelectToolsRequest>(request.params, &method) {
+                    Ok(input) => input,
+                    Err(error) => return Box::pin(async move { Err(error) }),
+                };
+                let runtime = Arc::clone(&self.runtime);
+                Box::pin(
+                    async move { host_result(runtime.select_tools(input.request).await, &method) },
+                )
             }
             WORKFLOW_HOST_EXECUTE_TOOL_METHOD => {
-                let input = decode::<WorkflowExecuteToolRequest>(request.params, method)?;
-                host_result(self.runtime.execute_tool(input.task, input.call), method)
+                let input = match decode::<WorkflowExecuteToolRequest>(request.params, &method) {
+                    Ok(input) => input,
+                    Err(error) => return Box::pin(async move { Err(error) }),
+                };
+                let runtime = Arc::clone(&self.runtime);
+                Box::pin(async move {
+                    host_result(runtime.execute_tool(input.task, input.call).await, &method)
+                })
             }
             WORKFLOW_HOST_EXECUTE_TOOLS_METHOD => {
-                let input = decode::<WorkflowExecuteToolsRequest>(request.params, method)?;
-                host_result(self.runtime.execute_tools(input.task, input.calls), method)
+                let input = match decode::<WorkflowExecuteToolsRequest>(request.params, &method) {
+                    Ok(input) => input,
+                    Err(error) => return Box::pin(async move { Err(error) }),
+                };
+                let runtime = Arc::clone(&self.runtime);
+                Box::pin(async move {
+                    host_result(
+                        runtime.execute_tools(input.task, input.calls).await,
+                        &method,
+                    )
+                })
             }
             WORKFLOW_HOST_EMIT_EVENT_METHOD => {
-                let input = decode::<WorkflowEmitEventRequest>(request.params, method)?;
-                self.runtime
-                    .emit_event(input.event)
-                    .map_err(|error| callback_error(method, error))?;
-                encode(WorkflowHostAck::default(), method)
+                let input = match decode::<WorkflowEmitEventRequest>(request.params, &method) {
+                    Ok(input) => input,
+                    Err(error) => return Box::pin(async move { Err(error) }),
+                };
+                let runtime = Arc::clone(&self.runtime);
+                Box::pin(async move {
+                    runtime
+                        .emit_event(input.event)
+                        .await
+                        .map_err(|error| callback_error(&method, error))?;
+                    encode(WorkflowHostAck::default(), &method)
+                })
             }
-            _ => Err(ProcessModuleRpcError::new(
-                -32601,
-                format!("workflow host method is not implemented: {method}"),
-            )),
+            _ => Box::pin(async move {
+                Err(ProcessModuleRpcError::new(
+                    -32601,
+                    format!("workflow host method is not implemented: {method}"),
+                ))
+            }),
         }
     }
 }

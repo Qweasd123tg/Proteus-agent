@@ -4,16 +4,16 @@
 
 Статус: направление одобрено владельцем проекта 2026-08-22; bounded P0 spike
 получил технический `GO`, отдельно подтверждённые P1 duplex transport и P2
-broker/wire-v3 kernel завершены. Текущий configured component contract остаётся
-Component Runtime v1 / wire v2 до atomic P3 cutover. P3-P6 не считаются
-автоматически одобренными; config schema P1/P2 не меняли.
+broker/wire-v3 kernel завершены. Отдельно подтверждённый P3 atomic cutover
+завершён 2026-08-23: текущий configured contract — Component Runtime v2 /
+wire v3. P4-P6 не считаются автоматически одобренными.
 
 Исходный snapshot плана: `ffbc0a1`; baseline P1: `d953aea`.
 
 Связанные документы:
 
 - [process-module-architecture.md](../process-module-architecture.md) —
-  реализованный Component Runtime v1 / wire protocol v2;
+  реализованный Component Runtime v2 / wire protocol v3;
 - [agent-spine-coupling-2026-08-21.md](agent-spine-coupling-2026-08-21.md) —
   coupling-аудит agent lifecycle;
 - [DeepSeek detailed research report](../../examples/research/deepseek/deepseek-research-report.md) —
@@ -775,9 +775,9 @@ Kill criteria:
 Дата результата: 2026-08-22. Evidence changeset: `176d39f`.
 
 Статус P0: технический `GO` для планирования P1/P2. Позднее владелец отдельно
-подтвердил и завершил оба production этапа. Это всё ещё не production cutover:
-Component Runtime v1 / wire v2 остаётся единственным действующим configured
-contract до отдельного P3 atomic migration.
+подтвердил и завершил P1, P2 и P3. На момент P0 это ещё не было production
+cutover: тогда действовал Component Runtime v1 / wire v2; текущий contract
+после P3 — Runtime v2 / wire v3.
 
 Автоматизированный gate:
 
@@ -1088,13 +1088,34 @@ journal/replay evidence для `Canceled`/`TimedOut`/`ComponentLost` mapping и
 Static audit:
 
 ```bash
-rg 'PROCESS_COMPONENT_PROTOCOL_VERSION.*v2|callback_dependency_slots|spawn_blocking' \
+rg 'PROCESS_COMPONENT_PROTOCOL_VERSION.*v2|callback_dependency_slots' \
   crates/proteus-module-protocol crates/proteus-core/src/process_adapters \
   modules/reference/process-worker
+
+rg 'spawn_blocking|Handle::block_on' crates/proteus-core/src/process_adapters
 ```
 
-Допустимые оставшиеся `spawn_blocking` вне process adapters проверяются
-отдельно и не относятся автоматически к legacy runtime.
+Оставшиеся `spawn_blocking` вне process adapters проверяются отдельно и не
+относятся автоматически к legacy component runtime.
+
+### Результат P3
+
+Atomic cutover завершён 2026-08-23:
+
+- core adapters используют общий workspace-owned `ComponentBroker`, а старые
+  `spawn_blocking`/`Handle::block_on` adapters и callback dependency graph
+  удалены;
+- reference worker имеет один stdin reader, serialized stdout writer,
+  bounded concurrent invocation и адресные callback/cancel routes;
+- wire-v2 session, DTO и tests удалены без reader-а совместимости;
+- Python search, compactor и workflow examples используют общий strict-v3
+  runtime helper;
+- real-worker conformance доказывает nested callback в sibling export того же
+  process и targeted cancel без потери sibling PID/generation.
+
+Это закрывает transport cutover. Полный workflow profile с одним PID и
+canonical journal/replay остаётся отдельным P4 evidence, а не скрытым
+расширением P3.
 
 ### P4. Topology Simplification И Real Reentrancy Evidence
 
@@ -1109,7 +1130,8 @@ rg 'PROCESS_COMPONENT_PROTOCOL_VERSION.*v2|callback_dependency_slots|spawn_block
    tools того же process.
 3. Одновременно запустить независимый export invocation.
 4. Подтвердить один PID, раздельную authority и корректный journal.
-5. Удалить cycle rejection tests и документацию как obsolete.
+5. Подтвердить, что объединённый test profile не требует transport-specific
+   topology workaround.
 
 Не обязательно объединять все packaged components по умолчанию. Разделение по
 желаемому failure domain остаётся полезным. Удаляется только вынужденное
@@ -1252,11 +1274,12 @@ P0-P5b:
 P0 spike: technical GO
   -> ✅ отдельное решение владельца и завершённый P1 transport
   -> ✅ отдельное решение владельца и завершённый P2 broker/wire-v3 kernel
-  -> повторная оценка перед P3
+  -> ✅ отдельное решение владельца и завершённый P3 atomic cutover
+  -> отдельное решение перед P4 topology/journal slice
 ```
 
-Следующая точка — не реализация по умолчанию, а повторная оценка P2 evidence и
-границы P3. Исходная оценка P2 была:
+Следующая точка — не изменение topology по умолчанию, а повторная оценка P3
+evidence и границы P4. Исходная оценка P2 была:
 
 ```text
 3-5 commits
@@ -1265,8 +1288,8 @@ P0 spike: technical GO
 
 P0 не показал отдельного worker-language blocker, но оказался больше исходной
 оценки из-за hostile transport/lifecycle cases. P1 закрыл transport foundation,
-P2 дал production broker evidence, но cutover не начинается автоматически:
-Runtime v1 сохраняется до отдельного решения по P3.
+P2 дал production broker evidence, а P3 атомарно подключил его ко всем tracked
+producers/consumers. P4 не начинается автоматически.
 
 ## Порядок Относительно Roadmap
 
@@ -1277,8 +1300,8 @@ Runtime v1 сохраняется до отдельного решения по 
 2. ✅ технический `GO` по его evidence;
 3. ✅ после отдельного подтверждения — P1 duplex transport;
 4. ✅ после нового отдельного подтверждения — P2 broker/wire-v3 kernel;
-5. текущая точка: повторная архитектурная оценка;
-6. при повторном `GO` — P3 atomic cutover и P4 real reentrancy evidence;
+5. ✅ после отдельного подтверждения — P3 atomic tracked cutover;
+6. текущая точка: отдельное решение по P4 topology/journal evidence;
 7. отдельно — `model/v1` decision и vertical slice;
 8. отдельно — `subagent/v1` decision и vertical slice;
 9. optional P6 SDK simplification;
@@ -1437,7 +1460,8 @@ reference implementation другой путь, чем внешнему componen
 
 Владелец проекта подтвердил эти пять пунктов 2026-08-22. Они задали направление
 P0; spike дал положительный технический результат. P1 и P2 позднее получили
-отдельные подтверждения и завершены, а P3-P4 остаются отдельными решениями:
+отдельные подтверждения и завершены; P3 также отдельно подтверждён и завершён.
+P4 остаётся отдельным решением:
 
 1. Runtime v2 остаётся одним multiplexed invocation primitive; generic actor
    не добавляется.
@@ -1453,22 +1477,25 @@ P0; spike дал положительный технический резуль�
 
 Не трогать `Workflow`, root steering или `SubagentRunner` в production.
 
-P1 и P2 changesets завершены:
+P1-P3 changesets завершены:
 
 ```text
 refactor(process-host): split bounded duplex transport
 feat(module-protocol): add multiplexed component-v3 broker
+feat(module-runtime): cut over tracked components to wire v3
 ```
 
 Первый перенёс protocol-neutral transport primitive в `proteus-process-host`.
-Второй добавил bounded production broker и strict v3 contract, сохранив
-sequential facade для MCP/LSP и подключённый component wire v2. Следующий шаг —
-review публичной P2 surface и отдельное решение, начинать ли atomic P3 cutover.
+Второй добавил bounded production broker и strict v3 contract. Третий
+подключил его к core, reference worker и внешним examples и удалил component
+wire v2. Следующий шаг — review P3 evidence и отдельное решение по P4; менять
+`Workflow`, root steering или `SubagentRunner` для этого не требуется.
 
 ```text
 P1 -> bounded duplex transport + старый sequential facade
 P2 -> ✅ multiplexed component broker + wire v3 contract
-P3 -> только atomic tracked cutover после отдельного GO
+P3 -> ✅ atomic tracked cutover
+P4 -> только topology/journal evidence после отдельного GO
 ```
 
 Test-only broker не переносится целиком: production authority, async API,

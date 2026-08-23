@@ -7,8 +7,8 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use proteus_module_protocol::{
-    ProcessComponentBinding, ProcessComponentSession, ProcessComponentSessionOptions,
-    ProcessExportBinding,
+    ProcessComponentBinding, ProcessExportBinding,
+    v3::{ComponentBroker, ComponentBrokerOptions},
 };
 use proteus_process_host::ProcessSpec;
 use serde::{Deserialize, Serialize};
@@ -128,7 +128,7 @@ pub(crate) struct ProcessComponentLauncher {
     component_id: String,
     config: ProcessComponentConfig,
     binding: ProcessComponentBinding,
-    sessions: Mutex<HashMap<PathBuf, Arc<ProcessComponentSession>>>,
+    brokers: Mutex<HashMap<PathBuf, Arc<ComponentBroker>>>,
 }
 
 impl std::fmt::Debug for ProcessComponentLauncher {
@@ -154,7 +154,7 @@ impl ProcessComponentLauncher {
             component_id,
             config,
             binding,
-            sessions: Mutex::new(HashMap::new()),
+            brokers: Mutex::new(HashMap::new()),
         }))
     }
 
@@ -189,7 +189,7 @@ impl ProcessComponentLauncher {
         })
     }
 
-    fn connect(&self, workspace: &Path) -> Result<Arc<ProcessComponentSession>> {
+    fn connect(&self, workspace: &Path) -> Result<Arc<ComponentBroker>> {
         let workspace = std::fs::canonicalize(workspace).with_context(|| {
             format!(
                 "failed to resolve component {:?} workspace {}",
@@ -197,22 +197,22 @@ impl ProcessComponentLauncher {
                 workspace.display()
             )
         })?;
-        let mut sessions = self.sessions.lock().map_err(|_| {
-            anyhow::anyhow!("component {:?} session cache poisoned", self.component_id)
+        let mut brokers = self.brokers.lock().map_err(|_| {
+            anyhow::anyhow!("component {:?} broker cache poisoned", self.component_id)
         })?;
-        if let Some(session) = sessions.get(&workspace) {
-            return Ok(Arc::clone(session));
+        if let Some(broker) = brokers.get(&workspace) {
+            return Ok(Arc::clone(broker));
         }
-        let session = Arc::new(ProcessComponentSession::connect(
+        let broker = Arc::new(ComponentBroker::connect(
             self.config.process_spec(&workspace)?,
             self.binding.clone(),
-            ProcessComponentSessionOptions {
+            ComponentBrokerOptions {
                 handshake_timeout: self.config.handshake_timeout(),
-                ..ProcessComponentSessionOptions::default()
+                ..ComponentBrokerOptions::default()
             },
         )?);
-        sessions.insert(workspace, Arc::clone(&session));
-        Ok(session)
+        brokers.insert(workspace, Arc::clone(&broker));
+        Ok(broker)
     }
 }
 
@@ -273,7 +273,7 @@ impl ProcessExportConfig {
         &self.binding
     }
 
-    pub(crate) fn connect(&self, workspace: &Path) -> Result<Arc<ProcessComponentSession>> {
+    pub(crate) fn connect(&self, workspace: &Path) -> Result<Arc<ComponentBroker>> {
         self.launcher.connect(workspace)
     }
 }

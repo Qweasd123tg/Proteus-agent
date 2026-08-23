@@ -26,7 +26,7 @@ timeout_ms = 60000
 Reference implementation запускает `rg`, поэтому в `PATH` нужны `python3` и
 `rg`.
 
-Компонент говорит на strict component protocol v2 и Search contract v1. Отдельный
+Компонент говорит на strict component protocol v3 и Search contract v1. Отдельный
 protocol smoke без запуска всего `proteus-core`:
 
 ```bash

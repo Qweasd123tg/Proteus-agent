@@ -10,7 +10,7 @@ use crate::{
 
 /// Sequential JSON-RPC-style facade over a protocol-neutral duplex transport.
 ///
-/// MCP, LSP and the current component-v2 runtime keep their existing
+/// MCP and LSP keep their existing
 /// single-caller semantics here. New multiplexed protocol layers use
 /// [`ProcessTransport`] directly instead of duplicating child ownership.
 #[derive(Debug)]

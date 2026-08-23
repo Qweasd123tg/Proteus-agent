@@ -19,7 +19,6 @@ use proteus_contracts::contracts::{
 };
 
 const NO_HOST_METHODS: &[&str] = &[];
-const NO_CALLBACK_DEPENDENCY_SLOTS: &[&str] = &[];
 const NO_PROTOCOL_FEATURES: &[&str] = &[];
 const SEARCH_METHODS: &[&str] = &[PROCESS_SEARCH_METHOD];
 const COMPACTOR_METHODS: &[&str] = &[PROCESS_COMPACTOR_METHOD];
@@ -52,17 +51,6 @@ const WORKFLOW_HOST_METHODS: &[&str] = &[
     WORKFLOW_HOST_EXECUTE_TOOLS_METHOD,
     WORKFLOW_HOST_EMIT_EVENT_METHOD,
 ];
-const CONTEXT_CALLBACK_DEPENDENCY_SLOTS: &[&str] = &["search", "memory", "context_provider"];
-const WORKFLOW_CALLBACK_DEPENDENCY_SLOTS: &[&str] = &[
-    "context",
-    "compactor",
-    "tool_exposure",
-    "policy",
-    "search",
-    "memory",
-    "patch",
-    "tool",
-];
 
 /// One host-defined process contract and its complete callback authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,9 +60,6 @@ pub struct ProcessContractAuthority {
     pub composition: ProcessModuleComposition,
     pub module_methods: &'static [&'static str],
     pub host_methods: &'static [&'static str],
-    /// Slots that an invocation may synchronously enter through its host
-    /// callbacks. Used to reject cycles in a single-flight component graph.
-    pub callback_dependency_slots: &'static [&'static str],
     pub host_features: &'static [&'static str],
     pub required_features: &'static [&'static str],
 }
@@ -99,7 +84,6 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         composition: ProcessModuleComposition::SelectOne,
         module_methods: SEARCH_METHODS,
         host_methods: NO_HOST_METHODS,
-        callback_dependency_slots: NO_CALLBACK_DEPENDENCY_SLOTS,
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
     },
@@ -109,7 +93,6 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         composition: ProcessModuleComposition::SelectOne,
         module_methods: COMPACTOR_METHODS,
         host_methods: COMPACTOR_HOST_METHODS,
-        callback_dependency_slots: NO_CALLBACK_DEPENDENCY_SLOTS,
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
     },
@@ -119,7 +102,6 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         composition: ProcessModuleComposition::SelectOne,
         module_methods: MEMORY_METHODS,
         host_methods: NO_HOST_METHODS,
-        callback_dependency_slots: NO_CALLBACK_DEPENDENCY_SLOTS,
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
     },
@@ -129,7 +111,6 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         composition: ProcessModuleComposition::SelectOne,
         module_methods: PATCH_METHODS,
         host_methods: NO_HOST_METHODS,
-        callback_dependency_slots: NO_CALLBACK_DEPENDENCY_SLOTS,
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
     },
@@ -139,7 +120,6 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         composition: ProcessModuleComposition::SelectOne,
         module_methods: TOOL_EXPOSURE_METHODS,
         host_methods: NO_HOST_METHODS,
-        callback_dependency_slots: NO_CALLBACK_DEPENDENCY_SLOTS,
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
     },
@@ -149,7 +129,6 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         composition: ProcessModuleComposition::SelectOne,
         module_methods: POLICY_METHODS,
         host_methods: NO_HOST_METHODS,
-        callback_dependency_slots: NO_CALLBACK_DEPENDENCY_SLOTS,
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
     },
@@ -159,7 +138,6 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         composition: ProcessModuleComposition::SelectOne,
         module_methods: RENDERER_METHODS,
         host_methods: NO_HOST_METHODS,
-        callback_dependency_slots: NO_CALLBACK_DEPENDENCY_SLOTS,
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
     },
@@ -169,7 +147,6 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         composition: ProcessModuleComposition::SelectOne,
         module_methods: CONTEXT_METHODS,
         host_methods: CONTEXT_HOST_METHODS,
-        callback_dependency_slots: CONTEXT_CALLBACK_DEPENDENCY_SLOTS,
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
     },
@@ -179,7 +156,6 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         composition: ProcessModuleComposition::OrderedMany,
         module_methods: CONTEXT_PROVIDER_METHODS,
         host_methods: NO_HOST_METHODS,
-        callback_dependency_slots: NO_CALLBACK_DEPENDENCY_SLOTS,
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
     },
@@ -189,7 +165,6 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         composition: ProcessModuleComposition::OrderedMany,
         module_methods: TOOL_METHODS,
         host_methods: NO_HOST_METHODS,
-        callback_dependency_slots: NO_CALLBACK_DEPENDENCY_SLOTS,
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
     },
@@ -199,7 +174,6 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         composition: ProcessModuleComposition::SelectOne,
         module_methods: WORKFLOW_METHODS,
         host_methods: WORKFLOW_HOST_METHODS,
-        callback_dependency_slots: WORKFLOW_CALLBACK_DEPENDENCY_SLOTS,
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
     },
@@ -277,9 +251,5 @@ mod tests {
         assert_eq!(authority.composition, ProcessModuleComposition::SelectOne);
         assert_eq!(authority.module_methods, [PROCESS_WORKFLOW_METHOD]);
         assert_eq!(authority.host_methods, WORKFLOW_HOST_METHODS);
-        assert_eq!(
-            authority.callback_dependency_slots,
-            WORKFLOW_CALLBACK_DEPENDENCY_SLOTS
-        );
     }
 }

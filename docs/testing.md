@@ -52,8 +52,8 @@ state на внешнем Python worker-е.
 
 Spike не является production contract. Он не заменяет P2/P3 conformance,
 `module_swap`, strict public DTO review, journal/replay, workspace/session,
-install или `doctor` gates. Действующий runtime по-прежнему проверяется
-обычными Component Runtime v1 / wire v2 suites ниже.
+install или `doctor` gates. Действующий Runtime v2 / wire v3 проверяется
+production broker, swap и real-worker suites ниже.
 
 ### P1 Duplex Transport Foundation
 
@@ -76,8 +76,8 @@ Process-host suite дополнительно фиксирует protocol-neutra
 - initializer выполняется ровно один раз на generation и повторяется после
   lazy restart.
 
-P1 не является wire-v3 evidence. Действующий component-v2 facade отдельно
-проверяют `proteus-module-protocol`, `module_swap` и reference conformance.
+P1 сам по себе не является wire-v3 evidence. После P3 sequential facade
+остался только у MCP/LSP; component boundary проверяет `ComponentBroker`.
 
 ### P2 Multiplexed Broker / Wire v3 Kernel
 
@@ -105,9 +105,20 @@ Gate запускает production `ComponentBroker` против внешнег
 - crash/protocol/resource fan-out, exactly-once terminal, late/duplicate/
   malformed/oversized frames.
 
-Это evidence P2 kernel, но ещё не P3 cutover evidence. Пока tracked core и
-workers используют wire v2, обязательными остаются `module_swap`, component-v2
-conformance и real reference-worker suite.
+### P3 Atomic Cutover
+
+P3 evidence состоит не из отдельного mock-а, а из одновременного прохождения:
+
+```bash
+cargo test -p proteus-module-protocol
+cargo test -p proteus-core --test module_swap
+cargo test -p proteus-reference-worker --test conformance
+```
+
+Дополнительный static audit не допускает старые component session/DTO,
+`callback_dependency_slots`, `spawn_blocking` или `Handle::block_on` внутри
+process adapters. Real-worker suite проверяет same-component nested invocation
+и targeted cancel при живом sibling/PID/generation.
 
 ## Общий Rust Gate
 
@@ -134,14 +145,14 @@ cargo test -p proteus-module-protocol
 - newline framing и receive limits;
 - bounded priority data/control writer, persistent child lifecycle и
   independent exit signal;
-- sequential MCP/LSP/component-v2 facade поверх общего transport;
-- staged async multiplexed component-v3 broker с bounded pending state;
+- sequential MCP/LSP facade поверх общего transport;
+- действующий async multiplexed component-v3 broker с bounded pending state;
 - strict JSON-RPC envelopes;
 - exact initialize/manifest;
 - authority lookup по `slot/contract_version`;
 - allowed module/`host.*` methods;
 - cancellation, timeout и terminal classification;
-- session reset после transport/protocol failure.
+- generation reset после transport/protocol/resource failure.
 
 ### Runtime Swap
 
@@ -160,10 +171,9 @@ cargo test -p proteus-core --test module_swap -- --nocapture
 - module error не вызывает fallback;
 - old/bare response shape отвергается;
 - handshake не блокирует async runtime;
-- два exports одного component используют один child/session;
+- два exports одного component используют один child/broker;
 - callback authority остаётся request-scoped и не объединяется;
-- cancel одного export reset-ит общий component failure domain;
-- direct/transitive single-flight callback cycle отклоняется до spawn;
+- callback-connected topology больше не отклоняется из-за transport cycle;
 - умерший persistent process lazily перезапускается для следующей invocation.
 
 Test fixtures — внешние shell workers. Они не линкуют reference crates и
@@ -177,13 +187,15 @@ cargo test -p proteus-reference-worker --test conformance -- --nocapture
 
 Suite подтверждает:
 
-- strict component-v2 handshake всех 26 selectors;
-- multi-export routing по одному persistent session;
+- strict component-v3 handshake всех 26 selectors;
+- multi-export routing по одному persistent broker;
 - aggregate tool `list` и реальный `read_file`;
 - real `rg`, patch и обе memory implementations;
 - policy, renderer, tool exposure, skills provider и compactor;
 - context callbacks с slot-scoped authority;
-- полный callback-driven workflow turn.
+- полный callback-driven workflow turn;
+- nested callback в другой export того же process;
+- targeted cancel сохраняет concurrent sibling, PID и generation.
 
 Reference modules не получают отдельный облегчённый gate. Именно этот suite
 доказывает, что bundled worker говорит с host так же, как out-of-tree worker.

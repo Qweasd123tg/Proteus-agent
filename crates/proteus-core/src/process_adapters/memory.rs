@@ -36,28 +36,24 @@ impl ProcessMemoryStore {
 #[async_trait]
 impl MemoryStore for ProcessMemoryStore {
     async fn remember(&self, item: MemoryItem) -> Result<()> {
-        let client = Arc::clone(&self.client);
-        tokio::task::spawn_blocking(move || {
-            let response: ProcessMemoryRememberResponse = client.invoke(
+        let response: ProcessMemoryRememberResponse = self
+            .client
+            .invoke(
                 PROCESS_MEMORY_REMEMBER_METHOD,
                 &ProcessMemoryRememberInput { item },
-            )?;
-            Ok(response.result)
-        })
-        .await
-        .map_err(|error| anyhow::anyhow!("process memory join error: {error}"))?
+            )
+            .await?;
+        Ok(response.result)
     }
 
     async fn recall(&self, query: MemoryQuery) -> Result<Vec<MemoryItem>> {
-        let client = Arc::clone(&self.client);
-        tokio::task::spawn_blocking(move || {
-            let response: ProcessMemoryRecallResponse = client.invoke(
+        let response: ProcessMemoryRecallResponse = self
+            .client
+            .invoke(
                 PROCESS_MEMORY_RECALL_METHOD,
                 &ProcessMemoryRecallInput { query },
-            )?;
-            Ok(response.result)
-        })
-        .await
-        .map_err(|error| anyhow::anyhow!("process memory join error: {error}"))?
+            )
+            .await?;
+        Ok(response.result)
     }
 }

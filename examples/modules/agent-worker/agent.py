@@ -11,15 +11,23 @@ from __future__ import annotations
 import json
 import sys
 import uuid
-from typing import Any, NoReturn
+from pathlib import Path
+from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from component_runtime import (  # noqa: E402
+    PROTOCOL_VERSION,
+    HostError,
+    InvocationCanceled,
+    InvocationContext,
+    ProtocolError,
+    require_object,
+    run_component,
+)
 
-PROTOCOL_VERSION = "v2"
 SLOT = "workflow"
 MODULE_ID = "python_agent_loop"
 CONTRACT_VERSION = "v1"
-CANCEL_METHOD = "$/cancelRequest"
-CANCELLED_CODE = -32800
 
 INITIALIZE_FIELDS = {
     "protocol_version",
@@ -34,8 +42,6 @@ EXPORT_INITIALIZE_FIELDS = {
     "module_config",
     "host_features",
 }
-CALL_FIELDS = {"export", "params"}
-EXPORT_REF_FIELDS = {"slot", "module_id"}
 INPUT_FIELDS = {"task", "history", "runtime"}
 RUNTIME_FIELDS = {
     "session_id",
@@ -52,63 +58,10 @@ RUNTIME_FIELDS = {
 CONFIG_FIELDS = {"max_tool_rounds", "system_instructions"}
 
 
-class ProtocolError(Exception):
-    pass
-
-
-class HostError(Exception):
-    pass
-
-
-class InvocationCanceled(Exception):
-    pass
-
-
-def require_object(value: Any, fields: set[str], label: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ProtocolError(f"{label} must be an object")
-    actual = set(value)
-    if actual != fields:
-        missing = sorted(fields - actual)
-        unknown = sorted(actual - fields)
-        raise ProtocolError(
-            f"{label} fields mismatch: missing={missing}, unknown={unknown}"
-        )
-    return value
-
-
 def require_string_list(value: Any, label: str) -> list[str]:
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
         raise ProtocolError(f"{label} must be an array of strings")
     return value
-
-
-def unwrap_call(params: Any) -> Any:
-    call = require_object(params, CALL_FIELDS, "component call")
-    export = require_object(call["export"], EXPORT_REF_FIELDS, "component call export")
-    if export != {"slot": SLOT, "module_id": MODULE_ID}:
-        raise ProtocolError(f"unknown component export: {export!r}")
-    return call["params"]
-
-
-def compact_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-
-
-def send(value: Any) -> None:
-    print(compact_json(value), flush=True)
-
-
-def result_response(request_id: Any, result: Any) -> dict[str, Any]:
-    return {"jsonrpc": "2.0", "id": request_id, "result": result}
-
-
-def error_response(request_id: Any, code: int, message: str) -> dict[str, Any]:
-    return {
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "error": {"code": code, "message": message},
-    }
 
 
 def parse_config(value: Any) -> dict[str, Any]:
@@ -131,61 +84,14 @@ def parse_config(value: Any) -> dict[str, Any]:
 
 
 class Peer:
-    def __init__(self) -> None:
-        self.next_host_id = 1
-        self.active_invocation: str | None = None
-        self.cancelled = False
+    def __init__(self, context: InvocationContext) -> None:
+        self.context = context
 
     def host_call(self, method: str, params: Any) -> Any:
-        self.ensure_active()
-        request_id = f"host-{self.next_host_id}"
-        self.next_host_id += 1
-        send(
-            {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "method": method,
-                "params": params,
-            }
-        )
-        while True:
-            line = sys.stdin.readline()
-            if not line:
-                raise EOFError("host closed stdin while callback was pending")
-            if not line.strip():
-                continue
-            message = json.loads(line)
-            if isinstance(message, dict) and message.get("method") == CANCEL_METHOD:
-                self.accept_cancel(message)
-                self.ensure_active()
-                continue
-            if not isinstance(message, dict) or message.get("jsonrpc") != "2.0":
-                raise ProtocolError("host callback response must be JSON-RPC 2.0")
-            if message.get("id") != request_id:
-                raise ProtocolError(
-                    f"callback response id {message.get('id')!r} did not match {request_id!r}"
-                )
-            if set(message) == {"jsonrpc", "id", "result"}:
-                return message["result"]
-            if set(message) == {"jsonrpc", "id", "error"}:
-                error = message["error"]
-                if not isinstance(error, dict):
-                    raise ProtocolError("host callback error must be an object")
-                raise HostError(
-                    f"{method}: JSON-RPC {error.get('code')}: {error.get('message')}"
-                )
-            raise ProtocolError("host callback response fields mismatch")
-
-    def accept_cancel(self, message: dict[str, Any]) -> None:
-        if set(message) != {"jsonrpc", "method", "params"}:
-            raise ProtocolError("cancel notification fields mismatch")
-        params = require_object(message["params"], {"id"}, "cancel params")
-        if params["id"] == self.active_invocation:
-            self.cancelled = True
+        return self.context.host_call(method, params)
 
     def ensure_active(self) -> None:
-        if self.cancelled:
-            raise InvocationCanceled("workflow invocation canceled by host")
+        self.context.ensure_active()
 
 
 def uuid_string() -> str:
@@ -453,11 +359,12 @@ def run_workflow(
         tool_rounds += 1
 
 
+component_config: dict[str, Any] = {}
+
+
 def initialize(raw: Any) -> dict[str, Any]:
-    request = require_object(raw, {"jsonrpc", "id", "method", "params"}, "initialize request")
-    if request["jsonrpc"] != "2.0" or request["method"] != "initialize":
-        raise ProtocolError("first request must be JSON-RPC initialize")
-    params = require_object(request["params"], INITIALIZE_FIELDS, "initialize params")
+    global component_config
+    params = require_object(raw, INITIALIZE_FIELDS, "initialize params")
     if params["protocol_version"] != PROTOCOL_VERSION:
         raise ProtocolError(f"unsupported component protocol: {params['protocol_version']!r}")
     component_id = params["component_id"]
@@ -480,8 +387,8 @@ def initialize(raw: Any) -> dict[str, Any]:
         raise ProtocolError(f"unsupported initialize identity: {actual!r}")
     if require_string_list(export["host_features"], "host_features"):
         raise ProtocolError("workflow v1 has no negotiated optional features")
-    config = parse_config(export["module_config"])
-    manifest = {
+    component_config = parse_config(export["module_config"])
+    return {
         "protocol_version": PROTOCOL_VERSION,
         "component_id": component_id,
         "exports": [
@@ -494,60 +401,18 @@ def initialize(raw: Any) -> dict[str, Any]:
             }
         ],
     }
-    send(result_response(request["id"], manifest))
-    return config
 
 
-def fail_initialization(request_id: Any, error: Exception) -> NoReturn:
-    send(error_response(request_id, -32602, str(error)))
-    raise SystemExit(2)
+def invoke(context: InvocationContext, method: str, params: Any) -> dict[str, Any]:
+    if context.export != {"slot": SLOT, "module_id": MODULE_ID}:
+        raise ProtocolError(f"unknown component export: {context.export!r}")
+    if method != "run":
+        raise ProtocolError(f"workflow v1 does not support method {method!r}")
+    return run_workflow(Peer(context), params, component_config)
 
 
 def main() -> int:
-    first = sys.stdin.readline()
-    if not first:
-        return 1
-    request_id: Any = None
-    try:
-        raw = json.loads(first)
-        if isinstance(raw, dict):
-            request_id = raw.get("id")
-        config = initialize(raw)
-    except Exception as error:
-        fail_initialization(request_id, error)
-
-    peer = Peer()
-    for line in sys.stdin:
-        if not line.strip():
-            continue
-        request_id: Any = None
-        try:
-            raw = json.loads(line)
-            if isinstance(raw, dict) and raw.get("method") == CANCEL_METHOD:
-                peer.accept_cancel(raw)
-                continue
-            request = require_object(
-                raw, {"jsonrpc", "id", "method", "params"}, "workflow request"
-            )
-            request_id = request["id"]
-            if request["jsonrpc"] != "2.0" or request["method"] != "run":
-                raise ProtocolError("workflow v1 supports only method run")
-            if not isinstance(request_id, str):
-                raise ProtocolError("workflow invocation id must be a string")
-            peer.active_invocation = request_id
-            peer.cancelled = False
-            output = run_workflow(peer, unwrap_call(request["params"]), config)
-            send(result_response(request_id, output))
-        except InvocationCanceled as error:
-            send(error_response(request_id, CANCELLED_CODE, str(error)))
-        except (ProtocolError, HostError) as error:
-            send(error_response(request_id, -32602, str(error)))
-        except Exception as error:
-            send(error_response(request_id, -32603, str(error)))
-        finally:
-            peer.active_invocation = None
-            peer.cancelled = False
-    return 0
+    run_component(initialize, invoke)
 
 
 if __name__ == "__main__":

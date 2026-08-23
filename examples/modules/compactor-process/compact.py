@@ -10,15 +10,22 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from component_runtime import (  # noqa: E402
+    PROTOCOL_VERSION,
+    InvocationContext,
+    ProtocolError,
+    require_object,
+    run_component,
+)
 
-PROTOCOL_VERSION = "v2"
 SLOT = "compactor"
 MODULE_ID = "python_suffix"
 CONTRACT_VERSION = "v1"
 
-REQUEST_FIELDS = {"jsonrpc", "id", "method", "params"}
 INITIALIZE_FIELDS = {
     "protocol_version",
     "component_id",
@@ -32,8 +39,6 @@ EXPORT_INITIALIZE_FIELDS = {
     "module_config",
     "host_features",
 }
-CALL_FIELDS = {"export", "params"}
-EXPORT_REF_FIELDS = {"slot", "module_id"}
 INPUT_FIELDS = {
     "task",
     "model_ref",
@@ -44,23 +49,6 @@ INPUT_FIELDS = {
     "reason",
 }
 STRATEGY_FIELDS = {"trigger_messages", "retain_user_turns"}
-
-
-class ProtocolError(Exception):
-    pass
-
-
-def require_object(value: Any, fields: set[str], label: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ProtocolError(f"{label} must be an object")
-    actual = set(value)
-    if actual != fields:
-        missing = sorted(fields - actual)
-        unknown = sorted(actual - fields)
-        raise ProtocolError(
-            f"{label} fields mismatch: missing={missing}, unknown={unknown}"
-        )
-    return value
 
 
 def positive_int(value: Any, label: str) -> int:
@@ -101,14 +89,6 @@ def validate_initialize(params: Any) -> str:
     if export["host_features"] != []:
         raise ProtocolError("compactor v1 does not negotiate host features")
     return component_id
-
-
-def unwrap_call(params: Any) -> Any:
-    call = require_object(params, CALL_FIELDS, "component call")
-    export = require_object(call["export"], EXPORT_REF_FIELDS, "component call export")
-    if export != {"slot": SLOT, "module_id": MODULE_ID}:
-        raise ProtocolError(f"unknown component export: {export!r}")
-    return call["params"]
 
 
 def validate_input(params: Any) -> tuple[dict[str, Any], int, int]:
@@ -203,70 +183,36 @@ def compact(params: Any) -> dict[str, Any]:
     }
 
 
-def response(request_id: Any, result: Any) -> dict[str, Any]:
-    return {"jsonrpc": "2.0", "id": request_id, "result": result}
-
-
-def error_response(request_id: Any, code: int, message: str) -> dict[str, Any]:
+def initialize(params: Any) -> dict[str, Any]:
+    component_id = validate_initialize(params)
     return {
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "error": {"code": code, "message": message},
+        "protocol_version": PROTOCOL_VERSION,
+        "component_id": component_id,
+        "exports": [
+            {
+                "slot": SLOT,
+                "module_id": MODULE_ID,
+                "contract_version": CONTRACT_VERSION,
+                "composition": "select_one",
+                "module_features": [],
+            }
+        ],
     }
 
 
-def handle_request(raw: Any, component_id: str | None) -> tuple[dict[str, Any], str]:
-    request = require_object(raw, REQUEST_FIELDS, "JSON-RPC request")
-    if (
-        request["jsonrpc"] != "2.0"
-        or not isinstance(request["id"], (int, str))
-        or isinstance(request["id"], bool)
-    ):
-        raise ProtocolError("unsupported JSON-RPC envelope")
-    method = request["method"]
-    if method == "initialize":
-        if component_id is not None:
-            raise ProtocolError("process component is already initialized")
-        component_id = validate_initialize(request["params"])
-        return response(
-            request["id"],
-            {
-                "protocol_version": PROTOCOL_VERSION,
-                "component_id": component_id,
-                "exports": [
-                    {
-                        "slot": SLOT,
-                        "module_id": MODULE_ID,
-                        "contract_version": CONTRACT_VERSION,
-                        "composition": "select_one",
-                        "module_features": [],
-                    }
-                ],
-            },
-        ), component_id
-    if component_id is None:
-        raise ProtocolError("initialize must be the first request")
+def invoke(context: InvocationContext, method: str, params: Any) -> dict[str, Any]:
+    if context.export != {"slot": SLOT, "module_id": MODULE_ID}:
+        raise ProtocolError(f"unknown component export: {context.export!r}")
     if method != "compact":
         raise ProtocolError(f"unknown method: {method!r}")
-    return response(request["id"], compact(unwrap_call(request["params"]))), component_id
+    context.ensure_active()
+    result = compact(params)
+    context.ensure_active()
+    return result
 
 
 def main() -> int:
-    component_id: str | None = None
-    for line in sys.stdin:
-        request_id: Any = None
-        try:
-            raw = json.loads(line)
-            if isinstance(raw, dict):
-                request_id = raw.get("id")
-            result, component_id = handle_request(raw, component_id)
-        except (ProtocolError, ValueError, TypeError) as error:
-            result = error_response(request_id, -32602, str(error))
-        except Exception as error:
-            result = error_response(request_id, -32000, str(error))
-        sys.stdout.write(json.dumps(result, separators=(",", ":")) + "\n")
-        sys.stdout.flush()
-    return 0
+    run_component(initialize, invoke)
 
 
 if __name__ == "__main__":

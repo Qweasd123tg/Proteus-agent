@@ -175,7 +175,7 @@ fn duplicate_component_export_identity_is_rejected_before_runtime_build() {
 }
 
 #[test]
-fn callback_dependency_cycle_is_rejected_before_any_component_starts() {
+fn callback_dependency_cycle_no_longer_requires_component_splitting() {
     let mut config = AppConfig::default();
     config.modules.workflow = Some("fixture-workflow".to_owned());
     config.modules.context = Some("fixture-context".to_owned());
@@ -191,14 +191,8 @@ fn callback_dependency_cycle_is_rejected_before_any_component_starts() {
         component_exports(&[("context", "fixture-context")]),
     );
 
-    let error = match ModuleCatalog::from_config(&config) {
-        Ok(_) => panic!("single-flight callback cycle must fail"),
-        Err(error) => error,
-    };
-    let message = error.to_string();
-    assert!(message.contains("callback dependency cycle"), "{message}");
-    assert!(message.contains("loop-entry"), "{message}");
-    assert!(message.contains("loop-context"), "{message}");
+    ModuleCatalog::from_config(&config)
+        .expect("multiplexed runtime admits callback-connected components");
 }
 
 #[test]
@@ -209,7 +203,7 @@ fn handshake_mismatch_is_a_snapshot_build_error() {
         Err(error) => error,
     };
     let message = format!("{error:#}");
-    assert!(message.contains("handshake"), "{message}");
+    assert!(message.contains("strict initialization"), "{message}");
     assert!(
         message.contains("returned undeclared export memory/fixture"),
         "{message}"

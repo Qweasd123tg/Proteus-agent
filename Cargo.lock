@@ -1130,6 +1130,7 @@ dependencies = [
  "skill-pack",
  "sqlite-memory",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]

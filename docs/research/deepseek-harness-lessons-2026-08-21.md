@@ -5,7 +5,8 @@
 - Sequencing status: исходный вывод `R1 Installed Dogfood next` сохранён как
   исторический, но отменён решением владельца 2026-08-22. P0 получил
   технический `GO`, отдельно подтверждённые P1 transport и P2 broker kernel
-  завершены; решение по atomic P3 ведётся в `scope.md` и `roadmap.md`.
+  завершены; отдельно подтверждённый P3 atomic cutover завершён 2026-08-23.
+  Решение по P4 ведётся в `scope.md` и `roadmap.md`.
 - Upstream: [`deepseek-ai/deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness).
 - Проверенный upstream-срез: `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`.
 - Исходный подробный разбор:
@@ -27,8 +28,9 @@
 Исходное решение не меняло позиционирование Proteus и оставляло следующим R1
 Installed Dogfood. Sequencing отменён 2026-08-22, bounded Component Runtime v2
 P0 получил технический `GO`, а отдельно подтверждённые P1 transport и P2
-broker kernel завершены. Текущее решение — начинать ли atomic P3 cutover;
-сохраняется содержательный вывод этого документа: Harness не требует
+broker kernel завершены. P3 atomic cutover также завершён; следующее отдельное
+решение относится к P4 topology/journal evidence. Сохраняется содержательный
+вывод этого документа: Harness не требует
 переносить Cordis, переписывать session model или собирать чужие product
 capabilities внутри core.
 

@@ -382,11 +382,35 @@ impl ComponentBroker {
         params: Value,
         timeout: Duration,
     ) -> Result<InvocationTerminal, ComponentBrokerError> {
+        self.invoke_blocking_inner(target, method, params, timeout, true)
+    }
+
+    /// Callback-free invocation for a synchronous slot contract. It uses the
+    /// same bounded broker and wire routing as async calls, but settles through
+    /// a blocking channel because the contract has no async entrypoint.
+    pub fn invoke_blocking(
+        &self,
+        target: &ProcessComponentExportRef,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<InvocationTerminal, ComponentBrokerError> {
+        self.invoke_blocking_inner(target, method, params, timeout, false)
+    }
+
+    fn invoke_blocking_inner(
+        &self,
+        target: &ProcessComponentExportRef,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+        bootstrap: bool,
+    ) -> Result<InvocationTerminal, ComponentBrokerError> {
         validate_call(method, timeout)?;
         let deadline = Instant::now().checked_add(timeout).ok_or_else(|| {
             ComponentBrokerError::new(
                 ComponentBrokerErrorKind::InvalidInput,
-                "component-v3 bootstrap deadline overflowed",
+                "component-v3 blocking invocation deadline overflowed",
             )
         })?;
         let (terminal_tx, terminal_rx) = mpsc::channel();
@@ -404,12 +428,12 @@ impl ComponentBroker {
             terminal: TerminalSender::Blocking(terminal_tx),
             notifications,
             ack: StartAck::Blocking(ack_tx),
-            bootstrap: true,
+            bootstrap,
         };
         self.inner.root_tx.try_send(request).map_err(|error| {
             ComponentBrokerError::new(
                 ComponentBrokerErrorKind::Admission,
-                format!("component-v3 bootstrap admission failed: {error}"),
+                format!("component-v3 blocking admission failed: {error}"),
             )
         })?;
         ack_rx
@@ -420,7 +444,7 @@ impl ComponentBroker {
                     .saturating_add(COMMAND_ACK_SLACK),
             )
             .map_err(|_| {
-                ComponentBrokerError::stopped("component broker did not admit bootstrap")
+                ComponentBrokerError::stopped("component broker did not admit blocking invocation")
             })??;
         terminal_rx
             .recv_timeout(
@@ -428,7 +452,9 @@ impl ComponentBroker {
                     .saturating_add(self.inner.options.cancel_grace)
                     .saturating_add(COMMAND_ACK_SLACK),
             )
-            .map_err(|_| ComponentBrokerError::stopped("component-v3 bootstrap did not settle"))
+            .map_err(|_| {
+                ComponentBrokerError::stopped("component-v3 blocking invocation did not settle")
+            })
     }
 
     pub fn snapshot(&self) -> Result<ComponentBrokerSnapshot, ComponentBrokerError> {

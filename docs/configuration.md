@@ -237,14 +237,13 @@ export передаётся в component initialize.
 - zero timeout;
 - unknown component/export field;
 - non-object module config;
-- handshake component id или exact export-set mismatch;
-- callback dependency cycle между active components.
+- handshake component id или exact export-set mismatch.
 
 Один component может экспортировать несколько slots. Это общий lifecycle, а
 не объединение authority: callbacks проверяются по активному export. Runtime
-v1 single-flight, поэтому config build вычисляет contract callback dependencies
-активных exports и отклоняет прямой или транзитивный component cycle.
-Подробности и безопасный reference-разрез — в
+v2 допускает concurrent и nested invocation того же component; lineage,
+depth, counts и deadlines задаёт host, поэтому transport-cycle validation в
+config больше нет. Подробности — в
 `process-module-architecture.md`.
 
 ## Ordered-Many Modules

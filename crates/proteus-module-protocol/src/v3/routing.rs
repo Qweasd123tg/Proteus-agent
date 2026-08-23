@@ -196,10 +196,10 @@ impl LoopState {
         let Some(executor) = parent.executor.clone() else {
             let error = ProcessModuleRpcError::new(
                 -32601,
-                "host callbacks are forbidden during synchronous bootstrap",
+                "host callbacks are forbidden during synchronous invocation",
             );
             self.queue_callback_response(&id, Err(error));
-            self.protocol_failure(format!("bootstrap invocation received callback {id}"));
+            self.protocol_failure(format!("synchronous invocation received callback {id}"));
             return;
         };
         let dispatcher = Arc::clone(&parent.dispatcher);

@@ -1,6 +1,6 @@
 # Roadmap
 
-Последнее обновление: 2026-08-22.
+Последнее обновление: 2026-08-23.
 
 Roadmap описывает порядок, а не обещание API. Текущее реализованное состояние
 смотрите в [scope.md](scope.md), архитектурные правила — в
@@ -30,6 +30,9 @@ Roadmap описывает порядок, а не обещание API. Тек�
 worker-а».
 
 ### R0.5. Component Runtime v1 — завершён
+
+Ниже зафиксирован исторический промежуточный этап; P3 позже заменил его
+Runtime v2 / wire v3 и удалил перечисленные single-flight ограничения.
 
 Результат:
 
@@ -73,49 +76,43 @@ duplex queues, nested reserve и generation failure fan-out. Полная matrix
 Результат дал технический `GO` для планирования P1/P2. Владелец отдельно
 подтвердил оба этапа; protocol-neutral transport foundation и production
 broker/wire-v3 kernel завершены 2026-08-22.
-P0 сам по себе не менял production contract, config, adapters или wire v2.
-Workspace/session ownership остаётся cutover evidence P3, потому что P2 kernel
-сознательно ещё не подключён к `ModuleCatalog`.
+P0 сам по себе не менял production contract. P3 позднее закрыл
+workspace/broker ownership и подключил kernel к `ModuleCatalog`.
 
 Malicious export общего trusted component всё ещё может назвать active parent
 соседнего export. Это зафиксированная trust boundary, а не обещание изоляции
 внутри одного process.
 
-### R2. P1-P2 Завершены; Перед P3 Нужна Повторная Оценка
+### R2. P1-P3 Завершены; P4 Требует Отдельного Решения
 
-После технического P0 `GO` владелец отдельно подтвердил P1, затем P2. Этапы
-идут последовательно; broker kernel готов, а atomic cutover не начинается без
-повторной архитектурной оценки:
+После технического P0 `GO` владелец отдельно подтвердил P1, P2 и P3:
 
 1. ✅ **P1. Protocol-neutral duplex transport — завершён.** В
    `proteus-process-host` разделены bounded frame reader/writer и lifecycle
    generation; child exit имеет отдельный сигнал, terminate будит blocked
-   reader, а прежний последовательный facade для MCP, LSP и wire v2 сохранён.
+   reader, а последовательный facade для MCP и LSP сохранён.
 2. ✅ **P2. Component broker и wire v3 — завершён.** Production
    `ComponentBroker` содержит bounded concurrent pending invocations, host-owned
    lineage, async invocation-scoped dispatchers, correlated live notifications,
    targeted cancel и generation-wide failure fan-out. Exact wire-v3 suite
    проходит на внешнем Python worker-е; data/control writer lanes имеют
    frame/count/byte bounds.
-3. ⏸ **Повторная оценка / решение по P3.** Проверить публичный API P2, цену
-   cutover и отсутствие нового transport-specific coupling.
-4. **P3. Atomic tracked cutover.** Одновременно перевести host, worker,
-   adapters, examples, configs, conformance и docs на v3; v2 reader и
-   single-flight path удалить без compatibility mode.
-5. **P4. Reentrancy evidence и topology cleanup.** Доказать nested
+3. ✅ **P3. Atomic tracked cutover — завершён 2026-08-23.** Одновременно
+   переведены host, worker, adapters, examples, configs, conformance и docs на
+   v3; v2 reader и single-flight path удалены без compatibility mode. Focused
+   real-worker tests уже доказывают reentrancy и targeted cancel isolation.
+4. **P4. Topology и journal evidence.** Доказать полный nested
    same-component invocation, один PID, раздельную authority, cancellation и
-   journal; заменить v1 cycle rejection на depth/count/deadline bounds.
+   canonical journal/replay на собранном workflow profile.
 
 Component остаётся lifecycle/failure boundary. Direct cross-export dispatch,
 union authority, automatic retry и fallback не появляются. Разделять exports
 по нескольким processes по желаемому failure domain по-прежнему допустимо;
 исчезает только разбиение, нужное исключительно для single-flight deadlock.
 
-P2 ещё не сделал configured runtime multiplexed: tracked
-`ProcessComponentSession`, core adapters и reference worker всё ещё
-single-flight и используют wire v2. Это намеренная граница changeset-а, а не
-compatibility mode. Следующий возможный production этап — только atomic P3
-после отдельного решения владельца.
+Configured runtime теперь multiplexed. Старый `ProcessComponentSession`,
+callback dependency graph и wire-v2 DTO удалены. Следующий production этап —
+только отдельный P4 topology/journal slice после решения владельца.
 
 ### Фиксированная Граница v0.1 Alpha
 

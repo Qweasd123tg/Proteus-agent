@@ -33,15 +33,13 @@ impl ProcessToolExposure {
 #[async_trait]
 impl ToolExposure for ProcessToolExposure {
     async fn select(&self, input: ToolExposureInput) -> Result<ToolExposureOutput> {
-        let client = Arc::clone(&self.client);
-        tokio::task::spawn_blocking(move || {
-            let response: ProcessToolExposureResponse = client.invoke(
+        let response: ProcessToolExposureResponse = self
+            .client
+            .invoke(
                 PROCESS_TOOL_EXPOSURE_SELECT_METHOD,
                 &ProcessToolExposureInput { input },
-            )?;
-            Ok(response.result)
-        })
-        .await
-        .map_err(|error| anyhow::anyhow!("process tool exposure join error: {error}"))?
+            )
+            .await?;
+        Ok(response.result)
     }
 }

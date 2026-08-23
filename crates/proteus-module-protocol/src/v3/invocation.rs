@@ -106,16 +106,6 @@ pub enum CancelCause {
     Shutdown,
 }
 
-impl CancelCause {
-    pub(crate) fn wire_name(self) -> &'static str {
-        match self {
-            Self::User => "user",
-            Self::Timeout => "timeout",
-            Self::Shutdown => "shutdown",
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ComponentFailure {
     ProcessExit,
@@ -197,6 +187,21 @@ pub struct InvocationHandle {
     dropped_notifications: Arc<AtomicU64>,
 }
 
+/// Cloneable control-only view used to race an invocation terminal with an
+/// external cancellation source without moving its result receiver.
+#[derive(Clone)]
+pub struct InvocationCancelHandle {
+    id: String,
+    generation: u64,
+    control_tx: mpsc::SyncSender<ControlCommand>,
+}
+
+impl InvocationCancelHandle {
+    pub fn cancel(&self, cause: CancelCause) -> Result<(), ComponentBrokerError> {
+        cancel_invocation(&self.control_tx, &self.id, self.generation, cause)
+    }
+}
+
 impl fmt::Debug for InvocationHandle {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -266,29 +271,48 @@ impl InvocationHandle {
     }
 
     pub fn cancel(&self, cause: CancelCause) -> Result<(), ComponentBrokerError> {
-        let (ack_tx, ack_rx) = mpsc::channel();
-        match self.control_tx.try_send(ControlCommand::Cancel {
-            id: self.invocation.id.clone(),
-            generation: self.invocation.generation,
-            cause,
-            ack: ack_tx,
-        }) {
-            Ok(()) => {}
-            Err(mpsc::TrySendError::Full(_)) => {
-                return Err(ComponentBrokerError::new(
-                    ComponentBrokerErrorKind::Admission,
-                    "component broker control queue is full; cancel was not admitted",
-                ));
-            }
-            Err(mpsc::TrySendError::Disconnected(_)) => {
-                return Err(ComponentBrokerError::stopped("component broker is stopped"));
-            }
-        }
-        ack_rx.recv_timeout(CONTROL_ACK_TIMEOUT).map_err(|_| {
-            ComponentBrokerError::stopped("component broker did not acknowledge cancel")
-        })?
+        self.cancel_handle().cancel(cause)
     }
 
+    pub fn cancel_handle(&self) -> InvocationCancelHandle {
+        InvocationCancelHandle {
+            id: self.invocation.id.clone(),
+            generation: self.invocation.generation,
+            control_tx: self.control_tx.clone(),
+        }
+    }
+}
+
+fn cancel_invocation(
+    control_tx: &mpsc::SyncSender<ControlCommand>,
+    id: &str,
+    generation: u64,
+    cause: CancelCause,
+) -> Result<(), ComponentBrokerError> {
+    let (ack_tx, ack_rx) = mpsc::channel();
+    match control_tx.try_send(ControlCommand::Cancel {
+        id: id.to_owned(),
+        generation,
+        cause,
+        ack: ack_tx,
+    }) {
+        Ok(()) => {}
+        Err(mpsc::TrySendError::Full(_)) => {
+            return Err(ComponentBrokerError::new(
+                ComponentBrokerErrorKind::Admission,
+                "component broker control queue is full; cancel was not admitted",
+            ));
+        }
+        Err(mpsc::TrySendError::Disconnected(_)) => {
+            return Err(ComponentBrokerError::stopped("component broker is stopped"));
+        }
+    }
+    ack_rx
+        .recv_timeout(CONTROL_ACK_TIMEOUT)
+        .map_err(|_| ComponentBrokerError::stopped("component broker did not acknowledge cancel"))?
+}
+
+impl InvocationHandle {
     pub async fn result(&mut self) -> Result<InvocationTerminal, ComponentBrokerError> {
         let receiver = self.terminal_rx.take().ok_or_else(|| {
             ComponentBrokerError::new(

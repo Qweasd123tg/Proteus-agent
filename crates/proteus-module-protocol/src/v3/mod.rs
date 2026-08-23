@@ -1,7 +1,7 @@
-//! Component Runtime v2 / wire v3 broker.
+//! Component Runtime v2 / strict wire v3 broker.
 //!
-//! During P2 this module lives beside the tracked wire-v2 session. P3 performs
-//! the atomic producer/consumer cutover and removes that older surface.
+//! This is the sole configured process-component runtime. The sequential
+//! component wire and callback-cycle workaround were removed by the P3 cutover.
 
 mod broker;
 mod config;
@@ -18,8 +18,8 @@ pub use broker::{ComponentBroker, ComponentBrokerSnapshot, WeakComponentBroker};
 pub use config::ComponentBrokerOptions;
 pub use invocation::{
     AsyncHostRequestDispatcher, CancelCause, ComponentBrokerError, ComponentBrokerErrorKind,
-    ComponentFailure, ComponentHostRequest, HostRequestFuture, InvocationHandle, InvocationRef,
-    InvocationTerminal, NoAsyncHostRequests,
+    ComponentFailure, ComponentHostRequest, HostRequestFuture, InvocationCancelHandle,
+    InvocationHandle, InvocationRef, InvocationTerminal, NoAsyncHostRequests,
 };
 pub use notification::{InvocationNotification, InvocationNotificationReceiver};
 pub use wire::COMPONENT_PROTOCOL_V3;

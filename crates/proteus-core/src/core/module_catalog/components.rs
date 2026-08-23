@@ -1,15 +1,12 @@
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
+use std::{collections::BTreeSet, sync::Arc};
 
 use anyhow::{Result, bail};
 use proteus_module_protocol::{ProcessExportBinding, current_process_contract_authority};
 
 use crate::{
     contracts::{
-        ContextBuilder, HistoryCompactor, MemoryStore, PatchApplier, ProcessModuleComposition,
-        Renderer, SearchBackend, ToolExposure, Workflow,
+        ContextBuilder, HistoryCompactor, MemoryStore, PatchApplier, Renderer, SearchBackend,
+        ToolExposure, Workflow,
     },
     core::AppConfig,
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
@@ -24,8 +21,7 @@ use super::ModuleCatalog;
 
 impl ModuleCatalog {
     pub(super) fn register_process_components(&mut self, config: &AppConfig) -> Result<()> {
-        let export_owners = validate_component_shapes(config)?;
-        validate_callback_dependency_graph(config, &export_owners)?;
+        validate_component_shapes(config)?;
 
         for (component_id, component) in &config.components {
             let mut bindings = Vec::new();
@@ -183,128 +179,17 @@ impl ModuleCatalog {
     }
 }
 
-fn validate_component_shapes(config: &AppConfig) -> Result<BTreeMap<(String, String), String>> {
-    let mut owners = BTreeMap::new();
+fn validate_component_shapes(config: &AppConfig) -> Result<()> {
+    let mut exports = BTreeSet::new();
     for (component_id, component) in &config.components {
         component.validate_for(component_id, &format!("components.{component_id}"))?;
         for (slot, module_id, _) in component.exports() {
-            if owners
-                .insert(
-                    (slot.to_owned(), module_id.to_owned()),
-                    component_id.clone(),
-                )
-                .is_some()
-            {
+            if !exports.insert((slot.to_owned(), module_id.to_owned())) {
                 bail!("duplicate process component export: {slot}/{module_id}");
             }
         }
     }
-    Ok(owners)
-}
-
-fn validate_callback_dependency_graph(
-    config: &AppConfig,
-    owners: &BTreeMap<(String, String), String>,
-) -> Result<()> {
-    let selections = config
-        .modules
-        .iter()
-        .map(|(kind, module_id)| (kind.as_str().to_owned(), module_id.to_owned()))
-        .collect::<BTreeMap<_, _>>();
-    let mut graph = BTreeMap::<String, BTreeSet<String>>::new();
-
-    for ((slot, module_id), component_id) in owners {
-        let Some(authority) = current_process_contract_authority(slot) else {
-            continue;
-        };
-        let active = match authority.composition {
-            ProcessModuleComposition::SelectOne => selections
-                .get(slot)
-                .is_some_and(|selected| selected == module_id),
-            ProcessModuleComposition::OrderedMany => true,
-        };
-        if !active {
-            continue;
-        }
-
-        for dependency_slot in authority.callback_dependency_slots {
-            let Some(dependency_authority) = current_process_contract_authority(dependency_slot)
-            else {
-                continue;
-            };
-            match dependency_authority.composition {
-                ProcessModuleComposition::SelectOne => {
-                    let Some(target_id) = selections.get(*dependency_slot) else {
-                        continue;
-                    };
-                    if let Some(target_component) =
-                        owners.get(&(dependency_slot.to_string(), target_id.clone()))
-                    {
-                        graph
-                            .entry(component_id.clone())
-                            .or_default()
-                            .insert(target_component.clone());
-                    }
-                }
-                ProcessModuleComposition::OrderedMany => {
-                    for ((target_slot, _), target_component) in owners {
-                        if target_slot == dependency_slot {
-                            graph
-                                .entry(component_id.clone())
-                                .or_default()
-                                .insert(target_component.clone());
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if let Some(cycle) = find_component_cycle(&graph) {
-        bail!(
-            "component callback dependency cycle is incompatible with the single-flight runtime: {}",
-            cycle.join(" -> ")
-        );
-    }
     Ok(())
-}
-
-fn find_component_cycle(graph: &BTreeMap<String, BTreeSet<String>>) -> Option<Vec<String>> {
-    fn visit(
-        node: &str,
-        graph: &BTreeMap<String, BTreeSet<String>>,
-        stack: &mut Vec<String>,
-        complete: &mut BTreeSet<String>,
-    ) -> Option<Vec<String>> {
-        if let Some(index) = stack.iter().position(|entry| entry == node) {
-            let mut cycle = stack[index..].to_vec();
-            cycle.push(node.to_owned());
-            return Some(cycle);
-        }
-        if complete.contains(node) {
-            return None;
-        }
-        stack.push(node.to_owned());
-        if let Some(targets) = graph.get(node) {
-            for target in targets {
-                if let Some(cycle) = visit(target, graph, stack, complete) {
-                    return Some(cycle);
-                }
-            }
-        }
-        stack.pop();
-        complete.insert(node.to_owned());
-        None
-    }
-
-    let mut stack = Vec::new();
-    let mut complete = BTreeSet::new();
-    for component in graph.keys() {
-        if let Some(cycle) = visit(component, graph, &mut stack, &mut complete) {
-            return Some(cycle);
-        }
-    }
-    None
 }
 
 fn ensure_process_id_is_free(catalog: &ModuleCatalog, slot: SlotId, id: &str) -> Result<()> {

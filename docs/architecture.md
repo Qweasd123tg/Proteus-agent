@@ -12,7 +12,7 @@ Core -> Contract -> Module Implementation
 `proteus-core` знает, когда вызвать search, policy или workflow, но не знает
 алгоритм конкретной реализации. DTO и traits принадлежат
 `proteus-contracts`; внешняя implementation говорит с host через component
-wire protocol v2, сохраняя slot contract v1.
+wire protocol v3, сохраняя slot contract v1.
 
 Для каждой invocation:
 
@@ -197,17 +197,17 @@ handshake timeout и per-export invocation timeouts. После spawn host от�
 
 Worker обязан вернуть manifest с тем же exact export set. Каждый module call
 несёт target export; дальнейшие module и `host.*` methods проверяются общей
-authority table именно активного target. Все exports делят одну single-flight
-session, reset и lazy restart. Синхронный callback в соседний export того же
-component запрещён архитектурно, потому что создаёт reentrant cycle.
-Старые/лишние поля отвергаются.
+authority table именно активного target. Все exports делят один multiplexed
+broker, reset и lazy restart. Несколько invocation могут быть активны
+одновременно и завершаться не по порядку. Callback в соседний export того же
+component открывает host-owned nested invocation с bounded lineage, depth и
+deadline; direct module-to-module dispatch отсутствует. Cooperative cancel
+адресен, а crash, protocol/resource failure и cancel-grace reset относятся ко
+всему generation. Старые/лишние поля отвергаются.
 
-P2 уже добавил в `proteus-module-protocol::v3` bounded multiplexed broker:
-несколько invocation одного process, out-of-order routing, live notifications,
-async invocation-scoped callbacks, targeted cancel и generation failure
-fan-out. Это staged kernel, а не действующий config boundary. До атомарного P3
-cutover core, reference worker, examples и conformance остаются на wire v2;
-dual-read/dual-write и автоматического выбора версии нет.
+P3 атомарно подключил `proteus-module-protocol::v3` к core, reference worker,
+examples и conformance. Старый wire-v2 session удалён без dual-read/dual-write
+или автоматического выбора версии.
 Подробнее: [process-module-architecture.md](process-module-architecture.md).
 
 Process boundary даёт lifecycle isolation, но пока не OS sandbox. Worker

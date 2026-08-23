@@ -37,12 +37,8 @@ impl ProcessSearchBackend {
 #[async_trait]
 impl SearchBackend for ProcessSearchBackend {
     async fn search(&self, query: SearchQuery) -> Result<Vec<ContextChunk>> {
-        let client = Arc::clone(&self.client);
-        tokio::task::spawn_blocking(move || {
-            let response: ProcessSearchResponse = client.invoke(PROCESS_SEARCH_METHOD, &query)?;
-            Ok(response.chunks)
-        })
-        .await
-        .map_err(|error| anyhow::anyhow!("process search join error: {error}"))?
+        let response: ProcessSearchResponse =
+            self.client.invoke(PROCESS_SEARCH_METHOD, &query).await?;
+        Ok(response.chunks)
     }
 }

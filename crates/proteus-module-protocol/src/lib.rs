@@ -7,13 +7,10 @@
 
 mod authority;
 mod binding;
-mod envelope;
 mod handshake;
 mod message;
-mod session;
 pub mod v3;
 
 pub use authority::*;
 pub use binding::*;
 pub use message::*;
-pub use session::*;

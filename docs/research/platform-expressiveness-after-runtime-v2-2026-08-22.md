@@ -2,9 +2,10 @@
 
 Дата: 2026-08-22.
 
-Статус: research / decision backlog. Эта заметка собирает отложенные идеи из
-архитектурного обсуждения и не является разрешением P3, нового public slot
-или изменения действующего Component Runtime v1 / wire v2.
+Статус: historical research / decision backlog. Заметка была зафиксирована до
+P3; atomic cutover завершён 2026-08-23, и действующий contract теперь
+Component Runtime v2 / wire v3. Остальной текст сохраняет исходный контекст и
+не является разрешением P4, нового public slot или следующей contract migration.
 
 ## Зачем Эта Заметка
 
@@ -49,8 +50,8 @@ Component может содержать собственный loop, hooks, sche
 
 `v0.1.0-alpha.1` считается готовой после:
 
-1. завершённые P1 duplex transport и P2 broker/wire-v3 kernel, затем отдельно
-   owner-approved P3-P4: atomic tracked cutover и real reentrancy evidence;
+1. завершённые P1 duplex transport, P2 broker/wire-v3 kernel и P3 atomic
+   tracked cutover, затем отдельно owner-approved P4 topology/journal evidence;
 2. clean Linux developer install с `init`, `doctor`, fake-profile run и
    topology check;
 3. CI/release notes/security scope и честного описания trusted executable
@@ -214,9 +215,9 @@ critical path.
 
 ## Что Эта Заметка Не Разрешает
 
-- начинать P3 без отдельного подтверждения владельца;
+- начинать P4 без отдельного подтверждения владельца;
 - добавлять новый public slot;
-- менять production wire v2 до atomic P3 cutover;
+- менять production wire v3 вне отдельной contract migration;
 - вводить direct same-process dispatch или общий additive hook bus;
 - заявлять upstream compatibility без parity evidence;
 - переносить research inventory в reference pack;

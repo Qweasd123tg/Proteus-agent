@@ -4,8 +4,8 @@ use anyhow::{Context, Result, bail};
 use clap::Parser;
 use proteus_contracts::contracts::{PROCESS_COMPONENT_PROTOCOL_VERSION, ProcessComponentExportRef};
 use proteus_module_protocol::{
-    ProcessComponentBinding, ProcessComponentSession, ProcessComponentSessionOptions,
-    ProcessExportBinding, ProcessModuleTerminal,
+    ProcessComponentBinding, ProcessExportBinding,
+    v3::{ComponentBroker, ComponentBrokerOptions, InvocationTerminal},
 };
 use proteus_process_host::ProcessSpec;
 use serde::Deserialize;
@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 #[derive(Debug, Parser)]
 #[command(
     name = "proteus-component-conformance",
-    about = "Run the strict Proteus process-component v2 handshake and an optional export probe"
+    about = "Run the strict Proteus process-component v3 handshake and an optional export probe"
 )]
 struct Cli {
     #[arg(long)]
@@ -103,12 +103,12 @@ fn run(cli: Cli) -> Result<()> {
     }
 
     let timeout = Duration::from_millis(cli.timeout_ms);
-    let session = ProcessComponentSession::connect(
+    let broker = ComponentBroker::connect(
         spec,
         binding.clone(),
-        ProcessComponentSessionOptions {
+        ComponentBrokerOptions {
             handshake_timeout: timeout,
-            ..ProcessComponentSessionOptions::default()
+            ..ComponentBrokerOptions::default()
         },
     )?;
     let exports = binding
@@ -123,7 +123,6 @@ fn run(cli: Cli) -> Result<()> {
                 "composition": authority.composition,
                 "module_methods": authority.module_methods,
                 "host_methods": authority.host_methods,
-                "callback_dependency_slots": authority.callback_dependency_slots,
                 "host_features": authority.host_features,
                 "required_features": authority.required_features,
             }))
@@ -142,17 +141,32 @@ fn run(cli: Cli) -> Result<()> {
             "--probe-params",
             cli.probe_params.as_deref().unwrap_or("{}"),
         )?;
-        let invocation = session.invoke(&target, &method, params, timeout)?;
-        let output = match invocation.terminal {
-            ProcessModuleTerminal::Success(output) => output,
-            ProcessModuleTerminal::ModuleError(error) => {
+        let runtime = tokio::runtime::Builder::new_current_thread().build()?;
+        let (invocation_id, terminal, notifications) = runtime.block_on(async {
+            let mut handle = broker
+                .start_invocation(&target, &method, params, timeout)
+                .await?;
+            let invocation_id = handle.id().to_owned();
+            let mut notifications = handle.notifications()?;
+            let terminal = handle.result().await?;
+            let mut collected = Vec::new();
+            while let Ok(notification) = notifications.try_recv() {
+                collected.push(notification);
+            }
+            Ok::<_, anyhow::Error>((invocation_id, terminal, collected))
+        })?;
+        let output = match terminal {
+            InvocationTerminal::Success(output) => output,
+            InvocationTerminal::ModuleError(error) => {
                 return Err(error).context("conformance probe returned a module error");
             }
-            ProcessModuleTerminal::Canceled => bail!("conformance probe was canceled"),
-            ProcessModuleTerminal::TimedOut => bail!("conformance probe timed out"),
+            InvocationTerminal::Canceled => bail!("conformance probe was canceled"),
+            InvocationTerminal::TimedOut => bail!("conformance probe timed out"),
+            InvocationTerminal::ComponentLost(failure) => {
+                bail!("conformance probe lost its component: {failure:?}")
+            }
         };
-        let notifications = invocation
-            .notifications
+        let notifications = notifications
             .into_iter()
             .map(|notification| {
                 json!({
@@ -164,14 +178,13 @@ fn run(cli: Cli) -> Result<()> {
         report["probe"] = json!({
             "export": target,
             "method": method,
-            "invocation_id": invocation.invocation_id,
+            "invocation_id": invocation_id,
             "terminal": "success",
             "notifications": notifications,
             "result": output
         });
     }
 
-    session.terminate()?;
     println!("{}", serde_json::to_string_pretty(&report)?);
     Ok(())
 }

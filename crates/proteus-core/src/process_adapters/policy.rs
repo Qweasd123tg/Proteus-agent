@@ -42,7 +42,7 @@ impl ApprovalPolicy for ProcessApprovalPolicy {
         };
         match self
             .client
-            .invoke::<_, ProcessPolicyResponse>(PROCESS_POLICY_EVALUATE_METHOD, &input)
+            .invoke_blocking::<_, ProcessPolicyResponse>(PROCESS_POLICY_EVALUATE_METHOD, &input)
         {
             Ok(response) => response.result,
             Err(error) => PolicyDecision::Deny {
@@ -58,7 +58,7 @@ impl ApprovalPolicy for ProcessApprovalPolicy {
         };
         match self
             .client
-            .invoke::<_, ProcessPolicyResponse>(PROCESS_POLICY_VISIBILITY_METHOD, &input)
+            .invoke_blocking::<_, ProcessPolicyResponse>(PROCESS_POLICY_VISIBILITY_METHOD, &input)
         {
             Ok(response) => response.result,
             Err(error) => PolicyDecision::Deny {

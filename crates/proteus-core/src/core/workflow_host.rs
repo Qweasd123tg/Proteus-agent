@@ -3,10 +3,10 @@
 //! Process Workflow v1 delegates here, so module identity cannot change model,
 //! tool, policy, cancellation, or event semantics.
 
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{future::Future, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{Result, anyhow};
-use tokio::{runtime::Handle, time::timeout};
+use tokio::time::timeout;
 
 use crate::{
     contracts::{
@@ -20,18 +20,16 @@ use crate::{
 
 use super::{RuntimeCompactionHost, ToolOrchestrator};
 
-/// Sync bridge used only from a blocking worker thread.
+/// Async host capability surface shared by all process Workflow exports.
 pub(crate) struct WorkflowHostRuntime {
     ctx: RuntimeContext,
-    handle: Handle,
     tool_orchestrator: ToolOrchestrator,
 }
 
 impl WorkflowHostRuntime {
-    pub(crate) fn new(ctx: RuntimeContext, handle: Handle) -> Self {
+    pub(crate) fn new(ctx: RuntimeContext) -> Self {
         Self {
             ctx,
-            handle,
             tool_orchestrator: ToolOrchestrator::default(),
         }
     }
@@ -43,9 +41,12 @@ impl WorkflowHostRuntime {
         }
     }
 
-    pub(crate) fn build_context(&self, task: AgentTask) -> Result<crate::domain::ContextBundle> {
+    pub(crate) async fn build_context(
+        &self,
+        task: AgentTask,
+    ) -> Result<crate::domain::ContextBundle> {
         let ctx = self.ctx.clone();
-        self.block_on(async move {
+        self.run_active(async move {
             timeout(
                 Duration::from_millis(ctx.context_timeout_ms),
                 ctx.context.build(ContextBuildInput {
@@ -57,14 +58,15 @@ impl WorkflowHostRuntime {
             .await
             .map_err(|_| anyhow!("context build timed out after {}ms", ctx.context_timeout_ms))?
         })
+        .await
     }
 
-    pub(crate) fn complete_model(
+    pub(crate) async fn complete_model(
         &self,
         request: CanonicalModelRequest,
     ) -> Result<CanonicalModelResponse> {
         let ctx = self.ctx.clone();
-        self.block_on(async move {
+        self.run_active(async move {
             if ctx.model_timeout_ms == 0 {
                 ctx.model.complete(request).await
             } else {
@@ -76,11 +78,12 @@ impl WorkflowHostRuntime {
                 .map_err(|_| anyhow!("model request timed out after {}ms", ctx.model_timeout_ms))?
             }
         })
+        .await
     }
 
-    pub(crate) fn compact_history(&self, input: CompactionInput) -> Result<CompactionOutput> {
+    pub(crate) async fn compact_history(&self, input: CompactionInput) -> Result<CompactionOutput> {
         let ctx = self.ctx.clone();
-        self.block_on(async move {
+        self.run_active(async move {
             ctx.emit(Event::HistoryCompactionStarted {
                 reason: input.reason.clone(),
                 input_messages: input.messages.len(),
@@ -113,6 +116,7 @@ impl WorkflowHostRuntime {
                 }
             }
         })
+        .await
     }
 
     pub(crate) fn visible_tools(&self, cwd: PathBuf) -> Result<Vec<ToolSpec>> {
@@ -120,37 +124,43 @@ impl WorkflowHostRuntime {
         Ok(self.tool_orchestrator.visible_tool_specs(&self.ctx, &cwd))
     }
 
-    pub(crate) fn select_tools(&self, request: ToolExposureRequest) -> Result<ToolExposureOutput> {
+    pub(crate) async fn select_tools(
+        &self,
+        request: ToolExposureRequest,
+    ) -> Result<ToolExposureOutput> {
         let candidates = self
             .tool_orchestrator
             .visible_tool_specs(&self.ctx, &request.cwd);
         let ctx = self.ctx.clone();
-        self.block_on(async move {
+        self.run_active(async move {
             ctx.tool_exposure
                 .select(ToolExposureInput::new(request, candidates))
                 .await
         })
+        .await
     }
 
-    pub(crate) fn execute_tool(&self, task: AgentTask, call: ToolCall) -> Result<ToolResult> {
+    pub(crate) async fn execute_tool(&self, task: AgentTask, call: ToolCall) -> Result<ToolResult> {
         let ctx = self.ctx.clone();
         let orchestrator = self.tool_orchestrator.clone();
-        self.block_on(async move { orchestrator.execute(&ctx, &task, call).await })
+        self.run_active(async move { orchestrator.execute(&ctx, &task, call).await })
+            .await
     }
 
-    pub(crate) fn execute_tools(
+    pub(crate) async fn execute_tools(
         &self,
         task: AgentTask,
         calls: Vec<ToolCall>,
     ) -> Result<Vec<ToolResult>> {
         let ctx = self.ctx.clone();
         let orchestrator = self.tool_orchestrator.clone();
-        self.block_on(async move { execute_tool_batch(&orchestrator, &ctx, &task, calls).await })
+        self.run_active(async move { execute_tool_batch(&orchestrator, &ctx, &task, calls).await })
+            .await
     }
 
-    pub(crate) fn emit_event(&self, event: Event) -> Result<()> {
+    pub(crate) async fn emit_event(&self, event: Event) -> Result<()> {
         let ctx = self.ctx.clone();
-        self.block_on(async move { ctx.emit(event).await })
+        self.run_active(async move { ctx.emit(event).await }).await
     }
 
     fn ensure_active(&self) -> Result<()> {
@@ -160,17 +170,15 @@ impl WorkflowHostRuntime {
         Ok(())
     }
 
-    fn block_on<T>(&self, future: impl std::future::Future<Output = Result<T>>) -> Result<T> {
+    async fn run_active<T>(&self, future: impl Future<Output = Result<T>>) -> Result<T> {
         let cancellation = self.ctx.cancellation.clone();
-        self.handle.block_on(async move {
-            if cancellation.is_cancelled() {
-                return Err(anyhow!("turn canceled by client"));
-            }
-            tokio::select! {
-                result = future => result,
-                _ = cancellation.cancelled() => Err(anyhow!("turn canceled by client")),
-            }
-        })
+        if cancellation.is_cancelled() {
+            return Err(anyhow!("turn canceled by client"));
+        }
+        tokio::select! {
+            result = future => result,
+            _ = cancellation.cancelled() => Err(anyhow!("turn canceled by client")),
+        }
     }
 }
 

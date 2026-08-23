@@ -34,7 +34,6 @@ use crate::{
 pub(crate) struct ExportWorker {
     binding: ProcessComponentExportInitialize,
     modules: CollectedModules,
-    bridge: HostBridge,
 }
 
 #[derive(Serialize)]
@@ -53,20 +52,13 @@ struct PolicyVisibilityContextWire {
 }
 
 impl ExportWorker {
-    pub(crate) fn load(
-        binding: ProcessComponentExportInitialize,
-        bridge: HostBridge,
-    ) -> Result<Self> {
+    pub(crate) fn load(binding: ProcessComponentExportInitialize) -> Result<Self> {
         let modules = CollectedModules::load(
             &binding.slot,
             &binding.module_id,
             binding.module_config.clone(),
         )?;
-        Ok(Self {
-            binding,
-            modules,
-            bridge,
-        })
+        Ok(Self { binding, modules })
     }
 
     pub(crate) fn manifest(&self) -> ProcessComponentExportManifest {
@@ -82,7 +74,12 @@ impl ExportWorker {
         }
     }
 
-    pub(crate) fn dispatch(&self, method: &str, params: Value) -> Result<Value> {
+    pub(crate) fn dispatch(
+        &self,
+        method: &str,
+        params: Value,
+        bridge: &HostBridge,
+    ) -> Result<Value> {
         let authority =
             process_contract_authority(&self.binding.slot, &self.binding.contract_version)
                 .expect("validated process authority");
@@ -93,22 +90,22 @@ impl ExportWorker {
             );
         }
         match self.binding.slot.as_str() {
-            "tool" => self.tool(method, params),
+            "tool" => self.tool(method, params, bridge),
             "search" => self.search(params),
             "memory" => self.memory(method, params),
             "patch" => self.patch(params),
             "policy" => self.policy(method, params),
             "tool_exposure" => self.tool_exposure(params),
             "renderer" => self.renderer(params),
-            "context" => self.context(params),
+            "context" => self.context(params, bridge),
             "context_provider" => self.context_provider(params),
-            "compactor" => self.compactor(params),
-            "workflow" => self.workflow(params),
+            "compactor" => self.compactor(params, bridge),
+            "workflow" => self.workflow(params, bridge),
             slot => bail!("reference worker does not dispatch slot {slot:?}"),
         }
     }
 
-    fn tool(&self, method: &str, params: Value) -> Result<Value> {
+    fn tool(&self, method: &str, params: Value, bridge: &HostBridge) -> Result<Value> {
         match method {
             PROCESS_TOOL_LIST_METHOD => {
                 if !params.is_null() {
@@ -142,7 +139,7 @@ impl ExportWorker {
                     owner: input.owner,
                     config: self.binding.module_config.clone(),
                 })?;
-                let mut host = ToolHostBridge(self.bridge.clone());
+                let mut host = ToolHostBridge(bridge.clone());
                 let output = tool.invoke_json(call_json, context_json, &mut host)?;
                 let result = serde_json::from_str(output.as_str())?;
                 encode(ProcessToolInvokeResponse::new(result))
@@ -262,7 +259,7 @@ impl ExportWorker {
         encode(ProcessRendererResponse::new(output))
     }
 
-    fn context(&self, params: Value) -> Result<Value> {
+    fn context(&self, params: Value, bridge: &HostBridge) -> Result<Value> {
         let input: ProcessContextInput = decode(params)?;
         let builder = self
             .modules
@@ -273,7 +270,7 @@ impl ExportWorker {
             task: input.task,
             config: self.binding.module_config.clone(),
         };
-        let mut host = ContextHostBridge(self.bridge.clone());
+        let mut host = ContextHostBridge(bridge.clone());
         let output = builder.build_json(serde_json::to_string(&module_input)?, &mut host)?;
         encode(ProcessContextResponse::new(serde_json::from_str(
             output.as_str(),
@@ -293,7 +290,7 @@ impl ExportWorker {
         )?))
     }
 
-    fn compactor(&self, params: Value) -> Result<Value> {
+    fn compactor(&self, params: Value, bridge: &HostBridge) -> Result<Value> {
         let mut input: proteus_contracts::contracts::CompactionInput = decode(params)?;
         input.config = self.binding.module_config.clone();
         let compactor = self
@@ -301,14 +298,14 @@ impl ExportWorker {
             .compactors
             .get(&self.binding.module_id)
             .ok_or_else(|| anyhow!("compactor module was not registered"))?;
-        let mut host = CompactorHostBridge(self.bridge.clone());
+        let mut host = CompactorHostBridge(bridge.clone());
         let output = compactor.compact_json(serde_json::to_string(&input)?, &mut host)?;
         encode(ProcessCompactionResponse::new(serde_json::from_str(
             output.as_str(),
         )?))
     }
 
-    fn workflow(&self, params: Value) -> Result<Value> {
+    fn workflow(&self, params: Value, bridge: &HostBridge) -> Result<Value> {
         let input: ProcessWorkflowInput = decode(params)?;
         let workflow = self
             .modules
@@ -332,7 +329,7 @@ impl ExportWorker {
                 workflow_timeout_ms: input.runtime.workflow_timeout_ms,
             },
         };
-        let mut host = WorkflowHostBridge(self.bridge.clone());
+        let mut host = WorkflowHostBridge(bridge.clone());
         let output = workflow.run_json(serde_json::to_string(&module_input)?, &mut host)?;
         let output: WorkflowModuleOutput = serde_json::from_str(output.as_str())?;
         let mut result = WorkflowOutput::new(output.output, output.new_messages)

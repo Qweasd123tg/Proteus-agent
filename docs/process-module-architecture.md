@@ -3,8 +3,7 @@
 Статус: process-only cutover бывшей dylib system завершён 2026-08-07;
 Component Runtime v1 реализован 2026-08-08; protocol-neutral P1 duplex
 transport foundation и P2 multiplexed broker/wire-v3 kernel завершены
-2026-08-22. Tracked host и workers до атомарного P3 cutover продолжают
-использовать Component Runtime v1 / wire v2.
+2026-08-22; atomic P3 cutover host/workers/examples завершён 2026-08-23.
 
 Текущая внешняя граница:
 
@@ -16,19 +15,18 @@ one export = one slot contract + one module_id
 
 Здесь три независимые версии:
 
-- **Component Runtime v1** — host semantics: shared process, single-flight,
-  exact exports, общий failure domain;
-- **component wire protocol v2** — несовместимый multi-export JSON-RPC
-  handshake и target каждого вызова;
+- **Component Runtime v2** — host semantics: shared process, multiplexed
+  invocations, host-owned lineage и общий failure domain;
+- **component wire protocol v3** — strict multi-export JSON-RPC handshake,
+  target/lineage каждого вызова и direction-separated ids;
 - **slot contract v1** — DTO, module methods, callbacks и composition
   конкретного slot.
 
-В `proteus-module-protocol::v3` уже существует production P2 kernel со строгим
-wire v3, но это пока не внешняя граница configured modules. Он не читает v2 и
-не является compatibility mode; P3 одновременно переключит все tracked
-producers/consumers и удалит старый session path.
+`proteus-module-protocol::v3::ComponentBroker` является единственной внешней
+границей configured modules. Старый wire v2 удалён; compatibility reader и
+автоматического определения версии нет.
 
-Старый one-export wire v1 не читается и не определяется автоматически.
+Старые wire v1/v2 не читаются и не определяются автоматически.
 Native ABI также не является запасным путём: dylib loader, `plugin.toml`,
 `abi_stable`, `libloading` и `cdylib` entrypoints удалены.
 
@@ -59,9 +57,7 @@ AppConfig.components
   -> ProcessComponentLauncher (один на component)
   -> ProcessExportConfig / slot-specific adapter (один на export)
   -> ProcessExportClient
-  -> Arc<ProcessComponentSession> (общий для workspace)
-  -> ProcessHost<NewlineJsonFraming>
-  -> ProcessSession (sequential facade)
+  -> Arc<ComponentBroker> (общий для workspace)
   -> ProcessTransport (frame reader + bounded writer + lifecycle)
   -> worker stdin/stdout
 ```
@@ -76,9 +72,9 @@ AppConfig.components
   и привязывает invocation-scoped callbacks к runtime.
 - Worker реализует wire напрямую на любом языке или использует свои helpers.
 
-`ProcessComponentLauncher` кэширует одну session на canonical workspace.
+`ProcessComponentLauncher` кэширует один broker на canonical workspace.
 Поэтому два adapters одного component не запускают два одинаковых child
-process. Другой workspace получает отдельную session: относительный `cwd` и
+process. Другой workspace получает отдельный broker: относительный `cwd` и
 module semantics не протекают между репозиториями.
 
 ## Config И Identity
@@ -123,8 +119,7 @@ search = "rg"
 `components` — map, поэтому config include/overlay может рекурсивно добавить
 один export, не повторяя весь descriptor array. Duplicate `slot/module_id`
 между любыми components, пустой component, неизвестный slot, не-object config,
-unknown field и выбранный id без exact export являются build errors. Active
-callback dependency graph также обязан быть ацикличным.
+unknown field и выбранный id без exact export являются build errors.
 
 `component_id` задаёт topology и failure domain, но не priority, default
 status или authority. Reference components — обычные явно выбранные образцы.
@@ -153,10 +148,10 @@ Worker не может изменить cardinality, сделать свой `mo
 ```json
 {
   "jsonrpc": "2.0",
-  "id": "initialize",
+  "id": "h:1:0",
   "method": "initialize",
   "params": {
-    "protocol_version": "v2",
+    "protocol_version": "v3",
     "component_id": "reference-capabilities",
     "exports": [
       {
@@ -185,9 +180,9 @@ Worker подтверждает тот же exact set:
 ```json
 {
   "jsonrpc": "2.0",
-  "id": "initialize",
+  "id": "h:1:0",
   "result": {
-    "protocol_version": "v2",
+    "protocol_version": "v3",
     "component_id": "reference-capabilities",
     "exports": [
       {
@@ -223,10 +218,15 @@ JSON-RPC method остаётся методом slot contract, а `params` по�
 ```json
 {
   "jsonrpc": "2.0",
-  "id": "invocation-7",
+  "id": "h:1:7",
   "method": "search",
   "params": {
     "export": { "slot": "search", "module_id": "rg" },
+    "lineage": {
+      "root_invocation_id": "h:1:7",
+      "parent_invocation_id": null,
+      "depth": 0
+    },
     "params": { "text": "needle", "cwd": ".", "max_results": 10 }
   }
 }
@@ -237,15 +237,22 @@ authority этого export и проверяет method. Callback dispatcher с
 только во время этого invocation: persistent component не может повторно
 использовать context прошлого turn.
 
+Callback request использует module wire id `m:<generation>:<sequence>` и
+оборачивает payload в `{ "invocation_id": "h:...", "params": ... }`. Это
+привязывает callback к активному parent invocation; module не может выбрать
+authority по собственному `module_id`.
+
 Во время ожидания допустимы:
 
-- один terminal response с matching id;
+- ровно один terminal response с matching id; responses разных invocation
+  могут приходить не по порядку;
 - `host.*` requests, разрешённые активному export;
 - bounded `module.progress` / `module.activity` notifications;
-- cancel acknowledgement/error.
+- после cancel — cooperative terminal response либо generation reset по
+  истечении grace period.
 
-Out-of-order id, malformed envelope, forbidden callback, invalid DTO и
-превышение limits являются fail-closed protocol errors.
+Unknown/reused/wrong-generation id, malformed envelope, forbidden callback,
+invalid DTO и превышение limits являются fail-closed protocol errors.
 
 ## Authority Table
 
@@ -267,14 +274,14 @@ Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
 DTO, adapter, protocol/conformance и swap evidence в одном commit.
 
-## Shared Lifecycle, Текущий Single-Flight И P2 Broker
+## Shared Lifecycle И Multiplexed Broker
 
 Все exports component делят:
 
 - один child process и handshake;
-- одну последовательную очередь invocation;
+- один bounded multiplexed invocation broker;
 - один duplex transport generation и stderr state;
-- cancel, timeout, crash и protocol failure domain;
+- crash, protocol/resource failure и cancel-grace failure domain;
 - reset и lazy restart.
 
 Нижний `proteus-process-host` после P1/P2 разделяет single-consumer frame
@@ -283,21 +290,14 @@ reader, data/control writer lanes и cloneable lifecycle. Concurrent callers
 их суммарными byte-бюджетами и per-frame пределом. Control frame не обгоняет
 уже начатый data frame, но имеет приоритет над ещё не записанными data frames.
 Child exit наблюдается отдельно от frame queue, а terminate прерывает blocked
-read. Последовательность ниже остаётся свойством действующего
-`ProcessComponentSession`/wire v2, а не ограничением stdio framing.
+read. Один reader маршрутизирует out-of-order terminal responses, callbacks и
+live notifications по host-owned invocation records.
 
-Текущий runtime **single-flight**: пока один export ждёт response, другой
-request в тот же component не отправляется. Это упрощает framing, callback
-attribution, cancellation и state reconstruction, но задаёт важное правило:
-
-> Синхронный host callback активного export не должен маршрутизироваться в
-> другой export того же component.
-
-Иначе первый вызов держит session, а callback ждёт второй вызов в ту же
-session — получается cycle/deadlock. Host строит dependency graph активных
-exports из contract authority и отклоняет прямой или транзитивный cycle до
-spawn. Поэтому components группируются по lifecycle и callback dependency
-boundaries, а не просто по общему binary.
+Ids разделены на host `h:<generation>:<sequence>` и module
+`m:<generation>:<sequence>`. Callback получает parent `InvocationRef`; если
+ему нужен другой export, host открывает nested invocation с тем же root,
+явным parent, bounded depth/count и deadline не длиннее parent. Direct
+module-to-module dispatch и union authority отсутствуют.
 
 Для tracked reference profile безопасный разрез такой:
 
@@ -312,48 +312,45 @@ reference-capabilities   search, provider, policy, patch, compactor,
                          tool exposure, renderer, tools
 ```
 
-Один и тот же `proteus-reference-worker` запускается несколько раз намеренно:
-это разные failure domains. Component с независимыми exports без callback
-цикла можно укрупнять. Component с одним export также полностью валиден.
+Один и тот же `proteus-reference-worker` может запускаться несколько раз
+намеренно: это разные желаемые failure domains, а не transport workaround.
+Exports с callback-связями разрешено объединять; component с одним export
+также полностью валиден.
 
-P2 добавил отдельный `ComponentBroker` для будущего Runtime v2:
+`ComponentBroker` обеспечивает:
 
-- ids разделены на host `h:<generation>:<sequence>` и module
-  `m:<generation>:<sequence>`;
-- один reader маршрутизирует out-of-order responses, callbacks и live
-  notifications по invocation record;
 - callback authority берётся из host-owned parent record, а dispatcher живёт
   только до terminal этой invocation;
 - root admission, nested reserve, callback depth/count/id retention,
   notifications и writer queues ограничены;
 - cooperative cancel адресен, а crash, corruption, resource failure или
   истёкший cancel grace завершают всё поколение с causal terminal causes;
-- synchronous callback-free `invoke_bootstrap` закрывается навсегда после
-  начала обычного async traffic.
+- synchronous callback-free `invoke_bootstrap` для catalog build закрывается
+  после начала обычного async traffic; sync `policy`/`renderer` используют тот
+  же broker через callback-free blocking invocation, а не второй runtime.
 
-Kernel доказан отдельным Python worker-ом в `tests/broker_v3.rs`. Он не делает
-direct same-process dispatch и не объединяет authority exports. Malicious
+Runtime доказан hostile Python worker-ом в `tests/broker_v3.rs` и реальным
+reference worker-ом: nested callback входит в другой export того же PID, а
+targeted cancel сохраняет sibling и generation. Malicious
 export общего trusted executable всё ещё может назвать id активного sibling:
 correlation id не является secret capability и не создаёт sandbox внутри
 process.
 
-Tracked reference profile пока остаётся на описанном выше wire-v2
-single-flight разрезе. General imports, hooks и reentrant cross-export calls не
-включаются до P3/P4 и не имитируются скрытым direct call или исключением по
-`component_id`.
-
 ## Cancellation И Failure
 
-`ProcessModuleTerminal` сохраняет четыре результата export invocation:
+`InvocationTerminal` сохраняет пять результатов export invocation:
 
 - `Success(value)`;
 - `ModuleError(rpc_error)`;
 - `Canceled`;
-- `TimedOut`.
+- `TimedOut`;
+- `ComponentLost(ProcessExit|Protocol|Resource|CancelGrace|Shutdown)`.
 
 При cancel/timeout host отправляет `$/cancelRequest` и ждёт bounded grace
-period. Затем reset-ится **весь component**, потому что состояние нескольких
-exports живёт в одном процессе. Transport/protocol failure делает то же.
+period. Cooperative terminal завершает только target invocation (и её nested
+descendants). Если grace истёк, reset-ится **весь component**, потому что
+неотвечающий trusted process является общим failure domain. Transport,
+protocol и resource failure делают то же.
 Следующая invocation любого export lazily запускает новый child и повторяет
 полный exact-set handshake.
 
@@ -465,13 +462,13 @@ Static audit удалённого native path:
 rg 'abi_stable|libloading|cdylib|plugin\.toml' Cargo.toml Cargo.lock crates modules/reference
 ```
 
-## Не-Цели Component Runtime v1
+## Не-Цели Component Runtime v2
 
 - OS sandbox, cgroups или resource quotas;
 - package manager/marketplace/signatures;
 - remote/network transport;
 - hot replacement внутри текущего turn;
-- concurrent/reentrant calls в одну component session;
+- direct component-to-component calls в обход host и authority table;
 - arbitrary hooks или general plugin-to-plugin imports;
 - стабильность draft config/wire schema до публичного релиза.
 

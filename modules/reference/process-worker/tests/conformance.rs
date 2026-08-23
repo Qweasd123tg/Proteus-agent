@@ -31,9 +31,12 @@ use proteus_contracts::{
     model_standard::{CanonicalMessage, CanonicalModelResponse, FinishReason, MessageRole},
 };
 use proteus_module_protocol::{
-    HostRequestDispatcher, ProcessComponentBinding, ProcessComponentSession,
-    ProcessComponentSessionOptions, ProcessExportBinding, ProcessModuleHostRequest,
-    ProcessModuleInvocationResult, ProcessModuleRpcError, ProcessModuleTerminal,
+    ProcessComponentBinding, ProcessExportBinding, ProcessModuleRpcError,
+    v3::{
+        AsyncHostRequestDispatcher, CancelCause, ComponentBroker, ComponentBrokerOptions,
+        ComponentHostRequest, HostRequestFuture, InvocationTerminal as ProcessModuleTerminal,
+        NoAsyncHostRequests, WeakComponentBroker,
+    },
 };
 use proteus_process_host::ProcessSpec;
 use serde::{Serialize, de::DeserializeOwned};
@@ -46,8 +49,12 @@ fn worker_spec(workspace: &Path) -> ProcessSpec {
 }
 
 struct TestExportSession {
-    inner: ProcessComponentSession,
+    inner: ComponentBroker,
     target: proteus_contracts::contracts::ProcessComponentExportRef,
+}
+
+struct TestInvocationResult {
+    terminal: ProcessModuleTerminal,
 }
 
 impl TestExportSession {
@@ -56,8 +63,11 @@ impl TestExportSession {
         method: &str,
         params: Value,
         timeout: Duration,
-    ) -> anyhow::Result<ProcessModuleInvocationResult> {
-        self.inner.invoke(&self.target, method, params, timeout)
+    ) -> anyhow::Result<TestInvocationResult> {
+        let runtime = tokio::runtime::Builder::new_current_thread().build()?;
+        let terminal =
+            runtime.block_on(self.inner.invoke(&self.target, method, params, timeout))?;
+        Ok(TestInvocationResult { terminal })
     }
 
     fn invoke_with_dispatcher_and_cancel_check(
@@ -65,17 +75,21 @@ impl TestExportSession {
         method: &str,
         params: Value,
         timeout: Duration,
-        dispatcher: Arc<dyn HostRequestDispatcher>,
+        dispatcher: Arc<dyn AsyncHostRequestDispatcher>,
         is_cancelled: impl Fn() -> bool,
-    ) -> anyhow::Result<ProcessModuleInvocationResult> {
-        self.inner.invoke_with_dispatcher_and_cancel_check(
+    ) -> anyhow::Result<TestInvocationResult> {
+        if is_cancelled() {
+            anyhow::bail!("test invocation was canceled before start");
+        }
+        let runtime = tokio::runtime::Builder::new_current_thread().build()?;
+        let terminal = runtime.block_on(self.inner.invoke_with_dispatcher(
             &self.target,
             method,
             params,
             timeout,
             dispatcher,
-            is_cancelled,
-        )
+        ))?;
+        Ok(TestInvocationResult { terminal })
     }
 }
 
@@ -88,10 +102,10 @@ fn connect(workspace: &Path, slot: &str, module_id: &str, config: Value) -> Test
         [export],
     )
     .expect("component binding");
-    let inner = ProcessComponentSession::connect(
+    let inner = ComponentBroker::connect(
         worker_spec(workspace),
         binding,
-        ProcessComponentSessionOptions::default(),
+        ComponentBrokerOptions::default(),
     )
     .unwrap_or_else(|error| panic!("failed to connect {slot}/{module_id}: {error:#}"));
     TestExportSession { inner, target }
@@ -115,7 +129,7 @@ fn encode_callback<T: Serialize>(value: T) -> Result<Value, ProcessModuleRpcErro
 }
 
 #[test]
-fn every_reference_export_completes_the_same_strict_v2_component_handshake() {
+fn every_reference_export_completes_the_same_strict_v3_component_handshake() {
     let workspace = tempfile::tempdir().expect("workspace");
     let modules = [
         ("tool", "reference.tools"),
@@ -150,12 +164,12 @@ fn every_reference_export_completes_the_same_strict_v2_component_handshake() {
         let session = connect(workspace.path(), slot, module_id, json!({}));
         assert_eq!(session.target.slot, slot);
         assert_eq!(session.target.module_id, module_id);
-        session.inner.terminate().expect("terminate worker");
+        session.inner.reset().expect("terminate worker generation");
     }
 }
 
 #[test]
-fn one_reference_component_routes_multiple_exports_over_one_session() {
+fn one_reference_component_routes_multiple_exports_over_one_broker() {
     let workspace = tempfile::tempdir().expect("workspace");
     let policy = ProcessExportBinding::new(
         "policy",
@@ -175,10 +189,10 @@ fn one_reference_component_routes_multiple_exports_over_one_session() {
     let renderer_target = renderer.export_ref();
     let binding = ProcessComponentBinding::new("reference-multi-export", [policy, renderer])
         .expect("component binding");
-    let session = ProcessComponentSession::connect(
+    let session = ComponentBroker::connect(
         worker_spec(workspace.path()),
         binding,
-        ProcessComponentSessionOptions::default(),
+        ComponentBrokerOptions::default(),
     )
     .expect("multi-export component");
 
@@ -194,14 +208,14 @@ fn one_reference_component_routes_multiple_exports_over_one_session() {
         granted_permissions: Vec::new(),
     };
     let policy_result = session
-        .invoke(
+        .invoke_blocking(
             &policy_target,
             PROCESS_POLICY_EVALUATE_METHOD,
             serde_json::to_value(policy_input).expect("policy input"),
             TIMEOUT,
         )
         .expect("policy invocation");
-    let ProcessModuleTerminal::Success(policy_result) = policy_result.terminal else {
+    let ProcessModuleTerminal::Success(policy_result) = policy_result else {
         panic!("policy export did not succeed")
     };
     let policy_result: ProcessPolicyResponse =
@@ -209,7 +223,7 @@ fn one_reference_component_routes_multiple_exports_over_one_session() {
     assert!(matches!(policy_result.result, PolicyDecision::Allow));
 
     let renderer_result = session
-        .invoke(
+        .invoke_blocking(
             &renderer_target,
             PROCESS_RENDERER_RENDER_METHOD,
             serde_json::to_value(ProcessRendererInput {
@@ -219,7 +233,7 @@ fn one_reference_component_routes_multiple_exports_over_one_session() {
             TIMEOUT,
         )
         .expect("renderer invocation");
-    let ProcessModuleTerminal::Success(renderer_result) = renderer_result.terminal else {
+    let ProcessModuleTerminal::Success(renderer_result) = renderer_result else {
         panic!("renderer export did not succeed")
     };
     let renderer_result: ProcessRendererResponse =
@@ -444,21 +458,21 @@ fn policy_renderer_exposure_provider_and_compactor_execute_in_worker() {
 
 struct ContextDispatcher;
 
-impl HostRequestDispatcher for ContextDispatcher {
-    fn dispatch(&self, request: ProcessModuleHostRequest) -> Result<Value, ProcessModuleRpcError> {
-        match request.method.as_str() {
+impl AsyncHostRequestDispatcher for ContextDispatcher {
+    fn dispatch(&self, request: ComponentHostRequest) -> HostRequestFuture {
+        let result = match request.method.as_str() {
             CONTEXT_HOST_SEARCH_METHOD => {
                 serde_json::to_value(Vec::<proteus_contracts::domain::ContextChunk>::new())
+                    .map_err(|error| ProcessModuleRpcError::new(-32603, error.to_string()))
             }
-            CONTEXT_HOST_RECALL_MEMORY_METHOD => serde_json::to_value(Vec::<MemoryItem>::new()),
-            method => {
-                return Err(ProcessModuleRpcError::new(
-                    -32601,
-                    format!("unexpected context callback {method}"),
-                ));
-            }
-        }
-        .map_err(|error| ProcessModuleRpcError::new(-32603, error.to_string()))
+            CONTEXT_HOST_RECALL_MEMORY_METHOD => serde_json::to_value(Vec::<MemoryItem>::new())
+                .map_err(|error| ProcessModuleRpcError::new(-32603, error.to_string())),
+            method => Err(ProcessModuleRpcError::new(
+                -32601,
+                format!("unexpected context callback {method}"),
+            )),
+        };
+        Box::pin(async move { result })
     }
 }
 
@@ -489,45 +503,49 @@ fn context_worker_uses_only_its_slot_callback_authority() {
 
 struct WorkflowDispatcher;
 
-impl HostRequestDispatcher for WorkflowDispatcher {
-    fn dispatch(&self, request: ProcessModuleHostRequest) -> Result<Value, ProcessModuleRpcError> {
-        match request.method.as_str() {
-            WORKFLOW_HOST_RUNTIME_STATUS_METHOD => encode_callback(WorkflowRuntimeStatus {
-                cancelled: false,
-                queued_user_messages: 0,
-            }),
-            WORKFLOW_HOST_BUILD_CONTEXT_METHOD => {
-                let _: WorkflowBuildContextRequest = serde_json::from_value(request.params)
-                    .map_err(|error| ProcessModuleRpcError::new(-32602, error.to_string()))?;
-                encode_callback(ContextBundle::new(Vec::new()))
-            }
-            WORKFLOW_HOST_SELECT_TOOLS_METHOD => {
-                encode_callback(ToolExposureOutput::new(Vec::new()))
-            }
-            WORKFLOW_HOST_VISIBLE_TOOLS_METHOD => encode_callback(Vec::<ToolSpec>::new()),
-            WORKFLOW_HOST_COMPACT_HISTORY_METHOD => {
-                let input: WorkflowCompactHistoryRequest =
-                    serde_json::from_value(request.params)
-                        .map_err(|error| ProcessModuleRpcError::new(-32602, error.to_string()))?;
-                encode_callback(proteus_contracts::contracts::CompactionOutput::unchanged(
-                    input.input.messages,
-                ))
-            }
-            WORKFLOW_HOST_COMPLETE_MODEL_METHOD => {
-                let _: WorkflowCompleteModelRequest = serde_json::from_value(request.params)
-                    .map_err(|error| ProcessModuleRpcError::new(-32602, error.to_string()))?;
-                encode_callback(CanonicalModelResponse::new(
-                    CanonicalMessage::text(MessageRole::Assistant, "worker answer"),
-                    Vec::new(),
-                    FinishReason::Stop,
-                ))
-            }
-            WORKFLOW_HOST_EMIT_EVENT_METHOD => encode_callback(WorkflowHostAck::default()),
-            method => Err(ProcessModuleRpcError::new(
-                -32601,
-                format!("unexpected workflow callback {method}"),
-            )),
+impl AsyncHostRequestDispatcher for WorkflowDispatcher {
+    fn dispatch(&self, request: ComponentHostRequest) -> HostRequestFuture {
+        let result = dispatch_workflow_callback(request);
+        Box::pin(async move { result })
+    }
+}
+
+fn dispatch_workflow_callback(
+    request: ComponentHostRequest,
+) -> Result<Value, ProcessModuleRpcError> {
+    match request.method.as_str() {
+        WORKFLOW_HOST_RUNTIME_STATUS_METHOD => encode_callback(WorkflowRuntimeStatus {
+            cancelled: false,
+            queued_user_messages: 0,
+        }),
+        WORKFLOW_HOST_BUILD_CONTEXT_METHOD => {
+            let _: WorkflowBuildContextRequest = serde_json::from_value(request.params)
+                .map_err(|error| ProcessModuleRpcError::new(-32602, error.to_string()))?;
+            encode_callback(ContextBundle::new(Vec::new()))
         }
+        WORKFLOW_HOST_SELECT_TOOLS_METHOD => encode_callback(ToolExposureOutput::new(Vec::new())),
+        WORKFLOW_HOST_VISIBLE_TOOLS_METHOD => encode_callback(Vec::<ToolSpec>::new()),
+        WORKFLOW_HOST_COMPACT_HISTORY_METHOD => {
+            let input: WorkflowCompactHistoryRequest = serde_json::from_value(request.params)
+                .map_err(|error| ProcessModuleRpcError::new(-32602, error.to_string()))?;
+            encode_callback(proteus_contracts::contracts::CompactionOutput::unchanged(
+                input.input.messages,
+            ))
+        }
+        WORKFLOW_HOST_COMPLETE_MODEL_METHOD => {
+            let _: WorkflowCompleteModelRequest = serde_json::from_value(request.params)
+                .map_err(|error| ProcessModuleRpcError::new(-32602, error.to_string()))?;
+            encode_callback(CanonicalModelResponse::new(
+                CanonicalMessage::text(MessageRole::Assistant, "worker answer"),
+                Vec::new(),
+                FinishReason::Stop,
+            ))
+        }
+        WORKFLOW_HOST_EMIT_EVENT_METHOD => encode_callback(WorkflowHostAck::default()),
+        method => Err(ProcessModuleRpcError::new(
+            -32601,
+            format!("unexpected workflow callback {method}"),
+        )),
     }
 }
 
@@ -574,4 +592,240 @@ fn workflow_worker_runs_a_complete_callback_driven_turn() {
         serde_json::from_value(value).expect("workflow response");
     assert_eq!(response.result.output.text, "worker answer");
     assert_eq!(response.result.new_messages.len(), 1);
+}
+
+struct NestedMemoryDispatcher {
+    broker: WeakComponentBroker,
+    memory: proteus_contracts::contracts::ProcessComponentExportRef,
+}
+
+impl AsyncHostRequestDispatcher for NestedMemoryDispatcher {
+    fn dispatch(&self, request: ComponentHostRequest) -> HostRequestFuture {
+        match request.method.as_str() {
+            CONTEXT_HOST_SEARCH_METHOD => {
+                let result = encode_callback(Vec::<proteus_contracts::domain::ContextChunk>::new());
+                Box::pin(async move { result })
+            }
+            CONTEXT_HOST_RECALL_MEMORY_METHOD => {
+                let broker = self.broker.clone();
+                let target = self.memory.clone();
+                Box::pin(async move {
+                    let broker = broker.upgrade().ok_or_else(|| {
+                        ProcessModuleRpcError::new(-32603, "component broker was dropped")
+                    })?;
+                    let mut nested = broker
+                        .start_nested_invocation(
+                            &request.invocation,
+                            &target,
+                            PROCESS_MEMORY_RECALL_METHOD,
+                            request.params,
+                            TIMEOUT,
+                            Arc::new(NoAsyncHostRequests),
+                        )
+                        .await
+                        .map_err(|error| {
+                            ProcessModuleRpcError::new(
+                                -32603,
+                                format!("nested memory invocation failed: {error}"),
+                            )
+                        })?;
+                    match nested.result().await.map_err(|error| {
+                        ProcessModuleRpcError::new(
+                            -32603,
+                            format!("nested memory invocation did not settle: {error}"),
+                        )
+                    })? {
+                        ProcessModuleTerminal::Success(value) => {
+                            let response: ProcessMemoryRecallResponse =
+                                serde_json::from_value(value).map_err(|error| {
+                                    ProcessModuleRpcError::new(-32603, error.to_string())
+                                })?;
+                            encode_callback(response.result)
+                        }
+                        terminal => Err(ProcessModuleRpcError::new(
+                            -32603,
+                            format!("nested memory returned {terminal:?}"),
+                        )),
+                    }
+                })
+            }
+            method => {
+                let error = ProcessModuleRpcError::new(
+                    -32601,
+                    format!("unexpected nested context callback {method}"),
+                );
+                Box::pin(async move { Err(error) })
+            }
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn same_component_callback_can_reenter_another_export() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let context =
+        ProcessExportBinding::new("context", "simple", "v1", json!({})).expect("context binding");
+    let context_target = context.export_ref();
+    let memory = ProcessExportBinding::new(
+        "memory",
+        "jsonl",
+        "v1",
+        json!({"path": workspace.path().join("nested-memory.jsonl")}),
+    )
+    .expect("memory binding");
+    let memory_target = memory.export_ref();
+    let broker = ComponentBroker::connect(
+        worker_spec(workspace.path()),
+        ProcessComponentBinding::new("reference-reentrant", [context, memory])
+            .expect("component binding"),
+        ComponentBrokerOptions::default(),
+    )
+    .expect("reentrant component");
+    let dispatcher: Arc<dyn AsyncHostRequestDispatcher> = Arc::new(NestedMemoryDispatcher {
+        broker: broker.downgrade(),
+        memory: memory_target,
+    });
+
+    let terminal = broker
+        .invoke_with_dispatcher(
+            &context_target,
+            PROCESS_CONTEXT_BUILD_METHOD,
+            serde_json::to_value(ProcessContextInput {
+                task: AgentTask::new("nested memory", workspace.path().to_path_buf()),
+            })
+            .expect("context input"),
+            TIMEOUT,
+            dispatcher,
+        )
+        .await
+        .expect("context invocation");
+    let ProcessModuleTerminal::Success(value) = terminal else {
+        panic!("reentrant context returned {terminal:?}");
+    };
+    let response: ProcessContextResponse = serde_json::from_value(value).expect("context response");
+    assert_eq!(response.result.chunks[0].source, "task");
+    assert_eq!(broker.snapshot().expect("snapshot").generation, 1);
+}
+
+struct BlockingModelDispatcher {
+    model_started: Arc<tokio::sync::Notify>,
+}
+
+impl AsyncHostRequestDispatcher for BlockingModelDispatcher {
+    fn dispatch(&self, request: ComponentHostRequest) -> HostRequestFuture {
+        if request.method == WORKFLOW_HOST_COMPLETE_MODEL_METHOD {
+            self.model_started.notify_one();
+            return Box::pin(async move {
+                std::future::pending::<Result<Value, ProcessModuleRpcError>>().await
+            });
+        }
+        let result = dispatch_workflow_callback(request);
+        Box::pin(async move { result })
+    }
+}
+
+fn policy_input(workspace: &Path) -> Value {
+    serde_json::to_value(ProcessPolicyEvaluateInput {
+        call: ToolCall::new(new_call_id(), "read_file", json!({"path": "x"})),
+        cwd: workspace.to_path_buf(),
+        tool_spec: Some(ToolSpec::new(
+            "read_file",
+            "read",
+            json!({"type": "object"}),
+            ToolSafety::ReadOnly,
+        )),
+        granted_permissions: Vec::new(),
+    })
+    .expect("policy input")
+}
+
+fn workflow_input(workspace: &Path) -> Value {
+    let task = AgentTask::new("wait for cancellation", workspace.to_path_buf());
+    serde_json::to_value(ProcessWorkflowInput {
+        task: task.clone(),
+        history: vec![CanonicalMessage::text(MessageRole::User, task.text.clone())],
+        runtime: ProcessWorkflowRuntimeInfo {
+            session_id: new_session_id(),
+            thread_id: new_thread_id(),
+            turn_id: new_turn_id(),
+            model_ref: ModelRef::new("fake", "fake-model"),
+            instructions: Vec::new(),
+            reasoning: ReasoningConfig::default(),
+            max_input_tokens: Some(8_192),
+            model_timeout_ms: 5_000,
+            context_timeout_ms: 1_000,
+            workflow_timeout_ms: 8_000,
+        },
+    })
+    .expect("workflow input")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn targeted_cancel_keeps_concurrent_sibling_and_generation_alive() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let workflow = ProcessExportBinding::new("workflow", "coding.single_loop", "v1", json!({}))
+        .expect("workflow binding");
+    let workflow_target = workflow.export_ref();
+    let policy =
+        ProcessExportBinding::new("policy", "allow_all", "v1", json!({})).expect("policy binding");
+    let policy_target = policy.export_ref();
+    let broker = ComponentBroker::connect(
+        worker_spec(workspace.path()),
+        ProcessComponentBinding::new("reference-targeted-cancel", [workflow, policy])
+            .expect("component binding"),
+        ComponentBrokerOptions::default(),
+    )
+    .expect("multiplexed component");
+    let model_started = Arc::new(tokio::sync::Notify::new());
+    let dispatcher: Arc<dyn AsyncHostRequestDispatcher> = Arc::new(BlockingModelDispatcher {
+        model_started: Arc::clone(&model_started),
+    });
+    let mut workflow = broker
+        .start_invocation_with_dispatcher(
+            &workflow_target,
+            PROCESS_WORKFLOW_METHOD,
+            workflow_input(workspace.path()),
+            TIMEOUT,
+            dispatcher,
+        )
+        .await
+        .expect("workflow start");
+    let pid = workflow.pid();
+    tokio::time::timeout(Duration::from_secs(3), model_started.notified())
+        .await
+        .expect("workflow reached model callback");
+
+    let sibling = broker
+        .invoke(
+            &policy_target,
+            PROCESS_POLICY_EVALUATE_METHOD,
+            policy_input(workspace.path()),
+            TIMEOUT,
+        )
+        .await
+        .expect("concurrent policy invocation");
+    assert!(matches!(sibling, ProcessModuleTerminal::Success(_)));
+
+    workflow
+        .cancel(CancelCause::User)
+        .expect("targeted workflow cancel");
+    let terminal = tokio::time::timeout(Duration::from_secs(3), workflow.result())
+        .await
+        .expect("canceled workflow settled")
+        .expect("workflow terminal");
+    assert_eq!(terminal, ProcessModuleTerminal::Canceled);
+
+    let after = broker
+        .invoke(
+            &policy_target,
+            PROCESS_POLICY_EVALUATE_METHOD,
+            policy_input(workspace.path()),
+            TIMEOUT,
+        )
+        .await
+        .expect("policy after sibling cancellation");
+    assert!(matches!(after, ProcessModuleTerminal::Success(_)));
+    let snapshot = broker.snapshot().expect("snapshot");
+    assert_eq!(snapshot.generation, 1);
+    assert_eq!(snapshot.pid, Some(pid));
 }
