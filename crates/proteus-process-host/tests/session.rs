@@ -14,7 +14,7 @@ use anyhow::{Result, anyhow};
 use proteus_process_host::{
     ContentLengthFraming, DEFAULT_ENV_ALLOWLIST, Framing, NewlineJsonFraming, ProcessHost,
     ProcessSession, ProcessSpec, ProcessTransport, ProcessTransportLimits, ReceiveFrameError,
-    ReceiveLimits,
+    ReceiveLimits, SendFrameError,
 };
 use serde_json::{Value, json};
 
@@ -52,6 +52,18 @@ fn run_tests() -> Result<()> {
         (
             "duplex_transport_serializes_concurrent_frames",
             duplex_transport_serializes_concurrent_frames,
+        ),
+        (
+            "control_frames_overtake_queued_data",
+            control_frames_overtake_queued_data,
+        ),
+        (
+            "queued_data_can_be_canceled_before_write",
+            queued_data_can_be_canceled_before_write,
+        ),
+        (
+            "writer_frame_and_byte_limits_are_enforced",
+            writer_frame_and_byte_limits_are_enforced,
         ),
         (
             "slow_transport_consumer_remains_receive_bounded",
@@ -237,6 +249,147 @@ fn duplex_transport_serializes_concurrent_frames() -> Result<()> {
     }
     assert_eq!(observed.len(), WRITERS);
     Ok(())
+}
+
+fn control_frames_overtake_queued_data() -> Result<()> {
+    let spec = mock_spec("newline")?;
+    let limits = ProcessTransportLimits::new(ReceiveLimits::default(), 4).with_control_queue(2);
+    let mut transport =
+        ProcessTransport::spawn_with_limits(&spec, NewlineJsonFraming::default(), limits)?;
+    let writer = transport.frame_writer();
+    writer.send_frame(request("pause", "pause_then_echo", json!({"delay_ms":150})))?;
+    thread::sleep(Duration::from_millis(20));
+
+    let first = writer.queue_frame(request(
+        "data-first",
+        "echo",
+        json!({"payload":"x".repeat(2 * 1024 * 1024)}),
+    ))?;
+    wait_for_dispatch_start(&first)?;
+    let second = writer.queue_frame(request("data-second", "echo", json!({})))?;
+    let control = writer.queue_control_frame(request("control", "echo", json!({})))?;
+
+    assert_eq!(transport.recv_frame(Duration::from_secs(2))?["id"], "pause");
+    assert_eq!(
+        transport.recv_frame(Duration::from_secs(2))?["id"],
+        "data-first"
+    );
+    assert_eq!(
+        transport.recv_frame(Duration::from_secs(2))?["id"],
+        "control"
+    );
+    assert_eq!(
+        transport.recv_frame(Duration::from_secs(2))?["id"],
+        "data-second"
+    );
+    first.wait()?;
+    control.wait()?;
+    second.wait()?;
+    Ok(())
+}
+
+fn queued_data_can_be_canceled_before_write() -> Result<()> {
+    let spec = mock_spec("newline")?;
+    let limits = ProcessTransportLimits::new(ReceiveLimits::default(), 4).with_control_queue(2);
+    let mut transport =
+        ProcessTransport::spawn_with_limits(&spec, NewlineJsonFraming::default(), limits)?;
+    let writer = transport.frame_writer();
+    writer.send_frame(request(
+        "pause-cancel",
+        "pause_then_echo",
+        json!({"delay_ms":150}),
+    ))?;
+    thread::sleep(Duration::from_millis(20));
+
+    let blocker = writer.queue_frame(request(
+        "blocker",
+        "echo",
+        json!({"payload":"x".repeat(2 * 1024 * 1024)}),
+    ))?;
+    wait_for_dispatch_start(&blocker)?;
+    let canceled = writer.queue_frame(request("canceled", "echo", json!({})))?;
+    assert!(canceled.cancel_before_write());
+    let control = writer.queue_control_frame(request("after-cancel", "echo", json!({})))?;
+
+    assert_eq!(
+        transport.recv_frame(Duration::from_secs(2))?["id"],
+        "pause-cancel"
+    );
+    assert_eq!(
+        transport.recv_frame(Duration::from_secs(2))?["id"],
+        "blocker"
+    );
+    assert_eq!(
+        transport.recv_frame(Duration::from_secs(2))?["id"],
+        "after-cancel"
+    );
+    assert!(matches!(
+        canceled.wait(),
+        Err(SendFrameError::CanceledBeforeWrite)
+    ));
+    blocker.wait()?;
+    control.wait()?;
+    assert!(matches!(
+        transport.recv_frame(Duration::from_millis(30)),
+        Err(ReceiveFrameError::Timeout { .. })
+    ));
+    Ok(())
+}
+
+fn writer_frame_and_byte_limits_are_enforced() -> Result<()> {
+    let spec = mock_spec("newline")?;
+    let limits = ProcessTransportLimits::new(ReceiveLimits::default(), 4)
+        .with_control_queue(2)
+        .with_write_byte_limits(3 * 1024 * 1024, 2500 * 1024, 1024 * 1024);
+    let mut transport =
+        ProcessTransport::spawn_with_limits(&spec, NewlineJsonFraming::default(), limits)?;
+    let writer = transport.frame_writer();
+    writer.send_frame(request(
+        "pause-bounds",
+        "pause_then_echo",
+        json!({"delay_ms":150}),
+    ))?;
+    thread::sleep(Duration::from_millis(20));
+    let blocker = writer.queue_frame(request(
+        "bounded-blocker",
+        "echo",
+        json!({"payload":"x".repeat(2 * 1024 * 1024)}),
+    ))?;
+    wait_for_dispatch_start(&blocker)?;
+
+    let bytes_error = writer
+        .queue_frame(request(
+            "byte-overflow",
+            "echo",
+            json!({"payload":"x".repeat(1024 * 1024)}),
+        ))
+        .expect_err("aggregate data writer byte budget must be enforced");
+    assert!(matches!(bytes_error, SendFrameError::QueueBytesFull { .. }));
+    let frame_error = writer
+        .queue_control_frame(request(
+            "frame-overflow",
+            "echo",
+            json!({"payload":"x".repeat(4 * 1024 * 1024)}),
+        ))
+        .expect_err("per-frame writer limit must be enforced");
+    assert!(matches!(frame_error, SendFrameError::FrameTooLarge { .. }));
+    transport.terminate()?;
+    let _ = blocker.wait();
+    Ok(())
+}
+
+fn request(id: &str, method: &str, params: Value) -> Value {
+    json!({"jsonrpc":"2.0", "id":id, "method":method, "params":params})
+}
+
+fn wait_for_dispatch_start(dispatch: &proteus_process_host::FrameDispatch) -> Result<()> {
+    for _ in 0..200 {
+        if dispatch.is_started() {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(1));
+    }
+    Err(anyhow!("queued frame never reached the writer"))
 }
 
 fn slow_transport_consumer_remains_receive_bounded() -> Result<()> {
@@ -530,6 +683,32 @@ fn invalid_receive_limits_fail_before_spawn() -> Result<()> {
             .contains("max_queued_writes must be greater than zero"),
         "unexpected writer-limit validation error: {error}"
     );
+
+    let error = ProcessTransport::spawn_with_limits(
+        &spec,
+        NewlineJsonFraming::default(),
+        ProcessTransportLimits::default().with_control_queue(0),
+    )
+    .expect_err("zero control writer queue must fail before command spawn");
+    assert!(
+        error
+            .to_string()
+            .contains("max_queued_control_writes must be greater than zero"),
+        "unexpected control-writer validation error: {error}"
+    );
+
+    let error = ProcessTransport::spawn_with_limits(
+        &spec,
+        NewlineJsonFraming::default(),
+        ProcessTransportLimits::default().with_write_byte_limits(0, 1, 1),
+    )
+    .expect_err("zero outbound frame budget must fail before command spawn");
+    assert!(
+        error
+            .to_string()
+            .contains("max_frame_bytes must be greater than zero"),
+        "unexpected writer-byte validation error: {error}"
+    );
     Ok(())
 }
 
@@ -700,6 +879,11 @@ fn handle_request<F: Framing, W: Write>(
                 );
             }
             write_response(framing, writer, id, Value::Object(values))
+        }
+        "pause_then_echo" => {
+            let delay_ms = message["params"]["delay_ms"].as_u64().unwrap_or(0);
+            thread::sleep(Duration::from_millis(delay_ms));
+            write_response(framing, writer, id, message["params"].clone())
         }
         "never_respond" => loop {
             std::thread::sleep(Duration::from_secs(60));

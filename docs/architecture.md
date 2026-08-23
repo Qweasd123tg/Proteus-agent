@@ -201,6 +201,13 @@ authority table именно активного target. Все exports деля�
 session, reset и lazy restart. Синхронный callback в соседний export того же
 component запрещён архитектурно, потому что создаёт reentrant cycle.
 Старые/лишние поля отвергаются.
+
+P2 уже добавил в `proteus-module-protocol::v3` bounded multiplexed broker:
+несколько invocation одного process, out-of-order routing, live notifications,
+async invocation-scoped callbacks, targeted cancel и generation failure
+fan-out. Это staged kernel, а не действующий config boundary. До атомарного P3
+cutover core, reference worker, examples и conformance остаются на wire v2;
+dual-read/dual-write и автоматического выбора версии нет.
 Подробнее: [process-module-architecture.md](process-module-architecture.md).
 
 Process boundary даёт lifecycle isolation, но пока не OS sandbox. Worker

@@ -176,9 +176,11 @@ Runtime должен сохранять эти свойства:
 Process-only module cutover из `process-module-architecture.md` завершён.
 Bounded P0 spike multiplexed Component Runtime v2 завершён changeset-ом
 `176d39f` и получил технический `GO`. Отдельно подтверждённый P1
-protocol-neutral duplex transport завершён; он переосновал sequential facade,
-но не менял component wire. Следующее решение — начинать ли P2 broker/wire-v3
-kernel; до отдельного подтверждения действуют Component Runtime v1 / wire v2.
+protocol-neutral duplex transport и отдельно подтверждённый P2
+broker/wire-v3 kernel завершены. P2 доказал async multiplexing, authority,
+targeted cancel и bounded failure semantics, но намеренно не переключал
+tracked producers/consumers. Следующее решение — atomic P3 cutover; до него
+действуют Component Runtime v1 / wire v2.
 Generic actor не добавляется, model и subagent boundaries остаются отдельными
 contract decisions. Актуальный критический путь ведётся в `scope.md`.
 
@@ -267,8 +269,8 @@ path CLI smoke test.
 6. ✅ native ABI/loader удалён без shims;
 7. ✅ bounded Runtime v2 P0 spike: 18 automated scenarios и технический `GO`;
 8. ✅ отдельно подтверждённый P1 duplex transport завершён;
-9. ⏳ после отдельного подтверждения — P2 broker/wire v3, затем atomic cutover
-   и отдельные решения по
+9. ✅ отдельно подтверждённый P2 broker/wire-v3 kernel завершён;
+10. ⏳ после повторной оценки — atomic P3 cutover и отдельные решения по
    model/subagent contracts.
 
 Configured process/MCP tool executors являются явными tool surfaces и всегда

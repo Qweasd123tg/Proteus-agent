@@ -2,7 +2,9 @@
 
 Статус: process-only cutover бывшей dylib system завершён 2026-08-07;
 Component Runtime v1 реализован 2026-08-08; protocol-neutral P1 duplex
-transport foundation завершён 2026-08-22 без изменения wire v2.
+transport foundation и P2 multiplexed broker/wire-v3 kernel завершены
+2026-08-22. Tracked host и workers до атомарного P3 cutover продолжают
+использовать Component Runtime v1 / wire v2.
 
 Текущая внешняя граница:
 
@@ -20,6 +22,11 @@ one export = one slot contract + one module_id
   handshake и target каждого вызова;
 - **slot contract v1** — DTO, module methods, callbacks и composition
   конкретного slot.
+
+В `proteus-module-protocol::v3` уже существует production P2 kernel со строгим
+wire v3, но это пока не внешняя граница configured modules. Он не читает v2 и
+не является compatibility mode; P3 одновременно переключит все tracked
+producers/consumers и удалит старый session path.
 
 Старый one-export wire v1 не читается и не определяется автоматически.
 Native ABI также не является запасным путём: dylib loader, `plugin.toml`,
@@ -260,7 +267,7 @@ Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
 DTO, adapter, protocol/conformance и swap evidence в одном commit.
 
-## Shared Lifecycle И Single-Flight
+## Shared Lifecycle, Текущий Single-Flight И P2 Broker
 
 Все exports component делят:
 
@@ -270,12 +277,14 @@ DTO, adapter, protocol/conformance и swap evidence в одном commit.
 - cancel, timeout, crash и protocol failure domain;
 - reset и lazy restart.
 
-Нижний `proteus-process-host` после P1 уже разделяет single-consumer frame
-reader, bounded dedicated writer и cloneable lifecycle. Concurrent callers
-могут атомарно отправлять целые кадры, child exit наблюдается отдельно от frame
-queue, а terminate прерывает blocked read. Последовательность ниже остаётся
-свойством действующего `ProcessComponentSession`/wire v2, а не ограничением
-stdio framing.
+Нижний `proteus-process-host` после P1/P2 разделяет single-consumer frame
+reader, data/control writer lanes и cloneable lifecycle. Concurrent callers
+могут атомарно отправлять целые кадры; очереди ограничены количеством кадров,
+их суммарными byte-бюджетами и per-frame пределом. Control frame не обгоняет
+уже начатый data frame, но имеет приоритет над ещё не записанными data frames.
+Child exit наблюдается отдельно от frame queue, а terminate прерывает blocked
+read. Последовательность ниже остаётся свойством действующего
+`ProcessComponentSession`/wire v2, а не ограничением stdio framing.
 
 Текущий runtime **single-flight**: пока один export ждёт response, другой
 request в тот же component не отправляется. Это упрощает framing, callback
@@ -307,12 +316,31 @@ reference-capabilities   search, provider, policy, patch, compactor,
 это разные failure domains. Component с независимыми exports без callback
 цикла можно укрупнять. Component с одним export также полностью валиден.
 
-General imports, hooks и reentrant cross-export calls потребуют отдельного
-мультиплексированного broker contract. Они не имитируются скрытым direct call
-или исключением по `component_id`.
+P2 добавил отдельный `ComponentBroker` для будущего Runtime v2:
 
-P1 transport foundation сам по себе такой broker не добавляет: wire v2 всё ещё
-ожидает один active invocation id. P2 остаётся отдельным contract changeset.
+- ids разделены на host `h:<generation>:<sequence>` и module
+  `m:<generation>:<sequence>`;
+- один reader маршрутизирует out-of-order responses, callbacks и live
+  notifications по invocation record;
+- callback authority берётся из host-owned parent record, а dispatcher живёт
+  только до terminal этой invocation;
+- root admission, nested reserve, callback depth/count/id retention,
+  notifications и writer queues ограничены;
+- cooperative cancel адресен, а crash, corruption, resource failure или
+  истёкший cancel grace завершают всё поколение с causal terminal causes;
+- synchronous callback-free `invoke_bootstrap` закрывается навсегда после
+  начала обычного async traffic.
+
+Kernel доказан отдельным Python worker-ом в `tests/broker_v3.rs`. Он не делает
+direct same-process dispatch и не объединяет authority exports. Malicious
+export общего trusted executable всё ещё может назвать id активного sibling:
+correlation id не является secret capability и не создаёт sandbox внутри
+process.
+
+Tracked reference profile пока остаётся на описанном выше wire-v2
+single-flight разрезе. General imports, hooks и reentrant cross-export calls не
+включаются до P3/P4 и не имитируются скрытым direct call или исключением по
+`component_id`.
 
 ## Cancellation И Failure
 

@@ -45,17 +45,18 @@ pub(crate) fn initialize_session(
     let value = result.map_err(anyhow::Error::from)?;
     let manifest: ProcessComponentManifest =
         serde_json::from_value(value).context("initialize returned an invalid manifest")?;
-    validate_manifest(&manifest, binding)
+    validate_manifest(&manifest, binding, PROCESS_COMPONENT_PROTOCOL_VERSION)
 }
 
-fn validate_manifest(
+pub(crate) fn validate_manifest(
     manifest: &ProcessComponentManifest,
     binding: &ProcessComponentBinding,
+    expected_protocol_version: &str,
 ) -> Result<()> {
-    if manifest.protocol_version != PROCESS_COMPONENT_PROTOCOL_VERSION {
+    if manifest.protocol_version != expected_protocol_version {
         bail!(
             "process component protocol mismatch: expected {:?}, got {:?}",
-            PROCESS_COMPONENT_PROTOCOL_VERSION,
+            expected_protocol_version,
             manifest.protocol_version
         );
     }

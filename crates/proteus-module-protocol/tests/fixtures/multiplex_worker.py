@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Small non-Rust fixture for the Component Runtime v2 P0 broker spike.
+"""Small non-Rust fixture for the Component Runtime v2 broker tests.
 
 This is deliberately a test fixture, not a worker SDK.  It implements the
 minimum useful worker shape in plain Python:
@@ -9,8 +9,9 @@ minimum useful worker shape in plain Python:
 * a lock around complete JSON-lines writes; and
 * per-invocation cancellation and callback wait state.
 
-The test harness selects behaviour with ``params.input.op``.  The ordinary
-invocation shape is:
+The P0 harness uses ``params.input``; the production-v3 suite uses the strict
+``params.params`` wrapper. The fixture keeps those test contracts explicit and
+does not act as a compatibility layer for production code.
 
     {"jsonrpc":"2.0", "id":"h:1:1", "method":"run",
      "params":{"export": {...}, "lineage": {...}, "input":
@@ -54,6 +55,7 @@ class Worker:
         self._invocations: Dict[str, Invocation] = {}
         self._callbacks: Dict[str, CallbackWaiter] = {}
         self._next_callback = 0
+        self._protocol_version = "component-v3-spike"
 
     def send(self, frame: JSON) -> None:
         """Write exactly one JSON frame; invocation threads never interleave bytes."""
@@ -83,7 +85,7 @@ class Worker:
             return
 
         invocation_id = frame.get("id")
-        if method == "run" and isinstance(invocation_id, str) and invocation_id.startswith("h:"):
+        if isinstance(method, str) and isinstance(invocation_id, str) and invocation_id.startswith("h:"):
             invocation = Invocation(invocation_id=invocation_id, request=frame)
             with self._state_lock:
                 # The broker must reject duplicate active ids.  This fixture
@@ -105,14 +107,48 @@ class Worker:
                 time.sleep(self._milliseconds(self._input(frame)) or 60.0)
 
     def _initialize(self, frame: JSON) -> None:
-        """Answer the narrow P0 handshake before accepting normal calls."""
+        """Answer either the P0 spike handshake or the exact P2 v3 manifest."""
         request_id = frame.get("id")
         params = frame.get("params")
         if not isinstance(request_id, str) or not request_id.startswith("h:"):
             return
-        if not isinstance(params, dict) or params.get("protocol_version") != "component-v3-spike":
-            self.send_error(request_id, -32602, "expected component-v3-spike initialize")
+        if not isinstance(params, dict):
+            self.send_error(request_id, -32602, "initialize params must be an object")
             return
+        protocol_version = params.get("protocol_version")
+        if protocol_version == "v3":
+            component_id = params.get("component_id")
+            exports = params.get("exports")
+            if not isinstance(component_id, str) or not isinstance(exports, list):
+                self.send_error(request_id, -32602, "invalid component-v3 binding")
+                return
+            self._protocol_version = "v3"
+            manifest_exports = []
+            for export in exports:
+                if not isinstance(export, dict):
+                    self.send_error(request_id, -32602, "invalid component-v3 export")
+                    return
+                manifest_exports.append({
+                    "slot": export.get("slot"),
+                    "module_id": export.get("module_id"),
+                    "contract_version": export.get("contract_version"),
+                    "composition": export.get("composition"),
+                    "module_features": [],
+                })
+            self.send({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "protocol_version": "v3",
+                    "component_id": component_id,
+                    "exports": manifest_exports,
+                },
+            })
+            return
+        if protocol_version != "component-v3-spike":
+            self.send_error(request_id, -32602, "unknown component protocol")
+            return
+        self._protocol_version = "component-v3-spike"
         self.send({
             "jsonrpc": "2.0",
             "id": request_id,
@@ -154,8 +190,32 @@ class Worker:
         params = request.get("params")
         if not isinstance(params, dict):
             return {}
-        input_value = params.get("input")
+        input_value = params.get("params", params.get("input"))
         return input_value if isinstance(input_value, dict) else {}
+
+    def _is_v3(self) -> bool:
+        return self._protocol_version == "v3"
+
+    def _callback_method(self, invocation: Invocation) -> str:
+        if not self._is_v3():
+            return "host.nested.invoke"
+        params = invocation.request.get("params")
+        export = params.get("export") if isinstance(params, dict) else None
+        slot = export.get("slot") if isinstance(export, dict) else None
+        return "host.search.query" if slot == "context" else "host.context.build"
+
+    def _callback_params(
+        self,
+        invocation: Invocation,
+        input_value: JSON,
+        parent_id: Optional[Any] = None,
+    ) -> JSON:
+        payload = input_value.get("callback_input", {"op": "echo"})
+        params: JSON = {
+            "invocation_id": parent_id if parent_id is not None else invocation.invocation_id,
+        }
+        params["params" if self._is_v3() else "input"] = payload
+        return params
 
     @staticmethod
     def _milliseconds(payload: JSON, key: str = "delay_ms") -> float:
@@ -192,6 +252,30 @@ class Worker:
                 )
                 self._finish_callback(invocation, response)
                 return
+            if operation == "queued_parent_callback":
+                time.sleep(self._milliseconds(input_value) or 0.1)
+                response = self._callback(
+                    invocation,
+                    input_value,
+                    parent_id=self._offset_invocation_id(invocation.invocation_id, 1),
+                )
+                self._finish_callback(invocation, response)
+                return
+            if operation == "queued_parent_terminal":
+                time.sleep(self._milliseconds(input_value) or 0.1)
+                self.send_result(
+                    self._offset_invocation_id(invocation.invocation_id, 1),
+                    {"forged_queued_terminal": True},
+                )
+                return
+            if operation == "queued_parent_notification":
+                time.sleep(self._milliseconds(input_value) or 0.1)
+                self.progress(
+                    self._offset_invocation_id(invocation.invocation_id, 1),
+                    0,
+                    {"forged_queued_notification": True},
+                )
+                return
             if operation == "duplicate_callback_id":
                 self._duplicate_callback(invocation, input_value)
                 return
@@ -205,6 +289,20 @@ class Worker:
                 self.send_result(invocation.invocation_id, {"terminal": True})
                 time.sleep(self._milliseconds(input_value, "late_delay_ms") or 0.01)
                 self.progress(invocation.invocation_id, 0, {"late": True})
+                return
+            if operation == "duplicate_terminal":
+                self.send_result(invocation.invocation_id, {"terminal": "first"})
+                self.send_result(invocation.invocation_id, {"terminal": "second"})
+                return
+            if operation == "malformed":
+                with self._stdout_lock:
+                    sys.stdout.write("{this-is-not-json\n")
+                    sys.stdout.flush()
+                return
+            if operation == "oversized":
+                size = input_value.get("bytes", 2 * 1024 * 1024)
+                size = size if isinstance(size, int) else 2 * 1024 * 1024
+                self.progress(invocation.invocation_id, 0, "x" * max(0, size))
                 return
             if operation == "flood":
                 count = input_value.get("count", 128)
@@ -271,11 +369,8 @@ class Worker:
             self.send({
                 "jsonrpc": "2.0",
                 "id": callback_id,
-                "method": "host.nested.invoke",
-                "params": {
-                    "invocation_id": parent_id if parent_id is not None else invocation.invocation_id,
-                    "input": input_value.get("callback_input", {"op": "echo"}),
-                },
+                "method": self._callback_method(invocation),
+                "params": self._callback_params(invocation, input_value, parent_id),
             })
             timeout = self._milliseconds(input_value, "callback_timeout_ms") or 5.0
             deadline = time.monotonic() + timeout
@@ -303,11 +398,8 @@ class Worker:
         request = {
             "jsonrpc": "2.0",
             "id": callback_id,
-            "method": "host.nested.invoke",
-            "params": {
-                "invocation_id": invocation.invocation_id,
-                "input": input_value.get("callback_input", {"op": "echo"}),
-            },
+            "method": self._callback_method(invocation),
+            "params": self._callback_params(invocation, input_value),
         }
         self.send(request)
         self.send(request)
@@ -318,14 +410,16 @@ class Worker:
         self.send({
             "jsonrpc": "2.0",
             "id": callback_id,
-            "method": "host.nested.invoke",
-            "params": {
-                "invocation_id": invocation.invocation_id,
-                "input": input_value.get(
-                    "callback_input",
-                    {"op": "echo", "value": "late effect", "delay_ms": 200},
-                ),
-            },
+            "method": self._callback_method(invocation),
+            "params": self._callback_params(
+                invocation,
+                {
+                    "callback_input": input_value.get(
+                        "callback_input",
+                        {"op": "echo", "value": "late effect", "delay_ms": 200},
+                    )
+                },
+            ),
         })
         self.send_result(invocation.invocation_id, {"returned_too_early": True})
 
@@ -336,15 +430,22 @@ class Worker:
         self.send({
             "jsonrpc": "2.0",
             "id": f"h:{generation}:999",
-            "method": "host.nested.invoke",
-            "params": {
-                "invocation_id": invocation.invocation_id,
-                "input": input_value.get("callback_input", {"op": "echo"}),
-            },
+            "method": self._callback_method(invocation),
+            "params": self._callback_params(invocation, input_value),
         })
 
+    @staticmethod
+    def _offset_invocation_id(invocation_id: str, offset: int) -> str:
+        direction, generation, sequence = invocation_id.split(":", 2)
+        return f"{direction}:{generation}:{int(sequence) + offset}"
+
     def progress(self, invocation_id: str, sequence: int, payload: Any) -> None:
-        self.send({"jsonrpc": "2.0", "method": "module.progress", "params": {"invocation_id": invocation_id, "seq": sequence, "payload": payload}})
+        params = (
+            {"invocation_id": invocation_id, "payload": {"seq": sequence, "value": payload}}
+            if self._is_v3()
+            else {"invocation_id": invocation_id, "seq": sequence, "payload": payload}
+        )
+        self.send({"jsonrpc": "2.0", "method": "module.progress", "params": params})
 
     def send_result(self, invocation_id: Any, result: Any) -> None:
         self.send({"jsonrpc": "2.0", "id": invocation_id, "result": {"pid": os.getpid(), "value": result}})

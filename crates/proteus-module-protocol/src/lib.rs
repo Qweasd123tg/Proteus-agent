@@ -11,6 +11,7 @@ mod envelope;
 mod handshake;
 mod message;
 mod session;
+pub mod v3;
 
 pub use authority::*;
 pub use binding::*;

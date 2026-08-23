@@ -71,32 +71,38 @@ duplex queues, nested reserve и generation failure fan-out. Полная matrix
 [Component Runtime v2 plan](research/component-runtime-v2-plan-2026-08-21.md#результат-p0).
 
 Результат дал технический `GO` для планирования P1/P2. Владелец отдельно
-подтвердил P1, и protocol-neutral transport foundation завершён 2026-08-22.
+подтвердил оба этапа; protocol-neutral transport foundation и production
+broker/wire-v3 kernel завершены 2026-08-22.
 P0 сам по себе не менял production contract, config, adapters или wire v2.
-Workspace/session ownership остаётся production evidence P2/P3, потому что
-spike сознательно работает вне `ModuleCatalog`.
+Workspace/session ownership остаётся cutover evidence P3, потому что P2 kernel
+сознательно ещё не подключён к `ModuleCatalog`.
 
 Malicious export общего trusted component всё ещё может назвать active parent
 соседнего export. Это зафиксированная trust boundary, а не обещание изоляции
 внутри одного process.
 
-### R2. P1 Завершён; P2-P4 Требуют Следующего Решения
+### R2. P1-P2 Завершены; Перед P3 Нужна Повторная Оценка
 
-После технического P0 `GO` владелец отдельно подтвердил только P1. Этапы идут
-последовательно, с отдельным решением перед P2 и переоценкой после broker
-kernel:
+После технического P0 `GO` владелец отдельно подтвердил P1, затем P2. Этапы
+идут последовательно; broker kernel готов, а atomic cutover не начинается без
+повторной архитектурной оценки:
 
 1. ✅ **P1. Protocol-neutral duplex transport — завершён.** В
    `proteus-process-host` разделены bounded frame reader/writer и lifecycle
    generation; child exit имеет отдельный сигнал, terminate будит blocked
    reader, а прежний последовательный facade для MCP, LSP и wire v2 сохранён.
-2. **P2. Component broker и wire v3.** Добавить bounded concurrent pending
-   invocations, lineage, correlated callbacks/notifications, targeted
-   cooperative cancel и generation-wide failure fan-out.
-3. **P3. Atomic tracked cutover.** Одновременно перевести host, worker,
+2. ✅ **P2. Component broker и wire v3 — завершён.** Production
+   `ComponentBroker` содержит bounded concurrent pending invocations, host-owned
+   lineage, async invocation-scoped dispatchers, correlated live notifications,
+   targeted cancel и generation-wide failure fan-out. Exact wire-v3 suite
+   проходит на внешнем Python worker-е; data/control writer lanes имеют
+   frame/count/byte bounds.
+3. ⏸ **Повторная оценка / решение по P3.** Проверить публичный API P2, цену
+   cutover и отсутствие нового transport-specific coupling.
+4. **P3. Atomic tracked cutover.** Одновременно перевести host, worker,
    adapters, examples, configs, conformance и docs на v3; v2 reader и
    single-flight path удалить без compatibility mode.
-4. **P4. Reentrancy evidence и topology cleanup.** Доказать nested
+5. **P4. Reentrancy evidence и topology cleanup.** Доказать nested
    same-component invocation, один PID, раздельную authority, cancellation и
    journal; заменить v1 cycle rejection на depth/count/deadline bounds.
 
@@ -105,9 +111,11 @@ union authority, automatic retry и fallback не появляются. Разд
 по нескольким processes по желаемому failure domain по-прежнему допустимо;
 исчезает только разбиение, нужное исключительно для single-flight deadlock.
 
-P1 не сделал Component Runtime multiplexed: `ProcessComponentSession` всё ещё
-single-flight и использует wire v2. Следующий production changeset P2 нельзя
-начинать без отдельного подтверждения владельца.
+P2 ещё не сделал configured runtime multiplexed: tracked
+`ProcessComponentSession`, core adapters и reference worker всё ещё
+single-flight и используют wire v2. Это намеренная граница changeset-а, а не
+compatibility mode. Следующий возможный production этап — только atomic P3
+после отдельного решения владельца.
 
 ### Фиксированная Граница v0.1 Alpha
 

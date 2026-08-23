@@ -1092,6 +1092,7 @@ dependencies = [
  "proteus-process-host",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

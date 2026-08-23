@@ -82,14 +82,37 @@ Process-only и Component Runtime cutover:
 P1 не меняет component config, slot contracts или wire: production runtime всё
 ещё Component Runtime v1 / wire v2 и single-flight.
 
-## Текущий Приоритет: Решение По P2 Component Runtime v2
+### P2 Multiplexed Broker / Wire v3 Kernel
+
+После следующего отдельного подтверждения P2 завершён 2026-08-22:
+
+- в `proteus-module-protocol::v3` реализован production `ComponentBroker` с
+  async `InvocationHandle`, live notifications и invocation-scoped callback
+  dispatcher;
+- один reader маршрутизирует concurrent out-of-order responses и callbacks по
+  host-owned ids/lineage;
+- authority берётся из active parent record, не из `module_id` и не из
+  module-supplied target;
+- targeted cancel сохраняет cooperative generation, а cancel grace, crash,
+  malformed protocol и resource overflow fan-out-ятся на весь component;
+- root/nested admission, callback depth/count/id retention, notifications,
+  writer frames и data/control queues ограничены по count/bytes;
+- exact wire-v3 handshake и hostile semantics проходят на внешнем Python
+  worker-е.
+
+P2 не менял config schema и не подключал новый broker к core/reference worker.
+Tracked runtime остаётся Component Runtime v1 / wire v2 до P3; старый и новый
+wire не читаются одним session и не выбираются автоматически.
+
+## Текущий Приоритет: Повторная Оценка Перед P3 Cutover
 
 Текущий Component Runtime v1 / wire v2 — завершённый baseline, но его
 single-flight component session запрещает reentrant вызов в другой export того
 же component и вынуждает разрезать components по callback dependency boundaries.
-Активное направление — нейтральный multiplexed substrate Runtime v2 / wire v3,
-а не новый agent loop, generic actor runtime или интеграция архитектур другого
-проекта.
+Нейтральный multiplexed substrate Runtime v2 / wire v3 теперь реализован как
+P2 kernel. Следующее решение — выполнять ли atomic P3 cutover всего tracked
+runtime; это по-прежнему не новый agent loop, generic actor runtime или
+интеграция архитектур другого проекта.
 
 ### Bounded P0: завершён, технический GO
 
@@ -109,20 +132,17 @@ Test/research changeset `176d39f` не изменил production config, slot ca
 [research/component-runtime-v2-plan-2026-08-21.md](research/component-runtime-v2-plan-2026-08-21.md#результат-p0).
 P0 получил технический `GO`, но не является production authority,
 workspace/session, conformance или cutover evidence. Он не утверждает
-model/subagent slot и не открывает direct same-process dispatch. Начало P1/P2
-требовало отдельного подтверждения владельца; такое подтверждение получено и
-выполнено только для P1.
+model/subagent slot и не открывает direct same-process dispatch. P1 и P2 позже
+получили отдельные подтверждения и собственные production tests.
 
-### Оставшиеся P2-P4 После Отдельного Подтверждения
+### Оставшиеся P3-P4 После Отдельного Подтверждения
 
-P1 transport foundation завершён. Дальнейшая работа идёт отдельными атомарными
-этапами только после нового подтверждения:
+P1 transport foundation и P2 broker kernel завершены. Дальнейшая работа идёт
+отдельными атомарными этапами только после нового подтверждения:
 
-1. async component broker и строгий wire v3 с invocation-scoped authority,
-   correlated callbacks/notifications и generation failure fan-out;
-2. единый cutover host, workers, adapters, examples, configs, conformance,
+1. единый P3 cutover host, workers, adapters, examples, configs, conformance,
    tests и docs на v3 с удалением v2 reader;
-3. реальное evidence same-component reentrancy, authority/cancel isolation и
+2. P4 real evidence same-component reentrancy, authority/cancel isolation и
    замена v1 cycle rejection на bounded lineage/deadline semantics.
 
 Компонент остаётся shared lifecycle/failure boundary. Его exports не получают
@@ -242,7 +262,7 @@ production path. Идея возвращается из research только с
 Если задача:
 
 - исправляет или укрепляет focused P0 evidence — делать в test/research scope;
-- относится к оставшимся P2-P4 без отдельного подтверждения владельца —
+- относится к оставшимся P3-P4 без отдельного подтверждения владельца —
   оставить в плане;
 - закрывает model/subagent contract gap — сначала contract design и parity
   matrix;

@@ -14,6 +14,7 @@ mod receive;
 mod session;
 mod spec;
 mod transport;
+mod writer;
 
 pub use framing::{ContentLengthFraming, DEFAULT_MAX_FRAME_BYTES, Framing, NewlineJsonFraming};
 pub use host::{ProcessHost, ProcessSessionGuard, SessionInitializer};
@@ -23,7 +24,9 @@ pub use receive::{
 };
 pub use session::ProcessSession;
 pub use spec::{DEFAULT_ENV_ALLOWLIST, ProcessSpec};
-pub use transport::{
-    DEFAULT_MAX_QUEUED_WRITES, ProcessFrameReader, ProcessFrameWriter, ProcessTransport,
-    ProcessTransportLimits, SendFrameError,
+pub use transport::{ProcessFrameReader, ProcessTransport, ProcessTransportLimits};
+pub use writer::{
+    DEFAULT_MAX_QUEUED_CONTROL_WRITE_BYTES, DEFAULT_MAX_QUEUED_CONTROL_WRITES,
+    DEFAULT_MAX_QUEUED_WRITE_BYTES, DEFAULT_MAX_QUEUED_WRITES, FrameDispatch, ProcessFrameLane,
+    ProcessFrameWriter, SendFrameError,
 };

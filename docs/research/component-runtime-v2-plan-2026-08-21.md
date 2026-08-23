@@ -3,9 +3,10 @@
 Дата: 2026-08-21.
 
 Статус: направление одобрено владельцем проекта 2026-08-22; bounded P0 spike
-получил технический `GO`, отдельно подтверждённый P1 duplex transport завершён.
-Текущий production component contract остаётся Component Runtime v1 / wire v2.
-P2-P6 не считаются автоматически одобренными, config schema P1 не менял.
+получил технический `GO`, отдельно подтверждённые P1 duplex transport и P2
+broker/wire-v3 kernel завершены. Текущий configured component contract остаётся
+Component Runtime v1 / wire v2 до atomic P3 cutover. P3-P6 не считаются
+автоматически одобренными; config schema P1/P2 не меняли.
 
 Исходный snapshot плана: `ffbc0a1`; baseline P1: `d953aea`.
 
@@ -774,9 +775,9 @@ Kill criteria:
 Дата результата: 2026-08-22. Evidence changeset: `176d39f`.
 
 Статус P0: технический `GO` для планирования P1/P2. Позднее владелец отдельно
-подтвердил завершённый P1; P2 по-прежнему требует нового решения. Это не
-production cutover: Component Runtime v1 / wire v2 остаётся единственным
-действующим contract до отдельного P3 atomic migration.
+подтвердил и завершил оба production этапа. Это всё ещё не production cutover:
+Component Runtime v1 / wire v2 остаётся единственным действующим configured
+contract до отдельного P3 atomic migration.
 
 Автоматизированный gate:
 
@@ -900,7 +901,7 @@ production вырос net на 867 строк из-за отдельного lif
 bounded writer и явных handles; старое child/stdin/thread ownership из
 `session.rs` при этом удалено.
 
-### P2. Component Broker И Wire v3
+### P2. Component Broker И Wire v3 — Завершён
 
 Цель: заменить `ProcessComponentSession` multiplexed broker-ом.
 
@@ -962,6 +963,63 @@ invoke(...) -> convenience await terminal
 - terminal exactly once;
 - no response/notification after terminal;
 - malformed and oversized frames.
+
+### Результат P2
+
+Дата результата: 2026-08-22. Статус: завершён после отдельного подтверждения
+владельца; P3 автоматически не начинается.
+
+Production kernel расположен в явном `proteus-module-protocol::v3` namespace,
+пока tracked wire-v2 session остаётся подключённым к core. Это staging двух
+несовместимых реализаций перед atomic cutover, а не dual-read/compatibility
+mode: один broker никогда не распознаёт обе версии.
+
+Реализованы:
+
+- `ComponentBroker`, async `InvocationHandle`, bounded live notification
+  receiver, targeted `cancel` и convenience `invoke`;
+- `AsyncHostRequestDispatcher`, закреплённый за одной invocation, и
+  `start_nested_invocation` только с broker-owned `InvocationRef`;
+- strict ids `h:<generation>:<sequence>` / `m:<generation>:<sequence>`, exact
+  wire-v3 envelopes, lineage и exact-set initialize/manifest;
+- single-reader routing out-of-order responses, callbacks и notifications;
+- queued host ids не считаются видимыми worker-у до начала записи request;
+- root admission, nested reserve, callback depth/count/pending/id-retention,
+  deadline и notification frame/byte bounds;
+- priority data/control writer lanes с count/aggregate-byte/per-frame bounds и
+  withdraw queued data before write;
+- host-owned terminal classification, targeted cooperative cancel,
+  descendant cancellation и generation-wide crash/protocol/resource/
+  cancel-grace fan-out;
+- lazy restart с новым generation и повторным strict handshake;
+- callback-free synchronous bootstrap, который закрывается после начала async
+  runtime traffic.
+
+Focused gate:
+
+```bash
+cargo test -p proteus-module-protocol --test broker_v3 -- --nocapture
+```
+
+Gate использует тот же небольшой Python worker, расширенный отдельной strict-v3
+формой, и закрывает всю обязательную matrix выше. P0 suite продолжает проходить
+без изменения spike wire. Protocol-neutral writer priority/byte semantics
+дополнительно закреплены в `proteus-process-host` suite.
+
+Зафиксированная trust boundary не изменилась: malicious export общего trusted
+process может назвать active sibling parent id. Broker применит authority и
+dispatcher названного active parent-а; wire id остаётся correlation key, а не
+secret capability. Stale, terminal, wrong-generation, forbidden и reused ids
+fail-closed сбрасывают generation.
+
+P2 не менял `ModuleCatalog`, core adapters, reference worker, examples,
+configs, conformance CLI или current authority dependency graph. Эти surfaces
+переводятся и старый v2 path удаляется только одним P3 changeset-ом.
+
+Фактический scope — около 5,2 тыс. touched lines вместе с документацией. Он
+вышел выше начальной оценки из-за отдельного bounded writer-модуля и полной
+hostile protocol matrix; production-файлы при этом сохранены небольшими и
+разделёнными по lifecycle, routing, failure и wire responsibilities.
 
 ### P3. Tracked Worker И Adapter Cutover
 
@@ -1193,12 +1251,12 @@ P0-P5b:
 ```text
 P0 spike: technical GO
   -> ✅ отдельное решение владельца и завершённый P1 transport
-  -> отдельное решение владельца по P2
-  -> P2 broker/wire-v3 kernel
-  -> повторная оценка
+  -> ✅ отдельное решение владельца и завершённый P2 broker/wire-v3 kernel
+  -> повторная оценка перед P3
 ```
 
-Оставшаяся engineering estimate до следующей точки переоценки:
+Следующая точка — не реализация по умолчанию, а повторная оценка P2 evidence и
+границы P3. Исходная оценка P2 была:
 
 ```text
 3-5 commits
@@ -1207,8 +1265,8 @@ P0 spike: technical GO
 
 P0 не показал отдельного worker-language blocker, но оказался больше исходной
 оценки из-за hostile transport/lifecycle cases. P1 закрыл transport foundation,
-но production cutover не начинается автоматически: Runtime v1 сохраняется до
-P2 evidence и повторной оценки.
+P2 дал production broker evidence, но cutover не начинается автоматически:
+Runtime v1 сохраняется до отдельного решения по P3.
 
 ## Порядок Относительно Roadmap
 
@@ -1218,8 +1276,8 @@ P2 evidence и повторной оценки.
 1. ✅ P0 executable spike;
 2. ✅ технический `GO` по его evidence;
 3. ✅ после отдельного подтверждения — P1 duplex transport;
-4. после нового отдельного подтверждения — P2 broker/wire-v3 kernel;
-5. повторная архитектурная оценка;
+4. ✅ после нового отдельного подтверждения — P2 broker/wire-v3 kernel;
+5. текущая точка: повторная архитектурная оценка;
 6. при повторном `GO` — P3 atomic cutover и P4 real reentrancy evidence;
 7. отдельно — `model/v1` decision и vertical slice;
 8. отдельно — `subagent/v1` decision и vertical slice;
@@ -1378,8 +1436,8 @@ reference implementation другой путь, чем внешнему componen
 ## Decision Checklist
 
 Владелец проекта подтвердил эти пять пунктов 2026-08-22. Они задали направление
-P0; spike дал положительный технический результат. P1 позднее получил отдельное
-подтверждение и завершён, а P2-P4 остаются отдельными решениями:
+P0; spike дал положительный технический результат. P1 и P2 позднее получили
+отдельные подтверждения и завершены, а P3-P4 остаются отдельными решениями:
 
 1. Runtime v2 остаётся одним multiplexed invocation primitive; generic actor
    не добавляется.
@@ -1395,21 +1453,22 @@ P0; spike дал положительный технический резуль�
 
 Не трогать `Workflow`, root steering или `SubagentRunner` в production.
 
-P1 changeset завершён:
+P1 и P2 changesets завершены:
 
 ```text
 refactor(process-host): split bounded duplex transport
+feat(module-protocol): add multiplexed component-v3 broker
 ```
 
-Он перенёс доказанный protocol-neutral transport primitive в
-`proteus-process-host`, сохранил sequential facade для MCP/LSP и не изменил
-Component Runtime wire. Следующее решение владельца — начинать ли отдельный P2
-changeset с broker/wire v3. До такого решения production code не менять.
+Первый перенёс protocol-neutral transport primitive в `proteus-process-host`.
+Второй добавил bounded production broker и strict v3 contract, сохранив
+sequential facade для MCP/LSP и подключённый component wire v2. Следующий шаг —
+review публичной P2 surface и отдельное решение, начинать ли atomic P3 cutover.
 
 ```text
 P1 -> bounded duplex transport + старый sequential facade
-P2 -> multiplexed component broker + wire v3 contract
-P3 -> только atomic tracked cutover после повторной переоценки
+P2 -> ✅ multiplexed component broker + wire v3 contract
+P3 -> только atomic tracked cutover после отдельного GO
 ```
 
 Test-only broker не переносится целиком: production authority, async API,

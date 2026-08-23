@@ -1,10 +1,9 @@
 use std::{
-    error::Error,
     fmt,
     io::{self, BufReader, Read},
     process::{Child, Command, Stdio},
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TryRecvError, TrySendError},
     },
@@ -16,14 +15,13 @@ use anyhow::{Result, anyhow, bail};
 use serde_json::Value;
 
 use crate::{
-    Framing, ProcessLifecycle, ProcessSpec, ReceiveFrameError, ReceiveLimits,
+    DEFAULT_MAX_FRAME_BYTES, DEFAULT_MAX_QUEUED_CONTROL_WRITE_BYTES,
+    DEFAULT_MAX_QUEUED_CONTROL_WRITES, DEFAULT_MAX_QUEUED_WRITE_BYTES, DEFAULT_MAX_QUEUED_WRITES,
+    Framing, ProcessFrameWriter, ProcessLifecycle, ProcessSpec, ReceiveFrameError, ReceiveLimits,
+    SendFrameError,
     receive::{BufferedFrame, ReaderStatus, ReceiveBudget, compact_json_len},
+    writer::{WriterLimits, spawn_writer},
 };
-
-/// Default number of frames that may wait for the dedicated stdin writer.
-pub const DEFAULT_MAX_QUEUED_WRITES: usize = 256;
-
-const WRITER_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const READER_LIFECYCLE_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 /// Bounds owned by the protocol-neutral process transport.
@@ -31,6 +29,10 @@ const READER_LIFECYCLE_POLL_INTERVAL: Duration = Duration::from_millis(10);
 pub struct ProcessTransportLimits {
     receive: ReceiveLimits,
     max_queued_writes: usize,
+    max_queued_control_writes: usize,
+    max_frame_bytes: usize,
+    max_queued_write_bytes: usize,
+    max_queued_control_write_bytes: usize,
 }
 
 impl ProcessTransportLimits {
@@ -38,7 +40,28 @@ impl ProcessTransportLimits {
         Self {
             receive,
             max_queued_writes,
+            max_queued_control_writes: DEFAULT_MAX_QUEUED_CONTROL_WRITES,
+            max_frame_bytes: DEFAULT_MAX_FRAME_BYTES,
+            max_queued_write_bytes: DEFAULT_MAX_QUEUED_WRITE_BYTES,
+            max_queued_control_write_bytes: DEFAULT_MAX_QUEUED_CONTROL_WRITE_BYTES,
         }
+    }
+
+    pub const fn with_control_queue(mut self, max_queued_control_writes: usize) -> Self {
+        self.max_queued_control_writes = max_queued_control_writes;
+        self
+    }
+
+    pub const fn with_write_byte_limits(
+        mut self,
+        max_frame_bytes: usize,
+        max_queued_write_bytes: usize,
+        max_queued_control_write_bytes: usize,
+    ) -> Self {
+        self.max_frame_bytes = max_frame_bytes;
+        self.max_queued_write_bytes = max_queued_write_bytes;
+        self.max_queued_control_write_bytes = max_queued_control_write_bytes;
+        self
     }
 
     pub const fn receive(self) -> ReceiveLimits {
@@ -49,10 +72,38 @@ impl ProcessTransportLimits {
         self.max_queued_writes
     }
 
+    pub const fn max_queued_control_writes(self) -> usize {
+        self.max_queued_control_writes
+    }
+
+    pub const fn max_frame_bytes(self) -> usize {
+        self.max_frame_bytes
+    }
+
+    pub const fn max_queued_write_bytes(self) -> usize {
+        self.max_queued_write_bytes
+    }
+
+    pub const fn max_queued_control_write_bytes(self) -> usize {
+        self.max_queued_control_write_bytes
+    }
+
     fn validate(self) -> Result<()> {
         self.receive.validate()?;
         if self.max_queued_writes == 0 {
             bail!("transport max_queued_writes must be greater than zero");
+        }
+        if self.max_queued_control_writes == 0 {
+            bail!("transport max_queued_control_writes must be greater than zero");
+        }
+        if self.max_frame_bytes == 0 {
+            bail!("transport max_frame_bytes must be greater than zero");
+        }
+        if self.max_queued_write_bytes == 0 {
+            bail!("transport max_queued_write_bytes must be greater than zero");
+        }
+        if self.max_queued_control_write_bytes == 0 {
+            bail!("transport max_queued_control_write_bytes must be greater than zero");
         }
         Ok(())
     }
@@ -61,118 +112,6 @@ impl ProcessTransportLimits {
 impl Default for ProcessTransportLimits {
     fn default() -> Self {
         Self::new(ReceiveLimits::default(), DEFAULT_MAX_QUEUED_WRITES)
-    }
-}
-
-/// A protocol-neutral failure while writing a frame.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[non_exhaustive]
-pub enum SendFrameError {
-    QueueFull { max_queued_writes: usize },
-    WriterStopped { reason: String },
-}
-
-impl fmt::Display for SendFrameError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::QueueFull { max_queued_writes } => write!(
-                formatter,
-                "process writer queue is full: max {max_queued_writes} frames"
-            ),
-            Self::WriterStopped { reason } => formatter.write_str(reason),
-        }
-    }
-}
-
-impl Error for SendFrameError {}
-
-#[derive(Clone, Debug, Default)]
-struct WriterStatus {
-    failure: Arc<Mutex<Option<SendFrameError>>>,
-}
-
-impl WriterStatus {
-    fn fail(&self, reason: impl Into<String>) -> SendFrameError {
-        let mut failure = self.failure.lock().expect("writer status mutex poisoned");
-        if failure.is_none() {
-            *failure = Some(SendFrameError::WriterStopped {
-                reason: reason.into(),
-            });
-        }
-        failure
-            .clone()
-            .expect("writer status must contain a failure")
-    }
-
-    fn failure(&self) -> SendFrameError {
-        self.failure
-            .lock()
-            .expect("writer status mutex poisoned")
-            .clone()
-            .unwrap_or_else(|| SendFrameError::WriterStopped {
-                reason: "child stdin writer stopped".to_owned(),
-            })
-    }
-}
-
-enum WriterCommand {
-    Frame {
-        value: Value,
-        completion: SyncSender<std::result::Result<(), SendFrameError>>,
-    },
-}
-
-/// Cloneable bounded handle for writing whole frames to one process
-/// generation. A dedicated writer thread is the sole owner of child stdin, so
-/// concurrent callers cannot interleave bytes from different frames.
-#[derive(Clone)]
-pub struct ProcessFrameWriter {
-    commands: SyncSender<WriterCommand>,
-    status: WriterStatus,
-    stopping: Arc<AtomicBool>,
-    lifecycle: ProcessLifecycle,
-    max_queued_writes: usize,
-}
-
-impl fmt::Debug for ProcessFrameWriter {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("ProcessFrameWriter")
-            .field("pid", &self.lifecycle.pid())
-            .field("max_queued_writes", &self.max_queued_writes)
-            .field("stopping", &self.stopping.load(Ordering::Acquire))
-            .finish_non_exhaustive()
-    }
-}
-
-impl ProcessFrameWriter {
-    pub fn send_frame(&self, value: Value) -> std::result::Result<(), SendFrameError> {
-        if self.stopping.load(Ordering::Acquire) {
-            return Err(self.status.failure());
-        }
-        if let Some(reason) = self.lifecycle.stopped_reason() {
-            return Err(self.status.fail(reason));
-        }
-
-        let (completion_tx, completion_rx) = mpsc::sync_channel(1);
-        let command = WriterCommand::Frame {
-            value,
-            completion: completion_tx,
-        };
-        match self.commands.try_send(command) {
-            Ok(()) => {}
-            Err(TrySendError::Full(_)) => {
-                return Err(SendFrameError::QueueFull {
-                    max_queued_writes: self.max_queued_writes,
-                });
-            }
-            Err(TrySendError::Disconnected(_)) => return Err(self.status.failure()),
-        }
-
-        match completion_rx.recv() {
-            Ok(result) => result,
-            Err(_) => Err(self.status.failure()),
-        }
     }
 }
 
@@ -341,14 +280,18 @@ impl<F: Framing> ProcessTransport<F> {
             Arc::clone(&stopping),
         );
 
-        let (writer_tx, writer_rx) = mpsc::sync_channel(limits.max_queued_writes);
-        let writer_status = WriterStatus::default();
-        let writer_thread = spawn_writer(
+        let (writer, writer_thread) = spawn_writer(
             stdin,
             framing,
-            writer_rx,
-            writer_status.clone(),
+            WriterLimits {
+                max_queued_control_writes: limits.max_queued_control_writes,
+                max_queued_writes: limits.max_queued_writes,
+                max_frame_bytes: limits.max_frame_bytes,
+                max_queued_control_write_bytes: limits.max_queued_control_write_bytes,
+                max_queued_write_bytes: limits.max_queued_write_bytes,
+            },
             Arc::clone(&stopping),
+            lifecycle.clone(),
         );
         let stderr_thread = stderr.map(spawn_stderr_drain);
 
@@ -358,13 +301,7 @@ impl<F: Framing> ProcessTransport<F> {
                 status: reader_status,
                 lifecycle: lifecycle.clone(),
             },
-            writer: ProcessFrameWriter {
-                commands: writer_tx,
-                status: writer_status,
-                stopping: Arc::clone(&stopping),
-                lifecycle: lifecycle.clone(),
-                max_queued_writes: limits.max_queued_writes,
-            },
+            writer,
             lifecycle,
             stopping,
             reader_thread: Some(reader_thread),
@@ -393,6 +330,10 @@ impl<F: Framing> ProcessTransport<F> {
 
     pub fn send_frame(&self, value: Value) -> std::result::Result<(), SendFrameError> {
         self.writer.send_frame(value)
+    }
+
+    pub fn send_control_frame(&self, value: Value) -> std::result::Result<(), SendFrameError> {
+        self.writer.send_control_frame(value)
     }
 
     pub fn recv_frame(
@@ -502,49 +443,6 @@ where
                 Err(TrySendError::Disconnected(_)) => break,
             }
         }
-    })
-}
-
-fn spawn_writer<W, F>(
-    mut stdin: W,
-    framing: F,
-    commands: Receiver<WriterCommand>,
-    status: WriterStatus,
-    stopping: Arc<AtomicBool>,
-) -> JoinHandle<()>
-where
-    W: io::Write + Send + 'static,
-    F: Framing,
-{
-    thread::spawn(move || {
-        while !stopping.load(Ordering::Acquire) {
-            let command = match commands.recv_timeout(WRITER_POLL_INTERVAL) {
-                Ok(command) => command,
-                Err(RecvTimeoutError::Timeout) => continue,
-                Err(RecvTimeoutError::Disconnected) => break,
-            };
-            match command {
-                WriterCommand::Frame { value, completion } => {
-                    if stopping.load(Ordering::Acquire) {
-                        let _ = completion.send(Err(status.fail("process transport stopped")));
-                        break;
-                    }
-                    match framing.write_frame(&mut stdin, &value) {
-                        Ok(()) => {
-                            let _ = completion.send(Ok(()));
-                        }
-                        Err(error) => {
-                            let failure = status
-                                .fail(format!("failed to write frame to child stdin: {error}"));
-                            let _ = completion.send(Err(failure));
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        stopping.store(true, Ordering::Release);
-        status.fail("child stdin writer stopped");
     })
 }
 

@@ -65,6 +65,9 @@ cargo test -p rust-lsp
 Process-host suite дополнительно фиксирует protocol-neutral P1 boundary:
 
 - concurrent frame writers не смешивают байты разных кадров;
+- priority control frames обгоняют только queued, но не уже начатый data frame;
+- queued data frame можно отменить до write, а frame/count/aggregate byte
+  limits применяются отдельно к data и control lanes;
 - slow consumer не обходит aggregate receive frame/byte limits;
 - child exit имеет lifecycle signal отдельно от frame queue;
 - repeated terminate идемпотентен и будит blocked reader и всех lifecycle
@@ -75,6 +78,36 @@ Process-host suite дополнительно фиксирует protocol-neutra
 
 P1 не является wire-v3 evidence. Действующий component-v2 facade отдельно
 проверяют `proteus-module-protocol`, `module_swap` и reference conformance.
+
+### P2 Multiplexed Broker / Wire v3 Kernel
+
+```bash
+cargo test -p proteus-module-protocol --test broker_v3 -- --nocapture
+```
+
+Gate запускает production `ComponentBroker` против внешнего Python worker-а и
+проверяет:
+
+- strict exact-set handshake wire v3 и lazy handshake нового generation;
+- out-of-order calls, concurrent exports и direction-separated `h:*`/`m:*`
+  ids;
+- same-component nested invocation только через host, overlapping callbacks и
+  authority parent export-а;
+- documented sibling-parent trusted-component boundary, forged/stale/
+  wrong-generation parent, ссылка на ещё не отправленный invocation и
+  forbidden callback fail-closed;
+- live notification routing, slow/overflow consumer и bounded frame/byte
+  retention;
+- root admission, nested reserve, callback depth/count/id bounds и deadline,
+  включающий ожидание admission;
+- targeted user/timeout cancel, cancel до dispatch и во время callback,
+  uncooperative cancel grace reset;
+- crash/protocol/resource fan-out, exactly-once terminal, late/duplicate/
+  malformed/oversized frames.
+
+Это evidence P2 kernel, но ещё не P3 cutover evidence. Пока tracked core и
+workers используют wire v2, обязательными остаются `module_swap`, component-v2
+conformance и real reference-worker suite.
 
 ## Общий Rust Gate
 
@@ -99,8 +132,10 @@ cargo test -p proteus-module-protocol
 Они фиксируют:
 
 - newline framing и receive limits;
-- bounded duplex writer, persistent child lifecycle и independent exit signal;
+- bounded priority data/control writer, persistent child lifecycle и
+  independent exit signal;
 - sequential MCP/LSP/component-v2 facade поверх общего transport;
+- staged async multiplexed component-v3 broker с bounded pending state;
 - strict JSON-RPC envelopes;
 - exact initialize/manifest;
 - authority lookup по `slot/contract_version`;

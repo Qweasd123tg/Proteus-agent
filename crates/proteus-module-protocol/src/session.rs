@@ -257,6 +257,9 @@ impl ProcessComponentSession {
         self.host.terminate()
     }
 
+    // Wire v2 threads one sequential invocation scope through this wait loop;
+    // P3 removes the whole facade instead of refactoring a legacy surface.
+    #[allow(clippy::too_many_arguments)]
     fn wait_for_invocation(
         &self,
         session: &mut ProcessSession<NewlineJsonFraming>,
@@ -338,6 +341,7 @@ impl ProcessComponentSession {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn handle_frame(
         &self,
         session: &mut ProcessSession<NewlineJsonFraming>,
@@ -392,6 +396,7 @@ impl ProcessComponentSession {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn dispatch_host_request(
         &self,
         session: &mut ProcessSession<NewlineJsonFraming>,
@@ -431,6 +436,7 @@ impl ProcessComponentSession {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn cancel_invocation(
         &self,
         session: &mut ProcessSession<NewlineJsonFraming>,
