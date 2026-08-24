@@ -29,7 +29,7 @@ jobs:
       - name: Install test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes ripgrep
+          sudo apt-get install --yes bubblewrap ripgrep
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Test workspace
