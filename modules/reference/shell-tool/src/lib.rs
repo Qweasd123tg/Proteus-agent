@@ -92,7 +92,7 @@ impl ToolModule for ShellTool {
                 "aliases": ["run command", "cargo test", "npm test", "execute"]
             }
         });
-        String::from(spec.to_string())
+        spec.to_string()
     }
 
     fn invoke_json(
@@ -111,7 +111,7 @@ impl ToolModule for ShellTool {
             }
         };
         match invoke_impl(call_json.as_str(), &context.cwd.to_string_lossy()) {
-            Ok(result_json) => Ok(String::from(result_json)),
+            Ok(result_json) => Ok(result_json),
             Err(error) => Err(ProcessModuleError::new(format!("{error:#}"))),
         }
     }
@@ -134,13 +134,18 @@ fn invoke_impl(call_json: &str, cwd: &str) -> Result<String> {
         .and_then(|args| args.get("with_escalated_permissions"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let sandbox_policy = if escalated {
+        SandboxPolicy::not_required()
+    } else {
+        SandboxPolicy::detect(cwd)
+    };
     invoke_command(
         call_id,
         args,
         command,
         cwd,
         escalated,
-        SandboxPolicy::detect(cwd),
+        sandbox_policy,
         should_use_ptyxis(),
     )
 }
@@ -632,14 +637,10 @@ fn kill_child_tree(child: &mut Child) {
 
 pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), ProcessModuleError> {
     let tool: ToolModuleObject = Box::new(ShellTool);
-    if let Err(err) = registry.register_tool(tool) {
-        return Err(err);
-    }
+    registry.register_tool(tool)?;
 
     let exec: ToolModuleObject = Box::new(unified_exec::ExecCommandTool);
-    if let Err(err) = registry.register_tool(exec) {
-        return Err(err);
-    }
+    registry.register_tool(exec)?;
 
     let stdin: ToolModuleObject = Box::new(unified_exec::WriteStdinTool);
     registry.register_tool(stdin)
@@ -659,11 +660,48 @@ mod tests {
             "id": "call_shell",
             "name": "shell",
             "args": {
-                "command": command
+                "command": command,
+                "with_escalated_permissions": true,
+                "justification": "unit test"
             }
         });
         let result = invoke_impl(&call.to_string(), &cwd.display().to_string()).expect("invoke");
         serde_json::from_str(&result).expect("tool result")
+    }
+
+    fn invoke_sandboxed(cwd: &std::path::Path, command: &str) -> Result<Value> {
+        let call = json!({
+            "id": "call_shell",
+            "name": "shell",
+            "args": { "command": command }
+        });
+        let result = invoke_impl(&call.to_string(), &cwd.display().to_string())?;
+        serde_json::from_str(&result).map_err(Into::into)
+    }
+
+    fn verified_sandbox_or_fail_closed(cwd: &std::path::Path) -> Option<SandboxPolicy> {
+        let policy = SandboxPolicy::detect(&cwd.display().to_string());
+        if policy.select(false, false).is_ok() {
+            return Some(policy);
+        }
+
+        let marker = cwd.join("sandbox-must-not-run");
+        let error = invoke_command(
+            "sandbox_probe".to_owned(),
+            None,
+            "touch sandbox-must-not-run",
+            &cwd.display().to_string(),
+            false,
+            policy,
+            false,
+        )
+        .expect_err("unverified sandbox must fail closed");
+        assert!(
+            error.to_string().contains("bwrap") || error.to_string().contains("sandbox"),
+            "unexpected sandbox rejection: {error}"
+        );
+        assert!(!marker.exists(), "unavailable sandbox ran the command");
+        None
     }
 
     #[test]
@@ -742,7 +780,12 @@ mod tests {
         let call = json!({
             "id": "call_shell",
             "name": "shell",
-            "args": { "command": "pwd", "workdir": "sub" }
+            "args": {
+                "command": "pwd",
+                "workdir": "sub",
+                "with_escalated_permissions": true,
+                "justification": "unit test"
+            }
         });
 
         let result = invoke_impl(&call.to_string(), &dir.path().display().to_string())
@@ -781,7 +824,12 @@ mod tests {
         let call = json!({
             "id": "call_shell",
             "name": "shell",
-            "args": { "command": "sleep 5", "timeout_ms": 100 }
+            "args": {
+                "command": "sleep 5",
+                "timeout_ms": 100,
+                "with_escalated_permissions": true,
+                "justification": "unit test"
+            }
         });
 
         let result = invoke_impl(&call.to_string(), &dir.path().display().to_string())
@@ -800,7 +848,12 @@ mod tests {
         let call = json!({
             "id": "call_shell",
             "name": "shell",
-            "args": { "command": "true", "timeout_ms": u64::MAX }
+            "args": {
+                "command": "true",
+                "timeout_ms": u64::MAX,
+                "with_escalated_permissions": true,
+                "justification": "unit test"
+            }
         });
 
         let result = invoke_impl(&call.to_string(), &dir.path().display().to_string())
@@ -942,23 +995,21 @@ mod tests {
     #[test]
     fn sandboxed_run_blocks_network_when_bwrap_available() {
         let dir = tempfile::tempdir().expect("workspace");
-        if SandboxPolicy::detect(&dir.path().display().to_string())
-            .select(false, false)
-            .is_err()
-        {
-            return; // окружение без bwrap — интеграцию пропускаем
-        }
+        let Some(_sandbox_policy) = verified_sandbox_or_fail_closed(dir.path()) else {
+            return;
+        };
 
-        let ok = invoke(dir.path(), "printf sandboxed");
+        let ok = invoke_sandboxed(dir.path(), "printf sandboxed").expect("sandboxed invoke");
         assert_eq!(ok["ok"], true);
         assert_eq!(ok["metadata"]["sandbox"], "bwrap");
 
         // сеть в sandbox отрезана: getent/curl недоступны без сети;
         // используем /dev/tcp bash-исмуляцию через sh — надёжнее ping
-        let net = invoke(
+        let net = invoke_sandboxed(
             dir.path(),
             "sh -c 'echo x > /dev/tcp/127.0.0.1/9' 2>&1; true",
-        );
+        )
+        .expect("sandboxed network invoke");
         assert_eq!(net["metadata"]["sandbox"], "bwrap");
     }
 
@@ -967,22 +1018,9 @@ mod tests {
     fn sandboxed_run_cannot_see_or_signal_external_process_when_bwrap_available() {
         let dir = tempfile::tempdir().expect("workspace");
         let cwd = dir.path().display().to_string();
-        let sandbox_policy = SandboxPolicy::detect(&cwd);
-        let Ok(Some(sandbox)) = sandbox_policy.select(false, false) else {
+        let Some(sandbox_policy) = verified_sandbox_or_fail_closed(dir.path()) else {
             return;
         };
-
-        // Some CI kernels have bwrap installed but disable unprivileged
-        // namespaces. Treat that as an unavailable live-test environment.
-        let Ok(probe) = spawn_shell("true", &cwd, &cwd, Some(&sandbox)) else {
-            return;
-        };
-        let Ok((probe_output, _)) = wait_with_timeout(probe, Duration::from_secs(5)) else {
-            return;
-        };
-        if !probe_output.status.success() {
-            return;
-        }
 
         // Signal only a process owned by this test. On the old shared-PID path
         // the sandbox could see and terminate it by its host PID.

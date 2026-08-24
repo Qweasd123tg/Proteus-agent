@@ -73,6 +73,11 @@ fn run_tests() -> Result<()> {
             "terminate_wakes_reader_and_exit_waiters",
             terminate_wakes_reader_and_exit_waiters,
         ),
+        #[cfg(unix)]
+        (
+            "terminate_kills_descendants_holding_stdio",
+            terminate_kills_descendants_holding_stdio,
+        ),
         (
             "host_terminate_interrupts_blocked_request",
             host_terminate_interrupts_blocked_request,
@@ -472,6 +477,25 @@ fn terminate_wakes_reader_and_exit_waiters() -> Result<()> {
             Some(first_exit.clone())
         );
     }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn terminate_kills_descendants_holding_stdio() -> Result<()> {
+    let spec = ProcessSpec::new("sh").args(["-c", "sleep 5 & wait"]);
+    let mut transport = ProcessTransport::spawn(&spec, NewlineJsonFraming::default())?;
+    // Let the shell create the background child that inherits the transport
+    // pipes. Without process-group termination, join_workers waits for it.
+    thread::sleep(Duration::from_millis(50));
+    let started = Instant::now();
+
+    transport.terminate()?;
+
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "process-group termination waited for descendant-held stdio: {:?}",
+        started.elapsed()
+    );
     Ok(())
 }
 

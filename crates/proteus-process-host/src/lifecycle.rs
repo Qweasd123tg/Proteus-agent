@@ -264,6 +264,9 @@ fn monitor_child(
 }
 
 fn terminate_child(child: &mut Child) -> Result<ExitStatus> {
+    #[cfg(unix)]
+    kill_child_process_group(child);
+
     if let Some(status) = child.try_wait()? {
         return Ok(status);
     }
@@ -274,4 +277,21 @@ fn terminate_child(child: &mut Child) -> Result<ExitStatus> {
         return Err(kill_error.into());
     }
     Ok(child.wait()?)
+}
+
+#[cfg(unix)]
+fn kill_child_process_group(child: &Child) {
+    let Ok(process_group) = i32::try_from(child.id()) else {
+        return;
+    };
+    // `ProcessTransport` starts every Unix child in a fresh process group
+    // whose id is its pid. Kill the group before reaping its leader so a
+    // descendant cannot keep the inherited stdio pipes open while transport
+    // shutdown joins its reader threads. If the group has already gone away
+    // or signalling it fails, `terminate_child` still kills the direct child.
+    // SAFETY: `kill` is called with a negative, validated child pid, which
+    // targets only that child generation's dedicated process group.
+    unsafe {
+        let _ = libc::kill(-process_group, libc::SIGKILL);
+    }
 }

@@ -38,7 +38,10 @@ fn with_host<T>(
     invoke(&mut host)
 }
 
-fn exec_command_with_context(context: &ToolModuleInvocationContext, args: Value) -> Value {
+fn exec_command_with_context(context: &ToolModuleInvocationContext, mut args: Value) -> Value {
+    args.as_object_mut()
+        .expect("exec command args object")
+        .insert("with_escalated_permissions".to_owned(), Value::Bool(true));
     let call = json!({ "id": "call_exec", "name": "exec_command", "args": args });
     let context_json = serde_json::to_string(context).expect("context json");
     let result = with_host(Arc::new(AtomicBool::new(false)), |host| {
