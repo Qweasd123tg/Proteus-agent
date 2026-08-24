@@ -17,6 +17,7 @@
 - **Сообщить о security-проблеме:** [SECURITY.md](../SECURITY.md).
 - **Понять архитектуру:** [architecture.md](architecture.md), затем
   [modules.md](modules.md).
+- **Понять направление subagents:** [subagents.md](subagents.md).
 - **Разобрать сбой:** [inspect.md](inspect.md), затем профильный документ по
   runtime, config или policy.
 - **Добавить и проверить фичу:** [slot-governance.md](slot-governance.md),
@@ -42,13 +43,15 @@
    одного turn-а.
 2. [assembly-plan.md](assembly-plan.md) — как config превращается в единый
    проверенный чертёж до запуска workers.
-3. [modules.md](modules.md) — все выбираемые behavior slots, catalog vocabulary,
+3. [subagents.md](subagents.md) — принятая граница связи нескольких полных
+   экземпляров Proteus и честный статус текущего process runner-а.
+4. [modules.md](modules.md) — все выбираемые behavior slots, catalog vocabulary,
    доступные реализации и правило заменяемости.
-4. [process-module-architecture.md](process-module-architecture.md) —
+5. [process-module-architecture.md](process-module-architecture.md) —
    реализованный process-only contract, равенство реализаций и итог cutover.
-5. [slot-governance.md](slot-governance.md) — нужен ли новый slot, module,
+6. [slot-governance.md](slot-governance.md) — нужен ли новый slot, module,
    profile или feature pack.
-6. [testing.md](testing.md#стандарт-изменения) — общий путь от
+7. [testing.md](testing.md#стандарт-изменения) — общий путь от
    измеримой проблемы до focused/boundary/live/replay evidence и commit-а.
 
 Для более узких boundary-вопросов:
@@ -90,6 +93,7 @@
 |---|---|
 | Корневой `README` | Короткая актуальная точка входа и проверенные команды |
 | `architecture`, `assembly-plan`, `modules`, `configuration`, `runtime-and-events`, `security-and-policy`, `inspect`, `testing`, `process-module-architecture` | Reference текущей реализации |
+| `subagents` | Принятое архитектурное направление и отдельно отмеченный текущий implementation gap |
 | `scope`, `slot-governance` | Правила приоритета и принятия решений |
 | `dogfood-gate` | Необязательный manual diagnostic; не roadmap gate |
 | `releases/*` | Состав, ограничения и воспроизводимый gate конкретного релиза |
@@ -131,8 +135,8 @@
 - [research/subagent-web-ui-handoff.md](research/subagent-web-ui-handoff.md) —
   архив завершённого UI handoff по карточкам субагентов;
 - [research/subagent-architecture-options.md](research/subagent-architecture-options.md) —
-  research-разбор Codex/OpenCode semantics, граница реализованного первого
-  collaboration slice и открытые варианты будущего control plane;
+  исторический разбор Codex/OpenCode semantics и первого collaboration slice;
+  действующее направление вынесено в `subagents.md`;
 - [research/prime-agent-process-lessons-2026-08-06.md](research/prime-agent-process-lessons-2026-08-06.md) —
   применимые уроки Prime Agent для process-only module boundary: host-owned
   lifecycle, typed callbacks, terminal state, capability probe и граница между

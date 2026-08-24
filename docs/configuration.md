@@ -431,6 +431,9 @@ worktree isolation.
 - `none` — tools субагентов не регистрируются.
 
 Это единственный `none` в schema: enum UI surface, а не module id.
+Это config текущего baseline. Принятое направление считает process-subagent
+отдельным полным Proteus и развивает связь между экземплярами через
+agent-control contract; см. [subagents.md](subagents.md).
 
 ## Runtime, Server И Events
 

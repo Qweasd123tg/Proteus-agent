@@ -212,20 +212,25 @@ hosted-tool / retry / usage / replay parity и явная authority для crede
 
 ### Subagent Boundary Decision
 
-`sequential` и `process` runners пока core-owned. Общий
-`subagent/v1` потребует:
+`sequential` и `process` runners пока core-owned. Identity-модель уже принята:
+subagent — отдельный полный Proteus со своим config/plan/runtime/session, а
+root Proteus владеет agent tree и маршрутизацией. Это не обычный Component
+Runtime export; подробности находятся в [subagents.md](subagents.md).
+
+Отдельный agent-control process contract потребует:
 
 - roles и budgets;
 - spawn/wait/cancel/send/follow-up;
-- session ownership;
+- identity, authenticated attach и session ownership;
 - worktree isolation;
 - bounded concurrency и resume;
-- terminal state/journal parity.
+- terminal state/journal parity;
+- минимум два одновременно работающих peer Proteus в boundary evidence.
 
-Это не следует смешивать с обычным workflow contract. Сначала нужен contract
-audit существующей collaboration surface; затем `subagent/v1` проходит
-отдельный slot-governance и parity gate. Он не входит в Component Runtime v2
-cutover.
+Это не следует смешивать с обычным workflow contract или module callbacks.
+Сначала нужен audit существующей collaboration surface, затем отдельный
+contract/governance и parity gate. Миграция не входит в Component Runtime v2
+cutover или текущий alpha release.
 
 ### Process Trust Policy
 

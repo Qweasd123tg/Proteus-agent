@@ -25,7 +25,10 @@ Proteus не собирает возможности Pi, DeepSeek Harness, Codex
 конкретного agent runtime внутри core. Их идеи используются как requirements,
 сценарии и comparison evidence. Платформа предоставляет нейтральные process
 primitives и typed contracts, а конкретный agent loop, streaming provider или
-subagent lifecycle реализуется внешним component.
+slot behavior реализуется внешним component. Subagent lifecycle имеет другую
+границу: несколько полных экземпляров Proteus общаются через отдельный
+agent-control process contract; один Proteus не изображается component
+export-ом другого.
 
 Реализации одного slot равноправны:
 
@@ -185,7 +188,10 @@ tracked host, workers и examples используют Component Runtime v2 / wi
 также завершён 2026-08-23: one-component profile проходит полный workflow,
 cancel, один PID и canonical replay.
 Generic actor не добавляется, model и subagent boundaries остаются отдельными
-contract decisions. Актуальный критический путь ведётся в `scope.md`.
+contract decisions. Для subagents уже принята identity-модель «subagent —
+другой полный Proteus под root coordinator»; exact DTO, transport attach и
+persistence ещё planned. Подробнее: [subagents.md](subagents.md). Актуальный
+критический путь ведётся в `scope.md`.
 
 Ownership PTY sessions, bounded retention process-subagent pool, общий
 policy path для `task`, fail-closed shell sandbox и token для non-loopback

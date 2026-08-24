@@ -171,21 +171,24 @@ network и provider-hosted side effects. До этого model shaping оста�
 
 Проблема: `SubagentRunner` включает больше lifecycle, чем обычный module call.
 
-Contract audit должен покрыть:
+Принятое направление и порядок:
 
-- role discovery/config;
-- foreground run;
-- async spawn/list/wait/interrupt;
-- send/follow-up;
-- ownership и nesting;
-- concurrency, worktrees и cleanup;
-- resume/budgets;
-- journal terminal semantics.
+1. ✅ identity-модель: subagent — другой полный Proteus, root владеет деревом
+   и маршрутизацией; peer не является Component Runtime export-ом;
+2. ⏳ typed agent-control contract для role/config, spawn/list/wait/interrupt,
+   send/follow-up, cancel и terminal outcomes;
+3. ⏳ process path с адресными mailbox/follow-up и boundary test минимум двух
+   одновременно работающих Proteus;
+4. ⏳ отделённый root-owned agent record/tree: ownership, nesting, budgets,
+   bounded concurrency, retention, worktrees и cleanup;
+5. ⏳ authenticated attach к уже запущенному app-server без изменения agent
+   semantics;
+6. ⏳ persistence/reconnect и remote transport только после local contract.
 
-До audit не переносить runner механически и не смешивать subagent control plane
-с workflow callbacks. `subagent/v1` — отдельная migration с governance,
-несколькими implementations и parity evidence; он не входит в Runtime v2
-cutover.
+До contract audit не переносить runner механически и не смешивать agent
+control plane с workflow callbacks. Это отдельная process-contract migration
+с governance и parity evidence; она не входит в Runtime v2 cutover. Полная
+граница: [subagents.md](subagents.md).
 
 ### R5. Uniform Worker Trust Policy
 

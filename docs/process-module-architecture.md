@@ -447,8 +447,11 @@ Tracked reference crates — ordinary Rust libraries, линкуемые вну�
 1. model provider adapters — provider shaping является частью model service;
 2. `SubagentRunner` — lifecycle/control-plane шире обычного export invocation.
 
-Их processization требует отдельного полного contract и parity gate. Это не
-скрытый extension mechanism и не основание возвращать native ABI.
+Model processization требует отдельного полного slot contract и parity gate.
+Для subagents принят другой process contract: полный Proteus соединяется с
+другим полным Proteus через root-owned agent control, а не становится
+Component Runtime export-ом. Это не скрытый extension mechanism и не основание
+возвращать native ABI. Подробнее: [subagents.md](subagents.md).
 
 ## Evidence Gates
 

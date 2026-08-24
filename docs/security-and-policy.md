@@ -603,12 +603,15 @@ janitor; общий cap 16 сохраняет LRU-eviction. Cancellation акт�
 
 - `process` SubagentRunner ограничивает concurrent leases semaphore-ом и idle
   residents глобальным LRU-cap, но не имеет строгого wall-clock TTL/janitor;
+- process children пока не поддерживают адресные `send_message` и
+  `followup_task`; эти методы остаются только у in-process `sequential`;
 - collaboration records имеют session ownership и caps, но живут только в
   памяти процесса: после restart нет list/wait/resume прежних handles;
 
 До устранения этих gaps не считайте process-subagent/collaboration handles
 durable process isolation boundary. Внешний `workdir` допустим только для явно
 эскалированного unsandboxed вызова и сам по себе isolation boundary не создаёт.
+Целевая Proteus-to-Proteus граница описана в [subagents.md](subagents.md).
 
 ## Planned Rights Model
 

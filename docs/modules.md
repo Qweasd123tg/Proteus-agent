@@ -205,7 +205,9 @@ Canonical model request/response уже provider-neutral, но transport adapter
 `sequential` выполняет child loop in-process; `process` запускает
 `proteus server stdio` с role profiles. Это существующий core-owned contract,
 не общий component export contract. `subagents.surface = task | collaboration | none`
-задаёт model-facing tools, но не добавляет новый slot.
+задаёт model-facing tools, но не добавляет новый slot. Принятая целевая модель
+считает subagent отдельным полным Proteus под root-owned agent control;
+текущий статус и порядок перехода описаны в [subagents.md](subagents.md).
 
 ## Structural Absence
 

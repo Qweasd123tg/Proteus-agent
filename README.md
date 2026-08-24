@@ -159,8 +159,10 @@ Process boundary пока не sandbox: worker получает очищенно
 Оставшиеся core-owned selectable границы названы явно: model provider adapters
 (`fake`, `openai`, `openai_compatible`, `anthropic`) и
 `SubagentRunner` (`sequential`, `process`). Это не dylib-путь и не
-исключение для reference modules; их возможная миграция требует отдельных
-полных process contracts.
+исключение для reference modules. Model migration требует отдельного полного
+process contract; принятое направление subagents — связь нескольких полных
+экземпляров Proteus через отдельный agent-control process contract, а не
+обычный component export. Подробнее: [docs/subagents.md](docs/subagents.md).
 
 Marketplace, package manager, live module replacement, WASM runtime и OS
 sandbox в текущий cutover не входят.

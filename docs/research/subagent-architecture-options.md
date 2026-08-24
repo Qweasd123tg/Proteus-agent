@@ -1,14 +1,24 @@
 # Варианты Архитектуры Subagents
 
-Статус: research note; surface/control и bounded messaging slices реализованы,
-долгосрочный contract не выбран. Последнее обновление: 2026-07-11.
+Статус: историческая research note; surface/control и bounded messaging slices
+реализованы. Долгосрочная identity-модель выбрана 2026-08-24 и вынесена в
+[../subagents.md](../subagents.md); exact agent-control DTO/transport contract
+ещё не стабилизирован. Последнее обновление: 2026-08-24.
 
 Эта заметка сохраняет факты и развилки, которые выяснились после реализации
 первого subagent-среза. Она не является reference текущего контракта и не
 разрешает считать первый slice Codex parity или начинать следующий рефакторинг
 без отдельного решения.
 
-## Принятое Решение И Граница Первого Slice
+## Принятые Решения И Граница Первого Slice
+
+2026-08-24 зафиксировано долгосрочное направление: subagent — отдельный
+полный экземпляр Proteus со своим config/plan/runtime/session. Root Proteus
+владеет agent tree и маршрутизирует сообщения; local stdio process является
+первым transport, attach к уже работающему app-server — следующим, а прямой
+peer mesh отложен. Peer Proteus не является Component Runtime export-ом.
+Текущие варианты ниже сохраняются как история выбора, а действующая граница
+описана в [../subagents.md](../subagents.md).
 
 2026-07-11 model-facing protocol отделён от runner-а top-level config-ом
 `[subagents] surface = "task" | "collaboration" | "none"`. Новый module slot
@@ -29,8 +39,8 @@ records process-resident; app-server и web сохраняют live background c
 после завершения parent turn.
 
 Таким образом, решены model-facing facade, ownership и первый in-process
-mailbox/follow-up lifecycle. Общий persistent agent tree, process/plugin
-mailbox, history fork, role overlays, residency/reload и будущая plugin ABI
+mailbox/follow-up lifecycle. Общий persistent agent tree, process mailbox,
+history fork, role overlays, residency/reload и exact agent-control contract
 остаются предметом следующего ADR.
 
 ## Dogfood Первого Slice

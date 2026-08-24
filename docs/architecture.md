@@ -244,8 +244,31 @@ sandbox policy.
 
 Provider shaping допускается только в
 `crates/proteus-core/src/adapters` и model shaping layer. Эти границы нельзя
-использовать для добавления произвольных modules; их миграция требует полного
-slot contract и parity evidence.
+использовать для добавления произвольных modules. Model migration требует
+полного slot contract и parity evidence. Для subagent принят отдельный тип
+границы: полный Proteus общается с другим полным Proteus через agent-control
+process contract, а не публикует себя как обычный Component Runtime export.
+
+## Proteus-To-Proteus Subagents
+
+```text
+root Proteus (coordinator)
+    |
+    +-- Proteus role=research
+    +-- Proteus role=coding
+    `-- Proteus role=review
+```
+
+`subagent` здесь означает отношение к root session. Каждый ребёнок имеет свой
+config, `AssemblyPlan`, runtime, session/journal, model, tools и policy. Root
+владеет деревом участников, bounded mailbox и lifecycle, а сообщения между
+детьми на первом этапе маршрутизирует сам. Authority участников не
+объединяется.
+
+Текущий `process` runner уже запускает отдельные `proteus server stdio`, но
+process messaging/follow-up, attach к уже работающему Proteus и durable agent
+tree ещё не реализованы. Точная принятая граница и порядок реализации:
+[subagents.md](subagents.md).
 
 ## State И Snapshot
 
