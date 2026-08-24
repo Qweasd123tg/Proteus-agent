@@ -138,16 +138,18 @@ Rust LSP.
 Это transport/runtime cutover, а не новый agent loop, generic actor runtime
 или интеграция архитектур другого проекта.
 
-## Текущий Приоритет: Публикация v0.1 Alpha Candidate
+## Текущий Статус: v0.1 Alpha Опубликована
 
-P1-P4, AssemblyPlan и локальный `v0.1.0-alpha.1` release contour завершены. Изолированный
+P1-P4, AssemblyPlan и `v0.1.0-alpha.1` release contour завершены; тег опубликован
+24 августа 2026. Изолированный
 Linux smoke ставит release в пустые временные каталоги и проводит `init safe`,
 `doctor`, fake-profile turn, topology и внешний Python workflow. Добавлены CI,
-release notes и security scope. Оставшиеся внешние шаги — push release commit,
-зелёный CI на нём и публикация тега `v0.1.0-alpha.1`.
+release notes и security scope. Последующий tag run обнаружил две гонки только
+в test harness; отдельная test-only корректировка стабилизировала ожидание
+dispatch/reset events. Production broker и release contour при этом не менялись.
 
 Model/subagent contracts, sandbox и marketplace в alpha не входят и требуют
-отдельных решений после публикации, а не расширения текущего candidate.
+отдельных решений после публикации, а не расширения опубликованного contour.
 
 ### Bounded P0: завершён, технический GO
 
@@ -308,8 +310,8 @@ production path. Идея возвращается из research только с
 Если задача:
 
 - исправляет или укрепляет focused P0 evidence — делать в test/research scope;
-- относится к v0.1 alpha candidate — не расширять contour, закрывать только
-  CI/tag/release blockers;
+- относится к опубликованному v0.1 alpha contour — не расширять его;
+  возможные CI/release blockers закрывать отдельно от следующей feature scope;
 - закрывает model/subagent contract gap — сначала contract design и parity
   matrix;
 - добавляет module того же processized slot — external worker + conformance,

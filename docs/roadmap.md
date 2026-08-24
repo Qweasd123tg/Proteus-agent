@@ -112,13 +112,14 @@ union authority, automatic retry и fallback не появляются. Разд
 исчезает только разбиение, нужное исключительно для single-flight deadlock.
 
 Configured runtime теперь multiplexed. Старый `ProcessComponentSession`,
-callback dependency graph и wire-v2 DTO удалены. Следующий production этап —
-фиксированный `v0.1.0-alpha.1` Linux release contour, а не новая contract
-migration.
+callback dependency graph и wire-v2 DTO удалены. `v0.1.0-alpha.1` опубликован
+как фиксированный Linux release contour; две обнаруженные после публикации
+гонки test harness закрыты test-only корректировкой. Следующий production этап
+требует отдельного выбора, а не неявного продолжения contract migration.
 
 ### Фиксированная Граница v0.1 Alpha
 
-После P1-P4 собран `v0.1.0-alpha.1` release candidate:
+После P1-P4 опубликован `v0.1.0-alpha.1`:
 
 1. ✅ product crates и clients имеют alpha version, а CLI сообщает имя
    `proteus`;
@@ -130,8 +131,10 @@ migration.
    scope;
 5. ✅ config/runtime/doctor/topology сведены к единому `AssemblyPlan`, а
    plan+registry публикуются одним runtime snapshot;
-6. ⏳ после push нужен зелёный CI на release commit;
-7. ⏳ затем отдельно публикуется тег `v0.1.0-alpha.1`.
+6. ✅ CI release commit был зелёным до публикации тега; две выявленные
+   последующим tag run гонки test harness стабилизированы отдельной test-only
+   корректировкой без изменения production broker;
+7. ✅ 24 августа 2026 опубликован тег `v0.1.0-alpha.1`.
 
 Сравнение двух `AssemblyPlan` перед сохранением config-а остаётся следующим
 UX-срезом: это должна быть read-only projection над готовыми планами, не новый
