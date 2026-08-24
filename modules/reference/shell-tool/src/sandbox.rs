@@ -1,6 +1,11 @@
 //! Общая sandbox/workdir policy для one-shot и unified shell execution.
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+    thread,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Result, anyhow};
 use proteus_contracts::domain::EXEC_SHELL;
@@ -32,6 +37,7 @@ enum SandboxAvailability {
     Available(PathBuf),
     Disabled,
     Missing,
+    Unavailable,
 }
 
 /// Process-level sandbox policy. Detection is kept separate from selection so
@@ -43,13 +49,25 @@ pub(crate) struct SandboxPolicy {
 }
 
 impl SandboxPolicy {
+    /// Used when the caller has already selected explicit unsandboxed
+    /// execution. This avoids probing `bwrap` for a path that will not use it.
+    pub(crate) fn not_required() -> Self {
+        Self {
+            availability: SandboxAvailability::Disabled,
+        }
+    }
+
     pub(crate) fn detect(workspace: &str) -> Self {
         let availability = if std::env::var(SANDBOX_ENV).is_ok_and(|value| value == "0") {
             SandboxAvailability::Disabled
-        } else if let Some(executable) = trusted_executable_in_path("bwrap", workspace) {
-            SandboxAvailability::Available(executable)
         } else {
-            SandboxAvailability::Missing
+            match trusted_executable_in_path("bwrap", workspace) {
+                Some(executable) if bwrap_is_usable(&executable, workspace) => {
+                    SandboxAvailability::Available(executable)
+                }
+                Some(_) => SandboxAvailability::Unavailable,
+                None => SandboxAvailability::Missing,
+            }
         };
         Self { availability }
     }
@@ -80,6 +98,10 @@ impl SandboxPolicy {
                 "sandboxed shell execution requires executable 'bwrap' in PATH; retry with \
                  with_escalated_permissions=true to request an unsandboxed run"
             )),
+            SandboxAvailability::Unavailable => Err(anyhow!(
+                "sandboxed shell execution found 'bwrap', but it cannot establish the required \
+                 isolation; retry with with_escalated_permissions=true to request an unsandboxed run"
+            )),
         }
     }
 
@@ -94,6 +116,41 @@ impl SandboxPolicy {
     pub(crate) fn disabled_for_test() -> Self {
         Self {
             availability: SandboxAvailability::Disabled,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn unusable_for_test() -> Self {
+        Self {
+            availability: SandboxAvailability::Unavailable,
+        }
+    }
+}
+
+/// A `bwrap` binary is available only when it can create the same namespace
+/// and mount layout used for an actual non-escalated command. Presence in PATH
+/// alone is insufficient on hosts that disable unprivileged namespaces.
+fn bwrap_is_usable(executable: &Path, workspace: &str) -> bool {
+    let Ok(mut child) = Command::new(executable)
+        .args(bwrap_args("true", workspace, workspace))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return false;
+    };
+
+    let deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+            Ok(None) | Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
         }
     }
 }
@@ -253,15 +310,73 @@ mod tests {
 
     #[test]
     fn external_terminal_requires_escalation() {
-        let error = SandboxPolicy::unavailable_for_test()
+        let error = SandboxPolicy::unusable_for_test()
             .select(false, true)
             .expect_err("external terminal must reject non-escalated execution");
         assert!(error.to_string().contains("external terminal"));
         assert_eq!(
-            SandboxPolicy::unavailable_for_test()
+            SandboxPolicy::unusable_for_test()
                 .select(true, true)
                 .expect("escalated external terminal"),
             None
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bwrap_probe_rejects_an_executable_that_cannot_create_a_sandbox() {
+        use std::{fs, os::unix::fs::PermissionsExt as _};
+
+        let directory = tempfile::tempdir().expect("directory");
+        let executable = directory.path().join("bwrap");
+        fs::write(&executable, "#!/bin/sh\nexit 1\n").expect("shim");
+        let mut permissions = fs::metadata(&executable).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&executable, permissions).expect("permissions");
+
+        assert!(!bwrap_is_usable(
+            &executable,
+            directory.path().to_str().expect("workspace path")
+        ));
+
+        let error = SandboxPolicy::unusable_for_test()
+            .select(false, false)
+            .expect_err("unusable bwrap must fail closed");
+        assert!(
+            error
+                .to_string()
+                .contains("cannot establish the required isolation"),
+            "{error}"
+        );
+        assert_eq!(
+            SandboxPolicy::unusable_for_test()
+                .select(true, false)
+                .expect("escalated run bypasses sandbox"),
+            None
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bwrap_probe_is_bounded_when_the_executable_hangs() {
+        use std::{fs, os::unix::fs::PermissionsExt as _};
+
+        let directory = tempfile::tempdir().expect("directory");
+        let executable = directory.path().join("bwrap");
+        fs::write(&executable, "#!/bin/sh\nexec sleep 5\n").expect("shim");
+        let mut permissions = fs::metadata(&executable).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&executable, permissions).expect("permissions");
+
+        let started = Instant::now();
+        assert!(!bwrap_is_usable(
+            &executable,
+            directory.path().to_str().expect("workspace path")
+        ));
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "bwrap probe was not bounded: {:?}",
+            started.elapsed()
         );
     }
 

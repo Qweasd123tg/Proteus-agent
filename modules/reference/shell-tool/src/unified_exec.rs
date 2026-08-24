@@ -98,7 +98,7 @@ impl ToolModule for ExecCommandTool {
                 "aliases": ["interactive shell", "repl", "long-running command"]
             }
         });
-        String::from(spec.to_string())
+        spec.to_string()
     }
 
     fn invoke_json(
@@ -108,7 +108,7 @@ impl ToolModule for ExecCommandTool {
         host: &mut ToolModuleHostMut<'_>,
     ) -> Result<String, ProcessModuleError> {
         match exec_command_impl(call_json.as_str(), context_json.as_str(), host) {
-            Ok(result_json) => Ok(String::from(result_json)),
+            Ok(result_json) => Ok(result_json),
             Err(error) => Err(ProcessModuleError::new(format!("{error:#}"))),
         }
     }
@@ -152,7 +152,7 @@ impl ToolModule for WriteStdinTool {
                 "aliases": ["send input", "interrupt process", "poll output"]
             }
         });
-        String::from(spec.to_string())
+        spec.to_string()
     }
 
     fn invoke_json(
@@ -162,7 +162,7 @@ impl ToolModule for WriteStdinTool {
         host: &mut ToolModuleHostMut<'_>,
     ) -> Result<String, ProcessModuleError> {
         match write_stdin_impl(call_json.as_str(), context_json.as_str(), host) {
-            Ok(result_json) => Ok(String::from(result_json)),
+            Ok(result_json) => Ok(result_json),
             Err(error) => Err(ProcessModuleError::new(format!("{error:#}"))),
         }
     }
@@ -321,13 +321,18 @@ fn exec_command_impl(
         .and_then(|args| args.get("with_escalated_permissions"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let sandbox_policy = if escalated {
+        SandboxPolicy::not_required()
+    } else {
+        SandboxPolicy::detect(context.cwd.to_string_lossy().as_ref())
+    };
     execute_command(
         call_id,
         args,
         cmd,
         &context,
         escalated,
-        SandboxPolicy::detect(context.cwd.to_string_lossy().as_ref()),
+        sandbox_policy,
         host,
     )
 }

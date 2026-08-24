@@ -447,9 +447,10 @@ Reference module `shell-tool` (tools `shell`, `exec_command`) сам завор�
 
 Вызов с `with_escalated_permissions: true` исполняется без песочницы и проходит
 через approval (см. `codex_policy` ниже). Если `bwrap` недоступен, не executable
-через `PATH` или выставлен `PROTEUS_SHELL_SANDBOX=0`, неэскалированный вызов
-завершается ошибкой до spawn; для явно запрошенного unsandboxed run нужна
-эскалация. Путь внешнего терминала (Ptyxis) также считается unsandboxed,
+через `PATH`, не может создать требуемые namespace/mount isolation или выставлен
+`PROTEUS_SHELL_SANDBOX=0`, неэскалированный вызов завершается ошибкой до spawn
+пользовательской команды; для явно запрошенного unsandboxed run нужна эскалация.
+Путь внешнего терминала (Ptyxis) также считается unsandboxed,
 допускается только для эскалированного вызова и сообщает `sandbox: null`,
 `escalated: true`.
 
