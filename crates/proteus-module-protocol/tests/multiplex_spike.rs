@@ -280,9 +280,14 @@ fn uncooperative_cancel_resets_shared_failure_domain() -> Result<()> {
         workflow("spike.workflow"),
         json!({"op":"ignore_cancel", "delay_ms":500}),
     )?;
+    let target_id = target.id().to_owned();
     let sibling = broker.start(
         workflow("spike.workflow"),
         json!({"op":"echo", "value":"lost", "delay_ms":500}),
+    )?;
+    wait_for_trace(
+        &broker,
+        |event| matches!(event, TraceEvent::Started { id, .. } if id == &target_id),
     )?;
     target.cancel(CancelCause::Timeout)?;
     ensure!(target.wait(SETTLE_TIMEOUT)? == Terminal::Canceled(CancelCause::Timeout));
@@ -483,13 +488,15 @@ fn process_exit_is_observed_while_progress_is_buffered() -> Result<()> {
         flood_terminal,
         Terminal::Success(_) | Terminal::ComponentLost(ComponentLostCause::ProcessExit)
     ));
-    ensure!(broker.trace().iter().any(|event| matches!(
-        event,
-        TraceEvent::GenerationReset {
-            cause: ComponentLostCause::ProcessExit,
-            ..
-        }
-    )));
+    wait_for_trace(&broker, |event| {
+        matches!(
+            event,
+            TraceEvent::GenerationReset {
+                cause: ComponentLostCause::ProcessExit,
+                ..
+            }
+        )
+    })?;
     Ok(())
 }
 
