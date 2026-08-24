@@ -26,6 +26,10 @@ jobs:
           rustup set profile minimal
           rustup toolchain install stable --component rustfmt
           rustup default stable
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ripgrep
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Test workspace
