@@ -314,6 +314,26 @@ installer или UI, но не являются gate или sequencing prerequis
 Каждое направление должно улучшать измеримое поведение capability или workflow,
 а не просто увеличивать число knobs.
 
+### Отложенный Codex Differential Parity Gate
+
+Для зафиксированного upstream commit и явно ограниченной Codex-shaped surface
+нужно собрать differential harness. При одинаковых repo/config/prompt,
+recorded model/tool/approval oracle и нормализации только заранее перечисленных
+nondeterministic полей он сравнивает canonical trace каждого round: model
+request, tool call/result/error, history mutation и terminal state Proteus с
+Codex.
+
+Корпус обязан включать negative paths: malformed, unknown и unrequested tool,
+denial, cancel/timeout, stream failure, compaction и parallel calls. Такой gate
+проверяет scoped observational equivalence orchestration. Live eval остаётся
+отдельной статистической проверкой utility и сам по себе не доказывает parity.
+Любая допустимая divergence должна быть явной и версионированной; tool
+arguments/results, history, stop reason и causal order нормализовать нельзя.
+
+Этот пункт не является заявлением, что текущий профиль идентичен Codex, и не
+вводит compatibility promise до реализации harness-а и фиксации проверяемой
+surface.
+
 ## Parked
 
 ### Package Distribution
