@@ -380,6 +380,30 @@ release в `PATH`, а configs не ссылаются на удалённые ar
 
 Installer не должен собирать или копировать dylib modules.
 
+### v0.1 Alpha Release Smoke
+
+Полный Linux developer contour запускается одной командой:
+
+```bash
+./scripts/alpha-smoke.sh
+```
+
+Gate использует только каталоги из `mktemp` через `PROTEUS_BIN_DIR`,
+`PROTEUS_HOME` и `PROTEUS_CONFIG_HOME`. Он проверяет:
+
+- release содержит исполняемые `proteus` и `proteus-reference-worker`, но не
+  native extension libraries;
+- `proteus --version`, `init safe` и `doctor` работают на пустом состоянии;
+- fake profile завершает полный turn, а runtime topology показывает process
+  exports;
+- внешний Python `workflow/python_agent_loop` проходит `doctor`, topology и
+  полный callback/model turn без core fallback;
+- временная install/config/session/event state удаляется после gate.
+
+`.github/workflows/ci.yml` отдельно повторяет workspace tests, locked Trunk
+build обоих clients и этот isolated smoke. Наличие workflow-файла не считается
+зелёным CI: перед tag нужен успешный run на release commit.
+
 ## Static Cutover Gate
 
 Для process-only architecture полезен явный audit:

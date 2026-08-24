@@ -2,7 +2,7 @@
 set -eu
 
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-bin_dir="${HOME}/.local/bin"
+bin_dir="${PROTEUS_BIN_DIR:-${HOME}/.local/bin}"
 bin_path="${bin_dir}/proteus"
 proteus_home="${PROTEUS_HOME:-${HOME}/.proteus}"
 releases_dir="${proteus_home}/releases"

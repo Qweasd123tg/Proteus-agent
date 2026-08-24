@@ -223,7 +223,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "codex-compactor"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "proteus-contracts",
  "serde_json",
@@ -231,7 +231,7 @@ dependencies = [
 
 [[package]]
 name = "codex-tool-exposure"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "proteus-contracts",
  "serde_json",
@@ -239,7 +239,7 @@ dependencies = [
 
 [[package]]
 name = "coding-workflow"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "proteus-contracts",
  "serde",
@@ -254,7 +254,7 @@ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 
 [[package]]
 name = "context-pack"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
  "proteus-contracts",
@@ -271,7 +271,7 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
 name = "direct-patch"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "proteus-contracts",
  "serde_json",
@@ -342,7 +342,7 @@ checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
 
 [[package]]
 name = "file-tools"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "proteus-contracts",
  "serde",
@@ -484,7 +484,7 @@ dependencies = [
 
 [[package]]
 name = "git-tools"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "proteus-contracts",
  "serde",
@@ -873,7 +873,7 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
 name = "memory-pack"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
  "proteus-contracts",
@@ -962,7 +962,7 @@ checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 
 [[package]]
 name = "plan-tool"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "proteus-contracts",
  "serde",
@@ -971,7 +971,7 @@ dependencies = [
 
 [[package]]
 name = "policy-pack"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "proteus-contracts",
  "serde",
@@ -1038,7 +1038,7 @@ dependencies = [
 
 [[package]]
 name = "proteus-contracts"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1054,7 +1054,7 @@ dependencies = [
 
 [[package]]
 name = "proteus-core"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1084,7 +1084,7 @@ dependencies = [
 
 [[package]]
 name = "proteus-module-protocol"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1097,7 +1097,7 @@ dependencies = [
 
 [[package]]
 name = "proteus-process-host"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -1105,7 +1105,7 @@ dependencies = [
 
 [[package]]
 name = "proteus-reference-worker"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1242,7 +1242,7 @@ dependencies = [
 
 [[package]]
 name = "renderer-pack"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
  "proteus-contracts",
@@ -1292,7 +1292,7 @@ dependencies = [
 
 [[package]]
 name = "rg-search"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "proteus-contracts",
  "serde_json",
@@ -1328,7 +1328,7 @@ dependencies = [
 
 [[package]]
 name = "rust-lsp"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
  "proteus-contracts",
@@ -1511,7 +1511,7 @@ dependencies = [
 
 [[package]]
 name = "shell-tool"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
  "libc",
@@ -1545,7 +1545,7 @@ dependencies = [
 
 [[package]]
 name = "skill-pack"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "proteus-contracts",
  "serde",
@@ -1578,7 +1578,7 @@ dependencies = [
 
 [[package]]
 name = "sqlite-memory"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
  "chrono",

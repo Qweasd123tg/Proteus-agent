@@ -6,6 +6,10 @@ Proteus — локальный coding-agent runtime на Rust. Его основ
 Core -> Contract -> Process Component Export
 ```
 
+Текущая release line — `v0.1.0-alpha.1`. Состав, ограничения и точный gate:
+[release notes](docs/releases/v0.1.0-alpha.1.md). Это pre-release без
+стабильности wire/config/storage форматов.
+
 Core управляет turn lifecycle, canonical history, approvals и wiring. Поиск,
 память, context, policy, patch, compaction, tool exposure, workflow, renderer и
 tools подключаются как exports внешних компонентов по strict JSON-RPC
@@ -45,7 +49,8 @@ proteus doctor
 одним versioned release под `~/.proteus/current` и атомарно переключает
 `current`. Wrapper добавляет release directory в `PATH`, поэтому components с
 `command = "proteus-reference-worker"` работают без абсолютного
-пути.
+пути. Альтернативные каталоги задаются через `PROTEUS_BIN_DIR`,
+`PROTEUS_HOME` и `PROTEUS_CONFIG_HOME`.
 
 `proteus init coding` создаёт config только когда вы явно вызываете init. Уже
 существующий рабочий config перезаписывать не нужно. Затем перейдите в целевой
@@ -73,6 +78,12 @@ Smoke без внешнего API:
 PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config examples/configs/proteus.example.toml doctor
 
 PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config examples/configs/proteus.process-agent.example.toml "explain this profile"
+```
+
+Полный изолированный alpha smoke, не меняющий пользовательские каталоги:
+
+```bash
+./scripts/alpha-smoke.sh
 ```
 
 ## Как Подключается Модуль
@@ -201,6 +212,8 @@ docs/                           reference, testing rules и roadmap
   protocol, authority и результат cutover;
 - [configuration.md](docs/configuration.md) — schema, components и exports;
 - [security-and-policy.md](docs/security-and-policy.md) — tools и approvals;
+- [SECURITY.md](SECURITY.md) — reporting и точная trust boundary alpha;
+- [v0.1.0-alpha.1](docs/releases/v0.1.0-alpha.1.md) — состав и release gate;
 - [testing.md](docs/testing.md) — обязательные evidence gates;
 - [scope.md](docs/scope.md) и [roadmap.md](docs/roadmap.md) — что дальше.
 
@@ -212,8 +225,9 @@ docs/                           reference, testing rules и roadmap
 ```bash
 cargo fmt --all --check
 cargo test --workspace
-(cd clients/web && env -u NO_COLOR trunk build)
-(cd clients/inspector && env -u NO_COLOR trunk build)
+(cd clients/web && env -u NO_COLOR trunk build --locked)
+(cd clients/inspector && env -u NO_COLOR trunk build --locked)
+./scripts/alpha-smoke.sh
 git diff --check
 ```
 

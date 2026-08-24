@@ -15,6 +15,11 @@ gaps перечислены в разделе «Известные Ограни�
 Этот документ описывает текущую реализацию v0. Более гибкая config-editable
 модель прав остаётся planned и кратко описана в конце.
 
+Для alpha reporting, поддерживаемой линии и короткой trust-boundary сводки
+используйте корневой [SECURITY.md](../SECURITY.md). Process component считается
+доверенным executable: strict protocol ограничивает его callbacks в host, но
+не ограничивает прямые OS-действия самого процесса.
+
 В v0 нет универсального OS sandbox для всех tools. Текущая защита держится на
 workspace boundary, safety classes, permission mode и approval policy; для
 process tool module `shell-tool` дополнительно использует

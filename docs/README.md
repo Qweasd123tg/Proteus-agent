@@ -12,6 +12,9 @@
 - **Запустить Proteus локально:** [README](../README.md#быстрый-запуск).
 - **Поднять на другой машине:**
   [second-pc-bootstrap.md](second-pc-bootstrap.md).
+- **Проверить или выпустить alpha:**
+  [v0.1.0-alpha.1 release notes](releases/v0.1.0-alpha.1.md).
+- **Сообщить о security-проблеме:** [SECURITY.md](../SECURITY.md).
 - **Понять архитектуру:** [architecture.md](architecture.md), затем
   [modules.md](modules.md).
 - **Разобрать сбой:** [inspect.md](inspect.md), затем профильный документ по
@@ -87,6 +90,7 @@
 | `architecture`, `modules`, `configuration`, `runtime-and-events`, `security-and-policy`, `inspect`, `testing`, `process-module-architecture` | Reference текущей реализации |
 | `scope`, `slot-governance` | Правила приоритета и принятия решений |
 | `dogfood-gate` | Необязательный manual diagnostic; не roadmap gate |
+| `releases/*` | Состав, ограничения и воспроизводимый gate конкретного релиза |
 | `roadmap`, `spec` | План и направление; planned не означает implemented |
 | `research/*`, `examples/research/*` | Черновики и архивы, не действующий контракт |
 

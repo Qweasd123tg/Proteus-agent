@@ -34,7 +34,7 @@ executable + config-ом без Rust adapter под конкретный `module
 cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
   --component-id python-agent \
   --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v1","module_config":{}}' \
-  -- python3 examples/modules/agent-worker/agent.py
+  -- python3 -B examples/modules/agent-worker/agent.py
 ```
 
 Conformance-команда без probe проверяет strict initialize/manifest. Полный
@@ -48,9 +48,10 @@ cargo run -p proteus-core -- \
   "объясни устройство этого профиля"
 ```
 
-Example-профиль намеренно не включает tools и выбирает `deny_all`. Чтобы
-проверить tool loop вручную, явно выберите нужные tool modules/tools и policy в
-своём профиле; менять worker для этого не требуется.
+Example-профиль намеренно не включает tools и не выбирает policy slot, поэтому
+execution закрыт structural deny. Чтобы проверить tool loop вручную, явно
+выберите нужные tool modules/tools и policy в своём профиле; менять worker для
+этого не требуется.
 
 ## Contract v1
 

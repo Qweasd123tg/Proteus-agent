@@ -56,7 +56,12 @@ use proteus_core::core::ModuleCatalog;
 use std::path::Path;
 
 #[derive(Debug, Parser)]
-#[command(author, version, about = "CLI-first Proteus skeleton")]
+#[command(
+    name = "proteus",
+    author,
+    version,
+    about = "CLI-first Proteus skeleton"
+)]
 struct Cli {
     #[arg(long)]
     config: Option<PathBuf>,

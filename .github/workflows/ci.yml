@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust workspace
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install Rust
+        run: |
+          rustup set profile minimal
+          rustup toolchain install stable --component rustfmt
+          rustup default stable
+      - name: Check formatting
+        run: cargo fmt --all --check
+      - name: Test workspace
+        run: cargo test --workspace
+      - name: Check release scripts
+        run: |
+          sh -n install.sh
+          sh -n scripts/alpha-smoke.sh
+      - name: Reject retired native extension paths
+        run: |
+          if rg -n 'abi_stable|libloading|cdylib|plugin\.toml' Cargo.toml Cargo.lock crates modules/reference; then
+            echo "retired native extension path is present in the active tree" >&2
+            exit 1
+          fi
+      - name: Keep tracked sources unchanged
+        run: git diff --exit-code
+
+  clients:
+    name: Web clients
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install Rust and WebAssembly target
+        run: |
+          rustup set profile minimal
+          rustup toolchain install stable
+          rustup default stable
+          rustup target add wasm32-unknown-unknown
+      - name: Install Trunk
+        run: cargo install trunk --version 0.21.14 --locked
+      - name: Build chat client
+        working-directory: clients/web
+        run: env -u NO_COLOR trunk build --locked
+      - name: Build inspector client
+        working-directory: clients/inspector
+        run: env -u NO_COLOR trunk build --locked
+      - name: Keep tracked sources unchanged
+        run: git diff --exit-code
+
+  alpha-smoke:
+    name: Isolated alpha install
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install Rust
+        run: |
+          rustup set profile minimal
+          rustup toolchain install stable
+          rustup default stable
+      - name: Install smoke dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes python3 ripgrep
+      - name: Run isolated release smoke
+        run: ./scripts/alpha-smoke.sh
+      - name: Keep tracked sources unchanged
+        run: git diff --exit-code

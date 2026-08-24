@@ -1,0 +1,97 @@
+#!/usr/bin/env sh
+set -eu
+
+project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+smoke_root=$(mktemp -d "${TMPDIR:-/tmp}/proteus-alpha-smoke.XXXXXX")
+bin_dir="${smoke_root}/bin"
+runtime_home="${smoke_root}/runtime"
+config_home="${smoke_root}/config"
+output_dir="${smoke_root}/output"
+
+cleanup() {
+  case "${smoke_root}" in
+    */proteus-alpha-smoke.*) rm -rf -- "${smoke_root}" ;;
+    *) echo "Refusing to remove unexpected smoke directory: ${smoke_root}" >&2 ;;
+  esac
+}
+trap cleanup EXIT HUP INT TERM
+
+mkdir -p "${output_dir}"
+export PROTEUS_BIN_DIR="${bin_dir}"
+export PROTEUS_HOME="${runtime_home}"
+export PROTEUS_CONFIG_HOME="${config_home}"
+
+run_and_capture() {
+  label=$1
+  output=$2
+  shift 2
+  if "$@" >"${output}" 2>&1; then
+    return
+  fi
+  echo "alpha smoke failed during ${label}" >&2
+  sed -n '1,240p' "${output}" >&2
+  exit 1
+}
+
+require_text() {
+  expected=$1
+  output=$2
+  if grep -F -- "${expected}" "${output}" >/dev/null; then
+    return
+  fi
+  echo "alpha smoke did not find '${expected}' in ${output}" >&2
+  sed -n '1,240p' "${output}" >&2
+  exit 1
+}
+
+run_and_capture install "${output_dir}/install.txt" "${project_dir}/install.sh"
+
+proteus="${bin_dir}/proteus"
+test -x "${proteus}"
+test -L "${runtime_home}/current"
+test -x "${runtime_home}/current/proteus"
+test -x "${runtime_home}/current/proteus-reference-worker"
+
+if find -H "${runtime_home}/current" -maxdepth 1 -type f \
+  \( -name '*.so' -o -name '*.dylib' -o -name '*.dll' \) | grep . >/dev/null; then
+  echo "alpha release unexpectedly contains a native extension library" >&2
+  exit 1
+fi
+
+run_and_capture version "${output_dir}/version.txt" "${proteus}" --version
+require_text "proteus 0.1.0-alpha.1" "${output_dir}/version.txt"
+
+run_and_capture init "${output_dir}/init.txt" "${proteus}" init safe
+test -f "${config_home}/configs/config.toml"
+
+run_and_capture doctor "${output_dir}/doctor.txt" "${proteus}" doctor
+require_text "config loaded" "${output_dir}/doctor.txt"
+require_text "process component" "${output_dir}/doctor.txt"
+
+run_and_capture topology "${output_dir}/topology.txt" \
+  "${proteus}" inspect topology --format runtime
+require_text "workflow        -> coding.single_loop" "${output_dir}/topology.txt"
+require_text "[process" "${output_dir}/topology.txt"
+
+run_and_capture fake-profile "${output_dir}/fake-profile.txt" \
+  "${proteus}" --cwd "${project_dir}" "alpha smoke"
+require_text "Fake final answer." "${output_dir}/fake-profile.txt"
+
+external_config="${config_home}/configs/python-agent.toml"
+cp "${project_dir}/examples/configs/proteus.process-agent.example.toml" "${external_config}"
+
+run_and_capture external-doctor "${output_dir}/external-doctor.txt" \
+  "${proteus}" --config "${external_config}" --cwd "${project_dir}" doctor
+require_text "process component python-agent" "${output_dir}/external-doctor.txt"
+
+run_and_capture external-topology "${output_dir}/external-topology.txt" \
+  "${proteus}" --config "${external_config}" --cwd "${project_dir}" \
+  inspect topology --format runtime
+require_text "workflow        -> python_agent_loop" "${output_dir}/external-topology.txt"
+
+run_and_capture external-component "${output_dir}/external-component.txt" \
+  "${proteus}" --config "${external_config}" --cwd "${project_dir}" \
+  "alpha external component demo"
+require_text "Fake final answer." "${output_dir}/external-component.txt"
+
+echo "alpha smoke passed: isolated install, init, doctor, fake profile, topology, external Python component"

@@ -118,10 +118,21 @@ migration.
 
 ### Фиксированная Граница v0.1 Alpha
 
-После P1-P4 первая публичная `v0.1.0-alpha.1` закрывается Linux developer
-release contour, clean install/doctor/fake-profile/topology smoke, CI и одним
-внешним component demo. Model/subagent migrations, sandbox, protocol freeze,
-marketplace, Hermes/OpenClaw research и session branching не двигают этот тег.
+После P1-P4 собран `v0.1.0-alpha.1` release candidate:
+
+1. ✅ product crates и clients имеют alpha version, а CLI сообщает имя
+   `proteus`;
+2. ✅ isolated Linux install проверяет `init`, `doctor`, fake-profile turn и
+   topology без записи в пользовательские каталоги;
+3. ✅ внешний Python workflow проходит полный turn без правок или fallback в
+   core;
+4. ✅ добавлены Linux CI, release notes и честный security/trusted-executable
+   scope;
+5. ⏳ после push нужен зелёный CI на release commit;
+6. ⏳ затем отдельно публикуется тег `v0.1.0-alpha.1`.
+
+Model/subagent migrations, sandbox, protocol freeze, marketplace,
+Hermes/OpenClaw research и session branching не двигают этот тег.
 
 Долгосрочный тезис конструктора, strict-contract guardrails и отложенные
 expressiveness/replay вопросы собраны в

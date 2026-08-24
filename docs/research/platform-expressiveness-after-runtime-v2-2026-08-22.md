@@ -49,6 +49,10 @@ Component может содержать собственный loop, hooks, sche
 
 ## Фиксированная Граница v0.1 Alpha
 
+Статус 2026-08-24: пункты 1-4 собраны в локальный release candidate;
+публичный tag из пункта 5 остаётся внешним шагом после зелёного CI на release
+commit. Этот status update не меняет исторический parking lot ниже.
+
 `v0.1.0-alpha.1` считается готовой после:
 
 1. завершённые P1 duplex transport, P2 broker/wire-v3 kernel, P3 atomic

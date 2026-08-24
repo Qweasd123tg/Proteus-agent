@@ -3,6 +3,13 @@ use crate::cli_commands::{PromptReplayCommand, WorkflowReplayCommand};
 use proteus_core::domain::{ModuleKind, ModuleManifest};
 
 #[test]
+fn cli_identity_matches_the_installed_release_binary() {
+    let command = <Cli as clap::CommandFactory>::command();
+    assert_eq!(command.get_name(), "proteus");
+    assert_eq!(command.get_version(), Some(env!("CARGO_PKG_VERSION")));
+}
+
+#[test]
 fn modules_list_command_is_exact() {
     assert!(is_modules_list_command(&[
         "modules".to_owned(),
