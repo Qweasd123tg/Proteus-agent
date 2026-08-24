@@ -314,6 +314,31 @@ installer или UI, но не являются gate или sequencing prerequis
 Каждое направление должно улучшать измеримое поведение capability или workflow,
 а не просто увеличивать число knobs.
 
+### Вектор Эффективности: Стоимость Успешной Задачи
+
+Цель — не минимизировать число токенов само по себе, а снижать стоимость
+надёжно завершённой полезной задачи. Будущий счётчик показывает usage и, только
+при provider-reported cost или зафиксированной versioned pricing table, оценку
+денег на turn, session, task corpus и успешную задачу. Без такого источника он
+обязан показывать tokens/latency, а не выдавать оценку за billing truth.
+
+Качество сравнивается вектором: проверенная успешность задачи,
+safety/recovery, latency, model usage/cost, число model/tool rounds и failed
+tool actions. Более дешёвый вариант не считается лучше, если он ухудшил
+успешность, безопасность или воспроизводимость.
+
+Модульная архитектура — механизм таких улучшений: реализации одного slot можно
+сравнивать и заменять конфигом на одинаковом corpus/config/model/approval
+oracle без пересборки монолита и special path в core. Swap подтверждает
+механическую заменяемость; эффективность требует отдельного eval evidence с
+зафиксированными baseline, corpus, success criterion, pricing snapshot и явно
+перечисленными допустимыми divergences.
+
+Это будущая evaluation/observability surface, а не заявление о готовом UI
+counter, новом `UsageMeter` slot или точном денежном биллинге. Сначала она
+должна использовать canonical journal/events и существующий eval path; новый
+slot допустим только при отдельном governance evidence.
+
 ### Отложенный Codex Differential Parity Gate
 
 Для зафиксированного upstream commit и явно ограниченной Codex-shaped surface
