@@ -14,6 +14,9 @@ use std::{
 use anyhow::{Result, anyhow, bail};
 use serde_json::Value;
 
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
 use crate::{
     DEFAULT_MAX_FRAME_BYTES, DEFAULT_MAX_QUEUED_CONTROL_WRITE_BYTES,
     DEFAULT_MAX_QUEUED_CONTROL_WRITES, DEFAULT_MAX_QUEUED_WRITE_BYTES, DEFAULT_MAX_QUEUED_WRITES,
@@ -249,6 +252,11 @@ impl<F: Framing> ProcessTransport<F> {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        // Keep each child generation and its ordinary descendants in an
+        // isolated process group. Lifecycle termination then closes all stdio
+        // pipe owners, rather than only the direct child.
+        #[cfg(unix)]
+        command.process_group(0);
         spec.apply_environment(&mut command)?;
         if let Some(cwd) = &spec.cwd {
             command.current_dir(cwd);

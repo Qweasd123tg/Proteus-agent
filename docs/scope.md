@@ -257,7 +257,7 @@ worker-а.
 - upgrade/version negotiation decision;
 - стабильная documentation + conformance artifact.
 
-Пока действует strict component wire `v2` без automatic downgrade.
+Пока действует strict component wire `v3` без automatic downgrade.
 
 ## Не На Критическом Пути
 

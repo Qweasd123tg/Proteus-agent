@@ -71,8 +71,9 @@ Process-host suite дополнительно фиксирует protocol-neutra
   limits применяются отдельно к data и control lanes;
 - slow consumer не обходит aggregate receive frame/byte limits;
 - child exit имеет lifecycle signal отдельно от frame queue;
-- repeated terminate идемпотентен и будит blocked reader и всех lifecycle
-  waiters;
+- repeated terminate идемпотентен; остановка live Unix generation завершает
+  его process group и будит blocked reader и всех lifecycle waiters, даже если
+  обычный descendant удерживает унаследованные stdout/stderr;
 - `ProcessHost::terminate` прерывает blocked sequential request до его timeout;
 - initializer выполняется ровно один раз на generation и повторяется после
   lazy restart.
