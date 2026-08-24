@@ -1,29 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::core::{
-    AppConfig, ModuleCatalogEntrySummary,
+    ModuleCatalogEntrySummary,
     core_slots::{CORE_SLOT_DESCRIPTORS, core_slot_descriptor_by_id},
 };
 use crate::domain::ModuleKind;
 
-use super::{ModelTopology, SlotTopology};
-
-pub(super) fn active_modules(
-    config: &AppConfig,
-    model: Option<&ModelTopology>,
-) -> BTreeMap<String, String> {
-    let mut modules = BTreeMap::new();
-    if let Some(model) = model {
-        modules.insert("model".to_owned(), model.provider.clone());
-    }
-    modules.extend(
-        config
-            .modules
-            .iter()
-            .map(|(kind, id)| (kind.as_str().to_owned(), id.to_owned())),
-    );
-    modules
-}
+use super::SlotTopology;
 
 pub(super) fn build_slots(
     catalog_entries: &[ModuleCatalogEntrySummary],

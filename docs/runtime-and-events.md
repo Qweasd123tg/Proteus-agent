@@ -188,6 +188,13 @@ mode. Каждый `turn_opened` дополнительно содержит sna
 `RuntimeSnapshot`/`ModuleEpoch`, поэтому module reload и runtime model/mode
 override не приписываются следующему turn-у задним числом.
 
+В памяти `RuntimeSnapshot` дополнительно держит неизменяемый `AssemblyPlan`
+рядом с созданным из него `RuntimeRegistry`. Начальная сборка и reload передают
+их только единым `PreparedAssembly`, поэтому diagnostics не могут увидеть
+новый план со старым registry. Сам план не дублируется в canonical journal:
+replay использует компактный `SessionConfigSnapshot` с точными module ids и
+зарегистрированными tools.
+
 Полный формат и границы replay описаны в
 [canonical-turn-data.md](canonical-turn-data.md).
 
@@ -429,6 +436,8 @@ HTTP/SSE transport:
   runtime подключён к session store;
 - `GET /config/builder` - snapshot selectable modules/tools/providers и
   текущих значений Config Builder;
+- `GET /inspect/plan` - безопасная JSON projection точного `AssemblyPlan`
+  текущего module epoch;
 - `GET /inspect/topology` - JSON `TopologySnapshot` для diagnostics UI;
 - `GET /inspect/topology.runtime` - короткий runtime path из того же snapshot;
 - `GET /inspect/topology.runtime.mmd` - короткая Mermaid runtime-схема;
@@ -896,11 +905,12 @@ reasoning-поля из runtime config (`summary`, `budget_tokens`). UI полу
 переопределять effort поверх config.
 
 `StdioRequest::ReloadTools` и HTTP `POST /reload-tools` перечитывают `tools.*`
-из config path, заново собирают process catalog и MCP/configured tools, затем
-публикуют новый `RuntimeSnapshot`. Остальные `modules.*`, provider и runtime
-settings остаются как в текущем app-server snapshot; для их замены нужен
-будущий `reload_modules`. Уже running turn держит старый snapshot; new turns
-берут новый. Клиент получает `AppServerEvent::ModulesReloaded { old_epoch,
+из config path, заново строят `AssemblyPlan`, process catalog и
+MCP/configured tools, затем публикуют один новый `PreparedAssembly` внутри
+`RuntimeSnapshot`. Остальные `modules.*`, provider и runtime settings остаются
+как в текущем app-server snapshot; для их замены нужен будущий
+`reload_modules`. Уже running turn держит старый snapshot; new turns берут
+новый. Клиент получает `AppServerEvent::ModulesReloaded { old_epoch,
 new_epoch, tool_names }`, а `GET /config` / `ConfigSummary` возвращает
 `module_epoch`. Это reload control-plane: новый snapshot получает свои MCP
 host-процессы, но это не общий `reload_modules`.

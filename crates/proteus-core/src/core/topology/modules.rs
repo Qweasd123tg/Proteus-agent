@@ -1,13 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::core::ModuleCatalogEntrySummary;
+use crate::core::{AssemblyModuleSource, ModuleCatalogEntrySummary, catalog_module_source};
 
-use super::{ModuleSourceTopology, ModuleTopology, TopologyWarning};
+use super::{ModuleSourceTopology, ModuleTopology};
 
 pub(super) fn build_modules(
     catalog_entries: &[ModuleCatalogEntrySummary],
     active_modules: &BTreeMap<String, String>,
-    warnings: &mut Vec<TopologyWarning>,
 ) -> Vec<ModuleTopology> {
     let mut modules = catalog_entries
         .iter()
@@ -34,9 +33,6 @@ pub(super) fn build_modules(
         .collect::<BTreeSet<_>>();
     for (slot, id) in active_modules {
         if !known.contains(&(slot.clone(), id.clone())) {
-            warnings.push(TopologyWarning::error(format!(
-                "active module is not registered: {slot}/{id}"
-            )));
             modules.push(ModuleTopology {
                 id: id.clone(),
                 slot: slot.clone(),
@@ -59,22 +55,11 @@ pub(super) fn build_modules(
 }
 
 fn module_source(entry: &ModuleCatalogEntrySummary) -> ModuleSourceTopology {
-    if entry
-        .manifest
-        .capabilities
-        .iter()
-        .any(|capability| capability == "process")
-    {
-        ModuleSourceTopology::Process
-    } else if entry
-        .manifest
-        .capabilities
-        .iter()
-        .any(|capability| capability == "config_defined")
-    {
-        ModuleSourceTopology::Config
-    } else {
-        ModuleSourceTopology::Builtin
+    match catalog_module_source(entry) {
+        AssemblyModuleSource::Builtin => ModuleSourceTopology::Builtin,
+        AssemblyModuleSource::Process => ModuleSourceTopology::Process,
+        AssemblyModuleSource::Config => ModuleSourceTopology::Config,
+        AssemblyModuleSource::Unknown => ModuleSourceTopology::Unknown,
     }
 }
 

@@ -15,10 +15,11 @@ use proteus_core::domain::{
 use proteus_core::{
     contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport},
     core::{
-        AgentRuntime, AppConfig, ModuleBuildContext, ModuleEpoch, TopologyBuildInput,
-        TopologyWarning, build_topology_snapshot, normalize_session_dir_path, render_topology_map,
-        render_topology_markdown, render_topology_mermaid, render_topology_runtime_mermaid,
-        render_topology_runtime_path, render_topology_table,
+        AgentRuntime, AppConfig, AssemblyPlan, ModuleBuildContext, ModuleCatalog, ModuleEpoch,
+        TopologyBuildInput, TopologyWarning, build_topology_snapshot, normalize_session_dir_path,
+        render_assembly_plan, render_topology_map, render_topology_markdown,
+        render_topology_mermaid, render_topology_runtime_mermaid, render_topology_runtime_path,
+        render_topology_table,
     },
 };
 use serde_json::Value;
@@ -31,9 +32,10 @@ mod cli_prompt_replay;
 mod cli_workflow_replay;
 
 use cli_commands::{
-    InspectTopologyFormat, is_app_server_stdio_command, is_doctor_command, is_modules_list_command,
-    is_tools_list_command, parse_app_server_http_command, parse_eval_report_command,
-    parse_inspect_topology_command, parse_prompt_replay_command, parse_workflow_replay_command,
+    InspectPlanFormat, InspectTopologyFormat, is_app_server_stdio_command, is_doctor_command,
+    is_modules_list_command, is_tools_list_command, parse_app_server_http_command,
+    parse_eval_report_command, parse_inspect_plan_command, parse_inspect_topology_command,
+    parse_prompt_replay_command, parse_workflow_replay_command,
 };
 use cli_doctor::run_doctor;
 use cli_init::{parse_init_command, run_init};
@@ -50,8 +52,6 @@ use cli_init::{
     INIT_CONFIG_FILE, InitProfile, init_config_path_from_arg, init_destination_path,
     mixed_config_files_warning, single_config_file_for_warning,
 };
-#[cfg(test)]
-use proteus_core::core::ModuleCatalog;
 #[cfg(test)]
 use std::path::Path;
 
@@ -141,6 +141,17 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     config.permissions.mode = resolve_permission_mode(&cli, config.permissions.mode)?;
+    if let Some(format) = parse_inspect_plan_command(&cli.task)? {
+        let (plan, _) = resolve_cli_assembly(
+            &config,
+            config_path.as_deref(),
+            &cwd,
+            config.permissions.mode,
+        )?;
+        println!("{}", render_inspect_plan(&plan, format)?);
+        plan.ensure_valid()?;
+        return Ok(());
+    }
     if let Some(format) = parse_inspect_topology_command(&cli.task)? {
         let snapshot = build_cli_topology(
             &config,
@@ -152,7 +163,14 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     if is_tools_list_command(&cli.task) {
-        let registry = build_tool_registry_for_listing(&config, &cwd)?;
+        let (plan, catalog) = resolve_cli_assembly(
+            &config,
+            config_path.as_deref(),
+            &cwd,
+            config.permissions.mode,
+        )?;
+        plan.ensure_valid()?;
+        let registry = build_tool_registry_for_listing(&plan, &catalog)?;
         println!("{}", render_tool_list(&registry));
         return Ok(());
     }
@@ -229,21 +247,22 @@ fn render_module_list(manifests: &[ModuleManifest]) -> String {
 }
 
 fn build_tool_registry_for_listing(
-    config: &AppConfig,
-    cwd: &std::path::Path,
+    plan: &AssemblyPlan,
+    catalog: &ModuleCatalog,
 ) -> Result<proteus_core::contracts::ToolRegistry> {
-    let catalog = proteus_core::core::ModuleCatalog::from_config(config)?;
+    let config = plan.config();
+    let cwd = plan.cwd();
     let context_providers = catalog.build_context_providers(cwd)?;
     let build_ctx = ModuleBuildContext {
         config,
         cwd,
         context_providers: &context_providers,
     };
-    let subagent = match config.modules.subagent.as_deref() {
+    let subagent = match plan.module_id(proteus_core::domain::ModuleKind::Subagent) {
         Some(id) => catalog.build_subagent(id, &build_ctx)?,
         None => Arc::new(proteus_core::stubs::NoSubagent),
     };
-    let model_config = config.active_model_config()?;
+    let model_config = plan.model_config()?;
     let model = catalog.build_model_adapter(&model_config)?;
     let mut tools = catalog.build_tools(
         &build_ctx,
@@ -266,8 +285,8 @@ fn build_cli_topology(
     cwd: &std::path::Path,
     permission_mode: PermissionMode,
 ) -> Result<proteus_core::core::TopologySnapshot> {
-    let catalog = proteus_core::core::ModuleCatalog::from_config(config)?;
-    let catalog_entries = catalog.entry_summaries();
+    let (plan, catalog) = resolve_cli_assembly(config, config_path, cwd, permission_mode)?;
+    let config = plan.config();
     let context_providers = catalog.build_context_providers(cwd)?;
     let build_ctx = ModuleBuildContext {
         config,
@@ -275,7 +294,7 @@ fn build_cli_topology(
         context_providers: &context_providers,
     };
     let mut extra_warnings = Vec::new();
-    let subagent = match config.modules.subagent.as_deref() {
+    let subagent = match plan.module_id(proteus_core::domain::ModuleKind::Subagent) {
         Some(id) => match catalog.build_subagent(id, &build_ctx) {
             Ok(subagent) => subagent,
             Err(error) => {
@@ -333,15 +352,32 @@ fn build_cli_topology(
     };
 
     Ok(build_topology_snapshot(TopologyBuildInput {
-        config,
-        config_path,
-        cwd,
-        catalog_entries: &catalog_entries,
+        plan: &plan,
         tools: &tool_entries,
         module_epoch: ModuleEpoch::initial(),
         permission_mode,
         extra_warnings,
     }))
+}
+
+fn resolve_cli_assembly(
+    config: &AppConfig,
+    config_path: Option<&std::path::Path>,
+    cwd: &std::path::Path,
+    permission_mode: PermissionMode,
+) -> Result<(AssemblyPlan, ModuleCatalog)> {
+    let mut resolved_config = config.clone();
+    resolved_config.permissions.mode = permission_mode;
+    let catalog = ModuleCatalog::from_config(&resolved_config)?;
+    let plan = AssemblyPlan::resolve(resolved_config, config_path, cwd.to_path_buf(), &catalog)?;
+    Ok((plan, catalog))
+}
+
+fn render_inspect_plan(plan: &AssemblyPlan, format: InspectPlanFormat) -> Result<String> {
+    match format {
+        InspectPlanFormat::Text => Ok(render_assembly_plan(plan)),
+        InspectPlanFormat::Json => serde_json::to_string_pretty(plan).map_err(Into::into),
+    }
 }
 
 fn render_inspect_topology(

@@ -68,6 +68,12 @@ run_and_capture doctor "${output_dir}/doctor.txt" "${proteus}" doctor
 require_text "config loaded" "${output_dir}/doctor.txt"
 require_text "process component" "${output_dir}/doctor.txt"
 
+run_and_capture assembly-plan "${output_dir}/assembly-plan.txt" \
+  "${proteus}" inspect plan
+require_text "Assembly plan v1" "${output_dir}/assembly-plan.txt"
+require_text "status: ready" "${output_dir}/assembly-plan.txt"
+require_text "workflow: coding.single_loop" "${output_dir}/assembly-plan.txt"
+
 run_and_capture topology "${output_dir}/topology.txt" \
   "${proteus}" inspect topology --format runtime
 require_text "workflow        -> coding.single_loop" "${output_dir}/topology.txt"
@@ -94,4 +100,4 @@ run_and_capture external-component "${output_dir}/external-component.txt" \
   "alpha external component demo"
 require_text "Fake final answer." "${output_dir}/external-component.txt"
 
-echo "alpha smoke passed: isolated install, init, doctor, fake profile, topology, external Python component"
+echo "alpha smoke passed: isolated install, init, doctor, assembly plan, fake profile, topology, external Python component"

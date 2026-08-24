@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-pub fn topology_config_files(config_path: Option<&Path>) -> Vec<PathBuf> {
+pub(super) fn assembly_config_files(config_path: Option<&Path>) -> Vec<PathBuf> {
     let Some(path) = config_path else {
         return Vec::new();
     };

@@ -104,6 +104,50 @@ fn inspect_topology_command_parses_default_and_formats() {
 }
 
 #[test]
+fn inspect_plan_command_parses_text_and_json() {
+    assert_eq!(
+        parse_inspect_plan_command(&["inspect".to_owned(), "plan".to_owned()])
+            .expect("parse")
+            .expect("plan command"),
+        InspectPlanFormat::Text
+    );
+    assert_eq!(
+        parse_inspect_plan_command(&[
+            "inspect".to_owned(),
+            "plan".to_owned(),
+            "--format=json".to_owned(),
+        ])
+        .expect("parse")
+        .expect("plan command"),
+        InspectPlanFormat::Json
+    );
+    assert!(
+        parse_inspect_plan_command(&["inspect".to_owned(), "topology".to_owned()])
+            .expect("parse")
+            .is_none()
+    );
+    assert!(
+        parse_inspect_topology_command(&["inspect".to_owned(), "plan".to_owned()])
+            .expect("parse")
+            .is_none()
+    );
+}
+
+#[test]
+fn inspect_plan_reports_blocking_selection_without_starting_runtime() {
+    let mut config = AppConfig::default();
+    config.modules.search = Some("missing-search".to_owned());
+    let dir = tempfile::tempdir().expect("workspace");
+    let (plan, _) = resolve_cli_assembly(&config, None, dir.path(), config.permissions.mode)
+        .expect("diagnostic plan");
+
+    let rendered = render_inspect_plan(&plan, InspectPlanFormat::Text).expect("render plan");
+    assert!(rendered.contains("status: blocked"));
+    assert!(rendered.contains("active module is not registered: search/missing-search"));
+    assert!(plan.ensure_valid().is_err());
+}
+
+#[test]
 fn inspect_topology_reports_invalid_backend_without_building_it() {
     let mut config = AppConfig::default();
     config.modules.search = Some("missing-search".to_owned());
@@ -157,7 +201,9 @@ fn read_only_cli_paths_do_not_start_process_components() {
     }))
     .expect("component configs");
 
-    let _tools = build_tool_registry_for_listing(&config, dir.path()).expect("tool list registry");
+    let (plan, catalog) = resolve_cli_assembly(&config, None, dir.path(), config.permissions.mode)
+        .expect("assembly plan");
+    let _tools = build_tool_registry_for_listing(&plan, &catalog).expect("tool list registry");
     let _topology =
         build_cli_topology(&config, None, dir.path(), config.permissions.mode).expect("topology");
     let mut findings = DoctorFindings::default();
@@ -737,10 +783,9 @@ fn doctor_checks_nested_module_config_tool_lists() {
 #[test]
 fn doctor_accepts_fake_model_without_secret() {
     let config = AppConfig::default();
-    let catalog = ModuleCatalog::new();
     let mut findings = DoctorFindings::default();
 
-    check_model_config(&mut findings, &catalog, &config);
+    check_model_config(&mut findings, &config);
 
     assert!(!findings.has_errors());
     assert!(
@@ -831,7 +876,9 @@ fn tool_list_output_contains_registered_tools() {
     // to exercise render_tool_list without launching workers.
     config.tools.enabled = vec!["apply_patch".to_owned(), "search".to_owned()];
     let dir = tempfile::tempdir().expect("temp dir");
-    let registry = build_tool_registry_for_listing(&config, dir.path()).unwrap();
+    let (plan, catalog) =
+        resolve_cli_assembly(&config, None, dir.path(), config.permissions.mode).unwrap();
+    let registry = build_tool_registry_for_listing(&plan, &catalog).unwrap();
     let rendered = render_tool_list(&registry);
 
     assert!(rendered.contains("name"));

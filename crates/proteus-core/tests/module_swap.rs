@@ -134,7 +134,7 @@ async fn search_slot_swaps_component_exports_without_changing_canonical_contract
 }
 
 #[test]
-fn selected_module_requires_an_exact_component_export() {
+fn assembly_plan_requires_an_exact_registered_selection() {
     let workspace = tempfile::tempdir().expect("workspace");
     let mut config = AppConfig::default();
     config.modules.search = Some("missing".to_owned());
@@ -146,7 +146,7 @@ fn selected_module_requires_an_exact_component_export() {
     assert!(
         error
             .to_string()
-            .contains("unsupported search module: missing")
+            .contains("assembly plan is invalid: active module is not registered: search/missing")
     );
 }
 

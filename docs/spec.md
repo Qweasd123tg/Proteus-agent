@@ -162,6 +162,8 @@ Runtime должен сохранять эти свойства:
 Следующие возможности уже существуют и не являются roadmap promises:
 
 - `proteus init` и `proteus doctor`, named configs и диагностика modules/tools;
+- единый `AssemblyPlan` между config и runtime: точные selections/exports,
+  preflight validation и атомарная публикация вместе с registry;
 - process context builders `simple`, `repo_aware` и `codex_context`;
 - file/edit/git/shell/plan tools через `ToolRegistry` и текущие reference modules;
 - approval preview для `apply_patch`, `write_file` и `shell`;

@@ -1,4 +1,5 @@
 pub mod approval;
+pub mod assembly;
 mod compaction_host;
 pub mod config;
 pub mod config_snapshot;
@@ -26,6 +27,7 @@ pub mod workflow_replay;
 pub mod workspace;
 
 pub use approval::*;
+pub use assembly::*;
 pub use compaction_host::*;
 pub use config::*;
 pub use config_snapshot::*;

@@ -1,6 +1,6 @@
 # Текущий Scope
 
-Последнее обновление: 2026-08-23.
+Последнее обновление: 2026-08-24.
 
 Этот документ отвечает «что сейчас на критическом пути». Vision —
 [spec.md](spec.md), история и backlog — [roadmap.md](roadmap.md).
@@ -47,12 +47,25 @@ canonical journal и replay evidence.
 - sequential/process subagents, task/collaboration surfaces и worktree roles;
 - root steering/follow-up;
 - versioned atomic install из двух executable;
-- doctor, module/tool list, topology и eval report.
+- единый `AssemblyPlan`, doctor, module/tool list, topology и eval report.
 
 «Работает» не означает «public API стабилен». Проект pre-release: wire/config
 schema меняется атомарно без legacy shims.
 
 ## Что Только Что Закрыто
+
+### Единый План Сборки
+
+Config, runtime, topology, `doctor` и reload больше не выводят выбор modules
+независимыми путями. `AssemblyPlan` до запуска worker-а фиксирует точные slot
+selections, process components/exports, contract authority, requested tools и
+preflight checks. Неизвестный selection блокируется до создания registry.
+
+`PreparedAssembly` связывает план с собранным из него `RuntimeRegistry`; при
+reload они публикуются одним `RuntimeSnapshot`, а running turn сохраняет
+старую пару. План виден через `proteus inspect plan` и `GET /inspect/plan`, но
+не является вторым загружаемым config format и не сериализует secrets/raw
+module config. Подробности: [assembly-plan.md](assembly-plan.md).
 
 Process-only и Component Runtime cutover:
 
@@ -127,7 +140,7 @@ Rust LSP.
 
 ## Текущий Приоритет: Публикация v0.1 Alpha Candidate
 
-P1-P4 и локальный `v0.1.0-alpha.1` release contour завершены. Изолированный
+P1-P4, AssemblyPlan и локальный `v0.1.0-alpha.1` release contour завершены. Изолированный
 Linux smoke ставит release в пустые временные каталоги и проводит `init safe`,
 `doctor`, fake-profile turn, topology и внешний Python workflow. Добавлены CI,
 release notes и security scope. Оставшиеся внешние шаги — push release commit,

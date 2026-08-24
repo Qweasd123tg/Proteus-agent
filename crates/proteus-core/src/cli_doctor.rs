@@ -4,9 +4,9 @@ use std::{
 };
 
 use anyhow::{Result, bail};
-use proteus_core::{
-    core::{AppConfig, ConfiguredToolExecutorConfig, ModuleCatalog, expand_user_path},
-    domain::ModuleKind,
+use proteus_core::core::{
+    AppConfig, AssemblyCheckSeverity, AssemblyPlan, ConfiguredToolExecutorConfig, ModuleCatalog,
+    expand_user_path,
 };
 use proteus_process_host::ProcessSpec;
 use serde_json::Value;
@@ -66,19 +66,37 @@ pub(crate) async fn run_doctor(
         }
     };
 
-    check_model_config(&mut findings, &catalog, &config);
-    check_selected_modules(&mut findings, &catalog, &config);
+    let plan = match AssemblyPlan::resolve(
+        config.clone(),
+        effective_config,
+        cwd.to_path_buf(),
+        &catalog,
+    ) {
+        Ok(plan) => plan,
+        Err(error) => {
+            findings.error(format!("assembly plan: {error:#}"));
+            findings.print();
+            bail!("doctor found errors");
+        }
+    };
+
+    check_assembly_plan(&mut findings, &plan);
+    check_model_config(&mut findings, &config);
     check_external_commands(&mut findings, &config, cwd);
     check_runtime_limits(&mut findings, &config);
     check_filesystem_paths(&mut findings, &config, cwd, effective_config);
     session_storage::check_session_storage(&mut findings, effective_config);
 
-    match super::build_tool_registry_for_listing(&config, cwd) {
-        Ok(registry) => {
-            findings.ok(format!("tool registry: {} tools", registry.entries().len()));
-            check_module_config_tool_references(&mut findings, &config, &registry);
+    if plan.is_valid() {
+        match super::build_tool_registry_for_listing(&plan, &catalog) {
+            Ok(registry) => {
+                findings.ok(format!("tool registry: {} tools", registry.entries().len()));
+                check_module_config_tool_references(&mut findings, &config, &registry);
+            }
+            Err(error) => findings.error(format!("tool registry failed: {error:#}")),
         }
-        Err(error) => findings.error(format!("tool registry failed: {error:#}")),
+    } else {
+        findings.warn("tool registry skipped because the assembly plan is blocked");
     }
 
     findings.print();
@@ -88,11 +106,7 @@ pub(crate) async fn run_doctor(
     Ok(())
 }
 
-pub(crate) fn check_model_config(
-    findings: &mut DoctorFindings,
-    catalog: &ModuleCatalog,
-    config: &AppConfig,
-) {
+pub(crate) fn check_model_config(findings: &mut DoctorFindings, config: &AppConfig) {
     let model = match config.active_model_config() {
         Ok(model) => model,
         Err(error) => {
@@ -102,19 +116,35 @@ pub(crate) fn check_model_config(
     };
 
     findings.ok(format!("model: {}/{}", model.provider, model.model));
-    if catalog
-        .manifest(ModuleKind::Model, model.provider.as_str())
-        .is_some()
-    {
-        findings.ok(format!("module model: {}", model.provider));
-    } else {
-        findings.error(format!(
-            "module model is not registered: {}",
-            model.provider
-        ));
-    }
-
     check_model_secret(findings, &model);
+}
+
+fn check_assembly_plan(findings: &mut DoctorFindings, plan: &AssemblyPlan) {
+    let selected = plan
+        .slots
+        .iter()
+        .filter(|slot| slot.module_id.is_some())
+        .count();
+    findings.ok(format!(
+        "assembly plan: {} selected slots, {} components",
+        selected,
+        plan.components.len()
+    ));
+    for slot in &plan.slots {
+        if let Some(module_id) = &slot.module_id {
+            findings.ok(format!("module {}: {module_id}", slot.id));
+        }
+    }
+    for check in &plan.checks {
+        match check.severity {
+            AssemblyCheckSeverity::Warning => {
+                findings.warn(format!("assembly [{}]: {}", check.code, check.message));
+            }
+            AssemblyCheckSeverity::Error => {
+                findings.error(format!("assembly [{}]: {}", check.code, check.message));
+            }
+        }
+    }
 }
 
 pub(crate) fn check_model_secret(
@@ -239,21 +269,6 @@ fn check_env_secret(findings: &mut DoctorFindings, env_name: &str) {
             findings.ok(format!("model secret: env {env_name} is set"));
         }
         _ => findings.error(format!("model secret env is missing: {env_name}")),
-    }
-}
-
-fn check_selected_modules(
-    findings: &mut DoctorFindings,
-    catalog: &ModuleCatalog,
-    config: &AppConfig,
-) {
-    for (kind, id) in config.modules.iter() {
-        let label = kind.as_str();
-        if catalog.manifest(kind, id).is_some() {
-            findings.ok(format!("module {label}: {id}"));
-        } else {
-            findings.error(format!("module {label} is not registered: {id}"));
-        }
     }
 }
 

@@ -1,49 +1,39 @@
-mod config_files;
 mod edges;
 mod modules;
 mod slots;
 mod tools;
 mod types;
 
-pub use config_files::topology_config_files;
 pub use types::*;
 
 use edges::build_edges;
 use modules::build_modules;
-use slots::{active_modules, build_slots};
+use slots::build_slots;
 use tools::build_tools;
 
 pub fn build_topology_snapshot(input: TopologyBuildInput<'_>) -> TopologySnapshot {
-    let config_files = topology_config_files(input.config_path);
-    let model_config = input.config.active_model_config();
-    let model = model_config.as_ref().ok().map(|model| ModelTopology {
+    let plan = input.plan;
+    let config = plan.config();
+    let model = plan.model.as_ref().map(|model| ModelTopology {
         provider: model.provider.clone(),
-        name: model.model.clone(),
+        name: model.name.clone(),
         stream: model.stream,
     });
-    let active_modules = active_modules(input.config, model.as_ref());
-    let mut warnings = input.extra_warnings;
+    let active_modules = plan.active_modules();
+    let mut warnings = plan
+        .checks
+        .iter()
+        .map(|check| TopologyWarning {
+            severity: check.severity.as_str().to_owned(),
+            message: check.message.clone(),
+        })
+        .chain(input.extra_warnings)
+        .collect::<Vec<_>>();
 
-    if let Err(error) = &model_config {
-        warnings.push(TopologyWarning::error(format!(
-            "active model config is invalid: {error:#}"
-        )));
-    }
-    if config_files.len() > 1 {
-        warnings.push(TopologyWarning::warn(format!(
-            "config path expands to multiple files: {}",
-            config_files
-                .iter()
-                .map(|path| path.display().to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        )));
-    }
-    let slots = build_slots(input.catalog_entries, &active_modules);
-    let modules = build_modules(input.catalog_entries, &active_modules, &mut warnings);
-    let tools = build_tools(input.config, input.tools, &mut warnings);
-    if input.config.modules.tool_exposure.is_none()
-        && tools.iter().filter(|t| t.registered).count() > 10
+    let slots = build_slots(plan.catalog_entries(), active_modules);
+    let modules = build_modules(plan.catalog_entries(), active_modules);
+    let tools = build_tools(config, input.tools, &mut warnings);
+    if config.modules.tool_exposure.is_none() && tools.iter().filter(|t| t.registered).count() > 10
     {
         warnings.push(TopologyWarning::warn(
             "tool_exposure is not selected, so the host exposes every policy-visible tool; select a ToolExposure process module when schema cost becomes significant",
@@ -52,11 +42,15 @@ pub fn build_topology_snapshot(input: TopologyBuildInput<'_>) -> TopologySnapsho
     let edges = build_edges(&active_modules, &modules, &tools);
 
     TopologySnapshot {
-        profile: input.config.profile.name.clone(),
-        cwd: input.cwd.display().to_string(),
-        config_path: input.config_path.map(|path| path.display().to_string()),
-        config_files: config_files
-            .into_iter()
+        profile: plan.profile.clone(),
+        cwd: plan.cwd.display().to_string(),
+        config_path: plan
+            .config_path
+            .as_deref()
+            .map(|path| path.display().to_string()),
+        config_files: plan
+            .config_files
+            .iter()
             .map(|path| path.display().to_string())
             .collect(),
         module_epoch: input.module_epoch.as_u64(),

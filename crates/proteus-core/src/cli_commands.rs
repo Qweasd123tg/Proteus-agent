@@ -265,6 +265,54 @@ pub(crate) enum InspectTopologyFormat {
     Mermaid,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InspectPlanFormat {
+    Text,
+    Json,
+}
+
+pub(crate) fn parse_inspect_plan_command(task: &[String]) -> Result<Option<InspectPlanFormat>> {
+    let [namespace, command, args @ ..] = task else {
+        return Ok(None);
+    };
+    if namespace != "inspect" || command != "plan" {
+        return Ok(None);
+    }
+
+    let mut format = InspectPlanFormat::Text;
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--format" => {
+                let value = iter
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("{}", inspect_plan_usage()))?;
+                format = inspect_plan_format_value(value)?;
+            }
+            value if value.starts_with("--format=") => {
+                let value = value
+                    .strip_prefix("--format=")
+                    .expect("starts_with checked");
+                format = inspect_plan_format_value(value)?;
+            }
+            _ => bail!("{}", inspect_plan_usage()),
+        }
+    }
+    Ok(Some(format))
+}
+
+fn inspect_plan_format_value(value: &str) -> Result<InspectPlanFormat> {
+    match value {
+        "text" | "table" => Ok(InspectPlanFormat::Text),
+        "json" => Ok(InspectPlanFormat::Json),
+        _ => bail!("unknown plan format '{value}', expected text or json"),
+    }
+}
+
+fn inspect_plan_usage() -> &'static str {
+    "usage: proteus inspect plan [--format text|json]"
+}
+
 pub(crate) fn parse_inspect_topology_command(
     task: &[String],
 ) -> Result<Option<InspectTopologyFormat>> {
@@ -277,6 +325,7 @@ pub(crate) fn parse_inspect_topology_command(
 
     match rest {
         [] => Ok(Some(InspectTopologyFormat::Markdown)),
+        [command, ..] if command == "plan" => Ok(None),
         [command, args @ ..] if command == "topology" => {
             Ok(Some(parse_inspect_topology_format(args)?))
         }

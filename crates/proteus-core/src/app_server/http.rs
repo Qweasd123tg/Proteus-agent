@@ -170,6 +170,10 @@ where
             let snapshot = state.current_server().await.topology_snapshot().await;
             json_response(StatusCode::OK, &snapshot)
         }
+        (Method::GET, "/inspect/plan") => {
+            let plan = state.current_server().await.assembly_plan().await;
+            json_response(StatusCode::OK, &plan)
+        }
         (Method::GET, "/inspect/topology.mmd") => {
             let snapshot = state.current_server().await.topology_snapshot().await;
             text_response(StatusCode::OK, render_topology_mermaid(&snapshot))

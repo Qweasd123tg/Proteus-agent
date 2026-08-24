@@ -11,7 +11,7 @@ use super::turn::{TurnAbort, turn_settlement_status};
 use super::*;
 use crate::{
     contracts::{RuntimeContext, Workflow, WorkflowOutput},
-    core::{ConfiguredToolConfig, ConfiguredToolExecutorConfig, ModuleCatalog},
+    core::{ConfiguredToolConfig, ConfiguredToolExecutorConfig, ModuleCatalog, PreparedAssembly},
     domain::{AgentOutput, AgentTask, HistoryCompactionReport, ToolSafety},
     model_standard::{CanonicalMessage, CanonicalModelRequest, MessageRole},
 };
@@ -383,20 +383,21 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
 
     let mut reloaded_config = AppConfig::default();
     reloaded_config.profile.name = "reloaded-profile".to_owned();
-    let mut reloaded_registry = RuntimeRegistry::from_catalog(
-        &reloaded_config,
+    let mut reloaded_assembly = PreparedAssembly::from_catalog(
+        reloaded_config.clone(),
         workspace.path().to_path_buf(),
+        None,
         test_catalog(),
     )
-    .expect("reloaded registry");
-    reloaded_registry.workflow = Arc::new(DelayedWorkflow);
+    .expect("reloaded assembly");
+    reloaded_assembly.registry_mut().workflow = Arc::new(DelayedWorkflow);
     let reloaded_snapshot = SessionConfigSnapshot::from_runtime_config(
         &reloaded_config,
-        &reloaded_registry,
+        reloaded_assembly.registry(),
         PermissionMode::Normal,
     );
     runtime
-        .reload_registry(reloaded_registry, Some(reloaded_snapshot))
+        .reload_assembly(reloaded_assembly, Some(reloaded_snapshot))
         .await
         .expect("reload registry");
     runtime
@@ -466,7 +467,7 @@ async fn workflow_timeout_zero_disables_runtime_timeout() {
 }
 
 #[tokio::test]
-async fn reload_registry_publishes_new_snapshot_without_mutating_running_turn() {
+async fn reload_assembly_publishes_matching_plan_without_mutating_running_turn() {
     let cwd = tempfile::tempdir().expect("temp dir");
     let config = AppConfig::default();
     let runtime = Arc::new(
@@ -501,16 +502,24 @@ async fn reload_registry_publishes_new_snapshot_without_mutating_running_turn() 
             environment: Default::default(),
         },
     });
-    let next_registry =
-        RuntimeRegistry::from_catalog(&next_config, cwd.path().to_path_buf(), test_catalog())
-            .expect("next registry");
+    let next_assembly =
+        PreparedAssembly::from_catalog(next_config, cwd.path().to_path_buf(), None, test_catalog())
+            .expect("next assembly");
     let report = runtime
-        .reload_registry(next_registry, None)
+        .reload_assembly(next_assembly, None)
         .await
         .expect("reload registry");
     assert_eq!(report.old_epoch, 0);
     assert_eq!(report.new_epoch, 1);
     assert!(report.tool_names.iter().any(|name| name == "late_tool"));
+    let active_plan = runtime.assembly_plan().await;
+    assert!(
+        active_plan
+            .tools
+            .configured
+            .iter()
+            .any(|name| name == "late_tool")
+    );
 
     workflow.proceed.notify_one();
     let running_output = running

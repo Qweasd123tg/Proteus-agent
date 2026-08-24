@@ -9,7 +9,10 @@ use tokio::sync::{Mutex, RwLock};
 
 use crate::{
     contracts::{ApprovalTransport, EventEmitter, EventSink, ToolSource, UserInputTransport},
-    core::{AppConfig, RuntimeRegistry, SessionConfigSnapshot, SessionStore},
+    core::{
+        AppConfig, AssemblyPlan, PreparedAssembly, RuntimeRegistry, SessionConfigSnapshot,
+        SessionStore,
+    },
     domain::{
         AgentOutput, Event, EventContext, ModelRef, PermissionMode, ReasoningConfig, SessionId,
         ThreadId, ToolSpec,
@@ -76,6 +79,7 @@ impl ModuleEpoch {
 #[derive(Clone)]
 pub struct RuntimeSnapshot {
     pub epoch: ModuleEpoch,
+    pub assembly_plan: AssemblyPlan,
     pub registry: RuntimeRegistry,
     pub config_snapshot: Option<SessionConfigSnapshot>,
 }
@@ -83,11 +87,13 @@ pub struct RuntimeSnapshot {
 impl RuntimeSnapshot {
     pub fn new(
         epoch: ModuleEpoch,
-        registry: RuntimeRegistry,
+        assembly: PreparedAssembly,
         config_snapshot: Option<SessionConfigSnapshot>,
     ) -> Self {
+        let (assembly_plan, registry) = assembly.into_parts();
         Self {
             epoch,
+            assembly_plan,
             registry,
             config_snapshot,
         }
@@ -220,7 +226,7 @@ impl AgentRuntime {
     }
 
     /// Полная замена provider+model, например после смены `active_provider`
-    /// через config builder: `reload_registry` пересобирает model adapter, но
+    /// через config builder: `reload_assembly` пересобирает model adapter, но
     /// не трогает runtime override model_ref.
     pub async fn set_model_ref(&self, model_ref: ModelRef) {
         *self.services.model_ref.write().await = model_ref;
@@ -284,13 +290,28 @@ impl AgentRuntime {
         self.services.snapshot.read().await.epoch
     }
 
+    pub async fn assembly_plan(&self) -> AssemblyPlan {
+        self.services.snapshot.read().await.assembly_plan.clone()
+    }
+
+    pub async fn assembly_observation(
+        &self,
+    ) -> (ModuleEpoch, AssemblyPlan, Vec<(ToolSource, ToolSpec)>) {
+        let snapshot = self.services.snapshot.read().await;
+        (
+            snapshot.epoch,
+            snapshot.assembly_plan.clone(),
+            snapshot.registry.tools.entries(),
+        )
+    }
+
     async fn snapshot(&self) -> RuntimeSnapshot {
         self.services.snapshot.read().await.clone()
     }
 
-    pub async fn reload_registry(
+    pub async fn reload_assembly(
         &self,
-        registry: RuntimeRegistry,
+        assembly: PreparedAssembly,
         config_snapshot: Option<SessionConfigSnapshot>,
     ) -> Result<RuntimeReloadReport> {
         if self.session.session_store.is_some() && config_snapshot.is_none() {
@@ -300,13 +321,14 @@ impl AgentRuntime {
         let mut snapshot = self.services.snapshot.write().await;
         let old_epoch = snapshot.epoch;
         let new_epoch = old_epoch.next();
-        let tool_names = registry
+        let tool_names = assembly
+            .registry()
             .tools
             .specs()
             .into_iter()
             .map(|spec| spec.name)
             .collect::<Vec<_>>();
-        *snapshot = RuntimeSnapshot::new(new_epoch, registry, config_snapshot);
+        *snapshot = RuntimeSnapshot::new(new_epoch, assembly, config_snapshot);
         Ok(RuntimeReloadReport {
             old_epoch: old_epoch.as_u64(),
             new_epoch: new_epoch.as_u64(),

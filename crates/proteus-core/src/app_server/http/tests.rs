@@ -239,6 +239,7 @@ fn protected_endpoints_require_session_token_except_health_and_preflight() {
         (Method::GET, "/config"),
         (Method::GET, "/config/builder"),
         (Method::GET, "/inspect/topology"),
+        (Method::GET, "/inspect/plan"),
         (Method::GET, "/inspect/topology.mmd"),
         (Method::GET, "/inspect/topology.map"),
         (Method::GET, "/inspect/topology.runtime"),
@@ -886,6 +887,22 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
             && edge.get("to").and_then(Value::as_str) == Some(registered_tool_node.as_str())
             && edge.get("kind").and_then(Value::as_str) == Some("registered_tool")
     }));
+
+    let response = route_request(state.clone(), authed_get_request("/inspect/plan"))
+        .await
+        .expect("assembly plan response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_bytes(response).await;
+    let plan: Value = serde_json::from_slice(&body).expect("assembly plan JSON");
+    assert_eq!(plan["schema_version"], 1);
+    assert_eq!(plan["profile"], "dev-basic");
+    assert_eq!(plan["model"]["provider"], "fake");
+    assert!(
+        plan["slots"]
+            .as_array()
+            .is_some_and(|slots| slots.len() == 11)
+    );
+    assert!(plan.get("config").is_none(), "raw config leaked into plan");
 
     let response = route_request(state.clone(), authed_get_request("/inspect/topology.mmd"))
         .await

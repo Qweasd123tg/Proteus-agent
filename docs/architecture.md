@@ -30,6 +30,12 @@ failure semantics по `slot/contract_version`. `module_id`, язык worker-а 
 CLI / Web / Inspector
           |
           v
+AppConfig + ModuleCatalog
+          |
+          v
+AssemblyPlan (точный проверенный чертёж)
+          |
+          v
 AppServer + AgentRuntime
           |
           v
@@ -43,8 +49,13 @@ process adapters <-> external workers
 ```
 
 - UI и CLI создают запросы, но не реализуют agent loop.
+- `AssemblyPlan` один раз разворачивает config в точные slot selections,
+  components, export authority и preflight checks; workers при этом не
+  запускаются.
 - `AgentRuntime` владеет session/turn lifecycle, journal и snapshot.
-- `RuntimeRegistry` собирает выбранные реализации.
+- `PreparedAssembly` связывает план и собранный из него `RuntimeRegistry`,
+  поэтому их нельзя опубликовать в разных runtime snapshots.
+- `RuntimeRegistry` создаёт выбранные реализации только из проверенного плана.
 - `ToolRegistry` — единственный runtime catalog исполняемых tools.
 - Process adapters переводят canonical Rust contract в strict JSON-RPC DTO.
 - Worker не зависит от `proteus-core` и может быть написан на любом языке.
@@ -248,8 +259,10 @@ Core владеет:
 - terminal `Success/Error/Canceled/Timeout`.
 
 Module не пишет canonical journal напрямую. Runtime reload строит новый
-snapshot; уже начатый turn продолжает на старом. Подробнее:
-[runtime-and-events.md](runtime-and-events.md) и [hot-swap.md](hot-swap.md).
+`PreparedAssembly` и публикует план вместе с registry в одном snapshot; уже
+начатый turn продолжает на старом. Подробнее:
+[assembly-plan.md](assembly-plan.md), [runtime-and-events.md](runtime-and-events.md)
+и [hot-swap.md](hot-swap.md).
 
 ## Проверка Изменений
 

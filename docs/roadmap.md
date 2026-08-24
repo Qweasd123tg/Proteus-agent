@@ -128,10 +128,14 @@ migration.
    core;
 4. ✅ добавлены Linux CI, release notes и честный security/trusted-executable
    scope;
-5. ⏳ после push нужен зелёный CI на release commit;
-6. ⏳ затем отдельно публикуется тег `v0.1.0-alpha.1`.
+5. ✅ config/runtime/doctor/topology сведены к единому `AssemblyPlan`, а
+   plan+registry публикуются одним runtime snapshot;
+6. ⏳ после push нужен зелёный CI на release commit;
+7. ⏳ затем отдельно публикуется тег `v0.1.0-alpha.1`.
 
-Model/subagent migrations, sandbox, protocol freeze, marketplace,
+Сравнение двух `AssemblyPlan` перед сохранением config-а остаётся следующим
+UX-срезом: это должна быть read-only projection над готовыми планами, не новый
+wiring path. Model/subagent migrations, sandbox, protocol freeze, marketplace,
 Hermes/OpenClaw research и session branching не двигают этот тег.
 
 Долгосрочный тезис конструктора, strict-contract guardrails и отложенные

@@ -5,9 +5,11 @@ live reload process components.
 
 ```text
 AppConfig + Process components/exports + MCP discovery
+  -> PreparedAssembly(AssemblyPlan + RuntimeRegistry)
   -> RuntimeSnapshot(epoch=N)
 
 reload tools config
+  -> PreparedAssembly(AssemblyPlan + RuntimeRegistry)
   -> RuntimeSnapshot(epoch=N+1)
 
 running turn keeps N
@@ -18,6 +20,7 @@ next turn sees N+1
 
 - Turn захватывает один snapshot на старте.
 - Workflow, policy, registry и adapters не меняются внутри turn.
+- План и соответствующий registry всегда публикуются одной парой.
 - Новый snapshot строится полностью до публикации.
 - Failed build не повреждает активный snapshot.
 - Старые `Arc` и process sessions живут до завершения использующих их turns.
@@ -29,14 +32,17 @@ next turn sees N+1
 `StdioRequest::ReloadTools` и `POST /reload-tools`:
 
 1. перечитывают `tools.*` из config path;
-2. заново строят catalog/registry snapshot;
-3. выполняют MCP discovery;
-4. публикуют новый epoch;
-5. испускают `ModulesReloaded { old_epoch, new_epoch, tool_names }`.
+2. заново строят и проверяют `AssemblyPlan`;
+3. из него собирают catalog/registry snapshot;
+4. выполняют MCP discovery;
+5. публикуют новый epoch;
+6. испускают `ModulesReloaded { old_epoch, new_epoch, tool_names }`.
 
-`modules.*`, `components`, provider и opaque module config этим
-endpoint не переключаются. Для них app-server restart остаётся честной
-границей.
+`modules.*`, `components`, provider и opaque module config именно этим
+endpoint не переключаются. Config Builder отдельно умеет атомарно применить
+поддержанные selection/provider/module-config поля через тот же
+`PreparedAssembly`; он не создаёт новые component definitions. Для ручного
+изменения launch topology app-server restart остаётся честной границей.
 
 ## Process Lifecycle
 

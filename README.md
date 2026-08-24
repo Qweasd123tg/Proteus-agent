@@ -177,7 +177,8 @@ cargo run -p proteus-core -- --config configs/config.toml doctor
 cargo run -p proteus-core -- --config configs/config.toml modules list
 cargo run -p proteus-core -- --config configs/config.toml tools list
 
-# runtime topology
+# точный план до запуска и runtime topology
+cargo run -p proteus-core -- --config configs/config.toml inspect plan
 cargo run -p proteus-core -- --config configs/config.toml inspect topology --format runtime
 cargo run -p proteus-core -- --config configs/config.toml inspect topology --format map
 

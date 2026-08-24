@@ -10,7 +10,7 @@ use crate::{
     contracts::{ApprovalTransport, EventEmitter, EventSink, UserInputTransport},
     core::{
         AppConfig, CachedApprovalTransport, HeadlessApprovalTransport, HeadlessUserInputTransport,
-        JsonlEventStore, ModuleCatalog, RuntimeRegistry, SessionConfigSnapshot, SessionStore,
+        JsonlEventStore, ModuleCatalog, PreparedAssembly, SessionConfigSnapshot, SessionStore,
         write_config_snapshot,
     },
     domain::{SessionId, ThreadId, new_session_id, new_thread_id},
@@ -130,12 +130,14 @@ impl AgentRuntimeBuilder {
             Some(store) => store.workspace_path()?,
             None => cwd,
         };
-        let permission_mode = config.permissions.mode;
-        let registry = if let Some(catalog) = module_catalog {
-            RuntimeRegistry::from_catalog(&config, cwd.clone(), catalog)?
+        let assembly = if let Some(catalog) = module_catalog {
+            PreparedAssembly::from_catalog(config, cwd.clone(), config_path.as_deref(), catalog)?
         } else {
-            RuntimeRegistry::from_config(&config, cwd.clone())?
+            PreparedAssembly::from_config(config, cwd.clone(), config_path.as_deref())?
         };
+        let config = assembly.plan().config();
+        let registry = assembly.registry();
+        let permission_mode = assembly.plan().permission_mode;
         let event_sink: Arc<dyn EventSink> = event_sink.unwrap_or_else(|| {
             let event_log_path =
                 event_log_path(&config.event_log.path, config_path.as_deref(), &cwd);
@@ -203,7 +205,7 @@ impl AgentRuntimeBuilder {
                 cwd,
                 snapshot: RwLock::new(RuntimeSnapshot::new(
                     ModuleEpoch::initial(),
-                    registry,
+                    assembly,
                     config_snapshot,
                 )),
                 reload_lock: Mutex::new(()),

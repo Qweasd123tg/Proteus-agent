@@ -458,9 +458,21 @@ Zero `approval_timeout_ms` означает отсутствие server-side dea
 ## Config Builder
 
 Inspector/config builder меняет selection, provider, permission mode и enabled
-tools, затем строит новый runtime snapshot. Он не создаёт components/exports
+tools, затем сначала строит и проверяет новый `AssemblyPlan`. Только после
+успешной сборки соответствующего `PreparedAssembly` config сохраняется, а
+runtime snapshot меняется одним обновлением. Он не создаёт components/exports
 из воздуха: selection доступен только для entries текущего catalog. Existing
 `components` и opaque `module_config` сохраняются.
+
+До запуска тот же результат можно проверить отдельно:
+
+```bash
+proteus --config codex inspect plan
+```
+
+Неизвестный selection или другая блокирующая plan-проверка не запускает
+worker и не заменяет текущий runtime. Поля и ограничения описаны в
+[assembly-plan.md](assembly-plan.md).
 
 ## Проверка
 
@@ -472,7 +484,8 @@ PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config configs/con
 PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config configs/config.toml tools list
 ```
 
-`doctor` не отправляет model request и не запускает components. Он проверяет
-config, exports, selection, доступность каждой component command и catalog/tool surface;
-строгий handshake проверяют conformance gate и реальная сборка runtime
-snapshot.
+`inspect plan` не запускает components. `doctor` не отправляет model request и
+не выполняет behavioral turn, но при сборке фактического tool registry может
+поднять process tool component и выполнить его bootstrap `list`/handshake.
+Остальные selections он проверяет декларативно; полный strict handshake всех
+активных exports проверяют conformance gate и реальная сборка runtime snapshot.

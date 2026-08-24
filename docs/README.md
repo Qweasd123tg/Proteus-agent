@@ -40,13 +40,15 @@
 
 1. [architecture.md](architecture.md) — словарь, слои, границы core и жизнь
    одного turn-а.
-2. [modules.md](modules.md) — все выбираемые behavior slots, catalog vocabulary,
+2. [assembly-plan.md](assembly-plan.md) — как config превращается в единый
+   проверенный чертёж до запуска workers.
+3. [modules.md](modules.md) — все выбираемые behavior slots, catalog vocabulary,
    доступные реализации и правило заменяемости.
-3. [process-module-architecture.md](process-module-architecture.md) —
+4. [process-module-architecture.md](process-module-architecture.md) —
    реализованный process-only contract, равенство реализаций и итог cutover.
-4. [slot-governance.md](slot-governance.md) — нужен ли новый slot, module,
+5. [slot-governance.md](slot-governance.md) — нужен ли новый slot, module,
    profile или feature pack.
-5. [testing.md](testing.md#стандарт-изменения) — общий путь от
+6. [testing.md](testing.md#стандарт-изменения) — общий путь от
    измеримой проблемы до focused/boundary/live/replay evidence и commit-а.
 
 Для более узких boundary-вопросов:
@@ -60,8 +62,8 @@
 
 ### Разобрать runtime или баг
 
-1. [inspect.md](inspect.md) — `proteus inspect topology`, различие behavior
-   slots и synthetic runtime nodes, HTTP `/inspect/*`.
+1. [inspect.md](inspect.md) — `proteus inspect plan`, topology, различие
+   config intent и собранного runtime, HTTP `/inspect/*`.
 2. [runtime-and-events.md](runtime-and-events.md) — CLI/REPL, session store,
    event log и AppServer HTTP/SSE/stdio.
 3. [security-and-policy.md](security-and-policy.md) — tools, permission modes,
@@ -87,7 +89,7 @@
 | Тип документа | Как его читать |
 |---|---|
 | Корневой `README` | Короткая актуальная точка входа и проверенные команды |
-| `architecture`, `modules`, `configuration`, `runtime-and-events`, `security-and-policy`, `inspect`, `testing`, `process-module-architecture` | Reference текущей реализации |
+| `architecture`, `assembly-plan`, `modules`, `configuration`, `runtime-and-events`, `security-and-policy`, `inspect`, `testing`, `process-module-architecture` | Reference текущей реализации |
 | `scope`, `slot-governance` | Правила приоритета и принятия решений |
 | `dogfood-gate` | Необязательный manual diagnostic; не roadmap gate |
 | `releases/*` | Состав, ограничения и воспроизводимый gate конкретного релиза |

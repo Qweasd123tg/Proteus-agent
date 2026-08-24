@@ -1,12 +1,18 @@
 # Inspect
 
-`inspect` показывает собранный runtime graph: config, behavior slots,
-catalog modules, process sources, tools и связи между ними. Это core-owned
-read-only projection, не отдельный module slot.
+`inspect` показывает два связанных read-only представления:
+
+- `plan` — что config просит собрать до запуска workers;
+- `topology` — catalog/tool graph, полученный из того же плана.
+
+Оба принадлежат Core и не являются отдельными module slots.
 
 ## CLI
 
 ```bash
+proteus --config codex inspect plan
+proteus --config codex inspect plan --format json
+
 proteus --config codex inspect topology
 proteus --config codex inspect topology --format table
 proteus --config codex inspect topology --format markdown
@@ -15,8 +21,16 @@ proteus --config codex inspect topology --format runtime
 proteus --config codex inspect topology --format map
 ```
 
+`inspect plan` показывает точные slot selections, components, exports,
+contract versions, разрешённые host callbacks, requested tools и проверки.
+Статус `blocked` означает, что runtime с таким планом не будет собран. Команда
+не подключает workers и не выполняет handshake; raw config, component args,
+environment и provider secrets в JSON projection не попадают.
+
 Форматы:
 
+- plan `text` — короткий человекочитаемый чертёж;
+- plan `json` — полная безопасная diagnostic projection;
 - default/table — компактные slots/modules/tools/warnings;
 - markdown — переносимый отчёт;
 - mermaid — полный diagnostic graph;
@@ -31,11 +45,12 @@ Process components/exports валидируются; worker handshake выпол
 
 App-server публикует:
 
+- `GET /inspect/plan` — текущий JSON `AssemblyPlan`;
 - `GET /inspect/topology` — JSON `TopologySnapshot`;
-- `GET /inspect/topology.md` — Markdown;
 - `GET /inspect/topology.mmd` — полный Mermaid graph;
-- `GET /inspect/runtime.mmd` — короткий runtime path;
-- `GET /inspect/map` — текстовая карта.
+- `GET /inspect/topology.runtime` — короткий runtime path;
+- `GET /inspect/topology.runtime.mmd` — короткая Mermaid runtime-схема;
+- `GET /inspect/topology.map` — текстовая карта.
 
 При token auth endpoints требуют тот же session token, что и остальные
 app-server routes.
@@ -133,5 +148,9 @@ cargo test --workspace
 ## Отличие От /config
 
 `/config` — клиентская projection настроек и доступных UI choices.
-`/inspect/topology` — диагностический snapshot реально собранного graph.
-Первый удобен для формы, второй — для ответа «что подключено и почему».
+`/inspect/plan` — неизменяемый чертёж текущего module epoch.
+`/inspect/topology` — graph catalog-а и фактически зарегистрированных tools,
+построенный из этого чертежа. Первый удобен для формы, второй — для ответа
+«что хотим собрать», третий — «что подключено и почему».
+
+Подробный contract плана: [assembly-plan.md](assembly-plan.md).

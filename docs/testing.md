@@ -26,6 +26,7 @@
 | Изменение | Focused | Boundary | Дополнительно |
 |---|---|---|---|
 | Pure helper/DTO | unit | serde/contract test | `cargo test --workspace` |
+| Assembly/config wiring | plan unit | plan -> registry/topology + atomic reload | `module_swap` + `doctor` |
 | Process protocol | protocol unit | conformance + malformed peer | swap/failure/restart |
 | Slot adapter | adapter unit | real worker invocation | `module_swap` |
 | Module implementation | module unit | reference conformance | runtime smoke при side effects |
@@ -344,6 +345,27 @@ PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config examples/co
 
 Не сохраняйте старые config aliases без отдельного решения владельца.
 
+### AssemblyPlan
+
+При изменении пути `AppConfig -> AssemblyPlan -> RuntimeRegistry` проверяйте:
+
+- exact selection и `component_id` выводятся без запуска worker-а;
+- JSON projection не содержит raw config, module config, args, env или
+  provider secrets;
+- неизвестный selection блокирует `PreparedAssembly` до module factory/
+  component connect;
+- один runtime snapshot атомарно содержит соответствующие друг другу plan и
+  registry;
+- topology строит slots/modules из того же плана;
+- `cargo test -p proteus-core --test module_swap` остаётся зелёным.
+
+Focused gate:
+
+```bash
+cargo test -p proteus-core core::assembly::tests
+cargo test -p proteus-core reload_assembly_publishes_matching_plan
+```
+
 ## Topology И Inspector
 
 Topology tests должны фиксировать:
@@ -393,7 +415,8 @@ Gate использует только каталоги из `mktemp` через
 
 - release содержит исполняемые `proteus` и `proteus-reference-worker`, но не
   native extension libraries;
-- `proteus --version`, `init safe` и `doctor` работают на пустом состоянии;
+- `proteus --version`, `init safe`, `doctor` и `inspect plan` работают на
+  пустом состоянии;
 - fake profile завершает полный turn, а runtime topology показывает process
   exports;
 - внешний Python `workflow/python_agent_loop` проходит `doctor`, topology и

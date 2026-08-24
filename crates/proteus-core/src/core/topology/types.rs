@@ -1,18 +1,13 @@
-use std::path::Path;
-
 use serde::{Deserialize, Serialize};
 
 use crate::{
     contracts::ToolSource,
-    core::{AppConfig, ModuleCatalogEntrySummary, ModuleEpoch},
+    core::{AssemblyPlan, ModuleEpoch},
     domain::{PermissionMode, ToolSpec},
 };
 
 pub struct TopologyBuildInput<'a> {
-    pub config: &'a AppConfig,
-    pub config_path: Option<&'a Path>,
-    pub cwd: &'a Path,
-    pub catalog_entries: &'a [ModuleCatalogEntrySummary],
+    pub plan: &'a AssemblyPlan,
     pub tools: &'a [(ToolSource, ToolSpec)],
     pub module_epoch: ModuleEpoch,
     pub permission_mode: PermissionMode,

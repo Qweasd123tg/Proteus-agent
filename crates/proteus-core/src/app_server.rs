@@ -15,9 +15,9 @@ use crate::{
         UserInputResponse, is_streaming_delta,
     },
     core::{
-        AgentRuntime, AppConfig, BroadcastEventSink, ChannelApprovalTransport,
+        AgentRuntime, AppConfig, AssemblyPlan, BroadcastEventSink, ChannelApprovalTransport,
         ChannelUserInputTransport, FanoutEventSink, JsonlEventStore, ModuleCatalog,
-        ModuleCatalogEntrySummary, ReservedRunCompletion, ReservedUserMessage, RuntimeReloadReport,
+        PreparedAssembly, ReservedRunCompletion, ReservedUserMessage, RuntimeReloadReport,
         SessionConfigSnapshot, SessionStore, TopologyBuildInput, TopologySnapshot,
         UserMessageReservation, build_topology_snapshot, config_store_root,
         delete_workspace_session, list_session_summaries, list_workspace_session_summaries,
@@ -77,7 +77,6 @@ pub struct AppServerHandle {
     config: Arc<RwLock<AppConfig>>,
     config_path: Option<PathBuf>,
     cwd: PathBuf,
-    catalog_entries: Arc<RwLock<Vec<ModuleCatalogEntrySummary>>>,
     events: broadcast::Sender<AppServerEvent>,
     pending_approvals: PendingApprovalResponders,
     pending_user_inputs: PendingUserInputResponders,
@@ -333,8 +332,8 @@ impl AppServerHandle {
         active_provider: Option<String>,
         permission_mode: Option<PermissionMode>,
     ) -> Result<ConfigBuilderSnapshot> {
-        let catalog_entries = self.catalog_entries.read().await.clone();
-        validate_config_builder_modules(&modules, &catalog_entries)?;
+        let current_plan = self.runtime.assembly_plan().await;
+        validate_config_builder_modules(&modules, current_plan.catalog_entries())?;
 
         let mut next_config = self.config.read().await.clone();
         if let Some(active_provider) = &active_provider {
@@ -364,19 +363,20 @@ impl AppServerHandle {
         }
         validate_module_config_toml(&next_config.module_config)?;
 
-        let (registry, catalog_entries) = build_registry(&next_config, &self.cwd).await?;
+        let assembly =
+            prepare_assembly(&next_config, &self.cwd, self.config_path.as_deref()).await?;
         let target_path = config_builder_target_path(self.config_path.as_deref())
             .ok_or_else(|| anyhow!("config path is not available; cannot persist config"))?;
         persist_config_builder(&target_path, &next_config).await?;
 
         let config_snapshot = SessionConfigSnapshot::from_runtime_config(
             &next_config,
-            &registry,
+            assembly.registry(),
             next_config.permissions.mode,
         );
         let report = self
             .runtime
-            .reload_registry(registry, Some(config_snapshot))
+            .reload_assembly(assembly, Some(config_snapshot))
             .await?;
         if provider_changed {
             let model = next_config.active_model_config()?;
@@ -386,7 +386,6 @@ impl AppServerHandle {
             self.runtime.set_permission_mode(mode).await;
         }
         *self.config.write().await = next_config;
-        *self.catalog_entries.write().await = catalog_entries;
         let _ = self.events.send(AppServerEvent::ModulesReloaded {
             old_epoch: report.old_epoch,
             new_epoch: report.new_epoch,
@@ -398,20 +397,18 @@ impl AppServerHandle {
 
     pub async fn topology_snapshot(&self) -> TopologySnapshot {
         let mode = self.permission_mode().await;
-        let module_epoch = self.runtime.module_epoch().await;
-        let config = self.config.read().await.clone();
-        let tools = self.runtime.tool_entries().await;
-        let catalog_entries = self.catalog_entries.read().await;
+        let (module_epoch, plan, tools) = self.runtime.assembly_observation().await;
         build_topology_snapshot(TopologyBuildInput {
-            config: &config,
-            config_path: self.config_path.as_deref(),
-            cwd: &self.cwd,
-            catalog_entries: &catalog_entries,
+            plan: &plan,
             tools: &tools,
             module_epoch,
             permission_mode: mode,
             extra_warnings: Vec::new(),
         })
+    }
+
+    pub async fn assembly_plan(&self) -> AssemblyPlan {
+        self.runtime.assembly_plan().await
     }
 
     pub fn session_summaries(&self) -> Result<Vec<AppSessionSummary>> {
@@ -612,15 +609,17 @@ impl AppServerHandle {
 
     pub async fn reload_tools(&self) -> Result<RuntimeReloadReport> {
         let config = reload_tools_config(self.config_path.as_deref(), &self.config).await?;
-        let (registry, catalog_entries) = build_registry(&config, &self.cwd).await?;
-        let config_snapshot =
-            SessionConfigSnapshot::from_runtime_config(&config, &registry, config.permissions.mode);
+        let assembly = prepare_assembly(&config, &self.cwd, self.config_path.as_deref()).await?;
+        let config_snapshot = SessionConfigSnapshot::from_runtime_config(
+            &config,
+            assembly.registry(),
+            config.permissions.mode,
+        );
         let report = self
             .runtime
-            .reload_registry(registry, Some(config_snapshot))
+            .reload_assembly(assembly, Some(config_snapshot))
             .await?;
         *self.config.write().await = config;
-        *self.catalog_entries.write().await = catalog_entries;
         let _ = self.events.send(AppServerEvent::ModulesReloaded {
             old_epoch: report.old_epoch,
             new_epoch: report.new_epoch,
@@ -690,23 +689,6 @@ impl AgentAppServer {
         let config_snapshot = Arc::new(RwLock::new(config.clone()));
         let config_path_snapshot = config_path.map(Path::to_path_buf);
         let cwd_snapshot = cwd.clone();
-        let (module_catalog, catalog_entries) = match module_catalog {
-            Some(catalog) => {
-                let catalog_entries = catalog.entry_summaries();
-                (Some(catalog), catalog_entries)
-            }
-            None => {
-                let catalog_config = config.clone();
-                let (catalog, catalog_entries) = tokio::task::spawn_blocking(move || {
-                    let catalog = crate::core::ModuleCatalog::from_config(&catalog_config)?;
-                    let catalog_entries = catalog.entry_summaries();
-                    anyhow::Ok((catalog, catalog_entries))
-                })
-                .await
-                .map_err(|error| anyhow!("module catalog blocking task failed: {error}"))??;
-                (Some(catalog), catalog_entries)
-            }
-        };
         let core_broadcast = Arc::new(BroadcastEventSink::new(1024));
         let event_log_path =
             crate::core::runtime::event_log_path(&config.event_log.path, config_path, &cwd);
@@ -763,7 +745,6 @@ impl AgentAppServer {
             config: config_snapshot,
             config_path: config_path_snapshot,
             cwd: cwd_snapshot,
-            catalog_entries: Arc::new(RwLock::new(catalog_entries)),
             events,
             pending_approvals,
             pending_user_inputs,
@@ -796,20 +777,19 @@ async fn reload_tools_config(
     Ok(config)
 }
 
-async fn build_registry(
+async fn prepare_assembly(
     config: &AppConfig,
     cwd: &Path,
-) -> Result<(crate::core::RuntimeRegistry, Vec<ModuleCatalogEntrySummary>)> {
+    config_path: Option<&Path>,
+) -> Result<PreparedAssembly> {
     let config = config.clone();
     let cwd = cwd.to_path_buf();
+    let config_path = config_path.map(Path::to_path_buf);
     tokio::task::spawn_blocking(move || {
-        let catalog = crate::core::ModuleCatalog::from_config(&config)?;
-        let catalog_entries = catalog.entry_summaries();
-        let registry = crate::core::RuntimeRegistry::from_catalog(&config, cwd, catalog)?;
-        Ok((registry, catalog_entries))
+        PreparedAssembly::from_config(config, cwd, config_path.as_deref())
     })
     .await
-    .map_err(|error| anyhow!("registry builder blocking task failed: {error}"))?
+    .map_err(|error| anyhow!("assembly builder blocking task failed: {error}"))?
 }
 
 fn spawn_runtime_event_forwarder(

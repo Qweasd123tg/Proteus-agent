@@ -9,8 +9,8 @@ use crate::{
         ToolRegistry, UserInputTransport, Workflow,
     },
     core::{
-        AppConfig, HeadlessUserInputTransport, ModeAwarePolicy, ModelService, ModuleBuildContext,
-        ModuleCatalog, PolicyBuildContext,
+        AppConfig, AssemblyPlan, HeadlessUserInputTransport, ModeAwarePolicy, ModelService,
+        ModuleBuildContext, ModuleCatalog, PolicyBuildContext, PreparedAssembly,
     },
     domain::{SessionId, ThreadId, TurnId},
     stubs::{
@@ -44,49 +44,67 @@ pub struct RuntimeRegistry {
 
 impl RuntimeRegistry {
     pub fn from_config(config: &AppConfig, cwd: PathBuf) -> Result<Self> {
-        Self::from_catalog(config, cwd, ModuleCatalog::from_config(config)?)
+        Ok(PreparedAssembly::from_config(config.clone(), cwd, None)?
+            .into_parts()
+            .1)
     }
 
     pub fn from_catalog(config: &AppConfig, cwd: PathBuf, catalog: ModuleCatalog) -> Result<Self> {
-        let context_providers = catalog.build_context_providers(&cwd)?;
+        Ok(
+            PreparedAssembly::from_catalog(config.clone(), cwd, None, catalog)?
+                .into_parts()
+                .1,
+        )
+    }
+
+    pub(crate) fn from_plan(plan: &AssemblyPlan, catalog: ModuleCatalog) -> Result<Self> {
+        plan.ensure_valid()?;
+        let config = plan.config();
+        let cwd = plan.cwd();
+        let context_providers = catalog.build_context_providers(cwd)?;
         let build_ctx = ModuleBuildContext {
             config,
-            cwd: &cwd,
+            cwd,
             context_providers: &context_providers,
         };
-        let model_config = config.active_model_config()?;
+        let model_config = plan.model_config()?;
         let model_adapter = catalog.build_model_adapter(&model_config)?;
         let model_service = Arc::new(ModelService::new(model_adapter));
         let model: Arc<dyn Model> = model_service.clone();
 
-        let search: Arc<dyn SearchBackend> = match config.modules.search.as_deref() {
+        let search: Arc<dyn SearchBackend> = match plan.module_id(crate::domain::ModuleKind::Search)
+        {
             Some(id) => catalog.build_search(id, &build_ctx)?,
             None => Arc::new(NullSearch),
         };
-        let memory: Arc<dyn MemoryStore> = match config.modules.memory.as_deref() {
+        let memory: Arc<dyn MemoryStore> = match plan.module_id(crate::domain::ModuleKind::Memory) {
             Some(id) => catalog.build_memory(id, &build_ctx)?,
             None => Arc::new(NoMemory),
         };
-        let context: Arc<dyn ContextBuilder> = match config.modules.context.as_deref() {
-            Some(id) => catalog.build_context(id, &build_ctx)?,
-            None => Arc::new(EmptyContextBuilder),
-        };
-        let patch: Arc<dyn PatchApplier> = match config.modules.patch.as_deref() {
+        let context: Arc<dyn ContextBuilder> =
+            match plan.module_id(crate::domain::ModuleKind::Context) {
+                Some(id) => catalog.build_context(id, &build_ctx)?,
+                None => Arc::new(EmptyContextBuilder),
+            };
+        let patch: Arc<dyn PatchApplier> = match plan.module_id(crate::domain::ModuleKind::Patch) {
             Some(id) => catalog.build_patch(id, &build_ctx)?,
             None => Arc::new(NullPatchApplier),
         };
-        let compactor: Arc<dyn HistoryCompactor> = match config.modules.compactor.as_deref() {
-            Some(id) => catalog.build_compactor(id, &build_ctx)?,
-            None => Arc::new(NoCompactor),
-        };
-        let tool_exposure: Arc<dyn ToolExposure> = match config.modules.tool_exposure.as_deref() {
-            Some(id) => catalog.build_tool_exposure(id, &build_ctx)?,
-            None => Arc::new(UnfilteredToolExposure),
-        };
-        let subagent: Arc<dyn SubagentRunner> = match config.modules.subagent.as_deref() {
-            Some(id) => catalog.build_subagent(id, &build_ctx)?,
-            None => Arc::new(NoSubagent),
-        };
+        let compactor: Arc<dyn HistoryCompactor> =
+            match plan.module_id(crate::domain::ModuleKind::Compactor) {
+                Some(id) => catalog.build_compactor(id, &build_ctx)?,
+                None => Arc::new(NoCompactor),
+            };
+        let tool_exposure: Arc<dyn ToolExposure> =
+            match plan.module_id(crate::domain::ModuleKind::ToolExposure) {
+                Some(id) => catalog.build_tool_exposure(id, &build_ctx)?,
+                None => Arc::new(UnfilteredToolExposure),
+            };
+        let subagent: Arc<dyn SubagentRunner> =
+            match plan.module_id(crate::domain::ModuleKind::Subagent) {
+                Some(id) => catalog.build_subagent(id, &build_ctx)?,
+                None => Arc::new(NoSubagent),
+            };
         let mut tools = catalog.build_tools(
             &build_ctx,
             search.clone(),
@@ -101,18 +119,21 @@ impl RuntimeRegistry {
         )?;
         let policy_ctx = PolicyBuildContext {
             config,
-            cwd: &cwd,
+            cwd,
             tools: &tools,
         };
-        let policy: Arc<dyn ApprovalPolicy> = match config.modules.policy.as_deref() {
-            Some(id) => catalog.build_policy(id, &policy_ctx)?,
-            None => Arc::new(DenyAllPolicy),
-        };
-        let workflow: Arc<dyn Workflow> = match config.modules.workflow.as_deref() {
+        let policy: Arc<dyn ApprovalPolicy> =
+            match plan.module_id(crate::domain::ModuleKind::Policy) {
+                Some(id) => catalog.build_policy(id, &policy_ctx)?,
+                None => Arc::new(DenyAllPolicy),
+            };
+        let workflow: Arc<dyn Workflow> = match plan.module_id(crate::domain::ModuleKind::Workflow)
+        {
             Some(id) => catalog.build_workflow(id, &build_ctx)?,
             None => Arc::new(NoWorkflow),
         };
-        let renderer: Arc<dyn Renderer> = match config.modules.renderer.as_deref() {
+        let renderer: Arc<dyn Renderer> = match plan.module_id(crate::domain::ModuleKind::Renderer)
+        {
             Some(id) => catalog.build_renderer(id, &build_ctx)?,
             None => Arc::new(TextRenderer),
         };
