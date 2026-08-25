@@ -178,10 +178,12 @@ network и provider-hosted side effects. До этого model shaping оста�
 
 1. ✅ identity-модель: subagent — другой полный Proteus, root владеет деревом
    и маршрутизацией; peer не является Component Runtime export-ом;
-2. ⏳ typed agent-control contract для role/config, spawn/list/wait/interrupt,
-   send/follow-up, cancel и terminal outcomes;
-3. ⏳ process path с адресными mailbox/follow-up и boundary test минимум двух
-   одновременно работающих Proteus;
+2. ✅ typed agent-control DTO v1 для identity, messages, lifecycle snapshots,
+   operation receipts и существующих spawn/list/wait/interrupt/send/follow-up
+   semantics; schema остаётся pre-release;
+3. ✅ process path с bounded адресными mailbox/follow-up и real-process
+   boundary: два одновременно работающих Proteus, отсутствие cross-delivery,
+   targeted cancel и sibling crash isolation;
 4. ⏳ отделённый root-owned agent record/tree: ownership, nesting, budgets,
    bounded concurrency, retention, worktrees и cleanup;
 5. ⏳ authenticated attach к уже запущенному app-server без изменения agent

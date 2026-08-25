@@ -451,7 +451,7 @@ impl SubagentToolHost for RuntimeSubagentToolHost {
     async fn send_subagent(
         &self,
         handle: &crate::contracts::SubagentHandle,
-        message: String,
+        message: crate::contracts::AgentControlMessage,
     ) -> Result<()> {
         self.ctx.subagent.send(handle, message).await
     }

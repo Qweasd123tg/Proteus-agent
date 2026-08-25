@@ -8,8 +8,8 @@ use tokio::time::timeout;
 
 use crate::{
     contracts::{
-        BudgetTracker, RuntimeContext, SubagentRequest, SubagentRoleSpec, SubagentStatus,
-        ToolExposureInput, ToolExposureRequest,
+        AgentControlMessage, BudgetTracker, RuntimeContext, SubagentRequest, SubagentRoleSpec,
+        SubagentStatus, ToolExposureInput, ToolExposureRequest,
     },
     core::ToolOrchestrator,
     domain::{CacheHints, ThreadId, ToolSpec},
@@ -176,12 +176,20 @@ pub(super) async fn run_child_loop(
     Ok(SubagentStatus::MaxIterationsReached)
 }
 
-pub(super) fn append_mailbox_messages(state: &mut ChildLoopState, messages: Vec<String>) {
-    state.history.extend(
-        messages
-            .into_iter()
-            .map(|message| CanonicalMessage::text(MessageRole::User, message)),
-    );
+pub(super) fn append_mailbox_messages(
+    state: &mut ChildLoopState,
+    messages: Vec<AgentControlMessage>,
+) {
+    state.history.extend(messages.into_iter().map(|message| {
+        let metadata = json!({
+            "agent_control": {
+                "schema_version": message.schema_version,
+                "source": message.source.as_str(),
+                "target": message.target.as_str(),
+            }
+        });
+        CanonicalMessage::text(MessageRole::User, message.model_text()).with_metadata(metadata)
+    }));
 }
 
 /// Стабильный cache routing key дочернего цикла. История ребёнка растёт

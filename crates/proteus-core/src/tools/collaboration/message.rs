@@ -16,11 +16,12 @@ use super::{
     tool_error,
 };
 use crate::{
-    contracts::{SubagentRequest, Tool, ToolContext},
+    contracts::{
+        AgentAddress, AgentControlMessage, AgentDeliveryDisposition, AgentMessageReceipt,
+        MAX_AGENT_MESSAGE_BYTES, SubagentRequest, Tool, ToolContext,
+    },
     domain::{ToolCall, ToolResult, ToolSpec},
 };
-
-const MAX_MESSAGE_BYTES: usize = 16_000;
 
 pub(super) struct SendMessageTool {
     timeout_ms: u64,
@@ -54,21 +55,23 @@ impl Tool for SendMessageTool {
             Ok(running) => running,
             Err(error) => return Ok(tool_error(call, "send_message", error.to_string())),
         };
-        if let Err(error) = running
-            .owner
-            .send_subagent(&running.handle, message.to_owned())
-            .await
-        {
+        let target = AgentAddress::parse(&running.path)?;
+        let message = match AgentControlMessage::from_root(target.clone(), message) {
+            Ok(message) => message,
+            Err(error) => return Ok(tool_error(call, "send_message", error.to_string())),
+        };
+        if let Err(error) = running.owner.send_subagent(&running.handle, message).await {
             return Ok(tool_error(call, "send_message", format!("{error:#}")));
         }
         Ok(json_result(
             call,
             "send_message",
-            json!({
-                "path": running.path,
-                "delivery": "queued",
-                "turn_started": false
-            }),
+            serde_json::to_value(AgentMessageReceipt {
+                path: target,
+                delivery: AgentDeliveryDisposition::Queued,
+                turn_started: false,
+                generation: None,
+            })?,
         ))
     }
 }
@@ -108,21 +111,25 @@ impl Tool for FollowupTaskTool {
 
         match followup {
             FollowupRequest::Running(running) => {
-                if let Err(error) = running
-                    .owner
-                    .send_subagent(&running.handle, message.to_owned())
-                    .await
-                {
+                let target = AgentAddress::parse(&running.path)?;
+                let message = match AgentControlMessage::from_root(target.clone(), message) {
+                    Ok(message) => message,
+                    Err(error) => {
+                        return Ok(tool_error(call, "followup_task", error.to_string()));
+                    }
+                };
+                if let Err(error) = running.owner.send_subagent(&running.handle, message).await {
                     return Ok(tool_error(call, "followup_task", format!("{error:#}")));
                 }
                 Ok(json_result(
                     call,
                     "followup_task",
-                    json!({
-                        "path": running.path,
-                        "delivery": "queued",
-                        "turn_started": false
-                    }),
+                    serde_json::to_value(AgentMessageReceipt {
+                        path: target,
+                        delivery: AgentDeliveryDisposition::Queued,
+                        turn_started: false,
+                        generation: None,
+                    })?,
                 ))
             }
             FollowupRequest::Idle(idle) => {
@@ -135,11 +142,21 @@ impl Tool for FollowupTaskTool {
                         anyhow!("followup_task requires current AgentTask").to_string(),
                     ));
                 };
-                let request = SubagentRequest::new(&idle.role, message, parent_task)
+                let target = AgentAddress::parse(&idle.path)?;
+                let message = match AgentControlMessage::from_root(target.clone(), message) {
+                    Ok(message) => message,
+                    Err(error) => {
+                        self.control
+                            .abort_followup(session_id, &idle.path, idle.generation);
+                        return Ok(tool_error(call, "followup_task", error.to_string()));
+                    }
+                };
+                let request = SubagentRequest::new(&idle.role, message.model_text(), parent_task)
                     .with_description(idle.task_name.clone())
                     .with_metadata(json!({
                         "control_plane_owned": true,
-                        "task_id": idle.task_id
+                        "task_id": idle.task_id,
+                        "agent_control_message": message,
                     }));
                 let handle = match current_host.spawn_subagent(request).await {
                     Ok(handle) => handle,
@@ -179,12 +196,12 @@ impl Tool for FollowupTaskTool {
                 Ok(json_result(
                     call,
                     "followup_task",
-                    json!({
-                        "path": idle.path,
-                        "generation": idle.generation,
-                        "delivery": "resumed",
-                        "turn_started": true
-                    }),
+                    serde_json::to_value(AgentMessageReceipt {
+                        path: target,
+                        delivery: AgentDeliveryDisposition::Resumed,
+                        turn_started: true,
+                        generation: Some(idle.generation),
+                    })?,
                 ))
             }
         }
@@ -196,9 +213,9 @@ fn required_message(call: &ToolCall) -> Result<&str> {
     if message.trim().is_empty() {
         return Err(anyhow!("{} arg 'message' must not be blank", call.name));
     }
-    if message.len() > MAX_MESSAGE_BYTES {
+    if message.len() > MAX_AGENT_MESSAGE_BYTES {
         return Err(anyhow!(
-            "{} arg 'message' exceeds {MAX_MESSAGE_BYTES} bytes",
+            "{} arg 'message' exceeds {MAX_AGENT_MESSAGE_BYTES} bytes",
             call.name
         ));
     }

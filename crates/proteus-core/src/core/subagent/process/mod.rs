@@ -21,6 +21,7 @@
 
 mod child;
 mod config;
+mod messaging;
 mod pool;
 #[cfg(test)]
 mod tests;
@@ -41,8 +42,8 @@ use tokio::{sync::Semaphore, time::timeout};
 
 use crate::{
     contracts::{
-        RuntimeContext, SubagentHandle, SubagentRequest, SubagentResult, SubagentRoleSpec,
-        SubagentRunner, SubagentStatus,
+        AgentControlMessage, RuntimeContext, SubagentHandle, SubagentRequest, SubagentResult,
+        SubagentRoleSpec, SubagentRunner, SubagentStatus,
     },
     domain::{Event, ThreadId, new_call_id, new_thread_id},
 };
@@ -252,6 +253,7 @@ impl RunnerInner {
         forwarder: &ChildEventForwarder<'_>,
         tracker: &mut TurnTracker,
         leased: &mut PooledChild,
+        mailbox: &ChildMailbox,
         is_resume: bool,
     ) -> Result<TurnEnd> {
         leased.child.drain_stale_outputs();
@@ -275,6 +277,7 @@ impl RunnerInner {
                 text,
             })
             .await?;
+        let active_send_id = StdMutex::new(send_id.clone());
 
         match spec.limits.timeout_ms {
             Some(timeout_ms) => {
@@ -286,16 +289,22 @@ impl RunnerInner {
                         &send_id,
                         tracker,
                         self.cancel_grace,
+                        mailbox,
+                        &active_send_id,
                     ),
                 )
                 .await
                 {
                     Ok(end) => end,
                     Err(_elapsed) => {
+                        let active_send_id = active_send_id
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                            .clone();
                         let clean = cancel_child_turn(
                             &mut leased.child,
                             forwarder,
-                            &send_id,
+                            &active_send_id,
                             tracker,
                             self.cancel_grace,
                         )
@@ -314,6 +323,8 @@ impl RunnerInner {
                     &send_id,
                     tracker,
                     self.cancel_grace,
+                    mailbox,
+                    &active_send_id,
                 )
                 .await
             }
@@ -352,6 +363,7 @@ impl RunnerInner {
         child_ctx: RuntimeContext,
         child_thread_id: ThreadId,
         resume: Option<ResumeReservation>,
+        mailbox: Arc<ChildMailbox>,
     ) -> Result<SubagentResult> {
         let role = self
             .roles
@@ -364,6 +376,7 @@ impl RunnerInner {
                 permit.map_err(|_| anyhow!("subagent role process pool is closed"))?
             }
             _ = child_ctx.cancellation.cancelled() => {
+                let _ = mailbox.close_and_discard();
                 let resumable = match resume.as_ref() {
                     Some(reservation) => self.rollback_resume(reservation).await?,
                     None => false,
@@ -391,6 +404,7 @@ impl RunnerInner {
             match self.lease_process(&spec.name, role, resume.as_ref(), &request.task.cwd) {
                 Ok(leased) => leased,
                 Err(error) => {
+                    let _ = mailbox.close_and_discard();
                     drop(permit);
                     let _ = ctx
                         .emit(Event::SubagentFinished {
@@ -411,9 +425,14 @@ impl RunnerInner {
                 &forwarder,
                 &mut tracker,
                 &mut leased,
+                &mailbox,
                 is_resume,
             )
             .await;
+
+        if !matches!(&body_result, Ok(TurnEnd::Completed(_))) {
+            let _ = mailbox.close_and_discard();
+        }
 
         match body_result {
             Ok(end) => {
@@ -452,7 +471,10 @@ impl RunnerInner {
 
                 let mut result = SubagentResult::new(summary, status, tracker.iterations)
                     .with_child_thread_id(child_thread_id)
-                    .with_metadata(json!({ "resumable": resumable }));
+                    .with_metadata(json!({
+                        "resumable": resumable,
+                        "agent_messages_delivered": tracker.delivered_messages,
+                    }));
                 if let Some(usage) = tracker.usage.clone() {
                     result = result.with_usage(usage);
                 }
@@ -489,7 +511,7 @@ impl SubagentRunner for ProcessSubagentRunner {
     }
 
     fn supports_collaboration_messages(&self) -> bool {
-        false
+        true
     }
 
     /// `run` = `spawn` + `wait`: turn ребёнка живёт detached-таской, поэтому
@@ -505,10 +527,11 @@ impl SubagentRunner for ProcessSubagentRunner {
         let prepared = self.inner.prepare(&request, &ctx)?;
         let child_ctx = child_context(&ctx, prepared.child_thread_id, &prepared.spec.name);
         let spawn_id = new_call_id();
+        let mailbox = Arc::new(ChildMailbox::default());
         let reserve_result = self.inner.lock_pending()?.reserve(
             &spawn_id,
             child_ctx.cancellation.clone(),
-            Arc::new(ChildMailbox::default()),
+            mailbox.clone(),
             self.inner.max_parallel,
             !request
                 .metadata
@@ -550,6 +573,7 @@ impl SubagentRunner for ProcessSubagentRunner {
             child_ctx,
             prepared.child_thread_id,
             prepared.resume,
+            mailbox,
         ));
         self.inner.lock_pending()?.attach(&spawn_id, join);
         Ok(handle)
@@ -563,7 +587,14 @@ impl SubagentRunner for ProcessSubagentRunner {
     }
 
     async fn cancel(&self, handle: &SubagentHandle) -> Result<()> {
-        self.inner.lock_pending()?.cancel(&handle.spawn_id)
+        self.inner
+            .lock_pending()?
+            .cancel_and_close_mailbox(&handle.spawn_id)
+    }
+
+    async fn send(&self, handle: &SubagentHandle, message: AgentControlMessage) -> Result<()> {
+        self.inner.lock_pending()?.send(&handle.spawn_id, message)?;
+        Ok(())
     }
 }
 

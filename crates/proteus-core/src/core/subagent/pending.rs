@@ -16,7 +16,7 @@ use std::{
 use anyhow::{Result, anyhow, bail};
 use tokio::{sync::Notify, task::JoinHandle};
 
-use crate::contracts::{CancellationToken, SubagentResult};
+use crate::contracts::{AgentControlMessage, CancellationToken, SubagentResult};
 
 use super::mailbox::ChildMailbox;
 
@@ -143,7 +143,19 @@ impl PendingChildren {
         Ok(())
     }
 
-    pub(super) fn send(&self, spawn_id: &str, message: &str) -> Result<usize> {
+    /// Process peers cannot append an undelivered local envelope to the
+    /// child's canonical history after its stdio turn is cancelled. Close the
+    /// queue before signaling cancel so a later send is rejected explicitly.
+    pub(super) fn cancel_and_close_mailbox(&mut self, spawn_id: &str) -> Result<()> {
+        let entry = self.entries.get(spawn_id).ok_or_else(|| {
+            anyhow!("unknown subagent spawn_id (never spawned, already waited, or evicted)")
+        })?;
+        entry.mailbox.close_and_discard()?;
+        entry.cancel.cancel();
+        Ok(())
+    }
+
+    pub(super) fn send(&self, spawn_id: &str, message: AgentControlMessage) -> Result<usize> {
         let entry = self.entries.get(spawn_id).ok_or_else(|| {
             anyhow!("unknown subagent spawn_id (never spawned, already waited, or evicted)")
         })?;

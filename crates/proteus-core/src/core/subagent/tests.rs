@@ -16,8 +16,8 @@ use serde_json::{Value, json};
 use super::*;
 use crate::{
     contracts::{
-        CancellationToken, EventEmitter, Model, PolicyContext, PolicyVisibilityContext,
-        SubagentIsolation, SubagentLimits, ToolRegistry,
+        AgentAddress, AgentControlMessage, CancellationToken, EventEmitter, Model, PolicyContext,
+        PolicyVisibilityContext, SubagentIsolation, SubagentLimits, ToolRegistry,
     },
     core::{HeadlessApprovalTransport, HeadlessUserInputTransport, InMemoryEventStore},
     domain::{
@@ -1304,11 +1304,25 @@ async fn running_child_consumes_mailbox_at_model_boundary() {
         .expect("entered permit");
     entered.forget();
     runner
-        .send(&handle, "mailbox follow-up".to_owned())
+        .send(
+            &handle,
+            AgentControlMessage::from_root(
+                AgentAddress::child("explore").unwrap(),
+                "mailbox follow-up",
+            )
+            .unwrap(),
+        )
         .await
         .expect("queue message");
     runner
-        .send(&handle, "second mailbox message".to_owned())
+        .send(
+            &handle,
+            AgentControlMessage::from_root(
+                AgentAddress::child("explore").unwrap(),
+                "second mailbox message",
+            )
+            .unwrap(),
+        )
         .await
         .expect("queue second message");
     model.release.add_permits(1);

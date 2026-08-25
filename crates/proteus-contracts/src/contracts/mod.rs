@@ -3,6 +3,7 @@
 //! Contracts depend on `domain` DTOs and are implemented by modules or
 //! adapters. Core wires these traits through the registry.
 
+pub mod agent_control;
 pub mod approval_policy;
 pub mod approval_transport;
 pub mod budget;
@@ -24,6 +25,7 @@ pub mod tool_provider;
 pub mod user_input;
 pub mod workflow;
 
+pub use agent_control::*;
 pub use approval_policy::*;
 pub use approval_transport::*;
 pub use budget::*;

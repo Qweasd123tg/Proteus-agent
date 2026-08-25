@@ -178,9 +178,12 @@ Collaboration control скоупится по `SessionId`: path `/root/<task_nam
 роль без worktree isolation, а дочерний toolset лишён всех subagent facade
 tools, поэтому nesting в первом slice невозможен. Records и terminal payloads
 bounded, active records не вытесняются; состояние process-resident и теряется
-при restart. Send/follow-up/fork и writer/worktree spawn в этом режиме не
-реализованы, а несовместимый blocking-only subagent runner отклоняется при сборке
-registry без fallback.
+при restart. `send_message` и `followup_task` доступны у `sequential` и
+локального stdio `process`, но не переносят grants: envelope меняет только
+history адресата, а его tools продолжают проходить собственные registry,
+policy и safety. Fork, прямой peer mesh и writer/worktree spawn в этом режиме
+не реализованы, а несовместимый blocking-only subagent runner отклоняется при
+сборке registry без fallback.
 
 Config-defined `native` tools не могут понизить safety ниже safety встроенного handler-а. Например `native.handler = "apply_patch"` останется `WritesFiles`, даже если config укажет `ReadOnly`. File I/O и shell больше не доступны через `native.handler` — они приходят из process tool modules.
 
@@ -604,10 +607,10 @@ janitor; общий cap 16 сохраняет LRU-eviction. Cancellation акт�
 
 - `process` SubagentRunner ограничивает concurrent leases semaphore-ом и idle
   residents глобальным LRU-cap, но не имеет строгого wall-clock TTL/janitor;
-- process children пока не поддерживают адресные `send_message` и
-  `followup_task`; эти методы остаются только у in-process `sequential`;
 - collaboration records имеют session ownership и caps, но живут только в
   памяти процесса: после restart нет list/wait/resume прежних handles;
+- peer-origin direct messaging и authenticated attach отсутствуют: обмен между
+  siblings пока релеится root coordinator-ом;
 
 До устранения этих gaps не считайте process-subagent/collaboration handles
 durable process isolation boundary. Внешний `workdir` допустим только для явно

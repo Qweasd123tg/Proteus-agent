@@ -1,7 +1,7 @@
 //! Experimental Codex-shaped collaboration facade over the replaceable
 //! `SubagentRunner`. This is a bounded session control plane, not a parity
-//! claim: basic lifecycle is always available; sequential runners can also
-//! expose bounded messaging/follow-up tools.
+//! claim: basic lifecycle is always available; message-capable runners can
+//! also expose bounded messaging/follow-up tools.
 
 mod control;
 mod message;
@@ -18,6 +18,8 @@ use serde_json::{Value, json};
 
 use crate::{
     contracts::{
+        AGENT_CONTROL_SCHEMA_VERSION, AgentAddress, AgentInterruptReceipt, AgentInterruptStatus,
+        AgentLifecycleStatus, AgentListSnapshot, AgentSpawnReceipt, AgentWaitSnapshot,
         SubagentIsolation, SubagentRequest, SubagentRoleSpec, SubagentToolHost, Tool, ToolContext,
         ToolRegistry, ToolSource,
     },
@@ -174,19 +176,18 @@ impl Tool for SpawnAgentTool {
             host.cancel_subagent(&handle).await?;
         }
 
-        Ok(ToolResult::ok(
-            call.id.clone(),
-            json!({
-                "path": reservation.path,
-                "generation": reservation.generation,
-                "task_name": task_name,
-                "agent_type": agent_type,
-                "status": "running",
-                "experimental": true
-            })
-            .to_string(),
+        let receipt = AgentSpawnReceipt {
+            schema_version: AGENT_CONTROL_SCHEMA_VERSION,
+            path: AgentAddress::parse(&reservation.path)?,
+            generation: reservation.generation,
+            task_name: task_name.to_owned(),
+            agent_type: agent_type.to_owned(),
+            status: AgentLifecycleStatus::Running,
+        };
+        Ok(
+            ToolResult::ok(call.id.clone(), serde_json::to_string(&receipt)?)
+                .with_metadata(json!({ "tool": "spawn_agent", "path": reservation.path })),
         )
-        .with_metadata(json!({ "tool": "spawn_agent", "path": reservation.path })))
     }
 }
 
@@ -218,7 +219,7 @@ impl Tool for ListAgentsTool {
             Ok(agents) => Ok(json_result(
                 call,
                 "list_agents",
-                json!({ "agents": agents }),
+                serde_json::to_value(AgentListSnapshot { agents })?,
             )),
             Err(error) => Ok(tool_error(call, "list_agents", error.to_string())),
         }
@@ -284,7 +285,10 @@ impl Tool for WaitAgentTool {
         Ok(json_result(
             call,
             "wait_agent",
-            json!({ "timed_out": timed_out, "agents": completed }),
+            serde_json::to_value(AgentWaitSnapshot {
+                timed_out,
+                agents: completed,
+            })?,
         ))
     }
 }
@@ -326,10 +330,14 @@ impl Tool for InterruptAgentTool {
         Ok(json_result(
             call,
             "interrupt_agent",
-            json!({
-                "path": interrupt.path,
-                "status": if interrupt.terminal { "already_terminal" } else { "interrupt_requested" }
-            }),
+            serde_json::to_value(AgentInterruptReceipt {
+                path: AgentAddress::parse(&interrupt.path)?,
+                status: if interrupt.terminal {
+                    AgentInterruptStatus::AlreadyTerminal
+                } else {
+                    AgentInterruptStatus::InterruptRequested
+                },
+            })?,
         ))
     }
 }

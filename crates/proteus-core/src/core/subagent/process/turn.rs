@@ -1,13 +1,17 @@
 //! One stdio turn on a leased process child: event forwarding, interactive
 //! request bridging, usage tracking and cancel/timeout protocol.
 
-use std::time::Duration;
+use std::{sync::Mutex, time::Duration};
 
 use anyhow::{Result, bail};
 use proteus_contracts::app_protocol::{AppServerEvent, StdioOutput, StdioRequest};
 use tokio::time::{Instant, timeout_at};
 
-use super::child::ChildProcess;
+use super::super::mailbox::ChildMailbox;
+use super::{
+    child::ChildProcess,
+    messaging::{PeerMessageDelivery, PeerMessageResponse},
+};
 use crate::{
     contracts::{
         ApprovalRequest, BudgetTracker, RequestOrigin, RuntimeContext, SubagentStatus,
@@ -35,6 +39,9 @@ pub(super) struct TurnTracker {
     last_text: Option<String>,
     stream_buffer: String,
     cancel_sent: bool,
+    /// Messages confirmed by the peer app-server during this logical
+    /// generation. The initial task prompt is not counted.
+    pub(super) delivered_messages: u64,
     /// Token-бюджет запуска (`SubagentLimits::max_total_tokens`). Скоупится
     /// на запуск, не на task_id: resume получает новое окно.
     pub(super) budget: BudgetTracker,
@@ -183,16 +190,26 @@ pub(super) async fn drive_turn(
     send_id: &str,
     tracker: &mut TurnTracker,
     cancel_grace: Duration,
+    mailbox: &ChildMailbox,
+    published_active_send_id: &Mutex<String>,
 ) -> Result<TurnEnd> {
+    let mut active_send_id = send_id.to_owned();
+    let mut active_started_by_message = false;
+    let mut active_terminal_seen = false;
+    let mut message_delivery = PeerMessageDelivery::default();
+    let mut pending_terminal = None;
+    let mut pending_from_message_turn = false;
+
     loop {
         if forwarder.ctx.cancellation.is_cancelled() && !tracker.cancel_sent {
-            return finish_cancelled(child, forwarder, send_id, tracker, cancel_grace).await;
+            return finish_cancelled(child, forwarder, &active_send_id, tracker, cancel_grace)
+                .await;
         }
         if tracker.budget.exceeded() && !tracker.cancel_sent {
             return finish_interrupted_with(
                 child,
                 forwarder,
-                send_id,
+                &active_send_id,
                 tracker,
                 cancel_grace,
                 SubagentStatus::TokenBudgetExceeded,
@@ -200,21 +217,75 @@ pub(super) async fn drive_turn(
             .await;
         }
 
+        if active_terminal_seen && message_delivery.is_settled() && pending_terminal.is_some() {
+            let messages = mailbox.drain_or_close()?;
+            if messages.is_empty() {
+                return Ok(pending_terminal
+                    .take()
+                    .expect("terminal checked before mailbox close"));
+            }
+            active_send_id = message_delivery.start_continuation(child, messages).await?;
+            *published_active_send_id
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = active_send_id.clone();
+            active_started_by_message = true;
+            active_terminal_seen = false;
+            pending_terminal = None;
+            pending_from_message_turn = false;
+        } else {
+            let messages = mailbox.drain()?;
+            if !messages.is_empty() {
+                message_delivery.queue(child, messages).await?;
+            }
+        }
+
         let output = tokio::select! {
             output = child.next_output() => output,
             _ = forwarder.ctx.cancellation.cancelled() => {
-                return finish_cancelled(child, forwarder, send_id, tracker, cancel_grace).await;
+                return finish_cancelled(
+                    child,
+                    forwarder,
+                    &active_send_id,
+                    tracker,
+                    cancel_grace,
+                )
+                .await;
             }
+            _ = mailbox.notified() => continue,
         };
         let Some(output) = output else {
             bail!("subagent child process exited unexpectedly");
         };
 
-        match handle_output(child, forwarder, send_id, tracker, output).await? {
+        match handle_output(
+            child,
+            forwarder,
+            &active_send_id,
+            tracker,
+            &mut message_delivery,
+            output,
+        )
+        .await?
+        {
             OutputVerdict::Continue => {}
+            OutputVerdict::Finished(TurnEnd::Completed(text)) => {
+                active_terminal_seen = true;
+                if active_started_by_message {
+                    tracker.delivered_messages = tracker.delivered_messages.saturating_add(1);
+                }
+                if !pending_from_message_turn {
+                    pending_terminal = Some(TurnEnd::Completed(text));
+                }
+            }
+            OutputVerdict::MessageTurnCompleted(text) => {
+                tracker.delivered_messages = tracker.delivered_messages.saturating_add(1);
+                pending_terminal = Some(TurnEnd::Completed(text));
+                pending_from_message_turn = true;
+            }
             OutputVerdict::Finished(end) => return Ok(end),
             OutputVerdict::CancelRequested => {
-                return finish_cancelled(child, forwarder, send_id, tracker, cancel_grace).await;
+                return finish_cancelled(child, forwarder, &active_send_id, tracker, cancel_grace)
+                    .await;
             }
         }
     }
@@ -256,6 +327,7 @@ async fn finish_interrupted_with(
 enum OutputVerdict {
     Continue,
     Finished(TurnEnd),
+    MessageTurnCompleted(String),
     CancelRequested,
 }
 
@@ -264,6 +336,7 @@ async fn handle_output(
     forwarder: &ChildEventForwarder<'_>,
     send_id: &str,
     tracker: &mut TurnTracker,
+    message_delivery: &mut PeerMessageDelivery,
     output: StdioOutput,
 ) -> Result<OutputVerdict> {
     match output {
@@ -294,24 +367,44 @@ async fn handle_output(
             AppServerEvent::Shutdown => bail!("subagent child app-server shut down mid-turn"),
             _ => Ok(OutputVerdict::Continue),
         },
-        StdioOutput::Response { id, ok, output, .. } if id.as_deref() == Some(send_id) && ok => {
-            let text = output
-                .and_then(|value| serde_json::from_value::<AgentOutput>(value).ok())
-                .map(|output| output.text)
-                .unwrap_or_default();
-            Ok(OutputVerdict::Finished(TurnEnd::Completed(text)))
-        }
-        StdioOutput::Response { id, error, .. } if id.as_deref() == Some(send_id) => {
-            if tracker.cancel_sent {
-                Ok(OutputVerdict::Finished(TurnEnd::Interrupted(
-                    SubagentStatus::Cancelled,
-                )))
-            } else {
-                bail!(
-                    "subagent child turn failed: {}",
-                    error.unwrap_or_else(|| "unknown error".to_owned())
-                );
+        StdioOutput::Response {
+            id: Some(id),
+            ok,
+            output,
+            error,
+        } => {
+            if let Some(response) =
+                message_delivery.confirm(&id, ok, output.as_ref(), error.as_deref())?
+            {
+                return Ok(match response {
+                    PeerMessageResponse::Queued => {
+                        tracker.delivered_messages = tracker.delivered_messages.saturating_add(1);
+                        OutputVerdict::Continue
+                    }
+                    PeerMessageResponse::TurnCompleted(output) => {
+                        OutputVerdict::MessageTurnCompleted(output.text)
+                    }
+                });
             }
+            if id != send_id {
+                return Ok(OutputVerdict::Continue);
+            }
+            if ok {
+                let text = output
+                    .and_then(|value| serde_json::from_value::<AgentOutput>(value).ok())
+                    .map(|output| output.text)
+                    .unwrap_or_default();
+                return Ok(OutputVerdict::Finished(TurnEnd::Completed(text)));
+            }
+            if tracker.cancel_sent {
+                return Ok(OutputVerdict::Finished(TurnEnd::Interrupted(
+                    SubagentStatus::Cancelled,
+                )));
+            }
+            bail!(
+                "subagent child turn failed: {}",
+                error.unwrap_or_else(|| "unknown error".to_owned())
+            );
         }
         StdioOutput::Response { .. } => Ok(OutputVerdict::Continue),
         _ => Ok(OutputVerdict::Continue),

@@ -427,7 +427,9 @@ worktree isolation.
 `surface` выбирает model-facing facade:
 
 - `task` — один delegation tool;
-- `collaboration` — spawn/list/wait/interrupt и доступные messaging methods;
+- `collaboration` — spawn/list/wait/interrupt и bounded
+  `send_message`/`followup_task`; оба текущих runner-а (`sequential`,
+  `process`) объявляют messaging capability;
 - `none` — tools субагентов не регистрируются.
 
 Это единственный `none` в schema: enum UI surface, а не module id.

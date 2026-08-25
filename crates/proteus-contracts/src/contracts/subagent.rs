@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    contracts::workflow::RuntimeContext,
+    contracts::{AgentControlMessage, workflow::RuntimeContext},
     domain::{AgentTask, SessionId, ThreadId},
     model_standard::TokenUsage,
 };
@@ -409,7 +409,7 @@ pub trait SubagentRunner: Send + Sync {
     /// message was accepted by the child's bounded mailbox; the child consumes
     /// it at the nearest model/tool boundary. Idle children are resumed by the
     /// model-facing `followup_task` facade instead of this method.
-    async fn send(&self, handle: &SubagentHandle, message: String) -> Result<()> {
+    async fn send(&self, handle: &SubagentHandle, message: AgentControlMessage) -> Result<()> {
         let _ = (handle, message);
         bail!("this subagent runner does not support collaboration messages");
     }
@@ -444,7 +444,11 @@ pub trait SubagentToolHost: Send + Sync {
         bail!("subagent host does not support collaboration control");
     }
 
-    async fn send_subagent(&self, handle: &SubagentHandle, message: String) -> Result<()> {
+    async fn send_subagent(
+        &self,
+        handle: &SubagentHandle,
+        message: AgentControlMessage,
+    ) -> Result<()> {
         let _ = (handle, message);
         bail!("subagent host does not support collaboration messages");
     }

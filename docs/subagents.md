@@ -1,7 +1,8 @@
 # Координация Нескольких Proteus
 
-Статус: принятое архитектурное направление; полный agent-control contract ещё
-не реализован и не стабилизирован. Решение зафиксировано 2026-08-24.
+Статус: typed agent-control DTO v1 и локальный stdio messaging slice
+реализованы 2026-08-25; отделённое durable дерево, attach и remote transport
+ещё не реализованы и не стабилизированы.
 
 ## Коротко
 
@@ -73,27 +74,46 @@ Peer Proteus сам является host/runtime и может иметь со�
 
 Текущий `process` runner уже доказывает важную часть модели:
 
+- использует typed `AgentAddress`, `AgentControlMessage`, lifecycle snapshots
+  и operation receipts из `proteus-contracts`;
 - запускает отдельный `proteus server stdio` с named child config;
 - держит несколько процессов одновременно;
 - поддерживает `spawn`, `wait`, `interrupt`, cancel и process pool;
+- предоставляет те же `send_message` и `followup_task`, что и `sequential`;
+- доставляет bounded адресные сообщения через stdio на ближайшую model/tool
+  boundary, сохраняя FIFO одного mailbox;
 - пересылает события, approvals и user input между двумя Proteus;
 - сохраняет resume, пока жив соответствующий child process.
 
-Но это ещё не целевой contract:
+Real-process boundary test одновременно запускает два полных Proteus,
+передаёт им разные payload, проверяет отсутствие cross-delivery, адресный
+cancel и изоляцию падения соседнего process. Успешная terminal-гонка не теряет
+принятое сообщение: stdio adapter продолжает ту же логическую generation новым
+peer turn. Явный cancel имеет приоритет, закрывает mailbox цели и отклоняет
+поздние сообщения, не затрагивая соседей.
 
-- `send_message` и `followup_task` доступны только внутреннему `sequential`
-  runner-у;
+Это ещё не полный целевой control plane:
+
 - semantic agent record пока связан с памятью root process и живым child;
 - нельзя подключить уже работающий Proteus по адресу;
 - нет durable agent tree и восстановления связи после restart;
+- model-facing facade сейчас root-owned: peer-origin message в sibling не
+  является прямым вызовом. Root получает результат через `wait_agent` и
+  адресно пересылает его следующему участнику; direct peer mesh не добавлен;
 - `sequential` остаётся полезным текущим backend/test baseline, но не задаёт
   целевую сущность subagent-а.
 
+Один mailbox ограничен 32 сообщениями, 64 000 байт суммарно и 16 000 байт на
+сообщение. `AgentControlMessage` хранит source/target отдельно от process
+handle; text projection добавляет source attribution в model-visible user
+message. Authority при доставке не объединяется: peer продолжает исполнять
+tools только через собственные registry, policy и safety.
+
 ## Порядок Реализации
 
-1. Определить typed agent-control DTO и exact lifecycle/failure semantics для
-   `spawn/send/follow-up/list/wait/interrupt`.
-2. Дать текущему stdio process path адресные mailbox и follow-up, проверив
+1. ✅ Определить typed agent-control DTO и exact lifecycle/failure semantics
+   для `spawn/send/follow-up/list/wait/interrupt`.
+2. ✅ Дать текущему stdio process path адресные mailbox и follow-up, проверив
    одновременную работу минимум двух полных Proteus.
 3. Отделить root-owned agent record/tree от конкретного process connection,
    process pool и transport.

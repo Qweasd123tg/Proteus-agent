@@ -258,12 +258,15 @@ collaboration completion приходит через `wait_agent`, а `list_agen
 раскрыта и показывает живой прогресс; после `SubagentFinished` она сворачивается
 в строку со статусом, числом вызовов, итерациями и длительностью.
 
-Для builtin `sequential` вызовы `send_message` и running `followup_task`
-попадают в bounded mailbox ребёнка. Child loop добавляет их как user messages
-на ближайшей model/tool boundary; terminal close mailbox атомарен, поэтому
-поздний вызов либо явно отклоняется, либо сохраняется в resumable history.
-`followup_task` для idle terminal record запускает resume по прежнему task id.
-`process` runner пока не регистрирует messaging tools.
+Для обоих builtin runner-ов вызовы `send_message` и running `followup_task`
+попадают в bounded адресный mailbox ребёнка. `sequential` добавляет envelope
+как canonical user message на ближайшей model/tool boundary; terminal close
+атомарен, поэтому поздний вызов либо отклоняется, либо остаётся в resumable
+history. `process` передаёт тот же typed envelope persistent peer-у через
+stdio. Если успешный terminal response обогнал принятое сообщение, adapter
+продолжает ту же logical generation следующим peer turn; явный cancel вместо
+этого закрывает очередь и имеет приоритет. `followup_task` для idle terminal
+record у обоих runner-ов запускает resume по прежнему task id.
 
 Для reload посреди turn app-server держит `SubagentStarted`/`SubagentFinished`
 и вложенные child tools в `TurnProgress.snapshot()`. `/history` отдаёт это как

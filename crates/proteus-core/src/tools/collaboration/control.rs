@@ -4,13 +4,15 @@ use std::{
 };
 
 use anyhow::{Result, anyhow, bail};
-use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::Notify;
 
 use crate::{
-    contracts::{SubagentHandle, SubagentResult, SubagentStatus, SubagentToolHost},
-    domain::SessionId,
+    contracts::{
+        AgentAddress, AgentLifecycleStatus, AgentRecordSnapshot, SubagentHandle, SubagentResult,
+        SubagentStatus, SubagentToolHost,
+    },
+    domain::{SessionId, ThreadId},
 };
 
 const MAX_SESSIONS: usize = 64;
@@ -35,7 +37,7 @@ struct SessionState {
     seq: u64,
     notify: Arc<Notify>,
     agents: BTreeMap<String, AgentRecord>,
-    completions: VecDeque<AgentView>,
+    completions: VecDeque<AgentRecordSnapshot>,
 }
 
 struct AgentRecord {
@@ -53,26 +55,11 @@ struct AgentRecord {
 #[derive(Clone)]
 enum AgentOutcome {
     Result {
-        status: String,
-        child_thread_id: Option<String>,
+        status: AgentLifecycleStatus,
+        child_thread_id: Option<ThreadId>,
         summary: String,
     },
     Error(String),
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub(super) struct AgentView {
-    pub path: String,
-    pub task_name: String,
-    pub agent_type: String,
-    pub generation: u64,
-    pub status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub child_thread_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
 }
 
 pub(super) struct AgentReservation {
@@ -117,8 +104,7 @@ impl CollaborationControl {
         task_name: &str,
         role: &str,
     ) -> Result<AgentReservation> {
-        validate_task_name(task_name)?;
-        let path = canonical_path(task_name);
+        let path = AgentAddress::child(task_name)?.to_string();
         let mut state = self.lock()?;
         state.ensure_session(session_id)?;
         let seq = state.next_seq;
@@ -229,7 +215,7 @@ impl CollaborationControl {
         &self,
         session_id: SessionId,
         path_prefix: Option<&str>,
-    ) -> Result<Vec<AgentView>> {
+    ) -> Result<Vec<AgentRecordSnapshot>> {
         let prefix = normalize_prefix(path_prefix)?;
         let state = self.lock()?;
         let Some(session) = state.sessions.get(&session_id) else {
@@ -254,7 +240,10 @@ impl CollaborationControl {
             .is_some_and(|session| !session.completions.is_empty()))
     }
 
-    pub(super) fn drain_completions(&self, session_id: SessionId) -> Result<Vec<AgentView>> {
+    pub(super) fn drain_completions(
+        &self,
+        session_id: SessionId,
+    ) -> Result<Vec<AgentRecordSnapshot>> {
         let mut state = self.lock()?;
         let Some(session) = state.sessions.get_mut(&session_id) else {
             return Ok(Vec::new());
@@ -351,7 +340,7 @@ impl CollaborationControl {
             path,
             task_name: record.task_name.clone(),
             role: record.role.clone(),
-            task_id,
+            task_id: task_id.to_string(),
             generation,
         }))
     }
@@ -485,7 +474,8 @@ impl SessionState {
             match evict {
                 Some(path) => {
                     self.agents.remove(&path);
-                    self.completions.retain(|queued| queued.path != path);
+                    self.completions
+                        .retain(|queued| queued.path.as_str() != path);
                 }
                 None => bail!(
                     "collaboration agent capacity reached ({MAX_AGENTS_PER_SESSION}); active agents are not evicted"
@@ -510,30 +500,32 @@ impl SessionState {
     }
 }
 
-fn view(path: &str, record: &AgentRecord, include_payload: bool) -> AgentView {
+fn view(path: &str, record: &AgentRecord, include_payload: bool) -> AgentRecordSnapshot {
     let (status, child_thread_id, summary, error) = match &record.outcome {
-        _ if record.reserved_generation.is_some() => ("starting".to_owned(), None, None, None),
+        _ if record.reserved_generation.is_some() => {
+            (AgentLifecycleStatus::Starting, None, None, None)
+        }
         Some(AgentOutcome::Result {
             status,
             child_thread_id,
             summary,
         }) => (
-            status.clone(),
-            child_thread_id.clone(),
+            *status,
+            *child_thread_id,
             include_payload.then(|| summary.clone()),
             None,
         ),
         Some(AgentOutcome::Error(error)) => (
-            "errored".to_owned(),
+            AgentLifecycleStatus::Errored,
             None,
             None,
             include_payload.then(|| error.clone()),
         ),
-        None if record.handle.is_some() => ("running".to_owned(), None, None, None),
-        None => ("starting".to_owned(), None, None, None),
+        None if record.handle.is_some() => (AgentLifecycleStatus::Running, None, None, None),
+        None => (AgentLifecycleStatus::Starting, None, None, None),
     };
-    AgentView {
-        path: path.to_owned(),
+    AgentRecordSnapshot {
+        path: AgentAddress::parse(path).expect("control stores canonical agent paths"),
         task_name: record.task_name.clone(),
         agent_type: record.role.clone(),
         generation: record.reserved_generation.unwrap_or(record.generation),
@@ -550,22 +542,22 @@ fn compact_result(result: SubagentResult) -> AgentOutcome {
         .get("resumable")
         .and_then(Value::as_bool)
         .filter(|resumable| *resumable)
-        .and_then(|_| result.child_thread_id.map(|id| id.to_string()));
+        .and(result.child_thread_id);
     AgentOutcome::Result {
-        status: status_label(result.status).to_owned(),
+        status: lifecycle_status(result.status),
         child_thread_id,
         summary: truncate_utf8(result.summary, MAX_RETAINED_SUMMARY_BYTES),
     }
 }
 
-fn status_label(status: SubagentStatus) -> &'static str {
+fn lifecycle_status(status: SubagentStatus) -> AgentLifecycleStatus {
     match status {
-        SubagentStatus::Completed => "completed",
-        SubagentStatus::MaxIterationsReached => "max_iterations_reached",
-        SubagentStatus::TimedOut => "timed_out",
-        SubagentStatus::Cancelled => "cancelled",
-        SubagentStatus::TokenBudgetExceeded => "token_budget_exceeded",
-        _ => "unknown",
+        SubagentStatus::Completed => AgentLifecycleStatus::Completed,
+        SubagentStatus::MaxIterationsReached => AgentLifecycleStatus::MaxIterationsReached,
+        SubagentStatus::TimedOut => AgentLifecycleStatus::TimedOut,
+        SubagentStatus::Cancelled => AgentLifecycleStatus::Cancelled,
+        SubagentStatus::TokenBudgetExceeded => AgentLifecycleStatus::TokenBudgetExceeded,
+        _ => AgentLifecycleStatus::Unknown,
     }
 }
 
@@ -581,30 +573,16 @@ fn truncate_utf8(mut value: String, max_bytes: usize) -> String {
     value
 }
 
-pub(super) fn validate_task_name(task_name: &str) -> Result<()> {
-    if task_name.is_empty()
-        || task_name == "root"
-        || task_name.len() > 64
-        || !task_name
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
-    {
-        bail!("task_name must be one [a-z0-9_]+ segment (1-64 bytes) and cannot be 'root'");
-    }
-    Ok(())
-}
-
-fn canonical_path(task_name: &str) -> String {
-    format!("/root/{task_name}")
-}
-
 fn normalize_target(target: &str) -> Result<String> {
-    if let Some(task_name) = target.strip_prefix("/root/") {
-        validate_task_name(task_name)?;
-        return Ok(canonical_path(task_name));
+    let address = if target.starts_with('/') {
+        AgentAddress::parse(target)?
+    } else {
+        AgentAddress::child(target)?
+    };
+    if address == AgentAddress::root() {
+        bail!("collaboration target must be a child address");
     }
-    validate_task_name(target)?;
-    Ok(canonical_path(target))
+    Ok(address.to_string())
 }
 
 fn normalize_prefix(prefix: Option<&str>) -> Result<String> {

@@ -8,7 +8,8 @@ use super::spec::{followup_spec, send_message_spec};
 use super::*;
 use crate::{
     contracts::{
-        CancellationToken, SubagentHandle, SubagentResult, SubagentStatus, ToolInvocationOwner,
+        AgentControlMessage, CancellationToken, SubagentHandle, SubagentResult, SubagentStatus,
+        ToolInvocationOwner,
     },
     domain::{AgentTask, ToolCall, new_call_id, new_session_id, new_thread_id, new_turn_id},
 };
@@ -76,8 +77,12 @@ impl SubagentToolHost for TestHost {
         Ok(())
     }
 
-    async fn send_subagent(&self, _handle: &SubagentHandle, message: String) -> Result<()> {
-        self.messages.lock().unwrap().push(message);
+    async fn send_subagent(
+        &self,
+        _handle: &SubagentHandle,
+        message: AgentControlMessage,
+    ) -> Result<()> {
+        self.messages.lock().unwrap().push(message.content);
         Ok(())
     }
 }
@@ -349,7 +354,7 @@ fn followup_reservation_is_atomic_and_stale_completion_cannot_overwrite_it() {
         .pop()
         .expect("agent");
     assert_eq!(view.generation, 2);
-    assert_eq!(view.status, "running");
+    assert_eq!(view.status, AgentLifecycleStatus::Running);
 }
 
 #[test]

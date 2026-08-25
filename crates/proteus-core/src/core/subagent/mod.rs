@@ -37,8 +37,8 @@ use tokio::time::timeout;
 
 use crate::{
     contracts::{
-        RuntimeContext, SubagentHandle, SubagentRequest, SubagentResult, SubagentRoleSpec,
-        SubagentRunner, SubagentStatus,
+        AgentControlMessage, RuntimeContext, SubagentHandle, SubagentRequest, SubagentResult,
+        SubagentRoleSpec, SubagentRunner, SubagentStatus,
     },
     core::ToolOrchestrator,
     domain::{Event, SessionId, ThreadId, new_call_id, new_thread_id},
@@ -440,10 +440,8 @@ impl SubagentRunner for SequentialSubagentRunner {
         self.inner.lock_pending()?.cancel(&handle.spawn_id)
     }
 
-    async fn send(&self, handle: &SubagentHandle, message: String) -> Result<()> {
-        self.inner
-            .lock_pending()?
-            .send(&handle.spawn_id, &message)?;
+    async fn send(&self, handle: &SubagentHandle, message: AgentControlMessage) -> Result<()> {
+        self.inner.lock_pending()?.send(&handle.spawn_id, message)?;
         Ok(())
     }
 }

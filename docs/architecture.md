@@ -265,10 +265,11 @@ config, `AssemblyPlan`, runtime, session/journal, model, tools и policy. Root
 детьми на первом этапе маршрутизирует сам. Authority участников не
 объединяется.
 
-Текущий `process` runner уже запускает отдельные `proteus server stdio`, но
-process messaging/follow-up, attach к уже работающему Proteus и durable agent
-tree ещё не реализованы. Точная принятая граница и порядок реализации:
-[subagents.md](subagents.md).
+Текущий `process` runner запускает отдельные `proteus server stdio` и реализует
+bounded адресные message/follow-up поверх typed agent-control DTO. Root-owned
+semantic record всё ещё связан с живым runner connection; attach к уже
+работающему Proteus и durable agent tree не реализованы. Точная граница и
+порядок реализации: [subagents.md](subagents.md).
 
 ## State И Snapshot
 

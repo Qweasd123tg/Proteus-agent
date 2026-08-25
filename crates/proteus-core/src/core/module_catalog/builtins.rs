@@ -61,8 +61,14 @@ pub(super) fn register_builtins(catalog: &mut ModuleCatalog) {
         manifest(
             "sequential",
             ModuleKind::Subagent,
-            &["sequential", "parallel_spawn", "roles_from_config"],
-            "Дочерний агентский цикл in-process: роли и лимиты из module_config.subagent.sequential; spawn/wait для конкурентных parallel_safe-ролей.",
+            &[
+                "sequential",
+                "parallel_spawn",
+                "roles_from_config",
+                "addressed_messages",
+                "resumable_followup",
+            ],
+            "Дочерний агентский цикл in-process: роли и лимиты из module_config.subagent.sequential; spawn/wait, bounded адресные сообщения и resumable follow-up для collaboration surface.",
         ),
         build_sequential_subagent,
     );
@@ -77,8 +83,10 @@ pub(super) fn register_builtins(catalog: &mut ModuleCatalog) {
                 "role_profiles",
                 "parallel_spawn",
                 "roles_from_config",
+                "addressed_messages",
+                "resumable_followup",
             ],
-            "Ребёнок — отдельный процесс proteus server stdio со своим named config (роль = профиль); concurrent permits на роль, глобальный bounded idle LRU pool и spawn/wait для parallel_safe-ролей; настройки в module_config.subagent.process.",
+            "Ребёнок — отдельный process proteus server stdio со своим named config (роль = профиль); concurrent permits, bounded idle LRU, spawn/wait, адресный mailbox и resumable follow-up для collaboration surface.",
         ),
         build_process_subagent,
     );

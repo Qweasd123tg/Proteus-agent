@@ -3,7 +3,8 @@
 Статус: историческая research note; surface/control и bounded messaging slices
 реализованы. Долгосрочная identity-модель выбрана 2026-08-24 и вынесена в
 [../subagents.md](../subagents.md); exact agent-control DTO/transport contract
-ещё не стабилизирован. Последнее обновление: 2026-08-24.
+реализован как pre-release v1 2026-08-25, но ещё не стабилизирован. Последнее
+обновление: 2026-08-25.
 
 Эта заметка сохраняет факты и развилки, которые выяснились после реализации
 первого subagent-среза. Она не является reference текущего контракта и не
@@ -30,18 +31,18 @@ Default `task` сохраняет прежний foreground protocol; `none` с�
 Реализованный `collaboration` — экспериментальный Proteus Codex-shaped slice,
 не compatibility/parity mode. Он содержит session-owned bounded
 `spawn_agent`, `list_agents`, `wait_agent`, `interrupt_agent`; builtin
-`sequential` дополнительно предоставляет bounded `send_message` и
-`followup_task`. Активный child получает сообщения на model/tool boundaries,
-terminal follow-up запускает resumable generation того же logical path/thread.
-Surface допускает лишь `parallel_safe`, `isolation = none` роли и не
-предоставляет fork, nesting, writer/worktree spawn или durable restart. Control
-records process-resident; app-server и web сохраняют live background child card
-после завершения parent turn.
+`sequential` и local stdio `process` предоставляют bounded `send_message` и
+`followup_task` через общий typed envelope. Активный child получает сообщения
+на model/tool boundaries, terminal follow-up запускает resumable generation
+того же logical path/thread. Surface допускает лишь `parallel_safe`,
+`isolation = none` роли и не предоставляет fork, nesting, writer/worktree
+spawn или durable restart. Control records process-resident; app-server и web
+сохраняют live background child card после завершения parent turn.
 
-Таким образом, решены model-facing facade, ownership и первый in-process
-mailbox/follow-up lifecycle. Общий persistent agent tree, process mailbox,
-history fork, role overlays, residency/reload и exact agent-control contract
-остаются предметом следующего ADR.
+Таким образом, решены model-facing facade, session ownership и bounded
+mailbox/follow-up lifecycle для двух builtin runner-ов. Общий persistent agent
+tree, history fork, role overlays, residency/reload и attach остаются предметом
+следующего ADR.
 
 ## Dogfood Первого Slice
 
@@ -345,9 +346,9 @@ Execution backend (`in_process`, `stdio_process`, future remote) выбирае�
 
 Первые slices выбрали host-bound core facade без нового slot-а и оставили
 `SubagentRunner` execution boundary. Реализованы bounded session-owned
-spawn/list/wait/interrupt control и optional sequential mailbox/follow-up;
-полный `AgentRecord` contract, persistence и несколько interchangeable
-message-capable implementations не приняты.
+spawn/list/wait/interrupt control и общий mailbox/follow-up contract для
+`sequential` и local stdio `process`; полный durable `AgentRecord` contract,
+persistence и attach не приняты.
 
 ### C. Один Rich Collaboration Module, Но Не Один Fat File
 
@@ -375,8 +376,9 @@ Codex/OpenCode различаются named mode/profile и tool surface. Это
 2. ✅ проверить отдельный Codex-shaped surface минимальным bounded
    spawn/list/wait/interrupt slice без parity claim;
 3. ✅ прогнать dogfood первого slice;
-4. ✅ добавить bounded sequential mailbox и follow-up generations без нового
-   slot-а и без ложной capability у process/plugin runners;
+4. ✅ добавить общий typed bounded mailbox и follow-up generations для
+   `sequential` и local stdio `process` без нового slot-а; plugin runners без
+   capability по-прежнему fail-closed;
 5. ✅ закрыть unbounded process residency: private `process/pool.rs`, глобальный
    idle LRU-cap, atomic resume reservation и session/role/cwd binding; strict
    wall-clock TTL/janitor оставить отдельным lifecycle improvement;
@@ -439,9 +441,10 @@ capability: оба исследованных upstream-а по умолчани�
 
 ## Предлагаемый Следующий Шаг Когда Вернёмся
 
-Не расширять mailbox на `process` creative fallback-ом. Следующий ADR должен
-решить persistent `AgentRecord`/tree, residency и reload, а затем определить,
-нужен ли отдельный `codex_threads` contract и как plugin ABI объявляет
-message-delivery capability. До ADR полезны только targeted dogfood/regression
-фиксы текущих six-tool semantics; fork, nesting и durable edges не добавляются
-по одному в существующий control record.
+Ограничение про отказ от process mailbox закрыто отдельным typed stdio slice
+2026-08-25, без второго native path. Следующий ADR должен решить persistent
+`AgentRecord`/tree, residency, reload и authenticated attach, а затем
+определить, нужен ли отдельный `codex_threads` contract и как внешний runner
+объявляет message-delivery capability. До ADR полезны только targeted
+dogfood/regression фиксы текущих six-tool semantics; fork, nesting и durable
+edges не добавляются по одному в существующий control record.
