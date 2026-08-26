@@ -52,30 +52,137 @@ network и provider-hosted side effects. До этого model shaping оста�
 документированной core-owned boundary. Для работы текущего runtime это решение
 не требуется.
 
-### Постоянные Subagents
+### Agent-Control Cutover
 
-Проблема: `SubagentRunner` включает больше lifecycle, чем обычный module call.
+Решение владельца от 2026-08-26: subagent — всегда другой полный экземпляр
+Proteus. Его model, prompt, workflow, tools, policy и рабочие ограничения
+задаёт собственный `AppConfig`. Root не исполняет отдельный дочерний
+model/tool loop и не фильтрует возможности ребёнка по inline-роли; он только
+запускает или подключает peer, маршрутизирует сообщения и владеет lifecycle.
 
-Принятое направление и порядок:
+#### Почему Нужен Cutover
 
-1. ✅ identity-модель: subagent — другой полный Proteus, root владеет деревом
-   и маршрутизацией; peer не является Component Runtime export-ом;
-2. ✅ typed agent-control DTO v1 для identity, messages, lifecycle snapshots,
-   operation receipts и существующих spawn/list/wait/interrupt/send/follow-up
-   semantics; schema остаётся pre-release;
-3. ✅ process path с bounded адресными mailbox/follow-up и real-process
-   boundary: два одновременно работающих Proteus, отсутствие cross-delivery,
-   targeted cancel и sibling crash isolation;
-4. ⏳ отделённый root-owned agent record/tree: ownership, nesting, budgets,
-   bounded concurrency, retention, worktrees и cleanup;
-5. ⏳ authenticated attach к уже запущенному app-server без изменения agent
-   semantics;
-6. ⏳ persistence/reconnect и remote transport только после local contract.
+Целевой process path уже работает, но активный Codex runtime всё ещё выбирает
+`subagent = "sequential"`. Из-за этого в актуальном коде сохраняются две
+разные модели:
 
-До contract audit не переносить runner механически и не смешивать agent
-control plane с workflow callbacks. Это отдельная process-contract migration
-с governance и parity evidence; она не входит в Runtime v2 cutover. Полная
-граница: [subagents.md](../architecture/subagents.md).
+- `SequentialSubagentRunner` строит урезанного агента внутри Core, сам вызывает
+  model/tools и читает inline prompt/tool/limit роли;
+- `ProcessSubagentRunner` запускает `proteus server stdio` с отдельным named
+  config и уже соответствует принятой identity-модели.
+
+Обе реализации скрыты за `SubagentRunner`, хотя этот trait описывает дочерний
+agent loop, а не чистое общение между агентами. Это и есть следующий
+приоритетный источник лишней связанности.
+
+#### Конечная Граница
+
+Peer Proteus владеет:
+
+- полным `AppConfig` и `AssemblyPlan`;
+- model, workflow, tools, policy и journal;
+- содержательными лимитами своей работы;
+- выполнением turn-а и terminal outcome.
+
+Root agent-control владеет только:
+
+- именем профиля и адресом peer-а;
+- `spawn`, `send`, `follow-up`, `list`, `wait` и `interrupt`;
+- parent/child ownership и состоянием соединения;
+- размером mailbox, числом процессов, cancel grace, retention и cleanup;
+- пересылкой событий, approval и user-input между процессами.
+
+`task` допустим только как синхронное сокращение `spawn + wait` над тем же
+control plane. Он не должен иметь отдельный runner или собственный agent loop.
+Agent-control не является behavior slot Component Runtime и не выбирается
+через `modules.subagent`.
+
+#### Handoff Для Следующей Сессии
+
+Не повторять общий research по Pi/Codex и не перечитывать весь `docs/research`.
+Источник решения — этот раздел и
+[subagents.md](../architecture/subagents.md). Перед началом достаточно
+проверить `git status`, активные configs и перечисленные ниже файлы.
+
+Работу вести следующими зелёными этапами.
+
+1. **Перевести tracked profiles на process peer.**
+   - Добавить устанавливаемые child configs для текущих ролей `explore` и
+     `coder`; каждый config сам задаёт prompt, model, workflow, tools и policy.
+   - В `configs/fragments/codex-runtime.toml` заменить active selection
+     `sequential` на `process` и оставить в родительском config только
+     `name`, `description`, путь к child config и transport/lifecycle bounds.
+   - Обновить `install.sh`, config examples и profile tests.
+   - Сохранить real-process evidence: разные config-ы действительно дают
+     разные tool surfaces без фильтрации со стороны root.
+
+2. **Удалить внутреннего мини-агента.**
+   - Удалить `SequentialSubagentRunner`, `child_loop`, sequential roles parser,
+     его resumable store и runner-level tests.
+   - Удалить module id `sequential` и весь
+     `module_config.subagent.sequential` из tracked config/docs/tests.
+   - Не оставлять legacy alias, fallback на sequential или dual-read config.
+   - На этом этапе `process` может временно продолжать реализовывать старый
+     trait, чтобы commit оставался собираемым.
+
+3. **Схлопнуть старый slot в agent-control service.**
+   - Заменить `SubagentRunner` contract на узкий control-plane interface для
+     lifecycle и сообщений; не переносить туда model-loop поля.
+   - Удалить `ModuleKind::Subagent`, `modules.subagent`, catalog registration и
+     `NoSubagent`. Включение и profiles должны читаться из отдельной
+     top-level control-plane config section.
+   - Удалить `SubagentLimits.max_iterations` и parent-side token budget.
+     Содержательные ограничения задаются child config; в root остаются только
+     технические transport/process bounds.
+   - Перевести `task` и collaboration tools на один control-plane instance.
+   - DTO `AgentAddress`, messages, receipts и lifecycle snapshots оставить в
+     `proteus-contracts`; они и являются межпроцессным контрактом.
+
+4. **Собрать код по одной ответственности.**
+   - Держать process connection, mailbox, agent records и tool facades в одном
+     `agent_control` subtree с одним публичным facade.
+   - `RuntimeRegistry`, workflow и catalog не должны знать внутренние типы
+     mailbox/process pool или детали child config-а.
+   - Не добавлять durable tree, attach, remote transport или новый scheduler в
+     этот cutover.
+
+#### Карта Файлов
+
+Основные текущие поверхности; начинать с них, а не с широкого поиска по repo:
+
+- `crates/proteus-contracts/src/contracts/subagent.rs` — старый loop-oriented
+  trait/roles/limits, подлежащие удалению или сжатию;
+- `crates/proteus-contracts/src/contracts/agent_control.rs` — сохраняемый
+  typed message/lifecycle contract;
+- `crates/proteus-contracts/src/contracts/workflow.rs` — текущая передача
+  runner-а в runtime context;
+- `crates/proteus-core/src/core/subagent/` — sequential и process реализации;
+- `crates/proteus-core/src/tools/task*` и `src/tools/collaboration/` — две
+  model-facing facade над одним будущим control plane;
+- `crates/proteus-core/src/core/module_catalog*`, `core/registry.rs` и
+  `core/core_slots*` — старое slot wiring;
+- `configs/fragments/codex-runtime.toml`, `configs/fragments/codex-profile.toml`,
+  `examples/configs/` и `install.sh` — active/config distribution surface;
+- `crates/proteus-core/tests/process_agent_control.rs` и
+  `process_subagent.rs` — основное real-process evidence.
+
+#### Готово, Когда
+
+- поиск не находит `SequentialSubagentRunner`, module id `sequential` или
+  `module_config.subagent.sequential`;
+- Core не выполняет отдельный child model/tool loop;
+- выбор tools/model/policy ребёнка доказан его config-ом, а не parent role;
+- `task` и collaboration используют один процессный agent-control path;
+- два peer-а сохраняют адресную доставку без cross-delivery, targeted cancel и
+  sibling crash isolation;
+- `cargo fmt --all -- --check`, `cargo test --workspace`, config profile tests,
+  `tests/process_agent_control.rs`, `tests/process_subagent.rs` и применимый
+  `scripts/alpha-smoke.sh` проходят;
+- ближайшие config/runtime/architecture docs обновлены в том же breaking
+  changeset.
+
+После этого отдельными задачами можно делать durable root-owned tree,
+authenticated attach и persistence/reconnect. Они не входят в данный cutover.
 
 ### OS-Изоляция Внешних Процессов
 
