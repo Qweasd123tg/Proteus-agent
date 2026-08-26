@@ -7,6 +7,17 @@
 изменения проекта — в [AGENTS.md](../AGENTS.md). Документация ведётся на
 русском; имена traits, API, modules и config keys остаются английскими.
 
+Если вы вернулись к проекту после перерыва, не читайте весь каталог. Достаточно
+трёх документов:
+
+1. [scope.md](scope.md) — что Proteus представляет собой сейчас;
+2. [architecture.md](architecture.md) — как проходит обычный turn и где лежат
+   основные части;
+3. [roadmap.md](roadmap.md) — какие крупные решения ещё открыты.
+
+Остальные документы — справочники для конкретной задачи или исторические
+материалы.
+
 ## Быстрый выбор
 
 - **Запустить Proteus локально:** [README](../README.md#быстрый-запуск).
@@ -78,8 +89,8 @@
 
 Читайте в таком порядке:
 
-1. [scope.md](scope.md) — active, parked, research и замороженные зоны.
-2. [roadmap.md](roadmap.md) — ближайшие этапы и backlog.
+1. [scope.md](scope.md) — текущее состояние и ещё не принятые решения.
+2. [roadmap.md](roadmap.md) — варианты следующей работы и отложенный backlog.
 3. [spec.md](spec.md) — долгосрочный замысел и non-goals.
 4. [dogfood-gate.md](dogfood-gate.md) — необязательный ручной diagnostic и
    исторический список blocking symptoms.
@@ -106,58 +117,17 @@
 
 ## Research и архивы
 
-- [research/codex-parity-audit-2026-07-14.md](research/codex-parity-audit-2026-07-14.md) —
-  snapshot строгого сравнения активного `codex`-профиля с vendored и live
-  upstream: историческая на дату audit матрица 12 slot-ов, concrete
-  tool/runtime findings, текущая wave и приоритетный parity backlog; актуальный
-  count behavior slots смотрите в `modules.md`;
-- [research/pi-vs-proteus.md](research/pi-vs-proteus.md) — проверка причины
-  существования Proteus после знакомства с Pi, граница возможного pivot и
-  30-дневные continue/pivot/freeze criteria; эксперимент не запущен решением
-  владельца 2026-07-16, идеи этапов 1–2 переиспользованы в плане
-  «Месяц Гибкости» (`roadmap.md`);
-- [research/pi-extension-composition-2026-08-07.md](research/pi-extension-composition-2026-08-07.md) —
-  актуальная повторная сверка Pi Extension API: replaceability против additive
-  composition, branch-aware state, dynamic contributions и точная поправка к
-  process-only kernel без возврата dylib;
-- [research/extensibility-cost-model-2026-07-16.md](research/extensibility-cost-model-2026-07-16.md) —
-  ценовые категории добавления будущих возможностей в Proteus и Pi:
-  slot/pack/process-модуль против hook surface, наследование безопасности и
-  чей потолок у сквозных фич;
-- [research/dogfood-freeform-tool-loop-2026-07-22.md](research/dogfood-freeform-tool-loop-2026-07-22.md) —
-  postmortem первого readiness dogfood: несовпадение OpenAI custom/function
-  surface, повторяющийся `apply_patch` и принятый fail-closed контракт;
-- [research/dogfood-readiness-checkpoint-2026-07-23.md](research/dogfood-readiness-checkpoint-2026-07-23.md) —
-  закрытие readiness checkpoint: strict-token web/app-server loop, approvals,
-  steering, cancel, typed input и durable terminal error после reconnect;
-- [research/memory-research.md](research/memory-research.md) — исторический
-  blueprint memory modules и сравнение backend-ов;
-- [research/subagent-web-ui-handoff.md](research/subagent-web-ui-handoff.md) —
-  архив завершённого UI handoff по карточкам субагентов;
-- [research/subagent-architecture-options.md](research/subagent-architecture-options.md) —
-  исторический разбор Codex/OpenCode semantics и первого collaboration slice;
-  действующее направление вынесено в `subagents.md`;
-- [research/prime-agent-process-lessons-2026-08-06.md](research/prime-agent-process-lessons-2026-08-06.md) —
-  применимые уроки Prime Agent для process-only module boundary: host-owned
-  lifecycle, typed callbacks, terminal state, capability probe и граница между
-  module worker и session daemon;
-- [research/deepseek-harness-lessons-2026-08-21.md](research/deepseek-harness-lessons-2026-08-21.md) —
-  Proteus-specific решение после разбора DeepSeek Harness: подтверждённые
-  invariants, реальные входы для будущих contracts и явный отказ от
-  Cordis/plugin-system pivot; исходный dogfood-first sequencing отменён
-  последующим Runtime v2 решением;
-- [research/agent-spine-coupling-2026-08-21.md](research/agent-spine-coupling-2026-08-21.md) —
-  повторный source-level coupling-аудит после DeepSeek/Codex/Pi/OpenCode:
-  разрыв ownership между runtime, Workflow, steering и child loop, три варианта
-  spine architecture, core-owned вариант и его kill criteria; sequencing
-  уточнён последующим Component Runtime v2 планом;
-- [research/component-runtime-v2-plan-2026-08-21.md](research/component-runtime-v2-plan-2026-08-21.md) —
-  исторический план завершённого Runtime v2 cutover: test-only P0, P1 duplex
-  transport, P2 broker/wire-v3 kernel, P3 tracked cutover и P4 topology/journal
-  evidence; действующий contract — Component Runtime v2 / wire v3;
+Research хранит историю решений и upstream-разборы, но не описывает текущий
+контракт и не задаёт порядок разработки. Для обычной работы этот раздел читать
+не нужно.
+
 - [research/platform-expressiveness-after-runtime-v2-2026-08-22.md](research/platform-expressiveness-after-runtime-v2-2026-08-22.md) —
-  единый parking lot для lifelong-constructor thesis, strict-contract
-  bottleneck guardrails, пяти agent archetypes, Hermes/OpenClaw research и
-  session view/branch/simulate/rerun; эти идеи не двигают v0.1 alpha;
-- [examples/research/](../examples/research/) — заметки по upstream-агентам:
-  Codex, OpenCode, Claude Code, ForgeCode и DeepSeek Harness.
+  короткая актуальная точка входа в отложенные архитектурные идеи;
+- [research/component-runtime-v2-plan-2026-08-21.md](research/component-runtime-v2-plan-2026-08-21.md) —
+  история завершённого Runtime v2 cutover;
+- [research/](research/) — остальные проектные исследования и postmortem;
+- [examples/research/](../examples/research/) — большие snapshot-разборы
+  сторонних agent runtimes.
+
+Если идея из research снова становится актуальной, её сначала нужно перенести
+в `scope.md` или `roadmap.md` с новой проверкой против текущего кода.
