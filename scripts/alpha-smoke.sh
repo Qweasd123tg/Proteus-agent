@@ -100,4 +100,17 @@ run_and_capture external-component "${output_dir}/external-component.txt" \
   "alpha external component demo"
 require_text "Fake final answer." "${output_dir}/external-component.txt"
 
-echo "alpha smoke passed: isolated install, init, doctor, assembly plan, fake profile, topology, external Python component"
+run_and_capture collaboration-tools "${output_dir}/collaboration-tools.txt" \
+  "${proteus}" --config codex tools list
+require_text "spawn_agent" "${output_dir}/collaboration-tools.txt"
+require_text "send_message" "${output_dir}/collaboration-tools.txt"
+require_text "followup_task" "${output_dir}/collaboration-tools.txt"
+
+run_and_capture collaboration-process "${output_dir}/collaboration-process.txt" \
+  env PROTEUS_TEST_BINARY="${proteus}" cargo test \
+  --manifest-path "${project_dir}/Cargo.toml" \
+  -p proteus-core --test process_agent_control \
+  process_agents_route_bounded_messages_without_cross_delivery -- --exact
+require_text "test result: ok" "${output_dir}/collaboration-process.txt"
+
+echo "alpha smoke passed: isolated install, init, doctor, assembly plan, fake profile, topology, external Python component, process-agent messaging"

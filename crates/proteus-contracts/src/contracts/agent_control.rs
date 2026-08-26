@@ -69,7 +69,8 @@ impl<'de> Deserialize<'de> for AgentAddress {
     }
 }
 
-/// One addressed message accepted by the root coordinator.
+/// One addressed message accepted by the root coordinator. Schema v1 is
+/// root-originated only; direct peer mesh requires a later contract version.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct AgentControlMessage {
@@ -131,6 +132,9 @@ impl AgentControlMessage {
                 "unsupported agent-control schema version: {}",
                 self.schema_version
             );
+        }
+        if self.source != AgentAddress::root() {
+            bail!("agent-control v1 source must be /root");
         }
         if self.target == AgentAddress::root() {
             bail!("agent-control delivery target must be a child address");
@@ -278,6 +282,14 @@ mod tests {
         );
 
         assert!(AgentControlMessage::from_root(AgentAddress::root(), "no").is_err());
+        assert!(
+            AgentControlMessage::new(
+                AgentAddress::child("peer").unwrap(),
+                AgentAddress::child("worker").unwrap(),
+                "no direct peer mesh",
+            )
+            .is_err()
+        );
         assert!(AgentControlMessage::from_root(AgentAddress::child("x").unwrap(), " ").is_err());
         assert!(
             AgentControlMessage::from_root(

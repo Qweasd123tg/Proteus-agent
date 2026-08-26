@@ -408,7 +408,10 @@ pub trait SubagentRunner: Send + Sync {
     /// Queues one message for a running child. Successful return means the
     /// message was accepted by the child's bounded mailbox; the child consumes
     /// it at the nearest model/tool boundary. Idle children are resumed by the
-    /// model-facing `followup_task` facade instead of this method.
+    /// model-facing `followup_task` facade instead of this method. A
+    /// message-capable implementation must bind the handle to its semantic
+    /// [`AgentAddress`](crate::contracts::AgentAddress) during spawn and reject
+    /// a message whose target does not match that binding.
     async fn send(&self, handle: &SubagentHandle, message: AgentControlMessage) -> Result<()> {
         let _ = (handle, message);
         bail!("this subagent runner does not support collaboration messages");

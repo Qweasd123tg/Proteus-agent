@@ -53,6 +53,7 @@ use super::{
     child_loop::{subagent_status_label, truncate_at_char_boundary},
     mailbox::ChildMailbox,
     pending::PendingChildren,
+    requested_agent_target,
 };
 use config::{ProcessRoleConfig, ProcessSubagentConfig, build_process_role_specs};
 use pool::{PooledChild, ProcessPool, ReleaseOutcome, ResumeReservation};
@@ -528,10 +529,12 @@ impl SubagentRunner for ProcessSubagentRunner {
         let child_ctx = child_context(&ctx, prepared.child_thread_id, &prepared.spec.name);
         let spawn_id = new_call_id();
         let mailbox = Arc::new(ChildMailbox::default());
+        let agent_target = requested_agent_target(&request)?;
         let reserve_result = self.inner.lock_pending()?.reserve(
             &spawn_id,
             child_ctx.cancellation.clone(),
             mailbox.clone(),
+            agent_target,
             self.inner.max_parallel,
             !request
                 .metadata
@@ -587,9 +590,12 @@ impl SubagentRunner for ProcessSubagentRunner {
     }
 
     async fn cancel(&self, handle: &SubagentHandle) -> Result<()> {
-        self.inner
+        let mailbox = self
+            .inner
             .lock_pending()?
-            .cancel_and_close_mailbox(&handle.spawn_id)
+            .begin_cancel_and_close_mailbox(&handle.spawn_id)?;
+        mailbox.wait_for_delivery_idle().await;
+        Ok(())
     }
 
     async fn send(&self, handle: &SubagentHandle, message: AgentControlMessage) -> Result<()> {

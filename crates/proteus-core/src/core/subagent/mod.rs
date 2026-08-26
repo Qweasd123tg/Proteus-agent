@@ -37,8 +37,8 @@ use tokio::time::timeout;
 
 use crate::{
     contracts::{
-        AgentControlMessage, RuntimeContext, SubagentHandle, SubagentRequest, SubagentResult,
-        SubagentRoleSpec, SubagentRunner, SubagentStatus,
+        AgentAddress, AgentControlMessage, RuntimeContext, SubagentHandle, SubagentRequest,
+        SubagentResult, SubagentRoleSpec, SubagentRunner, SubagentStatus,
     },
     core::ToolOrchestrator,
     domain::{Event, SessionId, ThreadId, new_call_id, new_thread_id},
@@ -65,6 +65,24 @@ const SUBAGENT_FACADE_TOOLS: &[&str] = &[
     "send_message",
     "followup_task",
 ];
+
+fn requested_agent_target(request: &SubagentRequest) -> Result<Option<AgentAddress>> {
+    let control_plane_owned = request
+        .metadata
+        .get("control_plane_owned")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let target = request
+        .metadata
+        .get("agent_control_target")
+        .and_then(Value::as_str);
+    match (control_plane_owned, target) {
+        (true, Some(target)) => AgentAddress::parse(target).map(Some),
+        (true, None) => bail!("collaboration-owned subagent requires agent_control_target"),
+        (false, Some(_)) => bail!("agent_control_target requires control_plane_owned=true"),
+        (false, None) => Ok(None),
+    }
+}
 
 pub struct SequentialSubagentRunner {
     inner: Arc<RunnerInner>,
@@ -383,10 +401,12 @@ impl SubagentRunner for SequentialSubagentRunner {
         let child_ctx = child_context(&ctx, prepared.child_thread_id, &prepared.role.name);
         let spawn_id = new_call_id();
         let mailbox = Arc::new(ChildMailbox::default());
+        let agent_target = requested_agent_target(&request)?;
         self.inner.lock_pending()?.reserve(
             &spawn_id,
             child_ctx.cancellation.clone(),
             mailbox.clone(),
+            agent_target,
             self.inner.max_parallel,
             !request
                 .metadata

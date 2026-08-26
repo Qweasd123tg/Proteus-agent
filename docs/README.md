@@ -152,9 +152,9 @@
   spine architecture, core-owned вариант и его kill criteria; sequencing
   уточнён последующим Component Runtime v2 планом;
 - [research/component-runtime-v2-plan-2026-08-21.md](research/component-runtime-v2-plan-2026-08-21.md) —
-  одобренный Runtime v2 plan и записанный технический P0 `GO`: test-only
-  multiplexed broker, wire-v3 direction, authority/cancel/failure semantics и
-  границы следующего production этапа; действующий contract пока v1/v2;
+  исторический план завершённого Runtime v2 cutover: test-only P0, P1 duplex
+  transport, P2 broker/wire-v3 kernel, P3 tracked cutover и P4 topology/journal
+  evidence; действующий contract — Component Runtime v2 / wire v3;
 - [research/platform-expressiveness-after-runtime-v2-2026-08-22.md](research/platform-expressiveness-after-runtime-v2-2026-08-22.md) —
   единый parking lot для lifelong-constructor thesis, strict-contract
   bottleneck guardrails, пяти agent archetypes, Hermes/OpenClaw research и

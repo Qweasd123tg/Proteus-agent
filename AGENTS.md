@@ -20,15 +20,16 @@ authority(module) = authority(slot, invocation_context)
 
 Права, host capabilities, config, cancellation и failure semantics не должны
 зависеть от `module_id`, языка или расположения реализации. Внешняя граница —
-Component Runtime v1 с wire protocol v2, описанный в
-`docs/process-module-architecture.md`. Dylib ABI и loader удалены; возвращать
-второй native extension path нельзя.
+Component Runtime v2 с wire protocol v3, описанный в
+`docs/process-module-architecture.md`. Dylib ABI, loader и wire-v2 session
+удалены; возвращать второй native extension path или compatibility reader
+нельзя.
 
 Один configured component может экспортировать несколько `slot/module_id` и
 даёт им общий process lifecycle/failure domain. Authority всё равно
-вычисляется по активному export, а не объединяется на component. Текущая
-session single-flight: не группируйте exports, если синхронный callback одного
-из них маршрутизируется в другой export того же component.
+вычисляется по активному export, а не объединяется на component. Multiplexed
+broker допускает concurrent invocation и host-routed reentrancy между exports
+одного component; direct cross-export dispatch и union authority запрещены.
 
 Transport и cardinality не смешиваются. Host-defined process contract явно
 задаёт один из режимов:
@@ -81,14 +82,14 @@ rendering, UI state, tests и provider/module-specific детали.
 crates/
     proteus-contracts/     - публичный crate: traits, DTO, canonical model и process-module helpers
     proteus-core/          - ядро: runtime, wiring, process adapters, model adapters и app-server
-    proteus-module-protocol/ - strict component-v2 session, authority table и conformance runner
+    proteus-module-protocol/ - strict component-v3 broker, authority table и conformance runner
     proteus-process-host/  - protocol-neutral lifecycle persistent stdio child-процессов
 clients/
     web/                 - основной Leptos chat-клиент
     inspector/           - отдельный Leptos config/architecture-клиент
 modules/
     reference/           - reference/dogfood implementations; не default и не привилегированный pack
-        process-worker/      - executable, публикующий exact reference exports по component v2
+        process-worker/      - executable, публикующий exact reference exports по component v3
         file-tools/          - полноразмерные tools read/write/edit/list/grep
         git-tools/           - read-only git_status/git_diff tools
         shell-tool/          - tools shell / exec_command / write_stdin (sh -lc, PTY-сессии)

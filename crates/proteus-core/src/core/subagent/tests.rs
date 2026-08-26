@@ -1293,7 +1293,10 @@ async fn running_child_consumes_mailbox_at_model_boundary() {
 
     let handle = runner
         .spawn(
-            SubagentRequest::new("explore", "initial question", task),
+            SubagentRequest::new("explore", "initial question", task).with_metadata(json!({
+                "control_plane_owned": true,
+                "agent_control_target": "/root/explore",
+            })),
             ctx,
         )
         .await

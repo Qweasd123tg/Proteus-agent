@@ -16,7 +16,7 @@ use std::{
 use anyhow::{Result, anyhow, bail};
 use tokio::{sync::Notify, task::JoinHandle};
 
-use crate::contracts::{AgentControlMessage, CancellationToken, SubagentResult};
+use crate::contracts::{AgentAddress, AgentControlMessage, CancellationToken, SubagentResult};
 
 use super::mailbox::ChildMailbox;
 
@@ -30,6 +30,7 @@ pub(super) struct PendingChild {
     seq: u64,
     cancel: CancellationToken,
     mailbox: Arc<ChildMailbox>,
+    agent_target: Option<AgentAddress>,
     outcome: Arc<PendingOutcome>,
     evictable_when_ready: bool,
 }
@@ -49,6 +50,7 @@ impl PendingChildren {
         spawn_id: &str,
         cancel: CancellationToken,
         mailbox: Arc<ChildMailbox>,
+        agent_target: Option<AgentAddress>,
         max_parallel: usize,
         evictable_when_ready: bool,
     ) -> Result<()> {
@@ -80,6 +82,7 @@ impl PendingChildren {
                 seq,
                 cancel,
                 mailbox,
+                agent_target,
                 outcome: Arc::new(PendingOutcome::default()),
                 evictable_when_ready,
             },
@@ -146,19 +149,33 @@ impl PendingChildren {
     /// Process peers cannot append an undelivered local envelope to the
     /// child's canonical history after its stdio turn is cancelled. Close the
     /// queue before signaling cancel so a later send is rejected explicitly.
-    pub(super) fn cancel_and_close_mailbox(&mut self, spawn_id: &str) -> Result<()> {
+    pub(super) fn begin_cancel_and_close_mailbox(
+        &mut self,
+        spawn_id: &str,
+    ) -> Result<Arc<ChildMailbox>> {
         let entry = self.entries.get(spawn_id).ok_or_else(|| {
             anyhow!("unknown subagent spawn_id (never spawned, already waited, or evicted)")
         })?;
         entry.mailbox.close_and_discard()?;
         entry.cancel.cancel();
-        Ok(())
+        Ok(entry.mailbox.clone())
     }
 
     pub(super) fn send(&self, spawn_id: &str, message: AgentControlMessage) -> Result<usize> {
         let entry = self.entries.get(spawn_id).ok_or_else(|| {
             anyhow!("unknown subagent spawn_id (never spawned, already waited, or evicted)")
         })?;
+        message.validate()?;
+        let target = entry.agent_target.as_ref().ok_or_else(|| {
+            anyhow!("subagent spawn is not owned by the collaboration control plane")
+        })?;
+        if &message.target != target {
+            bail!(
+                "agent-control target {} does not match handle target {}",
+                message.target,
+                target
+            );
+        }
         entry.mailbox.enqueue(message)
     }
 }
@@ -214,7 +231,7 @@ mod tests {
     async fn reserve_attach_take_round_trip() {
         let mut pending = PendingChildren::default();
         pending
-            .reserve("a", CancellationToken::new(), mailbox(), 4, true)
+            .reserve("a", CancellationToken::new(), mailbox(), None, 4, true)
             .expect("reserve");
         pending.attach("a", dummy_join());
         let outcome = pending.outcome("a").expect("outcome");
@@ -228,11 +245,11 @@ mod tests {
     async fn reserve_respects_max_parallel_for_active_children() {
         let mut pending = PendingChildren::default();
         pending
-            .reserve("a", CancellationToken::new(), mailbox(), 1, true)
+            .reserve("a", CancellationToken::new(), mailbox(), None, 1, true)
             .expect("reserve");
         // Слот занят активной (не завершённой) резервацией: cap жёсткий.
         let error = pending
-            .reserve("b", CancellationToken::new(), mailbox(), 1, true)
+            .reserve("b", CancellationToken::new(), mailbox(), None, 1, true)
             .expect_err("cap");
         assert!(error.to_string().contains("max_parallel"));
     }
@@ -241,7 +258,7 @@ mod tests {
     async fn reserve_evicts_finished_unclaimed_entries() {
         let mut pending = PendingChildren::default();
         pending
-            .reserve("a", CancellationToken::new(), mailbox(), 1, true)
+            .reserve("a", CancellationToken::new(), mailbox(), None, 1, true)
             .expect("reserve");
         pending.attach("a", dummy_join());
         let outcome = pending.outcome("a").expect("outcome");
@@ -249,7 +266,7 @@ mod tests {
             tokio::task::yield_now().await;
         }
         pending
-            .reserve("b", CancellationToken::new(), mailbox(), 1, true)
+            .reserve("b", CancellationToken::new(), mailbox(), None, 1, true)
             .expect("evicts finished entry");
         assert!(pending.outcome("a").is_err(), "запись вытеснена");
     }
@@ -258,7 +275,7 @@ mod tests {
     async fn reserve_does_not_evict_control_owned_completion_before_monitor_waits() {
         let mut pending = PendingChildren::default();
         pending
-            .reserve("a", CancellationToken::new(), mailbox(), 1, false)
+            .reserve("a", CancellationToken::new(), mailbox(), None, 1, false)
             .expect("reserve retained child");
         pending.attach("a", dummy_join());
         let outcome = pending.outcome("a").expect("outcome");
@@ -267,7 +284,7 @@ mod tests {
         }
 
         let error = pending
-            .reserve("b", CancellationToken::new(), mailbox(), 1, true)
+            .reserve("b", CancellationToken::new(), mailbox(), None, 1, true)
             .expect_err("control-owned result must remain addressable");
         assert!(error.to_string().contains("max_parallel"));
         assert!(pending.outcome("a").is_ok());
@@ -279,10 +296,10 @@ mod tests {
         let first = CancellationToken::new();
         let second = CancellationToken::new();
         pending
-            .reserve("a", first.clone(), mailbox(), 4, true)
+            .reserve("a", first.clone(), mailbox(), None, 4, true)
             .expect("reserve a");
         pending
-            .reserve("b", second.clone(), mailbox(), 4, true)
+            .reserve("b", second.clone(), mailbox(), None, 4, true)
             .expect("reserve b");
         pending.cancel("a").expect("cancel");
         assert!(first.is_cancelled());
@@ -295,7 +312,7 @@ mod tests {
         let mut pending = PendingChildren::default();
         let token = CancellationToken::new();
         pending
-            .reserve("a", token.clone(), mailbox(), 1, true)
+            .reserve("a", token.clone(), mailbox(), None, 1, true)
             .expect("reserve");
         pending.attach("a", dummy_join());
         let outcome = pending.outcome("a").expect("outcome");

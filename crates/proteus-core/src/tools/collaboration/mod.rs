@@ -148,7 +148,10 @@ impl Tool for SpawnAgentTool {
         };
         let request = SubagentRequest::new(agent_type, message, parent_task)
             .with_description(task_name.to_owned())
-            .with_metadata(json!({ "control_plane_owned": true }));
+            .with_metadata(json!({
+                "control_plane_owned": true,
+                "agent_control_target": reservation.path,
+            }));
         let handle = match host.spawn_subagent(request).await {
             Ok(handle) => handle,
             Err(error) => {

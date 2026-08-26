@@ -11,7 +11,7 @@ use std::{
 };
 
 use anyhow::{Result, anyhow, bail};
-use tokio::sync::Notify;
+use tokio::sync::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard, Notify};
 
 use crate::contracts::AgentControlMessage;
 
@@ -21,6 +21,7 @@ const MAX_MAILBOX_BYTES: usize = 64_000;
 #[derive(Default)]
 pub(super) struct ChildMailbox {
     state: Mutex<MailboxState>,
+    delivery: AsyncMutex<()>,
     notify: Notify,
 }
 
@@ -62,6 +63,17 @@ impl ChildMailbox {
 
     pub(super) async fn notified(&self) {
         self.notify.notified().await;
+    }
+
+    /// Serializes mailbox drain with transport delivery. Explicit process
+    /// cancel closes the queue first and then waits for this guard, so once
+    /// cancel returns no previously drained envelope can still reach the peer.
+    pub(super) async fn lock_delivery(&self) -> AsyncMutexGuard<'_, ()> {
+        self.delivery.lock().await
+    }
+
+    pub(super) async fn wait_for_delivery_idle(&self) {
+        let _guard = self.delivery.lock().await;
     }
 
     /// At a would-be successful terminal boundary, either drains messages and
@@ -147,5 +159,35 @@ mod tests {
                 .expect("within count cap");
         }
         assert!(mailbox.enqueue(message("overflow")).is_err());
+
+        let mailbox = ChildMailbox::default();
+        for _ in 0..4 {
+            mailbox
+                .enqueue(message("x".repeat(MAX_AGENT_MESSAGE_BYTES)))
+                .expect("within aggregate byte cap");
+        }
+        assert!(
+            mailbox.enqueue(message("one-byte-over-cap")).is_err(),
+            "aggregate byte cap must apply before the count cap"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_waits_for_an_active_delivery_guard() {
+        let mailbox = std::sync::Arc::new(ChildMailbox::default());
+        let guard = mailbox.lock_delivery().await;
+        let waiting = {
+            let mailbox = mailbox.clone();
+            tokio::spawn(async move {
+                mailbox.wait_for_delivery_idle().await;
+            })
+        };
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished());
+        drop(guard);
+        tokio::time::timeout(std::time::Duration::from_secs(1), waiting)
+            .await
+            .expect("cancel-side wait must finish after delivery releases")
+            .expect("wait task");
     }
 }

@@ -113,9 +113,23 @@ fn agent_message(target: &str, content: &str) -> AgentControlMessage {
         .expect("agent message")
 }
 
+fn collaboration_request(
+    role: &str,
+    target: &str,
+    prompt: &str,
+    task: AgentTask,
+) -> SubagentRequest {
+    SubagentRequest::new(role, prompt, task).with_metadata(json!({
+        "control_plane_owned": true,
+        "agent_control_target": AgentAddress::child(target)
+            .expect("agent target")
+            .as_str(),
+    }))
+}
+
 fn messaging_runner(config_path: &std::path::Path) -> ProcessSubagentRunner {
     ProcessSubagentRunner::from_config(json!({
-        "binary": env!("CARGO_BIN_EXE_proteus"),
+        "binary": proteus_binary(),
         "max_parallel": 2,
         "roles": [
             {
@@ -129,6 +143,12 @@ fn messaging_runner(config_path: &std::path::Path) -> ProcessSubagentRunner {
         ]
     }))
     .expect("build process runner")
+}
+
+fn proteus_binary() -> PathBuf {
+    std::env::var_os("PROTEUS_TEST_BINARY")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_proteus")))
 }
 
 #[cfg(unix)]
@@ -192,20 +212,48 @@ async fn process_agents_route_bounded_messages_without_cross_delivery() {
     let task = AgentTask::new("delegate", workspace.path().to_path_buf());
     let alpha = runner
         .spawn(
-            SubagentRequest::new("helper", "initial alpha", task.clone()),
+            collaboration_request("helper", "alpha", "initial alpha", task.clone()),
             ctx.clone(),
         )
         .await
         .expect("spawn alpha");
     let beta = runner
-        .spawn(SubagentRequest::new("helper", "initial beta", task), ctx)
+        .spawn(
+            collaboration_request("helper", "beta", "initial beta", task),
+            ctx,
+        )
         .await
         .expect("spawn beta");
+
+    let wrong_target = runner
+        .send(&alpha, agent_message("beta", "forged-target"))
+        .await
+        .expect_err("handle target must be exact");
+    assert!(
+        wrong_target
+            .to_string()
+            .contains("does not match handle target"),
+        "{wrong_target:#}"
+    );
+    let mut forged_source = agent_message("alpha", "forged-source");
+    forged_source.source = AgentAddress::child("beta").expect("forged source");
+    let wrong_source = runner
+        .send(&alpha, forged_source)
+        .await
+        .expect_err("v1 source must remain root-owned");
+    assert!(
+        wrong_source.to_string().contains("source must be /root"),
+        "{wrong_source:#}"
+    );
 
     runner
         .send(&alpha, agent_message("alpha", "alpha-only-payload"))
         .await
         .expect("message alpha");
+    runner
+        .send(&alpha, agent_message("alpha", "alpha-second-payload"))
+        .await
+        .expect("second FIFO message alpha");
     runner
         .send(&beta, agent_message("beta", "beta-only-payload"))
         .await
@@ -217,7 +265,7 @@ async fn process_agents_route_bounded_messages_without_cross_delivery() {
     assert_eq!(alpha.status, SubagentStatus::Completed);
     assert_eq!(beta.status, SubagentStatus::Completed);
     assert!(
-        alpha.summary.contains("alpha-only-payload"),
+        alpha.summary.contains("alpha-second-payload"),
         "{}",
         alpha.summary
     );
@@ -236,8 +284,35 @@ async fn process_agents_route_bounded_messages_without_cross_delivery() {
         "{}",
         beta.summary
     );
-    assert_eq!(alpha.metadata["agent_messages_delivered"], 1);
+    assert_eq!(alpha.metadata["agent_messages_delivered"], 2);
     assert_eq!(beta.metadata["agent_messages_delivered"], 1);
+
+    let unowned = runner
+        .spawn(
+            SubagentRequest::new(
+                "helper",
+                "not addressable",
+                AgentTask::new("delegate", workspace.path().to_path_buf()),
+            ),
+            test_runtime_context(),
+        )
+        .await
+        .expect("spawn non-control-plane child");
+    let unowned_error = runner
+        .send(&unowned, agent_message("alpha", "must-not-route"))
+        .await
+        .expect_err("unbound handle must reject addressed delivery");
+    assert!(
+        unowned_error
+            .to_string()
+            .contains("not owned by the collaboration control plane"),
+        "{unowned_error:#}"
+    );
+    runner.cancel(&unowned).await.expect("cancel unowned child");
+    assert_eq!(
+        runner.wait(&unowned).await.expect("unowned result").status,
+        SubagentStatus::Cancelled
+    );
 }
 
 #[cfg(unix)]
@@ -262,8 +337,9 @@ async fn process_agent_terminal_race_returns_the_message_started_turn() {
     .expect("build terminal-race runner");
     let handle = runner
         .spawn(
-            SubagentRequest::new(
+            collaboration_request(
                 "helper",
+                "race",
                 "initial",
                 AgentTask::new("delegate", workspace.path().to_path_buf()),
             ),
@@ -305,13 +381,16 @@ async fn process_agent_cancel_is_targeted_and_closes_only_its_mailbox() {
 
     let cancelled = runner
         .spawn(
-            SubagentRequest::new("helper", "cancel me", task.clone()),
+            collaboration_request("helper", "cancelled", "cancel me", task.clone()),
             ctx.clone(),
         )
         .await
         .expect("spawn cancelled peer");
     let survivor = runner
-        .spawn(SubagentRequest::new("helper", "keep working", task), ctx)
+        .spawn(
+            collaboration_request("helper", "survivor", "keep working", task),
+            ctx,
+        )
         .await
         .expect("spawn survivor");
     runner
@@ -347,7 +426,7 @@ async fn process_agent_startup_crash_does_not_fail_a_live_sibling() {
     let good_config = write_messaging_child_config(config_home.path());
     let missing_config = config_home.path().join("missing-child.toml");
     let runner = ProcessSubagentRunner::from_config(json!({
-        "binary": env!("CARGO_BIN_EXE_proteus"),
+        "binary": proteus_binary(),
         "max_parallel": 2,
         "roles": [
             {
@@ -380,7 +459,7 @@ async fn process_agent_startup_crash_does_not_fail_a_live_sibling() {
         .await
         .expect("spawn broken peer process");
     let good = runner
-        .spawn(SubagentRequest::new("good", "work", task), ctx)
+        .spawn(collaboration_request("good", "good", "work", task), ctx)
         .await
         .expect("spawn good peer");
     runner

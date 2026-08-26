@@ -155,6 +155,7 @@ impl Tool for FollowupTaskTool {
                     .with_description(idle.task_name.clone())
                     .with_metadata(json!({
                         "control_plane_owned": true,
+                        "agent_control_target": idle.path,
                         "task_id": idle.task_id,
                         "agent_control_message": message,
                     }));

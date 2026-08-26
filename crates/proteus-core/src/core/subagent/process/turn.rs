@@ -217,6 +217,12 @@ pub(super) async fn drive_turn(
             .await;
         }
 
+        let delivery_guard = mailbox.lock_delivery().await;
+        if forwarder.ctx.cancellation.is_cancelled() && !tracker.cancel_sent {
+            drop(delivery_guard);
+            return finish_cancelled(child, forwarder, &active_send_id, tracker, cancel_grace)
+                .await;
+        }
         if active_terminal_seen && message_delivery.is_settled() && pending_terminal.is_some() {
             let messages = mailbox.drain_or_close()?;
             if messages.is_empty() {
@@ -238,6 +244,7 @@ pub(super) async fn drive_turn(
                 message_delivery.queue(child, messages).await?;
             }
         }
+        drop(delivery_guard);
 
         let output = tokio::select! {
             output = child.next_output() => output,

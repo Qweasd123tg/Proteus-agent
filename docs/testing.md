@@ -32,7 +32,7 @@
 | Module implementation | module unit | reference conformance | runtime smoke при side effects |
 | Tool/policy | tool unit | full safety path | approval deny/allow |
 | Workflow/runtime | workflow unit | canonical journal/replay | terminal/cancel/recovery evidence при behavior change |
-| Agent control/subagents | DTO/mailbox unit | минимум два real process peers | cross-delivery, targeted cancel и sibling crash isolation |
+| Agent control/subagents | DTO/mailbox unit | минимум два real process peers | forged address/source, bounded FIFO, cancel handoff и sibling crash isolation |
 | HTTP/session | handler unit | reconnect/cold history | auth/SSE smoke |
 | Inspector/web | Rust unit | `trunk build` | browser smoke при UX change |
 | Docs only | link/config inspection | обычно не нужен | сообщить, если tests не запускались |
@@ -153,16 +153,22 @@ cargo test -p proteus-contracts agent_control
 cargo test -p proteus-core --test process_agent_control -- --nocapture
 ```
 
-Первый gate фиксирует exact v1 address/message DTO, strict serde и лимиты
-mailbox envelope. Второй поднимает два полных дочерних Proteus через local
-stdio и проверяет:
+Первый gate фиксирует exact v1 address/message DTO, root-only source, strict
+serde и message/aggregate mailbox limits. Второй поднимает два полных дочерних
+Proteus через local stdio и проверяет:
 
+- exact handle target и отказ подменённым source/target до enqueue;
 - адресную FIFO-доставку без cross-delivery между peers;
 - сохранение принятого сообщения на успешной terminal-гонке;
-- targeted cancel, закрывающий только mailbox цели;
+- targeted cancel, закрывающий только mailbox цели и не возвращающийся, пока
+  уже начатая delivery может породить поздний envelope/continuation;
 - изоляцию startup/config crash одного process от живого sibling;
 - неизменность peer authority: сообщение не выдаёт дополнительных tools или
   policy grants.
+
+`scripts/alpha-smoke.sh` дополнительно проверяет, что isolated install
+публикует `spawn_agent`/`send_message`/`followup_task`, после чего тот же
+real-process test запускает установленный `proteus` как peer binary.
 
 ## Общий Rust Gate
 

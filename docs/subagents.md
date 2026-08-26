@@ -28,7 +28,7 @@ root Proteus
 
 ## Кто Чем Владеет
 
-Root coordinator владеет:
+В целевом durable control plane root coordinator владеет:
 
 - устойчивой записью участника и связью parent/child;
 - role/profile, адресом подключения и session ownership;
@@ -89,8 +89,9 @@ Real-process boundary test одновременно запускает два п
 передаёт им разные payload, проверяет отсутствие cross-delivery, адресный
 cancel и изоляцию падения соседнего process. Успешная terminal-гонка не теряет
 принятое сообщение: stdio adapter продолжает ту же логическую generation новым
-peer turn. Явный cancel имеет приоритет, закрывает mailbox цели и отклоняет
-поздние сообщения, не затрагивая соседей.
+peer turn. Явный cancel синхронно закрывает mailbox цели, отклоняет поздние
+сообщения и перед возвратом ждёт уже начатую transport delivery; после
+успешного `cancel` новый envelope или continuation уже не достигает peer.
 
 Это ещё не полный целевой control plane:
 
@@ -104,10 +105,12 @@ peer turn. Явный cancel имеет приоритет, закрывает m
   целевую сущность subagent-а.
 
 Один mailbox ограничен 32 сообщениями, 64 000 байт суммарно и 16 000 байт на
-сообщение. `AgentControlMessage` хранит source/target отдельно от process
-handle; text projection добавляет source attribution в model-visible user
-message. Authority при доставке не объединяется: peer продолжает исполнять
-tools только через собственные registry, policy и safety.
+сообщение. В contract v1 source всегда равен `/root`, а target обязан точно
+совпадать с адресом, привязанным root control plane к handle; подменённые
+source/target отклоняются до enqueue. `AgentControlMessage` хранит эти поля
+отдельно от transport handle, а text projection добавляет source attribution
+в model-visible user message. Authority при доставке не объединяется: peer
+продолжает исполнять tools только через собственные registry, policy и safety.
 
 ## Порядок Реализации
 
