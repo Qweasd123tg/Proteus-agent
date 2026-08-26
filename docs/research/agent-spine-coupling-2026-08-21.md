@@ -173,7 +173,7 @@ step type увеличит не contract replaceability, а число repair br
 
 ### Второй Loop В SubagentRunner
 
-`core/subagent/child_loop.rs` отдельно реализует:
+До cutover от 2026-08-26 отдельный core subagent module реализовывал:
 
 - model/tool iterations;
 - mailbox drain;
@@ -518,8 +518,8 @@ send
   -> cold projection reconstructs exact terminal state
 ```
 
-Затем тот же reducer запускает child session и follow-up без отдельного
-`child_loop` implementation.
+Затем тот же reducer запускает child session и follow-up без отдельной
+child-loop implementation.
 
 ### Обязательные Доказательства
 
@@ -592,7 +592,8 @@ Proteus:
 
 - `crates/proteus-core/src/core/runtime/turn.rs`;
 - `crates/proteus-core/src/core/runtime/steering.rs`;
-- `crates/proteus-core/src/core/subagent/child_loop.rs`;
+- [roadmap.md](../product/roadmap.md#agent-control-cutover) — последующее
+  удаление внутреннего child loop;
 - `crates/proteus-core/src/core/session_journal/types.rs`;
 - `crates/proteus-contracts/src/contracts/workflow.rs`;
 - `modules/reference/coding-workflow/src/lib.rs`;

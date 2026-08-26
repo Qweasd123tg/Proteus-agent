@@ -22,6 +22,7 @@
 mod child;
 mod config;
 mod messaging;
+mod outcome;
 mod pool;
 #[cfg(test)]
 mod tests;
@@ -49,13 +50,10 @@ use crate::{
 };
 
 use super::{
-    child_context,
-    child_loop::{subagent_status_label, truncate_at_char_boundary},
-    mailbox::ChildMailbox,
-    pending::PendingChildren,
-    requested_agent_target,
+    child_context, mailbox::ChildMailbox, pending::PendingChildren, requested_agent_target,
 };
 use config::{ProcessRoleConfig, ProcessSubagentConfig, build_process_role_specs};
+use outcome::{status_label, truncate_summary};
 use pool::{PooledChild, ProcessPool, ReleaseOutcome, ResumeReservation};
 #[cfg(test)]
 use turn::should_forward_child_event;
@@ -343,7 +341,7 @@ impl RunnerInner {
     ) -> Result<SubagentResult> {
         ctx.emit(Event::SubagentFinished {
             role: spec.name.clone(),
-            status: subagent_status_label(status),
+            status: status_label(status),
             iterations: 0,
             child_thread_id,
         })
@@ -446,7 +444,7 @@ impl RunnerInner {
                 };
                 let mut summary = summary;
                 if let Some(max_bytes) = spec.limits.max_summary_bytes {
-                    summary = truncate_at_char_boundary(summary, max_bytes);
+                    summary = truncate_summary(summary, max_bytes);
                 }
 
                 // Процесс возвращается в пул до освобождения permit-а,
@@ -464,7 +462,7 @@ impl RunnerInner {
 
                 ctx.emit(Event::SubagentFinished {
                     role: spec.name.clone(),
-                    status: subagent_status_label(status),
+                    status: status_label(status),
                     iterations: tracker.iterations,
                     child_thread_id,
                 })

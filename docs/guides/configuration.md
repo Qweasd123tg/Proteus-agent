@@ -458,17 +458,17 @@ tools, policy и содержательные ограничения не нас
 bounds. Packaged `codex.config.toml` использует `codex-explore` и
 `codex-coder`; их tool surfaces и policy находятся в отдельных child profiles.
 
-`SequentialSubagentRunner` и `module_config.subagent.sequential` пока остаются
-в pre-release schema только до следующего этапа cutover, но ни один active
-tracked profile их больше не выбирает. Удаление будет breaking и не получит
-legacy alias или fallback.
+In-process mini-agent и его inline role schema удалены без legacy alias,
+fallback или dual-read. Единственный допустимый текущий module id для этого
+slot — `process`; неизвестное старое значение завершается обычной ошибкой
+catalog selection.
 
 `surface` выбирает model-facing facade:
 
 - `task` — один delegation tool;
 - `collaboration` — spawn/list/wait/interrupt и bounded
-  `send_message`/`followup_task`; активный `process` runner объявляет messaging
-  capability (`sequential` сохраняет её только до удаления);
+  `send_message`/`followup_task`; `process` runner объявляет messaging
+  capability;
 - `none` — tools субагентов не регистрируются.
 
 Это единственный `none` в schema: enum UI surface, а не module id. Текущий

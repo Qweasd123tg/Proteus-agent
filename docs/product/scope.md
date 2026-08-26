@@ -44,7 +44,7 @@ config
 - единый путь tool safety и approvals;
 - session journal, history, resume, prompt replay и workflow replay;
 - CLI, HTTP/SSE app-server, web chat и Inspector;
-- sequential/process subagents, steering, follow-up и collaboration tools;
+- process-backed subagents, steering, follow-up и collaboration tools;
 - `AssemblyPlan`, `doctor`, module/tool list, topology и eval report;
 - versioned Linux install и опубликованный `v0.1.0-alpha.1`.
 
@@ -79,8 +79,8 @@ wire/config/DTO меняются атомарно без legacy aliases и compa
 2. **Model boundary.** Либо оставить provider adapters честной core-owned
    границей, либо спроектировать полный внешний model contract со streaming,
    credentials, hosted tools, cache, retry и usage parity.
-3. **Durable subagents.** Текущие runners и messaging работают, но постоянное
-   root-owned дерево, authenticated attach и reconnect ещё не завершены.
+3. **Durable subagents.** Текущий process runner и messaging работают, но
+   постоянное root-owned дерево, authenticated attach и reconnect ещё не завершены.
    Подробности: [subagents.md](../architecture/subagents.md).
 4. **Единая изоляция workers.** Нужна общая политика filesystem, network,
    env/secrets, процессов и ресурсов без исключений для reference modules.

@@ -1,6 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use proteus_core::core::{AppConfig, ModuleCatalog, SubagentSurface};
+use proteus_core::{
+    core::{AppConfig, ModuleCatalog, SubagentSurface},
+    domain::ModuleKind,
+};
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -26,6 +29,16 @@ fn tracked_configs() -> Vec<PathBuf> {
     }
     files.sort();
     files
+}
+
+#[test]
+fn builtin_subagent_catalog_contains_only_the_process_runner() {
+    let ids = ModuleCatalog::new()
+        .manifests_by_kind(ModuleKind::Subagent)
+        .into_iter()
+        .map(|manifest| manifest.id)
+        .collect::<Vec<_>>();
+    assert_eq!(ids, ["process"]);
 }
 
 #[tokio::test]
@@ -120,11 +133,6 @@ async fn codex_family_fragments_preserve_profile_specific_overlays() {
                 );
             }
         }
-        assert!(
-            config.module_config["subagent"].get("sequential").is_none(),
-            "active profiles must not retain sequential config"
-        );
-
         let module_config = serde_json::to_string(&config.module_config).expect("module config");
         assert!(
             !module_config.contains("playwright__"),

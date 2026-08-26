@@ -1,6 +1,5 @@
-//! Реестр запущенных (`spawn`) детей subagent-runner-а: `JoinHandle` +
-//! cancel-токен на spawn_id. Общий для builtin-реализаций (`sequential`,
-//! `process`).
+//! Реестр запущенных (`spawn`) process peers: `JoinHandle` + cancel-токен на
+//! spawn_id.
 //!
 //! Жизненный цикл записи: `reserve` (жёсткий cap по `max_parallel`) →
 //! `attach` (detached monitor забирает JoinHandle) → кешированный terminal
@@ -134,15 +133,6 @@ impl PendingChildren {
             bail!("subagent result is not ready to consume");
         }
         self.entries.remove(spawn_id);
-        Ok(())
-    }
-
-    /// Отменяет запущенного ребёнка по spawn_id (запись остаётся до `wait`).
-    pub(super) fn cancel(&mut self, spawn_id: &str) -> Result<()> {
-        let entry = self.entries.get(spawn_id).ok_or_else(|| {
-            anyhow!("unknown subagent spawn_id (never spawned, already waited, or evicted)")
-        })?;
-        entry.cancel.cancel();
         Ok(())
     }
 
@@ -301,10 +291,10 @@ mod tests {
         pending
             .reserve("b", second.clone(), mailbox(), None, 4, true)
             .expect("reserve b");
-        pending.cancel("a").expect("cancel");
+        pending.begin_cancel_and_close_mailbox("a").expect("cancel");
         assert!(first.is_cancelled());
         assert!(!second.is_cancelled());
-        assert!(pending.cancel("missing").is_err());
+        assert!(pending.begin_cancel_and_close_mailbox("missing").is_err());
     }
 
     #[tokio::test]
@@ -316,7 +306,9 @@ mod tests {
             .expect("reserve");
         pending.attach("a", dummy_join());
         let outcome = pending.outcome("a").expect("outcome");
-        pending.cancel("a").expect("cancel during wait");
+        pending
+            .begin_cancel_and_close_mailbox("a")
+            .expect("cancel during wait");
         assert!(token.is_cancelled());
         let _ = outcome.wait().await;
     }

@@ -73,7 +73,7 @@ impl TurnTracker {
             }
             Event::TokenUsageUpdated { usage } => {
                 if let Some(actual) = usage.actual.as_ref() {
-                    super::super::child_loop::accumulate_usage(&mut self.usage, Some(actual));
+                    super::outcome::accumulate_usage(&mut self.usage, Some(actual));
                     self.budget.record(Some(actual));
                 }
             }

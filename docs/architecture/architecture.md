@@ -241,7 +241,7 @@ sandbox policy.
 
 - model provider adapters `fake`, `openai`, `openai_compatible`,
   `anthropic`;
-- `SubagentRunner` implementations `sequential` и `process`.
+- process-backed `SubagentRunner`.
 
 Provider shaping допускается только в
 `crates/proteus-core/src/adapters` и model shaping layer. Эти границы нельзя

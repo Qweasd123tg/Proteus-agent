@@ -6,7 +6,7 @@ use super::{ModuleBuildContext, ModuleCatalog};
 use crate::{
     adapters::{build_anthropic_messages_adapter, build_openai_responses_adapter},
     contracts::{Model, SubagentRunner},
-    core::{ModelConfig, ProcessSubagentRunner, SequentialSubagentRunner},
+    core::{ModelConfig, ProcessSubagentRunner},
     domain::{ModuleKind, ModuleManifest, slot},
     stubs::FakeModelClient,
 };
@@ -55,23 +55,6 @@ pub(super) fn register_builtins(catalog: &mut ModuleCatalog) {
     );
 
     // Subagent runners
-    catalog.register_module::<dyn SubagentRunner>(
-        slot::SUBAGENT,
-        "sequential",
-        manifest(
-            "sequential",
-            ModuleKind::Subagent,
-            &[
-                "sequential",
-                "parallel_spawn",
-                "roles_from_config",
-                "addressed_messages",
-                "resumable_followup",
-            ],
-            "Дочерний агентский цикл in-process: роли и лимиты из module_config.subagent.sequential; spawn/wait, bounded адресные сообщения и resumable follow-up для collaboration surface.",
-        ),
-        build_sequential_subagent,
-    );
     catalog.register_module::<dyn SubagentRunner>(
         slot::SUBAGENT,
         "process",
@@ -135,15 +118,6 @@ fn provider_config_with_stream(config: &ModelConfig) -> Result<serde_json::Value
     };
     provider_config.insert("stream".to_owned(), serde_json::Value::Bool(config.stream));
     Ok(serde_json::Value::Object(provider_config))
-}
-
-fn build_sequential_subagent(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SubagentRunner>> {
-    let config = ctx
-        .config
-        .module_config_value(ModuleKind::Subagent, "sequential");
-    Ok(Arc::new(SequentialSubagentRunner::from_config_with_cwd(
-        config, ctx.cwd,
-    )?))
 }
 
 fn build_process_subagent(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SubagentRunner>> {

@@ -1,9 +1,7 @@
-//! Bounded in-process mailbox for one running child loop.
+//! Bounded in-process queue for one running process peer.
 //!
-//! Delivery happens only at explicit model/tool boundaries in `child_loop`.
-//! `close_and_drain` makes the terminal boundary atomic with enqueue: a
-//! message is either rejected because the child is already idle, or retained
-//! in the child history before its resumable snapshot is written.
+//! Delivery into a process peer happens only at explicit app-server turn
+//! boundaries.
 
 use std::{
     collections::VecDeque,
@@ -84,14 +82,6 @@ impl ChildMailbox {
             state.closed = true;
             return Ok(Vec::new());
         }
-        Ok(drain_locked(&mut state))
-    }
-
-    /// Closes every non-success terminal path and returns messages accepted
-    /// just before the boundary so the runner can persist them in history.
-    pub(super) fn close_and_drain(&self) -> Result<Vec<AgentControlMessage>> {
-        let mut state = self.lock()?;
-        state.closed = true;
         Ok(drain_locked(&mut state))
     }
 

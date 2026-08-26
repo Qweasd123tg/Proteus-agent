@@ -79,7 +79,7 @@ Peer Proteus сам является host/runtime и может иметь со�
 - запускает отдельный `proteus server stdio` с named child config;
 - держит несколько процессов одновременно;
 - поддерживает `spawn`, `wait`, `interrupt`, cancel и process pool;
-- предоставляет те же `send_message` и `followup_task`, что и `sequential`;
+- предоставляет `send_message` и `followup_task` через тот же process path;
 - доставляет bounded адресные сообщения через stdio на ближайшую model/tool
   boundary, сохраняя FIFO одного mailbox;
 - пересылает события, approvals и user input между двумя Proteus;
@@ -105,9 +105,10 @@ peer turn. Явный cancel синхронно закрывает mailbox це�
   `codex-explore` и `codex-coder`; их model, prompt, workflow, tools и policy
   принадлежат child config, а root role хранит только identity/config reference
   и process/lifecycle bounds;
-- старый `SequentialSubagentRunner` пока остаётся в коде и тестах как второй
-  mini-agent path. Решение владельца от 2026-08-26 — удалить его и оставить в
-  root только agent-control/lifecycle. Следующие этапы находятся в
+- внутренний mini-agent path удалён 2026-08-26: Core больше не исполняет
+  отдельный child model/tool loop и не читает inline tool/prompt authority
+  роли. До следующего этапа process path временно реализует старый
+  loop-oriented trait; порядок схлопывания в agent-control service находится в
   [roadmap.md](../product/roadmap.md#agent-control-cutover).
 
 Один mailbox ограничен 32 сообщениями, 64 000 байт суммарно и 16 000 байт на

@@ -223,19 +223,16 @@ replay использует компактный `SessionConfigSnapshot` с то
 идут непосредственно через активный `MemoryStore`; отдельного memory event
 runtime не испускает.
 
-`SubagentStarted` и `SubagentFinished` описывают live-работу slot-а
-`subagent`: роль, краткое описание, статус, число итераций и
+`SubagentStarted` и `SubagentFinished` описывают live-работу process peer-а:
+роль, краткое описание, статус, число итераций и
 `child_thread_id`. Эти события приходят в envelope родительского `thread_id`,
 потому что пользовательский turn остаётся родительским. Tool-события
-дочернего цикла (`ToolCallRequested`, `ApprovalRequested`, `ToolFinished`)
+дочернего Proteus (`ToolCallRequested`, `ApprovalRequested`, `ToolFinished`)
 приходят отдельными envelope с `thread_id = child_thread_id`. Streaming
-text-дельты дочернего цикла builtin runner (`sequential`) подавляются через
-request metadata `suppress_stream_deltas`: delta-контекст `ModelService`
-указывает на родительский ход, и без подавления стрим ребёнка попадал бы в
-родительский транскрипт как обычный `AssistantTextDelta`. Дополнительно и
+text-дельты peer-а process bridge наблюдает только для partial summary при
+cancel/timeout и не пере-эмитит в root event stream. Дополнительно и
 `TurnProgress`, и web-клиент фильтруют `AssistantTextDelta` по `thread_id`
-хода (запомненному из envelope `TurnStarted`) — дельты чужих threads в
-основной текст не подмешиваются.
+хода — дельты чужих threads в основной текст не подмешиваются.
 
 Web-клиент рендерит работу субагента одной карточкой. При task surface
 `SubagentStarted` прикрепляет активность к бегущей tool-карточке `task`
@@ -258,15 +255,12 @@ collaboration completion приходит через `wait_agent`, а `list_agen
 раскрыта и показывает живой прогресс; после `SubagentFinished` она сворачивается
 в строку со статусом, числом вызовов, итерациями и длительностью.
 
-Для обоих builtin runner-ов вызовы `send_message` и running `followup_task`
-попадают в bounded адресный mailbox ребёнка. `sequential` добавляет envelope
-как canonical user message на ближайшей model/tool boundary; terminal close
-атомарен, поэтому поздний вызов либо отклоняется, либо остаётся в resumable
-history. `process` передаёт тот же typed envelope persistent peer-у через
-stdio. Если успешный terminal response обогнал принятое сообщение, adapter
-продолжает ту же logical generation следующим peer turn; явный cancel вместо
-этого закрывает очередь и имеет приоритет. `followup_task` для idle terminal
-record у обоих runner-ов запускает resume по прежнему task id.
+Вызовы `send_message` и running `followup_task` попадают в bounded адресный
+mailbox process peer-а. Runner передаёт typed envelope persistent peer-у через
+stdio на границе app-server turn-а. Если успешный terminal response обогнал
+принятое сообщение, adapter продолжает ту же logical generation следующим
+peer turn; явный cancel вместо этого закрывает очередь и имеет приоритет.
+`followup_task` для idle terminal record запускает resume по прежнему task id.
 
 Для reload посреди turn app-server держит `SubagentStarted`/`SubagentFinished`
 и вложенные child tools в `TurnProgress.snapshot()`. `/history` отдаёт это как

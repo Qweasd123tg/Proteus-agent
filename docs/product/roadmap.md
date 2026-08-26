@@ -63,18 +63,15 @@ model/tool loop и не фильтрует возможности ребёнка
 #### Почему Нужен Cutover
 
 Целевой process path уже работает. На момент принятия решения активный Codex
-runtime ещё выбирал `subagent = "sequential"`; первый этап ниже уже перевёл
-tracked Codex/GLM profiles на `process`, но в коде до следующего этапа всё ещё
-сохраняются две разные модели:
+runtime ещё выбирал внутренний mini-agent, который сам вызывал model/tools и
+читал inline prompt/tool/limit роли. Первый этап перевёл tracked Codex/GLM
+profiles на `process`, второй удалил дублирующую in-process реализацию и её
+schema. `ProcessSubagentRunner` запускает `proteus server stdio` с отдельным
+named config и соответствует принятой identity-модели.
 
-- `SequentialSubagentRunner` строит урезанного агента внутри Core, сам вызывает
-  model/tools и читает inline prompt/tool/limit роли;
-- `ProcessSubagentRunner` запускает `proteus server stdio` с отдельным named
-  config и уже соответствует принятой identity-модели.
-
-Обе реализации скрыты за `SubagentRunner`, хотя этот trait описывает дочерний
-agent loop, а не чистое общение между агентами. Это и есть следующий
-приоритетный источник лишней связанности.
+Process path пока временно скрыт за `SubagentRunner`, хотя этот trait всё ещё
+описывает дочерний agent loop, а не чистое общение между агентами. Схлопывание
+этой временной границы — следующий приоритетный источник упрощения.
 
 #### Конечная Граница
 
@@ -110,8 +107,8 @@ Agent-control не является behavior slot Component Runtime и не вы
 1. **✅ Перевести tracked profiles на process peer.**
    - Добавить устанавливаемые child configs для текущих ролей `explore` и
      `coder`; каждый config сам задаёт prompt, model, workflow, tools и policy.
-   - В `configs/fragments/codex-runtime.toml` заменить active selection
-     `sequential` на `process` и оставить в родительском config только
+   - В `configs/fragments/codex-runtime.toml` выбрать `process` и оставить в
+     родительском config только
      `name`, `description`, путь к child config и transport/lifecycle bounds.
    - Обновить `install.sh`, config examples и profile tests.
    - Сохранить real-process evidence: разные config-ы действительно дают
@@ -125,14 +122,20 @@ Agent-control не является behavior slot Component Runtime и не вы
    два реальных Proteus и фиксирует разные model-facing tool surfaces при
    пустом root registry.
 
-2. **Удалить внутреннего мини-агента.**
-   - Удалить `SequentialSubagentRunner`, `child_loop`, sequential roles parser,
-     его resumable store и runner-level tests.
-   - Удалить module id `sequential` и весь
-     `module_config.subagent.sequential` из tracked config/docs/tests.
-   - Не оставлять legacy alias, fallback на sequential или dual-read config.
+2. **✅ Удалить внутреннего мини-агента.**
+   - Удалить in-process runner, его child model/tool loop, inline roles parser,
+     resumable store и runner-level tests.
+   - Удалить прежний module id и его `module_config` schema из tracked
+     config/docs/tests.
+   - Не оставлять legacy alias, fallback или dual-read config.
    - На этом этапе `process` может временно продолжать реализовывать старый
      trait, чтобы commit оставался собираемым.
+
+   Завершено 2026-08-26: catalog subagent slot содержит только `process`; Core
+   больше не выполняет дочерний model/tool loop и не зависит от YAML role
+   parser-а. Process-owned usage/status/summary helpers находятся рядом с
+   process implementation. Config Builder, profile tests и актуальная
+   документация обновлены без compatibility reader-а.
 
 3. **Схлопнуть старый slot в agent-control service.**
    - Заменить `SubagentRunner` contract на узкий control-plane interface для
@@ -165,7 +168,8 @@ Agent-control не является behavior slot Component Runtime и не вы
   typed message/lifecycle contract;
 - `crates/proteus-contracts/src/contracts/workflow.rs` — текущая передача
   runner-а в runtime context;
-- `crates/proteus-core/src/core/subagent/` — sequential и process реализации;
+- `crates/proteus-core/src/core/subagent/` — временный process runner и его
+  lifecycle primitives;
 - `crates/proteus-core/src/tools/task*` и `src/tools/collaboration/` — две
   model-facing facade над одним будущим control plane;
 - `crates/proteus-core/src/core/module_catalog*`, `core/registry.rs` и
@@ -177,8 +181,8 @@ Agent-control не является behavior slot Component Runtime и не вы
 
 #### Готово, Когда
 
-- поиск не находит `SequentialSubagentRunner`, module id `sequential` или
-  `module_config.subagent.sequential`;
+- catalog содержит только process runner, а код/config/docs не содержат
+  прежней in-process implementation или её schema;
 - Core не выполняет отдельный child model/tool loop;
 - выбор tools/model/policy ребёнка доказан его config-ом, а не parent role;
 - `task` и collaboration используют один процессный agent-control path;

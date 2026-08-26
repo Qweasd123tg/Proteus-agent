@@ -4,7 +4,9 @@
 реализованы. Долгосрочная identity-модель выбрана 2026-08-24 и вынесена в
 [../architecture/subagents.md](../architecture/subagents.md); exact agent-control DTO/transport contract
 реализован как pre-release v1 2026-08-25, но ещё не стабилизирован. Последнее
-обновление: 2026-08-25.
+обновление: 2026-08-26. Внутренний in-process backend, описанный ниже как
+исторический baseline, уже удалён; текущая реализация — только local stdio
+`process`.
 
 Эта заметка сохраняет факты и развилки, которые выяснились после реализации
 первого subagent-среза. Она не является reference текущего контракта и не
@@ -30,19 +32,19 @@ Default `task` сохраняет прежний foreground protocol; `none` с�
 
 Реализованный `collaboration` — экспериментальный Proteus Codex-shaped slice,
 не compatibility/parity mode. Он содержит session-owned bounded
-`spawn_agent`, `list_agents`, `wait_agent`, `interrupt_agent`; builtin
-`sequential` и local stdio `process` предоставляют bounded `send_message` и
-`followup_task` через общий typed envelope. Активный child получает сообщения
-на model/tool boundaries, terminal follow-up запускает resumable generation
-того же logical path/thread. Surface допускает лишь `parallel_safe`,
+`spawn_agent`, `list_agents`, `wait_agent`, `interrupt_agent`; существовавший
+тогда in-process backend и local stdio `process` предоставляли bounded
+`send_message` и `followup_task` через общий typed envelope. Активный child
+получает сообщения на model/tool boundaries, terminal follow-up запускает
+resumable generation того же logical path/thread. Surface допускает лишь `parallel_safe`,
 `isolation = none` роли и не предоставляет fork, nesting, writer/worktree
 spawn или durable restart. Control records process-resident; app-server и web
 сохраняют live background child card после завершения parent turn.
 
-Таким образом, решены model-facing facade, session ownership и bounded
-mailbox/follow-up lifecycle для двух builtin runner-ов. Общий persistent agent
-tree, history fork, role overlays, residency/reload и attach остаются предметом
-следующего ADR.
+Таким образом, были проверены model-facing facade, session ownership и bounded
+mailbox/follow-up lifecycle. После cutover эти свойства сохраняет единственный
+process path. Общий persistent agent tree, history fork, role overlays,
+residency/reload и attach остаются предметом следующего ADR.
 
 ## Dogfood Первого Slice
 
@@ -55,9 +57,9 @@ regression tests, а не объявлен проверенным по отсу�
 
 ## Зачем Зафиксирован Этот Разбор
 
-Этот разбор начался после того, как `none`, `sequential` и `process` оказались
-в первую очередь способами исполнения и изоляции, а не model-facing моделями
-координации. Реализованный позже `subagents.surface` закрыл только первый
+Этот разбор начался после того, как structural absence, in-process и `process`
+оказались в первую очередь способами исполнения и изоляции, а не model-facing
+моделями координации. Реализованный позже `subagents.surface` закрыл только первый
 выбор facade; остальные оси ниже всё ещё нельзя считать решёнными.
 
 Перед следующими lifecycle-правками нужно отделить четыре вопроса:
@@ -124,14 +126,14 @@ background subagents остаются experimental. Между локальны�
 - `examples/research/opencode/deep-research-opencode.md`;
 - `examples/research/claude code/res/08-agenttool/README.md`.
 
-## Что Реально Есть В Proteus
+## Что Было В Proteus На Момент Исследования
 
 ### Contract
 
-`SubagentRunner` сейчас владеет дочерним циклом целиком: role discovery,
-`run`, optional `spawn`/`wait`/`cancel`, child history, model→tools loop,
-budget, timeout и summary. Контракт прямо запрещает вызывать `Workflow` из
-runner-а, чтобы не получить цикл зависимостей между slots.
+`SubagentRunner` на момент исследования владел дочерним циклом целиком: role
+discovery, `run`, optional `spawn`/`wait`/`cancel`, child history, model→tools
+loop, budget, timeout и summary. Контракт прямо запрещает вызывать `Workflow`
+из runner-а, чтобы не получить цикл зависимостей между slots.
 
 Это делает slot крупнее простого execution backend: реализация одновременно
 выбирает state model ребёнка и исполняет agent loop.
@@ -146,22 +148,23 @@ runner-а, чтобы не получить цикл зависимостей м
   `send_message`/`followup_task`;
 - `none` — delegation tools отсутствуют.
 
-Builtin runners объявляют working spawn/wait/cancel через
+Тогдашние builtin runners объявляли working spawn/wait/cancel через
 `supports_collaboration()`. Plugin ABI для subagent по-прежнему экспонирует
 только roles + run, поэтому внешний dylib-модуль не может выбрать collaboration
 с непустыми ролями: registry build возвращает ошибку без fallback.
 
 ### Реализации
 
-- `sequential`: in-process child loop с отдельным `ThreadId`, history,
+- удалённый in-process backend: child loop с отдельным `ThreadId`, history,
   cancellation token, tool selection и resumable snapshot;
 - `process`: отдельный `proteus server stdio` с named child config, bridge
   событий/approval/user-input, process pool и resume, привязанным к живому
   процессу;
 - `none`: делегирование выключено.
 
-Packaged `codex` и `glm` profiles сейчас выбирают `sequential`, поэтому
-`process` не является активным default dogfood path.
+На момент исследования packaged `codex` и `glm` profiles выбирали in-process
+backend. С 2026-08-26 они используют `process`, который остался единственным
+активным path.
 
 ### Где Появился Жир
 
@@ -183,7 +186,7 @@ runner orchestration.
 
 ### Lifecycle Уже Разнесён Между Владельцами
 
-- sequential resume ограничен своим `ResumableStore`;
+- in-process resume был ограничен собственным `ResumableStore`;
 - process resume живёт, пока жив конкретный child process;
 - worktree resume отдельно хранится facade-tool-ом в process-global map, но
   record теперь session-owned и удаляется после non-resumable/failed resume;
@@ -222,7 +225,7 @@ runner orchestration.
 
 Предпочтительная форма для обсуждения: стабильный semantic id `proteus_task`,
 а `alpha`/`experimental` — status metadata и документация.
-`sequential`/`process` в такой модели являются execution backend-ами, а не
+In-process/stdio варианты в такой модели являются execution backend-ами, а не
 названиями рыночных agent behaviors.
 
 ## Codex-like Модель
@@ -326,7 +329,7 @@ pool policy, prompt и workspace mechanism. Иначе получится оди
 
 ### A. Заморозить Текущий Baseline
 
-Признать `task + sequential` OpenCode-like baseline. `process` перевести в
+Признать `task` поверх in-process backend-а OpenCode-like baseline. `process` перевести в
 experimental и не вкладываться в его retention до реального dogfood use case.
 
 Плюсы: почти нет нового кода. Минусы: Codex-like UX не появляется, а nominal
@@ -347,7 +350,7 @@ Execution backend (`in_process`, `stdio_process`, future remote) выбирае�
 Первые slices выбрали host-bound core facade без нового slot-а и оставили
 `SubagentRunner` execution boundary. Реализованы bounded session-owned
 spawn/list/wait/interrupt control и общий mailbox/follow-up contract для
-`sequential` и local stdio `process`; полный durable `AgentRecord` contract,
+двух тогдашних backend-ов; полный durable `AgentRecord` contract,
 persistence и attach не приняты.
 
 ### C. Один Rich Collaboration Module, Но Не Один Fat File
@@ -377,7 +380,7 @@ Codex/OpenCode различаются named mode/profile и tool surface. Это
    spawn/list/wait/interrupt slice без parity claim;
 3. ✅ прогнать dogfood первого slice;
 4. ✅ добавить общий typed bounded mailbox и follow-up generations для
-   `sequential` и local stdio `process` без нового slot-а; plugin runners без
+   in-process и local stdio backend-ов без нового slot-а; plugin runners без
    capability по-прежнему fail-closed;
 5. ✅ закрыть unbounded process residency: private `process/pool.rs`, глобальный
    idle LRU-cap, atomic resume reservation и session/role/cwd binding; strict
@@ -390,10 +393,9 @@ Codex/OpenCode различаются named mode/profile и tool surface. Это
 8. общие abstractions выносить после второго реального implementation, а не
    заранее.
 
-Текущий slice даёт две model-facing поверхности поверх тех же runner-ов, а не
-две реализации subagent slot. `sequential`/`process` остаются именами execution
-реализаций и не изображают рыночные agent behaviors. Отдельный Codex-shaped
-control contract появится только после нового решения.
+Текущий slice даёт две model-facing поверхности поверх одного process path, а
+не разные agent behaviors. Отдельный Codex-shaped control contract появится
+только после нового решения.
 
 Для будущего Codex-like модуля полезно клонировать primitives, а не весь код:
 root-owned typed tree, logical task path + opaque thread id, explicit history
@@ -416,8 +418,8 @@ capability: оба исследованных upstream-а по умолчани�
 
 - Не добавлять TTL/LRU только в process pool до единого owner-а agent record,
   resume и worktree lifecycle.
-- Не объявлять `sequential` «Codex implementation»: это backend, а не Codex
-  collaboration semantics.
+- Не объявлять удалённый in-process backend «Codex implementation»: это был
+  transport/runtime choice, а не Codex collaboration semantics.
 
 ## Оставшиеся Вопросы Для Будущего ADR
 

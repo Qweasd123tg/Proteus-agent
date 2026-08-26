@@ -416,7 +416,7 @@ model = "fake-smart"
             "/config/builder",
             json!({
                 "modules": {
-                    "subagent": "sequential"
+                    "subagent": "process"
                 },
                 "tools_enabled": ["apply_patch", "search"],
                 "active_provider": "smart",
@@ -436,12 +436,12 @@ model = "fake-smart"
             .and_then(Value::as_array)
             .is_some_and(|items| items.iter().any(|item| {
                 item.get("slot").and_then(Value::as_str) == Some("subagent")
-                    && item.get("id").and_then(Value::as_str) == Some("sequential")
+                    && item.get("id").and_then(Value::as_str) == Some("process")
             }))
     );
 
     let written = std::fs::read_to_string(&config_path).expect("read config");
-    assert!(written.contains("subagent = \"sequential\""), "{written}");
+    assert!(written.contains("subagent = \"process\""), "{written}");
     assert!(
         written.contains("enabled = [\"apply_patch\", \"search\"]"),
         "{written}"
@@ -480,7 +480,7 @@ model = "fake-smart"
             .and_then(Value::as_array)
             .is_some_and(|items| items.iter().any(|item| {
                 item.get("slot").and_then(Value::as_str) == Some("subagent")
-                    && item.get("id").and_then(Value::as_str) == Some("sequential")
+                    && item.get("id").and_then(Value::as_str) == Some("process")
             }))
     );
     assert!(

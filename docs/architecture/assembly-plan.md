@@ -91,7 +91,7 @@ component args или environment values. Загрузить JSON плана о�
   доверенными executable с правами пользователя.
 - Точный model-visible список tools может меняться внутри invocation из-за
   policy и `ToolExposure`; статический план не подменяет эту проверку.
-- План фиксирует выбранный subagent runner (`sequential`/`process`) и
+- План фиксирует выбранный process subagent runner и
   model-facing surface, но пока не сериализует безопасное summary ролей из
   opaque `module_config`. Конкретные запущенные экземпляры Proteus в план не
   входят: live agent tree является session-owned runtime state; см.

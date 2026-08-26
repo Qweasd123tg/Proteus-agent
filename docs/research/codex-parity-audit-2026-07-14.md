@@ -76,7 +76,7 @@ drop-in-совместимости.
 | Patch | `direct` | **Partial + stricter safety divergences** | Freeform `apply_patch` идёт через policy и `PatchApplier`; current wave запрещает final symlink | Не совпадают overwrite/move/pure-add/no-final-newline/fuzzy/padded-marker fixtures; check-then-open оставляет TOCTOU. Нужен verified fd-relative workspace FS; absolute-path reject остаётся явной divergence |
 | Compactor | `codex` | **Partial after current wave** | Model-backed summary, strictly bounded real user messages/marker, summary-last, canonical-context reinjection, strict summary validation | Нет upstream retry/trim, previous-model pre-turn, полный mid-turn window lifecycle, remote/v2/token-budget paths и compatibility identity. Нужны phase/reason/window DTO и provider compaction capability |
 | ToolExposure | `codex_dynamic` | **Functional shim, not wire parity** | Stable hot set и deferred discovery; current wave не даёт collaboration controls вытеснить direct tools | Upstream native `tool_search` возвращает loadable `defer_loading` schemas, затем модель вызывает discovered tool напрямую. Локальные `proteus_tool_search/describe/call` меняют transcript и call ids. Нужны ToolSpec search fields и native history variants |
-| Subagent | `sequential` + experimental collaboration surface | **Subset** | Session-owned lifecycle, mailbox/follow-up, role limits, shared policy; current wave проверяет canonical response structure и exact request-visible tool set до history/execution, уважает `end_turn=false` | Нет `fork_turns`, model/reasoning/tier overrides, hierarchical child control, live policy/environment inheritance и upstream wait/message semantics. Нужны fork/history DTO, child facade и раздельные status/mailbox/completion contracts |
+| Subagent | исторический in-process backend + experimental collaboration surface | **Subset** | Session-owned lifecycle, mailbox/follow-up, role limits, shared policy; current wave проверяла canonical response structure и exact request-visible tool set до history/execution, уважала `end_turn=false` | Backend удалён 2026-08-26 в пользу полных process peers; всё ещё нет `fork_turns`, hierarchical child control и durable attach. Нужен узкий agent-control service вместо loop-oriented trait |
 | Workflow | `coding.codex_loop` | **Partial** | Strict model/tool loop; current wave уважает `end_turn=false`, возвращает модели unrequested/malformed tool errors и продолжает sampling | Нет established-stream retry, message phase/final projection, полного compaction lifecycle и per-handler parallel gate; некоторые tool stop/error paths отличаются. Нужны workflow-visible retry/phase/compaction state и `supports_parallel_tool_calls` отдельно от safety |
 | Renderer | `plain` | **Partial: clean stdout payload** | Current wave убирает status block из assistant stdout/transcript | Upstream `codex exec` отделяет progress в stderr, а final — в stdout; локальный renderer только очищает semantic stdout. `statusline` остаётся полезным Proteus renderer, но интерактивный status — UI footer. Нужны отдельный progress/event sink и surface-aware render context либо перенос status UI целиком в clients |
 
@@ -170,9 +170,9 @@ overrides, include-only, profile), а Proteus жёстко наследует pr
   `coding.codex_loop_diagnostic`.
 - `direct-patch` отвергает absolute paths и final symlinks строже upstream.
   Это safety divergence; она не оправдывает остальные несовпадающие fixtures.
-- Sequential subagent roles имеют explicit tool allowlists и optional worktree
-  isolation. Это полезные Proteus capabilities, но не полная MultiAgentV2
-  копия и не должны называться ею.
+- Исторические in-process роли имели explicit tool allowlists и optional
+  worktree isolation. После cutover authority задаётся отдельным child config;
+  ни старый, ни новый путь не объявляется полной MultiAgentV2 копией.
 - `memory = "none"`/`memory_policy = "none"` лучше ложной совместимости:
   `carry_forward` остаётся самостоятельной heuristic policy.
 - Structured `search`/file tools и `proteus_tool_search/describe/call` —

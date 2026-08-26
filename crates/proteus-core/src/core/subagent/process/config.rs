@@ -11,8 +11,7 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use serde_json::json;
 
-use super::super::roles::parse_isolation;
-use crate::contracts::{SubagentLimits, SubagentRoleSpec};
+use crate::contracts::{SubagentIsolation, SubagentLimits, SubagentRoleSpec};
 
 /// Формат `module_config.subagent.process`.
 #[derive(Debug, Clone, Deserialize)]
@@ -124,6 +123,14 @@ fn default_max_idle_processes() -> usize {
 
 fn default_parallel_max_processes() -> usize {
     4
+}
+
+fn parse_isolation(value: Option<&str>) -> Result<SubagentIsolation> {
+    match value {
+        None => Ok(SubagentIsolation::None),
+        Some("worktree") => Ok(SubagentIsolation::Worktree),
+        Some(other) => bail!("unknown isolation value: {other} (expected \"worktree\")"),
+    }
 }
 
 pub(super) fn build_process_role_specs(

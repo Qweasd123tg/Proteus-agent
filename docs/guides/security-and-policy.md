@@ -178,8 +178,8 @@ Collaboration control скоупится по `SessionId`: path `/root/<task_nam
 роль без worktree isolation, а дочерний toolset лишён всех subagent facade
 tools, поэтому nesting в первом slice невозможен. Records и terminal payloads
 bounded, active records не вытесняются; состояние process-resident и теряется
-при restart. `send_message` и `followup_task` доступны у `sequential` и
-локального stdio `process`, но не переносят grants: envelope меняет только
+при restart. `send_message` и `followup_task` доступны у локального stdio
+`process`, но не переносят grants: envelope меняет только
 history адресата, а его tools продолжают проходить собственные registry,
 policy и safety. Fork, прямой peer mesh и writer/worktree spawn в этом режиме
 не реализованы, а несовместимый blocking-only subagent runner отклоняется при
