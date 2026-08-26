@@ -1,5 +1,5 @@
 //! Round-trip тест process-subagent-а: реальный дочерний процесс
-//! `proteus server stdio` (бинарь из CARGO_BIN_EXE_proteus) с минимальным
+//! `proteus server stdio` (workspace binary или PROTEUS_TEST_BINARY) с минимальным
 //! конфигом (fake model, workflow selection отсутствует), запуск роли, resume по task_id
 //! и сброс истории между свежими задачами.
 
@@ -83,6 +83,72 @@ fn write_child_config(config_home: &std::path::Path) -> PathBuf {
     config_path
 }
 
+fn write_tool_surface_child_config(
+    config_home: &std::path::Path,
+    name: &str,
+    enabled_tools: &[&str],
+) -> PathBuf {
+    let configs_dir = config_home.join("configs");
+    std::fs::create_dir_all(&configs_dir).expect("create configs dir");
+    let config_path = configs_dir.join(format!("{name}.toml"));
+    let worker = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/modules/agent-worker/agent.py")
+        .canonicalize()
+        .expect("canonical agent worker path");
+    let worker = serde_json::to_string(&worker.to_string_lossy()).expect("quote worker path");
+    let policy_worker = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/process_allow_all_policy.py")
+        .canonicalize()
+        .expect("canonical policy worker path");
+    let policy_worker =
+        serde_json::to_string(&policy_worker.to_string_lossy()).expect("quote policy worker path");
+    let enabled_tools = serde_json::to_string(enabled_tools).expect("serialize enabled tools");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"active_provider = "fake"
+
+[providers.fake]
+provider = "fake"
+model = "fake-tool-model"
+
+[modules]
+workflow = "python_agent_loop"
+policy = "fixture_allow_all"
+
+[components.python-agent]
+command = "python3"
+args = ["-B", {worker}]
+handshake_timeout_ms = 30000
+
+[components.python-agent.exports.workflow.python_agent_loop]
+
+[components.fixture-policy]
+command = "python3"
+args = ["-B", {policy_worker}]
+handshake_timeout_ms = 30000
+
+[components.fixture-policy.exports.policy.fixture_allow_all]
+
+[module_config.workflow.python_agent_loop]
+max_tool_rounds = 2
+system_instructions = "Report only from this peer's configured tool surface."
+
+[tools]
+enabled = {enabled_tools}
+"#
+        ),
+    )
+    .expect("write tool-surface child config");
+    config_path
+}
+
+fn proteus_binary() -> PathBuf {
+    std::env::var_os("PROTEUS_TEST_BINARY")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_proteus")))
+}
+
 fn process_runner(config_path: &std::path::Path) -> ProcessSubagentRunner {
     process_runner_with_idle_cap(config_path, 8)
 }
@@ -92,7 +158,7 @@ fn process_runner_with_idle_cap(
     max_idle_processes: usize,
 ) -> ProcessSubagentRunner {
     ProcessSubagentRunner::from_config(json!({
-        "binary": env!("CARGO_BIN_EXE_proteus"),
+        "binary": proteus_binary(),
         "max_idle_processes": max_idle_processes,
         "roles": [
             {
@@ -175,6 +241,64 @@ async fn process_subagent_round_trips_turn_resume_and_fresh_task() {
     assert_ne!(fresh.child_thread_id, Some(child_thread_id));
 }
 
+/// Parent role metadata carries only the child config reference. Two real
+/// Proteus peers therefore expose different model-facing tools even though
+/// they are launched by the same root runner with an empty root registry.
+#[tokio::test]
+async fn process_peers_derive_distinct_tool_surfaces_from_child_configs() {
+    let config_home = tempfile::tempdir().expect("config home");
+    let workspace = tempfile::tempdir().expect("workspace");
+    let empty_config = write_tool_surface_child_config(config_home.path(), "empty", &[]);
+    let memory_config =
+        write_tool_surface_child_config(config_home.path(), "memory", &["remember_fact"]);
+    let runner = ProcessSubagentRunner::from_config(json!({
+        "binary": proteus_binary(),
+        "roles": [
+            {
+                "name": "empty",
+                "description": "Peer without tools",
+                "config": empty_config.to_string_lossy(),
+                "timeout_ms": 60000
+            },
+            {
+                "name": "memory",
+                "description": "Peer with memory facade",
+                "config": memory_config.to_string_lossy(),
+                "timeout_ms": 60000
+            }
+        ]
+    }))
+    .expect("build process runner");
+
+    assert!(
+        runner
+            .roles()
+            .iter()
+            .all(|role| role.prompt.is_empty() && role.config.get("tools").is_none()),
+        "root role metadata must not carry peer prompt or tools"
+    );
+
+    let ctx = test_runtime_context(Arc::new(InMemoryEventStore::new()));
+    let task = AgentTask::new("report surface", workspace.path().to_path_buf());
+    let empty = runner
+        .run(
+            SubagentRequest::new("empty", "report configured surface", task.clone()),
+            ctx.clone(),
+        )
+        .await
+        .expect("empty peer turn");
+    let memory = runner
+        .run(
+            SubagentRequest::new("memory", "report configured surface", task),
+            ctx,
+        )
+        .await
+        .expect("memory peer turn");
+
+    assert!(empty.summary.contains("tools=0"), "{}", empty.summary);
+    assert!(memory.summary.contains("tools=1"), "{}", memory.summary);
+}
+
 #[tokio::test]
 async fn process_subagent_rejects_unknown_task_id_and_foreign_role() {
     let config_home = tempfile::tempdir().expect("config home");
@@ -221,7 +345,7 @@ async fn process_subagent_spawns_parallel_children_and_resumes_by_task_id() {
     let workspace = tempfile::tempdir().expect("workspace");
     let config_path = write_child_config(config_home.path());
     let runner = ProcessSubagentRunner::from_config(json!({
-        "binary": env!("CARGO_BIN_EXE_proteus"),
+        "binary": proteus_binary(),
         "roles": [
             {
                 "name": "helper",

@@ -51,6 +51,13 @@ test -x "${proteus}"
 test -L "${runtime_home}/current"
 test -x "${runtime_home}/current/proteus"
 test -x "${runtime_home}/current/proteus-reference-worker"
+test -f "${config_home}/configs/codex-explore.config.toml"
+test -f "${config_home}/configs/codex-coder.config.toml"
+test -f "${config_home}/configs/fragments/codex-peer-runtime.toml"
+test -f "${config_home}/configs/fragments/codex-explore-peer.toml"
+test -f "${config_home}/configs/fragments/codex-coder-peer.toml"
+test -f "${config_home}/configs/prompts/codex-explore.md"
+test -f "${config_home}/configs/prompts/codex-coder.md"
 
 if find -H "${runtime_home}/current" -maxdepth 1 -type f \
   \( -name '*.so' -o -name '*.dylib' -o -name '*.dll' \) | grep . >/dev/null; then
@@ -113,4 +120,11 @@ run_and_capture collaboration-process "${output_dir}/collaboration-process.txt" 
   process_agents_route_bounded_messages_without_cross_delivery -- --exact
 require_text "test result: ok" "${output_dir}/collaboration-process.txt"
 
-echo "alpha smoke passed: isolated install, init, doctor, assembly plan, fake profile, topology, external Python component, process-agent messaging"
+run_and_capture process-peer-surfaces "${output_dir}/process-peer-surfaces.txt" \
+  env PROTEUS_TEST_BINARY="${proteus}" cargo test \
+  --manifest-path "${project_dir}/Cargo.toml" \
+  -p proteus-core --test process_subagent \
+  process_peers_derive_distinct_tool_surfaces_from_child_configs -- --exact
+require_text "test result: ok" "${output_dir}/process-peer-surfaces.txt"
+
+echo "alpha smoke passed: isolated install, init, doctor, assembly plan, fake profile, topology, external Python component, process-agent messaging and peer-owned tool surfaces"

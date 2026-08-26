@@ -380,6 +380,8 @@ install_config() {
 }
 
 install_config "codex.config.toml" "configs/codex.config.toml"
+install_config "codex-explore.config.toml" "configs/codex-explore.config.toml"
+install_config "codex-coder.config.toml" "configs/codex-coder.config.toml"
 install_config "opencode.config.toml" "configs/opencode.config.toml"
 install_config "proteus.provider.example.toml" "configs/proteus.provider.example.toml"
 
@@ -402,7 +404,12 @@ install_managed_config_asset() {
 install_managed_config_asset "fragments/openai-proxy.toml"
 install_managed_config_asset "fragments/codex-runtime.toml"
 install_managed_config_asset "fragments/codex-profile.toml"
+install_managed_config_asset "fragments/codex-peer-runtime.toml"
+install_managed_config_asset "fragments/codex-explore-peer.toml"
+install_managed_config_asset "fragments/codex-coder-peer.toml"
 install_managed_config_asset "prompts/codex-default.md"
+install_managed_config_asset "prompts/codex-explore.md"
+install_managed_config_asset "prompts/codex-coder.md"
 install_managed_config_asset "prompts/opencode-default.md"
 
 echo "Installed: ${bin_path}"

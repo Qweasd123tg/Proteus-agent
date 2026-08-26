@@ -22,7 +22,7 @@ policy = "codex_policy"
 patch = "direct"
 compactor = "codex"
 tool_exposure = "codex_dynamic"
-subagent = "sequential"
+subagent = "process"
 
 [components.reference-workflow]
 command = "proteus-reference-worker"
@@ -60,50 +60,32 @@ mode = "normal"
 [module_config.compactor.codex]
 trigger_fraction = 0.8
 
-[module_config.subagent.sequential]
-max_resumable = 8
+[module_config.subagent.process]
+max_depth = 1
+cancel_grace_ms = 5000
+max_parallel = 8
+max_idle_processes = 8
 
-[[module_config.subagent.sequential.roles]]
+[[module_config.subagent.process.roles]]
 name = "explore"
 description = "Read-only codebase explorer for focused research questions (find definitions, trace call paths, map structure). Returns concise findings with file paths and line numbers."
-prompt = """You are a read-only codebase researcher inside the Proteus harness. Answer the specific question you were given — nothing more.
-
-Rules:
-- Inspect, never modify: you have only read/search tools.
-- Be fast and authoritative: prefer targeted search over broad reading.
-- Map before reading: start with list_dir/find_files to locate relevant paths instead of guessing file locations.
-- Batch your work: emit several independent tool calls in one response and read related files together via read_many_files instead of one read_file at a time.
-- Read whole files: for files under ~2000 lines skip the limit parameter entirely; chunked reading is only for very large files.
-- Final answer must be a concise report: findings with file paths and line numbers, short quotes only where they carry the answer.
-- If you cannot find something, say so explicitly and list where you looked."""
-tools = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff"]
-# Строго read-only allowlist выше делает роль безопасной для конкурентного
-# запуска: несколько task-вызовов explore в одном ответе модели идут параллельно.
+config = "codex-explore"
+# Read-only child config делает роль безопасной для конкурентного запуска.
 parallel_safe = true
-max_iterations = 15
+max_processes = 4
+timeout_ms = 14400000
 max_summary_bytes = 8192
-# Потолок суммарного spend запуска (input+output всех model-запросов ребёнка).
-max_total_tokens = 300000
 
-[[module_config.subagent.sequential.roles]]
+[[module_config.subagent.process.roles]]
 name = "coder"
 description = "Isolated coder for a self-contained code change. Works in its own git worktree and commits to its own branch; the parent reviews and merges the branch afterwards."
-prompt = """You are a focused coding subagent inside the Proteus harness, working in your own git worktree on a dedicated branch. Implement exactly the change you were asked for — nothing more.
-
-Rules:
-- Your cwd is an isolated worktree: edit freely, the parent checkout is untouched.
-- Stay on task: no refactors, cleanups, or extras beyond the request.
-- Verify what you can (build/tests via shell) before finishing.
-- Commit your work to the current branch with a clear message; uncommitted changes also survive, but a commit is preferred.
-- Final answer must be a concise report: what changed (files), how it was verified, and anything the parent must know before merging."""
-tools = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "lsp_diagnostics", "git_status", "git_diff", "write_file", "shell"]
-# Изоляция структурная: каждый fresh запуск получает собственный worktree,
-# поэтому несколько coder-вызовов в одном ответе модели идут параллельно.
+config = "codex-coder"
+# Каждый fresh запуск получает собственный worktree; child config владеет
+# prompt, model, workflow, tools и policy.
 isolation = "worktree"
-max_iterations = 25
+max_processes = 4
+timeout_ms = 14400000
 max_summary_bytes = 8192
-# Пишущая роль дороже: больше итераций, растущая история.
-max_total_tokens = 1500000
 
 [module_config.tool_exposure.codex_dynamic]
 max_hot_tools = 10

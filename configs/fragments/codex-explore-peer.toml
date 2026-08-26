@@ -1,0 +1,27 @@
+# Read-only peer profile. Tool authority is defined here, not by the parent
+# process runner role.
+
+[[instructions]]
+kind = "System"
+file = "prompts/codex-default.md"
+priority = 100
+
+[[instructions]]
+kind = "System"
+file = "prompts/codex-explore.md"
+priority = 110
+
+[profile]
+name = "codex-explore-peer"
+
+[modules]
+policy = "codex_policy"
+
+[tools]
+enabled = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff"]
+
+[permissions]
+mode = "normal"
+
+[module_config.policy.codex_policy]
+allow = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff"]

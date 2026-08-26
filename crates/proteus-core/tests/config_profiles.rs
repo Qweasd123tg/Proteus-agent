@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use proteus_core::core::{AppConfig, ModuleCatalog};
+use proteus_core::core::{AppConfig, ModuleCatalog, SubagentSurface};
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -94,7 +94,7 @@ async fn codex_family_fragments_preserve_profile_specific_overlays() {
             config.modules.tool_exposure.as_deref(),
             Some("codex_dynamic")
         );
-        assert_eq!(config.modules.subagent.as_deref(), Some("sequential"));
+        assert_eq!(config.modules.subagent.as_deref(), Some("process"));
         assert!(
             config
                 .tools
@@ -103,10 +103,27 @@ async fn codex_family_fragments_preserve_profile_specific_overlays() {
                 .any(|tool| tool == "exec_command")
         );
 
-        let roles = config.module_config["subagent"]["sequential"]["roles"]
+        let roles = config.module_config["subagent"]["process"]["roles"]
             .as_array()
-            .expect("shared subagent roles");
+            .expect("shared process peer roles");
         assert_eq!(roles.len(), 2);
+        assert_eq!(roles[0]["name"], "explore");
+        assert_eq!(roles[0]["config"], "codex-explore");
+        assert_eq!(roles[1]["name"], "coder");
+        assert_eq!(roles[1]["config"], "codex-coder");
+        for role in roles {
+            let role = role.as_object().expect("process role object");
+            for child_owned in ["prompt", "tools", "max_iterations", "max_total_tokens"] {
+                assert!(
+                    !role.contains_key(child_owned),
+                    "parent process role must not own {child_owned}"
+                );
+            }
+        }
+        assert!(
+            config.module_config["subagent"].get("sequential").is_none(),
+            "active profiles must not retain sequential config"
+        );
 
         let module_config = serde_json::to_string(&config.module_config).expect("module config");
         assert!(
@@ -150,4 +167,74 @@ async fn codex_family_fragments_preserve_profile_specific_overlays() {
     assert_eq!(glm_model.model, "glm-5.2");
     assert_eq!(glm_model.provider_config["stream_error_fallback"], true);
     assert!(glm_model.provider_config.get("support_verbosity").is_none());
+}
+
+#[tokio::test]
+async fn packaged_codex_peers_own_distinct_models_prompts_tools_and_policy() {
+    let root = workspace_root();
+    let explore = AppConfig::load(Some(&root.join("configs/codex-explore.config.toml")))
+        .await
+        .expect("explore peer config");
+    let coder = AppConfig::load(Some(&root.join("configs/codex-coder.config.toml")))
+        .await
+        .expect("coder peer config");
+
+    for peer in [&explore, &coder] {
+        assert_eq!(peer.active_provider, "openai");
+        assert_eq!(
+            peer.active_model_config().expect("peer model").model,
+            "gpt-5.6-luna"
+        );
+        assert_eq!(peer.modules.workflow.as_deref(), Some("coding.codex_loop"));
+        assert_eq!(peer.modules.policy.as_deref(), Some("codex_policy"));
+        assert!(peer.modules.subagent.is_none());
+        assert_eq!(peer.subagents.surface, SubagentSurface::None);
+    }
+
+    assert_eq!(
+        explore.tools.enabled,
+        [
+            "skill",
+            "search",
+            "read_file",
+            "read_many_files",
+            "list_dir",
+            "find_files",
+            "grep",
+            "git_status",
+            "git_diff",
+        ]
+    );
+    assert_eq!(
+        coder.tools.enabled,
+        [
+            "skill",
+            "search",
+            "read_file",
+            "read_many_files",
+            "list_dir",
+            "find_files",
+            "grep",
+            "lsp_diagnostics",
+            "git_status",
+            "git_diff",
+            "write_file",
+            "shell",
+        ]
+    );
+
+    let explore_prompt = explore
+        .instruction_blocks()
+        .iter()
+        .map(|block| block.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let coder_prompt = coder
+        .instruction_blocks()
+        .iter()
+        .map(|block| block.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(explore_prompt.contains("read-only codebase researcher"));
+    assert!(coder_prompt.contains("working in your own git worktree"));
 }

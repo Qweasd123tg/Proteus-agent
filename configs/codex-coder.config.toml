@@ -1,0 +1,13 @@
+include = [
+  "fragments/openai-proxy.toml",
+  "fragments/codex-peer-runtime.toml",
+  "fragments/codex-coder-peer.toml",
+]
+
+# Peer model selection is explicit and independent from the parent agent.
+[providers.openai]
+model = "gpt-5.6-luna"
+
+[providers.openai.provider_config]
+support_verbosity = true
+default_verbosity = "low"

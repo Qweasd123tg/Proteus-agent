@@ -1,0 +1,56 @@
+# Общая process-peer сборка для Codex-shaped дочерних агентов. Provider,
+# role prompt, tool surface и policy задаются named child config/profile.
+
+[modules]
+workflow = "coding.codex_loop"
+search = "rg"
+context = "codex_context"
+compactor = "codex"
+
+[components.reference-workflow]
+command = "proteus-reference-worker"
+
+[components.reference-workflow.exports.workflow."coding.codex_loop"]
+
+[components.reference-context]
+command = "proteus-reference-worker"
+
+[components.reference-context.exports.context.codex_context]
+
+[components.reference-capabilities]
+command = "proteus-reference-worker"
+
+[components.reference-capabilities.exports.search.rg]
+
+[components.reference-capabilities.exports.context_provider.skills]
+
+[components.reference-capabilities.exports.policy.codex_policy]
+
+[components.reference-capabilities.exports.patch.direct]
+
+[components.reference-capabilities.exports.compactor.codex]
+
+[components.reference-capabilities.exports.tool."reference.tools"]
+
+[subagents]
+surface = "none"
+
+[module_config.compactor.codex]
+trigger_fraction = 0.8
+
+[module_config.context.codex_context]
+providers = ["project_instructions", "skills", "environment"]
+max_context_bytes = 60000
+max_bytes_per_file = 12000
+project_instruction_files = ["AGENTS.override.md", "AGENTS.md"]
+
+[app_server]
+approval_timeout_ms = 0
+
+[runtime]
+model_timeout_ms = 10800000
+context_timeout_ms = 30000
+workflow_timeout_ms = 14400000
+
+[event_log]
+path = ".proteus/events.jsonl"

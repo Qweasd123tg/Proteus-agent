@@ -101,10 +101,13 @@ peer turn. Явный cancel синхронно закрывает mailbox це�
 - model-facing facade сейчас root-owned: peer-origin message в sibling не
   является прямым вызовом. Root получает результат через `wait_agent` и
   адресно пересылает его следующему участнику; direct peer mesh не добавлен;
-- active Codex profile всё ещё использует старый `sequential` backend. Решение
-  владельца от 2026-08-26 — удалить этот внутренний mini-agent path, перевести
-  tracked profiles на полные process peers и оставить в root только
-  agent-control/lifecycle. Исполняемый handoff находится в
+- tracked Codex/GLM profiles уже используют полные process peers
+  `codex-explore` и `codex-coder`; их model, prompt, workflow, tools и policy
+  принадлежат child config, а root role хранит только identity/config reference
+  и process/lifecycle bounds;
+- старый `SequentialSubagentRunner` пока остаётся в коде и тестах как второй
+  mini-agent path. Решение владельца от 2026-08-26 — удалить его и оставить в
+  root только agent-control/lifecycle. Следующие этапы находятся в
   [roadmap.md](../product/roadmap.md#agent-control-cutover).
 
 Один mailbox ограничен 32 сообщениями, 64 000 байт суммарно и 16 000 байт на

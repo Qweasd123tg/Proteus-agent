@@ -39,7 +39,6 @@
     "context": "simple",
     "policy": "ask_write",
     "compactor": "codex",
-    "subagent": "sequential",
     "renderer": "statusline"
   },
   "components": {
@@ -75,7 +74,7 @@
     }
   },
   "subagents": {
-    "surface": "task"
+    "surface": "none"
   },
   "module_config": {
     "policy": {

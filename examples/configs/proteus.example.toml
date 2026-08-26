@@ -12,7 +12,6 @@ stream = true
 workflow = "coding.single_loop"
 context = "simple"
 policy = "ask_write"
-subagent = "sequential"
 renderer = "statusline"
 
 [components.reference-workflow]
@@ -33,7 +32,7 @@ command = "proteus-reference-worker"
 [components.reference-capabilities.exports.renderer.statusline]
 
 [subagents]
-surface = "task"
+surface = "none"
 
 [tools]
 # Core-resident slot facade tools. Add a `tool/reference.tools` process

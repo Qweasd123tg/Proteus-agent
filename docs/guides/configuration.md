@@ -39,8 +39,11 @@ Tracked `codex`/`glm` profiles используют явные fragments:
 
 ```text
 configs/fragments/openai-proxy.toml  provider launch/credential references
-configs/fragments/codex-runtime.toml modules, tools, roles и runtime limits
+configs/fragments/codex-runtime.toml parent modules/tools и peer lifecycle/routing
 configs/fragments/codex-profile.toml strict Codex policy/context overlay
+configs/fragments/codex-peer-runtime.toml общий workflow/components/runtime peers
+configs/fragments/codex-{explore,coder}-peer.toml prompt/tools/policy конкретного peer
+configs/codex-{explore,coder}.config.toml provider/model named child configs
 ```
 
 Fragment не является profile, module pack или неявным default: он не
@@ -144,10 +147,12 @@ base_url_json_key = "base_url"
 Не храните secret literal в tracked config. `proteus doctor` проверяет
 provider selection и доступность credential без model request.
 
-`proteus init codex` создаёт top-level `config.toml`, managed fragment
-`fragments/codex-runtime.toml` и prompt `prompts/codex-default.md`. Provider
-example остаётся явно встроенным в создаваемый config; локальный OpenAI proxy
-из tracked `codex.config.toml` туда не протекает.
+`proteus init codex` создаёт top-level `config.toml`, parent/peer fragments,
+prompts и named child configs `codex-explore.config.toml` /
+`codex-coder.config.toml`. Provider example явно встраивается как в parent,
+так и в оба child config; локальный OpenAI proxy из tracked
+`codex.config.toml` туда не протекает. Установочные named configs, напротив,
+сами выбирают OpenAI-compatible provider и `gpt-5.6-luna`.
 
 ## Выбор Behavior Modules
 
@@ -163,7 +168,7 @@ policy = "ask_write"
 patch = "direct"
 compactor = "codex"
 tool_exposure = "codex_dynamic"
-subagent = "sequential"
+subagent = "process"
 renderer = "statusline"
 ```
 
@@ -172,8 +177,10 @@ renderer = "statusline"
 provider profile и потому не находится в `[modules]`.
 
 Поле можно опустить. Отсутствие означает structural host behavior, а не
-автоматический выбор какого-либо reference module. Специальных ids `none`,
-`default`, `process`, `text` и `all_visible` нет.
+автоматический выбор какого-либо reference module. Для обычных behavior slots
+специальных ids `none`, `default`, `process`, `text` и `all_visible` нет;
+`subagent = "process"` пока является явно учтённой core-owned implementation
+до схлопывания старого slot в agent-control service.
 
 ## Process Components И Exports
 
@@ -414,29 +421,60 @@ max_hot_tools = 16
 
 ```toml
 [modules]
-subagent = "sequential" # или "process"
+subagent = "process"
 
 [subagents]
 surface = "task" # task | collaboration | none
+
+[module_config.subagent.process]
+max_depth = 1
+cancel_grace_ms = 5000
+max_parallel = 8
+max_idle_processes = 8
+
+[[module_config.subagent.process.roles]]
+name = "explore"
+description = "Read-only codebase explorer."
+config = "codex-explore"
+parallel_safe = true
+max_processes = 4
+timeout_ms = 14400000
+max_summary_bytes = 8192
+
+[[module_config.subagent.process.roles]]
+name = "coder"
+description = "Worktree-isolated coding peer."
+config = "codex-coder"
+isolation = "worktree"
+max_processes = 4
+timeout_ms = 14400000
+max_summary_bytes = 8192
 ```
 
-Role-specific параметры живут в
-`module_config.subagent.sequential` / `module_config.subagent.process`.
-Packaged `codex.config.toml` содержит полный пример roles, limits, tools и
-worktree isolation.
+`config` — named config (`<config-dir>/<name>.config.toml`) или явный путь к
+конфигу другого полного Proteus. Его provider/model, instructions, workflow,
+tools, policy и содержательные ограничения не наследуются от root. Parent role
+содержит только имя/описание, config reference и технические process/lifecycle
+bounds. Packaged `codex.config.toml` использует `codex-explore` и
+`codex-coder`; их tool surfaces и policy находятся в отдельных child profiles.
+
+`SequentialSubagentRunner` и `module_config.subagent.sequential` пока остаются
+в pre-release schema только до следующего этапа cutover, но ни один active
+tracked profile их больше не выбирает. Удаление будет breaking и не получит
+legacy alias или fallback.
 
 `surface` выбирает model-facing facade:
 
 - `task` — один delegation tool;
 - `collaboration` — spawn/list/wait/interrupt и bounded
-  `send_message`/`followup_task`; оба текущих runner-а (`sequential`,
-  `process`) объявляют messaging capability;
+  `send_message`/`followup_task`; активный `process` runner объявляет messaging
+  capability (`sequential` сохраняет её только до удаления);
 - `none` — tools субагентов не регистрируются.
 
-Это единственный `none` в schema: enum UI surface, а не module id.
-Это config текущего baseline. Принятое направление считает process-subagent
-отдельным полным Proteus и развивает связь между экземплярами через
-agent-control contract; см. [subagents.md](../architecture/subagents.md).
+Это единственный `none` в schema: enum UI surface, а не module id. Текущий
+активный baseline уже считает process-subagent отдельным полным Proteus;
+следующий cutover удалит старый loop-oriented slot и оставит agent-control
+service. См. [subagents.md](../architecture/subagents.md).
 
 ## Runtime, Server И Events
 

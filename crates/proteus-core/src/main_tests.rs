@@ -587,7 +587,7 @@ async fn init_coding_writes_loadable_single_config_file() {
             .any(|line| line.trim_start().starts_with("include = "))
     );
 
-    let config = AppConfig::load(Some(dir.path()))
+    let config = AppConfig::load(Some(&profile))
         .await
         .expect("generated config loads");
     let model = config.active_model_config().expect("active model");
@@ -613,7 +613,7 @@ async fn init_codex_writes_loadable_config_with_runtime_fragment() {
     assert!(profile_body.starts_with("include = \"fragments/codex-runtime.toml\""));
     assert!(profile_body.contains("active_provider = \"anthropic\""));
 
-    let config = AppConfig::load(Some(dir.path()))
+    let config = AppConfig::load(Some(&profile))
         .await
         .expect("generated config loads");
 
@@ -629,6 +629,7 @@ async fn init_codex_writes_loadable_config_with_runtime_fragment() {
     );
     assert_eq!(config.modules.context.as_deref(), Some("codex_context"));
     assert_eq!(config.modules.compactor.as_deref(), Some("codex"));
+    assert_eq!(config.modules.subagent.as_deref(), Some("process"));
     assert!(config.modules.renderer.is_none());
     assert_eq!(
         config.module_config_value(ModuleKind::Context, "codex_context")["providers"],
@@ -641,7 +642,20 @@ async fn init_codex_writes_loadable_config_with_runtime_fragment() {
         Some("codex_dynamic")
     );
     assert!(dir.path().join("prompts/codex-default.md").exists());
+    assert!(dir.path().join("prompts/codex-explore.md").exists());
+    assert!(dir.path().join("prompts/codex-coder.md").exists());
     assert!(dir.path().join("fragments/codex-runtime.toml").exists());
+    assert!(
+        dir.path()
+            .join("fragments/codex-peer-runtime.toml")
+            .exists()
+    );
+    assert!(
+        dir.path()
+            .join("fragments/codex-explore-peer.toml")
+            .exists()
+    );
+    assert!(dir.path().join("fragments/codex-coder-peer.toml").exists());
     assert!(
         config
             .instruction_blocks()
@@ -656,6 +670,32 @@ async fn init_codex_writes_loadable_config_with_runtime_fragment() {
         .join("\n");
     assert!(instructions.contains("Before running a command"));
     assert!(instructions.contains("High-quality plans"));
+
+    let explore = AppConfig::load(Some(&dir.path().join("codex-explore.config.toml")))
+        .await
+        .expect("generated explore peer loads");
+    let coder = AppConfig::load(Some(&dir.path().join("codex-coder.config.toml")))
+        .await
+        .expect("generated coder peer loads");
+    assert_eq!(
+        explore
+            .active_model_config()
+            .expect("explore model")
+            .provider,
+        "anthropic"
+    );
+    assert_eq!(
+        coder.active_model_config().expect("coder model").provider,
+        "anthropic"
+    );
+    assert!(
+        !explore
+            .tools
+            .enabled
+            .iter()
+            .any(|tool| tool == "write_file")
+    );
+    assert!(coder.tools.enabled.iter().any(|tool| tool == "write_file"));
 }
 
 #[test]

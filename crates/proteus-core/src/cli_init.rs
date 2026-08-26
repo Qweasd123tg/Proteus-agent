@@ -10,14 +10,29 @@ const CODING_PROFILE_CONFIG: &str =
     include_str!("../../../examples/configs/proteus.coding.example.toml");
 const CODEX_PROFILE_CONFIG: &str = include_str!("../../../configs/fragments/codex-profile.toml");
 const CODEX_RUNTIME_CONFIG: &str = include_str!("../../../configs/fragments/codex-runtime.toml");
+const CODEX_PEER_RUNTIME_CONFIG: &str =
+    include_str!("../../../configs/fragments/codex-peer-runtime.toml");
+const CODEX_EXPLORE_PEER_CONFIG: &str =
+    include_str!("../../../configs/fragments/codex-explore-peer.toml");
+const CODEX_CODER_PEER_CONFIG: &str =
+    include_str!("../../../configs/fragments/codex-coder-peer.toml");
 const PROVIDER_PROFILE_CONFIG: &str =
     include_str!("../../../configs/proteus.provider.example.toml");
 const SAFE_PROFILE_CONFIG: &str = include_str!("../../../examples/configs/proteus.example.toml");
 const CODEX_DEFAULT_PROMPT: &str = include_str!("../../../configs/prompts/codex-default.md");
+const CODEX_EXPLORE_PROMPT: &str = include_str!("../../../configs/prompts/codex-explore.md");
+const CODEX_CODER_PROMPT: &str = include_str!("../../../configs/prompts/codex-coder.md");
 /// Относительный путь совпадает с `file` в codex-конфиге: резолвится от
 /// каталога config-файла.
 const CODEX_PROMPT_FILE: &str = "prompts/codex-default.md";
+const CODEX_EXPLORE_PROMPT_FILE: &str = "prompts/codex-explore.md";
+const CODEX_CODER_PROMPT_FILE: &str = "prompts/codex-coder.md";
 const CODEX_RUNTIME_FILE: &str = "fragments/codex-runtime.toml";
+const CODEX_PEER_RUNTIME_FILE: &str = "fragments/codex-peer-runtime.toml";
+const CODEX_EXPLORE_PEER_FILE: &str = "fragments/codex-explore-peer.toml";
+const CODEX_CODER_PEER_FILE: &str = "fragments/codex-coder-peer.toml";
+const CODEX_EXPLORE_CONFIG_FILE: &str = "codex-explore.config.toml";
+const CODEX_CODER_CONFIG_FILE: &str = "codex-coder.config.toml";
 pub(crate) const INIT_CONFIG_FILE: &str = "config.toml";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,15 +77,41 @@ impl InitProfile {
     }
 
     /// Файлы, на которые ссылается config profile; кладутся рядом с ним.
-    fn support_files(self) -> &'static [(&'static str, &'static str)] {
+    fn support_files(self) -> Vec<(&'static str, String)> {
         match self {
-            Self::Codex => &[
-                (CODEX_RUNTIME_FILE, CODEX_RUNTIME_CONFIG),
-                (CODEX_PROMPT_FILE, CODEX_DEFAULT_PROMPT),
+            Self::Codex => vec![
+                (CODEX_RUNTIME_FILE, CODEX_RUNTIME_CONFIG.to_owned()),
+                (
+                    CODEX_PEER_RUNTIME_FILE,
+                    CODEX_PEER_RUNTIME_CONFIG.to_owned(),
+                ),
+                (
+                    CODEX_EXPLORE_PEER_FILE,
+                    CODEX_EXPLORE_PEER_CONFIG.to_owned(),
+                ),
+                (CODEX_CODER_PEER_FILE, CODEX_CODER_PEER_CONFIG.to_owned()),
+                (CODEX_PROMPT_FILE, CODEX_DEFAULT_PROMPT.to_owned()),
+                (CODEX_EXPLORE_PROMPT_FILE, CODEX_EXPLORE_PROMPT.to_owned()),
+                (CODEX_CODER_PROMPT_FILE, CODEX_CODER_PROMPT.to_owned()),
+                (
+                    CODEX_EXPLORE_CONFIG_FILE,
+                    codex_child_config_for_init(CODEX_EXPLORE_PEER_FILE),
+                ),
+                (
+                    CODEX_CODER_CONFIG_FILE,
+                    codex_child_config_for_init(CODEX_CODER_PEER_FILE),
+                ),
             ],
-            Self::Coding | Self::Full | Self::Safe => &[],
+            Self::Coding | Self::Full | Self::Safe => Vec::new(),
         }
     }
+}
+
+fn codex_child_config_for_init(role_fragment: &str) -> String {
+    format!(
+        "include = [\n  \"{CODEX_PEER_RUNTIME_FILE}\",\n  \"{role_fragment}\",\n]\n\n{}",
+        PROVIDER_PROFILE_CONFIG.trim_end()
+    )
 }
 
 pub(crate) fn parse_init_command(task: &[String]) -> Result<Option<InitProfile>> {

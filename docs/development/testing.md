@@ -151,6 +151,7 @@ broker-owned lineage при async и callback-free blocking reentry, но не
 ```bash
 cargo test -p proteus-contracts agent_control
 cargo test -p proteus-core --test process_agent_control -- --nocapture
+cargo test -p proteus-core --test process_subagent -- --nocapture
 ```
 
 Первый gate фиксирует exact v1 address/message DTO, root-only source, strict
@@ -165,6 +166,12 @@ Proteus через local stdio и проверяет:
 - изоляцию startup/config crash одного process от живого sibling;
 - неизменность peer authority: сообщение не выдаёт дополнительных tools или
   policy grants.
+
+Третий gate дополнительно проверяет lifecycle/resume process-runner-а и
+`process_peers_derive_distinct_tool_surfaces_from_child_configs`: два реальных
+peer Proteus с одинаковым root runner получают разные model-facing tool
+surfaces исключительно из собственных child configs. Parent role не содержит
+prompt или tool allowlist, а каждый child явно выбирает свою policy.
 
 `scripts/alpha-smoke.sh` дополнительно проверяет, что isolated install
 публикует `spawn_agent`/`send_message`/`followup_task`, после чего тот же

@@ -10,7 +10,6 @@ context = "repo_aware"
 policy = "ask_write"
 patch = "direct"
 compactor = "codex"
-subagent = "sequential"
 renderer = "statusline"
 
 [components.reference-workflow]
@@ -41,7 +40,7 @@ command = "proteus-reference-worker"
 [components.reference-capabilities.exports.tool."reference.tools"]
 
 [subagents]
-surface = "task"
+surface = "none"
 
 [tools]
 # Full local coding toolset. File I/O and repo navigation come from
@@ -59,42 +58,6 @@ ask_before = ["lsp_diagnostics", "apply_patch", "write_file", "shell", "remember
 
 [module_config.compactor.codex]
 trigger_fraction = 0.8
-
-# [module_config.subagent.sequential]
-# max_depth = 1
-# roles_dir = ".proteus/agents"
-# max_resumable = 8
-# max_parallel = 8
-#
-# [[module_config.subagent.sequential.roles]]
-# name = "explore"
-# description = "Read-only codebase explorer that returns paths and line numbers."
-# prompt = "You are a read-only codebase researcher. Inspect the repository without modifying files. Map structure with list_dir/find_files before reading, batch several tool calls per response (prefer read_many_files over one read_file at a time). Return concise findings with file paths and line numbers."
-# max_iterations = 15
-# # Several explore tasks in one model reply run concurrently; declare
-# # parallel_safe only for roles that are strictly read-only (see tools below).
-# parallel_safe = true
-# # The absent ToolExposure slot exposes the policy-visible set; use tools as
-# # a per-role safety allowlist.
-# exposure_phase = "subagent:explore"
-# tools = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff"]
-#
-# [[module_config.subagent.sequential.roles]]
-# name = "coder"
-# description = "Isolated coder for a self-contained change; works in its own git worktree."
-# prompt = "You are a focused coding subagent working in your own git worktree on a dedicated branch. Implement exactly the requested change, verify it if possible, commit to the current branch, and report what changed."
-# max_iterations = 25
-# # isolation = "worktree": every fresh run gets its own git worktree
-# # (branch proteus/<name> under <repo>/.proteus/worktrees/), so several
-# # coder tasks in one model reply run concurrently. Nothing is merged
-# # automatically - the parent reviews and merges the child branch.
-# isolation = "worktree"
-# tools = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "lsp_diagnostics", "git_status", "git_diff", "write_file", "shell"]
-
-# Альтернативный process runner хранит отдельные child sessions в bounded
-# resident pool:
-# [module_config.subagent.process]
-# max_idle_processes = 8 # global idle/resume LRU cap; 0 disables retention
 
 [module_config.context.repo_aware]
 providers = ["project_instructions", "skills", "manifest", "git_status", "repo_tree", "memory", "search"]

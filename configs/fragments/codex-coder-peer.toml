@@ -1,0 +1,29 @@
+# Worktree peer profile. Mutation tools and their approval policy belong to
+# this child AppConfig rather than to an inline parent role.
+
+[[instructions]]
+kind = "System"
+file = "prompts/codex-default.md"
+priority = 100
+
+[[instructions]]
+kind = "System"
+file = "prompts/codex-coder.md"
+priority = 110
+
+[profile]
+name = "codex-coder-peer"
+
+[modules]
+policy = "codex_policy"
+
+[tools]
+enabled = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "lsp_diagnostics", "git_status", "git_diff", "write_file", "shell"]
+
+[permissions]
+mode = "normal"
+
+[module_config.policy.codex_policy]
+allow = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff"]
+allow_sandboxed = ["shell"]
+ask_before = ["lsp_diagnostics", "write_file", "shell"]

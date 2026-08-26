@@ -62,9 +62,10 @@ model/tool loop и не фильтрует возможности ребёнка
 
 #### Почему Нужен Cutover
 
-Целевой process path уже работает, но активный Codex runtime всё ещё выбирает
-`subagent = "sequential"`. Из-за этого в актуальном коде сохраняются две
-разные модели:
+Целевой process path уже работает. На момент принятия решения активный Codex
+runtime ещё выбирал `subagent = "sequential"`; первый этап ниже уже перевёл
+tracked Codex/GLM profiles на `process`, но в коде до следующего этапа всё ещё
+сохраняются две разные модели:
 
 - `SequentialSubagentRunner` строит урезанного агента внутри Core, сам вызывает
   model/tools и читает inline prompt/tool/limit роли;
@@ -106,7 +107,7 @@ Agent-control не является behavior slot Component Runtime и не вы
 
 Работу вести следующими зелёными этапами.
 
-1. **Перевести tracked profiles на process peer.**
+1. **✅ Перевести tracked profiles на process peer.**
    - Добавить устанавливаемые child configs для текущих ролей `explore` и
      `coder`; каждый config сам задаёт prompt, model, workflow, tools и policy.
    - В `configs/fragments/codex-runtime.toml` заменить active selection
@@ -115,6 +116,14 @@ Agent-control не является behavior slot Component Runtime и не вы
    - Обновить `install.sh`, config examples и profile tests.
    - Сохранить real-process evidence: разные config-ы действительно дают
      разные tool surfaces без фильтрации со стороны root.
+
+   Завершено 2026-08-26: установочные `codex-explore` и `codex-coder`
+   являются самостоятельными `AppConfig`; parent roles содержат только
+   identity/config reference и process/lifecycle bounds. Profile tests
+   проверяют model/prompt/workflow/tools/policy каждого peer-а, а
+   `process_peers_derive_distinct_tool_surfaces_from_child_configs` запускает
+   два реальных Proteus и фиксирует разные model-facing tool surfaces при
+   пустом root registry.
 
 2. **Удалить внутреннего мини-агента.**
    - Удалить `SequentialSubagentRunner`, `child_loop`, sequential roles parser,
