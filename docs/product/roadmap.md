@@ -4,7 +4,7 @@
 
 Roadmap описывает порядок, а не обещание API. Текущее реализованное состояние
 смотрите в [scope.md](scope.md), архитектурные правила — в
-[architecture.md](architecture.md).
+[architecture.md](../architecture/architecture.md).
 
 ## От Какой Точки Продолжаем
 
@@ -17,11 +17,11 @@ Process-only cutover, Component Runtime v2 / wire v3, `AssemblyPlan`, topology,
 journal/replay evidence и `v0.1.0-alpha.1` уже завершены. Roadmap больше не
 пересказывает этапы P0-P4: актуальный итог находится в
 [scope.md](scope.md), точный protocol — в
-[process-module-architecture.md](process-module-architecture.md), история
+[process-module-architecture.md](../architecture/process-module-architecture.md), история
 решений — в
-[research/component-runtime-v2-plan-2026-08-21.md](research/component-runtime-v2-plan-2026-08-21.md),
+[research/component-runtime-v2-plan-2026-08-21.md](../research/component-runtime-v2-plan-2026-08-21.md),
 а состав релиза — в
-[releases/v0.1.0-alpha.1.md](releases/v0.1.0-alpha.1.md).
+[releases/v0.1.0-alpha.1.md](../releases/v0.1.0-alpha.1.md).
 
 Следующий крупный этап пока не выбран. Разделы ниже — варианты работы, а не
 автоматическая очередь реализации.
@@ -75,7 +75,7 @@ network и provider-hosted side effects. До этого model shaping оста�
 До contract audit не переносить runner механически и не смешивать agent
 control plane с workflow callbacks. Это отдельная process-contract migration
 с governance и parity evidence; она не входит в Runtime v2 cutover. Полная
-граница: [subagents.md](subagents.md).
+граница: [subagents.md](../architecture/subagents.md).
 
 ### OS-Изоляция Внешних Процессов
 
@@ -119,7 +119,7 @@ Process boundary сейчас lifecycle isolation, не sandbox. Требует�
 Installed и manual runs остаются полезным evidence для конкретного contract,
 installer или UI, но не являются gate или sequencing prerequisite для
 архитектурных изменений. Для каждого changeset выбирается evidence из
-`docs/testing.md`: protocol/conformance/swap/journal/replay, а live run нужен
+`docs/development/testing.md`: protocol/conformance/swap/journal/replay, а live run нужен
 только когда он проверяет затронутое runtime behavior.
 
 Качество capability и agent workflows оценивается по evidence:
@@ -234,7 +234,8 @@ JSONL и SQLite уже доказывают replaceability. Vector/graph/remote 
 ## Исследования
 
 Research docs не являются current contract и не образуют ещё один roadmap.
-Их индекс и статус находятся в [README документации](README.md#research-и-архивы).
+Их индекс и статус находятся в
+[README документации](../README.md#research-и-архивы).
 Полезная идея возвращается из research только вместе с измеримой проблемой,
 местом в существующей архитектуре, security model и evidence plan.
 

@@ -71,7 +71,7 @@ repo_tree_skip_entries = [
   "examples/research",
   "clients/web/target",
   "docs/research",
-  "docs/spec.md",
+  "docs/product/spec.md",
 ]
 project_instruction_files = ["AGENTS.override.md", "AGENTS.md", "CLAUDE.md", ".cursorrules"]
 manifest_files = ["Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "composer.json"]

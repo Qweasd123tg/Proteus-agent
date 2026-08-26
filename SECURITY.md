@@ -41,6 +41,6 @@ ephemeral session token по умолчанию; не публикуйте ег�
 сохраняйте token в логах или `localStorage`.
 
 Полная текущая модель, exec sandbox и известные ограничения описаны в
-[docs/security-and-policy.md](docs/security-and-policy.md). Release-specific
+[docs/guides/security-and-policy.md](docs/guides/security-and-policy.md). Release-specific
 ограничения перечислены в
 [docs/releases/v0.1.0-alpha.1.md](docs/releases/v0.1.0-alpha.1.md).

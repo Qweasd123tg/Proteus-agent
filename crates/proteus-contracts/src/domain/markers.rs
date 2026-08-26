@@ -1,6 +1,6 @@
 //! Общие строковые маркеры межпаковых contracts.
 //!
-//! Пары producer/consumer перечислены в `docs/pack-contracts.md`. Константы
+//! Пары producer/consumer перечислены в `docs/architecture/pack-contracts.md`. Константы
 //! убирают дрейф написания между modules, которые общаются этими маркерами
 //! через ABI/JSON границу без compile-time проверки.
 

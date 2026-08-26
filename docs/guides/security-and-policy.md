@@ -16,7 +16,7 @@ gaps перечислены в разделе «Известные Ограни�
 модель прав остаётся planned и кратко описана в конце.
 
 Для alpha reporting, поддерживаемой линии и короткой trust-boundary сводки
-используйте корневой [SECURITY.md](../SECURITY.md). Process component считается
+используйте корневой [SECURITY.md](../../SECURITY.md). Process component считается
 доверенным executable: strict protocol ограничивает его callbacks в host, но
 не ограничивает прямые OS-действия самого процесса.
 
@@ -615,7 +615,8 @@ janitor; общий cap 16 сохраняет LRU-eviction. Cancellation акт�
 До устранения этих gaps не считайте process-subagent/collaboration handles
 durable process isolation boundary. Внешний `workdir` допустим только для явно
 эскалированного unsandboxed вызова и сам по себе isolation boundary не создаёт.
-Целевая Proteus-to-Proteus граница описана в [subagents.md](subagents.md).
+Целевая Proteus-to-Proteus граница описана в
+[subagents.md](../architecture/subagents.md).
 
 ## Planned Rights Model
 

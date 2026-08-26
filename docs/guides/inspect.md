@@ -153,4 +153,5 @@ cargo test --workspace
 построенный из этого чертежа. Первый удобен для формы, второй — для ответа
 «что хотим собрать», третий — «что подключено и почему».
 
-Подробный contract плана: [assembly-plan.md](assembly-plan.md).
+Подробный contract плана:
+[assembly-plan.md](../architecture/assembly-plan.md).

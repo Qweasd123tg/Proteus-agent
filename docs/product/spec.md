@@ -190,7 +190,8 @@ cancel, один PID и canonical replay.
 Generic actor не добавляется, model и subagent boundaries остаются отдельными
 contract decisions. Для subagents уже принята identity-модель «subagent —
 другой полный Proteus под root coordinator»; exact DTO, transport attach и
-persistence ещё planned. Подробнее: [subagents.md](subagents.md). Актуальный
+persistence ещё planned. Подробнее:
+[subagents.md](../architecture/subagents.md). Актуальный
 критический путь ведётся в `scope.md`.
 
 Ownership PTY sessions, bounded retention process-subagent pool, общий

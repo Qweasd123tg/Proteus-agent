@@ -3,8 +3,9 @@
 Proteus принимает TOML и JSON. Schema pre-release и strict: неизвестные поля
 должны приводить к ошибке, а не игнорироваться.
 
-Полный рабочий пример: [configs/config.toml](../configs/config.toml). Минимальный
-fake-model профиль: [proteus.example.toml](../examples/configs/proteus.example.toml).
+Полный рабочий пример: [configs/config.toml](../../configs/config.toml).
+Минимальный fake-model профиль:
+[proteus.example.toml](../../examples/configs/proteus.example.toml).
 
 ## Resolution
 
@@ -435,7 +436,7 @@ worktree isolation.
 Это единственный `none` в schema: enum UI surface, а не module id.
 Это config текущего baseline. Принятое направление считает process-subagent
 отдельным полным Proteus и развивает связь между экземплярами через
-agent-control contract; см. [subagents.md](subagents.md).
+agent-control contract; см. [subagents.md](../architecture/subagents.md).
 
 ## Runtime, Server И Events
 
@@ -477,7 +478,7 @@ proteus --config codex inspect plan
 
 Неизвестный selection или другая блокирующая plan-проверка не запускает
 worker и не заменяет текущий runtime. Поля и ограничения описаны в
-[assembly-plan.md](assembly-plan.md).
+[assembly-plan.md](../architecture/assembly-plan.md).
 
 ## Проверка
 

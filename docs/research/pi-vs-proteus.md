@@ -2,7 +2,8 @@
 
 - Статус: research/decision input, не reference текущей реализации.
 - Статус-обновление 2026-07-16: 30-дневный эксперимент не запускается —
-  решение владельца; действующий курс зафиксирован в `docs/roadmap.md`
+  решение владельца; действующий курс зафиксирован в
+  `docs/product/roadmap.md`
   («План: Месяц Гибкости»). Этапы 1–2 Pi-интеграции переиспользованы там
   как обычные задачи без experiment-обвязки.
 - Архитектурный cleanup 2026-07-16 закрыл два кандидата из этой заметки:
@@ -509,11 +510,11 @@ extensible harness уже существует и лучше упакован. �
 Если эксперимент подтверждает pivot:
 
 - `README.md` начинает с policy/eval purpose, а не generic modularity;
-- `docs/spec.md` заменяет «без форка CLI» на controlled experiment invariant;
-- `docs/scope.md` называет Proteus policy-first dogfood/experiment rig;
-- `docs/roadmap.md` получает датированное superseding decision, сохраняя
+- `docs/product/spec.md` заменяет «без форка CLI» на controlled experiment invariant;
+- `docs/product/scope.md` называет Proteus policy-first dogfood/experiment rig;
+- `docs/product/roadmap.md` получает датированное superseding decision, сохраняя
   старый журнал;
-- `docs/architecture.md` остаётся factual reference и уточняет границу
+- `docs/architecture/architecture.md` остаётся factual reference и уточняет границу
   external runtimes;
 - любой новый pack получает baseline, hypothesis, metrics и review date.
 

@@ -21,7 +21,7 @@ authority(module) = authority(slot, invocation_context)
 Права, host capabilities, config, cancellation и failure semantics не должны
 зависеть от `module_id`, языка или расположения реализации. Внешняя граница —
 Component Runtime v2 с wire protocol v3, описанный в
-`docs/process-module-architecture.md`. Dylib ABI, loader и wire-v2 session
+`docs/architecture/process-module-architecture.md`. Dylib ABI, loader и wire-v2 session
 удалены; возвращать второй native extension path или compatibility reader
 нельзя.
 
@@ -135,7 +135,7 @@ Reference crates линкуются только внутрь `proteus-reference
 - Не добавлять runtime-логику в CLI, если она принадлежит `core` или `workflow`.
 - Не обходить `ToolRegistry`, `ApprovalPolicy` и `ToolSafety` при исполнении tools.
 - Не менять DTO на границах модулей без обновления документации и тестов.
-- Не превращать `docs/spec.md` в описание фактического состояния без явного разделения `implemented` и `planned`.
+- Не превращать `docs/product/spec.md` в описание фактического состояния без явного разделения `implemented` и `planned`.
 - Если модуль, профиль или workflow заявлен как копия/совместимый режим с
   Codex или другим upstream agent runtime, не добавляйте творческие fallback-и,
   эвристики или "улучшения" в той же реализации. Поведение, ошибки, stop
@@ -177,7 +177,7 @@ Reference crates линкуются только внутрь `proteus-reference
 
 1. Найти подходящий trait в `crates/proteus-contracts/src/contracts`.
 2. Проверить, имеет ли slot component export contract из
-   `docs/process-module-architecture.md`.
+   `docs/architecture/process-module-architecture.md`.
 3. Если да — реализовать внешний worker, не зависящий от `proteus-core`, и
    пройти conformance gate этого slot.
 4. Если нет — сначала реализовать общий process adapter для всего slot. Не
@@ -185,8 +185,8 @@ Reference crates линкуются только внутрь `proteus-reference
 5. Добавить explicit component export и config/profile selection; reference implementation при
    необходимости разместить в `modules/reference/<name>`, не присваивая ей
    default/standard статус.
-6. Добавить protocol и runtime swap evidence, затем обновить `docs/modules.md`
-   и `docs/configuration.md`.
+6. Добавить protocol и runtime swap evidence, затем обновить
+   `docs/architecture/modules.md` и `docs/guides/configuration.md`.
 
 Model provider adapters и `SubagentRunner` пока остаются явно учтёнными
 core-owned границами; это следующие кандидаты на отдельные process contracts,
@@ -196,11 +196,11 @@ hot reload и sandbox не входят в текущий process runtime.
 ## Как Добавлять И Проверять Фичу
 
 Для существенного изменения используйте общий evidence path из
-`docs/testing.md`:
+`docs/development/testing.md`:
 
 1. Назовите измеримую проблему и ожидаемый проверяемый результат.
 2. Разместите поведение в существующем contract/slot/tool/protocol boundary;
-   новый slot сначала пропустите через `docs/slot-governance.md`.
+   новый slot сначала пропустите через `docs/architecture/slot-governance.md`.
 3. Добавьте focused regression и применимый boundary/swap/protocol test.
 4. Для runtime-поведения сохраните canonical journal evidence: поддерживаемый
    root `Success`/`Error` проверяйте через workflow replay, а внешний
@@ -211,7 +211,7 @@ hot reload и sandbox не входят в текущий process runtime.
    сделайте отдельный commit.
 
 Не каждая правка требует всех видов evidence. Выберите строку матрицы в
-`docs/testing.md` по затронутой границе и явно укажите непройденную применимую
+`docs/development/testing.md` по затронутой границе и явно укажите непройденную применимую
 проверку.
 
 ## Документация
@@ -222,16 +222,17 @@ hot reload и sandbox не входят в текущий process runtime.
 `docs/README.md`):
 
 - quickstart и CLI: `README.md`;
-- архитектурные границы: `docs/architecture.md`;
-- module slots: `docs/modules.md`;
-- целевая process-module архитектура: `docs/process-module-architecture.md`;
-- config schema и examples: `docs/configuration.md`;
-- event log, sessions, REPL: `docs/runtime-and-events.md`;
-- tools и approval: `docs/security-and-policy.md`;
-- тестовые правила: `docs/testing.md`;
-- vision/spec: `docs/spec.md`;
-- roadmap: `docs/roadmap.md`;
-- межпаковые контракты: `docs/pack-contracts.md`;
+- архитектурные границы: `docs/architecture/architecture.md`;
+- module slots: `docs/architecture/modules.md`;
+- целевая process-module архитектура:
+  `docs/architecture/process-module-architecture.md`;
+- config schema и examples: `docs/guides/configuration.md`;
+- event log, sessions, REPL: `docs/guides/runtime-and-events.md`;
+- tools и approval: `docs/guides/security-and-policy.md`;
+- тестовые правила: `docs/development/testing.md`;
+- vision/spec: `docs/product/spec.md`;
+- roadmap: `docs/product/roadmap.md`;
+- межпаковые контракты: `docs/architecture/pack-contracts.md`;
 - research-черновики и архивы: `docs/research/`.
 
 ## Ведение Запросов Пользователя
@@ -251,8 +252,9 @@ hot reload и sandbox не входят в текущий process runtime.
 
 Если в текущем заходе делается только часть списка, явно скажите, какие пункты
 закрыты, какие отложены и почему. Отложенные идеи, UX-наблюдения и будущие
-задачи фиксируйте в ближайшем подходящем markdown-документе (`docs/roadmap.md`,
-`docs/spec.md`, профильный документ в `docs/` или отдельный
+задачи фиксируйте в ближайшем подходящем markdown-документе
+(`docs/product/roadmap.md`, `docs/product/spec.md`, профильный документ в
+`docs/` или отдельный
 research/notes doc), чтобы их можно было закрыть позже.
 
 ## Проверка Перед Завершением

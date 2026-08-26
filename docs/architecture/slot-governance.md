@@ -41,8 +41,8 @@ authority(module) = authority(slot, invocation_context)
 config, cancellation или lifecycle semantics.
 
 После выбора архитектурного места изменение проходит общий
-[feature evidence path](testing.md#стандарт-изменения). Этот
-документ отвечает «куда положить поведение», а `testing.md` — «как доказать,
+[feature evidence path](../development/testing.md#стандарт-изменения). Этот
+документ отвечает «куда положить поведение», а `development/testing.md` — «как доказать,
 что оно работает, не ломает границу и остаётся читаемым после reconnect».
 
 Например, Cursor-like dynamic context, Codex-like tool search и Claude-like
@@ -208,7 +208,8 @@ Cursor-like output artifact идеи, но не доказывает, что н�
 - явная required/optional семантика без привилегированного no-op/fake module;
 - config key и пример выбора реализации;
 - protocol conformance и module swap/boundary test;
-- update `docs/modules.md`, `docs/process-module-architecture.md` и при
-  необходимости `docs/configuration.md`;
+- update `docs/architecture/modules.md`,
+  `docs/architecture/process-module-architecture.md` и при необходимости
+  `docs/guides/configuration.md`;
 - минимум две работающие независимые реализации, не считая no-op, legacy alias
   или planned-вариант; swap test должен прогнать обе через один runtime path.

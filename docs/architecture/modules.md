@@ -247,7 +247,7 @@ memory/policy/context/compactor/workflow paths, включая callbacks.
 4. Добавить component export и explicit selection.
 5. Пройти component conformance и slot boundary test.
 6. Для заменяемого behavior добавить swap evidence.
-7. Обновить этот документ и [configuration.md](configuration.md).
+7. Обновить этот документ и [configuration.md](../guides/configuration.md).
 
 Если нужного process contract ещё нет, сначала проектируется весь slot. Нельзя
 добавлять one-off builtin, dylib или исключение по `module_id`.

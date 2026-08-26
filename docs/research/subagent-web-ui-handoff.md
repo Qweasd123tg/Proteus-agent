@@ -174,10 +174,11 @@ activity и nested tools через `/history` после reload посреди 
 
 ### 5. Документация
 
-- `docs/modules.md` (раздел slot subagent) или `docs/runtime-and-events.md`:
+- `docs/architecture/modules.md` (раздел slot subagent) или
+  `docs/guides/runtime-and-events.md`:
   краткое описание, как web-клиент рендерит Subagent*-события и группировку по
   child_thread_id.
-- `docs/roadmap.md`: перенести пункты из «Отложено» ниже.
+- `docs/product/roadmap.md`: перенести пункты из «Отложено» ниже.
 
 ### 6. Проверка и коммит
 

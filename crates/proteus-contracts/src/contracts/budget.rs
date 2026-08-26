@@ -1,6 +1,6 @@
 //! Token-бюджет исполнения: единый аккумулятор spend и проверка потолка.
 //!
-//! Это НЕ slot (см. `docs/slot-governance.md`): одна правдоподобная реализация
+//! Это НЕ slot (см. `docs/architecture/slot-governance.md`): одна правдоподобная реализация
 //! «считай и остановись», поэтому тип живёт как contract-utility. Первый
 //! потребитель — subagent-раннеры (`SubagentLimits::max_total_tokens`),
 //! спроектирован под будущие phase/turn-бюджеты workflow.

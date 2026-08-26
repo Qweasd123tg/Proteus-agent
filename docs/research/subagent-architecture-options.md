@@ -2,7 +2,7 @@
 
 Статус: историческая research note; surface/control и bounded messaging slices
 реализованы. Долгосрочная identity-модель выбрана 2026-08-24 и вынесена в
-[../subagents.md](../subagents.md); exact agent-control DTO/transport contract
+[../architecture/subagents.md](../architecture/subagents.md); exact agent-control DTO/transport contract
 реализован как pre-release v1 2026-08-25, но ещё не стабилизирован. Последнее
 обновление: 2026-08-25.
 
@@ -19,7 +19,7 @@
 первым transport, attach к уже работающему app-server — следующим, а прямой
 peer mesh отложен. Peer Proteus не является Component Runtime export-ом.
 Текущие варианты ниже сохраняются как история выбора, а действующая граница
-описана в [../subagents.md](../subagents.md).
+описана в [../architecture/subagents.md](../architecture/subagents.md).
 
 2026-07-11 model-facing protocol отделён от runner-а top-level config-ом
 `[subagents] surface = "task" | "collaboration" | "none"`. Новый module slot

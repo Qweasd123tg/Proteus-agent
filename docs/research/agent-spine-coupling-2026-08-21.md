@@ -596,7 +596,7 @@ Proteus:
 - `crates/proteus-core/src/core/session_journal/types.rs`;
 - `crates/proteus-contracts/src/contracts/workflow.rs`;
 - `modules/reference/coding-workflow/src/lib.rs`;
-- [process-module-architecture.md](../process-module-architecture.md).
+- [process-module-architecture.md](../architecture/process-module-architecture.md).
 
 Pinned upstream:
 

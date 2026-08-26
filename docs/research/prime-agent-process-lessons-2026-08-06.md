@@ -49,4 +49,4 @@ in-process extension API и daemon bridge приводят к несовмест
   core.
 
 Нормативное решение и последовательность cutover находятся в
-[`process-module-architecture.md`](../process-module-architecture.md).
+[`process-module-architecture.md`](../architecture/process-module-architecture.md).

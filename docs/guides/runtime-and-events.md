@@ -196,7 +196,7 @@ replay использует компактный `SessionConfigSnapshot` с то
 зарегистрированными tools.
 
 Полный формат и границы replay описаны в
-[canonical-turn-data.md](canonical-turn-data.md).
+[canonical-turn-data.md](../architecture/canonical-turn-data.md).
 
 Ключевые события текущего workflow:
 
@@ -893,7 +893,7 @@ pipeline, что и завершённое сообщение, но MathJax за
 порядок очереди, а watcher app-server-а убирает запись, когда запросивший
 умирает (cancel turn-а), не трогая pending user inputs других turn-ов;
 blanket-resolve остаётся только на shutdown (см.
-`docs/security-and-policy.md`).
+`docs/guides/security-and-policy.md`).
 `header` каждого вопроса является коротким UI-chip/tab label; UI может
 использовать эти labels в строке прогресса (`Language`, `Stack`, `Deploy`, ...),
 но не решает сам, какие вопросы задавать. Это остаётся ответственностью

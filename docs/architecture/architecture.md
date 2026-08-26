@@ -1,7 +1,8 @@
 # Архитектура Proteus
 
 Этот документ описывает текущее состояние. Долгосрочные идеи находятся в
-[spec.md](spec.md), порядок будущей работы — в [roadmap.md](roadmap.md).
+[spec.md](../product/spec.md), порядок будущей работы — в
+[roadmap.md](../product/roadmap.md).
 
 ## Инвариант
 
@@ -285,7 +286,8 @@ Core владеет:
 Module не пишет canonical journal напрямую. Runtime reload строит новый
 `PreparedAssembly` и публикует план вместе с registry в одном snapshot; уже
 начатый turn продолжает на старом. Подробнее:
-[assembly-plan.md](assembly-plan.md), [runtime-and-events.md](runtime-and-events.md)
+[assembly-plan.md](assembly-plan.md),
+[runtime-and-events.md](../guides/runtime-and-events.md)
 и [hot-swap.md](hot-swap.md).
 
 ## Проверка Изменений
@@ -300,4 +302,4 @@ cargo test -p proteus-reference-worker --test conformance
 ```
 
 Изменения Inspector дополнительно проверяются `trunk build`. Точная evidence
-матрица находится в [testing.md](testing.md).
+матрица находится в [testing.md](../development/testing.md).

@@ -151,4 +151,4 @@ session-owned runtime projection. Поэтому будущая карта аг�
 - component-to-component вызовы в обход root coordinator.
 
 История вариантов и upstream-сравнение сохранены в
-[research/subagent-architecture-options.md](research/subagent-architecture-options.md).
+[research/subagent-architecture-options.md](../research/subagent-architecture-options.md).

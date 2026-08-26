@@ -15,7 +15,7 @@ Crates в `reference/` — ordinary libraries, слинкованные в
 native ABI и per-crate manifests отсутствуют.
 
 Новые реализации создаются как внешние process workers по
-[`docs/process-module-architecture.md`](../docs/process-module-architecture.md).
+[`docs/architecture/process-module-architecture.md`](../docs/architecture/process-module-architecture.md).
 Если нужного process slot ещё нет, сначала добавляется общий adapter и
 conformance contract всего slot; отдельный builtin/native путь для одной
 реализации не добавляется.

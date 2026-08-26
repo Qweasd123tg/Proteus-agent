@@ -275,7 +275,7 @@ fn check_env_secret(findings: &mut DoctorFindings, env_name: &str) {
 /// Ключи-списки имён tools внутри opaque `module_config.*` (policy allow/deny
 /// списки, tool exposure hot set, opencode permission groups). Core не знает
 /// схему module config-ов, но эти ключи — известные межпаковые contracts
-/// (см. docs/pack-contracts.md), и опечатка в имени tool-а иначе остаётся
+/// (см. docs/architecture/pack-contracts.md), и опечатка в имени tool-а иначе остаётся
 /// молчаливо мёртвой записью.
 const MODULE_CONFIG_TOOL_LIST_KEYS: [&str; 6] = [
     "allow",

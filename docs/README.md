@@ -10,10 +10,10 @@
 Если вы вернулись к проекту после перерыва, не читайте весь каталог. Достаточно
 трёх документов:
 
-1. [scope.md](scope.md) — что Proteus представляет собой сейчас;
-2. [architecture.md](architecture.md) — как проходит обычный turn и где лежат
+1. [scope.md](product/scope.md) — что Proteus представляет собой сейчас;
+2. [architecture.md](architecture/architecture.md) — как проходит обычный turn и где лежат
    основные части;
-3. [roadmap.md](roadmap.md) — какие крупные решения ещё открыты.
+3. [roadmap.md](product/roadmap.md) — какие крупные решения ещё открыты.
 
 Остальные документы — справочники для конкретной задачи или исторические
 материалы.
@@ -22,19 +22,21 @@
 
 - **Запустить Proteus локально:** [README](../README.md#быстрый-запуск).
 - **Поднять на другой машине:**
-  [second-pc-bootstrap.md](second-pc-bootstrap.md).
+  [second-pc-bootstrap.md](guides/second-pc-bootstrap.md).
 - **Проверить или выпустить alpha:**
   [v0.1.0-alpha.1 release notes](releases/v0.1.0-alpha.1.md).
 - **Сообщить о security-проблеме:** [SECURITY.md](../SECURITY.md).
-- **Понять архитектуру:** [architecture.md](architecture.md), затем
-  [modules.md](modules.md).
-- **Понять направление subagents:** [subagents.md](subagents.md).
-- **Разобрать сбой:** [inspect.md](inspect.md), затем профильный документ по
+- **Понять архитектуру:** [architecture.md](architecture/architecture.md), затем
+  [modules.md](architecture/modules.md).
+- **Понять направление subagents:** [subagents.md](architecture/subagents.md).
+- **Разобрать сбой:** [inspect.md](guides/inspect.md), затем профильный документ по
   runtime, config или policy.
-- **Добавить и проверить фичу:** [slot-governance.md](slot-governance.md),
-  затем standard evidence в [testing.md](testing.md#стандарт-изменения).
-- **Выбрать следующую работу:** [scope.md](scope.md),
-  затем [roadmap.md](roadmap.md). [dogfood-gate.md](dogfood-gate.md) — только
+- **Добавить и проверить фичу:**
+  [slot-governance.md](architecture/slot-governance.md), затем standard
+  evidence в [testing.md](development/testing.md#стандарт-изменения).
+- **Выбрать следующую работу:** [scope.md](product/scope.md),
+  затем [roadmap.md](product/roadmap.md).
+  [dogfood-gate.md](development/dogfood-gate.md) — только
   необязательный manual diagnostic.
 
 ## Маршруты по задачам
@@ -43,73 +45,76 @@
 
 1. [README](../README.md) — минимальная установка, запуск, порты и основные
    команды.
-2. [second-pc-bootstrap.md](second-pc-bootstrap.md) — перенос на новую машину,
+2. [second-pc-bootstrap.md](guides/second-pc-bootstrap.md) — перенос на новую машину,
    локальные secrets и проверка установки.
-3. [configuration.md](configuration.md) — providers, config resolution,
+3. [configuration.md](guides/configuration.md) — providers, config resolution,
    modules, tools, MCP, instructions и `module_config`.
 
 ### Понять или изменить архитектуру
 
-1. [architecture.md](architecture.md) — словарь, слои, границы core и жизнь
+1. [architecture.md](architecture/architecture.md) — словарь, слои, границы core и жизнь
    одного turn-а.
-2. [assembly-plan.md](assembly-plan.md) — как config превращается в единый
+2. [assembly-plan.md](architecture/assembly-plan.md) — как config превращается в единый
    проверенный чертёж до запуска workers.
-3. [subagents.md](subagents.md) — принятая граница связи нескольких полных
+3. [subagents.md](architecture/subagents.md) — принятая граница связи нескольких полных
    экземпляров Proteus и честный статус текущего process runner-а.
-4. [modules.md](modules.md) — все выбираемые behavior slots, catalog vocabulary,
+4. [modules.md](architecture/modules.md) — все выбираемые behavior slots, catalog vocabulary,
    доступные реализации и правило заменяемости.
-5. [process-module-architecture.md](process-module-architecture.md) —
+5. [process-module-architecture.md](architecture/process-module-architecture.md) —
    реализованный process-only contract, равенство реализаций и итог cutover.
-6. [slot-governance.md](slot-governance.md) — нужен ли новый slot, module,
+6. [slot-governance.md](architecture/slot-governance.md) — нужен ли новый slot, module,
    profile или feature pack.
-7. [testing.md](testing.md#стандарт-изменения) — общий путь от
+7. [testing.md](development/testing.md#стандарт-изменения) — общий путь от
    измеримой проблемы до focused/boundary/live/replay evidence и commit-а.
 
 Для более узких boundary-вопросов:
 
-- [canonical-turn-data.md](canonical-turn-data.md) — реализованный canonical
+- [canonical-turn-data.md](architecture/canonical-turn-data.md) — реализованный canonical
   journal turn-а, projections и границы реализованных replay-режимов;
-- [hot-swap.md](hot-swap.md) — что можно reload-ить сейчас и где проходит
+- [hot-swap.md](architecture/hot-swap.md) — что можно reload-ить сейчас и где проходит
   граница snapshot-а;
-- [pack-contracts.md](pack-contracts.md) — неявные межпаковые ключи и строковые
+- [pack-contracts.md](architecture/pack-contracts.md) — неявные межпаковые ключи и строковые
   контракты.
 
 ### Разобрать runtime или баг
 
-1. [inspect.md](inspect.md) — `proteus inspect plan`, topology, различие
+1. [inspect.md](guides/inspect.md) — `proteus inspect plan`, topology, различие
    config intent и собранного runtime, HTTP `/inspect/*`.
-2. [runtime-and-events.md](runtime-and-events.md) — CLI/REPL, session store,
+2. [runtime-and-events.md](guides/runtime-and-events.md) — CLI/REPL, session store,
    event log и AppServer HTTP/SSE/stdio.
-3. [security-and-policy.md](security-and-policy.md) — tools, permission modes,
+3. [security-and-policy.md](guides/security-and-policy.md) — tools, permission modes,
    approvals, workspace boundary и exec sandbox.
-4. [testing.md](testing.md) — regression gates, module swap tests и eval
+4. [testing.md](development/testing.md) — regression gates, module swap tests и eval
    harness.
 
 ### Планировать следующую работу
 
 Читайте в таком порядке:
 
-1. [scope.md](scope.md) — текущее состояние и ещё не принятые решения.
-2. [roadmap.md](roadmap.md) — варианты следующей работы и отложенный backlog.
-3. [spec.md](spec.md) — долгосрочный замысел и non-goals.
-4. [dogfood-gate.md](dogfood-gate.md) — необязательный ручной diagnostic и
+1. [scope.md](product/scope.md) — текущее состояние и ещё не принятые решения.
+2. [roadmap.md](product/roadmap.md) — варианты следующей работы и отложенный backlog.
+3. [spec.md](product/spec.md) — долгосрочный замысел и non-goals.
+4. [dogfood-gate.md](development/dogfood-gate.md) — необязательный ручной diagnostic и
    исторический список blocking symptoms.
 
 Такой порядок важен: `spec` отвечает «куда проект может прийти», но не
 подтверждает, что возможность уже реализована.
 
-## Где текущее состояние, а где планы
+## Группы Документов
 
-| Тип документа | Как его читать |
+| Папка | Что в ней находится |
 |---|---|
-| Корневой `README` | Короткая актуальная точка входа и проверенные команды |
-| `architecture`, `assembly-plan`, `modules`, `configuration`, `runtime-and-events`, `security-and-policy`, `inspect`, `testing`, `process-module-architecture` | Reference текущей реализации |
-| `subagents` | Принятое архитектурное направление и отдельно отмеченный текущий implementation gap |
-| `scope`, `slot-governance` | Правила приоритета и принятия решений |
-| `dogfood-gate` | Необязательный manual diagnostic; не roadmap gate |
-| `releases/*` | Состав, ограничения и воспроизводимый gate конкретного релиза |
-| `roadmap`, `spec` | План и направление; planned не означает implemented |
-| `research/*`, `examples/research/*` | Черновики и архивы, не действующий контракт |
+| `product/` | Текущее состояние, roadmap и долгосрочный замысел |
+| `architecture/` | Устройство runtime, modules, данные turn-а и границы расширения |
+| `guides/` | Настройка, запуск, диагностика, события и безопасность |
+| `development/` | Обязательные тесты и необязательный manual dogfood |
+| `releases/` | Состав, ограничения и воспроизводимый gate конкретного релиза |
+| `research/` | История решений и черновики; не действующий контракт |
+| `examples/research/` | Большие snapshot-разборы сторонних проектов |
+
+Корневой [README](../README.md) остаётся короткой точкой входа с проверенными
+командами. Planned в `product/roadmap.md` или `product/spec.md` не означает,
+что возможность уже реализована.
 
 Если обзорный документ расходится с профильным reference, прав профильный.
 Если reference расходится с кодом или тестами, нужно исправить reference рядом

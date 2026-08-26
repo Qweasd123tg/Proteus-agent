@@ -9,7 +9,7 @@ background-job эксперимента и повторного contract review 
 
 > На основе этого research исторически строился план memory plugin boundary
 > (исторический контекст; текущая граница описана в
-> `../process-module-architecture.md`).
+> `../architecture/process-module-architecture.md`).
 >
 > Короткий исторический вывод: store-уровень через `PluginMemoryStore`
 > sabi_trait уже реализован. Для тогдашнего `MemoryPolicy` был рекомендован

@@ -6,7 +6,7 @@
 //! что поведение tools можно вынести за границу core.
 //!
 //! Этот crate не является шаблоном для новых modules: целевая граница —
-//! process protocol из `docs/process-module-architecture.md`.
+//! process protocol из `docs/architecture/process-module-architecture.md`.
 //!
 //! ## Установка
 //!

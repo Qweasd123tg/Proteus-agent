@@ -162,7 +162,8 @@ Process boundary пока не sandbox: worker получает очищенно
 исключение для reference modules. Model migration требует отдельного полного
 process contract; принятое направление subagents — связь нескольких полных
 экземпляров Proteus через отдельный agent-control process contract, а не
-обычный component export. Подробнее: [docs/subagents.md](docs/subagents.md).
+обычный component export. Подробнее:
+[docs/architecture/subagents.md](docs/architecture/subagents.md).
 
 Marketplace, package manager, live module replacement, WASM runtime и OS
 sandbox в текущий cutover не входят.
@@ -189,7 +190,7 @@ cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --co
 ```
 
 Prompt/workflow replay и journal semantics описаны в
-[runtime-and-events.md](docs/runtime-and-events.md).
+[runtime-and-events.md](docs/guides/runtime-and-events.md).
 
 ## Структура Репозитория
 
@@ -209,16 +210,17 @@ docs/                           reference, testing rules и roadmap
 
 ## Документация
 
-- [architecture.md](docs/architecture.md) — границы core и turn flow;
-- [modules.md](docs/modules.md) — slots, composition и reference inventory;
-- [process-module-architecture.md](docs/process-module-architecture.md) —
+- [architecture.md](docs/architecture/architecture.md) — границы core и turn flow;
+- [modules.md](docs/architecture/modules.md) — slots, composition и reference inventory;
+- [process-module-architecture.md](docs/architecture/process-module-architecture.md) —
   protocol, authority и результат cutover;
-- [configuration.md](docs/configuration.md) — schema, components и exports;
-- [security-and-policy.md](docs/security-and-policy.md) — tools и approvals;
+- [configuration.md](docs/guides/configuration.md) — schema, components и exports;
+- [security-and-policy.md](docs/guides/security-and-policy.md) — tools и approvals;
 - [SECURITY.md](SECURITY.md) — reporting и точная trust boundary alpha;
 - [v0.1.0-alpha.1](docs/releases/v0.1.0-alpha.1.md) — состав и release gate;
-- [testing.md](docs/testing.md) — обязательные evidence gates;
-- [scope.md](docs/scope.md) и [roadmap.md](docs/roadmap.md) — что дальше.
+- [testing.md](docs/development/testing.md) — обязательные evidence gates;
+- [scope.md](docs/product/scope.md) и [roadmap.md](docs/product/roadmap.md) —
+  что дальше.
 
 Полный индекс: [docs/README.md](docs/README.md). Правила изменений:
 [AGENTS.md](AGENTS.md).

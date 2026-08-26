@@ -1,6 +1,7 @@
 # Pi Extension Composition: Поправка К Process-Only Плану
 
-- Статус: decision input для `docs/process-module-architecture.md`.
+- Статус: decision input для
+  `docs/architecture/process-module-architecture.md`.
 - Дата сверки: 2026-08-07.
 - Upstream: <https://github.com/earendil-works/pi>, актуальная ветка `main`.
 

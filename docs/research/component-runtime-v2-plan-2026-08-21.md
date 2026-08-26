@@ -13,14 +13,14 @@ wire v3. Отдельно подтверждённый P4 topology/journal slice
 
 Связанные документы:
 
-- [process-module-architecture.md](../process-module-architecture.md) —
+- [process-module-architecture.md](../architecture/process-module-architecture.md) —
   реализованный Component Runtime v2 / wire protocol v3;
 - [agent-spine-coupling-2026-08-21.md](agent-spine-coupling-2026-08-21.md) —
   coupling-аудит agent lifecycle;
 - [DeepSeek detailed research report](../../examples/research/deepseek/deepseek-research-report.md) —
   upstream evidence по cohesive agent harness;
-- [slot-governance.md](../slot-governance.md) — правила добавления contracts;
-- [testing.md](../testing.md) — обязательный evidence path.
+- [slot-governance.md](../architecture/slot-governance.md) — правила добавления contracts;
+- [testing.md](../development/testing.md) — обязательный evidence path.
 
 ## Короткое Решение
 

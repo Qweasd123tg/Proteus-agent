@@ -4,9 +4,9 @@
 
 Этот документ отвечает только на два вопроса: что Proteus представляет собой
 сейчас и какие крупные решения ещё не приняты. Подробная архитектура находится
-в [architecture.md](architecture.md), будущие работы — в
+в [architecture.md](../architecture/architecture.md), будущие работы — в
 [roadmap.md](roadmap.md), история релиза — в
-[releases/v0.1.0-alpha.1.md](releases/v0.1.0-alpha.1.md).
+[releases/v0.1.0-alpha.1.md](../releases/v0.1.0-alpha.1.md).
 
 ## Проект Простыми Словами
 
@@ -63,8 +63,10 @@ wire/config/DTO меняются атомарно без legacy aliases и compa
 - Process boundary управляет запуском и обменом сообщениями, но сам по себе не
   является OS sandbox.
 
-Точные правила и protocol: [process-module-architecture.md](process-module-architecture.md).
-Как config превращается в runtime: [assembly-plan.md](assembly-plan.md).
+Точные правила и protocol:
+[process-module-architecture.md](../architecture/process-module-architecture.md).
+Как config превращается в runtime:
+[assembly-plan.md](../architecture/assembly-plan.md).
 
 ## Что Ещё Нужно Решить
 
@@ -79,7 +81,7 @@ wire/config/DTO меняются атомарно без legacy aliases и compa
    credentials, hosted tools, cache, retry и usage parity.
 3. **Durable subagents.** Текущие runners и messaging работают, но постоянное
    root-owned дерево, authenticated attach и reconnect ещё не завершены.
-   Подробности: [subagents.md](subagents.md).
+   Подробности: [subagents.md](../architecture/subagents.md).
 4. **Единая изоляция workers.** Нужна общая политика filesystem, network,
    env/secrets, процессов и ресурсов без исключений для reference modules.
 5. **Protocol freeze.** До обещания стабильности нужны дополнительные внешние
@@ -108,11 +110,11 @@ evidence для отдельного решения.
 | Вопрос | Документ |
 |---|---|
 | Что существует сейчас? | этот `scope.md` |
-| Как устроен обычный turn и основные части? | [architecture.md](architecture.md) |
-| Как устроены внешние modules? | [process-module-architecture.md](process-module-architecture.md) |
+| Как устроен обычный turn и основные части? | [architecture.md](../architecture/architecture.md) |
+| Как устроены внешние modules? | [process-module-architecture.md](../architecture/process-module-architecture.md) |
 | Что делать дальше? | [roadmap.md](roadmap.md) |
-| Как проверять изменение? | [testing.md](testing.md) |
-| Что было выпущено? | [releases/v0.1.0-alpha.1.md](releases/v0.1.0-alpha.1.md) |
+| Как проверять изменение? | [testing.md](../development/testing.md) |
+| Что было выпущено? | [releases/v0.1.0-alpha.1.md](../releases/v0.1.0-alpha.1.md) |
 | Каков долгосрочный замысел? | [spec.md](spec.md) |
 
 Если обзор расходится с профильным документом, прав профильный документ. Если

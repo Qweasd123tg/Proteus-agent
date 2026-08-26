@@ -70,7 +70,7 @@ generate_session_token() {
   od -An -N16 -tx1 /dev/urandom | tr -d ' \n'
 }
 
-# Локальный token-режим включён по умолчанию (см. docs/dogfood-gate.md,
+# Локальный token-режим включён по умолчанию (см. docs/development/dogfood-gate.md,
 # Blocking Bugs). Отключение — только явное: PROTEUS_NO_SESSION_TOKEN=1.
 if [ -z "${session_token}" ] && [ "${PROTEUS_NO_SESSION_TOKEN:-0}" != "1" ]; then
   session_token=$(generate_session_token)
