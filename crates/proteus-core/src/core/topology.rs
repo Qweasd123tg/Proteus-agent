@@ -167,7 +167,6 @@ mod tests {
                 "tool_exposure",
                 "model",
                 "policy",
-                "subagent",
                 "renderer",
                 "search",
                 "patch",

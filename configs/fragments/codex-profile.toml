@@ -2,7 +2,7 @@
 [profile]
 name = "codex-proxy"
 
-[subagents]
+[agent_control]
 # Experimental Codex-like async control surface. Переключите на `task`,
 # чтобы оставить только прежний blocking facade; `none` скрывает оба режима.
 surface = "collaboration"

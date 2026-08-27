@@ -1,7 +1,5 @@
-//! Experimental Codex-shaped collaboration facade over the replaceable
-//! `SubagentRunner`. This is a bounded session control plane, not a parity
-//! claim: basic lifecycle is always available; message-capable runners can
-//! also expose bounded messaging/follow-up tools.
+//! Experimental Codex-shaped collaboration facade over root-owned
+//! `AgentControl`. This is a bounded session control plane, not a parity claim.
 
 mod control;
 mod message;
@@ -18,10 +16,10 @@ use serde_json::{Value, json};
 
 use crate::{
     contracts::{
-        AGENT_CONTROL_SCHEMA_VERSION, AgentAddress, AgentInterruptReceipt, AgentInterruptStatus,
-        AgentLifecycleStatus, AgentListSnapshot, AgentSpawnReceipt, AgentWaitSnapshot,
-        SubagentIsolation, SubagentRequest, SubagentRoleSpec, SubagentToolHost, Tool, ToolContext,
-        ToolRegistry, ToolSource,
+        AGENT_CONTROL_SCHEMA_VERSION, AgentAddress, AgentControlHandle, AgentControlRequest,
+        AgentControlToolHost, AgentInterruptReceipt, AgentInterruptStatus, AgentIsolation,
+        AgentLifecycleStatus, AgentListSnapshot, AgentProfile, AgentSpawnReceipt,
+        AgentWaitSnapshot, Tool, ToolContext, ToolRegistry, ToolSource,
     },
     domain::{SessionId, ToolCall, ToolResult, ToolSpec},
 };
@@ -44,7 +42,7 @@ const MAX_WAIT_MS: u64 = 300_000;
 
 pub fn register_collaboration_tools(
     tools: &mut ToolRegistry,
-    roles: Vec<SubagentRoleSpec>,
+    roles: Vec<AgentProfile>,
     timeout_ms: u64,
     supports_messages: bool,
 ) -> Result<()> {
@@ -79,13 +77,13 @@ pub fn register_collaboration_tools(
 }
 
 struct SpawnAgentTool {
-    roles: Vec<SubagentRoleSpec>,
+    roles: Vec<AgentProfile>,
     timeout_ms: u64,
     control: CollaborationControl,
 }
 
 impl SpawnAgentTool {
-    fn new(roles: Vec<SubagentRoleSpec>, timeout_ms: u64, control: CollaborationControl) -> Self {
+    fn new(roles: Vec<AgentProfile>, timeout_ms: u64, control: CollaborationControl) -> Self {
         Self {
             roles,
             timeout_ms,
@@ -122,7 +120,7 @@ impl Tool for SpawnAgentTool {
             .iter()
             .find(|role| role.name == agent_type)
             .ok_or_else(|| anyhow!("unknown subagent role '{agent_type}'"))?;
-        if role.isolation != SubagentIsolation::None {
+        if role.isolation != AgentIsolation::None {
             return Ok(tool_error(
                 call,
                 "spawn_agent",
@@ -146,13 +144,13 @@ impl Tool for SpawnAgentTool {
             Ok(reservation) => reservation,
             Err(error) => return Ok(tool_error(call, "spawn_agent", error.to_string())),
         };
-        let request = SubagentRequest::new(agent_type, message, parent_task)
+        let request = AgentControlRequest::new(agent_type, message, parent_task)
             .with_description(task_name.to_owned())
             .with_metadata(json!({
                 "control_plane_owned": true,
                 "agent_control_target": reservation.path,
             }));
-        let handle = match host.spawn_subagent(request).await {
+        let handle = match host.spawn_agent(request).await {
             Ok(handle) => handle,
             Err(error) => {
                 self.control
@@ -176,7 +174,7 @@ impl Tool for SpawnAgentTool {
             handle.clone(),
         );
         if interrupt_requested {
-            host.cancel_subagent(&handle).await?;
+            host.cancel_agent(&handle).await?;
         }
 
         let receipt = AgentSpawnReceipt {
@@ -326,7 +324,7 @@ impl Tool for InterruptAgentTool {
         };
         if !interrupt.terminal
             && let Some((owner, handle)) = interrupt.owned_handle
-            && let Err(error) = owner.cancel_subagent(&handle).await
+            && let Err(error) = owner.cancel_agent(&handle).await
         {
             return Ok(tool_error(call, "interrupt_agent", format!("{error:#}")));
         }
@@ -347,25 +345,25 @@ impl Tool for InterruptAgentTool {
 
 fn spawn_monitor(
     control: CollaborationControl,
-    host: Arc<dyn SubagentToolHost>,
+    host: Arc<dyn AgentControlToolHost>,
     session_id: SessionId,
     path: String,
     generation: u64,
-    handle: crate::contracts::SubagentHandle,
+    handle: AgentControlHandle,
 ) {
     tokio::spawn(async move {
-        let result = host.wait_subagent(&handle).await;
+        let result = host.wait_agent(&handle).await;
         control.complete(session_id, &path, generation, result);
     });
 }
 
-fn host(ctx: &ToolContext) -> Result<Arc<dyn SubagentToolHost>> {
-    ctx.subagent
+fn host(ctx: &ToolContext) -> Result<Arc<dyn AgentControlToolHost>> {
+    ctx.agent_control
         .clone()
-        .ok_or_else(|| anyhow!("collaboration tool requires SubagentToolHost capability"))
+        .ok_or_else(|| anyhow!("collaboration tool requires AgentControlToolHost capability"))
 }
 
-fn session_id(host: &Arc<dyn SubagentToolHost>) -> Result<SessionId> {
+fn session_id(host: &Arc<dyn AgentControlToolHost>) -> Result<SessionId> {
     host.session_id()
         .ok_or_else(|| anyhow!("collaboration tool requires a session-bound runtime host"))
 }

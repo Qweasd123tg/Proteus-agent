@@ -1,7 +1,7 @@
-//! Policy-gated facade-tool for the replaceable `SubagentRunner` slot.
+//! Policy-gated facade-tool for the root-owned agent control plane.
 //!
 //! The tool owns only request shaping and optional worktree lifecycle. The
-//! child agent loop remains behind `SubagentToolHost`/`SubagentRunner`, while
+//! child agent lifecycle remains behind `AgentControlToolHost`, while
 //! visibility, approval, timeout, events and output bounds stay in the normal
 //! `ToolRegistry -> ApprovalPolicy -> ToolOrchestrator -> Tool::invoke` path.
 
@@ -11,8 +11,8 @@ use serde_json::{Value, json};
 
 use crate::{
     contracts::{
-        SubagentRequest, SubagentResult, SubagentRoleSpec, SubagentStatus, Tool, ToolContext,
-        ToolRegistry, ToolSource,
+        AgentControlRequest, AgentControlResult, AgentProfile, Tool, ToolContext, ToolRegistry,
+        ToolSource,
     },
     domain::{ToolCall, ToolResult, ToolSpec},
 };
@@ -32,7 +32,7 @@ pub const TASK_TOOL: &str = "task";
 
 pub fn register_task_tool(
     tools: &mut ToolRegistry,
-    roles: Vec<SubagentRoleSpec>,
+    roles: Vec<AgentProfile>,
     timeout_ms: u64,
 ) -> Result<()> {
     if roles.is_empty() {
@@ -46,16 +46,16 @@ pub fn register_task_tool(
 
 #[derive(Clone)]
 pub struct TaskTool {
-    roles: Vec<SubagentRoleSpec>,
+    roles: Vec<AgentProfile>,
     timeout_ms: u64,
 }
 
 impl TaskTool {
-    pub fn new(roles: Vec<SubagentRoleSpec>, timeout_ms: u64) -> Self {
+    pub fn new(roles: Vec<AgentProfile>, timeout_ms: u64) -> Self {
         Self { roles, timeout_ms }
     }
 
-    fn role(&self, call: &ToolCall) -> Option<&SubagentRoleSpec> {
+    fn role(&self, call: &ToolCall) -> Option<&AgentProfile> {
         let role = call.args.get("agent_type").and_then(Value::as_str)?;
         self.roles.iter().find(|candidate| candidate.name == role)
     }
@@ -72,10 +72,10 @@ impl Tool for TaskTool {
             .task
             .clone()
             .ok_or_else(|| anyhow!("task tool requires current AgentTask in ToolContext"))?;
-        let subagent = ctx
-            .subagent
+        let agent_control = ctx
+            .agent_control
             .clone()
-            .ok_or_else(|| anyhow!("task tool requires SubagentToolHost capability"))?;
+            .ok_or_else(|| anyhow!("task tool requires AgentControlToolHost capability"))?;
         let role = self.role(call).cloned();
         let mut request = match parse_task_call(call, parent_task) {
             Ok(request) => request,
@@ -89,11 +89,11 @@ impl Tool for TaskTool {
         };
 
         let workspace =
-            match prepare_workspace(&mut request, call, &role, subagent.session_id()).await {
+            match prepare_workspace(&mut request, call, &role, agent_control.session_id()).await {
                 Ok(workspace) => workspace,
                 Err(message) => return Ok(task_error(call, message)),
             };
-        match subagent.run_subagent(request).await {
+        match agent_control.run_agent(request).await {
             Ok(result) => {
                 let note = finalize_workspace(workspace, &result).await;
                 Ok(result_to_tool_result(call, result, note))
@@ -108,7 +108,7 @@ impl Tool for TaskTool {
 fn parse_task_call(
     call: &ToolCall,
     parent_task: crate::domain::AgentTask,
-) -> Result<SubagentRequest, String> {
+) -> Result<AgentControlRequest, String> {
     let args = call
         .args
         .as_object()
@@ -124,7 +124,7 @@ fn parse_task_call(
     let description = optional_string(args.get("description"), "description")?;
     let task_id = optional_string(args.get("task_id"), "task_id")?;
 
-    let mut request = SubagentRequest::new(agent_type, prompt, parent_task);
+    let mut request = AgentControlRequest::new(agent_type, prompt, parent_task);
     if let Some(description) = description {
         request = request.with_description(description);
     }
@@ -142,7 +142,7 @@ fn optional_string(value: Option<&Value>, name: &str) -> Result<Option<String>, 
     }
 }
 
-pub(crate) fn calls_are_parallel_eligible(calls: &[ToolCall], roles: &[SubagentRoleSpec]) -> bool {
+pub(crate) fn calls_are_parallel_eligible(calls: &[ToolCall], roles: &[AgentProfile]) -> bool {
     calls.len() >= 2
         && calls.iter().all(|call| {
             let role = call.args.get("agent_type").and_then(Value::as_str);
@@ -157,27 +157,11 @@ fn task_error(call: &ToolCall, message: String) -> ToolResult {
 
 fn result_to_tool_result(
     call: &ToolCall,
-    result: SubagentResult,
+    result: AgentControlResult,
     workspace_note: Option<String>,
 ) -> ToolResult {
     let task_id = child_task_id(&result);
     let mut output = result.summary;
-    if result.status == SubagentStatus::TokenBudgetExceeded {
-        let spent = result
-            .usage
-            .as_ref()
-            .map(|usage| usage.total_tokens())
-            .unwrap_or(0);
-        if task_id.is_some() {
-            output.push_str(&format!(
-                "\n\n[token budget exhausted ({spent} tokens spent); the summary above may be incomplete — resume with task_id to continue]"
-            ));
-        } else {
-            output.push_str(&format!(
-                "\n\n[token budget exhausted ({spent} tokens spent); the summary above may be incomplete — no resumable child state was retained]"
-            ));
-        }
-    }
     if let Some(task_id) = task_id {
         output.push_str(&format!("\n\n[task_id: {task_id}]"));
     }
@@ -189,8 +173,6 @@ fn result_to_tool_result(
     ToolResult::ok(call.id.clone(), output).with_metadata(json!({
         "tool": TASK_TOOL,
         "status": result.status,
-        "iterations": result.iterations,
         "child_thread_id": result.child_thread_id,
-        "usage": result.usage,
     }))
 }

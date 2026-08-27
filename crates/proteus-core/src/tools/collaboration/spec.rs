@@ -1,15 +1,15 @@
 use serde_json::json;
 
 use crate::{
-    contracts::SubagentRoleSpec,
+    contracts::AgentProfile,
     domain::{ToolSafety, ToolSpec},
 };
 
-fn role_schema(roles: &[SubagentRoleSpec]) -> serde_json::Value {
+fn role_schema(roles: &[AgentProfile]) -> serde_json::Value {
     let names = roles
         .iter()
         .filter(|role| {
-            role.parallel_safe && role.isolation == crate::contracts::SubagentIsolation::None
+            role.parallel_safe && role.isolation == crate::contracts::AgentIsolation::None
         })
         .map(|role| role.name.clone())
         .collect::<Vec<_>>();
@@ -20,7 +20,7 @@ fn role_schema(roles: &[SubagentRoleSpec]) -> serde_json::Value {
     })
 }
 
-pub(super) fn spawn_spec(roles: &[SubagentRoleSpec], timeout_ms: u64) -> ToolSpec {
+pub(super) fn spawn_spec(roles: &[AgentProfile], timeout_ms: u64) -> ToolSpec {
     ToolSpec::new(
         "spawn_agent",
         "Start one experimental Proteus collaboration agent. Returns a session-owned canonical /root/<task_name> handle immediately.",

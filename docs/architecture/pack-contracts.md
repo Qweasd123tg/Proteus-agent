@@ -31,7 +31,7 @@ Codex pack: `codex-compactor` бережно сохраняет user-message
 | context metadata `model_visible_render = "verbatim"` | `context-pack` (`codex_context`) | OpenAI/Anthropic model adapters | `CONTEXT_RENDER_MODE_*` в contracts |
 | chunk source `repo_aware:*` / `codex_context:*`, metadata `provider`/`reason`/`context_profile` | `context-pack` | app-server `context_map`, UI/debug views | строковые префиксы и metadata keys |
 | tool metadata `hot`, `category`, `tags`, `aliases` | tool packs и `[tools.configured]` в config | `codex-tool-exposure` (`metadata_hot`) | metadata JSON у tool spec |
-| `always_include` / `allow` / `ask_before` / `deny` / `allow_sandboxed` списки | named config | `policy-pack`, `codex-tool-exposure` | имена tools; `proteus doctor` warn-ит на неизвестные. В codex profile collaboration-имена process runner-а валидны только при `subagents.surface = "collaboration"` |
+| `always_include` / `allow` / `ask_before` / `deny` / `allow_sandboxed` списки | named config | `policy-pack`, `codex-tool-exposure` | имена tools; `proteus doctor` warn-ит на неизвестные. В codex profile collaboration-имена agent control валидны только при `agent_control.surface = "collaboration"` |
 | `with_escalated_permissions` + `justification` | `shell-tool` (аргументы tool) | `policy-pack` (`allow_sandboxed`), core `tool_orchestrator` | имена аргументов tool call |
 | `request_permissions` → `granted_permissions` | `policy-pack` tool | core `PolicyContext`, `policy-pack` при следующих вызовах | имя tool + семантика grant scope |
 | `approval.cache_scopes = ["workspace_write"]` | builtin `ApplyPatchTool` metadata | core `approval/cache` | metadata key + имя scope |

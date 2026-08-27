@@ -258,10 +258,14 @@ fn build_tool_registry_for_listing(
         cwd,
         context_providers: &context_providers,
     };
-    let subagent = match plan.module_id(proteus_core::domain::ModuleKind::Subagent) {
-        Some(id) => catalog.build_subagent(id, &build_ctx)?,
-        None => Arc::new(proteus_core::stubs::NoSubagent),
-    };
+    let agent_control: Option<Arc<dyn proteus_core::contracts::AgentControl>> =
+        if config.agent_control.roles.is_empty() {
+            None
+        } else {
+            Some(Arc::new(
+                proteus_core::core::ProcessAgentControl::from_config(config.agent_control.clone())?,
+            ))
+        };
     let model_config = plan.model_config()?;
     let model = catalog.build_model_adapter(&model_config)?;
     let mut tools = catalog.build_tools(
@@ -269,7 +273,7 @@ fn build_tool_registry_for_listing(
         Arc::new(proteus_core::stubs::NullSearch),
         Arc::new(proteus_core::stubs::NullPatchApplier),
         Arc::new(proteus_core::stubs::NoMemory),
-        subagent,
+        agent_control,
     )?;
     proteus_core::core::register_provider_hosted_tools(
         &mut tools,
@@ -294,19 +298,21 @@ fn build_cli_topology(
         context_providers: &context_providers,
     };
     let mut extra_warnings = Vec::new();
-    let subagent = match plan.module_id(proteus_core::domain::ModuleKind::Subagent) {
-        Some(id) => match catalog.build_subagent(id, &build_ctx) {
-            Ok(subagent) => subagent,
-            Err(error) => {
-                extra_warnings.push(TopologyWarning::error(format!(
-                    "inspect could not build subagent module {}: {error:#}",
-                    id
-                )));
-                Arc::new(proteus_core::stubs::NoSubagent)
+    let agent_control: Option<Arc<dyn proteus_core::contracts::AgentControl>> =
+        if config.agent_control.roles.is_empty() {
+            None
+        } else {
+            match proteus_core::core::ProcessAgentControl::from_config(config.agent_control.clone())
+            {
+                Ok(control) => Some(Arc::new(control)),
+                Err(error) => {
+                    extra_warnings.push(TopologyWarning::error(format!(
+                        "inspect could not build agent control: {error:#}"
+                    )));
+                    None
+                }
             }
-        },
-        None => Arc::new(proteus_core::stubs::NoSubagent),
-    };
+        };
     let hosted_tools = config.active_model_config().and_then(|model_config| {
         let model = catalog.build_model_adapter(&model_config)?;
         Ok((
@@ -328,7 +334,7 @@ fn build_cli_topology(
         Arc::new(proteus_core::stubs::NullSearch),
         Arc::new(proteus_core::stubs::NullPatchApplier),
         Arc::new(proteus_core::stubs::NoMemory),
-        subagent,
+        agent_control,
     ) {
         Ok(mut tools) => match proteus_core::core::register_provider_hosted_tools(
             &mut tools,

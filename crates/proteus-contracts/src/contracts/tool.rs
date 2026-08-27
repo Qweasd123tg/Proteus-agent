@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Notify;
 
 use crate::{
-    contracts::{SubagentToolHost, UserInputTransport},
+    contracts::{AgentControlToolHost, UserInputTransport},
     domain::{AgentTask, SessionId, ThreadId, ToolCall, ToolResult, ToolSpec, TurnId},
 };
 
@@ -47,7 +47,7 @@ pub struct ToolContext {
     pub task: Option<AgentTask>,
     /// Runtime-bound capability для facade-tool `task`. Dylib tools её не
     /// получают через свой ABI и не могут вызывать subagent slot напрямую.
-    pub subagent: Option<Arc<dyn SubagentToolHost>>,
+    pub agent_control: Option<Arc<dyn AgentControlToolHost>>,
 }
 
 impl ToolContext {
@@ -58,7 +58,7 @@ impl ToolContext {
             cancellation: CancellationToken::new(),
             user_input: None,
             task: None,
-            subagent: None,
+            agent_control: None,
         }
     }
 }

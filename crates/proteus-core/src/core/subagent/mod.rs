@@ -9,7 +9,7 @@ mod mailbox;
 mod pending;
 mod process;
 
-pub use process::ProcessSubagentRunner;
+pub use process::ProcessAgentControl;
 
 use std::sync::Arc;
 
@@ -17,11 +17,11 @@ use anyhow::{Result, bail};
 use serde_json::Value;
 
 use crate::{
-    contracts::{AgentAddress, RuntimeContext, SubagentRequest},
+    contracts::{AgentAddress, AgentControlRequest, RuntimeContext},
     domain::ThreadId,
 };
 
-fn requested_agent_target(request: &SubagentRequest) -> Result<Option<AgentAddress>> {
+fn requested_agent_target(request: &AgentControlRequest) -> Result<Option<AgentAddress>> {
     let control_plane_owned = request
         .metadata
         .get("control_plane_owned")

@@ -87,7 +87,7 @@ fn select_codex_tools(input: ToolExposureInput) -> ToolExposureOutput {
     // hiding wait/follow-up (or vice versa) leaves the model with a broken
     // control surface. Keep the group atomic and grow the stable hot-set floor
     // only while those candidates are actually registered. Switching
-    // subagents.surface back to task removes the group without config edits.
+    // agent_control.surface back to task removes the group without config edits.
     let control_names = candidates
         .iter()
         .filter(|tool| metadata_category(&tool.metadata) == Some("proteus_subagent_control"))

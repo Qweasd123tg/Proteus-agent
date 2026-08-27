@@ -1,8 +1,9 @@
 # Координация Нескольких Proteus
 
 Статус: typed agent-control DTO v1 и локальный stdio messaging slice
-реализованы 2026-08-25; отделённое durable дерево, attach и remote transport
-ещё не реализованы и не стабилизированы.
+реализованы 2026-08-25; 2026-08-26 loop-oriented module slot заменён узким
+root-owned `AgentControl`. Durable дерево, attach и remote transport ещё не
+реализованы и не стабилизированы.
 
 ## Коротко
 
@@ -72,7 +73,7 @@ Peer Proteus сам является host/runtime и может иметь со�
 
 ## Что Уже Реализовано
 
-Текущий `process` runner уже доказывает важную часть модели:
+Текущий `ProcessAgentControl` доказывает важную часть модели:
 
 - использует typed `AgentAddress`, `AgentControlMessage`, lifecycle snapshots
   и operation receipts из `proteus-contracts`;
@@ -107,9 +108,12 @@ peer turn. Явный cancel синхронно закрывает mailbox це�
   и process/lifecycle bounds;
 - внутренний mini-agent path удалён 2026-08-26: Core больше не исполняет
   отдельный child model/tool loop и не читает inline tool/prompt authority
-  роли. До следующего этапа process path временно реализует старый
-  loop-oriented trait; порядок схлопывания в agent-control service находится в
-  [roadmap.md](../product/roadmap.md#agent-control-cutover).
+  роли;
+- `ModuleKind::Subagent`, `modules.subagent`, catalog registration и
+  `NoSubagent` удалены; profiles и process bounds читаются из top-level
+  `[agent_control]`;
+- `task` является синхронным `spawn + wait`, а collaboration tools используют
+  тот же runtime instance через `AgentControlToolHost`.
 
 Один mailbox ограничен 32 сообщениями, 64 000 байт суммарно и 16 000 байт на
 сообщение. В contract v1 source всегда равен `/root`, а target обязан точно

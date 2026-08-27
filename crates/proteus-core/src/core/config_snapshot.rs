@@ -59,7 +59,7 @@ impl SessionConfigSnapshot {
             model: registry.model_config.model_ref(),
             reasoning: registry.model_config.reasoning.clone(),
             modules: config.modules.clone(),
-            subagent_surface: config.subagents.surface.as_str().to_owned(),
+            subagent_surface: config.agent_control.surface.as_str().to_owned(),
             tools,
             permission_mode_default,
         }

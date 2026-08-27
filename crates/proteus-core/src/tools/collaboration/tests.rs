@@ -8,8 +8,9 @@ use super::spec::{followup_spec, send_message_spec};
 use super::*;
 use crate::{
     contracts::{
-        AgentControlMessage, CancellationToken, SubagentHandle, SubagentResult, SubagentStatus,
-        ToolInvocationOwner,
+        AgentControlHandle, AgentControlMessage, AgentControlRequest, AgentControlResult,
+        AgentControlToolHost, AgentIsolation, AgentLifecycleStatus, AgentProfile,
+        CancellationToken, ToolInvocationOwner,
     },
     domain::{AgentTask, ToolCall, new_call_id, new_session_id, new_thread_id, new_turn_id},
 };
@@ -18,7 +19,7 @@ struct TestHost {
     session_id: SessionId,
     finished: CancellationToken,
     cancelled: CancellationToken,
-    requests: Mutex<Vec<SubagentRequest>>,
+    requests: Mutex<Vec<AgentControlRequest>>,
     messages: Mutex<Vec<String>>,
 }
 
@@ -35,51 +36,49 @@ impl TestHost {
 }
 
 #[async_trait]
-impl SubagentToolHost for TestHost {
+impl AgentControlToolHost for TestHost {
     fn session_id(&self) -> Option<SessionId> {
         Some(self.session_id)
     }
 
-    async fn run_subagent(&self, _request: SubagentRequest) -> Result<SubagentResult> {
+    async fn run_agent(&self, _request: AgentControlRequest) -> Result<AgentControlResult> {
         unreachable!("collaboration tools use spawn")
     }
 
-    async fn spawn_subagent(&self, request: SubagentRequest) -> Result<SubagentHandle> {
+    async fn spawn_agent(&self, request: AgentControlRequest) -> Result<AgentControlHandle> {
         self.requests.lock().unwrap().push(request);
-        Ok(SubagentHandle::new(
+        Ok(AgentControlHandle::new(
             new_call_id(),
             "explore",
             new_thread_id(),
         ))
     }
 
-    async fn wait_subagent(&self, handle: &SubagentHandle) -> Result<SubagentResult> {
+    async fn wait_agent(&self, handle: &AgentControlHandle) -> Result<AgentControlResult> {
         tokio::select! {
-            _ = self.cancelled.cancelled() => Ok(SubagentResult::new(
+            _ = self.cancelled.cancelled() => Ok(AgentControlResult::new(
                 "partial",
-                SubagentStatus::Cancelled,
-                1,
+                AgentLifecycleStatus::Cancelled,
             )
             .with_child_thread_id(handle.child_thread_id)
             .with_metadata(json!({ "resumable": true }))),
-            _ = self.finished.cancelled() => Ok(SubagentResult::new(
+            _ = self.finished.cancelled() => Ok(AgentControlResult::new(
                 "done",
-                SubagentStatus::Completed,
-                2,
+                AgentLifecycleStatus::Completed,
             )
             .with_child_thread_id(handle.child_thread_id)
             .with_metadata(json!({ "resumable": true }))),
         }
     }
 
-    async fn cancel_subagent(&self, _handle: &SubagentHandle) -> Result<()> {
+    async fn cancel_agent(&self, _handle: &AgentControlHandle) -> Result<()> {
         self.cancelled.cancel();
         Ok(())
     }
 
-    async fn send_subagent(
+    async fn send_agent(
         &self,
-        _handle: &SubagentHandle,
+        _handle: &AgentControlHandle,
         message: AgentControlMessage,
     ) -> Result<()> {
         self.messages.lock().unwrap().push(message.content);
@@ -87,8 +86,8 @@ impl SubagentToolHost for TestHost {
     }
 }
 
-fn role() -> SubagentRoleSpec {
-    SubagentRoleSpec::new("explore", "read only", "inspect").with_parallel_safe(true)
+fn role() -> AgentProfile {
+    AgentProfile::new("explore", "read only").with_parallel_safe(true)
 }
 
 fn call(name: &str, args: Value) -> ToolCall {
@@ -99,7 +98,7 @@ fn context(host: Arc<TestHost>) -> ToolContext {
     let owner = ToolInvocationOwner::new(host.session_id, new_thread_id(), new_turn_id());
     let mut ctx = ToolContext::new(std::env::current_dir().expect("cwd"), owner);
     ctx.task = Some(AgentTask::new("parent", ctx.cwd.clone()));
-    ctx.subagent = Some(host);
+    ctx.agent_control = Some(host);
     ctx
 }
 
@@ -309,7 +308,7 @@ fn followup_reservation_is_atomic_and_stale_completion_cannot_overwrite_it() {
     let reservation = control
         .reserve(session_id, "scan", "explore")
         .expect("reserve");
-    let first_handle = SubagentHandle::new(new_call_id(), "explore", new_thread_id());
+    let first_handle = AgentControlHandle::new(new_call_id(), "explore", new_thread_id());
     control
         .attach(
             session_id,
@@ -323,9 +322,11 @@ fn followup_reservation_is_atomic_and_stale_completion_cannot_overwrite_it() {
         session_id,
         &reservation.path,
         reservation.generation,
-        Ok(SubagentResult::new("done", SubagentStatus::Completed, 1)
-            .with_child_thread_id(first_handle.child_thread_id)
-            .with_metadata(json!({ "resumable": true }))),
+        Ok(
+            AgentControlResult::new("done", AgentLifecycleStatus::Completed)
+                .with_child_thread_id(first_handle.child_thread_id)
+                .with_metadata(json!({ "resumable": true })),
+        ),
     );
 
     let idle = match control
@@ -337,7 +338,8 @@ fn followup_reservation_is_atomic_and_stale_completion_cannot_overwrite_it() {
     };
     assert!(control.begin_followup(session_id, "scan").is_err());
 
-    let second_handle = SubagentHandle::new(new_call_id(), "explore", first_handle.child_thread_id);
+    let second_handle =
+        AgentControlHandle::new(new_call_id(), "explore", first_handle.child_thread_id);
     control
         .attach_followup(session_id, &idle, second_handle, host)
         .expect("attach followup");
@@ -345,7 +347,10 @@ fn followup_reservation_is_atomic_and_stale_completion_cannot_overwrite_it() {
         session_id,
         &idle.path,
         reservation.generation,
-        Ok(SubagentResult::new("stale", SubagentStatus::Cancelled, 0)),
+        Ok(AgentControlResult::new(
+            "stale",
+            AgentLifecycleStatus::Cancelled,
+        )),
     );
 
     let view = control
@@ -371,7 +376,7 @@ fn non_resumable_completion_does_not_advertise_followup_target() {
             session_id,
             &reservation.path,
             reservation.generation,
-            SubagentHandle::new(new_call_id(), "explore", child_thread_id),
+            AgentControlHandle::new(new_call_id(), "explore", child_thread_id),
             host,
         )
         .expect("attach");
@@ -379,9 +384,11 @@ fn non_resumable_completion_does_not_advertise_followup_target() {
         session_id,
         &reservation.path,
         reservation.generation,
-        Ok(SubagentResult::new("done", SubagentStatus::Completed, 1)
-            .with_child_thread_id(child_thread_id)
-            .with_metadata(json!({ "resumable": false }))),
+        Ok(
+            AgentControlResult::new("done", AgentLifecycleStatus::Completed)
+                .with_child_thread_id(child_thread_id)
+                .with_metadata(json!({ "resumable": false })),
+        ),
     );
 
     let view = control
@@ -406,7 +413,7 @@ fn followup_generations_stop_before_completion_queue_can_grow_unbounded() {
         .reserve(session_id, "scan", "explore")
         .expect("reserve");
     let child_thread_id = new_thread_id();
-    let first = SubagentHandle::new(new_call_id(), "explore", child_thread_id);
+    let first = AgentControlHandle::new(new_call_id(), "explore", child_thread_id);
     control
         .attach(
             session_id,
@@ -420,9 +427,11 @@ fn followup_generations_stop_before_completion_queue_can_grow_unbounded() {
         session_id,
         &reservation.path,
         1,
-        Ok(SubagentResult::new("done", SubagentStatus::Completed, 1)
-            .with_child_thread_id(child_thread_id)
-            .with_metadata(json!({ "resumable": true }))),
+        Ok(
+            AgentControlResult::new("done", AgentLifecycleStatus::Completed)
+                .with_child_thread_id(child_thread_id)
+                .with_metadata(json!({ "resumable": true })),
+        ),
     );
 
     for generation in 2..=MAX_OUTSTANDING_COMPLETIONS as u64 {
@@ -438,7 +447,7 @@ fn followup_generations_stop_before_completion_queue_can_grow_unbounded() {
             .attach_followup(
                 session_id,
                 &idle,
-                SubagentHandle::new(new_call_id(), "explore", child_thread_id),
+                AgentControlHandle::new(new_call_id(), "explore", child_thread_id),
                 host.clone(),
             )
             .expect("attach generation");
@@ -446,9 +455,11 @@ fn followup_generations_stop_before_completion_queue_can_grow_unbounded() {
             session_id,
             &idle.path,
             generation,
-            Ok(SubagentResult::new("done", SubagentStatus::Completed, 1)
-                .with_child_thread_id(child_thread_id)
-                .with_metadata(json!({ "resumable": true }))),
+            Ok(
+                AgentControlResult::new("done", AgentLifecycleStatus::Completed)
+                    .with_child_thread_id(child_thread_id)
+                    .with_metadata(json!({ "resumable": true })),
+            ),
         );
     }
 
@@ -499,10 +510,10 @@ async fn ownership_is_session_scoped_and_task_names_are_unique() {
 #[tokio::test]
 async fn writer_and_worktree_roles_are_rejected_explicitly() {
     let roles = vec![
-        SubagentRoleSpec::new("writer", "writes", "write"),
-        SubagentRoleSpec::new("worktree", "writes isolated", "write")
+        AgentProfile::new("writer", "writes"),
+        AgentProfile::new("worktree", "writes isolated")
             .with_parallel_safe(true)
-            .with_isolation(SubagentIsolation::Worktree),
+            .with_isolation(AgentIsolation::Worktree),
     ];
     let tool = SpawnAgentTool::new(roles, 10_000, CollaborationControl::default());
     let host = Arc::new(TestHost::new(new_session_id()));
@@ -568,10 +579,10 @@ async fn spawn_rejects_blank_messages_and_reserved_or_invalid_names() {
 fn spawn_spec_advertises_only_eligible_roles_and_keeps_write_safety_floor() {
     let roles = vec![
         role(),
-        SubagentRoleSpec::new("writer", "writes", "write"),
-        SubagentRoleSpec::new("tree", "tree", "write")
+        AgentProfile::new("writer", "writes"),
+        AgentProfile::new("tree", "tree")
             .with_parallel_safe(true)
-            .with_isolation(SubagentIsolation::Worktree),
+            .with_isolation(AgentIsolation::Worktree),
     ];
     let spec = spawn_spec(&roles, 42);
     assert_eq!(spec.safety, crate::domain::ToolSafety::WritesFiles);

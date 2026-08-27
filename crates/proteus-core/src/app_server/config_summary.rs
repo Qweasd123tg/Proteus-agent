@@ -40,7 +40,7 @@ pub(super) fn render_config_summary(
     }
     lines.push(format!(
         "subagent surface: {}",
-        config.subagents.surface.as_str()
+        config.agent_control.surface.as_str()
     ));
 
     lines.push("tools.enabled:".to_owned());

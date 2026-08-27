@@ -7,8 +7,8 @@ mod components;
 
 use crate::{
     contracts::{
-        ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryStore, Model, PatchApplier,
-        Renderer, SearchBackend, SubagentRunner, ToolExposure, ToolRegistry, Workflow,
+        AgentControl, ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryStore, Model,
+        PatchApplier, Renderer, SearchBackend, ToolExposure, ToolRegistry, Workflow,
         register_provider_tools,
     },
     core::{AppConfig, ModelConfig, RepoAwareContextProvider},
@@ -331,18 +331,6 @@ impl ModuleCatalog {
         )
     }
 
-    pub fn build_subagent(
-        &self,
-        module: &str,
-        ctx: &ModuleBuildContext<'_>,
-    ) -> Result<Arc<dyn SubagentRunner>> {
-        self.build_typed::<dyn SubagentRunner>(
-            slot::SUBAGENT,
-            module,
-            &ModuleBuildInput::Module(ctx),
-        )
-    }
-
     pub fn build_workflow(
         &self,
         module: &str,
@@ -365,7 +353,7 @@ impl ModuleCatalog {
         search: Arc<dyn SearchBackend>,
         patch: Arc<dyn PatchApplier>,
         memory: Arc<dyn MemoryStore>,
-        subagent: Arc<dyn SubagentRunner>,
+        agent_control: Option<Arc<dyn AgentControl>>,
     ) -> Result<ToolRegistry> {
         let mut tools = ToolRegistry::new();
 
@@ -426,31 +414,26 @@ impl ModuleCatalog {
             )?;
         }
 
-        // Facade над выбранным SubagentRunner регистрируется в каждом
+        // Facade над root-owned AgentControl регистрируется в каждом
         // ToolRegistry builder path (runtime, doctor, tools list, topology),
         // чтобы observability не расходилась с model-visible surface.
-        match ctx.config.subagents.surface {
-            crate::core::SubagentSurface::Task => crate::tools::register_task_tool(
-                &mut tools,
-                subagent.roles(),
-                ctx.config.runtime.workflow_timeout_ms,
-            )?,
-            crate::core::SubagentSurface::Collaboration => {
-                let roles = subagent.roles();
-                if !roles.is_empty() && !subagent.supports_collaboration() {
-                    bail!(
-                        "subagent module '{}' does not support the spawn/wait/cancel lifecycle required by subagents.surface=collaboration",
-                        ctx.config.modules.subagent.as_deref().unwrap_or("<absent>")
-                    );
-                }
-                crate::tools::register_collaboration_tools(
+        match (ctx.config.agent_control.surface, agent_control.as_ref()) {
+            (crate::core::AgentControlSurface::Task, Some(agent_control)) => {
+                crate::tools::register_task_tool(
                     &mut tools,
-                    roles,
+                    agent_control.profiles(),
                     ctx.config.runtime.workflow_timeout_ms,
-                    subagent.supports_collaboration_messages(),
                 )?
             }
-            crate::core::SubagentSurface::None => {}
+            (crate::core::AgentControlSurface::Collaboration, Some(agent_control)) => {
+                crate::tools::register_collaboration_tools(
+                    &mut tools,
+                    agent_control.profiles(),
+                    ctx.config.runtime.workflow_timeout_ms,
+                    true,
+                )?
+            }
+            _ => {}
         }
 
         Ok(tools)

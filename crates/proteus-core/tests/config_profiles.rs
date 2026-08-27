@@ -1,9 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use proteus_core::{
-    core::{AppConfig, ModuleCatalog, SubagentSurface},
-    domain::ModuleKind,
-};
+use proteus_core::core::{AgentControlSurface, AppConfig, ModuleCatalog};
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -31,16 +28,6 @@ fn tracked_configs() -> Vec<PathBuf> {
     files
 }
 
-#[test]
-fn builtin_subagent_catalog_contains_only_the_process_runner() {
-    let ids = ModuleCatalog::new()
-        .manifests_by_kind(ModuleKind::Subagent)
-        .into_iter()
-        .map(|manifest| manifest.id)
-        .collect::<Vec<_>>();
-    assert_eq!(ids, ["process"]);
-}
-
 #[tokio::test]
 async fn tracked_profiles_use_exact_catalog_ids_without_legacy_pseudo_modules() {
     let files = tracked_configs();
@@ -55,17 +42,15 @@ async fn tracked_profiles_use_exact_catalog_ids_without_legacy_pseudo_modules() 
         });
 
         for (kind, module_id) in config.modules.iter() {
-            if kind.as_str() != "subagent" {
-                assert!(
-                    !matches!(
-                        module_id,
-                        "none" | "default" | "process" | "text" | "all_visible"
-                    ),
-                    "{} selects retired pseudo module {}/{module_id}",
-                    path.display(),
-                    kind.as_str()
-                );
-            }
+            assert!(
+                !matches!(
+                    module_id,
+                    "none" | "default" | "process" | "text" | "all_visible"
+                ),
+                "{} selects retired pseudo module {}/{module_id}",
+                path.display(),
+                kind.as_str()
+            );
             let manifest = catalog.manifest(kind, module_id).unwrap_or_else(|| {
                 panic!(
                     "{} selects missing catalog module {}/{module_id}",
@@ -73,15 +58,13 @@ async fn tracked_profiles_use_exact_catalog_ids_without_legacy_pseudo_modules() 
                     kind.as_str()
                 )
             });
-            if kind.as_str() != "subagent" {
-                assert_eq!(
-                    manifest.api_version,
-                    "v1",
-                    "{} must select a process-v1 module for {}/{module_id}",
-                    path.display(),
-                    kind.as_str()
-                );
-            }
+            assert_eq!(
+                manifest.api_version,
+                "v1",
+                "{} must select a process-v1 module for {}/{module_id}",
+                path.display(),
+                kind.as_str()
+            );
         }
     }
 }
@@ -107,7 +90,7 @@ async fn codex_family_fragments_preserve_profile_specific_overlays() {
             config.modules.tool_exposure.as_deref(),
             Some("codex_dynamic")
         );
-        assert_eq!(config.modules.subagent.as_deref(), Some("process"));
+        assert_eq!(config.agent_control.roles.len(), 2);
         assert!(
             config
                 .tools
@@ -116,19 +99,17 @@ async fn codex_family_fragments_preserve_profile_specific_overlays() {
                 .any(|tool| tool == "exec_command")
         );
 
-        let roles = config.module_config["subagent"]["process"]["roles"]
-            .as_array()
-            .expect("shared process peer roles");
+        let roles = &config.agent_control.roles;
         assert_eq!(roles.len(), 2);
-        assert_eq!(roles[0]["name"], "explore");
-        assert_eq!(roles[0]["config"], "codex-explore");
-        assert_eq!(roles[1]["name"], "coder");
-        assert_eq!(roles[1]["config"], "codex-coder");
+        assert_eq!(roles[0].name, "explore");
+        assert_eq!(roles[0].config, "codex-explore");
+        assert_eq!(roles[1].name, "coder");
+        assert_eq!(roles[1].config, "codex-coder");
         for role in roles {
-            let role = role.as_object().expect("process role object");
+            let role = serde_json::to_value(role).expect("process role object");
             for child_owned in ["prompt", "tools", "max_iterations", "max_total_tokens"] {
                 assert!(
-                    !role.contains_key(child_owned),
+                    role.get(child_owned).is_none(),
                     "parent process role must not own {child_owned}"
                 );
             }
@@ -141,6 +122,10 @@ async fn codex_family_fragments_preserve_profile_specific_overlays() {
     }
 
     assert_eq!(codex.profile.name, "codex-proxy");
+    assert_eq!(
+        codex.agent_control.surface,
+        AgentControlSurface::Collaboration
+    );
     assert!(codex.modules.renderer.is_none());
     assert_eq!(codex.components.len(), 3);
     assert_eq!(
@@ -195,8 +180,8 @@ async fn packaged_codex_peers_own_distinct_models_prompts_tools_and_policy() {
         );
         assert_eq!(peer.modules.workflow.as_deref(), Some("coding.codex_loop"));
         assert_eq!(peer.modules.policy.as_deref(), Some("codex_policy"));
-        assert!(peer.modules.subagent.is_none());
-        assert_eq!(peer.subagents.surface, SubagentSurface::None);
+        assert!(peer.agent_control.roles.is_empty());
+        assert_eq!(peer.agent_control.surface, AgentControlSurface::None);
     }
 
     assert_eq!(

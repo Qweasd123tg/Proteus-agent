@@ -40,11 +40,11 @@ native loader в проекте отсутствуют.
 | `tool` | `ordered_many` | exports + `tools.enabled` | да | `reference.tools` и узкие selectors |
 | `context_provider` | `ordered_many` | exports + context config | да | `skills` |
 | `model` | `select_one` | active provider profile | пока core-owned | `fake`, `openai`, `openai_compatible`, `anthropic` |
-| `subagent` | `select_one` | `modules.subagent` | пока core-owned | `process` |
 
-Последние две строки — явно учтённый остаток, а не скрытый native extension
-path. Новую реализацию этих slots нельзя добавлять как builtin: сначала нужен
-единый process contract всего slot.
+Строка `model` — явно учтённый остаток, а не скрытый native extension path.
+Новую реализацию этого slot нельзя добавлять как builtin: сначала нужен единый
+process contract всего slot. Agent control в матрицу не входит, потому что это
+root-owned application service, а не выбираемый behavior slot.
 
 ## Component, Export И Selection
 
@@ -200,15 +200,14 @@ Canonical model request/response уже provider-neutral, но transport adapter
 пока собираются в core. Provider-specific types не должны выходить из
 `crates/proteus-core/src/adapters` и shaping layer.
 
-### Subagent
+### Agent Control
 
-Единственная реализация `process` запускает `proteus server stdio` с role
-profiles; внутреннего child model/tool loop в Core больше нет. Это временно
-остающийся core-owned contract, не общий component export contract.
-`subagents.surface = task | collaboration | none` задаёт model-facing tools,
-но не добавляет новый slot. Следующий этап заменит loop-oriented slot узким
-root-owned agent-control service; текущий статус описан в
-[subagents.md](subagents.md).
+Root-owned `AgentControl` запускает `proteus server stdio` по profiles из
+top-level `[agent_control]`; внутреннего child model/tool loop в Core нет.
+`agent_control.surface = task | collaboration | none` задаёт model-facing
+tools. `task` и collaboration являются двумя facade над одним экземпляром
+service. `ModuleKind::Subagent`, `modules.subagent` и catalog implementation
+удалены; текущий статус описан в [subagents.md](subagents.md).
 
 ## Structural Absence
 

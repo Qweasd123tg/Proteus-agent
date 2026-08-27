@@ -9,7 +9,9 @@ use async_trait::async_trait;
 use serde_json::json;
 
 use super::*;
-use crate::contracts::{SubagentIsolation, SubagentToolHost, Tool, ToolInvocationOwner};
+use crate::contracts::{
+    AgentControlToolHost, AgentIsolation, AgentLifecycleStatus, Tool, ToolInvocationOwner,
+};
 use crate::domain::{ToolSafety, new_session_id, new_thread_id, new_turn_id};
 
 fn test_tool_owner() -> ToolInvocationOwner {
@@ -18,7 +20,7 @@ fn test_tool_owner() -> ToolInvocationOwner {
 
 #[derive(Default)]
 struct RecordingSubagentHost {
-    requests: Mutex<Vec<SubagentRequest>>,
+    requests: Mutex<Vec<AgentControlRequest>>,
 }
 
 struct WritingSubagentHost;
@@ -42,27 +44,27 @@ impl SessionWritingSubagentHost {
 }
 
 #[async_trait]
-impl SubagentToolHost for WritingSubagentHost {
-    async fn run_subagent(&self, request: SubagentRequest) -> Result<SubagentResult> {
+impl AgentControlToolHost for WritingSubagentHost {
+    async fn run_agent(&self, request: AgentControlRequest) -> Result<AgentControlResult> {
         fs::write(request.task.cwd.join("child.txt"), "changed\n")?;
         Ok(
-            SubagentResult::new("change complete", SubagentStatus::Completed, 1)
+            AgentControlResult::new("change complete", AgentLifecycleStatus::Completed)
                 .with_child_thread_id(crate::domain::new_thread_id()),
         )
     }
 }
 
 #[async_trait]
-impl SubagentToolHost for SessionWritingSubagentHost {
+impl AgentControlToolHost for SessionWritingSubagentHost {
     fn session_id(&self) -> Option<crate::domain::SessionId> {
         Some(self.session_id)
     }
 
-    async fn run_subagent(&self, request: SubagentRequest) -> Result<SubagentResult> {
+    async fn run_agent(&self, request: AgentControlRequest) -> Result<AgentControlResult> {
         *self.calls.lock().unwrap() += 1;
         fs::write(request.task.cwd.join("child.txt"), "changed\n")?;
         Ok(
-            SubagentResult::new("change complete", SubagentStatus::Completed, 1)
+            AgentControlResult::new("change complete", AgentLifecycleStatus::Completed)
                 .with_child_thread_id(self.child_thread_id)
                 .with_metadata(json!({ "resumable": *self.resumable.lock().unwrap() })),
         )
@@ -70,25 +72,25 @@ impl SubagentToolHost for SessionWritingSubagentHost {
 }
 
 #[async_trait]
-impl SubagentToolHost for RecordingSubagentHost {
-    async fn run_subagent(&self, request: SubagentRequest) -> Result<SubagentResult> {
+impl AgentControlToolHost for RecordingSubagentHost {
+    async fn run_agent(&self, request: AgentControlRequest) -> Result<AgentControlResult> {
         self.requests.lock().unwrap().push(request);
         Ok(
-            SubagentResult::new("child summary", SubagentStatus::Completed, 2)
+            AgentControlResult::new("child summary", AgentLifecycleStatus::Completed)
                 .with_child_thread_id(crate::domain::new_thread_id()),
         )
     }
 }
 
-fn role(name: &str) -> SubagentRoleSpec {
-    SubagentRoleSpec::new(name, "Read-only exploration", "Inspect files.")
+fn role(name: &str) -> AgentProfile {
+    AgentProfile::new(name, "Read-only exploration")
 }
 
 #[test]
 fn spec_describes_roles_parallelism_and_resume() {
     let roles = vec![
         role("explore").with_parallel_safe(true),
-        role("coder").with_isolation(SubagentIsolation::Worktree),
+        role("coder").with_isolation(AgentIsolation::Worktree),
     ];
     let spec = task_tool_spec(&roles, 42);
 
@@ -159,12 +161,12 @@ fn parser_keeps_resume_metadata_and_rejects_wrong_optional_type() {
 #[test]
 fn task_id_is_published_only_for_explicitly_resumable_results() {
     let thread_id = crate::domain::new_thread_id();
-    let non_resumable = SubagentResult::new("done", SubagentStatus::Completed, 1)
+    let non_resumable = AgentControlResult::new("done", AgentLifecycleStatus::Completed)
         .with_child_thread_id(thread_id)
         .with_metadata(json!({ "resumable": false }));
     assert_eq!(child_task_id(&non_resumable), None);
 
-    let resumable = SubagentResult::new("done", SubagentStatus::Completed, 1)
+    let resumable = AgentControlResult::new("done", AgentLifecycleStatus::Completed)
         .with_child_thread_id(thread_id)
         .with_metadata(json!({ "resumable": true }));
     assert_eq!(child_task_id(&resumable), Some(thread_id.to_string()));
@@ -186,7 +188,7 @@ async fn invoke_delegates_through_runtime_bound_host() {
     );
     let mut ctx = ToolContext::new(parent_task.cwd.clone(), test_tool_owner());
     ctx.task = Some(parent_task.clone());
-    ctx.subagent = Some(host.clone());
+    ctx.agent_control = Some(host.clone());
 
     let result = tool.invoke(&call, ctx).await.unwrap();
 
@@ -238,7 +240,7 @@ async fn worktree_role_changes_only_isolated_checkout_after_approval_path_invoke
     );
 
     let tool = TaskTool::new(
-        vec![role("coder").with_isolation(SubagentIsolation::Worktree)],
+        vec![role("coder").with_isolation(AgentIsolation::Worktree)],
         30_000,
     );
     let parent_task = crate::domain::AgentTask::new("fix", repo.path().to_path_buf());
@@ -249,7 +251,7 @@ async fn worktree_role_changes_only_isolated_checkout_after_approval_path_invoke
     );
     let mut ctx = ToolContext::new(parent_task.cwd.clone(), test_tool_owner());
     ctx.task = Some(parent_task);
-    ctx.subagent = Some(Arc::new(WritingSubagentHost));
+    ctx.agent_control = Some(Arc::new(WritingSubagentHost));
 
     let result = tool.invoke(&call, ctx).await.unwrap();
 
@@ -302,7 +304,7 @@ async fn worktree_resume_mapping_is_session_owned_and_drops_non_resumable_edge()
     );
 
     let tool = TaskTool::new(
-        vec![role("coder").with_isolation(SubagentIsolation::Worktree)],
+        vec![role("coder").with_isolation(AgentIsolation::Worktree)],
         30_000,
     );
     let parent_task = crate::domain::AgentTask::new("fix", repo.path().to_path_buf());
@@ -318,7 +320,7 @@ async fn worktree_resume_mapping_is_session_owned_and_drops_non_resumable_edge()
     );
     let mut owner_ctx = ToolContext::new(parent_task.cwd.clone(), test_tool_owner());
     owner_ctx.task = Some(parent_task.clone());
-    owner_ctx.subagent = Some(owner.clone());
+    owner_ctx.agent_control = Some(owner.clone());
 
     let first = tool.invoke(&fresh, owner_ctx.clone()).await.unwrap();
     assert!(first.ok, "{:?}", first.error);
@@ -339,7 +341,7 @@ async fn worktree_resume_mapping_is_session_owned_and_drops_non_resumable_edge()
     );
     let mut foreign_ctx = ToolContext::new(parent_task.cwd.clone(), test_tool_owner());
     foreign_ctx.task = Some(parent_task.clone());
-    foreign_ctx.subagent = Some(foreign.clone());
+    foreign_ctx.agent_control = Some(foreign.clone());
     let rejected = tool.invoke(&resume, foreign_ctx).await.unwrap();
     assert!(!rejected.ok);
     assert!(

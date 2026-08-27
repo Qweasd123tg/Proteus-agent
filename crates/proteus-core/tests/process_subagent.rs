@@ -7,20 +7,20 @@ use std::{path::PathBuf, sync::Arc};
 
 use proteus_core::{
     contracts::{
-        ApprovalPolicy, EventEmitter, PolicyContext, PolicyVisibilityContext, SubagentRequest,
-        SubagentRunner, SubagentStatus, ToolRegistry,
+        AgentControl, AgentControlRequest, AgentLifecycleStatus, ApprovalPolicy, EventEmitter,
+        PolicyContext, PolicyVisibilityContext, ToolRegistry,
     },
     core::{
-        HeadlessApprovalTransport, HeadlessUserInputTransport, InMemoryEventStore,
-        ProcessSubagentRunner,
+        AgentControlConfig, HeadlessApprovalTransport, HeadlessUserInputTransport,
+        InMemoryEventStore, ProcessAgentControl,
     },
     domain::{
         AgentTask, Event, ModelRef, PolicyDecision, ReasoningConfig, ToolCall, new_session_id,
         new_thread_id, new_turn_id,
     },
     stubs::{
-        EmptyContextBuilder, FakeModelClient, NoCompactor, NoMemory, NoSubagent, NullPatchApplier,
-        NullSearch, UnfilteredToolExposure,
+        EmptyContextBuilder, FakeModelClient, NoCompactor, NoMemory, NullPatchApplier, NullSearch,
+        UnfilteredToolExposure,
     },
 };
 use serde_json::json;
@@ -60,7 +60,7 @@ fn test_runtime_context(
         Arc::new(NullPatchApplier),
         Arc::new(NoCompactor),
         Arc::new(UnfilteredToolExposure),
-        Arc::new(NoSubagent),
+        None,
     )
 }
 
@@ -149,15 +149,20 @@ fn proteus_binary() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_proteus")))
 }
 
-fn process_runner(config_path: &std::path::Path) -> ProcessSubagentRunner {
+fn runner_from_json(value: serde_json::Value) -> ProcessAgentControl {
+    let config: AgentControlConfig = serde_json::from_value(value).expect("agent control config");
+    ProcessAgentControl::from_config(config).expect("build process runner")
+}
+
+fn process_runner(config_path: &std::path::Path) -> ProcessAgentControl {
     process_runner_with_idle_cap(config_path, 8)
 }
 
 fn process_runner_with_idle_cap(
     config_path: &std::path::Path,
     max_idle_processes: usize,
-) -> ProcessSubagentRunner {
-    ProcessSubagentRunner::from_config(json!({
+) -> ProcessAgentControl {
+    runner_from_json(json!({
         "binary": proteus_binary(),
         "max_idle_processes": max_idle_processes,
         "roles": [
@@ -169,7 +174,6 @@ fn process_runner_with_idle_cap(
             }
         ]
     }))
-    .expect("build process runner")
 }
 
 #[tokio::test]
@@ -187,14 +191,14 @@ async fn process_subagent_round_trips_turn_resume_and_fresh_task() {
     // Первый прогон: полный round-trip через дочерний процесс.
     let first = runner
         .run(
-            SubagentRequest::new("helper", "first task", task.clone())
+            AgentControlRequest::new("helper", "first task", task.clone())
                 .with_description("first delegation"),
             ctx.clone(),
         )
         .await
         .expect("first child turn");
 
-    assert_eq!(first.status, SubagentStatus::Completed);
+    assert_eq!(first.status, AgentLifecycleStatus::Completed);
     assert!(
         first.summary.contains("no workflow module is selected"),
         "summary: {}",
@@ -222,22 +226,25 @@ async fn process_subagent_round_trips_turn_resume_and_fresh_task() {
     // Resume по task_id: тот же процесс, тот же child_thread_id.
     let resumed = runner
         .run(
-            SubagentRequest::new("helper", "continue the task", task.clone())
+            AgentControlRequest::new("helper", "continue the task", task.clone())
                 .with_metadata(json!({ "task_id": child_thread_id.to_string() })),
             ctx.clone(),
         )
         .await
         .expect("resumed child turn");
-    assert_eq!(resumed.status, SubagentStatus::Completed);
+    assert_eq!(resumed.status, AgentLifecycleStatus::Completed);
     assert_eq!(resumed.child_thread_id, Some(child_thread_id));
 
     // Свежая задача (без task_id): та же роль, но новый child thread —
     // история ребёнка сбрасывается через ClearHistory.
     let fresh = runner
-        .run(SubagentRequest::new("helper", "brand new task", task), ctx)
+        .run(
+            AgentControlRequest::new("helper", "brand new task", task),
+            ctx,
+        )
         .await
         .expect("fresh child turn");
-    assert_eq!(fresh.status, SubagentStatus::Completed);
+    assert_eq!(fresh.status, AgentLifecycleStatus::Completed);
     assert_ne!(fresh.child_thread_id, Some(child_thread_id));
 }
 
@@ -251,7 +258,7 @@ async fn process_peers_derive_distinct_tool_surfaces_from_child_configs() {
     let empty_config = write_tool_surface_child_config(config_home.path(), "empty", &[]);
     let memory_config =
         write_tool_surface_child_config(config_home.path(), "memory", &["remember_fact"]);
-    let runner = ProcessSubagentRunner::from_config(json!({
+    let runner = runner_from_json(json!({
         "binary": proteus_binary(),
         "roles": [
             {
@@ -267,29 +274,28 @@ async fn process_peers_derive_distinct_tool_surfaces_from_child_configs() {
                 "timeout_ms": 60000
             }
         ]
-    }))
-    .expect("build process runner");
+    }));
 
     assert!(
         runner
-            .roles()
+            .profiles()
             .iter()
-            .all(|role| role.prompt.is_empty() && role.config.get("tools").is_none()),
-        "root role metadata must not carry peer prompt or tools"
+            .all(|role| role.name == "empty" || role.name == "memory"),
+        "control profiles expose only configured agent identities"
     );
 
     let ctx = test_runtime_context(Arc::new(InMemoryEventStore::new()));
     let task = AgentTask::new("report surface", workspace.path().to_path_buf());
     let empty = runner
         .run(
-            SubagentRequest::new("empty", "report configured surface", task.clone()),
+            AgentControlRequest::new("empty", "report configured surface", task.clone()),
             ctx.clone(),
         )
         .await
         .expect("empty peer turn");
     let memory = runner
         .run(
-            SubagentRequest::new("memory", "report configured surface", task),
+            AgentControlRequest::new("memory", "report configured surface", task),
             ctx,
         )
         .await
@@ -312,7 +318,7 @@ async fn process_subagent_rejects_unknown_task_id_and_foreign_role() {
 
     let unknown = runner
         .run(
-            SubagentRequest::new("helper", "resume nothing", task.clone())
+            AgentControlRequest::new("helper", "resume nothing", task.clone())
                 .with_metadata(json!({ "task_id": new_thread_id().to_string() })),
             ctx.clone(),
         )
@@ -324,7 +330,7 @@ async fn process_subagent_rejects_unknown_task_id_and_foreign_role() {
     );
 
     let missing_role = runner
-        .run(SubagentRequest::new("mystery", "who", task), ctx)
+        .run(AgentControlRequest::new("mystery", "who", task), ctx)
         .await
         .expect_err("unknown role must fail");
     assert!(
@@ -344,7 +350,7 @@ async fn process_subagent_spawns_parallel_children_and_resumes_by_task_id() {
     let config_home = tempfile::tempdir().expect("config home");
     let workspace = tempfile::tempdir().expect("workspace");
     let config_path = write_child_config(config_home.path());
-    let runner = ProcessSubagentRunner::from_config(json!({
+    let runner = runner_from_json(json!({
         "binary": proteus_binary(),
         "roles": [
             {
@@ -356,28 +362,27 @@ async fn process_subagent_spawns_parallel_children_and_resumes_by_task_id() {
                 "timeout_ms": 60000
             }
         ]
-    }))
-    .expect("build process runner");
+    }));
 
     let events = Arc::new(InMemoryEventStore::new());
     let ctx = test_runtime_context(events.clone());
     let task = AgentTask::new("delegate", workspace.path().to_path_buf());
 
     assert!(
-        runner.roles()[0].parallel_safe,
+        runner.profiles()[0].parallel_safe,
         "role spec must carry parallel_safe"
     );
 
     let first = runner
         .spawn(
-            SubagentRequest::new("helper", "branch one", task.clone()),
+            AgentControlRequest::new("helper", "branch one", task.clone()),
             ctx.clone(),
         )
         .await
         .expect("spawn first child");
     let second = runner
         .spawn(
-            SubagentRequest::new("helper", "branch two", task.clone()),
+            AgentControlRequest::new("helper", "branch two", task.clone()),
             ctx.clone(),
         )
         .await
@@ -396,21 +401,21 @@ async fn process_subagent_spawns_parallel_children_and_resumes_by_task_id() {
 
     let first_result = runner.wait(&first).await.expect("first child result");
     let second_result = runner.wait(&second).await.expect("second child result");
-    assert_eq!(first_result.status, SubagentStatus::Completed);
-    assert_eq!(second_result.status, SubagentStatus::Completed);
+    assert_eq!(first_result.status, AgentLifecycleStatus::Completed);
+    assert_eq!(second_result.status, AgentLifecycleStatus::Completed);
 
     // Resume второго ребёнка: его процесс в пуле, session-история жива.
     // (Первый resume-ить нельзя без гонки: если дети успели пройти через
     // один процесс, ClearHistory свежей задачи хоронит старые task_id-ы.)
     let resumed = runner
         .run(
-            SubagentRequest::new("helper", "continue branch two", task)
+            AgentControlRequest::new("helper", "continue branch two", task)
                 .with_metadata(json!({ "task_id": second.child_thread_id.to_string() })),
             ctx,
         )
         .await
         .expect("resume second child");
-    assert_eq!(resumed.status, SubagentStatus::Completed);
+    assert_eq!(resumed.status, AgentLifecycleStatus::Completed);
     assert_eq!(resumed.child_thread_id, Some(second.child_thread_id));
 }
 
@@ -430,7 +435,7 @@ async fn process_subagent_fresh_task_invalidates_prior_task_ids_of_reused_proces
 
     let first = runner
         .run(
-            SubagentRequest::new("helper", "first task", task.clone()),
+            AgentControlRequest::new("helper", "first task", task.clone()),
             ctx.clone(),
         )
         .await
@@ -441,7 +446,7 @@ async fn process_subagent_fresh_task_invalidates_prior_task_ids_of_reused_proces
     // ClearHistory стирает session-историю первого task-а.
     runner
         .run(
-            SubagentRequest::new("helper", "fresh task", task.clone()),
+            AgentControlRequest::new("helper", "fresh task", task.clone()),
             ctx.clone(),
         )
         .await
@@ -449,7 +454,7 @@ async fn process_subagent_fresh_task_invalidates_prior_task_ids_of_reused_proces
 
     let stale = runner
         .run(
-            SubagentRequest::new("helper", "continue first", task)
+            AgentControlRequest::new("helper", "continue first", task)
                 .with_metadata(json!({ "task_id": first_task_id.to_string() })),
             ctx,
         )
@@ -476,7 +481,7 @@ async fn process_subagent_fresh_task_with_different_cwd_spawns_new_process() {
     let task_a = AgentTask::new("delegate", workspace_a.path().to_path_buf());
     let first = runner
         .run(
-            SubagentRequest::new("helper", "first task", task_a.clone()),
+            AgentControlRequest::new("helper", "first task", task_a.clone()),
             ctx.clone(),
         )
         .await
@@ -488,7 +493,7 @@ async fn process_subagent_fresh_task_with_different_cwd_spawns_new_process() {
     let task_b = AgentTask::new("delegate", workspace_b.path().to_path_buf());
     runner
         .run(
-            SubagentRequest::new("helper", "other workspace task", task_b),
+            AgentControlRequest::new("helper", "other workspace task", task_b),
             ctx.clone(),
         )
         .await
@@ -497,7 +502,7 @@ async fn process_subagent_fresh_task_with_different_cwd_spawns_new_process() {
     // Первый ребёнок не тронут — resume по его task_id продолжает работать.
     let resumed = runner
         .run(
-            SubagentRequest::new("helper", "continue first", task_a)
+            AgentControlRequest::new("helper", "continue first", task_a)
                 .with_metadata(json!({ "task_id": first_task_id.to_string() })),
             ctx,
         )
@@ -517,7 +522,7 @@ async fn process_subagent_idle_cap_zero_disables_resume_retention() {
 
     let result = runner
         .run(
-            SubagentRequest::new("helper", "one shot", task.clone()),
+            AgentControlRequest::new("helper", "one shot", task.clone()),
             ctx.clone(),
         )
         .await
@@ -527,7 +532,7 @@ async fn process_subagent_idle_cap_zero_disables_resume_retention() {
 
     let error = runner
         .run(
-            SubagentRequest::new("helper", "continue", task)
+            AgentControlRequest::new("helper", "continue", task)
                 .with_metadata(json!({ "task_id": task_id.to_string() })),
             ctx,
         )
@@ -549,7 +554,7 @@ async fn process_subagent_global_idle_cap_evicts_oldest_workspace() {
 
     let first = runner
         .run(
-            SubagentRequest::new("helper", "workspace a", task_a.clone()),
+            AgentControlRequest::new("helper", "workspace a", task_a.clone()),
             ctx.clone(),
         )
         .await
@@ -557,7 +562,7 @@ async fn process_subagent_global_idle_cap_evicts_oldest_workspace() {
     let first_id = first.child_thread_id.expect("first task id");
     let second = runner
         .run(
-            SubagentRequest::new("helper", "workspace b", task_b.clone()),
+            AgentControlRequest::new("helper", "workspace b", task_b.clone()),
             ctx.clone(),
         )
         .await
@@ -566,7 +571,7 @@ async fn process_subagent_global_idle_cap_evicts_oldest_workspace() {
 
     let expired = runner
         .run(
-            SubagentRequest::new("helper", "continue a", task_a)
+            AgentControlRequest::new("helper", "continue a", task_a)
                 .with_metadata(json!({ "task_id": first_id.to_string() })),
             ctx.clone(),
         )
@@ -576,7 +581,7 @@ async fn process_subagent_global_idle_cap_evicts_oldest_workspace() {
 
     let resumed = runner
         .run(
-            SubagentRequest::new("helper", "continue b", task_b)
+            AgentControlRequest::new("helper", "continue b", task_b)
                 .with_metadata(json!({ "task_id": second_id.to_string() })),
             ctx,
         )
@@ -600,7 +605,7 @@ async fn process_subagent_resume_touch_updates_global_lru_order() {
 
     let first = runner
         .run(
-            SubagentRequest::new("helper", "workspace a", task_a.clone()),
+            AgentControlRequest::new("helper", "workspace a", task_a.clone()),
             ctx.clone(),
         )
         .await
@@ -608,7 +613,7 @@ async fn process_subagent_resume_touch_updates_global_lru_order() {
     let first_id = first.child_thread_id.expect("first task id");
     let second = runner
         .run(
-            SubagentRequest::new("helper", "workspace b", task_b.clone()),
+            AgentControlRequest::new("helper", "workspace b", task_b.clone()),
             ctx.clone(),
         )
         .await
@@ -617,7 +622,7 @@ async fn process_subagent_resume_touch_updates_global_lru_order() {
 
     runner
         .run(
-            SubagentRequest::new("helper", "touch a", task_a.clone())
+            AgentControlRequest::new("helper", "touch a", task_a.clone())
                 .with_metadata(json!({ "task_id": first_id.to_string() })),
             ctx.clone(),
         )
@@ -625,7 +630,7 @@ async fn process_subagent_resume_touch_updates_global_lru_order() {
         .expect("resume a");
     runner
         .run(
-            SubagentRequest::new("helper", "workspace c", task_c),
+            AgentControlRequest::new("helper", "workspace c", task_c),
             ctx.clone(),
         )
         .await
@@ -633,7 +638,7 @@ async fn process_subagent_resume_touch_updates_global_lru_order() {
 
     let expired = runner
         .run(
-            SubagentRequest::new("helper", "continue b", task_b)
+            AgentControlRequest::new("helper", "continue b", task_b)
                 .with_metadata(json!({ "task_id": second_id.to_string() })),
             ctx.clone(),
         )
@@ -642,7 +647,7 @@ async fn process_subagent_resume_touch_updates_global_lru_order() {
     assert!(expired.to_string().contains("unknown task_id"));
     runner
         .run(
-            SubagentRequest::new("helper", "continue a again", task_a)
+            AgentControlRequest::new("helper", "continue a again", task_a)
                 .with_metadata(json!({ "task_id": first_id.to_string() })),
             ctx,
         )
@@ -665,7 +670,7 @@ async fn process_subagent_resume_is_bound_to_session_and_cwd() {
 
     let first = runner
         .run(
-            SubagentRequest::new("helper", "workspace a", task_a.clone()),
+            AgentControlRequest::new("helper", "workspace a", task_a.clone()),
             ctx_a.clone(),
         )
         .await
@@ -674,7 +679,7 @@ async fn process_subagent_resume_is_bound_to_session_and_cwd() {
 
     let foreign_session = runner
         .run(
-            SubagentRequest::new("helper", "steal", task_a.clone())
+            AgentControlRequest::new("helper", "steal", task_a.clone())
                 .with_metadata(json!({ "task_id": task_id.to_string() })),
             ctx_b,
         )
@@ -684,7 +689,7 @@ async fn process_subagent_resume_is_bound_to_session_and_cwd() {
 
     let foreign_cwd = runner
         .run(
-            SubagentRequest::new("helper", "wrong cwd", task_b)
+            AgentControlRequest::new("helper", "wrong cwd", task_b)
                 .with_metadata(json!({ "task_id": task_id.to_string() })),
             ctx_a.clone(),
         )
@@ -694,7 +699,7 @@ async fn process_subagent_resume_is_bound_to_session_and_cwd() {
 
     let resumed = runner
         .run(
-            SubagentRequest::new("helper", "correct owner", task_a)
+            AgentControlRequest::new("helper", "correct owner", task_a)
                 .with_metadata(json!({ "task_id": task_id.to_string() })),
             ctx_a,
         )

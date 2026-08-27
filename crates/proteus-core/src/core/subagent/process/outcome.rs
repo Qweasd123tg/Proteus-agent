@@ -1,17 +1,6 @@
-//! Helpers for process-peer terminal results and usage accounting.
+//! Helpers for process-peer terminal results.
 
-use crate::{contracts::SubagentStatus, model_standard::TokenUsage};
-
-/// Суммирует usage нескольких child events в один optional accumulator.
-pub(super) fn accumulate_usage(total: &mut Option<TokenUsage>, usage: Option<&TokenUsage>) {
-    let Some(usage) = usage else {
-        return;
-    };
-    match total {
-        None => *total = Some(usage.clone()),
-        Some(total) => total.accumulate(usage),
-    }
-}
+use crate::contracts::AgentLifecycleStatus;
 
 /// Обрезает summary по границе char до указанного byte-limit.
 pub(super) fn truncate_summary(mut text: String, max_bytes: usize) -> String {
@@ -27,7 +16,7 @@ pub(super) fn truncate_summary(mut text: String, max_bytes: usize) -> String {
 }
 
 /// Canonical snake_case label для `Event::SubagentFinished`.
-pub(super) fn status_label(status: SubagentStatus) -> String {
+pub(super) fn status_label(status: AgentLifecycleStatus) -> String {
     serde_json::to_value(status)
         .ok()
         .and_then(|value| value.as_str().map(str::to_owned))
@@ -48,35 +37,9 @@ mod tests {
     }
 
     #[test]
-    fn usage_accumulation_sums_option_fields() {
-        let mut total = None;
-        accumulate_usage(&mut total, Some(&TokenUsage::new(10, 2)));
-        accumulate_usage(
-            &mut total,
-            Some(
-                &TokenUsage::new(5, 3)
-                    .with_cached_input_tokens(Some(4))
-                    .with_reasoning_output_tokens(Some(7)),
-            ),
-        );
-        accumulate_usage(&mut total, None);
-
-        let total = total.expect("usage accumulated");
-        assert_eq!(total.input_tokens, 15);
-        assert_eq!(total.output_tokens, 5);
-        assert_eq!(total.cached_input_tokens, Some(4));
-        assert_eq!(total.cache_creation_input_tokens, None);
-        assert_eq!(total.reasoning_output_tokens, Some(7));
-    }
-
-    #[test]
     fn status_label_is_snake_case() {
-        assert_eq!(status_label(SubagentStatus::Completed), "completed");
-        assert_eq!(status_label(SubagentStatus::TimedOut), "timed_out");
-        assert_eq!(status_label(SubagentStatus::Cancelled), "cancelled");
-        assert_eq!(
-            status_label(SubagentStatus::TokenBudgetExceeded),
-            "token_budget_exceeded"
-        );
+        assert_eq!(status_label(AgentLifecycleStatus::Completed), "completed");
+        assert_eq!(status_label(AgentLifecycleStatus::TimedOut), "timed_out");
+        assert_eq!(status_label(AgentLifecycleStatus::Cancelled), "cancelled");
     }
 }

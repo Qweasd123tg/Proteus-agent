@@ -308,7 +308,7 @@ pub enum Event {
         child_thread_id: ThreadId,
     },
     /// Дочерний цикл завершён, summary вернулся родителю. `status` —
-    /// snake_case значение `SubagentStatus` ("completed", "cancelled", ...);
+    /// snake_case значение `AgentLifecycleStatus` ("completed", "cancelled", ...);
     /// строка, а не enum, чтобы domain не зависел от contracts.
     SubagentFinished {
         role: String,

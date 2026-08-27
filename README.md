@@ -156,13 +156,11 @@ Process boundary пока не sandbox: worker получает очищенно
 - P4 topology/journal gate: один PID выполняет callback-связанный workflow,
   переживает адресную отмену и даёт совпадающий canonical workflow replay.
 
-Оставшиеся core-owned selectable границы названы явно: model provider adapters
-(`fake`, `openai`, `openai_compatible`, `anthropic`) и
-`SubagentRunner` (`process`). Это не dylib-путь и не
-исключение для reference modules. Model migration требует отдельного полного
-process contract; принятое направление subagents — связь нескольких полных
-экземпляров Proteus через отдельный agent-control process contract, а не
-обычный component export. Подробнее:
+Оставшаяся core-owned selectable граница названа явно: model provider adapters
+(`fake`, `openai`, `openai_compatible`, `anthropic`). Root-owned
+`AgentControl` не является slot: он запускает полные peer-экземпляры Proteus
+из top-level `agent_control` config и обслуживает обе model-facing facade.
+Это не dylib-путь и не исключение для reference modules. Подробнее:
 [docs/architecture/subagents.md](docs/architecture/subagents.md).
 
 Marketplace, package manager, live module replacement, WASM runtime и OS

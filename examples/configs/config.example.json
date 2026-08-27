@@ -73,7 +73,7 @@
       }
     }
   },
-  "subagents": {
+  "agent_control": {
     "surface": "none"
   },
   "module_config": {

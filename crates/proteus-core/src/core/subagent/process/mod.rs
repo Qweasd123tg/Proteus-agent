@@ -1,4 +1,4 @@
-//! Builtin slot `subagent`, реализация `process`: ребёнок — отдельный
+//! Root-owned process agent control: ребёнок — отдельный
 //! процесс `proteus server stdio` со своим named config («роль = профиль»).
 //!
 //! Родитель общается с ребёнком по stdio JSONL-протоколу app-server-а
@@ -43,16 +43,17 @@ use tokio::{sync::Semaphore, time::timeout};
 
 use crate::{
     contracts::{
-        AgentControlMessage, RuntimeContext, SubagentHandle, SubagentRequest, SubagentResult,
-        SubagentRoleSpec, SubagentRunner, SubagentStatus,
+        AgentControl, AgentControlHandle, AgentControlMessage, AgentControlRequest,
+        AgentControlResult, AgentLifecycleStatus, AgentProfile, RuntimeContext,
     },
+    core::AgentControlConfig,
     domain::{Event, ThreadId, new_call_id, new_thread_id},
 };
 
 use super::{
     child_context, mailbox::ChildMailbox, pending::PendingChildren, requested_agent_target,
 };
-use config::{ProcessRoleConfig, ProcessSubagentConfig, build_process_role_specs};
+use config::{ProcessRoleConfig, build_agent_profiles};
 use outcome::{status_label, truncate_summary};
 use pool::{PooledChild, ProcessPool, ReleaseOutcome, ResumeReservation};
 #[cfg(test)]
@@ -61,12 +62,12 @@ use turn::{
     ChildEventForwarder, TurnEnd, TurnTracker, cancel_child_turn, clear_child_history, drive_turn,
 };
 
-pub struct ProcessSubagentRunner {
+pub struct ProcessAgentControl {
     inner: Arc<RunnerInner>,
 }
 
 struct RunnerInner {
-    specs: Vec<SubagentRoleSpec>,
+    profiles: Vec<AgentProfile>,
     roles: HashMap<String, RoleState>,
     binary: PathBuf,
     max_depth: u64,
@@ -86,22 +87,14 @@ struct RoleState {
 /// Результат подготовки запуска (до `SubagentStarted`): спека роли, thread
 /// ребёнка и resume-цель, если задан валидный `task_id`.
 struct PreparedProcess {
-    spec: SubagentRoleSpec,
+    profile: AgentProfile,
     child_thread_id: ThreadId,
     resume: Option<ResumeReservation>,
 }
 
-impl ProcessSubagentRunner {
-    /// Строит runner из значения `module_config.subagent.process`.
-    pub fn from_config(config: Value) -> Result<Self> {
-        let parsed: ProcessSubagentConfig = if config.is_null() {
-            ProcessSubagentConfig::default()
-        } else {
-            serde_json::from_value(config)
-                .context("failed to parse module_config.subagent.process")?
-        };
-
-        let specs = build_process_role_specs(&parsed.roles)?;
+impl ProcessAgentControl {
+    pub fn from_config(parsed: AgentControlConfig) -> Result<Self> {
+        let profiles = build_agent_profiles(&parsed.roles)?;
         let binary = match parsed.binary {
             Some(binary) => binary,
             None => std::env::current_exe()
@@ -124,7 +117,7 @@ impl ProcessSubagentRunner {
 
         Ok(Self {
             inner: Arc::new(RunnerInner {
-                specs,
+                profiles,
                 roles,
                 binary,
                 max_depth: parsed.max_depth,
@@ -154,9 +147,13 @@ impl RunnerInner {
     /// все ошибки подготовки возвращаются из `spawn` напрямую, ещё до
     /// `SubagentStarted`. Reserved child исключён из fresh reuse и eviction,
     /// пока detached execution ждёт role permit.
-    fn prepare(&self, request: &SubagentRequest, ctx: &RuntimeContext) -> Result<PreparedProcess> {
-        let spec = self
-            .specs
+    fn prepare(
+        &self,
+        request: &AgentControlRequest,
+        ctx: &RuntimeContext,
+    ) -> Result<PreparedProcess> {
+        let profile = self
+            .profiles
             .iter()
             .find(|spec| spec.name == request.role)
             .cloned()
@@ -195,7 +192,7 @@ impl RunnerInner {
             };
 
         Ok(PreparedProcess {
-            spec,
+            profile,
             child_thread_id,
             resume,
         })
@@ -247,8 +244,8 @@ impl RunnerInner {
     /// затем drive до терминального Response с уважением role-таймаута.
     async fn run_leased_turn(
         &self,
-        spec: &SubagentRoleSpec,
-        request: &SubagentRequest,
+        profile: &AgentProfile,
+        request: &AgentControlRequest,
         forwarder: &ChildEventForwarder<'_>,
         tracker: &mut TurnTracker,
         leased: &mut PooledChild,
@@ -263,11 +260,7 @@ impl RunnerInner {
             self.lock_pool()?.invalidate_history(leased.id);
         }
 
-        let text = if !is_resume && !spec.prompt.trim().is_empty() {
-            format!("{}\n\n{}", spec.prompt, request.prompt)
-        } else {
-            request.prompt.clone()
-        };
+        let text = request.prompt.clone();
         let send_id = new_call_id();
         leased
             .child
@@ -278,7 +271,11 @@ impl RunnerInner {
             .await?;
         let active_send_id = StdMutex::new(send_id.clone());
 
-        match spec.limits.timeout_ms {
+        match self
+            .roles
+            .get(&profile.name)
+            .and_then(|role| role.config.timeout_ms)
+        {
             Some(timeout_ms) => {
                 match timeout(
                     Duration::from_millis(timeout_ms),
@@ -311,7 +308,7 @@ impl RunnerInner {
                         if !clean {
                             leased.child.kill().await;
                         }
-                        Ok(TurnEnd::Interrupted(SubagentStatus::TimedOut))
+                        Ok(TurnEnd::Interrupted(AgentLifecycleStatus::TimedOut))
                     }
                 }
             }
@@ -333,20 +330,20 @@ impl RunnerInner {
     /// Терминальный исход без запуска turn-а (отмена до аренды процесса).
     async fn finish_interrupted(
         &self,
-        spec: &SubagentRoleSpec,
+        profile: &AgentProfile,
         ctx: &RuntimeContext,
         child_thread_id: ThreadId,
-        status: SubagentStatus,
+        status: AgentLifecycleStatus,
         resumable: bool,
-    ) -> Result<SubagentResult> {
+    ) -> Result<AgentControlResult> {
         ctx.emit(Event::SubagentFinished {
-            role: spec.name.clone(),
+            role: profile.name.clone(),
             status: status_label(status),
             iterations: 0,
             child_thread_id,
         })
         .await?;
-        Ok(SubagentResult::new(String::new(), status, 0)
+        Ok(AgentControlResult::new(String::new(), status)
             .with_child_thread_id(child_thread_id)
             .with_metadata(json!({ "resumable": resumable })))
     }
@@ -356,18 +353,18 @@ impl RunnerInner {
     /// detached tokio-таской; отменяется через child-токен `child_ctx`.
     async fn execute(
         self: Arc<Self>,
-        spec: SubagentRoleSpec,
-        request: SubagentRequest,
+        profile: AgentProfile,
+        request: AgentControlRequest,
         ctx: RuntimeContext,
         child_ctx: RuntimeContext,
         child_thread_id: ThreadId,
         resume: Option<ResumeReservation>,
         mailbox: Arc<ChildMailbox>,
-    ) -> Result<SubagentResult> {
+    ) -> Result<AgentControlResult> {
         let role = self
             .roles
-            .get(&spec.name)
-            .ok_or_else(|| anyhow!("unknown subagent role: {}", spec.name))?;
+            .get(&profile.name)
+            .ok_or_else(|| anyhow!("unknown agent profile: {}", profile.name))?;
         let is_resume = resume.is_some();
 
         let permit = tokio::select! {
@@ -382,32 +379,32 @@ impl RunnerInner {
                 };
                 return self
                     .finish_interrupted(
-                        &spec,
+                        &profile,
                         &ctx,
                         child_thread_id,
-                        SubagentStatus::Cancelled,
+                        AgentLifecycleStatus::Cancelled,
                         resumable,
                     )
                     .await;
             }
         };
 
-        let mut tracker = TurnTracker::with_budget(spec.limits.max_total_tokens);
+        let mut tracker = TurnTracker::default();
         let forwarder = ChildEventForwarder {
             ctx: &child_ctx,
             child_thread_id,
-            role: spec.name.clone(),
+            role: profile.name.clone(),
         };
 
         let mut leased =
-            match self.lease_process(&spec.name, role, resume.as_ref(), &request.task.cwd) {
+            match self.lease_process(&profile.name, role, resume.as_ref(), &request.task.cwd) {
                 Ok(leased) => leased,
                 Err(error) => {
                     let _ = mailbox.close_and_discard();
                     drop(permit);
                     let _ = ctx
                         .emit(Event::SubagentFinished {
-                            role: spec.name.clone(),
+                            role: profile.name.clone(),
                             status: "errored".into(),
                             iterations: 0,
                             child_thread_id,
@@ -419,7 +416,7 @@ impl RunnerInner {
 
         let body_result = self
             .run_leased_turn(
-                &spec,
+                &profile,
                 &request,
                 &forwarder,
                 &mut tracker,
@@ -439,11 +436,11 @@ impl RunnerInner {
                 let child_alive = leased.child.is_alive();
 
                 let (status, summary) = match end {
-                    TurnEnd::Completed(text) => (SubagentStatus::Completed, text),
+                    TurnEnd::Completed(text) => (AgentLifecycleStatus::Completed, text),
                     TurnEnd::Interrupted(status) => (status, tracker.partial_text()),
                 };
                 let mut summary = summary;
-                if let Some(max_bytes) = spec.limits.max_summary_bytes {
+                if let Some(max_bytes) = role.config.max_summary_bytes {
                     summary = truncate_summary(summary, max_bytes);
                 }
 
@@ -461,22 +458,19 @@ impl RunnerInner {
                 drop(permit);
 
                 ctx.emit(Event::SubagentFinished {
-                    role: spec.name.clone(),
+                    role: profile.name.clone(),
                     status: status_label(status),
                     iterations: tracker.iterations,
                     child_thread_id,
                 })
                 .await?;
 
-                let mut result = SubagentResult::new(summary, status, tracker.iterations)
+                let result = AgentControlResult::new(summary, status)
                     .with_child_thread_id(child_thread_id)
                     .with_metadata(json!({
                         "resumable": resumable,
                         "agent_messages_delivered": tracker.delivered_messages,
                     }));
-                if let Some(usage) = tracker.usage.clone() {
-                    result = result.with_usage(usage);
-                }
                 Ok(result)
             }
             Err(error) => {
@@ -487,7 +481,7 @@ impl RunnerInner {
                 drop(permit);
                 let _ = ctx
                     .emit(Event::SubagentFinished {
-                        role: spec.name.clone(),
+                        role: profile.name.clone(),
                         status: "errored".into(),
                         iterations: tracker.iterations,
                         child_thread_id,
@@ -500,31 +494,31 @@ impl RunnerInner {
 }
 
 #[async_trait]
-impl SubagentRunner for ProcessSubagentRunner {
-    fn roles(&self) -> Vec<SubagentRoleSpec> {
-        self.inner.specs.clone()
-    }
-
-    fn supports_collaboration(&self) -> bool {
-        true
-    }
-
-    fn supports_collaboration_messages(&self) -> bool {
-        true
+impl AgentControl for ProcessAgentControl {
+    fn profiles(&self) -> Vec<AgentProfile> {
+        self.inner.profiles.clone()
     }
 
     /// `run` = `spawn` + `wait`: turn ребёнка живёт detached-таской, поэтому
     /// обрыв родительского future (отмена turn'а на границе block_on) не
     /// бросает процесс ребёнка без cancel-протокола — таска доводит
     /// `Cancel` + grace + kill и возвращает процесс в пул.
-    async fn run(&self, request: SubagentRequest, ctx: RuntimeContext) -> Result<SubagentResult> {
+    async fn run(
+        &self,
+        request: AgentControlRequest,
+        ctx: RuntimeContext,
+    ) -> Result<AgentControlResult> {
         let handle = self.spawn(request, ctx).await?;
         self.wait(&handle).await
     }
 
-    async fn spawn(&self, request: SubagentRequest, ctx: RuntimeContext) -> Result<SubagentHandle> {
+    async fn spawn(
+        &self,
+        request: AgentControlRequest,
+        ctx: RuntimeContext,
+    ) -> Result<AgentControlHandle> {
         let prepared = self.inner.prepare(&request, &ctx)?;
-        let child_ctx = child_context(&ctx, prepared.child_thread_id, &prepared.spec.name);
+        let child_ctx = child_context(&ctx, prepared.child_thread_id, &prepared.profile.name);
         let spawn_id = new_call_id();
         let mailbox = Arc::new(ChildMailbox::default());
         let agent_target = requested_agent_target(&request)?;
@@ -549,7 +543,7 @@ impl SubagentRunner for ProcessSubagentRunner {
 
         if let Err(error) = ctx
             .emit(Event::SubagentStarted {
-                role: prepared.spec.name.clone(),
+                role: prepared.profile.name.clone(),
                 description: request.description.clone(),
                 child_thread_id: prepared.child_thread_id,
             })
@@ -562,13 +556,13 @@ impl SubagentRunner for ProcessSubagentRunner {
             return Err(error);
         }
 
-        let handle = SubagentHandle::new(
+        let handle = AgentControlHandle::new(
             spawn_id.clone(),
-            prepared.spec.name.clone(),
+            prepared.profile.name.clone(),
             prepared.child_thread_id,
         );
         let join = tokio::spawn(self.inner.clone().execute(
-            prepared.spec,
+            prepared.profile,
             request,
             ctx.clone(),
             child_ctx,
@@ -580,14 +574,14 @@ impl SubagentRunner for ProcessSubagentRunner {
         Ok(handle)
     }
 
-    async fn wait(&self, handle: &SubagentHandle) -> Result<SubagentResult> {
+    async fn wait(&self, handle: &AgentControlHandle) -> Result<AgentControlResult> {
         let outcome = self.inner.lock_pending()?.outcome(&handle.spawn_id)?;
         let result = outcome.wait().await;
         self.inner.lock_pending()?.consume(&handle.spawn_id)?;
         result
     }
 
-    async fn cancel(&self, handle: &SubagentHandle) -> Result<()> {
+    async fn cancel(&self, handle: &AgentControlHandle) -> Result<()> {
         let mailbox = self
             .inner
             .lock_pending()?
@@ -596,7 +590,7 @@ impl SubagentRunner for ProcessSubagentRunner {
         Ok(())
     }
 
-    async fn send(&self, handle: &SubagentHandle, message: AgentControlMessage) -> Result<()> {
+    async fn send(&self, handle: &AgentControlHandle, message: AgentControlMessage) -> Result<()> {
         self.inner.lock_pending()?.send(&handle.spawn_id, message)?;
         Ok(())
     }

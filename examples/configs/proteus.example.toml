@@ -31,7 +31,7 @@ command = "proteus-reference-worker"
 
 [components.reference-capabilities.exports.renderer.statusline]
 
-[subagents]
+[agent_control]
 surface = "none"
 
 [tools]

@@ -165,10 +165,10 @@ modules отклоняются. Если явно включённый process t
 builtin/configured tool, сборка registry завершается ошибкой конфигурации;
 приоритет или silent skip не применяются.
 
-Subagent facade выбирается top-level полем `subagents.surface`. В режиме
+Subagent facade выбирается полем `agent_control.surface`. В режиме
 `task` регистрируется только `task`; в `collaboration` — базовые
-`spawn_agent`, `list_agents`, `wait_agent`, `interrupt_agent` и, для runner-а с
-message capability, `send_message`/`followup_task`; `none` не
+`spawn_agent`, `list_agents`, `wait_agent`, `interrupt_agent`, `send_message`
+и `followup_task`; `none` не
 регистрирует ни одну поверхность. Это реальные registry tools, а не workflow
 side-channel, поэтому mode-aware visibility, approval, timeout и result bounds
 остаются обязательными.
@@ -179,11 +179,10 @@ Collaboration control скоупится по `SessionId`: path `/root/<task_nam
 tools, поэтому nesting в первом slice невозможен. Records и terminal payloads
 bounded, active records не вытесняются; состояние process-resident и теряется
 при restart. `send_message` и `followup_task` доступны у локального stdio
-`process`, но не переносят grants: envelope меняет только
+process control plane, но не переносят grants: envelope меняет только
 history адресата, а его tools продолжают проходить собственные registry,
 policy и safety. Fork, прямой peer mesh и writer/worktree spawn в этом режиме
-не реализованы, а несовместимый blocking-only subagent runner отклоняется при
-сборке registry без fallback.
+не реализованы.
 
 Config-defined `native` tools не могут понизить safety ниже safety встроенного handler-а. Например `native.handler = "apply_patch"` останется `WritesFiles`, даже если config укажет `ReadOnly`. File I/O и shell больше не доступны через `native.handler` — они приходят из process tool modules.
 
@@ -605,7 +604,7 @@ janitor; общий cap 16 сохраняет LRU-eviction. Cancellation акт�
 
 Это текущие gaps, а не целевое поведение:
 
-- `process` SubagentRunner ограничивает concurrent leases semaphore-ом и idle
+- `ProcessAgentControl` ограничивает concurrent leases semaphore-ом и idle
   residents глобальным LRU-cap, но не имеет строгого wall-clock TTL/janitor;
 - collaboration records имеют session ownership и caps, но живут только в
   памяти процесса: после restart нет list/wait/resume прежних handles;

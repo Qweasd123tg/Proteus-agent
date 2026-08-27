@@ -178,7 +178,7 @@ fn read_only_cli_paths_do_not_start_process_components() {
     config.modules.workflow = Some("workflow-marker".to_owned());
     config.modules.search = Some("search-marker".to_owned());
     config.modules.compactor = Some("compactor-marker".to_owned());
-    config.subagents.surface = proteus_core::core::SubagentSurface::None;
+    config.agent_control.surface = proteus_core::core::AgentControlSurface::None;
     config.tools.path = None;
     config.tools.enabled = vec!["search".to_owned()];
     config.components = serde_json::from_value(serde_json::json!({
@@ -629,7 +629,7 @@ async fn init_codex_writes_loadable_config_with_runtime_fragment() {
     );
     assert_eq!(config.modules.context.as_deref(), Some("codex_context"));
     assert_eq!(config.modules.compactor.as_deref(), Some("codex"));
-    assert_eq!(config.modules.subagent.as_deref(), Some("process"));
+    assert_eq!(config.agent_control.roles.len(), 2);
     assert!(config.modules.renderer.is_none());
     assert_eq!(
         config.module_config_value(ModuleKind::Context, "codex_context")["providers"],

@@ -35,7 +35,7 @@ pub struct AppConfig {
     #[serde(default)]
     pub tools: ToolsConfig,
     #[serde(default)]
-    pub subagents: SubagentsConfig,
+    pub agent_control: AgentControlConfig,
     #[serde(default)]
     pub permissions: PermissionsConfig,
     #[serde(default)]
@@ -63,7 +63,7 @@ impl Default for AppConfig {
             module_config: BTreeMap::new(),
             components: BTreeMap::new(),
             tools: ToolsConfig::default(),
-            subagents: SubagentsConfig::default(),
+            agent_control: AgentControlConfig::default(),
             permissions: PermissionsConfig::default(),
             app_server: AppServerConfig::default(),
             runtime: RuntimeConfig::default(),
@@ -75,14 +75,14 @@ impl Default for AppConfig {
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum SubagentSurface {
+pub enum AgentControlSurface {
     #[default]
     Task,
     Collaboration,
     None,
 }
 
-impl SubagentSurface {
+impl AgentControlSurface {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Task => "task",
@@ -92,10 +92,85 @@ impl SubagentSurface {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct SubagentsConfig {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentControlConfig {
     #[serde(default)]
-    pub surface: SubagentSurface,
+    pub surface: AgentControlSurface,
+    #[serde(default)]
+    pub roles: Vec<AgentProfileConfig>,
+    /// Бинарь process peer. По умолчанию используется текущий executable.
+    #[serde(default)]
+    pub binary: Option<PathBuf>,
+    #[serde(default = "default_agent_max_depth")]
+    pub max_depth: u64,
+    #[serde(default = "default_agent_cancel_grace_ms")]
+    pub cancel_grace_ms: u64,
+    #[serde(default = "default_agent_max_parallel")]
+    pub max_parallel: usize,
+    #[serde(default = "default_agent_max_idle_processes")]
+    pub max_idle_processes: usize,
+}
+
+impl Default for AgentControlConfig {
+    fn default() -> Self {
+        Self {
+            surface: AgentControlSurface::default(),
+            roles: Vec::new(),
+            binary: None,
+            max_depth: default_agent_max_depth(),
+            cancel_grace_ms: default_agent_cancel_grace_ms(),
+            max_parallel: default_agent_max_parallel(),
+            max_idle_processes: default_agent_max_idle_processes(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentProfileConfig {
+    pub name: String,
+    pub description: String,
+    /// Named child config (или путь), передаваемый в `--config`.
+    pub config: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub parallel_safe: bool,
+    #[serde(default)]
+    pub isolation: Option<String>,
+    #[serde(default)]
+    pub max_processes: Option<usize>,
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
+    #[serde(default)]
+    pub max_summary_bytes: Option<usize>,
+}
+
+impl AgentProfileConfig {
+    pub(crate) fn effective_max_processes(&self) -> usize {
+        match self.max_processes {
+            Some(max_processes) => max_processes.max(1),
+            None if self.parallel_safe || self.isolation.is_some() => 4,
+            None => 1,
+        }
+    }
+}
+
+fn default_agent_max_depth() -> u64 {
+    1
+}
+
+fn default_agent_cancel_grace_ms() -> u64 {
+    5_000
+}
+
+fn default_agent_max_parallel() -> usize {
+    8
+}
+
+fn default_agent_max_idle_processes() -> usize {
+    8
 }
 
 impl AppConfig {
@@ -294,8 +369,6 @@ pub struct ModulesConfig {
     #[serde(default)]
     pub tool_exposure: Option<String>,
     #[serde(default)]
-    pub subagent: Option<String>,
-    #[serde(default)]
     pub renderer: Option<String>,
 }
 
@@ -310,7 +383,6 @@ impl Default for ModulesConfig {
             patch: None,
             compactor: None,
             tool_exposure: None,
-            subagent: None,
             renderer: None,
         }
     }
@@ -334,7 +406,6 @@ impl ModulesConfig {
             ModuleKind::Patch => self.patch.as_deref(),
             ModuleKind::Compactor => self.compactor.as_deref(),
             ModuleKind::ToolExposure => self.tool_exposure.as_deref(),
-            ModuleKind::Subagent => self.subagent.as_deref(),
             ModuleKind::Renderer => self.renderer.as_deref(),
             ModuleKind::Model | ModuleKind::Tool => None,
             _ => None,
@@ -361,7 +432,6 @@ impl ModulesConfig {
             ModuleKind::Patch => self.patch = Some(module_id),
             ModuleKind::Compactor => self.compactor = Some(module_id),
             ModuleKind::ToolExposure => self.tool_exposure = Some(module_id),
-            ModuleKind::Subagent => self.subagent = Some(module_id),
             ModuleKind::Renderer => self.renderer = Some(module_id),
             ModuleKind::Model | ModuleKind::Tool => return false,
             _ => return false,

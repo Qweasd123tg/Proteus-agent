@@ -339,7 +339,6 @@ async fn route_config_builder_returns_editable_module_slots() {
             "compactor",
             "tool_exposure",
             "policy",
-            "subagent",
             "renderer",
             "search",
             "patch",
@@ -380,7 +379,7 @@ async fn route_config_builder_returns_editable_module_slots() {
 }
 
 #[tokio::test]
-async fn route_config_builder_persists_modules_and_reloads_runtime() {
+async fn route_config_builder_persists_settings_and_reloads_runtime() {
     let cwd = tempfile::tempdir().expect("cwd");
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
@@ -415,9 +414,7 @@ model = "fake-smart"
         authed_json_request(
             "/config/builder",
             json!({
-                "modules": {
-                    "subagent": "process"
-                },
+                "modules": {},
                 "tools_enabled": ["apply_patch", "search"],
                 "active_provider": "smart",
                 "permission_mode": "auto"
@@ -430,18 +427,9 @@ model = "fake-smart"
     assert_eq!(response.status(), StatusCode::OK);
     let bytes = response_bytes(response).await;
     let snapshot: Value = serde_json::from_slice(&bytes).expect("builder JSON");
-    assert!(
-        snapshot
-            .get("active_modules")
-            .and_then(Value::as_array)
-            .is_some_and(|items| items.iter().any(|item| {
-                item.get("slot").and_then(Value::as_str) == Some("subagent")
-                    && item.get("id").and_then(Value::as_str) == Some("process")
-            }))
-    );
+    assert_eq!(snapshot.get("active_modules"), Some(&json!([])));
 
     let written = std::fs::read_to_string(&config_path).expect("read config");
-    assert!(written.contains("subagent = \"process\""), "{written}");
     assert!(
         written.contains("enabled = [\"apply_patch\", \"search\"]"),
         "{written}"
@@ -474,15 +462,7 @@ model = "fake-smart"
     assert_eq!(model_ref.model, "fake-smart");
 
     let summary = server.config_summary().await;
-    assert!(
-        summary
-            .get("modules")
-            .and_then(Value::as_array)
-            .is_some_and(|items| items.iter().any(|item| {
-                item.get("slot").and_then(Value::as_str) == Some("subagent")
-                    && item.get("id").and_then(Value::as_str) == Some("process")
-            }))
-    );
+    assert_eq!(summary.get("modules"), Some(&json!([])));
     assert!(
         summary
             .get("module_epoch")
@@ -900,7 +880,7 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
     assert!(
         plan["slots"]
             .as_array()
-            .is_some_and(|slots| slots.len() == 11)
+            .is_some_and(|slots| slots.len() == 10)
     );
     assert!(plan.get("config").is_none(), "raw config leaked into plan");
 

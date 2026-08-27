@@ -6,12 +6,16 @@
 //! runner consumes the same DTO directly. Neither path changes the receiver's
 //! model/tool/policy authority.
 
-use std::fmt;
+use std::{fmt, path::PathBuf};
 
 use anyhow::{Result, bail};
+use async_trait::async_trait;
 use serde::{Deserialize, Deserializer, Serialize, de};
 
-use crate::domain::ThreadId;
+use crate::{
+    contracts::workflow::RuntimeContext,
+    domain::{AgentTask, SessionId, ThreadId},
+};
 
 pub const AGENT_CONTROL_SCHEMA_VERSION: u32 = 1;
 pub const MAX_AGENT_MESSAGE_BYTES: usize = 16_000;
@@ -162,10 +166,8 @@ pub enum AgentLifecycleStatus {
     Starting,
     Running,
     Completed,
-    MaxIterationsReached,
     TimedOut,
     Cancelled,
-    TokenBudgetExceeded,
     Errored,
     Unknown,
 }
@@ -241,6 +243,242 @@ pub struct AgentListSnapshot {
 pub struct AgentWaitSnapshot {
     pub timed_out: bool,
     pub agents: Vec<AgentRecordSnapshot>,
+}
+
+/// Model-facing profile exposed by the root-owned control plane.
+///
+/// Child instructions, model/tool selection and loop limits belong to the
+/// referenced child config and deliberately do not cross this contract.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentProfile {
+    pub name: String,
+    pub description: String,
+    #[serde(default)]
+    pub parallel_safe: bool,
+    #[serde(default)]
+    pub isolation: AgentIsolation,
+}
+
+impl AgentProfile {
+    pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            parallel_safe: false,
+            isolation: AgentIsolation::None,
+        }
+    }
+
+    pub fn with_parallel_safe(mut self, parallel_safe: bool) -> Self {
+        self.parallel_safe = parallel_safe;
+        self
+    }
+
+    pub fn with_isolation(mut self, isolation: AgentIsolation) -> Self {
+        self.isolation = isolation;
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum AgentIsolation {
+    #[default]
+    None,
+    Worktree,
+}
+
+/// One root request to start or resume a child agent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentControlRequest {
+    pub role: String,
+    pub prompt: String,
+    pub task: AgentTask,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+impl AgentControlRequest {
+    pub fn new(role: impl Into<String>, prompt: impl Into<String>, task: AgentTask) -> Self {
+        Self {
+            role: role.into(),
+            prompt: prompt.into(),
+            task,
+            description: None,
+            metadata: serde_json::Value::Null,
+        }
+    }
+
+    pub fn with_description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+
+    pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
+        self.metadata = metadata;
+        self
+    }
+}
+
+/// Terminal control-plane result. Model-loop telemetry stays in runtime
+/// events and is not part of the lifecycle contract.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentControlResult {
+    pub summary: String,
+    pub status: AgentLifecycleStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child_thread_id: Option<ThreadId>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+impl AgentControlResult {
+    pub fn new(summary: impl Into<String>, status: AgentLifecycleStatus) -> Self {
+        Self {
+            summary: summary.into(),
+            status,
+            child_thread_id: None,
+            metadata: serde_json::Value::Null,
+        }
+    }
+
+    pub fn with_child_thread_id(mut self, thread_id: ThreadId) -> Self {
+        self.child_thread_id = Some(thread_id);
+        self
+    }
+
+    pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
+        self.metadata = metadata;
+        self
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentControlHandle {
+    pub spawn_id: String,
+    pub role: String,
+    pub child_thread_id: ThreadId,
+}
+
+impl AgentControlHandle {
+    pub fn new(
+        spawn_id: impl Into<String>,
+        role: impl Into<String>,
+        child_thread_id: ThreadId,
+    ) -> Self {
+        Self {
+            spawn_id: spawn_id.into(),
+            role: role.into(),
+            child_thread_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentWorkspaceRequest {
+    pub parent_cwd: PathBuf,
+    pub name: String,
+}
+
+impl AgentWorkspaceRequest {
+    pub fn new(parent_cwd: PathBuf, name: impl Into<String>) -> Self {
+        Self {
+            parent_cwd,
+            name: name.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceInfo {
+    pub repo_root: PathBuf,
+    pub path: PathBuf,
+    pub branch: String,
+    pub base_commit: String,
+}
+
+impl WorkspaceInfo {
+    pub fn new(
+        repo_root: PathBuf,
+        path: PathBuf,
+        branch: impl Into<String>,
+        base_commit: impl Into<String>,
+    ) -> Self {
+        Self {
+            repo_root,
+            path,
+            branch: branch.into(),
+            base_commit: base_commit.into(),
+        }
+    }
+}
+
+/// Root-owned lifecycle and messaging service for local process peers.
+///
+/// This is an application service, not a replaceable behavior slot. Child
+/// agent model loops stay behind their own named configs.
+#[async_trait]
+pub trait AgentControl: Send + Sync {
+    fn profiles(&self) -> Vec<AgentProfile>;
+
+    async fn run(
+        &self,
+        request: AgentControlRequest,
+        ctx: RuntimeContext,
+    ) -> Result<AgentControlResult>;
+
+    async fn spawn(
+        &self,
+        request: AgentControlRequest,
+        ctx: RuntimeContext,
+    ) -> Result<AgentControlHandle>;
+
+    async fn wait(&self, handle: &AgentControlHandle) -> Result<AgentControlResult>;
+
+    async fn cancel(&self, handle: &AgentControlHandle) -> Result<()>;
+
+    async fn send(&self, handle: &AgentControlHandle, message: AgentControlMessage) -> Result<()>;
+}
+
+/// Per-tool invocation binding to the current runtime context. Both `task`
+/// and collaboration facades receive the same underlying control-plane
+/// instance through this capability.
+#[async_trait]
+pub trait AgentControlToolHost: Send + Sync {
+    fn session_id(&self) -> Option<SessionId> {
+        None
+    }
+
+    async fn run_agent(&self, request: AgentControlRequest) -> Result<AgentControlResult>;
+    async fn spawn_agent(&self, request: AgentControlRequest) -> Result<AgentControlHandle> {
+        let _ = request;
+        bail!("agent control host does not support background lifecycle")
+    }
+    async fn wait_agent(&self, handle: &AgentControlHandle) -> Result<AgentControlResult> {
+        let _ = handle;
+        bail!("agent control host does not support background lifecycle")
+    }
+    async fn cancel_agent(&self, handle: &AgentControlHandle) -> Result<()> {
+        let _ = handle;
+        bail!("agent control host does not support background lifecycle")
+    }
+    async fn send_agent(
+        &self,
+        handle: &AgentControlHandle,
+        message: AgentControlMessage,
+    ) -> Result<()> {
+        let _ = (handle, message);
+        bail!("agent control host does not support messages")
+    }
 }
 
 fn validate_task_name(task_name: &str) -> Result<()> {

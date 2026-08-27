@@ -66,12 +66,12 @@ model/tool loop и не фильтрует возможности ребёнка
 runtime ещё выбирал внутренний mini-agent, который сам вызывал model/tools и
 читал inline prompt/tool/limit роли. Первый этап перевёл tracked Codex/GLM
 profiles на `process`, второй удалил дублирующую in-process реализацию и её
-schema. `ProcessSubagentRunner` запускает `proteus server stdio` с отдельным
+schema. `ProcessAgentControl` запускает `proteus server stdio` с отдельным
 named config и соответствует принятой identity-модели.
 
-Process path пока временно скрыт за `SubagentRunner`, хотя этот trait всё ещё
-описывает дочерний agent loop, а не чистое общение между агентами. Схлопывание
-этой временной границы — следующий приоритетный источник упрощения.
+Loop-oriented slot удалён на третьем этапе. Process path теперь реализует
+узкий root-owned `AgentControl`, а model-loop параметры принадлежат child
+config и не входят в control contract.
 
 #### Конечная Граница
 
@@ -137,7 +137,7 @@ Agent-control не является behavior slot Component Runtime и не вы
    process implementation. Config Builder, profile tests и актуальная
    документация обновлены без compatibility reader-а.
 
-3. **Схлопнуть старый slot в agent-control service.**
+3. **✅ Схлопнуть старый slot в agent-control service.**
    - Заменить `SubagentRunner` contract на узкий control-plane interface для
      lifecycle и сообщений; не переносить туда model-loop поля.
    - Удалить `ModuleKind::Subagent`, `modules.subagent`, catalog registration и
@@ -149,6 +149,13 @@ Agent-control не является behavior slot Component Runtime и не вы
    - Перевести `task` и collaboration tools на один control-plane instance.
    - DTO `AgentAddress`, messages, receipts и lifecycle snapshots оставить в
      `proteus-contracts`; они и являются межпроцессным контрактом.
+
+   Завершено 2026-08-27: `ModuleKind::Subagent`, `modules.subagent`, catalog
+   registration, `NoSubagent`, `SubagentRunner`, loop limits и root token
+   budget удалены. Top-level `[agent_control]` одновременно задаёт facade,
+   profiles и технические process bounds. `task` и collaboration получают
+   один `Option<Arc<dyn AgentControl>>` из `RuntimeRegistry`; terminal contract
+   больше не несёт iterations/usage или loop-specific statuses.
 
 4. **Собрать код по одной ответственности.**
    - Держать process connection, mailbox, agent records и tool facades в одном
@@ -162,18 +169,16 @@ Agent-control не является behavior slot Component Runtime и не вы
 
 Основные текущие поверхности; начинать с них, а не с широкого поиска по repo:
 
-- `crates/proteus-contracts/src/contracts/subagent.rs` — старый loop-oriented
-  trait/roles/limits, подлежащие удалению или сжатию;
-- `crates/proteus-contracts/src/contracts/agent_control.rs` — сохраняемый
-  typed message/lifecycle contract;
-- `crates/proteus-contracts/src/contracts/workflow.rs` — текущая передача
-  runner-а в runtime context;
-- `crates/proteus-core/src/core/subagent/` — временный process runner и его
-  lifecycle primitives;
+- `crates/proteus-contracts/src/contracts/agent_control.rs` — typed
+  message/lifecycle contract и узкий service interface;
+- `crates/proteus-contracts/src/contracts/workflow.rs` — optional control
+  service в runtime context;
+- `crates/proteus-core/src/core/subagent/` — process control и lifecycle
+  primitives; переименование/сборка subtree относится к этапу 4;
 - `crates/proteus-core/src/tools/task*` и `src/tools/collaboration/` — две
   model-facing facade над одним будущим control plane;
-- `crates/proteus-core/src/core/module_catalog*`, `core/registry.rs` и
-  `core/core_slots*` — старое slot wiring;
+- `crates/proteus-core/src/core/registry.rs` — единственная runtime assembly
+  point control plane;
 - `configs/fragments/codex-runtime.toml`, `configs/fragments/codex-profile.toml`,
   `examples/configs/` и `install.sh` — active/config distribution surface;
 - `crates/proteus-core/tests/process_agent_control.rs` и
@@ -181,8 +186,8 @@ Agent-control не является behavior slot Component Runtime и не вы
 
 #### Готово, Когда
 
-- catalog содержит только process runner, а код/config/docs не содержат
-  прежней in-process implementation или её schema;
+- catalog не содержит subagent slot, а код/config/docs не содержат прежней
+  in-process implementation или её schema;
 - Core не выполняет отдельный child model/tool loop;
 - выбор tools/model/policy ребёнка доказан его config-ом, а не parent role;
 - `task` и collaboration используют один процессный agent-control path;

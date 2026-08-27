@@ -208,7 +208,7 @@ impl TokenUsage {
     }
 
     /// Прибавляет usage другого model-запроса к аккумулятору. Единый сумматор
-    /// для всех потребителей (subagent-раннеры, `BudgetTracker`): опциональные
+    /// для всех потребителей: опциональные
     /// категории суммируются, если хотя бы одна сторона их знает.
     pub fn accumulate(&mut self, other: &TokenUsage) {
         self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);

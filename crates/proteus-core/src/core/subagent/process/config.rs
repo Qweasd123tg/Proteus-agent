@@ -1,318 +1,80 @@
-//! Конфиг process-runner-а: `module_config.subagent.process`.
-//!
-//! Роль = профиль: каждый ребёнок — отдельный процесс `proteus server stdio`
-//! со своим named config (mini-сборка модулей под роль). Родительская
-//! сторона не задаёт ребёнку системный prompt и tools — это делает config
-//! роли; опциональный `prompt` роли префиксуется к тексту задачи.
-
-use std::path::PathBuf;
+//! Validation and public profile projection for top-level `agent_control`.
 
 use anyhow::{Context, Result, bail};
-use serde::Deserialize;
-use serde_json::json;
 
-use crate::contracts::{SubagentIsolation, SubagentLimits, SubagentRoleSpec};
+use crate::{
+    contracts::{AgentIsolation, AgentProfile},
+    core::AgentProfileConfig,
+};
 
-/// Формат `module_config.subagent.process`.
-#[derive(Debug, Clone, Deserialize)]
-pub(super) struct ProcessSubagentConfig {
-    #[serde(default)]
-    pub roles: Vec<ProcessRoleConfig>,
-    /// Бинарь для запуска детей. По умолчанию — текущий исполняемый файл
-    /// (`std::env::current_exe`).
-    #[serde(default)]
-    pub binary: Option<PathBuf>,
-    #[serde(default = "default_max_depth")]
-    pub max_depth: u64,
-    /// Сколько ждать штатного завершения turn-а ребёнка после Cancel,
-    /// прежде чем убить процесс.
-    #[serde(default = "default_cancel_grace_ms")]
-    pub cancel_grace_ms: u64,
-    /// Максимум одновременно запущенных (`spawn`) детей runner-а
-    /// (поверх per-role `max_processes`).
-    #[serde(default = "default_max_parallel")]
-    pub max_parallel: usize,
-    /// Глобальный cap живых idle process children. Active/reserved children
-    /// ограничены `max_parallel`/per-role permits и не эвиктятся; idle сверх
-    /// cap удаляются по LRU. Ноль полностью отключает process resume retention.
-    #[serde(default = "default_max_idle_processes")]
-    pub max_idle_processes: usize,
-}
+pub(super) type ProcessRoleConfig = AgentProfileConfig;
 
-impl Default for ProcessSubagentConfig {
-    fn default() -> Self {
-        Self {
-            roles: Vec::new(),
-            binary: None,
-            max_depth: default_max_depth(),
-            cancel_grace_ms: default_cancel_grace_ms(),
-            max_parallel: default_max_parallel(),
-            max_idle_processes: default_max_idle_processes(),
-        }
-    }
-}
-
-/// Роль process-runner-а.
-#[derive(Debug, Clone, Deserialize)]
-pub(super) struct ProcessRoleConfig {
-    pub name: String,
-    pub description: String,
-    /// Named config (или путь к config-файлу) ребёнка — передаётся в
-    /// `--config`. Безопасность роли структурная: policy/tools/model
-    /// задаются этим конфигом, а не промптом.
-    pub config: String,
-    /// Опциональный префикс к тексту задачи (не системный prompt ребёнка —
-    /// system-слой владеет config роли).
-    #[serde(default)]
-    pub prompt: Option<String>,
-    /// Дополнительные CLI-аргументы ребёнка (например, `--permission-mode`).
-    #[serde(default)]
-    pub args: Vec<String>,
-    /// Роль можно запускать конкурентно рядом с другими субагентами
-    /// (декларация оператора: config ребёнка должен быть read-only
-    /// профилем).
-    #[serde(default)]
-    pub parallel_safe: bool,
-    /// Изоляция рабочей копии: `"worktree"` — каждый fresh запуск роли
-    /// получает собственный git worktree (для пишущих ролей; тоже даёт
-    /// право на конкурентный запуск).
-    #[serde(default)]
-    pub isolation: Option<String>,
-    /// Максимум одновременных процессов роли. По умолчанию 4 для
-    /// `parallel_safe`/worktree-ролей и 1 для остальных.
-    #[serde(default)]
-    pub max_processes: Option<usize>,
-    #[serde(default)]
-    pub timeout_ms: Option<u64>,
-    #[serde(default)]
-    pub max_summary_bytes: Option<usize>,
-    /// Token-бюджет запуска: потолок суммы input+output model-запросов
-    /// ребёнка (по `TokenUsageUpdated` событиям под child ThreadId).
-    #[serde(default)]
-    pub max_total_tokens: Option<u64>,
-}
-
-impl ProcessRoleConfig {
-    /// Размер пула процессов роли (минимум 1).
-    pub(super) fn effective_max_processes(&self) -> usize {
-        match self.max_processes {
-            Some(max_processes) => max_processes.max(1),
-            None if self.parallel_safe || self.isolation.is_some() => {
-                default_parallel_max_processes()
-            }
-            None => 1,
-        }
-    }
-}
-
-fn default_max_depth() -> u64 {
-    1
-}
-
-fn default_cancel_grace_ms() -> u64 {
-    5_000
-}
-
-fn default_max_parallel() -> usize {
-    8
-}
-
-fn default_max_idle_processes() -> usize {
-    8
-}
-
-fn default_parallel_max_processes() -> usize {
-    4
-}
-
-fn parse_isolation(value: Option<&str>) -> Result<SubagentIsolation> {
+fn parse_isolation(value: Option<&str>) -> Result<AgentIsolation> {
     match value {
-        None => Ok(SubagentIsolation::None),
-        Some("worktree") => Ok(SubagentIsolation::Worktree),
+        None => Ok(AgentIsolation::None),
+        Some("worktree") => Ok(AgentIsolation::Worktree),
         Some(other) => bail!("unknown isolation value: {other} (expected \"worktree\")"),
     }
 }
 
-pub(super) fn build_process_role_specs(
-    roles: &[ProcessRoleConfig],
-) -> Result<Vec<SubagentRoleSpec>> {
-    let mut specs: Vec<SubagentRoleSpec> = Vec::with_capacity(roles.len());
+pub(super) fn build_agent_profiles(roles: &[ProcessRoleConfig]) -> Result<Vec<AgentProfile>> {
+    let mut profiles: Vec<AgentProfile> = Vec::with_capacity(roles.len());
     for role in roles {
         if role.name.trim().is_empty() {
-            bail!("subagent role name must not be empty");
+            bail!("agent profile name must not be empty");
         }
         if role.config.trim().is_empty() {
-            bail!("subagent role {} must set a child config", role.name);
+            bail!("agent profile {} must set a child config", role.name);
         }
-        if specs.iter().any(|existing| existing.name == role.name) {
-            bail!("duplicate subagent role: {}", role.name);
+        if profiles.iter().any(|existing| existing.name == role.name) {
+            bail!("duplicate agent profile: {}", role.name);
         }
-        let mut limits = SubagentLimits::default();
-        limits.timeout_ms = role.timeout_ms;
-        limits.max_summary_bytes = role.max_summary_bytes;
-        limits.max_total_tokens = role.max_total_tokens;
         let isolation = parse_isolation(role.isolation.as_deref())
-            .with_context(|| format!("subagent role {}", role.name))?;
-        specs.push(
-            SubagentRoleSpec::new(
-                role.name.clone(),
-                role.description.clone(),
-                role.prompt.clone().unwrap_or_default(),
-            )
-            .with_limits(limits)
-            .with_parallel_safe(role.parallel_safe)
-            .with_isolation(isolation)
-            .with_config(json!({ "config": role.config })),
+            .with_context(|| format!("agent profile {}", role.name))?;
+        profiles.push(
+            AgentProfile::new(role.name.clone(), role.description.clone())
+                .with_parallel_safe(role.parallel_safe)
+                .with_isolation(isolation),
         );
     }
-    Ok(specs)
+    Ok(profiles)
 }
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
     use super::*;
 
-    #[test]
-    fn parses_roles_with_child_configs() {
-        let config: ProcessSubagentConfig = serde_json::from_value(json!({
-            "roles": [
-                {
-                    "name": "explore",
-                    "description": "Read-only explorer",
-                    "config": "sub-explorer",
-                    "timeout_ms": 60000,
-                    "max_summary_bytes": 2048,
-                    "max_total_tokens": 250000
-                }
-            ],
-            "max_depth": 2,
-            "cancel_grace_ms": 1000,
-            "max_idle_processes": 0
-        }))
-        .unwrap();
-
-        assert_eq!(config.max_depth, 2);
-        assert_eq!(config.cancel_grace_ms, 1000);
-        assert_eq!(config.max_idle_processes, 0);
-        let specs = build_process_role_specs(&config.roles).unwrap();
-        assert_eq!(specs.len(), 1);
-        assert_eq!(specs[0].name, "explore");
-        assert_eq!(specs[0].limits.timeout_ms, Some(60000));
-        assert_eq!(specs[0].limits.max_summary_bytes, Some(2048));
-        assert_eq!(specs[0].limits.max_total_tokens, Some(250_000));
-        assert_eq!(specs[0].config["config"], "sub-explorer");
-    }
-
-    #[test]
-    fn idle_process_retention_has_a_bounded_default() {
-        let config = ProcessSubagentConfig::default();
-        assert_eq!(config.max_idle_processes, 8);
-    }
-
-    #[test]
-    fn role_without_child_config_is_rejected() {
-        let error = build_process_role_specs(&[ProcessRoleConfig {
-            name: "explore".to_owned(),
+    fn role(name: &str, config: &str) -> ProcessRoleConfig {
+        ProcessRoleConfig {
+            name: name.to_owned(),
             description: "Explorer".to_owned(),
-            config: "  ".to_owned(),
-            prompt: None,
+            config: config.to_owned(),
             args: Vec::new(),
             parallel_safe: false,
             isolation: None,
             max_processes: None,
             timeout_ms: None,
             max_summary_bytes: None,
-            max_total_tokens: None,
-        }])
-        .unwrap_err();
-        assert!(error.to_string().contains("must set a child config"));
+        }
     }
 
     #[test]
-    fn duplicate_process_roles_are_rejected() {
-        let role = ProcessRoleConfig {
-            name: "explore".to_owned(),
-            description: "Explorer".to_owned(),
-            config: "sub-explorer".to_owned(),
-            prompt: None,
-            args: Vec::new(),
-            parallel_safe: false,
-            isolation: None,
-            max_processes: None,
-            timeout_ms: None,
-            max_summary_bytes: None,
-            max_total_tokens: None,
-        };
-        let error = build_process_role_specs(&[role.clone(), role]).unwrap_err();
-        assert!(error.to_string().contains("duplicate subagent role"));
+    fn projects_only_control_plane_profile_fields() {
+        let mut configured = role("explore", "codex-explorer");
+        configured.parallel_safe = true;
+        configured.timeout_ms = Some(60_000);
+        configured.max_summary_bytes = Some(2_048);
+
+        let profiles = build_agent_profiles(&[configured]).unwrap();
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].name, "explore");
+        assert!(profiles[0].parallel_safe);
     }
 
     #[test]
-    fn parallel_safe_marks_spec_and_widens_default_pool() {
-        let config: ProcessSubagentConfig = serde_json::from_value(json!({
-            "roles": [
-                { "name": "explore", "description": "d", "config": "c", "parallel_safe": true },
-                { "name": "writer", "description": "d", "config": "c" },
-                {
-                    "name": "capped",
-                    "description": "d",
-                    "config": "c",
-                    "parallel_safe": true,
-                    "max_processes": 2
-                }
-            ]
-        }))
-        .unwrap();
-
-        assert_eq!(config.max_parallel, 8, "default runner-level cap");
-        let by_name = |name: &str| {
-            config
-                .roles
-                .iter()
-                .find(|role| role.name == name)
-                .expect("role")
-        };
-        assert_eq!(by_name("explore").effective_max_processes(), 4);
-        assert_eq!(by_name("writer").effective_max_processes(), 1);
-        assert_eq!(by_name("capped").effective_max_processes(), 2);
-
-        let specs = build_process_role_specs(&config.roles).unwrap();
-        assert!(specs[0].parallel_safe);
-        assert!(!specs[1].parallel_safe);
-    }
-
-    #[test]
-    fn worktree_isolation_marks_spec_and_widens_default_pool() {
-        let config: ProcessSubagentConfig = serde_json::from_value(json!({
-            "roles": [
-                { "name": "coder", "description": "d", "config": "c", "isolation": "worktree" }
-            ]
-        }))
-        .unwrap();
-
-        assert_eq!(config.roles[0].effective_max_processes(), 4);
-        let specs = build_process_role_specs(&config.roles).unwrap();
-        assert_eq!(
-            specs[0].isolation,
-            crate::contracts::SubagentIsolation::Worktree
-        );
-        assert!(!specs[0].parallel_safe);
-    }
-
-    #[test]
-    fn unknown_isolation_value_is_rejected() {
-        let config: ProcessSubagentConfig = serde_json::from_value(json!({
-            "roles": [
-                { "name": "coder", "description": "d", "config": "c", "isolation": "container" }
-            ]
-        }))
-        .unwrap();
-
-        let error = build_process_role_specs(&config.roles).unwrap_err();
-        let message = format!("{error:#}");
-        assert!(message.contains("unknown isolation value"), "{message}");
-        assert!(message.contains("coder"), "{message}");
+    fn missing_child_config_and_duplicates_are_rejected() {
+        assert!(build_agent_profiles(&[role("explore", "  ")]).is_err());
+        let duplicate = role("explore", "codex-explorer");
+        assert!(build_agent_profiles(&[duplicate.clone(), duplicate]).is_err());
     }
 }

@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     contracts::{
-        ApprovalPolicy, ApprovalTransport, CancellationToken, ContextBuilder, EventEmitter,
-        ExecutionRecorder, HistoryCompactor, MemoryStore, Model, NoopExecutionRecorder,
-        PatchApplier, SearchBackend, SubagentRunner, ToolExposure, ToolRegistry,
+        AgentControl, ApprovalPolicy, ApprovalTransport, CancellationToken, ContextBuilder,
+        EventEmitter, ExecutionRecorder, HistoryCompactor, MemoryStore, Model,
+        NoopExecutionRecorder, PatchApplier, SearchBackend, ToolExposure, ToolRegistry,
         TurnPermissionGrants, UserInputTransport,
     },
     domain::{
@@ -163,7 +163,7 @@ pub struct RuntimeContext {
     pub patch: Arc<dyn PatchApplier>,
     pub compactor: Arc<dyn HistoryCompactor>,
     pub tool_exposure: Arc<dyn ToolExposure>,
-    pub subagent: Arc<dyn SubagentRunner>,
+    pub agent_control: Option<Arc<dyn AgentControl>>,
     /// Динамическая наблюдаемость session-owned очереди root steering.
     /// Workflow не управляет доставкой: core меняет счётчик и вставляет
     /// сообщения на model boundary самостоятельно.
@@ -202,7 +202,7 @@ impl RuntimeContext {
         patch: Arc<dyn PatchApplier>,
         compactor: Arc<dyn HistoryCompactor>,
         tool_exposure: Arc<dyn ToolExposure>,
-        subagent: Arc<dyn SubagentRunner>,
+        agent_control: Option<Arc<dyn AgentControl>>,
     ) -> Self {
         Self {
             session_id,
@@ -226,7 +226,7 @@ impl RuntimeContext {
             patch,
             compactor,
             tool_exposure,
-            subagent,
+            agent_control,
             queued_user_messages: Arc::new(AtomicUsize::new(0)),
             turn_grants: Arc::default(),
             execution_recorder: Arc::new(NoopExecutionRecorder),

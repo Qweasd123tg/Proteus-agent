@@ -22,7 +22,7 @@ renderer = "statusline"
 # without repeating the common launch topology.
 [components.reference-capabilities.exports.renderer.statusline]
 
-[subagents]
+[agent_control]
 # GLM-профиль сохраняет foreground task surface.
 surface = "task"
 

@@ -67,7 +67,7 @@ fn modules_config_iter_and_set_cover_all_selectable_slots() {
         .filter(|descriptor| descriptor.selection == CoreSlotSelection::ModulesConfig)
         .map(|descriptor| descriptor.kind.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(slots.len(), 10);
+    assert_eq!(slots.len(), 9);
 
     for (index, slot) in slots.into_iter().enumerate() {
         assert!(modules.set_by_slot_id(slot, format!("module-{index}")));
@@ -82,29 +82,47 @@ fn modules_config_iter_and_set_cover_all_selectable_slots() {
 }
 
 #[test]
-fn subagent_surface_defaults_to_task_and_rejects_unknown_values() {
+fn agent_control_surface_defaults_to_task_and_rejects_unknown_values() {
     let default = AppConfig::default();
-    assert_eq!(default.subagents.surface, SubagentSurface::Task);
+    assert_eq!(default.agent_control.surface, AgentControlSurface::Task);
 
     let collaboration = serde_json::from_value::<AppConfig>(serde_json::json!({
         "active_provider": "fake",
         "providers": { "fake": {} },
-        "subagents": { "surface": "collaboration" }
+        "agent_control": { "surface": "collaboration" }
     }))
     .expect("collaboration config");
     assert_eq!(
-        collaboration.subagents.surface,
-        SubagentSurface::Collaboration
+        collaboration.agent_control.surface,
+        AgentControlSurface::Collaboration
     );
 
     assert!(
         serde_json::from_value::<AppConfig>(serde_json::json!({
             "active_provider": "fake",
             "providers": { "fake": {} },
-            "subagents": { "surface": "both" }
+            "agent_control": { "surface": "both" }
         }))
         .is_err()
     );
+}
+
+#[test]
+fn retired_subagent_slot_config_is_rejected_without_compatibility_reader() {
+    for retired in [
+        serde_json::json!({
+            "active_provider": "fake",
+            "providers": { "fake": {} },
+            "subagents": { "surface": "task" }
+        }),
+        serde_json::json!({
+            "active_provider": "fake",
+            "providers": { "fake": {} },
+            "modules": { "subagent": "process" }
+        }),
+    ] {
+        assert!(serde_json::from_value::<AppConfig>(retired).is_err());
+    }
 }
 
 #[test]

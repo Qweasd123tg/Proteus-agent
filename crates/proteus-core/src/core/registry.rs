@@ -4,18 +4,19 @@ use anyhow::Result;
 
 use crate::{
     contracts::{
-        ApprovalPolicy, ContextBuilder, EventEmitter, HistoryCompactor, MemoryStore, Model,
-        PatchApplier, Renderer, RuntimeContext, SearchBackend, SubagentRunner, ToolExposure,
-        ToolRegistry, UserInputTransport, Workflow,
+        AgentControl, ApprovalPolicy, ContextBuilder, EventEmitter, HistoryCompactor, MemoryStore,
+        Model, PatchApplier, Renderer, RuntimeContext, SearchBackend, ToolExposure, ToolRegistry,
+        UserInputTransport, Workflow,
     },
     core::{
         AppConfig, AssemblyPlan, HeadlessUserInputTransport, ModeAwarePolicy, ModelService,
         ModuleBuildContext, ModuleCatalog, PolicyBuildContext, PreparedAssembly,
+        ProcessAgentControl,
     },
     domain::{SessionId, ThreadId, TurnId},
     stubs::{
-        DenyAllPolicy, EmptyContextBuilder, NoCompactor, NoMemory, NoSubagent, NoWorkflow,
-        NullPatchApplier, NullSearch, TextRenderer, UnfilteredToolExposure,
+        DenyAllPolicy, EmptyContextBuilder, NoCompactor, NoMemory, NoWorkflow, NullPatchApplier,
+        NullSearch, TextRenderer, UnfilteredToolExposure,
     },
 };
 
@@ -37,7 +38,7 @@ pub struct RuntimeRegistry {
     pub patch: Arc<dyn PatchApplier>,
     pub compactor: Arc<dyn HistoryCompactor>,
     pub tool_exposure: Arc<dyn ToolExposure>,
-    pub subagent: Arc<dyn SubagentRunner>,
+    pub agent_control: Option<Arc<dyn AgentControl>>,
     pub workflow: Arc<dyn Workflow>,
     pub renderer: Arc<dyn Renderer>,
 }
@@ -100,17 +101,20 @@ impl RuntimeRegistry {
                 Some(id) => catalog.build_tool_exposure(id, &build_ctx)?,
                 None => Arc::new(UnfilteredToolExposure),
             };
-        let subagent: Arc<dyn SubagentRunner> =
-            match plan.module_id(crate::domain::ModuleKind::Subagent) {
-                Some(id) => catalog.build_subagent(id, &build_ctx)?,
-                None => Arc::new(NoSubagent),
-            };
+        let agent_control: Option<Arc<dyn AgentControl>> = if config.agent_control.roles.is_empty()
+        {
+            None
+        } else {
+            Some(Arc::new(ProcessAgentControl::from_config(
+                config.agent_control.clone(),
+            )?))
+        };
         let mut tools = catalog.build_tools(
             &build_ctx,
             search.clone(),
             patch.clone(),
             memory.clone(),
-            subagent.clone(),
+            agent_control.clone(),
         )?;
         crate::core::register_provider_hosted_tools(
             &mut tools,
@@ -152,7 +156,7 @@ impl RuntimeRegistry {
             patch,
             compactor,
             tool_exposure,
-            subagent,
+            agent_control,
             workflow,
             renderer,
         })
@@ -209,7 +213,7 @@ impl RuntimeRegistry {
             self.patch.clone(),
             self.compactor.clone(),
             self.tool_exposure.clone(),
-            self.subagent.clone(),
+            self.agent_control.clone(),
         )
         .with_instructions(self.instructions.clone())
     }

@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use crate::{
     contracts::{
-        SubagentIsolation, SubagentRequest, SubagentResult, SubagentRoleSpec, WorkspaceInfo,
+        AgentControlRequest, AgentControlResult, AgentIsolation, AgentProfile, WorkspaceInfo,
     },
     core::workspace as git_workspace,
     domain::{SessionId, ToolCall, ToolResult},
@@ -27,12 +27,12 @@ struct WorkspaceRecord {
 }
 
 pub(super) async fn prepare_workspace(
-    request: &mut SubagentRequest,
+    request: &mut AgentControlRequest,
     call: &ToolCall,
-    role: &SubagentRoleSpec,
+    role: &AgentProfile,
     session_id: Option<SessionId>,
 ) -> Result<Option<PreparedWorkspace>, String> {
-    if role.isolation != SubagentIsolation::Worktree {
+    if role.isolation != AgentIsolation::Worktree {
         return Ok(None);
     }
     let resume_task_id = request
@@ -77,7 +77,7 @@ pub(super) async fn prepare_workspace(
 
 pub(super) async fn finalize_workspace(
     workspace: Option<PreparedWorkspace>,
-    result: &SubagentResult,
+    result: &AgentControlResult,
 ) -> Option<String> {
     let workspace = workspace?;
     if let Some(task_id) = workspace.resume_task_id.as_deref() {
@@ -181,7 +181,7 @@ fn workspace_name(role: &str, call_id: &str) -> String {
         .to_owned()
 }
 
-pub(super) fn child_task_id(result: &SubagentResult) -> Option<String> {
+pub(super) fn child_task_id(result: &AgentControlResult) -> Option<String> {
     result
         .metadata
         .get("resumable")

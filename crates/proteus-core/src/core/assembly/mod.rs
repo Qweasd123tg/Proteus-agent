@@ -138,7 +138,7 @@ impl AssemblyPlan {
                 .iter()
                 .map(|server| server.name.clone())
                 .collect(),
-            subagent_surface: config.subagents.surface.as_str().to_owned(),
+            subagent_surface: config.agent_control.surface.as_str().to_owned(),
         };
 
         Ok(Self {

@@ -188,10 +188,11 @@ Reference crates линкуются только внутрь `proteus-reference
 6. Добавить protocol и runtime swap evidence, затем обновить
    `docs/architecture/modules.md` и `docs/guides/configuration.md`.
 
-Model provider adapters и `SubagentRunner` пока остаются явно учтёнными
-core-owned границами; это следующие кандидаты на отдельные process contracts,
-а не основание возвращать общий native loader. Marketplace, package manager,
-hot reload и sandbox не входят в текущий process runtime.
+Model provider adapters пока остаются явно учтённой core-owned selectable
+границей. `AgentControl` — отдельный root-owned service для полных Proteus
+peers, а не behavior slot или основание возвращать общий native loader.
+Marketplace, package manager, hot reload и sandbox не входят в текущий process
+runtime.
 
 ## Как Добавлять И Проверять Фичу
 

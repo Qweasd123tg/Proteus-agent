@@ -321,12 +321,12 @@ pub(super) async fn persist_config_builder(path: &Path, config: &AppConfig) -> R
     }
 
     if doc
-        .get("subagents")
+        .get("agent_control")
         .is_none_or(|item| !item.is_table_like())
     {
-        doc["subagents"] = toml_edit::table();
+        doc["agent_control"] = toml_edit::table();
     }
-    doc["subagents"]["surface"] = toml_edit::value(config.subagents.surface.as_str());
+    doc["agent_control"]["surface"] = toml_edit::value(config.agent_control.surface.as_str());
 
     let module_config_doc = module_config_toml_document(&config.module_config)?;
     if let Some(item) = module_config_doc.as_table().get("module_config") {

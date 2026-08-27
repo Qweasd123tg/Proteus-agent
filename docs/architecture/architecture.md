@@ -236,19 +236,18 @@ sandbox policy.
 
 ## Core-Owned Границы
 
-После удаления dylib остаются две явные категории selectable implementations,
-которые ещё не processized:
+После удаления dylib остаётся одна категория selectable implementations,
+которая ещё не processized:
 
 - model provider adapters `fake`, `openai`, `openai_compatible`,
-  `anthropic`;
-- process-backed `SubagentRunner`.
+  `anthropic`.
 
 Provider shaping допускается только в
 `crates/proteus-core/src/adapters` и model shaping layer. Эти границы нельзя
 использовать для добавления произвольных modules. Model migration требует
-полного slot contract и parity evidence. Для subagent принят отдельный тип
-границы: полный Proteus общается с другим полным Proteus через agent-control
-process contract, а не публикует себя как обычный Component Runtime export.
+полного slot contract и parity evidence. Subagents обслуживает отдельный
+root-owned `AgentControl`: полный Proteus общается с другим полным Proteus,
+а не публикует себя как обычный Component Runtime export.
 
 ## Proteus-To-Proteus Subagents
 

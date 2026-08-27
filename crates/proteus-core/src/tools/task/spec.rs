@@ -1,11 +1,11 @@
 use serde_json::json;
 
 use crate::{
-    contracts::{SubagentIsolation, SubagentRoleSpec},
+    contracts::{AgentIsolation, AgentProfile},
     domain::{ToolSafety, ToolSpec},
 };
 
-pub(super) fn task_tool_spec(roles: &[SubagentRoleSpec], timeout_ms: u64) -> ToolSpec {
+pub(super) fn task_tool_spec(roles: &[AgentProfile], timeout_ms: u64) -> ToolSpec {
     let role_description = roles
         .iter()
         .map(|role| {
@@ -13,7 +13,7 @@ pub(super) fn task_tool_spec(roles: &[SubagentRoleSpec], timeout_ms: u64) -> Too
             if role.parallel_safe {
                 markers.push("parallel-safe");
             }
-            if role.isolation == SubagentIsolation::Worktree {
+            if role.isolation == AgentIsolation::Worktree {
                 markers.push("worktree-isolated");
             }
             if markers.is_empty() {
@@ -36,7 +36,7 @@ pub(super) fn task_tool_spec(roles: &[SubagentRoleSpec], timeout_ms: u64) -> Too
     };
     let worktree_line = if roles
         .iter()
-        .any(|role| role.isolation == SubagentIsolation::Worktree)
+        .any(|role| role.isolation == AgentIsolation::Worktree)
     {
         "\nWorktree-isolated roles work in their own git worktree branched from the current HEAD. NOTHING is merged automatically: review and merge the reported branch yourself, then remove the worktree."
     } else {
@@ -85,6 +85,6 @@ Do the work yourself when it needs your accumulated context, close supervision, 
     }))
 }
 
-pub(super) fn is_parallel_eligible(role: &SubagentRoleSpec) -> bool {
-    role.parallel_safe || role.isolation == SubagentIsolation::Worktree
+pub(super) fn is_parallel_eligible(role: &AgentProfile) -> bool {
+    role.parallel_safe || role.isolation == AgentIsolation::Worktree
 }

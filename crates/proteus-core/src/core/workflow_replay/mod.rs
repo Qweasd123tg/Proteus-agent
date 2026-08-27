@@ -9,7 +9,7 @@ use crate::{
         ModeAwarePolicy, ModelService, ModuleBuildContext, ModuleCatalog, PolicyBuildContext,
         TurnSettlementStatus, prepare_history_update,
     },
-    stubs::{NoMemory, NoSubagent, NullPatchApplier, NullSearch},
+    stubs::{NoMemory, NullPatchApplier, NullSearch},
 };
 
 mod fixture;
@@ -138,7 +138,7 @@ pub async fn replay_workflow(
         Arc::new(NullPatchApplier),
         Arc::new(ReplayCompactor::new(state.clone())),
         Arc::new(ReplayToolExposure::new(state.clone())),
-        Arc::new(NoSubagent),
+        None,
     )
     .with_instructions(replay_config.instruction_blocks());
     runtime_context.execution_recorder = state.clone();

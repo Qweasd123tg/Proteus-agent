@@ -209,7 +209,13 @@ async fn execute_tool_batch(
             while queue.peek().is_some_and(|call| call.name == TASK_TOOL) {
                 group.push(queue.next().expect("peeked task call"));
             }
-            if calls_are_parallel_eligible(&group, &ctx.subagent.roles()) {
+            if calls_are_parallel_eligible(
+                &group,
+                &ctx.agent_control
+                    .as_ref()
+                    .map(|control| control.profiles())
+                    .unwrap_or_default(),
+            ) {
                 let outputs = futures_util::future::join_all(
                     group
                         .into_iter()

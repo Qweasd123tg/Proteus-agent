@@ -11,8 +11,9 @@ use tokio::time::sleep;
 
 use crate::{
     contracts::{
+        AgentControlHandle, AgentControlRequest, AgentControlResult, AgentControlToolHost,
         ApprovalRequest, PolicyContext, PolicyVisibilityContext, RequestOrigin, RuntimeContext,
-        SubagentRequest, SubagentResult, SubagentToolHost, ToolContext,
+        ToolContext,
     },
     domain::{
         AgentTask, Event, PolicyDecision, ToolCall, ToolCallResolution, ToolResult, ToolSpec,
@@ -293,9 +294,11 @@ impl ToolOrchestrator {
                 ),
             )),
             task: Some(task.clone()),
-            subagent: Some(std::sync::Arc::new(RuntimeSubagentToolHost {
-                ctx: ctx.clone().with_cancellation(tool_cancellation.clone()),
-            })),
+            agent_control: ctx.agent_control.as_ref().map(|_| {
+                std::sync::Arc::new(RuntimeAgentControlToolHost {
+                    ctx: ctx.clone().with_cancellation(tool_cancellation.clone()),
+                }) as std::sync::Arc<dyn AgentControlToolHost>
+            }),
         };
         let timeout_future = async move {
             if timeout_ms == 0 {
@@ -416,44 +419,63 @@ fn visibility_decision_allows(
 /// Per-invocation adapter from the narrow tool capability back to the current
 /// runtime context. `TaskTool` cannot retain or construct RuntimeContext on its
 /// own; every call is therefore bound to the caller's thread/turn here.
-struct RuntimeSubagentToolHost {
+struct RuntimeAgentControlToolHost {
     ctx: RuntimeContext,
 }
 
 #[async_trait]
-impl SubagentToolHost for RuntimeSubagentToolHost {
+impl AgentControlToolHost for RuntimeAgentControlToolHost {
     fn session_id(&self) -> Option<crate::domain::SessionId> {
         Some(self.ctx.session_id)
     }
 
-    async fn run_subagent(&self, request: SubagentRequest) -> Result<SubagentResult> {
-        self.ctx.subagent.run(request, self.ctx.clone()).await
+    async fn run_agent(&self, request: AgentControlRequest) -> Result<AgentControlResult> {
+        self.ctx
+            .agent_control
+            .as_ref()
+            .ok_or_else(|| anyhow!("agent control is disabled"))?
+            .run(request, self.ctx.clone())
+            .await
     }
 
-    async fn spawn_subagent(
+    async fn spawn_agent(&self, request: AgentControlRequest) -> Result<AgentControlHandle> {
+        self.ctx
+            .agent_control
+            .as_ref()
+            .ok_or_else(|| anyhow!("agent control is disabled"))?
+            .spawn(request, self.ctx.clone())
+            .await
+    }
+
+    async fn wait_agent(&self, handle: &AgentControlHandle) -> Result<AgentControlResult> {
+        self.ctx
+            .agent_control
+            .as_ref()
+            .ok_or_else(|| anyhow!("agent control is disabled"))?
+            .wait(handle)
+            .await
+    }
+
+    async fn cancel_agent(&self, handle: &AgentControlHandle) -> Result<()> {
+        self.ctx
+            .agent_control
+            .as_ref()
+            .ok_or_else(|| anyhow!("agent control is disabled"))?
+            .cancel(handle)
+            .await
+    }
+
+    async fn send_agent(
         &self,
-        request: SubagentRequest,
-    ) -> Result<crate::contracts::SubagentHandle> {
-        self.ctx.subagent.spawn(request, self.ctx.clone()).await
-    }
-
-    async fn wait_subagent(
-        &self,
-        handle: &crate::contracts::SubagentHandle,
-    ) -> Result<SubagentResult> {
-        self.ctx.subagent.wait(handle).await
-    }
-
-    async fn cancel_subagent(&self, handle: &crate::contracts::SubagentHandle) -> Result<()> {
-        self.ctx.subagent.cancel(handle).await
-    }
-
-    async fn send_subagent(
-        &self,
-        handle: &crate::contracts::SubagentHandle,
+        handle: &AgentControlHandle,
         message: crate::contracts::AgentControlMessage,
     ) -> Result<()> {
-        self.ctx.subagent.send(handle, message).await
+        self.ctx
+            .agent_control
+            .as_ref()
+            .ok_or_else(|| anyhow!("agent control is disabled"))?
+            .send(handle, message)
+            .await
     }
 }
 

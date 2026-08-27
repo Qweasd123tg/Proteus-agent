@@ -17,8 +17,8 @@ use super::{
 };
 use crate::{
     contracts::{
-        AgentAddress, AgentControlMessage, AgentDeliveryDisposition, AgentMessageReceipt,
-        MAX_AGENT_MESSAGE_BYTES, SubagentRequest, Tool, ToolContext,
+        AgentAddress, AgentControlMessage, AgentControlRequest, AgentDeliveryDisposition,
+        AgentMessageReceipt, MAX_AGENT_MESSAGE_BYTES, Tool, ToolContext,
     },
     domain::{ToolCall, ToolResult, ToolSpec},
 };
@@ -60,7 +60,7 @@ impl Tool for SendMessageTool {
             Ok(message) => message,
             Err(error) => return Ok(tool_error(call, "send_message", error.to_string())),
         };
-        if let Err(error) = running.owner.send_subagent(&running.handle, message).await {
+        if let Err(error) = running.owner.send_agent(&running.handle, message).await {
             return Ok(tool_error(call, "send_message", format!("{error:#}")));
         }
         Ok(json_result(
@@ -118,7 +118,7 @@ impl Tool for FollowupTaskTool {
                         return Ok(tool_error(call, "followup_task", error.to_string()));
                     }
                 };
-                if let Err(error) = running.owner.send_subagent(&running.handle, message).await {
+                if let Err(error) = running.owner.send_agent(&running.handle, message).await {
                     return Ok(tool_error(call, "followup_task", format!("{error:#}")));
                 }
                 Ok(json_result(
@@ -151,15 +151,16 @@ impl Tool for FollowupTaskTool {
                         return Ok(tool_error(call, "followup_task", error.to_string()));
                     }
                 };
-                let request = SubagentRequest::new(&idle.role, message.model_text(), parent_task)
-                    .with_description(idle.task_name.clone())
-                    .with_metadata(json!({
-                        "control_plane_owned": true,
-                        "agent_control_target": idle.path,
-                        "task_id": idle.task_id,
-                        "agent_control_message": message,
-                    }));
-                let handle = match current_host.spawn_subagent(request).await {
+                let request =
+                    AgentControlRequest::new(&idle.role, message.model_text(), parent_task)
+                        .with_description(idle.task_name.clone())
+                        .with_metadata(json!({
+                            "control_plane_owned": true,
+                            "agent_control_target": idle.path,
+                            "task_id": idle.task_id,
+                            "agent_control_message": message,
+                        }));
+                let handle = match current_host.spawn_agent(request).await {
                     Ok(handle) => handle,
                     Err(error) => {
                         self.control
@@ -175,7 +176,7 @@ impl Tool for FollowupTaskTool {
                 ) {
                     Ok(interrupt_requested) => interrupt_requested,
                     Err(error) => {
-                        let _ = current_host.cancel_subagent(&handle).await;
+                        let _ = current_host.cancel_agent(&handle).await;
                         self.control
                             .abort_followup(session_id, &idle.path, idle.generation);
                         return Ok(tool_error(call, "followup_task", error.to_string()));
@@ -189,8 +190,7 @@ impl Tool for FollowupTaskTool {
                     idle.generation,
                     handle.clone(),
                 );
-                if interrupt_requested
-                    && let Err(error) = current_host.cancel_subagent(&handle).await
+                if interrupt_requested && let Err(error) = current_host.cancel_agent(&handle).await
                 {
                     return Ok(tool_error(call, "followup_task", format!("{error:#}")));
                 }

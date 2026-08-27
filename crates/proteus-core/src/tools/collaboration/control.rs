@@ -9,8 +9,8 @@ use tokio::sync::Notify;
 
 use crate::{
     contracts::{
-        AgentAddress, AgentLifecycleStatus, AgentRecordSnapshot, SubagentHandle, SubagentResult,
-        SubagentStatus, SubagentToolHost,
+        AgentAddress, AgentControlHandle, AgentControlResult, AgentControlToolHost,
+        AgentLifecycleStatus, AgentRecordSnapshot,
     },
     domain::{SessionId, ThreadId},
 };
@@ -44,8 +44,8 @@ struct AgentRecord {
     seq: u64,
     task_name: String,
     role: String,
-    handle: Option<SubagentHandle>,
-    owner: Option<Arc<dyn SubagentToolHost>>,
+    handle: Option<AgentControlHandle>,
+    owner: Option<Arc<dyn AgentControlToolHost>>,
     interrupt_requested: bool,
     generation: u64,
     reserved_generation: Option<u64>,
@@ -69,8 +69,8 @@ pub(super) struct AgentReservation {
 
 pub(super) struct RunningAgent {
     pub path: String,
-    pub owner: Arc<dyn SubagentToolHost>,
-    pub handle: SubagentHandle,
+    pub owner: Arc<dyn AgentControlToolHost>,
+    pub handle: AgentControlHandle,
 }
 
 pub(super) struct IdleFollowup {
@@ -88,7 +88,7 @@ pub(super) enum FollowupRequest {
 
 pub(super) struct InterruptRequest {
     pub path: String,
-    pub owned_handle: Option<(Arc<dyn SubagentToolHost>, SubagentHandle)>,
+    pub owned_handle: Option<(Arc<dyn AgentControlToolHost>, AgentControlHandle)>,
     pub terminal: bool,
 }
 
@@ -151,8 +151,8 @@ impl CollaborationControl {
         session_id: SessionId,
         path: &str,
         generation: u64,
-        handle: SubagentHandle,
-        owner: Arc<dyn SubagentToolHost>,
+        handle: AgentControlHandle,
+        owner: Arc<dyn AgentControlToolHost>,
     ) -> Result<bool> {
         let mut state = self.lock()?;
         let record = state
@@ -176,7 +176,7 @@ impl CollaborationControl {
         session_id: SessionId,
         path: &str,
         generation: u64,
-        result: Result<SubagentResult>,
+        result: Result<AgentControlResult>,
     ) {
         let notify = {
             let Ok(mut state) = self.lock() else {
@@ -349,8 +349,8 @@ impl CollaborationControl {
         &self,
         session_id: SessionId,
         followup: &IdleFollowup,
-        handle: SubagentHandle,
-        owner: Arc<dyn SubagentToolHost>,
+        handle: AgentControlHandle,
+        owner: Arc<dyn AgentControlToolHost>,
     ) -> Result<bool> {
         let mut state = self.lock()?;
         let record = state
@@ -536,7 +536,7 @@ fn view(path: &str, record: &AgentRecord, include_payload: bool) -> AgentRecordS
     }
 }
 
-fn compact_result(result: SubagentResult) -> AgentOutcome {
+fn compact_result(result: AgentControlResult) -> AgentOutcome {
     let child_thread_id = result
         .metadata
         .get("resumable")
@@ -544,20 +544,9 @@ fn compact_result(result: SubagentResult) -> AgentOutcome {
         .filter(|resumable| *resumable)
         .and(result.child_thread_id);
     AgentOutcome::Result {
-        status: lifecycle_status(result.status),
+        status: result.status,
         child_thread_id,
         summary: truncate_utf8(result.summary, MAX_RETAINED_SUMMARY_BYTES),
-    }
-}
-
-fn lifecycle_status(status: SubagentStatus) -> AgentLifecycleStatus {
-    match status {
-        SubagentStatus::Completed => AgentLifecycleStatus::Completed,
-        SubagentStatus::MaxIterationsReached => AgentLifecycleStatus::MaxIterationsReached,
-        SubagentStatus::TimedOut => AgentLifecycleStatus::TimedOut,
-        SubagentStatus::Cancelled => AgentLifecycleStatus::Cancelled,
-        SubagentStatus::TokenBudgetExceeded => AgentLifecycleStatus::TokenBudgetExceeded,
-        _ => AgentLifecycleStatus::Unknown,
     }
 }
 

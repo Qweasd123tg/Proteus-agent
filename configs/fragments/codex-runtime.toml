@@ -22,7 +22,6 @@ policy = "codex_policy"
 patch = "direct"
 compactor = "codex"
 tool_exposure = "codex_dynamic"
-subagent = "process"
 
 [components.reference-workflow]
 command = "proteus-reference-worker"
@@ -60,13 +59,13 @@ mode = "normal"
 [module_config.compactor.codex]
 trigger_fraction = 0.8
 
-[module_config.subagent.process]
+[agent_control]
 max_depth = 1
 cancel_grace_ms = 5000
 max_parallel = 8
 max_idle_processes = 8
 
-[[module_config.subagent.process.roles]]
+[[agent_control.roles]]
 name = "explore"
 description = "Read-only codebase explorer for focused research questions (find definitions, trace call paths, map structure). Returns concise findings with file paths and line numbers."
 config = "codex-explore"
@@ -76,7 +75,7 @@ max_processes = 4
 timeout_ms = 14400000
 max_summary_bytes = 8192
 
-[[module_config.subagent.process.roles]]
+[[agent_control.roles]]
 name = "coder"
 description = "Isolated coder for a self-contained code change. Works in its own git worktree and commits to its own branch; the parent reviews and merges the branch afterwards."
 config = "codex-coder"

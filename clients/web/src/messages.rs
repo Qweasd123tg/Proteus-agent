@@ -522,7 +522,7 @@ fn interrupt_tool(tool: &mut ToolActivity, now_ms: u64) -> bool {
 /// subagent facade tools (он эмитит ToolCallRequested перед запуском ребёнка),
 /// активность прикрепляется к нему — одна карточка вместо дубля «task +
 /// субагент», как и в снапшоте turn progress. Иначе — отдельная карточка
-/// (другой workflow может звать SubagentRunner без tool `task`). Повтор
+/// (другой workflow может звать AgentControl без tool `task`). Повтор
 /// события для уже бегущего child_thread_id игнорируется; resume завершённой
 /// задачи (тот же thread, новый вызов task) — новая карточка.
 pub(crate) fn push_subagent_message(

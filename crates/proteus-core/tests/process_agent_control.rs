@@ -5,20 +5,20 @@ use std::{path::PathBuf, sync::Arc};
 
 use proteus_core::{
     contracts::{
-        AgentAddress, AgentControlMessage, ApprovalPolicy, EventEmitter, PolicyContext,
-        PolicyVisibilityContext, SubagentRequest, SubagentRunner, SubagentStatus, ToolRegistry,
+        AgentAddress, AgentControl, AgentControlMessage, AgentControlRequest, AgentLifecycleStatus,
+        ApprovalPolicy, EventEmitter, PolicyContext, PolicyVisibilityContext, ToolRegistry,
     },
     core::{
-        HeadlessApprovalTransport, HeadlessUserInputTransport, InMemoryEventStore,
-        ProcessSubagentRunner,
+        AgentControlConfig, HeadlessApprovalTransport, HeadlessUserInputTransport,
+        InMemoryEventStore, ProcessAgentControl,
     },
     domain::{
         AgentTask, ModelRef, PolicyDecision, ReasoningConfig, ToolCall, new_session_id,
         new_thread_id, new_turn_id,
     },
     stubs::{
-        EmptyContextBuilder, FakeModelClient, NoCompactor, NoMemory, NoSubagent, NullPatchApplier,
-        NullSearch, UnfilteredToolExposure,
+        EmptyContextBuilder, FakeModelClient, NoCompactor, NoMemory, NullPatchApplier, NullSearch,
+        UnfilteredToolExposure,
     },
 };
 use serde_json::json;
@@ -56,7 +56,7 @@ fn test_runtime_context() -> proteus_core::contracts::RuntimeContext {
         Arc::new(NullPatchApplier),
         Arc::new(NoCompactor),
         Arc::new(UnfilteredToolExposure),
-        Arc::new(NoSubagent),
+        None,
     )
 }
 
@@ -118,8 +118,8 @@ fn collaboration_request(
     target: &str,
     prompt: &str,
     task: AgentTask,
-) -> SubagentRequest {
-    SubagentRequest::new(role, prompt, task).with_metadata(json!({
+) -> AgentControlRequest {
+    AgentControlRequest::new(role, prompt, task).with_metadata(json!({
         "control_plane_owned": true,
         "agent_control_target": AgentAddress::child(target)
             .expect("agent target")
@@ -127,8 +127,8 @@ fn collaboration_request(
     }))
 }
 
-fn messaging_runner(config_path: &std::path::Path) -> ProcessSubagentRunner {
-    ProcessSubagentRunner::from_config(json!({
+fn messaging_runner(config_path: &std::path::Path) -> ProcessAgentControl {
+    runner_from_json(json!({
         "binary": proteus_binary(),
         "max_parallel": 2,
         "roles": [
@@ -142,13 +142,17 @@ fn messaging_runner(config_path: &std::path::Path) -> ProcessSubagentRunner {
             }
         ]
     }))
-    .expect("build process runner")
 }
 
 fn proteus_binary() -> PathBuf {
     std::env::var_os("PROTEUS_TEST_BINARY")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_proteus")))
+}
+
+fn runner_from_json(value: serde_json::Value) -> ProcessAgentControl {
+    let config: AgentControlConfig = serde_json::from_value(value).expect("agent control config");
+    ProcessAgentControl::from_config(config).expect("build process runner")
 }
 
 #[cfg(unix)]
@@ -206,7 +210,7 @@ async fn process_agents_route_bounded_messages_without_cross_delivery() {
     let workspace = tempfile::tempdir().expect("workspace");
     let config_path = write_messaging_child_config(config_home.path());
     let runner = messaging_runner(&config_path);
-    assert!(runner.supports_collaboration_messages());
+    assert_eq!(runner.profiles().len(), 1);
 
     let ctx = test_runtime_context();
     let task = AgentTask::new("delegate", workspace.path().to_path_buf());
@@ -262,8 +266,8 @@ async fn process_agents_route_bounded_messages_without_cross_delivery() {
     let (alpha, beta) = tokio::join!(runner.wait(&alpha), runner.wait(&beta));
     let alpha = alpha.expect("alpha result");
     let beta = beta.expect("beta result");
-    assert_eq!(alpha.status, SubagentStatus::Completed);
-    assert_eq!(beta.status, SubagentStatus::Completed);
+    assert_eq!(alpha.status, AgentLifecycleStatus::Completed);
+    assert_eq!(beta.status, AgentLifecycleStatus::Completed);
     assert!(
         alpha.summary.contains("alpha-second-payload"),
         "{}",
@@ -289,7 +293,7 @@ async fn process_agents_route_bounded_messages_without_cross_delivery() {
 
     let unowned = runner
         .spawn(
-            SubagentRequest::new(
+            AgentControlRequest::new(
                 "helper",
                 "not addressable",
                 AgentTask::new("delegate", workspace.path().to_path_buf()),
@@ -311,7 +315,7 @@ async fn process_agents_route_bounded_messages_without_cross_delivery() {
     runner.cancel(&unowned).await.expect("cancel unowned child");
     assert_eq!(
         runner.wait(&unowned).await.expect("unowned result").status,
-        SubagentStatus::Cancelled
+        AgentLifecycleStatus::Cancelled
     );
 }
 
@@ -321,7 +325,7 @@ async fn process_agent_terminal_race_returns_the_message_started_turn() {
     let fixture = tempfile::tempdir().expect("fixture");
     let workspace = tempfile::tempdir().expect("workspace");
     let (binary, marker) = write_terminal_race_peer(fixture.path());
-    let runner = ProcessSubagentRunner::from_config(json!({
+    let runner = runner_from_json(json!({
         "binary": binary,
         "max_parallel": 1,
         "max_idle_processes": 0,
@@ -333,8 +337,7 @@ async fn process_agent_terminal_race_returns_the_message_started_turn() {
             "max_processes": 1,
             "timeout_ms": 10000
         }]
-    }))
-    .expect("build terminal-race runner");
+    }));
     let handle = runner
         .spawn(
             collaboration_request(
@@ -361,7 +364,7 @@ async fn process_agent_terminal_race_returns_the_message_started_turn() {
         .expect("queue message during terminal race");
 
     let result = runner.wait(&handle).await.expect("terminal-race result");
-    assert_eq!(result.status, SubagentStatus::Completed);
+    assert_eq!(result.status, AgentLifecycleStatus::Completed);
     assert!(
         result.summary.contains("terminal-race-payload"),
         "message-started turn must supersede the initial result: {}",
@@ -412,10 +415,10 @@ async fn process_agent_cancel_is_targeted_and_closes_only_its_mailbox() {
     let (cancelled, survivor) = tokio::join!(runner.wait(&cancelled), runner.wait(&survivor));
     assert_eq!(
         cancelled.expect("cancelled result").status,
-        SubagentStatus::Cancelled
+        AgentLifecycleStatus::Cancelled
     );
     let survivor = survivor.expect("survivor result");
-    assert_eq!(survivor.status, SubagentStatus::Completed);
+    assert_eq!(survivor.status, AgentLifecycleStatus::Completed);
     assert!(survivor.summary.contains("survivor-after-cancel"));
 }
 
@@ -425,7 +428,7 @@ async fn process_agent_startup_crash_does_not_fail_a_live_sibling() {
     let workspace = tempfile::tempdir().expect("workspace");
     let good_config = write_messaging_child_config(config_home.path());
     let missing_config = config_home.path().join("missing-child.toml");
-    let runner = ProcessSubagentRunner::from_config(json!({
+    let runner = runner_from_json(json!({
         "binary": proteus_binary(),
         "max_parallel": 2,
         "roles": [
@@ -446,14 +449,13 @@ async fn process_agent_startup_crash_does_not_fail_a_live_sibling() {
                 "timeout_ms": 60000
             }
         ]
-    }))
-    .expect("build process runner");
+    }));
     let ctx = test_runtime_context();
     let task = AgentTask::new("delegate", workspace.path().to_path_buf());
 
     let broken = runner
         .spawn(
-            SubagentRequest::new("broken", "fail", task.clone()),
+            AgentControlRequest::new("broken", "fail", task.clone()),
             ctx.clone(),
         )
         .await
@@ -474,6 +476,6 @@ async fn process_agent_startup_crash_does_not_fail_a_live_sibling() {
         "{broken:#}"
     );
     let good = good.expect("healthy sibling result");
-    assert_eq!(good.status, SubagentStatus::Completed);
+    assert_eq!(good.status, AgentLifecycleStatus::Completed);
     assert!(good.summary.contains("healthy-sibling-result"));
 }

@@ -14,11 +14,9 @@ use super::{
 };
 use crate::{
     contracts::{
-        ApprovalRequest, BudgetTracker, RequestOrigin, RuntimeContext, SubagentStatus,
-        UserInputResponse,
+        AgentLifecycleStatus, ApprovalRequest, RequestOrigin, RuntimeContext, UserInputResponse,
     },
     domain::{AgentOutput, Event, EventContext, ThreadId, new_call_id},
-    model_standard::TokenUsage,
 };
 
 /// Сколько ждать ответ ребёнка на служебные запросы (`ClearHistory`).
@@ -27,13 +25,12 @@ const CONTROL_RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Терминальный исход turn-а ребёнка (fatal-ошибки идут через `Err`).
 pub(super) enum TurnEnd {
     Completed(String),
-    Interrupted(SubagentStatus),
+    Interrupted(AgentLifecycleStatus),
 }
 
 #[derive(Default)]
 pub(super) struct TurnTracker {
     pub(super) iterations: u32,
-    pub(super) usage: Option<TokenUsage>,
     /// Текст завершённых model-ответов и хвост текущего стрима — единственный
     /// источник partial summary при cancel/timeout.
     last_text: Option<String>,
@@ -42,19 +39,9 @@ pub(super) struct TurnTracker {
     /// Messages confirmed by the peer app-server during this logical
     /// generation. The initial task prompt is not counted.
     pub(super) delivered_messages: u64,
-    /// Token-бюджет запуска (`SubagentLimits::max_total_tokens`). Скоупится
-    /// на запуск, не на task_id: resume получает новое окно.
-    pub(super) budget: BudgetTracker,
 }
 
 impl TurnTracker {
-    pub(super) fn with_budget(max_total_tokens: Option<u64>) -> Self {
-        Self {
-            budget: BudgetTracker::new(max_total_tokens),
-            ..Self::default()
-        }
-    }
-
     pub(super) fn observe(&mut self, event: &Event) {
         match event {
             Event::ModelRequestPrepared { .. } => {
@@ -69,12 +56,6 @@ impl TurnTracker {
                     self.last_text = Some(std::mem::take(&mut self.stream_buffer));
                 } else {
                     self.stream_buffer.clear();
-                }
-            }
-            Event::TokenUsageUpdated { usage } => {
-                if let Some(actual) = usage.actual.as_ref() {
-                    super::outcome::accumulate_usage(&mut self.usage, Some(actual));
-                    self.budget.record(Some(actual));
                 }
             }
             _ => {}
@@ -205,17 +186,6 @@ pub(super) async fn drive_turn(
             return finish_cancelled(child, forwarder, &active_send_id, tracker, cancel_grace)
                 .await;
         }
-        if tracker.budget.exceeded() && !tracker.cancel_sent {
-            return finish_interrupted_with(
-                child,
-                forwarder,
-                &active_send_id,
-                tracker,
-                cancel_grace,
-                SubagentStatus::TokenBudgetExceeded,
-            )
-            .await;
-        }
 
         let delivery_guard = mailbox.lock_delivery().await;
         if forwarder.ctx.cancellation.is_cancelled() && !tracker.cancel_sent {
@@ -311,7 +281,7 @@ async fn finish_cancelled(
         send_id,
         tracker,
         cancel_grace,
-        SubagentStatus::Cancelled,
+        AgentLifecycleStatus::Cancelled,
     )
     .await
 }
@@ -322,7 +292,7 @@ async fn finish_interrupted_with(
     send_id: &str,
     tracker: &mut TurnTracker,
     cancel_grace: Duration,
-    status: SubagentStatus,
+    status: AgentLifecycleStatus,
 ) -> Result<TurnEnd> {
     let clean = cancel_child_turn(child, forwarder, send_id, tracker, cancel_grace).await;
     if !clean {
@@ -405,7 +375,7 @@ async fn handle_output(
             }
             if tracker.cancel_sent {
                 return Ok(OutputVerdict::Finished(TurnEnd::Interrupted(
-                    SubagentStatus::Cancelled,
+                    AgentLifecycleStatus::Cancelled,
                 )));
             }
             bail!(

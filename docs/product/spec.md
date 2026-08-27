@@ -68,9 +68,10 @@ workflow, tool, renderer, memory store или model adapter. Debug/visibility
 - YAML declarative modules как отдельный loader.
 
 2026-08-07 единый process cutover бывшей module system завершён: native ABI и
-pseudo-module ids удалены без compatibility shims. Model provider adapters и
-`SubagentRunner` пока остаются двумя явно учтёнными core-owned boundaries;
-решение по ним вынесено в `scope.md`.
+pseudo-module ids удалены без compatibility shims. Model provider adapters
+остаются явно учтённой core-owned selectable boundary. Subagents вынесены из
+module system в root-owned `AgentControl`; решение и ограничения описаны в
+`docs/architecture/subagents.md`.
 
 Stdio MCP tools host для `ConfiguredMcpTool` / `tools.mcp_servers` работает
 через тот же `ToolRegistry` и те же Tool invocation semantics, что process

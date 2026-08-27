@@ -15,7 +15,7 @@ use std::{
 use anyhow::{Result, anyhow, bail};
 use tokio::{sync::Notify, task::JoinHandle};
 
-use crate::contracts::{AgentAddress, AgentControlMessage, CancellationToken, SubagentResult};
+use crate::contracts::{AgentAddress, AgentControlMessage, AgentControlResult, CancellationToken};
 
 use super::mailbox::ChildMailbox;
 
@@ -36,7 +36,7 @@ pub(super) struct PendingChild {
 
 #[derive(Default)]
 pub(super) struct PendingOutcome {
-    result: Mutex<Option<std::result::Result<SubagentResult, String>>>,
+    result: Mutex<Option<std::result::Result<AgentControlResult, String>>>,
     notify: Notify,
 }
 
@@ -90,7 +90,7 @@ impl PendingChildren {
     }
 
     /// Прикрепляет JoinHandle к зарезервированному слоту.
-    pub(super) fn attach(&mut self, spawn_id: &str, join: JoinHandle<Result<SubagentResult>>) {
+    pub(super) fn attach(&mut self, spawn_id: &str, join: JoinHandle<Result<AgentControlResult>>) {
         if let Some(entry) = self.entries.get_mut(spawn_id) {
             let outcome = entry.outcome.clone();
             tokio::spawn(async move {
@@ -178,7 +178,7 @@ impl PendingOutcome {
             .is_some()
     }
 
-    fn complete(&self, result: std::result::Result<SubagentResult, String>) {
+    fn complete(&self, result: std::result::Result<AgentControlResult, String>) {
         *self
             .result
             .lock()
@@ -186,7 +186,7 @@ impl PendingOutcome {
         self.notify.notify_waiters();
     }
 
-    pub(super) async fn wait(&self) -> Result<SubagentResult> {
+    pub(super) async fn wait(&self) -> Result<AgentControlResult> {
         loop {
             let notified = self.notify.notified();
             tokio::pin!(notified);
@@ -207,10 +207,9 @@ impl PendingOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contracts::SubagentStatus;
-
-    fn dummy_join() -> JoinHandle<Result<SubagentResult>> {
-        tokio::spawn(async { Ok(SubagentResult::new("", SubagentStatus::Completed, 0)) })
+    use crate::contracts::AgentLifecycleStatus;
+    fn dummy_join() -> JoinHandle<Result<AgentControlResult>> {
+        tokio::spawn(async { Ok(AgentControlResult::new("", AgentLifecycleStatus::Completed)) })
     }
 
     fn mailbox() -> Arc<ChildMailbox> {
@@ -226,9 +225,9 @@ mod tests {
         pending.attach("a", dummy_join());
         let outcome = pending.outcome("a").expect("outcome");
         let result = outcome.wait().await.expect("result");
-        assert_eq!(result.status, SubagentStatus::Completed);
+        assert_eq!(result.status, AgentLifecycleStatus::Completed);
         let repeated = outcome.wait().await.expect("repeatable result");
-        assert_eq!(repeated.status, SubagentStatus::Completed);
+        assert_eq!(repeated.status, AgentLifecycleStatus::Completed);
     }
 
     #[tokio::test]

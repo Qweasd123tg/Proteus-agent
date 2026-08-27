@@ -420,19 +420,14 @@ max_hot_tools = 16
 ## Subagents
 
 ```toml
-[modules]
-subagent = "process"
-
-[subagents]
+[agent_control]
 surface = "task" # task | collaboration | none
-
-[module_config.subagent.process]
 max_depth = 1
 cancel_grace_ms = 5000
 max_parallel = 8
 max_idle_processes = 8
 
-[[module_config.subagent.process.roles]]
+[[agent_control.roles]]
 name = "explore"
 description = "Read-only codebase explorer."
 config = "codex-explore"
@@ -441,7 +436,7 @@ max_processes = 4
 timeout_ms = 14400000
 max_summary_bytes = 8192
 
-[[module_config.subagent.process.roles]]
+[[agent_control.roles]]
 name = "coder"
 description = "Worktree-isolated coding peer."
 config = "codex-coder"
@@ -458,10 +453,10 @@ tools, policy и содержательные ограничения не нас
 bounds. Packaged `codex.config.toml` использует `codex-explore` и
 `codex-coder`; их tool surfaces и policy находятся в отдельных child profiles.
 
-In-process mini-agent и его inline role schema удалены без legacy alias,
-fallback или dual-read. Единственный допустимый текущий module id для этого
-slot — `process`; неизвестное старое значение завершается обычной ошибкой
-catalog selection.
+In-process mini-agent, loop-oriented slot и его inline role schema удалены без
+legacy alias, fallback или dual-read. `agent_control` — отдельная top-level
+секция: `modules.subagent` и `module_config.subagent.*` являются неизвестной
+формой config и завершаются явной ошибкой.
 
 `surface` выбирает model-facing facade:
 

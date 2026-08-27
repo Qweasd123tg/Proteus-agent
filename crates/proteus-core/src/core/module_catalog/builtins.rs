@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use anyhow::{Result, bail};
 
-use super::{ModuleBuildContext, ModuleCatalog};
+use super::ModuleCatalog;
 use crate::{
     adapters::{build_anthropic_messages_adapter, build_openai_responses_adapter},
-    contracts::{Model, SubagentRunner},
-    core::{ModelConfig, ProcessSubagentRunner},
-    domain::{ModuleKind, ModuleManifest, slot},
+    contracts::Model,
+    core::ModelConfig,
+    domain::{ModuleKind, ModuleManifest},
     stubs::FakeModelClient,
 };
 
@@ -52,26 +52,6 @@ pub(super) fn register_builtins(catalog: &mut ModuleCatalog) {
             "Адаптер Anthropic Messages API.",
         ),
         build_anthropic_model_adapter,
-    );
-
-    // Subagent runners
-    catalog.register_module::<dyn SubagentRunner>(
-        slot::SUBAGENT,
-        "process",
-        manifest(
-            "process",
-            ModuleKind::Subagent,
-            &[
-                "process_isolation",
-                "role_profiles",
-                "parallel_spawn",
-                "roles_from_config",
-                "addressed_messages",
-                "resumable_followup",
-            ],
-            "Ребёнок — отдельный process proteus server stdio со своим named config (роль = профиль); concurrent permits, bounded idle LRU, spawn/wait, адресный mailbox и resumable follow-up для collaboration surface.",
-        ),
-        build_process_subagent,
     );
 }
 
@@ -118,11 +98,4 @@ fn provider_config_with_stream(config: &ModelConfig) -> Result<serde_json::Value
     };
     provider_config.insert("stream".to_owned(), serde_json::Value::Bool(config.stream));
     Ok(serde_json::Value::Object(provider_config))
-}
-
-fn build_process_subagent(ctx: &ModuleBuildContext<'_>) -> Result<Arc<dyn SubagentRunner>> {
-    let config = ctx
-        .config
-        .module_config_value(ModuleKind::Subagent, "process");
-    Ok(Arc::new(ProcessSubagentRunner::from_config(config)?))
 }
