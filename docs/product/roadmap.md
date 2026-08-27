@@ -208,6 +208,45 @@ Agent-control не является behavior slot Component Runtime и не вы
 После этого отдельными задачами можно делать durable root-owned tree,
 authenticated attach и persistence/reconnect. Они не входят в данный cutover.
 
+### Отложенная Очистка Границ Core
+
+Низкоприоритетный backlog после Agent-Control Cutover. Эти пункты не являются
+critical path и выполняются только при свободном лимите или когда проявится
+измеримая проблема в соответствующей границе.
+
+- Перенести реализацию Git worktree из `core/workspace.rs` внутрь
+  `core/agent_control/`: сейчас её использует только lifecycle agent-control,
+  поэтому отдельная root-owned поверхность не отражает фактического владельца.
+  Это должен быть перенос без нового поведения и без публичного workspace slot.
+- Удалить concrete escape hatch
+  `RuntimeRegistry.model_service: Option<Arc<ModelService>>`. Event context
+  model invocation должен передаваться явно на один вызов, а не меняться через
+  общий `set_event_context`. Перед заменой определить invocation-bound contract
+  и добавить regression на конкурентные turns и корректную атрибуцию событий.
+- Проверить ownership `prompt_replay`, `workflow_replay`, `eval_report` и
+  topology rendering при следующем содержательном изменении этих поверхностей.
+  Сам аудит не требует выноса: перемещение оправдано только обнаруженной
+  зависимостью, смешением authority/runtime responsibilities или повторным
+  использованием за пределами Core.
+- Возвращаться к выносу model provider adapters только после проектирования
+  единого process contract для всего Model slot. Нельзя добавлять второй путь
+  для одного provider или сохранять параллельную native implementation; cleanup
+  fake model/test support входит в ту же работу, а не образует отдельную срочную
+  миграцию.
+
+`app_server` остаётся намеренным interface layer для подключения отдельных
+клиентов, а rendering/read-side — частью этой interface surface. Их package или
+crate split сам по себе не является целью roadmap. Для такого решения сначала
+нужна измеримая причина — dependency cycle, compile-time cost, самостоятельное
+переиспользование или утверждённая новая interface strategy — и отдельное
+архитектурное решение.
+
+Backlog закрыт, когда workspace implementation принадлежит `agent_control`, в
+`RuntimeRegistry` нет concrete `ModelService`, concurrent model invocations не
+делят изменяемый event context, а применимые replay/concurrency tests и полный
+`cargo test` проходят. Диагностические и interface surfaces не требуется
+перемещать для формального закрытия списка.
+
 ### OS-Изоляция Внешних Процессов
 
 Process boundary сейчас lifecycle isolation, не sandbox. Требуется дизайн,
