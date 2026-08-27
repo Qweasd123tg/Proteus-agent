@@ -242,6 +242,14 @@ changeset. Проект pre-release, поэтому финальный diff не
 удаляется до Definition of Done. Не следует добавлять `Deref`, который скрывает
 agent dependencies за generic context.
 
+Hard stop: удаление scaffold/adapter-а не даёт Phase 2 права менять semantics
+`ToolOrchestrator`, mutable attribution `ModelService`, journal schema/replay,
+approval/grants ownership или process protocol. Если чистый signature/wiring
+cutover без такого изменения невозможен, сохранить последний green compile
+boundary, признать Phase 2 незавершённой и остановиться на review. Нельзя
+протаскивать Phase 3–6 внутрь Phase 2 только ради формального удаления
+compatibility adapter-а.
+
 Execution creation один раз захватывает coherent `RuntimeSnapshot`; model,
 tools и другие handles для context берутся из этого snapshot. Lookup из
 mutable published registry на каждом workflow step запрещён: reload не должен
