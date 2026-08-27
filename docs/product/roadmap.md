@@ -228,6 +228,19 @@ critical path и выполняются только при свободном �
   Сам аудит не требует выноса: перемещение оправдано только обнаруженной
   зависимостью, смешением authority/runtime responsibilities или повторным
   использованием за пределами Core.
+- Перевести product CLI и line-oriented REPL на app-server protocol. Клиент
+  может запускать локальный `server stdio` или подключаться к поддерживаемому
+  transport, но turns, sessions, approvals, user input и cancellation должны
+  проходить те же typed requests/events, что и у остальных приложений. Удалить
+  из product path прямые `build_cli_runtime`, `AgentRuntime::run` и
+  `AgentRuntime::render`; форматирование финального output и progress остаётся
+  client-owned. Не дублировать в CLI app-server state или runtime semantics.
+- Отделить этот product client от operational/diagnostic CLI. `server`, `init`
+  и `doctor` остаются host/config lifecycle commands; `inspect`, replay, eval и
+  development smoke surfaces могут читать внутренние topology/journal/evidence
+  API, но не должны образовывать второй пользовательский turn execution path.
+  Выделение другого binary или crate не требуется для этой границы и решается
+  отдельно только при практической необходимости.
 - Удалить behavior slot `Renderer`, если до начала этой работы не появится
   подтверждённый сценарий внешних заменяемых renderer implementations. Сейчас
   контракт только преобразует финальный canonical `AgentOutput` в строку,
@@ -235,7 +248,7 @@ critical path и выполняются только при свободном �
   canonical output/events и не вызывает renderer. Удаление должно охватить
   trait и process contract, `ModuleKind`, catalog/registry wiring, config
   selection, reference export/pack, tests и документацию без legacy alias.
-  Если line-oriented CLI вернётся, его statusline остаётся client-owned
+  Выполнять после CLI protocol cutover: его statusline становится client-owned
   formatter, а не behavior Core. Topology rendering и UI projections к этому
   slot не относятся.
 - Возвращаться к выносу model provider adapters только после проектирования
@@ -260,12 +273,18 @@ compile-time cost, необходимость самостоятельного �
 или утверждённая новая application boundary — и отдельное архитектурное
 решение. Client-owned rendering не является причиной сохранять `Renderer` slot.
 
+Порядок interface cleanup: сначала доказать product CLI/REPL поверх app-server
+protocol, затем удалить их direct runtime path и только после этого удалить
+`Renderer`. Operational и diagnostic commands не блокируют этот cutover, пока
+не исполняют пользовательский turn в обход app-server.
+
 Backlog закрыт, когда workspace implementation принадлежит `agent_control`, в
 `RuntimeRegistry` нет concrete `ModelService`, concurrent model invocations не
-делят изменяемый event context, старый `Renderer` slot полностью удалён, а
-применимые replay/concurrency/config/module-swap tests и полный `cargo test`
-проходят. Диагностические и app-server surfaces не требуется перемещать для
-формального закрытия списка.
+делят изменяемый event context, product CLI/REPL не строят и не вызывают
+`AgentRuntime` напрямую, старый `Renderer` slot полностью удалён, а применимые
+CLI/app-server parity, replay/concurrency/config/module-swap tests и полный
+`cargo test` проходят. Диагностические и app-server surfaces не требуется
+перемещать для формального закрытия списка.
 
 ### OS-Изоляция Внешних Процессов
 
