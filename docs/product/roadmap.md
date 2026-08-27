@@ -228,24 +228,44 @@ critical path и выполняются только при свободном �
   Сам аудит не требует выноса: перемещение оправдано только обнаруженной
   зависимостью, смешением authority/runtime responsibilities или повторным
   использованием за пределами Core.
+- Удалить behavior slot `Renderer`, если до начала этой работы не появится
+  подтверждённый сценарий внешних заменяемых renderer implementations. Сейчас
+  контракт только преобразует финальный canonical `AgentOutput` в строку,
+  `statusline` используется одним one-shot CLI path, а app-server отдаёт
+  canonical output/events и не вызывает renderer. Удаление должно охватить
+  trait и process contract, `ModuleKind`, catalog/registry wiring, config
+  selection, reference export/pack, tests и документацию без legacy alias.
+  Если line-oriented CLI вернётся, его statusline остаётся client-owned
+  formatter, а не behavior Core. Topology rendering и UI projections к этому
+  slot не относятся.
 - Возвращаться к выносу model provider adapters только после проектирования
   единого process contract для всего Model slot. Нельзя добавлять второй путь
   для одного provider или сохранять параллельную native implementation; cleanup
   fake model/test support входит в ту же работу, а не образует отдельную срочную
   миграцию.
 
-`app_server` остаётся намеренным interface layer для подключения отдельных
-клиентов, а rendering/read-side — частью этой interface surface. Их package или
-crate split сам по себе не является целью roadmap. Для такого решения сначала
-нужна измеримая причина — dependency cycle, compile-time cost, самостоятельное
-переиспользование или утверждённая новая interface strategy — и отдельное
-архитектурное решение.
+`app_server` остаётся root-owned application service boundary в духе подхода
+Codex app-server: он управляет sessions, turns, approvals, user input,
+progress/events и reconnect, а отдельные приложения выбирают transport и свою
+UI projection. Это не behavior slot и не конкретный UI. Его protocol consumers
+уже могут быть разными: текущий web-клиент использует HTTP/SSE, process peers
+Agent Control — stdio, а будущий интерфейс может подключиться к той же границе
+без встраивания в runtime. «Второй потребитель» нужен не для оправдания
+app-server, а только если предлагается выделить общий Rust library crate для
+повторного использования напрямую из кода.
+
+Package или crate split самого `app_server` не является целью roadmap. Для
+такого решения сначала нужна измеримая причина — dependency cycle,
+compile-time cost, необходимость самостоятельного встраивания как Rust library
+или утверждённая новая application boundary — и отдельное архитектурное
+решение. Client-owned rendering не является причиной сохранять `Renderer` slot.
 
 Backlog закрыт, когда workspace implementation принадлежит `agent_control`, в
 `RuntimeRegistry` нет concrete `ModelService`, concurrent model invocations не
-делят изменяемый event context, а применимые replay/concurrency tests и полный
-`cargo test` проходят. Диагностические и interface surfaces не требуется
-перемещать для формального закрытия списка.
+делят изменяемый event context, старый `Renderer` slot полностью удалён, а
+применимые replay/concurrency/config/module-swap tests и полный `cargo test`
+проходят. Диагностические и app-server surfaces не требуется перемещать для
+формального закрытия списка.
 
 ### OS-Изоляция Внешних Процессов
 
