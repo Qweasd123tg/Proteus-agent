@@ -31,6 +31,10 @@ journal/replay evidence и `v0.1.0-alpha.1` уже завершены. Roadmap �
 
 Статус: **принято, но не реализовано**.
 
+Supporting evidence, не заменяющий этот roadmap:
+[source-level audit](../research/execution-scope-source-audit-2026-08-27.md) и
+[расширенный migration design](../research/execution-scope-migration-design-2026-08-27.md).
+
 ### Проблема И Целевая Граница
 
 Core уже не владеет конкретным agent loop: последовательность model/tool/model

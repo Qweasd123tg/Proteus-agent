@@ -136,6 +136,11 @@ Research хранит историю решений и upstream-разборы, 
   короткая актуальная точка входа в отложенные архитектурные идеи;
 - [research/component-runtime-v2-plan-2026-08-21.md](research/component-runtime-v2-plan-2026-08-21.md) —
   история завершённого Runtime v2 cutover;
+- [research/execution-scope-source-audit-2026-08-27.md](research/execution-scope-source-audit-2026-08-27.md) —
+  supporting source snapshot для текущего Turn/runtime coupling;
+- [research/execution-scope-migration-design-2026-08-27.md](research/execution-scope-migration-design-2026-08-27.md) —
+  расширенный implementation research; canonical Phase 0–2 остаётся в
+  `product/roadmap.md`;
 - [research/](research/) — остальные проектные исследования и postmortem;
 - [examples/research/](../examples/research/) — большие snapshot-разборы
   сторонних agent runtimes.
