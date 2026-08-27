@@ -97,7 +97,7 @@ impl ProcessPool {
         }
         if task.role != role {
             bail!(
-                "task_id belongs to subagent role {}, but request role is {role}",
+                "task_id belongs to agent profile {}, but request profile is {role}",
                 task.role
             );
         }
@@ -210,7 +210,7 @@ impl ProcessPool {
         let id = self.next_process_id;
         self.next_process_id = self.next_process_id.wrapping_add(1);
         let child = ChildProcess::spawn(binary, &role.config, &role.args, cwd)
-            .with_context(|| format!("failed to spawn process-subagent role {role_name}"))?;
+            .with_context(|| format!("failed to spawn process agent profile {role_name}"))?;
         self.leased.insert(id);
         Ok(PooledChild {
             id,

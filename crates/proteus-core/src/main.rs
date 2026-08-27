@@ -258,14 +258,8 @@ fn build_tool_registry_for_listing(
         cwd,
         context_providers: &context_providers,
     };
-    let agent_control: Option<Arc<dyn proteus_core::contracts::AgentControl>> =
-        if config.agent_control.roles.is_empty() {
-            None
-        } else {
-            Some(Arc::new(
-                proteus_core::core::ProcessAgentControl::from_config(config.agent_control.clone())?,
-            ))
-        };
+    let agent_control =
+        proteus_core::core::AgentControlRuntime::from_config(&config.agent_control)?;
     let model_config = plan.model_config()?;
     let model = catalog.build_model_adapter(&model_config)?;
     let mut tools = catalog.build_tools(
@@ -273,8 +267,8 @@ fn build_tool_registry_for_listing(
         Arc::new(proteus_core::stubs::NullSearch),
         Arc::new(proteus_core::stubs::NullPatchApplier),
         Arc::new(proteus_core::stubs::NoMemory),
-        agent_control,
     )?;
+    agent_control.register_tools(&mut tools, config.runtime.workflow_timeout_ms)?;
     proteus_core::core::register_provider_hosted_tools(
         &mut tools,
         model.id().as_ref(),
@@ -298,19 +292,14 @@ fn build_cli_topology(
         context_providers: &context_providers,
     };
     let mut extra_warnings = Vec::new();
-    let agent_control: Option<Arc<dyn proteus_core::contracts::AgentControl>> =
-        if config.agent_control.roles.is_empty() {
-            None
-        } else {
-            match proteus_core::core::ProcessAgentControl::from_config(config.agent_control.clone())
-            {
-                Ok(control) => Some(Arc::new(control)),
-                Err(error) => {
-                    extra_warnings.push(TopologyWarning::error(format!(
-                        "inspect could not build agent control: {error:#}"
-                    )));
-                    None
-                }
+    let agent_control =
+        match proteus_core::core::AgentControlRuntime::from_config(&config.agent_control) {
+            Ok(control) => control,
+            Err(error) => {
+                extra_warnings.push(TopologyWarning::error(format!(
+                    "inspect could not build agent control: {error:#}"
+                )));
+                proteus_core::core::AgentControlRuntime::disabled()
             }
         };
     let hosted_tools = config.active_model_config().and_then(|model_config| {
@@ -334,21 +323,26 @@ fn build_cli_topology(
         Arc::new(proteus_core::stubs::NullSearch),
         Arc::new(proteus_core::stubs::NullPatchApplier),
         Arc::new(proteus_core::stubs::NoMemory),
-        agent_control,
     ) {
-        Ok(mut tools) => match proteus_core::core::register_provider_hosted_tools(
-            &mut tools,
-            &hosted_source,
-            hosted_specs,
-        ) {
-            Ok(()) => tools.entries(),
-            Err(error) => {
+        Ok(mut tools) => {
+            if let Err(error) =
+                agent_control.register_tools(&mut tools, config.runtime.workflow_timeout_ms)
+            {
+                extra_warnings.push(TopologyWarning::error(format!(
+                    "inspect could not register agent-control tools: {error:#}"
+                )));
+            }
+            if let Err(error) = proteus_core::core::register_provider_hosted_tools(
+                &mut tools,
+                &hosted_source,
+                hosted_specs,
+            ) {
                 extra_warnings.push(TopologyWarning::error(format!(
                     "inspect could not register model-hosted tools: {error:#}"
                 )));
-                tools.entries()
             }
-        },
+            tools.entries()
+        }
         Err(error) => {
             extra_warnings.push(TopologyWarning::error(format!(
                 "inspect could not build ToolRegistry: {error:#}"

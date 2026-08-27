@@ -1,3 +1,4 @@
+mod agent_control;
 pub mod approval;
 pub mod assembly;
 mod compaction_host;
@@ -17,7 +18,6 @@ pub mod registry;
 pub mod runtime;
 pub mod session_journal;
 pub mod session_store;
-pub mod subagent;
 pub mod tool_orchestrator;
 pub mod topology;
 pub mod topology_render;
@@ -26,6 +26,7 @@ pub(crate) mod workflow_host;
 pub mod workflow_replay;
 pub mod workspace;
 
+pub use agent_control::AgentControlRuntime;
 pub use approval::*;
 pub use assembly::*;
 pub use compaction_host::*;
@@ -43,7 +44,6 @@ pub use registry::*;
 pub use runtime::*;
 pub use session_journal::*;
 pub use session_store::*;
-pub use subagent::*;
 pub use tool_orchestrator::*;
 pub use topology::*;
 pub use topology_render::*;

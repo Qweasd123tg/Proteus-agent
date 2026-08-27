@@ -9,9 +9,8 @@ use crate::{
         UserInputTransport, Workflow,
     },
     core::{
-        AppConfig, AssemblyPlan, HeadlessUserInputTransport, ModeAwarePolicy, ModelService,
-        ModuleBuildContext, ModuleCatalog, PolicyBuildContext, PreparedAssembly,
-        ProcessAgentControl,
+        AgentControlRuntime, AppConfig, AssemblyPlan, HeadlessUserInputTransport, ModeAwarePolicy,
+        ModelService, ModuleBuildContext, ModuleCatalog, PolicyBuildContext, PreparedAssembly,
     },
     domain::{SessionId, ThreadId, TurnId},
     stubs::{
@@ -101,21 +100,11 @@ impl RuntimeRegistry {
                 Some(id) => catalog.build_tool_exposure(id, &build_ctx)?,
                 None => Arc::new(UnfilteredToolExposure),
             };
-        let agent_control: Option<Arc<dyn AgentControl>> = if config.agent_control.roles.is_empty()
-        {
-            None
-        } else {
-            Some(Arc::new(ProcessAgentControl::from_config(
-                config.agent_control.clone(),
-            )?))
-        };
-        let mut tools = catalog.build_tools(
-            &build_ctx,
-            search.clone(),
-            patch.clone(),
-            memory.clone(),
-            agent_control.clone(),
-        )?;
+        let agent_control_runtime = AgentControlRuntime::from_config(&config.agent_control)?;
+        let agent_control = agent_control_runtime.service();
+        let mut tools =
+            catalog.build_tools(&build_ctx, search.clone(), patch.clone(), memory.clone())?;
+        agent_control_runtime.register_tools(&mut tools, config.runtime.workflow_timeout_ms)?;
         crate::core::register_provider_hosted_tools(
             &mut tools,
             model.id().as_ref(),

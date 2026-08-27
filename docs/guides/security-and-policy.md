@@ -604,14 +604,15 @@ janitor; общий cap 16 сохраняет LRU-eviction. Cancellation акт�
 
 Это текущие gaps, а не целевое поведение:
 
-- `ProcessAgentControl` ограничивает concurrent leases semaphore-ом и idle
-  residents глобальным LRU-cap, но не имеет строгого wall-clock TTL/janitor;
+- process backend `AgentControlRuntime` ограничивает concurrent leases
+  semaphore-ом и idle residents глобальным LRU-cap, но не имеет строгого
+  wall-clock TTL/janitor;
 - collaboration records имеют session ownership и caps, но живут только в
   памяти процесса: после restart нет list/wait/resume прежних handles;
 - peer-origin direct messaging и authenticated attach отсутствуют: обмен между
   siblings пока релеится root coordinator-ом;
 
-До устранения этих gaps не считайте process-subagent/collaboration handles
+До устранения этих gaps не считайте process agent/collaboration handles
 durable process isolation boundary. Внешний `workdir` допустим только для явно
 эскалированного unsandboxed вызова и сам по себе isolation boundary не создаёт.
 Целевая Proteus-to-Proteus граница описана в

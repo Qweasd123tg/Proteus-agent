@@ -1,6 +1,6 @@
 //! Unit-тесты process-runner-а: фильтр форвардинга и трекер turn-а.
 //! Round-trip с реальным дочерним процессом живёт в
-//! `crates/proteus-core/tests/process_subagent.rs`.
+//! `crates/proteus-core/tests/process_agent_pool.rs`.
 
 use serde_json::json;
 

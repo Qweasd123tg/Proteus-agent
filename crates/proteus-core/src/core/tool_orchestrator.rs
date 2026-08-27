@@ -5,13 +5,11 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::time::sleep;
 
 use crate::{
     contracts::{
-        AgentControlHandle, AgentControlRequest, AgentControlResult, AgentControlToolHost,
         ApprovalRequest, PolicyContext, PolicyVisibilityContext, RequestOrigin, RuntimeContext,
         ToolContext,
     },
@@ -294,11 +292,10 @@ impl ToolOrchestrator {
                 ),
             )),
             task: Some(task.clone()),
-            agent_control: ctx.agent_control.as_ref().map(|_| {
-                std::sync::Arc::new(RuntimeAgentControlToolHost {
-                    ctx: ctx.clone().with_cancellation(tool_cancellation.clone()),
-                }) as std::sync::Arc<dyn AgentControlToolHost>
-            }),
+            agent_control: crate::core::agent_control::bind_tool_host(
+                ctx,
+                tool_cancellation.clone(),
+            ),
         };
         let timeout_future = async move {
             if timeout_ms == 0 {
@@ -413,69 +410,6 @@ fn visibility_decision_allows(
         PolicyDecision::Ask { .. } => can_request_approval,
         PolicyDecision::Deny { .. } => false,
         _ => false,
-    }
-}
-
-/// Per-invocation adapter from the narrow tool capability back to the current
-/// runtime context. `TaskTool` cannot retain or construct RuntimeContext on its
-/// own; every call is therefore bound to the caller's thread/turn here.
-struct RuntimeAgentControlToolHost {
-    ctx: RuntimeContext,
-}
-
-#[async_trait]
-impl AgentControlToolHost for RuntimeAgentControlToolHost {
-    fn session_id(&self) -> Option<crate::domain::SessionId> {
-        Some(self.ctx.session_id)
-    }
-
-    async fn run_agent(&self, request: AgentControlRequest) -> Result<AgentControlResult> {
-        self.ctx
-            .agent_control
-            .as_ref()
-            .ok_or_else(|| anyhow!("agent control is disabled"))?
-            .run(request, self.ctx.clone())
-            .await
-    }
-
-    async fn spawn_agent(&self, request: AgentControlRequest) -> Result<AgentControlHandle> {
-        self.ctx
-            .agent_control
-            .as_ref()
-            .ok_or_else(|| anyhow!("agent control is disabled"))?
-            .spawn(request, self.ctx.clone())
-            .await
-    }
-
-    async fn wait_agent(&self, handle: &AgentControlHandle) -> Result<AgentControlResult> {
-        self.ctx
-            .agent_control
-            .as_ref()
-            .ok_or_else(|| anyhow!("agent control is disabled"))?
-            .wait(handle)
-            .await
-    }
-
-    async fn cancel_agent(&self, handle: &AgentControlHandle) -> Result<()> {
-        self.ctx
-            .agent_control
-            .as_ref()
-            .ok_or_else(|| anyhow!("agent control is disabled"))?
-            .cancel(handle)
-            .await
-    }
-
-    async fn send_agent(
-        &self,
-        handle: &AgentControlHandle,
-        message: crate::contracts::AgentControlMessage,
-    ) -> Result<()> {
-        self.ctx
-            .agent_control
-            .as_ref()
-            .ok_or_else(|| anyhow!("agent control is disabled"))?
-            .send(handle, message)
-            .await
     }
 }
 

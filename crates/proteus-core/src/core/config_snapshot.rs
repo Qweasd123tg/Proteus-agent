@@ -14,6 +14,7 @@ use crate::{
 pub const CONFIG_SNAPSHOT_FILE: &str = "config_snapshot.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SessionConfigSnapshot {
     pub schema_version: u32,
     pub ts: u64,
@@ -22,8 +23,7 @@ pub struct SessionConfigSnapshot {
     pub model: ModelRef,
     pub reasoning: ReasoningConfig,
     pub modules: SessionConfigModules,
-    #[serde(default = "default_subagent_surface")]
-    pub subagent_surface: String,
+    pub agent_control_surface: String,
     pub tools: Vec<SessionConfigTool>,
     pub permission_mode_default: PermissionMode,
 }
@@ -52,22 +52,18 @@ impl SessionConfigSnapshot {
             })
             .collect();
         Self {
-            schema_version: 2,
+            schema_version: 3,
             ts: unix_timestamp_ms(),
             profile_name: config.profile.name.clone(),
             active_provider: config.active_provider.clone(),
             model: registry.model_config.model_ref(),
             reasoning: registry.model_config.reasoning.clone(),
             modules: config.modules.clone(),
-            subagent_surface: config.agent_control.surface.as_str().to_owned(),
+            agent_control_surface: config.agent_control.surface.as_str().to_owned(),
             tools,
             permission_mode_default,
         }
     }
-}
-
-fn default_subagent_surface() -> String {
-    "task".to_owned()
 }
 
 fn unix_timestamp_ms() -> u64 {
@@ -86,4 +82,39 @@ pub fn write_config_snapshot(session_dir: &Path, snapshot: &SessionConfigSnapsho
     std::fs::write(&path, content)
         .with_context(|| format!("failed to write {}", path.display()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_subagent_surface_is_rejected_without_alias() {
+        let snapshot = SessionConfigSnapshot {
+            schema_version: 3,
+            ts: 0,
+            profile_name: "test".to_owned(),
+            active_provider: "fake".to_owned(),
+            model: ModelRef::new("fake", "fake"),
+            reasoning: ReasoningConfig::default(),
+            modules: ModulesConfig::default(),
+            agent_control_surface: "task".to_owned(),
+            tools: Vec::new(),
+            permission_mode_default: PermissionMode::Normal,
+        };
+        let mut value = serde_json::to_value(snapshot).expect("snapshot value");
+        let object = value.as_object_mut().expect("snapshot object");
+        let surface = object
+            .remove("agent_control_surface")
+            .expect("current surface");
+        object.insert("subagent_surface".to_owned(), surface);
+
+        let error = serde_json::from_value::<SessionConfigSnapshot>(value)
+            .expect_err("legacy snapshot field must fail closed");
+        assert!(
+            error
+                .to_string()
+                .contains("unknown field `subagent_surface`")
+        );
+    }
 }

@@ -370,7 +370,7 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
     )
     .expect("config snapshot json");
 
-    assert_eq!(value["schema_version"], 2);
+    assert_eq!(value["schema_version"], 3);
     assert_eq!(value["active_provider"], "fake");
     assert_eq!(value["profile_name"], "snapshot-profile");
     assert_eq!(value["modules"]["workflow"], "coding.plan_execute_review");
@@ -378,6 +378,8 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
     assert_eq!(value["modules"]["policy"], "ask_write");
     assert!(value["modules"]["compactor"].is_null());
     assert!(value["modules"]["tool_exposure"].is_null());
+    assert_eq!(value["agent_control_surface"], "task");
+    assert!(value.get("subagent_surface").is_none());
     assert_eq!(value["permission_mode_default"], "auto");
     assert!(value["tools"].as_array().is_some());
 

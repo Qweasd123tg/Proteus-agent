@@ -82,7 +82,7 @@ pub struct UserInputRequest {
     pub cwd: PathBuf,
     pub title: Option<String>,
     pub questions: Vec<UserInputQuestion>,
-    /// Who is asking: thread/turn plus optional source label (subagent role).
+    /// Who is asking: thread/turn plus optional source label (child agent profile).
     /// `None` for requests constructed outside a runtime turn.
     pub origin: Option<RequestOrigin>,
     /// Monotonic queue position assigned by the app-server forwarder for

@@ -66,8 +66,9 @@ model/tool loop и не фильтрует возможности ребёнка
 runtime ещё выбирал внутренний mini-agent, который сам вызывал model/tools и
 читал inline prompt/tool/limit роли. Первый этап перевёл tracked Codex/GLM
 profiles на `process`, второй удалил дублирующую in-process реализацию и её
-schema. `ProcessAgentControl` запускает `proteus server stdio` с отдельным
-named config и соответствует принятой identity-модели.
+schema. Process backend единого `AgentControlRuntime` запускает
+`proteus server stdio` с отдельным named config и соответствует принятой
+identity-модели.
 
 Loop-oriented slot удалён на третьем этапе. Process path теперь реализует
 узкий root-owned `AgentControl`, а model-loop параметры принадлежат child
@@ -157,13 +158,20 @@ Agent-control не является behavior slot Component Runtime и не вы
    один `Option<Arc<dyn AgentControl>>` из `RuntimeRegistry`; terminal contract
    больше не несёт iterations/usage или loop-specific statuses.
 
-4. **Собрать код по одной ответственности.**
+4. **✅ Собрать код по одной ответственности.**
    - Держать process connection, mailbox, agent records и tool facades в одном
      `agent_control` subtree с одним публичным facade.
    - `RuntimeRegistry`, workflow и catalog не должны знать внутренние типы
      mailbox/process pool или детали child config-а.
    - Не добавлять durable tree, attach, remote transport или новый scheduler в
      этот cutover.
+
+   Завершено 2026-08-27: process connection/pool, mailbox, pending records,
+   per-invocation host и обе model-facing facade собраны в
+   `core/agent_control/`. Единственный публичный `AgentControlRuntime` строит
+   service и регистрирует configured surface; concrete process backend скрыт.
+   `ModuleCatalog` больше не принимает agent-control dependency, а assembly
+   plan/config snapshot используют `agent_control_surface` без legacy alias.
 
 #### Карта Файлов
 
@@ -173,16 +181,14 @@ Agent-control не является behavior slot Component Runtime и не вы
   message/lifecycle contract и узкий service interface;
 - `crates/proteus-contracts/src/contracts/workflow.rs` — optional control
   service в runtime context;
-- `crates/proteus-core/src/core/subagent/` — process control и lifecycle
-  primitives; переименование/сборка subtree относится к этапу 4;
-- `crates/proteus-core/src/tools/task*` и `src/tools/collaboration/` — две
-  model-facing facade над одним будущим control plane;
+- `crates/proteus-core/src/core/agent_control/` — единый facade, process
+  lifecycle, mailbox/pending state и model-facing tools;
 - `crates/proteus-core/src/core/registry.rs` — единственная runtime assembly
   point control plane;
 - `configs/fragments/codex-runtime.toml`, `configs/fragments/codex-profile.toml`,
   `examples/configs/` и `install.sh` — active/config distribution surface;
 - `crates/proteus-core/tests/process_agent_control.rs` и
-  `process_subagent.rs` — основное real-process evidence.
+  `process_agent_pool.rs` — основное real-process evidence.
 
 #### Готово, Когда
 
@@ -194,7 +200,7 @@ Agent-control не является behavior slot Component Runtime и не вы
 - два peer-а сохраняют адресную доставку без cross-delivery, targeted cancel и
   sibling crash isolation;
 - `cargo fmt --all -- --check`, `cargo test --workspace`, config profile tests,
-  `tests/process_agent_control.rs`, `tests/process_subagent.rs` и применимый
+  `tests/process_agent_control.rs`, `tests/process_agent_pool.rs` и применимый
   `scripts/alpha-smoke.sh` проходят;
 - ближайшие config/runtime/architecture docs обновлены в том же breaking
   changeset.

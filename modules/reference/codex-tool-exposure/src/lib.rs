@@ -90,7 +90,7 @@ fn select_codex_tools(input: ToolExposureInput) -> ToolExposureOutput {
     // agent_control.surface back to task removes the group without config edits.
     let control_names = candidates
         .iter()
-        .filter(|tool| metadata_category(&tool.metadata) == Some("proteus_subagent_control"))
+        .filter(|tool| metadata_category(&tool.metadata) == Some("proteus_agent_control"))
         .map(|tool| tool.name.as_str())
         .collect::<HashSet<_>>();
     // Provider-hosted tools cannot be invoked through the workflow's deferred
@@ -162,7 +162,7 @@ fn select_codex_tools(input: ToolExposureInput) -> ToolExposureOutput {
 
     for tool in candidates
         .iter()
-        .filter(|tool| metadata_category(&tool.metadata) == Some("proteus_subagent_control"))
+        .filter(|tool| metadata_category(&tool.metadata) == Some("proteus_agent_control"))
     {
         if selected_names.insert(tool.name.clone()) {
             selected_reasons.insert(tool.name.clone(), "control_group".to_owned());
@@ -477,7 +477,7 @@ mod tests {
     fn control_spec(name: &str, safety: ToolSafety) -> ToolSpec {
         spec(name, "Collaboration control", safety).with_metadata(json!({
             "hot": true,
-            "category": "proteus_subagent_control"
+            "category": "proteus_agent_control"
         }))
     }
 

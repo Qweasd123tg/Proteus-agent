@@ -1,4 +1,4 @@
-//! Round-trip тест process-subagent-а: реальный дочерний процесс
+//! Round-trip тест process agent-а: реальный дочерний процесс
 //! `proteus server stdio` (workspace binary или PROTEUS_TEST_BINARY) с минимальным
 //! конфигом (fake model, workflow selection отсутствует), запуск роли, resume по task_id
 //! и сброс истории между свежими задачами.
@@ -11,8 +11,8 @@ use proteus_core::{
         PolicyContext, PolicyVisibilityContext, ToolRegistry,
     },
     core::{
-        AgentControlConfig, HeadlessApprovalTransport, HeadlessUserInputTransport,
-        InMemoryEventStore, ProcessAgentControl,
+        AgentControlConfig, AgentControlRuntime, HeadlessApprovalTransport,
+        HeadlessUserInputTransport, InMemoryEventStore,
     },
     domain::{
         AgentTask, Event, ModelRef, PolicyDecision, ReasoningConfig, ToolCall, new_session_id,
@@ -149,19 +149,22 @@ fn proteus_binary() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_proteus")))
 }
 
-fn runner_from_json(value: serde_json::Value) -> ProcessAgentControl {
+fn runner_from_json(value: serde_json::Value) -> Arc<dyn AgentControl> {
     let config: AgentControlConfig = serde_json::from_value(value).expect("agent control config");
-    ProcessAgentControl::from_config(config).expect("build process runner")
+    AgentControlRuntime::from_config(&config)
+        .expect("build agent control runtime")
+        .service()
+        .expect("configured agent control service")
 }
 
-fn process_runner(config_path: &std::path::Path) -> ProcessAgentControl {
+fn process_runner(config_path: &std::path::Path) -> Arc<dyn AgentControl> {
     process_runner_with_idle_cap(config_path, 8)
 }
 
 fn process_runner_with_idle_cap(
     config_path: &std::path::Path,
     max_idle_processes: usize,
-) -> ProcessAgentControl {
+) -> Arc<dyn AgentControl> {
     runner_from_json(json!({
         "binary": proteus_binary(),
         "max_idle_processes": max_idle_processes,
@@ -177,7 +180,7 @@ fn process_runner_with_idle_cap(
 }
 
 #[tokio::test]
-async fn process_subagent_round_trips_turn_resume_and_fresh_task() {
+async fn process_agent_pool_round_trips_turn_resume_and_fresh_task() {
     let config_home = tempfile::tempdir().expect("config home");
     let workspace = tempfile::tempdir().expect("workspace");
     let config_path = write_child_config(config_home.path());
@@ -306,7 +309,7 @@ async fn process_peers_derive_distinct_tool_surfaces_from_child_configs() {
 }
 
 #[tokio::test]
-async fn process_subagent_rejects_unknown_task_id_and_foreign_role() {
+async fn process_agent_pool_rejects_unknown_task_id_and_foreign_role() {
     let config_home = tempfile::tempdir().expect("config home");
     let workspace = tempfile::tempdir().expect("workspace");
     let config_path = write_child_config(config_home.path());
@@ -336,7 +339,7 @@ async fn process_subagent_rejects_unknown_task_id_and_foreign_role() {
     assert!(
         missing_role
             .to_string()
-            .contains("unknown subagent role: mystery"),
+            .contains("unknown agent profile: mystery"),
         "{missing_role:#}"
     );
 }
@@ -346,7 +349,7 @@ async fn process_subagent_rejects_unknown_task_id_and_foreign_role() {
 /// Resume по task_id второго ребёнка продолжает его process-session
 /// (resumable-учёт по process id, а не по слоту роли).
 #[tokio::test]
-async fn process_subagent_spawns_parallel_children_and_resumes_by_task_id() {
+async fn process_agent_pool_spawns_parallel_children_and_resumes_by_task_id() {
     let config_home = tempfile::tempdir().expect("config home");
     let workspace = tempfile::tempdir().expect("workspace");
     let config_path = write_child_config(config_home.path());
@@ -423,7 +426,7 @@ async fn process_subagent_spawns_parallel_children_and_resumes_by_task_id() {
 /// процесса: resume по ним честно отклоняется, а не продолжает пустую
 /// session.
 #[tokio::test]
-async fn process_subagent_fresh_task_invalidates_prior_task_ids_of_reused_process() {
+async fn process_agent_pool_fresh_task_invalidates_prior_task_ids_of_reused_process() {
     let config_home = tempfile::tempdir().expect("config home");
     let workspace = tempfile::tempdir().expect("workspace");
     let config_path = write_child_config(config_home.path());
@@ -468,7 +471,7 @@ async fn process_subagent_fresh_task_invalidates_prior_task_ids_of_reused_proces
 /// первого не очищается — его task_id остаётся resumable. Без cwd-проверки
 /// реюз ломал бы worktree-изоляцию пишущих детей.
 #[tokio::test]
-async fn process_subagent_fresh_task_with_different_cwd_spawns_new_process() {
+async fn process_agent_pool_fresh_task_with_different_cwd_spawns_new_process() {
     let config_home = tempfile::tempdir().expect("config home");
     let workspace_a = tempfile::tempdir().expect("workspace a");
     let workspace_b = tempfile::tempdir().expect("workspace b");
@@ -512,7 +515,7 @@ async fn process_subagent_fresh_task_with_different_cwd_spawns_new_process() {
 }
 
 #[tokio::test]
-async fn process_subagent_idle_cap_zero_disables_resume_retention() {
+async fn process_agent_pool_idle_cap_zero_disables_resume_retention() {
     let config_home = tempfile::tempdir().expect("config home");
     let workspace = tempfile::tempdir().expect("workspace");
     let config_path = write_child_config(config_home.path());
@@ -542,7 +545,7 @@ async fn process_subagent_idle_cap_zero_disables_resume_retention() {
 }
 
 #[tokio::test]
-async fn process_subagent_global_idle_cap_evicts_oldest_workspace() {
+async fn process_agent_pool_global_idle_cap_evicts_oldest_workspace() {
     let config_home = tempfile::tempdir().expect("config home");
     let workspace_a = tempfile::tempdir().expect("workspace a");
     let workspace_b = tempfile::tempdir().expect("workspace b");
@@ -591,7 +594,7 @@ async fn process_subagent_global_idle_cap_evicts_oldest_workspace() {
 }
 
 #[tokio::test]
-async fn process_subagent_resume_touch_updates_global_lru_order() {
+async fn process_agent_pool_resume_touch_updates_global_lru_order() {
     let config_home = tempfile::tempdir().expect("config home");
     let workspace_a = tempfile::tempdir().expect("workspace a");
     let workspace_b = tempfile::tempdir().expect("workspace b");
@@ -656,7 +659,7 @@ async fn process_subagent_resume_touch_updates_global_lru_order() {
 }
 
 #[tokio::test]
-async fn process_subagent_resume_is_bound_to_session_and_cwd() {
+async fn process_agent_pool_resume_is_bound_to_session_and_cwd() {
     let config_home = tempfile::tempdir().expect("config home");
     let workspace_a = tempfile::tempdir().expect("workspace a");
     let workspace_b = tempfile::tempdir().expect("workspace b");

@@ -387,14 +387,14 @@ fn snapshot(spec: &ToolSpec) -> SessionConfigSnapshot {
         ..ModulesConfig::default()
     };
     SessionConfigSnapshot {
-        schema_version: 2,
+        schema_version: 3,
         ts: 1,
         profile_name: "replay-test".to_owned(),
         active_provider: "missing-provider".to_owned(),
         model: ModelRef::new("missing-provider", "offline-model"),
         reasoning: ReasoningConfig::default(),
         modules,
-        subagent_surface: "none".to_owned(),
+        agent_control_surface: "none".to_owned(),
         tools: vec![SessionConfigTool {
             source: "test".to_owned(),
             spec: spec.clone(),

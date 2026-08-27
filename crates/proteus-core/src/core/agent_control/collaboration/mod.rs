@@ -28,7 +28,8 @@ use control::CollaborationControl;
 use message::{FollowupTaskTool, SendMessageTool};
 use spec::{interrupt_spec, list_spec, spawn_spec, wait_spec};
 
-pub const COLLABORATION_TOOL_NAMES: &[&str] = &[
+#[cfg(test)]
+pub(super) const COLLABORATION_TOOL_NAMES: &[&str] = &[
     "spawn_agent",
     "list_agents",
     "wait_agent",
@@ -40,16 +41,15 @@ pub const COLLABORATION_TOOL_NAMES: &[&str] = &[
 const DEFAULT_WAIT_MS: u64 = 30_000;
 const MAX_WAIT_MS: u64 = 300_000;
 
-pub fn register_collaboration_tools(
+pub(super) fn register_collaboration_tools(
     tools: &mut ToolRegistry,
     roles: Vec<AgentProfile>,
     timeout_ms: u64,
-    supports_messages: bool,
 ) -> Result<()> {
     // Process runtime service: registry/config rebuilds receive the same
     // bounded session-owned control plane, so live handles are not orphaned.
     let control = CollaborationControl::shared();
-    let source = ToolSource::builtin("subagent-collaboration");
+    let source = ToolSource::builtin("agent-control-collaboration");
     tools.register_with_source(
         source.clone(),
         SpawnAgentTool::new(roles, timeout_ms, control.clone()),
@@ -66,13 +66,11 @@ pub fn register_collaboration_tools(
         source.clone(),
         InterruptAgentTool::new(timeout_ms, control.clone()),
     )?;
-    if supports_messages {
-        tools.register_with_source(
-            source.clone(),
-            SendMessageTool::new(timeout_ms, control.clone()),
-        )?;
-        tools.register_with_source(source, FollowupTaskTool::new(timeout_ms, control))?;
-    }
+    tools.register_with_source(
+        source.clone(),
+        SendMessageTool::new(timeout_ms, control.clone()),
+    )?;
+    tools.register_with_source(source, FollowupTaskTool::new(timeout_ms, control))?;
     Ok(())
 }
 
@@ -119,7 +117,7 @@ impl Tool for SpawnAgentTool {
             .roles
             .iter()
             .find(|role| role.name == agent_type)
-            .ok_or_else(|| anyhow!("unknown subagent role '{agent_type}'"))?;
+            .ok_or_else(|| anyhow!("unknown agent profile '{agent_type}'"))?;
         if role.isolation != AgentIsolation::None {
             return Ok(tool_error(
                 call,

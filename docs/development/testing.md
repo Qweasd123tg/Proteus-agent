@@ -151,7 +151,7 @@ broker-owned lineage при async и callback-free blocking reentry, но не
 ```bash
 cargo test -p proteus-contracts agent_control
 cargo test -p proteus-core --test process_agent_control -- --nocapture
-cargo test -p proteus-core --test process_subagent -- --nocapture
+cargo test -p proteus-core --test process_agent_pool -- --nocapture
 ```
 
 Первый gate фиксирует exact v1 address/message DTO, root-only source, strict

@@ -587,7 +587,7 @@ fn spawn_spec_advertises_only_eligible_roles_and_keeps_write_safety_floor() {
     let spec = spawn_spec(&roles, 42);
     assert_eq!(spec.safety, crate::domain::ToolSafety::WritesFiles);
     assert_eq!(spec.metadata["hot"], true);
-    assert_eq!(spec.metadata["category"], "proteus_subagent_control");
+    assert_eq!(spec.metadata["category"], "proteus_agent_control");
     assert_eq!(
         spec.input_schema["properties"]["agent_type"]["enum"],
         json!(["explore"])
@@ -598,21 +598,16 @@ fn spawn_spec_advertises_only_eligible_roles_and_keeps_write_safety_floor() {
 fn messaging_specs_keep_write_safety_floor() {
     for spec in [send_message_spec(42), followup_spec(42)] {
         assert_eq!(spec.safety, crate::domain::ToolSafety::WritesFiles);
-        assert_eq!(spec.metadata["category"], "proteus_subagent_control");
+        assert_eq!(spec.metadata["category"], "proteus_agent_control");
         assert_eq!(spec.input_schema["required"], json!(["target", "message"]));
     }
 }
 
 #[test]
-fn messaging_tools_are_registered_only_for_capable_runners() {
-    let mut basic = ToolRegistry::new();
-    register_collaboration_tools(&mut basic, vec![role()], 42, false).expect("basic tools");
-    assert!(basic.spec("spawn_agent").is_ok());
-    assert!(basic.spec("send_message").is_err());
-    assert!(basic.spec("followup_task").is_err());
-
-    let mut messaging = ToolRegistry::new();
-    register_collaboration_tools(&mut messaging, vec![role()], 42, true).expect("messaging tools");
-    assert!(messaging.spec("send_message").is_ok());
-    assert!(messaging.spec("followup_task").is_ok());
+fn collaboration_surface_registers_lifecycle_and_messaging_tools() {
+    let mut tools = ToolRegistry::new();
+    register_collaboration_tools(&mut tools, vec![role()], 42).expect("collaboration tools");
+    for name in COLLABORATION_TOOL_NAMES {
+        assert!(tools.spec(name).is_ok(), "missing {name}");
+    }
 }

@@ -9,8 +9,8 @@ use proteus_core::{
         ApprovalPolicy, EventEmitter, PolicyContext, PolicyVisibilityContext, ToolRegistry,
     },
     core::{
-        AgentControlConfig, HeadlessApprovalTransport, HeadlessUserInputTransport,
-        InMemoryEventStore, ProcessAgentControl,
+        AgentControlConfig, AgentControlRuntime, HeadlessApprovalTransport,
+        HeadlessUserInputTransport, InMemoryEventStore,
     },
     domain::{
         AgentTask, ModelRef, PolicyDecision, ReasoningConfig, ToolCall, new_session_id,
@@ -127,7 +127,7 @@ fn collaboration_request(
     }))
 }
 
-fn messaging_runner(config_path: &std::path::Path) -> ProcessAgentControl {
+fn messaging_runner(config_path: &std::path::Path) -> Arc<dyn AgentControl> {
     runner_from_json(json!({
         "binary": proteus_binary(),
         "max_parallel": 2,
@@ -150,9 +150,12 @@ fn proteus_binary() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_proteus")))
 }
 
-fn runner_from_json(value: serde_json::Value) -> ProcessAgentControl {
+fn runner_from_json(value: serde_json::Value) -> Arc<dyn AgentControl> {
     let config: AgentControlConfig = serde_json::from_value(value).expect("agent control config");
-    ProcessAgentControl::from_config(config).expect("build process runner")
+    AgentControlRuntime::from_config(&config)
+        .expect("build agent control runtime")
+        .service()
+        .expect("configured agent control service")
 }
 
 #[cfg(unix)]

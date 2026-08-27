@@ -2,9 +2,8 @@ use std::collections::BTreeSet;
 
 use crate::{
     contracts::ToolSource,
-    core::AppConfig,
+    core::{AppConfig, agent_control::TASK_TOOL},
     domain::{ToolSafety, ToolSpec},
-    tools::TASK_TOOL,
 };
 
 use super::{ToolTopology, TopologyWarning};

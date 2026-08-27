@@ -8,7 +8,7 @@ use crate::{
     domain::PermissionMode,
 };
 
-pub const ASSEMBLY_PLAN_SCHEMA_VERSION: u32 = 1;
+pub const ASSEMBLY_PLAN_SCHEMA_VERSION: u32 = 2;
 
 /// Полностью развёрнутый, но ещё не запущенный план сборки runtime.
 ///
@@ -98,7 +98,7 @@ pub struct AssemblyToolsPlan {
     pub requested: Vec<String>,
     pub configured: Vec<String>,
     pub mcp_servers: Vec<String>,
-    pub subagent_surface: String,
+    pub agent_control_surface: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

@@ -73,7 +73,8 @@ Peer Proteus сам является host/runtime и может иметь со�
 
 ## Что Уже Реализовано
 
-Текущий `ProcessAgentControl` доказывает важную часть модели:
+Текущий `AgentControlRuntime` и скрытый за ним process backend доказывают
+важную часть модели:
 
 - использует typed `AgentAddress`, `AgentControlMessage`, lifecycle snapshots
   и operation receipts из `proteus-contracts`;

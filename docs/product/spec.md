@@ -190,12 +190,12 @@ tracked host, workers и examples используют Component Runtime v2 / wi
 cancel, один PID и canonical replay.
 Generic actor не добавляется, model и subagent boundaries остаются отдельными
 contract decisions. Для subagents уже принята identity-модель «subagent —
-другой полный Proteus под root coordinator»; exact DTO, transport attach и
-persistence ещё planned. Подробнее:
+другой полный Proteus под root coordinator»; local-process DTO v1 реализован,
+а authenticated transport attach и persistence ещё planned. Подробнее:
 [subagents.md](../architecture/subagents.md). Актуальный
 критический путь ведётся в `scope.md`.
 
-Ownership PTY sessions, bounded retention process-subagent pool, общий
+Ownership PTY sessions, bounded retention process agent pool, общий
 policy path для `task`, fail-closed shell sandbox и token для non-loopback
 HTTP уже закрытые foundation, а не будущий backlog.
 
@@ -246,7 +246,7 @@ path CLI smoke test.
 - recitation-костыли           - tools / patch
   (todo/plan как якорь)        - search (по репо, не по окну)
 - context shuttling            - workflow как границы фаз
-- часть memory                 - subagent как граница прав/бюджета
+- часть memory                 - agent peer как граница identity/authority
   -> декей с релизами моделей    -> живут, пока агент трогает мир
 ```
 
@@ -283,8 +283,9 @@ path CLI smoke test.
 9. ✅ отдельно подтверждённый P2 broker/wire-v3 kernel завершён;
 10. ✅ отдельно подтверждённый P3 atomic tracked cutover завершён;
 11. ✅ отдельно подтверждённый P4 topology/journal evidence завершён;
-12. ⏳ model/subagent contracts требуют отдельных решений и не входят в
-    Runtime v2 acceptance.
+12. ✅ agent-control boundary отдельно вынесена из module system и собрана за
+    `AgentControlRuntime`; model provider adapters остаются отдельной
+    core-owned selectable границей вне Runtime v2 acceptance.
 
 Configured process/MCP tool executors являются явными tool surfaces и всегда
 встраиваются в тот же `ToolRegistry`/policy/safety path; они не образуют вторую

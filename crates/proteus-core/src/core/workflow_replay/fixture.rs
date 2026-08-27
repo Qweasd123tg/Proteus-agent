@@ -149,9 +149,9 @@ fn parse_snapshot(opened: &TurnOpened, turn_id: TurnId) -> Result<SessionConfigS
             "turn {turn_id} has no runtime config snapshot; workflow replay cannot resolve the recorded workflow and policy"
         )
     })?;
-    if snapshot.schema_version != 2 {
+    if snapshot.schema_version != 3 {
         bail!(
-            "turn {turn_id} uses unsupported config snapshot schema_version {}; expected 2",
+            "turn {turn_id} uses unsupported config snapshot schema_version {}; expected 3",
             snapshot.schema_version
         );
     }

@@ -16,7 +16,7 @@ fn role_schema(roles: &[AgentProfile]) -> serde_json::Value {
     json!({
         "type": "string",
         "enum": names,
-        "description": "Configured subagent role. Collaboration accepts only parallel_safe roles with isolation=none."
+        "description": "Configured agent profile. Collaboration accepts only parallel_safe profiles with isolation=none."
     })
 }
 
@@ -135,6 +135,6 @@ fn message_schema() -> serde_json::Value {
 fn collaboration_metadata() -> serde_json::Value {
     json!({
         "hot": true,
-        "category": "proteus_subagent_control",
+        "category": "proteus_agent_control",
     })
 }

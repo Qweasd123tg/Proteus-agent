@@ -167,7 +167,7 @@ max_results = 50
 
 `ModuleCatalog::from_config`:
 
-1. добавляет явно учтённые core-owned model/subagent adapters;
+1. добавляет явно учтённые core-owned model adapters;
 2. валидирует каждый component и его непустой exact export set;
 3. создаёт один shared launcher и регистрирует process factory каждого export;
 4. отклоняет duplicate identity и unsupported slot;
@@ -189,11 +189,14 @@ Module config остаётся opaque JSON object для реализации. C
 - workflow не может выполнить turn;
 - renderer использует host text projection;
 - tool exposure пропускает все policy-visible candidates;
-- subagents недоступны.
 
 Эти structural objects не входят в catalog, не отображаются как modules и не
 могут получить module-owned config. Если config явно выбрал id, любая проблема
 с ним является ошибкой; fallback к structural absence запрещён.
+
+Agent control не является slot-ом: пустой top-level `agent_control.roles`
+означает отсутствие service и model-facing facade, а configured service
+собирается единым `AgentControlRuntime` вне `ModuleCatalog`.
 
 ## Process Boundary
 

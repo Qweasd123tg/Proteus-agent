@@ -30,7 +30,7 @@ use workspace_lifecycle::{
 
 pub const TASK_TOOL: &str = "task";
 
-pub fn register_task_tool(
+pub(super) fn register_task_tool(
     tools: &mut ToolRegistry,
     roles: Vec<AgentProfile>,
     timeout_ms: u64,
@@ -39,19 +39,19 @@ pub fn register_task_tool(
         return Ok(());
     }
     tools.register_with_source(
-        ToolSource::builtin("subagent"),
+        ToolSource::builtin("agent-control-task"),
         TaskTool::new(roles, timeout_ms),
     )
 }
 
 #[derive(Clone)]
-pub struct TaskTool {
+struct TaskTool {
     roles: Vec<AgentProfile>,
     timeout_ms: u64,
 }
 
 impl TaskTool {
-    pub fn new(roles: Vec<AgentProfile>, timeout_ms: u64) -> Self {
+    fn new(roles: Vec<AgentProfile>, timeout_ms: u64) -> Self {
         Self { roles, timeout_ms }
     }
 
@@ -84,7 +84,7 @@ impl Tool for TaskTool {
         let Some(role) = role else {
             return Ok(task_error(
                 call,
-                format!("unknown subagent role '{}'", request.role),
+                format!("unknown agent profile '{}'", request.role),
             ));
         };
 

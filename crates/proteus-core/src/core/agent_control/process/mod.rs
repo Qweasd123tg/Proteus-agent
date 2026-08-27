@@ -62,7 +62,7 @@ use turn::{
     ChildEventForwarder, TurnEnd, TurnTracker, cancel_child_turn, clear_child_history, drive_turn,
 };
 
-pub struct ProcessAgentControl {
+pub(super) struct ProcessAgentControl {
     inner: Arc<RunnerInner>,
 }
 
@@ -93,7 +93,7 @@ struct PreparedProcess {
 }
 
 impl ProcessAgentControl {
-    pub fn from_config(parsed: AgentControlConfig) -> Result<Self> {
+    pub(super) fn from_config(parsed: AgentControlConfig) -> Result<Self> {
         let profiles = build_agent_profiles(&parsed.roles)?;
         let binary = match parsed.binary {
             Some(binary) => binary,
@@ -134,13 +134,13 @@ impl RunnerInner {
     fn lock_pending(&self) -> Result<MutexGuard<'_, PendingChildren>> {
         self.pending
             .lock()
-            .map_err(|_| anyhow!("subagent pending registry lock poisoned"))
+            .map_err(|_| anyhow!("agent-control pending registry lock poisoned"))
     }
 
     fn lock_pool(&self) -> Result<MutexGuard<'_, ProcessPool>> {
         self.pool
             .lock()
-            .map_err(|_| anyhow!("subagent process pool lock poisoned"))
+            .map_err(|_| anyhow!("agent-control process pool lock poisoned"))
     }
 
     /// Резолвит роль, глубину и атомарно резервирует resume-цель до запуска:
@@ -157,19 +157,19 @@ impl RunnerInner {
             .iter()
             .find(|spec| spec.name == request.role)
             .cloned()
-            .ok_or_else(|| anyhow!("unknown subagent role: {}", request.role))?;
+            .ok_or_else(|| anyhow!("unknown agent profile: {}", request.role))?;
         if !self.roles.contains_key(&request.role) {
-            bail!("unknown subagent role: {}", request.role);
+            bail!("unknown agent profile: {}", request.role);
         }
 
         let depth = request
             .metadata
-            .get("subagent_depth")
+            .get("agent_control_depth")
             .and_then(Value::as_u64)
             .unwrap_or(0);
         if depth >= self.max_depth {
             bail!(
-                "subagent depth limit reached (depth {depth}, max_depth {})",
+                "agent-control depth limit reached (depth {depth}, max_depth {})",
                 self.max_depth
             );
         }
@@ -369,7 +369,7 @@ impl RunnerInner {
 
         let permit = tokio::select! {
             permit = role.permits.clone().acquire_owned() => {
-                permit.map_err(|_| anyhow!("subagent role process pool is closed"))?
+                permit.map_err(|_| anyhow!("agent profile process pool is closed"))?
             }
             _ = child_ctx.cancellation.cancelled() => {
                 let _ = mailbox.close_and_discard();

@@ -19,20 +19,20 @@ fn test_tool_owner() -> ToolInvocationOwner {
 }
 
 #[derive(Default)]
-struct RecordingSubagentHost {
+struct RecordingAgentHost {
     requests: Mutex<Vec<AgentControlRequest>>,
 }
 
-struct WritingSubagentHost;
+struct WritingAgentHost;
 
-struct SessionWritingSubagentHost {
+struct SessionWritingAgentHost {
     session_id: crate::domain::SessionId,
     child_thread_id: crate::domain::ThreadId,
     resumable: Mutex<bool>,
     calls: Mutex<usize>,
 }
 
-impl SessionWritingSubagentHost {
+impl SessionWritingAgentHost {
     fn new(session_id: crate::domain::SessionId, child_thread_id: crate::domain::ThreadId) -> Self {
         Self {
             session_id,
@@ -44,7 +44,7 @@ impl SessionWritingSubagentHost {
 }
 
 #[async_trait]
-impl AgentControlToolHost for WritingSubagentHost {
+impl AgentControlToolHost for WritingAgentHost {
     async fn run_agent(&self, request: AgentControlRequest) -> Result<AgentControlResult> {
         fs::write(request.task.cwd.join("child.txt"), "changed\n")?;
         Ok(
@@ -55,7 +55,7 @@ impl AgentControlToolHost for WritingSubagentHost {
 }
 
 #[async_trait]
-impl AgentControlToolHost for SessionWritingSubagentHost {
+impl AgentControlToolHost for SessionWritingAgentHost {
     fn session_id(&self) -> Option<crate::domain::SessionId> {
         Some(self.session_id)
     }
@@ -72,7 +72,7 @@ impl AgentControlToolHost for SessionWritingSubagentHost {
 }
 
 #[async_trait]
-impl AgentControlToolHost for RecordingSubagentHost {
+impl AgentControlToolHost for RecordingAgentHost {
     async fn run_agent(&self, request: AgentControlRequest) -> Result<AgentControlResult> {
         self.requests.lock().unwrap().push(request);
         Ok(
@@ -174,7 +174,7 @@ fn task_id_is_published_only_for_explicitly_resumable_results() {
 
 #[tokio::test]
 async fn invoke_delegates_through_runtime_bound_host() {
-    let host = Arc::new(RecordingSubagentHost::default());
+    let host = Arc::new(RecordingAgentHost::default());
     let tool = TaskTool::new(vec![role("explore")], 1_000);
     let parent_task = crate::domain::AgentTask::new("parent task", "/tmp".into());
     let call = ToolCall::new(
@@ -251,7 +251,7 @@ async fn worktree_role_changes_only_isolated_checkout_after_approval_path_invoke
     );
     let mut ctx = ToolContext::new(parent_task.cwd.clone(), test_tool_owner());
     ctx.task = Some(parent_task);
-    ctx.agent_control = Some(Arc::new(WritingSubagentHost));
+    ctx.agent_control = Some(Arc::new(WritingAgentHost));
 
     let result = tool.invoke(&call, ctx).await.unwrap();
 
@@ -309,7 +309,7 @@ async fn worktree_resume_mapping_is_session_owned_and_drops_non_resumable_edge()
     );
     let parent_task = crate::domain::AgentTask::new("fix", repo.path().to_path_buf());
     let child_thread_id = crate::domain::new_thread_id();
-    let owner = Arc::new(SessionWritingSubagentHost::new(
+    let owner = Arc::new(SessionWritingAgentHost::new(
         crate::domain::new_session_id(),
         child_thread_id,
     ));
@@ -326,7 +326,7 @@ async fn worktree_resume_mapping_is_session_owned_and_drops_non_resumable_edge()
     assert!(first.ok, "{:?}", first.error);
     assert!(first.output.contains(&child_thread_id.to_string()));
 
-    let foreign = Arc::new(SessionWritingSubagentHost::new(
+    let foreign = Arc::new(SessionWritingAgentHost::new(
         crate::domain::new_session_id(),
         child_thread_id,
     ));

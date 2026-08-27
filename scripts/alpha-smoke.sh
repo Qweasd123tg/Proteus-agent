@@ -77,7 +77,7 @@ require_text "process component" "${output_dir}/doctor.txt"
 
 run_and_capture assembly-plan "${output_dir}/assembly-plan.txt" \
   "${proteus}" inspect plan
-require_text "Assembly plan v1" "${output_dir}/assembly-plan.txt"
+require_text "Assembly plan v2" "${output_dir}/assembly-plan.txt"
 require_text "status: ready" "${output_dir}/assembly-plan.txt"
 require_text "workflow: coding.single_loop" "${output_dir}/assembly-plan.txt"
 
@@ -123,7 +123,7 @@ require_text "test result: ok" "${output_dir}/collaboration-process.txt"
 run_and_capture process-peer-surfaces "${output_dir}/process-peer-surfaces.txt" \
   env PROTEUS_TEST_BINARY="${proteus}" cargo test \
   --manifest-path "${project_dir}/Cargo.toml" \
-  -p proteus-core --test process_subagent \
+  -p proteus-core --test process_agent_pool \
   process_peers_derive_distinct_tool_surfaces_from_child_configs -- --exact
 require_text "test result: ok" "${output_dir}/process-peer-surfaces.txt"
 

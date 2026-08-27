@@ -8,7 +8,7 @@ use crate::domain::{ThreadId, ToolCall, ToolSpec, TurnId};
 
 /// Attribution of a control-plane request (approval, user input) to the
 /// execution context that asked for it. `label` carries a human-readable
-/// source name (e.g. subagent role) when the requesting thread is not the
+/// source name (e.g. child agent profile) when the requesting thread is not the
 /// main turn loop.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]

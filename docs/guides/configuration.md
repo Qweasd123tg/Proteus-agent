@@ -462,14 +462,13 @@ legacy alias, fallback или dual-read. `agent_control` — отдельная 
 
 - `task` — один delegation tool;
 - `collaboration` — spawn/list/wait/interrupt и bounded
-  `send_message`/`followup_task`; `process` runner объявляет messaging
-  capability;
-- `none` — tools субагентов не регистрируются.
+  `send_message`/`followup_task` через единый process backend;
+- `none` — agent-control tools не регистрируются.
 
 Это единственный `none` в schema: enum UI surface, а не module id. Текущий
-активный baseline уже считает process-subagent отдельным полным Proteus;
-следующий cutover удалит старый loop-oriented slot и оставит agent-control
-service. См. [subagents.md](../architecture/subagents.md).
+активный baseline считает process agent отдельным полным Proteus; старый
+loop-oriented slot удалён, а process pool и обе facade скрыты за единым
+`AgentControlRuntime`. См. [subagents.md](../architecture/subagents.md).
 
 ## Runtime, Server И Events
 

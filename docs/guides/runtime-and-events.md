@@ -178,13 +178,14 @@ corruption в середине файла завершает load ошибкой
 редактируются до записи.
 
 `config_snapshot.json` — последний turn/persist snapshot resolved runtime
-config для этой сессии. Текущая `schema_version = 2`: поле `active_provider`
-обязательно и содержит id точного профиля из `providers`. Snapshot
-перезаписывается при открытии существующей сессии и при принятии user message.
-В snapshot входят profile name, active provider, актуальные model/ref и
-reasoning config, выбранные module ids, список
-зарегистрированных tools с source/spec, `subagent_surface` и default permission
-mode. Каждый `turn_opened` дополнительно содержит snapshot того же
+config для этой сессии. Текущая `schema_version = 3`: поле
+`agent_control_surface` заменило старое имя без compatibility reader-а, а
+`active_provider` обязательно и содержит id точного профиля из `providers`.
+Snapshot перезаписывается при открытии существующей сессии и при принятии user
+message. В snapshot входят profile name, active provider, актуальные model/ref
+и reasoning config, выбранные module ids, список зарегистрированных tools с
+source/spec, `agent_control_surface` и default permission mode. Каждый
+`turn_opened` дополнительно содержит snapshot того же
 `RuntimeSnapshot`/`ModuleEpoch`, поэтому module reload и runtime model/mode
 override не приписываются следующему turn-у задним числом.
 

@@ -15,10 +15,12 @@ use crate::{
     },
     domain::{AgentTask, Event, ToolCall, ToolResult, ToolSpec},
     model_standard::{CanonicalModelRequest, CanonicalModelResponse},
-    tools::{TASK_TOOL, calls_are_parallel_eligible},
 };
 
-use super::{RuntimeCompactionHost, ToolOrchestrator};
+use super::{
+    RuntimeCompactionHost, ToolOrchestrator,
+    agent_control::{TASK_TOOL, calls_are_parallel_eligible},
+};
 
 /// Async host capability surface shared by all process Workflow exports.
 pub(crate) struct WorkflowHostRuntime {
