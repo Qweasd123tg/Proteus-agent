@@ -16,6 +16,10 @@ running turn keeps N
 next turn sees N+1
 ```
 
+`RuntimeSnapshot` фиксирует assembly/configuration view, а не continuation
+вычисления. Он не содержит program counter, stack, local state Workflow или
+suspended future и не позволяет продолжить оборванный Turn после crash.
+
 ## Инварианты
 
 - Turn захватывает один snapshot на старте.
@@ -26,6 +30,12 @@ next turn sees N+1
 - Старые `Arc` и process sessions живут до завершения использующих их turns.
 - Tool execution после reload остаётся в общем policy/safety path.
 - `module_epoch` попадает в observability.
+
+В планируемой `ExecutionScope` migration один `ExecutionContext` так же будет
+собираться из одного captured `RuntimeSnapshot`. Generic context не должен
+делать новый lookup из mutable published registry на каждом step. Это planned
+invariant Phase 2, а не уже существующий non-Turn entrypoint; подробности — в
+[roadmap.md](../product/roadmap.md#executionscope-migration).
 
 ## Что Reload-ится Сейчас
 

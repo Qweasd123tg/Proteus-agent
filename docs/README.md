@@ -13,7 +13,8 @@
 1. [scope.md](product/scope.md) — что Proteus представляет собой сейчас;
 2. [architecture.md](architecture/architecture.md) — как проходит обычный turn и где лежат
    основные части;
-3. [roadmap.md](product/roadmap.md) — какие крупные решения ещё открыты.
+3. [roadmap.md](product/roadmap.md) — принятое направление `ExecutionScope`,
+   его stop-gates и остальные открытые решения.
 
 Остальные документы — справочники для конкретной задачи или исторические
 материалы.
@@ -28,6 +29,10 @@
 - **Сообщить о security-проблеме:** [SECURITY.md](../SECURITY.md).
 - **Понять архитектуру:** [architecture.md](architecture/architecture.md), затем
   [modules.md](architecture/modules.md).
+- **Начать ExecutionScope migration:** сначала current boundary в
+  [architecture.md](architecture/architecture.md#planned-executionscope),
+  затем Phase 0–2 в
+  [roadmap.md](product/roadmap.md#executionscope-migration).
 - **Понять направление subagents:** [subagents.md](architecture/subagents.md).
 - **Разобрать сбой:** [inspect.md](guides/inspect.md), затем профильный документ по
   runtime, config или policy.
@@ -91,8 +96,9 @@
 
 Читайте в таком порядке:
 
-1. [scope.md](product/scope.md) — текущее состояние и ещё не принятые решения.
-2. [roadmap.md](product/roadmap.md) — варианты следующей работы и отложенный backlog.
+1. [scope.md](product/scope.md) — текущее состояние и принятые границы.
+2. [roadmap.md](product/roadmap.md) — принятая следующая migration, stop-gates
+   и отложенный backlog.
 3. [spec.md](product/spec.md) — долгосрочный замысел и non-goals.
 4. [dogfood-gate.md](development/dogfood-gate.md) — необязательный ручной diagnostic и
    исторический список blocking symptoms.

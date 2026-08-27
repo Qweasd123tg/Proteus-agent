@@ -1,10 +1,10 @@
 # Текущий Scope
 
-Последнее обновление: 2026-08-26.
+Последнее обновление: 2026-08-27.
 
 Этот документ отвечает только на два вопроса: что Proteus представляет собой
-сейчас и какие крупные решения ещё не приняты. Подробная архитектура находится
-в [architecture.md](../architecture/architecture.md), будущие работы — в
+сейчас и какое следующее направление принято или остаётся открытым. Подробная
+архитектура находится в [architecture.md](../architecture/architecture.md), будущие работы — в
 [roadmap.md](roadmap.md), история релиза — в
 [releases/v0.1.0-alpha.1.md](../releases/v0.1.0-alpha.1.md).
 
@@ -20,8 +20,12 @@ Proteus запускает coding-agent и позволяет заменять �
 - читает config и выбирает реализации;
 - решает, какие операции им разрешены;
 - запускает и останавливает внешние процессы;
-- проводит model/tool loop;
+- ведёт session/turn lifecycle, history, steering и journal;
 - сохраняет session, события и данные для replay.
+
+Конкретный model/tool loop не зашит в Core: его порядок выбирает активный
+`Workflow`. Core предоставляет Workflow проверенные model/tool/context
+mechanisms и фиксирует результат хода.
 
 `proteus-reference-worker` поставляется вместе с проектом для dogfood и
 примеров. Он не получает скрытых привилегий и не является обязательным
@@ -44,7 +48,8 @@ config
 - единый путь tool safety и approvals;
 - session journal, history, resume, prompt replay и workflow replay;
 - CLI, HTTP/SSE app-server, web chat и Inspector;
-- process-backed subagents, steering, follow-up и collaboration tools;
+- process-backed Proteus peers через `AgentControl`, steering, follow-up и
+  collaboration tools;
 - `AssemblyPlan`, `doctor`, module/tool list, topology и eval report;
 - versioned Linux install и опубликованный `v0.1.0-alpha.1`.
 
@@ -70,21 +75,25 @@ wire/config/DTO меняются атомарно без legacy aliases и compa
 
 ## Что Ещё Нужно Решить
 
-Следующий крупный этап не выбран автоматически. Перед новой архитектурной
-работой владелец проекта выбирает одну конкретную проблему и подтверждает её
-отдельно.
+Следующее архитектурное направление принято, но ещё не реализовано:
+`ExecutionScope` должен отделить generic execution identity/capabilities от
+conversation `Turn`. `Turn` останется chat/application lifecycle, `Workflow` —
+владельцем agent algorithm, а process `InvocationRef` — отдельной broker
+identity. Точный поэтапный план и stop-gates находятся в
+[roadmap.md](roadmap.md#executionscope-migration).
 
-1. **Понятность разработки.** Сократить повторы в документации, сделать
-   короткий маршрут чтения и только после этого искать ненужные части кода.
-2. **Model boundary.** Либо оставить provider adapters честной core-owned
+Остальные крупные направления ниже не входят в эту миграцию и требуют
+отдельного решения владельца.
+
+1. **Model boundary.** Либо оставить provider adapters честной core-owned
    границей, либо спроектировать полный внешний model contract со streaming,
    credentials, hosted tools, cache, retry и usage parity.
-3. **Durable subagents.** Текущий process runner и messaging работают, но
+2. **Durable subagents.** Текущий process runner и messaging работают, но
    постоянное root-owned дерево, authenticated attach и reconnect ещё не завершены.
    Подробности: [subagents.md](../architecture/subagents.md).
-4. **Единая изоляция workers.** Нужна общая политика filesystem, network,
+3. **Единая изоляция workers.** Нужна общая политика filesystem, network,
    env/secrets, процессов и ресурсов без исключений для reference modules.
-5. **Protocol freeze.** До обещания стабильности нужны дополнительные внешние
+4. **Protocol freeze.** До обещания стабильности нужны дополнительные внешние
    workers, hostile corpus, long-running evidence и решение по обновлению
    версий.
 

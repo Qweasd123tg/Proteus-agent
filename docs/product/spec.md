@@ -149,7 +149,8 @@ Runtime должен сохранять эти свойства:
 
 - runtime services отделены от session state;
 - один `SessionId` на session;
-- новый `TurnId` на каждый `run()`;
+- новый domain `TurnId` на каждый conversational Turn, включая queued
+  follow-up внутри одного request chain;
 - один активный turn на session;
 - event log как append-only trace;
 - session journal как canonical append-only execution record;
@@ -194,6 +195,15 @@ contract decisions. Для subagents уже принята identity-модель
 а authenticated transport attach и persistence ещё planned. Подробнее:
 [subagents.md](../architecture/subagents.md). Актуальный
 критический путь ведётся в `scope.md`.
+
+Отдельно принято, но ещё не реализовано минимальное направление
+`ExecutionScope`: distinct `ExecutionId`, scope с cancellation и split
+текущего `RuntimeContext` на generic `ExecutionContext` и chat-specific
+`AgentWorkflowContext`. `Turn` остаётся application lifecycle, `Workflow` —
+controller policy, а process `InvocationRef` не меняется. Первая итерация
+останавливается после context split; journal/model/approval/tool ownership
+мигрируют только отдельными проверяемыми phases. Канонический план находится в
+[roadmap.md](roadmap.md#executionscope-migration).
 
 Ownership PTY sessions, bounded retention process agent pool, общий
 policy path для `task`, fail-closed shell sandbox и token для non-loopback

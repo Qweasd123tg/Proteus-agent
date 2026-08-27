@@ -272,6 +272,29 @@ canonical `TurnSettled` и cold `/history`.
 status команды. Ошибки выбора fixture, построения записанных modules или самого
 replay path завершают команду ошибкой.
 
+Оба replay-режима являются повторным вычислением/сравнением по сохранённым
+facts, а не crash continuation. Journal не сохраняет program counter,
+suspended future, stack/local variables, live cancellation token или
+process-resident steering queue. Projection может показать незавершённый Turn
+и неизвестный результат side effect, но не умеет продолжить вычисление с места
+остановки.
+
+## Текущий Execution Owner
+
+Journal v1 сейчас намеренно Turn-centric: model/tool records имеют mandatory
+`SessionId`/`ThreadId`/`TurnId`, а projection принимает их только после
+`turn_opened`. Аналогично текущие `ExecutionRecorder`, `ModelService` event
+attribution и `ToolInvocationOwner` используют conversation identity. Это
+факт текущей архитектуры и её известный coupling, а не утверждение, что любое
+generic execution обязано быть chat Turn.
+
+Планируемая `ExecutionScope` migration сначала вводит отдельный `ExecutionId`
+и разделяет contexts без изменения journal schema. Перенос recorder/journal
+ownership — отдельная Phase 4 после review; до неё records продолжают
+принадлежать открытому Turn. `ExecutionId` не добавляется в v1 заранее и не
+подменяет `TurnId`. План:
+[roadmap.md](../product/roadmap.md#executionscope-migration).
+
 ## Выполненный Переход
 
 Проект pre-release, поэтому runtime compatibility shim и постоянный dual
@@ -305,7 +328,9 @@ producers/consumers и удалил старый active path.
 - retention/GC content-addressed blobs;
 - хранение raw provider HTTP/SSE payload;
 - durable restart collaboration handles и queued steering;
-- cross-session DAG, merge semantics и marketplace artifacts.
+- cross-session DAG, merge semantics и marketplace artifacts;
+- durable workflow continuation/checkpointing;
+- generic execution journal schema и migration от Turn ownership.
 
 Эти решения могут использовать journal, но не должны менять его semantic
 ordering или превращать event log в второй источник истины.

@@ -41,6 +41,38 @@ Manual dogfood не является обязательным gate или sequen
 Protocol или architecture change без automated boundary evidence всё равно
 неполон.
 
+### ExecutionScope Phase 0–2 Gate (planned)
+
+Принятая, но ещё не реализованная migration описана в
+[roadmap.md](../product/roadmap.md#executionscope-migration).
+Её `Phase 0` — baseline конкретного changeset; она не связана с историческим
+`P0 Multiplexed Broker Spike` ниже.
+
+До diff зафиксировать HEAD/status и выполнить:
+
+```bash
+cargo test --workspace
+```
+
+После Phase 2 минимальный gate:
+
+```bash
+cargo test -p proteus-contracts
+cargo test -p proteus-core
+cargo test -p proteus-core --test module_swap
+cargo test -p proteus-module-protocol
+cargo test -p coding-workflow
+cargo test --workspace
+```
+
+Focused evidence должно доказать independent construction
+`ExecutionScope`/`ExecutionContext`, unique scope per domain Turn,
+`AgentWorkflowContext` wrapping и отсутствие chat types в generic execution
+module. Existing steering, journal/replay, runtime snapshot, process lineage,
+cancellation и coding workflow tests являются regression boundary; их не
+переписывают под новую semantics. Если contract path меняется, все tracked
+workflow producers/consumers обновляются атомарно без legacy alias.
+
 ### P0 Multiplexed Broker Spike
 
 ```bash

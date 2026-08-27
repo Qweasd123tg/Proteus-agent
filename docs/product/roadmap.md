@@ -1,6 +1,6 @@
 # Roadmap
 
-Последнее обновление: 2026-08-26.
+Последнее обновление: 2026-08-27.
 
 Roadmap описывает порядок, а не обещание API. Текущее реализованное состояние
 смотрите в [scope.md](scope.md), архитектурные правила — в
@@ -23,8 +23,314 @@ journal/replay evidence и `v0.1.0-alpha.1` уже завершены. Roadmap �
 а состав релиза — в
 [releases/v0.1.0-alpha.1.md](../releases/v0.1.0-alpha.1.md).
 
-Следующий крупный этап пока не выбран. Разделы ниже — варианты работы, а не
-автоматическая очередь реализации.
+Следующее принятое направление — минимальная `ExecutionScope` migration,
+описанная ниже. Она пока **не реализована**. Остальные разделы остаются
+вариантами последующей работы, а не автоматической очередью.
+
+## ExecutionScope Migration
+
+Статус: **принято, но не реализовано**.
+
+### Проблема И Целевая Граница
+
+Core уже не владеет конкретным agent loop: последовательность model/tool/model
+выбирает `Workflow`. Но общий `RuntimeContext` по-прежнему требует
+conversation identity и смешивает reusable runtime capabilities с
+agent/chat-specific policy. Model, tool recorder, journal и approvals также
+атрибутируют execution через обязательный `TurnId`.
+
+Цель ближайшей итерации — ввести generic workload identity и честно разделить
+context ownership, не меняя существующее поведение agent-а:
+
+```text
+AgentRuntime / Turn
+        |
+        | creates exactly one scope per Turn
+        v
+ExecutionScope(ExecutionId, cancellation)
+        |
+        v
+ExecutionContext(generic capabilities)
+        |
+        v
+AgentWorkflowContext(chat/application wrapper)
+        |
+        v
+existing Workflow
+```
+
+Главный invariant:
+
+> Turn создаёт ExecutionScope, но generic execution не знает, что такое Turn.
+
+Identity domains не объединяются:
+
+```text
+TurnId        = conversational/application lifecycle
+ExecutionId   = generic logical workload
+InvocationRef = process-broker invocation and lineage
+```
+
+`ExecutionId` не выводится из `TurnId` и не заменяет `InvocationRef`. Один
+execution сможет начать несколько process roots; вложенность process callbacks
+по-прежнему принадлежит exact `ComponentBroker` и его `InvocationRef` tree.
+
+### Зафиксированный Scope Первой Итерации
+
+Разрешены только Phase 0–2:
+
+1. baseline и недостающие characterization checks;
+2. `ExecutionId` + минимальный `ExecutionScope`;
+3. реальный split `RuntimeContext` на generic и agent-specific layers.
+
+После Phase 2 работа останавливается для review. В эту итерацию не входят:
+
+- journal schema или replay protocol;
+- immutable model invocation binding;
+- перенос recorder/approval/grants ownership;
+- generic `ToolOrchestrator` contract;
+- новый top-level non-Turn execution entrypoint;
+- Workflow v1, coding loop, steering или AppServer protocol changes;
+- process protocol, `ComponentBroker`, `InvocationRef` или authority changes;
+- Cell/Event/Effect architecture, graph runtime/DSL, scheduler, actor/swarm,
+  durable workflow engine или universal capability/effect enum;
+- Renderer/CLI cleanup: он остаётся отдельным отложенным changeset после
+  product CLI cutover на AppServer.
+
+`RuntimeServices` не разделяется ради симметрии. Текущая граница
+`AgentRuntime { services: RuntimeServices, session: SessionState }` уже полезна:
+services являются owner/factory source runtime capabilities и snapshots, а
+session владеет conversation state.
+
+### Phase 0 — Baseline
+
+До production diff:
+
+1. зафиксировать `git rev-parse HEAD` и исходный `git status --short`;
+2. выполнить `cargo test --workspace` и записать pre-existing failures, не
+   исправляя unrelated behavior;
+3. сопоставить изменение с runtime/contract строками из
+   [testing.md](../development/testing.md);
+4. добавить characterization test только для действительно непокрытого
+   текущего invariant до refactor.
+
+На source audit от 2026-08-27 baseline HEAD
+`50055e2c834fc3052236b988e859ff64e735b48a` проходит
+`cargo test --workspace` без failures. Уже существуют evidence для failed
+turn/history/compaction/model journal/runtime snapshot, steering, workflow
+replay, coding workflows, process cancellation/deadline/nested lineage и
+полного process-backed workflow path. Этот факт не заменяет повторный baseline
+на новом HEAD в момент реализации.
+
+Минимальный regression gate Phase 0–2:
+
+- normal и failed interactive turn;
+- accepted user history после workflow/provider failure;
+- steering и queued follow-up;
+- compaction и workflow replay;
+- model/tool journal attribution текущего Turn;
+- process-backed workflow и `InvocationRef` nested lineage;
+- cancellation/deadline;
+- `RuntimeSnapshot` isolation;
+- `crates/proteus-core/tests/module_swap.rs` для затронутых contracts.
+
+### Phase 1 — Execution Identity
+
+В `proteus-contracts` добавить один transparent newtype `ExecutionId`. Не
+добавлять параллельный `WorkId` и не оставлять его type alias к `TurnId`:
+различие должно обеспечиваться Rust type system.
+
+Добавить отдельный маленький generic module для:
+
+```rust
+pub struct ExecutionScope {
+    pub execution_id: ExecutionId,
+    pub cancellation: CancellationToken,
+}
+```
+
+Deadline допускается только если current lifecycle позволяет выразить одну
+естественную execution deadline без нового policy. Иначе он откладывается.
+В `ExecutionScope` запрещены `SessionId`, `ThreadId`, `TurnId`, `AgentTask`,
+history, model/tools, `AgentOutput`, graph/scheduler state и `InvocationRef`.
+
+Рекомендуемое размещение:
+
+- `crates/proteus-contracts/src/domain/ids.rs` — serde-transparent
+  `ExecutionId(Uuid)`, `new_execution_id`, `Display`/conversion helpers и
+  обычные `Clone/Copy/Eq/Hash` derives;
+- `crates/proteus-contracts/src/contracts/execution.rs` —
+  `ExecutionScope` и его focused tests;
+- `crates/proteus-contracts/src/contracts/mod.rs` — public export.
+
+Чтобы Phase 1 была реальным cutover, текущий `RuntimeContext` получает
+mandatory `scope` и удаляет отдельное поле `cancellation`; все current
+consumers читают token через scope. Его constructor принимает готовый scope и
+не создаёт hidden/fake Turn. Phase 2 затем переносит этот scope вместе с
+generic полями в `ExecutionContext`. Не оставлять одновременно два token-а
+или optional scope.
+
+`AgentRuntime::run_one_turn` создаёт scope после reservation validation и
+capture текущего `RuntimeSnapshot`, перед сборкой workflow context. Каждый
+domain Turn, включая queued follow-up внутри `run_reserved_chain`, получает
+ровно один новый `ExecutionId`; transport request id AppServer в это правило
+не входит.
+
+Обязательные tests:
+
+- `execution_scope_constructs_without_turn`;
+- `turn_creates_unique_execution_scope` — два turns наблюдают разные ids через
+  recording Workflow/test seam;
+- compile-time type distinction между `ExecutionId` и `TurnId`;
+- cancel текущего Turn по-прежнему отменяет тот token, который хранит scope.
+
+Parent-side `agent_control::child_context` является cancellation view той же
+логической parent execution: он сохраняет `ExecutionId`, но использует child
+token для targeted cancel. Полный peer Proteus в другом процессе создаёт свой
+собственный Turn/ExecutionId. Parent execution topology и
+`parent_execution_id` по-прежнему отложены.
+
+### Phase 2 — Context Split
+
+Текущий `RuntimeContext` содержит 26 полей. Split должен быть структурным, а
+не переименованием god-object.
+
+Field map относительно актуального source с учётом уже выполненной Phase 1
+(`scope` заменяет прежний `cancellation`):
+
+| Новый owner | Поля текущего `RuntimeContext` |
+|---|---|
+| `ExecutionContext` | `scope`, `model_timeout_ms`, `model`, `search`, `memory`, `tools`, `policy`, `approval`, `patch`, `execution_recorder` |
+| `AgentWorkflowContext` | `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `reasoning`, `context_timeout_ms`, `events`, `context`, `user_input`, `compactor`, `tool_exposure`, `agent_control`, `queued_user_messages`, `turn_grants`, `thread_label` |
+
+`AgentWorkflowContext` владеет/оборачивает ровно один `ExecutionContext` и
+передаёт его существующему Workflow. Dependency direction только такая:
+
+```text
+AgentWorkflowContext -> ExecutionContext -> ExecutionScope
+```
+
+Почему граница именно такая:
+
+- `ContextBuilder` принимает mandatory `AgentTask`, поэтому не
+  genericize-ится;
+- reasoning defaults, instructions, tool exposure, compactor, queued user
+  input и presentation events являются controller/chat policy;
+- `ApprovalPolicy` сам по себе reusable, но current `TurnPermissionGrants` и
+  `RequestOrigin` остаются Turn-coupled; поэтому `turn_grants` временно живёт в
+  agent wrapper до отдельной Phase 5;
+- recorder handle может находиться в generic context, хотя его current methods
+  ещё требуют session/thread/turn. Это явно остаётся debt Phase 4, а не повод
+  протащить `TurnId` в `ExecutionContext`;
+- `ToolRegistry` reusable как catalog, хотя current `ToolOrchestrator` ещё
+  принимает agent-shaped task/context. Его signature меняется только в Phase 6.
+
+`ExecutionContext` обязан конструироваться без `SessionId`, `ThreadId`,
+`TurnId`, `AgentTask`, chat history и `AgentOutput`. Generic module не должен
+импортировать эти типы. Добавляется structural source check на forbidden
+imports/names (`TurnId`, `AgentTask`, `AgentOutput`, `CanonicalMessage`) рядом
+с focused construction tests.
+
+В Phase 2 обновляются все tracked producers/consumers нового contract в одном
+changeset. Проект pre-release, поэтому финальный diff не сохраняет legacy
+`RuntimeContext` alias, dual constructor или compatibility reader. Временный
+локальный alias допустим только как compile scaffold во время разработки и
+удаляется до Definition of Done. Не следует добавлять `Deref`, который скрывает
+agent dependencies за generic context.
+
+Execution creation один раз захватывает coherent `RuntimeSnapshot`; model,
+tools и другие handles для context берутся из этого snapshot. Lookup из
+mutable published registry на каждом workflow step запрещён: reload не должен
+частично менять уже открытый execution.
+
+Основная implementation map Phase 2:
+
+- `crates/proteus-contracts/src/contracts/execution.rs` — generic
+  `ExecutionContext`;
+- `crates/proteus-contracts/src/contracts/workflow.rs` —
+  `AgentWorkflowContext` и обновлённая `Workflow::run` signature;
+- `crates/proteus-core/src/core/registry.rs` — отдельная сборка generic
+  capabilities и chat wrapper из одного registry snapshot;
+- `crates/proteus-core/src/core/runtime/turn.rs` — root scope creation и wiring
+  recorder/steering/chat state;
+- `crates/proteus-core/src/core/workflow_host.rs` и
+  `crates/proteus-core/src/process_adapters/workflow.rs` — существующий
+  Workflow v1 host поверх нового wrapper, без wire schema change;
+- `crates/proteus-core/src/core/compaction_host.rs`,
+  `crates/proteus-core/src/core/tool_orchestrator.rs` и
+  `crates/proteus-core/src/core/agent_control/` — compile adapters явно выбирают
+  `ctx.execution` или agent fields; их Phase 3–6 semantics не мигрируют;
+- `crates/proteus-core/src/core/workflow_replay/`, stubs, test support и
+  reference coding workflows — tracked consumers обновляются в том же
+  changeset.
+
+Обязательные tests после split:
+
+- `ExecutionContext` собирается без chat domain types;
+- `AgentWorkflowContext` корректно оборачивает один execution context;
+- existing Workflow и `WorkflowHostRuntime` сохраняют coding semantics;
+- один Turn создаёт один scope, follow-up — новый scope;
+- steering, compaction, journal, replay и snapshot tests остаются green;
+- process broker lineage/cancellation tests не меняются и остаются green;
+- `crates/proteus-core/tests/module_swap.rs` продолжает подтверждать slot
+  replaceability.
+
+### Definition Of Done И Stop-Gate
+
+Phase 0–2 завершены только если:
+
+- `ExecutionId` type-distinct от `TurnId`;
+- `ExecutionScope` не знает о conversation/process identities;
+- `ExecutionContext` не импортирует chat domain types;
+- `AgentWorkflowContext` является единственным chat wrapper над ним;
+- existing interactive/coding/process paths и snapshot semantics не
+  изменились;
+- documentation говорит отдельно о current и planned/implemented состоянии;
+- workspace gate green либо каждый pre-existing failure зафиксирован;
+- Phase 3+ production changes отсутствуют.
+
+### Следующие Phases — Только После Review
+
+Последующие задачи не являются частью первой итерации:
+
+3. immutable execution binding для `ModelService`;
+4. `ExecutionRecorder` и journal ownership/schema migration;
+5. execution-scoped grants/approval origin;
+6. generic `ToolOrchestrator` invocation context;
+7. cutover верхнего `AgentRuntime` API;
+8. первый meaningful non-Turn execution.
+
+При будущих schema/DTO changes действует pre-release правило репозитория:
+tracked producers, consumers, configs, tests и docs обновляются атомарно, а
+старый путь удаляется. Dual-read/dual-write journal migration допустима только
+по отдельному явному решению владельца; research-предложение само по себе не
+создаёт исключение.
+
+### Phase 3 Readiness
+
+После Phase 2 codebase будет структурно готов начать удаление shared mutable
+model attribution, но не считать её уже выполненной. Текущие exact call sites:
+
+- `crates/proteus-core/src/core/registry.rs` хранит concrete
+  `model_service: Option<Arc<ModelService>>` и собирает его;
+- `crates/proteus-core/src/core/runtime/turn.rs` вызывает
+  `ModelService::set_event_context` перед Workflow;
+- `crates/proteus-core/src/core/workflow_replay/mod.rs` повторяет тот же mutable
+  binding для replay;
+- `crates/proteus-core/src/core/model_service.rs` хранит
+  `RwLock<DeltaEventContext>` и содержит связанные tests.
+
+Минимальный Phase 3 diff должен ввести immutable invocation-bound model handle
+или context, который захватывает `ExecutionId` и optional chat/journal
+attribution на один call/execution. Существующий provider-neutral `Model`
+trait и request/response semantics менять не требуется. Затем удалить
+`set_event_context`, `RwLock` и concrete registry escape hatch и доказать
+concurrent attribution отдельным deterministic test. Это отдельный reviewable
+changeset после Phase 2.
+
+## Другие Направления
+
+Эти пункты не входят в Phase 0–2 и не запускаются автоматически.
 
 ### Где Должна Жить Работа С Моделью
 

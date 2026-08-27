@@ -28,36 +28,53 @@ failure semantics по `slot/contract_version`. `module_id`, язык worker-а 
 ## Слои
 
 ```text
-CLI / Web / Inspector
+Application / Client
+   |                    |
+   v                    v
+AppServer HTTP/stdio  direct CLI/REPL (current)
+   |                    |
+   +----------+---------+
+              |
+              v
+AgentRuntime
           |
           v
-AppConfig + ModuleCatalog
+SessionState: Turn / History / Steering / SessionStore
           |
           v
-AssemblyPlan (точный проверенный чертёж)
+RuntimeContext (сейчас смешанный agent + execution context)
           |
           v
-AppServer + AgentRuntime
+selected Workflow (controller policy)
           |
           v
-RuntimeRegistry + ToolRegistry
+WorkflowHostRuntime
+          |
+          +--> Model / Context / Compactor
+          +--> ToolRegistry -> ApprovalPolicy -> ToolOrchestrator
+          +--> Search / Memory / Patch / AgentControl
           |
           v
-proteus-contracts DTO / traits
+process adapters -> ComponentBroker -> InvocationRef tree
           |
           v
-process adapters <-> external workers
+external component processes
 ```
 
-- UI и CLI создают запросы, но не реализуют agent loop.
+- UI и CLI создают запросы, но не реализуют agent loop. Product web-клиент
+  работает через AppServer; direct CLI/REPL пока является отдельным текущим
+  entrypoint в `AgentRuntime`.
 - `AssemblyPlan` один раз разворачивает config в точные slot selections,
   components, export authority и preflight checks; workers при этом не
   запускаются.
-- `AgentRuntime` владеет session/turn lifecycle, journal и snapshot.
+- `AgentRuntime` владеет session/turn lifecycle, history commit, steering и
+  выбором одного `RuntimeSnapshot` на ход.
 - `PreparedAssembly` связывает план и собранный из него `RuntimeRegistry`,
   поэтому их нельзя опубликовать в разных runtime snapshots.
 - `RuntimeRegistry` создаёт выбранные реализации только из проверенного плана.
 - `ToolRegistry` — единственный runtime catalog исполняемых tools.
+- `Workflow` владеет конкретным agent algorithm/control flow. Core не содержит
+  встроенный обязательный model -> tool -> model loop.
 - Process adapters переводят canonical Rust contract в strict JSON-RPC DTO.
 - Worker не зависит от `proteus-core` и может быть написан на любом языке.
 
@@ -86,26 +103,57 @@ examples/                  configs, external workers, MCP smoke
 `proteus-reference-worker` линкует эти Rust crates в один executable для
 удобства dogfood. На host boundary он ничем не отличается от Python worker-а.
 
-## Один Turn
+## Фактический Путь Одного Turn
+
+Основной AppServer path:
 
 ```text
-request
-  -> session lock + TurnStarted
-  -> selected Workflow component export
-       -> host.context.build
-       -> host.tools.select
-       -> host.model.complete
-       -> host.tools.execute[_batch]
-       -> host.history.compact
-       -> host.events.emit
-  -> validate WorkflowOutput
-  -> canonical journal + history
-  -> Renderer component export
-  -> CLI/HTTP response
+client user input
+  -> AppServer transport request id
+  -> SessionSteering::reserve
+       -> domain TurnId + canonical user message
+  -> AgentRuntime run_lock + reservation validation
+  -> capture one RuntimeSnapshot
+  -> journal TurnOpened
+  -> Event::TurnStarted
+  -> persist current user message in history/journal
+  -> build current RuntimeContext
+  -> selected Workflow::run(AgentTask, history, RuntimeContext)
+       -> optional context build
+       -> one or more model/tool/model steps chosen by Workflow
+       -> optional compaction and workflow events
+       -> WorkflowOutput
+  -> validate and commit history mutation
+  -> journal TurnSettled(Success/Error/Canceled/Timeout)
+  -> optional queued follow-up with a new domain TurnId
+  -> AppServer TurnOutput/Error -> client
 ```
 
-Workflow получает только callbacks, перечисленные contract authority. Tool
-callback не исполняет команду напрямую: он возвращается в core и проходит
+`SessionSteering::reserve` создаёт domain `TurnId`; для app-server это
+происходит до spawned runtime task и до захвата `run_lock`. Поле `turn_id` в
+ответе `/send-async` сейчас содержит строковый transport request id, которым
+`running_turns` адресует cancel. Это **не** domain `TurnId`, созданный
+`SessionSteering`, несмотря на совпадающее имя.
+
+Direct `AgentRuntime::run` сначала берёт `run_lock`, затем делает reservation;
+после неё оба entrypoints проходят общий `run_reserved_chain`/`run_one_turn`.
+
+`TurnOpened` пишется до `TurnStarted`, а accepted user message — после
+`TurnStarted`, но до вызова Workflow. Поэтому принятый prompt переживает
+последующую ошибку provider-а, tool-а или Workflow. После успешного
+`WorkflowOutput` Core проверяет history replacement/suffix и только затем
+фиксирует `TurnSettled`. Ошибка durable settlement превращает даже уже
+полученный успешный output в ошибку операции.
+
+Reference coding workflows испускают `TaskReceived`, model/context события и
+`TurnFinished` как часть controller behavior. Canonical terminal lifecycle
+Core — это `TurnSettled`; `TurnFinished` не заменяет settlement и не появляется
+на каждом failure path. Direct CLI после `AgentRuntime::run` дополнительно
+вызывает текущий `Renderer`; AppServer возвращает canonical `AgentOutput` и
+events напрямую и Renderer не вызывает.
+
+Process Workflow получает только callbacks, перечисленные contract authority.
+Tool callback не исполняет команду напрямую: он возвращается в Core и проходит
 общий путь:
 
 ```text
@@ -118,6 +166,164 @@ cancel, invalid response или смерть process классифицирую�
 завершают текущую операцию. Если component имеет несколько exports, они делят
 этот failure domain; следующая invocation любого export может лениво поднять
 новый process и повторить полный handshake.
+
+`run_reserved_chain` может последовательно выполнить несколько domain Turns:
+недоставленное queued сообщение после settlement становится follow-up и
+получает новый `TurnId`. Поэтому один transport request, одна reservation chain
+и один Turn — не взаимозаменяемые lifetime.
+
+Карта source для этого path:
+
+| Переход | File / type / method | Owner и lifetime |
+|---|---|---|
+| Web send | `clients/web/src/actions.rs`, `/send-async` action | Client request |
+| HTTP/stdio dispatch | `crates/proteus-core/src/app_server/http/commands.rs`, `execute_send[_async]`, `spawn_send_turn` | AppServer transport request; `running_turns` до terminal task cleanup |
+| Reservation/queue | `crates/proteus-core/src/core/runtime/steering.rs`, `SessionSteering::reserve` | Session lifetime; создаёт domain `TurnId`/`MessageId` |
+| Serialized root chain | `crates/proteus-core/src/core/runtime/turn.rs`, `run_reserved_completion`, `run_reserved_chain` | `AgentRuntime`; один `run_lock`, один или несколько sequential Turns |
+| Durable Turn lifecycle | тот же файл, `run_one_turn`, `run_opened_turn`, `persist_current_user_message` | Один domain Turn: snapshot/open/history/workflow/settlement |
+| Workflow contract | `crates/proteus-contracts/src/contracts/workflow.rs`, `Workflow::run` | Один controller invocation внутри открытого Turn |
+| Process Workflow bridge | `crates/proteus-core/src/process_adapters/workflow.rs`, `ProcessWorkflowAdapter::run` | Один broker root invocation + host callbacks |
+| Generic host callbacks | `crates/proteus-core/src/core/workflow_host.rs`, `WorkflowHostRuntime` | Один cloned current context на Workflow invocation |
+| Tool safety path | `crates/proteus-core/src/core/tool_orchestrator.rs`, `ToolOrchestrator` | Один/batch tool call внутри Workflow |
+| Durable data | `crates/proteus-core/src/core/session_store.rs` и `core/session_journal/` | Append-only session journal + reconstructed projection |
+
+## Ownership И Lifetime
+
+| Concept | Owner | Lifetime | Purpose |
+|---|---|---|---|
+| Session | `AgentRuntime` через `SessionState` | Несколько turns, до закрытия runtime/session | `SessionId`, root `ThreadId`, `run_lock`, active history, `SessionStore`, steering queue |
+| Turn | `SessionSteering` создаёт id; `AgentRuntime` открывает/settle-ит | Одна conversational operation; follow-up получает новый id | Chat/application lifecycle, history attribution и canonical settlement |
+| Workflow | Selected `Workflow` implementation | Один вызов внутри открытого Turn | Controller policy: ReAct/single loop, Codex loop, plan/execute/review или другой agent algorithm |
+| `RuntimeContext` | `RuntimeRegistry` собирает capabilities; `AgentRuntime` добавляет turn state | Один Workflow invocation | Текущий смешанный service locator для execution mechanisms и agent/chat policy |
+| `RuntimeSnapshot` | `RuntimeServices` | Immutable assembly/config view, удерживаемый всем ходом | Coherent `ModuleEpoch + AssemblyPlan + RuntimeRegistry + config snapshot`; не computation checkpoint |
+| Model invocation | Workflow инициирует; `WorkflowHostRuntime` и `ModelService` исполняют | Один shaped request/stream/terminal response | Provider-neutral model call, timeout, validation, deltas и текущая Turn attribution |
+| Tool invocation | Workflow инициирует; `ToolOrchestrator` владеет safety path | Один `ToolCall` до `ToolResult` | Registry lookup, policy, approval, child cancellation, invoke и recording |
+| Journal | Core `SessionStore`/projection | Append-only lifetime session directory | Canonical durable turn/history/model/tool facts и replay input |
+| Process invocation | `ComponentBroker` | Один root/nested component call в одном process generation | Broker-owned target, parent/root/depth, deadline, cancel и terminal state |
+
+`AgentRuntime { services: RuntimeServices, session: SessionState }` уже проводит
+полезную границу: services владеют snapshot/transports/runtime overrides, а
+session — conversation state. Планируемый context split не требует раскалывать
+`RuntimeServices` ради симметрии.
+
+## Mechanism И Policy
+
+Core предоставляет lifecycle и mechanisms: snapshot capture, cancellation,
+typed host callbacks, model/tool execution, policy/approval path, journal и
+history commit. Конкретную последовательность действий выбирает Workflow.
+
+```text
+Workflow policy
+  coding.single_loop
+  coding.codex_loop
+  coding.plan_execute_review
+          |
+          v
+Core mechanisms
+  model / tools / context / compaction / events / recording
+```
+
+`Workflow::run` формально может вернуть `WorkflowOutput` без model call. Но его
+текущий contract остаётся agent-shaped: обязательны `AgentTask`, persistent
+`Vec<CanonicalMessage>`, `RuntimeContext` с `TurnId` и terminal
+`AgentOutput`. Поэтому arbitrary non-chat workload сегодня может использовать
+нижние capabilities/process substrate, но не имеет естественного top-level
+entrypoint через `AgentRuntime`.
+
+## Текущий RuntimeContext И Coupling
+
+`RuntimeContext` сейчас объединяет 26 полей из разных ownership domains:
+
+| Группа | Текущие поля |
+|---|---|
+| Reusable execution mechanisms | `cancellation`, `model`, `search`, `memory`, `tools`, `policy`, `approval`, `patch`, `execution_recorder`, `model_timeout_ms` |
+| Agent/chat identity и policy | `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `reasoning`, `context_timeout_ms`, `context`, `compactor`, `tool_exposure`, `user_input`, `agent_control`, queued messages, events, `thread_label` |
+| Особенно связанный долг | `turn_grants`; recorder, model and tool attribution всё ещё получают mandatory `SessionId/ThreadId/TurnId` |
+
+`ContextBuilder` остаётся agent-specific: `ContextBuildInput` обязательно
+содержит `AgentTask`. Сами `SearchBackend` и `MemoryStore` этого требования не
+имеют. `ApprovalPolicy` также не принимает Turn; coupling находится в
+`TurnPermissionGrants`, `RequestOrigin`, `ToolInvocationOwner`, recorder calls
+и общем context-е.
+
+`ModelService` хранит mutable `DeltaEventContext` под `RwLock`, а turn перед
+Workflow вызывает `set_event_context(session, thread, turn, store)`. Root turns
+одной session сериализованы, но shared mutable current attribution остаётся
+barrier для независимых concurrent executions. Journal projection, в свою
+очередь, требует ранее открытый Turn для model/tool records. Всё это —
+**текущий architecture debt**, а не уже выполненная ExecutionScope migration.
+
+## Identity Domains
+
+Текущая и планируемая taxonomy различает три identity:
+
+```text
+TurnId
+  conversational/application lifecycle identity
+
+ExecutionId                         PLANNED, ещё не реализован
+  generic logical workload identity
+
+InvocationRef
+  ComponentBroker invocation identity and lineage
+```
+
+`InvocationRef` уже существует и принадлежит exact `ComponentBroker`. Он
+содержит `id`, `generation`, target export, `root_id`, `parent_id`, `depth` и
+deadline; private поля не дают module fabricating parent lineage. Один будущий
+execution сможет начать несколько независимых process invocation roots.
+Поэтому запрещены равенства `ExecutionId == TurnId` и
+`ExecutionId == InvocationRef`, а broker lineage не переносится в upper scope.
+
+## State Concepts
+
+| State | Что это сейчас | Что это не означает |
+|---|---|---|
+| Chat History | Active `SessionState.history`, восстановленная fold-ом `history_mutated` | Не полный input любого model call |
+| Model Context | Один `CanonicalModelRequest` после context/tool exposure/compaction/shaping | Не durable conversation целиком |
+| Journal | Canonical append-only turn/history/model/tool facts | Не event stream и не program counter |
+| Runtime State | Live services, session locks/history/steering, cancellation, grants, broker generations | Не автоматически durable state |
+| Memory | Отдельный `MemoryStore::remember/recall` capability | Не chat history и не generic checkpoint store |
+| `RuntimeSnapshot` | Coherent assembly/config/registry snapshot для хода | Не continuation snapshot вычисления |
+
+Prompt replay повторяет один сохранённый provider-neutral model request;
+workflow replay заново запускает Workflow с записанными model/tool outcomes.
+Они проверяют эквивалентность и projection, но не продолжают suspended Rust
+future после crash. Program counter, stack, local workflow variables, steering
+queue и cancellation token journal не восстанавливает.
+
+## Planned ExecutionScope
+
+Статус: **принято, но не реализовано**.
+
+Принято направление отделить generic workload identity/context от
+conversation Turn без переписывания agent loop или process protocol:
+
+```text
+Turn / AgentRuntime
+        |
+        | creates
+        v
+ExecutionScope(ExecutionId, cancellation)
+        |
+        v
+ExecutionContext(generic capabilities)
+        |
+        v
+AgentWorkflowContext(chat wrapper)
+        |
+        v
+existing Workflow
+```
+
+Главный invariant: **Turn создаёт ExecutionScope, но generic execution не знает,
+что такое Turn**. `Turn`, history, steering, Workflow v1 и AppServer остаются
+application/chat concepts. `InvocationRef` и Component Runtime v2 / wire v3
+не меняются.
+
+На текущем HEAD типов `ExecutionId`, `ExecutionScope`, `ExecutionContext` и
+`AgentWorkflowContext` ещё нет. Порядок миграции, field ownership, tests и
+stop-gates находятся в [roadmap.md](../product/roadmap.md#executionscope-migration).
 
 ## Slot, Module, Worker И Profile
 

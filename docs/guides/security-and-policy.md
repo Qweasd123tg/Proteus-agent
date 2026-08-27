@@ -529,6 +529,12 @@ Core учитывает `granted_permissions` только на approved-пут�
 выдача гранта. Approval этого tool-а не кэшируется ни между turns, ни внутри
 одного turn. Tool в `allow`-списке выдать грант сам себе не может.
 
+Это также текущая ownership boundary: `TurnPermissionGrants` и
+`RequestOrigin` привязаны к `TurnId`. Планируемый context split оставляет
+`turn_grants` в `AgentWorkflowContext`; перенос grants/approval attribution на
+`ExecutionId` отложен до отдельной Phase 5 и не входит в Phase 0–2. См.
+[roadmap.md](../product/roadmap.md#executionscope-migration).
+
 Субагенты изолированы структурно: дочерний контекст получает пустые
 `turn_grants`, поэтому `escalated_exec` родителя не протекает в ребёнка, а
 гранты, выданные ребёнку через его собственный approval, не видны

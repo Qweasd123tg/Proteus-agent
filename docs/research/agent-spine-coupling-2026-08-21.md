@@ -11,6 +11,17 @@
   `f4585b8bec581d005cbb1edfc07edfcce723d0ae`, OpenCode
   `77429f59823c8c6df9cfee95d4c663043b017f46` и tracked Claude Code notes.
 
+> **Historical / superseded, 2026-08-27.** Current source больше не содержит
+> описанный ниже `SubagentRunner`: agent-control cutover удалил второй
+> in-process loop. Также не принято предложение переносить controller state в
+> новый `AgentSession`: current source подтверждает, что конкретный loop уже
+> принадлежит `Workflow`. Принятое следующее направление — тонкий
+> `ExecutionScope` и context split без Workflow/process rewrite. Current
+> architecture находится в
+> [architecture.md](../architecture/architecture.md), implementation plan — в
+> [roadmap.md](../product/roadmap.md#executionscope-migration).
+> Остальной текст сохранён как исторический audit input.
+
 ## Sequencing Addendum
 
 Последующий transport-аудит

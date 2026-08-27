@@ -1,6 +1,9 @@
 # Runtime И Events
 
-Runtime состоит из `AgentRuntime`, `RuntimeRegistry`, `RuntimeContext`, event sink и session store.
+Runtime состоит из `AgentRuntime`, long-lived `SessionState`, immutable-per-turn
+`RuntimeSnapshot`, `RuntimeRegistry`, текущего смешанного `RuntimeContext`,
+event sink и session store. `Workflow` выбирает agent algorithm; Core ведёт
+session/turn lifecycle и предоставляет execution mechanisms.
 
 ## Режимы Запуска
 
@@ -91,7 +94,12 @@ token отклоняется до запуска runtime и bind.
 /quit
 ```
 
-`/history` показывает длину in-memory history. `/clear` и `/reset` очищают in-memory history и файл текущей session history, если он подключён. `/remember` пишет item в `MemoryStore` напрямую, минуя Workflow — это side-channel для ручных preferences/facts; первое слово интерпретируется как kind (`preference` или `fact`), остаток идёт как content. Если первое слово не распознано — всё считается `fact`.
+`/history` показывает длину in-memory history. `/clear` и `/reset` очищают live
+history projection и, если подключён `SessionStore`, append-ят canonical empty
+replacement в journal. `/remember` пишет item в `MemoryStore` напрямую, минуя
+Workflow — это side-channel для ручных preferences/facts; первое слово
+интерпретируется как kind (`preference` или `fact`), остаток идёт как content.
+Если первое слово не распознано — всё считается `fact`.
 
 ## Event Log
 
@@ -195,6 +203,12 @@ override не приписываются следующему turn-у задни
 новый план со старым registry. Сам план не дублируется в canonical journal:
 replay использует компактный `SessionConfigSnapshot` с точными module ids и
 зарегистрированными tools.
+
+`RuntimeSnapshot` — snapshot assembly/configuration, а не checkpoint
+вычисления. Он не содержит program counter, stack или suspended Workflow
+future и не позволяет продолжить оборванный call после crash. Текущий Turn
+удерживает один coherent snapshot до завершения; планируемый
+`ExecutionContext` сохранит эту семантику для generic execution.
 
 Полный формат и границы replay описаны в
 [canonical-turn-data.md](../architecture/canonical-turn-data.md).
@@ -766,25 +780,44 @@ Terminal app event публикуется до снятия finalization gate se
 
 ## Workflow Loop
 
-Baseline `coding.single_loop` экспортируется `proteus-reference-worker` из
-crate `coding-workflow`. Он работает через process workflow callbacks ядра:
+Обычный request проходит две вложенные ownership-зоны. Core владеет
+reservation, durable lifecycle и history, а selected Workflow — конкретным
+agent algorithm.
 
-1. `AgentRuntime::run` берёт `run_lock`;
-2. гарантирует `SessionStarted` один раз на session; stdio app-server вызывает это сразу после запуска, чтобы внешний клиент знал модель, cwd и session directory до первого turn;
-3. создаёт новый `TurnId` и пишет `TurnStarted`;
-4. принимает `AgentTask`;
-5. пишет `TaskReceived`;
-6. вызывает `ContextBuilder::build`;
-7. пишет `ContextBuilt`;
-8. собирает `CanonicalModelRequest` из persistent conversation плюс ephemeral context текущего turn;
-9. вызывает `Model::complete`, реализованный `ModelService`;
-10. `ModelService` получает `ModelCapabilities`, прогоняет request через `RequestShaper`, вызывает provider `Model` и fail-closed проверяет terminal response против фактически отправленного request;
-11. пишет `TokenUsageUpdated` с source, оценкой request categories и provider usage, если он доступен;
-12. если модель вернула tool calls, передаёт их в `ToolOrchestrator`;
-13. добавляет `ToolResult` в canonical messages;
-14. повторяет model call до финального ответа или лимита rounds;
-15. если лимит rounds исчерпан, делает финальный model call без tools;
-16. пишет `TurnFinished`.
+Core path:
+
+1. app-server создаёт transport request id; `SessionSteering::reserve`
+   отдельно создаёт domain `TurnId` до spawned task и `run_lock`;
+2. direct `AgentRuntime::run` сначала берёт `run_lock`, затем резервирует Turn;
+3. `run_one_turn` проверяет reservation, захватывает один `RuntimeSnapshot`,
+   гарантирует `SessionStarted` и пишет journal `TurnOpened`;
+4. Core испускает `TurnStarted`, затем durable append-ит accepted user message;
+5. Core собирает текущий `RuntimeContext`, оборачивает model для steering и
+   вызывает selected `Workflow::run`;
+6. после `WorkflowOutput` Core валидирует history replacement/suffix,
+   записывает mutation и фиксирует `TurnSettled`;
+7. недоставленное queued сообщение может открыть follow-up с новым domain
+   `TurnId` в той же `run_reserved_chain`.
+
+Baseline `coding.single_loop` экспортируется `proteus-reference-worker` из
+crate `coding-workflow`. Внутри шага 5 он через process workflow callbacks:
+
+1. испускает `TaskReceived`;
+2. вызывает `ContextBuilder::build` и испускает `ContextBuilt`;
+3. собирает `CanonicalModelRequest` из persistent conversation и ephemeral
+   context текущего Turn;
+4. вызывает `ModelService`, который shape-ит provider-neutral request,
+   исполняет provider call и fail-closed проверяет terminal response;
+5. испускает usage/model events и при наличии tool calls вызывает
+   `ToolOrchestrator` через единый registry/policy/approval/safety path;
+6. добавляет `ToolResult` и повторяет model call до финального ответа или
+   лимита rounds;
+7. при исчерпании лимита делает final model call без tools;
+8. возвращает `WorkflowOutput` и испускает workflow event `TurnFinished`.
+
+`TurnFinished` является событием controller behavior и отсутствует на части
+failure paths. Durable terminal source of truth — Core-owned journal record
+`TurnSettled(Success/Error/Canceled/Timeout)`.
 
 Успешный `Model::stream` обязан закончиться полным canonical
 `Response`: дельты нужны для live UI, но generic `ModelService` не собирает из
