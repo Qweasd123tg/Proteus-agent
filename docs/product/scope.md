@@ -86,9 +86,13 @@ current Turn, а request metadata, delta events, journal projection и
 cancellation изолированы immutable binding-ом. Каждый Turn создаёт один новый
 scope; child cancellation views сохраняют тот же execution id. `Turn` остаётся
 chat/application lifecycle, `Workflow` — владельцем agent-loop policy, а
-process `InvocationRef` — отдельной broker identity. Следующий вопрос —
-durable journal/recorder ownership Phase 4; общая binding abstraction пока не
-вводится.
+process `InvocationRef` — отдельной broker identity. Source review Phase 4
+уточнил следующий шаг: `ExecutionId` становится durable owner model/tool
+facts, а session/thread/turn остаются presentation projection. Незавершённый
+model request при cancellation остаётся interrupted и завершается
+`TurnSettled`, а не fake model error. Journal cutover будет strict без
+dual-reader; production implementation ещё не начата. Общая binding
+abstraction пока не вводится.
 Следующие phases и stop-gates находятся в
 [roadmap.md](roadmap.md#executionscope-migration).
 

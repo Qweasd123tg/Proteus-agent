@@ -88,6 +88,37 @@ journal projection и cancellation. Там же проверяются detached 
 focused tests обязателен полный `cargo test --workspace`; journal schema,
 `Model` DTO/trait и process protocol в этой phase не меняются.
 
+### Execution Recording Phase 4 Gate (planned)
+
+До schema/recorder refactor добавить characterization для двух текущих
+interruption paths:
+
+- model request без response + `TurnSettled(Canceled|Timeout)` остаётся в
+  `interrupted_model_exchanges`, но Turn не остаётся unsettled;
+- cancellation во время approval может оставить tool call unresolved и не
+  фабрикует resolution/result.
+
+Phase 4A отдельно доказывает, что detached `BoundModel` записывает model facts
+в scope-bound in-memory `ExecutionRecorder` без chat IDs, а normal Turn передаёт
+один recorder при construction вместо поздней подмены. Current dynamic
+root/child thread attribution tool calls должна сохраниться через
+agent-specific recorder surface.
+
+Phase 4B выполняет strict schema cutover без compatibility reader. Gate должен
+проверить:
+
+- один `ExecutionId` в `TurnOpened`, model/tool facts и runtime scope;
+- fail-closed mismatch `TurnId -> ExecutionId`;
+- один execution с несколькими presentation threads;
+- execution-owned model fact без открытого Turn;
+- explicit rejection schema v1 и round-trip новой session metadata version;
+- prompt/workflow replay, cold transcript/history и eval на новой schema;
+- существующие process lineage/conformance и `module_swap` без изменений.
+
+После каждого changeset выполняется `cargo test --workspace --no-fail-fast`.
+Phase 5 approval/grants, Phase 6 generic tools, process protocol и event DTO в
+этот gate не входят.
+
 ### P0 Multiplexed Broker Spike
 
 ```bash

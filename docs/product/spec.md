@@ -218,12 +218,19 @@ execution attribution, но scope не является service container. Пр�
 `ExecutionContext` остаётся migration hypothesis, а не зафиксированным
 конечным API. `BoundModel` доказал immutable per-execution binding поверх
 shared provider: metadata, delta attribution и cancellation больше не зависят
-от mutable current Turn в `ModelService`. Итерация остановлена перед Phase 4;
-journal/recorder, approval и tool ownership мигрируют только отдельными
-проверяемыми phases. `Turn` остаётся
+от mutable current Turn в `ModelService`. Production migration остановлена
+перед Phase 4, а её source design уже зафиксирован; journal/recorder, approval
+и tool ownership мигрируют только отдельными проверяемыми phases. `Turn` остаётся
 application lifecycle, `Workflow` владеет agent-loop policy, а process
 `InvocationRef` не меняется. Канонический план находится в
 [roadmap.md](roadmap.md#executionscope-migration).
+
+Phase 4 source review разделил durable owner и presentation attribution:
+model/tool facts должны принадлежать `ExecutionId`, но один execution может
+отображаться через несколько root/child `ThreadId`. Runtime cancellation не
+является model error: начатый exchange остаётся interrupted, а chat lifecycle
+закрывается `TurnSettled(Canceled|Timeout)`. Generic execution terminal state
+machine и совместимый journal reader этим решением не вводятся.
 
 Долгосрочная альтернатива ambient context-у — typed capability binding:
 

@@ -31,7 +31,7 @@
   [modules.md](architecture/modules.md).
 - **Продолжить ExecutionScope migration:** сначала current boundary в
   [architecture.md](architecture/architecture.md#executionscope-migration),
-  затем stop-gate после Phase 3 в
+  затем source-backed Phase 4 plan и stop-gates в
   [roadmap.md](product/roadmap.md#executionscope-migration).
 - **Понять направление subagents:** [subagents.md](architecture/subagents.md).
 - **Разобрать сбой:** [inspect.md](guides/inspect.md), затем профильный документ по

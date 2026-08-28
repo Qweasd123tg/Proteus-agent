@@ -270,6 +270,33 @@ Journal projection, однако, всё ещё требует ранее отк
 records. Это **текущий architecture debt Phase 4+**, а не свойство generic
 model capability.
 
+Recorder boundary пока также смешана. `ExecutionRecorder` записывает только
+tool facts и требует session/thread/turn на каждом вызове, тогда как
+`BoundModel` пишет model facts напрямую в `SessionStore`. Turn устанавливает
+session recorder уже после construction `ExecutionContext`. Это current debt,
+не целевая форма.
+
+Execution ownership нельзя отождествить с presentation thread. Agent-control
+child context сохраняет `ExecutionId` через `child_cancellation_scope()`, но
+заменяет `AgentWorkflowContext.thread_id`. Поэтому один execution уже может
+иметь root и child presentation threads:
+
+```text
+ExecutionId E1
+    |-- root ThreadId T1
+    `-- child ThreadId T2
+```
+
+Phase 4 должна сделать `ExecutionId` durable owner model/tool facts, сохранив
+thread/turn только как agent/session projection. Она не создаёт child execution
+lineage и не связывает эту картину с process `InvocationRef`.
+
+Cancellation также имеет два разных terminal уровня. Provider/model error
+получает `ModelResponseRecorded(Error)`, но runtime cancellation/timeout
+оставляет начатый exchange interrupted и завершается chat-фактом
+`TurnSettled(Canceled|Timeout)`. Подменять cancellation fake model error-ом или
+добавлять generic `ExecutionSettled` в Phase 4 запрещено.
+
 ## Identity Domains
 
 Текущая migration taxonomy различает три identity:
@@ -320,7 +347,8 @@ queue и cancellation token journal не восстанавливает.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–3 реализованы 2026-08-28; работа остановлена перед Phase 4**.
+Статус: **Phase 0–3 реализованы 2026-08-28; source design Phase 4 завершён,
+production implementation не начата**.
 
 Принято направление отделить generic workload identity/lifecycle boundary от
 conversation Turn без переписывания agent loop или process protocol:
