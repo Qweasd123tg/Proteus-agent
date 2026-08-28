@@ -6,7 +6,8 @@ use std::{path::PathBuf, sync::Arc};
 use proteus_core::{
     contracts::{
         AgentAddress, AgentControl, AgentControlMessage, AgentControlRequest, AgentLifecycleStatus,
-        ApprovalPolicy, EventEmitter, PolicyContext, PolicyVisibilityContext, ToolRegistry,
+        ApprovalPolicy, CancellationToken, EventEmitter, ExecutionScope, PolicyContext,
+        PolicyVisibilityContext, ToolRegistry,
     },
     core::{
         AgentControlConfig, AgentControlRuntime, HeadlessApprovalTransport,
@@ -40,6 +41,7 @@ fn test_runtime_context() -> proteus_core::contracts::RuntimeContext {
         new_session_id(),
         new_thread_id(),
         new_turn_id(),
+        ExecutionScope::fresh(CancellationToken::new()),
         ModelRef::new("fake", "fake-tool-model"),
         ReasoningConfig::default(),
         120_000,

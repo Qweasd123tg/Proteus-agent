@@ -88,7 +88,7 @@ impl Workflow for ProcessWorkflowAdapter {
                 workflow_timeout_ms: self.workflow_timeout_ms,
             },
         };
-        let cancellation = ctx.cancellation.clone();
+        let cancellation = ctx.scope.cancellation.clone();
         let dispatcher: Arc<dyn AsyncHostRequestDispatcher> = Arc::new(ProcessWorkflowDispatcher {
             runtime: Arc::new(WorkflowHostRuntime::new(ctx)),
         });

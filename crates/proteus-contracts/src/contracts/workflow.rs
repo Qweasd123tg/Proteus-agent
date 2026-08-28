@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     contracts::{
         AgentControl, ApprovalPolicy, ApprovalTransport, CancellationToken, ContextBuilder,
-        EventEmitter, ExecutionRecorder, HistoryCompactor, MemoryStore, Model,
+        EventEmitter, ExecutionRecorder, ExecutionScope, HistoryCompactor, MemoryStore, Model,
         NoopExecutionRecorder, PatchApplier, SearchBackend, ToolExposure, ToolRegistry,
         TurnPermissionGrants, UserInputTransport,
     },
@@ -145,12 +145,12 @@ pub struct RuntimeContext {
     pub session_id: SessionId,
     pub thread_id: ThreadId,
     pub turn_id: TurnId,
+    pub scope: ExecutionScope,
     pub model_ref: ModelRef,
     pub instructions: Vec<InstructionBlock>,
     pub reasoning: ReasoningConfig,
     pub model_timeout_ms: u64,
     pub context_timeout_ms: u64,
-    pub cancellation: CancellationToken,
     pub events: Arc<EventEmitter>,
     pub model: Arc<dyn Model>,
     pub search: Arc<dyn SearchBackend>,
@@ -186,6 +186,7 @@ impl RuntimeContext {
         session_id: SessionId,
         thread_id: ThreadId,
         turn_id: TurnId,
+        scope: ExecutionScope,
         model_ref: ModelRef,
         reasoning: ReasoningConfig,
         model_timeout_ms: u64,
@@ -208,12 +209,12 @@ impl RuntimeContext {
             session_id,
             thread_id,
             turn_id,
+            scope,
             model_ref,
             instructions: Vec::new(),
             reasoning,
             model_timeout_ms,
             context_timeout_ms,
-            cancellation: CancellationToken::new(),
             events,
             model,
             search,
@@ -240,7 +241,7 @@ impl RuntimeContext {
     }
 
     pub fn with_cancellation(mut self, cancellation: CancellationToken) -> Self {
-        self.cancellation = cancellation;
+        self.scope = ExecutionScope::new(self.scope.execution_id, cancellation);
         self
     }
 
@@ -255,7 +256,7 @@ impl RuntimeContext {
     }
 
     pub fn is_cancelled(&self) -> bool {
-        self.cancellation.is_cancelled()
+        self.scope.cancellation.is_cancelled()
     }
 
     pub fn queued_user_messages(&self) -> usize {

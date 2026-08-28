@@ -1,4 +1,27 @@
+use std::fmt;
+
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ExecutionId(Uuid);
+
+impl ExecutionId {
+    pub const fn from_uuid(value: Uuid) -> Self {
+        Self(value)
+    }
+
+    pub const fn into_uuid(self) -> Uuid {
+        self.0
+    }
+}
+
+impl fmt::Display for ExecutionId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
 
 pub type SessionId = Uuid;
 pub type ThreadId = Uuid;
@@ -20,6 +43,10 @@ pub fn new_thread_id() -> ThreadId {
 
 pub fn new_turn_id() -> TurnId {
     Uuid::new_v4()
+}
+
+pub fn new_execution_id() -> ExecutionId {
+    ExecutionId(Uuid::new_v4())
 }
 
 pub fn new_message_id() -> MessageId {

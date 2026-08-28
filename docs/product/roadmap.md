@@ -24,12 +24,12 @@ journal/replay evidence и `v0.1.0-alpha.1` уже завершены. Roadmap �
 [releases/v0.1.0-alpha.1.md](../releases/v0.1.0-alpha.1.md).
 
 Следующее принятое направление — минимальная `ExecutionScope` migration,
-описанная ниже. Она пока **не реализована**. Остальные разделы остаются
-вариантами последующей работы, а не автоматической очередью.
+описанная ниже. Phase 0–1 реализованы, Phase 2 ещё не выполнена. Остальные
+разделы остаются вариантами последующей работы, а не автоматической очередью.
 
 ## ExecutionScope Migration
 
-Статус: **принято, но не реализовано**.
+Статус: **Phase 0–1 реализованы; Phase 2 ожидает выполнения**.
 
 Supporting evidence, не заменяющий этот roadmap:
 [source-level audit](../research/execution-scope-source-audit-2026-08-27.md) и
@@ -134,6 +134,12 @@ replay, coding workflows, process cancellation/deadline/nested lineage и
 полного process-backed workflow path. Этот факт не заменяет повторный baseline
 на новом HEAD в момент реализации.
 
+Implementation baseline 2026-08-28 зафиксирован на HEAD
+`e5759648501316ae8273fe3ccd46dafd2996a2b2`: worktree был чистым,
+`cargo test --workspace` прошёл без repository failures. В restricted sandbox
+существующий HTTP retry test не смог bind-ить loopback port с
+`PermissionDenied`; тот же gate вне этого ограничения прошёл полностью.
+
 Минимальный regression gate Phase 0–2:
 
 - normal и failed interactive turn;
@@ -147,6 +153,8 @@ replay, coding workflows, process cancellation/deadline/nested lineage и
 - `crates/proteus-core/tests/module_swap.rs` для затронутых contracts.
 
 ### Phase 1 — Execution Identity
+
+Статус: **реализовано 2026-08-28**.
 
 В `proteus-contracts` добавить один transparent newtype `ExecutionId`. Не
 добавлять параллельный `WorkId` и не оставлять его type alias к `TurnId`:
@@ -207,6 +215,8 @@ token для targeted cancel. Полный peer Proteus в другом проц
 `parent_execution_id` по-прежнему отложены.
 
 ### Phase 2 — Context Split Как Migration Hypothesis
+
+Статус: **ещё не реализовано**.
 
 Текущий `RuntimeContext` содержит 26 полей. Split должен быть структурным, а
 не переименованием god-object.

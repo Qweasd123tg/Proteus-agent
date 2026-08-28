@@ -113,7 +113,7 @@ impl ChildEventForwarder<'_> {
         .with_origin(self.origin());
         let response = tokio::select! {
             response = self.ctx.approval.request_approval(forwarded) => response,
-            _ = self.ctx.cancellation.cancelled() => return None,
+            _ = self.ctx.scope.cancellation.cancelled() => return None,
         };
         let (approved, note, cache) = match response {
             Ok(response) => (response.approved, response.note, response.cache),
@@ -140,7 +140,7 @@ impl ChildEventForwarder<'_> {
         let forwarded = request.with_origin(self.origin());
         let response = tokio::select! {
             response = self.ctx.user_input.request_user_input(forwarded) => response,
-            _ = self.ctx.cancellation.cancelled() => return None,
+            _ = self.ctx.scope.cancellation.cancelled() => return None,
         };
         let response = response.unwrap_or_else(|_| UserInputResponse::empty());
         Some(StdioRequest::UserInput {
@@ -182,13 +182,13 @@ pub(super) async fn drive_turn(
     let mut pending_from_message_turn = false;
 
     loop {
-        if forwarder.ctx.cancellation.is_cancelled() && !tracker.cancel_sent {
+        if forwarder.ctx.scope.cancellation.is_cancelled() && !tracker.cancel_sent {
             return finish_cancelled(child, forwarder, &active_send_id, tracker, cancel_grace)
                 .await;
         }
 
         let delivery_guard = mailbox.lock_delivery().await;
-        if forwarder.ctx.cancellation.is_cancelled() && !tracker.cancel_sent {
+        if forwarder.ctx.scope.cancellation.is_cancelled() && !tracker.cancel_sent {
             drop(delivery_guard);
             return finish_cancelled(child, forwarder, &active_send_id, tracker, cancel_grace)
                 .await;
@@ -218,7 +218,7 @@ pub(super) async fn drive_turn(
 
         let output = tokio::select! {
             output = child.next_output() => output,
-            _ = forwarder.ctx.cancellation.cancelled() => {
+            _ = forwarder.ctx.scope.cancellation.cancelled() => {
                 return finish_cancelled(
                     child,
                     forwarder,

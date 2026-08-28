@@ -209,11 +209,11 @@ contract decisions. Для subagents уже принята identity-модель
 [subagents.md](../architecture/subagents.md). Актуальный
 критический путь ведётся в `scope.md`.
 
-Отдельно принято, но ещё не реализовано минимальное направление
-`ExecutionScope`: distinct `ExecutionId` и scope для identity,
-lifecycle/cancellation и execution attribution. Scope не является service
-container. `Turn` остаётся application lifecycle, `Workflow` владеет
-agent-loop policy, а process `InvocationRef` не меняется. Phase 2 проверяет
+В минимальном направлении `ExecutionScope` уже реализована Phase 1: distinct
+`ExecutionId` и scope для identity, lifecycle/cancellation и execution
+attribution. Scope не является service container. `Turn` остаётся application
+lifecycle, `Workflow` владеет agent-loop policy, а process `InvocationRef` не
+меняется. Ещё не реализованная Phase 2 проверяет
 split текущего `RuntimeContext` на `ExecutionContext` и chat-specific
 `AgentWorkflowContext` как migration hypothesis, а не фиксирует большой
 `ExecutionContext` как конечный API. Обязательный gate — реальный generic

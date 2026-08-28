@@ -173,7 +173,7 @@ impl WorkflowHostRuntime {
     }
 
     async fn run_active<T>(&self, future: impl Future<Output = Result<T>>) -> Result<T> {
-        let cancellation = self.ctx.cancellation.clone();
+        let cancellation = self.ctx.scope.cancellation.clone();
         if cancellation.is_cancelled() {
             return Err(anyhow!("turn canceled by client"));
         }

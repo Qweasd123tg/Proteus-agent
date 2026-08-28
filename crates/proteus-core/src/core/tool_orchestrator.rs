@@ -155,7 +155,7 @@ impl ToolOrchestrator {
                 );
                 let approval = tokio::select! {
                     result = approval_request => result?,
-                    _ = ctx.cancellation.cancelled() => {
+                    _ = ctx.scope.cancellation.cancelled() => {
                         return Err(anyhow!("turn canceled by client"));
                     }
                 };
@@ -274,7 +274,7 @@ impl ToolOrchestrator {
         // Per-call child token lets an orchestrator timeout stop nested work
         // (notably a detached subagent) without cancelling the whole turn.
         // Parent turn cancellation still cascades into this token.
-        let tool_cancellation = ctx.cancellation.child_token();
+        let tool_cancellation = ctx.scope.cancellation.child_token();
         // user_input оборачивается attribution-обёрткой: запросы tool-а несут
         // thread/turn/label исполняющего контекста (см. RequestOrigin).
         let tool_ctx = ToolContext {
@@ -325,7 +325,7 @@ impl ToolOrchestrator {
                     "timeout_ms": timeout_ms,
                 }))
             },
-            _ = ctx.cancellation.cancelled() => {
+            _ = ctx.scope.cancellation.cancelled() => {
                 ToolResult::error(call.id.clone(), "tool call canceled")
                     .with_metadata(json!({
                         "tool": call.name,

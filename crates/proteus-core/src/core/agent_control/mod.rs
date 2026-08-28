@@ -120,6 +120,6 @@ fn child_context(
     child_ctx.thread_id = child_thread_id;
     child_ctx.thread_label = Some(role_name.to_owned());
     child_ctx.turn_grants = Arc::default();
-    child_ctx.cancellation = ctx.cancellation.child_token();
+    child_ctx.scope = ctx.scope.child_cancellation_scope();
     child_ctx
 }

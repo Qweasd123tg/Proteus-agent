@@ -12,7 +12,7 @@ use super::*;
 use crate::{
     contracts::{RuntimeContext, Workflow, WorkflowOutput},
     core::{ConfiguredToolConfig, ConfiguredToolExecutorConfig, ModuleCatalog, PreparedAssembly},
-    domain::{AgentOutput, AgentTask, HistoryCompactionReport, ToolSafety},
+    domain::{AgentOutput, AgentTask, ExecutionId, HistoryCompactionReport, ToolSafety},
     model_standard::{CanonicalMessage, CanonicalModelRequest, MessageRole},
 };
 
@@ -71,6 +71,9 @@ struct CompactingWorkflow;
 struct HangingWorkflow;
 struct DelayedWorkflow;
 struct ModelCallingWorkflow;
+struct ExecutionScopeProbeWorkflow {
+    seen: Arc<std::sync::Mutex<Vec<ExecutionId>>>,
+}
 struct SnapshotProbeWorkflow {
     wait_once: Arc<AtomicBool>,
     started: Arc<tokio::sync::Notify>,
@@ -177,6 +180,22 @@ impl Workflow for ModelCallingWorkflow {
 }
 
 #[async_trait]
+impl Workflow for ExecutionScopeProbeWorkflow {
+    async fn run(
+        &self,
+        task: AgentTask,
+        history: Vec<CanonicalMessage>,
+        ctx: RuntimeContext,
+    ) -> Result<WorkflowOutput> {
+        self.seen
+            .lock()
+            .expect("execution scope observations")
+            .push(ctx.scope.execution_id);
+        Ok(successful_messages(history, task, "done"))
+    }
+}
+
+#[async_trait]
 impl Workflow for SnapshotProbeWorkflow {
     async fn run(
         &self,
@@ -195,6 +214,28 @@ impl Workflow for SnapshotProbeWorkflow {
         let assistant = CanonicalMessage::text(MessageRole::Assistant, output.text.clone());
         Ok(WorkflowOutput::new(output, vec![assistant]))
     }
+}
+
+#[tokio::test]
+async fn turn_creates_unique_execution_scope() {
+    let cwd = tempfile::tempdir().expect("temp dir");
+    let runtime = AgentRuntime::builder(AppConfig::default(), cwd.path().to_path_buf())
+        .with_module_catalog(test_catalog())
+        .build()
+        .expect("runtime");
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    replace_workflow_for_test(
+        &runtime,
+        Arc::new(ExecutionScopeProbeWorkflow { seen: seen.clone() }),
+    )
+    .await;
+
+    runtime.run("first".to_owned()).await.expect("first turn");
+    runtime.run("second".to_owned()).await.expect("second turn");
+
+    let seen = seen.lock().expect("execution scope observations");
+    assert_eq!(seen.len(), 2);
+    assert_ne!(seen[0], seen[1]);
 }
 
 #[tokio::test]

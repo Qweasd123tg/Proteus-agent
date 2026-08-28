@@ -38,7 +38,7 @@ impl CompactionHost for RuntimeCompactionHost {
             anyhow::bail!("turn canceled by client");
         }
         let ctx = self.ctx.clone();
-        let cancellation = ctx.cancellation.clone();
+        let cancellation = ctx.scope.cancellation.clone();
         tokio::select! {
             result = async move {
                 let completion = without_root_steering(ctx.model.complete(request));

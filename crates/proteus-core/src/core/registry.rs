@@ -4,9 +4,9 @@ use anyhow::Result;
 
 use crate::{
     contracts::{
-        AgentControl, ApprovalPolicy, ContextBuilder, EventEmitter, HistoryCompactor, MemoryStore,
-        Model, PatchApplier, Renderer, RuntimeContext, SearchBackend, ToolExposure, ToolRegistry,
-        UserInputTransport, Workflow,
+        AgentControl, ApprovalPolicy, ContextBuilder, EventEmitter, ExecutionScope,
+        HistoryCompactor, MemoryStore, Model, PatchApplier, Renderer, RuntimeContext,
+        SearchBackend, ToolExposure, ToolRegistry, UserInputTransport, Workflow,
     },
     core::{
         AgentControlRuntime, AppConfig, AssemblyPlan, HeadlessUserInputTransport, ModeAwarePolicy,
@@ -156,6 +156,7 @@ impl RuntimeRegistry {
         session_id: SessionId,
         thread_id: ThreadId,
         turn_id: TurnId,
+        scope: ExecutionScope,
         events: Arc<EventEmitter>,
         approval: Arc<dyn crate::contracts::ApprovalTransport>,
         permission_mode: crate::domain::PermissionMode,
@@ -164,6 +165,7 @@ impl RuntimeRegistry {
             session_id,
             thread_id,
             turn_id,
+            scope,
             events,
             approval,
             Arc::new(HeadlessUserInputTransport),
@@ -177,6 +179,7 @@ impl RuntimeRegistry {
         session_id: SessionId,
         thread_id: ThreadId,
         turn_id: TurnId,
+        scope: ExecutionScope,
         events: Arc<EventEmitter>,
         approval: Arc<dyn crate::contracts::ApprovalTransport>,
         user_input: Arc<dyn UserInputTransport>,
@@ -186,6 +189,7 @@ impl RuntimeRegistry {
             session_id,
             thread_id,
             turn_id,
+            scope,
             self.model_config.model_ref(),
             self.model_config.reasoning.clone(),
             self.runtime_config.model_timeout_ms,

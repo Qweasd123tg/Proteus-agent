@@ -371,7 +371,7 @@ impl RunnerInner {
             permit = role.permits.clone().acquire_owned() => {
                 permit.map_err(|_| anyhow!("agent profile process pool is closed"))?
             }
-            _ = child_ctx.cancellation.cancelled() => {
+            _ = child_ctx.scope.cancellation.cancelled() => {
                 let _ = mailbox.close_and_discard();
                 let resumable = match resume.as_ref() {
                     Some(reservation) => self.rollback_resume(reservation).await?,
@@ -524,7 +524,7 @@ impl AgentControl for ProcessAgentControl {
         let agent_target = requested_agent_target(&request)?;
         let reserve_result = self.inner.lock_pending()?.reserve(
             &spawn_id,
-            child_ctx.cancellation.clone(),
+            child_ctx.scope.cancellation.clone(),
             mailbox.clone(),
             agent_target,
             self.inner.max_parallel,

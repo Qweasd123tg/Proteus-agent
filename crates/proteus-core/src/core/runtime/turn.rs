@@ -4,7 +4,7 @@ use anyhow::Result;
 use tokio::time::{Duration, timeout};
 
 use crate::{
-    contracts::CancellationToken,
+    contracts::{CancellationToken, ExecutionScope},
     core::SessionConfigSnapshot,
     domain::{AgentOutput, AgentTask, Event, EventContext},
     model_standard::CanonicalMessage,
@@ -166,6 +166,7 @@ impl AgentRuntime {
         cancellation: CancellationToken,
     ) -> Result<AgentOutput> {
         let snapshot = self.snapshot().await;
+        let execution_scope = ExecutionScope::fresh(cancellation.clone());
         self.ensure_session_started_with_snapshot(&snapshot).await?;
         let turn_id = reserved.turn_id;
         let task = AgentTask::new(reserved.text.clone(), self.services.cwd.clone());
@@ -189,13 +190,7 @@ impl AgentRuntime {
                 .await?;
         }
         let result = self
-            .run_opened_turn(
-                reserved,
-                cancellation.clone(),
-                snapshot,
-                config_snapshot,
-                task,
-            )
+            .run_opened_turn(reserved, execution_scope, snapshot, config_snapshot, task)
             .await;
         let settlement = match &result {
             Ok(output) => crate::core::TurnSettled {
@@ -236,12 +231,13 @@ impl AgentRuntime {
     async fn run_opened_turn(
         &self,
         reserved: ReservedUserMessage,
-        cancellation: CancellationToken,
+        execution_scope: ExecutionScope,
         snapshot: RuntimeSnapshot,
         config_snapshot: Option<SessionConfigSnapshot>,
         task: AgentTask,
     ) -> Result<AgentOutput> {
         let turn_id = reserved.turn_id;
+        let cancellation = execution_scope.cancellation.clone();
         let user_message = reserved.message;
         let event_context = EventContext::new(
             self.session.session_id,
@@ -304,6 +300,7 @@ impl AgentRuntime {
             self.session.session_id,
             self.session.thread_id,
             turn_id,
+            execution_scope,
             self.services.events.clone(),
             self.services.approval.clone(),
             self.services.user_input.clone(),
@@ -326,7 +323,6 @@ impl AgentRuntime {
             turn_id,
         );
         runtime_context.model = Arc::new(steering_model.clone());
-        let runtime_context = runtime_context.with_cancellation(cancellation.clone());
         let workflow_timeout_ms = snapshot.registry.runtime_config.workflow_timeout_ms;
         let workflow =
             snapshot

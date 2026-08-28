@@ -649,7 +649,9 @@ single-turn и interactive mode; это тот же runtime builder path, без
 client-side slash-команды.
 
 Каждый исходный `run()` создаёт новый `TurnId`; автоматический follow-up из
-очереди получает следующий `TurnId` той же root-цепочки. `run_lock` живёт в
+очереди получает следующий `TurnId` той же root-цепочки. Каждый такой Turn
+создаёт distinct `ExecutionId` и минимальный `ExecutionScope`, владеющий его
+cancellation token. `run_lock` живёт в
 `SessionState` и не даёт двум turns одной session одновременно читать и
 перезаписывать history. Разные sessions имеют разные `SessionState`, поэтому
 HTTP app-server может вести их turns параллельно без обхода runtime lock.

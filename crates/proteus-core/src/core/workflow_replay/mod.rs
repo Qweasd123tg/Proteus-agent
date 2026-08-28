@@ -3,7 +3,7 @@ use std::{collections::HashSet, path::Path, sync::Arc, time::Instant};
 use anyhow::{Context, Result};
 
 use crate::{
-    contracts::{EventEmitter, RuntimeContext},
+    contracts::{CancellationToken, EventEmitter, ExecutionScope, RuntimeContext},
     core::{
         AppConfig, DeltaEventContext, HeadlessUserInputTransport, InMemoryEventStore,
         ModeAwarePolicy, ModelService, ModuleBuildContext, ModuleCatalog, PolicyBuildContext,
@@ -122,6 +122,7 @@ pub async fn replay_workflow(
         fixture.session_id,
         fixture.thread_id,
         fixture.turn_id,
+        ExecutionScope::fresh(CancellationToken::new()),
         fixture.snapshot.model.clone(),
         fixture.snapshot.reasoning.clone(),
         0,

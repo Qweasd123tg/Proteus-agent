@@ -42,6 +42,9 @@ AgentRuntime
 SessionState: Turn / History / Steering / SessionStore
           |
           v
+ExecutionScope (ExecutionId + cancellation)
+          |
+          v
 RuntimeContext (сейчас смешанный agent + execution context)
           |
           v
@@ -68,7 +71,8 @@ external component processes
   components, export authority и preflight checks; workers при этом не
   запускаются.
 - `AgentRuntime` владеет session/turn lifecycle, history commit, steering и
-  выбором одного `RuntimeSnapshot` на ход.
+  выбором одного `RuntimeSnapshot` на ход; каждый Turn создаёт отдельный
+  `ExecutionScope`.
 - `PreparedAssembly` связывает план и собранный из него `RuntimeRegistry`,
   поэтому их нельзя опубликовать в разных runtime snapshots.
 - `RuntimeRegistry` создаёт выбранные реализации только из проверенного плана.
@@ -261,7 +265,7 @@ barrier для независимых concurrent executions. Journal projection,
 TurnId
   conversational/application lifecycle identity
 
-ExecutionId                         PLANNED, ещё не реализован
+ExecutionId
   generic logical workload identity
 
 InvocationRef
@@ -301,9 +305,9 @@ workflow replay заново запускает Workflow с записанным
 future после crash. Program counter, stack, local workflow variables, steering
 queue и cancellation token journal не восстанавливает.
 
-## Planned ExecutionScope
+## ExecutionScope Migration
 
-Статус: **принято, но не реализовано**.
+Статус: **Phase 1 реализована; context split Phase 2 ещё planned**.
 
 Принято направление отделить generic workload identity/lifecycle boundary от
 conversation Turn без переписывания agent loop или process protocol:
@@ -351,8 +355,10 @@ Controller -> ExecutionScope -> typed capability binder/resolver
 capability остаётся typed contract-ом, а bound handle захватывает только её
 execution attribution, cancellation, authority/budget и recording needs.
 
-На текущем HEAD типов `ExecutionId`, `ExecutionScope`, `ExecutionContext` и
-`AgentWorkflowContext` ещё нет. Порядок миграции, field ownership, tests и
+На текущем HEAD уже существуют distinct `ExecutionId` и минимальный
+`ExecutionScope`; `RuntimeContext` хранит scope вместо отдельного cancellation
+field, а каждый Turn создаёт новый id. Типов `ExecutionContext` и
+`AgentWorkflowContext` ещё нет. Порядок Phase 2, field ownership, tests и
 stop-gates находятся в [roadmap.md](../product/roadmap.md#executionscope-migration).
 
 ## Capability, Slot, Module, Worker И Profile
