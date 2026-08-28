@@ -88,9 +88,9 @@ journal projection и cancellation. Там же проверяются detached 
 focused tests обязателен полный `cargo test --workspace`; journal schema,
 `Model` DTO/trait и process protocol в этой phase не меняются.
 
-### Execution Recording Phase 4 Gate (planned)
+### Execution Recording Phase 4 Gate
 
-До schema/recorder refactor добавить characterization для двух текущих
+Перед recorder refactor были добавлены characterization tests двух текущих
 interruption paths:
 
 - model request без response + `TurnSettled(Canceled|Timeout)` остаётся в
@@ -98,13 +98,21 @@ interruption paths:
 - cancellation во время approval может оставить tool call unresolved и не
   фабрикует resolution/result.
 
-Phase 4A отдельно доказывает, что detached `BoundModel` записывает model facts
-в scope-bound in-memory `ExecutionRecorder` без chat IDs, а normal Turn передаёт
-один recorder при construction вместо поздней подмены. Current dynamic
-root/child thread attribution tool calls должна сохраниться через
-agent-specific recorder surface.
+Phase 4A реализована 2026-08-28 и отдельно доказывает, что detached
+`BoundModel` записывает model facts в scope-bound in-memory
+`ExecutionRecorder` без chat IDs, а normal Turn передаёт один recorder при
+construction вместо поздней подмены. Current dynamic root/child thread
+attribution tool calls сохраняется через agent-specific recorder surface.
+Structural test также запрещает chat domain imports в generic `execution.rs`
+и `execution_recorder.rs`.
 
-Phase 4B выполняет strict schema cutover без compatibility reader. Gate должен
+Checkpoint 2026-08-28: focused Phase 4A tests и полный
+`cargo test --workspace --no-fail-fast` прошли без failures; `module_swap`,
+workflow/prompt replay, coding workflow, process lineage/cancellation и
+reference conformance входят в этот gate.
+
+Phase 4B остаётся planned и выполняет strict schema cutover без compatibility
+reader. Gate должен
 проверить:
 
 - один `ExecutionId` в `TurnOpened`, model/tool facts и runtime scope;

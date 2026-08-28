@@ -1,46 +1,31 @@
 use anyhow::Result;
 use async_trait::async_trait;
 
-use crate::domain::{SessionId, ThreadId, ToolCall, ToolCallResolution, ToolResult, TurnId};
+use crate::{
+    domain::ExchangeId,
+    model_standard::{CanonicalModelRequest, CanonicalModelResponse},
+};
 
-/// Core-owned execution facts exposed to the tool orchestration boundary.
-/// Implementations may persist them, while the default keeps runtimes without
-/// a session store fully in-memory.
+/// Execution-bound sink for generic model lifecycle facts.
+///
+/// The binding selects the execution owner before this surface reaches a
+/// caller, so individual calls deliberately carry no session, thread or turn
+/// identity. Implementations may persist the facts or keep them in memory.
 #[async_trait]
 pub trait ExecutionRecorder: Send + Sync {
-    async fn tool_call_requested(
+    async fn model_request_recorded(
         &self,
-        session_id: SessionId,
-        thread_id: ThreadId,
-        turn_id: TurnId,
-        call: &ToolCall,
+        exchange_id: ExchangeId,
+        request: &CanonicalModelRequest,
     ) -> Result<()>;
 
-    async fn tool_call_resolved(
+    async fn model_response_recorded(
         &self,
-        session_id: SessionId,
-        thread_id: ThreadId,
-        turn_id: TurnId,
-        call: &ToolCall,
-        resolution: &ToolCallResolution,
+        exchange_id: ExchangeId,
+        response: &CanonicalModelResponse,
     ) -> Result<()>;
 
-    async fn tool_approval_requested(
-        &self,
-        session_id: SessionId,
-        thread_id: ThreadId,
-        turn_id: TurnId,
-        call: &ToolCall,
-        reason: &str,
-    ) -> Result<()>;
-
-    async fn tool_result_recorded(
-        &self,
-        session_id: SessionId,
-        thread_id: ThreadId,
-        turn_id: TurnId,
-        result: &ToolResult,
-    ) -> Result<()>;
+    async fn model_error_recorded(&self, exchange_id: ExchangeId, message: &str) -> Result<()>;
 }
 
 #[derive(Debug, Default)]
@@ -48,45 +33,23 @@ pub struct NoopExecutionRecorder;
 
 #[async_trait]
 impl ExecutionRecorder for NoopExecutionRecorder {
-    async fn tool_call_requested(
+    async fn model_request_recorded(
         &self,
-        _session_id: SessionId,
-        _thread_id: ThreadId,
-        _turn_id: TurnId,
-        _call: &ToolCall,
+        _exchange_id: ExchangeId,
+        _request: &CanonicalModelRequest,
     ) -> Result<()> {
         Ok(())
     }
 
-    async fn tool_call_resolved(
+    async fn model_response_recorded(
         &self,
-        _session_id: SessionId,
-        _thread_id: ThreadId,
-        _turn_id: TurnId,
-        _call: &ToolCall,
-        _resolution: &ToolCallResolution,
+        _exchange_id: ExchangeId,
+        _response: &CanonicalModelResponse,
     ) -> Result<()> {
         Ok(())
     }
 
-    async fn tool_approval_requested(
-        &self,
-        _session_id: SessionId,
-        _thread_id: ThreadId,
-        _turn_id: TurnId,
-        _call: &ToolCall,
-        _reason: &str,
-    ) -> Result<()> {
-        Ok(())
-    }
-
-    async fn tool_result_recorded(
-        &self,
-        _session_id: SessionId,
-        _thread_id: ThreadId,
-        _turn_id: TurnId,
-        _result: &ToolResult,
-    ) -> Result<()> {
+    async fn model_error_recorded(&self, _exchange_id: ExchangeId, _message: &str) -> Result<()> {
         Ok(())
     }
 }

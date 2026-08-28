@@ -88,8 +88,7 @@ impl ToolOrchestrator {
         // apply_patch tool, чтобы патч прошёл patch-flow (policy, applier,
         // события) вместо падения в шелле на несуществующем бинаре.
         let call = intercept_apply_patch_call(ctx, &call).unwrap_or(call);
-        ctx.execution
-            .execution_recorder
+        ctx.tool_recorder
             .tool_call_requested(ctx.session_id, ctx.thread_id, ctx.turn_id, &call)
             .await?;
         ctx.emit(Event::ToolCallRequested { call: call.clone() })
@@ -99,8 +98,7 @@ impl ToolOrchestrator {
         if let Some(spec) = tool_spec.as_ref()
             && let Some(error) = validate_tool_call_args(&call, spec)
         {
-            ctx.execution
-                .execution_recorder
+            ctx.tool_recorder
                 .tool_call_resolved(
                     ctx.session_id,
                     ctx.thread_id,
@@ -122,8 +120,7 @@ impl ToolOrchestrator {
 
         match decision {
             PolicyDecision::Allow => {
-                ctx.execution
-                    .execution_recorder
+                ctx.tool_recorder
                     .tool_call_resolved(
                         ctx.session_id,
                         ctx.thread_id,
@@ -135,8 +132,7 @@ impl ToolOrchestrator {
                 self.invoke_allowed(ctx, task, &call, tool_spec).await
             }
             PolicyDecision::Ask { reason } => {
-                ctx.execution
-                    .execution_recorder
+                ctx.tool_recorder
                     .tool_approval_requested(
                         ctx.session_id,
                         ctx.thread_id,
@@ -171,8 +167,7 @@ impl ToolOrchestrator {
                 })
                 .await?;
                 if approval.approved {
-                    ctx.execution
-                        .execution_recorder
+                    ctx.tool_recorder
                         .tool_call_resolved(
                             ctx.session_id,
                             ctx.thread_id,
@@ -195,8 +190,7 @@ impl ToolOrchestrator {
                         .note
                         .unwrap_or_else(|| format!("tool call was not approved: {reason}")),
                 );
-                ctx.execution
-                    .execution_recorder
+                ctx.tool_recorder
                     .tool_call_resolved(
                         ctx.session_id,
                         ctx.thread_id,
@@ -210,8 +204,7 @@ impl ToolOrchestrator {
                 self.finish(ctx, result).await
             }
             PolicyDecision::Deny { reason } => {
-                ctx.execution
-                    .execution_recorder
+                ctx.tool_recorder
                     .tool_call_resolved(
                         ctx.session_id,
                         ctx.thread_id,
@@ -227,8 +220,7 @@ impl ToolOrchestrator {
             }
             other => {
                 let reason = format!("unsupported policy decision: {other:?}");
-                ctx.execution
-                    .execution_recorder
+                ctx.tool_recorder
                     .tool_call_resolved(
                         ctx.session_id,
                         ctx.thread_id,
@@ -355,8 +347,7 @@ impl ToolOrchestrator {
     }
 
     async fn finish(&self, ctx: &AgentWorkflowContext, result: ToolResult) -> Result<ToolResult> {
-        ctx.execution
-            .execution_recorder
+        ctx.tool_recorder
             .tool_result_recorded(ctx.session_id, ctx.thread_id, ctx.turn_id, &result)
             .await?;
         ctx.emit(Event::ToolFinished {

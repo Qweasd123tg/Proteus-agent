@@ -309,6 +309,101 @@ fn request_without_response_and_call_without_result_remain_interrupted() {
 }
 
 #[test]
+fn canceled_and_timeout_turns_keep_model_request_interrupted_without_synthetic_response() {
+    for status in [
+        TurnSettlementStatus::Canceled,
+        TurnSettlementStatus::Timeout,
+    ] {
+        let session_id = new_session_id();
+        let thread_id = new_thread_id();
+        let turn_id = new_turn_id();
+        let exchange_id = new_exchange_id();
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("fake", "model"),
+            vec![CanonicalMessage::text(MessageRole::User, "interrupt")],
+        );
+        let records = vec![
+            record(session_id, thread_id, Some(turn_id), 1, opened(0)),
+            record(
+                session_id,
+                thread_id,
+                Some(turn_id),
+                2,
+                JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
+                    exchange_id,
+                    request,
+                }),
+            ),
+            record(
+                session_id,
+                thread_id,
+                Some(turn_id),
+                3,
+                JournalEntry::TurnSettled(TurnSettled {
+                    status,
+                    output: None,
+                    error: Some("turn interrupted".to_owned()),
+                }),
+            ),
+        ];
+
+        let projection = JournalProjection::build(session_id, records).expect("projection");
+
+        assert_eq!(projection.interrupted_model_exchanges, vec![exchange_id]);
+        assert!(projection.unsettled_turns.is_empty());
+    }
+}
+
+#[test]
+fn canceled_turn_keeps_unresolved_approval_without_synthetic_tool_result() {
+    let session_id = new_session_id();
+    let thread_id = new_thread_id();
+    let turn_id = new_turn_id();
+    let call = ToolCall::new(new_call_id(), "write_file", json!({"path": "x"}));
+    let records = vec![
+        record(session_id, thread_id, Some(turn_id), 1, opened(0)),
+        record(
+            session_id,
+            thread_id,
+            Some(turn_id),
+            2,
+            JournalEntry::ToolCallRecorded(ToolCallRecorded {
+                call: call.clone(),
+                phase: ToolCallRecordPhase::Requested,
+            }),
+        ),
+        record(
+            session_id,
+            thread_id,
+            Some(turn_id),
+            3,
+            JournalEntry::ToolCallRecorded(ToolCallRecorded {
+                call: call.clone(),
+                phase: ToolCallRecordPhase::ApprovalRequested {
+                    reason: "requires approval".to_owned(),
+                },
+            }),
+        ),
+        record(
+            session_id,
+            thread_id,
+            Some(turn_id),
+            4,
+            JournalEntry::TurnSettled(TurnSettled {
+                status: TurnSettlementStatus::Canceled,
+                output: None,
+                error: Some("turn canceled by client".to_owned()),
+            }),
+        ),
+    ];
+
+    let projection = JournalProjection::build(session_id, records).expect("projection");
+
+    assert_eq!(projection.unresolved_tool_calls, vec![call.id]);
+    assert!(projection.unsettled_turns.is_empty());
+}
+
+#[test]
 fn tool_result_must_follow_requested_and_resolved_call() {
     let session_id = new_session_id();
     let thread_id = new_thread_id();

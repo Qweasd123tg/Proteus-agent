@@ -124,7 +124,10 @@ fn validating_stream(
 mod tests {
     use super::*;
     use crate::{
-        contracts::{CancellationToken, EventEmitter, EventSink, ExecutionScope, Model},
+        contracts::{
+            CancellationToken, EventEmitter, EventSink, ExecutionScope, Model,
+            NoopExecutionRecorder,
+        },
         core::{BoundModel, ModelExecutionBinding},
         domain::{
             Event, EventEnvelope, ModelRef, ToolCall, ToolCallSurface, ToolSafety, ToolSpec,
@@ -323,7 +326,7 @@ mod tests {
                 new_session_id(),
                 new_thread_id(),
                 new_turn_id(),
-                None,
+                Arc::new(NoopExecutionRecorder),
             ),
         );
 
@@ -358,7 +361,7 @@ mod tests {
                 session_id,
                 thread_id,
                 turn_id,
-                None,
+                Arc::new(NoopExecutionRecorder),
             ),
         );
 
@@ -398,7 +401,7 @@ mod tests {
                 new_session_id(),
                 new_thread_id(),
                 new_turn_id(),
-                None,
+                Arc::new(NoopExecutionRecorder),
             ),
         );
 

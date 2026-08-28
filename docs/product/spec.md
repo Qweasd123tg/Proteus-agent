@@ -209,7 +209,8 @@ contract decisions. Для subagents уже принята identity-модель
 [subagents.md](../architecture/subagents.md). Актуальный
 критический путь ведётся в `scope.md`.
 
-В минимальном направлении Phase 0–3 `ExecutionScope` migration завершены:
+В минимальном направлении Phase 0–3 и recorder seam Phase 4A
+`ExecutionScope` migration завершены:
 distinct `ExecutionId` и scope выражают identity, lifecycle/cancellation и
 execution attribution, но scope не является service container. Прежний
 `RuntimeContext` разделён на generic `ExecutionContext` и chat-specific
@@ -218,14 +219,18 @@ execution attribution, но scope не является service container. Пр�
 `ExecutionContext` остаётся migration hypothesis, а не зафиксированным
 конечным API. `BoundModel` доказал immutable per-execution binding поверх
 shared provider: metadata, delta attribution и cancellation больше не зависят
-от mutable current Turn в `ModelService`. Production migration остановлена
-перед Phase 4, а её source design уже зафиксирован; journal/recorder, approval
-и tool ownership мигрируют только отдельными проверяемыми phases. `Turn` остаётся
+от mutable current Turn в `ModelService`. `BoundModel` теперь пишет model
+facts через scope-bound `ExecutionRecorder` без chat IDs и не импортирует
+`SessionStore`; текущая chat-aware tool recording surface находится в
+`AgentWorkflowContext`. Production migration остановлена перед strict journal
+cutover Phase 4B; approval и generic tool ownership мигрируют только
+отдельными проверяемыми phases. `Turn` остаётся
 application lifecycle, `Workflow` владеет agent-loop policy, а process
 `InvocationRef` не меняется. Канонический план находится в
 [roadmap.md](roadmap.md#executionscope-migration).
 
-Phase 4 source review разделил durable owner и presentation attribution:
+Phase 4 source review разделил durable owner и presentation attribution, а
+Phase 4A провела ownership seam без изменения schema:
 model/tool facts должны принадлежать `ExecutionId`, но один execution может
 отображаться через несколько root/child `ThreadId`. Runtime cancellation не
 является model error: начатый exchange остаётся interrupted, а chat lifecycle

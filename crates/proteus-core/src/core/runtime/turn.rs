@@ -297,11 +297,6 @@ impl AgentRuntime {
         workflow_context.model_ref = model_ref;
         workflow_context.reasoning = reasoning;
         workflow_context.queued_user_messages = self.session.steering.queued_count_handle();
-        if let Some(session_store) = &self.session.session_store {
-            workflow_context.execution.execution_recorder = Arc::new(
-                crate::core::SessionExecutionRecorder::new(session_store.clone()),
-            );
-        }
         let steering_model = SteeringModel::new(
             workflow_context.execution.model.clone(),
             self.session.steering.clone(),

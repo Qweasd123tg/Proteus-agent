@@ -6,8 +6,8 @@ use futures_util::stream;
 
 use crate::{
     contracts::{
-        ApprovalRequest, ApprovalResponse, ApprovalTransport, CompactionHost, CompactionInput,
-        CompactionOutput, ContextBuildInput, ContextBuilder, ExecutionRecorder, HistoryCompactor,
+        AgentToolRecorder, ApprovalRequest, ApprovalResponse, ApprovalTransport, CompactionHost,
+        CompactionInput, CompactionOutput, ContextBuildInput, ContextBuilder, HistoryCompactor,
         Model, ModelEventStream, Tool, ToolContext, ToolExposure, ToolExposureInput,
         ToolExposureOutput, ToolSource,
     },
@@ -149,7 +149,7 @@ impl ApprovalTransport for ReplayApprovalTransport {
 }
 
 #[async_trait]
-impl ExecutionRecorder for ReplayState {
+impl AgentToolRecorder for ReplayState {
     async fn tool_call_requested(
         &self,
         _session_id: SessionId,

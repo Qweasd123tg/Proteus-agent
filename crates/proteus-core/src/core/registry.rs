@@ -4,14 +4,15 @@ use anyhow::Result;
 
 use crate::{
     contracts::{
-        AgentControl, AgentWorkflowContext, ApprovalPolicy, ContextBuilder, EventEmitter,
-        ExecutionContext, ExecutionScope, HistoryCompactor, MemoryStore, Model, PatchApplier,
-        Renderer, SearchBackend, ToolExposure, ToolRegistry, UserInputTransport, Workflow,
+        AgentControl, AgentToolRecorder, AgentWorkflowContext, ApprovalPolicy, ContextBuilder,
+        EventEmitter, ExecutionContext, ExecutionRecorder, ExecutionScope, HistoryCompactor,
+        MemoryStore, Model, NoopAgentToolRecorder, NoopExecutionRecorder, PatchApplier, Renderer,
+        SearchBackend, ToolExposure, ToolRegistry, UserInputTransport, Workflow,
     },
     core::{
         AgentControlRuntime, AppConfig, AssemblyPlan, BoundModel, ModeAwarePolicy,
         ModelExecutionBinding, ModelService, ModuleBuildContext, ModuleCatalog, PolicyBuildContext,
-        PreparedAssembly, SessionStore,
+        PreparedAssembly, SessionAgentToolRecorder, SessionExecutionRecorder, SessionStore,
     },
     domain::{SessionId, ThreadId, TurnId},
     stubs::{
@@ -153,6 +154,7 @@ impl RuntimeRegistry {
         permission_mode: crate::domain::PermissionMode,
     ) -> ExecutionContext {
         let scope = model_binding.scope().clone();
+        let recorder = model_binding.recorder();
         let model: Arc<dyn Model> =
             Arc::new(BoundModel::new(self.model_service.clone(), model_binding));
         ExecutionContext::new(
@@ -166,6 +168,7 @@ impl RuntimeRegistry {
             approval,
             self.patch.clone(),
         )
+        .with_execution_recorder(recorder)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -181,13 +184,27 @@ impl RuntimeRegistry {
         user_input: Arc<dyn UserInputTransport>,
         permission_mode: crate::domain::PermissionMode,
     ) -> AgentWorkflowContext {
+        let execution_id = scope.execution_id;
+        let execution_recorder: Arc<dyn ExecutionRecorder> = match &session_store {
+            Some(store) => Arc::new(SessionExecutionRecorder::for_turn(
+                store.clone(),
+                execution_id,
+                thread_id,
+                turn_id,
+            )),
+            None => Arc::new(NoopExecutionRecorder),
+        };
+        let tool_recorder: Arc<dyn AgentToolRecorder> = match &session_store {
+            Some(store) => Arc::new(SessionAgentToolRecorder::new(store.clone(), execution_id)),
+            None => Arc::new(NoopAgentToolRecorder),
+        };
         let model_binding = ModelExecutionBinding::for_turn(
             scope,
             events.clone(),
             session_id,
             thread_id,
             turn_id,
-            session_store,
+            execution_recorder,
         );
         let execution = self.execution_context(model_binding, approval, permission_mode);
         AgentWorkflowContext::new(
@@ -205,6 +222,7 @@ impl RuntimeRegistry {
             self.tool_exposure.clone(),
             self.agent_control.clone(),
         )
+        .with_tool_recorder(tool_recorder)
         .with_instructions(self.instructions.clone())
     }
 

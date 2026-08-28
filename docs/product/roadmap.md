@@ -24,14 +24,14 @@ journal/replay evidence и `v0.1.0-alpha.1` уже завершены. Roadmap �
 [releases/v0.1.0-alpha.1.md](../releases/v0.1.0-alpha.1.md).
 
 Следующее принятое направление — минимальная `ExecutionScope` migration,
-описанная ниже. Phase 0–3 реализованы; source-level review Phase 4 завершён,
-но production implementation не начата. Остальные разделы остаются
+описанная ниже. Phase 0–3 и recorder seam Phase 4A реализованы; strict journal
+cutover Phase 4B ещё не начат. Остальные разделы остаются
 вариантами последующей работы, а не автоматической очередью.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–3 реализованы 2026-08-28; Phase 4 спроектирована и ожидает
-отдельного разрешения на production changes**.
+Статус: **Phase 0–3 и Phase 4A реализованы 2026-08-28; остановка перед
+Phase 4B**.
 
 Supporting evidence, не заменяющий этот roadmap:
 [source-level audit](../research/execution-scope-source-audit-2026-08-27.md) и
@@ -262,9 +262,9 @@ AgentWorkflowContext -> ExecutionContext -> ExecutionScope
 - `ApprovalPolicy` сам по себе reusable, но current `TurnPermissionGrants` и
   `RequestOrigin` остаются Turn-coupled; поэтому `turn_grants` временно живёт в
   agent wrapper до отдельной Phase 5;
-- recorder handle может находиться в generic context, хотя его current methods
-  ещё требуют session/thread/turn. Это явно остаётся debt Phase 4, а не повод
-  протащить `TurnId` в `ExecutionContext`;
+- в Phase 2 recorder handle был допущен в generic context с явным chat debt;
+  Phase 4A удалила chat IDs из `ExecutionRecorder`, а прежние tool methods
+  перенесла в agent-specific `AgentToolRecorder`;
 - `ToolRegistry` reusable как catalog, хотя current `ToolOrchestrator` ещё
   принимает agent-shaped task/context. Его signature меняется только в Phase 6.
 
@@ -540,23 +540,23 @@ binding abstraction.
 
 ### Phase 4 — Execution Recording И Journal Ownership
 
-Статус: **source review завершён 2026-08-28; production-код не менялся**.
+Статус: **Phase 4A реализована 2026-08-28; Phase 4B не начата**.
 
-#### Что Подтвердил Source
+#### Что Подтвердил Source До Phase 4A
 
-- `contracts/execution_recorder.rs` сейчас является tool-only contract и на
-  каждом method call требует `SessionId`, `ThreadId`, `TurnId`;
-- `BoundModel` обходит этот contract и пишет `ModelRequestRecorded` /
+- до cutover `contracts/execution_recorder.rs` был tool-only contract и на
+  каждом method call требовал `SessionId`, `ThreadId`, `TurnId`;
+- `BoundModel` обходил этот contract и писал `ModelRequestRecorded` /
   `ModelResponseRecorded` прямо через захваченный `SessionStore`;
-- `run_opened_turn()` сначала собирает `ExecutionContext`, а затем отдельно
-  заменяет его noop recorder на `SessionExecutionRecorder`;
-- `SessionExecutionRecorder` capture-ит только store, поэтому dynamic
-  presentation owner передаётся ToolOrchestrator-ом на каждом вызове;
+- `run_opened_turn()` сначала собирал `ExecutionContext`, а затем отдельно
+  заменял его noop recorder на `SessionExecutionRecorder`;
+- прежний `SessionExecutionRecorder` capture-ил только store, поэтому dynamic
+  presentation owner передавался ToolOrchestrator-ом на каждом вызове;
 - journal schema v1 не содержит `ExecutionId`; projection считает owner-ом
   model/tool lifecycle пару `(ThreadId, TurnId)` и требует ранее открытый
   Turn;
-- workflow replay использует тот же `ExecutionRecorder` как comparison sink,
-  но намеренно игнорирует переданные chat IDs;
+- workflow replay использовал тот же `ExecutionRecorder` как comparison sink,
+  но намеренно игнорировал переданные chat IDs;
 - один logical execution уже может иметь несколько presentation threads:
   `agent_control::child_context()` меняет `thread_id`, но
   `child_cancellation_scope()` сохраняет исходный `ExecutionId`.
@@ -600,7 +600,7 @@ workflow state machine.
 
 Phase 4 выполняется двумя reviewable changesets с полным gate после каждого.
 
-**Phase 4A — recorder ownership seam:**
+**Phase 4A — recorder ownership seam (реализована 2026-08-28):**
 
 - generic `ExecutionRecorder` становится scope-bound surface для model facts:
   его methods не принимают session/thread/turn;
@@ -617,7 +617,27 @@ Phase 4 выполняется двумя reviewable changesets с полным 
 - replay comparison adapters обновляются атомарно, без изменения replay
   semantics.
 
-**Phase 4B — strict journal schema cutover:**
+Фактический cutover соответствует этой границе. `BoundModel` больше не
+импортирует `SessionStore` и для request/response/error использует только
+scope-bound `ExecutionRecorder`. `RuntimeRegistry` при сборке одного Turn
+создаёт `SessionExecutionRecorder` для model facts и
+`SessionAgentToolRecorder` для chat-aware tool facts с одним `ExecutionId`;
+поздней замены recorder-а в `run_opened_turn()` больше нет. Workflow replay
+сравнивает tool lifecycle через `AgentToolRecorder`, а model comparison
+по-прежнему принадлежит `ReplayModel`, поэтому двойная запись не появилась.
+
+Journal и session metadata в этом changeset намеренно остались v1:
+захваченный `ExecutionId` ещё не сериализуется, projection продолжает считать
+model/tool facts принадлежащими открытому Turn. Characterization закрепляет,
+что cancellation/timeout оставляет начатый model exchange interrupted без
+fake response, а отменённый approval может остаться unresolved.
+
+Verification checkpoint 2026-08-28: focused recorder/binding/structural tests
+и `cargo test --workspace --no-fail-fast` прошли без failures. В полный gate
+вошли `module_swap`, workflow/prompt replay, coding workflow, process broker
+lineage/cancellation и reference component conformance.
+
+**Phase 4B — strict journal schema cutover (planned / not implemented):**
 
 - `JOURNAL_SCHEMA_VERSION` и session metadata version повышаются вместе;
 - `TurnOpened`, model facts и tool facts получают mandatory `ExecutionId`;
@@ -642,10 +662,18 @@ Phase 4 не меняет approval/grants (`Phase 5`), generic tool invocation
 
 #### Phase 4 Stop-Gates
 
+Phase 4A закрыла первые recorder-seam gates:
+
 - canceled и timeout Turn с начатым model exchange остаются settled, а exchange
   — interrupted без fake response;
 - detached `BoundModel` записывает model facts через in-memory recorder без
   SessionId/ThreadId/TurnId;
+- normal Turn bind-ит model/tool recorder handles при construction;
+- один agent tool recorder сохраняет dynamic root/child presentation threads;
+- workflow replay сохранил прежнюю comparison semantics.
+
+Оставшиеся gates принадлежат Phase 4B:
+
 - normal Turn использует один `ExecutionId` в scope, `TurnOpened`, model и tool
   facts;
 - mismatch `TurnId -> ExecutionId` rejected fail-closed;
@@ -657,10 +685,9 @@ Phase 4 не меняет approval/grants (`Phase 5`), generic tool invocation
 - `module_swap`, process conformance и полный workspace gate green;
 - после Phase 4 снова обязательна остановка перед approval Phase 5.
 
-Review baseline: HEAD `4e3b0bc9587a2cf181f80845df8c6c43191c8a68`, clean
-worktree, production diff отсутствует. `cargo test --workspace --no-fail-fast`
-прошёл весь применимый gate; единственный loopback-bind test получил ожидаемый
-`PermissionDenied` внутри restricted sandbox и отдельно прошёл вне него.
+Phase 4A implementation baseline: HEAD
+`ade7f85a95b6d716e0185c2357dc3eaf2ec6563f`; journal schema остаётся v1.
+Phase 4B требует нового явного разрешения после review результата 4A.
 
 ## Другие Направления
 

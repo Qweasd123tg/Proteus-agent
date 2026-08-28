@@ -75,7 +75,8 @@ wire/config/DTO меняются атомарно без legacy aliases и compa
 
 ## Что Ещё Нужно Решить
 
-ExecutionScope migration Phase 0–3 завершена: distinct `ExecutionId` и
+ExecutionScope migration Phase 0–3 и recorder seam Phase 4A завершены:
+distinct `ExecutionId` и
 минимальный `ExecutionScope` отделяют generic identity/cancellation от
 conversation `Turn`, не становясь контейнером services. `ExecutionContext`
 отделён от chat-specific `AgentWorkflowContext`; прежний `RuntimeContext`
@@ -86,12 +87,15 @@ current Turn, а request metadata, delta events, journal projection и
 cancellation изолированы immutable binding-ом. Каждый Turn создаёт один новый
 scope; child cancellation views сохраняют тот же execution id. `Turn` остаётся
 chat/application lifecycle, `Workflow` — владельцем agent-loop policy, а
-process `InvocationRef` — отдельной broker identity. Source review Phase 4
-уточнил следующий шаг: `ExecutionId` становится durable owner model/tool
-facts, а session/thread/turn остаются presentation projection. Незавершённый
+process `InvocationRef` — отдельной broker identity. Generic
+`ExecutionRecorder` теперь записывает model facts без chat IDs, `BoundModel`
+не знает `SessionStore`, а chat-aware tool facts вынесены в
+`AgentToolRecorder`; оба handle bind-ятся при construction. Следующий strict
+cutover Phase 4B должен сделать `ExecutionId` durable owner model/tool facts,
+а session/thread/turn оставить presentation projection. Незавершённый
 model request при cancellation остаётся interrupted и завершается
 `TurnSettled`, а не fake model error. Journal cutover будет strict без
-dual-reader; production implementation ещё не начата. Общая binding
+dual-reader; schema v1 пока намеренно не изменена. Общая binding
 abstraction пока не вводится.
 Следующие phases и stop-gates находятся в
 [roadmap.md](roadmap.md#executionscope-migration).

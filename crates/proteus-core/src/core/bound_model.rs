@@ -5,11 +5,11 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 
 use crate::{
-    contracts::{EventEmitter, ExecutionScope, Model, ModelEventStream},
-    core::{
-        JournalEntry, ModelRequestRecorded, ModelResponseOutcome, ModelResponseRecorded,
-        ModelService, SessionStore,
+    contracts::{
+        EventEmitter, ExecutionRecorder, ExecutionScope, Model, ModelEventStream,
+        NoopExecutionRecorder,
     },
+    core::ModelService,
     domain::{
         Event, EventContext, ExchangeId, ModelRef, SessionId, ThreadId, ToolSpec, TurnId,
         new_exchange_id,
@@ -30,6 +30,7 @@ const RESERVED_ATTRIBUTION_KEYS: [&str; 3] = ["session_id", "thread_id", "turn_i
 #[derive(Clone)]
 pub struct ModelExecutionBinding {
     scope: ExecutionScope,
+    recorder: Arc<dyn ExecutionRecorder>,
     turn: Option<ModelTurnAttribution>,
 }
 
@@ -39,12 +40,19 @@ struct ModelTurnAttribution {
     session_id: SessionId,
     thread_id: ThreadId,
     turn_id: TurnId,
-    session_store: Option<SessionStore>,
 }
 
 impl ModelExecutionBinding {
     pub fn detached(scope: ExecutionScope) -> Self {
-        Self { scope, turn: None }
+        Self::with_recorder(scope, Arc::new(NoopExecutionRecorder))
+    }
+
+    pub fn with_recorder(scope: ExecutionScope, recorder: Arc<dyn ExecutionRecorder>) -> Self {
+        Self {
+            scope,
+            recorder,
+            turn: None,
+        }
     }
 
     pub fn for_turn(
@@ -53,22 +61,26 @@ impl ModelExecutionBinding {
         session_id: SessionId,
         thread_id: ThreadId,
         turn_id: TurnId,
-        session_store: Option<SessionStore>,
+        recorder: Arc<dyn ExecutionRecorder>,
     ) -> Self {
         Self {
             scope,
+            recorder,
             turn: Some(ModelTurnAttribution {
                 events,
                 session_id,
                 thread_id,
                 turn_id,
-                session_store,
             }),
         }
     }
 
     pub fn scope(&self) -> &ExecutionScope {
         &self.scope
+    }
+
+    pub fn recorder(&self) -> Arc<dyn ExecutionRecorder> {
+        self.recorder.clone()
     }
 
     fn bind_request(&self, request: &mut CanonicalModelRequest) -> Result<()> {
@@ -88,23 +100,6 @@ impl ModelExecutionBinding {
         bind_reserved_id(request, "thread_id", turn.thread_id)?;
         bind_reserved_id(request, "turn_id", turn.turn_id)?;
         Ok(())
-    }
-
-    fn journal_context(&self) -> Result<Option<ModelJournalContext>> {
-        let Some(turn) = &self.turn else {
-            return Ok(None);
-        };
-        let Some(store) = turn.session_store.clone() else {
-            return Ok(None);
-        };
-        if store.session_id() != turn.session_id {
-            return Err(anyhow!(
-                "model binding session_id {} does not match journal session {}",
-                turn.session_id,
-                store.session_id()
-            ));
-        }
-        Ok(Some((store, turn.thread_id, turn.turn_id)))
     }
 
     async fn emit_delta(&self, event: Event) {
@@ -153,42 +148,28 @@ impl Model for BoundModel {
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
         let mut request = self.service.prepare_request(request)?;
         self.binding.bind_request(&mut request)?;
-        let journal_context = self.binding.journal_context()?;
         let exchange_id = new_exchange_id();
 
-        if let Some((store, thread_id, turn_id)) = &journal_context {
-            store
-                .append_journal_entry(
-                    *thread_id,
-                    Some(*turn_id),
-                    JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
-                        exchange_id,
-                        request: request.clone(),
-                    }),
-                )
-                .await?;
-        }
+        self.binding
+            .recorder
+            .model_request_recorded(exchange_id, &request)
+            .await?;
 
         let validation_request = request.clone();
         let cancellation = self.binding.scope.cancellation.clone();
+        let recorder = self.binding.recorder();
         let stream = tokio::select! {
             biased;
             _ = cancellation.cancelled() => return Err(model_cancelled()),
             result = self.service.start_prepared(request) => match result {
                 Ok(stream) => stream,
                 Err(error) => {
-                    if let Some((store, thread_id, turn_id)) = &journal_context {
-                        record_model_outcome(
-                            store,
-                            *thread_id,
-                            *turn_id,
+                    recorder
+                        .model_error_recorded(
                             exchange_id,
-                            ModelResponseOutcome::Error {
-                                message: format!("model adapter error: {error:#}"),
-                            },
+                            &format!("model adapter error: {error:#}"),
                         )
                         .await?;
-                    }
                     return Err(error);
                 }
             },
@@ -197,7 +178,7 @@ impl Model for BoundModel {
         Ok(bound_recording_stream(
             stream,
             validation_request,
-            journal_context,
+            recorder,
             exchange_id,
             cancellation,
         ))
@@ -246,8 +227,6 @@ impl Model for BoundModel {
     }
 }
 
-type ModelJournalContext = (SessionStore, ThreadId, TurnId);
-
 fn bind_reserved_id(
     request: &mut CanonicalModelRequest,
     key: &str,
@@ -273,7 +252,7 @@ fn bind_reserved_id(
 fn bound_recording_stream(
     mut stream: ModelEventStream,
     validation_request: CanonicalModelRequest,
-    journal_context: Option<ModelJournalContext>,
+    recorder: Arc<dyn ExecutionRecorder>,
     exchange_id: ExchangeId,
     cancellation: crate::contracts::CancellationToken,
 ) -> ModelEventStream {
@@ -291,18 +270,12 @@ fn bound_recording_stream(
             let event = match item {
                 Ok(event) => event,
                 Err(error) => {
-                    if let Some((store, thread_id, turn_id)) = &journal_context {
-                        record_model_outcome(
-                            store,
-                            *thread_id,
-                            *turn_id,
+                    recorder
+                        .model_error_recorded(
                             exchange_id,
-                            ModelResponseOutcome::Error {
-                                message: format!("model stream transport error: {error:#}"),
-                            },
+                            &format!("model stream transport error: {error:#}"),
                         )
                         .await?;
-                    }
                     Err(error)?;
                     unreachable!();
                 }
@@ -313,49 +286,20 @@ fn bound_recording_stream(
                         validate_model_response_against_request(&validation_request, response)
                     {
                         let error = anyhow!("model protocol error: {error}");
-                        if let Some((store, thread_id, turn_id)) = &journal_context {
-                            record_model_outcome(
-                                store,
-                                *thread_id,
-                                *turn_id,
-                                exchange_id,
-                                ModelResponseOutcome::Error {
-                                    message: error.to_string(),
-                                },
-                            )
+                        recorder
+                            .model_error_recorded(exchange_id, &error.to_string())
                             .await?;
-                        }
                         Err(error)?;
                     }
-                    if let Some((store, thread_id, turn_id)) = &journal_context {
-                        record_model_outcome(
-                            store,
-                            *thread_id,
-                            *turn_id,
-                            exchange_id,
-                            ModelResponseOutcome::Response {
-                                response: response.clone(),
-                            },
-                        )
+                    recorder
+                        .model_response_recorded(exchange_id, response)
                         .await?;
-                    }
                     terminal_recorded = true;
                     yield event;
                     break;
                 }
                 ModelStreamEvent::Error { message } => {
-                    if let Some((store, thread_id, turn_id)) = &journal_context {
-                        record_model_outcome(
-                            store,
-                            *thread_id,
-                            *turn_id,
-                            exchange_id,
-                            ModelResponseOutcome::Error {
-                                message: message.clone(),
-                            },
-                        )
-                        .await?;
-                    }
+                    recorder.model_error_recorded(exchange_id, message).await?;
                     terminal_recorded = true;
                     yield event;
                     break;
@@ -365,41 +309,10 @@ fn bound_recording_stream(
         }
         if !terminal_recorded {
             let message = "model stream ended without Response event".to_owned();
-            if let Some((store, thread_id, turn_id)) = &journal_context {
-                record_model_outcome(
-                    store,
-                    *thread_id,
-                    *turn_id,
-                    exchange_id,
-                    ModelResponseOutcome::Error {
-                        message: message.clone(),
-                    },
-                )
-                .await?;
-            }
+            recorder.model_error_recorded(exchange_id, &message).await?;
             Err(anyhow!(message))?;
         }
     })
-}
-
-async fn record_model_outcome(
-    store: &SessionStore,
-    thread_id: ThreadId,
-    turn_id: TurnId,
-    exchange_id: ExchangeId,
-    outcome: ModelResponseOutcome,
-) -> Result<()> {
-    store
-        .append_journal_entry(
-            thread_id,
-            Some(turn_id),
-            JournalEntry::ModelResponseRecorded(ModelResponseRecorded {
-                exchange_id,
-                outcome,
-            }),
-        )
-        .await?;
-    Ok(())
 }
 
 fn model_cancelled() -> anyhow::Error {

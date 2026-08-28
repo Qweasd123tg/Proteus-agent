@@ -283,15 +283,18 @@ process-resident steering queue. Projection может показать неза
 
 Journal v1 сейчас намеренно Turn-centric: model/tool records имеют mandatory
 `SessionId`/`ThreadId`/`TurnId`, а projection принимает их только после
-`turn_opened`. Аналогично текущие `ExecutionRecorder`, `ModelService` event
-attribution и `ToolInvocationOwner` используют conversation identity. Это
-факт текущей архитектуры и её известный coupling, а не утверждение, что любое
-generic execution обязано быть chat Turn.
+`turn_opened`. После Phase 4A generic `ExecutionRecorder` больше не принимает
+conversation identity и `BoundModel` не пишет напрямую в `SessionStore`, но
+конкретный `SessionExecutionRecorder` пока проецирует model facts обратно в
+v1 envelope. Tool lifecycle остаётся явно chat-aware через
+`AgentToolRecorder`; `ToolInvocationOwner` также использует conversation
+identity. Это факт текущей persistence architecture и её известный coupling,
+а не утверждение, что любое generic execution обязано быть chat Turn.
 
-Планируемая `ExecutionScope` migration сначала вводит отдельный `ExecutionId`
-и разделяет contexts без изменения journal schema. Перенос recorder/journal
-ownership — отдельная Phase 4 после review; до неё records продолжают
-принадлежать открытому Turn. `ExecutionId` не добавляется в v1 заранее и не
+`ExecutionScope` migration уже ввела отдельный `ExecutionId`, разделила
+contexts и выполнила recorder seam без изменения journal schema. Перенос
+durable journal ownership — отдельная strict Phase 4B; до неё records
+продолжают принадлежать открытому Turn. `ExecutionId` не добавляется в v1 и не
 подменяет `TurnId`. План:
 [roadmap.md](../product/roadmap.md#executionscope-migration).
 

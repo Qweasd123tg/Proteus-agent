@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use crate::{
     contracts::{
         AgentWorkflowContext, CancellationToken, EventEmitter, ExecutionContext, ExecutionScope,
+        NoopExecutionRecorder,
     },
     core::{
         AppConfig, BoundModel, HeadlessUserInputTransport, InMemoryEventStore, ModeAwarePolicy,
@@ -117,7 +118,7 @@ pub async fn replay_workflow(
         fixture.session_id,
         fixture.thread_id,
         fixture.turn_id,
-        None,
+        Arc::new(NoopExecutionRecorder),
     );
     let model: Arc<dyn crate::contracts::Model> =
         Arc::new(BoundModel::new(model_service, model_binding));
@@ -133,8 +134,7 @@ pub async fn replay_workflow(
         policy,
         approval,
         Arc::new(NullPatchApplier),
-    )
-    .with_execution_recorder(state.clone());
+    );
     let workflow_context = AgentWorkflowContext::new(
         execution_context,
         fixture.session_id,
@@ -150,6 +150,7 @@ pub async fn replay_workflow(
         Arc::new(ReplayToolExposure::new(state.clone())),
         None,
     )
+    .with_tool_recorder(state.clone())
     .with_instructions(replay_config.instruction_blocks());
 
     let replay_result = workflow

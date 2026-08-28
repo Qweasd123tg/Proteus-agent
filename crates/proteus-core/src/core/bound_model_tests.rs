@@ -7,8 +7,8 @@ use tokio::sync::{Barrier, Mutex};
 
 use super::*;
 use crate::{
-    contracts::{CancellationToken, EventSink},
-    core::TurnOpened,
+    contracts::{CancellationToken, EventSink, ExecutionRecorder, NoopExecutionRecorder},
+    core::{JournalEntry, SessionExecutionRecorder, SessionStore, TurnOpened},
     domain::{AgentTask, EventEnvelope, new_session_id, new_thread_id, new_turn_id},
     model_standard::{CanonicalMessage, ContentPart, FinishReason, MessageRole},
 };
@@ -16,6 +16,56 @@ use crate::{
 #[derive(Default)]
 struct CollectingSink {
     events: Mutex<Vec<EventEnvelope>>,
+}
+
+#[derive(Default)]
+struct RecordedModelFacts {
+    requests: Vec<(ExchangeId, CanonicalModelRequest)>,
+    responses: Vec<(ExchangeId, CanonicalModelResponse)>,
+    errors: Vec<(ExchangeId, String)>,
+}
+
+#[derive(Default)]
+struct CollectingExecutionRecorder {
+    facts: Mutex<RecordedModelFacts>,
+}
+
+#[async_trait]
+impl ExecutionRecorder for CollectingExecutionRecorder {
+    async fn model_request_recorded(
+        &self,
+        exchange_id: ExchangeId,
+        request: &CanonicalModelRequest,
+    ) -> Result<()> {
+        self.facts
+            .lock()
+            .await
+            .requests
+            .push((exchange_id, request.clone()));
+        Ok(())
+    }
+
+    async fn model_response_recorded(
+        &self,
+        exchange_id: ExchangeId,
+        response: &CanonicalModelResponse,
+    ) -> Result<()> {
+        self.facts
+            .lock()
+            .await
+            .responses
+            .push((exchange_id, response.clone()));
+        Ok(())
+    }
+
+    async fn model_error_recorded(&self, exchange_id: ExchangeId, message: &str) -> Result<()> {
+        self.facts
+            .lock()
+            .await
+            .errors
+            .push((exchange_id, message.to_owned()));
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -166,6 +216,31 @@ async fn bound_model_constructs_without_turn() {
 }
 
 #[tokio::test]
+async fn detached_bound_model_records_lifecycle_without_chat_identity() {
+    let adapter = Arc::new(ImmediateAdapter::new());
+    let service = Arc::new(ModelService::new(adapter));
+    let scope = ExecutionScope::fresh(CancellationToken::new());
+    let recorder = Arc::new(CollectingExecutionRecorder::default());
+    let model = BoundModel::new(
+        service,
+        ModelExecutionBinding::with_recorder(scope.clone(), recorder.clone()),
+    );
+
+    let result = model
+        .complete(request("immediate", "detached-recording"))
+        .await
+        .unwrap();
+
+    assert_eq!(response_text(&result), "ok");
+    let facts = recorder.facts.lock().await;
+    assert_eq!(facts.requests.len(), 1);
+    assert_eq!(facts.responses.len(), 1);
+    assert!(facts.errors.is_empty());
+    assert_eq!(facts.requests[0].0, facts.responses[0].0);
+    assert_eq!(model.binding().scope().execution_id, scope.execution_id);
+}
+
+#[tokio::test]
 async fn reserved_turn_metadata_cannot_override_binding() {
     let adapter = Arc::new(ImmediateAdapter::new());
     let service = Arc::new(ModelService::new(adapter.clone()));
@@ -176,7 +251,7 @@ async fn reserved_turn_metadata_cannot_override_binding() {
         session_id,
         new_thread_id(),
         new_turn_id(),
-        None,
+        Arc::new(NoopExecutionRecorder),
     );
     let model = BoundModel::new(service, binding);
     let mut metadata = BTreeMap::new();
@@ -229,6 +304,8 @@ async fn concurrent_bound_models_keep_metadata_events_and_journal_attribution_is
     let service = Arc::new(ModelService::new(adapter.clone()));
     let scope_a = ExecutionScope::fresh(CancellationToken::new());
     let scope_b = ExecutionScope::fresh(CancellationToken::new());
+    let execution_a = scope_a.execution_id;
+    let execution_b = scope_b.execution_id;
     let model_a = BoundModel::new(
         service.clone(),
         ModelExecutionBinding::for_turn(
@@ -237,7 +314,12 @@ async fn concurrent_bound_models_keep_metadata_events_and_journal_attribution_is
             session_id,
             thread_a,
             turn_a,
-            Some(store.clone()),
+            Arc::new(SessionExecutionRecorder::for_turn(
+                store.clone(),
+                execution_a,
+                thread_a,
+                turn_a,
+            )),
         ),
     );
     let model_b = BoundModel::new(
@@ -248,7 +330,12 @@ async fn concurrent_bound_models_keep_metadata_events_and_journal_attribution_is
             session_id,
             thread_b,
             turn_b,
-            Some(store.clone()),
+            Arc::new(SessionExecutionRecorder::for_turn(
+                store.clone(),
+                execution_b,
+                thread_b,
+                turn_b,
+            )),
         ),
     );
 

@@ -4,6 +4,7 @@
 //! adapters. Core wires these traits through the registry.
 
 pub mod agent_control;
+pub mod agent_tool_recorder;
 pub mod approval_policy;
 pub mod approval_transport;
 pub mod context_builder;
@@ -25,6 +26,7 @@ pub mod user_input;
 pub mod workflow;
 
 pub use agent_control::*;
+pub use agent_tool_recorder::*;
 pub use approval_policy::*;
 pub use approval_transport::*;
 pub use context_builder::*;

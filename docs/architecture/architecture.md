@@ -247,7 +247,7 @@ Phase 2 удалила прежний 26-field `RuntimeContext` без alias и�
 | Owner | Текущие поля |
 |---|---|
 | `ExecutionContext` | `scope`, `model_timeout_ms`, `model`, `search`, `memory`, `tools`, `policy`, `approval`, `patch`, `execution_recorder` |
-| `AgentWorkflowContext` | `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `reasoning`, `context_timeout_ms`, `events`, `context`, `user_input`, `compactor`, `tool_exposure`, `agent_control`, queued messages, `turn_grants`, `thread_label` |
+| `AgentWorkflowContext` | `tool_recorder`, `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `reasoning`, `context_timeout_ms`, `events`, `context`, `user_input`, `compactor`, `tool_exposure`, `agent_control`, queued messages, `turn_grants`, `thread_label` |
 
 `ExecutionContext` является проверенной migration structure, но не объявлен
 конечной ambient API-моделью. Process-backed `SearchBackend` уже вызывается
@@ -267,14 +267,22 @@ Phase 3 убрала mutable current attribution из shared `ModelService`. Reg
 session/thread/turn projection. Поэтому два независимых model calls больше не
 могут перезаписать metadata, delta envelope или journal owner друг друга.
 Journal projection, однако, всё ещё требует ранее открытый Turn для model/tool
-records. Это **текущий architecture debt Phase 4+**, а не свойство generic
+records. Это **текущий architecture debt Phase 4B**, а не свойство generic
 model capability.
 
-Recorder boundary пока также смешана. `ExecutionRecorder` записывает только
-tool facts и требует session/thread/turn на каждом вызове, тогда как
-`BoundModel` пишет model facts напрямую в `SessionStore`. Turn устанавливает
-session recorder уже после construction `ExecutionContext`. Это current debt,
-не целевая форма.
+Phase 4A разделила recorder ownership. Generic `ExecutionRecorder` принимает
+только model lifecycle facts и не имеет `SessionId`, `ThreadId` или `TurnId` в
+contract-е. `BoundModel` пишет через этот handle и больше не знает о
+`SessionStore`. Chat-aware tool lifecycle вынесен в `AgentToolRecorder` рядом
+с `AgentWorkflowContext`, потому что текущий `ToolOrchestrator` всё ещё
+передаёт dynamic presentation owner. Оба session-backed handle создаются в
+`RuntimeRegistry` вместе с context-ом и захватывают один `ExecutionId`; поздняя
+подмена recorder-а в Turn удалена.
+
+При этом journal schema v1 всё ещё хранит model/tool facts под
+`SessionId`/`ThreadId`/`TurnId` и требует открытый Turn. Захваченный
+`ExecutionId` до strict cutover Phase 4B не является durable полем. Это
+оставшийся architecture debt, а не скрытая реализация новой schema.
 
 Execution ownership нельзя отождествить с presentation thread. Agent-control
 child context сохраняет `ExecutionId` через `child_cancellation_scope()`, но
@@ -287,7 +295,7 @@ ExecutionId E1
     `-- child ThreadId T2
 ```
 
-Phase 4 должна сделать `ExecutionId` durable owner model/tool facts, сохранив
+Phase 4B должна сделать `ExecutionId` durable owner model/tool facts, сохранив
 thread/turn только как agent/session projection. Она не создаёт child execution
 lineage и не связывает эту картину с process `InvocationRef`.
 
@@ -295,7 +303,7 @@ Cancellation также имеет два разных terminal уровня. Pr
 получает `ModelResponseRecorded(Error)`, но runtime cancellation/timeout
 оставляет начатый exchange interrupted и завершается chat-фактом
 `TurnSettled(Canceled|Timeout)`. Подменять cancellation fake model error-ом или
-добавлять generic `ExecutionSettled` в Phase 4 запрещено.
+добавлять generic `ExecutionSettled` в Phase 4B запрещено.
 
 ## Identity Domains
 
@@ -347,8 +355,8 @@ queue и cancellation token journal не восстанавливает.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–3 реализованы 2026-08-28; source design Phase 4 завершён,
-production implementation не начата**.
+Статус: **Phase 0–3 и recorder seam Phase 4A реализованы 2026-08-28;
+strict journal cutover Phase 4B не начат**.
 
 Принято направление отделить generic workload identity/lifecycle boundary от
 conversation Turn без переписывания agent loop или process protocol:
