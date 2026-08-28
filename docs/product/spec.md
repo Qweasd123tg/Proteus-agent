@@ -209,15 +209,18 @@ contract decisions. Для subagents уже принята identity-модель
 [subagents.md](../architecture/subagents.md). Актуальный
 критический путь ведётся в `scope.md`.
 
-В минимальном направлении Phase 0–2 `ExecutionScope` migration завершены:
+В минимальном направлении Phase 0–3 `ExecutionScope` migration завершены:
 distinct `ExecutionId` и scope выражают identity, lifecycle/cancellation и
 execution attribution, но scope не является service container. Прежний
 `RuntimeContext` разделён на generic `ExecutionContext` и chat-specific
 `AgentWorkflowContext` без compatibility alias/Deref. Process-backed search
 доказал meaningful generic consumer без chat identities или fake Turn.
 `ExecutionContext` остаётся migration hypothesis, а не зафиксированным
-конечным API. Итерация остановлена на этом checkpoint; journal/model/approval/
-tool ownership мигрируют только отдельными проверяемыми phases. `Turn` остаётся
+конечным API. `BoundModel` доказал immutable per-execution binding поверх
+shared provider: metadata, delta attribution и cancellation больше не зависят
+от mutable current Turn в `ModelService`. Итерация остановлена перед Phase 4;
+journal/recorder, approval и tool ownership мигрируют только отдельными
+проверяемыми phases. `Turn` остаётся
 application lifecycle, `Workflow` владеет agent-loop policy, а process
 `InvocationRef` не меняется. Канонический план находится в
 [roadmap.md](roadmap.md#executionscope-migration).
@@ -232,8 +235,9 @@ Controller -> ExecutionScope -> Capability Binder/Resolver
 ```
 
 Bound handle может нести attribution, cancellation, authority, budget и
-recording конкретной capability. Это planned hypothesis после Phase 2, не
-основание сейчас менять `Model`, `ToolOrchestrator`, approvals или вводить
+recording конкретной capability. На Phase 3 эта гипотеза подтверждена только
+конкретным `BoundModel`; это не основание обобщать её в
+`BoundCapability<T>`, менять `ToolOrchestrator`, approvals или вводить
 universal capability enum. Возможная durable `AgentIdentity` также остаётся
 отдельной от controller-а и `ExecutionId`; в текущую migration она не входит.
 

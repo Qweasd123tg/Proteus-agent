@@ -7,8 +7,8 @@ use crate::{
         AgentWorkflowContext, CancellationToken, EventEmitter, ExecutionContext, ExecutionScope,
     },
     core::{
-        AppConfig, DeltaEventContext, HeadlessUserInputTransport, InMemoryEventStore,
-        ModeAwarePolicy, ModelService, ModuleBuildContext, ModuleCatalog, PolicyBuildContext,
+        AppConfig, BoundModel, HeadlessUserInputTransport, InMemoryEventStore, ModeAwarePolicy,
+        ModelExecutionBinding, ModelService, ModuleBuildContext, ModuleCatalog, PolicyBuildContext,
         TurnSettlementStatus, prepare_history_update,
     },
     stubs::{NoMemory, NullPatchApplier, NullSearch},
@@ -110,18 +110,21 @@ pub async fn replay_workflow(
     let event_store = Arc::new(InMemoryEventStore::new());
     let events = Arc::new(EventEmitter::new(event_store));
     let model_service = Arc::new(ModelService::new(Arc::new(ReplayModel::new(state.clone()))));
-    model_service.set_event_context(DeltaEventContext {
-        emitter: Some(events.clone()),
-        session_id: Some(fixture.session_id),
-        thread_id: Some(fixture.thread_id),
-        turn_id: Some(fixture.turn_id),
-        session_store: None,
-    });
-    let model: Arc<dyn crate::contracts::Model> = model_service;
+    let scope = ExecutionScope::fresh(CancellationToken::new());
+    let model_binding = ModelExecutionBinding::for_turn(
+        scope.clone(),
+        events.clone(),
+        fixture.session_id,
+        fixture.thread_id,
+        fixture.turn_id,
+        None,
+    );
+    let model: Arc<dyn crate::contracts::Model> =
+        Arc::new(BoundModel::new(model_service, model_binding));
     let approval: Arc<dyn crate::contracts::ApprovalTransport> =
         Arc::new(ReplayApprovalTransport::new(state.clone()));
     let execution_context = ExecutionContext::new(
-        ExecutionScope::fresh(CancellationToken::new()),
+        scope,
         0,
         model,
         Arc::new(NullSearch),

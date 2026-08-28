@@ -24,13 +24,13 @@ journal/replay evidence и `v0.1.0-alpha.1` уже завершены. Roadmap �
 [releases/v0.1.0-alpha.1.md](../releases/v0.1.0-alpha.1.md).
 
 Следующее принятое направление — минимальная `ExecutionScope` migration,
-описанная ниже. Phase 0–2 реализованы и остановлены на review checkpoint перед
-Phase 3. Остальные разделы остаются вариантами последующей работы, а не
-автоматической очередью.
+описанная ниже. Phase 0–3 реализованы и остановлены на обязательном review
+checkpoint перед Phase 4. Остальные разделы остаются вариантами последующей
+работы, а не автоматической очередью.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–2 реализованы 2026-08-28; Phase 3 не начата**.
+Статус: **Phase 0–3 реализованы 2026-08-28; остановка перед Phase 4**.
 
 Supporting evidence, не заменяющий этот roadmap:
 [source-level audit](../research/execution-scope-source-audit-2026-08-27.md) и
@@ -427,7 +427,7 @@ tracked producers, consumers, configs, tests и docs обновляются ат
 
 ### Phase 3 — BoundModel Capability-Binding Experiment
 
-Статус: **planned; не реализовано**.
+Статус: **реализовано 2026-08-28**.
 
 Phase 2 generic-consumer gate пройден, поэтому следующий changeset должен не
 просто удалить один `RwLock`, а доказать первую typed capability binding на
@@ -454,7 +454,7 @@ service/provider и scope. `ExecutionContext` пока остаётся migratio
 surface и хранит уже bound model handle, но это не делает context конечным API
 или обязательным контейнером будущих capabilities.
 
-Текущие exact call sites долга:
+До реализации exact call sites долга были следующими:
 
 - `crates/proteus-core/src/core/registry.rs` хранит concrete
   `model_service: Option<Arc<ModelService>>` и собирает его;
@@ -487,6 +487,21 @@ surface и хранит уже bound model handle, но это не делает
   другой bound handle того же service. Model timeout остаётся текущей policy
   `WorkflowHostRuntime`/compaction host и в этой phase не переносится.
 
+Фактический implementation checkpoint:
+
+- `core/bound_model.rs` содержит `ModelExecutionBinding` и `BoundModel`;
+- `RuntimeRegistry` хранит один private shared `Arc<ModelService>` и выдаёт в
+  `ExecutionContext.model` новый bound handle;
+- normal Turn передаёт binding собственные immutable session/thread/turn,
+  emitter и текущий `SessionStore`; workflow replay строит тот же binding без
+  записи в source journal;
+- `SteeringModel` по-прежнему является controller decorator, но теперь
+  оборачивает уже bound model;
+- `ModelService` больше не содержит current-execution state, а отвечает только
+  за выбранный provider, shaping и canonical validation;
+- reserved `session_id/thread_id/turn_id` нельзя сфабриковать detached-вызовом
+  или подменить request metadata поверх turn binding.
+
 Обязательный deterministic proof использует один shared `ModelService`, два
 разных `ExecutionScope` и два одновременно работающих `BoundModel`. Barrier в
 fake adapter удерживает оба provider calls in-flight; после освобождения тест
@@ -500,7 +515,7 @@ schema, `ExecutionRecorder`, approvals/grants, `ToolOrchestrator`, process
 protocol или Renderer. Journal по-прежнему проектирует model facts через
 `TurnId`; перенос durable ownership на `ExecutionId` остаётся Phase 4.
 
-Definition of Done Phase 3:
+Definition of Done Phase 3 (выполнено):
 
 - `ModelService` не содержит `RwLock<DeltaEventContext>` или другого mutable
   current-execution state;
@@ -513,9 +528,18 @@ Definition of Done Phase 3:
 - generic `BoundCapability<T>`, capability resolver и Phase 4+ changes не
   добавлены.
 
+Verification checkpoint 2026-08-28: focused `BoundModel` tests, полный
+`proteus-core` suite и `cargo test --workspace --no-fail-fast` прошли без
+failures. `module_swap`, process broker/lineage, reference workflow,
+steering, compaction, model journal и workflow replay входят в этот gate.
+
 После этого обязателен новый review: только реальный повтор между
 `BoundModel` и последующими tool/authority bindings может обосновать общую
 binding abstraction.
+
+**STOP:** Phase 4 (перенос durable recorder/journal ownership на execution)
+не начата. Текущая journal schema всё ещё требует `TurnId`; дальнейшее
+изменение требует отдельного решения и baseline.
 
 ## Другие Направления
 
@@ -713,11 +737,6 @@ critical path и выполняются только при свободном �
   `core/agent_control/`: сейчас её использует только lifecycle agent-control,
   поэтому отдельная root-owned поверхность не отражает фактического владельца.
   Это должен быть перенос без нового поведения и без публичного workspace slot.
-- Удалить concrete escape hatch
-  `RuntimeRegistry.model_service: Option<Arc<ModelService>>`. Event context
-  model invocation должен передаваться явно на один вызов, а не меняться через
-  общий `set_event_context`. Перед заменой определить invocation-bound contract
-  и добавить regression на конкурентные turns и корректную атрибуцию событий.
 - Проверить ownership `prompt_replay`, `workflow_replay`, `eval_report` и
   topology rendering при следующем содержательном изменении этих поверхностей.
   Сам аудит не требует выноса: перемещение оправдано только обнаруженной

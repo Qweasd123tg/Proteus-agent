@@ -75,16 +75,20 @@ wire/config/DTO меняются атомарно без legacy aliases и compa
 
 ## Что Ещё Нужно Решить
 
-ExecutionScope migration Phase 0–2 завершена: distinct `ExecutionId` и
+ExecutionScope migration Phase 0–3 завершена: distinct `ExecutionId` и
 минимальный `ExecutionScope` отделяют generic identity/cancellation от
 conversation `Turn`, не становясь контейнером services. `ExecutionContext`
 отделён от chat-specific `AgentWorkflowContext`; прежний `RuntimeContext`
 удалён без alias/Deref. Process-backed search подтверждает реальный generic
-capability call из coherent snapshot без fake Turn. Каждый Turn создаёт один
-новый scope; child cancellation views сохраняют тот же execution id. `Turn`
-остаётся chat/application lifecycle, `Workflow` — владельцем agent-loop
-policy, а process `InvocationRef` — отдельной broker identity. Долгосрочная
-гипотеза — typed execution-bound capability handles, а не новый god-object.
+capability call из coherent snapshot без fake Turn. `BoundModel` стал первым
+typed execution-bound handle: shared `ModelService` больше не хранит mutable
+current Turn, а request metadata, delta events, journal projection и
+cancellation изолированы immutable binding-ом. Каждый Turn создаёт один новый
+scope; child cancellation views сохраняют тот же execution id. `Turn` остаётся
+chat/application lifecycle, `Workflow` — владельцем agent-loop policy, а
+process `InvocationRef` — отдельной broker identity. Следующий вопрос —
+durable journal/recorder ownership Phase 4; общая binding abstraction пока не
+вводится.
 Следующие phases и stop-gates находятся в
 [roadmap.md](roadmap.md#executionscope-migration).
 

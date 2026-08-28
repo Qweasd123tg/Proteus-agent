@@ -9,8 +9,9 @@ use crate::{
         Renderer, SearchBackend, ToolExposure, ToolRegistry, UserInputTransport, Workflow,
     },
     core::{
-        AgentControlRuntime, AppConfig, AssemblyPlan, HeadlessUserInputTransport, ModeAwarePolicy,
-        ModelService, ModuleBuildContext, ModuleCatalog, PolicyBuildContext, PreparedAssembly,
+        AgentControlRuntime, AppConfig, AssemblyPlan, BoundModel, ModeAwarePolicy,
+        ModelExecutionBinding, ModelService, ModuleBuildContext, ModuleCatalog, PolicyBuildContext,
+        PreparedAssembly, SessionStore,
     },
     domain::{SessionId, ThreadId, TurnId},
     stubs::{
@@ -24,11 +25,7 @@ pub struct RuntimeRegistry {
     pub model_config: crate::core::ModelConfig,
     pub runtime_config: crate::core::RuntimeConfig,
     pub instructions: Vec<crate::model_standard::InstructionBlock>,
-    pub model: Arc<dyn Model>,
-    /// Отдельная ссылка на ModelService для доступа к `set_event_context`
-    /// (не выражается через trait Model). `None` если model выбран
-    /// как custom Model implementation, не ModelService.
-    pub model_service: Option<Arc<ModelService>>,
+    model_service: Arc<ModelService>,
     pub search: Arc<dyn SearchBackend>,
     pub memory: Arc<dyn MemoryStore>,
     pub context: Arc<dyn ContextBuilder>,
@@ -70,7 +67,6 @@ impl RuntimeRegistry {
         let model_config = plan.model_config()?;
         let model_adapter = catalog.build_model_adapter(&model_config)?;
         let model_service = Arc::new(ModelService::new(model_adapter));
-        let model: Arc<dyn Model> = model_service.clone();
 
         let search: Arc<dyn SearchBackend> = match plan.module_id(crate::domain::ModuleKind::Search)
         {
@@ -107,8 +103,8 @@ impl RuntimeRegistry {
         agent_control_runtime.register_tools(&mut tools, config.runtime.workflow_timeout_ms)?;
         crate::core::register_provider_hosted_tools(
             &mut tools,
-            model.id().as_ref(),
-            model.provider_hosted_tools(&model_config.model_ref()),
+            model_service.id().as_ref(),
+            model_service.provider_hosted_tools(&model_config.model_ref()),
         )?;
         let policy_ctx = PolicyBuildContext {
             config,
@@ -135,8 +131,7 @@ impl RuntimeRegistry {
             model_config,
             runtime_config: config.runtime.clone(),
             instructions: config.instruction_blocks(),
-            model,
-            model_service: Some(model_service),
+            model_service,
             search,
             memory,
             context,
@@ -153,42 +148,23 @@ impl RuntimeRegistry {
 
     pub fn execution_context(
         &self,
-        scope: ExecutionScope,
+        model_binding: ModelExecutionBinding,
         approval: Arc<dyn crate::contracts::ApprovalTransport>,
         permission_mode: crate::domain::PermissionMode,
     ) -> ExecutionContext {
+        let scope = model_binding.scope().clone();
+        let model: Arc<dyn Model> =
+            Arc::new(BoundModel::new(self.model_service.clone(), model_binding));
         ExecutionContext::new(
             scope,
             self.runtime_config.model_timeout_ms,
-            self.model.clone(),
+            model,
             self.search.clone(),
             self.memory.clone(),
             self.tools.clone(),
             Arc::new(ModeAwarePolicy::new(permission_mode, self.policy.clone())),
             approval,
             self.patch.clone(),
-        )
-    }
-
-    pub fn agent_workflow_context(
-        &self,
-        session_id: SessionId,
-        thread_id: ThreadId,
-        turn_id: TurnId,
-        scope: ExecutionScope,
-        events: Arc<EventEmitter>,
-        approval: Arc<dyn crate::contracts::ApprovalTransport>,
-        permission_mode: crate::domain::PermissionMode,
-    ) -> AgentWorkflowContext {
-        self.agent_workflow_context_with_user_input(
-            session_id,
-            thread_id,
-            turn_id,
-            scope,
-            events,
-            approval,
-            Arc::new(HeadlessUserInputTransport),
-            permission_mode,
         )
     }
 
@@ -200,11 +176,20 @@ impl RuntimeRegistry {
         turn_id: TurnId,
         scope: ExecutionScope,
         events: Arc<EventEmitter>,
+        session_store: Option<SessionStore>,
         approval: Arc<dyn crate::contracts::ApprovalTransport>,
         user_input: Arc<dyn UserInputTransport>,
         permission_mode: crate::domain::PermissionMode,
     ) -> AgentWorkflowContext {
-        let execution = self.execution_context(scope, approval, permission_mode);
+        let model_binding = ModelExecutionBinding::for_turn(
+            scope,
+            events.clone(),
+            session_id,
+            thread_id,
+            turn_id,
+            session_store,
+        );
+        let execution = self.execution_context(model_binding, approval, permission_mode);
         AgentWorkflowContext::new(
             execution,
             session_id,
@@ -221,5 +206,10 @@ impl RuntimeRegistry {
             self.agent_control.clone(),
         )
         .with_instructions(self.instructions.clone())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_model_for_test(&mut self, model: Arc<dyn Model>) {
+        self.model_service = Arc::new(ModelService::new(model));
     }
 }

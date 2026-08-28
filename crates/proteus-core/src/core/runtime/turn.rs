@@ -280,19 +280,6 @@ impl AgentRuntime {
                 )
                 .await?;
         }
-        // Выставляем delta event context для ModelService, чтобы
-        // streaming TextDelta/ToolArgsDelta/ReasoningDelta эмитились с
-        // правильным envelope (session/thread/turn). Без этого дельты
-        // тихо дропаются (штатное поведение без runtime).
-        if let Some(service) = &snapshot.registry.model_service {
-            service.set_event_context(crate::core::DeltaEventContext {
-                emitter: Some(self.services.events.clone()),
-                session_id: Some(self.session.session_id),
-                thread_id: Some(self.session.thread_id),
-                turn_id: Some(turn_id),
-                session_store: self.session.session_store.clone(),
-            });
-        }
         let permission_mode = *self.services.permission_mode.read().await;
         let model_ref = self.services.model_ref.read().await.clone();
         let reasoning = self.services.reasoning.read().await.clone();
@@ -302,6 +289,7 @@ impl AgentRuntime {
             turn_id,
             execution_scope,
             self.services.events.clone(),
+            self.session.session_store.clone(),
             self.services.approval.clone(),
             self.services.user_input.clone(),
             permission_mode,

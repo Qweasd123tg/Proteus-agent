@@ -50,7 +50,9 @@ async fn process_search_runs_through_execution_context_without_chat_identity() {
     .expect("prepared assembly");
     let snapshot = RuntimeSnapshot::new(ModuleEpoch::initial(), assembly, None);
     let execution = snapshot.registry.execution_context(
-        ExecutionScope::fresh(CancellationToken::new()),
+        proteus_core::core::ModelExecutionBinding::detached(ExecutionScope::fresh(
+            CancellationToken::new(),
+        )),
         Arc::new(HeadlessApprovalTransport),
         PermissionMode::Normal,
     );

@@ -261,12 +261,14 @@ typed execution-bound capabilities.
 `TurnPermissionGrants`, `RequestOrigin`, `ToolInvocationOwner`, recorder calls
 и общем context-е.
 
-`ModelService` хранит mutable `DeltaEventContext` под `RwLock`, а turn перед
-Workflow вызывает `set_event_context(session, thread, turn, store)`. Root turns
-одной session сериализованы, но shared mutable current attribution остаётся
-barrier для независимых concurrent executions. Journal projection, в свою
-очередь, требует ранее открытый Turn для model/tool records. Всё это —
-**текущий architecture debt**, несмотря на уже выполненный structural split.
+Phase 3 убрала mutable current attribution из shared `ModelService`. Registry
+хранит один stateless относительно execution provider service, а каждый Turn
+получает отдельный `BoundModel` с immutable `ExecutionScope` и текущей
+session/thread/turn projection. Поэтому два независимых model calls больше не
+могут перезаписать metadata, delta envelope или journal owner друг друга.
+Journal projection, однако, всё ещё требует ранее открытый Turn для model/tool
+records. Это **текущий architecture debt Phase 4+**, а не свойство generic
+model capability.
 
 ## Identity Domains
 
@@ -318,7 +320,7 @@ queue и cancellation token journal не восстанавливает.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–2 реализованы 2026-08-28; работа остановлена перед Phase 3**.
+Статус: **Phase 0–3 реализованы 2026-08-28; работа остановлена перед Phase 4**.
 
 Принято направление отделить generic workload identity/lifecycle boundary от
 conversation Turn без переписывания agent loop или process protocol:
@@ -352,7 +354,7 @@ API-модель. Phase 2 доказала process-backed search через gene
 fake Turn; после review context может остаться узким, быть раздроблен или
 уступить место typed execution-bound handles.
 
-Долгосрочная гипотеза, не реализуемая в Phase 0–2:
+Долгосрочная гипотеза, частично проверенная только на model capability:
 
 ```text
 Controller -> ExecutionScope -> typed capability binder/resolver
@@ -366,18 +368,18 @@ Controller -> ExecutionScope -> typed capability binder/resolver
 capability остаётся typed contract-ом, а bound handle захватывает только её
 execution attribution, cancellation, authority/budget и recording needs.
 
-Первый запланированный эксперимент этой формы — Phase 3 `BoundModel`:
-shared `ModelService` остаётся stateless относительно execution, а отдельный
-immutable handle bind-ит его к `ExecutionScope` и текущей optional
-chat/journal projection. Это проверка конкретной модели, не введение
-`BoundCapability<T>` или общего resolver-а. До завершения Phase 3
-`ExecutionContext.model` всё ещё использует текущий shared model service.
+Первый эксперимент этой формы — реализованный Phase 3 `BoundModel`: shared
+`ModelService` stateless относительно execution, а отдельный immutable handle
+bind-ит его к `ExecutionScope` и optional текущей chat/journal projection.
+`ExecutionContext.model` теперь хранит этот bound handle за существующим
+`Arc<dyn Model>`. Это проверка одной concrete capability, не введение
+`BoundCapability<T>` или общего resolver-а.
 
 На текущем HEAD существуют distinct `ExecutionId`, минимальный
-`ExecutionScope`, generic `ExecutionContext` и chat-specific
-`AgentWorkflowContext`. Каждый Turn создаёт новый id; wrapper содержит ровно
-один execution context. Structural guard запрещает chat imports в generic
-contract. Следующие phases и stop-gates находятся в
+`ExecutionScope`, generic `ExecutionContext`, chat-specific
+`AgentWorkflowContext` и execution-bound model handle. Каждый Turn создаёт
+новый id; wrapper содержит ровно один execution context. Structural guard
+запрещает chat imports в generic contract. Следующие phases и stop-gates находятся в
 [roadmap.md](../product/roadmap.md#executionscope-migration).
 
 ## Capability, Slot, Module, Worker И Profile

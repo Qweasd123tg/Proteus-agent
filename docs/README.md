@@ -29,9 +29,9 @@
 - **Сообщить о security-проблеме:** [SECURITY.md](../SECURITY.md).
 - **Понять архитектуру:** [architecture.md](architecture/architecture.md), затем
   [modules.md](architecture/modules.md).
-- **Начать ExecutionScope migration:** сначала current boundary в
-  [architecture.md](architecture/architecture.md#planned-executionscope),
-  затем Phase 0–2 в
+- **Продолжить ExecutionScope migration:** сначала current boundary в
+  [architecture.md](architecture/architecture.md#executionscope-migration),
+  затем stop-gate после Phase 3 в
   [roadmap.md](product/roadmap.md#executionscope-migration).
 - **Понять направление subagents:** [subagents.md](architecture/subagents.md).
 - **Разобрать сбой:** [inspect.md](guides/inspect.md), затем профильный документ по
@@ -139,7 +139,7 @@ Research хранит историю решений и upstream-разборы, 
 - [research/execution-scope-source-audit-2026-08-27.md](research/execution-scope-source-audit-2026-08-27.md) —
   supporting source snapshot для текущего Turn/runtime coupling;
 - [research/execution-scope-migration-design-2026-08-27.md](research/execution-scope-migration-design-2026-08-27.md) —
-  расширенный implementation research; canonical Phase 0–2 остаётся в
+  расширенный implementation research; canonical Phase 0–3 и дальнейшие gates остаются в
   `product/roadmap.md`;
 - [research/](research/) — остальные проектные исследования и postmortem;
 - [examples/research/](../examples/research/) — большие snapshot-разборы
