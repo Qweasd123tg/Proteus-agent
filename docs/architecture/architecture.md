@@ -366,6 +366,13 @@ Controller -> ExecutionScope -> typed capability binder/resolver
 capability остаётся typed contract-ом, а bound handle захватывает только её
 execution attribution, cancellation, authority/budget и recording needs.
 
+Первый запланированный эксперимент этой формы — Phase 3 `BoundModel`:
+shared `ModelService` остаётся stateless относительно execution, а отдельный
+immutable handle bind-ит его к `ExecutionScope` и текущей optional
+chat/journal projection. Это проверка конкретной модели, не введение
+`BoundCapability<T>` или общего resolver-а. До завершения Phase 3
+`ExecutionContext.model` всё ещё использует текущий shared model service.
+
 На текущем HEAD существуют distinct `ExecutionId`, минимальный
 `ExecutionScope`, generic `ExecutionContext` и chat-specific
 `AgentWorkflowContext`. Каждый Turn создаёт новый id; wrapper содержит ровно

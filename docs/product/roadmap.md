@@ -407,7 +407,8 @@ Phase 0–2 завершены; checkpoint подтверждён следующ
 
 Последующие задачи не являются частью первой итерации:
 
-3. immutable execution binding для `ModelService`;
+3. `BoundModel` как первый execution-bound capability и удаление mutable
+   current attribution из `ModelService`;
 4. `ExecutionRecorder` и journal ownership/schema migration;
 5. execution-scoped grants/approval origin;
 6. generic `ToolOrchestrator` invocation context;
@@ -424,11 +425,36 @@ tracked producers, consumers, configs, tests и docs обновляются ат
 по отдельному явному решению владельца; research-предложение само по себе не
 создаёт исключение.
 
-### Phase 3 Readiness
+### Phase 3 — BoundModel Capability-Binding Experiment
 
-Phase 2 generic-consumer gate пройден, поэтому codebase структурно готов
-начать удаление shared mutable model attribution, но сама Phase 3 ещё не
-выполнена. Текущие exact call sites:
+Статус: **planned; не реализовано**.
+
+Phase 2 generic-consumer gate пройден, поэтому следующий changeset должен не
+просто удалить один `RwLock`, а доказать первую typed capability binding на
+модели. Целевая роль типов:
+
+```text
+RuntimeRegistry
+    |
+    | selected shared provider/service
+    v
+ModelService (stateless относительно execution)
+    |
+    | bind immutable ExecutionScope + attribution
+    v
+BoundModel (one logical execution)
+    |
+    v
+Controller через существующий Model contract
+```
+
+`ExecutionScope` остаётся маленьким и не получает `model`. `BoundModel` не
+помещается внутрь scope: binding создаётся отдельной операцией из выбранного
+service/provider и scope. `ExecutionContext` пока остаётся migration assembly
+surface и хранит уже bound model handle, но это не делает context конечным API
+или обязательным контейнером будущих capabilities.
+
+Текущие exact call sites долга:
 
 - `crates/proteus-core/src/core/registry.rs` хранит concrete
   `model_service: Option<Arc<ModelService>>` и собирает его;
@@ -439,13 +465,57 @@ Phase 2 generic-consumer gate пройден, поэтому codebase струк
 - `crates/proteus-core/src/core/model_service.rs` хранит
   `RwLock<DeltaEventContext>` и содержит связанные tests.
 
-Минимальный Phase 3 diff должен ввести immutable invocation-bound model handle
-или context, который захватывает `ExecutionId` и optional chat/journal
-attribution на один call/execution. Существующий provider-neutral `Model`
-trait и request/response semantics менять не требуется. Затем удалить
-`set_event_context`, `RwLock` и concrete registry escape hatch и доказать
-concurrent attribution отдельным deterministic test. Это отдельный reviewable
-changeset после Phase 2.
+Минимальная реализация:
+
+- shared `ModelService` сохраняет provider adapter, shaping и canonical model
+  validation, но не хранит mutable current execution;
+- per-execution `BoundModel` реализует существующий provider-neutral `Model`
+  contract и содержит immutable `ExecutionScope`;
+- optional текущая chat/journal projection (`EventEmitter`,
+  `SessionId/ThreadId/TurnId`, `SessionStore`) живёт только в core-owned model
+  binding. Это временный adapter к текущей journal schema, а не перенос chat
+  типов в generic `ExecutionContext`;
+- normal Turn и workflow replay создают отдельные bound handles; shared
+  `ModelService` можно безопасно использовать одновременно;
+- `SteeringModel` оборачивает уже bound model, а не raw provider;
+- raw unbound service остаётся registry-owned и не выдаётся обычному
+  controller path;
+- binding является авторитетным для reserved trace metadata. Совпадающие
+  значения допустимы, mismatch отклоняется fail-closed; request не может
+  подменить execution attribution;
+- scope cancellation применяется на bound model boundary и не затрагивает
+  другой bound handle того же service. Model timeout остаётся текущей policy
+  `WorkflowHostRuntime`/compaction host и в этой phase не переносится.
+
+Обязательный deterministic proof использует один shared `ModelService`, два
+разных `ExecutionScope` и два одновременно работающих `BoundModel`. Barrier в
+fake adapter удерживает оба provider calls in-flight; после освобождения тест
+проверяет, что request metadata, delta event envelopes и current journal
+projection A/B не смешались. Отдельно проверяются construction без Turn,
+fail-closed metadata mismatch и targeted cancellation одного binding без
+отмены второго.
+
+Phase 3 не меняет `Model` trait, canonical request/response/stream DTO, journal
+schema, `ExecutionRecorder`, approvals/grants, `ToolOrchestrator`, process
+protocol или Renderer. Journal по-прежнему проектирует model facts через
+`TurnId`; перенос durable ownership на `ExecutionId` остаётся Phase 4.
+
+Definition of Done Phase 3:
+
+- `ModelService` не содержит `RwLock<DeltaEventContext>` или другого mutable
+  current-execution state;
+- `set_event_context` и optional concrete registry escape hatch удалены;
+- `ExecutionContext.model` на runtime path всегда является bound handle;
+- concurrent attribution/cancellation test green;
+- existing steering, compaction, workflow replay, model journal и provider
+  adapter tests green;
+- full workspace gate green;
+- generic `BoundCapability<T>`, capability resolver и Phase 4+ changes не
+  добавлены.
+
+После этого обязателен новый review: только реальный повтор между
+`BoundModel` и последующими tool/authority bindings может обосновать общую
+binding abstraction.
 
 ## Другие Направления
 

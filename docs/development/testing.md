@@ -77,6 +77,17 @@ regression boundary; их не переписывают под новую semant
 path меняется, все tracked workflow producers/consumers обновляются атомарно
 без legacy alias.
 
+### BoundModel Phase 3 Gate (planned)
+
+Phase 3 должна доказать immutable capability binding, а не только отсутствие
+конкретного lock-а. Focused test создаёт два `BoundModel` поверх одного shared
+`ModelService`, удерживает оба вызова одновременно barrier-ом и проверяет
+раздельные request metadata, delta events, journal projection и cancellation.
+Дополнительно обязательны detached construction без Turn и fail-closed reject
+reserved attribution metadata mismatch. После focused tests выполняется
+полный `cargo test --workspace`; journal schema, `Model` DTO/trait и process
+protocol в этой phase не меняются.
+
 ### P0 Multiplexed Broker Spike
 
 ```bash
