@@ -1,5 +1,10 @@
+use std::sync::Arc;
+
 use crate::{
-    contracts::CancellationToken,
+    contracts::{
+        ApprovalPolicy, ApprovalTransport, CancellationToken, ExecutionRecorder, MemoryStore,
+        Model, NoopExecutionRecorder, PatchApplier, SearchBackend, ToolRegistry,
+    },
     domain::{ExecutionId, new_execution_id},
 };
 
@@ -32,32 +37,64 @@ impl ExecutionScope {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::any::TypeId;
+/// Generic runtime dependencies bound to one coherent execution snapshot.
+///
+/// This is a migration boundary, not a promise that a broad context object is
+/// the final capability API. It deliberately contains no conversational
+/// identity, history, agent task or presentation state.
+#[derive(Clone)]
+#[non_exhaustive]
+pub struct ExecutionContext {
+    pub scope: ExecutionScope,
+    pub model_timeout_ms: u64,
+    pub model: Arc<dyn Model>,
+    pub search: Arc<dyn SearchBackend>,
+    pub memory: Arc<dyn MemoryStore>,
+    pub tools: ToolRegistry,
+    pub policy: Arc<dyn ApprovalPolicy>,
+    pub approval: Arc<dyn ApprovalTransport>,
+    pub patch: Arc<dyn PatchApplier>,
+    pub execution_recorder: Arc<dyn ExecutionRecorder>,
+}
 
-    use super::*;
-    use crate::domain::TurnId;
-
-    #[test]
-    fn execution_scope_constructs_without_turn() {
-        let scope = ExecutionScope::fresh(CancellationToken::new());
-
-        assert!(!scope.cancellation.is_cancelled());
+impl ExecutionContext {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        scope: ExecutionScope,
+        model_timeout_ms: u64,
+        model: Arc<dyn Model>,
+        search: Arc<dyn SearchBackend>,
+        memory: Arc<dyn MemoryStore>,
+        tools: ToolRegistry,
+        policy: Arc<dyn ApprovalPolicy>,
+        approval: Arc<dyn ApprovalTransport>,
+        patch: Arc<dyn PatchApplier>,
+    ) -> Self {
+        Self {
+            scope,
+            model_timeout_ms,
+            model,
+            search,
+            memory,
+            tools,
+            policy,
+            approval,
+            patch,
+            execution_recorder: Arc::new(NoopExecutionRecorder),
+        }
     }
 
-    #[test]
-    fn execution_id_and_turn_id_are_type_distinct() {
-        assert_ne!(TypeId::of::<ExecutionId>(), TypeId::of::<TurnId>());
+    pub fn with_cancellation(mut self, cancellation: CancellationToken) -> Self {
+        self.scope = ExecutionScope::new(self.scope.execution_id, cancellation);
+        self
     }
 
-    #[test]
-    fn child_cancellation_scope_preserves_execution_identity() {
-        let scope = ExecutionScope::fresh(CancellationToken::new());
-        let child = scope.child_cancellation_scope();
+    pub fn with_execution_recorder(mut self, recorder: Arc<dyn ExecutionRecorder>) -> Self {
+        self.execution_recorder = recorder;
+        self
+    }
 
-        assert_eq!(scope.execution_id, child.execution_id);
-        child.cancellation.cancel();
-        assert!(!scope.cancellation.is_cancelled());
+    pub fn is_cancelled(&self) -> bool {
+        self.scope.cancellation.is_cancelled()
     }
 }

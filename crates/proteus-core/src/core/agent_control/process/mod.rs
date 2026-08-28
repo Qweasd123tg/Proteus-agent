@@ -44,7 +44,7 @@ use tokio::{sync::Semaphore, time::timeout};
 use crate::{
     contracts::{
         AgentControl, AgentControlHandle, AgentControlMessage, AgentControlRequest,
-        AgentControlResult, AgentLifecycleStatus, AgentProfile, RuntimeContext,
+        AgentControlResult, AgentLifecycleStatus, AgentProfile, AgentWorkflowContext,
     },
     core::AgentControlConfig,
     domain::{Event, ThreadId, new_call_id, new_thread_id},
@@ -150,7 +150,7 @@ impl RunnerInner {
     fn prepare(
         &self,
         request: &AgentControlRequest,
-        ctx: &RuntimeContext,
+        ctx: &AgentWorkflowContext,
     ) -> Result<PreparedProcess> {
         let profile = self
             .profiles
@@ -331,7 +331,7 @@ impl RunnerInner {
     async fn finish_interrupted(
         &self,
         profile: &AgentProfile,
-        ctx: &RuntimeContext,
+        ctx: &AgentWorkflowContext,
         child_thread_id: ThreadId,
         status: AgentLifecycleStatus,
         resumable: bool,
@@ -355,8 +355,8 @@ impl RunnerInner {
         self: Arc<Self>,
         profile: AgentProfile,
         request: AgentControlRequest,
-        ctx: RuntimeContext,
-        child_ctx: RuntimeContext,
+        ctx: AgentWorkflowContext,
+        child_ctx: AgentWorkflowContext,
         child_thread_id: ThreadId,
         resume: Option<ResumeReservation>,
         mailbox: Arc<ChildMailbox>,
@@ -371,7 +371,7 @@ impl RunnerInner {
             permit = role.permits.clone().acquire_owned() => {
                 permit.map_err(|_| anyhow!("agent profile process pool is closed"))?
             }
-            _ = child_ctx.scope.cancellation.cancelled() => {
+            _ = child_ctx.execution.scope.cancellation.cancelled() => {
                 let _ = mailbox.close_and_discard();
                 let resumable = match resume.as_ref() {
                     Some(reservation) => self.rollback_resume(reservation).await?,
@@ -506,7 +506,7 @@ impl AgentControl for ProcessAgentControl {
     async fn run(
         &self,
         request: AgentControlRequest,
-        ctx: RuntimeContext,
+        ctx: AgentWorkflowContext,
     ) -> Result<AgentControlResult> {
         let handle = self.spawn(request, ctx).await?;
         self.wait(&handle).await
@@ -515,7 +515,7 @@ impl AgentControl for ProcessAgentControl {
     async fn spawn(
         &self,
         request: AgentControlRequest,
-        ctx: RuntimeContext,
+        ctx: AgentWorkflowContext,
     ) -> Result<AgentControlHandle> {
         let prepared = self.inner.prepare(&request, &ctx)?;
         let child_ctx = child_context(&ctx, prepared.child_thread_id, &prepared.profile.name);
@@ -524,7 +524,7 @@ impl AgentControl for ProcessAgentControl {
         let agent_target = requested_agent_target(&request)?;
         let reserve_result = self.inner.lock_pending()?.reserve(
             &spawn_id,
-            child_ctx.scope.cancellation.clone(),
+            child_ctx.execution.scope.cancellation.clone(),
             mailbox.clone(),
             agent_target,
             self.inner.max_parallel,

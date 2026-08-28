@@ -4,9 +4,9 @@ use anyhow::Result;
 
 use crate::{
     contracts::{
-        AgentControl, ApprovalPolicy, ContextBuilder, EventEmitter, ExecutionScope,
-        HistoryCompactor, MemoryStore, Model, PatchApplier, Renderer, RuntimeContext,
-        SearchBackend, ToolExposure, ToolRegistry, UserInputTransport, Workflow,
+        AgentControl, AgentWorkflowContext, ApprovalPolicy, ContextBuilder, EventEmitter,
+        ExecutionContext, ExecutionScope, HistoryCompactor, MemoryStore, Model, PatchApplier,
+        Renderer, SearchBackend, ToolExposure, ToolRegistry, UserInputTransport, Workflow,
     },
     core::{
         AgentControlRuntime, AppConfig, AssemblyPlan, HeadlessUserInputTransport, ModeAwarePolicy,
@@ -151,7 +151,26 @@ impl RuntimeRegistry {
         })
     }
 
-    pub fn runtime_context(
+    pub fn execution_context(
+        &self,
+        scope: ExecutionScope,
+        approval: Arc<dyn crate::contracts::ApprovalTransport>,
+        permission_mode: crate::domain::PermissionMode,
+    ) -> ExecutionContext {
+        ExecutionContext::new(
+            scope,
+            self.runtime_config.model_timeout_ms,
+            self.model.clone(),
+            self.search.clone(),
+            self.memory.clone(),
+            self.tools.clone(),
+            Arc::new(ModeAwarePolicy::new(permission_mode, self.policy.clone())),
+            approval,
+            self.patch.clone(),
+        )
+    }
+
+    pub fn agent_workflow_context(
         &self,
         session_id: SessionId,
         thread_id: ThreadId,
@@ -160,8 +179,8 @@ impl RuntimeRegistry {
         events: Arc<EventEmitter>,
         approval: Arc<dyn crate::contracts::ApprovalTransport>,
         permission_mode: crate::domain::PermissionMode,
-    ) -> RuntimeContext {
-        self.runtime_context_with_user_input(
+    ) -> AgentWorkflowContext {
+        self.agent_workflow_context_with_user_input(
             session_id,
             thread_id,
             turn_id,
@@ -174,7 +193,7 @@ impl RuntimeRegistry {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn runtime_context_with_user_input(
+    pub fn agent_workflow_context_with_user_input(
         &self,
         session_id: SessionId,
         thread_id: ThreadId,
@@ -184,26 +203,19 @@ impl RuntimeRegistry {
         approval: Arc<dyn crate::contracts::ApprovalTransport>,
         user_input: Arc<dyn UserInputTransport>,
         permission_mode: crate::domain::PermissionMode,
-    ) -> RuntimeContext {
-        RuntimeContext::new(
+    ) -> AgentWorkflowContext {
+        let execution = self.execution_context(scope, approval, permission_mode);
+        AgentWorkflowContext::new(
+            execution,
             session_id,
             thread_id,
             turn_id,
-            scope,
             self.model_config.model_ref(),
             self.model_config.reasoning.clone(),
-            self.runtime_config.model_timeout_ms,
             self.runtime_config.context_timeout_ms,
             events,
-            self.model.clone(),
-            self.search.clone(),
-            self.memory.clone(),
             self.context.clone(),
-            self.tools.clone(),
-            Arc::new(ModeAwarePolicy::new(permission_mode, self.policy.clone())),
-            approval,
             user_input,
-            self.patch.clone(),
             self.compactor.clone(),
             self.tool_exposure.clone(),
             self.agent_control.clone(),

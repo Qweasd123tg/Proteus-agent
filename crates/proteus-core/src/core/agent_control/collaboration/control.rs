@@ -199,7 +199,7 @@ impl CollaborationControl {
                 )),
             });
             // Terminal records retain only bounded presentation data. The
-            // originating host owns a full RuntimeContext/registry snapshot
+            // originating host owns a full AgentWorkflowContext/registry snapshot
             // and is needed only while the child is addressable.
             record.owner = None;
             record.handle = None;

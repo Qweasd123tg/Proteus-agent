@@ -209,17 +209,17 @@ contract decisions. Для subagents уже принята identity-модель
 [subagents.md](../architecture/subagents.md). Актуальный
 критический путь ведётся в `scope.md`.
 
-В минимальном направлении `ExecutionScope` уже реализована Phase 1: distinct
-`ExecutionId` и scope для identity, lifecycle/cancellation и execution
-attribution. Scope не является service container. `Turn` остаётся application
-lifecycle, `Workflow` владеет agent-loop policy, а process `InvocationRef` не
-меняется. Ещё не реализованная Phase 2 проверяет
-split текущего `RuntimeContext` на `ExecutionContext` и chat-specific
-`AgentWorkflowContext` как migration hypothesis, а не фиксирует большой
-`ExecutionContext` как конечный API. Обязательный gate — реальный generic
-consumer без chat identities или fake Turn. Первая итерация останавливается
-после этого checkpoint; journal/model/approval/tool ownership мигрируют только
-отдельными проверяемыми phases. Канонический план находится в
+В минимальном направлении Phase 0–2 `ExecutionScope` migration завершены:
+distinct `ExecutionId` и scope выражают identity, lifecycle/cancellation и
+execution attribution, но scope не является service container. Прежний
+`RuntimeContext` разделён на generic `ExecutionContext` и chat-specific
+`AgentWorkflowContext` без compatibility alias/Deref. Process-backed search
+доказал meaningful generic consumer без chat identities или fake Turn.
+`ExecutionContext` остаётся migration hypothesis, а не зафиксированным
+конечным API. Итерация остановлена на этом checkpoint; journal/model/approval/
+tool ownership мигрируют только отдельными проверяемыми phases. `Turn` остаётся
+application lifecycle, `Workflow` владеет agent-loop policy, а process
+`InvocationRef` не меняется. Канонический план находится в
 [roadmap.md](roadmap.md#executionscope-migration).
 
 Долгосрочная альтернатива ambient context-у — typed capability binding:

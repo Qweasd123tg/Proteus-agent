@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Deserializer, Serialize, de};
 
 use crate::{
-    contracts::workflow::RuntimeContext,
+    contracts::workflow::AgentWorkflowContext,
     domain::{AgentTask, SessionId, ThreadId},
 };
 
@@ -433,13 +433,13 @@ pub trait AgentControl: Send + Sync {
     async fn run(
         &self,
         request: AgentControlRequest,
-        ctx: RuntimeContext,
+        ctx: AgentWorkflowContext,
     ) -> Result<AgentControlResult>;
 
     async fn spawn(
         &self,
         request: AgentControlRequest,
-        ctx: RuntimeContext,
+        ctx: AgentWorkflowContext,
     ) -> Result<AgentControlHandle>;
 
     async fn wait(&self, handle: &AgentControlHandle) -> Result<AgentControlResult>;

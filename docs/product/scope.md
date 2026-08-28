@@ -75,17 +75,17 @@ wire/config/DTO меняются атомарно без legacy aliases и compa
 
 ## Что Ещё Нужно Решить
 
-Следующее архитектурное направление реализовано частично: distinct
-`ExecutionId` и минимальный `ExecutionScope` уже отделяют generic identity и
-cancellation от conversation `Turn`, не становясь контейнером services. Каждый
-Turn создаёт один новый scope; child cancellation views сохраняют тот же
-execution id. `Turn` остаётся chat/application lifecycle, `Workflow` —
-владельцем agent-loop policy, а process `InvocationRef` — отдельной broker
-identity. Следующая Phase 2 проверит `ExecutionContext` как migration
-hypothesis и обязана доказать реальный generic capability call без fake Turn;
-возможная
-долгосрочная форма — typed execution-bound capability handles, а не новый
-god-object. Точный поэтапный план и stop-gates находятся в
+ExecutionScope migration Phase 0–2 завершена: distinct `ExecutionId` и
+минимальный `ExecutionScope` отделяют generic identity/cancellation от
+conversation `Turn`, не становясь контейнером services. `ExecutionContext`
+отделён от chat-specific `AgentWorkflowContext`; прежний `RuntimeContext`
+удалён без alias/Deref. Process-backed search подтверждает реальный generic
+capability call из coherent snapshot без fake Turn. Каждый Turn создаёт один
+новый scope; child cancellation views сохраняют тот же execution id. `Turn`
+остаётся chat/application lifecycle, `Workflow` — владельцем agent-loop
+policy, а process `InvocationRef` — отдельной broker identity. Долгосрочная
+гипотеза — typed execution-bound capability handles, а не новый god-object.
+Следующие phases и stop-gates находятся в
 [roadmap.md](roadmap.md#executionscope-migration).
 
 Остальные крупные направления ниже не входят в эту миграцию и требуют

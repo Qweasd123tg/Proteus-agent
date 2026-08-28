@@ -19,7 +19,7 @@ use serde_json::Value;
 
 use crate::{
     contracts::{
-        AgentAddress, AgentControl, AgentControlRequest, CancellationToken, RuntimeContext,
+        AgentAddress, AgentControl, AgentControlRequest, AgentWorkflowContext, CancellationToken,
         ToolRegistry,
     },
     domain::ThreadId,
@@ -65,7 +65,7 @@ impl AgentControlRuntime {
     }
 
     /// Регистрирует ровно одну configured facade поверх того же service,
-    /// который будет помещён в `RuntimeContext`.
+    /// который будет помещён в `AgentWorkflowContext`.
     pub fn register_tools(&self, tools: &mut ToolRegistry, timeout_ms: u64) -> Result<()> {
         let Some(service) = self.service.as_ref() else {
             return Ok(());
@@ -83,7 +83,7 @@ impl AgentControlRuntime {
 }
 
 pub(crate) fn bind_tool_host(
-    ctx: &RuntimeContext,
+    ctx: &AgentWorkflowContext,
     cancellation: CancellationToken,
 ) -> Option<Arc<dyn crate::contracts::AgentControlToolHost>> {
     tool_host::bind(ctx, cancellation)
@@ -112,14 +112,14 @@ fn requested_agent_target(request: &AgentControlRequest) -> Result<Option<AgentA
 /// cancellation token. Parent cancellation каскадируется ребёнку, targeted
 /// cancel ребёнка не затрагивает parent turn и соседние процессы.
 fn child_context(
-    ctx: &RuntimeContext,
+    ctx: &AgentWorkflowContext,
     child_thread_id: ThreadId,
     role_name: &str,
-) -> RuntimeContext {
+) -> AgentWorkflowContext {
     let mut child_ctx = ctx.clone();
     child_ctx.thread_id = child_thread_id;
     child_ctx.thread_label = Some(role_name.to_owned());
     child_ctx.turn_grants = Arc::default();
-    child_ctx.scope = ctx.scope.child_cancellation_scope();
+    child_ctx.execution.scope = ctx.execution.scope.child_cancellation_scope();
     child_ctx
 }

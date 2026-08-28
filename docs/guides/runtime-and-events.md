@@ -1,9 +1,10 @@
 # Runtime И Events
 
 Runtime состоит из `AgentRuntime`, long-lived `SessionState`, immutable-per-turn
-`RuntimeSnapshot`, `RuntimeRegistry`, текущего смешанного `RuntimeContext`,
-event sink и session store. `Workflow` выбирает agent algorithm; Core ведёт
-session/turn lifecycle и предоставляет execution mechanisms.
+`RuntimeSnapshot`, `RuntimeRegistry`, generic `ExecutionContext`,
+chat-specific `AgentWorkflowContext`, event sink и session store. `Workflow`
+выбирает agent algorithm; Core ведёт session/turn lifecycle и предоставляет
+execution mechanisms.
 
 ## Режимы Запуска
 
@@ -207,10 +208,9 @@ replay использует компактный `SessionConfigSnapshot` с то
 `RuntimeSnapshot` — snapshot assembly/configuration, а не checkpoint
 вычисления. Он не содержит program counter, stack или suspended Workflow
 future и не позволяет продолжить оборванный call после crash. Текущий Turn
-удерживает один coherent snapshot до завершения; планируемый
-generic execution boundary сохранит эту семантику независимо от того, останется
-ли после Phase 2 его формой `ExecutionContext` или typed bound capability
-handles.
+удерживает один coherent snapshot до завершения; реализованный
+`ExecutionContext` bind-ится из него один раз. Будущий typed capability binding,
+если будет принят вместо широкого context-а, обязан сохранить ту же семантику.
 
 Полный формат и границы replay описаны в
 [canonical-turn-data.md](../architecture/canonical-turn-data.md).
@@ -796,8 +796,9 @@ Core path:
 3. `run_one_turn` проверяет reservation, захватывает один `RuntimeSnapshot`,
    гарантирует `SessionStarted` и пишет journal `TurnOpened`;
 4. Core испускает `TurnStarted`, затем durable append-ит accepted user message;
-5. Core собирает текущий `RuntimeContext`, оборачивает model для steering и
-   вызывает selected `Workflow::run`;
+5. Core создаёт `ExecutionScope`, bind-ит `ExecutionContext` из captured
+   snapshot, оборачивает его в `AgentWorkflowContext`, подменяет model
+   steering-wrapper-ом и вызывает selected `Workflow::run`;
 6. после `WorkflowOutput` Core валидирует history replacement/suffix,
    записывает mutation и фиксирует `TurnSettled`;
 7. недоставленное queued сообщение может открыть follow-up с новым domain
@@ -993,8 +994,9 @@ single-choice, multi-choice и custom форму. Это повторяет гр
 
 `runtime.workflow_timeout_ms` ограничивает весь workflow turn и освобождает
 runtime lock при зависшем workflow. При timeout runtime также сигналит
-turn-level cancellation token. `RuntimeContext` передаёт этот token в tools,
-а process workflow host проверяет его перед/во время callbacks
+turn-level cancellation token. `ExecutionScope` внутри `ExecutionContext`
+передаёт этот token в tools, а process workflow host проверяет его перед/во
+время callbacks
 (`build_context`, `complete_model`, `execute_tool`, `emit_event`). Process
 session отправляет cancel и после bounded grace reset-ит/останавливает child;
 следующая invocation может запустить новый worker, но текущий turn не retry-ится.

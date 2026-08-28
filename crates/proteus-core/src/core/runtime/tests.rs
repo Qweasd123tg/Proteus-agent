@@ -10,7 +10,7 @@ use tokio::time::Duration;
 use super::turn::{TurnAbort, turn_settlement_status};
 use super::*;
 use crate::{
-    contracts::{RuntimeContext, Workflow, WorkflowOutput},
+    contracts::{AgentWorkflowContext, Workflow, WorkflowOutput},
     core::{ConfiguredToolConfig, ConfiguredToolExecutorConfig, ModuleCatalog, PreparedAssembly},
     domain::{AgentOutput, AgentTask, ExecutionId, HistoryCompactionReport, ToolSafety},
     model_standard::{CanonicalMessage, CanonicalModelRequest, MessageRole},
@@ -90,7 +90,7 @@ impl Workflow for ShortHistoryWorkflow {
         &self,
         _task: AgentTask,
         _history: Vec<CanonicalMessage>,
-        _ctx: RuntimeContext,
+        _ctx: AgentWorkflowContext,
     ) -> Result<WorkflowOutput> {
         Ok(WorkflowOutput::new(
             AgentOutput::text("bad workflow"),
@@ -105,7 +105,7 @@ impl Workflow for CompactingWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        _ctx: RuntimeContext,
+        _ctx: AgentWorkflowContext,
     ) -> Result<WorkflowOutput> {
         assert_eq!(history.len(), 3);
         let summary = CanonicalMessage::text(MessageRole::User, "compacted summary");
@@ -134,7 +134,7 @@ impl Workflow for HangingWorkflow {
         &self,
         _task: AgentTask,
         _history: Vec<CanonicalMessage>,
-        _ctx: RuntimeContext,
+        _ctx: AgentWorkflowContext,
     ) -> Result<WorkflowOutput> {
         tokio::time::sleep(Duration::from_secs(30)).await;
         Ok(WorkflowOutput::new(
@@ -150,7 +150,7 @@ impl Workflow for DelayedWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        _ctx: RuntimeContext,
+        _ctx: AgentWorkflowContext,
     ) -> Result<WorkflowOutput> {
         tokio::time::sleep(Duration::from_millis(20)).await;
         Ok(successful_messages(history, task, "done"))
@@ -163,15 +163,15 @@ impl Workflow for ModelCallingWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: RuntimeContext,
+        ctx: AgentWorkflowContext,
     ) -> Result<WorkflowOutput> {
         let current_user = history.last().expect("persisted current user message");
         assert_eq!(message_text_for_test(current_user), task.text);
         let request = CanonicalModelRequest::new(ctx.model_ref.clone(), history)
             .with_instructions(ctx.instructions.clone())
-            .with_tools(ctx.tools.specs())
+            .with_tools(ctx.execution.tools.specs())
             .with_reasoning(ctx.reasoning.clone());
-        let response = ctx.model.complete(request).await?;
+        let response = ctx.execution.model.complete(request).await?;
         Ok(WorkflowOutput::new(
             AgentOutput::text("done"),
             vec![response.message],
@@ -185,12 +185,12 @@ impl Workflow for ExecutionScopeProbeWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: RuntimeContext,
+        ctx: AgentWorkflowContext,
     ) -> Result<WorkflowOutput> {
         self.seen
             .lock()
             .expect("execution scope observations")
-            .push(ctx.scope.execution_id);
+            .push(ctx.execution.scope.execution_id);
         Ok(successful_messages(history, task, "done"))
     }
 }
@@ -201,13 +201,13 @@ impl Workflow for SnapshotProbeWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: RuntimeContext,
+        ctx: AgentWorkflowContext,
     ) -> Result<WorkflowOutput> {
         if self.wait_once.swap(false, Ordering::SeqCst) {
             self.started.notify_one();
             self.proceed.notified().await;
         }
-        let has_late_tool = ctx.tools.spec("late_tool").is_ok();
+        let has_late_tool = ctx.execution.tools.spec("late_tool").is_ok();
         let output = AgentOutput::text(format!("has_late_tool={has_late_tool}"));
         let current_user = history.last().expect("persisted current user message");
         assert_eq!(message_text_for_test(current_user), task.text);

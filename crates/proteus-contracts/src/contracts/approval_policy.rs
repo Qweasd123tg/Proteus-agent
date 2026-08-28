@@ -15,7 +15,7 @@ use crate::domain::{PolicyDecision, ToolCall, ToolSpec};
 /// `PolicyContext::granted_permissions` и может пропускать последующие вызовы
 /// без повторного Ask (например, `escalated_exec` для unsandboxed shell).
 ///
-/// Гранты живут только до конца хода: `RuntimeContext` создаётся на каждый
+/// Гранты живут только до конца хода: `AgentWorkflowContext` создаётся на каждый
 /// ход заново, и вместе с ним обнуляются гранты. Ядро учитывает
 /// `granted_permissions` только на approved-пути, поэтому tools, выдающие
 /// гранты (`request_permissions`), должны стоять в `ask_before` конфигурации

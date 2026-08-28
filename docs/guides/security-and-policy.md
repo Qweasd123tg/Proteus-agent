@@ -120,7 +120,7 @@ dev-server port. Wildcard CORS допустим только для явно п�
 - `auto` разрешает `ReadOnly` и `WritesFiles` без approval, но запрещает `RunsCommands`, `Network` и `Dangerous`.
 
 Runtime применяет режим через `ModeAwarePolicy` на границе сборки
-`RuntimeContext`. `ToolOrchestrator` не знает про конкретные режимы и
+`ExecutionContext`. `ToolOrchestrator` не знает про конкретные режимы и
 делегирует visibility/execution одному `ApprovalPolicy`. Композиция
 deny-monotonic: явный `Deny` выбранной policy (или structural deny при её
 отсутствии), а также deny-правило `codex_policy`/`opencode_policy` остаётся
@@ -370,7 +370,7 @@ shutdown. При shutdown app-server отклоняет все pending approvals
 
 - `ApprovalRequest.origin` несёт `RequestOrigin` — `thread_id`/`turn_id`
   исполняющего контекста и optional `label` — субагентный runner ставит туда
-  имя роли через `RuntimeContext.thread_label`. На wire
+  имя роли через `AgentWorkflowContext.thread_label`. На wire
   (`AppApprovalRequest.origin`) attribution опциональна: старые клиенты и
   серверы совместимы.
 - `AppApprovalRequest.seq` — монотонный порядковый номер очереди; `GET
@@ -523,14 +523,14 @@ core мержит эти строки в гранты текущего хода 
 `escalated_exec` пропускает эскалированные вызовы из `allow_sandboxed` без
 повторного Ask.
 
-Гранты не переживают ход: `RuntimeContext` создаётся на каждый ход заново.
+Гранты не переживают ход: `AgentWorkflowContext` создаётся на каждый ход заново.
 Core учитывает `granted_permissions` только на approved-пути, поэтому
 `request_permissions` обязан стоять в `ask_before` — сам approval и есть
 выдача гранта. Approval этого tool-а не кэшируется ни между turns, ни внутри
 одного turn. Tool в `allow`-списке выдать грант сам себе не может.
 
 Это также текущая ownership boundary: `TurnPermissionGrants` и
-`RequestOrigin` привязаны к `TurnId`. Планируемый context split оставляет
+`RequestOrigin` привязаны к `TurnId`. Реализованный context split оставляет
 `turn_grants` в `AgentWorkflowContext`; перенос grants/approval attribution на
 `ExecutionId` отложен до отдельной Phase 5 и не входит в Phase 0–2. См.
 [roadmap.md](../product/roadmap.md#executionscope-migration).

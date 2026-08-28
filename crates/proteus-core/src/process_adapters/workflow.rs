@@ -11,8 +11,8 @@ use serde_json::Value;
 
 use crate::{
     contracts::{
-        PROCESS_WORKFLOW_CONTRACT_VERSION, PROCESS_WORKFLOW_METHOD, ProcessWorkflowInput,
-        ProcessWorkflowResponse, RuntimeContext, WORKFLOW_HOST_BUILD_CONTEXT_METHOD,
+        AgentWorkflowContext, PROCESS_WORKFLOW_CONTRACT_VERSION, PROCESS_WORKFLOW_METHOD,
+        ProcessWorkflowInput, ProcessWorkflowResponse, WORKFLOW_HOST_BUILD_CONTEXT_METHOD,
         WORKFLOW_HOST_COMPACT_HISTORY_METHOD, WORKFLOW_HOST_COMPLETE_MODEL_METHOD,
         WORKFLOW_HOST_EMIT_EVENT_METHOD, WORKFLOW_HOST_EXECUTE_TOOL_METHOD,
         WORKFLOW_HOST_EXECUTE_TOOLS_METHOD, WORKFLOW_HOST_RUNTIME_STATUS_METHOD,
@@ -70,7 +70,7 @@ impl Workflow for ProcessWorkflowAdapter {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: RuntimeContext,
+        ctx: AgentWorkflowContext,
     ) -> Result<WorkflowOutput> {
         let input = ProcessWorkflowInput {
             task,
@@ -82,13 +82,17 @@ impl Workflow for ProcessWorkflowAdapter {
                 model_ref: ctx.model_ref.clone(),
                 instructions: ctx.instructions.clone(),
                 reasoning: ctx.reasoning.clone(),
-                max_input_tokens: ctx.model.capabilities(&ctx.model_ref).max_input_tokens,
-                model_timeout_ms: ctx.model_timeout_ms,
+                max_input_tokens: ctx
+                    .execution
+                    .model
+                    .capabilities(&ctx.model_ref)
+                    .max_input_tokens,
+                model_timeout_ms: ctx.execution.model_timeout_ms,
                 context_timeout_ms: ctx.context_timeout_ms,
                 workflow_timeout_ms: self.workflow_timeout_ms,
             },
         };
-        let cancellation = ctx.scope.cancellation.clone();
+        let cancellation = ctx.execution.scope.cancellation.clone();
         let dispatcher: Arc<dyn AsyncHostRequestDispatcher> = Arc::new(ProcessWorkflowDispatcher {
             runtime: Arc::new(WorkflowHostRuntime::new(ctx)),
         });

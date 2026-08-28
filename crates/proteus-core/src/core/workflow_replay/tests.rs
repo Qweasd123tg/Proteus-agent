@@ -6,7 +6,7 @@ use tempfile::TempDir;
 
 use super::*;
 use crate::contracts::{
-    ApprovalPolicy, PolicyContext, PolicyVisibilityContext, RuntimeContext, Workflow,
+    AgentWorkflowContext, ApprovalPolicy, PolicyContext, PolicyVisibilityContext, Workflow,
     WorkflowOutput,
 };
 use crate::{
@@ -43,7 +43,7 @@ impl Workflow for ProbeWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: RuntimeContext,
+        ctx: AgentWorkflowContext,
     ) -> anyhow::Result<WorkflowOutput> {
         let spec = probe_tool_spec();
         let mut first = CanonicalModelRequest::new(ctx.model_ref.clone(), history.clone())
@@ -51,7 +51,7 @@ impl Workflow for ProbeWorkflow {
         if self.diverge {
             first.metadata = json!({ "implementation_changed": true });
         }
-        let first_response = ctx.model.complete(first).await?;
+        let first_response = ctx.execution.model.complete(first).await?;
         let mut new_messages = vec![first_response.message.clone()];
         let call = first_response
             .tool_calls
@@ -73,7 +73,7 @@ impl Workflow for ProbeWorkflow {
         second_messages.extend(new_messages.iter().cloned());
         let second = CanonicalModelRequest::new(ctx.model_ref.clone(), second_messages)
             .with_tools(vec![spec]);
-        let second_response = ctx.model.complete(second).await?;
+        let second_response = ctx.execution.model.complete(second).await?;
         new_messages.push(second_response.message);
         Ok(WorkflowOutput::new(probe_output(&result), new_messages))
     }

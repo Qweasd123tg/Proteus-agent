@@ -10,8 +10,8 @@ use tokio::time::timeout;
 
 use crate::{
     contracts::{
-        CompactionInput, CompactionOutput, ContextBuildInput, RuntimeContext, ToolExposureInput,
-        ToolExposureOutput, ToolExposureRequest, WorkflowRuntimeStatus,
+        AgentWorkflowContext, CompactionInput, CompactionOutput, ContextBuildInput,
+        ToolExposureInput, ToolExposureOutput, ToolExposureRequest, WorkflowRuntimeStatus,
     },
     domain::{AgentTask, Event, ToolCall, ToolResult, ToolSpec},
     model_standard::{CanonicalModelRequest, CanonicalModelResponse},
@@ -24,12 +24,12 @@ use super::{
 
 /// Async host capability surface shared by all process Workflow exports.
 pub(crate) struct WorkflowHostRuntime {
-    ctx: RuntimeContext,
+    ctx: AgentWorkflowContext,
     tool_orchestrator: ToolOrchestrator,
 }
 
 impl WorkflowHostRuntime {
-    pub(crate) fn new(ctx: RuntimeContext) -> Self {
+    pub(crate) fn new(ctx: AgentWorkflowContext) -> Self {
         Self {
             ctx,
             tool_orchestrator: ToolOrchestrator::default(),
@@ -53,8 +53,8 @@ impl WorkflowHostRuntime {
                 Duration::from_millis(ctx.context_timeout_ms),
                 ctx.context.build(ContextBuildInput {
                     task,
-                    search: ctx.search.clone(),
-                    memory: ctx.memory.clone(),
+                    search: ctx.execution.search.clone(),
+                    memory: ctx.execution.memory.clone(),
                 }),
             )
             .await
@@ -69,15 +69,20 @@ impl WorkflowHostRuntime {
     ) -> Result<CanonicalModelResponse> {
         let ctx = self.ctx.clone();
         self.run_active(async move {
-            if ctx.model_timeout_ms == 0 {
-                ctx.model.complete(request).await
+            if ctx.execution.model_timeout_ms == 0 {
+                ctx.execution.model.complete(request).await
             } else {
                 timeout(
-                    Duration::from_millis(ctx.model_timeout_ms),
-                    ctx.model.complete(request),
+                    Duration::from_millis(ctx.execution.model_timeout_ms),
+                    ctx.execution.model.complete(request),
                 )
                 .await
-                .map_err(|_| anyhow!("model request timed out after {}ms", ctx.model_timeout_ms))?
+                .map_err(|_| {
+                    anyhow!(
+                        "model request timed out after {}ms",
+                        ctx.execution.model_timeout_ms
+                    )
+                })?
             }
         })
         .await
@@ -173,7 +178,7 @@ impl WorkflowHostRuntime {
     }
 
     async fn run_active<T>(&self, future: impl Future<Output = Result<T>>) -> Result<T> {
-        let cancellation = self.ctx.scope.cancellation.clone();
+        let cancellation = self.ctx.execution.scope.cancellation.clone();
         if cancellation.is_cancelled() {
             return Err(anyhow!("turn canceled by client"));
         }
@@ -189,7 +194,7 @@ impl WorkflowHostRuntime {
 /// model order.
 async fn execute_tool_batch(
     orchestrator: &ToolOrchestrator,
-    ctx: &RuntimeContext,
+    ctx: &AgentWorkflowContext,
     task: &AgentTask,
     calls: Vec<ToolCall>,
 ) -> Result<Vec<ToolResult>> {

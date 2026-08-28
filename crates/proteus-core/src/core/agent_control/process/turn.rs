@@ -14,7 +14,8 @@ use super::{
 };
 use crate::{
     contracts::{
-        AgentLifecycleStatus, ApprovalRequest, RequestOrigin, RuntimeContext, UserInputResponse,
+        AgentLifecycleStatus, AgentWorkflowContext, ApprovalRequest, RequestOrigin,
+        UserInputResponse,
     },
     domain::{AgentOutput, Event, EventContext, ThreadId, new_call_id},
 };
@@ -74,7 +75,7 @@ impl TurnTracker {
 /// Пере-эмиссия событий ребёнка в родительский event stream под
 /// `child_thread_id` и форвардинг интерактивных запросов.
 pub(super) struct ChildEventForwarder<'a> {
-    pub(super) ctx: &'a RuntimeContext,
+    pub(super) ctx: &'a AgentWorkflowContext,
     pub(super) child_thread_id: ThreadId,
     pub(super) role: String,
 }
@@ -112,8 +113,8 @@ impl ChildEventForwarder<'_> {
         )
         .with_origin(self.origin());
         let response = tokio::select! {
-            response = self.ctx.approval.request_approval(forwarded) => response,
-            _ = self.ctx.scope.cancellation.cancelled() => return None,
+            response = self.ctx.execution.approval.request_approval(forwarded) => response,
+            _ = self.ctx.execution.scope.cancellation.cancelled() => return None,
         };
         let (approved, note, cache) = match response {
             Ok(response) => (response.approved, response.note, response.cache),
@@ -140,7 +141,7 @@ impl ChildEventForwarder<'_> {
         let forwarded = request.with_origin(self.origin());
         let response = tokio::select! {
             response = self.ctx.user_input.request_user_input(forwarded) => response,
-            _ = self.ctx.scope.cancellation.cancelled() => return None,
+            _ = self.ctx.execution.scope.cancellation.cancelled() => return None,
         };
         let response = response.unwrap_or_else(|_| UserInputResponse::empty());
         Some(StdioRequest::UserInput {
@@ -182,13 +183,13 @@ pub(super) async fn drive_turn(
     let mut pending_from_message_turn = false;
 
     loop {
-        if forwarder.ctx.scope.cancellation.is_cancelled() && !tracker.cancel_sent {
+        if forwarder.ctx.execution.scope.cancellation.is_cancelled() && !tracker.cancel_sent {
             return finish_cancelled(child, forwarder, &active_send_id, tracker, cancel_grace)
                 .await;
         }
 
         let delivery_guard = mailbox.lock_delivery().await;
-        if forwarder.ctx.scope.cancellation.is_cancelled() && !tracker.cancel_sent {
+        if forwarder.ctx.execution.scope.cancellation.is_cancelled() && !tracker.cancel_sent {
             drop(delivery_guard);
             return finish_cancelled(child, forwarder, &active_send_id, tracker, cancel_grace)
                 .await;
@@ -218,7 +219,7 @@ pub(super) async fn drive_turn(
 
         let output = tokio::select! {
             output = child.next_output() => output,
-            _ = forwarder.ctx.scope.cancellation.cancelled() => {
+            _ = forwarder.ctx.execution.scope.cancellation.cancelled() => {
                 return finish_cancelled(
                     child,
                     forwarder,

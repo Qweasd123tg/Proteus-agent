@@ -8,13 +8,13 @@ use async_trait::async_trait;
 use crate::{
     contracts::{
         AgentControlHandle, AgentControlMessage, AgentControlRequest, AgentControlResult,
-        AgentControlToolHost, CancellationToken, RuntimeContext,
+        AgentControlToolHost, AgentWorkflowContext, CancellationToken,
     },
     domain::SessionId,
 };
 
 pub(super) fn bind(
-    ctx: &RuntimeContext,
+    ctx: &AgentWorkflowContext,
     cancellation: CancellationToken,
 ) -> Option<Arc<dyn AgentControlToolHost>> {
     ctx.agent_control.as_ref()?;
@@ -26,7 +26,7 @@ pub(super) fn bind(
 /// The adapter never constructs a runtime context: each instance is bound to
 /// the caller's session/thread/turn and per-tool cancellation token.
 struct RuntimeAgentControlToolHost {
-    ctx: RuntimeContext,
+    ctx: AgentWorkflowContext,
 }
 
 #[async_trait]

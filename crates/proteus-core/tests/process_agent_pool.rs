@@ -8,7 +8,8 @@ use std::{path::PathBuf, sync::Arc};
 use proteus_core::{
     contracts::{
         AgentControl, AgentControlRequest, AgentLifecycleStatus, ApprovalPolicy, CancellationToken,
-        EventEmitter, ExecutionScope, PolicyContext, PolicyVisibilityContext, ToolRegistry,
+        EventEmitter, ExecutionContext, ExecutionScope, PolicyContext, PolicyVisibilityContext,
+        ToolRegistry,
     },
     core::{
         AgentControlConfig, AgentControlRuntime, HeadlessApprovalTransport,
@@ -39,26 +40,29 @@ impl ApprovalPolicy for AllowAllPolicy {
 
 fn test_runtime_context(
     events: Arc<InMemoryEventStore>,
-) -> proteus_core::contracts::RuntimeContext {
-    proteus_core::contracts::RuntimeContext::new(
-        new_session_id(),
-        new_thread_id(),
-        new_turn_id(),
+) -> proteus_core::contracts::AgentWorkflowContext {
+    let execution = ExecutionContext::new(
         ExecutionScope::fresh(CancellationToken::new()),
-        ModelRef::new("fake", "fake-tool-model"),
-        ReasoningConfig::default(),
         120_000,
-        30_000,
-        Arc::new(EventEmitter::new(events)),
         Arc::new(FakeModelClient::default()),
         Arc::new(NullSearch),
         Arc::new(NoMemory),
-        Arc::new(EmptyContextBuilder),
         ToolRegistry::new(),
         Arc::new(AllowAllPolicy),
         Arc::new(HeadlessApprovalTransport),
-        Arc::new(HeadlessUserInputTransport),
         Arc::new(NullPatchApplier),
+    );
+    proteus_core::contracts::AgentWorkflowContext::new(
+        execution,
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        ModelRef::new("fake", "fake-tool-model"),
+        ReasoningConfig::default(),
+        30_000,
+        Arc::new(EventEmitter::new(events)),
+        Arc::new(EmptyContextBuilder),
+        Arc::new(HeadlessUserInputTransport),
         Arc::new(NoCompactor),
         Arc::new(UnfilteredToolExposure),
         None,

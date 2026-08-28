@@ -53,7 +53,7 @@ impl Workflow for CompactionProbeWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: RuntimeContext,
+        ctx: AgentWorkflowContext,
     ) -> anyhow::Result<WorkflowOutput> {
         let compaction_input = replay_compaction_input(&task, &history, &ctx.model_ref);
         let compacted = ctx
@@ -70,7 +70,7 @@ impl Workflow for CompactionProbeWorkflow {
         }
         let request = CanonicalModelRequest::new(ctx.model_ref.clone(), compacted.messages.clone())
             .with_tools(vec![probe_tool_spec()]);
-        let response = ctx.model.complete(request).await?;
+        let response = ctx.execution.model.complete(request).await?;
         Ok(
             WorkflowOutput::new(AgentOutput::text("compacted"), vec![response.message])
                 .with_history_replacement(compacted.messages)

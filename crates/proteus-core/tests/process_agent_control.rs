@@ -6,8 +6,8 @@ use std::{path::PathBuf, sync::Arc};
 use proteus_core::{
     contracts::{
         AgentAddress, AgentControl, AgentControlMessage, AgentControlRequest, AgentLifecycleStatus,
-        ApprovalPolicy, CancellationToken, EventEmitter, ExecutionScope, PolicyContext,
-        PolicyVisibilityContext, ToolRegistry,
+        ApprovalPolicy, CancellationToken, EventEmitter, ExecutionContext, ExecutionScope,
+        PolicyContext, PolicyVisibilityContext, ToolRegistry,
     },
     core::{
         AgentControlConfig, AgentControlRuntime, HeadlessApprovalTransport,
@@ -36,30 +36,45 @@ impl ApprovalPolicy for AllowAllPolicy {
     }
 }
 
-fn test_runtime_context() -> proteus_core::contracts::RuntimeContext {
-    proteus_core::contracts::RuntimeContext::new(
-        new_session_id(),
-        new_thread_id(),
-        new_turn_id(),
+fn test_runtime_context() -> proteus_core::contracts::AgentWorkflowContext {
+    let execution = ExecutionContext::new(
         ExecutionScope::fresh(CancellationToken::new()),
-        ModelRef::new("fake", "fake-tool-model"),
-        ReasoningConfig::default(),
         120_000,
-        30_000,
-        Arc::new(EventEmitter::new(Arc::new(InMemoryEventStore::new()))),
         Arc::new(FakeModelClient::default()),
         Arc::new(NullSearch),
         Arc::new(NoMemory),
-        Arc::new(EmptyContextBuilder),
         ToolRegistry::new(),
         Arc::new(AllowAllPolicy),
         Arc::new(HeadlessApprovalTransport),
-        Arc::new(HeadlessUserInputTransport),
         Arc::new(NullPatchApplier),
+    );
+    proteus_core::contracts::AgentWorkflowContext::new(
+        execution,
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        ModelRef::new("fake", "fake-tool-model"),
+        ReasoningConfig::default(),
+        30_000,
+        Arc::new(EventEmitter::new(Arc::new(InMemoryEventStore::new()))),
+        Arc::new(EmptyContextBuilder),
+        Arc::new(HeadlessUserInputTransport),
         Arc::new(NoCompactor),
         Arc::new(UnfilteredToolExposure),
         None,
     )
+}
+
+#[test]
+fn agent_workflow_context_wraps_execution_context() {
+    let context = test_runtime_context();
+    let execution_id = context.execution.scope.execution_id;
+    let cancellation = CancellationToken::new();
+    let context = context.with_cancellation(cancellation.clone());
+
+    assert_eq!(context.execution.scope.execution_id, execution_id);
+    cancellation.cancel();
+    assert!(context.execution.is_cancelled());
 }
 
 /// Full child Proteus with an external Python workflow and delayed streaming

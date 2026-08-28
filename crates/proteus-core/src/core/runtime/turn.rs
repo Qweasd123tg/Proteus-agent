@@ -296,7 +296,7 @@ impl AgentRuntime {
         let permission_mode = *self.services.permission_mode.read().await;
         let model_ref = self.services.model_ref.read().await.clone();
         let reasoning = self.services.reasoning.read().await.clone();
-        let mut runtime_context = snapshot.registry.runtime_context_with_user_input(
+        let mut workflow_context = snapshot.registry.agent_workflow_context_with_user_input(
             self.session.session_id,
             self.session.thread_id,
             turn_id,
@@ -306,29 +306,29 @@ impl AgentRuntime {
             self.services.user_input.clone(),
             permission_mode,
         );
-        runtime_context.model_ref = model_ref;
-        runtime_context.reasoning = reasoning;
-        runtime_context.queued_user_messages = self.session.steering.queued_count_handle();
+        workflow_context.model_ref = model_ref;
+        workflow_context.reasoning = reasoning;
+        workflow_context.queued_user_messages = self.session.steering.queued_count_handle();
         if let Some(session_store) = &self.session.session_store {
-            runtime_context.execution_recorder = Arc::new(
+            workflow_context.execution.execution_recorder = Arc::new(
                 crate::core::SessionExecutionRecorder::new(session_store.clone()),
             );
         }
         let steering_model = SteeringModel::new(
-            runtime_context.model.clone(),
+            workflow_context.execution.model.clone(),
             self.session.steering.clone(),
             self.services.events.clone(),
             self.session.session_id,
             self.session.thread_id,
             turn_id,
         );
-        runtime_context.model = Arc::new(steering_model.clone());
+        workflow_context.execution.model = Arc::new(steering_model.clone());
         let workflow_timeout_ms = snapshot.registry.runtime_config.workflow_timeout_ms;
         let workflow =
             snapshot
                 .registry
                 .workflow
-                .run(task.clone(), history.clone(), runtime_context);
+                .run(task.clone(), history.clone(), workflow_context);
         let workflow_result = if workflow_timeout_ms == 0 {
             workflow.await
         } else {

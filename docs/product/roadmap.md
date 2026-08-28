@@ -24,12 +24,13 @@ journal/replay evidence и `v0.1.0-alpha.1` уже завершены. Roadmap �
 [releases/v0.1.0-alpha.1.md](../releases/v0.1.0-alpha.1.md).
 
 Следующее принятое направление — минимальная `ExecutionScope` migration,
-описанная ниже. Phase 0–1 реализованы, Phase 2 ещё не выполнена. Остальные
-разделы остаются вариантами последующей работы, а не автоматической очередью.
+описанная ниже. Phase 0–2 реализованы и остановлены на review checkpoint перед
+Phase 3. Остальные разделы остаются вариантами последующей работы, а не
+автоматической очередью.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–1 реализованы; Phase 2 ожидает выполнения**.
+Статус: **Phase 0–2 реализованы 2026-08-28; Phase 3 не начата**.
 
 Supporting evidence, не заменяющий этот roadmap:
 [source-level audit](../research/execution-scope-source-audit-2026-08-27.md) и
@@ -38,10 +39,10 @@ Supporting evidence, не заменяющий этот roadmap:
 ### Проблема И Целевая Граница
 
 Core уже не владеет конкретным agent loop: последовательность model/tool/model
-выбирает `Workflow`. Но общий `RuntimeContext` по-прежнему требует
-conversation identity и смешивает reusable runtime capabilities с
-agent/chat-specific policy. Model, tool recorder, journal и approvals также
-атрибутируют execution через обязательный `TurnId`.
+выбирает `Workflow`. До Phase 2 общий `RuntimeContext` требовал conversation
+identity и смешивал reusable runtime capabilities с agent/chat-specific
+policy. Structural context split выполнен, но model, tool recorder, journal и
+approvals всё ещё атрибутируют execution через обязательный `TurnId`.
 
 Цель ближайшей итерации — ввести generic workload identity/lifecycle boundary
 и проверить честное разделение context ownership, не меняя существующее
@@ -55,7 +56,7 @@ AgentRuntime / Turn
 ExecutionScope(ExecutionId, cancellation, attribution boundary)
         |
         v
-ExecutionContext? (Phase 2 migration hypothesis)
+ExecutionContext (implemented migration hypothesis)
         |
         v
 AgentWorkflowContext(chat/application wrapper)
@@ -216,10 +217,10 @@ token для targeted cancel. Полный peer Proteus в другом проц
 
 ### Phase 2 — Context Split Как Migration Hypothesis
 
-Статус: **ещё не реализовано**.
+Статус: **реализовано 2026-08-28**.
 
-Текущий `RuntimeContext` содержит 26 полей. Split должен быть структурным, а
-не переименованием god-object.
+Прежний `RuntimeContext` содержал 26 полей. Split выполнен структурно, а не
+переименованием god-object.
 
 `ExecutionContext` в этой phase — migration structure и проверяемая гипотеза,
 а не заранее принятый конечный public API. Field map ниже задаёт начальную
@@ -228,10 +229,10 @@ token для targeted cancel. Полный peer Proteus в другом проц
 handles или удаляется. Сам факт успешной компиляции большого context-а не
 подтверждает архитектуру.
 
-Field map относительно актуального source с учётом уже выполненной Phase 1
-(`scope` заменяет прежний `cancellation`):
+Реализованный field map с учётом Phase 1 (`scope` заменил прежний
+`cancellation`):
 
-| Provisional owner | Поля текущего `RuntimeContext` |
+| Owner | Поля прежнего `RuntimeContext` |
 |---|---|
 | `ExecutionContext` | `scope`, `model_timeout_ms`, `model`, `search`, `memory`, `tools`, `policy`, `approval`, `patch`, `execution_recorder` |
 | `AgentWorkflowContext` | `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `reasoning`, `context_timeout_ms`, `events`, `context`, `user_input`, `compactor`, `tool_exposure`, `agent_control`, `queued_user_messages`, `turn_grants`, `thread_label` |
@@ -294,6 +295,13 @@ Turn. Прямой вызов generic `SearchBackend` не меняет `ToolOrc
 journal или approval semantics и потому остаётся внутри Phase 2. Если этот
 proof требует dummy chat objects, граница считается неверной, а Phase 2 —
 незавершённой.
+
+Результат: `crates/proteus-core/tests/execution_boundary.rs` собирает
+`RuntimeSnapshot`, создаёт `ExecutionScope`, bind-ит `ExecutionContext` через
+его registry и получает реальный ответ selected process-backed search export.
+Тест не создаёт chat identities, `AgentTask`, history или fake Turn.
+`crates/proteus-contracts/tests/execution_boundary.rs` отдельно удерживает
+forbidden-import guard для generic contract.
 
 В Phase 2 обновляются все tracked producers/consumers нового contract в одном
 changeset. Проект pre-release, поэтому финальный diff не сохраняет legacy
@@ -381,7 +389,7 @@ service locator или переписывать `Model`/`ToolOrchestrator` се�
 
 ### Definition Of Done И Stop-Gate
 
-Phase 0–2 завершены только если:
+Phase 0–2 завершены; checkpoint подтверждён следующими gates:
 
 - `ExecutionId` type-distinct от `TurnId`;
 - `ExecutionScope` не знает о conversation/process identities;
@@ -418,9 +426,9 @@ tracked producers, consumers, configs, tests и docs обновляются ат
 
 ### Phase 3 Readiness
 
-Если Phase 2 generic-consumer gate пройден, codebase будет структурно готов
-начать удаление shared mutable model attribution, но не считать её уже
-выполненной. Текущие exact call sites:
+Phase 2 generic-consumer gate пройден, поэтому codebase структурно готов
+начать удаление shared mutable model attribution, но сама Phase 3 ещё не
+выполнена. Текущие exact call sites:
 
 - `crates/proteus-core/src/core/registry.rs` хранит concrete
   `model_service: Option<Arc<ModelService>>` и собирает его;

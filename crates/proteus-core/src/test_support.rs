@@ -5,7 +5,7 @@ use async_trait::async_trait;
 
 use crate::{
     contracts::{
-        ApprovalPolicy, PolicyContext, PolicyVisibilityContext, RuntimeContext, Workflow,
+        AgentWorkflowContext, ApprovalPolicy, PolicyContext, PolicyVisibilityContext, Workflow,
         WorkflowOutput,
     },
     core::{ModuleCatalog, ToolOrchestrator},
@@ -55,7 +55,7 @@ impl Workflow for TestToolLoopWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: RuntimeContext,
+        ctx: AgentWorkflowContext,
     ) -> Result<WorkflowOutput> {
         let mut messages = history;
         let mut new_messages = Vec::new();
@@ -64,9 +64,9 @@ impl Workflow for TestToolLoopWorkflow {
         for _ in 0..4 {
             let request = CanonicalModelRequest::new(ctx.model_ref.clone(), messages.clone())
                 .with_instructions(ctx.instructions.clone())
-                .with_tools(ctx.tools.specs())
+                .with_tools(ctx.execution.tools.specs())
                 .with_reasoning(ctx.reasoning.clone());
-            let response = ctx.model.complete(request).await?;
+            let response = ctx.execution.model.complete(request).await?;
             messages.push(response.message.clone());
             new_messages.push(response.message.clone());
 

@@ -9,10 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     contracts::{
-        AgentControl, ApprovalPolicy, ApprovalTransport, CancellationToken, ContextBuilder,
-        EventEmitter, ExecutionRecorder, ExecutionScope, HistoryCompactor, MemoryStore, Model,
-        NoopExecutionRecorder, PatchApplier, SearchBackend, ToolExposure, ToolRegistry,
-        TurnPermissionGrants, UserInputTransport,
+        AgentControl, CancellationToken, ContextBuilder, EventEmitter, ExecutionContext,
+        ExecutionRecorder, HistoryCompactor, ToolExposure, TurnPermissionGrants,
+        UserInputTransport,
     },
     domain::{
         AgentOutput, AgentTask, Event, EventContext, HistoryCompactionReport, ModelRef,
@@ -141,26 +140,18 @@ pub struct WorkflowHostAck {}
 
 #[derive(Clone)]
 #[non_exhaustive]
-pub struct RuntimeContext {
+pub struct AgentWorkflowContext {
+    pub execution: ExecutionContext,
     pub session_id: SessionId,
     pub thread_id: ThreadId,
     pub turn_id: TurnId,
-    pub scope: ExecutionScope,
     pub model_ref: ModelRef,
     pub instructions: Vec<InstructionBlock>,
     pub reasoning: ReasoningConfig,
-    pub model_timeout_ms: u64,
     pub context_timeout_ms: u64,
     pub events: Arc<EventEmitter>,
-    pub model: Arc<dyn Model>,
-    pub search: Arc<dyn SearchBackend>,
-    pub memory: Arc<dyn MemoryStore>,
     pub context: Arc<dyn ContextBuilder>,
-    pub tools: ToolRegistry,
-    pub policy: Arc<dyn ApprovalPolicy>,
-    pub approval: Arc<dyn ApprovalTransport>,
     pub user_input: Arc<dyn UserInputTransport>,
-    pub patch: Arc<dyn PatchApplier>,
     pub compactor: Arc<dyn HistoryCompactor>,
     pub tool_exposure: Arc<dyn ToolExposure>,
     pub agent_control: Option<Arc<dyn AgentControl>>,
@@ -171,66 +162,46 @@ pub struct RuntimeContext {
     /// Turn-scoped permission grants: контекст создаётся на каждый ход
     /// заново, поэтому гранты не переживают ход (см. `TurnPermissionGrants`).
     pub turn_grants: Arc<TurnPermissionGrants>,
-    /// Core-owned durable lifecycle recorder. Modules can only invoke the
-    /// narrow contract; journal storage and sequencing remain core details.
-    pub execution_recorder: Arc<dyn ExecutionRecorder>,
     /// Человекочитаемая метка исполняющего thread-а для attribution
     /// (approvals, клиентский UX). `None` — основной цикл turn-а; субагентный
     /// runner ставит имя роли.
     pub thread_label: Option<String>,
 }
 
-impl RuntimeContext {
+impl AgentWorkflowContext {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        execution: ExecutionContext,
         session_id: SessionId,
         thread_id: ThreadId,
         turn_id: TurnId,
-        scope: ExecutionScope,
         model_ref: ModelRef,
         reasoning: ReasoningConfig,
-        model_timeout_ms: u64,
         context_timeout_ms: u64,
         events: Arc<EventEmitter>,
-        model: Arc<dyn Model>,
-        search: Arc<dyn SearchBackend>,
-        memory: Arc<dyn MemoryStore>,
         context: Arc<dyn ContextBuilder>,
-        tools: ToolRegistry,
-        policy: Arc<dyn ApprovalPolicy>,
-        approval: Arc<dyn ApprovalTransport>,
         user_input: Arc<dyn UserInputTransport>,
-        patch: Arc<dyn PatchApplier>,
         compactor: Arc<dyn HistoryCompactor>,
         tool_exposure: Arc<dyn ToolExposure>,
         agent_control: Option<Arc<dyn AgentControl>>,
     ) -> Self {
         Self {
+            execution,
             session_id,
             thread_id,
             turn_id,
-            scope,
             model_ref,
             instructions: Vec::new(),
             reasoning,
-            model_timeout_ms,
             context_timeout_ms,
             events,
-            model,
-            search,
-            memory,
             context,
-            tools,
-            policy,
-            approval,
             user_input,
-            patch,
             compactor,
             tool_exposure,
             agent_control,
             queued_user_messages: Arc::new(AtomicUsize::new(0)),
             turn_grants: Arc::default(),
-            execution_recorder: Arc::new(NoopExecutionRecorder),
             thread_label: None,
         }
     }
@@ -241,12 +212,12 @@ impl RuntimeContext {
     }
 
     pub fn with_cancellation(mut self, cancellation: CancellationToken) -> Self {
-        self.scope = ExecutionScope::new(self.scope.execution_id, cancellation);
+        self.execution = self.execution.with_cancellation(cancellation);
         self
     }
 
     pub fn with_execution_recorder(mut self, recorder: Arc<dyn ExecutionRecorder>) -> Self {
-        self.execution_recorder = recorder;
+        self.execution = self.execution.with_execution_recorder(recorder);
         self
     }
 
@@ -256,7 +227,7 @@ impl RuntimeContext {
     }
 
     pub fn is_cancelled(&self) -> bool {
-        self.scope.cancellation.is_cancelled()
+        self.execution.is_cancelled()
     }
 
     pub fn queued_user_messages(&self) -> usize {
@@ -282,7 +253,7 @@ pub trait Workflow: Send + Sync {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: RuntimeContext,
+        ctx: AgentWorkflowContext,
     ) -> Result<WorkflowOutput>;
 }
 

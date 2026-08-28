@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use super::*;
 use crate::{
     contracts::{
-        CancellationToken, CompactionHost, EventSink, Model, ModelEventStream, RuntimeContext,
-        Workflow, WorkflowOutput,
+        AgentWorkflowContext, CancellationToken, CompactionHost, EventSink, Model,
+        ModelEventStream, Workflow, WorkflowOutput,
     },
     core::RuntimeCompactionHost,
     domain::{
@@ -102,9 +102,10 @@ impl Workflow for TwoRoundSteeringWorkflow {
         &self,
         _task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: RuntimeContext,
+        ctx: AgentWorkflowContext,
     ) -> Result<WorkflowOutput> {
         let first = ctx
+            .execution
             .model
             .complete(CanonicalModelRequest::new(
                 ctx.model_ref.clone(),
@@ -132,6 +133,7 @@ impl Workflow for TwoRoundSteeringWorkflow {
         second_messages.push(first.message.clone());
         second_messages.push(tool_message.clone());
         let second = ctx
+            .execution
             .model
             .complete(CanonicalModelRequest::new(
                 ctx.model_ref.clone(),
@@ -151,9 +153,10 @@ impl Workflow for CompactionBoundarySteeringWorkflow {
         &self,
         _task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: RuntimeContext,
+        ctx: AgentWorkflowContext,
     ) -> Result<WorkflowOutput> {
         let first = ctx
+            .execution
             .model
             .complete(CanonicalModelRequest::new(
                 ctx.model_ref.clone(),
@@ -189,6 +192,7 @@ impl Workflow for CompactionBoundarySteeringWorkflow {
         second_messages.push(first.message.clone());
         second_messages.push(tool_message.clone());
         let second = ctx
+            .execution
             .model
             .complete(CanonicalModelRequest::new(
                 ctx.model_ref.clone(),
@@ -208,7 +212,7 @@ impl Workflow for BlockingFollowupWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        _ctx: RuntimeContext,
+        _ctx: AgentWorkflowContext,
     ) -> Result<WorkflowOutput> {
         self.tasks.lock().await.push(task.text.clone());
         if task.text == "initial" {

@@ -10,8 +10,8 @@ use tokio::time::sleep;
 
 use crate::{
     contracts::{
-        ApprovalRequest, PolicyContext, PolicyVisibilityContext, RequestOrigin, RuntimeContext,
-        ToolContext,
+        AgentWorkflowContext, ApprovalRequest, PolicyContext, PolicyVisibilityContext,
+        RequestOrigin, ToolContext,
     },
     domain::{
         AgentTask, Event, PolicyDecision, ToolCall, ToolCallResolution, ToolResult, ToolSpec,
@@ -44,19 +44,21 @@ impl ToolOrchestrator {
         }
     }
 
-    pub fn visible_tool_specs(&self, ctx: &RuntimeContext, cwd: &Path) -> Vec<ToolSpec> {
-        ctx.tools
+    pub fn visible_tool_specs(&self, ctx: &AgentWorkflowContext, cwd: &Path) -> Vec<ToolSpec> {
+        ctx.execution
+            .tools
             .specs()
             .into_iter()
             .filter(|spec| {
                 visibility_decision_allows(
                     spec,
-                    ctx.policy
+                    ctx.execution
+                        .policy
                         .evaluate_visibility(&PolicyVisibilityContext::new(
                             cwd.to_path_buf(),
                             spec.clone(),
                         )),
-                    ctx.approval.can_request_approval(),
+                    ctx.execution.approval.can_request_approval(),
                 )
             })
             .collect()
@@ -64,7 +66,7 @@ impl ToolOrchestrator {
 
     pub async fn execute(
         &self,
-        ctx: &RuntimeContext,
+        ctx: &AgentWorkflowContext,
         task: &AgentTask,
         mut call: ToolCall,
     ) -> Result<ToolResult> {
@@ -86,17 +88,19 @@ impl ToolOrchestrator {
         // apply_patch tool, чтобы патч прошёл patch-flow (policy, applier,
         // события) вместо падения в шелле на несуществующем бинаре.
         let call = intercept_apply_patch_call(ctx, &call).unwrap_or(call);
-        ctx.execution_recorder
+        ctx.execution
+            .execution_recorder
             .tool_call_requested(ctx.session_id, ctx.thread_id, ctx.turn_id, &call)
             .await?;
         ctx.emit(Event::ToolCallRequested { call: call.clone() })
             .await?;
 
-        let tool_spec = ctx.tools.spec(&call.name).ok();
+        let tool_spec = ctx.execution.tools.spec(&call.name).ok();
         if let Some(spec) = tool_spec.as_ref()
             && let Some(error) = validate_tool_call_args(&call, spec)
         {
-            ctx.execution_recorder
+            ctx.execution
+                .execution_recorder
                 .tool_call_resolved(
                     ctx.session_id,
                     ctx.thread_id,
@@ -118,7 +122,8 @@ impl ToolOrchestrator {
 
         match decision {
             PolicyDecision::Allow => {
-                ctx.execution_recorder
+                ctx.execution
+                    .execution_recorder
                     .tool_call_resolved(
                         ctx.session_id,
                         ctx.thread_id,
@@ -130,7 +135,8 @@ impl ToolOrchestrator {
                 self.invoke_allowed(ctx, task, &call, tool_spec).await
             }
             PolicyDecision::Ask { reason } => {
-                ctx.execution_recorder
+                ctx.execution
+                    .execution_recorder
                     .tool_approval_requested(
                         ctx.session_id,
                         ctx.thread_id,
@@ -144,7 +150,7 @@ impl ToolOrchestrator {
                     reason: reason.clone(),
                 })
                 .await?;
-                let approval_request = ctx.approval.request_approval(
+                let approval_request = ctx.execution.approval.request_approval(
                     ApprovalRequest::new(
                         call.clone(),
                         task.cwd.clone(),
@@ -155,7 +161,7 @@ impl ToolOrchestrator {
                 );
                 let approval = tokio::select! {
                     result = approval_request => result?,
-                    _ = ctx.scope.cancellation.cancelled() => {
+                    _ = ctx.execution.scope.cancellation.cancelled() => {
                         return Err(anyhow!("turn canceled by client"));
                     }
                 };
@@ -165,7 +171,8 @@ impl ToolOrchestrator {
                 })
                 .await?;
                 if approval.approved {
-                    ctx.execution_recorder
+                    ctx.execution
+                        .execution_recorder
                         .tool_call_resolved(
                             ctx.session_id,
                             ctx.thread_id,
@@ -188,7 +195,8 @@ impl ToolOrchestrator {
                         .note
                         .unwrap_or_else(|| format!("tool call was not approved: {reason}")),
                 );
-                ctx.execution_recorder
+                ctx.execution
+                    .execution_recorder
                     .tool_call_resolved(
                         ctx.session_id,
                         ctx.thread_id,
@@ -202,7 +210,8 @@ impl ToolOrchestrator {
                 self.finish(ctx, result).await
             }
             PolicyDecision::Deny { reason } => {
-                ctx.execution_recorder
+                ctx.execution
+                    .execution_recorder
                     .tool_call_resolved(
                         ctx.session_id,
                         ctx.thread_id,
@@ -218,7 +227,8 @@ impl ToolOrchestrator {
             }
             other => {
                 let reason = format!("unsupported policy decision: {other:?}");
-                ctx.execution_recorder
+                ctx.execution
+                    .execution_recorder
                     .tool_call_resolved(
                         ctx.session_id,
                         ctx.thread_id,
@@ -237,7 +247,7 @@ impl ToolOrchestrator {
 
     fn evaluate_access(
         &self,
-        ctx: &RuntimeContext,
+        ctx: &AgentWorkflowContext,
         cwd: &Path,
         call: &ToolCall,
         tool_spec: Option<ToolSpec>,
@@ -248,7 +258,7 @@ impl ToolOrchestrator {
             };
         };
 
-        ctx.policy.evaluate(
+        ctx.execution.policy.evaluate(
             call,
             &PolicyContext::new(cwd.to_path_buf(), Some(spec))
                 .with_granted_permissions(ctx.turn_grants.snapshot()),
@@ -257,12 +267,13 @@ impl ToolOrchestrator {
 
     async fn invoke_allowed(
         &self,
-        ctx: &RuntimeContext,
+        ctx: &AgentWorkflowContext,
         task: &AgentTask,
         call: &ToolCall,
         tool_spec: Option<ToolSpec>,
     ) -> Result<ToolResult> {
         let tool = ctx
+            .execution
             .tools
             .get(&call.name)
             .ok_or_else(|| anyhow!("unknown tool: {}", call.name))?;
@@ -274,7 +285,7 @@ impl ToolOrchestrator {
         // Per-call child token lets an orchestrator timeout stop nested work
         // (notably a detached subagent) without cancelling the whole turn.
         // Parent turn cancellation still cascades into this token.
-        let tool_cancellation = ctx.scope.cancellation.child_token();
+        let tool_cancellation = ctx.execution.scope.cancellation.child_token();
         // user_input оборачивается attribution-обёрткой: запросы tool-а несут
         // thread/turn/label исполняющего контекста (см. RequestOrigin).
         let tool_ctx = ToolContext {
@@ -325,7 +336,7 @@ impl ToolOrchestrator {
                     "timeout_ms": timeout_ms,
                 }))
             },
-            _ = ctx.scope.cancellation.cancelled() => {
+            _ = ctx.execution.scope.cancellation.cancelled() => {
                 ToolResult::error(call.id.clone(), "tool call canceled")
                     .with_metadata(json!({
                         "tool": call.name,
@@ -343,8 +354,9 @@ impl ToolOrchestrator {
         self.finish(ctx, result).await
     }
 
-    async fn finish(&self, ctx: &RuntimeContext, result: ToolResult) -> Result<ToolResult> {
-        ctx.execution_recorder
+    async fn finish(&self, ctx: &AgentWorkflowContext, result: ToolResult) -> Result<ToolResult> {
+        ctx.execution
+            .execution_recorder
             .tool_result_recorded(ctx.session_id, ctx.thread_id, ctx.turn_id, &result)
             .await?;
         ctx.emit(Event::ToolFinished {
@@ -417,7 +429,7 @@ fn visibility_decision_allows(
 /// контексту: thread/turn всегда известны orchestrator-у, метка
 /// (`thread_label`) приходит от субагентного runner-а и остаётся `None` для
 /// основного цикла.
-fn request_origin(ctx: &RuntimeContext) -> RequestOrigin {
+fn request_origin(ctx: &AgentWorkflowContext) -> RequestOrigin {
     let origin = RequestOrigin::new(ctx.thread_id, ctx.turn_id);
     match &ctx.thread_label {
         Some(label) => origin.with_label(label.clone()),
@@ -475,7 +487,7 @@ Re-run the tool with a narrower range or explicit limit for the remaining conten
 /// Перехват shell-стиля apply_patch: если команда — это вызов `apply_patch`
 /// с патчем (heredoc, кавычки или голый аргумент) и tool `apply_patch`
 /// зарегистрирован, переписывает вызов на него с тем же `call_id`.
-fn intercept_apply_patch_call(ctx: &RuntimeContext, call: &ToolCall) -> Option<ToolCall> {
+fn intercept_apply_patch_call(ctx: &AgentWorkflowContext, call: &ToolCall) -> Option<ToolCall> {
     if call.name != "shell" && call.name != "exec_command" {
         return None;
     }
@@ -485,7 +497,7 @@ fn intercept_apply_patch_call(ctx: &RuntimeContext, call: &ToolCall) -> Option<T
         .or_else(|| call.args.get("cmd"))
         .and_then(Value::as_str)?;
     let patch = extract_apply_patch_body(command)?;
-    ctx.tools.spec("apply_patch").ok()?;
+    ctx.execution.tools.spec("apply_patch").ok()?;
     Some(ToolCall::new(
         call.id.clone(),
         "apply_patch".to_owned(),
@@ -528,7 +540,7 @@ fn normalized_patch(text: &str) -> Option<String> {
 
 /// Мержит `metadata.granted_permissions` успешного approved-результата в
 /// гранты текущего хода. Вызывается только с approved-пути `execute`.
-fn merge_granted_permissions(ctx: &RuntimeContext, result: &ToolResult) {
+fn merge_granted_permissions(ctx: &AgentWorkflowContext, result: &ToolResult) {
     if !result.ok {
         return;
     }

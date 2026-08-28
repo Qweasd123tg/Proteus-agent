@@ -3,7 +3,9 @@ use std::{collections::HashSet, path::Path, sync::Arc, time::Instant};
 use anyhow::{Context, Result};
 
 use crate::{
-    contracts::{CancellationToken, EventEmitter, ExecutionScope, RuntimeContext},
+    contracts::{
+        AgentWorkflowContext, CancellationToken, EventEmitter, ExecutionContext, ExecutionScope,
+    },
     core::{
         AppConfig, DeltaEventContext, HeadlessUserInputTransport, InMemoryEventStore,
         ModeAwarePolicy, ModelService, ModuleBuildContext, ModuleCatalog, PolicyBuildContext,
@@ -118,37 +120,40 @@ pub async fn replay_workflow(
     let model: Arc<dyn crate::contracts::Model> = model_service;
     let approval: Arc<dyn crate::contracts::ApprovalTransport> =
         Arc::new(ReplayApprovalTransport::new(state.clone()));
-    let mut runtime_context = RuntimeContext::new(
-        fixture.session_id,
-        fixture.thread_id,
-        fixture.turn_id,
+    let execution_context = ExecutionContext::new(
         ExecutionScope::fresh(CancellationToken::new()),
-        fixture.snapshot.model.clone(),
-        fixture.snapshot.reasoning.clone(),
         0,
-        replay_config.runtime.context_timeout_ms.max(1),
-        events,
         model,
         Arc::new(NullSearch),
         Arc::new(NoMemory),
-        Arc::new(ReplayContextBuilder::new(state.clone())),
         tools,
         policy,
         approval,
-        Arc::new(HeadlessUserInputTransport),
         Arc::new(NullPatchApplier),
+    )
+    .with_execution_recorder(state.clone());
+    let workflow_context = AgentWorkflowContext::new(
+        execution_context,
+        fixture.session_id,
+        fixture.thread_id,
+        fixture.turn_id,
+        fixture.snapshot.model.clone(),
+        fixture.snapshot.reasoning.clone(),
+        replay_config.runtime.context_timeout_ms.max(1),
+        events,
+        Arc::new(ReplayContextBuilder::new(state.clone())),
+        Arc::new(HeadlessUserInputTransport),
         Arc::new(ReplayCompactor::new(state.clone())),
         Arc::new(ReplayToolExposure::new(state.clone())),
         None,
     )
     .with_instructions(replay_config.instruction_blocks());
-    runtime_context.execution_recorder = state.clone();
 
     let replay_result = workflow
         .run(
             fixture.opened.task.clone(),
             fixture.initial_history.clone(),
-            runtime_context,
+            workflow_context,
         )
         .await
         .and_then(|output| {
