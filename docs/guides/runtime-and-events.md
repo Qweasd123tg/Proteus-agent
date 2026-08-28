@@ -208,7 +208,9 @@ replay использует компактный `SessionConfigSnapshot` с то
 вычисления. Он не содержит program counter, stack или suspended Workflow
 future и не позволяет продолжить оборванный call после crash. Текущий Turn
 удерживает один coherent snapshot до завершения; планируемый
-`ExecutionContext` сохранит эту семантику для generic execution.
+generic execution boundary сохранит эту семантику независимо от того, останется
+ли после Phase 2 его формой `ExecutionContext` или typed bound capability
+handles.
 
 Полный формат и границы replay описаны в
 [canonical-turn-data.md](../architecture/canonical-turn-data.md).

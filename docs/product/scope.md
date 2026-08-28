@@ -1,6 +1,6 @@
 # Текущий Scope
 
-Последнее обновление: 2026-08-27.
+Последнее обновление: 2026-08-28.
 
 Этот документ отвечает только на два вопроса: что Proteus представляет собой
 сейчас и какое следующее направление принято или остаётся открытым. Подробная
@@ -76,10 +76,14 @@ wire/config/DTO меняются атомарно без legacy aliases и compa
 ## Что Ещё Нужно Решить
 
 Следующее архитектурное направление принято, но ещё не реализовано:
-`ExecutionScope` должен отделить generic execution identity/capabilities от
-conversation `Turn`. `Turn` останется chat/application lifecycle, `Workflow` —
-владельцем agent algorithm, а process `InvocationRef` — отдельной broker
-identity. Точный поэтапный план и stop-gates находятся в
+`ExecutionScope` должен отделить generic execution identity,
+lifecycle/cancellation и attribution от conversation `Turn`, не становясь
+контейнером services. `Turn` останется chat/application lifecycle, `Workflow`
+— владельцем agent-loop policy, а process `InvocationRef` — отдельной broker
+identity. Phase 2 проверит `ExecutionContext` как migration hypothesis и
+обязана доказать реальный generic capability call без fake Turn; возможная
+долгосрочная форма — typed execution-bound capability handles, а не новый
+god-object. Точный поэтапный план и stop-gates находятся в
 [roadmap.md](roadmap.md#executionscope-migration).
 
 Остальные крупные направления ниже не входят в эту миграцию и требуют

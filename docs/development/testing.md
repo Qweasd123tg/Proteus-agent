@@ -68,10 +68,14 @@ cargo test --workspace
 Focused evidence должно доказать independent construction
 `ExecutionScope`/`ExecutionContext`, unique scope per domain Turn,
 `AgentWorkflowContext` wrapping и отсутствие chat types в generic execution
-module. Existing steering, journal/replay, runtime snapshot, process lineage,
-cancellation и coding workflow tests являются regression boundary; их не
-переписывают под новую semantics. Если contract path меняется, все tracked
-workflow producers/consumers обновляются атомарно без legacy alias.
+module. Одного constructor test недостаточно: selected process-backed
+`SearchBackend` из coherent `RuntimeSnapshot` должен вернуть canonical result
+через Phase 2 generic boundary без `SessionId`, `ThreadId`, `TurnId`,
+`AgentTask`, history или fake Turn. Existing steering, journal/replay, runtime
+snapshot, process lineage, cancellation и coding workflow tests являются
+regression boundary; их не переписывают под новую semantics. Если contract
+path меняется, все tracked workflow producers/consumers обновляются атомарно
+без legacy alias.
 
 ### P0 Multiplexed Broker Spike
 

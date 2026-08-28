@@ -255,7 +255,7 @@ barrier для независимых concurrent executions. Journal projection,
 
 ## Identity Domains
 
-Текущая и планируемая taxonomy различает три identity:
+Текущая migration taxonomy различает три identity:
 
 ```text
 TurnId
@@ -274,6 +274,15 @@ deadline; private поля не дают module fabricating parent lineage. Од
 execution сможет начать несколько независимых process invocation roots.
 Поэтому запрещены равенства `ExecutionId == TurnId` и
 `ExecutionId == InvocationRef`, а broker lineage не переносится в upper scope.
+Если позже понадобится общая identity для model/tool/process/human invocation,
+она потребует отдельного source-level решения: существующий process
+`InvocationRef` ради этой теории не переименовывается и не обобщается.
+
+Возможная будущая `AgentIdentity` была бы четвёртым, долгоживущим domain
+concept: одна identity могла бы владеть memory, несколькими conversations и
+background executions. Она не равна `ExecutionId` и не равна controller-у.
+Такой тип сейчас не реализован и не входит в Phase 0–2; это уточнение лишь не
+позволяет ошибочно свести весь смысл agent-а к `Workflow` или одному execution.
 
 ## State Concepts
 
@@ -296,7 +305,7 @@ queue и cancellation token journal не восстанавливает.
 
 Статус: **принято, но не реализовано**.
 
-Принято направление отделить generic workload identity/context от
+Принято направление отделить generic workload identity/lifecycle boundary от
 conversation Turn без переписывания agent loop или process protocol:
 
 ```text
@@ -304,10 +313,10 @@ Turn / AgentRuntime
         |
         | creates
         v
-ExecutionScope(ExecutionId, cancellation)
+ExecutionScope(ExecutionId, cancellation, attribution boundary)
         |
         v
-ExecutionContext(generic capabilities)
+ExecutionContext? (Phase 2 migration hypothesis)
         |
         v
 AgentWorkflowContext(chat wrapper)
@@ -321,13 +330,37 @@ existing Workflow
 application/chat concepts. `InvocationRef` и Component Runtime v2 / wire v3
 не меняются.
 
+`ExecutionScope` не является контейнером services. Его роль ограничена
+identity, lifecycle/cancellation и attribution. `ExecutionContext` — начальная
+структура для проверки split-а, а не утверждённая конечная API-модель. Phase 2
+обязана доказать реальный вызов хотя бы одного generic mechanism без fake Turn;
+после review context может остаться узким, быть раздроблен или уступить место
+typed execution-bound handles.
+
+Долгосрочная гипотеза, не реализуемая в Phase 0–2:
+
+```text
+Controller -> ExecutionScope -> typed capability binder/resolver
+                                      |-> BoundModel
+                                      |-> BoundTools
+                                      |-> BoundSearch
+                                      `-> BoundMemory
+```
+
+Это не universal capability enum и не ambient service locator. Конкретная
+capability остаётся typed contract-ом, а bound handle захватывает только её
+execution attribution, cancellation, authority/budget и recording needs.
+
 На текущем HEAD типов `ExecutionId`, `ExecutionScope`, `ExecutionContext` и
 `AgentWorkflowContext` ещё нет. Порядок миграции, field ownership, tests и
 stop-gates находятся в [roadmap.md](../product/roadmap.md#executionscope-migration).
 
-## Slot, Module, Worker И Profile
+## Capability, Slot, Module, Worker И Profile
 
-- **Slot** — host-defined contract и точка вызова: например `search`.
+- **Capability** — требуемая семантическая возможность, например workspace
+  search или model inference; это vocabulary, а не универсальный runtime enum.
+- **Slot** — host-defined typed selection/assembly point для capability:
+  contract, cardinality, invocation и authority rules, например `search`.
 - **Module** — реализация slot с конкретным `module_id`.
 - **Component** — один configured executable, persistent process и shared
   lifecycle/failure domain.
@@ -340,6 +373,11 @@ stop-gates находятся в [roadmap.md](../product/roadmap.md#executionsco
 
 Слово «plugin» допустимо как пользовательское название внешнего расширения, но
 не обозначает отдельный runtime origin или API.
+
+Иными словами, capability отвечает «что требуется», slot — «где и по каким
+host rules выбирается реализация», module/component — «кто это реализует и как
+запускается». Slot остаётся assembly mechanism и не становится identity или
+runtime primitive одного execution.
 
 ## Composition
 

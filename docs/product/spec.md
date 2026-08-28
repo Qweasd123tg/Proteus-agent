@@ -21,6 +21,18 @@ Core должен оставаться тонким composition/lifecycle сло
 Добавление slots регулируется отдельным правилом в `slot-governance.md`: slot
 нужен для класса заменяемого поведения, а не для одной конкретной фичи.
 
+Capability и slot — не синонимы:
+
+```text
+Capability = что требуется runtime/controller-у
+Slot       = host-defined selection/assembly point
+Module     = конкретная реализация slot
+```
+
+Capability — более фундаментальное семантическое понятие, но сейчас это не
+универсальный enum или динамический registry. Slots остаются typed assembly
+mechanism с contract, composition и authority rules.
+
 Proteus не собирает возможности Pi, DeepSeek Harness, Codex или другого
 конкретного agent runtime внутри core. Их идеи используются как requirements,
 сценарии и comparison evidence. Платформа предоставляет нейтральные process
@@ -109,7 +121,7 @@ renderer -> workflow internals
 - `crates/proteus-core/src/adapters` - внешние provider wire formats;
 - `crates/proteus-core/src/core` - config, wiring, runtime lifecycle.
 
-## Module Slots
+## Capability Assembly Через Slots
 
 Базовые slots:
 
@@ -124,11 +136,12 @@ renderer -> workflow internals
 | Patch | применение patch/edit операций |
 | Compactor | предлагает сокращённую request-time history; runtime решает persistence |
 | Tool Exposure | subset policy-visible tools для конкретного model request |
-| Subagent | изоляция и запуск дочерних agent loops |
 | Workflow | ход agent loop |
 | Renderer | финальный вывод |
 
 Текущие ids и config keys находятся в `modules.md` и `configuration.md`.
+Subagent lifecycle сюда не входит: это root-owned `AgentControl` между полными
+Proteus peers, а не выбираемый behavior slot.
 
 ## Model Standard
 
@@ -197,13 +210,32 @@ contract decisions. Для subagents уже принята identity-модель
 критический путь ведётся в `scope.md`.
 
 Отдельно принято, но ещё не реализовано минимальное направление
-`ExecutionScope`: distinct `ExecutionId`, scope с cancellation и split
-текущего `RuntimeContext` на generic `ExecutionContext` и chat-specific
-`AgentWorkflowContext`. `Turn` остаётся application lifecycle, `Workflow` —
-controller policy, а process `InvocationRef` не меняется. Первая итерация
-останавливается после context split; journal/model/approval/tool ownership
-мигрируют только отдельными проверяемыми phases. Канонический план находится в
+`ExecutionScope`: distinct `ExecutionId` и scope для identity,
+lifecycle/cancellation и execution attribution. Scope не является service
+container. `Turn` остаётся application lifecycle, `Workflow` владеет
+agent-loop policy, а process `InvocationRef` не меняется. Phase 2 проверяет
+split текущего `RuntimeContext` на `ExecutionContext` и chat-specific
+`AgentWorkflowContext` как migration hypothesis, а не фиксирует большой
+`ExecutionContext` как конечный API. Обязательный gate — реальный generic
+consumer без chat identities или fake Turn. Первая итерация останавливается
+после этого checkpoint; journal/model/approval/tool ownership мигрируют только
+отдельными проверяемыми phases. Канонический план находится в
 [roadmap.md](roadmap.md#executionscope-migration).
+
+Долгосрочная альтернатива ambient context-у — typed capability binding:
+
+```text
+Controller -> ExecutionScope -> Capability Binder/Resolver
+                                      |-> BoundModel
+                                      |-> BoundTools
+                                      `-> BoundMemory/Search
+```
+
+Bound handle может нести attribution, cancellation, authority, budget и
+recording конкретной capability. Это planned hypothesis после Phase 2, не
+основание сейчас менять `Model`, `ToolOrchestrator`, approvals или вводить
+universal capability enum. Возможная durable `AgentIdentity` также остаётся
+отдельной от controller-а и `ExecutionId`; в текущую migration она не входит.
 
 Ownership PTY sessions, bounded retention process agent pool, общий
 policy path для `task`, fail-closed shell sandbox и token для non-loopback
@@ -227,8 +259,9 @@ path CLI smoke test.
 
 Рабочий процесс для новой статьи/метода:
 
-1. определить, к какому slot относится идея;
-2. проверить, хватает ли существующего contract;
+1. определить, какая capability требуется и является ли она runtime- или
+   application-level;
+2. определить существующий typed slot/contract, через который она собирается;
 3. сверить решение с `slot-governance.md`: новый host-defined slot допустим
    только для generic класса поведения минимум с двумя уже работающими
    независимыми реализациями и требует изменений contracts/core/config/wire;

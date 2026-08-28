@@ -1,8 +1,18 @@
 # Модули
 
-Module — реализация host-defined slot. Slot задаёт DTO, методы, callbacks,
-composition, cancellation и failure semantics; `module_id` только выбирает
-реализацию.
+Capability описывает, что требуется runtime/controller-у; slot задаёт
+host-defined typed selection/assembly point для этой capability: DTO, методы,
+callbacks, composition, cancellation и failure semantics. Module — конкретная
+реализация slot, а `module_id` только выбирает её.
+
+```text
+Capability -> Slot -> Module -> Component export
+```
+
+Это понятийная зависимость, а не новый universal capability registry. Slot
+остаётся assembly mechanism и не является execution identity или runtime
+primitive; capability не даёт module дополнительных прав в обход slot
+contract.
 
 ```text
 authority(module) = authority(slot, invocation_context)
@@ -15,6 +25,8 @@ native loader в проекте отсутствуют.
 
 ## Словарь
 
+- **capability** — требуемое typed поведение; не универсальный enum и не
+  origin реализации;
 - **behavior slot** — одна выбранная реализация (`select_one`);
 - **ordered contribution slot** — явно упорядоченный набор
   (`ordered_many`);

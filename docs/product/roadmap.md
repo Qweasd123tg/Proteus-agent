@@ -1,6 +1,6 @@
 # Roadmap
 
-Последнее обновление: 2026-08-27.
+Последнее обновление: 2026-08-28.
 
 Roadmap описывает порядок, а не обещание API. Текущее реализованное состояние
 смотрите в [scope.md](scope.md), архитектурные правила — в
@@ -43,18 +43,19 @@ conversation identity и смешивает reusable runtime capabilities с
 agent/chat-specific policy. Model, tool recorder, journal и approvals также
 атрибутируют execution через обязательный `TurnId`.
 
-Цель ближайшей итерации — ввести generic workload identity и честно разделить
-context ownership, не меняя существующее поведение agent-а:
+Цель ближайшей итерации — ввести generic workload identity/lifecycle boundary
+и проверить честное разделение context ownership, не меняя существующее
+поведение agent-а:
 
 ```text
 AgentRuntime / Turn
         |
         | creates exactly one scope per Turn
         v
-ExecutionScope(ExecutionId, cancellation)
+ExecutionScope(ExecutionId, cancellation, attribution boundary)
         |
         v
-ExecutionContext(generic capabilities)
+ExecutionContext? (Phase 2 migration hypothesis)
         |
         v
 AgentWorkflowContext(chat/application wrapper)
@@ -79,13 +80,20 @@ InvocationRef = process-broker invocation and lineage
 execution сможет начать несколько process roots; вложенность process callbacks
 по-прежнему принадлежит exact `ComponentBroker` и его `InvocationRef` tree.
 
+`ExecutionScope` — это identity, lifecycle/cancellation и execution
+attribution boundary. Он не является service locator или контейнером model,
+tools, memory и других capabilities. Возможная долгоживущая `AgentIdentity`
+также не равна `ExecutionId` и не сводится к controller-у, но в Phase 0–2 такой
+тип не вводится. Текущий `Workflow` владеет agent-loop policy; это не доказывает,
+что durable agent identity как отдельный domain concept никогда не понадобится.
+
 ### Зафиксированный Scope Первой Итерации
 
 Разрешены только Phase 0–2:
 
 1. baseline и недостающие characterization checks;
 2. `ExecutionId` + минимальный `ExecutionScope`;
-3. реальный split `RuntimeContext` на generic и agent-specific layers.
+3. проверяемый split `RuntimeContext` на generic и agent-specific layers.
 
 После Phase 2 работа останавливается для review. В эту итерацию не входят:
 
@@ -153,6 +161,10 @@ pub struct ExecutionScope {
 }
 ```
 
+Эта минимальная форма сознательно выражает только identity,
+lifecycle/cancellation и точку execution attribution. Scope не владеет и не
+резолвит runtime services.
+
 Deadline допускается только если current lifecycle позволяет выразить одну
 естественную execution deadline без нового policy. Иначе он откладывается.
 В `ExecutionScope` запрещены `SessionId`, `ThreadId`, `TurnId`, `AgentTask`,
@@ -194,18 +206,33 @@ token для targeted cancel. Полный peer Proteus в другом проц
 собственный Turn/ExecutionId. Parent execution topology и
 `parent_execution_id` по-прежнему отложены.
 
-### Phase 2 — Context Split
+### Phase 2 — Context Split Как Migration Hypothesis
 
 Текущий `RuntimeContext` содержит 26 полей. Split должен быть структурным, а
 не переименованием god-object.
 
+`ExecutionContext` в этой phase — migration structure и проверяемая гипотеза,
+а не заранее принятый конечный public API. Field map ниже задаёт начальную
+границу для compile migration. Review после Phase 2 должен отдельно решить,
+остаётся ли этот тип узким полезным context-ом, дробится ли он на typed bound
+handles или удаляется. Сам факт успешной компиляции большого context-а не
+подтверждает архитектуру.
+
 Field map относительно актуального source с учётом уже выполненной Phase 1
 (`scope` заменяет прежний `cancellation`):
 
-| Новый owner | Поля текущего `RuntimeContext` |
+| Provisional owner | Поля текущего `RuntimeContext` |
 |---|---|
 | `ExecutionContext` | `scope`, `model_timeout_ms`, `model`, `search`, `memory`, `tools`, `policy`, `approval`, `patch`, `execution_recorder` |
 | `AgentWorkflowContext` | `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `reasoning`, `context_timeout_ms`, `events`, `context`, `user_input`, `compactor`, `tool_exposure`, `agent_control`, `queued_user_messages`, `turn_grants`, `thread_label` |
+
+Таблица не является квотой на поля. Перед переносом каждой dependency нужно
+проверить, может ли meaningful non-agent consumer использовать её без chat
+objects. Если нет, поле остаётся в agent wrapper или откладывается до typed
+binding соответствующей phase; его нельзя объявлять generic только ради
+симметрии. При этом сам contract handle может быть generic, даже если current
+agent adapter всё ещё добавляет Turn-coupled invocation attribution — такой
+долг фиксируется отдельно и не маскируется fake owner-ом.
 
 `AgentWorkflowContext` владеет/оборачивает ровно один `ExecutionContext` и
 передаёт его существующему Workflow. Dependency direction только такая:
@@ -235,6 +262,29 @@ AgentWorkflowContext -> ExecutionContext -> ExecutionScope
 imports/names (`TurnId`, `AgentTask`, `AgentOutput`, `CanonicalMessage`) рядом
 с focused construction tests.
 
+Одного construction test недостаточно. Обязательный Phase 2 gate — хотя бы
+один реальный runtime mechanism проходит generic execution boundary и даёт
+результат без chat identities. Предпочтительный минимальный proof:
+
+```text
+RuntimeSnapshot
+      |
+ExecutionScope
+      |
+Phase 2 generic boundary
+      |
+selected SearchBackend -> SearchQuery -> actual result
+```
+
+Focused core integration test должен получить selected process-backed
+`SearchBackend` из одного coherent snapshot-а и выполнить поиск через
+canonical `SearchQuery` по temporary workspace, не
+создавая `SessionId`, `ThreadId`, `TurnId`, `AgentTask`, chat history или fake
+Turn. Прямой вызов generic `SearchBackend` не меняет `ToolOrchestrator`, model,
+journal или approval semantics и потому остаётся внутри Phase 2. Если этот
+proof требует dummy chat objects, граница считается неверной, а Phase 2 —
+незавершённой.
+
 В Phase 2 обновляются все tracked producers/consumers нового contract в одном
 changeset. Проект pre-release, поэтому финальный diff не сохраняет legacy
 `RuntimeContext` alias, dual constructor или compatibility reader. Временный
@@ -254,6 +304,36 @@ Execution creation один раз захватывает coherent `RuntimeSnaps
 tools и другие handles для context берутся из этого snapshot. Lookup из
 mutable published registry на каждом workflow step запрещён: reload не должен
 частично менять уже открытый execution.
+
+#### Долгосрочная Альтернатива Context-у
+
+После Phase 2 предпочтительной альтернативой большому ambient context-у может
+стать typed binding отдельных capabilities:
+
+```text
+Controller
+    |
+ExecutionScope
+    |
+typed CapabilityBinder / Resolver
+    +-- BoundModel
+    +-- BoundTools
+    +-- BoundSearch
+    `-- BoundMemory
+```
+
+Каждый bound handle сможет захватывать нужные ему execution attribution,
+cancellation, authority, budget и recording без ручного протаскивания этих
+параметров controller-ом. Это **не** задача Phase 0–2, не обещание конкретных
+имён API и не основание добавлять universal capability enum, string-keyed
+service locator или переписывать `Model`/`ToolOrchestrator` сейчас. Phase 2
+должна лишь не закрыть этот путь новым god-object-ом.
+
+Долгосрочная binding boundary должна позволять ответить: кто выполняется,
+какая authority выдана, что было вызвано, как это отменить и какая работа это
+породила. Текущие approvals, `ProcessContractAuthority` и process launch policy
+в Phase 0–2 не меняются; parent/child execution lineage также остаётся
+отложенной и не добавляет `parent_execution_id` в scope.
 
 Основная implementation map Phase 2:
 
@@ -279,6 +359,8 @@ mutable published registry на каждом workflow step запрещён: rel
 Обязательные tests после split:
 
 - `ExecutionContext` собирается без chat domain types;
+- selected `SearchBackend` реально вызывается через generic boundary без fake
+  Turn и возвращает результат;
 - `AgentWorkflowContext` корректно оборачивает один execution context;
 - existing Workflow и `WorkflowHostRuntime` сохраняют coding semantics;
 - один Turn создаёт один scope, follow-up — новый scope;
@@ -294,6 +376,8 @@ Phase 0–2 завершены только если:
 - `ExecutionId` type-distinct от `TurnId`;
 - `ExecutionScope` не знает о conversation/process identities;
 - `ExecutionContext` не импортирует chat domain types;
+- реальный generic consumer доказан без fake Turn, а не только constructor
+  test-ом;
 - `AgentWorkflowContext` является единственным chat wrapper над ним;
 - existing interactive/coding/process paths и snapshot semantics не
   изменились;
@@ -310,7 +394,11 @@ Phase 0–2 завершены только если:
 5. execution-scoped grants/approval origin;
 6. generic `ToolOrchestrator` invocation context;
 7. cutover верхнего `AgentRuntime` API;
-8. первый meaningful non-Turn execution.
+8. первый meaningful top-level non-Turn execution.
+
+Phase 2 integration proof одного нижнего mechanism не является Phase 8: он не
+добавляет новый `AgentRuntime` entrypoint и не обещает безопасную concurrent
+execution до migration model/recorder/approval ownership.
 
 При будущих schema/DTO changes действует pre-release правило репозитория:
 tracked producers, consumers, configs, tests и docs обновляются атомарно, а
@@ -320,8 +408,9 @@ tracked producers, consumers, configs, tests и docs обновляются ат
 
 ### Phase 3 Readiness
 
-После Phase 2 codebase будет структурно готов начать удаление shared mutable
-model attribution, но не считать её уже выполненной. Текущие exact call sites:
+Если Phase 2 generic-consumer gate пройден, codebase будет структурно готов
+начать удаление shared mutable model attribution, но не считать её уже
+выполненной. Текущие exact call sites:
 
 - `crates/proteus-core/src/core/registry.rs` хранит concrete
   `model_service: Option<Arc<ModelService>>` и собирает его;

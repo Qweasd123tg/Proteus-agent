@@ -11,6 +11,31 @@
 > Source-аудит, на котором основан этот документ:
 > [execution-scope-source-audit-2026-08-27.md](execution-scope-source-audit-2026-08-27.md).
 
+## Addendum 2026-08-28 — Что Из Этого Research Не Является Решённым
+
+Последующий design review сузил вывод документа, не отменяя
+`ExecutionScope` migration. Канонический roadmap теперь фиксирует:
+
+- `ExecutionScope` — identity, lifecycle/cancellation и execution attribution,
+  а не контейнер services;
+- описанный ниже `ExecutionContext` — Phase 2 migration hypothesis, а не
+  гарантированная конечная API-модель;
+- Phase 2 должна доказать реальный generic capability call без chat identities
+  или fake Turn, а не только независимый constructor;
+- долгосрочной альтернативой ambient context-у являются typed
+  execution-bound handles через capability binder/resolver;
+- `AgentIdentity`, если она понадобится, будет отдельна от `ExecutionId` и
+  controller-а, но не вводится в Phase 0–2;
+- capability означает требуемое typed поведение, slot — host-defined
+  selection/assembly point, module — реализацию. Это не предложение universal
+  capability enum или service locator.
+
+Поэтому диаграммы, field maps и утверждения ниже о конечной форме
+`ExecutionContext` следует читать как исходную исследовательскую гипотезу.
+При расхождении действуют актуальные
+[roadmap](../product/roadmap.md#executionscope-migration) и
+[architecture](../architecture/architecture.md#planned-executionscope).
+
 ## Срез текущего main и коррекции к предыдущему аудиту
 
 Исследование привязано к текущему `main` репозитория `Qweasd123tg/Proteus-agent`: на момент проверки HEAD — `50055e2c834fc3052236b988e859ff64e735b48a`, commit от 27 августа 2026 года с сообщением `docs: plan CLI app server cutover`.

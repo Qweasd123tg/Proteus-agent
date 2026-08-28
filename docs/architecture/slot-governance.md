@@ -7,9 +7,18 @@
 Короткое правило для обычного заменяемого поведения:
 
 ```text
+capability отвечает, что требуется;
+slot отвечает, где host выбирает реализацию;
 slot нужен не для фичи,
 slot нужен для класса заменяемого поведения.
 ```
+
+Capability здесь — семантическое требование, более широкое, чем assembly
+surface. Оно не обязано иметь собственный slot: часть capabilities остаётся
+application service, workflow step-ом, tool-ом или прямым typed contract-ом.
+Slot — host-defined selection/composition mechanism, не runtime primitive и не
+identity. Это различие не вводит universal `Capability` enum, dynamic service
+locator или право worker-а объявлять новые capabilities во время handshake.
 
 Аудит Pi 2026-08-07 показал вторую, ортогональную потребность: несколько
 равноправных implementations иногда должны не заменять друг друга, а образовывать
