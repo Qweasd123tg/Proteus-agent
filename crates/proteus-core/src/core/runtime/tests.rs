@@ -16,6 +16,7 @@ use crate::{
     model_standard::{CanonicalMessage, CanonicalModelRequest, MessageRole},
 };
 
+mod snapshot_atomicity;
 mod steering_integration;
 
 fn test_catalog() -> ModuleCatalog {
@@ -80,8 +81,8 @@ struct SnapshotProbeWorkflow {
     proceed: Arc<tokio::sync::Notify>,
 }
 async fn replace_workflow_for_test(runtime: &AgentRuntime, workflow: Arc<dyn Workflow>) {
-    let mut snapshot = runtime.services.snapshot.write().await;
-    snapshot.registry.workflow = workflow;
+    let mut state = runtime.services.execution_state.write().await;
+    state.runtime.registry.workflow = workflow;
 }
 
 #[async_trait]

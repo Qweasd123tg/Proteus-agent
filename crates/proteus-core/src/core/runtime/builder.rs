@@ -17,8 +17,8 @@ use crate::{
 };
 
 use super::{
-    AgentRuntime, ModuleEpoch, RuntimeServices, RuntimeSnapshot, SessionState, config_store_root,
-    event_log_path,
+    AgentRuntime, ModuleEpoch, RuntimeExecutionState, RuntimeServices, RuntimeSnapshot,
+    SessionState, config_store_root, event_log_path,
 };
 
 /// Builder for `AgentRuntime`. Every slot has a sensible default
@@ -203,18 +203,20 @@ impl AgentRuntimeBuilder {
         Ok(AgentRuntime {
             services: RuntimeServices {
                 cwd,
-                snapshot: RwLock::new(RuntimeSnapshot::new(
-                    ModuleEpoch::initial(),
-                    assembly,
-                    config_snapshot,
-                )),
+                execution_state: RwLock::new(RuntimeExecutionState {
+                    runtime: RuntimeSnapshot::new(
+                        ModuleEpoch::initial(),
+                        assembly,
+                        config_snapshot,
+                    ),
+                    permission_mode,
+                    model_ref,
+                    reasoning,
+                }),
                 reload_lock: Mutex::new(()),
                 events,
                 approval,
                 user_input,
-                permission_mode: RwLock::new(permission_mode),
-                model_ref: RwLock::new(model_ref),
-                reasoning: RwLock::new(reasoning),
                 default_reasoning,
             },
             session: SessionState::new(

@@ -84,6 +84,28 @@ pub struct RuntimeSnapshot {
     pub config_snapshot: Option<SessionConfigSnapshot>,
 }
 
+#[derive(Clone)]
+struct RuntimeExecutionState {
+    runtime: RuntimeSnapshot,
+    permission_mode: PermissionMode,
+    model_ref: ModelRef,
+    reasoning: ReasoningConfig,
+}
+
+/// Immutable execution-effective state captured once after Turn admission.
+///
+/// Assembly and live overrides share one lock in `RuntimeServices`, so a Turn
+/// cannot combine a registry from one module epoch with settings published for
+/// another runtime state.
+#[derive(Clone)]
+struct TurnExecutionSnapshot {
+    runtime: RuntimeSnapshot,
+    permission_mode: PermissionMode,
+    model_ref: ModelRef,
+    reasoning: ReasoningConfig,
+    config_snapshot: Option<SessionConfigSnapshot>,
+}
+
 impl RuntimeSnapshot {
     pub fn new(
         epoch: ModuleEpoch,
@@ -109,14 +131,11 @@ pub struct RuntimeReloadReport {
 
 struct RuntimeServices {
     cwd: PathBuf,
-    snapshot: RwLock<RuntimeSnapshot>,
+    execution_state: RwLock<RuntimeExecutionState>,
     reload_lock: Mutex<()>,
     events: Arc<EventEmitter>,
     approval: Arc<dyn ApprovalTransport>,
     user_input: Arc<dyn UserInputTransport>,
-    permission_mode: RwLock<PermissionMode>,
-    model_ref: RwLock<ModelRef>,
-    reasoning: RwLock<ReasoningConfig>,
     default_reasoning: ReasoningConfig,
 }
 
@@ -210,11 +229,11 @@ impl AgentRuntime {
     }
 
     pub async fn set_permission_mode(&self, mode: PermissionMode) {
-        *self.services.permission_mode.write().await = mode;
+        self.services.execution_state.write().await.permission_mode = mode;
     }
 
     pub async fn permission_mode(&self) -> PermissionMode {
-        *self.services.permission_mode.read().await
+        self.services.execution_state.read().await.permission_mode
     }
 
     pub async fn set_model_name(&self, model: String) {
@@ -222,22 +241,23 @@ impl AgentRuntime {
         if model.is_empty() {
             return;
         }
-        self.services.model_ref.write().await.model = model.to_owned();
+        self.services.execution_state.write().await.model_ref.model = model.to_owned();
     }
 
     /// Полная замена provider+model, например после смены `active_provider`
     /// через config builder: `reload_assembly` пересобирает model adapter, но
     /// не трогает runtime override model_ref.
     pub async fn set_model_ref(&self, model_ref: ModelRef) {
-        *self.services.model_ref.write().await = model_ref;
+        self.services.execution_state.write().await.model_ref = model_ref;
     }
 
     pub async fn model_ref(&self) -> ModelRef {
-        self.services.model_ref.read().await.clone()
+        self.services.execution_state.read().await.model_ref.clone()
     }
 
     pub async fn set_reasoning_enabled(&self, enabled: bool) {
-        let mut reasoning = self.services.reasoning.write().await;
+        let mut state = self.services.execution_state.write().await;
+        let reasoning = &mut state.reasoning;
         if enabled {
             if reasoning.effort.is_none() {
                 reasoning.effort = self.services.default_reasoning.effort.clone();
@@ -252,7 +272,8 @@ impl AgentRuntime {
     }
 
     pub async fn set_reasoning_effort(&self, effort: Option<String>) {
-        let mut reasoning = self.services.reasoning.write().await;
+        let mut state = self.services.execution_state.write().await;
+        let reasoning = &mut state.reasoning;
         match effort.as_deref() {
             // «none» — первоклассное значение effort: выключает рассуждения
             // целиком. Веб-клиент шлёт его вместо пары /reasoning + /effort.
@@ -279,7 +300,7 @@ impl AgentRuntime {
     }
 
     pub async fn reasoning(&self) -> ReasoningConfig {
-        self.services.reasoning.read().await.clone()
+        self.services.execution_state.read().await.reasoning.clone()
     }
 
     pub async fn tool_entries(&self) -> Vec<(ToolSource, ToolSpec)> {
@@ -287,26 +308,49 @@ impl AgentRuntime {
     }
 
     pub async fn module_epoch(&self) -> ModuleEpoch {
-        self.services.snapshot.read().await.epoch
+        self.services.execution_state.read().await.runtime.epoch
     }
 
     pub async fn assembly_plan(&self) -> AssemblyPlan {
-        self.services.snapshot.read().await.assembly_plan.clone()
+        self.services
+            .execution_state
+            .read()
+            .await
+            .runtime
+            .assembly_plan
+            .clone()
     }
 
     pub async fn assembly_observation(
         &self,
     ) -> (ModuleEpoch, AssemblyPlan, Vec<(ToolSource, ToolSpec)>) {
-        let snapshot = self.services.snapshot.read().await;
+        let state = self.services.execution_state.read().await;
         (
-            snapshot.epoch,
-            snapshot.assembly_plan.clone(),
-            snapshot.registry.tools.entries(),
+            state.runtime.epoch,
+            state.runtime.assembly_plan.clone(),
+            state.runtime.registry.tools.entries(),
         )
     }
 
     async fn snapshot(&self) -> RuntimeSnapshot {
-        self.services.snapshot.read().await.clone()
+        self.services.execution_state.read().await.runtime.clone()
+    }
+
+    async fn turn_execution_snapshot(&self) -> TurnExecutionSnapshot {
+        let state = self.services.execution_state.read().await;
+        let mut config_snapshot = state.runtime.config_snapshot.clone();
+        if let Some(config) = &mut config_snapshot {
+            config.model = state.model_ref.clone();
+            config.reasoning = state.reasoning.clone();
+            config.permission_mode_default = state.permission_mode;
+        }
+        TurnExecutionSnapshot {
+            runtime: state.runtime.clone(),
+            permission_mode: state.permission_mode,
+            model_ref: state.model_ref.clone(),
+            reasoning: state.reasoning.clone(),
+            config_snapshot,
+        }
     }
 
     pub async fn reload_assembly(
@@ -314,12 +358,23 @@ impl AgentRuntime {
         assembly: PreparedAssembly,
         config_snapshot: Option<SessionConfigSnapshot>,
     ) -> Result<RuntimeReloadReport> {
+        self.reload_assembly_with_effective_settings(assembly, config_snapshot, None, None)
+            .await
+    }
+
+    pub(crate) async fn reload_assembly_with_effective_settings(
+        &self,
+        assembly: PreparedAssembly,
+        config_snapshot: Option<SessionConfigSnapshot>,
+        model_ref: Option<ModelRef>,
+        permission_mode: Option<PermissionMode>,
+    ) -> Result<RuntimeReloadReport> {
         if self.session.session_store.is_some() && config_snapshot.is_none() {
             anyhow::bail!("persisted runtime reload requires a config snapshot");
         }
         let _reload_guard = self.services.reload_lock.lock().await;
-        let mut snapshot = self.services.snapshot.write().await;
-        let old_epoch = snapshot.epoch;
+        let mut state = self.services.execution_state.write().await;
+        let old_epoch = state.runtime.epoch;
         let new_epoch = old_epoch.next();
         let tool_names = assembly
             .registry()
@@ -328,7 +383,13 @@ impl AgentRuntime {
             .into_iter()
             .map(|spec| spec.name)
             .collect::<Vec<_>>();
-        *snapshot = RuntimeSnapshot::new(new_epoch, assembly, config_snapshot);
+        state.runtime = RuntimeSnapshot::new(new_epoch, assembly, config_snapshot);
+        if let Some(model_ref) = model_ref {
+            state.model_ref = model_ref;
+        }
+        if let Some(permission_mode) = permission_mode {
+            state.permission_mode = permission_mode;
+        }
         Ok(RuntimeReloadReport {
             old_epoch: old_epoch.as_u64(),
             new_epoch: new_epoch.as_u64(),
@@ -341,11 +402,14 @@ impl AgentRuntime {
     }
 
     async fn ensure_session_started(&self) -> Result<()> {
-        let snapshot = self.snapshot().await;
+        let snapshot = self.turn_execution_snapshot().await;
         self.ensure_session_started_with_snapshot(&snapshot).await
     }
 
-    async fn ensure_session_started_with_snapshot(&self, snapshot: &RuntimeSnapshot) -> Result<()> {
+    async fn ensure_session_started_with_snapshot(
+        &self,
+        snapshot: &TurnExecutionSnapshot,
+    ) -> Result<()> {
         let mut started = self.session.session_started.lock().await;
         if *started {
             return Ok(());
@@ -358,24 +422,13 @@ impl AgentRuntime {
                 Event::SessionStarted {
                     session_id: self.session.session_id,
                     cwd: self.services.cwd.clone(),
-                    model: Some(snapshot.registry.model_config.model_ref()),
+                    model: Some(snapshot.model_ref.clone()),
                     session_dir: self.session_dir().map(|path| path.to_path_buf()),
                 },
             )
             .await?;
         *started = true;
         Ok(())
-    }
-
-    async fn turn_config_snapshot(
-        &self,
-        snapshot: &RuntimeSnapshot,
-    ) -> Option<SessionConfigSnapshot> {
-        let mut config = snapshot.config_snapshot.clone()?;
-        config.model = self.services.model_ref.read().await.clone();
-        config.reasoning = self.services.reasoning.read().await.clone();
-        config.permission_mode_default = *self.services.permission_mode.read().await;
-        Some(config)
     }
 
     fn persist_config_snapshot_for_session(&self, snapshot: Option<&SessionConfigSnapshot>) {

@@ -475,6 +475,8 @@ PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config examples/co
   component connect;
 - один runtime snapshot атомарно содержит соответствующие друг другу plan и
   registry;
+- один admitted Turn атомарно захватывает этот snapshot вместе с effective
+  model/reasoning/permission overrides и не перечитывает их до settlement;
 - topology строит slots/modules из того же плана;
 - `cargo test -p proteus-core --test module_swap` остаётся зелёным.
 
@@ -483,6 +485,7 @@ Focused gate:
 ```bash
 cargo test -p proteus-core core::assembly::tests
 cargo test -p proteus-core reload_assembly_publishes_matching_plan
+cargo test -p proteus-core admitted_turn_freezes_registry_and_effective_settings_until_settlement
 ```
 
 ## Topology И Inspector

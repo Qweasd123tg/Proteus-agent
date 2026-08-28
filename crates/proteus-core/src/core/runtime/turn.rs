@@ -11,7 +11,7 @@ use crate::{
 };
 
 use super::{
-    AgentRuntime, ReservedRunCompletion, RuntimeSnapshot, prepare_history_update,
+    AgentRuntime, ReservedRunCompletion, TurnExecutionSnapshot, prepare_history_update,
     steering::{
         self, ReservedUserMessage, RootTurnSettlement, SteeringModel, UserMessageReservation,
         weave_deliveries_into_output,
@@ -165,7 +165,7 @@ impl AgentRuntime {
         reserved: ReservedUserMessage,
         cancellation: CancellationToken,
     ) -> Result<AgentOutput> {
-        let snapshot = self.snapshot().await;
+        let snapshot = self.turn_execution_snapshot().await;
         let execution_scope = ExecutionScope::fresh(cancellation.clone());
         self.ensure_session_started_with_snapshot(&snapshot).await?;
         let turn_id = reserved.turn_id;
@@ -173,7 +173,7 @@ impl AgentRuntime {
         if cancellation.is_cancelled() {
             return Err(TurnAbort::Canceled.into());
         }
-        let config_snapshot = self.turn_config_snapshot(&snapshot).await;
+        let config_snapshot = snapshot.config_snapshot.clone();
         if let Some(session_store) = &self.session.session_store {
             let base_history_revision = session_store.load_projection()?.history_revision;
             session_store
@@ -183,7 +183,7 @@ impl AgentRuntime {
                     crate::core::JournalEntry::TurnOpened(crate::core::TurnOpened {
                         task: task.clone(),
                         base_history_revision,
-                        module_epoch: snapshot.epoch.as_u64(),
+                        module_epoch: snapshot.runtime.epoch.as_u64(),
                         config_snapshot: serde_json::to_value(config_snapshot.as_ref())?,
                     }),
                 )
@@ -232,7 +232,7 @@ impl AgentRuntime {
         &self,
         reserved: ReservedUserMessage,
         execution_scope: ExecutionScope,
-        snapshot: RuntimeSnapshot,
+        snapshot: TurnExecutionSnapshot,
         config_snapshot: Option<SessionConfigSnapshot>,
         task: AgentTask,
     ) -> Result<AgentOutput> {
@@ -280,22 +280,22 @@ impl AgentRuntime {
                 )
                 .await?;
         }
-        let permission_mode = *self.services.permission_mode.read().await;
-        let model_ref = self.services.model_ref.read().await.clone();
-        let reasoning = self.services.reasoning.read().await.clone();
-        let mut workflow_context = snapshot.registry.agent_workflow_context_with_user_input(
-            self.session.session_id,
-            self.session.thread_id,
-            turn_id,
-            execution_scope,
-            self.services.events.clone(),
-            self.session.session_store.clone(),
-            self.services.approval.clone(),
-            self.services.user_input.clone(),
-            permission_mode,
-        );
-        workflow_context.model_ref = model_ref;
-        workflow_context.reasoning = reasoning;
+        let mut workflow_context = snapshot
+            .runtime
+            .registry
+            .agent_workflow_context_with_user_input(
+                self.session.session_id,
+                self.session.thread_id,
+                turn_id,
+                execution_scope,
+                self.services.events.clone(),
+                self.session.session_store.clone(),
+                self.services.approval.clone(),
+                self.services.user_input.clone(),
+                snapshot.permission_mode,
+            );
+        workflow_context.model_ref = snapshot.model_ref;
+        workflow_context.reasoning = snapshot.reasoning;
         workflow_context.queued_user_messages = self.session.steering.queued_count_handle();
         let steering_model = SteeringModel::new(
             workflow_context.execution.model.clone(),
@@ -306,9 +306,10 @@ impl AgentRuntime {
             turn_id,
         );
         workflow_context.execution.model = Arc::new(steering_model.clone());
-        let workflow_timeout_ms = snapshot.registry.runtime_config.workflow_timeout_ms;
+        let workflow_timeout_ms = snapshot.runtime.registry.runtime_config.workflow_timeout_ms;
         let workflow =
             snapshot
+                .runtime
                 .registry
                 .workflow
                 .run(task.clone(), history.clone(), workflow_context);

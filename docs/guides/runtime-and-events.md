@@ -195,8 +195,12 @@ message. В snapshot входят profile name, active provider, актуаль�
 и reasoning config, выбранные module ids, список зарегистрированных tools с
 source/spec, `agent_control_surface` и default permission mode. Каждый
 `turn_opened` дополнительно содержит snapshot того же
-`RuntimeSnapshot`/`ModuleEpoch`, поэтому module reload и runtime model/mode
-override не приписываются следующему turn-у задним числом.
+`RuntimeSnapshot`/`ModuleEpoch`. После admission Core один раз атомарно
+захватывает assembly snapshot вместе с effective `model_ref`, reasoning и
+permission mode в immutable `TurnExecutionSnapshot`; journal, model binding,
+policy и Workflow используют только эти значения до settlement. Поэтому
+concurrent `/model`, `/mode`, `/effort`, `/reasoning` или reload относятся уже
+к следующему Turn и не создают смесь старого registry с новыми overrides.
 
 В памяти `RuntimeSnapshot` дополнительно держит неизменяемый `AssemblyPlan`
 рядом с созданным из него `RuntimeRegistry`. Начальная сборка и reload передают
@@ -793,11 +797,12 @@ Core path:
 1. app-server создаёт transport request id; `SessionSteering::reserve`
    отдельно создаёт domain `TurnId` до spawned task и `run_lock`;
 2. direct `AgentRuntime::run` сначала берёт `run_lock`, затем резервирует Turn;
-3. `run_one_turn` проверяет reservation, захватывает один `RuntimeSnapshot`,
-   гарантирует `SessionStarted` и пишет journal `TurnOpened`;
+3. `run_one_turn` проверяет reservation, атомарно захватывает один
+   `TurnExecutionSnapshot` (`RuntimeSnapshot` + effective model/reasoning/mode),
+   гарантирует `SessionStarted` и пишет journal `TurnOpened` из того же capture;
 4. Core испускает `TurnStarted`, затем durable append-ит accepted user message;
 5. Core создаёт `ExecutionScope`, bind-ит `ExecutionContext` из captured
-   snapshot, оборачивает его в `AgentWorkflowContext`, подменяет model
+   immutable state, оборачивает его в `AgentWorkflowContext`, подменяет model
    steering-wrapper-ом и вызывает selected `Workflow::run`;
 6. после `WorkflowOutput` Core валидирует history replacement/suffix,
    записывает mutation и фиксирует `TurnSettled`;
@@ -950,6 +955,11 @@ MCP/configured tools, затем публикуют один новый `Prepare
 new_epoch, tool_names }`, а `GET /config` / `ConfigSummary` возвращает
 `module_epoch`. Это reload control-plane: новый snapshot получает свои MCP
 host-процессы, но это не общий `reload_modules`.
+
+`POST /config/builder` публикует новый assembly, смену provider model и
+permission mode одной записью runtime state. Уже admitted Turn продолжает
+использовать прежний полный capture; следующий Turn видит новую комбинацию
+целиком.
 
 Минимальный request contract:
 

@@ -374,17 +374,22 @@ impl AppServerHandle {
             assembly.registry(),
             next_config.permissions.mode,
         );
+        let model_ref = provider_changed
+            .then(|| {
+                next_config
+                    .active_model_config()
+                    .map(|model| model.model_ref())
+            })
+            .transpose()?;
         let report = self
             .runtime
-            .reload_assembly(assembly, Some(config_snapshot))
+            .reload_assembly_with_effective_settings(
+                assembly,
+                Some(config_snapshot),
+                model_ref,
+                permission_mode,
+            )
             .await?;
-        if provider_changed {
-            let model = next_config.active_model_config()?;
-            self.runtime.set_model_ref(model.model_ref()).await;
-        }
-        if let Some(mode) = permission_mode {
-            self.runtime.set_permission_mode(mode).await;
-        }
         *self.config.write().await = next_config;
         let _ = self.events.send(AppServerEvent::ModulesReloaded {
             old_epoch: report.old_epoch,

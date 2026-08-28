@@ -41,7 +41,7 @@ AgentRuntime
           v
 SessionState: Turn / History / Steering / SessionStore
           |
-          | creates ExecutionScope + captures RuntimeSnapshot
+          | creates ExecutionScope + captures TurnExecutionSnapshot
           v
 AgentWorkflowContext (chat/application wrapper)
           |-- SessionId / ThreadId / TurnId / agent policy
@@ -73,8 +73,10 @@ external component processes
   components, export authority и preflight checks; workers при этом не
   запускаются.
 - `AgentRuntime` владеет session/turn lifecycle, history commit, steering и
-  выбором одного `RuntimeSnapshot` на ход; каждый Turn создаёт отдельный
-  `ExecutionScope` и один `AgentWorkflowContext`.
+  выбором одного immutable `TurnExecutionSnapshot` на ход; он атомарно
+  захватывает `RuntimeSnapshot` вместе с effective `model_ref`, reasoning и
+  permission mode. Каждый Turn создаёт отдельный `ExecutionScope` и один
+  `AgentWorkflowContext`.
 - `PreparedAssembly` связывает план и собранный из него `RuntimeRegistry`,
   поэтому их нельзя опубликовать в разных runtime snapshots.
 - `RuntimeRegistry` создаёт выбранные реализации только из проверенного плана.
