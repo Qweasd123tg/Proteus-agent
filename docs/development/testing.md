@@ -131,8 +131,10 @@ attribution. Agent-path tests отдельно проверяют mapping
 явно; dual reader отсутствует.
 
 После каждого changeset выполняется `cargo test --workspace --no-fail-fast`.
-Phase 5 approval/grants, Phase 6 generic tools, process protocol и event DTO в
-этот gate не входят.
+Phase 5 добавляет отдельные gates: grants A/B isolation, detached approval
+origin без chat identity, сохранение agent thread cache semantics и
+execution-isolated detached cache. Phase 6 generic tools, process protocol и
+event DTO в этот checkpoint ещё не входят.
 
 Checkpoint 2026-08-29: `cargo fmt --all -- --check`,
 `cargo check --workspace` и `cargo test --workspace` прошли. Strict
@@ -142,6 +144,14 @@ reference packs и Core (`useless_conversion`, `question_mark`,
 `clone_on_copy`, `too_many_arguments`, `derivable_impls`, `needless_borrow`,
 `unit_arg`). Новый `append_record` lint был устранён в самом changeset; общий
 lint cleanup не смешивается с execution architecture.
+
+Phase 5 checkpoint 2026-08-29: focused grants/origin/cache suites, полный
+workspace test gate и `clients/web` `trunk build` прошли. Один первый полный
+test run вернул transient failure в `proteus-core --lib`; немедленный rerun
+этого target и затем всего workspace с тем же feature-unified binary прошли,
+поэтому воспроизводимого regression не установлено. Strict clippy повторно
+показал тот же pre-existing набор diagnostics в code lines вне changeset и не
+выявил нового lint-а в изменённых contracts.
 
 ### P0 Multiplexed Broker Spike
 

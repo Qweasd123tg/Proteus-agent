@@ -69,7 +69,8 @@ fn contract_approval_request() -> contract_protocol::AppApprovalRequest {
         .with_metadata(json!({ "operation": "update" })),
     ))
     .with_origin(Some(
-        contract_contracts::RequestOrigin::new(
+        contract_contracts::RequestOrigin::for_turn(
+            contract_domain::new_execution_id(),
             contract_domain::new_thread_id(),
             contract_domain::new_turn_id(),
         )
@@ -106,7 +107,8 @@ fn contract_user_input_request() -> contract_contracts::UserInputRequest {
     )
     .with_title("Choose implementation scope")
     .with_origin(
-        contract_contracts::RequestOrigin::new(
+        contract_contracts::RequestOrigin::for_turn(
+            contract_domain::new_execution_id(),
             contract_domain::new_thread_id(),
             contract_domain::new_turn_id(),
         )
@@ -203,8 +205,9 @@ fn web_decodes_contract_stdio_output_events() {
                 assert_eq!(preview.metadata["operation"], "update");
                 let origin = request.origin.expect("approval origin");
                 assert_eq!(origin.label.as_deref(), Some("explore"));
-                assert!(!origin.thread_id.is_empty());
-                assert!(!origin.turn_id.is_empty());
+                assert!(!origin.execution_id.is_empty());
+                assert!(!origin.thread_id.expect("agent thread").is_empty());
+                assert!(!origin.turn_id.expect("agent turn").is_empty());
                 assert_eq!(request.seq, 7);
             }
             AppServerEvent::ApprovalResolved {
@@ -231,8 +234,9 @@ fn web_decodes_contract_stdio_output_events() {
                 );
                 let origin = request.origin.expect("user input origin");
                 assert_eq!(origin.label.as_deref(), Some("explore"));
-                assert!(!origin.thread_id.is_empty());
-                assert!(!origin.turn_id.is_empty());
+                assert!(!origin.execution_id.is_empty());
+                assert!(!origin.thread_id.expect("agent thread").is_empty());
+                assert!(!origin.turn_id.expect("agent turn").is_empty());
                 assert_eq!(request.seq, 9);
             }
             AppServerEvent::UserInputResolved { request_id } => {

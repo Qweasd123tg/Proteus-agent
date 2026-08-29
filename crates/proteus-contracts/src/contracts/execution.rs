@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use crate::{
     contracts::{
-        ApprovalPolicy, ApprovalTransport, CancellationToken, ExecutionRecorder, MemoryStore,
-        Model, NoopExecutionRecorder, PatchApplier, SearchBackend, ToolRegistry,
+        ApprovalPolicy, ApprovalTransport, CancellationToken, ExecutionPermissionGrants,
+        ExecutionRecorder, MemoryStore, Model, NoopExecutionRecorder, PatchApplier, SearchBackend,
+        ToolRegistry,
     },
     domain::{ExecutionId, new_execution_id},
 };
@@ -53,6 +54,9 @@ pub struct ExecutionContext {
     pub tools: ToolRegistry,
     pub policy: Arc<dyn ApprovalPolicy>,
     pub approval: Arc<dyn ApprovalTransport>,
+    /// Mutable authority issued during this execution binding. It is separate
+    /// from the identity/cancellation-only `ExecutionScope`.
+    pub permission_grants: Arc<ExecutionPermissionGrants>,
     pub patch: Arc<dyn PatchApplier>,
     pub execution_recorder: Arc<dyn ExecutionRecorder>,
 }
@@ -79,6 +83,7 @@ impl ExecutionContext {
             tools,
             policy,
             approval,
+            permission_grants: Arc::default(),
             patch,
             execution_recorder: Arc::new(NoopExecutionRecorder),
         }
@@ -91,6 +96,13 @@ impl ExecutionContext {
 
     pub fn with_execution_recorder(mut self, recorder: Arc<dyn ExecutionRecorder>) -> Self {
         self.execution_recorder = recorder;
+        self
+    }
+
+    /// Attenuates authority for a narrower binding without creating a new
+    /// logical `ExecutionId` (for example, an isolated child agent).
+    pub fn with_fresh_permission_grants(mut self) -> Self {
+        self.permission_grants = Arc::default();
         self
     }
 

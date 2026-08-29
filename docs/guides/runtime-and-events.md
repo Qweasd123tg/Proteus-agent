@@ -931,7 +931,8 @@ pipeline, что и завершённое сообщение, но MathJax за
 пустым `UserInputResponse`; значение `0` отключает этот timeout и ждёт ответ
 пользователя до cancel или shutdown. Как и approvals, pending user inputs
 атрибуцированы и per-request scoped: `UserInputRequest.origin` несёт
-`RequestOrigin` (thread/turn + метка роли субагента), `UserInputRequest.seq` —
+`RequestOrigin` (`ExecutionId` + optional thread/turn + метка роли субагента),
+`UserInputRequest.seq` —
 порядок очереди, а watcher app-server-а убирает запись, когда запросивший
 умирает (cancel turn-а), не трогая pending user inputs других turn-ов;
 blanket-resolve остаётся только на shutdown (см.

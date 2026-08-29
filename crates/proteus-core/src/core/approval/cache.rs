@@ -7,15 +7,14 @@ use tokio::sync::Mutex;
 
 use crate::{
     contracts::{ApprovalCacheScope, ApprovalRequest, ApprovalResponse, ApprovalTransport},
-    domain::{ThreadId, ToolSafety},
+    domain::{ExecutionId, ThreadId, ToolSafety},
 };
 
-/// Session-таймлайн кеш approvals с thread-scoped ключом: approve,
-/// выданный одному исполняющему контексту (main loop или конкретный запуск
-/// субагента), не переиспользуется другим. Main thread стабилен на всю
-/// сессию, поэтому для основного цикла кеш работает как раньше; субагентный
-/// child-thread живёт один запуск — его approvals истекают вместе с ним.
-/// Запросы без origin (например, transport-level тесты) образуют собственный bucket.
+/// Session-таймлайн кеш approvals. Agent requests сохраняют прежний
+/// thread-scoped ключ, поэтому main-loop cache переживает несколько Turn, а
+/// child-thread остаётся изолирован. Detached requests без chat projection
+/// разделяются по `ExecutionId`; запросы вообще без origin образуют отдельный
+/// unattributed bucket.
 #[derive(Clone)]
 pub struct CachedApprovalTransport {
     inner: Arc<dyn ApprovalTransport>,
@@ -87,9 +86,7 @@ fn metadata_disables_cache(request: &ApprovalRequest) -> bool {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ApprovalCacheKey {
-    /// Thread запросившего (`None` — запрос без origin). Часть ключа:
-    /// approve одного thread-а не действует для другого.
-    thread_id: Option<ThreadId>,
+    origin: ApprovalCacheOrigin,
     tool_name: String,
     cwd: PathBuf,
     args: Option<String>,
@@ -97,22 +94,40 @@ struct ApprovalCacheKey {
 
 impl ApprovalCacheKey {
     fn from_request(request: &ApprovalRequest, scope: ApprovalCacheScope) -> Option<Self> {
-        let thread_id = request.origin.as_ref().map(|origin| origin.thread_id);
+        let origin = ApprovalCacheOrigin::from_request(request);
         match scope {
             ApprovalCacheScope::None => None,
             ApprovalCacheScope::ExactCall | ApprovalCacheScope::ExactCommand => Some(Self {
-                thread_id,
+                origin,
                 tool_name: request.call.name.clone(),
                 cwd: request.cwd.clone(),
                 args: Some(canonical_json(&request.call.args)),
             }),
             ApprovalCacheScope::WorkspaceWrite => Some(Self {
-                thread_id,
+                origin,
                 tool_name: request.call.name.clone(),
                 cwd: request.cwd.clone(),
                 args: None,
             }),
             _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum ApprovalCacheOrigin {
+    AgentThread(ThreadId),
+    Execution(ExecutionId),
+    Unattributed,
+}
+
+impl ApprovalCacheOrigin {
+    fn from_request(request: &ApprovalRequest) -> Self {
+        match request.origin.as_ref() {
+            Some(origin) => origin
+                .thread_id
+                .map_or(Self::Execution(origin.execution_id), Self::AgentThread),
+            None => Self::Unattributed,
         }
     }
 }
@@ -338,15 +353,18 @@ mod tests {
     #[tokio::test]
     async fn cache_is_scoped_to_requesting_thread() {
         use crate::contracts::RequestOrigin;
-        use crate::domain::{new_thread_id, new_turn_id};
+        use crate::domain::{new_execution_id, new_thread_id, new_turn_id};
 
         let calls = Arc::new(AtomicUsize::new(0));
         let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
             calls: calls.clone(),
             cache: ApprovalCacheScope::ExactCall,
         }));
-        let main_origin = RequestOrigin::new(new_thread_id(), new_turn_id());
-        let child_origin = RequestOrigin::new(new_thread_id(), new_turn_id()).with_label("explore");
+        let main_origin =
+            RequestOrigin::for_turn(new_execution_id(), new_thread_id(), new_turn_id());
+        let child_origin =
+            RequestOrigin::for_turn(new_execution_id(), new_thread_id(), new_turn_id())
+                .with_label("explore");
 
         transport
             .request_approval(request("a.txt").with_origin(main_origin.clone()))
@@ -376,9 +394,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn request_permissions_approval_is_not_reused_across_turns() {
+    async fn agent_cache_keeps_thread_semantics_across_executions() {
         use crate::contracts::RequestOrigin;
-        use crate::domain::{new_thread_id, new_turn_id};
+        use crate::domain::{new_execution_id, new_thread_id, new_turn_id};
 
         let calls = Arc::new(AtomicUsize::new(0));
         let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
@@ -388,15 +406,88 @@ mod tests {
         let thread_id = new_thread_id();
 
         transport
+            .request_approval(request("a.txt").with_origin(RequestOrigin::for_turn(
+                new_execution_id(),
+                thread_id,
+                new_turn_id(),
+            )))
+            .await
+            .unwrap();
+        let cached = transport
+            .request_approval(request("a.txt").with_origin(RequestOrigin::for_turn(
+                new_execution_id(),
+                thread_id,
+                new_turn_id(),
+            )))
+            .await
+            .unwrap();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(cached.note.unwrap().contains("session cache"));
+    }
+
+    #[tokio::test]
+    async fn detached_cache_is_isolated_by_execution() {
+        use crate::contracts::RequestOrigin;
+        use crate::domain::new_execution_id;
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
+            calls: calls.clone(),
+            cache: ApprovalCacheScope::ExactCall,
+        }));
+        let execution_a = new_execution_id();
+        let execution_b = new_execution_id();
+
+        transport
             .request_approval(
-                request_permissions().with_origin(RequestOrigin::new(thread_id, new_turn_id())),
+                request("a.txt").with_origin(RequestOrigin::for_execution(execution_a)),
             )
             .await
             .unwrap();
         transport
             .request_approval(
-                request_permissions().with_origin(RequestOrigin::new(thread_id, new_turn_id())),
+                request("a.txt").with_origin(RequestOrigin::for_execution(execution_b)),
             )
+            .await
+            .unwrap();
+        let cached = transport
+            .request_approval(
+                request("a.txt").with_origin(RequestOrigin::for_execution(execution_a)),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert!(cached.note.unwrap().contains("session cache"));
+    }
+
+    #[tokio::test]
+    async fn request_permissions_approval_is_not_reused_across_turns() {
+        use crate::contracts::RequestOrigin;
+        use crate::domain::{new_execution_id, new_thread_id, new_turn_id};
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
+            calls: calls.clone(),
+            cache: ApprovalCacheScope::ExactCall,
+        }));
+        let thread_id = new_thread_id();
+
+        transport
+            .request_approval(request_permissions().with_origin(RequestOrigin::for_turn(
+                new_execution_id(),
+                thread_id,
+                new_turn_id(),
+            )))
+            .await
+            .unwrap();
+        transport
+            .request_approval(request_permissions().with_origin(RequestOrigin::for_turn(
+                new_execution_id(),
+                thread_id,
+                new_turn_id(),
+            )))
             .await
             .unwrap();
 
@@ -406,14 +497,14 @@ mod tests {
     #[tokio::test]
     async fn request_permissions_approval_is_not_reused_within_a_turn() {
         use crate::contracts::RequestOrigin;
-        use crate::domain::{new_thread_id, new_turn_id};
+        use crate::domain::{new_execution_id, new_thread_id, new_turn_id};
 
         let calls = Arc::new(AtomicUsize::new(0));
         let transport = CachedApprovalTransport::new(Arc::new(CountingApprovalTransport {
             calls: calls.clone(),
             cache: ApprovalCacheScope::ExactCall,
         }));
-        let origin = RequestOrigin::new(new_thread_id(), new_turn_id());
+        let origin = RequestOrigin::for_turn(new_execution_id(), new_thread_id(), new_turn_id());
 
         transport
             .request_approval(request_permissions().with_origin(origin.clone()))

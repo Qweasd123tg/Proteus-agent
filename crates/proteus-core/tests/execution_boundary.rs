@@ -16,6 +16,52 @@ fn workspace_file(path: &str) -> String {
         .to_string()
 }
 
+#[test]
+fn permission_grants_are_bound_to_one_execution_context() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let assembly =
+        PreparedAssembly::from_config(AppConfig::default(), workspace.path().to_path_buf(), None)
+            .expect("prepared assembly");
+    let snapshot = RuntimeSnapshot::new(ModuleEpoch::initial(), assembly, None);
+    let execution_a = snapshot.registry.execution_context(
+        proteus_core::core::ModelExecutionBinding::detached(ExecutionScope::fresh(
+            CancellationToken::new(),
+        )),
+        Arc::new(HeadlessApprovalTransport),
+        PermissionMode::Normal,
+    );
+    let execution_b = snapshot.registry.execution_context(
+        proteus_core::core::ModelExecutionBinding::detached(ExecutionScope::fresh(
+            CancellationToken::new(),
+        )),
+        Arc::new(HeadlessApprovalTransport),
+        PermissionMode::Normal,
+    );
+
+    execution_a
+        .permission_grants
+        .grant(["escalated_exec".to_owned()]);
+    let child_binding = execution_a
+        .clone()
+        .with_fresh_permission_grants()
+        .with_cancellation(execution_a.scope.cancellation.child_token());
+
+    assert_eq!(
+        execution_a.permission_grants.snapshot(),
+        vec!["escalated_exec"]
+    );
+    assert!(execution_b.permission_grants.snapshot().is_empty());
+    assert!(child_binding.permission_grants.snapshot().is_empty());
+    assert_eq!(
+        child_binding.scope.execution_id,
+        execution_a.scope.execution_id
+    );
+    assert_ne!(
+        execution_a.scope.execution_id,
+        execution_b.scope.execution_id
+    );
+}
+
 fn process_search_config() -> AppConfig {
     let component: ProcessComponentConfig = serde_json::from_value(json!({
         "command": "sh",

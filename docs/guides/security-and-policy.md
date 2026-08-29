@@ -368,11 +368,12 @@ shutdown. При shutdown app-server отклоняет все pending approvals
 
 Очередь pending approvals атрибуцирована и per-request scoped:
 
-- `ApprovalRequest.origin` несёт `RequestOrigin` — `thread_id`/`turn_id`
-  исполняющего контекста и optional `label` — субагентный runner ставит туда
-  имя роли через `AgentWorkflowContext.thread_label`. На wire
-  (`AppApprovalRequest.origin`) attribution опциональна: старые клиенты и
-  серверы совместимы.
+- `ApprovalRequest.origin` несёт `RequestOrigin`: mandatory `execution_id`,
+  optional agent projection `thread_id`/`turn_id` и optional `label` —
+  субагентный runner ставит туда имя роли через
+  `AgentWorkflowContext.thread_label`. Само поле origin в
+  `AppApprovalRequest` остаётся optional для transport-level запросов, но при
+  наличии использует только актуальную execution-owned wire shape.
 - `AppApprovalRequest.seq` — монотонный порядковый номер очереди; `GET
   /pending` и web-клиент сортируют pending approvals по нему, а не по
   случайному UUID.
@@ -514,29 +515,30 @@ network/dangerous tools не появляются у модели без явн�
 ### Approval-gated grants и request_permissions
 
 `policy-pack` регистрирует tool `request_permissions`: модель заранее просит
-turn-scoped эскалацию (сейчас поддерживается только `escalated_exec` —
+execution-bound эскалацию (сейчас поддерживается только `escalated_exec` —
 unsandboxed запуск `shell`/`exec_command`). Механизм генерический и живёт в
-contracts (`TurnPermissionGrants`): если tool call прошёл через явный user
+contracts (`ExecutionPermissionGrants`): если tool call прошёл через явный user
 approval и его успешный результат содержит `metadata.granted_permissions`,
-core мержит эти строки в гранты текущего хода и передаёт их в
+core мержит эти строки в grant store текущего execution binding и передаёт их в
 `PolicyContext::granted_permissions`. `codex_policy` при виде гранта
 `escalated_exec` пропускает эскалированные вызовы из `allow_sandboxed` без
 повторного Ask.
 
-Гранты не переживают ход: `AgentWorkflowContext` создаётся на каждый ход заново.
+Новый Turn создаёт новый `ExecutionContext`, поэтому его гранты не переживают
+ход.
 Core учитывает `granted_permissions` только на approved-пути, поэтому
 `request_permissions` обязан стоять в `ask_before` — сам approval и есть
 выдача гранта. Approval этого tool-а не кэшируется ни между turns, ни внутри
 одного turn. Tool в `allow`-списке выдать грант сам себе не может.
 
-Это также текущая ownership boundary: `TurnPermissionGrants` и
-`RequestOrigin` привязаны к `TurnId`. Реализованный context split оставляет
-`turn_grants` в `AgentWorkflowContext`; перенос grants/approval attribution на
-`ExecutionId` отложен до отдельной Phase 5 и не входит в Phase 0–2. См.
-[roadmap.md](../product/roadmap.md#executionscope-migration).
+После Phase 5 grant store принадлежит `ExecutionContext`, а `RequestOrigin`
+всегда содержит `ExecutionId`. Agent layer добавляет optional `ThreadId`,
+`TurnId` и label для UI; detached approval не фабрикует chat identity.
+`ApprovalPolicy` и `ApprovalTransport` traits при этом не менялись. См.
+[roadmap.md](../product/roadmap.md#phase-5--execution-scoped-authority-и-approval-origin).
 
-Субагенты изолированы структурно: дочерний контекст получает пустые
-`turn_grants`, поэтому `escalated_exec` родителя не протекает в ребёнка, а
+Субагенты изолированы структурно: дочерний execution binding получает свежий
+`ExecutionPermissionGrants`, поэтому `escalated_exec` родителя не протекает в ребёнка, а
 гранты, выданные ребёнку через его собственный approval, не видны
 родительскому ходу.
 

@@ -158,7 +158,7 @@ pub(crate) struct PolicyContextDto {
     #[serde(default)]
     pub(crate) config: Value,
     /// Turn-scoped approval-gated гранты, которые ядро собрало из одобренных
-    /// tool results (см. contracts `TurnPermissionGrants`).
+    /// tool results (см. contracts `ExecutionPermissionGrants`).
     #[serde(default)]
     pub(crate) granted_permissions: Vec<String>,
 }

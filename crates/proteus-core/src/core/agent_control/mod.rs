@@ -108,7 +108,7 @@ fn requested_agent_target(request: &AgentControlRequest) -> Result<Option<AgentA
 }
 
 /// Контекст process peer-а поверх родительского: собственный `thread_id`,
-/// role label для attribution, пустые turn-scoped grants и отдельный child
+/// role label для attribution, отдельный attenuated grant store и child
 /// cancellation token. Parent cancellation каскадируется ребёнку, targeted
 /// cancel ребёнка не затрагивает parent turn и соседние процессы.
 fn child_context(
@@ -119,7 +119,9 @@ fn child_context(
     let mut child_ctx = ctx.clone();
     child_ctx.thread_id = child_thread_id;
     child_ctx.thread_label = Some(role_name.to_owned());
-    child_ctx.turn_grants = Arc::default();
-    child_ctx.execution.scope = ctx.execution.scope.child_cancellation_scope();
+    child_ctx.execution = child_ctx
+        .execution
+        .with_fresh_permission_grants()
+        .with_cancellation(ctx.execution.scope.cancellation.child_token());
     child_ctx
 }

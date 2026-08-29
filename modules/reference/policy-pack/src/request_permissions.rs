@@ -4,7 +4,7 @@
 //! `metadata.granted_permissions`. Грант становится действительным только
 //! потому, что ядро мержит `granted_permissions` исключительно из результатов
 //! вызовов, прошедших явный user approval (см. contracts
-//! `TurnPermissionGrants`). Поэтому в конфигурации policy этот tool обязан
+//! `ExecutionPermissionGrants`). Поэтому в конфигурации policy этот tool обязан
 //! стоять в `ask_before`: сам approval и есть выдача гранта.
 
 use proteus_contracts::{

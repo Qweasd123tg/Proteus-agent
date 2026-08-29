@@ -248,8 +248,8 @@ Phase 2 удалила прежний 26-field `RuntimeContext` без alias и�
 
 | Owner | Текущие поля |
 |---|---|
-| `ExecutionContext` | `scope`, `model_timeout_ms`, `model`, `search`, `memory`, `tools`, `policy`, `approval`, `patch`, `execution_recorder` |
-| `AgentWorkflowContext` | `tool_recorder`, `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `reasoning`, `context_timeout_ms`, `events`, `context`, `user_input`, `compactor`, `tool_exposure`, `agent_control`, queued messages, `turn_grants`, `thread_label` |
+| `ExecutionContext` | `scope`, `model_timeout_ms`, `model`, `search`, `memory`, `tools`, `policy`, `approval`, `permission_grants`, `patch`, `execution_recorder` |
+| `AgentWorkflowContext` | `tool_recorder`, `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `reasoning`, `context_timeout_ms`, `events`, `context`, `user_input`, `compactor`, `tool_exposure`, `agent_control`, queued messages, `thread_label` |
 
 `ExecutionContext` является проверенной migration structure, но не объявлен
 конечной ambient API-моделью. Process-backed `SearchBackend` уже вызывается
@@ -259,9 +259,10 @@ typed execution-bound capabilities.
 
 `ContextBuilder` остаётся agent-specific: `ContextBuildInput` обязательно
 содержит `AgentTask`. Сами `SearchBackend` и `MemoryStore` этого требования не
-имеют. `ApprovalPolicy` также не принимает Turn; coupling находится в
-`TurnPermissionGrants`, `RequestOrigin`, `ToolInvocationOwner`, recorder calls
-и общем context-е.
+имеют. `ApprovalPolicy` также не принимает Turn. Phase 5 перенесла
+`ExecutionPermissionGrants` в execution context и сделала chat projection в
+`RequestOrigin` optional; оставшийся coupling находится в
+`ToolInvocationOwner`, agent tool recorder calls и orchestrator context-е.
 
 Phase 3 убрала mutable current attribution из shared `ModelService`. Registry
 хранит один stateless относительно execution provider service, а каждый Turn
@@ -371,7 +372,7 @@ queue и cancellation token journal не восстанавливает.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–4 реализованы; review перед approval/grants Phase 5**.
+Статус: **Phase 0–5 реализованы; review перед generic tools Phase 6**.
 
 Принято направление отделить generic workload identity/lifecycle boundary от
 conversation Turn без переписывания agent loop или process protocol:

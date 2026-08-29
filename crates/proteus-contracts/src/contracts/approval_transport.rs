@@ -4,26 +4,69 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
-use crate::domain::{ThreadId, ToolCall, ToolSpec, TurnId};
+use crate::domain::{ExecutionId, ThreadId, ToolCall, ToolSpec, TurnId};
 
 /// Attribution of a control-plane request (approval, user input) to the
-/// execution context that asked for it. `label` carries a human-readable
-/// source name (e.g. child agent profile) when the requesting thread is not the
-/// main turn loop.
+/// execution that asked for it. Chat projection is optional; `label` carries a
+/// human-readable source name when an agent child is the requester.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "RequestOriginWire")]
 #[non_exhaustive]
 pub struct RequestOrigin {
-    pub thread_id: ThreadId,
-    pub turn_id: TurnId,
+    pub execution_id: ExecutionId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<ThreadId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<TurnId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RequestOriginWire {
+    execution_id: ExecutionId,
+    #[serde(default)]
+    thread_id: Option<ThreadId>,
+    #[serde(default)]
+    turn_id: Option<TurnId>,
+    #[serde(default)]
+    label: Option<String>,
+}
+
+impl TryFrom<RequestOriginWire> for RequestOrigin {
+    type Error = String;
+
+    fn try_from(wire: RequestOriginWire) -> std::result::Result<Self, Self::Error> {
+        if wire.thread_id.is_some() != wire.turn_id.is_some() {
+            return Err(
+                "request origin chat projection requires both thread_id and turn_id".into(),
+            );
+        }
+        Ok(Self {
+            execution_id: wire.execution_id,
+            thread_id: wire.thread_id,
+            turn_id: wire.turn_id,
+            label: wire.label,
+        })
+    }
+}
+
 impl RequestOrigin {
-    pub fn new(thread_id: ThreadId, turn_id: TurnId) -> Self {
+    pub fn for_execution(execution_id: ExecutionId) -> Self {
         Self {
-            thread_id,
-            turn_id,
+            execution_id,
+            thread_id: None,
+            turn_id: None,
+            label: None,
+        }
+    }
+
+    pub fn for_turn(execution_id: ExecutionId, thread_id: ThreadId, turn_id: TurnId) -> Self {
+        Self {
+            execution_id,
+            thread_id: Some(thread_id),
+            turn_id: Some(turn_id),
             label: None,
         }
     }
@@ -173,6 +216,51 @@ pub trait ApprovalTransport: Send + Sync {
     fn can_request_approval(&self) -> bool;
 
     async fn request_approval(&self, request: ApprovalRequest) -> Result<ApprovalResponse>;
+}
+
+#[cfg(test)]
+mod origin_tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::domain::{new_execution_id, new_thread_id, new_turn_id};
+
+    #[test]
+    fn detached_request_origin_needs_no_chat_identity() {
+        let execution_id = new_execution_id();
+        let origin = RequestOrigin::for_execution(execution_id);
+
+        assert_eq!(origin.execution_id, execution_id);
+        assert_eq!(origin.thread_id, None);
+        assert_eq!(origin.turn_id, None);
+        assert_eq!(
+            serde_json::to_value(origin).expect("serialize detached origin"),
+            json!({ "execution_id": execution_id })
+        );
+    }
+
+    #[test]
+    fn agent_request_origin_preserves_execution_and_chat_projection() {
+        let execution_id = new_execution_id();
+        let thread_id = new_thread_id();
+        let turn_id = new_turn_id();
+        let origin = RequestOrigin::for_turn(execution_id, thread_id, turn_id);
+
+        assert_eq!(origin.execution_id, execution_id);
+        assert_eq!(origin.thread_id, Some(thread_id));
+        assert_eq!(origin.turn_id, Some(turn_id));
+    }
+
+    #[test]
+    fn request_origin_rejects_partial_chat_projection() {
+        let error = serde_json::from_value::<RequestOrigin>(json!({
+            "execution_id": new_execution_id(),
+            "thread_id": new_thread_id(),
+        }))
+        .expect_err("partial chat projection must fail");
+
+        assert!(error.to_string().contains("requires both"));
+    }
 }
 
 #[cfg(test)]

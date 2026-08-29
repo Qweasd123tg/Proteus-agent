@@ -514,7 +514,8 @@ mod tests {
 
     use super::*;
     use crate::domain::{
-        Event, EventContext, EventEnvelope, new_call_id, new_session_id, new_thread_id, new_turn_id,
+        Event, EventContext, EventEnvelope, new_call_id, new_execution_id, new_session_id,
+        new_thread_id, new_turn_id,
     };
 
     #[test]
@@ -538,8 +539,12 @@ mod tests {
     /// Attribution и порядок очереди переживают wire-сериализацию.
     #[test]
     fn approval_request_roundtrips_origin_and_seq() {
-        let origin = crate::contracts::RequestOrigin::new(new_thread_id(), new_turn_id())
-            .with_label("explore");
+        let origin = crate::contracts::RequestOrigin::for_turn(
+            new_execution_id(),
+            new_thread_id(),
+            new_turn_id(),
+        )
+        .with_label("explore");
         let request = AppApprovalRequest::new(
             "approval-1".to_owned(),
             ToolCall::new(new_call_id(), "shell", json!({ "command": "cargo test" })),
@@ -562,8 +567,12 @@ mod tests {
     /// approvals.
     #[test]
     fn user_input_request_roundtrips_origin_and_seq() {
-        let origin = crate::contracts::RequestOrigin::new(new_thread_id(), new_turn_id())
-            .with_label("explore");
+        let origin = crate::contracts::RequestOrigin::for_turn(
+            new_execution_id(),
+            new_thread_id(),
+            new_turn_id(),
+        )
+        .with_label("explore");
         let request = UserInputRequest::new("input-1", PathBuf::from("/workspace"), Vec::new())
             .with_origin(origin.clone())
             .with_seq(7);

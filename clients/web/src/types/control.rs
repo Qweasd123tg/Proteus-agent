@@ -32,7 +32,7 @@ pub(crate) struct ApprovalRequestInfo {
     pub(crate) reason: String,
     pub(crate) tool_spec: Option<Value>,
     pub(crate) preview: Option<ApprovalPreviewInfo>,
-    /// Атрибуция запроса: thread/turn + метка источника (роль субагента).
+    /// Execution attribution с optional agent presentation.
     pub(crate) origin: Option<RequestOriginInfo>,
     /// Порядковый номер в очереди approvals.
     pub(crate) seq: u64,
@@ -40,8 +40,9 @@ pub(crate) struct ApprovalRequestInfo {
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 pub(crate) struct RequestOriginInfo {
-    pub(crate) thread_id: String,
-    pub(crate) turn_id: String,
+    pub(crate) execution_id: String,
+    pub(crate) thread_id: Option<String>,
+    pub(crate) turn_id: Option<String>,
     pub(crate) label: Option<String>,
 }
 
@@ -80,7 +81,7 @@ pub(crate) struct UserInputRequestInfo {
     pub(crate) cwd: String,
     pub(crate) title: Option<String>,
     pub(crate) questions: Vec<UserInputQuestion>,
-    /// Атрибуция запроса: thread/turn + метка источника (роль субагента).
+    /// Execution attribution с optional agent presentation.
     pub(crate) origin: Option<RequestOriginInfo>,
     /// Порядковый номер в очереди user inputs.
     pub(crate) seq: u64,

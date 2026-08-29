@@ -179,7 +179,7 @@ impl ToolOrchestrator {
                     let result = self.invoke_allowed(ctx, task, &call, tool_spec).await?;
                     // Approval-gated grants: только результат явно одобренного
                     // вызова может выдать turn-scoped права (см. contracts
-                    // TurnPermissionGrants).
+                    // ExecutionPermissionGrants).
                     merge_granted_permissions(ctx, &result);
                     return Ok(result);
                 }
@@ -253,7 +253,7 @@ impl ToolOrchestrator {
         ctx.execution.policy.evaluate(
             call,
             &PolicyContext::new(cwd.to_path_buf(), Some(spec))
-                .with_granted_permissions(ctx.turn_grants.snapshot()),
+                .with_granted_permissions(ctx.execution.permission_grants.snapshot()),
         )
     }
 
@@ -421,7 +421,8 @@ fn visibility_decision_allows(
 /// (`thread_label`) приходит от субагентного runner-а и остаётся `None` для
 /// основного цикла.
 fn request_origin(ctx: &AgentWorkflowContext) -> RequestOrigin {
-    let origin = RequestOrigin::new(ctx.thread_id, ctx.turn_id);
+    let origin =
+        RequestOrigin::for_turn(ctx.execution.scope.execution_id, ctx.thread_id, ctx.turn_id);
     match &ctx.thread_label {
         Some(label) => origin.with_label(label.clone()),
         None => origin,
@@ -541,7 +542,7 @@ fn merge_granted_permissions(ctx: &AgentWorkflowContext, result: &ToolResult) {
     let Some(permissions) = permissions.as_array() else {
         return;
     };
-    ctx.turn_grants.grant(
+    ctx.execution.permission_grants.grant(
         permissions
             .iter()
             .filter_map(Value::as_str)

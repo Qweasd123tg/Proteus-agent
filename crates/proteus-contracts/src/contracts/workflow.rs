@@ -11,7 +11,7 @@ use crate::{
     contracts::{
         AgentControl, AgentToolRecorder, CancellationToken, ContextBuilder, EventEmitter,
         ExecutionContext, HistoryCompactor, NoopAgentToolRecorder, ToolExposure,
-        TurnPermissionGrants, UserInputTransport,
+        UserInputTransport,
     },
     domain::{
         AgentOutput, AgentTask, Event, EventContext, HistoryCompactionReport, ModelRef,
@@ -160,9 +160,6 @@ pub struct AgentWorkflowContext {
     /// Workflow не управляет доставкой: core меняет счётчик и вставляет
     /// сообщения на model boundary самостоятельно.
     pub queued_user_messages: Arc<AtomicUsize>,
-    /// Turn-scoped permission grants: контекст создаётся на каждый ход
-    /// заново, поэтому гранты не переживают ход (см. `TurnPermissionGrants`).
-    pub turn_grants: Arc<TurnPermissionGrants>,
     /// Человекочитаемая метка исполняющего thread-а для attribution
     /// (approvals, клиентский UX). `None` — основной цикл turn-а; субагентный
     /// runner ставит имя роли.
@@ -203,7 +200,6 @@ impl AgentWorkflowContext {
             tool_exposure,
             agent_control,
             queued_user_messages: Arc::new(AtomicUsize::new(0)),
-            turn_grants: Arc::default(),
             thread_label: None,
         }
     }

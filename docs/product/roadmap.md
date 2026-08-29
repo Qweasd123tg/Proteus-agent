@@ -24,13 +24,13 @@ journal/replay evidence и `v0.1.0-alpha.1` уже завершены. Roadmap �
 [releases/v0.1.0-alpha.1.md](../releases/v0.1.0-alpha.1.md).
 
 Следующее принятое направление — минимальная `ExecutionScope` migration,
-описанная ниже. Phase 0–4 реализованы; перед approval/grants Phase 5 действует
+описанная ниже. Phase 0–5 реализованы; перед generic tools Phase 6 действует
 обязательная остановка на review. Остальные разделы остаются
 вариантами последующей работы, а не автоматической очередью.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–4 реализованы; остановка перед Phase 5**.
+Статус: **Phase 0–5 реализованы; остановка перед Phase 6**.
 
 Supporting evidence, не заменяющий этот roadmap:
 [source-level audit](../research/execution-scope-source-audit-2026-08-27.md) и
@@ -42,8 +42,9 @@ Core уже не владеет конкретным agent loop: последо�
 выбирает `Workflow`. До Phase 2 общий `RuntimeContext` требовал conversation
 identity и смешивал reusable runtime capabilities с agent/chat-specific
 policy. Structural context split и durable model/tool execution attribution
-выполнены. Agent-shaped `ToolOrchestrator`, approvals/grants и presentation
-events всё ещё используют Turn identities.
+выполнены. Grants и approval origin уже execution-owned; agent-shaped
+`ToolOrchestrator`, tool owner и presentation events всё ещё используют Turn
+identities.
 
 Цель ближайшей итерации — ввести generic workload identity/lifecycle boundary
 и проверить честное разделение context ownership, не меняя существующее
@@ -235,8 +236,8 @@ handles или удаляется. Сам факт успешной компил
 
 | Owner | Поля прежнего `RuntimeContext` |
 |---|---|
-| `ExecutionContext` | `scope`, `model_timeout_ms`, `model`, `search`, `memory`, `tools`, `policy`, `approval`, `patch`, `execution_recorder` |
-| `AgentWorkflowContext` | `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `reasoning`, `context_timeout_ms`, `events`, `context`, `user_input`, `compactor`, `tool_exposure`, `agent_control`, `queued_user_messages`, `turn_grants`, `thread_label` |
+| `ExecutionContext` | `scope`, `model_timeout_ms`, `model`, `search`, `memory`, `tools`, `policy`, `approval`, `permission_grants`, `patch`, `execution_recorder` |
+| `AgentWorkflowContext` | `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `reasoning`, `context_timeout_ms`, `events`, `context`, `user_input`, `compactor`, `tool_exposure`, `agent_control`, `queued_user_messages`, `thread_label` |
 
 Таблица не является квотой на поля. Перед переносом каждой dependency нужно
 проверить, может ли meaningful non-agent consumer использовать её без chat
@@ -259,9 +260,9 @@ AgentWorkflowContext -> ExecutionContext -> ExecutionScope
   genericize-ится;
 - reasoning defaults, instructions, tool exposure, compactor, queued user
   input и presentation events являются controller/chat policy;
-- `ApprovalPolicy` сам по себе reusable, но current `TurnPermissionGrants` и
-  `RequestOrigin` остаются Turn-coupled; поэтому `turn_grants` временно живёт в
-  agent wrapper до отдельной Phase 5;
+- `ApprovalPolicy` reusable; Phase 5 перенесла
+  `ExecutionPermissionGrants` в execution context, а `RequestOrigin` теперь
+  всегда несёт `ExecutionId` и лишь опционально chat projection;
 - в Phase 2 recorder handle был допущен в generic context с явным chat debt;
   Phase 4A удалила chat IDs из `ExecutionRecorder`, а прежние tool methods
   перенесла в agent-specific `AgentToolRecorder`;
@@ -694,6 +695,49 @@ Phase 4A implementation baseline:
 `ade7f85a95b6d716e0185c2357dc3eaf2ec6563f`. Phase 4B не ввела approval,
 generic tools, process lineage или terminal execution protocol; эти решения
 остаются за следующими отдельными review.
+
+### Phase 5 — Execution-Scoped Authority И Approval Origin
+
+Статус: **реализовано 2026-08-29; review перед Phase 6**.
+
+Phase 5 устранила обязательный Turn из dynamic grants и control-plane
+attribution, не переписывая `ApprovalPolicy`, transports или process contract
+authority:
+
+- `TurnPermissionGrants` удалён и заменён на
+  `ExecutionPermissionGrants` без legacy alias;
+- grant store принадлежит `ExecutionContext`, а не
+  `AgentWorkflowContext`; каждый новый execution context получает отдельный
+  store;
+- более узкий child-agent binding с тем же logical `ExecutionId` получает
+  свежий attenuated store: родительская authority не наследуется
+  автоматически;
+- `RequestOrigin` всегда содержит `ExecutionId`, а `ThreadId`/`TurnId` и
+  human-readable label являются optional agent presentation;
+- detached approval/user-input origin строится без fake Session/Thread/Turn;
+- session approval cache сохраняет прежний agent key по `ThreadId`, поэтому
+  main-loop approvals могут переиспользоваться между Turn; detached requests
+  изолированы по `ExecutionId` вместо общего безымянного bucket-а.
+
+Phase 5 не genericize-ит `ToolOrchestrator`, не меняет tool/process DTO,
+`ProcessContractAuthority`, journal schema, events или `InvocationRef`.
+
+Stop-gates:
+
+- grants двух execution contexts не пересекаются;
+- detached `RequestOrigin` сериализуется только с `ExecutionId`;
+- normal agent origin сохраняет execution/thread/turn projection;
+- child agent получает отдельный grant store при сохранении logical
+  `ExecutionId`;
+- agent cache semantics и `request_permissions` cache opt-out не изменились;
+- Phase 6 начинается отдельным changeset после review.
+
+Verification checkpoint 2026-08-29: focused origin/grants/cache tests,
+`cargo fmt --all -- --check`, `cargo check --workspace`, полный
+`cargo test --workspace --no-fail-fast -- --quiet` и `clients/web` через
+`trunk build` прошли. Strict workspace clippy всё ещё блокируется только
+зафиксированными до Phase 5 lint-ами в code lines вне этого changeset;
+затронутые contracts не добавили новых diagnostics.
 
 ## Другие Направления
 

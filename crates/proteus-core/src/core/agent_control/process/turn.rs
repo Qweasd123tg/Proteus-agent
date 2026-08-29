@@ -90,7 +90,12 @@ impl ChildEventForwarder<'_> {
     }
 
     fn origin(&self) -> RequestOrigin {
-        RequestOrigin::new(self.child_thread_id, self.ctx.turn_id).with_label(self.role.clone())
+        RequestOrigin::for_turn(
+            self.ctx.execution.scope.execution_id,
+            self.child_thread_id,
+            self.ctx.turn_id,
+        )
+        .with_label(self.role.clone())
     }
 
     async fn forward_runtime_event(&self, event: Event) {
