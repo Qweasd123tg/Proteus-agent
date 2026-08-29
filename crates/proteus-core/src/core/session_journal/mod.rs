@@ -9,7 +9,8 @@ pub use storage::{DEFAULT_BLOB_THRESHOLD_BYTES, JOURNAL_FILE};
 pub use types::*;
 
 pub(crate) use storage::{
-    JournalWriterState, append_record, initialize_writer_state, journal_path, load_records,
+    JournalRecordAttribution, JournalWriterState, append_record, initialize_writer_state,
+    journal_path, load_records,
 };
 
 #[cfg(test)]

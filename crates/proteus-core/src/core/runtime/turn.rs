@@ -4,7 +4,7 @@ use anyhow::Result;
 use tokio::time::{Duration, timeout};
 
 use crate::{
-    contracts::{CancellationToken, ExecutionScope},
+    contracts::{CancellationToken, ExecutionAttribution, ExecutionScope},
     core::SessionConfigSnapshot,
     domain::{AgentOutput, AgentTask, Event, EventContext},
     model_standard::CanonicalMessage,
@@ -169,6 +169,12 @@ impl AgentRuntime {
         let execution_scope = ExecutionScope::fresh(cancellation.clone());
         self.ensure_session_started_with_snapshot(&snapshot).await?;
         let turn_id = reserved.turn_id;
+        let execution_attribution = ExecutionAttribution::for_turn(
+            execution_scope.execution_id,
+            self.session.session_id,
+            self.session.thread_id,
+            turn_id,
+        );
         let task = AgentTask::new(reserved.text.clone(), self.services.cwd.clone());
         if cancellation.is_cancelled() {
             return Err(TurnAbort::Canceled.into());
@@ -177,9 +183,8 @@ impl AgentRuntime {
         if let Some(session_store) = &self.session.session_store {
             let base_history_revision = session_store.load_projection()?.history_revision;
             session_store
-                .append_journal_entry(
-                    self.session.thread_id,
-                    Some(turn_id),
+                .append_execution_journal_entry(
+                    execution_attribution,
                     crate::core::JournalEntry::TurnOpened(crate::core::TurnOpened {
                         task: task.clone(),
                         base_history_revision,

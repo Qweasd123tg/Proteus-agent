@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::{Result, bail};
 use proteus_contracts::{
-    domain::{CallId, ExchangeId, PartId, RecordId, SessionId, ThreadId, TurnId},
+    domain::{CallId, ExchangeId, ExecutionId, PartId, RecordId, SessionId, ThreadId, TurnId},
     model_standard::{CanonicalMessage, CanonicalPart, PartScope},
 };
 
@@ -16,22 +16,31 @@ pub(crate) struct JournalValidationState {
     history_revision: u64,
     record_ids: HashSet<RecordId>,
     known_parts: HashMap<PartId, CanonicalPart>,
-    opened_turns: HashMap<TurnId, ThreadId>,
+    opened_turns: HashMap<TurnId, TurnLifecycle>,
+    execution_turns: HashMap<ExecutionId, TurnId>,
+    detached_executions: HashSet<ExecutionId>,
     settled_turns: HashSet<TurnId>,
-    model_requests: HashMap<ExchangeId, LifecycleOwner>,
+    model_requests: HashMap<ExchangeId, ExecutionFactOwner>,
     model_responses: HashSet<ExchangeId>,
     tool_calls: HashMap<CallId, ToolLifecycle>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct LifecycleOwner {
-    thread_id: ThreadId,
-    turn_id: TurnId,
+struct TurnLifecycle {
+    root_thread_id: ThreadId,
+    execution_id: ExecutionId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ExecutionFactOwner {
+    execution_id: ExecutionId,
+    thread_id: Option<ThreadId>,
+    turn_id: Option<TurnId>,
 }
 
 #[derive(Debug, Clone, Default)]
 struct ToolLifecycle {
-    owner: Option<LifecycleOwner>,
+    owner: Option<ExecutionFactOwner>,
     call: Option<proteus_contracts::domain::ToolCall>,
     approval_requested: bool,
     resolved: bool,
@@ -47,12 +56,30 @@ impl JournalValidationState {
         match &record.entry {
             JournalEntry::TurnOpened(opened) => {
                 let turn_id = required_turn_id(record)?;
+                let thread_id = required_thread_id(record)?;
+                let execution_id = required_execution_id(record)?;
                 if self
                     .opened_turns
-                    .insert(turn_id, record.thread_id)
+                    .insert(
+                        turn_id,
+                        TurnLifecycle {
+                            root_thread_id: thread_id,
+                            execution_id,
+                        },
+                    )
                     .is_some()
                 {
                     bail!("turn {turn_id} was opened more than once");
+                }
+                if self.detached_executions.contains(&execution_id) {
+                    bail!(
+                        "detached execution {execution_id} cannot later be bound to turn {turn_id}"
+                    );
+                }
+                if let Some(previous_turn) = self.execution_turns.insert(execution_id, turn_id) {
+                    bail!(
+                        "execution {execution_id} was already bound to turn {previous_turn}, cannot open turn {turn_id}"
+                    );
                 }
                 if opened.base_history_revision != self.history_revision {
                     bail!(
@@ -63,6 +90,7 @@ impl JournalValidationState {
                 }
             }
             JournalEntry::HistoryMutated(mutation) => {
+                reject_execution_id(record)?;
                 if record.turn_id.is_some() {
                     self.require_root_turn(record)?;
                 }
@@ -107,7 +135,7 @@ impl JournalValidationState {
                 self.history_revision = mutation.new_revision;
             }
             JournalEntry::ModelRequestRecorded(request) => {
-                let owner = self.require_open_turn(record)?;
+                let owner = self.require_execution_fact(record)?;
                 self.validate_part_id_stability(&request.request.messages)?;
                 if self
                     .model_requests
@@ -118,7 +146,7 @@ impl JournalValidationState {
                 }
             }
             JournalEntry::ModelResponseRecorded(response) => {
-                let owner = self.require_open_turn(record)?;
+                let owner = self.require_execution_fact(record)?;
                 let Some(request_owner) = self.model_requests.get(&response.exchange_id) else {
                     bail!(
                         "model response {} has no preceding request",
@@ -140,7 +168,7 @@ impl JournalValidationState {
                 }
             }
             JournalEntry::ToolCallRecorded(tool) => {
-                let owner = self.require_open_turn(record)?;
+                let owner = self.require_execution_fact(record)?;
                 let lifecycle = self.tool_calls.entry(tool.call.id.clone()).or_default();
                 match &tool.phase {
                     ToolCallRecordPhase::Requested => {
@@ -208,7 +236,7 @@ impl JournalValidationState {
                 }
             }
             JournalEntry::ToolResultRecorded(tool) => {
-                let owner = self.require_open_turn(record)?;
+                let owner = self.require_execution_fact(record)?;
                 let Some(lifecycle) = self.tool_calls.get_mut(&tool.result.call_id) else {
                     bail!("tool result {} has no preceding call", tool.result.call_id);
                 };
@@ -230,6 +258,7 @@ impl JournalValidationState {
                 lifecycle.result = true;
             }
             JournalEntry::TurnSettled(_) => {
+                reject_execution_id(record)?;
                 let turn_id = self.require_root_turn(record)?;
                 if !self.settled_turns.insert(turn_id) {
                     bail!("turn {turn_id} settled more than once");
@@ -260,37 +289,65 @@ impl JournalValidationState {
         Ok(())
     }
 
-    fn require_open_turn(&self, record: &JournalRecord) -> Result<LifecycleOwner> {
-        let turn_id = required_turn_id(record)?;
-        let Some(root_thread_id) = self.opened_turns.get(&turn_id) else {
-            bail!(
-                "journal record {} ({:?}) references turn {turn_id} before it was opened",
+    fn require_execution_fact(&mut self, record: &JournalRecord) -> Result<ExecutionFactOwner> {
+        let execution_id = required_execution_id(record)?;
+        match (record.thread_id, record.turn_id) {
+            (None, None) => {
+                if let Some(turn_id) = self.execution_turns.get(&execution_id) {
+                    bail!(
+                        "execution {execution_id} is bound to turn {turn_id} and cannot emit detached facts"
+                    );
+                }
+                self.detached_executions.insert(execution_id);
+                Ok(ExecutionFactOwner {
+                    execution_id,
+                    thread_id: None,
+                    turn_id: None,
+                })
+            }
+            (Some(thread_id), Some(turn_id)) => {
+                let Some(turn) = self.opened_turns.get(&turn_id) else {
+                    bail!(
+                        "journal record {} ({:?}) attributes execution {execution_id} to turn {turn_id} before it was opened",
+                        record.record_id,
+                        record.entry.kind()
+                    );
+                };
+                if turn.execution_id != execution_id {
+                    bail!(
+                        "journal record {} ({:?}) maps turn {turn_id} to execution {execution_id}, expected {}",
+                        record.record_id,
+                        record.entry.kind(),
+                        turn.execution_id
+                    );
+                }
+                if self.settled_turns.contains(&turn_id) && turn.root_thread_id == thread_id {
+                    bail!(
+                        "journal record {} ({:?}) references settled root turn {turn_id}",
+                        record.record_id,
+                        record.entry.kind()
+                    );
+                }
+                Ok(ExecutionFactOwner {
+                    execution_id,
+                    thread_id: Some(thread_id),
+                    turn_id: Some(turn_id),
+                })
+            }
+            _ => bail!(
+                "journal record {} ({:?}) must provide both thread_id and turn_id for agent attribution, or neither for detached execution",
                 record.record_id,
                 record.entry.kind()
-            );
-        };
-        // Background child threads may intentionally outlive the root turn
-        // that spawned them. Root lifecycle records stop at settlement, while
-        // already-attributed child model/tool facts remain appendable.
-        if self.settled_turns.contains(&turn_id) && root_thread_id == &record.thread_id {
-            bail!(
-                "journal record {} ({:?}) references settled root turn {turn_id}",
-                record.record_id,
-                record.entry.kind()
-            );
+            ),
         }
-        Ok(LifecycleOwner {
-            thread_id: record.thread_id,
-            turn_id,
-        })
     }
 
     fn require_root_turn(&self, record: &JournalRecord) -> Result<TurnId> {
         let turn_id = required_turn_id(record)?;
-        let Some(root_thread_id) = self.opened_turns.get(&turn_id) else {
+        let Some(turn) = self.opened_turns.get(&turn_id) else {
             bail!("turn {turn_id} settled or mutated history before it was opened");
         };
-        if root_thread_id != &record.thread_id {
+        if Some(turn.root_thread_id) != record.thread_id {
             bail!("turn {turn_id} root lifecycle changed thread_id");
         }
         if self.settled_turns.contains(&turn_id) {
@@ -383,6 +440,37 @@ fn required_turn_id(record: &JournalRecord) -> Result<TurnId> {
             record.entry.kind()
         )
     })
+}
+
+fn required_thread_id(record: &JournalRecord) -> Result<ThreadId> {
+    record.thread_id.ok_or_else(|| {
+        anyhow::anyhow!(
+            "journal record {} ({:?}) requires thread_id",
+            record.record_id,
+            record.entry.kind()
+        )
+    })
+}
+
+fn required_execution_id(record: &JournalRecord) -> Result<ExecutionId> {
+    record.execution_id.ok_or_else(|| {
+        anyhow::anyhow!(
+            "journal record {} ({:?}) requires execution_id",
+            record.record_id,
+            record.entry.kind()
+        )
+    })
+}
+
+fn reject_execution_id(record: &JournalRecord) -> Result<()> {
+    if record.execution_id.is_some() {
+        bail!(
+            "journal record {} ({:?}) is a chat/session lifecycle fact and must not carry execution_id",
+            record.record_id,
+            record.entry.kind()
+        );
+    }
+    Ok(())
 }
 
 fn validate_conversation_messages(messages: &[CanonicalMessage]) -> Result<()> {

@@ -1,13 +1,13 @@
 use proteus_contracts::{
     domain::{
-        AgentOutput, AgentTask, ExchangeId, HistoryCompactionReport, RecordId, SessionId, ThreadId,
-        ToolCall, ToolCallResolution, ToolResult, TurnId,
+        AgentOutput, AgentTask, ExchangeId, ExecutionId, HistoryCompactionReport, RecordId,
+        SessionId, ThreadId, ToolCall, ToolCallResolution, ToolResult, TurnId,
     },
     model_standard::{CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse},
 };
 use serde::{Deserialize, Serialize};
 
-pub const JOURNAL_SCHEMA_VERSION: u32 = 1;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -162,7 +162,8 @@ pub struct JournalRecord {
     pub session_seq: u64,
     pub timestamp_ms: i64,
     pub session_id: SessionId,
-    pub thread_id: ThreadId,
+    pub execution_id: Option<ExecutionId>,
+    pub thread_id: Option<ThreadId>,
     pub turn_id: Option<TurnId>,
     pub entry: JournalEntry,
 }

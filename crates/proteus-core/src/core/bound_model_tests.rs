@@ -7,7 +7,10 @@ use tokio::sync::{Barrier, Mutex};
 
 use super::*;
 use crate::{
-    contracts::{CancellationToken, EventSink, ExecutionRecorder, NoopExecutionRecorder},
+    contracts::{
+        CancellationToken, EventSink, ExecutionAttribution, ExecutionRecorder,
+        NoopExecutionRecorder,
+    },
     core::{JournalEntry, SessionExecutionRecorder, SessionStore, TurnOpened},
     domain::{AgentTask, EventEnvelope, new_session_id, new_thread_id, new_turn_id},
     model_standard::{CanonicalMessage, ContentPart, FinishReason, MessageRole},
@@ -279,11 +282,17 @@ async fn concurrent_bound_models_keep_metadata_events_and_journal_attribution_is
     let thread_b = new_thread_id();
     let turn_a = new_turn_id();
     let turn_b = new_turn_id();
-    for (thread_id, turn_id, case) in [(thread_a, turn_a, "A"), (thread_b, turn_b, "B")] {
+    let scope_a = ExecutionScope::fresh(CancellationToken::new());
+    let scope_b = ExecutionScope::fresh(CancellationToken::new());
+    let execution_a = scope_a.execution_id;
+    let execution_b = scope_b.execution_id;
+    for (execution_id, thread_id, turn_id, case) in [
+        (execution_a, thread_a, turn_a, "A"),
+        (execution_b, thread_b, turn_b, "B"),
+    ] {
         store
-            .append_journal_entry(
-                thread_id,
-                Some(turn_id),
+            .append_execution_journal_entry(
+                ExecutionAttribution::for_turn(execution_id, session_id, thread_id, turn_id),
                 JournalEntry::TurnOpened(TurnOpened {
                     task: AgentTask::new(case, workspace.path().to_path_buf()),
                     base_history_revision: 0,
@@ -302,10 +311,6 @@ async fn concurrent_bound_models_keep_metadata_events_and_journal_attribution_is
         requests: Mutex::new(Vec::new()),
     });
     let service = Arc::new(ModelService::new(adapter.clone()));
-    let scope_a = ExecutionScope::fresh(CancellationToken::new());
-    let scope_b = ExecutionScope::fresh(CancellationToken::new());
-    let execution_a = scope_a.execution_id;
-    let execution_b = scope_b.execution_id;
     let model_a = BoundModel::new(
         service.clone(),
         ModelExecutionBinding::for_turn(
@@ -393,7 +398,10 @@ async fn concurrent_bound_models_keep_metadata_events_and_journal_attribution_is
     for (record, recorded) in model_requests {
         assert_eq!(
             recorded.request.client_metadata["thread_id"],
-            record.thread_id.to_string()
+            record
+                .thread_id
+                .expect("agent thread attribution")
+                .to_string()
         );
         assert_eq!(
             recorded.request.client_metadata["turn_id"],

@@ -263,13 +263,14 @@ mod tests {
 
     use super::*;
     use crate::{
+        contracts::ExecutionAttribution,
         core::{
             ModelRequestRecorded, ModelResponseRecorded, ToolCallRecorded, ToolResultRecorded,
             TurnOpened, TurnSettled,
         },
         domain::{
             AgentOutput, AgentTask, ModelRef, ToolCallResolution, ToolResult, new_call_id,
-            new_exchange_id, new_session_id, new_thread_id, new_turn_id,
+            new_exchange_id, new_execution_id, new_session_id, new_thread_id, new_turn_id,
         },
         model_standard::{
             CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, FinishReason,
@@ -285,10 +286,15 @@ mod tests {
             .expect("store");
         let thread_id = new_thread_id();
         let turn_id = new_turn_id();
+        let attribution = ExecutionAttribution::for_turn(
+            new_execution_id(),
+            store.session_id(),
+            thread_id,
+            turn_id,
+        );
         store
-            .append_journal_entry(
-                thread_id,
-                Some(turn_id),
+            .append_execution_journal_entry(
+                attribution,
                 JournalEntry::TurnOpened(TurnOpened {
                     task: AgentTask::new("edit", workspace.path().to_path_buf()),
                     base_history_revision: 0,
@@ -304,9 +310,8 @@ mod tests {
             vec![CanonicalMessage::text(MessageRole::User, "edit")],
         );
         store
-            .append_journal_entry(
-                thread_id,
-                Some(turn_id),
+            .append_execution_journal_entry(
+                attribution,
                 JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                     exchange_id,
                     request,
@@ -321,9 +326,8 @@ mod tests {
         )
         .with_usage(TokenUsage::new(120, 30));
         store
-            .append_journal_entry(
-                thread_id,
-                Some(turn_id),
+            .append_execution_journal_entry(
+                attribution,
                 JournalEntry::ModelResponseRecorded(ModelResponseRecorded {
                     exchange_id,
                     outcome: ModelResponseOutcome::Response { response },
@@ -346,9 +350,8 @@ mod tests {
             },
         ] {
             store
-                .append_journal_entry(
-                    thread_id,
-                    Some(turn_id),
+                .append_execution_journal_entry(
+                    attribution,
                     JournalEntry::ToolCallRecorded(ToolCallRecorded {
                         call: call.clone(),
                         phase,
@@ -358,9 +361,8 @@ mod tests {
                 .expect("tool call phase");
         }
         store
-            .append_journal_entry(
-                thread_id,
-                Some(turn_id),
+            .append_execution_journal_entry(
+                attribution,
                 JournalEntry::ToolResultRecorded(ToolResultRecorded {
                     result: ToolResult::ok(call.id, "written"),
                 }),
@@ -404,10 +406,16 @@ mod tests {
         let store = SessionStore::new(config_dir.path(), workspace.path(), new_session_id())
             .expect("store");
         let turn_id = new_turn_id();
+        let thread_id = new_thread_id();
+        let attribution = ExecutionAttribution::for_turn(
+            new_execution_id(),
+            store.session_id(),
+            thread_id,
+            turn_id,
+        );
         store
-            .append_journal_entry(
-                new_thread_id(),
-                Some(turn_id),
+            .append_execution_journal_entry(
+                attribution,
                 JournalEntry::TurnOpened(TurnOpened {
                     task: AgentTask::new("crash", workspace.path().to_path_buf()),
                     base_history_revision: 0,

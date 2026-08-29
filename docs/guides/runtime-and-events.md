@@ -164,8 +164,11 @@ chain-of-thought и без `event_log.persist_deltas = true` не восстан
 Если runtime запущен с config path, рядом с config root создаётся дерево
 `sessions/<workspace>/<session>/` (подробно про layout, resume и lifecycle —
 раздел «Session Store» ниже). Source of truth — `journal.jsonl`, где одна
-строка является строгим record schema v1 с `record_id`, монотонным
-`session_seq`, timestamp, session/thread/turn ids, `kind` и payload.
+строка является строгим record schema v2 с `record_id`, монотонным
+`session_seq`, timestamp, mandatory session id, optional execution/thread/turn
+ids, `kind` и payload. `TurnOpened`, model и tool facts требуют
+`ExecutionId`; history/settlement остаются chat facts без execution owner.
+Detached execution facts имеют execution id, но не выдумывают thread/turn.
 
 Journal фиксирует `turn_opened`, revisioned `history_mutated`, точные shaped
 model request/terminal response, tool request/approval/resolution/result и
@@ -571,12 +574,12 @@ directory: она материализуется при первом canonical r
 находится в parent directory, а время создания/изменения берётся из metadata
 файловой системы. Новая session получает 10-значный numeric basename,
 детерминированный из внутреннего UUID; полный `SessionId` сохраняется в
-`session.json` schema v3 вместе с `journal_schema_version = 1`. Перед записью runtime
+`session.json` schema v4 вместе с `journal_schema_version = 2`. Перед записью runtime
 проверяет metadata, поэтому коллизия коротких имён завершается ошибкой и не
 смешивает histories.
 
 Reader принимает только basename из 10 ASCII-цифр с обязательным
-`session.json` schema v3. UUID-basename directories, schema v2 и неизвестные
+`session.json` schema v4. UUID-basename directories, schema v3 и неизвестные
 wire/storage формы отвергаются явно: pre-release cutover не содержит legacy
 decoder или dual-read. Старые локальные dogfood sessions следует вручную
 переместить целиком за пределы active `sessions/`, если их нужно сохранить как
@@ -589,7 +592,7 @@ registry. Поэтому перенос session directory под другой en
 session во время записи перемещать нельзя. Target workspace обязан
 существовать, а имя — быть canonical encoding его пути. Runtime builder
 получает identity и workspace из уже проверенного `SessionStore`; поле
-`workspace_path` в `session.json` schema v3 сохраняется как часть
+`workspace_path` в `session.json` schema v4 сохраняется как часть
 формата, но authoritative workspace остаётся encoded parent directory. Caller
 передаёт только session directory и новый `ThreadId`.
 
@@ -695,8 +698,9 @@ request с ними по умолчанию отклоняется до обра
 этими tools без фильтрации. Исходный journal всегда остаётся read-only; durable
 хранилища replay runs в v0 нет.
 
-Human report и JSON schema v1 (`--json`) содержат session/thread/turn/exchange
-ids, recorded/replay model, adapter, оба outcome и usage, text equality,
+Human report и JSON schema v2 (`--json`) содержат обязательные
+execution/exchange ids, optional session/thread/turn ids, recorded/replay
+model, adapter, оба outcome и usage, text equality,
 число local tool calls, hosted activities и citations, а также длительность
 adapter call. Несовпадение текста не меняет exit status само по себе:
 генерация может быть недетерминированной. Это prompt replay одного provider

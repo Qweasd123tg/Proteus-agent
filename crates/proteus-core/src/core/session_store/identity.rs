@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use crate::domain::SessionId;
 
 const SESSION_METADATA_FILE: &str = "session.json";
-const SESSION_SCHEMA_VERSION: u32 = 3;
-const JOURNAL_SCHEMA_VERSION: u32 = 1;
+const SESSION_SCHEMA_VERSION: u32 = 4;
+const JOURNAL_SCHEMA_VERSION: u32 = 2;
 const SHORT_SESSION_ID_MODULUS: u128 = 10_000_000_000;
 const SHORT_SESSION_ID_LEN: usize = 10;
 
@@ -81,7 +81,7 @@ pub(super) fn resolve_session_identity(session_dir: &Path) -> Result<ResolvedSes
 
     if !is_short_numeric_name(name) {
         bail!(
-            "session directory basename must be a 10-digit id for session schema v3: {}",
+            "session directory basename must be a 10-digit id for session schema v4: {}",
             session_dir.display()
         );
     }

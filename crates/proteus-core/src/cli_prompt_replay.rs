@@ -41,9 +41,24 @@ fn render_human_report(report: &PromptReplayReport) -> String {
         "Prompt replay report".to_owned(),
         format!("Source: {}", report.source.journal_path.display()),
         format!("Session: {}", report.source.session_id),
+        format!("Execution: {}", report.source.execution_id),
         format!("Exchange: {}", report.source.exchange_id),
-        format!("Thread: {}", report.source.thread_id),
-        format!("Turn: {}", report.source.turn_id),
+        format!(
+            "Thread: {}",
+            report
+                .source
+                .thread_id
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "detached".to_owned())
+        ),
+        format!(
+            "Turn: {}",
+            report
+                .source
+                .turn_id
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "detached".to_owned())
+        ),
         format!("Recorded model: {}", model_label(&report.recorded_model)),
         format!(
             "Replay model: {} (adapter={})",

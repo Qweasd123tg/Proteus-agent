@@ -9,8 +9,8 @@ use crate::{
         normalize_session_dir_path,
     },
     domain::{
-        CallId, ContextBundle, ContextChunk, ExchangeId, HistoryCompactionReport, SessionId,
-        ThreadId, ToolCall, ToolCallResolution, ToolResult, TurnId,
+        CallId, ContextBundle, ContextChunk, ExchangeId, ExecutionId, HistoryCompactionReport,
+        SessionId, ThreadId, ToolCall, ToolCallResolution, ToolResult, TurnId,
     },
     model_standard::{CanonicalMessage, CanonicalModelRequest, ContentPart, MessageRole},
 };
@@ -69,19 +69,20 @@ pub(super) fn load_fixture(
         )
     })?;
     let projection = store.load_projection()?;
-    let (turn_id, thread_id, opened) = select_turn(&projection.records, options.turn_id)?;
+    let (turn_id, thread_id, execution_id, opened) =
+        select_turn(&projection.records, options.turn_id)?;
     let snapshot = parse_snapshot(&opened, turn_id)?;
     let (settlement, compactions) =
         select_settlement_and_compactions(&projection.records, turn_id, thread_id)?;
     ensure_replayable_settlement(turn_id, &settlement)?;
     let history = select_history(&projection.records, turn_id, thread_id, &opened)?;
-    let exchanges = select_exchanges(&projection.records, turn_id, thread_id)?;
+    let exchanges = select_exchanges(&projection.records, execution_id, thread_id)?;
     if exchanges.is_empty() {
         bail!(
             "turn {turn_id} contains no completed root model exchanges; workflow replay needs at least one recorded model outcome"
         );
     }
-    let tools = select_tools(&projection.records, turn_id, thread_id)?;
+    let tools = select_tools(&projection.records, execution_id, thread_id)?;
     let context = recorded_context(&exchanges[0].request, &settlement);
 
     Ok(WorkflowReplayFixture {
@@ -104,14 +105,19 @@ pub(super) fn load_fixture(
 fn select_turn(
     records: &[JournalRecord],
     requested_id: Option<TurnId>,
-) -> Result<(TurnId, ThreadId, TurnOpened)> {
+) -> Result<(TurnId, ThreadId, ExecutionId, TurnOpened)> {
     let turns = records
         .iter()
-        .filter_map(|record| match (&record.entry, record.turn_id) {
-            (JournalEntry::TurnOpened(opened), Some(turn_id)) => {
-                Some((turn_id, record.thread_id, opened.clone()))
-            }
-            _ => None,
+        .filter_map(|record| {
+            let JournalEntry::TurnOpened(opened) = &record.entry else {
+                return None;
+            };
+            Some((
+                record.turn_id?,
+                record.thread_id?,
+                record.execution_id?,
+                opened.clone(),
+            ))
         })
         .collect::<Vec<_>>();
     if turns.is_empty() {
@@ -119,13 +125,13 @@ fn select_turn(
     }
     let available = turns
         .iter()
-        .map(|(turn_id, _, _)| turn_id.to_string())
+        .map(|(turn_id, _, _, _)| turn_id.to_string())
         .collect::<Vec<_>>()
         .join(", ");
     match requested_id {
         Some(turn_id) => turns
             .into_iter()
-            .find(|(candidate, _, _)| *candidate == turn_id)
+            .find(|(candidate, _, _, _)| *candidate == turn_id)
             .ok_or_else(|| {
                 anyhow!("turn {turn_id} was not found; available turn IDs: {available}")
             }),
@@ -211,7 +217,7 @@ fn select_history(
                 );
             }
             apply_history_mutation(&mut history, &mut revision, mutation)?;
-            if record.turn_id == Some(turn_id) && record.thread_id == thread_id {
+            if record.turn_id == Some(turn_id) && record.thread_id == Some(thread_id) {
                 if initial.is_none() {
                     if mutation.mutation != HistoryMutationKind::Append {
                         bail!("turn {turn_id} did not begin with a persisted user-message append");
@@ -233,7 +239,7 @@ fn select_history(
 
         if matches!(&record.entry, JournalEntry::TurnSettled(_))
             && record.turn_id == Some(turn_id)
-            && record.thread_id == thread_id
+            && record.thread_id == Some(thread_id)
         {
             final_history = Some(history.clone());
             turn_open = false;
@@ -287,7 +293,7 @@ fn validate_current_user_message(
 
 fn select_exchanges(
     records: &[JournalRecord],
-    turn_id: TurnId,
+    execution_id: ExecutionId,
     thread_id: ThreadId,
 ) -> Result<Vec<RecordedModelExchange>> {
     struct PendingExchange {
@@ -298,10 +304,9 @@ fn select_exchanges(
 
     let mut exchanges = Vec::<PendingExchange>::new();
     let mut positions = HashMap::new();
-    for record in records
-        .iter()
-        .filter(|record| record.turn_id == Some(turn_id) && record.thread_id == thread_id)
-    {
+    for record in records.iter().filter(|record| {
+        record.execution_id == Some(execution_id) && record.thread_id == Some(thread_id)
+    }) {
         match &record.entry {
             JournalEntry::ModelRequestRecorded(request) => {
                 positions.insert(request.exchange_id, exchanges.len());
@@ -345,15 +350,14 @@ fn select_exchanges(
 
 fn select_tools(
     records: &[JournalRecord],
-    turn_id: TurnId,
+    execution_id: ExecutionId,
     thread_id: ThreadId,
 ) -> Result<Vec<RecordedToolInvocation>> {
     let mut pending = Vec::<PendingToolInvocation>::new();
     let mut positions = HashMap::<CallId, usize>::new();
-    for record in records
-        .iter()
-        .filter(|record| record.turn_id == Some(turn_id) && record.thread_id == thread_id)
-    {
+    for record in records.iter().filter(|record| {
+        record.execution_id == Some(execution_id) && record.thread_id == Some(thread_id)
+    }) {
         match &record.entry {
             JournalEntry::ToolCallRecorded(recorded) => match &recorded.phase {
                 ToolCallRecordPhase::Requested => {
@@ -423,7 +427,7 @@ fn select_settlement_and_compactions(
     let mut compactions = Vec::new();
     for record in records
         .iter()
-        .filter(|record| record.turn_id == Some(turn_id) && record.thread_id == thread_id)
+        .filter(|record| record.turn_id == Some(turn_id) && record.thread_id == Some(thread_id))
     {
         match &record.entry {
             JournalEntry::HistoryMutated(mutation) => {

@@ -102,8 +102,9 @@ impl TranscriptVisibility {
         for record in &projection.records {
             if matches!(record.entry, JournalEntry::TurnOpened(_))
                 && let Some(turn_id) = record.turn_id
+                && let Some(thread_id) = record.thread_id
             {
-                root_threads.insert(turn_id, record.thread_id);
+                root_threads.insert(turn_id, thread_id);
             }
             if let JournalEntry::HistoryMutated(mutation) = &record.entry {
                 for message in &mutation.messages {
@@ -152,19 +153,20 @@ impl TranscriptVisibility {
         }
     }
 
-    fn is_root_record(&self, thread_id: ThreadId, turn_id: Option<TurnId>) -> bool {
+    fn is_root_record(&self, thread_id: Option<ThreadId>, turn_id: Option<TurnId>) -> bool {
         is_root_record(&self.root_threads, thread_id, turn_id)
     }
 }
 
 fn is_root_record(
     root_threads: &HashMap<TurnId, ThreadId>,
-    thread_id: ThreadId,
+    thread_id: Option<ThreadId>,
     turn_id: Option<TurnId>,
 ) -> bool {
     turn_id
         .and_then(|turn_id| root_threads.get(&turn_id))
-        .is_some_and(|root_thread_id| *root_thread_id == thread_id)
+        .zip(thread_id)
+        .is_some_and(|(root_thread_id, thread_id)| *root_thread_id == thread_id)
 }
 
 #[derive(Default)]
@@ -284,8 +286,8 @@ mod tests {
             TurnSettlementStatus,
         },
         domain::{
-            AgentTask, ModelRef, ToolCall, ToolResult, new_exchange_id, new_record_id,
-            new_session_id, new_thread_id, new_turn_id,
+            AgentTask, ModelRef, ToolCall, ToolResult, new_exchange_id, new_execution_id,
+            new_record_id, new_session_id, new_thread_id, new_turn_id,
         },
         model_standard::{
             CanonicalModelRequest, CanonicalModelResponse, FinishReason, MessageRole,
@@ -294,6 +296,7 @@ mod tests {
 
     fn record(
         session_id: crate::domain::SessionId,
+        execution_id: Option<crate::domain::ExecutionId>,
         thread_id: ThreadId,
         turn_id: TurnId,
         session_seq: u64,
@@ -305,7 +308,8 @@ mod tests {
             session_seq,
             timestamp_ms: session_seq as i64,
             session_id,
-            thread_id,
+            execution_id,
+            thread_id: Some(thread_id),
             turn_id: Some(turn_id),
             entry,
         }
@@ -316,6 +320,7 @@ mod tests {
         let session_id = new_session_id();
         let thread_id = new_thread_id();
         let turn_id = new_turn_id();
+        let execution_id = new_execution_id();
         let exchange_id = new_exchange_id();
         let user = CanonicalMessage::text(MessageRole::User, "inspect");
         let call = ToolCall::new("call-1", "shell", json!({"command": "ls"}));
@@ -339,6 +344,7 @@ mod tests {
         let records = vec![
             record(
                 session_id,
+                Some(execution_id),
                 thread_id,
                 turn_id,
                 1,
@@ -351,6 +357,7 @@ mod tests {
             ),
             record(
                 session_id,
+                None,
                 thread_id,
                 turn_id,
                 2,
@@ -364,6 +371,7 @@ mod tests {
             ),
             record(
                 session_id,
+                Some(execution_id),
                 thread_id,
                 turn_id,
                 3,
@@ -374,6 +382,7 @@ mod tests {
             ),
             record(
                 session_id,
+                Some(execution_id),
                 thread_id,
                 turn_id,
                 4,
@@ -384,6 +393,7 @@ mod tests {
             ),
             record(
                 session_id,
+                Some(execution_id),
                 thread_id,
                 turn_id,
                 5,
@@ -394,6 +404,7 @@ mod tests {
             ),
             record(
                 session_id,
+                Some(execution_id),
                 thread_id,
                 turn_id,
                 6,
@@ -406,6 +417,7 @@ mod tests {
             ),
             record(
                 session_id,
+                Some(execution_id),
                 thread_id,
                 turn_id,
                 7,
@@ -413,6 +425,7 @@ mod tests {
             ),
             record(
                 session_id,
+                None,
                 thread_id,
                 turn_id,
                 8,
@@ -465,9 +478,11 @@ mod tests {
         let session_id = new_session_id();
         let thread_id = new_thread_id();
         let turn_id = new_turn_id();
+        let execution_id = new_execution_id();
         let records = vec![
             record(
                 session_id,
+                Some(execution_id),
                 thread_id,
                 turn_id,
                 1,
@@ -480,6 +495,7 @@ mod tests {
             ),
             record(
                 session_id,
+                None,
                 thread_id,
                 turn_id,
                 2,

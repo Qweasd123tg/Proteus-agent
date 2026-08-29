@@ -12,14 +12,14 @@ use serde::{Deserialize, Serialize};
 use crate::{
     contracts::Model,
     core::{JournalEntry, ModelResponseOutcome, SessionStore, normalize_session_dir_path},
-    domain::{ExchangeId, ModelRef, SessionId, ThreadId, ToolSurface, TurnId},
+    domain::{ExchangeId, ExecutionId, ModelRef, SessionId, ThreadId, ToolSurface, TurnId},
     model_standard::{
         CanonicalModelRequest, CanonicalModelResponse, ContentPart, ModelStreamEvent, TokenUsage,
         validate_model_response_against_request,
     },
 };
 
-pub const PROMPT_REPLAY_REPORT_SCHEMA_VERSION: u32 = 1;
+pub const PROMPT_REPLAY_REPORT_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PromptReplayOptions {
@@ -53,8 +53,9 @@ pub struct PromptReplayReport {
 pub struct PromptReplaySource {
     pub journal_path: PathBuf,
     pub session_id: SessionId,
-    pub thread_id: ThreadId,
-    pub turn_id: TurnId,
+    pub execution_id: ExecutionId,
+    pub thread_id: Option<ThreadId>,
+    pub turn_id: Option<TurnId>,
     pub exchange_id: ExchangeId,
 }
 
@@ -159,16 +160,18 @@ pub async fn replay_prompt(
 
 struct RecordedExchange {
     exchange_id: ExchangeId,
-    thread_id: ThreadId,
-    turn_id: TurnId,
+    execution_id: ExecutionId,
+    thread_id: Option<ThreadId>,
+    turn_id: Option<TurnId>,
     request: CanonicalModelRequest,
     outcome: ModelResponseOutcome,
 }
 
 struct PendingExchange {
     exchange_id: ExchangeId,
-    thread_id: ThreadId,
-    turn_id: TurnId,
+    execution_id: ExecutionId,
+    thread_id: Option<ThreadId>,
+    turn_id: Option<TurnId>,
     request: CanonicalModelRequest,
 }
 
@@ -181,16 +184,17 @@ fn select_exchange(
     for record in records {
         match &record.entry {
             JournalEntry::ModelRequestRecorded(recorded) => {
-                let turn_id = record.turn_id.ok_or_else(|| {
+                let execution_id = record.execution_id.ok_or_else(|| {
                     anyhow!(
-                        "model exchange {} request is missing turn_id",
+                        "model exchange {} request is missing execution_id",
                         recorded.exchange_id
                     )
                 })?;
                 requests.push(PendingExchange {
                     exchange_id: recorded.exchange_id,
+                    execution_id,
                     thread_id: record.thread_id,
-                    turn_id,
+                    turn_id: record.turn_id,
                     request: recorded.request.clone(),
                 });
             }
@@ -231,6 +235,7 @@ fn select_exchange(
 
     Ok(RecordedExchange {
         exchange_id: selected.exchange_id,
+        execution_id: selected.execution_id,
         thread_id: selected.thread_id,
         turn_id: selected.turn_id,
         request: selected.request,
@@ -303,6 +308,7 @@ fn build_report(
         source: PromptReplaySource {
             journal_path,
             session_id,
+            execution_id: exchange.execution_id,
             thread_id: exchange.thread_id,
             turn_id: exchange.turn_id,
             exchange_id: exchange.exchange_id,

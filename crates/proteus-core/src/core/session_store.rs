@@ -10,12 +10,13 @@ use proteus_contracts::app_protocol::AppSessionSummary;
 use tokio::sync::Mutex;
 
 use crate::{
+    contracts::ExecutionAttribution,
     core::session_journal::{
         DEFAULT_BLOB_THRESHOLD_BYTES, HistoryMutated, HistoryMutationKind, JournalEntry,
-        JournalProjection, JournalRecord, JournalWriterState, append_record,
-        initialize_writer_state, journal_path, load_records,
+        JournalProjection, JournalRecord, JournalRecordAttribution, JournalWriterState,
+        append_record, initialize_writer_state, journal_path, load_records,
     },
-    domain::{HistoryCompactionReport, SessionId, ThreadId, TurnId},
+    domain::{ExecutionId, HistoryCompactionReport, SessionId, ThreadId, TurnId},
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 
@@ -146,8 +147,7 @@ impl SessionStore {
         append_record(
             &self.session_dir,
             self.session_id,
-            thread_id,
-            turn_id,
+            JournalRecordAttribution::chat(thread_id, turn_id),
             JournalEntry::HistoryMutated(HistoryMutated {
                 previous_revision,
                 new_revision: previous_revision.saturating_add(1),
@@ -176,8 +176,7 @@ impl SessionStore {
         append_record(
             &self.session_dir,
             self.session_id,
-            thread_id,
-            turn_id,
+            JournalRecordAttribution::chat(thread_id, turn_id),
             JournalEntry::HistoryMutated(HistoryMutated {
                 previous_revision,
                 new_revision: previous_revision.saturating_add(1),
@@ -203,8 +202,49 @@ impl SessionStore {
         append_record(
             &self.session_dir,
             self.session_id,
-            thread_id,
-            turn_id,
+            JournalRecordAttribution::chat(thread_id, turn_id),
+            entry,
+            self.blob_threshold_bytes,
+            &mut writer,
+        )
+        .await
+    }
+
+    pub async fn append_execution_journal_entry(
+        &self,
+        attribution: ExecutionAttribution,
+        entry: JournalEntry,
+    ) -> Result<JournalRecord> {
+        let (thread_id, turn_id) = match attribution.agent {
+            Some(agent) => {
+                if agent.session_id != self.session_id {
+                    anyhow::bail!(
+                        "execution attribution belongs to session {}, recorder store belongs to {}",
+                        agent.session_id,
+                        self.session_id
+                    );
+                }
+                (Some(agent.thread_id), Some(agent.turn_id))
+            }
+            None => (None, None),
+        };
+        self.append_execution_fact(attribution.execution_id, thread_id, turn_id, entry)
+            .await
+    }
+
+    async fn append_execution_fact(
+        &self,
+        execution_id: ExecutionId,
+        thread_id: Option<ThreadId>,
+        turn_id: Option<TurnId>,
+        entry: JournalEntry,
+    ) -> Result<JournalRecord> {
+        let mut writer = self.writer.lock().await;
+        self.materialize_for_write().await?;
+        append_record(
+            &self.session_dir,
+            self.session_id,
+            JournalRecordAttribution::execution(execution_id, thread_id, turn_id),
             entry,
             self.blob_threshold_bytes,
             &mut writer,

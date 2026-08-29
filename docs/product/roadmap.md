@@ -1,6 +1,6 @@
 # Roadmap
 
-Последнее обновление: 2026-08-28.
+Последнее обновление: 2026-08-29.
 
 Roadmap описывает порядок, а не обещание API. Текущее реализованное состояние
 смотрите в [scope.md](scope.md), архитектурные правила — в
@@ -24,14 +24,13 @@ journal/replay evidence и `v0.1.0-alpha.1` уже завершены. Roadmap �
 [releases/v0.1.0-alpha.1.md](../releases/v0.1.0-alpha.1.md).
 
 Следующее принятое направление — минимальная `ExecutionScope` migration,
-описанная ниже. Phase 0–3 и recorder seam Phase 4A реализованы; strict journal
-cutover Phase 4B ещё не начат. Остальные разделы остаются
+описанная ниже. Phase 0–4 реализованы; перед approval/grants Phase 5 действует
+обязательная остановка на review. Остальные разделы остаются
 вариантами последующей работы, а не автоматической очередью.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–3 и Phase 4A реализованы 2026-08-28; остановка перед
-Phase 4B**.
+Статус: **Phase 0–4 реализованы; остановка перед Phase 5**.
 
 Supporting evidence, не заменяющий этот roadmap:
 [source-level audit](../research/execution-scope-source-audit-2026-08-27.md) и
@@ -42,8 +41,9 @@ Supporting evidence, не заменяющий этот roadmap:
 Core уже не владеет конкретным agent loop: последовательность model/tool/model
 выбирает `Workflow`. До Phase 2 общий `RuntimeContext` требовал conversation
 identity и смешивал reusable runtime capabilities с agent/chat-specific
-policy. Structural context split выполнен, но model, tool recorder, journal и
-approvals всё ещё атрибутируют execution через обязательный `TurnId`.
+policy. Structural context split и durable model/tool execution attribution
+выполнены. Agent-shaped `ToolOrchestrator`, approvals/grants и presentation
+events всё ещё используют Turn identities.
 
 Цель ближайшей итерации — ввести generic workload identity/lifecycle boundary
 и проверить честное разделение context ownership, не меняя существующее
@@ -511,10 +511,10 @@ projection A/B не смешались. Отдельно проверяются 
 fail-closed metadata mismatch и targeted cancellation одного binding без
 отмены второго.
 
-Phase 3 не меняет `Model` trait, canonical request/response/stream DTO, journal
-schema, `ExecutionRecorder`, approvals/grants, `ToolOrchestrator`, process
-protocol или Renderer. Journal по-прежнему проектирует model facts через
-`TurnId`; перенос durable ownership на `ExecutionId` остаётся Phase 4.
+Phase 3 checkpoint не менял `Model` trait, canonical
+request/response/stream DTO, journal schema, `ExecutionRecorder`,
+approvals/grants, `ToolOrchestrator`, process protocol или Renderer. Оставшийся
+на том checkpoint durable `TurnId` debt позднее закрыла Phase 4.
 
 Definition of Done Phase 3 (выполнено):
 
@@ -540,7 +540,7 @@ binding abstraction.
 
 ### Phase 4 — Execution Recording И Journal Ownership
 
-Статус: **Phase 4A реализована 2026-08-28; Phase 4B не начата**.
+Статус: **Phase 4A и strict Phase 4B реализованы; review перед Phase 5**.
 
 #### Что Подтвердил Source До Phase 4A
 
@@ -637,24 +637,28 @@ Verification checkpoint 2026-08-28: focused recorder/binding/structural tests
 вошли `module_swap`, workflow/prompt replay, coding workflow, process broker
 lineage/cancellation и reference component conformance.
 
-**Phase 4B — strict journal schema cutover (planned / not implemented):**
+**Phase 4B — strict journal schema cutover (реализована 2026-08-29):**
 
-- `JOURNAL_SCHEMA_VERSION` и session metadata version повышаются вместе;
-- `TurnOpened`, model facts и tool facts получают mandatory `ExecutionId`;
-- model/tool lifecycle projection key становится `ExecutionId`, сохраняя
-  проверку неизменности presentation thread/turn внутри одной invocation;
+- `JOURNAL_SCHEMA_VERSION` повышена до 2, session metadata — до 4;
+- `TurnOpened`, model facts и tool facts получили mandatory `ExecutionId`;
+- model/tool lifecycle key стал `ExecutionFactOwner`: `ExecutionId` плюс
+  optional agent thread/turn projection; request/response и call/result не
+  могут сменить ни execution owner, ни presentation attribution;
 - если fact имеет `TurnId`, projection проверяет его `ExecutionId` против
   mapping, созданного `TurnOpened`; fact с execution owner не становится
   зависимым от открытого Turn;
 - несколько child threads могут законно нести один `ExecutionId`;
-- history и `TurnSettled` остаются chat lifecycle facts; EventEnvelope и
+- detached model facts проходят без открытого Turn и без fake thread/turn;
+- один `ExecutionId` не переключается между detached/agent attribution и не
+  привязывается к двум Turns;
+- history и `TurnSettled` остались chat lifecycle facts; EventEnvelope и
   AppServer protocol не genericize-ятся.
 
 Репозиторий pre-release, поэтому старое research-предложение writer v2 +
-dual-reader v1/v2 **отклонено**. Cutover обновляет все tracked producers,
+dual-reader v1/v2 **отклонено**. Cutover обновил tracked producers,
 consumers и tests одним изменением; schema v1 явно rejected, без rewrite,
-legacy fallback или silent normalization. Перед implementation нужно сохранить
-нужные локальные session data вне migration, если они имеют ценность.
+legacy fallback или silent normalization. Ценные старые local sessions нужно
+сохранять вне active `sessions/`: runtime намеренно не мигрирует их молча.
 
 Phase 4 не меняет approval/grants (`Phase 5`), generic tool invocation
 (`Phase 6`), AgentRuntime entrypoint (`Phase 7`), process protocol,
@@ -672,7 +676,7 @@ Phase 4A закрыла первые recorder-seam gates:
 - один agent tool recorder сохраняет dynamic root/child presentation threads;
 - workflow replay сохранил прежнюю comparison semantics.
 
-Оставшиеся gates принадлежат Phase 4B:
+Phase 4B закрыла оставшиеся functional gates:
 
 - normal Turn использует один `ExecutionId` в scope, `TurnOpened`, model и tool
   facts;
@@ -682,12 +686,14 @@ Phase 4A закрыла первые recorder-seam gates:
 - workflow replay, prompt replay, cold history/transcript и eval читают только
   новую strict schema;
 - schema v1 rejected явно; dual reader отсутствует;
-- `module_swap`, process conformance и полный workspace gate green;
+- `module_swap`, process conformance и полный workspace gate обязательны перед
+  фиксацией changeset;
 - после Phase 4 снова обязательна остановка перед approval Phase 5.
 
-Phase 4A implementation baseline: HEAD
-`ade7f85a95b6d716e0185c2357dc3eaf2ec6563f`; journal schema остаётся v1.
-Phase 4B требует нового явного разрешения после review результата 4A.
+Phase 4A implementation baseline:
+`ade7f85a95b6d716e0185c2357dc3eaf2ec6563f`. Phase 4B не ввела approval,
+generic tools, process lineage или terminal execution protocol; эти решения
+остаются за следующими отдельными review.
 
 ## Другие Направления
 

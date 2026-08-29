@@ -30,27 +30,28 @@ fn uuid_directory_is_rejected_without_legacy_fallback() {
 }
 
 #[test]
-fn schema_v2_metadata_is_rejected_explicitly() {
+fn schema_v3_metadata_is_rejected_explicitly() {
     let root = tempfile::tempdir().expect("root");
     let session_dir = root.path().join("1234567890");
     std::fs::create_dir(&session_dir).expect("session dir");
     std::fs::write(
         session_dir.join(SESSION_METADATA_FILE),
         serde_json::to_vec(&json!({
-            "schema_version": 2,
+            "schema_version": 3,
             "session_id": new_session_id(),
-            "workspace_path": "/tmp/legacy"
+            "workspace_path": "/tmp/legacy",
+            "journal_schema_version": 1
         }))
         .expect("metadata"),
     )
     .expect("write metadata");
 
-    let error = resolve_session_identity(&session_dir).expect_err("v2 must fail");
+    let error = resolve_session_identity(&session_dir).expect_err("v3 must fail");
 
     assert!(
         error
             .to_string()
-            .contains("unsupported session schema_version 2"),
+            .contains("unsupported session schema_version 3"),
         "{error:#}"
     );
 }
@@ -109,7 +110,7 @@ fn metadata_session_id_must_match_short_directory_name() {
 }
 
 #[tokio::test]
-async fn v3_metadata_round_trips_identity() {
+async fn v4_metadata_round_trips_identity() {
     let root = tempfile::tempdir().expect("root");
     let session_id = new_session_id();
     let session_dir = root.path().join(short_session_directory_name(session_id));

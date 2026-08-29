@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use proteus_contracts::domain::{SessionId, ThreadId, TurnId, new_record_id};
+use proteus_contracts::domain::{ExecutionId, SessionId, ThreadId, TurnId, new_record_id};
 use ring::digest::{SHA256, digest};
 use serde::{Deserialize, Serialize};
 use tokio::{fs::OpenOptions, io::AsyncWriteExt};
@@ -29,7 +29,8 @@ struct StoredJournalRecord {
     session_seq: u64,
     timestamp_ms: i64,
     session_id: SessionId,
-    thread_id: ThreadId,
+    execution_id: Option<ExecutionId>,
+    thread_id: Option<ThreadId>,
     turn_id: Option<TurnId>,
     kind: JournalKind,
     payload: StoredPayload,
@@ -55,11 +56,39 @@ pub(crate) struct JournalWriterState {
     validation: JournalValidationState,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct JournalRecordAttribution {
+    pub execution_id: Option<ExecutionId>,
+    pub thread_id: Option<ThreadId>,
+    pub turn_id: Option<TurnId>,
+}
+
+impl JournalRecordAttribution {
+    pub fn chat(thread_id: ThreadId, turn_id: Option<TurnId>) -> Self {
+        Self {
+            execution_id: None,
+            thread_id: Some(thread_id),
+            turn_id,
+        }
+    }
+
+    pub fn execution(
+        execution_id: ExecutionId,
+        thread_id: Option<ThreadId>,
+        turn_id: Option<TurnId>,
+    ) -> Self {
+        Self {
+            execution_id: Some(execution_id),
+            thread_id,
+            turn_id,
+        }
+    }
+}
+
 pub(crate) async fn append_record(
     session_dir: &Path,
     session_id: SessionId,
-    thread_id: ThreadId,
-    turn_id: Option<TurnId>,
+    attribution: JournalRecordAttribution,
     entry: JournalEntry,
     blob_threshold_bytes: usize,
     state: &mut JournalWriterState,
@@ -86,8 +115,9 @@ pub(crate) async fn append_record(
         session_seq: state.next_seq,
         timestamp_ms: unix_timestamp_ms(),
         session_id,
-        thread_id,
-        turn_id,
+        execution_id: attribution.execution_id,
+        thread_id: attribution.thread_id,
+        turn_id: attribution.turn_id,
         entry,
     };
     let mut next_validation = state.validation.clone();
@@ -104,6 +134,7 @@ pub(crate) async fn append_record(
         session_seq: record.session_seq,
         timestamp_ms: record.timestamp_ms,
         session_id: record.session_id,
+        execution_id: record.execution_id,
         thread_id: record.thread_id,
         turn_id: record.turn_id,
         kind,
@@ -233,6 +264,7 @@ pub(crate) fn load_records(
             session_seq: stored.session_seq,
             timestamp_ms: stored.timestamp_ms,
             session_id: stored.session_id,
+            execution_id: stored.execution_id,
             thread_id: stored.thread_id,
             turn_id: stored.turn_id,
             entry,

@@ -10,6 +10,8 @@ async fn terminal_journal(
     let session_id = new_session_id();
     let thread_id = new_thread_id();
     let turn_id = new_turn_id();
+    let execution_id = new_execution_id();
+    let attribution = ExecutionAttribution::for_turn(execution_id, session_id, thread_id, turn_id);
     let store =
         SessionStore::new(config_dir.path(), workspace.path(), session_id).expect("session store");
     let task = AgentTask::new("run terminal replay probe", workspace.path().to_path_buf());
@@ -17,9 +19,8 @@ async fn terminal_journal(
     let spec = probe_tool_spec();
 
     store
-        .append_journal_entry(
-            thread_id,
-            Some(turn_id),
+        .append_execution_journal_entry(
+            attribution,
             JournalEntry::TurnOpened(TurnOpened {
                 task,
                 base_history_revision: 0,
@@ -36,9 +37,8 @@ async fn terminal_journal(
 
     let exchange_id = new_exchange_id();
     store
-        .append_journal_entry(
-            thread_id,
-            Some(turn_id),
+        .append_execution_journal_entry(
+            attribution,
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                 exchange_id,
                 request: recorded_request(session_id, thread_id, turn_id, vec![user], spec),
@@ -48,9 +48,8 @@ async fn terminal_journal(
         .expect("model request");
     if let Some(outcome) = model_outcome {
         store
-            .append_journal_entry(
-                thread_id,
-                Some(turn_id),
+            .append_execution_journal_entry(
+                attribution,
                 JournalEntry::ModelResponseRecorded(ModelResponseRecorded {
                     exchange_id,
                     outcome,

@@ -11,12 +11,13 @@ use tempfile::TempDir;
 
 use super::*;
 use crate::{
-    contracts::{Model, ModelEventStream},
+    contracts::{ExecutionAttribution, Model, ModelEventStream},
     core::{JournalEntry, ModelRequestRecorded, ModelResponseRecorded, SessionStore, TurnOpened},
     domain::{
-        AgentTask, CacheHints, Citation, HostedToolActivity, HostedToolConfig, HostedToolStatus,
-        ModelRef, ReasoningConfig, ToolCall, ToolSafety, ToolSpec, ToolSurface, WebSearchAction,
-        WebSearchHostedToolConfig, new_exchange_id, new_session_id, new_thread_id, new_turn_id,
+        AgentTask, CacheHints, Citation, ExecutionId, HostedToolActivity, HostedToolConfig,
+        HostedToolStatus, ModelRef, ReasoningConfig, ToolCall, ToolSafety, ToolSpec, ToolSurface,
+        WebSearchAction, WebSearchHostedToolConfig, new_exchange_id, new_execution_id,
+        new_session_id, new_thread_id, new_turn_id,
     },
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
@@ -69,6 +70,7 @@ struct TestJournal {
     _config_dir: TempDir,
     _workspace: TempDir,
     store: SessionStore,
+    execution_id: ExecutionId,
     thread_id: ThreadId,
     turn_id: TurnId,
 }
@@ -81,10 +83,12 @@ impl TestJournal {
             .expect("session store");
         let thread_id = new_thread_id();
         let turn_id = new_turn_id();
+        let execution_id = new_execution_id();
+        let attribution =
+            ExecutionAttribution::for_turn(execution_id, store.session_id(), thread_id, turn_id);
         store
-            .append_journal_entry(
-                thread_id,
-                Some(turn_id),
+            .append_execution_journal_entry(
+                attribution,
                 JournalEntry::TurnOpened(TurnOpened {
                     task: AgentTask::new("replay fixture", workspace.path().to_path_buf()),
                     base_history_revision: 0,
@@ -98,6 +102,7 @@ impl TestJournal {
             _config_dir: config_dir,
             _workspace: workspace,
             store,
+            execution_id,
             thread_id,
             turn_id,
         }
@@ -105,9 +110,13 @@ impl TestJournal {
 
     async fn append_request(&self, exchange_id: ExchangeId, request: CanonicalModelRequest) {
         self.store
-            .append_journal_entry(
-                self.thread_id,
-                Some(self.turn_id),
+            .append_execution_journal_entry(
+                ExecutionAttribution::for_turn(
+                    self.execution_id,
+                    self.store.session_id(),
+                    self.thread_id,
+                    self.turn_id,
+                ),
                 JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                     exchange_id,
                     request,
@@ -119,9 +128,13 @@ impl TestJournal {
 
     async fn append_response(&self, exchange_id: ExchangeId, outcome: ModelResponseOutcome) {
         self.store
-            .append_journal_entry(
-                self.thread_id,
-                Some(self.turn_id),
+            .append_execution_journal_entry(
+                ExecutionAttribution::for_turn(
+                    self.execution_id,
+                    self.store.session_id(),
+                    self.thread_id,
+                    self.turn_id,
+                ),
                 JournalEntry::ModelResponseRecorded(ModelResponseRecorded {
                     exchange_id,
                     outcome,
@@ -306,7 +319,7 @@ async fn exact_saved_request_is_forwarded_and_journal_is_unchanged() {
     assert_eq!(report.text_equal, Some(false));
 
     let json = serde_json::to_value(&report).expect("serialize report");
-    assert_eq!(json["schema_version"], 1);
+    assert_eq!(json["schema_version"], 2);
     assert_eq!(
         json["source"]["exchange_id"],
         report.source.exchange_id.to_string()

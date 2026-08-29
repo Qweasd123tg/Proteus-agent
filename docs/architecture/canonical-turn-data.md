@@ -1,9 +1,10 @@
 # Design: Canonical Turn Data
 
-Статус: **journal v1, storage cutover, prompt replay v0 и workflow replay v0
+Статус: **journal v2, storage cutover, prompt replay v0 и workflow replay v0
 реализованы**. Resume history, web transcript, eval и оба replay-режима читают
 canonical journal. Дата решения: 2026-07-20, cutover и prompt replay:
-2026-07-23, workflow replay: 2026-07-24.
+2026-07-23, workflow replay: 2026-07-24, execution ownership cutover:
+2026-08-29.
 
 ## Решение
 
@@ -224,7 +225,8 @@ Local tool calls из нового ответа только подсчитыв�
 фильтрации или переписывания.
 
 Prompt replay v0 не дописывает records в исходный journal и не создаёт durable
-replay run. Human/`--json` отчёт schema v1 содержит source ids, model/adapter,
+replay run. Human/`--json` отчёт schema v2 содержит обязательный
+`ExecutionId`, optional session/thread/turn source ids, model/adapter,
 recorded/replay outcome и usage, text equality, local/hosted/citation counts и
 длительность adapter call. Различие текста является результатом
 недетерминированной генерации, а не ошибкой команды.
@@ -281,22 +283,39 @@ process-resident steering queue. Projection может показать неза
 
 ## Текущий Execution Owner
 
-Journal v1 сейчас намеренно Turn-centric: model/tool records имеют mandatory
-`SessionId`/`ThreadId`/`TurnId`, а projection принимает их только после
-`turn_opened`. После Phase 4A generic `ExecutionRecorder` больше не принимает
-conversation identity и `BoundModel` не пишет напрямую в `SessionStore`, но
-конкретный `SessionExecutionRecorder` пока проецирует model facts обратно в
-v1 envelope. Tool lifecycle остаётся явно chat-aware через
-`AgentToolRecorder`; `ToolInvocationOwner` также использует conversation
-identity. Это факт текущей persistence architecture и её известный coupling,
-а не утверждение, что любое generic execution обязано быть chat Turn.
+Journal v2 разделяет durable execution owner и chat projection:
 
-`ExecutionScope` migration уже ввела отдельный `ExecutionId`, разделила
-contexts и выполнила recorder seam без изменения journal schema. Перенос
-durable journal ownership — отдельная strict Phase 4B; до неё records
-продолжают принадлежать открытому Turn. `ExecutionId` не добавляется в v1 и не
-подменяет `TurnId`. План:
-[roadmap.md](../product/roadmap.md#executionscope-migration).
+```text
+ExecutionAttribution
+  execution_id: ExecutionId
+  agent: Option<AgentTurnAttribution>
+    session_id / thread_id / turn_id
+```
+
+`TurnOpened`, model и tool facts всегда несут `ExecutionId`. Для обычного
+agent Turn они также несут thread/turn attribution, и projection проверяет её
+против mapping `TurnId -> ExecutionId`, созданного `TurnOpened`. Detached model
+execution пишет request/response/error с `ExecutionId`, но без fake
+`ThreadId`/`TurnId` и без открытого Turn. Model/tool lifecycle сопоставляется
+по execution owner; owner нельзя изменить между request/response или
+call/result.
+
+Один `ExecutionId` не может переключаться между detached и agent attribution
+или принадлежать двум Turns. После `TurnSettled` новые root-thread facts
+отвергаются; ранее начатый child-thread exchange/call может завершиться позже,
+что сохраняет semantics background agent work.
+
+`HistoryMutated` и `TurnSettled` остаются chat/session lifecycle facts и не
+несут `ExecutionId`. Поэтому cancellation/timeout по-прежнему может оставить
+model exchange interrupted и завершить именно Turn. Generic
+`ExecutionSettled` и durable continuation в schema v2 не добавлены.
+
+`ExecutionRecorder` остаётся generic scope-bound contract без chat IDs.
+`SessionExecutionRecorder` адаптирует его к session journal через
+`ExecutionAttribution`; `AgentToolRecorder` пока сохраняет dynamic root/child
+presentation threads, поскольку сам `ToolOrchestrator` ещё agent-shaped. Этот
+оставшийся coupling разбирается в tool/approval phases, а не в persistence
+schema.
 
 ## Выполненный Переход
 
@@ -315,7 +334,7 @@ producers/consumers и удалил старый active path.
 4. ✅ Удалены active запись/чтение старых request/history JSONL и
    pre-compaction archives; rebuildable history cache не оставлен.
 5. ✅ Runtime принимает только 10-значные session directories с
-   `session.json` schema v3/journal v1. Старые локальные dogfood sessions нужно
+   `session.json` schema v4/journal v2. Старые локальные dogfood sessions нужно
    вручную перенести целиком за пределы active `sessions/`; старая форма не
    распознаётся молча.
 6. ✅ Prompt replay v0 повторяет exact post-shaping request напрямую через
@@ -333,7 +352,7 @@ producers/consumers и удалил старый active path.
 - durable restart collaboration handles и queued steering;
 - cross-session DAG, merge semantics и marketplace artifacts;
 - durable workflow continuation/checkpointing;
-- generic execution journal schema и migration от Turn ownership.
+- generic terminal execution facts и cross-session execution storage.
 
 Эти решения могут использовать journal, но не должны менять его semantic
 ordering или превращать event log в второй источник истины.

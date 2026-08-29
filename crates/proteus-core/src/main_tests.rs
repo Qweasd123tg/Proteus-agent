@@ -969,7 +969,9 @@ fn prompt_replay_human_and_json_reports_contain_key_fields() {
             PromptReplayOutcomeStatus, PromptReplayOutcomeSummary, PromptReplayReport,
             PromptReplaySource, PromptReplayUsage,
         },
-        domain::{ModelRef, new_exchange_id, new_session_id, new_thread_id, new_turn_id},
+        domain::{
+            ModelRef, new_exchange_id, new_execution_id, new_session_id, new_thread_id, new_turn_id,
+        },
         model_standard::TokenUsage,
     };
 
@@ -978,8 +980,9 @@ fn prompt_replay_human_and_json_reports_contain_key_fields() {
         source: PromptReplaySource {
             journal_path: PathBuf::from("/tmp/session/1234567890/journal.jsonl"),
             session_id: new_session_id(),
-            thread_id: new_thread_id(),
-            turn_id: new_turn_id(),
+            execution_id: new_execution_id(),
+            thread_id: Some(new_thread_id()),
+            turn_id: Some(new_turn_id()),
             exchange_id: new_exchange_id(),
         },
         recorded_model: ModelRef::new("openai", "gpt-recorded"),
@@ -1027,6 +1030,7 @@ fn prompt_replay_human_and_json_reports_contain_key_fields() {
         cli_prompt_replay::render_prompt_replay_report(&report, false).expect("human report");
     assert!(human.contains("Prompt replay report"));
     assert!(human.contains(&format!("Session: {}", report.source.session_id)));
+    assert!(human.contains(&format!("Execution: {}", report.source.execution_id)));
     assert!(human.contains(&format!("Exchange: {}", report.source.exchange_id)));
     assert!(human.contains("Recorded model: openai/gpt-recorded"));
     assert!(human.contains("Replay outcome: response (finish_reason=tool_calls)"));
@@ -1037,7 +1041,7 @@ fn prompt_replay_human_and_json_reports_contain_key_fields() {
     let rendered_json =
         cli_prompt_replay::render_prompt_replay_report(&report, true).expect("JSON report");
     let value: serde_json::Value = serde_json::from_str(&rendered_json).expect("parse JSON");
-    assert_eq!(value["schema_version"], 1);
+    assert_eq!(value["schema_version"], 2);
     assert_eq!(
         value["source"]["exchange_id"],
         report.source.exchange_id.to_string()

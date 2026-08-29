@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use proteus_contracts::{
-    contracts::{AgentToolRecorder, ExecutionRecorder},
+    contracts::{AgentToolRecorder, ExecutionAttribution, ExecutionRecorder},
     domain::{
         ExchangeId, ExecutionId, SessionId, ThreadId, ToolCall, ToolCallResolution, ToolResult,
         TurnId,
@@ -19,9 +19,7 @@ use super::{
 #[derive(Debug, Clone)]
 pub struct SessionExecutionRecorder {
     store: SessionStore,
-    execution_id: ExecutionId,
-    thread_id: ThreadId,
-    turn_id: TurnId,
+    attribution: ExecutionAttribution,
 }
 
 impl SessionExecutionRecorder {
@@ -31,16 +29,20 @@ impl SessionExecutionRecorder {
         thread_id: ThreadId,
         turn_id: TurnId,
     ) -> Self {
+        let attribution =
+            ExecutionAttribution::for_turn(execution_id, store.session_id(), thread_id, turn_id);
+        Self { store, attribution }
+    }
+
+    pub fn detached(store: SessionStore, execution_id: ExecutionId) -> Self {
         Self {
             store,
-            execution_id,
-            thread_id,
-            turn_id,
+            attribution: ExecutionAttribution::detached(execution_id),
         }
     }
 
     pub fn execution_id(&self) -> ExecutionId {
-        self.execution_id
+        self.attribution.execution_id
     }
 }
 
@@ -52,9 +54,8 @@ impl ExecutionRecorder for SessionExecutionRecorder {
         request: &CanonicalModelRequest,
     ) -> Result<()> {
         self.store
-            .append_journal_entry(
-                self.thread_id,
-                Some(self.turn_id),
+            .append_execution_journal_entry(
+                self.attribution,
                 JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                     exchange_id,
                     request: request.clone(),
@@ -96,9 +97,8 @@ impl SessionExecutionRecorder {
         outcome: ModelResponseOutcome,
     ) -> Result<()> {
         self.store
-            .append_journal_entry(
-                self.thread_id,
-                Some(self.turn_id),
+            .append_execution_journal_entry(
+                self.attribution,
                 JournalEntry::ModelResponseRecorded(ModelResponseRecorded {
                     exchange_id,
                     outcome,
@@ -137,6 +137,21 @@ impl SessionAgentToolRecorder {
         }
         Ok(())
     }
+
+    fn attribution(
+        &self,
+        session_id: SessionId,
+        thread_id: ThreadId,
+        turn_id: TurnId,
+    ) -> Result<ExecutionAttribution> {
+        self.validate_session(session_id)?;
+        Ok(ExecutionAttribution::for_turn(
+            self.execution_id,
+            session_id,
+            thread_id,
+            turn_id,
+        ))
+    }
 }
 
 #[async_trait]
@@ -148,11 +163,10 @@ impl AgentToolRecorder for SessionAgentToolRecorder {
         turn_id: TurnId,
         call: &ToolCall,
     ) -> Result<()> {
-        self.validate_session(session_id)?;
+        let attribution = self.attribution(session_id, thread_id, turn_id)?;
         self.store
-            .append_journal_entry(
-                thread_id,
-                Some(turn_id),
+            .append_execution_journal_entry(
+                attribution,
                 JournalEntry::ToolCallRecorded(ToolCallRecorded {
                     call: call.clone(),
                     phase: ToolCallRecordPhase::Requested,
@@ -170,11 +184,10 @@ impl AgentToolRecorder for SessionAgentToolRecorder {
         call: &ToolCall,
         resolution: &ToolCallResolution,
     ) -> Result<()> {
-        self.validate_session(session_id)?;
+        let attribution = self.attribution(session_id, thread_id, turn_id)?;
         self.store
-            .append_journal_entry(
-                thread_id,
-                Some(turn_id),
+            .append_execution_journal_entry(
+                attribution,
                 JournalEntry::ToolCallRecorded(ToolCallRecorded {
                     call: call.clone(),
                     phase: ToolCallRecordPhase::Resolved {
@@ -194,11 +207,10 @@ impl AgentToolRecorder for SessionAgentToolRecorder {
         call: &ToolCall,
         reason: &str,
     ) -> Result<()> {
-        self.validate_session(session_id)?;
+        let attribution = self.attribution(session_id, thread_id, turn_id)?;
         self.store
-            .append_journal_entry(
-                thread_id,
-                Some(turn_id),
+            .append_execution_journal_entry(
+                attribution,
                 JournalEntry::ToolCallRecorded(ToolCallRecorded {
                     call: call.clone(),
                     phase: ToolCallRecordPhase::ApprovalRequested {
@@ -217,11 +229,10 @@ impl AgentToolRecorder for SessionAgentToolRecorder {
         turn_id: TurnId,
         result: &ToolResult,
     ) -> Result<()> {
-        self.validate_session(session_id)?;
+        let attribution = self.attribution(session_id, thread_id, turn_id)?;
         self.store
-            .append_journal_entry(
-                thread_id,
-                Some(turn_id),
+            .append_execution_journal_entry(
+                attribution,
                 JournalEntry::ToolResultRecorded(ToolResultRecorded {
                     result: result.clone(),
                 }),
@@ -252,9 +263,8 @@ mod tests {
         let turn_id = new_turn_id();
         let store = SessionStore::new(config_dir.path(), workspace.path(), session_id).unwrap();
         store
-            .append_journal_entry(
-                root_thread_id,
-                Some(turn_id),
+            .append_execution_journal_entry(
+                ExecutionAttribution::for_turn(execution_id, session_id, root_thread_id, turn_id),
                 JournalEntry::TurnOpened(crate::core::TurnOpened {
                     task: AgentTask::new("record tools", workspace.path().to_path_buf()),
                     base_history_revision: 0,
@@ -301,7 +311,42 @@ mod tests {
                 .filter(|record| matches!(record.entry, JournalEntry::ToolCallRecorded(_)))
                 .map(|record| record.thread_id)
                 .collect::<Vec<_>>(),
-            vec![root_thread_id, child_thread_id]
+            vec![Some(root_thread_id), Some(child_thread_id)]
         );
+    }
+
+    #[tokio::test]
+    async fn detached_execution_recorder_persists_without_chat_identity() {
+        let config_dir = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let session_id = new_session_id();
+        let execution_id = new_execution_id();
+        let store = SessionStore::new(config_dir.path(), workspace.path(), session_id).unwrap();
+        let recorder = SessionExecutionRecorder::detached(store.clone(), execution_id);
+        let exchange_id = crate::domain::new_exchange_id();
+        let request = crate::model_standard::CanonicalModelRequest::new(
+            crate::domain::ModelRef::new("fake", "detached"),
+            vec![crate::model_standard::CanonicalMessage::text(
+                crate::model_standard::MessageRole::User,
+                "detached",
+            )],
+        );
+
+        recorder
+            .model_request_recorded(exchange_id, &request)
+            .await
+            .unwrap();
+        recorder
+            .model_error_recorded(exchange_id, "expected test error")
+            .await
+            .unwrap();
+
+        let records = store.load_projection().unwrap().records;
+        assert_eq!(records.len(), 2);
+        assert!(records.iter().all(|record| {
+            record.execution_id == Some(execution_id)
+                && record.thread_id.is_none()
+                && record.turn_id.is_none()
+        }));
     }
 }

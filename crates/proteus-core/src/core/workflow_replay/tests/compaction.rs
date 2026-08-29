@@ -111,6 +111,7 @@ async fn compacted_journal() -> TestJournal {
     let session_id = new_session_id();
     let thread_id = new_thread_id();
     let turn_id = new_turn_id();
+    let execution_id = new_execution_id();
     let store =
         SessionStore::new(config_dir.path(), workspace.path(), session_id).expect("session store");
     let task = AgentTask::new(
@@ -123,9 +124,8 @@ async fn compacted_journal() -> TestJournal {
     recorded_snapshot.modules.workflow = Some(COMPACTION_WORKFLOW_ID.to_owned());
 
     store
-        .append_journal_entry(
-            thread_id,
-            Some(turn_id),
+        .append_execution_journal_entry(
+            ExecutionAttribution::for_turn(execution_id, session_id, thread_id, turn_id),
             JournalEntry::TurnOpened(TurnOpened {
                 task: task.clone(),
                 base_history_revision: 0,
@@ -169,6 +169,7 @@ async fn compacted_journal() -> TestJournal {
     );
     append_exchange(
         &store,
+        execution_id,
         thread_id,
         turn_id,
         recorded_request(

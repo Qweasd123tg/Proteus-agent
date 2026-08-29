@@ -6,8 +6,8 @@ use tempfile::TempDir;
 
 use super::*;
 use crate::contracts::{
-    AgentWorkflowContext, ApprovalPolicy, PolicyContext, PolicyVisibilityContext, Workflow,
-    WorkflowOutput,
+    AgentWorkflowContext, ApprovalPolicy, ExecutionAttribution, PolicyContext,
+    PolicyVisibilityContext, Workflow, WorkflowOutput,
 };
 use crate::{
     core::{
@@ -16,9 +16,9 @@ use crate::{
         ToolCallRecorded, ToolOrchestrator, ToolResultRecorded, TurnOpened, TurnSettled,
     },
     domain::{
-        AgentOutput, AgentTask, ModelRef, PermissionMode, PolicyDecision, ReasoningConfig,
-        ToolCall, ToolCallResolution, ToolResult, ToolSafety, ToolSpec, new_exchange_id,
-        new_session_id, new_thread_id, new_turn_id,
+        AgentOutput, AgentTask, ExecutionId, ModelRef, PermissionMode, PolicyDecision,
+        ReasoningConfig, ToolCall, ToolCallResolution, ToolResult, ToolSafety, ToolSpec,
+        new_exchange_id, new_execution_id, new_session_id, new_thread_id, new_turn_id,
     },
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
@@ -106,6 +106,9 @@ impl TestJournal {
         let session_id = new_session_id();
         let thread_id = new_thread_id();
         let turn_id = new_turn_id();
+        let execution_id = new_execution_id();
+        let attribution =
+            ExecutionAttribution::for_turn(execution_id, session_id, thread_id, turn_id);
         let store = SessionStore::new(config_dir.path(), workspace.path(), session_id)
             .expect("session store");
         let task = AgentTask::new("run replay probe", workspace.path().to_path_buf());
@@ -114,9 +117,8 @@ impl TestJournal {
         let snapshot = snapshot(&spec);
 
         store
-            .append_journal_entry(
-                thread_id,
-                Some(turn_id),
+            .append_execution_journal_entry(
+                attribution,
                 JournalEntry::TurnOpened(TurnOpened {
                     task: task.clone(),
                     base_history_revision: 0,
@@ -153,6 +155,7 @@ impl TestJournal {
         );
         append_exchange(
             &store,
+            execution_id,
             thread_id,
             turn_id,
             first_request,
@@ -165,9 +168,8 @@ impl TestJournal {
             "tool": spec.name,
         }));
         store
-            .append_journal_entry(
-                thread_id,
-                Some(turn_id),
+            .append_execution_journal_entry(
+                attribution,
                 JournalEntry::ToolCallRecorded(ToolCallRecorded {
                     call: call.clone(),
                     phase: ToolCallRecordPhase::Requested,
@@ -176,9 +178,8 @@ impl TestJournal {
             .await
             .expect("tool requested");
         store
-            .append_journal_entry(
-                thread_id,
-                Some(turn_id),
+            .append_execution_journal_entry(
+                attribution,
                 JournalEntry::ToolCallRecorded(ToolCallRecorded {
                     call: call.clone(),
                     phase: ToolCallRecordPhase::Resolved {
@@ -189,9 +190,8 @@ impl TestJournal {
             .await
             .expect("tool resolved");
         store
-            .append_journal_entry(
-                thread_id,
-                Some(turn_id),
+            .append_execution_journal_entry(
+                attribution,
                 JournalEntry::ToolResultRecorded(ToolResultRecorded {
                     result: result.clone(),
                 }),
@@ -224,6 +224,7 @@ impl TestJournal {
         );
         append_exchange(
             &store,
+            execution_id,
             thread_id,
             turn_id,
             second_request,
@@ -264,6 +265,13 @@ impl TestJournal {
 
     async fn append_second_turn(&self) -> crate::domain::TurnId {
         let turn_id = new_turn_id();
+        let execution_id = new_execution_id();
+        let attribution = ExecutionAttribution::for_turn(
+            execution_id,
+            self.store.session_id(),
+            self.thread_id,
+            turn_id,
+        );
         let task = AgentTask::new("second recorded turn", self._workspace.path().to_path_buf());
         let user = CanonicalMessage::text(MessageRole::User, task.text.clone());
         let spec = probe_tool_spec();
@@ -273,9 +281,8 @@ impl TestJournal {
             .expect("projection")
             .history_revision;
         self.store
-            .append_journal_entry(
-                self.thread_id,
-                Some(turn_id),
+            .append_execution_journal_entry(
+                attribution,
                 JournalEntry::TurnOpened(TurnOpened {
                     task,
                     base_history_revision: revision,
@@ -296,6 +303,7 @@ impl TestJournal {
         );
         append_exchange(
             &self.store,
+            execution_id,
             self.thread_id,
             turn_id,
             recorded_request(
@@ -334,16 +342,18 @@ impl TestJournal {
 
 async fn append_exchange(
     store: &SessionStore,
+    execution_id: ExecutionId,
     thread_id: crate::domain::ThreadId,
     turn_id: crate::domain::TurnId,
     request: CanonicalModelRequest,
     response: CanonicalModelResponse,
 ) {
     let exchange_id = new_exchange_id();
+    let attribution =
+        ExecutionAttribution::for_turn(execution_id, store.session_id(), thread_id, turn_id);
     store
-        .append_journal_entry(
-            thread_id,
-            Some(turn_id),
+        .append_execution_journal_entry(
+            attribution,
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                 exchange_id,
                 request,
@@ -352,9 +362,8 @@ async fn append_exchange(
         .await
         .expect("model request");
     store
-        .append_journal_entry(
-            thread_id,
-            Some(turn_id),
+        .append_execution_journal_entry(
+            attribution,
             JournalEntry::ModelResponseRecorded(ModelResponseRecorded {
                 exchange_id,
                 outcome: ModelResponseOutcome::Response { response },

@@ -268,9 +268,6 @@ Phase 3 убрала mutable current attribution из shared `ModelService`. Reg
 получает отдельный `BoundModel` с immutable `ExecutionScope` и текущей
 session/thread/turn projection. Поэтому два независимых model calls больше не
 могут перезаписать metadata, delta envelope или journal owner друг друга.
-Journal projection, однако, всё ещё требует ранее открытый Turn для model/tool
-records. Это **текущий architecture debt Phase 4B**, а не свойство generic
-model capability.
 
 Phase 4A разделила recorder ownership. Generic `ExecutionRecorder` принимает
 только model lifecycle facts и не имеет `SessionId`, `ThreadId` или `TurnId` в
@@ -281,10 +278,27 @@ contract-е. `BoundModel` пишет через этот handle и больше 
 `RuntimeRegistry` вместе с context-ом и захватывают один `ExecutionId`; поздняя
 подмена recorder-а в Turn удалена.
 
-При этом journal schema v1 всё ещё хранит model/tool facts под
-`SessionId`/`ThreadId`/`TurnId` и требует открытый Turn. Захваченный
-`ExecutionId` до strict cutover Phase 4B не является durable полем. Это
-оставшийся architecture debt, а не скрытая реализация новой schema.
+Phase 4B завершила durable cutover. Journal schema v2 всегда хранит
+`ExecutionId` для `TurnOpened`, model и tool facts. Их conversational
+attribution является optional-проекцией: agent execution добавляет
+`SessionId`/`ThreadId`/`TurnId`, а detached model execution записывается без
+выдуманных thread/turn. Projection fail-closed проверяет mapping
+`TurnId -> ExecutionId`, созданный `TurnOpened`; detached execution fact не
+требует открытого Turn. `HistoryMutated` и `TurnSettled` остаются chat/session
+lifecycle facts и не получают execution owner.
+
+Тип attribution immutable на протяжении journal projection: один
+`ExecutionId` нельзя сначала использовать detached, а затем привязать к Turn,
+или наоборот. Один execution также нельзя привязать к двум Turns. После
+settlement новые root-thread execution facts запрещены; уже начатый child
+thread lifecycle того же execution может завершиться позднее.
+
+`SessionExecutionRecorder` теперь захватывает `ExecutionAttribution`:
+обязательный `ExecutionId` плюс optional `AgentTurnAttribution`. Сам
+`ExecutionScope` по-прежнему не импортирует chat identities; attribution
+вынесена в отдельный contract-модуль и не превращает scope в service locator.
+Session journal остаётся session-owned durable store, но его generic execution
+facts больше не обязаны изображать chat Turn.
 
 Execution ownership нельзя отождествить с presentation thread. Agent-control
 child context сохраняет `ExecutionId` через `child_cancellation_scope()`, но
@@ -297,15 +311,15 @@ ExecutionId E1
     `-- child ThreadId T2
 ```
 
-Phase 4B должна сделать `ExecutionId` durable owner model/tool facts, сохранив
-thread/turn только как agent/session projection. Она не создаёт child execution
-lineage и не связывает эту картину с process `InvocationRef`.
+Один durable `ExecutionId` может иметь root/child presentation threads одного
+Turn. Это не создаёт child execution lineage и не связывает картину с process
+`InvocationRef`.
 
 Cancellation также имеет два разных terminal уровня. Provider/model error
 получает `ModelResponseRecorded(Error)`, но runtime cancellation/timeout
 оставляет начатый exchange interrupted и завершается chat-фактом
 `TurnSettled(Canceled|Timeout)`. Подменять cancellation fake model error-ом или
-добавлять generic `ExecutionSettled` в Phase 4B запрещено.
+добавлять generic `ExecutionSettled` в этом cutover не потребовалось.
 
 ## Identity Domains
 
@@ -357,8 +371,7 @@ queue и cancellation token journal не восстанавливает.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–3 и recorder seam Phase 4A реализованы 2026-08-28;
-strict journal cutover Phase 4B не начат**.
+Статус: **Phase 0–4 реализованы; review перед approval/grants Phase 5**.
 
 Принято направление отделить generic workload identity/lifecycle boundary от
 conversation Turn без переписывания agent loop или process protocol:

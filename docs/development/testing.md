@@ -111,9 +111,8 @@ Checkpoint 2026-08-28: focused Phase 4A tests и полный
 workflow/prompt replay, coding workflow, process lineage/cancellation и
 reference conformance входят в этот gate.
 
-Phase 4B остаётся planned и выполняет strict schema cutover без compatibility
-reader. Gate должен
-проверить:
+Phase 4B реализована 2026-08-29 как strict schema cutover без compatibility
+reader. Gate проверяет:
 
 - один `ExecutionId` в `TurnOpened`, model/tool facts и runtime scope;
 - fail-closed mismatch `TurnId -> ExecutionId`;
@@ -123,9 +122,26 @@ reader. Gate должен
 - prompt/workflow replay, cold transcript/history и eval на новой schema;
 - существующие process lineage/conformance и `module_swap` без изменений.
 
+Дополнительный architecture guard создаёт detached
+`SessionExecutionRecorder`, записывает полноценный model request/error и
+строит journal projection без `SessionId`/`ThreadId`/`TurnId` в execution
+attribution. Agent-path tests отдельно проверяют mapping
+`TurnId -> ExecutionId`, dynamic child thread attribution и запрет смены owner
+между lifecycle facts. Journal schema v1 и session metadata v3 отвергаются
+явно; dual reader отсутствует.
+
 После каждого changeset выполняется `cargo test --workspace --no-fail-fast`.
 Phase 5 approval/grants, Phase 6 generic tools, process protocol и event DTO в
 этот gate не входят.
+
+Checkpoint 2026-08-29: `cargo fmt --all -- --check`,
+`cargo check --workspace` и `cargo test --workspace` прошли. Strict
+`cargo clippy --workspace --all-targets --all-features -- -D warnings` всё ещё
+блокируется существующими до Phase 4B lint-ами Rust 1.97 в неизменённых
+reference packs и Core (`useless_conversion`, `question_mark`,
+`clone_on_copy`, `too_many_arguments`, `derivable_impls`, `needless_borrow`,
+`unit_arg`). Новый `append_record` lint был устранён в самом changeset; общий
+lint cleanup не смешивается с execution architecture.
 
 ### P0 Multiplexed Broker Spike
 
