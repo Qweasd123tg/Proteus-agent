@@ -723,8 +723,9 @@ results последовательно подставляются из journal, 
 exposure восстанавливаются из canonical records.
 
 Replay идёт через обычные Workflow, `ModelService`, `ApprovalPolicy`,
-`ToolRegistry` и `ToolOrchestrator`, поэтому проверяет фактический orchestration
-path, но не повторяет provider-hosted или local side effects. Он сравнивает
+`ToolRegistry`, agent-адаптер `ToolOrchestrator` и generic mechanism
+`BoundTools`, поэтому проверяет фактический orchestration path, но не повторяет
+provider-hosted или local side effects. Он сравнивает
 post-shaping model requests, tool request/approval/resolution/result, changed
 compaction reports, settlement, output и итоговую history; построение финальной
 history проходит общий runtime validator. Допустимая нормализация ограничена
@@ -822,8 +823,9 @@ crate `coding-workflow`. Внутри шага 5 он через process workflo
    context текущего Turn;
 4. вызывает `ModelService`, который shape-ит provider-neutral request,
    исполняет provider call и fail-closed проверяет terminal response;
-5. испускает usage/model events и при наличии tool calls вызывает
-   `ToolOrchestrator` через единый registry/policy/approval/safety path;
+5. испускает usage/model events и при наличии tool calls вызывает agent-адаптер
+   `ToolOrchestrator`, который делегирует единый registry/policy/approval/
+   safety execution path в `BoundTools`;
 6. добавляет `ToolResult` и повторяет model call до финального ответа или
    лимита rounds;
 7. при исчерпании лимита делает final model call без tools;

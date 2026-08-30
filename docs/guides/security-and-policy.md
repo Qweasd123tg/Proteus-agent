@@ -4,11 +4,12 @@ Security path зарегистрированных tools в v0 держится 
 
 1. tools объявляют `ToolSafety`;
 2. `PermissionMode` оборачивает configured `ApprovalPolicy` в mode-aware policy;
-3. `ToolOrchestrator` спрашивает `ApprovalPolicy` отдельно для visibility и execution;
+3. execution-bound `BoundTools` спрашивает `ApprovalPolicy` отдельно для visibility и execution;
 4. сами tools проверяют workspace/path ограничения.
 
 Facade-tool `task` проходит тот же путь
-`ToolRegistry -> mode-aware ApprovalPolicy -> ToolOrchestrator -> Tool::invoke`;
+`ToolOrchestrator(agent adapter) -> BoundTools -> ToolRegistry -> mode-aware
+ApprovalPolicy -> Tool::invoke`;
 worktree для пишущей роли создаётся только после разрешения. Остальные current
 gaps перечислены в разделе «Известные Ограничения Текущей Реализации».
 
@@ -25,7 +26,7 @@ workspace boundary, safety classes, permission mode и approval policy; для
 process tool module `shell-tool` дополнительно использует
 bwrap-песочницу (см. «Exec Sandbox В shell-tool» ниже). Общий network gate,
 protected paths и secrets policy являются следующими слоями, а не заменой
-текущего `ToolOrchestrator`.
+текущего `BoundTools` safety path.
 
 ## Доверенные Process Components
 
@@ -43,8 +44,9 @@ callback только по активному export. Это защищает co
 
 При этом tool callback из process Workflow не получает исключения: методы
 `host.tools.execute`/`host.tools.execute_batch` возвращаются в core и проходят
-обычный `ToolRegistry -> mode-aware ApprovalPolicy -> ToolOrchestrator ->
-Tool::invoke`. Worker не задаёт `ExecutionAttribution` и не может выдать себе
+обычный `ToolOrchestrator(agent adapter) -> BoundTools -> ToolRegistry ->
+mode-aware ApprovalPolicy -> Tool::invoke`. Worker не задаёт
+`ExecutionAttribution` и не может выдать себе
 execution grants; attribution и cancellation берутся из текущего host
 invocation context. Для agent execution attribution содержит chat projection,
 для detached execution — только `ExecutionId`.
@@ -57,7 +59,7 @@ Host очищает parent environment и передаёт только мини
 ## Rust LSP Process Boundary
 
 `lsp_diagnostics` является model-callable tool, поэтому, в отличие от process
-module, всегда проходит `ToolRegistry -> ApprovalPolicy -> ToolOrchestrator`.
+module, всегда проходит `BoundTools -> ToolRegistry -> ApprovalPolicy`.
 Он помечен `RunsCommands`: `rust-analyzer` и запускаемые им Cargo/toolchain
 компоненты не являются чистым чтением и после approval работают с правами
 Proteus, без bwrap-песочницы `shell-tool`. Process environment очищается;
@@ -122,8 +124,9 @@ dev-server port. Wildcard CORS допустим только для явно п�
 - `auto` разрешает `ReadOnly` и `WritesFiles` без approval, но запрещает `RunsCommands`, `Network` и `Dangerous`.
 
 Runtime применяет режим через `ModeAwarePolicy` на границе сборки
-`ExecutionContext`. `ToolOrchestrator` не знает про конкретные режимы и
-делегирует visibility/execution одному `ApprovalPolicy`. Композиция
+`ExecutionContext`. `BoundTools` не знает про конкретные режимы и делегирует
+visibility/execution одному `ApprovalPolicy`; agent adapter эту decision не
+обходит. Композиция
 deny-monotonic: явный `Deny` выбранной policy (или structural deny при её
 отсутствии), а также deny-правило `codex_policy`/`opencode_policy` остаётся
 `Deny` в любом режиме. `plan` и
@@ -655,4 +658,5 @@ execution path. Package manager, marketplace, WASM и OS sandbox в этот ш�
 - Для file tools проверять workspace boundary.
 - Для команд и сети считать действие потенциально опасным.
 - Добавлять тест на policy behavior, если tool пишет файлы, запускает команды или ходит в сеть.
-- Не исполнять tool в обход `ToolRegistry`, mode-aware `ApprovalPolicy` и `ToolOrchestrator`.
+- Не исполнять tool в обход `ToolRegistry`, mode-aware `ApprovalPolicy` и
+  `BoundTools`; agent-specific enrichment проходит через `ToolOrchestrator`.

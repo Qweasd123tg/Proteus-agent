@@ -56,7 +56,8 @@ selected Workflow (controller policy)
 WorkflowHostRuntime
           |
           +--> Model / Context / Compactor
-          +--> ToolRegistry -> ApprovalPolicy -> ToolOrchestrator
+          +--> ToolOrchestrator (agent adapter) -> BoundTools
+          |                                      `-> ToolRegistry / Policy / Approval / Tool
           +--> Search / Memory / Patch / AgentControl
           |
           v
@@ -193,7 +194,7 @@ cancel, invalid response или смерть process классифицирую�
 | Workflow contract | `crates/proteus-contracts/src/contracts/workflow.rs`, `Workflow::run` | Один controller invocation внутри открытого Turn |
 | Process Workflow bridge | `crates/proteus-core/src/process_adapters/workflow.rs`, `ProcessWorkflowAdapter::run` | Один broker root invocation + host callbacks |
 | Generic host callbacks | `crates/proteus-core/src/core/workflow_host.rs`, `WorkflowHostRuntime` | Один cloned current context на Workflow invocation |
-| Tool safety path | `crates/proteus-core/src/core/tool_orchestrator.rs`, `ToolOrchestrator` | Один/batch tool call внутри Workflow |
+| Tool safety path | `crates/proteus-core/src/core/bound_tools.rs`, `BoundTools`; agent adapter — `core/tool_orchestrator.rs` | Один execution-bound tool call; agent wrapper добавляет presentation/control enrichment |
 | Durable data | `crates/proteus-core/src/core/session_store.rs` и `core/session_journal/` | Append-only session journal + reconstructed projection |
 
 ## Ownership И Lifetime
@@ -208,7 +209,7 @@ cancel, invalid response или смерть process классифицирую�
 | `AgentWorkflowContext` | `RuntimeRegistry` собирает wrapper; `AgentRuntime` добавляет live Turn state | Один Workflow invocation | Chat/application identity, context building, compaction, steering/presentation и один wrapped `ExecutionContext` |
 | `RuntimeSnapshot` | `RuntimeServices` | Immutable assembly/config view, удерживаемый всем ходом | Coherent `ModuleEpoch + AssemblyPlan + RuntimeRegistry + config snapshot`; не computation checkpoint |
 | Model invocation | Workflow инициирует; `WorkflowHostRuntime` и `ModelService` исполняют | Один shaped request/stream/terminal response | Provider-neutral model call, timeout, validation, deltas и текущая Turn attribution |
-| Tool invocation | Workflow инициирует; `ToolOrchestrator` владеет safety path | Один `ToolCall` до `ToolResult` | Registry lookup, policy, approval, child cancellation, invoke и recording |
+| Tool invocation | Workflow инициирует; `BoundTools` владеет safety path, `ToolOrchestrator` — agent enrichment | Один `ToolCall` до `ToolResult` | Registry lookup, policy, approval, child cancellation, invoke и recording без mandatory chat; events/user input/agent control добавляются wrapper-ом |
 | Journal | Core `SessionStore`/projection | Append-only lifetime session directory | Canonical durable turn/history/model/tool facts и replay input |
 | Process invocation | `ComponentBroker` | Один root/nested component call в одном process generation | Broker-owned target, parent/root/depth, deadline, cancel и terminal state |
 
@@ -263,9 +264,12 @@ typed execution-bound capabilities.
 `ExecutionPermissionGrants` в execution context и сделала chat projection в
 `RequestOrigin` optional. Phase 6A заменила обязательного chat owner-а в
 `ToolContext`, process `tool/v2` и recorder calls на `ExecutionAttribution`.
-Оставшийся coupling находится в самом agent-shaped `ToolOrchestrator`:
-`AgentWorkflowContext`, `AgentTask`, presentation events, user input и
-`AgentControl` enrichment.
+Phase 6B вынесла registry/schema/policy/approval/grants/cancellation/recording/
+invoke/bounds в immutable `BoundTools`. Его public `execute(cwd, call)` не
+принимает `AgentWorkflowContext`, `AgentTask` или chat identity. Оставшийся
+`ToolOrchestrator` является тонким agent adapter-ом: он имеет право знать
+`AgentWorkflowContext`, добавляет presentation events, attributed user input,
+task и optional `AgentControl` host.
 
 Phase 3 убрала mutable current attribution из shared `ModelService`. Registry
 хранит один stateless относительно execution provider service, а каждый Turn
@@ -375,8 +379,8 @@ queue и cancellation token journal не восстанавливает.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–5 и tool-attribution Phase 6A реализованы; следующий
-changeset — generic mechanism/agent enrichment split Phase 6B**.
+Статус: **Phase 0–6 реализованы; review перед изменением top-level execution
+entrypoint**.
 
 Принято направление отделить generic workload identity/lifecycle boundary от
 conversation Turn без переписывания agent loop или process protocol:
@@ -410,7 +414,7 @@ API-модель. Phase 2 доказала process-backed search через gene
 fake Turn; после review context может остаться узким, быть раздроблен или
 уступить место typed execution-bound handles.
 
-Долгосрочная гипотеза, частично проверенная только на model capability:
+Долгосрочная гипотеза проверена двумя concrete capabilities — model и tools:
 
 ```text
 Controller -> ExecutionScope -> typed capability binder/resolver
@@ -420,22 +424,26 @@ Controller -> ExecutionScope -> typed capability binder/resolver
                                       `-> BoundMemory
 ```
 
-Это не universal capability enum и не ambient service locator. Конкретная
+`BoundModel` и `BoundTools` не сведены к premature `BoundCapability<T>`. Это не
+universal capability enum и не ambient service locator. Конкретная
 capability остаётся typed contract-ом, а bound handle захватывает только её
 execution attribution, cancellation, authority/budget и recording needs.
 
-Первый эксперимент этой формы — реализованный Phase 3 `BoundModel`: shared
-`ModelService` stateless относительно execution, а отдельный immutable handle
-bind-ит его к `ExecutionScope` и optional текущей chat/journal projection.
-`ExecutionContext.model` теперь хранит этот bound handle за существующим
-`Arc<dyn Model>`. Это проверка одной concrete capability, не введение
-`BoundCapability<T>` или общего resolver-а.
+Phase 3 проверила эту форму на `BoundModel`: shared `ModelService` stateless
+относительно execution, а отдельный immutable handle bind-ит его к
+`ExecutionScope` и optional текущей chat/journal projection.
+`ExecutionContext.model` хранит этот bound handle за существующим
+`Arc<dyn Model>`. Phase 6B дала второй независимый data point: `BoundTools`
+захватывает registry, policy, approval, grants, limits и execution binding,
+но не требует agent/chat context. Эти два concrete handle всё ещё не являются
+основанием вводить `BoundCapability<T>` или общий resolver.
 
 На текущем HEAD существуют distinct `ExecutionId`, минимальный
 `ExecutionScope`, generic `ExecutionContext`, chat-specific
-`AgentWorkflowContext` и execution-bound model handle. Каждый Turn создаёт
-новый id; wrapper содержит ровно один execution context. Structural guard
-запрещает chat imports в generic contract. Следующие phases и stop-gates находятся в
+`AgentWorkflowContext`, execution-bound model и tool handles. Каждый Turn
+создаёт новый id; wrapper содержит ровно один execution context. Structural
+guards запрещают chat imports в generic execution contracts и в public
+`BoundTools` boundary. Следующие phases и stop-gates находятся в
 [roadmap.md](../product/roadmap.md#executionscope-migration).
 
 ## Capability, Slot, Module, Worker И Profile

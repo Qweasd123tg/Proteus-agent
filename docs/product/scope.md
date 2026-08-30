@@ -75,8 +75,7 @@ wire/config/DTO меняются атомарно без legacy aliases и compa
 
 ## Что Ещё Нужно Решить
 
-ExecutionScope migration Phase 0–5 и tool-attribution cutover Phase 6A
-завершены. Distinct `ExecutionId` и
+ExecutionScope migration Phase 0–6 завершена. Distinct `ExecutionId` и
 минимальный `ExecutionScope` отделяют generic identity/cancellation от
 conversation `Turn`, не становясь контейнером services. `ExecutionContext`
 отделён от chat-specific `AgentWorkflowContext`; прежний `RuntimeContext`
@@ -92,9 +91,12 @@ mandatory `ExecutionId` для model/tool facts и optional agent projection.
 `ExecutionRecorder` и `ToolExecutionRecorder` не требуют chat IDs;
 `BoundModel` не знает `SessionStore`, а process `tool/v2` переносит
 `ExecutionAttribution` без fake Turn. Grants и approval origin также
-execution-owned. Следующий шаг Phase 6B — отделить generic tool execution
-mechanism от agent enrichment и проверить meaningful detached invocation.
-Общая `BoundCapability<T>` abstraction не вводится.
+execution-owned. `BoundTools` стал вторым concrete binding pattern: он владеет
+registry/schema/policy/approval/grants/cancellation/recording/invoke path и
+исполняет настоящий process tool без `AgentTask` или chat IDs.
+`ToolOrchestrator` теперь только agent adapter для events, attributed input и
+`AgentControl`. Общая `BoundCapability<T>` abstraction не введена; перед
+top-level non-Turn entrypoint действует review stop.
 Следующие phases и stop-gates находятся в
 [roadmap.md](roadmap.md#executionscope-migration).
 

@@ -442,7 +442,7 @@ origin-specific privilege.
 
 Process tool дополнительно проходит `tool/v2 list + invoke`, включая detached
 `ExecutionAttribution` без chat IDs, но его runtime вызов всё равно должен
-дойти через общий `ToolRegistry` path.
+дойти через общий `BoundTools -> ToolRegistry -> policy` path.
 
 Module-owned command execution внутри workflow запрещён: workflow вызывает
 `host.tools.execute[_batch]`.

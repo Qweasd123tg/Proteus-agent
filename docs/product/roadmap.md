@@ -24,13 +24,13 @@ journal/replay evidence и `v0.1.0-alpha.1` уже завершены. Roadmap �
 [releases/v0.1.0-alpha.1.md](../releases/v0.1.0-alpha.1.md).
 
 Следующее принятое направление — минимальная `ExecutionScope` migration,
-описанная ниже. Phase 0–5 и tool-attribution cutover Phase 6A реализованы;
-следующий отдельный changeset — `BoundTools` Phase 6B. Остальные разделы остаются
+описанная ниже. Phase 0–6 реализованы; перед top-level execution entrypoint
+действует обязательный review. Остальные разделы остаются
 вариантами последующей работы, а не автоматической очередью.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–5 и Phase 6A реализованы; Phase 6B в отдельном changeset**.
+Статус: **Phase 0–6 реализованы; остановка перед top-level execution entrypoint**.
 
 Supporting evidence, не заменяющий этот roadmap:
 [source-level audit](../research/execution-scope-source-audit-2026-08-27.md) и
@@ -43,8 +43,8 @@ Core уже не владеет конкретным agent loop: последо�
 identity и смешивал reusable runtime capabilities с agent/chat-specific
 policy. Structural context split и durable model/tool execution attribution
 выполнены. Grants, approval origin, tool recorder и process Tool attribution
-уже execution-owned; agent-shaped `ToolOrchestrator` всё ещё использует
-`AgentWorkflowContext`, `AgentTask` и presentation services.
+execution-owned. `BoundTools` владеет generic safety path; agent-shaped
+`ToolOrchestrator` оставлен отдельным presentation/enrichment adapter-ом.
 
 Цель ближайшей итерации — ввести generic workload identity/lifecycle boundary
 и проверить честное разделение context ownership, не меняя существующее
@@ -267,8 +267,9 @@ AgentWorkflowContext -> ExecutionContext -> ExecutionScope
   Phase 4A удалила chat IDs из `ExecutionRecorder`, а прежние tool methods
   временно перенесла в agent-specific recorder; Phase 6A заменила эту
   поверхность generic `ToolExecutionRecorder`;
-- `ToolRegistry` reusable как catalog, хотя current `ToolOrchestrator` ещё
-  принимает agent-shaped task/context. Его signature меняется только в Phase 6.
+- `ToolRegistry` reusable как catalog; Phase 6B вынесла generic execution path
+  в `BoundTools`, а `ToolOrchestrator` оставила тонким agent adapter-ом для
+  task/control/presentation enrichment.
 
 `ExecutionContext` обязан конструироваться без `SessionId`, `ThreadId`,
 `TurnId`, `AgentTask`, chat history и `AgentOutput`. Generic module не должен
@@ -345,10 +346,11 @@ typed CapabilityBinder / Resolver
 
 Каждый bound handle сможет захватывать нужные ему execution attribution,
 cancellation, authority, budget и recording без ручного протаскивания этих
-параметров controller-ом. Это **не** задача Phase 0–2, не обещание конкретных
-имён API и не основание добавлять universal capability enum, string-keyed
-service locator или переписывать `Model`/`ToolOrchestrator` сейчас. Phase 2
-должна лишь не закрыть этот путь новым god-object-ом.
+параметров controller-ом. Phase 3 (`BoundModel`) и Phase 6B (`BoundTools`) уже
+дали два concrete data points, но это не обещание общего resolver API и не
+основание добавлять universal capability enum, string-keyed service locator
+или `BoundCapability<T>`. `ExecutionContext` по-прежнему остаётся migration
+structure, а не новым god-object-ом.
 
 Долгосрочная binding boundary должна позволять ответить: кто выполняется,
 какая authority выдана, что было вызвано, как это отменить и какая работа это
@@ -741,8 +743,7 @@ Verification checkpoint 2026-08-29: focused origin/grants/cache tests,
 
 ### Phase 6 — Generic Tool Execution
 
-Статус: **Phase 6A реализована 2026-08-30; Phase 6B выполняется отдельным
-changeset**.
+Статус: **Phase 6A и Phase 6B реализованы 2026-08-30; review перед Phase 7**.
 
 **Phase 6A — attribution и wire boundary:**
 
@@ -772,20 +773,31 @@ network sandbox и прошёл 374/374. Strict clippy для contracts/shell з
 workspace/core по-прежнему блокируют те же pre-existing Rust 1.97 lints вне
 Phase 6A diff.
 
-**Phase 6B — второй concrete binding pattern:**
+**Phase 6B — второй concrete binding pattern (реализована):**
 
-- выделить `BoundTools` либо эквивалентный узкий execution-bound handle, если
-  source split подтверждает это имя;
-- сохранить один safety path: registry lookup, schema, policy, approval,
+- выделен immutable `BoundTools`, bound к `ExecutionScope`, attribution,
+  recorder и authority handles;
+- сохранён один safety path: registry lookup, schema, policy, approval,
   grants, timeout/cancellation, recording и result bounds;
-- agent adapter добавляет chat events, attributed user input, task и
+- agent adapter `ToolOrchestrator` добавляет chat events, attributed user input, task и
   `AgentControl`, но generic mechanism от них не зависит;
-- architecture guard выполняет meaningful tool invocation без `SessionId`,
+- architecture guard выполняет настоящий process `tool/v2` invocation без `SessionId`,
   `ThreadId`, `TurnId`, `AgentTask` и chat history;
-- не вводить `BoundCapability<T>`: двух concrete patterns (`BoundModel` и
-  tools) достаточно для review, но ещё недостаточно для universal abstraction;
-- не genericize-ить `AgentControl`, если его фактическая семантика остаётся
-  agent/application capability.
+- `BoundCapability<T>` не введён: `BoundModel` и `BoundTools` остаются двумя
+  concrete patterns до отдельного review;
+- `AgentControl` не genericize-ен: его фактическая семантика остаётся
+  agent/application capability;
+- старый 700-строчный mixed orchestrator разделён на связный generic mechanism,
+  pure support helpers/tests и 150-строчный agent adapter.
+
+Verification checkpoint 2026-08-30: `cargo fmt --all -- --check`,
+`cargo check --workspace`, полный `cargo test --workspace --no-fail-fast`,
+focused `execution_boundary`, `module_swap`, `BoundTools` unit tests и
+canonical workflow replay прошли. Detached boundary выполняет настоящий
+process `tool/v2` и проверяет policy evaluation, recorder attribution и
+отсутствие agent projection. Strict core clippy не нашёл diagnostics в новых
+Phase 6B файлах, но остаётся заблокирован восемью ранее зафиксированными Rust
+1.97 lint-ами вне этого changeset.
 
 После Phase 6B обязателен review перед изменением `AgentRuntime` entrypoint.
 

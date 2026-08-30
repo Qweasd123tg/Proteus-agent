@@ -315,10 +315,10 @@ model exchange interrupted и завершить именно Turn. Generic
 immutable binding. Tool lifecycle записывает отдельный generic
 `ToolExecutionRecorder`: attribution передаётся на каждом вызове, поэтому
 root/child presentation threads сохраняются как optional projection, а
-detached tool facts не требуют invented Turn. Сам `ToolOrchestrator` пока
-agent-shaped из-за `AgentWorkflowContext`, `AgentTask`, presentation events и
-agent-control enrichment; это runtime coupling, а не ограничение journal
-schema.
+detached tool facts не требуют invented Turn. Generic lifecycle исполняет
+`BoundTools`; agent-shaped `ToolOrchestrator` остался только wrapper-ом для
+`AgentWorkflowContext`, presentation events, task/user-input и agent-control
+enrichment. Это не ограничение journal schema.
 
 ## Выполненный Переход
 

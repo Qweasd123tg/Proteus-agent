@@ -171,7 +171,8 @@ Runtime должен сохранять эти свойства:
 - conversation history отдельно от ephemeral context;
 - session resume fold-ит persistent `journal.jsonl`, не ephemeral context;
 - зарегистрированные tools, включая facade-tool `task`, исполняются через
-  `ToolRegistry`, mode-aware `ApprovalPolicy` и `ToolOrchestrator`.
+  `ToolRegistry`, mode-aware `ApprovalPolicy` и execution-bound `BoundTools`;
+  agent path добавляет task/control/presentation через `ToolOrchestrator`.
 
 Подробности текущих DTO и flow находятся в `runtime-and-events.md`.
 
@@ -209,8 +210,7 @@ contract decisions. Для subagents уже принята identity-модель
 [subagents.md](../architecture/subagents.md). Актуальный
 критический путь ведётся в `scope.md`.
 
-В минимальном направлении Phase 0–3 и recorder seam Phase 4A
-`ExecutionScope` migration завершены:
+В минимальном направлении Phase 0–6 `ExecutionScope` migration завершены:
 distinct `ExecutionId` и scope выражают identity, lifecycle/cancellation и
 execution attribution, но scope не является service container. Прежний
 `RuntimeContext` разделён на generic `ExecutionContext` и chat-specific
@@ -219,12 +219,15 @@ execution attribution, но scope не является service container. Пр�
 `ExecutionContext` остаётся migration hypothesis, а не зафиксированным
 конечным API. `BoundModel` доказал immutable per-execution binding поверх
 shared provider: metadata, delta attribution и cancellation больше не зависят
-от mutable current Turn в `ModelService`. `BoundModel` теперь пишет model
-facts через scope-bound `ExecutionRecorder` без chat IDs и не импортирует
-`SessionStore`; текущая chat-aware tool recording surface находится в
-`AgentWorkflowContext`. Production migration остановлена перед strict journal
-cutover Phase 4B; approval и generic tool ownership мигрируют только
-отдельными проверяемыми phases. `Turn` остаётся
+от mutable current Turn в `ModelService`. `BoundModel` пишет model facts через
+scope-bound `ExecutionRecorder` без chat IDs и не импортирует `SessionStore`.
+Journal schema v2, grants, approval origin и tool recording используют
+mandatory `ExecutionId` с optional agent projection. `BoundTools` является
+вторым concrete binding pattern и владеет generic registry/schema/policy/
+approval/cancellation/recording/invoke path; `ToolOrchestrator` только
+добавляет agent task/control/presentation. Production migration остановлена
+на review перед top-level non-Turn entrypoint; общая `BoundCapability<T>`
+abstraction не введена. `Turn` остаётся
 application lifecycle, `Workflow` владеет agent-loop policy, а process
 `InvocationRef` не меняется. Канонический план находится в
 [roadmap.md](roadmap.md#executionscope-migration).
