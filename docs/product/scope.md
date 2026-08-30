@@ -98,8 +98,10 @@ registry/schema/policy/approval/grants/cancellation/recording/invoke path и
 `AgentControl`. Normal `AgentRuntime` Turn path явно сначала bind-ит generic
 `ExecutionContext` из одного admitted snapshot/scope и только затем строит
 `AgentWorkflowContext`; combined registry factory удалён. Общая
-`BoundCapability<T>` abstraction не введена; перед первым top-level non-Turn
-execution действует Phase 8 review stop.
+`BoundCapability<T>` abstraction не введена. Source-level boundary Phase 8
+принята: private atomic admission и typed top-level operations без public
+`ExecutionContext`; production entrypoint пока отсутствует и ограничен
+stop-gates roadmap.
 Process terminal failures доходят до Core adapter boundary как typed
 `ProcessInvocationError`, а AppServer transport cancel handles называются
 `run_id`/`running_run_ids` и не маскируются под domain `TurnId`.

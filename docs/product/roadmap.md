@@ -24,14 +24,15 @@ journal/replay evidence и `v0.1.0-alpha.1` уже завершены. Roadmap �
 [releases/v0.1.0-alpha.1.md](../releases/v0.1.0-alpha.1.md).
 
 Следующее принятое направление — минимальная `ExecutionScope` migration,
-описанная ниже. Phase 0–7 реализованы; перед первым top-level non-Turn
-execution действует обязательный review. Остальные разделы остаются
-вариантами последующей работы, а не автоматической очередью.
+описанная ниже. Phase 0–7 реализованы; source-level решение Phase 8 принято,
+но production entrypoint ещё не реализован и ограничен stop-gates ниже.
+Остальные разделы остаются вариантами последующей работы, а не автоматической
+очередью.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–7 реализованы; остановка перед Phase 8 / первым top-level
-non-Turn execution**.
+Статус: **Phase 0–7 реализованы; source audit Phase 8 завершён, production
+implementation не начата**.
 
 Supporting evidence, не заменяющий этот roadmap:
 [source-level audit](../research/execution-scope-source-audit-2026-08-27.md) и
@@ -805,7 +806,7 @@ path; новый non-Turn entrypoint остался отложен до Phase 8.
 
 ### Phase 7 — AgentRuntime Turn-Path Cutover
 
-Статус: **реализовано 2026-08-30; остановка перед Phase 8**.
+Статус: **реализовано 2026-08-30; production boundary Phase 8 не пересечена**.
 
 Source review уточнил границу Phase 7. Отдельный generic executor, новый public
 entrypoint или ещё один execution container здесь не нужны: это уже Phase 8.
@@ -874,7 +875,8 @@ Stop-gates:
   creation;
 - existing snapshot atomicity, steering, workflow replay, process Workflow v1
   strictness и module swap tests остаются green;
-- Phase 8 начинается только отдельным changeset после review.
+- Phase 8 production начинается только отдельным changeset по принятому ниже
+  source-level решению.
 
 Verification checkpoint 2026-08-30: `cargo fmt --all -- --check`,
 `cargo check --workspace`, полный `cargo test --workspace --no-fail-fast`,
@@ -884,6 +886,220 @@ workspace clippy по-прежнему блокируется только пр�
 reference modules и восемью ранее зафиксированными Core diagnostics вне Phase
 7 diff; Core lib проходит `-D warnings` при подавлении ровно этих baseline lint
 classes.
+
+### Phase 8 — Top-Level Non-Turn Admission
+
+Статус: **source audit и architecture decision завершены 2026-08-30;
+production code отсутствует**.
+
+Старое supporting research предлагало
+`run_execution(|ctx: ExecutionContext| ...)`. Текущий source отвергает эту
+форму. `ExecutionContext` остаётся широким migration object и публично отдаёт
+raw `ToolRegistry`, `MemoryStore`, `PatchApplier`, policy/approval и другие
+handles. Closure над всем context закрепил бы ambient service bag как новый
+top-level API сразу после его декомпозиции.
+
+Phase 8 не вводит `GenericExecutor`, новый workload trait, public
+`RuntimeSnapshot`, universal capability enum или string-keyed resolver.
+Нужна одна private admission boundary и отдельные typed operation surfaces.
+
+#### Owner И Immutable Admission
+
+Первым owner остаётся `AgentRuntime`:
+
+- он уже является top-level owner `RuntimeServices`, runtime reload и
+  effective overrides;
+- существующий реальный non-Turn consumer `/remember` уже получает
+  `&AgentRuntime`;
+- source не показывает второго независимого lifecycle owner-а, ради которого
+  сейчас нужен новый public `ExecutionRuntime`;
+- non-Turn admission не берёт session `run_lock`, не резервирует user message,
+  не создаёт `TurnId` и не читает history/steering.
+
+Private admission helper должен один раз под одним read lock захватить coherent
+effective state. Текущий `TurnExecutionSnapshot` обобщается или заменяется
+эквивалентным private `ExecutionAdmissionSnapshot`, который содержит:
+
+- один `RuntimeSnapshot` (`ModuleEpoch`, `AssemblyPlan`, registry и base config
+  snapshot);
+- effective `PermissionMode`;
+- effective `ModelRef` и `ReasoningConfig`;
+- config snapshot с применёнными runtime overrides.
+
+Обычный Turn и новый non-Turn path используют один capture primitive. После
+admission reload, смена model/reasoning или permission mode влияет только на
+следующую execution. Каждый admission создаёт ровно один свежий
+`ExecutionScope` и отдельные execution grants; binding конкретной capability
+не перечитывает mutable runtime state.
+
+Admission state остаётся private и не передаётся caller-у целиком. Typed
+binders могут получить из него только нужные данные:
+
+```text
+AgentRuntime
+    |
+    `-- private admit(cancellation)
+            |-- ExecutionScope
+            |-- immutable effective snapshot
+            |-- detached recorder bindings
+            |
+            |-- bind tools  -> BoundTools
+            |-- bind model  -> BoundModel (не первый public surface)
+            `-- bind memory -> BoundMemory (после memory/v2 cutover)
+```
+
+Это не обещание общего `CapabilityBinder<T>` API. Новая capability получает
+свой typed binding только когда concrete consumer и её cancellation/authority/
+recording semantics доказаны source и tests.
+
+#### Первый Hard Proof: BoundTools
+
+Первый production changeset Phase 8 добавляет узкую top-level tool operation,
+семантически эквивалентную следующей форме:
+
+```rust,ignore
+AgentRuntime::execute_tool(call, cancellation) -> Result<ToolResult>
+```
+
+Caller не получает `ExecutionContext`, registry, policy или grants. Runtime
+атомарно admit-ит execution, строит detached `ToolExecutionBinding` и
+`BoundTools`, затем исполняет один canonical `ToolCall` в runtime cwd.
+
+Именно process-backed tool является первым hard proof, а не demo-only fake
+model pipeline. Этот путь одновременно проверяет:
+
+- реальный Component Runtime v2 / wire v3 export;
+- frozen registry и permission mode;
+- policy, approval transport и fresh execution grants;
+- detached `RequestOrigin`/`ExecutionAttribution` без chat IDs;
+- targeted cancellation и tool timeout;
+- canonical tool facts через detached `SessionToolExecutionRecorder`, если у
+  runtime есть session store.
+
+`BoundModel` уже доказал detached binding на нижнем уровне, но отдельная
+top-level model operation не входит в первый changeset. Сначала надо определить,
+кто строит `CanonicalModelRequest` из admitted `ModelRef`/reasoning и какие
+defaults являются частью public contract. Phase 8 не отдаёт caller-у весь
+context только ради доступа к модели.
+
+#### Реальный Consumer: `/remember`
+
+CLI `/remember` подтверждает наличие полезной работы вне Turn, но сегодня он
+вызывает raw `MemoryStore` из отдельного `RuntimeSnapshot` и потому не является
+proof Phase 8. Его нельзя исправить косметическим созданием неиспользуемого
+`ExecutionScope`.
+
+Также запрещено молча перенаправлять `/remember` через tool `remember_fact`:
+
+- этот tool может отсутствовать в `tools.enabled`, тогда как slash-команда
+  работает через выбранный memory slot независимо от tool exposure;
+- tool policy/approval изменит существующую семантику явной ручной команды;
+- direct user memory operation и model/tool-requested memory write являются
+  разными authority surfaces и не должны маскироваться одним fallback-ом.
+
+Перед миграцией `/remember` нужен strict slot-wide memory contract cutover:
+
+1. canonical `MemoryStore` invocation получает execution attribution и
+   cancellation context для `remember` и `recall`;
+2. process memory DTO/contract меняется с `memory/v1` на `memory/v2`, все
+   tracked producers, consumers, reference workers и conformance tests
+   обновляются атомарно без v1 reader/alias;
+3. `ProcessMemoryStore` использует broker cancellation, а не просто drop
+   ожидающего future: текущий `InvocationHandle` не отменяет invocation при
+   drop;
+4. typed `BoundMemory` захватывает один scope и selected store из admitted
+   snapshot;
+5. `AgentRuntime::remember(item, cancellation)` использует этот binding, после
+   чего CLI больше не получает raw `MemoryStore` через `AgentRuntime::memory()`.
+
+Ручной `/remember` сохраняет direct-user authority и не проходит
+`ToolRegistry`/`ApprovalPolicy`. `remember_fact` остаётся отдельным tool path и
+по-прежнему проходит `BoundTools`. Это не обход tool safety: две операции
+имеют разные callers и contracts.
+
+MemoryStore остаётся canonical durable owner самой записи; Phase 8 не
+изобретает `MemoryRemembered` journal event и не представляет memory write как
+`ToolCall`. Cancellation/timeout не обещают транзакционный rollback: если
+worker применил side effect до потери ответа, результат может быть
+неопределённым, как и для других внешних writes.
+
+#### Lifecycle, Recording И Concurrency
+
+| Инвариант | Решение Phase 8 |
+|---|---|
+| Identity | Один новый `ExecutionId` на top-level call; никакого fake `TurnId` или вывода id из transport request. |
+| Lifetime | Entry method ждёт terminal result; background spawn, attach и durable resume не добавляются. |
+| Cancellation | Caller передаёт token в один `ExecutionScope`; `BoundTools` и после memory/v2 `BoundMemory` обязаны довести cancel до process invocation. |
+| Authority | Tool path использует frozen policy/mode/approval/grants; memory slash-команда использует ровно authority memory slot-а как explicit user operation. Union authority между exports запрещена. |
+| Recording | Model/tool facts могут писаться в session journal с `execution_id` и без thread/turn. Generic `ExecutionOpened/Settled` и memory journal facts не добавляются без отдельного replay/use-case решения. |
+| Failure | Возвращается capability `Result`/`ToolResult`; history, `AgentOutput`, Turn settlement и presentation events не фабрикуются. |
+| Concurrency | Non-Turn calls не берут session `run_lock`; разные executions имеют distinct scope/grants/recorders и могут идти рядом с Turn. SessionStore writer и component broker сохраняют собственную serialization/multiplexing семантику. |
+| Reload | Открытая execution удерживает старый admitted snapshot; следующая видит новый epoch/settings. Partial old/new binding запрещён. |
+
+Phase 8 не вводит generic live event taxonomy. Отсутствие
+`TurnStarted`/`TurnSettled` для non-Turn operation является правильной
+семантикой, а не поводом создать fake chat projection.
+
+#### Changesets И Stop-Gates
+
+Implementation разделяется минимум на два reviewable changeset:
+
+**Phase 8A — admission + top-level BoundTools proof:**
+
+- private shared admission capture для Turn и non-Turn;
+- narrow `AgentRuntime` tool operation без public context/registry;
+- detached recorder и fresh-grants binding;
+- process-backed tool, reload atomicity, cancellation и concurrency tests;
+- полный workspace/module-swap/process conformance gate;
+- остановка для review до memory contract change.
+
+**Phase 8B — memory/v2 + `/remember`:**
+
+- strict canonical/process memory contract cutover;
+- typed `BoundMemory` и cancellable process adapter;
+- удаление public `AgentRuntime::memory()` side channel;
+- CLI `/remember` через top-level memory operation с прежними parsing,
+  availability и direct-user authority;
+- real blocking-worker cancellation, concurrent Turn, reload и config-swap
+  regressions;
+- documentation и полный gate отдельным commit.
+
+Phase 8 завершена только когда выполнены оба уровня evidence:
+
+1. deterministic non-agent caller проходит top-level admission →
+   process-backed `BoundTools` → canonical result без Session/Turn/Workflow;
+2. реальный `/remember` больше не обходит admission и его memory invocation
+   действительно несёт execution cancellation/attribution.
+
+До этого запрещено:
+
+- публиковать closure/function, принимающую весь `ExecutionContext`;
+- возвращать caller-у `RuntimeSnapshot`, `RuntimeRegistry`, raw `ToolRegistry`,
+  `MemoryStore` или `PatchApplier`;
+- вводить новый root runtime owner без второго доказанного lifecycle consumer;
+- считать constructor test, raw lower-level binding или fake model fixture
+  завершением Phase 8;
+- запускать non-Turn work под session `run_lock` либо создавать fake history,
+  `AgentTask`, `AgentOutput`, `TurnOpened`/`TurnSettled`;
+- менять Workflow v1, AppServer protocol, process invocation lineage или
+  composition mode в том же changeset.
+
+Минимальный focused evidence Phase 8A:
+
+- один admitted call видит один execution id во всех tool facts;
+- два concurrent calls не смешивают ids, grants, approval cache или records;
+- concurrent Turn и non-Turn call не блокируют друг друга и не смешивают
+  attribution;
+- reload во время blocked call не меняет его registry/mode, следующий call
+  видит новый snapshot;
+- cancellation одного process tool не отменяет sibling execution/Turn;
+- unknown/denied/approval/canceled/timeout/success paths остаются canonical;
+- source guard запрещает chat imports и public ambient context на новой
+  boundary.
+
+Phase 8B дополнительно требует доказать, что `/remember` работает при
+выключенном `remember_fact`, process memory получает detached execution owner,
+cancel доходит до blocking worker, а history/Turn journal не меняются.
 
 ## Другие Направления
 

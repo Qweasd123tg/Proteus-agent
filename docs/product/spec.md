@@ -228,10 +228,12 @@ approval/cancellation/recording/invoke path; `ToolOrchestrator` только
 добавляет agent task/control/presentation. Normal Turn path уже cut over на
 явную последовательность
 `ExecutionScope -> ExecutionContext -> AgentWorkflowContext`. Production
-migration остановлена на review перед Phase 8 / первым top-level non-Turn
-entrypoint; общая `BoundCapability<T>` abstraction не введена. `Turn` остаётся
-application lifecycle, `Workflow` владеет agent-loop policy, а process
-`InvocationRef` не меняется. Канонический план находится в
+migration всё ещё не имеет top-level non-Turn entrypoint, но source-level
+boundary Phase 8 уже принята: private atomic admission и отдельные typed
+operation surfaces без public ambient `ExecutionContext`. Общая
+`BoundCapability<T>` abstraction не введена. `Turn` остаётся application
+lifecycle, `Workflow` владеет agent-loop policy, а process `InvocationRef` не
+меняется. Канонический план и production stop-gates находятся в
 [roadmap.md](roadmap.md#executionscope-migration).
 
 Phase 4 source review разделил durable owner и presentation attribution, а

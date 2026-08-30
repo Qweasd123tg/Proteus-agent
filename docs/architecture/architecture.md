@@ -387,8 +387,8 @@ queue и cancellation token journal не восстанавливает.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–7 реализованы; review перед Phase 8 / первым top-level
-non-Turn execution**.
+Статус: **Phase 0–7 реализованы; source-level boundary Phase 8 принята,
+production top-level non-Turn entrypoint ещё отсутствует**.
 
 Принято направление отделить generic workload identity/lifecycle boundary от
 conversation Turn без переписывания agent loop или process protocol:
@@ -453,6 +453,73 @@ Phase 3 проверила эту форму на `BoundModel`: shared `ModelSer
 guards запрещают chat imports в generic execution contracts и в public
 `BoundTools` boundary. Следующие phases и stop-gates находятся в
 [roadmap.md](../product/roadmap.md#executionscope-migration).
+
+### Принятая Граница Phase 8
+
+Phase 8 не публикует `ExecutionContext` как closure argument или service
+locator. Сейчас этот migration type всё ещё содержит raw registry/store/patch
+и policy handles; передача его целиком превратила бы внутреннюю compile
+boundary в ambient top-level API.
+
+Первый non-Turn owner остаётся `AgentRuntime`, потому что именно он уже владеет
+`RuntimeServices`, runtime reload/effective overrides и текущим реальным
+side-channel `/remember`. Новый path при этом не использует chat-owned
+`SessionState` lifecycle:
+
+```text
+AgentRuntime
+     |
+     | private atomic admission
+     | (effective snapshot + one ExecutionScope)
+     v
+typed top-level operation
+     |-- BoundTools  -> first process-backed hard proof
+     |-- BoundMemory -> after strict memory/v2 cutover
+     `-- BoundModel  -> later, after request-default ownership decision
+```
+
+Private admission захватывает под одним `RuntimeExecutionState` read lock тот
+же coherent набор, что normal Turn: `RuntimeSnapshot`, permission mode,
+model ref, reasoning и effective config snapshot. Turn и non-Turn path должны
+использовать один capture primitive. Binding capability не перечитывает live
+state, поэтому reload не может собрать одну execution из разных module epochs
+или permission/model settings.
+
+Public operation получает только canonical input и cancellation token и
+возвращает typed result. Она не возвращает `RuntimeSnapshot`, registry,
+`ExecutionContext`, raw tools/memory/patch handles или generic resolver.
+Каждый call создаёт distinct `ExecutionId`, fresh grants и detached
+attribution; session `run_lock`, user message reservation, history,
+`AgentTask`, `AgentOutput` и Turn events отсутствуют.
+
+Первый hard proof проходит через `BoundTools`, потому что эта boundary уже
+связывает registry, policy, approval, grants, cancellation, process
+attribution и canonical tool recording. Если у `AgentRuntime` есть
+`SessionStore`, tool/model facts могут записываться с `execution_id` и без
+thread/turn; `TurnOpened`/`TurnSettled` или новые generic lifecycle events для
+этого не фабрикуются.
+
+`/remember` является первым user-facing migration target, но текущий raw
+`MemoryStore` ещё не может честно участвовать в admission: trait и
+`memory/v1` DTO не несут execution attribution/cancellation, а drop ожидающего
+`InvocationHandle` не отменяет process invocation. Поэтому перед cutover
+нужны typed `BoundMemory` и strict slot-wide `memory/v2`; все producers и
+consumers меняются атомарно без compatibility reader.
+
+Slash-команда остаётся explicit direct-user memory operation и не
+перенаправляется через опциональный tool `remember_fact`. Tool path продолжает
+проходить `BoundTools` и policy/approval; direct memory path получает только
+authority выбранного memory slot-а. MemoryStore остаётся durable owner записи,
+а Phase 8 не превращает memory action в `ToolCall` и не добавляет journal fact
+без отдельного replay use case.
+
+Non-Turn operations не берут session `run_lock` и могут идти параллельно с
+Turn и друг с другом. Изоляция обеспечивается distinct scope/grants/recorders,
+SessionStore сериализует append своим writer lock, а multiplexed component
+сохраняет общий process lifecycle/failure domain без union authority. Cancel
+одной execution не должен затрагивать sibling execution или Turn. Полный
+порядок changesets и evidence зафиксирован в
+[roadmap.md](../product/roadmap.md#phase-8--top-level-non-turn-admission).
 
 ## Capability, Slot, Module, Worker И Profile
 
