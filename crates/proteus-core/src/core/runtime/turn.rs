@@ -285,22 +285,8 @@ impl AgentRuntime {
                 )
                 .await?;
         }
-        let mut workflow_context = snapshot
-            .runtime
-            .registry
-            .agent_workflow_context_with_user_input(
-                self.session.session_id,
-                self.session.thread_id,
-                turn_id,
-                execution_scope,
-                self.services.events.clone(),
-                self.session.session_store.clone(),
-                self.services.approval.clone(),
-                self.services.user_input.clone(),
-                snapshot.permission_mode,
-            );
-        workflow_context.model_ref = snapshot.model_ref;
-        workflow_context.reasoning = snapshot.reasoning;
+        let mut workflow_context =
+            self.bind_agent_workflow_context(execution_scope, &snapshot, turn_id);
         workflow_context.queued_user_messages = self.session.steering.queued_count_handle();
         let steering_model = SteeringModel::new(
             workflow_context.execution.model.clone(),

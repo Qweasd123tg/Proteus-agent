@@ -5,16 +5,15 @@ use anyhow::Result;
 use crate::{
     contracts::{
         AgentControl, AgentWorkflowContext, ApprovalPolicy, ContextBuilder, EventEmitter,
-        ExecutionContext, ExecutionRecorder, ExecutionScope, HistoryCompactor, MemoryStore, Model,
-        NoopExecutionRecorder, NoopToolExecutionRecorder, PatchApplier, Renderer, SearchBackend,
-        ToolExecutionRecorder, ToolExposure, ToolRegistry, UserInputTransport, Workflow,
+        ExecutionContext, HistoryCompactor, MemoryStore, Model, PatchApplier, Renderer,
+        SearchBackend, ToolExposure, ToolRegistry, UserInputTransport, Workflow,
     },
     core::{
         AgentControlRuntime, AppConfig, AssemblyPlan, BoundModel, ModeAwarePolicy,
         ModelExecutionBinding, ModelService, ModuleBuildContext, ModuleCatalog, PolicyBuildContext,
-        PreparedAssembly, SessionExecutionRecorder, SessionStore, SessionToolExecutionRecorder,
+        PreparedAssembly,
     },
-    domain::{SessionId, ThreadId, TurnId},
+    domain::{ModelRef, ReasoningConfig, SessionId, ThreadId, TurnId},
     stubs::{
         DenyAllPolicy, EmptyContextBuilder, NoCompactor, NoMemory, NoWorkflow, NullPatchApplier,
         NullSearch, TextRenderer, UnfilteredToolExposure,
@@ -171,49 +170,31 @@ impl RuntimeRegistry {
         .with_execution_recorder(recorder)
     }
 
+    /// Wraps an already-bound generic execution in the chat/application
+    /// dependencies required by the selected `Workflow`.
+    ///
+    /// Turn attribution, recorders, policy mode and model binding are resolved
+    /// before this factory is called; this method must not create a second
+    /// `ExecutionScope` or re-read mutable runtime state.
     #[allow(clippy::too_many_arguments)]
-    pub fn agent_workflow_context_with_user_input(
+    pub(crate) fn agent_workflow_context(
         &self,
+        execution: ExecutionContext,
         session_id: SessionId,
         thread_id: ThreadId,
         turn_id: TurnId,
-        scope: ExecutionScope,
+        model_ref: ModelRef,
+        reasoning: ReasoningConfig,
         events: Arc<EventEmitter>,
-        session_store: Option<SessionStore>,
-        approval: Arc<dyn crate::contracts::ApprovalTransport>,
         user_input: Arc<dyn UserInputTransport>,
-        permission_mode: crate::domain::PermissionMode,
     ) -> AgentWorkflowContext {
-        let execution_id = scope.execution_id;
-        let execution_recorder: Arc<dyn ExecutionRecorder> = match &session_store {
-            Some(store) => Arc::new(SessionExecutionRecorder::for_turn(
-                store.clone(),
-                execution_id,
-                thread_id,
-                turn_id,
-            )),
-            None => Arc::new(NoopExecutionRecorder),
-        };
-        let tool_recorder: Arc<dyn ToolExecutionRecorder> = match &session_store {
-            Some(store) => Arc::new(SessionToolExecutionRecorder::new(store.clone())),
-            None => Arc::new(NoopToolExecutionRecorder),
-        };
-        let model_binding = ModelExecutionBinding::for_turn(
-            scope,
-            events.clone(),
-            session_id,
-            thread_id,
-            turn_id,
-            execution_recorder,
-        );
-        let execution = self.execution_context(model_binding, approval, permission_mode);
         AgentWorkflowContext::new(
             execution,
             session_id,
             thread_id,
             turn_id,
-            self.model_config.model_ref(),
-            self.model_config.reasoning.clone(),
+            model_ref,
+            reasoning,
             self.runtime_config.context_timeout_ms,
             events,
             self.context.clone(),
@@ -222,7 +203,6 @@ impl RuntimeRegistry {
             self.tool_exposure.clone(),
             self.agent_control.clone(),
         )
-        .with_tool_recorder(tool_recorder)
         .with_instructions(self.instructions.clone())
     }
 

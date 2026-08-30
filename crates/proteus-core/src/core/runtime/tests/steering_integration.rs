@@ -37,6 +37,7 @@ struct BlockingFollowupWorkflow {
     first_started: Arc<tokio::sync::Notify>,
     continue_first: Arc<tokio::sync::Notify>,
     tasks: Arc<tokio::sync::Mutex<Vec<String>>>,
+    execution_ids: Arc<tokio::sync::Mutex<Vec<ExecutionId>>>,
 }
 
 struct ScriptedModel {
@@ -211,9 +212,13 @@ impl Workflow for BlockingFollowupWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        _ctx: AgentWorkflowContext,
+        ctx: AgentWorkflowContext,
     ) -> Result<WorkflowOutput> {
         self.tasks.lock().await.push(task.text.clone());
+        self.execution_ids
+            .lock()
+            .await
+            .push(ctx.execution.scope.execution_id);
         if task.text == "initial" {
             self.first_started.notify_one();
             self.continue_first.notified().await;
@@ -561,6 +566,7 @@ async fn queued_message_without_tool_boundary_runs_as_followup_turn() {
         first_started: Arc::new(tokio::sync::Notify::new()),
         continue_first: Arc::new(tokio::sync::Notify::new()),
         tasks: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+        execution_ids: Arc::new(tokio::sync::Mutex::new(Vec::new())),
     });
     replace_workflow_for_test(&runtime, workflow.clone()).await;
 
@@ -594,6 +600,10 @@ async fn queued_message_without_tool_boundary_runs_as_followup_turn() {
 
     running.await.expect("join").expect("turn chain");
     assert_eq!(workflow.tasks.lock().await.as_slice(), ["initial", "later"]);
+    let execution_ids = workflow.execution_ids.lock().await;
+    assert_eq!(execution_ids.len(), 2);
+    assert_ne!(execution_ids[0], execution_ids[1]);
+    drop(execution_ids);
     assert!(runtime.queued_user_messages().await.is_empty());
     let history = runtime.history().await;
     assert_eq!(history.len(), 4);

@@ -210,7 +210,7 @@ contract decisions. Для subagents уже принята identity-модель
 [subagents.md](../architecture/subagents.md). Актуальный
 критический путь ведётся в `scope.md`.
 
-В минимальном направлении Phase 0–6 `ExecutionScope` migration завершены:
+В минимальном направлении Phase 0–7 `ExecutionScope` migration завершены:
 distinct `ExecutionId` и scope выражают identity, lifecycle/cancellation и
 execution attribution, но scope не является service container. Прежний
 `RuntimeContext` разделён на generic `ExecutionContext` и chat-specific
@@ -225,9 +225,11 @@ Journal schema v2, grants, approval origin и tool recording использую�
 mandatory `ExecutionId` с optional agent projection. `BoundTools` является
 вторым concrete binding pattern и владеет generic registry/schema/policy/
 approval/cancellation/recording/invoke path; `ToolOrchestrator` только
-добавляет agent task/control/presentation. Production migration остановлена
-на review перед top-level non-Turn entrypoint; общая `BoundCapability<T>`
-abstraction не введена. `Turn` остаётся
+добавляет agent task/control/presentation. Normal Turn path уже cut over на
+явную последовательность
+`ExecutionScope -> ExecutionContext -> AgentWorkflowContext`. Production
+migration остановлена на review перед Phase 8 / первым top-level non-Turn
+entrypoint; общая `BoundCapability<T>` abstraction не введена. `Turn` остаётся
 application lifecycle, `Workflow` владеет agent-loop policy, а process
 `InvocationRef` не меняется. Канонический план находится в
 [roadmap.md](roadmap.md#executionscope-migration).

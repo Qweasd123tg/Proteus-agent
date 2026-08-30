@@ -41,13 +41,18 @@ AgentRuntime
           v
 SessionState: Turn / History / Steering / SessionStore
           |
-          | creates ExecutionScope + captures TurnExecutionSnapshot
+          | captures TurnExecutionSnapshot + creates one ExecutionScope
+          v
+agent execution binding adapter
+          |
+          v
+ExecutionContext (migration boundary)
+          |-- ExecutionScope (ExecutionId + cancellation)
+          `-- generic runtime capability handles
+          |
           v
 AgentWorkflowContext (chat/application wrapper)
-          |-- SessionId / ThreadId / TurnId / agent policy
-          `-- ExecutionContext (migration boundary)
-                 |-- ExecutionScope (ExecutionId + cancellation)
-                 `-- generic runtime capability handles
+          `-- SessionId / ThreadId / TurnId / agent policy
           |
           v
 selected Workflow (controller policy)
@@ -76,8 +81,9 @@ external component processes
 - `AgentRuntime` владеет session/turn lifecycle, history commit, steering и
   выбором одного immutable `TurnExecutionSnapshot` на ход; он атомарно
   захватывает `RuntimeSnapshot` вместе с effective `model_ref`, reasoning и
-  permission mode. Каждый Turn создаёт отдельный `ExecutionScope` и один
-  `AgentWorkflowContext`.
+  permission mode. Каждый Turn создаёт отдельный `ExecutionScope`, затем
+  agent binding adapter строит generic `ExecutionContext` и только после него
+  один `AgentWorkflowContext`.
 - `PreparedAssembly` связывает план и собранный из него `RuntimeRegistry`,
   поэтому их нельзя опубликовать в разных runtime snapshots.
 - `RuntimeRegistry` создаёт выбранные реализации только из проверенного плана.
@@ -122,12 +128,13 @@ client user input
   -> SessionSteering::reserve
        -> domain TurnId + canonical user message
   -> AgentRuntime run_lock + reservation validation
-  -> capture one RuntimeSnapshot
+  -> capture one immutable TurnExecutionSnapshot
+  -> create one ExecutionScope
   -> journal TurnOpened
   -> Event::TurnStarted
   -> persist current user message in history/journal
-  -> RuntimeRegistry binds ExecutionContext from the captured snapshot
-  -> wrap it in AgentWorkflowContext with current chat/application state
+  -> agent adapter binds ExecutionContext from that scope and snapshot
+  -> RuntimeRegistry wraps the ready ExecutionContext in AgentWorkflowContext
   -> selected Workflow::run(AgentTask, history, AgentWorkflowContext)
        -> optional context build
        -> one or more model/tool/model steps chosen by Workflow
@@ -206,8 +213,8 @@ cancel, invalid response или смерть process классифицирую�
 | Turn | `SessionSteering` создаёт id; `AgentRuntime` открывает/settle-ит | Одна conversational operation; follow-up получает новый id | Chat/application lifecycle, history attribution и canonical settlement |
 | Workflow | Selected `Workflow` implementation | Один вызов внутри открытого Turn | Controller policy: ReAct/single loop, Codex loop, plan/execute/review или другой agent algorithm |
 | `ExecutionScope` | `AgentRuntime::run_one_turn` | Один logical workload; child cancellation view сохраняет id | Distinct `ExecutionId` и cancellation без chat/process identity |
-| `ExecutionContext` | `RuntimeRegistry` из одного captured `RuntimeSnapshot` | Один logical execution | Migration boundary для generic handles: model/search/memory/tools/policy/approval/patch/recorder |
-| `AgentWorkflowContext` | `RuntimeRegistry` собирает wrapper; `AgentRuntime` добавляет live Turn state | Один Workflow invocation | Chat/application identity, context building, compaction, steering/presentation и один wrapped `ExecutionContext` |
+| `ExecutionContext` | agent binding adapter вызывает generic factory `RuntimeRegistry::execution_context` из одного captured snapshot | Один logical execution | Migration boundary для generic handles: model/search/memory/tools/policy/approval/patch/recorder |
+| `AgentWorkflowContext` | `RuntimeRegistry` оборачивает уже bound `ExecutionContext`; `AgentRuntime` добавляет live Turn state | Один Workflow invocation | Chat/application identity, context building, compaction, steering/presentation и один wrapped `ExecutionContext` |
 | `RuntimeSnapshot` | `RuntimeServices` | Immutable assembly/config view, удерживаемый всем ходом | Coherent `ModuleEpoch + AssemblyPlan + RuntimeRegistry + config snapshot`; не computation checkpoint |
 | Model invocation | Workflow инициирует; `WorkflowHostRuntime` и `ModelService` исполняют | Один shaped request/stream/terminal response | Provider-neutral model call, timeout, validation, deltas и текущая Turn attribution |
 | Tool invocation | Workflow инициирует; `BoundTools` владеет safety path, `ToolOrchestrator` — agent enrichment | Один `ToolCall` до `ToolResult` | Registry lookup, policy, approval, child cancellation, invoke и recording без mandatory chat; events/user input/agent control добавляются wrapper-ом |
@@ -380,8 +387,8 @@ queue и cancellation token journal не восстанавливает.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–6 реализованы; review перед изменением top-level execution
-entrypoint**.
+Статус: **Phase 0–7 реализованы; review перед Phase 8 / первым top-level
+non-Turn execution**.
 
 Принято направление отделить generic workload identity/lifecycle boundary от
 conversation Turn без переписывания agent loop или process protocol:

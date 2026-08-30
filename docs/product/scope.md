@@ -75,7 +75,7 @@ wire/config/DTO меняются атомарно без legacy aliases и compa
 
 ## Что Ещё Нужно Решить
 
-ExecutionScope migration Phase 0–6 завершена. Distinct `ExecutionId` и
+ExecutionScope migration Phase 0–7 завершена. Distinct `ExecutionId` и
 минимальный `ExecutionScope` отделяют generic identity/cancellation от
 conversation `Turn`, не становясь контейнером services. `ExecutionContext`
 отделён от chat-specific `AgentWorkflowContext`; прежний `RuntimeContext`
@@ -95,8 +95,11 @@ execution-owned. `BoundTools` стал вторым concrete binding pattern: о
 registry/schema/policy/approval/grants/cancellation/recording/invoke path и
 исполняет настоящий process tool без `AgentTask` или chat IDs.
 `ToolOrchestrator` теперь только agent adapter для events, attributed input и
-`AgentControl`. Общая `BoundCapability<T>` abstraction не введена; перед
-top-level non-Turn entrypoint действует review stop.
+`AgentControl`. Normal `AgentRuntime` Turn path явно сначала bind-ит generic
+`ExecutionContext` из одного admitted snapshot/scope и только затем строит
+`AgentWorkflowContext`; combined registry factory удалён. Общая
+`BoundCapability<T>` abstraction не введена; перед первым top-level non-Turn
+execution действует Phase 8 review stop.
 Process terminal failures доходят до Core adapter boundary как typed
 `ProcessInvocationError`, а AppServer transport cancel handles называются
 `run_id`/`running_run_ids` и не маскируются под domain `TurnId`.

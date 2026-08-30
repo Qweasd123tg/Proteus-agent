@@ -21,6 +21,7 @@ use crate::{
 };
 
 mod builder;
+mod execution_binding;
 mod history;
 mod paths;
 mod steering;

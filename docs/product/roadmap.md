@@ -24,13 +24,14 @@ journal/replay evidence и `v0.1.0-alpha.1` уже завершены. Roadmap �
 [releases/v0.1.0-alpha.1.md](../releases/v0.1.0-alpha.1.md).
 
 Следующее принятое направление — минимальная `ExecutionScope` migration,
-описанная ниже. Phase 0–6 реализованы; перед top-level execution entrypoint
-действует обязательный review. Остальные разделы остаются
+описанная ниже. Phase 0–7 реализованы; перед первым top-level non-Turn
+execution действует обязательный review. Остальные разделы остаются
 вариантами последующей работы, а не автоматической очередью.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–6 реализованы; остановка перед top-level execution entrypoint**.
+Статус: **Phase 0–7 реализованы; остановка перед Phase 8 / первым top-level
+non-Turn execution**.
 
 Supporting evidence, не заменяющий этот roadmap:
 [source-level audit](../research/execution-scope-source-audit-2026-08-27.md) и
@@ -417,7 +418,7 @@ Phase 0–2 завершены; checkpoint подтверждён следующ
 4. `ExecutionRecorder` и journal ownership/schema migration;
 5. execution-scoped grants/approval origin;
 6. generic `ToolOrchestrator` invocation context;
-7. cutover верхнего `AgentRuntime` API;
+7. cutover normal Turn path верхнего `AgentRuntime`;
 8. первый meaningful top-level non-Turn execution.
 
 Phase 2 integration proof одного нижнего mechanism не является Phase 8: он не
@@ -799,7 +800,90 @@ process `tool/v2` и проверяет policy evaluation, recorder attribution 
 Phase 6B файлах, но остаётся заблокирован восемью ранее зафиксированными Rust
 1.97 lint-ами вне этого changeset.
 
-После Phase 6B обязателен review перед изменением `AgentRuntime` entrypoint.
+Review gate после Phase 6B пройден перед узким Phase 7 cutover normal Turn
+path; новый non-Turn entrypoint остался отложен до Phase 8.
+
+### Phase 7 — AgentRuntime Turn-Path Cutover
+
+Статус: **реализовано 2026-08-30; остановка перед Phase 8**.
+
+Source review уточнил границу Phase 7. Отдельный generic executor, новый public
+entrypoint или ещё один execution container здесь не нужны: это уже Phase 8.
+После Phase 2–6 normal path использовал `ExecutionScope`, `BoundModel` и
+`BoundTools`, но `RuntimeRegistry::agent_workflow_context_with_user_input`
+оставался combined factory: он одновременно создавал generic
+`ExecutionContext` и chat wrapper.
+
+Phase 7 завершила именно factory cutover:
+
+```text
+SessionSteering reservation / domain Turn
+        |
+        v
+capture immutable TurnExecutionSnapshot once
+        +
+create exactly one ExecutionScope
+        |
+        v
+agent binding adapter
+        |
+        +--> ModelExecutionBinding + execution recorder
+        |
+        +--> RuntimeRegistry::execution_context
+        |           |
+        |           v
+        |      ExecutionContext
+        |           |
+        +-----------+
+                    v
+RuntimeRegistry::agent_workflow_context
+                    |
+                    v
+           AgentWorkflowContext
+                    |
+                    v
+             existing Workflow
+```
+
+- `runtime/execution_binding.rs` является явным agent-layer adapter-ом: он
+  добавляет Session/Thread/Turn attribution, session-backed recorders и
+  presentation transports поверх одного scope;
+- generic `RuntimeRegistry::execution_context` по-прежнему не требует chat
+  identities;
+- новый internal `agent_workflow_context` принимает уже собранный
+  `ExecutionContext`, не создаёт `ExecutionScope` и не перечитывает mutable
+  runtime state; старый combined factory удалён без alias;
+- effective `model_ref`, reasoning и permission mode берутся только из одного
+  admitted `TurnExecutionSnapshot`; snapshot atomicity не ослаблена;
+- queued follow-up получает новый domain `TurnId` и новый `ExecutionId`, хотя
+  остаётся внутри той же serialized reservation chain;
+- Workflow v1, process callbacks, history/compaction/steering/settlement,
+  AppServer protocol и Renderer не менялись.
+
+Phase 7 намеренно **не** добавляет `AgentRuntime::run_execution`, closure-based
+executor или другой top-level detached API. Нижние detached `BoundModel`,
+`BoundTools`, search/memory boundaries остаются реальными, но выбор первого
+meaningful non-Turn workload и его ownership/lifecycle относится к Phase 8.
+
+Stop-gates:
+
+- normal Turn видит один execution id во всём `AgentWorkflowContext`;
+- два обычных Turn получают разные execution ids;
+- queued follow-up получает новый execution id;
+- agent context factory принимает готовый generic context и не владеет scope
+  creation;
+- existing snapshot atomicity, steering, workflow replay, process Workflow v1
+  strictness и module swap tests остаются green;
+- Phase 8 начинается только отдельным changeset после review.
+
+Verification checkpoint 2026-08-30: `cargo fmt --all -- --check`,
+`cargo check --workspace`, полный `cargo test --workspace --no-fail-fast`,
+focused execution boundary, snapshot atomicity, root/follow-up identity,
+workflow replay, process Workflow v1 и module swap gates прошли. Strict
+workspace clippy по-прежнему блокируется только прежними Rust 1.97 lint-ами в
+reference modules и восемью ранее зафиксированными Core diagnostics вне Phase
+7 diff; Core lib проходит `-D warnings` при подавлении ровно этих baseline lint
+classes.
 
 ## Другие Направления
 
