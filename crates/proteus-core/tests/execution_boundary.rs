@@ -13,13 +13,14 @@ use proteus_core::{
         ExecutionScope, PolicyContext, PolicyVisibilityContext, SearchQuery, ToolExecutionRecorder,
     },
     core::{
-        AppConfig, BoundTools, HeadlessApprovalTransport, ModuleEpoch, PreparedAssembly,
-        RuntimeSnapshot, ToolExecutionBinding,
+        AgentRuntime, AppConfig, BoundTools, HeadlessApprovalTransport, JournalEntry, ModuleEpoch,
+        PreparedAssembly, RuntimeSnapshot, SessionStore, ToolExecutionBinding,
     },
     domain::{PermissionMode, PolicyDecision, ToolCall, ToolCallResolution, ToolResult},
     process_adapters::ProcessComponentConfig,
 };
 use serde_json::json;
+use tokio::time::{Duration, sleep, timeout};
 
 fn workspace_file(path: &str) -> String {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -293,4 +294,257 @@ async fn bound_process_tool_executes_without_chat_or_agent_context() {
     assert!(attributions.iter().all(|attribution| {
         attribution.execution_id == execution_id && attribution.agent.is_none()
     }));
+}
+
+fn phase8_process_config() -> AppConfig {
+    let component: ProcessComponentConfig = serde_json::from_value(json!({
+        "command": "python3",
+        "args": [
+            "-B",
+            workspace_file("crates/proteus-core/tests/fixtures/process_phase8_tool.py"),
+        ],
+        "handshake_timeout_ms": 3_000,
+        "exports": {
+            "tool": {"phase8-tools": {"timeout_ms": 3_000}},
+            "policy": {"phase8-allow-all": {"timeout_ms": 3_000}},
+        },
+    }))
+    .expect("valid Phase 8 component");
+    let mut config = AppConfig::default();
+    config.modules.policy = Some("phase8-allow-all".to_owned());
+    config.tools.enabled = vec!["phase8_probe".to_owned()];
+    config
+        .components
+        .insert("phase8-execution-component".to_owned(), component);
+    config
+}
+
+async fn phase8_runtime(workspace: &Path, state_root: &Path) -> AgentRuntime {
+    let config_path = state_root.join("configs/proteus.toml");
+    AgentRuntime::builder(phase8_process_config(), workspace.to_path_buf())
+        .with_config_path(Some(&config_path))
+        .build_async()
+        .await
+        .expect("Phase 8 AgentRuntime")
+}
+
+#[tokio::test]
+async fn agent_runtime_records_a_detached_process_tool_execution_without_turn_state() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let state = tempfile::tempdir().expect("state root");
+    let runtime = phase8_runtime(workspace.path(), state.path()).await;
+
+    let result = runtime
+        .execute_tool(
+            ToolCall::new(
+                "phase8-recorded-call",
+                "phase8_probe",
+                json!({"label": "recorded"}),
+            ),
+            CancellationToken::new(),
+        )
+        .await
+        .expect("top-level tool execution");
+
+    assert!(result.ok, "{result:?}");
+    assert_eq!(result.call_id, "phase8-recorded-call");
+    assert_eq!(result.output, "phase8:recorded");
+    assert_eq!(result.metadata["saw_detached_attribution"], true);
+    assert_eq!(runtime.history_len().await, 0);
+
+    let session_dir = runtime.session_dir().expect("persisted runtime session");
+    let projection = SessionStore::open(session_dir.to_path_buf())
+        .expect("open Phase 8 session")
+        .load_projection()
+        .expect("load Phase 8 journal projection");
+    assert_eq!(projection.records.len(), 3);
+    assert!(projection.records.iter().all(|record| {
+        record.execution_id.is_some() && record.thread_id.is_none() && record.turn_id.is_none()
+    }));
+    let execution_id = projection.records[0].execution_id;
+    assert!(
+        projection
+            .records
+            .iter()
+            .all(|record| record.execution_id == execution_id)
+    );
+    assert!(projection.records.iter().all(|record| matches!(
+        record.entry,
+        JournalEntry::ToolCallRecorded(_) | JournalEntry::ToolResultRecorded(_)
+    )));
+}
+
+async fn wait_for_file(path: &Path) {
+    timeout(Duration::from_secs(2), async {
+        while !path.exists() {
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("timed out waiting for {}", path.display()));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_runtime_forwards_targeted_cancel_without_serializing_a_process_sibling() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let state = tempfile::tempdir().expect("state root");
+    let runtime = Arc::new(phase8_runtime(workspace.path(), state.path()).await);
+    let canceled_started = state.path().join("canceled-started");
+    let sibling_started = state.path().join("sibling-started");
+    let cancel_marker = state.path().join("cancel-forwarded");
+    let cancellation = CancellationToken::new();
+
+    let canceled_task = tokio::spawn({
+        let runtime = Arc::clone(&runtime);
+        let cancellation = cancellation.clone();
+        let canceled_started = canceled_started.clone();
+        let cancel_marker = cancel_marker.clone();
+        async move {
+            runtime
+                .execute_tool(
+                    ToolCall::new(
+                        "phase8-canceled-call",
+                        "phase8_probe",
+                        json!({
+                            "wait_for_cancel": true,
+                            "start_marker": canceled_started,
+                            "cancel_marker": cancel_marker,
+                        }),
+                    ),
+                    cancellation,
+                )
+                .await
+        }
+    });
+    wait_for_file(&canceled_started).await;
+
+    let sibling_task = tokio::spawn({
+        let runtime = Arc::clone(&runtime);
+        let sibling_started = sibling_started.clone();
+        async move {
+            runtime
+                .execute_tool(
+                    ToolCall::new(
+                        "phase8-sibling-call",
+                        "phase8_probe",
+                        json!({
+                            "label": "sibling",
+                            "delay_ms": 150,
+                            "start_marker": sibling_started,
+                        }),
+                    ),
+                    CancellationToken::new(),
+                )
+                .await
+        }
+    });
+    wait_for_file(&sibling_started).await;
+    cancellation.cancel();
+
+    let canceled = timeout(Duration::from_secs(2), canceled_task)
+        .await
+        .expect("canceled execution settled")
+        .expect("canceled task joined")
+        .expect("canceled execution result");
+    let sibling = timeout(Duration::from_secs(2), sibling_task)
+        .await
+        .expect("sibling execution settled")
+        .expect("sibling task joined")
+        .expect("sibling execution result");
+
+    assert!(!canceled.ok, "{canceled:?}");
+    assert_eq!(canceled.call_id, "phase8-canceled-call");
+    assert_eq!(canceled.metadata["canceled"], true);
+    assert!(sibling.ok, "{sibling:?}");
+    assert_eq!(sibling.call_id, "phase8-sibling-call");
+    assert_eq!(sibling.output, "phase8:sibling");
+    wait_for_file(&cancel_marker).await;
+
+    let projection = SessionStore::open(
+        runtime
+            .session_dir()
+            .expect("persisted runtime session")
+            .to_path_buf(),
+    )
+    .expect("open concurrent Phase 8 session")
+    .load_projection()
+    .expect("load concurrent Phase 8 journal");
+    let execution_for = |call_id: &str| {
+        projection.records.iter().find_map(|record| {
+            let matches_call = match &record.entry {
+                JournalEntry::ToolCallRecorded(fact) => fact.call.id == call_id,
+                JournalEntry::ToolResultRecorded(fact) => fact.result.call_id == call_id,
+                _ => false,
+            };
+            matches_call.then_some(record.execution_id)
+        })
+    };
+    let canceled_execution = execution_for("phase8-canceled-call").flatten();
+    let sibling_execution = execution_for("phase8-sibling-call").flatten();
+    assert!(canceled_execution.is_some());
+    assert!(sibling_execution.is_some());
+    assert_ne!(canceled_execution, sibling_execution);
+    assert!(
+        projection
+            .records
+            .iter()
+            .all(|record| record.thread_id.is_none() && record.turn_id.is_none())
+    );
+}
+
+#[tokio::test]
+async fn agent_runtime_timeout_reaches_the_process_invocation() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let state = tempfile::tempdir().expect("state root");
+    let runtime = phase8_runtime(workspace.path(), state.path()).await;
+    let started = state.path().join("timeout-started");
+    let cancel_marker = state.path().join("timeout-cancel-forwarded");
+
+    let result = timeout(
+        Duration::from_secs(2),
+        runtime.execute_tool(
+            ToolCall::new(
+                "phase8-timeout-call",
+                "phase8_probe",
+                json!({
+                    "wait_for_cancel": true,
+                    "start_marker": started,
+                    "cancel_marker": cancel_marker,
+                }),
+            ),
+            CancellationToken::new(),
+        ),
+    )
+    .await
+    .expect("timed-out top-level call settled")
+    .expect("timed-out top-level result");
+
+    assert!(!result.ok, "{result:?}");
+    assert_eq!(result.call_id, "phase8-timeout-call");
+    assert_eq!(result.metadata["timed_out"], true);
+    assert_eq!(result.metadata["timeout_ms"], 750);
+    wait_for_file(&started).await;
+    wait_for_file(&cancel_marker).await;
+}
+
+#[test]
+fn phase8_runtime_source_exposes_no_ambient_execution_bag_or_chat_types() {
+    let source = include_str!("../src/core/runtime/execution.rs");
+    for forbidden in [
+        "ExecutionContext",
+        "RuntimeRegistry",
+        "ToolRegistry",
+        "AgentWorkflowContext",
+        "SessionId",
+        "ThreadId",
+        "TurnId",
+        "AgentTask",
+        "AgentOutput",
+        "CanonicalMessage",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "Phase 8 top-level execution source exposes forbidden type {forbidden}"
+        );
+    }
 }

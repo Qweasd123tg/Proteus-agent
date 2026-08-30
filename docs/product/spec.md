@@ -227,10 +227,11 @@ mandatory `ExecutionId` с optional agent projection. `BoundTools` являет�
 approval/cancellation/recording/invoke path; `ToolOrchestrator` только
 добавляет agent task/control/presentation. Normal Turn path уже cut over на
 явную последовательность
-`ExecutionScope -> ExecutionContext -> AgentWorkflowContext`. Production
-migration всё ещё не имеет top-level non-Turn entrypoint, но source-level
-boundary Phase 8 уже принята: private atomic admission и отдельные typed
-operation surfaces без public ambient `ExecutionContext`. Общая
+`ExecutionScope -> ExecutionContext -> AgentWorkflowContext`. Phase 8A добавила
+private atomic admission и отдельную typed top-level
+`AgentRuntime::execute_tool` surface без public ambient `ExecutionContext`.
+Она выполняет process-backed tool без fake Turn/Workflow и сохраняет detached
+tool facts; memory/v2 и перевод `/remember` остаются Phase 8B. Общая
 `BoundCapability<T>` abstraction не введена. `Turn` остаётся application
 lifecycle, `Workflow` владеет agent-loop policy, а process `InvocationRef` не
 меняется. Канонический план и production stop-gates находятся в

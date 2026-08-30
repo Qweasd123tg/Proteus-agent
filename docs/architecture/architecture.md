@@ -37,11 +37,12 @@ AppServer HTTP/stdio  direct CLI/REPL (current)
               |
               v
 AgentRuntime
-          |
+          |-- typed execute_tool -> private admission -> BoundTools
+          `-- Turn path
           v
 SessionState: Turn / History / Steering / SessionStore
           |
-          | captures TurnExecutionSnapshot + creates one ExecutionScope
+          | private admission captures ExecutionAdmissionSnapshot + scope
           v
 agent execution binding adapter
           |
@@ -79,11 +80,11 @@ external component processes
   components, export authority и preflight checks; workers при этом не
   запускаются.
 - `AgentRuntime` владеет session/turn lifecycle, history commit, steering и
-  выбором одного immutable `TurnExecutionSnapshot` на ход; он атомарно
+  private admission одного immutable `ExecutionAdmissionSnapshot`; он атомарно
   захватывает `RuntimeSnapshot` вместе с effective `model_ref`, reasoning и
-  permission mode. Каждый Turn создаёт отдельный `ExecutionScope`, затем
-  agent binding adapter строит generic `ExecutionContext` и только после него
-  один `AgentWorkflowContext`.
+  permission mode. Каждый Turn и каждый top-level tool call создают отдельный
+  `ExecutionScope`. Turn затем строит generic `ExecutionContext` и
+  `AgentWorkflowContext`, а typed tool operation bind-ит только `BoundTools`.
 - `PreparedAssembly` связывает план и собранный из него `RuntimeRegistry`,
   поэтому их нельзя опубликовать в разных runtime snapshots.
 - `RuntimeRegistry` создаёт выбранные реализации только из проверенного плана.
@@ -128,8 +129,7 @@ client user input
   -> SessionSteering::reserve
        -> domain TurnId + canonical user message
   -> AgentRuntime run_lock + reservation validation
-  -> capture one immutable TurnExecutionSnapshot
-  -> create one ExecutionScope
+  -> private admission: one immutable ExecutionAdmissionSnapshot + ExecutionScope
   -> journal TurnOpened
   -> Event::TurnStarted
   -> persist current user message in history/journal
@@ -212,7 +212,7 @@ cancel, invalid response или смерть process классифицирую�
 | Session | `AgentRuntime` через `SessionState` | Несколько turns, до закрытия runtime/session | `SessionId`, root `ThreadId`, `run_lock`, active history, `SessionStore`, steering queue |
 | Turn | `SessionSteering` создаёт id; `AgentRuntime` открывает/settle-ит | Одна conversational operation; follow-up получает новый id | Chat/application lifecycle, history attribution и canonical settlement |
 | Workflow | Selected `Workflow` implementation | Один вызов внутри открытого Turn | Controller policy: ReAct/single loop, Codex loop, plan/execute/review или другой agent algorithm |
-| `ExecutionScope` | `AgentRuntime::run_one_turn` | Один logical workload; child cancellation view сохраняет id | Distinct `ExecutionId` и cancellation без chat/process identity |
+| `ExecutionScope` | private `AgentRuntime` admission; используется Turn и typed top-level operations | Один logical workload; child cancellation view сохраняет id | Distinct `ExecutionId` и cancellation без chat/process identity |
 | `ExecutionContext` | agent binding adapter вызывает generic factory `RuntimeRegistry::execution_context` из одного captured snapshot | Один logical execution | Migration boundary для generic handles: model/search/memory/tools/policy/approval/patch/recorder |
 | `AgentWorkflowContext` | `RuntimeRegistry` оборачивает уже bound `ExecutionContext`; `AgentRuntime` добавляет live Turn state | Один Workflow invocation | Chat/application identity, context building, compaction, steering/presentation и один wrapped `ExecutionContext` |
 | `RuntimeSnapshot` | `RuntimeServices` | Immutable assembly/config view, удерживаемый всем ходом | Coherent `ModuleEpoch + AssemblyPlan + RuntimeRegistry + config snapshot`; не computation checkpoint |
@@ -387,8 +387,7 @@ queue и cancellation token journal не восстанавливает.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–7 реализованы; source-level boundary Phase 8 принята,
-production top-level non-Turn entrypoint ещё отсутствует**.
+Статус: **Phase 0–8A реализованы; review stop перед memory/v2 Phase 8B**.
 
 Принято направление отделить generic workload identity/lifecycle boundary от
 conversation Turn без переписывания agent loop или process protocol:
@@ -454,14 +453,14 @@ guards запрещают chat imports в generic execution contracts и в publ
 `BoundTools` boundary. Следующие phases и stop-gates находятся в
 [roadmap.md](../product/roadmap.md#executionscope-migration).
 
-### Принятая Граница Phase 8
+### Реализованная Граница Phase 8A
 
 Phase 8 не публикует `ExecutionContext` как closure argument или service
 locator. Сейчас этот migration type всё ещё содержит raw registry/store/patch
 и policy handles; передача его целиком превратила бы внутреннюю compile
 boundary в ambient top-level API.
 
-Первый non-Turn owner остаётся `AgentRuntime`, потому что именно он уже владеет
+Первый non-Turn owner — `AgentRuntime`, потому что именно он уже владеет
 `RuntimeServices`, runtime reload/effective overrides и текущим реальным
 side-channel `/remember`. Новый path при этом не использует chat-owned
 `SessionState` lifecycle:
@@ -480,24 +479,28 @@ typed top-level operation
 
 Private admission захватывает под одним `RuntimeExecutionState` read lock тот
 же coherent набор, что normal Turn: `RuntimeSnapshot`, permission mode,
-model ref, reasoning и effective config snapshot. Turn и non-Turn path должны
-использовать один capture primitive. Binding capability не перечитывает live
+model ref, reasoning и effective config snapshot. Turn и non-Turn path
+используют один capture primitive. Binding capability не перечитывает live
 state, поэтому reload не может собрать одну execution из разных module epochs
 или permission/model settings.
 
-Public operation получает только canonical input и cancellation token и
-возвращает typed result. Она не возвращает `RuntimeSnapshot`, registry,
+Реализованная `AgentRuntime::execute_tool(call, cancellation)` получает только
+canonical input и cancellation token и возвращает typed result. Она не
+возвращает `RuntimeSnapshot`, registry,
 `ExecutionContext`, raw tools/memory/patch handles или generic resolver.
 Каждый call создаёт distinct `ExecutionId`, fresh grants и detached
 attribution; session `run_lock`, user message reservation, history,
 `AgentTask`, `AgentOutput` и Turn events отсутствуют.
 
-Первый hard proof проходит через `BoundTools`, потому что эта boundary уже
+Первый hard proof проходит через `BoundTools`: эта boundary уже
 связывает registry, policy, approval, grants, cancellation, process
 attribution и canonical tool recording. Если у `AgentRuntime` есть
 `SessionStore`, tool/model facts могут записываться с `execution_id` и без
 thread/turn; `TurnOpened`/`TurnSettled` или новые generic lifecycle events для
-этого не фабрикуются.
+этого не фабрикуются. При cancel/timeout `BoundTools` отменяет child token и
+bounded-время продолжает polling tool future, поэтому process adapter успевает
+доставить targeted protocol cancel; uncooperative tool не может удерживать
+entrypoint бесконечно.
 
 `/remember` является первым user-facing migration target, но текущий raw
 `MemoryStore` ещё не может честно участвовать в admission: trait и

@@ -24,15 +24,14 @@ journal/replay evidence и `v0.1.0-alpha.1` уже завершены. Roadmap �
 [releases/v0.1.0-alpha.1.md](../releases/v0.1.0-alpha.1.md).
 
 Следующее принятое направление — минимальная `ExecutionScope` migration,
-описанная ниже. Phase 0–7 реализованы; source-level решение Phase 8 принято,
-но production entrypoint ещё не реализован и ограничен stop-gates ниже.
+описанная ниже. Phase 0–8A реализованы; перед strict memory contract cutover
+Phase 8B действует отдельный review stop-gate.
 Остальные разделы остаются вариантами последующей работы, а не автоматической
 очередью.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–7 реализованы; source audit Phase 8 завершён, production
-implementation не начата**.
+Статус: **Phase 0–8A реализованы; остановка для review перед Phase 8B**.
 
 Supporting evidence, не заменяющий этот roadmap:
 [source-level audit](../research/execution-scope-source-audit-2026-08-27.md) и
@@ -806,7 +805,8 @@ path; новый non-Turn entrypoint остался отложен до Phase 8.
 
 ### Phase 7 — AgentRuntime Turn-Path Cutover
 
-Статус: **реализовано 2026-08-30; production boundary Phase 8 не пересечена**.
+Статус: **реализовано 2026-08-30; Phase 8A позже выполнена отдельным
+changeset**.
 
 Source review уточнил границу Phase 7. Отдельный generic executor, новый public
 entrypoint или ещё один execution container здесь не нужны: это уже Phase 8.
@@ -821,7 +821,7 @@ Phase 7 завершила именно factory cutover:
 SessionSteering reservation / domain Turn
         |
         v
-capture immutable TurnExecutionSnapshot once
+private admission: immutable ExecutionAdmissionSnapshot once
         +
 create exactly one ExecutionScope
         |
@@ -855,14 +855,14 @@ RuntimeRegistry::agent_workflow_context
   `ExecutionContext`, не создаёт `ExecutionScope` и не перечитывает mutable
   runtime state; старый combined factory удалён без alias;
 - effective `model_ref`, reasoning и permission mode берутся только из одного
-  admitted `TurnExecutionSnapshot`; snapshot atomicity не ослаблена;
+  admitted snapshot; snapshot atomicity не ослаблена;
 - queued follow-up получает новый domain `TurnId` и новый `ExecutionId`, хотя
   остаётся внутри той же serialized reservation chain;
 - Workflow v1, process callbacks, history/compaction/steering/settlement,
   AppServer protocol и Renderer не менялись.
 
-Phase 7 намеренно **не** добавляет `AgentRuntime::run_execution`, closure-based
-executor или другой top-level detached API. Нижние detached `BoundModel`,
+Changeset Phase 7 намеренно **не** добавлял `AgentRuntime::run_execution`,
+closure-based executor или другой top-level detached API. Нижние detached `BoundModel`,
 `BoundTools`, search/memory boundaries остаются реальными, но выбор первого
 meaningful non-Turn workload и его ownership/lifecycle относится к Phase 8.
 
@@ -875,8 +875,8 @@ Stop-gates:
   creation;
 - existing snapshot atomicity, steering, workflow replay, process Workflow v1
   strictness и module swap tests остаются green;
-- Phase 8 production начинается только отдельным changeset по принятому ниже
-  source-level решению.
+- Phase 8 production должна была начаться только отдельным changeset по
+  принятому ниже source-level решению; Phase 8A соблюла этот stop-gate.
 
 Verification checkpoint 2026-08-30: `cargo fmt --all -- --check`,
 `cargo check --workspace`, полный `cargo test --workspace --no-fail-fast`,
@@ -889,8 +889,7 @@ classes.
 
 ### Phase 8 — Top-Level Non-Turn Admission
 
-Статус: **source audit и architecture decision завершены 2026-08-30;
-production code отсутствует**.
+Статус: **Phase 8A реализована 2026-08-30; review stop перед Phase 8B**.
 
 Старое supporting research предлагало
 `run_execution(|ctx: ExecutionContext| ...)`. Текущий source отвергает эту
@@ -916,9 +915,9 @@ Phase 8 не вводит `GenericExecutor`, новый workload trait, public
 - non-Turn admission не берёт session `run_lock`, не резервирует user message,
   не создаёт `TurnId` и не читает history/steering.
 
-Private admission helper должен один раз под одним read lock захватить coherent
-effective state. Текущий `TurnExecutionSnapshot` обобщается или заменяется
-эквивалентным private `ExecutionAdmissionSnapshot`, который содержит:
+Private admission helper один раз под одним read lock захватывает coherent
+effective state. Старый `TurnExecutionSnapshot` заменён private
+`ExecutionAdmissionSnapshot`, который содержит:
 
 - один `RuntimeSnapshot` (`ModuleEpoch`, `AssemblyPlan`, registry и base config
   snapshot);
@@ -954,7 +953,7 @@ recording semantics доказаны source и tests.
 
 #### Первый Hard Proof: BoundTools
 
-Первый production changeset Phase 8 добавляет узкую top-level tool operation,
+Первый production changeset Phase 8 добавил узкую top-level tool operation,
 семантически эквивалентную следующей форме:
 
 ```rust,ignore
@@ -1044,7 +1043,7 @@ Phase 8 не вводит generic live event taxonomy. Отсутствие
 
 Implementation разделяется минимум на два reviewable changeset:
 
-**Phase 8A — admission + top-level BoundTools proof:**
+**Phase 8A — admission + top-level BoundTools proof (реализовано):**
 
 - private shared admission capture для Turn и non-Turn;
 - narrow `AgentRuntime` tool operation без public context/registry;
@@ -1052,6 +1051,20 @@ Implementation разделяется минимум на два reviewable chan
 - process-backed tool, reload atomicity, cancellation и concurrency tests;
 - полный workspace/module-swap/process conformance gate;
 - остановка для review до memory contract change.
+
+Реализация находится в `crates/proteus-core/src/core/runtime/execution.rs`.
+Turn и top-level tool operation используют один private admission primitive;
+открытый call удерживает старый registry/mode snapshot через reload.
+`BoundTools` при cancel/timeout
+отменяет child token и bounded-время продолжает polling in-flight future, чтобы
+process adapter успел отправить protocol cancel, не зависая на tool, который
+игнорирует cancellation.
+
+Verification checkpoint 2026-08-30: focused runtime/execution boundary suites,
+`cargo fmt --all -- --check`, `cargo check --workspace`, `module_swap` и полный
+`cargo test --workspace --no-fail-fast` прошли без failures. Workspace gate
+включил production broker, process-host, reference conformance,
+topology/journal replay и существующие Workflow/runtime regressions.
 
 **Phase 8B — memory/v2 + `/remember`:**
 

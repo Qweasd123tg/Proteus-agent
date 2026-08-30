@@ -9,7 +9,7 @@ use crate::{
     domain::TurnId,
 };
 
-use super::{AgentRuntime, TurnExecutionSnapshot};
+use super::{AgentRuntime, ExecutionAdmissionSnapshot};
 
 impl AgentRuntime {
     /// Binds one admitted Turn to the generic execution mechanisms selected by
@@ -21,7 +21,7 @@ impl AgentRuntime {
     pub(super) fn bind_agent_workflow_context(
         &self,
         scope: ExecutionScope,
-        snapshot: &TurnExecutionSnapshot,
+        snapshot: &ExecutionAdmissionSnapshot,
         turn_id: TurnId,
     ) -> AgentWorkflowContext {
         let execution_id = scope.execution_id;

@@ -11,7 +11,7 @@ use crate::{
 };
 
 use super::{
-    AgentRuntime, ReservedRunCompletion, TurnExecutionSnapshot, prepare_history_update,
+    AgentRuntime, ExecutionAdmissionSnapshot, ReservedRunCompletion, prepare_history_update,
     steering::{
         self, ReservedUserMessage, RootTurnSettlement, SteeringModel, UserMessageReservation,
         weave_deliveries_into_output,
@@ -165,8 +165,9 @@ impl AgentRuntime {
         reserved: ReservedUserMessage,
         cancellation: CancellationToken,
     ) -> Result<AgentOutput> {
-        let snapshot = self.turn_execution_snapshot().await;
-        let execution_scope = ExecutionScope::fresh(cancellation.clone());
+        let admission = self.admit_execution(cancellation.clone()).await;
+        let snapshot = admission.snapshot;
+        let execution_scope = admission.scope;
         self.ensure_session_started_with_snapshot(&snapshot).await?;
         let turn_id = reserved.turn_id;
         let execution_attribution = ExecutionAttribution::for_turn(
@@ -237,7 +238,7 @@ impl AgentRuntime {
         &self,
         reserved: ReservedUserMessage,
         execution_scope: ExecutionScope,
-        snapshot: TurnExecutionSnapshot,
+        snapshot: ExecutionAdmissionSnapshot,
         config_snapshot: Option<SessionConfigSnapshot>,
         task: AgentTask,
     ) -> Result<AgentOutput> {

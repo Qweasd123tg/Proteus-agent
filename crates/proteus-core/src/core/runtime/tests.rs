@@ -16,6 +16,7 @@ use crate::{
     model_standard::{CanonicalMessage, CanonicalModelRequest, MessageRole},
 };
 
+mod execution;
 mod snapshot_atomicity;
 mod steering_integration;
 

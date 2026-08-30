@@ -8,7 +8,7 @@ use std::{
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout};
 
 use crate::{
     contracts::{
@@ -31,6 +31,7 @@ mod support;
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const DEFAULT_MAX_OUTPUT_BYTES: usize = 200_000;
+const CANCELLATION_SETTLEMENT_GRACE: Duration = Duration::from_millis(500);
 
 /// Immutable execution binding for the tool capability.
 ///
@@ -367,16 +368,30 @@ impl BoundTools {
             }
         };
         tokio::pin!(timeout_future);
-        let result = tokio::select! {
-            result = tool.invoke(call, tool_ctx) => {
-                match result {
-                    Ok(result) => result,
-                    Err(error) => ToolResult::error(call.id.clone(), error.to_string())
-                        .with_metadata(json!({ "tool": call.name })),
-                }
-            }
-            _ = &mut timeout_future => {
+        let invocation = tool.invoke(call, tool_ctx);
+        tokio::pin!(invocation);
+        enum InvocationOutcome<T> {
+            Completed(T),
+            TimedOut,
+            Canceled,
+        }
+        let outcome = tokio::select! {
+            result = &mut invocation => InvocationOutcome::Completed(result),
+            _ = &mut timeout_future => InvocationOutcome::TimedOut,
+            _ = self.binding.scope.cancellation.cancelled() => InvocationOutcome::Canceled,
+        };
+        let result = match outcome {
+            InvocationOutcome::Completed(result) => match result {
+                Ok(result) => result,
+                Err(error) => ToolResult::error(call.id.clone(), error.to_string())
+                    .with_metadata(json!({ "tool": call.name })),
+            },
+            InvocationOutcome::TimedOut => {
                 tool_cancellation.cancel();
+                // Keep polling process-backed tools long enough for the
+                // invocation handle to forward protocol cancel and settle.
+                // A tool that ignores cancellation is still bounded here.
+                let _ = timeout(CANCELLATION_SETTLEMENT_GRACE, &mut invocation).await;
                 ToolResult::error(
                     call.id.clone(),
                     format!("tool timed out after {timeout_ms}ms"),
@@ -386,13 +401,14 @@ impl BoundTools {
                     "timed_out": true,
                     "timeout_ms": timeout_ms,
                 }))
-            },
-            _ = self.binding.scope.cancellation.cancelled() => {
-                ToolResult::error(call.id.clone(), "tool call canceled")
-                    .with_metadata(json!({
-                        "tool": call.name,
-                        "canceled": true,
-                    }))
+            }
+            InvocationOutcome::Canceled => {
+                tool_cancellation.cancel();
+                let _ = timeout(CANCELLATION_SETTLEMENT_GRACE, &mut invocation).await;
+                ToolResult::error(call.id.clone(), "tool call canceled").with_metadata(json!({
+                    "tool": call.name,
+                    "canceled": true,
+                }))
             }
         };
 

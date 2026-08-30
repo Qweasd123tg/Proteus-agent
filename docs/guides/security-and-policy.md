@@ -123,8 +123,10 @@ dev-server port. Wildcard CORS допустим только для явно п�
 - `normal` использует `ApprovalPolicy` и `ApprovalTransport`;
 - `auto` разрешает `ReadOnly` и `WritesFiles` без approval, но запрещает `RunsCommands`, `Network` и `Dangerous`.
 
-Runtime применяет режим через `ModeAwarePolicy` на границе сборки
-`ExecutionContext`. `BoundTools` не знает про конкретные режимы и делегирует
+Runtime применяет режим через `ModeAwarePolicy` на границе сборки execution
+binding. Для Turn policy входит в `ExecutionContext`, а
+`AgentRuntime::execute_tool` bind-ит тот же frozen mode напрямую в detached
+`BoundTools`. `BoundTools` не знает про конкретные режимы и делегирует
 visibility/execution одному `ApprovalPolicy`; agent adapter эту decision не
 обходит. Композиция
 deny-monotonic: явный `Deny` выбранной policy (или structural deny при её

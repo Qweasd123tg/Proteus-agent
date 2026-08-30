@@ -153,6 +153,43 @@ test run вернул transient failure в `proteus-core --lib`; немедле�
 показал тот же pre-existing набор diagnostics в code lines вне changeset и не
 выявил нового lint-а в изменённых contracts.
 
+### Phase 8A Top-Level Non-Turn Gate
+
+Phase 8A проверяет public typed operation, а не только ручную сборку нижнего
+`BoundTools`. Focused gate:
+
+```bash
+cargo test -p proteus-core core::runtime::tests::execution --no-fail-fast
+cargo test -p proteus-core --test execution_boundary --no-fail-fast
+```
+
+Unit suite фиксирует один private admission primitive для Turn и non-Turn,
+frozen registry и permission mode через reload/runtime override, отсутствие
+session `run_lock`, fresh grants и distinct detached attribution. Boundary
+suite поднимает один реальный concurrent Python component с `tool/v2` и
+`policy/v1`, затем проверяет:
+
+- `AgentRuntime::execute_tool` возвращает canonical `ToolResult` без
+  Turn/Workflow/history;
+- journal содержит только tool facts с одним `execution_id` и без
+  `thread_id`/`turn_id`;
+- два calls одного multiplexed component имеют разные execution ids;
+- targeted cancel не затрагивает sibling, а cancel и tool timeout действительно
+  доходят до process invocation;
+- source guard запрещает ambient registry/context и chat types на новой public
+  operation boundary.
+
+После focused suite обязательны `cargo fmt --all -- --check`,
+`cargo check --workspace`, `cargo test -p proteus-core --test module_swap` и
+полный `cargo test --workspace --no-fail-fast`. Phase 8A не меняет process DTO,
+authority table, Workflow v1 или journal schema; существующие protocol,
+conformance, replay и swap suites остаются regression gate.
+
+Checkpoint 2026-08-30: оба focused command-а, format check, workspace check,
+`module_swap` и полный workspace test gate прошли без failures. Full gate
+включил production `broker_v3`/`multiplex_spike`, process-host session tests,
+reference conformance и topology/journal replay.
+
 ### P0 Multiplexed Broker Spike
 
 ```bash

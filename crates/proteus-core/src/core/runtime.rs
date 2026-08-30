@@ -21,6 +21,7 @@ use crate::{
 };
 
 mod builder;
+mod execution;
 mod execution_binding;
 mod history;
 mod paths;
@@ -30,6 +31,7 @@ mod turn;
 pub use builder::AgentRuntimeBuilder;
 pub use paths::{config_store_root, event_log_path};
 
+use execution::ExecutionAdmissionSnapshot;
 pub(crate) use history::prepare_history_update;
 pub(crate) use steering::{
     ReservedUserMessage, SteeringQueueReceipt, UserMessageReservation, without_root_steering,
@@ -91,20 +93,6 @@ struct RuntimeExecutionState {
     permission_mode: PermissionMode,
     model_ref: ModelRef,
     reasoning: ReasoningConfig,
-}
-
-/// Immutable execution-effective state captured once after Turn admission.
-///
-/// Assembly and live overrides share one lock in `RuntimeServices`, so a Turn
-/// cannot combine a registry from one module epoch with settings published for
-/// another runtime state.
-#[derive(Clone)]
-struct TurnExecutionSnapshot {
-    runtime: RuntimeSnapshot,
-    permission_mode: PermissionMode,
-    model_ref: ModelRef,
-    reasoning: ReasoningConfig,
-    config_snapshot: Option<SessionConfigSnapshot>,
 }
 
 impl RuntimeSnapshot {
@@ -337,23 +325,6 @@ impl AgentRuntime {
         self.services.execution_state.read().await.runtime.clone()
     }
 
-    async fn turn_execution_snapshot(&self) -> TurnExecutionSnapshot {
-        let state = self.services.execution_state.read().await;
-        let mut config_snapshot = state.runtime.config_snapshot.clone();
-        if let Some(config) = &mut config_snapshot {
-            config.model = state.model_ref.clone();
-            config.reasoning = state.reasoning.clone();
-            config.permission_mode_default = state.permission_mode;
-        }
-        TurnExecutionSnapshot {
-            runtime: state.runtime.clone(),
-            permission_mode: state.permission_mode,
-            model_ref: state.model_ref.clone(),
-            reasoning: state.reasoning.clone(),
-            config_snapshot,
-        }
-    }
-
     pub async fn reload_assembly(
         &self,
         assembly: PreparedAssembly,
@@ -403,13 +374,13 @@ impl AgentRuntime {
     }
 
     async fn ensure_session_started(&self) -> Result<()> {
-        let snapshot = self.turn_execution_snapshot().await;
+        let snapshot = self.capture_execution_snapshot().await;
         self.ensure_session_started_with_snapshot(&snapshot).await
     }
 
     async fn ensure_session_started_with_snapshot(
         &self,
-        snapshot: &TurnExecutionSnapshot,
+        snapshot: &ExecutionAdmissionSnapshot,
     ) -> Result<()> {
         let mut started = self.session.session_started.lock().await;
         if *started {
