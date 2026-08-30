@@ -1582,9 +1582,9 @@ async fn route_new_session_keeps_background_turn_registered() {
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
     let cancellation = CancellationToken::new();
-    state.running_turns.lock().await.insert(
-        "turn-background".to_owned(),
-        RunningTurn::new(
+    state.running_runs.lock().await.insert(
+        "run-background".to_owned(),
+        RunningRun::new(
             cancellation.clone(),
             Some(PathBuf::from(&original_session_dir)),
         ),
@@ -1600,10 +1600,10 @@ async fn route_new_session_keeps_background_turn_registered() {
     assert_eq!(response.status(), StatusCode::OK);
     assert!(
         state
-            .running_turns
+            .running_runs
             .lock()
             .await
-            .contains_key("turn-background")
+            .contains_key("run-background")
     );
     let original_session_path = PathBuf::from(&original_session_dir);
     assert!(
@@ -1633,11 +1633,11 @@ async fn route_new_session_keeps_background_turn_registered() {
     );
     assert_eq!(
         background
-            .pointer("/activity/running_turn_ids")
+            .pointer("/activity/running_run_ids")
             .and_then(Value::as_array)
             .and_then(|ids| ids.first())
             .and_then(Value::as_str),
-        Some("turn-background")
+        Some("run-background")
     );
 
     cancellation.cancel();
@@ -1748,9 +1748,9 @@ async fn route_resume_reuses_live_session_without_persisted_directory() {
     .expect("new session response");
     assert_eq!(response.status(), StatusCode::OK);
     let original_cancellation = CancellationToken::new();
-    state.running_turns.lock().await.insert(
-        "turn-original".to_owned(),
-        RunningTurn::new(
+    state.running_runs.lock().await.insert(
+        "run-original".to_owned(),
+        RunningRun::new(
             original_cancellation.clone(),
             Some(PathBuf::from(&original_session_dir)),
         ),
@@ -1789,11 +1789,11 @@ async fn route_resume_reuses_live_session_without_persisted_directory() {
     );
     assert_eq!(
         summary
-            .pointer("/activity/running_turn_ids")
+            .pointer("/activity/running_run_ids")
             .and_then(Value::as_array)
             .and_then(|ids| ids.first())
             .and_then(Value::as_str),
-        Some("turn-original")
+        Some("run-original")
     );
     assert_eq!(
         state
@@ -1937,17 +1937,17 @@ async fn route_delete_unsaved_active_session_opens_new_one() {
 }
 
 #[tokio::test]
-async fn route_send_async_acknowledges_while_turn_keeps_running() {
+async fn route_send_async_returns_run_id_while_domain_turn_keeps_running() {
     let (state, server) = dogfood_loop_state().await;
     let mut event_rx = server.subscribe();
-    let turn_id = "turn-async".to_owned();
+    let run_id = "run-async".to_owned();
 
     let response = route_request(
         state.clone(),
         authed_json_request(
             "/send-async",
             json!({
-                "id": turn_id,
+                "id": run_id,
                 "text": "apply_patch",
             }),
         ),
@@ -1967,13 +1967,14 @@ async fn route_send_async_acknowledges_while_turn_keeps_running() {
     };
     assert_eq!(summary.get("accepted").and_then(Value::as_bool), Some(true));
     assert_eq!(
-        summary.get("turn_id").and_then(Value::as_str),
-        Some(turn_id.as_str())
+        summary.get("run_id").and_then(Value::as_str),
+        Some(run_id.as_str())
     );
+    assert!(summary.get("turn_id").is_none());
 
     let approval = wait_for_approval_request(&mut event_rx).await;
     assert_eq!(approval.call.name, "apply_patch");
-    assert!(state.running_turns.lock().await.contains_key(&turn_id));
+    assert!(state.running_runs.lock().await.contains_key(&run_id));
 
     let response = route_request(
         state.clone(),
@@ -1981,7 +1982,7 @@ async fn route_send_async_acknowledges_while_turn_keeps_running() {
             "/cancel",
             json!({
                 "id": "cancel-async",
-                "target_id": turn_id,
+                "target_id": run_id,
             }),
         ),
     )
@@ -1990,7 +1991,7 @@ async fn route_send_async_acknowledges_while_turn_keeps_running() {
     assert_eq!(response.status(), StatusCode::OK);
     let output = response_output(response).await;
     assert!(matches!(output, StdioOutput::Response { ok: true, .. }));
-    assert!(state.running_turns.lock().await.is_empty());
+    assert!(state.running_runs.lock().await.is_empty());
 
     server.shutdown().await;
 }
@@ -2000,15 +2001,15 @@ async fn route_send_async_queues_second_message_for_same_session() {
     let (state, server) = dogfood_loop_state().await;
     let mut event_rx = server.subscribe();
     let existing_cancellation = CancellationToken::new();
-    let existing_receiver = match spawn_send_turn(
+    let existing_receiver = match spawn_send_run(
         &state,
         server.clone(),
-        Some("turn-existing".to_owned()),
+        Some("run-existing".to_owned()),
         "apply_patch".to_owned(),
         existing_cancellation.clone(),
     )
     .await
-    .expect("spawn existing turn")
+    .expect("spawn existing run")
     {
         SendDispatch::Started(receiver) => receiver,
         SendDispatch::Queued(_) => panic!("first message must start a turn"),
@@ -2020,7 +2021,7 @@ async fn route_send_async_queues_second_message_for_same_session() {
         authed_json_request(
             "/send-async",
             json!({
-                "id": "turn-next",
+                "id": "run-next",
                 "text": "hello",
             }),
         ),
@@ -2036,18 +2037,22 @@ async fn route_send_async_queues_second_message_for_same_session() {
             output,
             error,
         } => {
-            assert_eq!(id.as_deref(), Some("turn-next"));
+            assert_eq!(id.as_deref(), Some("run-next"));
             assert!(ok);
             assert!(error.is_none());
             let output = output.expect("queued receipt");
             assert_eq!(output["accepted"], true);
             assert_eq!(output["queued"], true);
             assert_eq!(output["queued_count"], 1);
+            assert_eq!(output["request_id"], "run-next");
+            assert!(output.get("run_id").is_none());
+            assert!(output.get("turn_id").is_none());
+            assert!(output["active_turn_id"].is_string());
         }
         StdioOutput::Event { .. } => panic!("expected command response"),
         _ => panic!("unexpected output variant"),
     }
-    assert!(!state.running_turns.lock().await.contains_key("turn-next"));
+    assert!(!state.running_runs.lock().await.contains_key("run-next"));
     let pending = server.pending_requests().await;
     assert_eq!(pending.queued_user_messages.len(), 1);
     assert_eq!(pending.queued_user_messages[0].text, "hello");
@@ -2058,26 +2063,26 @@ async fn route_send_async_queues_second_message_for_same_session() {
 }
 
 #[tokio::test]
-async fn send_turn_cleanup_survives_dropped_waiter() {
+async fn send_run_cleanup_survives_dropped_waiter() {
     let (state, server) = dogfood_loop_state().await;
     let mut event_rx = server.subscribe();
-    let turn_id = "sync-send-drop".to_owned();
-    let receiver = match spawn_send_turn(
+    let run_id = "sync-send-drop".to_owned();
+    let receiver = match spawn_send_run(
         &state,
         server.clone(),
-        Some(turn_id.clone()),
+        Some(run_id.clone()),
         "apply_patch".to_owned(),
         CancellationToken::new(),
     )
     .await
-    .expect("spawn send turn")
+    .expect("spawn send run")
     {
         SendDispatch::Started(receiver) => receiver,
         SendDispatch::Queued(_) => panic!("first message must start a turn"),
     };
 
     let approval = wait_for_approval_request(&mut event_rx).await;
-    assert!(state.running_turns.lock().await.contains_key(&turn_id));
+    assert!(state.running_runs.lock().await.contains_key(&run_id));
     drop(receiver);
 
     let approval_response = route_request(
@@ -2098,14 +2103,14 @@ async fn send_turn_cleanup_survives_dropped_waiter() {
     assert_eq!(approval_response.status(), StatusCode::OK);
 
     for _ in 0..20 {
-        if !state.running_turns.lock().await.contains_key(&turn_id) {
+        if !state.running_runs.lock().await.contains_key(&run_id) {
             break;
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     assert!(
-        !state.running_turns.lock().await.contains_key(&turn_id),
-        "send turn should unregister itself even when the HTTP waiter is dropped"
+        !state.running_runs.lock().await.contains_key(&run_id),
+        "send run should unregister itself even when the HTTP waiter is dropped"
     );
 
     server.shutdown().await;
@@ -2302,7 +2307,7 @@ async fn cancel_unknown_turn_returns_protocol_error() {
             assert!(!ok);
             assert_eq!(
                 error.as_deref(),
-                Some("unknown or completed turn id: missing")
+                Some("unknown or completed run id: missing")
             );
         }
         StdioOutput::Event { .. } => panic!("expected command response"),
@@ -2315,18 +2320,18 @@ async fn cancel_unknown_turn_returns_protocol_error() {
 /// скопом: запись живёт, пока жив её запросивший, и убирается watcher-ом,
 /// когда orchestrator дропает свой future.
 #[tokio::test]
-async fn cancel_active_turn_keeps_foreign_pending_requests_until_requester_drops() {
+async fn cancel_active_run_keeps_foreign_pending_requests_until_requester_drops() {
     let cwd = tempfile::tempdir().expect("cwd");
     let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
         .await
         .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
-    let turn_id = "turn-cancel".to_owned();
+    let run_id = "run-cancel".to_owned();
     let cancellation = CancellationToken::new();
-    state.running_turns.lock().await.insert(
-        turn_id.clone(),
-        RunningTurn::new(cancellation.clone(), server.session_dir_path()),
+    state.running_runs.lock().await.insert(
+        run_id.clone(),
+        RunningRun::new(cancellation.clone(), server.session_dir_path()),
     );
 
     let (approval_tx, approval_rx) = tokio::sync::oneshot::channel();
@@ -2341,7 +2346,7 @@ async fn cancel_active_turn_keeps_foreign_pending_requests_until_requester_drops
         &state,
         StdioRequest::Cancel {
             id: Some("cancel-1".to_owned()),
-            target_id: turn_id,
+            target_id: run_id,
         },
     )
     .await;
@@ -2355,7 +2360,7 @@ async fn cancel_active_turn_keeps_foreign_pending_requests_until_requester_drops
     }
 
     assert!(cancellation.is_cancelled());
-    assert!(state.running_turns.lock().await.is_empty());
+    assert!(state.running_runs.lock().await.is_empty());
     // Записи с живыми запросившими переживают cancel чужого turn-а.
     assert!(server.has_pending_approval(&approval_id).await);
     assert!(server.has_pending_user_input(&request_id).await);

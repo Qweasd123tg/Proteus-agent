@@ -671,24 +671,24 @@ mod tests {
     }
 
     #[test]
-    fn session_activity_can_carry_running_turn_ids() {
-        let activity = AppSessionActivity::from_running_turn_ids(
-            vec!["turn-2".to_owned(), "turn-1".to_owned()],
+    fn session_activity_can_carry_running_run_ids() {
+        let activity = AppSessionActivity::from_running_run_ids(
+            vec!["run-2".to_owned(), "run-1".to_owned()],
             0,
             0,
         );
         let value = serde_json::to_value(&activity).expect("activity JSON");
 
-        assert_eq!(activity.running_turns, 2);
+        assert_eq!(activity.running_runs, 2);
         assert_eq!(
-            value["running_turn_ids"],
-            serde_json::json!(["turn-2", "turn-1"])
+            value["running_run_ids"],
+            serde_json::json!(["run-2", "run-1"])
         );
 
         let decoded: AppSessionActivity = serde_json::from_value(value).expect("activity decode");
         assert_eq!(
-            decoded.running_turn_ids,
-            vec!["turn-2".to_owned(), "turn-1".to_owned()]
+            decoded.running_run_ids,
+            vec!["run-2".to_owned(), "run-1".to_owned()]
         );
     }
 
@@ -696,11 +696,23 @@ mod tests {
     fn session_activity_status_rejects_unknown_wire_value() {
         serde_json::from_value::<AppSessionActivity>(serde_json::json!({
             "status": "paused",
+            "running_runs": 0,
+            "running_run_ids": [],
+            "pending_approvals": 0,
+            "pending_user_inputs": 0,
+        }))
+        .expect_err("unknown activity status must fail");
+    }
+
+    #[test]
+    fn session_activity_rejects_legacy_turn_shaped_transport_fields() {
+        serde_json::from_value::<AppSessionActivity>(serde_json::json!({
+            "status": "idle",
             "running_turns": 0,
             "running_turn_ids": [],
             "pending_approvals": 0,
             "pending_user_inputs": 0,
         }))
-        .expect_err("unknown activity status must fail");
+        .expect_err("transport run identity must not be accepted as a domain turn");
     }
 }

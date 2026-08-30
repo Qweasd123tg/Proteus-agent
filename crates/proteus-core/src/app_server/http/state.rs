@@ -11,12 +11,12 @@ use crate::contracts::CancellationToken;
 use super::{AppServerEvent, AppServerHandle, AppSessionActivity, security::HttpSecurity};
 
 #[derive(Clone)]
-pub(super) struct RunningTurn {
+pub(super) struct RunningRun {
     pub(super) cancellation: CancellationToken,
     pub(super) session_dir: Option<PathBuf>,
 }
 
-impl RunningTurn {
+impl RunningRun {
     pub(super) fn new(cancellation: CancellationToken, session_dir: Option<PathBuf>) -> Self {
         Self {
             cancellation,
@@ -29,7 +29,7 @@ impl RunningTurn {
 pub(super) struct HttpAppState {
     pub(super) server: Arc<Mutex<AppServerHandle>>,
     pub(super) session_servers: Arc<Mutex<HashMap<PathBuf, AppServerHandle>>>,
-    pub(super) running_turns: Arc<Mutex<HashMap<String, RunningTurn>>>,
+    pub(super) running_runs: Arc<Mutex<HashMap<String, RunningRun>>>,
     activity_events: broadcast::Sender<AppServerEvent>,
     watched_sessions: Arc<StdMutex<HashSet<PathBuf>>>,
     pub(super) shutdown: broadcast::Sender<()>,
@@ -51,7 +51,7 @@ impl HttpAppState {
         let state = Self {
             server: Arc::new(Mutex::new(server)),
             session_servers: Arc::new(Mutex::new(session_servers)),
-            running_turns: Arc::new(Mutex::new(HashMap::new())),
+            running_runs: Arc::new(Mutex::new(HashMap::new())),
             activity_events,
             watched_sessions: Arc::new(StdMutex::new(HashSet::new())),
             shutdown,
@@ -141,30 +141,30 @@ impl HttpAppState {
         None
     }
 
-    pub(super) async fn running_turn_ids_for(&self, session_dir: Option<&Path>) -> Vec<String> {
+    pub(super) async fn running_run_ids_for(&self, session_dir: Option<&Path>) -> Vec<String> {
         let session_dir = session_dir.map(|path| session_key(path.to_path_buf()));
-        let mut turn_ids = self
-            .running_turns
+        let mut run_ids = self
+            .running_runs
             .lock()
             .await
             .iter()
-            .filter_map(|(turn_id, turn)| {
-                match (turn.session_dir.as_deref(), session_dir.as_deref()) {
-                    (Some(left), Some(right)) if left == right => Some(turn_id.clone()),
-                    (None, None) => Some(turn_id.clone()),
+            .filter_map(|(run_id, run)| {
+                match (run.session_dir.as_deref(), session_dir.as_deref()) {
+                    (Some(left), Some(right)) if left == right => Some(run_id.clone()),
+                    (None, None) => Some(run_id.clone()),
                     _ => None,
                 }
             })
             .collect::<Vec<_>>();
-        turn_ids.sort();
-        turn_ids
+        run_ids.sort();
+        run_ids
     }
 
     pub(super) async fn activity_for_server(&self, server: &AppServerHandle) -> AppSessionActivity {
-        let running_turn_ids = self
-            .running_turn_ids_for(server.session_dir_path().as_deref())
+        let running_run_ids = self
+            .running_run_ids_for(server.session_dir_path().as_deref())
             .await;
-        server.session_activity(running_turn_ids).await
+        server.session_activity(running_run_ids).await
     }
 
     pub(super) async fn activity_by_session_dir(&self) -> HashMap<PathBuf, AppSessionActivity> {

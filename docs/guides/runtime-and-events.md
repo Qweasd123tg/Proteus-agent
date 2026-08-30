@@ -433,13 +433,13 @@ server-side проверкам.
 ```
 
 Каждая строка stdout является либо `event`, либо `response`. Первый `send`
-запускает root turn асинхронно, поэтому UI может отправить `approval`, `cancel`
-или следующий `send`, пока turn работает. Следующий `send` той же session
-получает немедленный receipt с `queued = true`, `message_id`,
-`active_turn_id` и `queued_count`; его текст уже принадлежит runtime-очереди,
-а не transport task. `cancel.target_id` ссылается на `id` исходного активного
-`send`: transport сигналит turn-level `CancellationToken`, после чего runtime
-закрывает root-цепочку и её ещё не доставленную очередь.
+запускает transport run с root turn асинхронно, поэтому UI может отправить
+`approval`, `cancel` или следующий `send`, пока run работает. Следующий `send`
+той же session получает немедленный receipt с `queued = true`, `message_id`,
+domain `active_turn_id` и `queued_count`; его текст уже принадлежит
+runtime-очереди, а не transport task. `cancel.target_id` ссылается на `id`
+исходного активного `send`: transport сигналит execution cancellation, после
+чего runtime закрывает root-цепочку и её ещё не доставленную очередь.
 
 HTTP/SSE transport:
 
@@ -481,8 +481,9 @@ HTTP/SSE transport:
 - `POST /send` - запускает turn и держит HTTP request до финального
   `AgentOutput`; если root turn уже активен, сразу возвращает queued receipt;
 - `POST /send-async` - принимает turn или steering message без ожидания
-  финального ответа; response различает `queued = false|true`, а progress,
-  `TurnOutput` или `Error` приходят через `GET /events`;
+  финального ответа; started response несёт transport `run_id`, queued receipt
+  — `request_id` и domain `active_turn_id`, а progress, `TurnOutput` или
+  `Error` приходят через `GET /events`;
 - `POST /cancel`, `/approval`, `/user-input`, `/mode`, `/model`, `/reasoning`,
   `/effort` - короткие endpoint'ы над соответствующими командами; mutating
   request bodies могут передать `session_dir`, чтобы команда ушла в конкретную
@@ -505,7 +506,8 @@ materialized live session строится через тот же DTO, поэт�
 поддерживает отдельную JSON-форму summary.
 
 Live `activity` в session summary и `SessionActivityUpdated` содержит
-`status`, счётчики pending/running и `running_turn_ids`. Этот snapshot является
+`status`, `running_runs`, `running_run_ids` и pending counters. Эти ids являются
+transport cancel handles, а не domain `TurnId`. Snapshot является
 source of truth для sidebar и активного чата после `/resume` или SSE reconnect:
 клиент восстанавливает working status, блокировку composer и target для
 `/cancel` из activity, а не только из локального состояния текущего окна.

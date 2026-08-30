@@ -14,7 +14,7 @@ use crate::{
 use super::{
     config::new_request_id,
     sessions::server_for_optional_session,
-    state::{HttpAppState, RunningTurn, session_key as canonical_session_key},
+    state::{HttpAppState, RunningRun, session_key as canonical_session_key},
 };
 
 pub(super) async fn execute_app_request(
@@ -126,11 +126,11 @@ pub(super) async fn execute_send(
 ) -> Result<Value> {
     let cancellation = CancellationToken::new();
     let server = server_for_optional_session(state, session_dir).await?;
-    match spawn_send_turn(state, server, id, text, cancellation).await? {
+    match spawn_send_run(state, server, id, text, cancellation).await? {
         SendDispatch::Started(receiver) => {
             let output = receiver
                 .await
-                .map_err(|_| anyhow!("send turn task dropped before completion"))??;
+                .map_err(|_| anyhow!("send run task dropped before completion"))??;
             serde_json::to_value(output).map_err(anyhow::Error::from)
         }
         SendDispatch::Queued(receipt) => Ok(queued_response(&receipt)),
@@ -142,36 +142,36 @@ pub(super) enum SendDispatch {
     Queued(SteeringQueueReceipt),
 }
 
-pub(super) async fn spawn_send_turn(
+pub(super) async fn spawn_send_run(
     state: &HttpAppState,
     server: AppServerHandle,
-    turn_id: Option<String>,
+    run_id: Option<String>,
     text: String,
     cancellation: CancellationToken,
 ) -> Result<SendDispatch> {
     let session_dir = server.session_dir_path();
-    let mut running_turns = state.running_turns.lock().await;
-    if let Some(turn_id) = turn_id.as_deref()
-        && running_turns.contains_key(turn_id)
+    let mut running_runs = state.running_runs.lock().await;
+    if let Some(run_id) = run_id.as_deref()
+        && running_runs.contains_key(run_id)
     {
-        return Err(anyhow!("turn id is already running: {turn_id}"));
+        return Err(anyhow!("run id is already active: {run_id}"));
     }
     let reservation = server.reserve_user_message(text).await?;
     let reserved = match reservation {
         UserMessageReservation::Queued(receipt) => {
-            drop(running_turns);
+            drop(running_runs);
             state.emit_session_activity_for_server(&server).await;
             return Ok(SendDispatch::Queued(receipt));
         }
         UserMessageReservation::Start(reserved) => reserved,
     };
-    if let Some(turn_id) = turn_id.as_deref() {
-        running_turns.insert(
-            turn_id.to_owned(),
-            RunningTurn::new(cancellation.clone(), session_dir.clone()),
+    if let Some(run_id) = run_id.as_deref() {
+        running_runs.insert(
+            run_id.to_owned(),
+            RunningRun::new(cancellation.clone(), session_dir.clone()),
         );
     }
-    drop(running_turns);
+    drop(running_runs);
     state.emit_session_activity_for_server(&server).await;
 
     let (result_tx, result_rx) = oneshot::channel();
@@ -180,12 +180,8 @@ pub(super) async fn spawn_send_turn(
         let result = server
             .run_reserved_user_message(reserved, cancellation)
             .await;
-        if let Some(turn_id) = turn_id.as_deref() {
-            state_for_activity
-                .running_turns
-                .lock()
-                .await
-                .remove(turn_id);
+        if let Some(run_id) = run_id.as_deref() {
+            state_for_activity.running_runs.lock().await.remove(run_id);
         }
         state_for_activity
             .emit_session_activity_for_server(&server)
@@ -201,26 +197,26 @@ pub(super) async fn execute_send_async(
     text: String,
     session_dir: Option<PathBuf>,
 ) -> StdioOutput {
-    let turn_id = id.unwrap_or_else(new_request_id);
+    let run_id = id.unwrap_or_else(new_request_id);
     let cancellation = CancellationToken::new();
     let server = match server_for_optional_session(state, session_dir).await {
         Ok(server) => server,
-        Err(error) => return command_response(Some(turn_id), Err(error)),
+        Err(error) => return command_response(Some(run_id), Err(error)),
     };
-    match spawn_send_turn(state, server, Some(turn_id.clone()), text, cancellation).await {
+    match spawn_send_run(state, server, Some(run_id.clone()), text, cancellation).await {
         Ok(SendDispatch::Started(_)) => command_response(
-            Some(turn_id.clone()),
+            Some(run_id.clone()),
             Ok(Some(json!({
-                "turn_id": turn_id,
+                "run_id": run_id,
                 "accepted": true,
                 "queued": false,
             }))),
         ),
         Ok(SendDispatch::Queued(receipt)) => command_response(
-            Some(turn_id.clone()),
-            Ok(Some(queued_response_with_request_id(&receipt, &turn_id))),
+            Some(run_id.clone()),
+            Ok(Some(queued_response_with_request_id(&receipt, &run_id))),
         ),
-        Err(error) => command_response(Some(turn_id), Err(error)),
+        Err(error) => command_response(Some(run_id), Err(error)),
     }
 }
 
@@ -236,7 +232,7 @@ fn queued_response(receipt: &SteeringQueueReceipt) -> Value {
 
 fn queued_response_with_request_id(receipt: &SteeringQueueReceipt, request_id: &str) -> Value {
     let mut response = queued_response(receipt);
-    response["turn_id"] = Value::String(request_id.to_owned());
+    response["request_id"] = Value::String(request_id.to_owned());
     response
 }
 
@@ -417,25 +413,25 @@ async fn new_session(state: &HttpAppState) -> Result<Value> {
 
 async fn cancel_work_for_server(state: &HttpAppState, server: &AppServerHandle) {
     let session_dir = server.session_dir_path().map(canonical_session_key);
-    let active_turns = {
-        let mut running_turns = state.running_turns.lock().await;
-        let turn_ids = running_turns
+    let active_runs = {
+        let mut running_runs = state.running_runs.lock().await;
+        let run_ids = running_runs
             .iter()
-            .filter_map(|(turn_id, turn)| {
-                if turn.session_dir == session_dir {
-                    Some(turn_id.clone())
+            .filter_map(|(run_id, run)| {
+                if run.session_dir == session_dir {
+                    Some(run_id.clone())
                 } else {
                     None
                 }
             })
             .collect::<Vec<_>>();
-        turn_ids
+        run_ids
             .into_iter()
-            .filter_map(|turn_id| running_turns.remove(&turn_id))
-            .map(|turn| turn.cancellation)
+            .filter_map(|run_id| running_runs.remove(&run_id))
+            .map(|run| run.cancellation)
             .collect::<Vec<_>>()
     };
-    for cancellation in active_turns {
+    for cancellation in active_runs {
         cancellation.cancel();
     }
 
@@ -447,10 +443,10 @@ async fn cancel_work_for_server(state: &HttpAppState, server: &AppServerHandle) 
 
 async fn shutdown_all_servers(state: &HttpAppState) {
     let cancellations = {
-        let mut running_turns = state.running_turns.lock().await;
-        running_turns
+        let mut running_runs = state.running_runs.lock().await;
+        running_runs
             .drain()
-            .map(|(_, turn)| turn.cancellation)
+            .map(|(_, run)| run.cancellation)
             .collect::<Vec<_>>()
     };
     for cancellation in cancellations {
@@ -464,14 +460,14 @@ async fn shutdown_all_servers(state: &HttpAppState) {
 }
 
 async fn execute_cancel(state: &HttpAppState, target_id: &str) -> Result<()> {
-    let turn = state
-        .running_turns
+    let run = state
+        .running_runs
         .lock()
         .await
         .remove(target_id)
-        .ok_or_else(|| anyhow!("unknown or completed turn id: {target_id}"))?;
-    turn.cancellation.cancel();
-    let server = match turn.session_dir.as_deref() {
+        .ok_or_else(|| anyhow!("unknown or completed run id: {target_id}"))?;
+    run.cancellation.cancel();
+    let server = match run.session_dir.as_deref() {
         Some(session_dir) => match state.server_for_session_dir(session_dir).await {
             Some(server) => server,
             None => state.current_server().await,

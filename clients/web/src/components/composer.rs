@@ -19,7 +19,7 @@ pub(crate) fn ComposerView<S, K, R, T, DE, NB>(
     effort: ReadSignal<ReasoningEffort>,
     effort_options: ReadSignal<Vec<String>>,
     is_sending: ReadSignal<bool>,
-    active_turn_id: ReadSignal<Option<String>>,
+    active_run_id: ReadSignal<Option<String>>,
     stick_to_bottom: ReadSignal<bool>,
     set_stick_to_bottom: WriteSignal<bool>,
     actions: AppActions,
@@ -115,7 +115,7 @@ where
                         // Стоп появляется только пока идёт ход — в покое не
                         // держим мёртвую серую кнопку.
                         {move || {
-                            if active_turn_id.get().is_some() {
+                            if active_run_id.get().is_some() {
                                 view! {
                                     <button
                                         type="button"

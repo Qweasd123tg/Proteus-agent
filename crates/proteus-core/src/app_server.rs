@@ -568,11 +568,11 @@ impl AppServerHandle {
             .contains_key(request_id)
     }
 
-    pub async fn session_activity(&self, running_turn_ids: Vec<String>) -> AppSessionActivity {
+    pub async fn session_activity(&self, running_run_ids: Vec<String>) -> AppSessionActivity {
         let pending_approvals = self.pending_approvals.lock().await.len();
         let pending_user_inputs = self.pending_user_inputs.lock().await.len();
-        AppSessionActivity::from_running_turn_ids(
-            running_turn_ids,
+        AppSessionActivity::from_running_run_ids(
+            running_run_ids,
             pending_approvals,
             pending_user_inputs,
         )

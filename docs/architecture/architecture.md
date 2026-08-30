@@ -118,7 +118,7 @@ examples/                  configs, external workers, MCP smoke
 
 ```text
 client user input
-  -> AppServer transport request id
+  -> AppServer transport request/run id
   -> SessionSteering::reserve
        -> domain TurnId + canonical user message
   -> AgentRuntime run_lock + reservation validation
@@ -140,10 +140,11 @@ client user input
 ```
 
 `SessionSteering::reserve` создаёт domain `TurnId`; для app-server это
-происходит до spawned runtime task и до захвата `run_lock`. Поле `turn_id` в
-ответе `/send-async` сейчас содержит строковый transport request id, которым
-`running_turns` адресует cancel. Это **не** domain `TurnId`, созданный
-`SessionSteering`, несмотря на совпадающее имя.
+происходит до spawned runtime task и до захвата `run_lock`. Если
+`/send-async` запускает работу, он возвращает строковый transport `run_id`,
+которым `running_runs` адресует cancel. Это **не** domain `TurnId`, созданный
+`SessionSteering`. Queued receipt вместо нового run возвращает исходный
+`request_id` и отдельно может содержать настоящий `active_turn_id`.
 
 Direct `AgentRuntime::run` сначала берёт `run_lock`, затем делает reservation;
 после неё оба entrypoints проходят общий `run_reserved_chain`/`run_one_turn`.
@@ -187,7 +188,7 @@ cancel, invalid response или смерть process классифицирую�
 | Переход | File / type / method | Owner и lifetime |
 |---|---|---|
 | Web send | `clients/web/src/actions.rs`, `/send-async` action | Client request |
-| HTTP/stdio dispatch | `crates/proteus-core/src/app_server/http/commands.rs`, `execute_send[_async]`, `spawn_send_turn` | AppServer transport request; `running_turns` до terminal task cleanup |
+| HTTP/stdio dispatch | `crates/proteus-core/src/app_server/http/commands.rs`, `execute_send[_async]`, `spawn_send_run` | AppServer transport run; `running_runs` до terminal task cleanup |
 | Reservation/queue | `crates/proteus-core/src/core/runtime/steering.rs`, `SessionSteering::reserve` | Session lifetime; создаёт domain `TurnId`/`MessageId` |
 | Serialized root chain | `crates/proteus-core/src/core/runtime/turn.rs`, `run_reserved_completion`, `run_reserved_chain` | `AgentRuntime`; один `run_lock`, один или несколько sequential Turns |
 | Durable Turn lifecycle | тот же файл, `run_one_turn`, `run_opened_turn`, `persist_current_user_message` | Один domain Turn: snapshot/open/history/workflow/settlement |

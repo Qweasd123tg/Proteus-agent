@@ -88,8 +88,8 @@ pub async fn run_stdio_app_server(
     let stdin = tokio::io::BufReader::new(tokio::io::stdin());
     let mut lines = stdin.lines();
     let mut shutdown_requested = false;
-    let mut keyed_turn_handles = HashMap::<String, StdioTurnHandle>::new();
-    let mut anonymous_turn_handles = Vec::<StdioTurnHandle>::new();
+    let mut keyed_run_handles = HashMap::<String, StdioRunHandle>::new();
+    let mut anonymous_run_handles = Vec::<StdioRunHandle>::new();
     while let Some(line) = lines.next_line().await? {
         if line.trim().is_empty() {
             continue;
@@ -111,14 +111,14 @@ pub async fn run_stdio_app_server(
 
         match request {
             StdioRequest::Send { id, text } => {
-                prune_finished_turns(&mut keyed_turn_handles);
-                if let Some(turn_id) = id.clone()
-                    && keyed_turn_handles.contains_key(&turn_id)
+                prune_finished_runs(&mut keyed_run_handles);
+                if let Some(run_id) = id.clone()
+                    && keyed_run_handles.contains_key(&run_id)
                 {
                     send_stdio_response(
                         &output_tx,
                         id,
-                        Err(anyhow!("turn id is already running: {turn_id}")),
+                        Err(anyhow!("run id is already active: {run_id}")),
                     )
                     .await;
                     continue;
@@ -129,13 +129,13 @@ pub async fn run_stdio_app_server(
                             .await;
                     }
                     Ok(UserMessageReservation::Start(reserved)) => match id.clone() {
-                        Some(turn_id) => {
-                            keyed_turn_handles.insert(
-                                turn_id,
-                                spawn_stdio_turn(server.clone(), output_tx.clone(), id, reserved),
+                        Some(run_id) => {
+                            keyed_run_handles.insert(
+                                run_id,
+                                spawn_stdio_run(server.clone(), output_tx.clone(), id, reserved),
                             );
                         }
-                        None => anonymous_turn_handles.push(spawn_stdio_turn(
+                        None => anonymous_run_handles.push(spawn_stdio_run(
                             server.clone(),
                             output_tx.clone(),
                             None,
@@ -182,8 +182,7 @@ pub async fn run_stdio_app_server(
                 .await;
             }
             StdioRequest::Cancel { target_id, .. } => {
-                let result =
-                    cancel_stdio_turn(&mut keyed_turn_handles, &output_tx, &target_id).await;
+                let result = cancel_stdio_run(&mut keyed_run_handles, &output_tx, &target_id).await;
                 send_stdio_response(&output_tx, id, result.map(|_| None)).await;
             }
             StdioRequest::SetPermissionMode { mode, .. } => {
@@ -253,25 +252,25 @@ pub async fn run_stdio_app_server(
     if !shutdown_requested {
         server.shutdown().await;
     }
-    cancel_and_join_stdio_turns(keyed_turn_handles, anonymous_turn_handles).await;
+    cancel_and_join_stdio_runs(keyed_run_handles, anonymous_run_handles).await;
     drop(output_tx);
     writer.await??;
     Ok(())
 }
 
-fn spawn_stdio_turn(
+fn spawn_stdio_run(
     server: AppServerHandle,
     output_tx: mpsc::Sender<StdioOutput>,
     id: Option<String>,
     reserved: ReservedUserMessage,
-) -> StdioTurnHandle {
+) -> StdioRunHandle {
     let cancellation = CancellationToken::new();
-    let turn_cancellation = cancellation.clone();
+    let run_cancellation = cancellation.clone();
     let response_claimed = Arc::new(AtomicBool::new(false));
     let task_response_claimed = response_claimed.clone();
     let join = tokio::spawn(async move {
         let result = match server
-            .run_reserved_user_message(reserved, turn_cancellation)
+            .run_reserved_user_message(reserved, run_cancellation)
             .await
         {
             Ok(output) => serde_json::to_value(output)
@@ -283,20 +282,20 @@ fn spawn_stdio_turn(
             send_stdio_response(&output_tx, id, result).await;
         }
     });
-    StdioTurnHandle {
+    StdioRunHandle {
         join,
         cancellation,
         response_claimed,
     }
 }
 
-struct StdioTurnHandle {
+struct StdioRunHandle {
     join: tokio::task::JoinHandle<()>,
     cancellation: CancellationToken,
     response_claimed: Arc<AtomicBool>,
 }
 
-impl StdioTurnHandle {
+impl StdioRunHandle {
     fn claim_response(&self) -> bool {
         !self.response_claimed.swap(true, Ordering::AcqRel)
     }
@@ -313,22 +312,22 @@ impl StdioTurnHandle {
     }
 }
 
-async fn cancel_stdio_turn(
-    turn_handles: &mut HashMap<String, StdioTurnHandle>,
+async fn cancel_stdio_run(
+    run_handles: &mut HashMap<String, StdioRunHandle>,
     output_tx: &mpsc::Sender<StdioOutput>,
     target_id: &str,
 ) -> Result<()> {
-    prune_finished_turns(turn_handles);
-    let handle = turn_handles
+    prune_finished_runs(run_handles);
+    let handle = run_handles
         .remove(target_id)
-        .ok_or_else(|| anyhow!("unknown or completed turn id: {target_id}"))?;
+        .ok_or_else(|| anyhow!("unknown or completed run id: {target_id}"))?;
     let should_send_target_response = handle.claim_response();
     handle.cancel_and_join().await;
     if should_send_target_response {
         send_stdio_response(
             output_tx,
             Some(target_id.to_owned()),
-            Err(anyhow!("turn canceled by client")),
+            Err(anyhow!("run canceled by client")),
         )
         .await;
     }
@@ -339,19 +338,19 @@ async fn cancel_stdio_turn(
     Ok(())
 }
 
-fn prune_finished_turns(turn_handles: &mut HashMap<String, StdioTurnHandle>) {
-    turn_handles.retain(|_, handle| !handle.join.is_finished());
+fn prune_finished_runs(run_handles: &mut HashMap<String, StdioRunHandle>) {
+    run_handles.retain(|_, handle| !handle.join.is_finished());
 }
 
-async fn cancel_and_join_stdio_turns(
-    keyed_turn_handles: HashMap<String, StdioTurnHandle>,
-    anonymous_turn_handles: Vec<StdioTurnHandle>,
+async fn cancel_and_join_stdio_runs(
+    keyed_run_handles: HashMap<String, StdioRunHandle>,
+    anonymous_run_handles: Vec<StdioRunHandle>,
 ) {
-    for (_, handle) in keyed_turn_handles {
+    for (_, handle) in keyed_run_handles {
         handle.claim_response();
         handle.cancel_and_join().await;
     }
-    for handle in anonymous_turn_handles {
+    for handle in anonymous_run_handles {
         handle.claim_response();
         handle.cancel_and_join().await;
     }
@@ -398,14 +397,14 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn cancel_stdio_turn_joins_handle_and_sends_target_error_response() {
+    async fn cancel_stdio_run_joins_handle_and_sends_target_error_response() {
         let (output_tx, mut output_rx) = mpsc::channel(4);
-        let mut turn_handles = HashMap::new();
+        let mut run_handles = HashMap::new();
         let cancellation = CancellationToken::new();
         let task_cancellation = cancellation.clone();
-        turn_handles.insert(
+        run_handles.insert(
             "send-1".to_owned(),
-            StdioTurnHandle {
+            StdioRunHandle {
                 join: tokio::spawn(async move {
                     task_cancellation.cancelled().await;
                 }),
@@ -414,11 +413,11 @@ mod tests {
             },
         );
 
-        cancel_stdio_turn(&mut turn_handles, &output_tx, "send-1")
+        cancel_stdio_run(&mut run_handles, &output_tx, "send-1")
             .await
-            .expect("cancel turn");
+            .expect("cancel run");
 
-        assert!(turn_handles.is_empty());
+        assert!(run_handles.is_empty());
         assert!(cancellation.is_cancelled());
         let output = output_rx.recv().await.expect("target response");
         match output {
@@ -431,7 +430,7 @@ mod tests {
                 assert_eq!(id.as_deref(), Some("send-1"));
                 assert!(!ok);
                 assert!(output.is_none());
-                assert_eq!(error.as_deref(), Some("turn canceled by client"));
+                assert_eq!(error.as_deref(), Some("run canceled by client"));
             }
             StdioOutput::Event { .. } => panic!("expected response"),
             _ => panic!("unexpected output variant"),

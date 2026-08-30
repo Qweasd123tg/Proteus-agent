@@ -23,7 +23,7 @@ pub(crate) struct RuntimeSettingsBindings {
     pub(crate) set_workspace_label: WriteSignal<String>,
     pub(crate) set_active_session_dir: WriteSignal<Option<String>>,
     pub(crate) set_is_sending: WriteSignal<bool>,
-    pub(crate) set_active_turn_id: WriteSignal<Option<String>>,
+    pub(crate) set_active_run_id: WriteSignal<Option<String>>,
     pub(crate) set_agent_status: WriteSignal<String>,
     pub(crate) set_messages: WriteSignal<Vec<Message>>,
     pub(crate) next_message_id: ReadSignal<u64>,
@@ -43,7 +43,7 @@ impl RuntimeSettingsBindings {
             self.set_workspace_label,
             self.set_active_session_dir,
             self.set_is_sending,
-            self.set_active_turn_id,
+            self.set_active_run_id,
             self.set_agent_status,
             self.set_messages,
             self.next_message_id,
@@ -117,7 +117,7 @@ pub(crate) struct AppSessionActions {
     pub(crate) set_transcript_generation: WriteSignal<u64>,
     pub(crate) set_session_label: WriteSignal<String>,
     pub(crate) set_is_sending: WriteSignal<bool>,
-    pub(crate) set_active_turn_id: WriteSignal<Option<String>>,
+    pub(crate) set_active_run_id: WriteSignal<Option<String>>,
     pub(crate) set_active_stream_message_id: WriteSignal<Option<u64>>,
     pub(crate) set_streamed_this_turn: WriteSignal<bool>,
     pub(crate) set_agent_status: WriteSignal<String>,
@@ -208,7 +208,7 @@ impl AppSessionActions {
         apply_active_session_activity(
             session.activity.as_ref(),
             self.set_is_sending,
-            self.set_active_turn_id,
+            self.set_active_run_id,
             self.set_agent_status,
         );
         self.set_tool_activities.set(Vec::new());
@@ -246,7 +246,7 @@ impl AppSessionActions {
                         apply_active_session_activity(
                             Some(&activity),
                             self.set_is_sending,
-                            self.set_active_turn_id,
+                            self.set_active_run_id,
                             self.set_agent_status,
                         );
                     }
@@ -377,7 +377,7 @@ impl AppSessionActions {
         self.set_pending_approvals.set(Vec::new());
         self.set_pending_user_inputs.set(Vec::new());
         self.set_is_sending.set(false);
-        self.set_active_turn_id.set(None);
+        self.set_active_run_id.set(None);
         self.set_agent_status.set("ожидает".to_owned());
         self.set_stick_to_bottom.set(true);
     }

@@ -2,17 +2,17 @@ use leptos::{html, prelude::*};
 use wasm_bindgen::{JsCast, closure::Closure};
 use web_sys::{KeyboardEvent, window};
 
-use crate::actions::cancel_active_turn;
+use crate::actions::cancel_active_run;
 use crate::types::{Message, TransportStatus};
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn install_global_keydown(
     composer_ref: NodeRef<html::Textarea>,
-    active_turn_id: ReadSignal<Option<String>>,
+    active_run_id: ReadSignal<Option<String>>,
     next_request_id: ReadSignal<u64>,
     set_next_request_id: WriteSignal<u64>,
     set_is_sending: WriteSignal<bool>,
-    set_active_turn_id: WriteSignal<Option<String>>,
+    set_active_run_id: WriteSignal<Option<String>>,
     set_messages: WriteSignal<Vec<Message>>,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
@@ -36,14 +36,14 @@ pub(crate) fn install_global_keydown(
                     let _ = menu.remove_attribute("open");
                     return;
                 }
-                if active_turn_id.get().is_some() {
+                if active_run_id.get().is_some() {
                     ev.prevent_default();
-                    cancel_active_turn(
-                        active_turn_id,
+                    cancel_active_run(
+                        active_run_id,
                         next_request_id,
                         set_next_request_id,
                         set_is_sending,
-                        set_active_turn_id,
+                        set_active_run_id,
                         set_messages,
                         next_message_id,
                         set_next_message_id,

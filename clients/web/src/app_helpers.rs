@@ -81,7 +81,7 @@ pub(crate) fn load_runtime_settings(
     set_workspace_label: WriteSignal<String>,
     set_active_session_dir: WriteSignal<Option<String>>,
     set_is_sending: WriteSignal<bool>,
-    set_active_turn_id: WriteSignal<Option<String>>,
+    set_active_run_id: WriteSignal<Option<String>>,
     set_agent_status: WriteSignal<String>,
     set_messages: WriteSignal<Vec<Message>>,
     next_message_id: ReadSignal<u64>,
@@ -115,7 +115,7 @@ pub(crate) fn load_runtime_settings(
                     apply_active_session_activity(
                         Some(&activity),
                         set_is_sending,
-                        set_active_turn_id,
+                        set_active_run_id,
                         set_agent_status,
                     );
                 }
@@ -431,7 +431,7 @@ pub(crate) fn sidebar_session_activity_label(
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ActiveSessionActivityState {
     pub(crate) is_sending: bool,
-    pub(crate) active_turn_id: Option<String>,
+    pub(crate) active_run_id: Option<String>,
     pub(crate) agent_status: String,
 }
 
@@ -439,8 +439,8 @@ pub(crate) fn active_session_activity_state(
     activity: Option<&SessionActivityInfo>,
 ) -> ActiveSessionActivityState {
     let is_sending = activity.is_some_and(session_activity_is_busy);
-    let active_turn_id = activity
-        .and_then(|activity| activity.running_turn_ids.first())
+    let active_run_id = activity
+        .and_then(|activity| activity.running_run_ids.first())
         .cloned();
     let agent_status = match activity.map(|activity| activity.status.as_str()) {
         Some("waiting_input") => "ждёт ответ",
@@ -454,7 +454,7 @@ pub(crate) fn active_session_activity_state(
 
     ActiveSessionActivityState {
         is_sending,
-        active_turn_id,
+        active_run_id,
         agent_status,
     }
 }
@@ -462,17 +462,17 @@ pub(crate) fn active_session_activity_state(
 pub(crate) fn apply_active_session_activity(
     activity: Option<&SessionActivityInfo>,
     set_is_sending: WriteSignal<bool>,
-    set_active_turn_id: WriteSignal<Option<String>>,
+    set_active_run_id: WriteSignal<Option<String>>,
     set_agent_status: WriteSignal<String>,
 ) {
     let state = active_session_activity_state(activity);
     set_is_sending.set(state.is_sending);
-    set_active_turn_id.set(state.active_turn_id);
+    set_active_run_id.set(state.active_run_id);
     set_agent_status.set(state.agent_status);
 }
 
 fn session_activity_is_busy(activity: &SessionActivityInfo) -> bool {
-    activity.running_turns > 0
+    activity.running_runs > 0
         || activity.pending_approvals > 0
         || activity.pending_user_inputs > 0
         || matches!(
@@ -503,9 +503,9 @@ pub(crate) fn sidebar_session_render_key(session: &SessionSummary) -> String {
         activity
             .map(|activity| activity.status.as_str())
             .unwrap_or(""),
-        activity.map(|activity| activity.running_turns).unwrap_or(0),
+        activity.map(|activity| activity.running_runs).unwrap_or(0),
         activity
-            .map(|activity| activity.running_turn_ids.join(","))
+            .map(|activity| activity.running_run_ids.join(","))
             .unwrap_or_default(),
         activity
             .map(|activity| activity.pending_approvals + activity.pending_user_inputs)
@@ -920,8 +920,8 @@ mod tests {
 
         session.activity = Some(SessionActivityInfo {
             status: "running".to_owned(),
-            running_turns: 1,
-            running_turn_ids: vec!["turn-1".to_owned()],
+            running_runs: 1,
+            running_run_ids: vec!["run-1".to_owned()],
             pending_approvals: 0,
             pending_user_inputs: 0,
         });
@@ -930,11 +930,11 @@ mod tests {
     }
 
     #[test]
-    fn active_session_activity_restores_running_turn_state() {
+    fn active_session_activity_restores_running_run_state() {
         let activity = SessionActivityInfo {
             status: "running".to_owned(),
-            running_turns: 1,
-            running_turn_ids: vec!["turn-1".to_owned()],
+            running_runs: 1,
+            running_run_ids: vec!["run-1".to_owned()],
             pending_approvals: 0,
             pending_user_inputs: 0,
         };
@@ -943,18 +943,18 @@ mod tests {
             active_session_activity_state(Some(&activity)),
             ActiveSessionActivityState {
                 is_sending: true,
-                active_turn_id: Some("turn-1".to_owned()),
+                active_run_id: Some("run-1".to_owned()),
                 agent_status: "работает".to_owned(),
             }
         );
     }
 
     #[test]
-    fn active_session_activity_idle_clears_turn_state() {
+    fn active_session_activity_idle_clears_run_state() {
         let activity = SessionActivityInfo {
             status: "idle".to_owned(),
-            running_turns: 0,
-            running_turn_ids: Vec::new(),
+            running_runs: 0,
+            running_run_ids: Vec::new(),
             pending_approvals: 0,
             pending_user_inputs: 0,
         };
@@ -963,7 +963,7 @@ mod tests {
             active_session_activity_state(Some(&activity)),
             ActiveSessionActivityState {
                 is_sending: false,
-                active_turn_id: None,
+                active_run_id: None,
                 agent_status: "ожидает".to_owned(),
             }
         );

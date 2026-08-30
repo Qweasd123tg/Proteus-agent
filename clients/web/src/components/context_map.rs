@@ -769,8 +769,8 @@ fn context_category_label(name: &str) -> String {
 }
 
 fn context_activity_label(activity: &SessionActivityInfo) -> String {
-    if activity.running_turns > 0 {
-        format!("{} · {} turns", activity.status, activity.running_turns)
+    if activity.running_runs > 0 {
+        format!("{} · {} runs", activity.status, activity.running_runs)
     } else if activity.pending_approvals > 0 {
         format!("{} · approvals", activity.status)
     } else if activity.pending_user_inputs > 0 {

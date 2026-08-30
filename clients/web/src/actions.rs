@@ -24,8 +24,8 @@ pub(crate) struct AppActions {
     pub(crate) set_effort: WriteSignal<ReasoningEffort>,
     pub(crate) is_sending: ReadSignal<bool>,
     pub(crate) set_is_sending: WriteSignal<bool>,
-    pub(crate) active_turn_id: ReadSignal<Option<String>>,
-    pub(crate) set_active_turn_id: WriteSignal<Option<String>>,
+    pub(crate) active_run_id: ReadSignal<Option<String>>,
+    pub(crate) set_active_run_id: WriteSignal<Option<String>>,
     pub(crate) set_queued_prompts: WriteSignal<Vec<QueuedPromptInfo>>,
 }
 
@@ -163,9 +163,9 @@ impl AppActions {
         let mode_request_id = forced_mode
             .map(|_| take_request_id(self.next_request_id, self.set_next_request_id, "mode"));
         let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "send");
-        let turn_id = request_id.clone();
+        let run_id = request_id.clone();
         let session_dir = self.active_session_dir.get_untracked();
-        self.set_active_turn_id.set(Some(turn_id.clone()));
+        self.set_active_run_id.set(Some(run_id.clone()));
 
         spawn_local(async move {
             if let Some(new_mode) = forced_mode {
@@ -180,7 +180,7 @@ impl AppActions {
                 .await
                 {
                     Ok(output) => {
-                        if !self.is_active_turn(&turn_id) {
+                        if !self.is_active_run(&run_id) {
                             return;
                         }
                         let ok = command_succeeded(&output);
@@ -192,15 +192,15 @@ impl AppActions {
                             self.set_transport_status,
                         );
                         if !ok {
-                            self.finish_turn();
+                            self.finish_run();
                             return;
                         }
                     }
                     Err(error) => {
-                        if !self.is_active_turn(&turn_id) {
+                        if !self.is_active_run(&run_id) {
                             return;
                         }
-                        self.finish_turn();
+                        self.finish_run();
                         self.push_error("Mode update failed", error);
                         return;
                     }
@@ -218,13 +218,13 @@ impl AppActions {
             .await
             {
                 Ok(output) => {
-                    if !self.is_active_turn(&turn_id) {
+                    if !self.is_active_run(&run_id) {
                         return;
                     }
                     if command_succeeded(&output) {
                         self.set_transport_status.set(TransportStatus::Connected);
                     } else {
-                        self.finish_turn();
+                        self.finish_run();
                         handle_command_response(
                             output,
                             self.set_messages,
@@ -235,10 +235,10 @@ impl AppActions {
                     }
                 }
                 Err(error) => {
-                    if !self.is_active_turn(&turn_id) {
+                    if !self.is_active_run(&run_id) {
                         return;
                     }
-                    self.finish_turn();
+                    self.finish_run();
                     self.push_error("Send failed", error);
                 }
             }
@@ -301,7 +301,7 @@ impl AppActions {
                         // Race: предыдущий turn успел завершиться до запроса,
                         // поэтому runtime зарезервировал полноценный новый.
                         self.set_is_sending.set(true);
-                        self.set_active_turn_id.set(Some(request_id));
+                        self.set_active_run_id.set(Some(request_id));
                         push_user_message_once(
                             self.set_messages,
                             self.next_message_id,
@@ -322,9 +322,9 @@ impl AppActions {
         });
     }
 
-    fn finish_turn(self) {
+    fn finish_run(self) {
         self.set_is_sending.set(false);
-        self.set_active_turn_id.set(None);
+        self.set_active_run_id.set(None);
     }
 
     fn push_error(self, prefix: &str, error: String) {
@@ -338,8 +338,8 @@ impl AppActions {
         );
     }
 
-    fn is_active_turn(self, turn_id: &str) -> bool {
-        self.active_turn_id.get().as_deref() == Some(turn_id)
+    fn is_active_run(self, run_id: &str) -> bool {
+        self.active_run_id.get().as_deref() == Some(run_id)
     }
 
     fn set_control_error(self, prefix: &str, error: String) {
@@ -408,18 +408,18 @@ pub(crate) fn handle_command_response(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn cancel_active_turn(
-    active_turn_id: ReadSignal<Option<String>>,
+pub(crate) fn cancel_active_run(
+    active_run_id: ReadSignal<Option<String>>,
     next_request_id: ReadSignal<u64>,
     set_next_request_id: WriteSignal<u64>,
     set_is_sending: WriteSignal<bool>,
-    set_active_turn_id: WriteSignal<Option<String>>,
+    set_active_run_id: WriteSignal<Option<String>>,
     set_messages: WriteSignal<Vec<Message>>,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     set_transport_status: WriteSignal<TransportStatus>,
 ) {
-    let Some(target_id) = active_turn_id.get() else {
+    let Some(target_id) = active_run_id.get() else {
         return;
     };
     let request_id = take_request_id(next_request_id, set_next_request_id, "cancel");
@@ -435,7 +435,7 @@ pub(crate) fn cancel_active_turn(
         {
             Ok(output) => {
                 set_is_sending.set(false);
-                set_active_turn_id.set(None);
+                set_active_run_id.set(None);
                 handle_command_response(
                     output,
                     set_messages,
@@ -481,10 +481,10 @@ pub(crate) fn execute_plan_prompt() -> String {
     "Execute the latest approved plan from this transcript. If the plan is stale, unsafe, or underspecified, stop and explain what needs to change before execution.".to_owned()
 }
 
-/// Суффикс поколения загрузки страницы. Id запросов служат id ходов на
-/// сервере, а счётчик живёт в памяти приложения: после перезагрузки он снова
-/// начинается с 1, и без уникального суффикса новый «send-1» сталкивается с
-/// ещё выполняющимся ходом прошлой загрузки («turn id is already running»).
+/// Суффикс поколения загрузки страницы. Id send-запросов служат transport
+/// run ids на сервере, а счётчик живёт в памяти приложения: после перезагрузки
+/// он снова начинается с 1, и без уникального суффикса новый «send-1»
+/// сталкивается с ещё выполняющимся run прошлой загрузки.
 fn boot_nonce() -> &'static str {
     static NONCE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     NONCE.get_or_init(|| {

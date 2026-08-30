@@ -5,7 +5,7 @@ use wasm_bindgen::{JsCast, JsValue, closure::Closure, prelude::wasm_bindgen};
 use web_sys::{EventSource, KeyboardEvent, MouseEvent, SubmitEvent, window};
 
 use crate::actions::{
-    AppActions, cancel_active_turn, execute_plan_prompt, handle_command_response,
+    AppActions, cancel_active_run, execute_plan_prompt, handle_command_response,
     revise_plan_prompt, send_prompt_for_mode, take_request_id,
 };
 use crate::api::{load_session_token, post_json};
@@ -106,7 +106,7 @@ pub(crate) fn App() -> impl IntoView {
     let (_session_label, set_session_label) = signal("not started".to_owned());
     let (active_session_dir, set_active_session_dir) = signal(None::<String>);
     let (is_sending, set_is_sending) = signal(false);
-    let (active_turn_id, set_active_turn_id) = signal(None::<String>);
+    let (active_run_id, set_active_run_id) = signal(None::<String>);
     let (active_stream_message_id, set_active_stream_message_id) = signal(None::<u64>);
     let (streamed_this_turn, set_streamed_this_turn) = signal(false);
     let (agent_status, set_agent_status) = signal("ожидает".to_owned());
@@ -313,7 +313,7 @@ pub(crate) fn App() -> impl IntoView {
         set_workspace_label,
         set_active_session_dir,
         set_is_sending,
-        set_active_turn_id,
+        set_active_run_id,
         set_agent_status,
         set_messages,
         next_message_id,
@@ -346,7 +346,7 @@ pub(crate) fn App() -> impl IntoView {
         active_session_dir,
         set_active_session_dir,
         set_is_sending,
-        set_active_turn_id,
+        set_active_run_id,
         active_stream_message_id,
         set_active_stream_message_id,
         streamed_this_turn,
@@ -371,7 +371,7 @@ pub(crate) fn App() -> impl IntoView {
         set_transcript_generation,
         set_session_label,
         set_is_sending,
-        set_active_turn_id,
+        set_active_run_id,
         set_active_stream_message_id,
         set_streamed_this_turn,
         set_agent_status,
@@ -432,8 +432,8 @@ pub(crate) fn App() -> impl IntoView {
         set_effort,
         is_sending,
         set_is_sending,
-        active_turn_id,
-        set_active_turn_id,
+        active_run_id,
+        set_active_run_id,
         set_queued_prompts,
     };
 
@@ -540,12 +540,12 @@ pub(crate) fn App() -> impl IntoView {
         };
 
     let cancel_turn = move |_| {
-        cancel_active_turn(
-            active_turn_id,
+        cancel_active_run(
+            active_run_id,
             next_request_id,
             set_next_request_id,
             set_is_sending,
-            set_active_turn_id,
+            set_active_run_id,
             set_messages,
             next_message_id,
             set_next_message_id,
@@ -650,11 +650,11 @@ pub(crate) fn App() -> impl IntoView {
     };
     install_global_keydown(
         composer_ref,
-        active_turn_id,
+        active_run_id,
         next_request_id,
         set_next_request_id,
         set_is_sending,
-        set_active_turn_id,
+        set_active_run_id,
         set_messages,
         next_message_id,
         set_next_message_id,
@@ -803,7 +803,7 @@ pub(crate) fn App() -> impl IntoView {
                                 <button
                                     type="button"
                                     class="topbar-menu-item danger"
-                                    disabled=move || active_turn_id.get().is_none()
+                                    disabled=move || active_run_id.get().is_none()
                                     on:click=move |ev| {
                                         close_topbar_menu();
                                         cancel_turn(ev);
@@ -877,7 +877,7 @@ pub(crate) fn App() -> impl IntoView {
                                 effort
                                 effort_options
                                 is_sending
-                                active_turn_id
+                                active_run_id
                                 stick_to_bottom
                                 set_stick_to_bottom
                                 actions

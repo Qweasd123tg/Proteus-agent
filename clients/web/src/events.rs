@@ -40,7 +40,7 @@ pub(crate) struct EventStreamBindings {
     pub(crate) active_session_dir: ReadSignal<Option<String>>,
     pub(crate) set_active_session_dir: WriteSignal<Option<String>>,
     pub(crate) set_is_sending: WriteSignal<bool>,
-    pub(crate) set_active_turn_id: WriteSignal<Option<String>>,
+    pub(crate) set_active_run_id: WriteSignal<Option<String>>,
     pub(crate) active_stream_message_id: ReadSignal<Option<u64>>,
     pub(crate) set_active_stream_message_id: WriteSignal<Option<u64>>,
     pub(crate) streamed_this_turn: ReadSignal<bool>,
@@ -167,7 +167,7 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
                     bindings.active_session_dir,
                     bindings.set_active_session_dir,
                     bindings.set_is_sending,
-                    bindings.set_active_turn_id,
+                    bindings.set_active_run_id,
                     bindings.active_stream_message_id,
                     bindings.set_active_stream_message_id,
                     bindings.streamed_this_turn,
@@ -271,7 +271,7 @@ fn handle_app_output(
     active_session_dir: ReadSignal<Option<String>>,
     set_active_session_dir: WriteSignal<Option<String>>,
     set_is_sending: WriteSignal<bool>,
-    set_active_turn_id: WriteSignal<Option<String>>,
+    set_active_run_id: WriteSignal<Option<String>>,
     active_stream_message_id: ReadSignal<Option<u64>>,
     set_active_stream_message_id: WriteSignal<Option<u64>>,
     streamed_this_turn: ReadSignal<bool>,
@@ -303,7 +303,7 @@ fn handle_app_output(
                 active_session_dir,
                 set_active_session_dir,
                 set_is_sending,
-                set_active_turn_id,
+                set_active_run_id,
                 active_stream_message_id,
                 set_active_stream_message_id,
                 streamed_this_turn,
@@ -342,7 +342,7 @@ fn handle_app_event(
     active_session_dir: ReadSignal<Option<String>>,
     set_active_session_dir: WriteSignal<Option<String>>,
     set_is_sending: WriteSignal<bool>,
-    set_active_turn_id: WriteSignal<Option<String>>,
+    set_active_run_id: WriteSignal<Option<String>>,
     active_stream_message_id: ReadSignal<Option<u64>>,
     set_active_stream_message_id: WriteSignal<Option<u64>>,
     streamed_this_turn: ReadSignal<bool>,
@@ -399,7 +399,7 @@ fn handle_app_event(
             flush_stream_delta_buffer(stream_bindings);
             set_queued_prompts.set(Vec::new());
             set_is_sending.set(false);
-            set_active_turn_id.set(None);
+            set_active_run_id.set(None);
             set_agent_status.set("ожидает".to_owned());
             // Ход закончился: терминальных событий для ещё «бегущих» карточек
             // больше не будет — закрываем их как прерванные.
@@ -532,7 +532,7 @@ fn handle_app_event(
                 apply_active_session_activity(
                     Some(&activity),
                     set_is_sending,
-                    set_active_turn_id,
+                    set_active_run_id,
                     set_agent_status,
                 );
             }
@@ -554,7 +554,7 @@ fn handle_app_event(
             flush_stream_delta_buffer(stream_bindings);
             set_queued_prompts.set(Vec::new());
             set_is_sending.set(false);
-            set_active_turn_id.set(None);
+            set_active_run_id.set(None);
             set_agent_status.set("ошибка".to_owned());
             finalize_running_activity(set_tool_activities, set_messages, crate::ui_utils::now_ms());
             push_message(
@@ -597,7 +597,7 @@ fn handle_app_event(
             flush_stream_delta_buffer(stream_bindings);
             set_queued_prompts.set(Vec::new());
             set_is_sending.set(false);
-            set_active_turn_id.set(None);
+            set_active_run_id.set(None);
             set_agent_status.set("остановлено".to_owned());
             set_transport_status.set(TransportStatus::Shutdown);
             finalize_running_activity(set_tool_activities, set_messages, crate::ui_utils::now_ms());

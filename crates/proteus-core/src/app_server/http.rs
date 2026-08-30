@@ -28,7 +28,7 @@ mod sse;
 mod state;
 
 #[cfg(test)]
-use commands::{SendDispatch, spawn_send_turn};
+use commands::{SendDispatch, spawn_send_run};
 use commands::{
     command_response, config_summary_with_activity, execute_app_request, execute_delete_session,
     execute_new_session, execute_resume, execute_send, execute_send_async, execute_set_model,
@@ -58,7 +58,7 @@ use hyper::header::CONTENT_TYPE;
 #[cfg(test)]
 use sse::encode_sse_output;
 #[cfg(test)]
-use state::RunningTurn;
+use state::RunningRun;
 
 type HttpBody = UnsyncBoxBody<Bytes, Infallible>;
 type HttpResponse = Response<HttpBody>;

@@ -52,8 +52,8 @@ impl AppSessionSummary {
 #[non_exhaustive]
 pub struct AppSessionActivity {
     pub status: AppSessionActivityStatus,
-    pub running_turns: usize,
-    pub running_turn_ids: Vec<String>,
+    pub running_runs: usize,
+    pub running_run_ids: Vec<String>,
     pub pending_approvals: usize,
     pub pending_user_inputs: usize,
 }
@@ -81,7 +81,7 @@ impl AppSessionActivityStatus {
 
 impl AppSessionActivity {
     pub fn from_counts(
-        running_turns: usize,
+        running_runs: usize,
         pending_approvals: usize,
         pending_user_inputs: usize,
     ) -> Self {
@@ -89,38 +89,38 @@ impl AppSessionActivity {
             AppSessionActivityStatus::WaitingInput
         } else if pending_approvals > 0 {
             AppSessionActivityStatus::WaitingApproval
-        } else if running_turns > 0 {
+        } else if running_runs > 0 {
             AppSessionActivityStatus::Running
         } else {
             AppSessionActivityStatus::Idle
         };
         Self {
             status,
-            running_turns,
-            running_turn_ids: Vec::new(),
+            running_runs,
+            running_run_ids: Vec::new(),
             pending_approvals,
             pending_user_inputs,
         }
     }
 
-    pub fn from_running_turn_ids(
-        running_turn_ids: Vec<String>,
+    pub fn from_running_run_ids(
+        running_run_ids: Vec<String>,
         pending_approvals: usize,
         pending_user_inputs: usize,
     ) -> Self {
         let mut activity = Self::from_counts(
-            running_turn_ids.len(),
+            running_run_ids.len(),
             pending_approvals,
             pending_user_inputs,
         );
-        activity.running_turn_ids = running_turn_ids;
+        activity.running_run_ids = running_run_ids;
         activity
     }
 
     pub fn is_idle(&self) -> bool {
         self.status == AppSessionActivityStatus::Idle
-            && self.running_turns == 0
-            && self.running_turn_ids.is_empty()
+            && self.running_runs == 0
+            && self.running_run_ids.is_empty()
             && self.pending_approvals == 0
             && self.pending_user_inputs == 0
     }

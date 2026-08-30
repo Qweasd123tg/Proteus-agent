@@ -97,6 +97,9 @@ registry/schema/policy/approval/grants/cancellation/recording/invoke path и
 `ToolOrchestrator` теперь только agent adapter для events, attributed input и
 `AgentControl`. Общая `BoundCapability<T>` abstraction не введена; перед
 top-level non-Turn entrypoint действует review stop.
+Process terminal failures доходят до Core adapter boundary как typed
+`ProcessInvocationError`, а AppServer transport cancel handles называются
+`run_id`/`running_run_ids` и не маскируются под domain `TurnId`.
 Следующие phases и stop-gates находятся в
 [roadmap.md](roadmap.md#executionscope-migration).
 

@@ -257,7 +257,7 @@ fn web_decodes_contract_stdio_output_events() {
             } => {
                 assert_eq!(session_dir, "/workspace/session-1");
                 assert_eq!(activity.status, "running");
-                assert_eq!(activity.running_turns, 1);
+                assert_eq!(activity.running_runs, 1);
             }
             AppServerEvent::Error { message } => assert_eq!(message, "boom"),
             AppServerEvent::EventStreamLagged { count } => assert_eq!(count, 42),
@@ -305,13 +305,11 @@ fn web_decodes_contract_session_summary() {
         Some(42),
         Some("first message".to_owned()),
     )
-    .with_activity(
-        contract_protocol::AppSessionActivity::from_running_turn_ids(
-            vec!["turn-1".to_owned()],
-            0,
-            0,
-        ),
-    );
+    .with_activity(contract_protocol::AppSessionActivity::from_running_run_ids(
+        vec!["run-1".to_owned()],
+        0,
+        0,
+    ));
 
     let value = serde_json::to_value(summary).expect("contract session summary JSON");
     let decoded: SessionSummary = serde_json::from_value(value).expect("web session summary");
@@ -324,7 +322,7 @@ fn web_decodes_contract_session_summary() {
     assert_eq!(decoded.preview.as_deref(), Some("first message"));
     let activity = decoded.activity.expect("live activity");
     assert_eq!(activity.status, "running");
-    assert_eq!(activity.running_turn_ids, ["turn-1"]);
+    assert_eq!(activity.running_run_ids, ["run-1"]);
 }
 
 #[test]
