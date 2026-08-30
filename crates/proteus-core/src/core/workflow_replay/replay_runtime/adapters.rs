@@ -6,16 +6,13 @@ use futures_util::stream;
 
 use crate::{
     contracts::{
-        AgentToolRecorder, ApprovalRequest, ApprovalResponse, ApprovalTransport, CompactionHost,
-        CompactionInput, CompactionOutput, ContextBuildInput, ContextBuilder, HistoryCompactor,
-        Model, ModelEventStream, Tool, ToolContext, ToolExposure, ToolExposureInput,
-        ToolExposureOutput, ToolSource,
+        ApprovalRequest, ApprovalResponse, ApprovalTransport, CompactionHost, CompactionInput,
+        CompactionOutput, ContextBuildInput, ContextBuilder, ExecutionAttribution,
+        HistoryCompactor, Model, ModelEventStream, Tool, ToolContext, ToolExecutionRecorder,
+        ToolExposure, ToolExposureInput, ToolExposureOutput, ToolSource,
     },
     core::ModelResponseOutcome,
-    domain::{
-        ContextBundle, ModelRef, SessionId, ThreadId, ToolCall, ToolCallResolution, ToolResult,
-        ToolSpec, TurnId,
-    },
+    domain::{ContextBundle, ModelRef, ToolCall, ToolCallResolution, ToolResult, ToolSpec},
     model_standard::{CanonicalModelRequest, ModelCapabilities, ModelStreamEvent},
 };
 
@@ -149,12 +146,10 @@ impl ApprovalTransport for ReplayApprovalTransport {
 }
 
 #[async_trait]
-impl AgentToolRecorder for ReplayState {
+impl ToolExecutionRecorder for ReplayState {
     async fn tool_call_requested(
         &self,
-        _session_id: SessionId,
-        _thread_id: ThreadId,
-        _turn_id: TurnId,
+        _attribution: ExecutionAttribution,
         call: &ToolCall,
     ) -> Result<()> {
         self.record_tool_requested(call)
@@ -162,9 +157,7 @@ impl AgentToolRecorder for ReplayState {
 
     async fn tool_call_resolved(
         &self,
-        _session_id: SessionId,
-        _thread_id: ThreadId,
-        _turn_id: TurnId,
+        _attribution: ExecutionAttribution,
         call: &ToolCall,
         resolution: &ToolCallResolution,
     ) -> Result<()> {
@@ -173,9 +166,7 @@ impl AgentToolRecorder for ReplayState {
 
     async fn tool_approval_requested(
         &self,
-        _session_id: SessionId,
-        _thread_id: ThreadId,
-        _turn_id: TurnId,
+        _attribution: ExecutionAttribution,
         call: &ToolCall,
         reason: &str,
     ) -> Result<()> {
@@ -184,9 +175,7 @@ impl AgentToolRecorder for ReplayState {
 
     async fn tool_result_recorded(
         &self,
-        _session_id: SessionId,
-        _thread_id: ThreadId,
-        _turn_id: TurnId,
+        _attribution: ExecutionAttribution,
         result: &ToolResult,
     ) -> Result<()> {
         self.record_tool_result(result)

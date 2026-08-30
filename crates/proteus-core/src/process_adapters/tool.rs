@@ -64,7 +64,7 @@ impl Tool for ProcessTool {
         let request = ProcessToolInvokeInput {
             call: call.clone(),
             cwd: ctx.cwd,
-            owner: ctx.owner,
+            attribution: ctx.attribution,
         };
         let cancellation = ctx.cancellation;
         let response: ProcessToolInvokeResponse = self

@@ -1,11 +1,8 @@
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use proteus_contracts::{
-    contracts::{AgentToolRecorder, ExecutionAttribution, ExecutionRecorder},
-    domain::{
-        ExchangeId, ExecutionId, SessionId, ThreadId, ToolCall, ToolCallResolution, ToolResult,
-        TurnId,
-    },
+    contracts::{ExecutionAttribution, ExecutionRecorder, ToolExecutionRecorder},
+    domain::{ExchangeId, ExecutionId, ThreadId, ToolCall, ToolCallResolution, ToolResult, TurnId},
     model_standard::{CanonicalModelRequest, CanonicalModelResponse},
 };
 
@@ -110,60 +107,37 @@ impl SessionExecutionRecorder {
 }
 
 #[derive(Debug, Clone)]
-pub struct SessionAgentToolRecorder {
+pub struct SessionToolExecutionRecorder {
     store: SessionStore,
-    execution_id: ExecutionId,
 }
 
-impl SessionAgentToolRecorder {
-    pub fn new(store: SessionStore, execution_id: ExecutionId) -> Self {
-        Self {
-            store,
-            execution_id,
-        }
+impl SessionToolExecutionRecorder {
+    pub fn new(store: SessionStore) -> Self {
+        Self { store }
     }
 
-    pub fn execution_id(&self) -> ExecutionId {
-        self.execution_id
-    }
-
-    fn validate_session(&self, session_id: SessionId) -> Result<()> {
-        if self.store.session_id() != session_id {
+    fn validate_attribution(&self, attribution: ExecutionAttribution) -> Result<()> {
+        if let Some(agent) = attribution.agent
+            && self.store.session_id() != agent.session_id
+        {
             bail!(
-                "execution recorder belongs to session {}, received {}",
+                "tool execution recorder belongs to session {}, received {}",
                 self.store.session_id(),
-                session_id
+                agent.session_id
             );
         }
         Ok(())
     }
-
-    fn attribution(
-        &self,
-        session_id: SessionId,
-        thread_id: ThreadId,
-        turn_id: TurnId,
-    ) -> Result<ExecutionAttribution> {
-        self.validate_session(session_id)?;
-        Ok(ExecutionAttribution::for_turn(
-            self.execution_id,
-            session_id,
-            thread_id,
-            turn_id,
-        ))
-    }
 }
 
 #[async_trait]
-impl AgentToolRecorder for SessionAgentToolRecorder {
+impl ToolExecutionRecorder for SessionToolExecutionRecorder {
     async fn tool_call_requested(
         &self,
-        session_id: SessionId,
-        thread_id: ThreadId,
-        turn_id: TurnId,
+        attribution: ExecutionAttribution,
         call: &ToolCall,
     ) -> Result<()> {
-        let attribution = self.attribution(session_id, thread_id, turn_id)?;
+        self.validate_attribution(attribution)?;
         self.store
             .append_execution_journal_entry(
                 attribution,
@@ -178,13 +152,11 @@ impl AgentToolRecorder for SessionAgentToolRecorder {
 
     async fn tool_call_resolved(
         &self,
-        session_id: SessionId,
-        thread_id: ThreadId,
-        turn_id: TurnId,
+        attribution: ExecutionAttribution,
         call: &ToolCall,
         resolution: &ToolCallResolution,
     ) -> Result<()> {
-        let attribution = self.attribution(session_id, thread_id, turn_id)?;
+        self.validate_attribution(attribution)?;
         self.store
             .append_execution_journal_entry(
                 attribution,
@@ -201,13 +173,11 @@ impl AgentToolRecorder for SessionAgentToolRecorder {
 
     async fn tool_approval_requested(
         &self,
-        session_id: SessionId,
-        thread_id: ThreadId,
-        turn_id: TurnId,
+        attribution: ExecutionAttribution,
         call: &ToolCall,
         reason: &str,
     ) -> Result<()> {
-        let attribution = self.attribution(session_id, thread_id, turn_id)?;
+        self.validate_attribution(attribution)?;
         self.store
             .append_execution_journal_entry(
                 attribution,
@@ -224,12 +194,10 @@ impl AgentToolRecorder for SessionAgentToolRecorder {
 
     async fn tool_result_recorded(
         &self,
-        session_id: SessionId,
-        thread_id: ThreadId,
-        turn_id: TurnId,
+        attribution: ExecutionAttribution,
         result: &ToolResult,
     ) -> Result<()> {
-        let attribution = self.attribution(session_id, thread_id, turn_id)?;
+        self.validate_attribution(attribution)?;
         self.store
             .append_execution_journal_entry(
                 attribution,
@@ -280,29 +248,28 @@ mod tests {
             root_thread_id,
             turn_id,
         );
-        let recorder = SessionAgentToolRecorder::new(store.clone(), execution_id);
+        let recorder = SessionToolExecutionRecorder::new(store.clone());
+        let root_attribution =
+            ExecutionAttribution::for_turn(execution_id, session_id, root_thread_id, turn_id);
+        let child_attribution =
+            ExecutionAttribution::for_turn(execution_id, session_id, child_thread_id, turn_id);
 
         recorder
             .tool_call_requested(
-                session_id,
-                root_thread_id,
-                turn_id,
+                root_attribution,
                 &ToolCall::new(new_call_id(), "root", json!({})),
             )
             .await
             .unwrap();
         recorder
             .tool_call_requested(
-                session_id,
-                child_thread_id,
-                turn_id,
+                child_attribution,
                 &ToolCall::new(new_call_id(), "child", json!({})),
             )
             .await
             .unwrap();
 
         assert_eq!(model_recorder.execution_id(), execution_id);
-        assert_eq!(recorder.execution_id(), execution_id);
         assert_eq!(
             store
                 .load_records()
@@ -343,6 +310,42 @@ mod tests {
 
         let records = store.load_projection().unwrap().records;
         assert_eq!(records.len(), 2);
+        assert!(records.iter().all(|record| {
+            record.execution_id == Some(execution_id)
+                && record.thread_id.is_none()
+                && record.turn_id.is_none()
+        }));
+    }
+
+    #[tokio::test]
+    async fn detached_tool_recorder_persists_without_chat_identity() {
+        let config_dir = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store =
+            SessionStore::new(config_dir.path(), workspace.path(), new_session_id()).unwrap();
+        let execution_id = new_execution_id();
+        let attribution = ExecutionAttribution::detached(execution_id);
+        let recorder = SessionToolExecutionRecorder::new(store.clone());
+        let call = ToolCall::new(new_call_id(), "detached_probe", json!({}));
+
+        recorder
+            .tool_call_requested(attribution, &call)
+            .await
+            .unwrap();
+        recorder
+            .tool_call_resolved(attribution, &call, &ToolCallResolution::Allowed)
+            .await
+            .unwrap();
+        recorder
+            .tool_result_recorded(
+                attribution,
+                &ToolResult::ok(call.id.clone(), "detached result"),
+            )
+            .await
+            .unwrap();
+
+        let records = store.load_projection().unwrap().records;
+        assert_eq!(records.len(), 3);
         assert!(records.iter().all(|record| {
             record.execution_id == Some(execution_id)
                 && record.thread_id.is_none()

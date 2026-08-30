@@ -22,7 +22,7 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use proteus_contracts::{
-    domain::{EXEC_SHELL, SessionId, ThreadId},
+    domain::{EXEC_SHELL, ExecutionId, SessionId, ThreadId},
     process_module::{
         ProcessModuleError, ToolModule, ToolModuleHostMut, ToolModuleInvocationContext,
     },
@@ -193,16 +193,23 @@ struct ExecSession {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ExecSessionOwner {
-    session_id: SessionId,
-    thread_id: ThreadId,
+    principal: ExecSessionPrincipal,
     workspace: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExecSessionPrincipal {
+    Agent {
+        session_id: SessionId,
+        thread_id: ThreadId,
+    },
+    DetachedExecution(ExecutionId),
 }
 
 impl ExecSessionOwner {
     fn from_context(context: &ToolModuleInvocationContext, canonical_workspace: &str) -> Self {
         Self {
-            session_id: context.owner.session_id,
-            thread_id: context.owner.thread_id,
+            principal: ExecSessionPrincipal::from_context(context),
             workspace: PathBuf::from(canonical_workspace),
         }
     }
@@ -211,9 +218,19 @@ impl ExecSessionOwner {
         let Ok(workspace) = context.cwd.canonicalize() else {
             return false;
         };
-        self.session_id == context.owner.session_id
-            && self.thread_id == context.owner.thread_id
-            && self.workspace == workspace
+        self.principal == ExecSessionPrincipal::from_context(context) && self.workspace == workspace
+    }
+}
+
+impl ExecSessionPrincipal {
+    fn from_context(context: &ToolModuleInvocationContext) -> Self {
+        context.attribution.agent.map_or(
+            Self::DetachedExecution(context.attribution.execution_id),
+            |agent| Self::Agent {
+                session_id: agent.session_id,
+                thread_id: agent.thread_id,
+            },
+        )
     }
 }
 
@@ -430,7 +447,7 @@ fn write_stdin_impl(
         })?;
         if !session.owner.matches(&context) {
             anyhow::bail!(
-                "exec session {session_id} is not owned by the current session/thread/workspace"
+                "exec session {session_id} is not owned by the current execution context/workspace"
             );
         }
         session.touch();

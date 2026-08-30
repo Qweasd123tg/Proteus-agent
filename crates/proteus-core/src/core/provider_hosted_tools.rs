@@ -78,10 +78,8 @@ impl Tool for ProviderHostedTool {
 mod tests {
     use super::*;
     use crate::{
-        contracts::ToolInvocationOwner,
-        domain::{
-            HostedToolConfig, WebSearchHostedToolConfig, new_session_id, new_thread_id, new_turn_id,
-        },
+        contracts::ExecutionAttribution,
+        domain::{HostedToolConfig, WebSearchHostedToolConfig, new_execution_id},
     };
 
     fn web_search_spec(safety: ToolSafety) -> ToolSpec {
@@ -119,7 +117,7 @@ mod tests {
                 &call,
                 ToolContext::new(
                     std::env::current_dir().unwrap(),
-                    ToolInvocationOwner::new(new_session_id(), new_thread_id(), new_turn_id()),
+                    ExecutionAttribution::detached(new_execution_id()),
                 ),
             )
             .await

@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    contracts::ToolInvocationOwner,
+    contracts::ExecutionAttribution,
     domain::{
         AgentOutput, AgentTask, HistoryCompactionReport, ModelRef, ReasoningConfig, SessionId,
         ThreadId, TurnId,
@@ -46,7 +46,7 @@ pub type ProcessModuleResult<T> = Result<T, ProcessModuleError>;
 #[serde(deny_unknown_fields)]
 pub struct ToolModuleInvocationContext {
     pub cwd: PathBuf,
-    pub owner: ToolInvocationOwner,
+    pub attribution: ExecutionAttribution,
     #[serde(default)]
     pub config: serde_json::Value,
 }

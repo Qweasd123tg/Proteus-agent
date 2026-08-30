@@ -44,8 +44,10 @@ callback только по активному export. Это защищает co
 При этом tool callback из process Workflow не получает исключения: методы
 `host.tools.execute`/`host.tools.execute_batch` возвращаются в core и проходят
 обычный `ToolRegistry -> mode-aware ApprovalPolicy -> ToolOrchestrator ->
-Tool::invoke`. Worker не задаёт `ToolInvocationOwner` и не может выдать себе
-turn grants; owner и cancellation берутся из текущего host invocation context.
+Tool::invoke`. Worker не задаёт `ExecutionAttribution` и не может выдать себе
+execution grants; attribution и cancellation берутся из текущего host
+invocation context. Для agent execution attribution содержит chat projection,
+для detached execution — только `ExecutionId`.
 
 Host очищает parent environment и передаёт только минимальные runtime variables,
 явный `env_allowlist` и literal `env`. Строгий handshake защищает от ошибочно

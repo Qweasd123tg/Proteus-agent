@@ -13,7 +13,7 @@
 //! ```bash
 //! cargo build --release -p file-tools
 //! Реализация линкуется только внутрь `proteus-reference-worker`; host видит
-//! её через process Tool contract v1.
+//! её через process Tool contract v2.
 //! ```
 //!
 //! После этого добавьте нужные имена (`read_file`, `write_file`, `list_dir`,
@@ -78,8 +78,8 @@ pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), Process
 #[cfg(test)]
 mod tests {
     use proteus_contracts::{
-        contracts::ToolInvocationOwner,
-        domain::{ToolSpec, new_session_id, new_thread_id, new_turn_id},
+        contracts::ExecutionAttribution,
+        domain::{ToolSpec, new_execution_id},
         process_module::{
             ProcessModuleError, ToolModule, ToolModuleHost, ToolModuleInvocationContext,
         },
@@ -108,7 +108,7 @@ mod tests {
         });
         let context = ToolModuleInvocationContext {
             cwd: cwd.to_path_buf(),
-            owner: ToolInvocationOwner::new(new_session_id(), new_thread_id(), new_turn_id()),
+            attribution: ExecutionAttribution::detached(new_execution_id()),
             config: json!({}),
         };
         let mut host = TestToolHost;

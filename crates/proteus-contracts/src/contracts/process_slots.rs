@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    contracts::ToolInvocationOwner,
+    contracts::ExecutionAttribution,
     domain::{
         AgentOutput, AgentTask, ContextBundle, ContextChunk, MemoryItem, MemoryQuery, Patch,
         PatchResult, PolicyDecision, ToolCall, ToolResult, ToolSpec,
@@ -43,7 +43,7 @@ pub const CONTEXT_HOST_PROVIDER_METHOD: &str = "host.context.provide";
 pub const PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION: &str = "v1";
 pub const PROCESS_CONTEXT_PROVIDER_METHOD: &str = "provide";
 
-pub const PROCESS_TOOL_CONTRACT_VERSION: &str = "v1";
+pub const PROCESS_TOOL_CONTRACT_VERSION: &str = "v2";
 pub const PROCESS_TOOL_LIST_METHOD: &str = "list";
 pub const PROCESS_TOOL_INVOKE_METHOD: &str = "invoke";
 
@@ -141,7 +141,7 @@ pub struct ProcessContextProviderInput {
 pub struct ProcessToolInvokeInput {
     pub call: ToolCall,
     pub cwd: PathBuf,
-    pub owner: ToolInvocationOwner,
+    pub attribution: ExecutionAttribution,
 }
 
 pub type ProcessMemoryRememberResponse = ProcessModuleResponse<()>;
@@ -157,6 +157,8 @@ pub type ProcessToolInvokeResponse = ProcessModuleResponse<ToolResult>;
 
 #[cfg(test)]
 mod tests {
+    use crate::domain::{new_call_id, new_execution_id};
+
     use super::*;
 
     #[test]
@@ -168,5 +170,39 @@ mod tests {
             "legacy": true
         }))
         .expect_err("unknown response fields must be rejected");
+    }
+
+    #[test]
+    fn tool_v2_requires_execution_attribution_and_accepts_detached_execution() {
+        let input = ProcessToolInvokeInput {
+            call: ToolCall::new(new_call_id(), "probe", serde_json::json!({})),
+            cwd: PathBuf::from("/workspace"),
+            attribution: ExecutionAttribution::detached(new_execution_id()),
+        };
+        let value = serde_json::to_value(&input).expect("tool input");
+        serde_json::from_value::<ProcessToolInvokeInput>(value.clone())
+            .expect("detached execution must cross tool v2");
+
+        let mut missing_attribution = value.clone();
+        missing_attribution
+            .as_object_mut()
+            .expect("tool object")
+            .remove("attribution");
+        serde_json::from_value::<ProcessToolInvokeInput>(missing_attribution)
+            .expect_err("execution attribution is mandatory");
+
+        let mut legacy_owner = value;
+        let object = legacy_owner.as_object_mut().expect("tool object");
+        object.remove("attribution");
+        object.insert(
+            "owner".to_owned(),
+            serde_json::json!({
+                "session_id": "session_legacy",
+                "thread_id": "thread_legacy",
+                "turn_id": "turn_legacy"
+            }),
+        );
+        serde_json::from_value::<ProcessToolInvokeInput>(legacy_owner)
+            .expect_err("tool v1 owner must not be accepted by v2");
     }
 }

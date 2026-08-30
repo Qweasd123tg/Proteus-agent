@@ -4,15 +4,15 @@ use anyhow::Result;
 
 use crate::{
     contracts::{
-        AgentControl, AgentToolRecorder, AgentWorkflowContext, ApprovalPolicy, ContextBuilder,
-        EventEmitter, ExecutionContext, ExecutionRecorder, ExecutionScope, HistoryCompactor,
-        MemoryStore, Model, NoopAgentToolRecorder, NoopExecutionRecorder, PatchApplier, Renderer,
-        SearchBackend, ToolExposure, ToolRegistry, UserInputTransport, Workflow,
+        AgentControl, AgentWorkflowContext, ApprovalPolicy, ContextBuilder, EventEmitter,
+        ExecutionContext, ExecutionRecorder, ExecutionScope, HistoryCompactor, MemoryStore, Model,
+        NoopExecutionRecorder, NoopToolExecutionRecorder, PatchApplier, Renderer, SearchBackend,
+        ToolExecutionRecorder, ToolExposure, ToolRegistry, UserInputTransport, Workflow,
     },
     core::{
         AgentControlRuntime, AppConfig, AssemblyPlan, BoundModel, ModeAwarePolicy,
         ModelExecutionBinding, ModelService, ModuleBuildContext, ModuleCatalog, PolicyBuildContext,
-        PreparedAssembly, SessionAgentToolRecorder, SessionExecutionRecorder, SessionStore,
+        PreparedAssembly, SessionExecutionRecorder, SessionStore, SessionToolExecutionRecorder,
     },
     domain::{SessionId, ThreadId, TurnId},
     stubs::{
@@ -194,9 +194,9 @@ impl RuntimeRegistry {
             )),
             None => Arc::new(NoopExecutionRecorder),
         };
-        let tool_recorder: Arc<dyn AgentToolRecorder> = match &session_store {
-            Some(store) => Arc::new(SessionAgentToolRecorder::new(store.clone(), execution_id)),
-            None => Arc::new(NoopAgentToolRecorder),
+        let tool_recorder: Arc<dyn ToolExecutionRecorder> = match &session_store {
+            Some(store) => Arc::new(SessionToolExecutionRecorder::new(store.clone())),
+            None => Arc::new(NoopToolExecutionRecorder),
         };
         let model_binding = ModelExecutionBinding::for_turn(
             scope,

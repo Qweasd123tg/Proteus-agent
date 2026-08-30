@@ -165,7 +165,7 @@ Worker не может изменить cardinality, сделать свой `mo
       {
         "slot": "tool",
         "module_id": "reference.tools",
-        "contract_version": "v1",
+        "contract_version": "v2",
         "composition": "ordered_many",
         "module_config": {},
         "host_features": []
@@ -195,7 +195,7 @@ Worker подтверждает тот же exact set:
       {
         "slot": "tool",
         "module_id": "reference.tools",
-        "contract_version": "v1",
+        "contract_version": "v2",
         "composition": "ordered_many",
         "module_features": []
       }
@@ -384,9 +384,12 @@ ToolRegistry
   -> invoke
 ```
 
-Component не задаёт session/thread/turn ownership: `ToolInvocationOwner`
-строится host-ом из активного invocation context. Наличие tool и workflow
-exports в одном manifest не даёт workflow прямой command-execution authority.
+Component не задаёт execution/chat ownership. В `tool/v2` host передаёт
+`ExecutionAttribution` из активного execution binding: `ExecutionId` обязателен,
+а `SessionId`/`ThreadId`/`TurnId` существуют только как optional agent
+projection. Detached execution проходит wire без fake chat identities.
+Наличие tool и workflow exports в одном manifest не даёт workflow прямой
+command-execution authority.
 
 ## Structural Absence
 

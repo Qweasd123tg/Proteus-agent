@@ -10,8 +10,8 @@ use tokio::time::sleep;
 
 use crate::{
     contracts::{
-        AgentWorkflowContext, ApprovalRequest, PolicyContext, PolicyVisibilityContext,
-        RequestOrigin, ToolContext,
+        AgentWorkflowContext, ApprovalRequest, ExecutionAttribution, PolicyContext,
+        PolicyVisibilityContext, RequestOrigin, ToolContext,
     },
     domain::{
         AgentTask, Event, PolicyDecision, ToolCall, ToolCallResolution, ToolResult, ToolSpec,
@@ -89,7 +89,7 @@ impl ToolOrchestrator {
         // события) вместо падения в шелле на несуществующем бинаре.
         let call = intercept_apply_patch_call(ctx, &call).unwrap_or(call);
         ctx.tool_recorder
-            .tool_call_requested(ctx.session_id, ctx.thread_id, ctx.turn_id, &call)
+            .tool_call_requested(tool_attribution(ctx), &call)
             .await?;
         ctx.emit(Event::ToolCallRequested { call: call.clone() })
             .await?;
@@ -100,9 +100,7 @@ impl ToolOrchestrator {
         {
             ctx.tool_recorder
                 .tool_call_resolved(
-                    ctx.session_id,
-                    ctx.thread_id,
-                    ctx.turn_id,
+                    tool_attribution(ctx),
                     &call,
                     &ToolCallResolution::ValidationFailed {
                         reason: error.clone(),
@@ -121,25 +119,13 @@ impl ToolOrchestrator {
         match decision {
             PolicyDecision::Allow => {
                 ctx.tool_recorder
-                    .tool_call_resolved(
-                        ctx.session_id,
-                        ctx.thread_id,
-                        ctx.turn_id,
-                        &call,
-                        &ToolCallResolution::Allowed,
-                    )
+                    .tool_call_resolved(tool_attribution(ctx), &call, &ToolCallResolution::Allowed)
                     .await?;
                 self.invoke_allowed(ctx, task, &call, tool_spec).await
             }
             PolicyDecision::Ask { reason } => {
                 ctx.tool_recorder
-                    .tool_approval_requested(
-                        ctx.session_id,
-                        ctx.thread_id,
-                        ctx.turn_id,
-                        &call,
-                        &reason,
-                    )
+                    .tool_approval_requested(tool_attribution(ctx), &call, &reason)
                     .await?;
                 ctx.emit(Event::ApprovalRequested {
                     call_id: call.id.clone(),
@@ -169,16 +155,14 @@ impl ToolOrchestrator {
                 if approval.approved {
                     ctx.tool_recorder
                         .tool_call_resolved(
-                            ctx.session_id,
-                            ctx.thread_id,
-                            ctx.turn_id,
+                            tool_attribution(ctx),
                             &call,
                             &ToolCallResolution::Approved,
                         )
                         .await?;
                     let result = self.invoke_allowed(ctx, task, &call, tool_spec).await?;
                     // Approval-gated grants: только результат явно одобренного
-                    // вызова может выдать turn-scoped права (см. contracts
+                    // вызова может выдать execution-scoped права (см. contracts
                     // ExecutionPermissionGrants).
                     merge_granted_permissions(ctx, &result);
                     return Ok(result);
@@ -192,9 +176,7 @@ impl ToolOrchestrator {
                 );
                 ctx.tool_recorder
                     .tool_call_resolved(
-                        ctx.session_id,
-                        ctx.thread_id,
-                        ctx.turn_id,
+                        tool_attribution(ctx),
                         &call,
                         &ToolCallResolution::ApprovalDenied {
                             reason: result.text_or_status(),
@@ -206,9 +188,7 @@ impl ToolOrchestrator {
             PolicyDecision::Deny { reason } => {
                 ctx.tool_recorder
                     .tool_call_resolved(
-                        ctx.session_id,
-                        ctx.thread_id,
-                        ctx.turn_id,
+                        tool_attribution(ctx),
                         &call,
                         &ToolCallResolution::PolicyDenied {
                             reason: reason.clone(),
@@ -222,9 +202,7 @@ impl ToolOrchestrator {
                 let reason = format!("unsupported policy decision: {other:?}");
                 ctx.tool_recorder
                     .tool_call_resolved(
-                        ctx.session_id,
-                        ctx.thread_id,
-                        ctx.turn_id,
+                        tool_attribution(ctx),
                         &call,
                         &ToolCallResolution::Unsupported {
                             reason: reason.clone(),
@@ -282,7 +260,8 @@ impl ToolOrchestrator {
         // thread/turn/label исполняющего контекста (см. RequestOrigin).
         let tool_ctx = ToolContext {
             cwd: task.cwd.clone(),
-            owner: crate::contracts::ToolInvocationOwner::new(
+            attribution: ExecutionAttribution::for_turn(
+                ctx.execution.scope.execution_id,
                 ctx.session_id,
                 ctx.thread_id,
                 ctx.turn_id,
@@ -348,7 +327,7 @@ impl ToolOrchestrator {
 
     async fn finish(&self, ctx: &AgentWorkflowContext, result: ToolResult) -> Result<ToolResult> {
         ctx.tool_recorder
-            .tool_result_recorded(ctx.session_id, ctx.thread_id, ctx.turn_id, &result)
+            .tool_result_recorded(tool_attribution(ctx), &result)
             .await?;
         ctx.emit(Event::ToolFinished {
             result: result.clone(),
@@ -427,6 +406,15 @@ fn request_origin(ctx: &AgentWorkflowContext) -> RequestOrigin {
         Some(label) => origin.with_label(label.clone()),
         None => origin,
     }
+}
+
+fn tool_attribution(ctx: &AgentWorkflowContext) -> ExecutionAttribution {
+    ExecutionAttribution::for_turn(
+        ctx.execution.scope.execution_id,
+        ctx.session_id,
+        ctx.thread_id,
+        ctx.turn_id,
+    )
 }
 
 fn truncate_utf8(value: String, max_bytes: usize, kind: &str) -> (String, bool, usize) {

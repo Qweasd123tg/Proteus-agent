@@ -187,7 +187,9 @@ host text projection, которая не считается catalog module.
 
 Tool export сначала отвечает на `list`, затем host регистрирует
 возвращённые `ToolSpec`. `invoke` получает canonical `ToolCall`, cwd и
-host-owned `ToolInvocationOwner`. Любой вызов всё равно проходит
+host-owned `ExecutionAttribution`: обязательный `ExecutionId` и optional
+`AgentTurnAttribution`. Detached execution не изобретает chat identities.
+Любой вызов всё равно проходит
 `ToolRegistry`, policy, approval и safety.
 
 `reference.tools` агрегирует:
@@ -203,7 +205,7 @@ host-owned `ToolInvocationOwner`. Любой вызов всё равно про
 
 Для узкого профиля тот же worker принимает selectors `file_tools`,
 `git_tools`, `shell_tools`, `plan_tool`, `skill_tool`, `rust_lsp` и
-`policy_tools`. Они используют тот же `tool/v1` contract; selector не
+`policy_tools`. Они используют тот же `tool/v2` contract; selector не
 меняет authority.
 
 ### Model

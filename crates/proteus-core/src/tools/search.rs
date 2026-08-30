@@ -186,10 +186,8 @@ mod tests {
                 &call,
                 ToolContext::new(
                     ".".into(),
-                    crate::contracts::ToolInvocationOwner::new(
-                        crate::domain::new_session_id(),
-                        crate::domain::new_thread_id(),
-                        crate::domain::new_turn_id(),
+                    crate::contracts::ExecutionAttribution::detached(
+                        crate::domain::new_execution_id(),
                     ),
                 ),
             )
@@ -221,10 +219,8 @@ mod tests {
                 &call,
                 ToolContext::new(
                     ".".into(),
-                    crate::contracts::ToolInvocationOwner::new(
-                        crate::domain::new_session_id(),
-                        crate::domain::new_thread_id(),
-                        crate::domain::new_turn_id(),
+                    crate::contracts::ExecutionAttribution::detached(
+                        crate::domain::new_execution_id(),
                     ),
                 ),
             )

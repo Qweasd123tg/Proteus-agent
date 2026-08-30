@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     contracts::{
-        AgentControl, AgentToolRecorder, CancellationToken, ContextBuilder, EventEmitter,
-        ExecutionContext, HistoryCompactor, NoopAgentToolRecorder, ToolExposure,
+        AgentControl, CancellationToken, ContextBuilder, EventEmitter, ExecutionContext,
+        HistoryCompactor, NoopToolExecutionRecorder, ToolExecutionRecorder, ToolExposure,
         UserInputTransport,
     },
     domain::{
@@ -142,7 +142,7 @@ pub struct WorkflowHostAck {}
 #[non_exhaustive]
 pub struct AgentWorkflowContext {
     pub execution: ExecutionContext,
-    pub tool_recorder: Arc<dyn AgentToolRecorder>,
+    pub tool_recorder: Arc<dyn ToolExecutionRecorder>,
     pub session_id: SessionId,
     pub thread_id: ThreadId,
     pub turn_id: TurnId,
@@ -185,7 +185,7 @@ impl AgentWorkflowContext {
     ) -> Self {
         Self {
             execution,
-            tool_recorder: Arc::new(NoopAgentToolRecorder),
+            tool_recorder: Arc::new(NoopToolExecutionRecorder),
             session_id,
             thread_id,
             turn_id,
@@ -214,7 +214,7 @@ impl AgentWorkflowContext {
         self
     }
 
-    pub fn with_tool_recorder(mut self, recorder: Arc<dyn AgentToolRecorder>) -> Self {
+    pub fn with_tool_recorder(mut self, recorder: Arc<dyn ToolExecutionRecorder>) -> Self {
         self.tool_recorder = recorder;
         self
     }

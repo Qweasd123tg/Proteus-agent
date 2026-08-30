@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use proteus_core::core::{AgentControlSurface, AppConfig, ModuleCatalog};
+use proteus_module_protocol::current_process_contract_authority;
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -58,10 +59,13 @@ async fn tracked_profiles_use_exact_catalog_ids_without_legacy_pseudo_modules() 
                     kind.as_str()
                 )
             });
+            let expected_version = current_process_contract_authority(kind.as_str())
+                .unwrap_or_else(|| panic!("missing process authority for {}", kind.as_str()))
+                .contract_version;
             assert_eq!(
                 manifest.api_version,
-                "v1",
-                "{} must select a process-v1 module for {}/{module_id}",
+                expected_version,
+                "{} must select the current process contract for {}/{module_id}",
                 path.display(),
                 kind.as_str()
             );

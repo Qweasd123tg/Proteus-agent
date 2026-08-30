@@ -7,8 +7,8 @@ use std::{
 
 use anyhow::{Result, anyhow, bail};
 use proteus_contracts::{
-    contracts::ToolInvocationOwner,
-    domain::{ToolResult, new_session_id, new_thread_id, new_turn_id},
+    contracts::ExecutionAttribution,
+    domain::{ToolResult, new_execution_id},
     process_module::{ProcessModuleError, ToolModule, ToolModuleHost, ToolModuleInvocationContext},
 };
 use proteus_process_host::{ContentLengthFraming, Framing};
@@ -140,7 +140,7 @@ fn invoke(tool: &RustLspDiagnosticsTool, cwd: &Path, path: &str) -> Result<ToolR
     });
     let context = ToolModuleInvocationContext {
         cwd: cwd.to_path_buf(),
-        owner: ToolInvocationOwner::new(new_session_id(), new_thread_id(), new_turn_id()),
+        attribution: ExecutionAttribution::detached(new_execution_id()),
         config: json!({}),
     };
     let mut host = TestToolHost;

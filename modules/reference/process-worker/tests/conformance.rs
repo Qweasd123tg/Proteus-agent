@@ -32,6 +32,7 @@ use proteus_contracts::{
 };
 use proteus_module_protocol::{
     ProcessComponentBinding, ProcessExportBinding, ProcessModuleRpcError,
+    current_process_contract_authority,
     v3::{
         AsyncHostRequestDispatcher, CancelCause, ComponentBroker, ComponentBrokerOptions,
         ComponentHostRequest, HostRequestFuture, InvocationTerminal as ProcessModuleTerminal,
@@ -94,8 +95,11 @@ impl TestExportSession {
 }
 
 fn connect(workspace: &Path, slot: &str, module_id: &str, config: Value) -> TestExportSession {
-    let export =
-        ProcessExportBinding::new(slot, module_id, "v1", config).expect("admitted export binding");
+    let contract_version = current_process_contract_authority(slot)
+        .unwrap_or_else(|| panic!("missing process authority for slot {slot}"))
+        .contract_version;
+    let export = ProcessExportBinding::new(slot, module_id, contract_version, config)
+        .expect("admitted export binding");
     let target = export.export_ref();
     let binding = ProcessComponentBinding::new(
         format!("reference-{slot}-{}", module_id.replace('.', "-")),
@@ -273,10 +277,8 @@ fn aggregate_tool_module_lists_and_invokes_real_tools() {
     let input = ProcessToolInvokeInput {
         call: call.clone(),
         cwd: workspace.path().to_path_buf(),
-        owner: proteus_contracts::contracts::ToolInvocationOwner::new(
-            new_session_id(),
-            new_thread_id(),
-            new_turn_id(),
+        attribution: proteus_contracts::contracts::ExecutionAttribution::detached(
+            proteus_contracts::domain::new_execution_id(),
         ),
     };
     let output: ProcessToolInvokeResponse = invoke(

@@ -136,7 +136,7 @@ impl ExportWorker {
                 let call_json = serde_json::to_string(&input.call)?;
                 let context_json = serde_json::to_string(&ToolModuleInvocationContext {
                     cwd: input.cwd,
-                    owner: input.owner,
+                    attribution: input.attribution,
                     config: self.binding.module_config.clone(),
                 })?;
                 let mut host = ToolHostBridge(bridge.clone());

@@ -311,10 +311,13 @@ model exchange interrupted и завершить именно Turn. Generic
 `ExecutionSettled` и durable continuation в schema v2 не добавлены.
 
 `ExecutionRecorder` остаётся generic scope-bound contract без chat IDs.
-`SessionExecutionRecorder` адаптирует его к session journal через
-`ExecutionAttribution`; `AgentToolRecorder` пока сохраняет dynamic root/child
-presentation threads, поскольку сам `ToolOrchestrator` ещё agent-shaped. Этот
-оставшийся coupling разбирается в tool/approval phases, а не в persistence
+`SessionExecutionRecorder` адаптирует model facts к session journal через
+immutable binding. Tool lifecycle записывает отдельный generic
+`ToolExecutionRecorder`: attribution передаётся на каждом вызове, поэтому
+root/child presentation threads сохраняются как optional projection, а
+detached tool facts не требуют invented Turn. Сам `ToolOrchestrator` пока
+agent-shaped из-за `AgentWorkflowContext`, `AgentTask`, presentation events и
+agent-control enrichment; это runtime coupling, а не ограничение journal
 schema.
 
 ## Выполненный Переход

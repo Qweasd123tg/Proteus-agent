@@ -1,6 +1,6 @@
 # Roadmap
 
-Последнее обновление: 2026-08-29.
+Последнее обновление: 2026-08-30.
 
 Roadmap описывает порядок, а не обещание API. Текущее реализованное состояние
 смотрите в [scope.md](scope.md), архитектурные правила — в
@@ -24,13 +24,13 @@ journal/replay evidence и `v0.1.0-alpha.1` уже завершены. Roadmap �
 [releases/v0.1.0-alpha.1.md](../releases/v0.1.0-alpha.1.md).
 
 Следующее принятое направление — минимальная `ExecutionScope` migration,
-описанная ниже. Phase 0–5 реализованы; перед generic tools Phase 6 действует
-обязательная остановка на review. Остальные разделы остаются
+описанная ниже. Phase 0–5 и tool-attribution cutover Phase 6A реализованы;
+следующий отдельный changeset — `BoundTools` Phase 6B. Остальные разделы остаются
 вариантами последующей работы, а не автоматической очередью.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–5 реализованы; остановка перед Phase 6**.
+Статус: **Phase 0–5 и Phase 6A реализованы; Phase 6B в отдельном changeset**.
 
 Supporting evidence, не заменяющий этот roadmap:
 [source-level audit](../research/execution-scope-source-audit-2026-08-27.md) и
@@ -42,9 +42,9 @@ Core уже не владеет конкретным agent loop: последо�
 выбирает `Workflow`. До Phase 2 общий `RuntimeContext` требовал conversation
 identity и смешивал reusable runtime capabilities с agent/chat-specific
 policy. Structural context split и durable model/tool execution attribution
-выполнены. Grants и approval origin уже execution-owned; agent-shaped
-`ToolOrchestrator`, tool owner и presentation events всё ещё используют Turn
-identities.
+выполнены. Grants, approval origin, tool recorder и process Tool attribution
+уже execution-owned; agent-shaped `ToolOrchestrator` всё ещё использует
+`AgentWorkflowContext`, `AgentTask` и presentation services.
 
 Цель ближайшей итерации — ввести generic workload identity/lifecycle boundary
 и проверить честное разделение context ownership, не меняя существующее
@@ -265,7 +265,8 @@ AgentWorkflowContext -> ExecutionContext -> ExecutionScope
   всегда несёт `ExecutionId` и лишь опционально chat projection;
 - в Phase 2 recorder handle был допущен в generic context с явным chat debt;
   Phase 4A удалила chat IDs из `ExecutionRecorder`, а прежние tool methods
-  перенесла в agent-specific `AgentToolRecorder`;
+  временно перенесла в agent-specific recorder; Phase 6A заменила эту
+  поверхность generic `ToolExecutionRecorder`;
 - `ToolRegistry` reusable как catalog, хотя current `ToolOrchestrator` ещё
   принимает agent-shaped task/context. Его signature меняется только в Phase 6.
 
@@ -618,14 +619,13 @@ Phase 4 выполняется двумя reviewable changesets с полным 
 - replay comparison adapters обновляются атомарно, без изменения replay
   semantics.
 
-Фактический cutover соответствует этой границе. `BoundModel` больше не
+На checkpoint Phase 4A cutover соответствовал этой границе. `BoundModel` больше не
 импортирует `SessionStore` и для request/response/error использует только
-scope-bound `ExecutionRecorder`. `RuntimeRegistry` при сборке одного Turn
-создаёт `SessionExecutionRecorder` для model facts и
-`SessionAgentToolRecorder` для chat-aware tool facts с одним `ExecutionId`;
-поздней замены recorder-а в `run_opened_turn()` больше нет. Workflow replay
-сравнивает tool lifecycle через `AgentToolRecorder`, а model comparison
-по-прежнему принадлежит `ReplayModel`, поэтому двойная запись не появилась.
+scope-bound `ExecutionRecorder`. Тогдашний agent-specific tool recorder был
+временным seam и удалён Phase 6A: теперь `RuntimeRegistry` создаёт
+`SessionToolExecutionRecorder`, а workflow replay сравнивает lifecycle через
+`ToolExecutionRecorder`. Model comparison по-прежнему принадлежит
+`ReplayModel`, поэтому двойная запись не появилась.
 
 Journal и session metadata в этом changeset намеренно остались v1:
 захваченный `ExecutionId` ещё не сериализуется, projection продолжает считать
@@ -738,6 +738,56 @@ Verification checkpoint 2026-08-29: focused origin/grants/cache tests,
 `trunk build` прошли. Strict workspace clippy всё ещё блокируется только
 зафиксированными до Phase 5 lint-ами в code lines вне этого changeset;
 затронутые contracts не добавили новых diagnostics.
+
+### Phase 6 — Generic Tool Execution
+
+Статус: **Phase 6A реализована 2026-08-30; Phase 6B выполняется отдельным
+changeset**.
+
+**Phase 6A — attribution и wire boundary:**
+
+- удалены `ToolInvocationOwner` и agent-only recorder contract;
+- `ToolContext`, `ToolExecutionRecorder` и process `tool/v2` используют
+  mandatory `ExecutionAttribution`: `ExecutionId` плюс optional
+  `AgentTurnAttribution`;
+- strict `tool/v2` не читает старый `owner` и не имеет compatibility path;
+- session-backed recorder принимает detached tool facts без invented Turn,
+  сохраняя dynamic root/child projection для agent execution;
+- persistent shell PTY для agent path сохраняет прежнего владельца
+  session/thread, поэтому переживает границу Turns; detached PTY принадлежит
+  своему `ExecutionId` и не доступен другому execution;
+- process `InvocationRef` и broker lineage не менялись.
+
+Phase 6A меняет ownership contract, но не объявляет существующий
+`ToolOrchestrator` generic: он всё ещё принимает `AgentWorkflowContext` и
+`AgentTask`, испускает presentation events, связывает attributed user input и
+может выдавать `AgentControl` host.
+
+Verification checkpoint 2026-08-30: strict Tool DTO, detached journal,
+persistent shell ownership и reference component conformance tests прошли;
+`cargo fmt --all -- --check` и `cargo check --workspace` зелёные. Полный
+workspace test gate прошёл, кроме первого sandboxed запуска TCP bind test,
+получившего environment `EPERM`; весь `proteus-core --lib` сразу повторён вне
+network sandbox и прошёл 374/374. Strict clippy для contracts/shell зелёный;
+workspace/core по-прежнему блокируют те же pre-existing Rust 1.97 lints вне
+Phase 6A diff.
+
+**Phase 6B — второй concrete binding pattern:**
+
+- выделить `BoundTools` либо эквивалентный узкий execution-bound handle, если
+  source split подтверждает это имя;
+- сохранить один safety path: registry lookup, schema, policy, approval,
+  grants, timeout/cancellation, recording и result bounds;
+- agent adapter добавляет chat events, attributed user input, task и
+  `AgentControl`, но generic mechanism от них не зависит;
+- architecture guard выполняет meaningful tool invocation без `SessionId`,
+  `ThreadId`, `TurnId`, `AgentTask` и chat history;
+- не вводить `BoundCapability<T>`: двух concrete patterns (`BoundModel` и
+  tools) достаточно для review, но ещё недостаточно для universal abstraction;
+- не genericize-ить `AgentControl`, если его фактическая семантика остаётся
+  agent/application capability.
+
+После Phase 6B обязателен review перед изменением `AgentRuntime` entrypoint.
 
 ## Другие Направления
 

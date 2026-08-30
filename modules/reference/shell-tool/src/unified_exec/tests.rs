@@ -4,8 +4,8 @@ use std::sync::{
 };
 
 use proteus_contracts::{
-    contracts::ToolInvocationOwner,
-    domain::{new_session_id, new_thread_id, new_turn_id},
+    contracts::ExecutionAttribution,
+    domain::{new_execution_id, new_session_id, new_thread_id, new_turn_id},
     process_module::ToolModuleHost,
 };
 use serde_json::{Value, json};
@@ -25,7 +25,12 @@ impl ToolModuleHost for TestToolHost {
 fn invocation_context(cwd: &std::path::Path) -> ToolModuleInvocationContext {
     ToolModuleInvocationContext {
         cwd: cwd.to_path_buf(),
-        owner: ToolInvocationOwner::new(new_session_id(), new_thread_id(), new_turn_id()),
+        attribution: ExecutionAttribution::for_turn(
+            new_execution_id(),
+            new_session_id(),
+            new_thread_id(),
+            new_turn_id(),
+        ),
         config: json!({}),
     }
 }
@@ -207,7 +212,12 @@ fn write_stdin_enforces_session_thread_and_workspace_ownership() {
         .expect("session id");
 
     let mut foreign_context = owner_context.clone();
-    foreign_context.owner.session_id = new_session_id();
+    foreign_context
+        .attribution
+        .agent
+        .as_mut()
+        .expect("agent attribution")
+        .session_id = new_session_id();
     let error = write_stdin_result(
         &foreign_context,
         json!({ "session_id": session_id, "chars": "foreign\n" }),
@@ -216,9 +226,52 @@ fn write_stdin_enforces_session_thread_and_workspace_ownership() {
     assert!(error.to_string().contains("is not owned"), "{error}");
 
     let mut next_turn_context = owner_context.clone();
-    next_turn_context.owner.turn_id = new_turn_id();
+    next_turn_context
+        .attribution
+        .agent
+        .as_mut()
+        .expect("agent attribution")
+        .turn_id = new_turn_id();
     let finished = write_stdin(
         &next_turn_context,
+        json!({
+            "session_id": session_id,
+            "chars": "\u{4}",
+            "yield_time_ms": 5000
+        }),
+    );
+    assert_eq!(finished["metadata"]["exited"], true, "{finished}");
+}
+
+#[test]
+fn detached_exec_session_is_owned_by_execution_without_chat_identity() {
+    let dir = tempfile::tempdir().expect("workspace");
+    let execution_id = new_execution_id();
+    let context = ToolModuleInvocationContext {
+        cwd: dir.path().to_path_buf(),
+        attribution: ExecutionAttribution::detached(execution_id),
+        config: json!({}),
+    };
+    let started =
+        exec_command_with_context(&context, json!({ "cmd": "cat", "yield_time_ms": 300 }));
+    let session_id = started["metadata"]["session_id"]
+        .as_i64()
+        .expect("session id");
+
+    let foreign_context = ToolModuleInvocationContext {
+        cwd: dir.path().to_path_buf(),
+        attribution: ExecutionAttribution::detached(new_execution_id()),
+        config: json!({}),
+    };
+    let error = write_stdin_result(
+        &foreign_context,
+        json!({ "session_id": session_id, "chars": "foreign\n" }),
+    )
+    .expect_err("another detached execution must not control the PTY");
+    assert!(error.to_string().contains("is not owned"), "{error}");
+
+    let finished = write_stdin(
+        &context,
         json!({
             "session_id": session_id,
             "chars": "\u{4}",

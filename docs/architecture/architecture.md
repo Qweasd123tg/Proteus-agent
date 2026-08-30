@@ -261,8 +261,11 @@ typed execution-bound capabilities.
 содержит `AgentTask`. Сами `SearchBackend` и `MemoryStore` этого требования не
 имеют. `ApprovalPolicy` также не принимает Turn. Phase 5 перенесла
 `ExecutionPermissionGrants` в execution context и сделала chat projection в
-`RequestOrigin` optional; оставшийся coupling находится в
-`ToolInvocationOwner`, agent tool recorder calls и orchestrator context-е.
+`RequestOrigin` optional. Phase 6A заменила обязательного chat owner-а в
+`ToolContext`, process `tool/v2` и recorder calls на `ExecutionAttribution`.
+Оставшийся coupling находится в самом agent-shaped `ToolOrchestrator`:
+`AgentWorkflowContext`, `AgentTask`, presentation events, user input и
+`AgentControl` enrichment.
 
 Phase 3 убрала mutable current attribution из shared `ModelService`. Registry
 хранит один stateless относительно execution provider service, а каждый Turn
@@ -273,11 +276,11 @@ session/thread/turn projection. Поэтому два независимых mod
 Phase 4A разделила recorder ownership. Generic `ExecutionRecorder` принимает
 только model lifecycle facts и не имеет `SessionId`, `ThreadId` или `TurnId` в
 contract-е. `BoundModel` пишет через этот handle и больше не знает о
-`SessionStore`. Chat-aware tool lifecycle вынесен в `AgentToolRecorder` рядом
-с `AgentWorkflowContext`, потому что текущий `ToolOrchestrator` всё ещё
-передаёт dynamic presentation owner. Оба session-backed handle создаются в
-`RuntimeRegistry` вместе с context-ом и захватывают один `ExecutionId`; поздняя
-подмена recorder-а в Turn удалена.
+`SessionStore`. Phase 6A завершила аналогичный strict cutover для tools:
+`ToolExecutionRecorder` принимает mandatory execution attribution и optional
+agent projection, а `SessionToolExecutionRecorder` валидирует session только
+когда projection действительно присутствует. Поздняя подмена recorder-а в
+Turn отсутствует.
 
 Phase 4B завершила durable cutover. Journal schema v2 всегда хранит
 `ExecutionId` для `TurnOpened`, model и tool facts. Их conversational
@@ -372,7 +375,8 @@ queue и cancellation token journal не восстанавливает.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–5 реализованы; review перед generic tools Phase 6**.
+Статус: **Phase 0–5 и tool-attribution Phase 6A реализованы; следующий
+changeset — generic mechanism/agent enrichment split Phase 6B**.
 
 Принято направление отделить generic workload identity/lifecycle boundary от
 conversation Turn без переписывания agent loop или process protocol:

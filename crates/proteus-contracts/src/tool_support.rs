@@ -241,10 +241,7 @@ fn ensure_workspace_dirs(base: &Path, parent: &Path) -> Result<(), String> {
 mod tests {
     use std::path::Path;
 
-    use crate::{
-        contracts::ToolInvocationOwner,
-        domain::{new_session_id, new_thread_id, new_turn_id},
-    };
+    use crate::{contracts::ExecutionAttribution, domain::new_execution_id};
 
     use super::*;
 
@@ -252,18 +249,18 @@ mod tests {
     fn invocation_context_is_required_and_strict() {
         let context = ToolModuleInvocationContext {
             cwd: PathBuf::from("/workspace"),
-            owner: ToolInvocationOwner::new(new_session_id(), new_thread_id(), new_turn_id()),
+            attribution: ExecutionAttribution::detached(new_execution_id()),
             config: json!({}),
         };
         let value = serde_json::to_value(&context).expect("context value");
         parse_invocation_context(&value.to_string()).expect("valid context");
 
-        let mut missing_owner = value.clone();
-        missing_owner
+        let mut missing_attribution = value.clone();
+        missing_attribution
             .as_object_mut()
             .expect("context object")
-            .remove("owner");
-        assert!(parse_invocation_context(&missing_owner.to_string()).is_err());
+            .remove("attribution");
+        assert!(parse_invocation_context(&missing_attribution.to_string()).is_err());
 
         let mut unknown_field = value;
         unknown_field

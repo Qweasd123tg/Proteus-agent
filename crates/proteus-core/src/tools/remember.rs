@@ -125,11 +125,7 @@ mod tests {
     fn ctx() -> ToolContext {
         ToolContext::new(
             std::path::PathBuf::from("/tmp"),
-            crate::contracts::ToolInvocationOwner::new(
-                crate::domain::new_session_id(),
-                crate::domain::new_thread_id(),
-                crate::domain::new_turn_id(),
-            ),
+            crate::contracts::ExecutionAttribution::detached(crate::domain::new_execution_id()),
         )
     }
 

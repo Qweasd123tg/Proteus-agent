@@ -440,8 +440,9 @@ origin-specific privilege.
 - bounded output;
 - duplicate name.
 
-Process tool дополнительно проходит `tool/v1 list + invoke`, но его runtime
-вызов всё равно должен дойти через общий `ToolRegistry` path.
+Process tool дополнительно проходит `tool/v2 list + invoke`, включая detached
+`ExecutionAttribution` без chat IDs, но его runtime вызов всё равно должен
+дойти через общий `ToolRegistry` path.
 
 Module-owned command execution внутри workflow запрещён: workflow вызывает
 `host.tools.execute[_batch]`.

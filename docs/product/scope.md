@@ -1,6 +1,6 @@
 # Текущий Scope
 
-Последнее обновление: 2026-08-28.
+Последнее обновление: 2026-08-30.
 
 Этот документ отвечает только на два вопроса: что Proteus представляет собой
 сейчас и какое следующее направление принято или остаётся открытым. Подробная
@@ -75,8 +75,8 @@ wire/config/DTO меняются атомарно без legacy aliases и compa
 
 ## Что Ещё Нужно Решить
 
-ExecutionScope migration Phase 0–3 и recorder seam Phase 4A завершены:
-distinct `ExecutionId` и
+ExecutionScope migration Phase 0–5 и tool-attribution cutover Phase 6A
+завершены. Distinct `ExecutionId` и
 минимальный `ExecutionScope` отделяют generic identity/cancellation от
 conversation `Turn`, не становясь контейнером services. `ExecutionContext`
 отделён от chat-specific `AgentWorkflowContext`; прежний `RuntimeContext`
@@ -87,16 +87,14 @@ current Turn, а request metadata, delta events, journal projection и
 cancellation изолированы immutable binding-ом. Каждый Turn создаёт один новый
 scope; child cancellation views сохраняют тот же execution id. `Turn` остаётся
 chat/application lifecycle, `Workflow` — владельцем agent-loop policy, а
-process `InvocationRef` — отдельной broker identity. Generic
-`ExecutionRecorder` теперь записывает model facts без chat IDs, `BoundModel`
-не знает `SessionStore`, а chat-aware tool facts вынесены в
-`AgentToolRecorder`; оба handle bind-ятся при construction. Следующий strict
-cutover Phase 4B должен сделать `ExecutionId` durable owner model/tool facts,
-а session/thread/turn оставить presentation projection. Незавершённый
-model request при cancellation остаётся interrupted и завершается
-`TurnSettled`, а не fake model error. Journal cutover будет strict без
-dual-reader; schema v1 пока намеренно не изменена. Общая binding
-abstraction пока не вводится.
+process `InvocationRef` — отдельной broker identity. Journal schema v2 хранит
+mandatory `ExecutionId` для model/tool facts и optional agent projection.
+`ExecutionRecorder` и `ToolExecutionRecorder` не требуют chat IDs;
+`BoundModel` не знает `SessionStore`, а process `tool/v2` переносит
+`ExecutionAttribution` без fake Turn. Grants и approval origin также
+execution-owned. Следующий шаг Phase 6B — отделить generic tool execution
+mechanism от agent enrichment и проверить meaningful detached invocation.
+Общая `BoundCapability<T>` abstraction не вводится.
 Следующие phases и stop-gates находятся в
 [roadmap.md](roadmap.md#executionscope-migration).
 

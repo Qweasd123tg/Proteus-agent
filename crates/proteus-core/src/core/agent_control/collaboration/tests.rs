@@ -10,9 +10,9 @@ use crate::{
     contracts::{
         AgentControlHandle, AgentControlMessage, AgentControlRequest, AgentControlResult,
         AgentControlToolHost, AgentIsolation, AgentLifecycleStatus, AgentProfile,
-        CancellationToken, ToolInvocationOwner,
+        CancellationToken, ExecutionAttribution,
     },
-    domain::{AgentTask, ToolCall, new_call_id, new_session_id, new_thread_id, new_turn_id},
+    domain::{AgentTask, ToolCall, new_call_id, new_execution_id, new_session_id, new_thread_id},
 };
 
 struct TestHost {
@@ -95,8 +95,10 @@ fn call(name: &str, args: Value) -> ToolCall {
 }
 
 fn context(host: Arc<TestHost>) -> ToolContext {
-    let owner = ToolInvocationOwner::new(host.session_id, new_thread_id(), new_turn_id());
-    let mut ctx = ToolContext::new(std::env::current_dir().expect("cwd"), owner);
+    let mut ctx = ToolContext::new(
+        std::env::current_dir().expect("cwd"),
+        ExecutionAttribution::detached(new_execution_id()),
+    );
     ctx.task = Some(AgentTask::new("parent", ctx.cwd.clone()));
     ctx.agent_control = Some(host);
     ctx

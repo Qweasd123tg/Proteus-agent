@@ -279,10 +279,8 @@ fn tool_safety_rank(safety: &ToolSafety) -> u8 {
 #[cfg(test)]
 mod tests {
     use crate::{
-        contracts::{Tool, ToolContext, ToolInvocationOwner},
-        domain::{
-            ToolCall, ToolSafety, ToolSpec, new_call_id, new_session_id, new_thread_id, new_turn_id,
-        },
+        contracts::{ExecutionAttribution, Tool, ToolContext},
+        domain::{ToolCall, ToolSafety, ToolSpec, new_call_id, new_execution_id},
     };
 
     use super::*;
@@ -310,7 +308,7 @@ mod tests {
                 &call,
                 ToolContext::new(
                     cwd.path().to_path_buf(),
-                    ToolInvocationOwner::new(new_session_id(), new_thread_id(), new_turn_id()),
+                    ExecutionAttribution::detached(new_execution_id()),
                 ),
             )
             .await

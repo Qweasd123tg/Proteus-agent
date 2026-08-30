@@ -10,12 +10,12 @@ use serde_json::json;
 
 use super::*;
 use crate::contracts::{
-    AgentControlToolHost, AgentIsolation, AgentLifecycleStatus, Tool, ToolInvocationOwner,
+    AgentControlToolHost, AgentIsolation, AgentLifecycleStatus, ExecutionAttribution, Tool,
 };
-use crate::domain::{ToolSafety, new_session_id, new_thread_id, new_turn_id};
+use crate::domain::{ToolSafety, new_execution_id};
 
-fn test_tool_owner() -> ToolInvocationOwner {
-    ToolInvocationOwner::new(new_session_id(), new_thread_id(), new_turn_id())
+fn test_tool_attribution() -> ExecutionAttribution {
+    ExecutionAttribution::detached(new_execution_id())
 }
 
 #[derive(Default)]
@@ -186,7 +186,7 @@ async fn invoke_delegates_through_runtime_bound_host() {
             "description": "inspect code"
         }),
     );
-    let mut ctx = ToolContext::new(parent_task.cwd.clone(), test_tool_owner());
+    let mut ctx = ToolContext::new(parent_task.cwd.clone(), test_tool_attribution());
     ctx.task = Some(parent_task.clone());
     ctx.agent_control = Some(host.clone());
 
@@ -249,7 +249,7 @@ async fn worktree_role_changes_only_isolated_checkout_after_approval_path_invoke
         TASK_TOOL,
         json!({"agent_type": "coder", "prompt": "make a change"}),
     );
-    let mut ctx = ToolContext::new(parent_task.cwd.clone(), test_tool_owner());
+    let mut ctx = ToolContext::new(parent_task.cwd.clone(), test_tool_attribution());
     ctx.task = Some(parent_task);
     ctx.agent_control = Some(Arc::new(WritingAgentHost));
 
@@ -318,7 +318,7 @@ async fn worktree_resume_mapping_is_session_owned_and_drops_non_resumable_edge()
         TASK_TOOL,
         json!({"agent_type": "coder", "prompt": "make a change"}),
     );
-    let mut owner_ctx = ToolContext::new(parent_task.cwd.clone(), test_tool_owner());
+    let mut owner_ctx = ToolContext::new(parent_task.cwd.clone(), test_tool_attribution());
     owner_ctx.task = Some(parent_task.clone());
     owner_ctx.agent_control = Some(owner.clone());
 
@@ -339,7 +339,7 @@ async fn worktree_resume_mapping_is_session_owned_and_drops_non_resumable_edge()
             "task_id": child_thread_id.to_string()
         }),
     );
-    let mut foreign_ctx = ToolContext::new(parent_task.cwd.clone(), test_tool_owner());
+    let mut foreign_ctx = ToolContext::new(parent_task.cwd.clone(), test_tool_attribution());
     foreign_ctx.task = Some(parent_task.clone());
     foreign_ctx.agent_control = Some(foreign.clone());
     let rejected = tool.invoke(&resume, foreign_ctx).await.unwrap();
