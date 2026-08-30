@@ -356,6 +356,12 @@ process.
 - `TimedOut`;
 - `ComponentLost(ProcessExit|Protocol|Resource|CancelGrace|Shutdown)`.
 
+`ProcessExportClient` не схлопывает эти terminal classes в строку:
+неуспешный terminal доходит до slot service boundary как downcastable
+`ProcessInvocationError` с `ProcessInvocationFailure`. Slot contracts пока
+сохраняют `anyhow::Result`, но Core может различить module failure, cancel,
+timeout и конкретный класс component loss без парсинга display text.
+
 При cancel/timeout host отправляет `$/cancelRequest` и ждёт bounded grace
 period. Cooperative terminal завершает только target invocation (и её nested
 descendants). Если grace истёк, reset-ится **весь component**, потому что

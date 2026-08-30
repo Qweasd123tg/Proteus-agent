@@ -321,6 +321,8 @@ cargo test -p proteus-module-protocol
 - authority lookup по `slot/contract_version`;
 - allowed module/`host.*` methods;
 - cancellation, timeout и terminal classification;
+- downcastable `ProcessInvocationError` на Core adapter boundary, чтобы
+  machine-readable terminal class не зависел от текста ошибки;
 - generation reset после transport/protocol/resource failure.
 
 ### Runtime Swap

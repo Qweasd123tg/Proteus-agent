@@ -10,7 +10,7 @@ use serde_json::Value;
 use tokio::time::{MissedTickBehavior, interval};
 
 use super::{
-    ProcessExportConfig,
+    ProcessExportConfig, ProcessInvocationError, ProcessInvocationFailure,
     invocation_scope::{current_parent, scoped_dispatcher},
 };
 
@@ -250,20 +250,16 @@ impl ProcessExportClient {
 }
 
 fn terminal_value(terminal: InvocationTerminal, module_id: &str, method: &str) -> Result<Value> {
-    match terminal {
-        InvocationTerminal::Success(value) => Ok(value),
-        InvocationTerminal::ModuleError(error) => Err(anyhow::anyhow!(error))
-            .with_context(|| format!("process module {module_id:?}: {method} returned an error")),
-        InvocationTerminal::Canceled => {
-            bail!("process module {module_id:?}: {method} was canceled")
-        }
-        InvocationTerminal::TimedOut => {
-            bail!("process module {module_id:?}: {method} timed out")
-        }
+    let failure = match terminal {
+        InvocationTerminal::Success(value) => return Ok(value),
+        InvocationTerminal::ModuleError(error) => ProcessInvocationFailure::Module(error),
+        InvocationTerminal::Canceled => ProcessInvocationFailure::Canceled,
+        InvocationTerminal::TimedOut => ProcessInvocationFailure::TimedOut,
         InvocationTerminal::ComponentLost(failure) => {
-            bail!("process module {module_id:?}: {method} lost its component: {failure:?}")
+            ProcessInvocationFailure::ComponentLost(failure)
         }
-    }
+    };
+    Err(ProcessInvocationError::new(module_id, method, failure).into())
 }
 
 #[cfg(test)]
@@ -279,7 +275,9 @@ mod tests {
     };
     use serde_json::{Value, json};
 
-    use super::{ProcessExportClient, terminal_value};
+    use super::{
+        ProcessExportClient, ProcessInvocationError, ProcessInvocationFailure, terminal_value,
+    };
     use crate::{
         contracts::{
             PROCESS_CONTEXT_BUILD_METHOD, PROCESS_CONTEXT_CONTRACT_VERSION,
@@ -292,22 +290,38 @@ mod tests {
     #[test]
     fn invocation_terminals_preserve_their_failure_class_in_adapter_errors() {
         let cases = [
-            (InvocationTerminal::Canceled, "was canceled"),
-            (InvocationTerminal::TimedOut, "timed out"),
+            (
+                InvocationTerminal::Canceled,
+                ProcessInvocationFailure::Canceled,
+                "was canceled",
+            ),
+            (
+                InvocationTerminal::TimedOut,
+                ProcessInvocationFailure::TimedOut,
+                "timed out",
+            ),
             (
                 InvocationTerminal::ComponentLost(ComponentFailure::Protocol),
+                ProcessInvocationFailure::ComponentLost(ComponentFailure::Protocol),
                 "lost its component: Protocol",
             ),
             (
                 InvocationTerminal::ModuleError(ProcessModuleRpcError::new(-32000, "broken")),
+                ProcessInvocationFailure::Module(ProcessModuleRpcError::new(-32000, "broken")),
                 "returned an error",
             ),
         ];
 
-        for (terminal, expected) in cases {
+        for (terminal, expected_failure, expected_message) in cases {
             let error = terminal_value(terminal, "probe", "run")
                 .expect_err("non-success terminal must remain an error");
-            assert!(format!("{error:#}").contains(expected), "{error:#}");
+            let typed = error
+                .downcast_ref::<ProcessInvocationError>()
+                .expect("terminal class remains machine-readable");
+            assert_eq!(typed.module_id(), "probe");
+            assert_eq!(typed.method(), "run");
+            assert_eq!(typed.failure(), &expected_failure);
+            assert!(format!("{error:#}").contains(expected_message), "{error:#}");
         }
     }
 
