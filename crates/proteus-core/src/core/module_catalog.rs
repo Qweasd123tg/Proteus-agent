@@ -13,6 +13,7 @@ use crate::{
     core::{AppConfig, ModelConfig, RepoAwareContextProvider},
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
     process_adapters::{ProcessContextProvider, ProcessExportConfig},
+    stubs::{NoMemory, NullPatchApplier, NullSearch},
     tools::{BuiltinToolProvider, is_builtin_tool_name, register_configured_tools},
 };
 
@@ -30,9 +31,7 @@ pub struct ModuleBuildContext<'a> {
 }
 
 pub struct PolicyBuildContext<'a> {
-    pub config: &'a AppConfig,
     pub cwd: &'a Path,
-    pub tools: &'a ToolRegistry,
 }
 
 /// Унифицированный вход для всех build-функций модулей. Разные slot'ы
@@ -212,7 +211,7 @@ impl ModuleCatalog {
             .collect()
     }
 
-    pub fn build_context_providers(
+    pub(crate) fn build_context_providers(
         &self,
         cwd: &Path,
     ) -> Result<Vec<(String, Arc<dyn RepoAwareContextProvider>)>> {
@@ -262,7 +261,7 @@ impl ModuleCatalog {
         )
     }
 
-    pub fn build_search(
+    pub(crate) fn build_search(
         &self,
         module: &str,
         ctx: &ModuleBuildContext<'_>,
@@ -270,7 +269,7 @@ impl ModuleCatalog {
         self.build_typed::<dyn SearchBackend>(slot::SEARCH, module, &ModuleBuildInput::Module(ctx))
     }
 
-    pub fn build_memory(
+    pub(crate) fn build_memory(
         &self,
         module: &str,
         ctx: &ModuleBuildContext<'_>,
@@ -278,7 +277,7 @@ impl ModuleCatalog {
         self.build_typed::<dyn MemoryStore>(slot::MEMORY, module, &ModuleBuildInput::Module(ctx))
     }
 
-    pub fn build_context(
+    pub(crate) fn build_context(
         &self,
         module: &str,
         ctx: &ModuleBuildContext<'_>,
@@ -290,7 +289,7 @@ impl ModuleCatalog {
         )
     }
 
-    pub fn build_policy(
+    pub(crate) fn build_policy(
         &self,
         module: &str,
         ctx: &PolicyBuildContext<'_>,
@@ -298,7 +297,7 @@ impl ModuleCatalog {
         self.build_typed::<dyn ApprovalPolicy>(slot::POLICY, module, &ModuleBuildInput::Policy(ctx))
     }
 
-    pub fn build_patch(
+    pub(crate) fn build_patch(
         &self,
         module: &str,
         ctx: &ModuleBuildContext<'_>,
@@ -306,7 +305,7 @@ impl ModuleCatalog {
         self.build_typed::<dyn PatchApplier>(slot::PATCH, module, &ModuleBuildInput::Module(ctx))
     }
 
-    pub fn build_compactor(
+    pub(crate) fn build_compactor(
         &self,
         module: &str,
         ctx: &ModuleBuildContext<'_>,
@@ -318,7 +317,7 @@ impl ModuleCatalog {
         )
     }
 
-    pub fn build_tool_exposure(
+    pub(crate) fn build_tool_exposure(
         &self,
         module: &str,
         ctx: &ModuleBuildContext<'_>,
@@ -330,7 +329,7 @@ impl ModuleCatalog {
         )
     }
 
-    pub fn build_workflow(
+    pub(crate) fn build_workflow(
         &self,
         module: &str,
         ctx: &ModuleBuildContext<'_>,
@@ -338,7 +337,7 @@ impl ModuleCatalog {
         self.build_typed::<dyn Workflow>(slot::WORKFLOW, module, &ModuleBuildInput::Module(ctx))
     }
 
-    pub fn build_renderer(
+    pub(crate) fn build_renderer(
         &self,
         module: &str,
         ctx: &ModuleBuildContext<'_>,
@@ -346,7 +345,28 @@ impl ModuleCatalog {
         self.build_typed::<dyn Renderer>(slot::RENDERER, module, &ModuleBuildInput::Module(ctx))
     }
 
-    pub fn build_tools(
+    /// Builds the configured tool surface for operational inspection without
+    /// exposing the host-owned structural absence implementations.
+    pub fn build_tools_for_inspection(
+        &self,
+        config: &AppConfig,
+        cwd: &Path,
+    ) -> Result<ToolRegistry> {
+        let context_providers = self.build_context_providers(cwd)?;
+        let ctx = ModuleBuildContext {
+            config,
+            cwd,
+            context_providers: &context_providers,
+        };
+        self.build_tools(
+            &ctx,
+            Arc::new(NullSearch),
+            Arc::new(NullPatchApplier),
+            Arc::new(NoMemory),
+        )
+    }
+
+    pub(crate) fn build_tools(
         &self,
         ctx: &ModuleBuildContext<'_>,
         search: Arc<dyn SearchBackend>,

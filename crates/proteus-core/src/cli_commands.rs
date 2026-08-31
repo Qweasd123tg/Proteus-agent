@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use anyhow::{Result, bail};
+use proteus_contracts::domain::{ExchangeId, TurnId};
 use proteus_core::app_server::http::HttpServerConfig;
-use proteus_core::domain::{ExchangeId, TurnId};
 
 pub(crate) fn is_modules_list_command(task: &[String]) -> bool {
     matches!(task, [module, command] if module == "modules" && command == "list")

@@ -4,9 +4,10 @@ use std::{
 };
 
 use anyhow::{Result, bail};
+use proteus_contracts::contracts::ToolRegistry;
 use proteus_core::core::{
     AppConfig, AssemblyCheckSeverity, AssemblyPlan, ConfiguredToolExecutorConfig, ModuleCatalog,
-    expand_user_path,
+    event_log_path, expand_user_path,
 };
 use proteus_process_host::ProcessSpec;
 use serde_json::Value;
@@ -289,7 +290,7 @@ const MODULE_CONFIG_TOOL_LIST_KEYS: [&str; 6] = [
 pub(crate) fn check_module_config_tool_references(
     findings: &mut DoctorFindings,
     config: &AppConfig,
-    registry: &proteus_core::contracts::ToolRegistry,
+    registry: &ToolRegistry,
 ) {
     let known = registry
         .entries()
@@ -553,8 +554,7 @@ fn check_filesystem_paths(
         findings.error(format!("workspace dir is missing: {}", cwd.display()));
     }
 
-    let event_log_path =
-        proteus_core::core::runtime::event_log_path(&config.event_log.path, config_path, cwd);
+    let event_log_path = event_log_path(&config.event_log.path, config_path, cwd);
     match event_log_path.parent() {
         Some(parent) if parent.exists() => {
             if parent

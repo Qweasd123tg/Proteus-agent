@@ -30,10 +30,6 @@ impl ModelService {
         }
     }
 
-    pub fn with_shaper(adapter: Arc<dyn Model>, shaper: RequestShaper) -> Self {
-        Self { adapter, shaper }
-    }
-
     pub(crate) fn prepare_request(
         &self,
         request: CanonicalModelRequest,

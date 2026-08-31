@@ -5,24 +5,20 @@
 
 use std::{path::PathBuf, sync::Arc};
 
-use proteus_core::{
+use proteus_contracts::{
     contracts::{
-        AgentControl, AgentControlRequest, AgentLifecycleStatus, ApprovalPolicy, CancellationToken,
-        EventEmitter, ExecutionContext, ExecutionScope, PolicyContext, PolicyVisibilityContext,
-        ToolRegistry,
-    },
-    core::{
-        AgentControlConfig, AgentControlRuntime, HeadlessApprovalTransport,
-        HeadlessUserInputTransport, InMemoryEventStore,
+        AgentControl, AgentControlRequest, AgentLifecycleStatus, AgentWorkflowContext,
+        ApprovalPolicy, CancellationToken, EventEmitter, ExecutionScope, PolicyContext,
+        PolicyVisibilityContext,
     },
     domain::{
-        AgentTask, Event, ModelRef, PolicyDecision, ReasoningConfig, ToolCall, new_session_id,
-        new_thread_id, new_turn_id,
+        AgentTask, Event, ModelRef, PermissionMode, PolicyDecision, ReasoningConfig, ToolCall,
+        new_session_id, new_thread_id, new_turn_id,
     },
-    stubs::{
-        EmptyContextBuilder, FakeModelClient, NoCompactor, NoMemory, NullSearch,
-        UnfilteredToolExposure,
-    },
+};
+use proteus_core::core::{
+    AgentControlConfig, AgentControlRuntime, AppConfig, HeadlessApprovalTransport,
+    HeadlessUserInputTransport, InMemoryEventStore, ModelExecutionBinding, RuntimeRegistry,
 };
 use serde_json::json;
 
@@ -38,20 +34,16 @@ impl ApprovalPolicy for AllowAllPolicy {
     }
 }
 
-fn test_runtime_context(
-    events: Arc<InMemoryEventStore>,
-) -> proteus_core::contracts::AgentWorkflowContext {
-    let execution = ExecutionContext::new(
-        ExecutionScope::fresh(CancellationToken::new()),
-        120_000,
-        Arc::new(FakeModelClient::default()),
-        Arc::new(NullSearch),
-        Arc::new(NoMemory),
-        ToolRegistry::new(),
-        Arc::new(AllowAllPolicy),
+fn test_runtime_context(events: Arc<InMemoryEventStore>) -> AgentWorkflowContext {
+    let registry = RuntimeRegistry::from_config(&AppConfig::default(), PathBuf::from("."))
+        .expect("default runtime registry");
+    let mut execution = registry.execution_context(
+        ModelExecutionBinding::detached(ExecutionScope::fresh(CancellationToken::new())),
         Arc::new(HeadlessApprovalTransport),
+        PermissionMode::Normal,
     );
-    proteus_core::contracts::AgentWorkflowContext::new(
+    execution.policy = Arc::new(AllowAllPolicy);
+    AgentWorkflowContext::new(
         execution,
         new_session_id(),
         new_thread_id(),
@@ -60,10 +52,10 @@ fn test_runtime_context(
         ReasoningConfig::default(),
         30_000,
         Arc::new(EventEmitter::new(events)),
-        Arc::new(EmptyContextBuilder),
+        registry.context.clone(),
         Arc::new(HeadlessUserInputTransport),
-        Arc::new(NoCompactor),
-        Arc::new(UnfilteredToolExposure),
+        registry.compactor.clone(),
+        registry.tool_exposure.clone(),
         None,
     )
 }

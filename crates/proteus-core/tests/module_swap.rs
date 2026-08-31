@@ -5,13 +5,15 @@ use std::{
 };
 
 use async_trait::async_trait;
-use proteus_core::{
+use proteus_contracts::{
     contracts::{CompactionHost, CompactionInput, CompactionOutput, SearchQuery},
-    core::{AgentRuntime, AppConfig, ModuleCatalog, RuntimeRegistry},
     domain::{AgentTask, ModelRef},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, MessageRole,
     },
+};
+use proteus_core::{
+    core::{AgentRuntime, AppConfig, ModuleCatalog, RuntimeRegistry},
     process_adapters::ProcessComponentConfig,
 };
 use serde_json::json;

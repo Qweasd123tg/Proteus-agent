@@ -1,5 +1,10 @@
 use std::path::Path;
 
+#[cfg(test)]
+use proteus_contracts::{
+    domain::{new_session_id, new_thread_id},
+    model_standard::{CanonicalMessage, MessageRole},
+};
 use proteus_core::core::{SessionStore, config_store_root, list_session_summaries};
 
 use super::DoctorFindings;
@@ -41,7 +46,7 @@ pub(super) fn check_session_storage(
 
 #[cfg(test)]
 mod tests {
-    use proteus_core::{core::encode_workspace_path, domain::new_session_id};
+    use proteus_core::core::encode_workspace_path;
 
     use super::*;
 
@@ -99,12 +104,9 @@ mod tests {
             .expect("short store");
         store
             .append_history(
-                proteus_core::domain::new_thread_id(),
+                new_thread_id(),
                 None,
-                &[proteus_core::model_standard::CanonicalMessage::text(
-                    proteus_core::model_standard::MessageRole::User,
-                    "hello",
-                )],
+                &[CanonicalMessage::text(MessageRole::User, "hello")],
             )
             .await
             .expect("history");

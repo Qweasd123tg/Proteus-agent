@@ -7,17 +7,20 @@ use std::{
 };
 
 use async_trait::async_trait;
-use proteus_core::{
+use proteus_contracts::{
     contracts::{
         ApprovalPolicy, CancellationToken, ExecutionAttribution, ExecutionPermissionGrants,
         ExecutionScope, PolicyContext, PolicyVisibilityContext, SearchQuery, ToolExecutionRecorder,
     },
-    core::{
-        AgentRuntime, AppConfig, BoundTools, HeadlessApprovalTransport, JournalEntry, ModuleEpoch,
-        PreparedAssembly, RuntimeSnapshot, SessionStore, ToolExecutionBinding,
-    },
     domain::{
         MemoryItem, PermissionMode, PolicyDecision, ToolCall, ToolCallResolution, ToolResult,
+    },
+};
+use proteus_core::{
+    core::{
+        AgentRuntime, AppConfig, BoundTools, HeadlessApprovalTransport, JournalEntry,
+        ModelExecutionBinding, ModuleEpoch, PreparedAssembly, RuntimeSnapshot, SessionStore,
+        ToolExecutionBinding,
     },
     process_adapters::ProcessComponentConfig,
 };
@@ -40,16 +43,12 @@ fn permission_grants_are_bound_to_one_execution_context() {
             .expect("prepared assembly");
     let snapshot = RuntimeSnapshot::new(ModuleEpoch::initial(), assembly, None);
     let execution_a = snapshot.registry.execution_context(
-        proteus_core::core::ModelExecutionBinding::detached(ExecutionScope::fresh(
-            CancellationToken::new(),
-        )),
+        ModelExecutionBinding::detached(ExecutionScope::fresh(CancellationToken::new())),
         Arc::new(HeadlessApprovalTransport),
         PermissionMode::Normal,
     );
     let execution_b = snapshot.registry.execution_context(
-        proteus_core::core::ModelExecutionBinding::detached(ExecutionScope::fresh(
-            CancellationToken::new(),
-        )),
+        ModelExecutionBinding::detached(ExecutionScope::fresh(CancellationToken::new())),
         Arc::new(HeadlessApprovalTransport),
         PermissionMode::Normal,
     );
@@ -112,9 +111,7 @@ async fn process_search_runs_through_execution_context_without_chat_identity() {
     .expect("prepared assembly");
     let snapshot = RuntimeSnapshot::new(ModuleEpoch::initial(), assembly, None);
     let execution = snapshot.registry.execution_context(
-        proteus_core::core::ModelExecutionBinding::detached(ExecutionScope::fresh(
-            CancellationToken::new(),
-        )),
+        ModelExecutionBinding::detached(ExecutionScope::fresh(CancellationToken::new())),
         Arc::new(HeadlessApprovalTransport),
         PermissionMode::Normal,
     );

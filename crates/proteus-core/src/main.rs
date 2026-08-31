@@ -8,19 +8,19 @@ use std::{
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use clap::{Parser, ValueEnum};
-use proteus_core::app_server::{http::run_http_app_server, stdio::run_stdio_app_server};
-use proteus_core::domain::{
-    AgentOutput, ModuleManifest, PermissionMode, ToolSafety, new_thread_id,
-};
-use proteus_core::{
-    contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport, CancellationToken},
-    core::{
-        AgentRuntime, AppConfig, AssemblyPlan, ModuleBuildContext, ModuleCatalog, ModuleEpoch,
-        TopologyBuildInput, TopologyWarning, build_topology_snapshot, normalize_session_dir_path,
-        render_assembly_plan, render_topology_map, render_topology_markdown,
-        render_topology_mermaid, render_topology_runtime_mermaid, render_topology_runtime_path,
-        render_topology_table,
+use proteus_contracts::{
+    contracts::{
+        ApprovalRequest, ApprovalResponse, ApprovalTransport, CancellationToken, ToolRegistry,
     },
+    domain::{AgentOutput, ModuleManifest, PermissionMode, ToolSafety, new_thread_id},
+};
+use proteus_core::app_server::{http::run_http_app_server, stdio::run_stdio_app_server};
+use proteus_core::core::{
+    AgentControlRuntime, AgentRuntime, AppConfig, AssemblyPlan, ModuleCatalog, ModuleEpoch,
+    TopologyBuildInput, TopologySnapshot, TopologyWarning, build_topology_snapshot,
+    normalize_session_dir_path, register_provider_hosted_tools, render_assembly_plan,
+    render_topology_map, render_topology_markdown, render_topology_mermaid,
+    render_topology_runtime_mermaid, render_topology_runtime_path, render_topology_table,
 };
 use serde_json::Value;
 use tokio::time::sleep;
@@ -249,27 +249,15 @@ fn render_module_list(manifests: &[ModuleManifest]) -> String {
 fn build_tool_registry_for_listing(
     plan: &AssemblyPlan,
     catalog: &ModuleCatalog,
-) -> Result<proteus_core::contracts::ToolRegistry> {
+) -> Result<ToolRegistry> {
     let config = plan.config();
     let cwd = plan.cwd();
-    let context_providers = catalog.build_context_providers(cwd)?;
-    let build_ctx = ModuleBuildContext {
-        config,
-        cwd,
-        context_providers: &context_providers,
-    };
-    let agent_control =
-        proteus_core::core::AgentControlRuntime::from_config(&config.agent_control)?;
+    let agent_control = AgentControlRuntime::from_config(&config.agent_control)?;
     let model_config = plan.model_config()?;
     let model = catalog.build_model_adapter(&model_config)?;
-    let mut tools = catalog.build_tools(
-        &build_ctx,
-        Arc::new(proteus_core::stubs::NullSearch),
-        Arc::new(proteus_core::stubs::NullPatchApplier),
-        Arc::new(proteus_core::stubs::NoMemory),
-    )?;
+    let mut tools = catalog.build_tools_for_inspection(config, cwd)?;
     agent_control.register_tools(&mut tools, config.runtime.workflow_timeout_ms)?;
-    proteus_core::core::register_provider_hosted_tools(
+    register_provider_hosted_tools(
         &mut tools,
         model.id().as_ref(),
         model.provider_hosted_tools(&model_config.model_ref()),
@@ -282,26 +270,19 @@ fn build_cli_topology(
     config_path: Option<&std::path::Path>,
     cwd: &std::path::Path,
     permission_mode: PermissionMode,
-) -> Result<proteus_core::core::TopologySnapshot> {
+) -> Result<TopologySnapshot> {
     let (plan, catalog) = resolve_cli_assembly(config, config_path, cwd, permission_mode)?;
     let config = plan.config();
-    let context_providers = catalog.build_context_providers(cwd)?;
-    let build_ctx = ModuleBuildContext {
-        config,
-        cwd,
-        context_providers: &context_providers,
-    };
     let mut extra_warnings = Vec::new();
-    let agent_control =
-        match proteus_core::core::AgentControlRuntime::from_config(&config.agent_control) {
-            Ok(control) => control,
-            Err(error) => {
-                extra_warnings.push(TopologyWarning::error(format!(
-                    "inspect could not build agent control: {error:#}"
-                )));
-                proteus_core::core::AgentControlRuntime::disabled()
-            }
-        };
+    let agent_control = match AgentControlRuntime::from_config(&config.agent_control) {
+        Ok(control) => control,
+        Err(error) => {
+            extra_warnings.push(TopologyWarning::error(format!(
+                "inspect could not build agent control: {error:#}"
+            )));
+            AgentControlRuntime::disabled()
+        }
+    };
     let hosted_tools = config.active_model_config().and_then(|model_config| {
         let model = catalog.build_model_adapter(&model_config)?;
         Ok((
@@ -318,12 +299,7 @@ fn build_cli_topology(
             ("unavailable-model".to_owned(), Vec::new())
         }
     };
-    let tool_entries = match catalog.build_tools(
-        &build_ctx,
-        Arc::new(proteus_core::stubs::NullSearch),
-        Arc::new(proteus_core::stubs::NullPatchApplier),
-        Arc::new(proteus_core::stubs::NoMemory),
-    ) {
+    let tool_entries = match catalog.build_tools_for_inspection(config, cwd) {
         Ok(mut tools) => {
             if let Err(error) =
                 agent_control.register_tools(&mut tools, config.runtime.workflow_timeout_ms)
@@ -332,11 +308,9 @@ fn build_cli_topology(
                     "inspect could not register agent-control tools: {error:#}"
                 )));
             }
-            if let Err(error) = proteus_core::core::register_provider_hosted_tools(
-                &mut tools,
-                &hosted_source,
-                hosted_specs,
-            ) {
+            if let Err(error) =
+                register_provider_hosted_tools(&mut tools, &hosted_source, hosted_specs)
+            {
                 extra_warnings.push(TopologyWarning::error(format!(
                     "inspect could not register model-hosted tools: {error:#}"
                 )));
@@ -381,7 +355,7 @@ fn render_inspect_plan(plan: &AssemblyPlan, format: InspectPlanFormat) -> Result
 }
 
 fn render_inspect_topology(
-    snapshot: &proteus_core::core::TopologySnapshot,
+    snapshot: &TopologySnapshot,
     format: InspectTopologyFormat,
 ) -> Result<String> {
     match format {
@@ -395,7 +369,7 @@ fn render_inspect_topology(
     }
 }
 
-fn render_tool_list(registry: &proteus_core::contracts::ToolRegistry) -> String {
+fn render_tool_list(registry: &ToolRegistry) -> String {
     let rows = registry
         .entries()
         .into_iter()
@@ -619,7 +593,7 @@ async fn handle_remember(runtime: &AgentRuntime, rest: &str) -> Result<String> {
     if content.is_empty() {
         bail!("/remember: content is empty");
     }
-    let item = proteus_core::domain::MemoryItem::new(&kind, &content, serde_json::Value::Null);
+    let item = proteus_contracts::domain::MemoryItem::new(&kind, &content, serde_json::Value::Null);
     runtime.remember(item, CancellationToken::new()).await?;
     Ok(format!("stored ({kind}): {content}"))
 }

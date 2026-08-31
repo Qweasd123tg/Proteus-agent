@@ -15,7 +15,7 @@ use anyhow::{Result, anyhow};
 use tokio::sync::{Mutex, broadcast, mpsc, oneshot};
 use uuid::Uuid;
 
-use crate::{contracts::ApprovalResponse, core::approval::PendingApproval};
+use crate::{contracts::ApprovalResponse, core::PendingApproval};
 
 use super::approval_preview::approval_preview_for;
 use proteus_contracts::app_protocol::{AppApprovalId, AppApprovalRequest, AppServerEvent};

@@ -122,7 +122,7 @@ pub struct BoundModel {
 }
 
 impl BoundModel {
-    pub fn new(service: Arc<ModelService>, binding: ModelExecutionBinding) -> Self {
+    pub(crate) fn new(service: Arc<ModelService>, binding: ModelExecutionBinding) -> Self {
         Self { service, binding }
     }
 

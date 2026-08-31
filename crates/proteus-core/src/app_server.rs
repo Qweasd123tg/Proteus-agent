@@ -55,7 +55,7 @@ use context_map::{ContextMapInput, build_context_map_snapshot};
 use path_utils::paths_equal;
 pub(crate) use transcript::journal_transcript_messages;
 use transcript::transcript_messages;
-pub use transcript::{AppTranscriptMessage, AppTranscriptTool};
+pub use transcript::{AppTranscriptMessage, AppTranscriptSubagent, AppTranscriptTool};
 use turn_progress::TurnProgress;
 
 // Публичный app-server façade экспортирует canonical wire types из contracts;
@@ -547,11 +547,7 @@ impl AppServerHandle {
 
     async fn context_event_log_path(&self, cwd: &Path) -> PathBuf {
         let config = self.config.read().await;
-        crate::core::runtime::event_log_path(
-            &config.event_log.path,
-            self.config_path.as_deref(),
-            cwd,
-        )
+        crate::core::event_log_path(&config.event_log.path, self.config_path.as_deref(), cwd)
     }
 
     pub async fn has_pending_approval(&self, approval_id: &str) -> bool {
@@ -695,8 +691,7 @@ impl AgentAppServer {
         let config_path_snapshot = config_path.map(Path::to_path_buf);
         let cwd_snapshot = cwd.clone();
         let core_broadcast = Arc::new(BroadcastEventSink::new(1024));
-        let event_log_path =
-            crate::core::runtime::event_log_path(&config.event_log.path, config_path, &cwd);
+        let event_log_path = crate::core::event_log_path(&config.event_log.path, config_path, &cwd);
         let jsonl_raw: Arc<dyn EventSink> = Arc::new(JsonlEventStore::new(event_log_path));
         // Дельты по умолчанию не пишем в durable log — они нужны UI (broadcast)
         // но засоряют файл на длинных ответах. `persist_deltas = true` в конфиге

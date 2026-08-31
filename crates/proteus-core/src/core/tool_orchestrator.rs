@@ -28,13 +28,6 @@ impl Default for ToolOrchestrator {
 }
 
 impl ToolOrchestrator {
-    pub fn new(default_timeout_ms: u64, max_output_bytes: usize) -> Self {
-        Self {
-            default_timeout_ms,
-            max_output_bytes,
-        }
-    }
-
     pub fn visible_tool_specs(&self, ctx: &AgentWorkflowContext, cwd: &Path) -> Vec<ToolSpec> {
         self.bind(ctx).visible_specs(cwd)
     }

@@ -96,9 +96,7 @@ pub async fn replay_workflow(
         .build_workflow(&workflow_id, &build_ctx)
         .with_context(|| format!("failed to build recorded workflow module '{}'", workflow_id))?;
     let policy_ctx = PolicyBuildContext {
-        config: &replay_config,
         cwd: &fixture.opened.task.cwd,
-        tools: &tools,
     };
     let policy = catalog
         .build_policy(&policy_id, &policy_ctx)

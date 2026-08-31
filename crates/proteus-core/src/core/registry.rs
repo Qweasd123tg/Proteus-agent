@@ -106,11 +106,7 @@ impl RuntimeRegistry {
             model_service.id().as_ref(),
             model_service.provider_hosted_tools(&model_config.model_ref()),
         )?;
-        let policy_ctx = PolicyBuildContext {
-            config,
-            cwd,
-            tools: &tools,
-        };
+        let policy_ctx = PolicyBuildContext { cwd };
         let policy: Arc<dyn ApprovalPolicy> =
             match plan.module_id(crate::domain::ModuleKind::Policy) {
                 Some(id) => catalog.build_policy(id, &policy_ctx)?,

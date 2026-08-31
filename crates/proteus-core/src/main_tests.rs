@@ -1,6 +1,12 @@
 use super::*;
 use crate::cli_commands::{PromptReplayCommand, WorkflowReplayCommand};
-use proteus_core::domain::{ModuleKind, ModuleManifest};
+use proteus_contracts::{
+    contracts::{Tool, ToolContext, ToolRegistry},
+    domain::{
+        ExchangeId, ModuleKind, ModuleManifest, ReasoningConfig, ToolCall, ToolResult, ToolSpec,
+        TurnId,
+    },
+};
 
 #[test]
 fn cli_identity_matches_the_installed_release_binary() {
@@ -351,7 +357,7 @@ fn eval_report_command_requires_path() {
 
 #[test]
 fn prompt_replay_command_parses_options_strictly() {
-    let exchange_id: proteus_core::domain::ExchangeId = "7c25efa9-81b7-4412-863a-d90e46d2c894"
+    let exchange_id: ExchangeId = "7c25efa9-81b7-4412-863a-d90e46d2c894"
         .parse()
         .expect("exchange id");
     assert_eq!(
@@ -427,7 +433,7 @@ fn prompt_replay_command_parses_options_strictly() {
 
 #[test]
 fn workflow_replay_command_parses_options_strictly() {
-    let turn_id: proteus_core::domain::TurnId = "71a908f9-e7f2-45ce-afbf-4eaf0f4f3bad"
+    let turn_id: TurnId = "71a908f9-e7f2-45ce-afbf-4eaf0f4f3bad"
         .parse()
         .expect("turn id");
     assert_eq!(
@@ -703,9 +709,9 @@ fn doctor_flags_unknown_tool_names_in_module_config_lists() {
     struct StaticTool(&'static str);
 
     #[async_trait::async_trait]
-    impl proteus_core::contracts::Tool for StaticTool {
-        fn spec(&self) -> proteus_core::domain::ToolSpec {
-            proteus_core::domain::ToolSpec::new(
+    impl Tool for StaticTool {
+        fn spec(&self) -> ToolSpec {
+            ToolSpec::new(
                 self.0,
                 "static test tool",
                 serde_json::json!({ "type": "object" }),
@@ -713,16 +719,12 @@ fn doctor_flags_unknown_tool_names_in_module_config_lists() {
             )
         }
 
-        async fn invoke(
-            &self,
-            _call: &proteus_core::domain::ToolCall,
-            _ctx: proteus_core::contracts::ToolContext,
-        ) -> anyhow::Result<proteus_core::domain::ToolResult> {
+        async fn invoke(&self, _call: &ToolCall, _ctx: ToolContext) -> anyhow::Result<ToolResult> {
             unreachable!("doctor check never invokes tools")
         }
     }
 
-    let mut registry = proteus_core::contracts::ToolRegistry::new();
+    let mut registry = ToolRegistry::new();
     registry
         .register(StaticTool("read_file"))
         .expect("register read_file");
@@ -767,7 +769,7 @@ fn doctor_flags_unknown_tool_names_in_module_config_lists() {
 
 #[test]
 fn doctor_counts_resolved_module_config_tool_references() {
-    let registry = proteus_core::contracts::ToolRegistry::new();
+    let registry = ToolRegistry::new();
     let mut config = AppConfig::default();
     config.tools.mcp_servers.push(
         serde_json::from_value(serde_json::json!({
@@ -798,7 +800,7 @@ fn doctor_counts_resolved_module_config_tool_references() {
 
 #[test]
 fn doctor_checks_nested_module_config_tool_lists() {
-    let registry = proteus_core::contracts::ToolRegistry::new();
+    let registry = ToolRegistry::new();
     let mut config = AppConfig::default();
     config.module_config.insert(
         "policy".to_owned(),
@@ -846,7 +848,7 @@ fn doctor_flags_missing_provider_secret_env() {
         provider: "anthropic".to_owned(),
         model: "claude-test".to_owned(),
         stream: false,
-        reasoning: proteus_core::domain::ReasoningConfig::default(),
+        reasoning: ReasoningConfig::default(),
         provider_config: serde_json::json!({ "api_key_env": ENV_NAME }),
     };
     let mut findings = DoctorFindings::default();
@@ -963,16 +965,16 @@ fn eval_report_output_contains_core_metrics() {
 
 #[test]
 fn prompt_replay_human_and_json_reports_contain_key_fields() {
-    use proteus_core::{
-        core::{
-            PROMPT_REPLAY_REPORT_SCHEMA_VERSION, PromptReplayCounts, PromptReplayNames,
-            PromptReplayOutcomeStatus, PromptReplayOutcomeSummary, PromptReplayReport,
-            PromptReplaySource, PromptReplayUsage,
-        },
+    use proteus_contracts::{
         domain::{
             ModelRef, new_exchange_id, new_execution_id, new_session_id, new_thread_id, new_turn_id,
         },
         model_standard::TokenUsage,
+    };
+    use proteus_core::core::{
+        PROMPT_REPLAY_REPORT_SCHEMA_VERSION, PromptReplayCounts, PromptReplayNames,
+        PromptReplayOutcomeStatus, PromptReplayOutcomeSummary, PromptReplayReport,
+        PromptReplaySource, PromptReplayUsage,
     };
 
     let report = PromptReplayReport {
@@ -1054,13 +1056,10 @@ fn prompt_replay_human_and_json_reports_contain_key_fields() {
 
 #[test]
 fn workflow_replay_human_and_json_reports_contain_key_fields() {
-    use proteus_core::{
-        core::{
-            TurnSettlementStatus, WORKFLOW_REPLAY_REPORT_SCHEMA_VERSION, WorkflowReplayComparison,
-            WorkflowReplayCounts, WorkflowReplayOutcome, WorkflowReplayReport,
-            WorkflowReplaySource,
-        },
-        domain::{AgentOutput, new_session_id, new_thread_id, new_turn_id},
+    use proteus_contracts::domain::{AgentOutput, new_session_id, new_thread_id, new_turn_id};
+    use proteus_core::core::{
+        TurnSettlementStatus, WORKFLOW_REPLAY_REPORT_SCHEMA_VERSION, WorkflowReplayComparison,
+        WorkflowReplayCounts, WorkflowReplayOutcome, WorkflowReplayReport, WorkflowReplaySource,
     };
 
     let report = WorkflowReplayReport {

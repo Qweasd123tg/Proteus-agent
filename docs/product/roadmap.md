@@ -1318,9 +1318,8 @@ authenticated attach и persistence/reconnect. Они не входят в да�
 
 #### Post-Phase-8 Cleanup Audit
 
-Статус: **source audit завершён 2026-08-31; production cleanup выполняется
-отдельными механическими changesets**. Полная inventory и consumer evidence
-находятся в
+Статус: **source audit и четыре механических cleanup changeset завершены
+2026-08-31**. Полная inventory и consumer evidence находятся в
 [post-Phase-8 audit](../research/post-phase-8-core-cleanup-audit-2026-08-31.md).
 
 Аудит не принял новый runtime primitive или crate split. Текущий порядок:
@@ -1331,9 +1330,10 @@ authenticated attach и persistence/reconnect. Они не входят в да�
    — выполнено 2026-08-31;
 3. ✅ сузить leaf visibility (`adapters`, `tools`, concrete process adapters),
    сохранив config DTO — выполнено 2026-08-31;
-4. заменить broad `core` glob/submodule exports и повторный export
+4. ✅ заменить broad `core` glob/submodule exports и повторный export
    `proteus-contracts` на явно требуемую собственным binary/app-server
-   поверхность.
+   поверхность — выполнено 2026-08-31; concrete stubs также скрыты, итоговый
+   rustdoc inventory сокращён с 214 до 156 собственных items.
 
 Renderer подтверждён как obsolete slot, но его удаление остаётся заблокировано
 product CLI/REPL cutover на app-server protocol. Replay/eval/topology и

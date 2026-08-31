@@ -1,4 +1,5 @@
 use anyhow::Result;
+use proteus_contracts::{domain::ModelRef, model_standard::TokenUsage};
 
 use proteus_core::core::{
     AppConfig, ModuleCatalog, PromptReplayCounts, PromptReplayNames, PromptReplayOptions,
@@ -115,7 +116,7 @@ fn render_human_report(report: &PromptReplayReport) -> String {
     lines.join("\n")
 }
 
-fn model_label(model: &proteus_core::domain::ModelRef) -> String {
+fn model_label(model: &ModelRef) -> String {
     format!("{}/{}", model.provider, model.model)
 }
 
@@ -138,7 +139,7 @@ fn usage_label(usage: &PromptReplayUsage) -> String {
     )
 }
 
-fn token_usage_label(usage: Option<&proteus_core::model_standard::TokenUsage>) -> String {
+fn token_usage_label(usage: Option<&TokenUsage>) -> String {
     usage.map_or_else(
         || "unavailable".to_owned(),
         |usage| {
