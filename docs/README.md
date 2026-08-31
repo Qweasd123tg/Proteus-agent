@@ -141,6 +141,9 @@ Research хранит историю решений и upstream-разборы, 
 - [research/execution-scope-migration-design-2026-08-27.md](research/execution-scope-migration-design-2026-08-27.md) —
   расширенный implementation research; canonical Phase 0–3 и дальнейшие gates остаются в
   `product/roadmap.md`;
+- [research/post-phase-8-core-cleanup-audit-2026-08-31.md](research/post-phase-8-core-cleanup-audit-2026-08-31.md) —
+  source inventory, visibility classification и stop-gates механической
+  очистки после завершения Phase 8;
 - [research/](research/) — остальные проектные исследования и postmortem;
 - [examples/research/](../examples/research/) — большие snapshot-разборы
   сторонних agent runtimes.

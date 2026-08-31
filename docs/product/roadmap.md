@@ -1,6 +1,6 @@
 # Roadmap
 
-Последнее обновление: 2026-08-30.
+Последнее обновление: 2026-08-31.
 
 Roadmap описывает порядок, а не обещание API. Текущее реализованное состояние
 смотрите в [scope.md](scope.md), архитектурные правила — в
@@ -1315,6 +1315,29 @@ Agent-control не является behavior slot Component Runtime и не вы
 authenticated attach и persistence/reconnect. Они не входят в данный cutover.
 
 ### Отложенная Очистка Границ Core
+
+#### Post-Phase-8 Cleanup Audit
+
+Статус: **source audit завершён 2026-08-31; production cleanup выполняется
+отдельными механическими changesets**. Полная inventory и consumer evidence
+находятся в
+[post-Phase-8 audit](../research/post-phase-8-core-cleanup-audit-2026-08-31.md).
+
+Аудит не принял новый runtime primitive или crate split. Немедленный порядок:
+
+1. удалить неиспользуемые `ExecutionContext.patch` и
+   `ExecutionContext.execution_recorder`;
+2. перенести `core/workspace.rs` к единственному owner-у в `agent_control`;
+3. сузить leaf visibility (`adapters`, `tools`, concrete process adapters),
+   сохранив config DTO;
+4. заменить broad `core` glob/submodule exports и повторный export
+   `proteus-contracts` на явно требуемую собственным binary/app-server
+   поверхность.
+
+Renderer подтверждён как obsolete slot, но его удаление остаётся заблокировано
+product CLI/REPL cutover на app-server protocol. Replay/eval/topology и
+app-server подтверждены как живые operational/application surfaces; перенос
+или новый crate для них не обоснован.
 
 Низкоприоритетный backlog после Agent-Control Cutover. Эти пункты не являются
 critical path и выполняются только при свободном лимите или когда проявится
