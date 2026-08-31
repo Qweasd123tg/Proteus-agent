@@ -204,7 +204,7 @@ impl AppServerHandle {
         self.runtime.set_reasoning_effort(effort).await;
     }
 
-    /// Обновляет секцию [web] конфига (in-memory + запись в файл). Переданные
+    /// Обновляет секцию `[web]` конфига (in-memory + запись в файл). Переданные
     /// `None`-поля не трогаем — патчим только то, что прислали.
     pub async fn set_web_config(&self, tool_cards_collapsed: Option<bool>) -> Result<()> {
         {

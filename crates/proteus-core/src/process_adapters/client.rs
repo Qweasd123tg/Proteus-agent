@@ -178,10 +178,6 @@ impl ProcessExportClient {
         &self.module_id
     }
 
-    pub fn component_id(&self) -> &str {
-        &self.component_id
-    }
-
     async fn start(
         &self,
         method: &str,

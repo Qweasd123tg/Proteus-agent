@@ -35,15 +35,18 @@ impl ProcessInvocationError {
         }
     }
 
-    pub fn module_id(&self) -> &str {
+    #[cfg(test)]
+    pub(crate) fn module_id(&self) -> &str {
         &self.module_id
     }
 
-    pub fn method(&self) -> &str {
+    #[cfg(test)]
+    pub(crate) fn method(&self) -> &str {
         &self.method
     }
 
-    pub fn failure(&self) -> &ProcessInvocationFailure {
+    #[cfg(test)]
+    pub(crate) fn failure(&self) -> &ProcessInvocationFailure {
         &self.failure
     }
 }

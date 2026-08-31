@@ -44,6 +44,11 @@ context, facade slot или compatibility reader.
   target и integration tests являются отдельными crates и сейчас используют
   эту поверхность.
 
+После первых трёх cleanup changesets повторный rustdoc inventory сократился с
+214 до 183 собственных public items: 139 в `core`, 32 в `app_server`, 10 в
+`stubs` и 2 config DTO в `process_adapters`; `adapters`, `tools` и root
+`workspace` больше public surface не создают.
+
 Rustdoc дал следующее разбиение `core` public items:
 
 | Семейство | Items | Категория | Решение |
@@ -84,7 +89,7 @@ Rustdoc дал следующее разбиение `core` public items:
 | `core/prompt_replay/**`, `core/workflow_replay/**`, `core/eval_report.rs` | 4 | Operational/evidence tooling с конкретными CLI consumers; не удалять и не переносить без нового reuse/coupling evidence |
 | `core/topology/**`, `core/topology_render/**` | 4 | Config/runtime diagnostics; не связано с behavior slot `Renderer` |
 | `core/agent_control/workspace.rs` | 2 | Перенесено к единственному consumer `agent_control/task/workspace_lifecycle` 2026-08-31 |
-| `process_adapters/**` | 2 | Internal host adapters Component Runtime v2. Public должны остаться только config DTO, пока они входят в `AppConfig` schema |
+| `process_adapters/**` | 2 | Internal host adapters Component Runtime v2. Public остались только `ProcessComponentConfig` и `ProcessExportLaunchConfig`, входящие в `AppConfig` schema |
 | `stubs/**` | 3 | Host-owned structural absence и test support. Concrete stubs не public product API; часть пока удерживает CLI tool listing |
 | `tools/**` | 2 | Internal ToolRegistry providers/implementations; сделать module внутренним, contract остаётся в `proteus-contracts` |
 | `test_support.rs` и `**/tests.rs`, `tests/**` | evidence | Не API. При visibility cleanup либо использовать разрешённый facade, либо перенести white-box checks к unit owner-у |
@@ -135,10 +140,10 @@ tests и docs без alias. Topology renderers к этому удалению н
 Немедленно допустимая часть visibility cleanup:
 
 1. сделать `adapters` и `tools` crate-private: production consumers находятся
-   внутри library;
+   внутри library — выполнено 2026-08-31;
 2. скрыть concrete process adapters, сохранив публично достижимыми только
-   `ProcessComponentConfig`, `ProcessExportConfig` и
-   `ProcessExportLaunchConfig`, пока они являются config DTO;
+   `ProcessComponentConfig` и `ProcessExportLaunchConfig`, пока они являются
+   config DTO — выполнено 2026-08-31;
 3. заменить public submodule forest `core::*::*` одним существующим
    `core::{...}` re-export layer, сначала explicit exports вместо glob;
 4. удалить из `proteus-core` повторные exports `proteus_contracts`, переведя
@@ -159,8 +164,8 @@ boundary. Полное сокращение требует сначала отд
    `execution_recorder` из `ExecutionContext`, обновить docs и boundary tests.
 2. **Workspace ownership (выполнено 2026-08-31):** перенести
    `core/workspace.rs` в `core/agent_control/` без изменения поведения.
-3. **Leaf visibility:** internalize `adapters`, `tools` и concrete process
-   adapters, сохранив config DTO и действующие tests.
+3. **Leaf visibility (выполнено 2026-08-31):** internalize `adapters`, `tools`
+   и concrete process adapters, сохранив config DTO и действующие tests.
 4. **Core facade visibility:** убрать glob/submodule leakage и повторный export
    `proteus-contracts`; не менять behavior.
 5. **Product CLI protocol cutover:** отдельная application задача с parity

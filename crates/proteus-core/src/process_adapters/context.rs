@@ -153,10 +153,6 @@ impl ProcessContextProvider {
             )?),
         })
     }
-
-    pub fn provider_id(&self) -> &str {
-        &self.provider_id
-    }
 }
 
 #[async_trait]

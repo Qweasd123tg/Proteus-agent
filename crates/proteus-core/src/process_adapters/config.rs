@@ -218,7 +218,7 @@ impl ProcessComponentLauncher {
 
 /// One typed module export plus a shared component launcher.
 #[derive(Debug, Clone)]
-pub struct ProcessExportConfig {
+pub(crate) struct ProcessExportConfig {
     launcher: Arc<ProcessComponentLauncher>,
     binding: ProcessExportBinding,
     timeout_ms: Option<u64>,
@@ -226,29 +226,29 @@ pub struct ProcessExportConfig {
 }
 
 impl ProcessExportConfig {
-    pub fn component_id(&self) -> &str {
+    pub(crate) fn component_id(&self) -> &str {
         &self.launcher.component_id
     }
 
-    pub fn module_id(&self) -> &str {
+    pub(crate) fn module_id(&self) -> &str {
         &self.binding.module_id
     }
 
-    pub fn slot(&self) -> &str {
+    pub(crate) fn slot(&self) -> &str {
         &self.binding.slot
     }
 
-    pub fn description(&self) -> Option<&str> {
+    pub(crate) fn description(&self) -> Option<&str> {
         self.description
             .as_deref()
             .or_else(|| self.launcher.config.description())
     }
 
-    pub fn timeout(&self, default_timeout_ms: u64) -> Duration {
+    pub(crate) fn timeout(&self, default_timeout_ms: u64) -> Duration {
         Duration::from_millis(self.timeout_ms.unwrap_or(default_timeout_ms))
     }
 
-    pub fn validate_for(&self, slot: &str, default_timeout_ms: u64) -> Result<()> {
+    pub(crate) fn validate_for(&self, slot: &str, default_timeout_ms: u64) -> Result<()> {
         if self.slot() != slot {
             bail!(
                 "component {:?} export {:?} declares slot {:?}, expected {:?}",

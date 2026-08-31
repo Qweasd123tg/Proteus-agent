@@ -1329,8 +1329,8 @@ authenticated attach и persistence/reconnect. Они не входят в да�
    `ExecutionContext.execution_recorder` — выполнено 2026-08-31;
 2. ✅ перенести `core/workspace.rs` к единственному owner-у в `agent_control`
    — выполнено 2026-08-31;
-3. сузить leaf visibility (`adapters`, `tools`, concrete process adapters),
-   сохранив config DTO;
+3. ✅ сузить leaf visibility (`adapters`, `tools`, concrete process adapters),
+   сохранив config DTO — выполнено 2026-08-31;
 4. заменить broad `core` glob/submodule exports и повторный export
    `proteus-contracts` на явно требуемую собственным binary/app-server
    поверхность.

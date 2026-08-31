@@ -1,11 +1,11 @@
 pub use proteus_contracts::{contracts, domain, model_standard};
 
-pub mod adapters;
+pub(crate) mod adapters;
 pub mod app_server;
 pub mod core;
 pub mod process_adapters;
 pub mod stubs;
-pub mod tools;
+pub(crate) mod tools;
 
 #[cfg(test)]
 pub(crate) mod test_support;
