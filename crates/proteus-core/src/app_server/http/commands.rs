@@ -30,6 +30,21 @@ pub(super) async fn execute_app_request(
             .clear_history()
             .await
             .map(|_| None),
+        StdioRequest::HistorySummary { .. } => {
+            serde_json::to_value(state.current_server().await.history_summary().await)
+                .map(Some)
+                .map_err(anyhow::Error::from)
+        }
+        StdioRequest::Remember { kind, content, .. } => state
+            .current_server()
+            .await
+            .remember(kind, content)
+            .await
+            .and_then(|result| {
+                serde_json::to_value(result)
+                    .map(Some)
+                    .map_err(anyhow::Error::from)
+            }),
         StdioRequest::Approval {
             approval_id,
             approved,

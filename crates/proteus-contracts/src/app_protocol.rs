@@ -416,6 +416,39 @@ pub struct AppContextToolSummary {
     pub names: Vec<String>,
 }
 
+/// Короткий ответ для line-oriented клиентов, которым не нужна полная
+/// transcript projection.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct AppHistorySummary {
+    pub messages: usize,
+}
+
+impl AppHistorySummary {
+    pub fn new(messages: usize) -> Self {
+        Self { messages }
+    }
+}
+
+/// Результат явной записи пользователя в выбранный `MemoryStore`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct AppRememberResult {
+    pub kind: String,
+    pub content: String,
+}
+
+impl AppRememberResult {
+    pub fn new(kind: impl Into<String>, content: impl Into<String>) -> Self {
+        Self {
+            kind: kind.into(),
+            content: content.into(),
+        }
+    }
+}
+
 /// Команды от клиента к ядру через stdin.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -427,6 +460,14 @@ pub enum StdioRequest {
     },
     ClearHistory {
         id: Option<String>,
+    },
+    HistorySummary {
+        id: Option<String>,
+    },
+    Remember {
+        id: Option<String>,
+        kind: String,
+        content: String,
     },
     Approval {
         id: Option<String>,
@@ -476,6 +517,8 @@ impl StdioRequest {
         match self {
             Self::Send { id, .. }
             | Self::ClearHistory { id }
+            | Self::HistorySummary { id }
+            | Self::Remember { id, .. }
             | Self::Approval { id, .. }
             | Self::UserInput { id, .. }
             | Self::Cancel { id, .. }
@@ -534,6 +577,31 @@ mod tests {
 
         serde_json::from_value::<AppApprovalRequest>(payload)
             .expect_err("incomplete approval request must fail");
+    }
+
+    #[test]
+    fn line_client_commands_use_strict_tagged_wire_shapes() {
+        let history: StdioRequest = serde_json::from_value(json!({
+            "type": "history_summary",
+            "id": "history-1"
+        }))
+        .expect("history request");
+        assert_eq!(history.id().as_deref(), Some("history-1"));
+
+        let remember: StdioRequest = serde_json::from_value(json!({
+            "type": "remember",
+            "id": "remember-1",
+            "kind": "preference",
+            "content": "use protocol"
+        }))
+        .expect("remember request");
+        assert_eq!(remember.id().as_deref(), Some("remember-1"));
+
+        let result = AppRememberResult::new("preference", "use protocol");
+        assert_eq!(
+            serde_json::to_value(result).expect("remember result"),
+            json!({"kind": "preference", "content": "use protocol"})
+        );
     }
 
     /// Attribution и порядок очереди переживают wire-сериализацию.

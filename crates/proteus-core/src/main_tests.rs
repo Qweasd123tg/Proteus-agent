@@ -1123,51 +1123,16 @@ fn workflow_replay_human_and_json_reports_contain_key_fields() {
     assert_eq!(value["duration_ms"], 9);
 }
 
-#[tokio::test]
-async fn remember_command_uses_memory_v2_when_remember_fact_is_disabled() {
-    use proteus_core::process_adapters::ProcessComponentConfig;
+#[test]
+fn product_cli_turn_path_is_app_server_protocol_only() {
+    let main_source = include_str!("main.rs");
+    let client_source = include_str!("cli_app.rs");
 
-    let workspace = tempfile::tempdir().expect("workspace");
-    let state = tempfile::tempdir().expect("state");
-    let record_path = state.path().join("cli-memory.jsonl");
-    let fixture =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/process_phase8_memory.py");
-    let component: ProcessComponentConfig = serde_json::from_value(serde_json::json!({
-        "command": "python3",
-        "args": ["-B", fixture],
-        "handshake_timeout_ms": 3_000,
-        "exports": {
-            "memory": {"phase8-memory": {"timeout_ms": 3_000}},
-        },
-    }))
-    .expect("memory component config");
-    let mut config = AppConfig::default();
-    config.modules.memory = Some("phase8-memory".to_owned());
-    config.tools.enabled.clear();
-    config.module_config.insert(
-        "memory".to_owned(),
-        [(
-            "phase8-memory".to_owned(),
-            serde_json::json!({"record_path": record_path}),
-        )]
-        .into_iter()
-        .collect(),
-    );
-    config
-        .components
-        .insert("phase8-memory-component".to_owned(), component);
-    let runtime = AgentRuntime::builder(config, workspace.path().to_path_buf())
-        .build_async()
-        .await
-        .expect("CLI memory runtime");
-
-    let rendered = handle_remember(&runtime, "preference preserve direct authority")
-        .await
-        .expect("/remember");
-    assert_eq!(rendered, "stored (preference): preserve direct authority");
-    assert!(runtime.tool_entries().await.is_empty());
-
-    let record = std::fs::read_to_string(record_path).expect("memory invocation record");
-    assert!(record.contains("preserve direct authority"));
-    assert!(record.contains("\"agent\": null"));
+    assert!(!main_source.contains("AgentRuntime"));
+    assert!(!main_source.contains("build_cli_runtime"));
+    assert!(!main_source.contains("runtime.render"));
+    assert!(main_source.contains("CliAppClient::launch"));
+    assert!(client_source.contains("StdioRequest::Send"));
+    assert!(client_source.contains(".arg(\"server\")"));
+    assert!(client_source.contains(".arg(\"stdio\")"));
 }

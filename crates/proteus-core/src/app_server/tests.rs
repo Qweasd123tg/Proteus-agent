@@ -1035,3 +1035,64 @@ async fn runtime_forwarder_lag_emits_typed_event_stream_lagged() {
         .expect("runtime event");
     assert!(matches!(second, AppServerEvent::Runtime { .. }));
 }
+
+#[tokio::test]
+async fn app_server_remember_uses_memory_v2_without_a_turn_or_tool() {
+    use crate::process_adapters::ProcessComponentConfig;
+
+    let workspace = tempfile::tempdir().expect("workspace");
+    let state = tempfile::tempdir().expect("state");
+    let record_path = state.path().join("app-server-memory.jsonl");
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/process_phase8_memory.py");
+    let component: ProcessComponentConfig = serde_json::from_value(serde_json::json!({
+        "command": "python3",
+        "args": ["-B", fixture],
+        "handshake_timeout_ms": 3_000,
+        "exports": {
+            "memory": {"phase8-memory": {"timeout_ms": 3_000}},
+        },
+    }))
+    .expect("memory component config");
+    let mut config = AppConfig::default();
+    config.modules.memory = Some("phase8-memory".to_owned());
+    config.tools.enabled.clear();
+    config.module_config.insert(
+        "memory".to_owned(),
+        [(
+            "phase8-memory".to_owned(),
+            serde_json::json!({"record_path": record_path}),
+        )]
+        .into_iter()
+        .collect(),
+    );
+    config
+        .components
+        .insert("phase8-memory-component".to_owned(), component);
+
+    let handle = AgentAppServer::launch(config, workspace.path().to_path_buf(), None)
+        .await
+        .expect("app-server");
+    let result = handle
+        .remember(
+            "preference".to_owned(),
+            "preserve protocol authority".to_owned(),
+        )
+        .await
+        .expect("protocol remember");
+
+    assert_eq!(result.kind, "preference");
+    assert_eq!(result.content, "preserve protocol authority");
+    assert_eq!(handle.history_summary().await.messages, 0);
+    assert!(
+        handle.config_summary().await["registered_tools"]
+            .as_array()
+            .expect("registered tools")
+            .is_empty()
+    );
+    let record = std::fs::read_to_string(record_path).expect("memory invocation record");
+    assert!(record.contains("preserve protocol authority"));
+    assert!(record.contains("\"agent\": null"));
+
+    handle.shutdown().await;
+}

@@ -1,36 +1,33 @@
 use std::{
     io::{self, IsTerminal, Write},
     path::PathBuf,
-    sync::Arc,
     time::Duration,
 };
 
 use anyhow::{Result, bail};
-use async_trait::async_trait;
 use clap::{Parser, ValueEnum};
 use proteus_contracts::{
-    contracts::{
-        ApprovalRequest, ApprovalResponse, ApprovalTransport, CancellationToken, ToolRegistry,
-    },
-    domain::{AgentOutput, ModuleManifest, PermissionMode, ToolSafety, new_thread_id},
+    contracts::ToolRegistry,
+    domain::{AgentOutput, ModuleManifest, PermissionMode, ToolSafety},
 };
 use proteus_core::app_server::{http::run_http_app_server, stdio::run_stdio_app_server};
 use proteus_core::core::{
-    AgentControlRuntime, AgentRuntime, AppConfig, AssemblyPlan, ModuleCatalog, ModuleEpoch,
-    TopologyBuildInput, TopologySnapshot, TopologyWarning, build_topology_snapshot,
-    normalize_session_dir_path, register_provider_hosted_tools, render_assembly_plan,
-    render_topology_map, render_topology_markdown, render_topology_mermaid,
+    AgentControlRuntime, AppConfig, AssemblyPlan, ModuleCatalog, ModuleEpoch, TopologyBuildInput,
+    TopologySnapshot, TopologyWarning, build_topology_snapshot, register_provider_hosted_tools,
+    render_assembly_plan, render_topology_map, render_topology_markdown, render_topology_mermaid,
     render_topology_runtime_mermaid, render_topology_runtime_path, render_topology_table,
 };
 use serde_json::Value;
 use tokio::time::sleep;
 
+mod cli_app;
 mod cli_commands;
 mod cli_doctor;
 mod cli_init;
 mod cli_prompt_replay;
 mod cli_workflow_replay;
 
+use cli_app::CliAppClient;
 use cli_commands::{
     InspectPlanFormat, InspectTopologyFormat, is_app_server_stdio_command, is_doctor_command,
     is_modules_list_command, is_tools_list_command, parse_app_server_http_command,
@@ -141,6 +138,9 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     config.permissions.mode = resolve_permission_mode(&cli, config.permissions.mode)?;
+    if cli.new_session && cli.resume_session.is_some() {
+        anyhow::bail!("--new-session conflicts with --resume-session");
+    }
     if let Some(format) = parse_inspect_plan_command(&cli.task)? {
         let (plan, _) = resolve_cli_assembly(
             &config,
@@ -175,9 +175,6 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     if is_app_server_stdio_command(&cli.task) {
-        if cli.new_session && cli.resume_session.is_some() {
-            anyhow::bail!("--new-session conflicts with --resume-session");
-        }
         return run_stdio_app_server(
             config,
             cwd,
@@ -192,42 +189,32 @@ async fn main() -> Result<()> {
             .await;
     }
     if cli.interactive || cli.task.is_empty() {
-        let runtime = build_cli_runtime(
-            config.clone(),
-            cwd.clone(),
+        let mut client = CliAppClient::launch(
             config_path.as_deref(),
-            cli.resume_session.clone(),
+            &cwd,
+            cli.resume_session.as_deref(),
+            config.permissions.mode,
         )
         .await?;
-        return run_repl(runtime, config, cwd).await;
+        let result = run_repl(&mut client).await;
+        let shutdown = client.shutdown().await;
+        result?;
+        return shutdown;
     }
 
-    let runtime = build_cli_runtime(
-        config.clone(),
-        cwd.clone(),
+    let mut client = CliAppClient::launch(
         config_path.as_deref(),
-        cli.resume_session.clone(),
+        &cwd,
+        cli.resume_session.as_deref(),
+        config.permissions.mode,
     )
     .await?;
-    let output = runtime.run(cli.task.join(" ")).await?;
-    println!("{}", runtime.render(&output).await?);
+    let output = client.send(cli.task.join(" ")).await;
+    let shutdown = client.shutdown().await;
+    let output = output?;
+    shutdown?;
+    println!("{}", output.text);
     Ok(())
-}
-
-async fn build_cli_runtime(
-    config: AppConfig,
-    cwd: PathBuf,
-    config_path: Option<&std::path::Path>,
-    resume_session: Option<PathBuf>,
-) -> Result<AgentRuntime> {
-    let mut builder = AgentRuntime::builder(config, cwd)
-        .with_config_path(config_path)
-        .with_approval(terminal_approval_transport());
-    if let Some(session_dir) = resume_session {
-        let session_dir = normalize_session_dir_path(session_dir)?;
-        builder = builder.resume_from_session_dir(session_dir, new_thread_id())?;
-    }
-    builder.build_async().await
 }
 
 fn render_module_list(manifests: &[ModuleManifest]) -> String {
@@ -504,82 +491,13 @@ fn resolve_permission_mode(cli: &Cli, configured: PermissionMode) -> Result<Perm
     Ok(selected.into_iter().next().unwrap_or(configured))
 }
 
-fn terminal_approval_transport() -> Arc<dyn ApprovalTransport> {
-    Arc::new(TerminalApprovalTransport {
-        enabled: io::stdin().is_terminal() && io::stdout().is_terminal(),
-        prompt_lock: tokio::sync::Mutex::new(()),
-    })
-}
-
-#[derive(Debug)]
-struct TerminalApprovalTransport {
-    enabled: bool,
-    /// Терминал — один: конкурентные approval-запросы (например, от
-    /// субагента и основного цикла) сериализуются, а не дерутся за stdin.
-    prompt_lock: tokio::sync::Mutex<()>,
-}
-
-#[async_trait]
-impl ApprovalTransport for TerminalApprovalTransport {
-    fn can_request_approval(&self) -> bool {
-        self.enabled
-    }
-
-    async fn request_approval(&self, request: ApprovalRequest) -> Result<ApprovalResponse> {
-        if !self.enabled {
-            return Ok(ApprovalResponse::deny(format!(
-                "approval transport is not interactive: {}",
-                request.reason
-            )));
-        }
-
-        let _guard = self.prompt_lock.lock().await;
-        let args = request.call.args.to_string();
-        let args = if args.chars().count() > 500 {
-            format!("{}...", args.chars().take(500).collect::<String>())
-        } else {
-            args
-        };
-        eprintln!();
-        eprintln!("Approval requested");
-        if let Some(label) = request
-            .origin
-            .as_ref()
-            .and_then(|origin| origin.label.as_deref())
-        {
-            eprintln!("from: subagent '{label}'");
-        }
-        eprintln!("tool: {}", request.call.name);
-        eprintln!("cwd: {}", request.cwd.display());
-        eprintln!("reason: {}", request.reason);
-        if let Some(spec) = &request.tool_spec {
-            eprintln!("safety: {:?}", spec.safety);
-        }
-        eprintln!("args: {args}");
-        eprint!("Approve this tool call? [y/N] ");
-        io::stderr().flush()?;
-
-        let mut answer = String::new();
-        io::stdin().read_line(&mut answer)?;
-        let approved = matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes");
-        if approved {
-            Ok(ApprovalResponse::approve())
-        } else {
-            Ok(ApprovalResponse::deny(format!(
-                "tool call was not approved: {}",
-                request.reason
-            )))
-        }
-    }
-}
-
 /// Реализует slash-команду `/remember KIND TEXT` в REPL.
 ///
 /// Парсинг: первое слово — `kind` (`preference` или `fact`). Остальное —
 /// `content`. Если первое слово не валидный kind, всё идёт как `fact`
 /// content. Это удобный shortcut: `/remember project uses pnpm` просто
 /// работает как fact.
-async fn handle_remember(runtime: &AgentRuntime, rest: &str) -> Result<String> {
+async fn handle_remember(client: &mut CliAppClient, rest: &str) -> Result<String> {
     let trimmed = rest.trim();
     if trimmed.is_empty() {
         bail!("usage: /remember [preference|fact] <content>");
@@ -593,13 +511,13 @@ async fn handle_remember(runtime: &AgentRuntime, rest: &str) -> Result<String> {
     if content.is_empty() {
         bail!("/remember: content is empty");
     }
-    let item = proteus_contracts::domain::MemoryItem::new(&kind, &content, serde_json::Value::Null);
-    runtime.remember(item, CancellationToken::new()).await?;
-    Ok(format!("stored ({kind}): {content}"))
+    let result = client.remember(kind, content).await?;
+    Ok(format!("stored ({}): {}", result.kind, result.content))
 }
 
-async fn run_repl(runtime: AgentRuntime, config: AppConfig, cwd: PathBuf) -> Result<()> {
-    println!("{}", repl_header(&config, &cwd, runtime.session_dir())?);
+async fn run_repl(client: &mut CliAppClient) -> Result<()> {
+    let config = client.config_summary().await?;
+    println!("{}", repl_header(&config)?);
     let tty_composer = io::stdin().is_terminal() && io::stdout().is_terminal();
     let mut footer = initial_footer(&config)?;
 
@@ -624,17 +542,15 @@ async fn run_repl(runtime: AgentRuntime, config: AppConfig, cwd: PathBuf) -> Res
         match input {
             "/exit" | "/quit" => break,
             "/clear" | "/reset" => {
-                runtime.clear_history().await?;
+                client.clear_history().await?;
                 println!("{}", small_block("state", &["history cleared".to_owned()]));
                 continue;
             }
             "/history" => {
+                let history = client.history_summary().await?;
                 println!(
                     "{}",
-                    small_block(
-                        "history",
-                        &[format!("messages: {}", runtime.history_len().await)]
-                    )
+                    small_block("history", &[format!("messages: {}", history.messages)])
                 );
                 continue;
             }
@@ -660,7 +576,7 @@ async fn run_repl(runtime: AgentRuntime, config: AppConfig, cwd: PathBuf) -> Res
         }
 
         if let Some(rest) = input.strip_prefix("/remember ").map(str::trim) {
-            match handle_remember(&runtime, rest).await {
+            match handle_remember(client, rest).await {
                 Ok(message) => {
                     println!("{}", small_block("memory", &[message]));
                 }
@@ -671,7 +587,7 @@ async fn run_repl(runtime: AgentRuntime, config: AppConfig, cwd: PathBuf) -> Res
             continue;
         }
 
-        match run_with_spinner(&runtime, input.to_owned(), tty_composer).await {
+        match run_with_spinner(client, input.to_owned(), tty_composer).await {
             Ok(output) => {
                 print_assistant_output(&output.text, tty_composer).await?;
                 footer = footer_from_output(&config, &output)?;
@@ -683,30 +599,49 @@ async fn run_repl(runtime: AgentRuntime, config: AppConfig, cwd: PathBuf) -> Res
     Ok(())
 }
 
-fn repl_header(
-    config: &AppConfig,
-    cwd: &std::path::Path,
-    session_dir: Option<&std::path::Path>,
-) -> Result<String> {
-    let model = config.active_model_config()?;
+fn repl_header(config: &Value) -> Result<String> {
+    let profile = config_string(config, &["profile"])?;
+    let model = config_string(config, &["model", "label"])?;
+    let cwd = config_string(config, &["cwd"])?;
+    let modules = config
+        .get("modules")
+        .and_then(Value::as_array)
+        .map(|modules| {
+            modules
+                .iter()
+                .filter_map(|module| {
+                    Some(format!(
+                        "{}={}",
+                        module.get("slot")?.as_str()?,
+                        module.get("id")?.as_str()?
+                    ))
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .unwrap_or_default();
+    let tools = config
+        .get("tools_enabled")
+        .and_then(Value::as_array)
+        .map(|tools| {
+            tools
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default();
     let mut lines = vec![
         "Proteus REPL".to_owned(),
         "type a task, /help, or /exit".to_owned(),
-        format!("profile: {}", config.profile.name),
-        format!("model: {}/{}", model.provider, model.model),
-        format!("cwd: {}", cwd.display()),
-        format!(
-            "modules: workflow={} context={} memory={} search={} renderer={}",
-            config.modules.workflow.as_deref().unwrap_or("<absent>"),
-            config.modules.context.as_deref().unwrap_or("<absent>"),
-            config.modules.memory.as_deref().unwrap_or("<absent>"),
-            config.modules.search.as_deref().unwrap_or("<absent>"),
-            config.modules.renderer.as_deref().unwrap_or("<absent>")
-        ),
-        format!("tools: {}", config.tools.enabled.join(", ")),
+        format!("profile: {profile}"),
+        format!("model: {model}"),
+        format!("cwd: {cwd}"),
+        format!("modules: {modules}"),
+        format!("tools: {tools}"),
     ];
-    if let Some(session_dir) = session_dir {
-        lines.push(format!("session: {}", session_dir.display()));
+    if let Some(session_dir) = config.get("session_dir").and_then(Value::as_str) {
+        lines.push(format!("session: {session_dir}"));
     }
     Ok(small_block("Proteus", &lines))
 }
@@ -741,11 +676,11 @@ fn assistant_output(rendered: &str) -> String {
 }
 
 async fn run_with_spinner(
-    runtime: &AgentRuntime,
+    client: &mut CliAppClient,
     input: String,
     tty_composer: bool,
 ) -> Result<AgentOutput> {
-    let run = runtime.run(input);
+    let run = client.send(input);
     tokio::pin!(run);
 
     if !tty_composer {
@@ -837,15 +772,14 @@ fn composer_width(footer: &str) -> usize {
     footer.chars().count().max(72)
 }
 
-fn initial_footer(config: &AppConfig) -> Result<String> {
-    let model = config.active_model_config()?;
+fn initial_footer(config: &Value) -> Result<String> {
+    let model = config_string(config, &["model", "label"])?;
     Ok(format!(
-        "? for shortcuts    model {}/{} · Context waiting",
-        model.provider, model.model
+        "? for shortcuts    model {model} · Context waiting"
     ))
 }
 
-fn footer_from_output(config: &AppConfig, output: &AgentOutput) -> Result<String> {
+fn footer_from_output(config: &Value, output: &AgentOutput) -> Result<String> {
     let model = footer_model(config, output)?;
     let context = footer_context(output);
     let session = output
@@ -859,7 +793,7 @@ fn footer_from_output(config: &AppConfig, output: &AgentOutput) -> Result<String
     ))
 }
 
-fn footer_model(config: &AppConfig, output: &AgentOutput) -> Result<String> {
+fn footer_model(config: &Value, output: &AgentOutput) -> Result<String> {
     if let Some(model) = output.metadata.get("model") {
         let provider = model.get("provider").and_then(Value::as_str);
         let name = model
@@ -874,8 +808,22 @@ fn footer_model(config: &AppConfig, output: &AgentOutput) -> Result<String> {
         }
     }
 
-    let model = config.active_model_config()?;
-    Ok(format!("model {}/{}", model.provider, model.model))
+    Ok(format!(
+        "model {}",
+        config_string(config, &["model", "label"])?
+    ))
+}
+
+fn config_string<'a>(config: &'a Value, path: &[&str]) -> Result<&'a str> {
+    let mut value = config;
+    for segment in path {
+        value = value
+            .get(*segment)
+            .ok_or_else(|| anyhow::anyhow!("app-server config is missing {segment}"))?;
+    }
+    value.as_str().ok_or_else(|| {
+        anyhow::anyhow!("app-server config field {} is not a string", path.join("."))
+    })
 }
 
 fn footer_context(output: &AgentOutput) -> String {

@@ -78,6 +78,12 @@ cargo run -- server http --port 8787
 
 `server stdio` читает JSONL-команды из stdin и пишет JSONL-события/ответы в stdout. Это транспортный слой в `crates/proteus-core/src/app_server/stdio.rs` поверх `crates/proteus-core/src/app_server.rs`, а не новая runtime-логика.
 Без флагов `server stdio` возобновляет последнюю workspace session; `--new-session` принудительно стартует свежую (так subagent process runner запускает детей), `--resume-session <dir>` возобновляет конкретную. Флаги взаимоисключающие.
+Обычный one-shot и line-oriented REPL сами запускают локальный
+`server stdio`: product turns больше не строят `AgentRuntime` в CLI. Финальный
+`AgentOutput`, progress, approval и typed user-input проходят JSONL protocol,
+а терминальное форматирование принадлежит клиенту. Для сохранения прежней
+session-семантики product client запускает свежую session, если пользователь
+явно не передал `--resume-session`.
 `server http` поднимает HTTP/SSE transport в
 `crates/proteus-core/src/app_server/http.rs` поверх той же границы. Loopback
 может работать без token для local debug; любой non-loopback bind без непустого
@@ -95,9 +101,11 @@ token отклоняется до запуска runtime и bind.
 /quit
 ```
 
-`/history` показывает длину in-memory history. `/clear` и `/reset` очищают live
-history projection и, если подключён `SessionStore`, append-ят canonical empty
-replacement в journal. `/remember` запускает отдельную top-level execution,
+`/history` отправляет typed `history_summary` и показывает длину in-memory
+history. `/clear` и `/reset` отправляют `clear_history`, очищают live history
+projection и, если подключён `SessionStore`, append-ят canonical empty
+replacement в journal. `/remember` отправляет typed `remember` и запускает
+отдельную top-level execution на стороне app-server,
 атомарно bind-ит выбранный `MemoryStore` через `BoundMemory` и минует Workflow —
 это explicit direct-user operation для ручных preferences/facts; первое слово
 интерпретируется как kind (`preference` или `fact`), остаток идёт как content.

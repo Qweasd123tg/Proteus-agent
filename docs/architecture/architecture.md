@@ -29,13 +29,13 @@ failure semantics по `slot/contract_version`. `module_id`, язык worker-а 
 
 ```text
 Application / Client
-   |                    |
-   v                    v
-AppServer HTTP/stdio  direct CLI/REPL (current)
-   |                    |
-   +----------+---------+
-              |
-              v
+   |
+   | web/Inspector: HTTP/SSE
+   | product CLI/REPL and AgentControl peers: stdio JSONL
+   v
+AppServer HTTP/stdio
+   |
+   v
 AgentRuntime
           |-- typed execute_tool -> private admission -> BoundTools
           `-- Turn path
@@ -73,9 +73,12 @@ process adapters -> ComponentBroker -> InvocationRef tree
 external component processes
 ```
 
-- UI и CLI создают запросы, но не реализуют agent loop. Product web-клиент
-  работает через AppServer; direct CLI/REPL пока является отдельным текущим
-  entrypoint в `AgentRuntime`.
+- UI и CLI создают запросы, но не реализуют agent loop. Product CLI/REPL
+  запускает локальный `server stdio` и выполняет turns, approvals, typed user
+  input, history reset и `/remember` через canonical
+  `StdioRequest`/`StdioOutput`; прямого product entrypoint в `AgentRuntime`
+  больше нет. Operational/diagnostic команды не исполняют пользовательский
+  turn и остаются отдельной CLI-поверхностью.
 - `AssemblyPlan` один раз разворачивает config в точные slot selections,
   components, export authority и preflight checks; workers при этом не
   запускаются.

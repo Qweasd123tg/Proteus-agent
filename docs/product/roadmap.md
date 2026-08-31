@@ -1335,10 +1335,12 @@ authenticated attach и persistence/reconnect. Они не входят в да�
    поверхность — выполнено 2026-08-31; concrete stubs также скрыты, итоговый
    rustdoc inventory сокращён с 214 до 156 собственных items.
 
-Renderer подтверждён как obsolete slot, но его удаление остаётся заблокировано
-product CLI/REPL cutover на app-server protocol. Replay/eval/topology и
-app-server подтверждены как живые operational/application surfaces; перенос
-или новый crate для них не обоснован.
+Product CLI/REPL cutover выполнен 2026-08-31: пользовательские turns и
+slash-команды работают через локальный `server stdio`, прямой product path к
+`AgentRuntime` удалён. Renderer подтверждён как obsolete slot и больше не
+заблокирован CLI. Replay/eval/topology и app-server подтверждены как живые
+operational/application surfaces; перенос или новый crate для них не
+обоснован.
 
 Низкоприоритетный backlog после Agent-Control Cutover. Эти пункты не являются
 critical path и выполняются только при свободном лимите или когда проявится
@@ -1354,14 +1356,15 @@ critical path и выполняются только при свободном �
   Сам аудит не требует выноса: перемещение оправдано только обнаруженной
   зависимостью, смешением authority/runtime responsibilities или повторным
   использованием за пределами Core.
-- Перевести product CLI и line-oriented REPL на app-server protocol. Клиент
+- ✅ Product CLI и line-oriented REPL переведены 2026-08-31 на app-server
+  protocol. Клиент
   может запускать локальный `server stdio` или подключаться к поддерживаемому
   transport, но turns, sessions, approvals, user input и cancellation должны
   проходить те же typed requests/events, что и у остальных приложений. Удалить
   из product path прямые `build_cli_runtime`, `AgentRuntime::run` и
   `AgentRuntime::render`; форматирование финального output и progress остаётся
   client-owned. Не дублировать в CLI app-server state или runtime semantics.
-- Отделить этот product client от operational/diagnostic CLI. `server`, `init`
+- ✅ Product client отделён 2026-08-31 от operational/diagnostic CLI. `server`, `init`
   и `doctor` остаются host/config lifecycle commands; `inspect`, replay, eval и
   development smoke surfaces могут читать внутренние topology/journal/evidence
   API, но не должны образовывать второй пользовательский turn execution path.

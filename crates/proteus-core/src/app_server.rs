@@ -63,9 +63,9 @@ use turn_progress::TurnProgress;
 pub use proteus_contracts::app_protocol::{
     AppApprovalId, AppApprovalPreview, AppApprovalRequest, AppContextBuildSnapshot,
     AppContextCompactionSnapshot, AppContextHistorySummary, AppContextMapSnapshot,
-    AppContextToolSummary, AppContextUsageCategory, AppContextUsageSnapshot, AppPendingRequests,
-    AppQueuedUserMessage, AppServerEvent, AppSessionActivity, AppSessionSummary,
-    AppUserInputRequestId, StdioOutput, StdioRequest,
+    AppContextToolSummary, AppContextUsageCategory, AppContextUsageSnapshot, AppHistorySummary,
+    AppPendingRequests, AppQueuedUserMessage, AppRememberResult, AppServerEvent,
+    AppSessionActivity, AppSessionSummary, AppUserInputRequestId, StdioOutput, StdioRequest,
 };
 
 use approvals::PendingApprovalResponders;
@@ -181,6 +181,22 @@ impl AppServerHandle {
 
     pub async fn clear_history(&self) -> Result<()> {
         self.runtime.clear_history().await
+    }
+
+    pub(crate) async fn history_summary(&self) -> AppHistorySummary {
+        AppHistorySummary::new(self.runtime.history_len().await)
+    }
+
+    pub(crate) async fn remember(
+        &self,
+        kind: String,
+        content: String,
+    ) -> Result<AppRememberResult> {
+        let item = crate::domain::MemoryItem::new(&kind, &content, Value::Null);
+        self.runtime
+            .remember(item, CancellationToken::new())
+            .await?;
+        Ok(AppRememberResult::new(kind, content))
     }
 
     pub async fn set_permission_mode(&self, mode: PermissionMode) {

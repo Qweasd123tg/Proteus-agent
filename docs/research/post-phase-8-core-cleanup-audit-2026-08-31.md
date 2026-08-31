@@ -127,12 +127,12 @@ proteus one-shot CLI
 
 App-server возвращает canonical `AgentOutput`/events и renderer не вызывает.
 Reference worker test и renderer pack покрывают process contract, но не создают
-отдельный product use case. Поэтому итоговое удаление уже определено, однако
-до product CLI cutover оно изменило бы one-shot/statusline behavior или
-потребовало бы неутверждённый replacement formatter внутри Core.
+отдельный product use case. Product CLI/REPL cutover выполнен 2026-08-31:
+клиент запускает локальный `server stdio`, все пользовательские операции идут
+через typed protocol, финальный output форматируется клиентом, а direct
+`AgentRuntime::run`/`render` path удалён.
 
-Stop-gate остаётся прежним: сначала product CLI/REPL проходят app-server
-protocol и client-owned formatting, затем одним breaking changeset удаляются
+Первый stop-gate пройден; следующим breaking changeset удаляются
 trait/process DTO, `ModuleKind`, catalog/registry/config, reference export/pack,
 tests и docs без alias. Topology renderers к этому удалению не относятся.
 
@@ -178,8 +178,10 @@ boundary. Полное сокращение требует сначала отд
 4. **Core facade visibility (выполнено 2026-08-31):** убрать glob/submodule
    leakage, public stubs и повторный export `proteus-contracts`; binary/tests
    перевести на canonical contracts без изменения behavior.
-5. **Product CLI protocol cutover:** отдельная application задача с parity
-   evidence, не «мелкая» cleanup-правка.
+5. **Product CLI protocol cutover (выполнено 2026-08-31):** one-shot и REPL
+   запускают локальный app-server stdio child; `Send`, approvals, user input,
+   clear/history и `/remember` проходят canonical wire, direct runtime path
+   запрещён structural regression-ом.
 6. **Renderer removal:** только после пункта 5, атомарно по всему slot contract.
 7. **Relocation/crate splits:** не делать без измеримой зависимости,
    authority mixing или нового реального consumer-а.

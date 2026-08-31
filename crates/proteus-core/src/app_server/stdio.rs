@@ -149,6 +149,20 @@ pub async fn run_stdio_app_server(
                 send_stdio_response(&output_tx, id, server.clear_history().await.map(|_| None))
                     .await;
             }
+            StdioRequest::HistorySummary { .. } => {
+                let result = serde_json::to_value(server.history_summary().await)
+                    .map(Some)
+                    .map_err(anyhow::Error::from);
+                send_stdio_response(&output_tx, id, result).await;
+            }
+            StdioRequest::Remember { kind, content, .. } => {
+                let result = server.remember(kind, content).await.and_then(|result| {
+                    serde_json::to_value(result)
+                        .map(Some)
+                        .map_err(anyhow::Error::from)
+                });
+                send_stdio_response(&output_tx, id, result).await;
+            }
             StdioRequest::Approval {
                 approval_id,
                 approved,
