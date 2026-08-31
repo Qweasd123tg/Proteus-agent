@@ -10,9 +10,10 @@ use crate::{
     contracts::{
         AgentControlRequest, AgentControlResult, AgentIsolation, AgentProfile, WorkspaceInfo,
     },
-    core::workspace as git_workspace,
     domain::{SessionId, ToolCall, ToolResult},
 };
+
+use super::super::workspace as git_workspace;
 
 pub(super) struct PreparedWorkspace {
     info: WorkspaceInfo,

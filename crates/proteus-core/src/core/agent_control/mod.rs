@@ -11,6 +11,7 @@ mod pending;
 mod process;
 mod task;
 mod tool_host;
+mod workspace;
 
 use std::sync::Arc;
 

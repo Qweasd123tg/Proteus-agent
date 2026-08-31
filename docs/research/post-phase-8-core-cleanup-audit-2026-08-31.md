@@ -60,7 +60,7 @@ Rustdoc дал следующее разбиение `core` public items:
 | `topology`, `topology_render` | 16 | 4 | Оставить diagnostic surface; это не `Renderer` behavior slot |
 | `user_input` | 4 | 2 | Оставить app-server/agent transport |
 | `AgentControlRuntime`, `RuntimeCompactionHost` | 2 | 2 | Оставить текущему agent host; не объявлять generic substrate |
-| `workspace` | 2 | 5 на root surface | Перенести внутрь `agent_control`; единственный production consumer — workspace lifecycle |
+| `workspace` | 2 → 0 public | 5 на прежней root surface | Перенесено внутрь `agent_control`; единственный production consumer — workspace lifecycle |
 
 ## Source Tree И Фактический Owner
 
@@ -83,7 +83,7 @@ Rustdoc дал следующее разбиение `core` public items:
 | `core/session_store.rs`, `core/session_store/**`, `core/session_journal/**` | 2/4 | Canonical durable session/journal and replay input |
 | `core/prompt_replay/**`, `core/workflow_replay/**`, `core/eval_report.rs` | 4 | Operational/evidence tooling с конкретными CLI consumers; не удалять и не переносить без нового reuse/coupling evidence |
 | `core/topology/**`, `core/topology_render/**` | 4 | Config/runtime diagnostics; не связано с behavior slot `Renderer` |
-| `core/workspace.rs` | 5 на текущем уровне | Реализация принадлежит только `agent_control/task/workspace_lifecycle`; перенести механически |
+| `core/agent_control/workspace.rs` | 2 | Перенесено к единственному consumer `agent_control/task/workspace_lifecycle` 2026-08-31 |
 | `process_adapters/**` | 2 | Internal host adapters Component Runtime v2. Public должны остаться только config DTO, пока они входят в `AppConfig` schema |
 | `stubs/**` | 3 | Host-owned structural absence и test support. Concrete stubs не public product API; часть пока удерживает CLI tool listing |
 | `tools/**` | 2 | Internal ToolRegistry providers/implementations; сделать module внутренним, contract остаётся в `proteus-contracts` |
@@ -157,8 +157,8 @@ boundary. Полное сокращение требует сначала отд
 
 1. **Dead context fields (выполнено 2026-08-31):** удалить `patch` и
    `execution_recorder` из `ExecutionContext`, обновить docs и boundary tests.
-2. **Workspace ownership:** перенести `core/workspace.rs` в
-   `core/agent_control/` без изменения поведения.
+2. **Workspace ownership (выполнено 2026-08-31):** перенести
+   `core/workspace.rs` в `core/agent_control/` без изменения поведения.
 3. **Leaf visibility:** internalize `adapters`, `tools` и concrete process
    adapters, сохранив config DTO и действующие tests.
 4. **Core facade visibility:** убрать glob/submodule leakage и повторный export

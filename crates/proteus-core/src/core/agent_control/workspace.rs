@@ -1,5 +1,4 @@
-//! Git worktree-workspace для пишущих субагентов (stage 2 параллельных
-//! субагентов).
+//! Git worktree-workspace, принадлежащий lifecycle Agent Control.
 //!
 //! Lifecycle оркестрирует policy-gated facade-tool `task`: после approval он
 //! создаёт worktree, подменяет `task.cwd` ребёнка и после завершения просит

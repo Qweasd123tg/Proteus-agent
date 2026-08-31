@@ -27,7 +27,6 @@ pub mod topology_render;
 pub mod user_input;
 pub(crate) mod workflow_host;
 pub mod workflow_replay;
-pub mod workspace;
 
 pub use agent_control::AgentControlRuntime;
 pub use approval::*;

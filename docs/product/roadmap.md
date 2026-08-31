@@ -1327,7 +1327,8 @@ authenticated attach и persistence/reconnect. Они не входят в да�
 
 1. ✅ удалить неиспользуемые `ExecutionContext.patch` и
    `ExecutionContext.execution_recorder` — выполнено 2026-08-31;
-2. перенести `core/workspace.rs` к единственному owner-у в `agent_control`;
+2. ✅ перенести `core/workspace.rs` к единственному owner-у в `agent_control`
+   — выполнено 2026-08-31;
 3. сузить leaf visibility (`adapters`, `tools`, concrete process adapters),
    сохранив config DTO;
 4. заменить broad `core` glob/submodule exports и повторный export
@@ -1343,10 +1344,11 @@ app-server подтверждены как живые operational/application su
 critical path и выполняются только при свободном лимите или когда проявится
 измеримая проблема в соответствующей границе.
 
-- Перенести реализацию Git worktree из `core/workspace.rs` внутрь
-  `core/agent_control/`: сейчас её использует только lifecycle agent-control,
-  поэтому отдельная root-owned поверхность не отражает фактического владельца.
-  Это должен быть перенос без нового поведения и без публичного workspace slot.
+- ✅ Реализация Git worktree перенесена из `core/workspace.rs` в
+  `core/agent_control/workspace.rs` 2026-08-31: её использует только lifecycle
+  agent-control, поэтому отдельная root-owned поверхность не отражала
+  фактического владельца. Перенос не добавил нового поведения или публичного
+  workspace slot.
 - Проверить ownership `prompt_replay`, `workflow_replay`, `eval_report` и
   topology rendering при следующем содержательном изменении этих поверхностей.
   Сам аудит не требует выноса: перемещение оправдано только обнаруженной
