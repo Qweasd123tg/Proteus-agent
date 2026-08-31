@@ -9,10 +9,9 @@ use proteus_contracts::{
         ProcessContextResponse, ProcessMemoryRecallInput, ProcessMemoryRecallResponse,
         ProcessMemoryRememberInput, ProcessMemoryRememberResponse, ProcessPatchInput,
         ProcessPatchResponse, ProcessPolicyEvaluateInput, ProcessPolicyResponse,
-        ProcessPolicyVisibilityInput, ProcessRendererInput, ProcessRendererResponse,
-        ProcessSearchResponse, ProcessToolExposureInput, ProcessToolExposureResponse,
-        ProcessToolInvokeInput, ProcessToolInvokeResponse, ProcessToolListResponse,
-        ProcessWorkflowInput, ProcessWorkflowResponse, WorkflowOutput,
+        ProcessPolicyVisibilityInput, ProcessSearchResponse, ProcessToolExposureInput,
+        ProcessToolExposureResponse, ProcessToolInvokeInput, ProcessToolInvokeResponse,
+        ProcessToolListResponse, ProcessWorkflowInput, ProcessWorkflowResponse, WorkflowOutput,
     },
     domain::ToolSpec,
     process_module::{
@@ -97,7 +96,6 @@ impl ExportWorker {
             "patch" => self.patch(params),
             "policy" => self.policy(method, params),
             "tool_exposure" => self.tool_exposure(params),
-            "renderer" => self.renderer(params),
             "context" => self.context(params, bridge),
             "context_provider" => self.context_provider(params),
             "compactor" => self.compactor(params, bridge),
@@ -265,17 +263,6 @@ impl ExportWorker {
         encode(ProcessToolExposureResponse::new(serde_json::from_str(
             output.as_str(),
         )?))
-    }
-
-    fn renderer(&self, params: Value) -> Result<Value> {
-        let input: ProcessRendererInput = decode(params)?;
-        let renderer = self
-            .modules
-            .renderers
-            .get(&self.binding.module_id)
-            .ok_or_else(|| anyhow!("renderer module was not registered"))?;
-        let output = renderer.render_json(serde_json::to_string(&input.output)?)?;
-        encode(ProcessRendererResponse::new(output))
     }
 
     fn context(&self, params: Value, bridge: &HostBridge) -> Result<Value> {

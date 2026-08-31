@@ -49,7 +49,6 @@ native loader в проекте отсутствуют.
 | `patch` | `select_one` | `modules.patch` | да | `direct` |
 | `compactor` | `select_one` | `modules.compactor` | да | `codex` |
 | `tool_exposure` | `select_one` | `modules.tool_exposure` | да | `codex_dynamic` |
-| `renderer` | `select_one` | `modules.renderer` | да | `statusline` |
 | `tool` | `ordered_many` | exports + `tools.enabled` | да | `reference.tools` и узкие selectors |
 | `context_provider` | `ordered_many` | exports + context config | да | `skills` |
 | `model` | `select_one` | active provider profile | пока core-owned | `fake`, `openai`, `openai_compatible`, `anthropic` |
@@ -180,11 +179,6 @@ Python example не использует callback, но имеет ту же aut
 Выбирает подмножество уже policy-visible tools. Если module не выбран, host
 передаёт все policy-visible candidates; это structural behavior, не
 `all_visible` module.
-
-### Renderer
-
-Преобразует final `AgentOutput` в строку. Отсутствие selection использует
-host text projection, которая не считается catalog module.
 
 ### Tool
 

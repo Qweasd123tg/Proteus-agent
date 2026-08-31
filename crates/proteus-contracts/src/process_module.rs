@@ -264,23 +264,12 @@ pub trait WorkflowModule: Send + Sync + 'static {
 
 pub type WorkflowModuleObject = Box<dyn WorkflowModule>;
 
-pub trait RendererModule: Send + Sync + 'static {
-    fn render_json(&self, output_json: String) -> ProcessModuleResult<String>;
-}
-
-pub type RendererModuleObject = Box<dyn RendererModule>;
-
 /// Link-time registry used only to assemble one process worker executable.
 /// It does not cross the host boundary and grants no runtime capabilities.
 pub trait ModuleRegistry {
     /// Opaque config received in the process initialize handshake.
     fn module_config(&self) -> &serde_json::Value;
 
-    fn register_renderer(
-        &mut self,
-        module_id: String,
-        renderer: RendererModuleObject,
-    ) -> ProcessModuleResult<()>;
     fn register_tool(&mut self, tool: ToolModuleObject) -> ProcessModuleResult<()>;
     fn register_policy(
         &mut self,

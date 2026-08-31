@@ -69,8 +69,7 @@ exposure, workflow, approval, memory, compaction, storage, model capabilities и
    реализации не считаются.
 2. Поведение не выражается существующими `Tool`, `Workflow`,
    `ContextBuilder`, `ToolExposure`, `SearchBackend`, `MemoryStore`,
-   `ApprovalPolicy`, `PatchApplier`, `Compactor`, `Renderer` или
-   `Model`.
+   `ApprovalPolicy`, `PatchApplier`, `Compactor` или `Model`.
 3. Core обязан вызывать это место сам на стабильной точке lifecycle. Если код
    может быть обычным tool-ом, workflow step-ом или context provider-ом, новый
    slot не нужен.
@@ -117,7 +116,7 @@ session mutation, не принимается автоматически тол�
 | Нужно решить `allow` / `ask` / `deny`? | `ApprovalPolicy` / approval transport |
 | Нужно применить edit/patch? | `PatchApplier` или `Tool` поверх него |
 | Нужно изменить provider request/streaming/usage? | `Model` / model standard |
-| Нужно показать debug/UX? | app-server protocol, UI client или `Renderer` |
+| Нужно показать debug/UX? | app-server protocol или UI/CLI client |
 | Несколько независимых обработчиков должны последовательно менять один DTO? | кандидат на `ordered_many` contract; сначала два simultaneous use cases и chain semantics |
 | Нужно обработать tool result перед возвратом модели? | Пока research: кандидат на generic `ToolResultProcessor`, не feature-specific slot |
 | Нужно складывать большие файлы/артефакты? | Пока research: кандидат на generic `ArtifactStore`, не Cursor-specific slot |
@@ -170,7 +169,6 @@ quality baseline profile
   policy         = "exec_rules"
   patch          = "verified"
   tool_exposure  = "deferred_tools"
-  renderer       = "statusline"
 ```
 
 Такой profile может брать отдельные проверенные паттерны из чужих agent-ов, но

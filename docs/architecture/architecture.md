@@ -156,8 +156,10 @@ client user input
 `SessionSteering`. Queued receipt вместо нового run возвращает исходный
 `request_id` и отдельно может содержать настоящий `active_turn_id`.
 
-Direct `AgentRuntime::run` сначала берёт `run_lock`, затем делает reservation;
-после неё оба entrypoints проходят общий `run_reserved_chain`/`run_one_turn`.
+Внутренний `AgentRuntime::run` сначала берёт `run_lock`, затем делает
+reservation; после неё app-server и runtime tests проходят общий
+`run_reserved_chain`/`run_one_turn`. Product clients эту Rust surface напрямую
+не вызывают.
 
 `TurnOpened` пишется до `TurnStarted`, а accepted user message — после
 `TurnStarted`, но до вызова Workflow. Поэтому принятый prompt переживает
@@ -169,9 +171,8 @@ Direct `AgentRuntime::run` сначала берёт `run_lock`, затем де
 Reference coding workflows испускают `TaskReceived`, model/context события и
 `TurnFinished` как часть controller behavior. Canonical terminal lifecycle
 Core — это `TurnSettled`; `TurnFinished` не заменяет settlement и не появляется
-на каждом failure path. Direct CLI после `AgentRuntime::run` дополнительно
-вызывает текущий `Renderer`; AppServer возвращает canonical `AgentOutput` и
-events напрямую и Renderer не вызывает.
+на каждом failure path. AppServer возвращает canonical `AgentOutput` и events,
+а финальное представление принадлежит клиенту.
 
 Process Workflow получает только callbacks, перечисленные contract authority.
 Tool callback не исполняет команду напрямую: он возвращается в Core и проходит
@@ -564,7 +565,7 @@ composition(contract) = select_one | ordered_many
 ```
 
 `workflow`, `search`, `memory`, `context`, `policy`, `patch`,
-`compactor`, `tool_exposure` и `renderer` используют `select_one`.
+`compactor` и `tool_exposure` используют `select_one`.
 `tool` и `context_provider` используют `ordered_many`.
 
 Worker не может объявить новый composition mode или произвольный hook.
@@ -607,7 +608,6 @@ Module config остаётся opaque JSON object для реализации. C
 - compaction не меняет history;
 - policy закрывает исполнение;
 - workflow не может выполнить turn;
-- renderer использует host text projection;
 - tool exposure пропускает все policy-visible candidates;
 
 Эти structural objects не входят в catalog, не отображаются как modules и не

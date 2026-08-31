@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     contracts::ExecutionAttribution,
     domain::{
-        AgentOutput, AgentTask, ContextBundle, ContextChunk, MemoryItem, MemoryQuery, Patch,
-        PatchResult, PolicyDecision, ToolCall, ToolResult, ToolSpec,
+        AgentTask, ContextBundle, ContextChunk, MemoryItem, MemoryQuery, Patch, PatchResult,
+        PolicyDecision, ToolCall, ToolResult, ToolSpec,
     },
 };
 
@@ -30,9 +30,6 @@ pub const PROCESS_TOOL_EXPOSURE_SELECT_METHOD: &str = "select";
 pub const PROCESS_POLICY_CONTRACT_VERSION: &str = "v1";
 pub const PROCESS_POLICY_EVALUATE_METHOD: &str = "evaluate";
 pub const PROCESS_POLICY_VISIBILITY_METHOD: &str = "evaluate_visibility";
-
-pub const PROCESS_RENDERER_CONTRACT_VERSION: &str = "v1";
-pub const PROCESS_RENDERER_RENDER_METHOD: &str = "render";
 
 pub const PROCESS_CONTEXT_CONTRACT_VERSION: &str = "v1";
 pub const PROCESS_CONTEXT_BUILD_METHOD: &str = "build";
@@ -107,12 +104,6 @@ pub struct ProcessPolicyVisibilityInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct ProcessRendererInput {
-    pub output: AgentOutput,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct ProcessContextInput {
     pub task: AgentTask,
 }
@@ -151,7 +142,6 @@ pub type ProcessMemoryRecallResponse = ProcessModuleResponse<Vec<MemoryItem>>;
 pub type ProcessPatchResponse = ProcessModuleResponse<PatchResult>;
 pub type ProcessToolExposureResponse = ProcessModuleResponse<super::ToolExposureOutput>;
 pub type ProcessPolicyResponse = ProcessModuleResponse<PolicyDecision>;
-pub type ProcessRendererResponse = ProcessModuleResponse<String>;
 pub type ProcessContextResponse = ProcessModuleResponse<ContextBundle>;
 pub type ProcessContextChunksResponse = ProcessModuleResponse<Vec<ContextChunk>>;
 pub type ProcessToolListResponse = ProcessModuleResponse<Vec<ToolSpec>>;
@@ -165,9 +155,9 @@ mod tests {
 
     #[test]
     fn response_envelope_rejects_old_bare_values_and_unknown_fields() {
-        serde_json::from_value::<ProcessRendererResponse>(serde_json::json!("hello"))
+        serde_json::from_value::<ProcessModuleResponse<String>>(serde_json::json!("hello"))
             .expect_err("bare result must be rejected");
-        serde_json::from_value::<ProcessRendererResponse>(serde_json::json!({
+        serde_json::from_value::<ProcessModuleResponse<String>>(serde_json::json!({
             "result": "hello",
             "legacy": true
         }))

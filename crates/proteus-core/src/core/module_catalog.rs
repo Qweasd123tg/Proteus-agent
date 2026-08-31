@@ -8,7 +8,7 @@ mod components;
 use crate::{
     contracts::{
         ApprovalPolicy, ContextBuilder, HistoryCompactor, MemoryStore, Model, PatchApplier,
-        Renderer, SearchBackend, ToolExposure, ToolRegistry, Workflow, register_provider_tools,
+        SearchBackend, ToolExposure, ToolRegistry, Workflow, register_provider_tools,
     },
     core::{AppConfig, ModelConfig, RepoAwareContextProvider},
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
@@ -335,14 +335,6 @@ impl ModuleCatalog {
         ctx: &ModuleBuildContext<'_>,
     ) -> Result<Arc<dyn Workflow>> {
         self.build_typed::<dyn Workflow>(slot::WORKFLOW, module, &ModuleBuildInput::Module(ctx))
-    }
-
-    pub(crate) fn build_renderer(
-        &self,
-        module: &str,
-        ctx: &ModuleBuildContext<'_>,
-    ) -> Result<Arc<dyn Renderer>> {
-        self.build_typed::<dyn Renderer>(slot::RENDERER, module, &ModuleBuildInput::Module(ctx))
     }
 
     /// Builds the configured tool surface for operational inspection without

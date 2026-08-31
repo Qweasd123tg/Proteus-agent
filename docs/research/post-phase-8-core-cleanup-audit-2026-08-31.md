@@ -50,6 +50,12 @@ context, facade slot или compatibility reader.
 `stubs`, concrete process adapters и root `workspace` больше public surface
 не создают; повторный export `proteus-contracts` удалён полностью.
 
+После CLI protocol cutover и удаления `Renderer` итоговый inventory содержит
+159 items: 122 в `core`, 35 в app-server facade и 2 config DTO в
+`process_adapters`. Удалённый behavior slot не оставил public item, config key
+или process authority; topology render functions остаются отдельной живой
+diagnostic surface.
+
 Rustdoc дал следующее разбиение `core` public items:
 
 | Семейство | Items | Категория | Решение |
@@ -115,8 +121,8 @@ patch authority, process protocol или tool safety path.
 
 ## Renderer
 
-`Renderer` относится к категории 5, но **не может быть первым changeset**.
-Source подтверждает один production consumer:
+`Renderer` относился к категории 5. До CLI cutover source подтверждал один
+production consumer:
 
 ```text
 proteus one-shot CLI
@@ -125,16 +131,18 @@ proteus one-shot CLI
   -> RuntimeRegistry.renderer
 ```
 
-App-server возвращает canonical `AgentOutput`/events и renderer не вызывает.
-Reference worker test и renderer pack покрывают process contract, но не создают
-отдельный product use case. Product CLI/REPL cutover выполнен 2026-08-31:
+App-server возвращал canonical `AgentOutput`/events и renderer не вызывал.
+Reference worker test и renderer pack покрывали process contract, но не
+создавали отдельный product use case. Product CLI/REPL cutover выполнен
+2026-08-31:
 клиент запускает локальный `server stdio`, все пользовательские операции идут
 через typed protocol, финальный output форматируется клиентом, а direct
 `AgentRuntime::run`/`render` path удалён.
 
-Первый stop-gate пройден; следующим breaking changeset удаляются
-trait/process DTO, `ModuleKind`, catalog/registry/config, reference export/pack,
-tests и docs без alias. Topology renderers к этому удалению не относятся.
+После stop-gate отдельным breaking changeset удалены trait/process DTO,
+`ModuleKind`, authority/catalog/registry/config wiring, reference export/pack,
+tests и tracked selections без alias. Финальное представление стало
+client-owned; topology renderers к этому удалению не относятся.
 
 ## Public Surface
 
@@ -182,7 +190,8 @@ boundary. Полное сокращение требует сначала отд
    запускают локальный app-server stdio child; `Send`, approvals, user input,
    clear/history и `/remember` проходят canonical wire, direct runtime path
    запрещён structural regression-ом.
-6. **Renderer removal:** только после пункта 5, атомарно по всему slot contract.
+6. **Renderer removal (выполнено 2026-08-31):** после пункта 5 атомарно удалён
+   весь slot contract, runtime/config wiring и reference implementation.
 7. **Relocation/crate splits:** не делать без измеримой зависимости,
    authority mixing или нового реального consumer-а.
 

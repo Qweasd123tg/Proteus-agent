@@ -88,7 +88,6 @@ fn assert_separate_slot_authority(config: &AppConfig) {
             "patch",
             "compactor",
             "tool_exposure",
-            "renderer",
             "tool",
         ])
     );
@@ -219,12 +218,10 @@ async fn one_component_profile_preserves_pid_authority_cancellation_and_journal_
             .text
             .contains("P4 tool call stayed in the shared component")
     );
-    let rendered = runtime.render(&output).await.expect("process renderer");
-    assert!(rendered.contains("P4 tool call stayed in the shared component"));
     assert_eq!(
         recorded_pids(&marker),
         [live_pid],
-        "cancel, sibling, full turn and renderer must keep one generation/PID"
+        "cancel, sibling and full turn must keep one generation/PID"
     );
 
     let session_dir = runtime.session_dir().expect("session dir").to_path_buf();

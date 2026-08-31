@@ -10,7 +10,6 @@ context = "repo_aware"
 policy = "ask_write"
 patch = "direct"
 compactor = "codex"
-renderer = "statusline"
 
 [components.reference-workflow]
 command = "proteus-reference-worker"
@@ -34,8 +33,6 @@ command = "proteus-reference-worker"
 [components.reference-capabilities.exports.patch.direct]
 
 [components.reference-capabilities.exports.compactor.codex]
-
-[components.reference-capabilities.exports.renderer.statusline]
 
 [components.reference-capabilities.exports.tool."reference.tools"]
 

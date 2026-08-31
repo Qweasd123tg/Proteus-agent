@@ -1,11 +1,11 @@
 # Общий Codex-shaped runtime для tracked codex/glm профилей и `proteus init
 # codex`. Это config fragment, а не самостоятельный профиль или standard pack:
-# provider, profile-specific policy/context и renderer selection задаёт overlay.
+# provider и profile-specific policy/context задаёт overlay.
 
 # Base prompt: адаптированный upstream Codex base prompt из
 # codex-rs/protocol/src/prompts/base_instructions/default.md на commit
 # 2cf2a6a844f1fc2ddd489c8a67fa8bc2f59a6f3d. Harness-dependent divergence:
-# identity/renderer говорят Proteus/client вместо Codex CLI; proxy-safe
+# identity говорит Proteus/client вместо Codex CLI; proxy-safe
 # apply_patch остаётся function tool; permission-режимы названы auto/normal;
 # добавлены фактическая per-command sandbox/netns семантика и предпочтение
 # structured read/search tools.

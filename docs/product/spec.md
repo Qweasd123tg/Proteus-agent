@@ -56,12 +56,12 @@ protocol.
 чужого CLI и без повторной хирургии после каждого upstream release. Если новая
 статья, прототип или документация описывает полезный метод, он должен
 превращаться в module implementation существующего slot или в новый явно
-описанный contract. Если для внедрения нужно одновременно править core, CLI,
-workflow и renderer, граница проекта слабая.
+описанный contract. Если для внедрения нужно одновременно править core, client
+и workflow, граница проекта слабая.
 
 Например, новая идея может оказаться module implementation для context,
-workflow, tool, renderer, memory store или model adapter. Debug/visibility
-часть такой идеи должна идти через renderer или app-server boundary, а не
+workflow, tool, memory store или model adapter. Debug/visibility часть такой
+идеи должна идти через app-server boundary и client projection, а не
 привязывать core к конкретному алгоритму.
 
 ## Не-Цели
@@ -107,7 +107,7 @@ domain DTO -> contract trait -> module implementation
 runtime -> concrete search
 workflow -> concrete model provider
 tool -> concrete approval UI
-renderer -> workflow internals
+client -> workflow internals
 ```
 
 Одинаковые понятия в разных слоях имеют разные роли:
@@ -137,7 +137,6 @@ renderer -> workflow internals
 | Compactor | предлагает сокращённую request-time history; runtime решает persistence |
 | Tool Exposure | subset policy-visible tools для конкретного model request |
 | Workflow | ход agent loop |
-| Renderer | финальный вывод |
 
 Текущие ids и config keys находятся в `modules.md` и `configuration.md`.
 Subagent lifecycle сюда не входит: это root-owned `AgentControl` между полными
@@ -295,8 +294,8 @@ path CLI smoke test.
    catalog;
 5. если не хватает, сначала добавить минимальный contract и test boundary;
 6. добавить config example и swap test;
-7. добавить debug/visibility через renderer или app-server boundary, а не через
-   прямую зависимость core от конкретного алгоритма.
+7. добавить debug/visibility через app-server boundary и client projection, а
+   не через прямую зависимость core от конкретного алгоритма.
 
 Ожидаемый результат: новый метод можно включить конфигом, например
 `modules.context = "dynamic_cursor_like"`, не переписывая runtime.
@@ -370,7 +369,7 @@ module system.
 - memory -> `MemoryStore` + explicit tools/workflow;
 - tools -> `Tool` / `ToolProvider` / `ToolRegistry`;
 - approval -> `ApprovalPolicy` / `ApprovalTransport`;
-- output -> `Renderer`;
+- output/events -> app-server protocol -> client projection;
 - agent loop -> `Workflow`.
 
 Если идея требует прямого импорта конкретной реализации в core, это сигнал, что

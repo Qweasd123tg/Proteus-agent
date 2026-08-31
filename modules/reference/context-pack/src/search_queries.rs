@@ -49,7 +49,6 @@ const REPO_SEARCH_ALLOWLIST: &[&str] = &[
     "module",
     "policy",
     "provider",
-    "renderer",
     "runtime",
     "search",
     "session",

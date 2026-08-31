@@ -9,7 +9,6 @@ mod no_memory;
 mod no_workflow;
 mod null_patch;
 mod null_search;
-mod text_renderer;
 mod unfiltered_tool_exposure;
 
 pub use deny_all_policy::*;
@@ -20,5 +19,4 @@ pub use no_memory::*;
 pub use no_workflow::*;
 pub use null_patch::*;
 pub use null_search::*;
-pub use text_renderer::*;
 pub use unfiltered_tool_exposure::*;

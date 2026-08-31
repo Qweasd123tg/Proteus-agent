@@ -5,8 +5,8 @@ use anyhow::Result;
 use crate::{
     contracts::{
         AgentControl, AgentWorkflowContext, ApprovalPolicy, ContextBuilder, EventEmitter,
-        ExecutionContext, HistoryCompactor, MemoryStore, Model, PatchApplier, Renderer,
-        SearchBackend, ToolExposure, ToolRegistry, UserInputTransport, Workflow,
+        ExecutionContext, HistoryCompactor, MemoryStore, Model, PatchApplier, SearchBackend,
+        ToolExposure, ToolRegistry, UserInputTransport, Workflow,
     },
     core::{
         AgentControlRuntime, AppConfig, AssemblyPlan, BoundModel, ModeAwarePolicy,
@@ -16,7 +16,7 @@ use crate::{
     domain::{ModelRef, ReasoningConfig, SessionId, ThreadId, TurnId},
     stubs::{
         DenyAllPolicy, EmptyContextBuilder, NoCompactor, NoMemory, NoWorkflow, NullPatchApplier,
-        NullSearch, TextRenderer, UnfilteredToolExposure,
+        NullSearch, UnfilteredToolExposure,
     },
 };
 
@@ -36,7 +36,6 @@ pub struct RuntimeRegistry {
     pub tool_exposure: Arc<dyn ToolExposure>,
     pub agent_control: Option<Arc<dyn AgentControl>>,
     pub workflow: Arc<dyn Workflow>,
-    pub renderer: Arc<dyn Renderer>,
 }
 
 impl RuntimeRegistry {
@@ -117,12 +116,6 @@ impl RuntimeRegistry {
             Some(id) => catalog.build_workflow(id, &build_ctx)?,
             None => Arc::new(NoWorkflow),
         };
-        let renderer: Arc<dyn Renderer> = match plan.module_id(crate::domain::ModuleKind::Renderer)
-        {
-            Some(id) => catalog.build_renderer(id, &build_ctx)?,
-            None => Arc::new(TextRenderer),
-        };
-
         Ok(Self {
             model_config,
             runtime_config: config.runtime.clone(),
@@ -138,7 +131,6 @@ impl RuntimeRegistry {
             tool_exposure,
             agent_control,
             workflow,
-            renderer,
         })
     }
 

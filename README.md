@@ -11,7 +11,7 @@ Core -> Contract -> Process Component Export
 стабильности wire/config/storage форматов.
 
 Core управляет turn lifecycle, canonical history, approvals и wiring. Поиск,
-память, context, policy, patch, compaction, tool exposure, workflow, renderer и
+память, context, policy, patch, compaction, tool exposure, workflow и
 tools подключаются как exports внешних компонентов по strict JSON-RPC
 component protocol v3. Версии slot contracts пока остаются `v1`.
 `module_id` выбирает реализацию, но не меняет её права:
@@ -141,7 +141,7 @@ Process boundary пока не sandbox: worker получает очищенно
 
 - component runtime v2 / wire protocol v3 для slots: `workflow`, `search`, `memory`, `context`,
   `context_provider`, `policy`, `patch`, `compactor`,
-  `tool_exposure`, `renderer`, `tool`;
+  `tool_exposure`, `tool`;
 - multi-export persistent stdio component lifecycle, exact-set
   initialize/manifest handshake,
   bidirectional host callbacks, cancellation, timeout и lazy restart после

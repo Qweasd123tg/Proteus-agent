@@ -312,7 +312,7 @@ broker-owned lineage при async и callback-free blocking reentry, но не
 оставляют parent после выхода из callback. Второй загружает
 `proteus.one-component.example.toml` и проверяет одним собранным profile:
 
-- workflow/context/search/memory/compactor/tool exposure/policy/tool/renderer
+- workflow/context/search/memory/compactor/tool exposure/policy/tool
   используют один configured component и один live PID;
 - во время заблокированного workflow независимый memory export завершается;
 - targeted cancellation записывается как `TurnSettled(Canceled)`, не меняет
@@ -422,11 +422,11 @@ cargo test -p proteus-reference-worker --test conformance -- --nocapture
 
 Suite подтверждает:
 
-- strict component-v3 handshake всех 26 selectors;
+- strict component-v3 handshake всех 25 selectors;
 - multi-export routing по одному persistent broker;
 - aggregate tool `list` и реальный `read_file`;
 - real `rg`, patch и обе memory implementations;
-- policy, renderer, tool exposure, skills provider и compactor;
+- policy, tool exposure, skills provider и compactor;
 - context callbacks с slot-scoped authority;
 - полный callback-driven workflow turn;
 - nested callback в другой export того же process;

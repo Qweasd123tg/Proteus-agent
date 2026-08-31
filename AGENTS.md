@@ -10,7 +10,7 @@
 Core -> Contract -> Module Implementation
 ```
 
-Core не должен знать детали конкретного поиска, памяти, модели, tools, policy, patch algorithm или renderer. Новая функциональность должна проходить через существующий slot или через явно добавленный contract.
+Core не должен знать детали конкретного поиска, памяти, модели, tools, policy или patch algorithm. Новая функциональность должна проходить через существующий slot или через явно добавленный contract.
 
 Для всех реализаций одного slot действует дополнительный инвариант:
 
@@ -105,7 +105,6 @@ modules/
         rust-lsp/             - tool lsp_diagnostics: Rust/rust-analyzer через persistent stdio LSP
         memory-pack/         - MemoryStore "jsonl"
         policy-pack/         - ApprovalPolicy modules "allow_all", "ask_write", "codex_policy", "opencode_policy" + tool request_permissions
-        renderer-pack/       - Renderer module "statusline"
     research/            - нестабилизированные module experiments вне production path
 configs/                 - packaged named configs и prompts (источник install.sh)
 examples/

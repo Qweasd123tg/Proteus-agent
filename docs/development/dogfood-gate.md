@@ -196,7 +196,7 @@ postmortem, а не как блокер web/app-server boundary.
 - minor resize artifacts без потери текста;
 - awkward but usable slash-command UX;
 - неидеальные цвета и status labels;
-- отсутствие красивого retained renderer;
+- отсутствие полноценного retained terminal UI;
 - неполный onboarding для внешнего пользователя;
 - memory polish и production-ready состояние всех reference modules.
 

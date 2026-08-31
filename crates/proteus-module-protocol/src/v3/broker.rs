@@ -399,7 +399,7 @@ impl ComponentBroker {
     }
 
     /// Callback-free synchronous child of an active invocation. This keeps
-    /// synchronous policy/renderer traits inside the same lineage and cancel
+    /// synchronous policy traits inside the same lineage and cancel
     /// tree when a process callback re-enters another export of this broker.
     pub fn invoke_nested_blocking(
         &self,

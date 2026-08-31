@@ -130,7 +130,6 @@ async fn codex_family_fragments_preserve_profile_specific_overlays() {
         codex.agent_control.surface,
         AgentControlSurface::Collaboration
     );
-    assert!(codex.modules.renderer.is_none());
     assert_eq!(codex.components.len(), 3);
     assert_eq!(
         codex
@@ -151,14 +150,13 @@ async fn codex_family_fragments_preserve_profile_specific_overlays() {
     );
 
     assert_eq!(glm.profile.name, "glm-proxy");
-    assert_eq!(glm.modules.renderer.as_deref(), Some("statusline"));
     assert_eq!(glm.components.len(), 3);
     assert_eq!(
         glm.components
             .values()
             .map(|component| component.exports().count())
             .sum::<usize>(),
-        10
+        9
     );
     let glm_model = glm.active_model_config().expect("glm model");
     assert_eq!(glm_model.model, "glm-5.2");

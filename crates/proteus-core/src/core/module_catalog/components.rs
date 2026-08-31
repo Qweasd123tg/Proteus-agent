@@ -5,15 +5,15 @@ use proteus_module_protocol::{ProcessExportBinding, current_process_contract_aut
 
 use crate::{
     contracts::{
-        ContextBuilder, HistoryCompactor, MemoryStore, PatchApplier, Renderer, SearchBackend,
-        ToolExposure, Workflow,
+        ContextBuilder, HistoryCompactor, MemoryStore, PatchApplier, SearchBackend, ToolExposure,
+        Workflow,
     },
     core::AppConfig,
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
     process_adapters::{
         ProcessApprovalPolicy, ProcessComponentLauncher, ProcessContextBuilder,
-        ProcessHistoryCompactor, ProcessMemoryStore, ProcessPatchApplier, ProcessRenderer,
-        ProcessSearchBackend, ProcessToolExposure, ProcessWorkflowAdapter,
+        ProcessHistoryCompactor, ProcessMemoryStore, ProcessPatchApplier, ProcessSearchBackend,
+        ProcessToolExposure, ProcessWorkflowAdapter,
     },
 };
 
@@ -160,15 +160,6 @@ impl ModuleCatalog {
                             ctx.config.runtime.workflow_timeout_ms,
                         )?))
                     },
-                );
-            }
-            "renderer" => {
-                ensure_process_id_is_free(self, slot::RENDERER, &module_id)?;
-                self.register_module::<dyn Renderer>(
-                    slot::RENDERER,
-                    &module_id,
-                    process_manifest(&module_id, ModuleKind::Renderer, description),
-                    move |ctx| Ok(Arc::new(ProcessRenderer::new(export.clone(), ctx.cwd)?)),
                 );
             }
             unsupported => bail!(

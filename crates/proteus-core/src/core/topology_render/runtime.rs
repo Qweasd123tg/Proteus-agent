@@ -37,7 +37,6 @@ pub fn render_topology_runtime_path(snapshot: &TopologySnapshot) -> String {
     ));
     render_runtime_slot(snapshot, "patch", "edit backend", &mut out);
     render_runtime_slot(snapshot, "search", "repo search", &mut out);
-    render_runtime_slot(snapshot, "renderer", "final output", &mut out);
 
     let parked = ["memory", "compactor"];
     let parked = parked
@@ -88,7 +87,6 @@ pub fn render_topology_runtime_mermaid(snapshot: &TopologySnapshot) -> String {
         "policy",
         "patch",
         "search",
-        "renderer",
     ] {
         labels.insert(
             format!("slot:{slot_id}"),
@@ -171,8 +169,7 @@ pub fn render_topology_runtime_mermaid(snapshot: &TopologySnapshot) -> String {
     add_edge("slot:policy", "tools", "executes allowed calls");
     add_edge("tools", "slot:search", "search tools");
     add_edge("tools", "slot:patch", "edit tools");
-    add_edge("slot:workflow", "slot:renderer", "final answer");
-    add_edge("slot:renderer", "output", "renders");
+    add_edge("slot:workflow", "output", "final answer");
     add_edge("parked", "slot:context", "optional context");
     add_edge("warnings", "config", "review");
 

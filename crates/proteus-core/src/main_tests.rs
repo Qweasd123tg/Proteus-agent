@@ -636,7 +636,6 @@ async fn init_codex_writes_loadable_config_with_runtime_fragment() {
     assert_eq!(config.modules.context.as_deref(), Some("codex_context"));
     assert_eq!(config.modules.compactor.as_deref(), Some("codex"));
     assert_eq!(config.agent_control.roles.len(), 2);
-    assert!(config.modules.renderer.is_none());
     assert_eq!(
         config.module_config_value(ModuleKind::Context, "codex_context")["providers"],
         serde_json::json!(["project_instructions", "skills", "environment"])

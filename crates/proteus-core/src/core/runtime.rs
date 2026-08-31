@@ -415,11 +415,6 @@ impl AgentRuntime {
         }
     }
 
-    pub async fn render(&self, output: &AgentOutput) -> Result<String> {
-        let snapshot = self.snapshot().await;
-        snapshot.registry.renderer.render(output)
-    }
-
     pub async fn clear_history(&self) -> Result<()> {
         let _run_guard = self.session.run_lock.lock().await;
         self.session.steering.abort().await;

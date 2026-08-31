@@ -5,18 +5,17 @@ use proteus_contracts::{
         CONTEXT_HOST_RECALL_MEMORY_METHOD, CONTEXT_HOST_SEARCH_METHOD, ExecutionAttribution,
         PROCESS_COMPACTOR_METHOD, PROCESS_CONTEXT_BUILD_METHOD, PROCESS_CONTEXT_PROVIDER_METHOD,
         PROCESS_MEMORY_RECALL_METHOD, PROCESS_MEMORY_REMEMBER_METHOD, PROCESS_PATCH_APPLY_METHOD,
-        PROCESS_POLICY_CONTRACT_VERSION, PROCESS_POLICY_EVALUATE_METHOD,
-        PROCESS_RENDERER_CONTRACT_VERSION, PROCESS_RENDERER_RENDER_METHOD, PROCESS_SEARCH_METHOD,
-        PROCESS_TOOL_EXPOSURE_SELECT_METHOD, PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD,
-        PROCESS_WORKFLOW_METHOD, ProcessCompactionResponse, ProcessContextChunksResponse,
-        ProcessContextInput, ProcessContextProviderInput, ProcessContextRecallInput,
-        ProcessContextResponse, ProcessMemoryRecallInput, ProcessMemoryRecallResponse,
-        ProcessMemoryRememberInput, ProcessPatchInput, ProcessPatchResponse,
-        ProcessPolicyEvaluateInput, ProcessPolicyResponse, ProcessRendererInput,
-        ProcessRendererResponse, ProcessSearchResponse, ProcessToolExposureInput,
-        ProcessToolExposureResponse, ProcessToolInvokeInput, ProcessToolInvokeResponse,
-        ProcessToolListResponse, ProcessWorkflowInput, ProcessWorkflowResponse,
-        ProcessWorkflowRuntimeInfo, ToolExposureInput, ToolExposureOutput, ToolExposureRequest,
+        PROCESS_POLICY_CONTRACT_VERSION, PROCESS_POLICY_EVALUATE_METHOD, PROCESS_SEARCH_METHOD,
+        PROCESS_TOOL_EXPOSURE_CONTRACT_VERSION, PROCESS_TOOL_EXPOSURE_SELECT_METHOD,
+        PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD, PROCESS_WORKFLOW_METHOD,
+        ProcessCompactionResponse, ProcessContextChunksResponse, ProcessContextInput,
+        ProcessContextProviderInput, ProcessContextRecallInput, ProcessContextResponse,
+        ProcessMemoryRecallInput, ProcessMemoryRecallResponse, ProcessMemoryRememberInput,
+        ProcessPatchInput, ProcessPatchResponse, ProcessPolicyEvaluateInput, ProcessPolicyResponse,
+        ProcessSearchResponse, ProcessToolExposureInput, ProcessToolExposureResponse,
+        ProcessToolInvokeInput, ProcessToolInvokeResponse, ProcessToolListResponse,
+        ProcessWorkflowInput, ProcessWorkflowResponse, ProcessWorkflowRuntimeInfo,
+        ToolExposureInput, ToolExposureOutput, ToolExposureRequest,
         WORKFLOW_HOST_BUILD_CONTEXT_METHOD, WORKFLOW_HOST_COMPACT_HISTORY_METHOD,
         WORKFLOW_HOST_COMPLETE_MODEL_METHOD, WORKFLOW_HOST_EMIT_EVENT_METHOD,
         WORKFLOW_HOST_RUNTIME_STATUS_METHOD, WORKFLOW_HOST_SELECT_TOOLS_METHOD,
@@ -25,9 +24,9 @@ use proteus_contracts::{
         WorkflowRuntimeStatus,
     },
     domain::{
-        AgentOutput, AgentTask, ContextBundle, MemoryItem, MemoryQuery, ModelRef, Patch,
-        PolicyDecision, ReasoningConfig, ToolCall, ToolSafety, ToolSpec, new_call_id,
-        new_execution_id, new_session_id, new_thread_id, new_turn_id,
+        AgentTask, ContextBundle, MemoryItem, MemoryQuery, ModelRef, Patch, PolicyDecision,
+        ReasoningConfig, ToolCall, ToolSafety, ToolSpec, new_call_id, new_execution_id,
+        new_session_id, new_thread_id, new_turn_id,
     },
     model_standard::{CanonicalMessage, CanonicalModelResponse, FinishReason, MessageRole},
 };
@@ -162,7 +161,6 @@ fn every_reference_export_completes_the_same_strict_v3_component_handshake() {
         ("workflow", "coding.single_loop"),
         ("workflow", "coding.codex_loop"),
         ("workflow", "coding.plan_execute_review"),
-        ("renderer", "statusline"),
     ];
 
     for (slot, module_id) in modules {
@@ -184,15 +182,15 @@ fn one_reference_component_routes_multiple_exports_over_one_broker() {
     )
     .expect("policy binding");
     let policy_target = policy.export_ref();
-    let renderer = ProcessExportBinding::new(
-        "renderer",
-        "statusline",
-        PROCESS_RENDERER_CONTRACT_VERSION,
+    let exposure = ProcessExportBinding::new(
+        "tool_exposure",
+        "codex_dynamic",
+        PROCESS_TOOL_EXPOSURE_CONTRACT_VERSION,
         json!({}),
     )
-    .expect("renderer binding");
-    let renderer_target = renderer.export_ref();
-    let binding = ProcessComponentBinding::new("reference-multi-export", [policy, renderer])
+    .expect("tool exposure binding");
+    let exposure_target = exposure.export_ref();
+    let binding = ProcessComponentBinding::new("reference-multi-export", [policy, exposure])
         .expect("component binding");
     let session = ComponentBroker::connect(
         worker_spec(workspace.path()),
@@ -227,23 +225,34 @@ fn one_reference_component_routes_multiple_exports_over_one_broker() {
         serde_json::from_value(policy_result).expect("policy response");
     assert!(matches!(policy_result.result, PolicyDecision::Allow));
 
-    let renderer_result = session
+    let exposure_result = session
         .invoke_blocking(
-            &renderer_target,
-            PROCESS_RENDERER_RENDER_METHOD,
-            serde_json::to_value(ProcessRendererInput {
-                output: AgentOutput::text("shared component"),
+            &exposure_target,
+            PROCESS_TOOL_EXPOSURE_SELECT_METHOD,
+            serde_json::to_value(ProcessToolExposureInput {
+                input: ToolExposureInput::new(
+                    ToolExposureRequest::new(AgentTask::new(
+                        "read the file",
+                        workspace.path().to_path_buf(),
+                    )),
+                    vec![ToolSpec::new(
+                        "read_file",
+                        "read",
+                        json!({"type": "object"}),
+                        ToolSafety::ReadOnly,
+                    )],
+                ),
             })
-            .expect("renderer input"),
+            .expect("tool exposure input"),
             TIMEOUT,
         )
-        .expect("renderer invocation");
-    let ProcessModuleTerminal::Success(renderer_result) = renderer_result else {
-        panic!("renderer export did not succeed")
+        .expect("tool exposure invocation");
+    let ProcessModuleTerminal::Success(exposure_result) = exposure_result else {
+        panic!("tool exposure export did not succeed")
     };
-    let renderer_result: ProcessRendererResponse =
-        serde_json::from_value(renderer_result).expect("renderer response");
-    assert!(renderer_result.result.starts_with("shared component"));
+    let exposure_result: ProcessToolExposureResponse =
+        serde_json::from_value(exposure_result).expect("tool exposure response");
+    assert_eq!(exposure_result.result.tools.len(), 1);
 }
 
 #[test]
@@ -374,7 +383,7 @@ fn search_patch_and_memory_round_trip_canonical_dtos() {
 }
 
 #[test]
-fn policy_renderer_exposure_provider_and_compactor_execute_in_worker() {
+fn policy_exposure_provider_and_compactor_execute_in_worker() {
     let workspace = tempfile::tempdir().expect("workspace");
 
     let policy = connect(workspace.path(), "policy", "allow_all", json!({}));
@@ -396,17 +405,6 @@ fn policy_renderer_exposure_provider_and_compactor_execute_in_worker() {
         .expect("policy input"),
     );
     assert!(matches!(decision.result, PolicyDecision::Allow));
-
-    let renderer = connect(workspace.path(), "renderer", "statusline", json!({}));
-    let rendered: ProcessRendererResponse = invoke(
-        &renderer,
-        PROCESS_RENDERER_RENDER_METHOD,
-        serde_json::to_value(ProcessRendererInput {
-            output: AgentOutput::text("done"),
-        })
-        .expect("renderer input"),
-    );
-    assert!(rendered.result.starts_with("done"));
 
     let exposure = connect(
         workspace.path(),

@@ -1337,8 +1337,8 @@ authenticated attach и persistence/reconnect. Они не входят в да�
 
 Product CLI/REPL cutover выполнен 2026-08-31: пользовательские turns и
 slash-команды работают через локальный `server stdio`, прямой product path к
-`AgentRuntime` удалён. Renderer подтверждён как obsolete slot и больше не
-заблокирован CLI. Replay/eval/topology и app-server подтверждены как живые
+`AgentRuntime` удалён. Obsolete `Renderer` slot удалён после этого cutover.
+Replay/eval/topology и app-server подтверждены как живые
 operational/application surfaces; перенос или новый crate для них не
 обоснован.
 
@@ -1370,16 +1370,12 @@ critical path и выполняются только при свободном �
   API, но не должны образовывать второй пользовательский turn execution path.
   Выделение другого binary или crate не требуется для этой границы и решается
   отдельно только при практической необходимости.
-- Удалить behavior slot `Renderer`, если до начала этой работы не появится
-  подтверждённый сценарий внешних заменяемых renderer implementations. Сейчас
-  контракт только преобразует финальный canonical `AgentOutput` в строку,
-  `statusline` используется одним one-shot CLI path, а app-server отдаёт
-  canonical output/events и не вызывает renderer. Удаление должно охватить
-  trait и process contract, `ModuleKind`, catalog/registry wiring, config
-  selection, reference export/pack, tests и документацию без legacy alias.
-  Выполнять после CLI protocol cutover: его statusline становится client-owned
-  formatter, а не behavior Core. Topology rendering и UI projections к этому
-  slot не относятся.
+- ✅ Behavior slot `Renderer` удалён 2026-08-31 после CLI protocol cutover:
+  удалены trait и process DTO, `ModuleKind`, authority/catalog/registry/config
+  wiring, reference export/pack, tests и tracked config selections без legacy
+  alias. Финальное представление canonical output/events теперь полностью
+  принадлежит client-ам. Topology rendering и UI projections к удалённому slot
+  не относятся.
 - Возвращаться к выносу model provider adapters только после проектирования
   единого process contract для всего Model slot. Нельзя добавлять второй путь
   для одного provider или сохранять параллельную native implementation; cleanup
@@ -1400,19 +1396,18 @@ Package или crate split самого `app_server` не является це�
 такого решения сначала нужна измеримая причина — dependency cycle,
 compile-time cost, необходимость самостоятельного встраивания как Rust library
 или утверждённая новая application boundary — и отдельное архитектурное
-решение. Client-owned rendering не является причиной сохранять `Renderer` slot.
+решение. Client-owned rendering не потребовал отдельного behavior slot.
 
-Порядок interface cleanup: сначала доказать product CLI/REPL поверх app-server
-protocol, затем удалить их direct runtime path и только после этого удалить
-`Renderer`. Operational и diagnostic commands не блокируют этот cutover, пока
-не исполняют пользовательский turn в обход app-server.
+Порядок interface cleanup выполнен: product CLI/REPL доказан поверх app-server
+protocol, direct runtime path удалён, затем атомарно удалён `Renderer`.
+Operational и diagnostic commands остались вне пользовательского turn path.
 
-Backlog закрыт, когда workspace implementation принадлежит `agent_control`, в
+Backlog закрыт 2026-08-31: workspace implementation принадлежит `agent_control`, в
 `RuntimeRegistry` нет concrete `ModelService`, concurrent model invocations не
 делят изменяемый event context, product CLI/REPL не строят и не вызывают
 `AgentRuntime` напрямую, старый `Renderer` slot полностью удалён, а применимые
 CLI/app-server parity, replay/concurrency/config/module-swap tests и полный
-`cargo test` проходят. Диагностические и app-server surfaces не требуется
+`cargo test` проходят. Диагностические и app-server surfaces не потребовалось
 перемещать для формального закрытия списка.
 
 ### OS-Изоляция Внешних Процессов

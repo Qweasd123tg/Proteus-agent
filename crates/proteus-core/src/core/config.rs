@@ -368,8 +368,6 @@ pub struct ModulesConfig {
     pub compactor: Option<String>,
     #[serde(default)]
     pub tool_exposure: Option<String>,
-    #[serde(default)]
-    pub renderer: Option<String>,
 }
 
 impl Default for ModulesConfig {
@@ -383,7 +381,6 @@ impl Default for ModulesConfig {
             patch: None,
             compactor: None,
             tool_exposure: None,
-            renderer: None,
         }
     }
 }
@@ -406,7 +403,6 @@ impl ModulesConfig {
             ModuleKind::Patch => self.patch.as_deref(),
             ModuleKind::Compactor => self.compactor.as_deref(),
             ModuleKind::ToolExposure => self.tool_exposure.as_deref(),
-            ModuleKind::Renderer => self.renderer.as_deref(),
             ModuleKind::Model | ModuleKind::Tool => None,
             _ => None,
         }
@@ -432,7 +428,6 @@ impl ModulesConfig {
             ModuleKind::Patch => self.patch = Some(module_id),
             ModuleKind::Compactor => self.compactor = Some(module_id),
             ModuleKind::ToolExposure => self.tool_exposure = Some(module_id),
-            ModuleKind::Renderer => self.renderer = Some(module_id),
             ModuleKind::Model | ModuleKind::Tool => return false,
             _ => return false,
         }

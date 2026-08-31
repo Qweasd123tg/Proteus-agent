@@ -17,7 +17,6 @@ policy = "allow_all"
 patch = "direct"
 compactor = "codex"
 tool_exposure = "codex_dynamic"
-renderer = "statusline"
 
 # Этот профиль намеренно собирает callback-связанные exports в один process.
 # Это отдельный failure domain для P4 evidence, а не новый обязательный default.
@@ -39,8 +38,6 @@ command = "proteus-reference-worker"
 [components.reference-agent.exports.compactor.codex]
 
 [components.reference-agent.exports.tool_exposure.codex_dynamic]
-
-[components.reference-agent.exports.renderer.statusline]
 
 [components.reference-agent.exports.tool."reference.tools"]
 

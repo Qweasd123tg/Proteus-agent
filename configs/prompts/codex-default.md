@@ -245,7 +245,7 @@ When referencing files in your response, make sure to include the relevant start
 
 - Don’t use literal words “bold” or “monospace” in the content.
 - Don’t nest bullets or create deep hierarchies.
-- Don’t output ANSI escape codes directly — the renderer applies styling.
+- Don’t output ANSI escape codes directly — clients apply styling.
 - Don’t cram unrelated keywords into a single bullet; split for clarity.
 - Don’t let keyword lists run long — wrap or reformat for scanability.
 

@@ -14,14 +14,6 @@ stream_error_fallback = true
 [profile]
 name = "glm-proxy"
 
-[modules]
-# GLM сохраняет общий Codex-shaped runtime, но добавляет status renderer.
-renderer = "statusline"
-
-# Component maps merge recursively across includes, so GLM adds one export
-# without repeating the common launch topology.
-[components.reference-capabilities.exports.renderer.statusline]
-
 [agent_control]
 # GLM-профиль сохраняет foreground task surface.
 surface = "task"

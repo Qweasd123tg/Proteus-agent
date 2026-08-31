@@ -1,4 +1,4 @@
-use std::any::TypeId;
+use std::{any::TypeId, path::Path};
 
 use proteus_core::process_adapters::{ProcessComponentConfig, ProcessExportLaunchConfig};
 
@@ -31,7 +31,6 @@ fn implementation_leaf_modules_are_not_public() {
         "pub mod memory;",
         "pub mod patch;",
         "pub mod policy;",
-        "pub mod renderer;",
         "pub mod search;",
         "pub mod tool;",
         "pub mod workflow;",
@@ -58,4 +57,41 @@ fn core_facade_has_private_submodules_and_explicit_exports() {
         !core.lines().any(|line| line.trim().ends_with("::*;")),
         "core facade exports must name every public item explicitly"
     );
+}
+
+#[test]
+fn retired_renderer_slot_has_no_source_or_facade_entrypoint() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for removed in [
+        "crates/proteus-contracts/src/contracts/renderer.rs",
+        "crates/proteus-core/src/process_adapters/renderer.rs",
+        "crates/proteus-core/src/stubs/text_renderer.rs",
+        "modules/reference/renderer-pack/Cargo.toml",
+    ] {
+        assert!(
+            !workspace.join(removed).exists(),
+            "retired renderer source returned: {removed}"
+        );
+    }
+
+    for (surface, source) in [
+        (
+            "contract facade",
+            include_str!("../../proteus-contracts/src/contracts/mod.rs"),
+        ),
+        (
+            "module manifest",
+            include_str!("../../proteus-contracts/src/domain/module_manifest.rs"),
+        ),
+        ("config schema", include_str!("../src/core/config.rs")),
+        (
+            "process adapter facade",
+            include_str!("../src/process_adapters/mod.rs"),
+        ),
+    ] {
+        assert!(
+            !source.to_ascii_lowercase().contains("renderer"),
+            "retired renderer returned through {surface}"
+        );
+    }
 }

@@ -13,7 +13,6 @@ workflow = "coding.single_loop"
 search = "python_rg"
 context = "simple"
 policy = "ask_write"
-renderer = "statusline"
 
 [components.reference-workflow]
 command = "proteus-reference-worker"
@@ -36,8 +35,6 @@ command = "proteus-reference-worker"
 command = "proteus-reference-worker"
 
 [components.reference-capabilities.exports.policy.ask_write]
-
-[components.reference-capabilities.exports.renderer.statusline]
 
 [module_config.context.simple]
 max_search_results = 20

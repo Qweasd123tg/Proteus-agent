@@ -38,8 +38,7 @@
     "workflow": "coding.plan_execute_review",
     "context": "simple",
     "policy": "ask_write",
-    "compactor": "codex",
-    "renderer": "statusline"
+    "compactor": "codex"
   },
   "components": {
     "reference-workflow": {
@@ -66,9 +65,6 @@
         },
         "compactor": {
           "codex": {}
-        },
-        "renderer": {
-          "statusline": {}
         }
       }
     }

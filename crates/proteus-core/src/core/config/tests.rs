@@ -67,7 +67,7 @@ fn modules_config_iter_and_set_cover_all_selectable_slots() {
         .filter(|descriptor| descriptor.selection == CoreSlotSelection::ModulesConfig)
         .map(|descriptor| descriptor.kind.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(slots.len(), 9);
+    assert_eq!(slots.len(), 8);
 
     for (index, slot) in slots.into_iter().enumerate() {
         assert!(modules.set_by_slot_id(slot, format!("module-{index}")));
@@ -108,7 +108,7 @@ fn agent_control_surface_defaults_to_task_and_rejects_unknown_values() {
 }
 
 #[test]
-fn retired_subagent_slot_config_is_rejected_without_compatibility_reader() {
+fn retired_slots_are_rejected_without_compatibility_readers() {
     for retired in [
         serde_json::json!({
             "active_provider": "fake",
@@ -119,6 +119,11 @@ fn retired_subagent_slot_config_is_rejected_without_compatibility_reader() {
             "active_provider": "fake",
             "providers": { "fake": {} },
             "modules": { "subagent": "process" }
+        }),
+        serde_json::json!({
+            "active_provider": "fake",
+            "providers": { "fake": {} },
+            "modules": { "renderer": "statusline" }
         }),
     ] {
         assert!(serde_json::from_value::<AppConfig>(retired).is_err());

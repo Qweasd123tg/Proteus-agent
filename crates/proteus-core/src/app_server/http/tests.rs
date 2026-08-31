@@ -339,7 +339,6 @@ async fn route_config_builder_returns_editable_module_slots() {
             "compactor",
             "tool_exposure",
             "policy",
-            "renderer",
             "search",
             "patch",
             "memory",
@@ -882,7 +881,7 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
     assert!(
         plan["slots"]
             .as_array()
-            .is_some_and(|slots| slots.len() == 10)
+            .is_some_and(|slots| slots.len() == 9)
     );
     assert!(plan.get("config").is_none(), "raw config leaked into plan");
 

@@ -207,7 +207,6 @@ mod tests {
             slots: vec![
                 slot("workflow", "orchestrator", 0),
                 slot("policy", "pipeline", 5),
-                slot("renderer", "pipeline", 7),
             ],
             tools: vec![
                 tool("read_file", true, true),
@@ -224,7 +223,7 @@ mod tests {
             .map(|step| step.id.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(ids, ["config", "workflow", "policy", "tools", "renderer"]);
+        assert_eq!(ids, ["config", "workflow", "policy", "tools"]);
         let tools = steps
             .iter()
             .find(|step| step.id == "tools")

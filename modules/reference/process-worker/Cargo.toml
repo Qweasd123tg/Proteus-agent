@@ -25,7 +25,6 @@ git-tools = { path = "../git-tools", default-features = false }
 memory-pack = { path = "../memory-pack", default-features = false }
 plan-tool = { path = "../plan-tool", default-features = false }
 policy-pack = { path = "../policy-pack", default-features = false }
-renderer-pack = { path = "../renderer-pack", default-features = false }
 rg-search = { path = "../rg-search", default-features = false }
 rust-lsp = { path = "../rust-lsp", default-features = false }
 shell-tool = { path = "../shell-tool", default-features = false }

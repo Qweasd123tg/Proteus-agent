@@ -6,8 +6,7 @@ use proteus_contracts::contracts::{
     PROCESS_CONTEXT_PROVIDER_METHOD, PROCESS_MEMORY_CONTRACT_VERSION, PROCESS_MEMORY_RECALL_METHOD,
     PROCESS_MEMORY_REMEMBER_METHOD, PROCESS_PATCH_APPLY_METHOD, PROCESS_PATCH_CONTRACT_VERSION,
     PROCESS_POLICY_CONTRACT_VERSION, PROCESS_POLICY_EVALUATE_METHOD,
-    PROCESS_POLICY_VISIBILITY_METHOD, PROCESS_RENDERER_CONTRACT_VERSION,
-    PROCESS_RENDERER_RENDER_METHOD, PROCESS_SEARCH_CONTRACT_VERSION, PROCESS_SEARCH_METHOD,
+    PROCESS_POLICY_VISIBILITY_METHOD, PROCESS_SEARCH_CONTRACT_VERSION, PROCESS_SEARCH_METHOD,
     PROCESS_TOOL_CONTRACT_VERSION, PROCESS_TOOL_EXPOSURE_CONTRACT_VERSION,
     PROCESS_TOOL_EXPOSURE_SELECT_METHOD, PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD,
     PROCESS_WORKFLOW_CONTRACT_VERSION, PROCESS_WORKFLOW_METHOD, ProcessModuleComposition,
@@ -30,7 +29,6 @@ const POLICY_METHODS: &[&str] = &[
     PROCESS_POLICY_EVALUATE_METHOD,
     PROCESS_POLICY_VISIBILITY_METHOD,
 ];
-const RENDERER_METHODS: &[&str] = &[PROCESS_RENDERER_RENDER_METHOD];
 const CONTEXT_METHODS: &[&str] = &[PROCESS_CONTEXT_BUILD_METHOD];
 const CONTEXT_HOST_METHODS: &[&str] = &[
     CONTEXT_HOST_SEARCH_METHOD,
@@ -128,15 +126,6 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         contract_version: PROCESS_POLICY_CONTRACT_VERSION,
         composition: ProcessModuleComposition::SelectOne,
         module_methods: POLICY_METHODS,
-        host_methods: NO_HOST_METHODS,
-        host_features: NO_PROTOCOL_FEATURES,
-        required_features: NO_PROTOCOL_FEATURES,
-    },
-    ProcessContractAuthority {
-        slot: "renderer",
-        contract_version: PROCESS_RENDERER_CONTRACT_VERSION,
-        composition: ProcessModuleComposition::SelectOne,
-        module_methods: RENDERER_METHODS,
         host_methods: NO_HOST_METHODS,
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
@@ -251,5 +240,11 @@ mod tests {
         assert_eq!(authority.composition, ProcessModuleComposition::SelectOne);
         assert_eq!(authority.module_methods, [PROCESS_WORKFLOW_METHOD]);
         assert_eq!(authority.host_methods, WORKFLOW_HOST_METHODS);
+    }
+
+    #[test]
+    fn retired_renderer_contract_has_no_authority() {
+        assert!(process_contract_authority("renderer", "v1").is_none());
+        assert!(current_process_contract_authority("renderer").is_none());
     }
 }

@@ -17,7 +17,7 @@ pub(crate) struct CoreSlotDescriptor {
     pub selection: CoreSlotSelection,
 }
 
-pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 10] = [
+pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 9] = [
     CoreSlotDescriptor {
         kind: ModuleKind::Workflow,
         title: "Workflow",
@@ -73,20 +73,11 @@ pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 10] = [
         selection: CoreSlotSelection::ModulesConfig,
     },
     CoreSlotDescriptor {
-        kind: ModuleKind::Renderer,
-        title: "Renderer",
-        responsibility: "Renders final AgentOutput for clients/CLI.",
-        category: "pipeline",
-        order: 6,
-        required: true,
-        selection: CoreSlotSelection::ModulesConfig,
-    },
-    CoreSlotDescriptor {
         kind: ModuleKind::Search,
         title: "Search",
         responsibility: "Provides repository/search backend.",
         category: "backend",
-        order: 7,
+        order: 6,
         required: false,
         selection: CoreSlotSelection::ModulesConfig,
     },
@@ -95,7 +86,7 @@ pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 10] = [
         title: "Patch",
         responsibility: "Applies structured patches to the workspace.",
         category: "backend",
-        order: 8,
+        order: 7,
         required: true,
         selection: CoreSlotSelection::ModulesConfig,
     },
@@ -104,7 +95,7 @@ pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 10] = [
         title: "Memory",
         responsibility: "Persists and retrieves explicit memories.",
         category: "backend",
-        order: 9,
+        order: 8,
         required: false,
         selection: CoreSlotSelection::ModulesConfig,
     },
@@ -148,7 +139,7 @@ mod tests {
             .iter()
             .filter(|descriptor| descriptor.selection == CoreSlotSelection::ProviderConfig)
             .count();
-        assert_eq!(modules, 9);
+        assert_eq!(modules, 8);
         assert_eq!(providers, 1);
     }
 }

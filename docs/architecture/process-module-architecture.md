@@ -134,7 +134,7 @@ Composition хранится в общей authority table и подтвержд
 каждого export:
 
 - `select_one`: workflow, search, memory, context, policy, patch, compactor,
-  tool exposure, renderer;
+  tool exposure;
 - `ordered_many`: tool, context provider.
 
 Worker не может изменить cardinality, сделать свой `module_id` особым или
@@ -263,7 +263,6 @@ invalid DTO и превышение limits являются fail-closed protocol
 | patch | v1 | `apply` | — |
 | tool exposure | v1 | `select` | — |
 | policy | v1 | `evaluate`, `evaluate_visibility` | — |
-| renderer | v1 | `render` | — |
 | context provider | v1 | `provide` | — |
 | tool | v2 | `list`, `invoke` | — |
 | context | v1 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
@@ -302,8 +301,7 @@ module-to-module dispatch и union authority отсутствуют.
 Core не хранит protocol-specific lineage. Process adapter оборачивает callback
 dispatcher в task-local scope: повторный вход в export того же exact broker
 использует broker-owned parent, а вызов другого component остаётся root. Это
-одинаково действует для async adapters и callback-free blocking policy/
-renderer traits.
+одинаково действует для async adapters и callback-free blocking policy traits.
 
 Для tracked reference profile безопасный разрез такой:
 
@@ -315,7 +313,7 @@ reference-context        context
         │ host.search/memory/providers
         ▼
 reference-capabilities   search, provider, policy, patch, compactor,
-                         tool exposure, renderer, tools
+                         tool exposure, tools
 ```
 
 Один и тот же `proteus-reference-worker` может запускаться несколько раз
@@ -332,15 +330,15 @@ Exports с callback-связями разрешено объединять; comp
 - cooperative cancel адресен, а crash, corruption, resource failure или
   истёкший cancel grace завершают всё поколение с causal terminal causes;
 - synchronous callback-free `invoke_bootstrap` для catalog build закрывается
-  после начала обычного async traffic; sync `policy`/`renderer` используют тот
-  же broker через callback-free blocking invocation, а не второй runtime.
+  после начала обычного async traffic; sync `policy` использует тот же broker
+  через callback-free blocking invocation, а не второй runtime.
 
 Runtime доказан hostile Python worker-ом в `tests/broker_v3.rs` и реальным
 reference worker-ом: nested callback входит в другой export того же PID, а
 targeted cancel сохраняет sibling и generation. Отдельный P4 profile
 `examples/configs/proteus.one-component.example.toml` и test
 `topology_journal.rs` проводят полный process-backed workflow, параллельный
-sibling, cancel, process tool, renderer и canonical replay; live run остаётся
+sibling, cancel, process tool и canonical replay; live run остаётся
 на одном PID. Malicious
 export общего trusted executable всё ещё может назвать id активного sibling:
 correlation id не является secret capability и не создаёт sandbox внутри

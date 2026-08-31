@@ -4,8 +4,8 @@ use anyhow::{Result, bail};
 use proteus_contracts::process_module::{
     CompactorModuleObject, ContextBuilderModuleObject, ContextProviderModuleObject,
     MemoryModuleObject, ModuleRegistry, PatchModuleObject, PolicyModuleObject, ProcessModuleError,
-    ProcessModuleResult, RendererModuleObject, SearchModuleObject, ToolExposureModuleObject,
-    ToolModuleObject, WorkflowModuleObject,
+    ProcessModuleResult, SearchModuleObject, ToolExposureModuleObject, ToolModuleObject,
+    WorkflowModuleObject,
 };
 use serde_json::{Value, json};
 
@@ -13,7 +13,6 @@ type RegisterFn = fn(&mut dyn ModuleRegistry) -> ProcessModuleResult<()>;
 
 pub struct CollectedModules {
     module_config: Value,
-    pub renderers: HashMap<String, RendererModuleObject>,
     pub tools: Vec<ToolModuleObject>,
     pub policies: HashMap<String, PolicyModuleObject>,
     pub patches: HashMap<String, PatchModuleObject>,
@@ -68,7 +67,6 @@ impl CollectedModules {
                 "workflow",
                 "coding.single_loop" | "coding.codex_loop" | "coding.plan_execute_review",
             ) => coding_workflow::register_modules,
-            ("renderer", "statusline") => renderer_pack::register_modules,
             _ => bail!("reference worker has no {slot} module {module_id:?}"),
         };
 
@@ -79,7 +77,6 @@ impl CollectedModules {
     fn with_config(module_config: Value) -> Self {
         Self {
             module_config,
-            renderers: HashMap::new(),
             tools: Vec::new(),
             policies: HashMap::new(),
             patches: HashMap::new(),
@@ -115,14 +112,6 @@ fn insert<T>(map: &mut HashMap<String, T>, id: String, value: T) -> ProcessModul
 impl ModuleRegistry for CollectedModules {
     fn module_config(&self) -> &Value {
         &self.module_config
-    }
-
-    fn register_renderer(
-        &mut self,
-        module_id: String,
-        renderer: RendererModuleObject,
-    ) -> ProcessModuleResult<()> {
-        insert(&mut self.renderers, module_id, renderer)
     }
 
     fn register_tool(&mut self, tool: ToolModuleObject) -> ProcessModuleResult<()> {

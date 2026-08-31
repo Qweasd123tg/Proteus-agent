@@ -43,7 +43,7 @@ config
 
 - OpenAI, OpenAI-compatible, Anthropic и fake model adapters;
 - внешний Component Runtime v2 / wire v3 для workflow, search, memory,
-  context, policy, patch, compactor, renderer, tools и других существующих
+  context, policy, patch, compactor, tools и других существующих
   slots;
 - единый путь tool safety и approvals;
 - session journal, history, resume, prompt replay и workflow replay;

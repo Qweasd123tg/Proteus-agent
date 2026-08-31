@@ -49,9 +49,8 @@ configs/codex-{explore,coder}.config.toml provider/model named child configs
 Fragment не является profile, module pack или неявным default: он не
 загружается без `include`, а итоговый config по-прежнему явно выбирает
 provider и каждый behavior slot. Массивы не append-ятся. `components` — map и
-merge-ится рекурсивно: например, `glm` добавляет
-`components.reference-capabilities.exports.renderer.statusline`, не повторяя
-launch-параметры и остальные exports.
+merge-ится рекурсивно: например, profile может добавить новый exact export, не
+повторяя launch-параметры и остальные exports component-а.
 
 `~`, `$HOME` и `${HOME}` раскрываются в path fields.
 
@@ -72,7 +71,6 @@ stream = true
 workflow = "coding.single_loop"
 context = "simple"
 policy = "ask_write"
-renderer = "statusline"
 
 [components.reference-workflow]
 command = "proteus-reference-worker"
@@ -88,8 +86,6 @@ command = "proteus-reference-worker"
 command = "proteus-reference-worker"
 
 [components.reference-capabilities.exports.policy.ask_write]
-
-[components.reference-capabilities.exports.renderer.statusline]
 
 [tools]
 enabled = []
@@ -156,7 +152,7 @@ prompts и named child configs `codex-explore.config.toml` /
 
 ## Выбор Behavior Modules
 
-`[modules]` имеет десять optional keys:
+`[modules]` имеет восемь optional keys:
 
 ```toml
 [modules]
@@ -168,19 +164,17 @@ policy = "ask_write"
 patch = "direct"
 compactor = "codex"
 tool_exposure = "codex_dynamic"
-subagent = "process"
-renderer = "statusline"
 ```
 
-Все кроме `subagent` должны иметь exact component export. `subagent` пока
-выбирает явно учтённую core-owned implementation. Model выбирается через
-provider profile и потому не находится в `[modules]`.
+Каждый выбранный id должен иметь exact component export. Model выбирается
+через provider profile и потому не находится в `[modules]`; root-owned
+`AgentControl` настраивается отдельно в `[agent_control]` и behavior slot-ом
+не является.
 
 Поле можно опустить. Отсутствие означает structural host behavior, а не
 автоматический выбор какого-либо reference module. Для обычных behavior slots
 специальных ids `none`, `default`, `process`, `text` и `all_visible` нет;
-`subagent = "process"` пока является явно учтённой core-owned implementation
-до схлопывания старого slot в agent-control service.
+отсутствующий slot остаётся отсутствующим без compatibility fallback.
 
 ## Process Components И Exports
 
@@ -293,7 +287,6 @@ policy:           allow_all, ask_write, codex_policy, opencode_policy
 patch:            direct
 compactor:        codex
 tool_exposure:    codex_dynamic
-renderer:         statusline
 tool:             reference.tools и узкие selectors
 ```
 

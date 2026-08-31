@@ -26,7 +26,6 @@ pub enum ModuleKind {
     Compactor,
     ToolExposure,
     Workflow,
-    Renderer,
 }
 
 impl ModuleManifest {
@@ -86,7 +85,6 @@ pub mod slot {
     pub const COMPACTOR: SlotId = Cow::Borrowed("compactor");
     pub const TOOL_EXPOSURE: SlotId = Cow::Borrowed("tool_exposure");
     pub const WORKFLOW: SlotId = Cow::Borrowed("workflow");
-    pub const RENDERER: SlotId = Cow::Borrowed("renderer");
 }
 
 /// Сопоставление `ModuleKind` → `SlotId` для встроенных registry namespaces.
@@ -96,7 +94,7 @@ pub mod slot {
 /// namespace. `Tool` обозначает concrete tool registrations, а не выбираемый
 /// behavior slot с ключом `modules.tool`.
 impl ModuleKind {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 10] = [
         Self::Model,
         Self::Search,
         Self::Memory,
@@ -107,7 +105,6 @@ impl ModuleKind {
         Self::Compactor,
         Self::ToolExposure,
         Self::Workflow,
-        Self::Renderer,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -122,7 +119,6 @@ impl ModuleKind {
             Self::Compactor => "compactor",
             Self::ToolExposure => "tool_exposure",
             Self::Workflow => "workflow",
-            Self::Renderer => "renderer",
         }
     }
 
