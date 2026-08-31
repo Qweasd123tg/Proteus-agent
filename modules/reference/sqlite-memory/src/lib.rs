@@ -12,7 +12,7 @@ use std::{path::PathBuf, sync::Mutex};
 
 use anyhow::{Context, Result, anyhow};
 use proteus_contracts::process_module::{
-    MemoryModule, MemoryModuleObject, ModuleRegistry, ProcessModuleError,
+    MemoryModule, MemoryModuleHost, MemoryModuleObject, ModuleRegistry, ProcessModuleError,
 };
 use rusqlite::{Connection, OpenFlags, params};
 use serde::{Deserialize, Serialize};
@@ -93,7 +93,12 @@ impl SqliteMemoryStore {
 }
 
 impl MemoryModule for SqliteMemoryStore {
-    fn remember_json(&self, item_json: String) -> Result<(), ProcessModuleError> {
+    fn remember_json(
+        &self,
+        item_json: String,
+        _context_json: String,
+        _host: &mut dyn MemoryModuleHost,
+    ) -> Result<(), ProcessModuleError> {
         let payload = item_json;
         match remember_impl(&self.conn, &payload) {
             Ok(()) => Ok(()),
@@ -101,7 +106,12 @@ impl MemoryModule for SqliteMemoryStore {
         }
     }
 
-    fn recall_json(&self, query_json: String) -> Result<String, ProcessModuleError> {
+    fn recall_json(
+        &self,
+        query_json: String,
+        _context_json: String,
+        _host: &mut dyn MemoryModuleHost,
+    ) -> Result<String, ProcessModuleError> {
         let payload = query_json;
         match recall_impl(&self.conn, &payload) {
             Ok(body) => Ok(String::from(body)),

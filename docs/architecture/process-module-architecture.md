@@ -256,19 +256,19 @@ invalid DTO и превышение limits являются fail-closed protocol
 
 ## Authority Table
 
-| Slot | Module methods | Host callbacks |
-|---|---|---|
-| search | `search` | — |
-| memory | `remember`, `recall` | — |
-| patch | `apply` | — |
-| tool exposure | `select` | — |
-| policy | `evaluate`, `evaluate_visibility` | — |
-| renderer | `render` | — |
-| context provider | `provide` | — |
-| tool | `list`, `invoke` | — |
-| context | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
-| compactor | `compact` | `host.model.complete` |
-| workflow | `run` | runtime status, context, model, compaction, tool visibility/selection/execution, events |
+| Slot | Contract | Module methods | Host callbacks |
+|---|---|---|---|
+| search | v1 | `search` | — |
+| memory | v2 | `remember`, `recall` | — |
+| patch | v1 | `apply` | — |
+| tool exposure | v1 | `select` | — |
+| policy | v1 | `evaluate`, `evaluate_visibility` | — |
+| renderer | v1 | `render` | — |
+| context provider | v1 | `provide` | — |
+| tool | v2 | `list`, `invoke` | — |
+| context | v1 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
+| compactor | v1 | `compact` | `host.model.complete` |
+| workflow | v1 | `run` | runtime status, context, model, compaction, tool visibility/selection/execution, events |
 
 Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует

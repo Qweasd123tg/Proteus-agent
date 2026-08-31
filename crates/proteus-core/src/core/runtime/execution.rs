@@ -8,10 +8,10 @@ use crate::{
         ToolExecutionRecorder,
     },
     core::{
-        BoundTools, ModeAwarePolicy, SessionConfigSnapshot, SessionToolExecutionRecorder,
-        ToolExecutionBinding,
+        BoundMemory, BoundTools, ModeAwarePolicy, SessionConfigSnapshot,
+        SessionToolExecutionRecorder, ToolExecutionBinding,
     },
-    domain::{ModelRef, PermissionMode, ReasoningConfig, ToolCall, ToolResult},
+    domain::{MemoryItem, ModelRef, PermissionMode, ReasoningConfig, ToolCall, ToolResult},
 };
 
 use super::{AgentRuntime, RuntimeSnapshot};
@@ -50,6 +50,13 @@ impl AgentRuntime {
         let admission = self.admit_execution(cancellation).await;
         let tools = self.bind_detached_tools(&admission);
         tools.execute(self.services.cwd.clone(), call).await
+    }
+
+    /// Stores one item as a top-level logical execution without creating a
+    /// session turn, history entry, workflow, or agent output.
+    pub async fn remember(&self, item: MemoryItem, cancellation: CancellationToken) -> Result<()> {
+        let admission = self.admit_execution(cancellation).await;
+        self.bind_detached_memory(&admission).remember(item).await
     }
 
     pub(super) async fn admit_execution(
@@ -96,6 +103,13 @@ impl AgentRuntime {
             self.services.approval.clone(),
             Arc::<ExecutionPermissionGrants>::default(),
             binding,
+        )
+    }
+
+    fn bind_detached_memory(&self, admission: &ExecutionAdmission) -> BoundMemory {
+        BoundMemory::detached(
+            admission.snapshot.runtime.registry.memory.clone(),
+            admission.scope.clone(),
         )
     }
 }

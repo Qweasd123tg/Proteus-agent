@@ -91,9 +91,33 @@ pub trait SearchModule: Send + Sync + 'static {
 
 pub type SearchModuleObject = Box<dyn SearchModule>;
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct MemoryModuleInvocationContext {
+    pub attribution: ExecutionAttribution,
+    #[serde(default)]
+    pub config: serde_json::Value,
+}
+
+pub trait MemoryModuleHost: Send + Sync {
+    fn is_cancelled(&self) -> ProcessModuleResult<bool>;
+}
+
+pub type MemoryModuleHostMut<'a> = dyn MemoryModuleHost + 'a;
+
 pub trait MemoryModule: Send + Sync + 'static {
-    fn remember_json(&self, item_json: String) -> ProcessModuleResult<()>;
-    fn recall_json(&self, query_json: String) -> ProcessModuleResult<String>;
+    fn remember_json(
+        &self,
+        item_json: String,
+        context_json: String,
+        host: &mut dyn MemoryModuleHost,
+    ) -> ProcessModuleResult<()>;
+    fn recall_json(
+        &self,
+        query_json: String,
+        context_json: String,
+        host: &mut dyn MemoryModuleHost,
+    ) -> ProcessModuleResult<String>;
 }
 
 pub type MemoryModuleObject = Box<dyn MemoryModule>;

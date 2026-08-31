@@ -98,11 +98,12 @@ registry/schema/policy/approval/grants/cancellation/recording/invoke path и
 `AgentControl`. Normal `AgentRuntime` Turn path явно сначала bind-ит generic
 `ExecutionContext` из одного admitted snapshot/scope и только затем строит
 `AgentWorkflowContext`; combined registry factory удалён. Общая
-`BoundCapability<T>` abstraction не введена. Phase 8A реализовала private
+`BoundCapability<T>` abstraction не введена. Phase 8 реализовала private
 atomic admission и `AgentRuntime::execute_tool` без public `ExecutionContext`:
 process-backed non-Turn call проходит frozen registry/mode, policy, approval,
 fresh grants, detached recording и targeted cancellation, не создавая
-Turn/history. Phase 8B с memory/v2 и переводом `/remember` ещё не начата.
+Turn/history. Phase 8B добавила typed `BoundMemory`, strict `memory/v2` и
+перевела `/remember` с raw store side-channel на top-level admission.
 Process terminal failures доходят до Core adapter boundary как typed
 `ProcessInvocationError`, а AppServer transport cancel handles называются
 `run_id`/`running_run_ids` и не маскируются под domain `TurnId`.

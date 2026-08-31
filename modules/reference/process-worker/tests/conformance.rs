@@ -2,31 +2,32 @@ use std::{path::Path, sync::Arc, time::Duration};
 
 use proteus_contracts::{
     contracts::{
-        CONTEXT_HOST_RECALL_MEMORY_METHOD, CONTEXT_HOST_SEARCH_METHOD, PROCESS_COMPACTOR_METHOD,
-        PROCESS_CONTEXT_BUILD_METHOD, PROCESS_CONTEXT_PROVIDER_METHOD,
+        CONTEXT_HOST_RECALL_MEMORY_METHOD, CONTEXT_HOST_SEARCH_METHOD, ExecutionAttribution,
+        PROCESS_COMPACTOR_METHOD, PROCESS_CONTEXT_BUILD_METHOD, PROCESS_CONTEXT_PROVIDER_METHOD,
         PROCESS_MEMORY_RECALL_METHOD, PROCESS_MEMORY_REMEMBER_METHOD, PROCESS_PATCH_APPLY_METHOD,
         PROCESS_POLICY_CONTRACT_VERSION, PROCESS_POLICY_EVALUATE_METHOD,
         PROCESS_RENDERER_CONTRACT_VERSION, PROCESS_RENDERER_RENDER_METHOD, PROCESS_SEARCH_METHOD,
         PROCESS_TOOL_EXPOSURE_SELECT_METHOD, PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD,
         PROCESS_WORKFLOW_METHOD, ProcessCompactionResponse, ProcessContextChunksResponse,
-        ProcessContextInput, ProcessContextProviderInput, ProcessContextResponse,
-        ProcessMemoryRecallInput, ProcessMemoryRecallResponse, ProcessMemoryRememberInput,
-        ProcessPatchInput, ProcessPatchResponse, ProcessPolicyEvaluateInput, ProcessPolicyResponse,
-        ProcessRendererInput, ProcessRendererResponse, ProcessSearchResponse,
-        ProcessToolExposureInput, ProcessToolExposureResponse, ProcessToolInvokeInput,
-        ProcessToolInvokeResponse, ProcessToolListResponse, ProcessWorkflowInput,
-        ProcessWorkflowResponse, ProcessWorkflowRuntimeInfo, ToolExposureInput, ToolExposureOutput,
-        ToolExposureRequest, WORKFLOW_HOST_BUILD_CONTEXT_METHOD,
-        WORKFLOW_HOST_COMPACT_HISTORY_METHOD, WORKFLOW_HOST_COMPLETE_MODEL_METHOD,
-        WORKFLOW_HOST_EMIT_EVENT_METHOD, WORKFLOW_HOST_RUNTIME_STATUS_METHOD,
-        WORKFLOW_HOST_SELECT_TOOLS_METHOD, WORKFLOW_HOST_VISIBLE_TOOLS_METHOD,
-        WorkflowBuildContextRequest, WorkflowCompactHistoryRequest, WorkflowCompleteModelRequest,
-        WorkflowHostAck, WorkflowRuntimeStatus,
+        ProcessContextInput, ProcessContextProviderInput, ProcessContextRecallInput,
+        ProcessContextResponse, ProcessMemoryRecallInput, ProcessMemoryRecallResponse,
+        ProcessMemoryRememberInput, ProcessPatchInput, ProcessPatchResponse,
+        ProcessPolicyEvaluateInput, ProcessPolicyResponse, ProcessRendererInput,
+        ProcessRendererResponse, ProcessSearchResponse, ProcessToolExposureInput,
+        ProcessToolExposureResponse, ProcessToolInvokeInput, ProcessToolInvokeResponse,
+        ProcessToolListResponse, ProcessWorkflowInput, ProcessWorkflowResponse,
+        ProcessWorkflowRuntimeInfo, ToolExposureInput, ToolExposureOutput, ToolExposureRequest,
+        WORKFLOW_HOST_BUILD_CONTEXT_METHOD, WORKFLOW_HOST_COMPACT_HISTORY_METHOD,
+        WORKFLOW_HOST_COMPLETE_MODEL_METHOD, WORKFLOW_HOST_EMIT_EVENT_METHOD,
+        WORKFLOW_HOST_RUNTIME_STATUS_METHOD, WORKFLOW_HOST_SELECT_TOOLS_METHOD,
+        WORKFLOW_HOST_VISIBLE_TOOLS_METHOD, WorkflowBuildContextRequest,
+        WorkflowCompactHistoryRequest, WorkflowCompleteModelRequest, WorkflowHostAck,
+        WorkflowRuntimeStatus,
     },
     domain::{
         AgentOutput, AgentTask, ContextBundle, MemoryItem, MemoryQuery, ModelRef, Patch,
         PolicyDecision, ReasoningConfig, ToolCall, ToolSafety, ToolSpec, new_call_id,
-        new_session_id, new_thread_id, new_turn_id,
+        new_execution_id, new_session_id, new_thread_id, new_turn_id,
     },
     model_standard::{CanonicalMessage, CanonicalModelResponse, FinishReason, MessageRole},
 };
@@ -350,16 +351,19 @@ fn search_patch_and_memory_round_trip_canonical_dtos() {
             format!("remembered by {module_id}"),
             json!({"module": module_id}),
         );
+        let attribution = ExecutionAttribution::detached(new_execution_id());
         let _: proteus_contracts::contracts::ProcessMemoryRememberResponse = invoke(
             &memory,
             PROCESS_MEMORY_REMEMBER_METHOD,
-            serde_json::to_value(ProcessMemoryRememberInput { item }).expect("remember input"),
+            serde_json::to_value(ProcessMemoryRememberInput { item, attribution })
+                .expect("remember input"),
         );
         let recalled: ProcessMemoryRecallResponse = invoke(
             &memory,
             PROCESS_MEMORY_RECALL_METHOD,
             serde_json::to_value(ProcessMemoryRecallInput {
                 query: MemoryQuery::new(module_id, 5),
+                attribution,
             })
             .expect("recall input"),
         );
@@ -611,6 +615,15 @@ impl AsyncHostRequestDispatcher for NestedMemoryDispatcher {
             CONTEXT_HOST_RECALL_MEMORY_METHOD => {
                 let broker = self.broker.clone();
                 let target = self.memory.clone();
+                let input =
+                    match serde_json::from_value::<ProcessContextRecallInput>(request.params) {
+                        Ok(input) => input,
+                        Err(error) => {
+                            return Box::pin(async move {
+                                Err(ProcessModuleRpcError::new(-32602, error.to_string()))
+                            });
+                        }
+                    };
                 Box::pin(async move {
                     let broker = broker.upgrade().ok_or_else(|| {
                         ProcessModuleRpcError::new(-32603, "component broker was dropped")
@@ -620,7 +633,13 @@ impl AsyncHostRequestDispatcher for NestedMemoryDispatcher {
                             &request.invocation,
                             &target,
                             PROCESS_MEMORY_RECALL_METHOD,
-                            request.params,
+                            serde_json::to_value(ProcessMemoryRecallInput {
+                                query: input.query,
+                                attribution: ExecutionAttribution::detached(new_execution_id()),
+                            })
+                            .map_err(|error| {
+                                ProcessModuleRpcError::new(-32603, error.to_string())
+                            })?,
                             TIMEOUT,
                             Arc::new(NoAsyncHostRequests),
                         )
@@ -671,7 +690,7 @@ async fn same_component_callback_can_reenter_another_export() {
     let memory = ProcessExportBinding::new(
         "memory",
         "jsonl",
-        "v1",
+        "v2",
         json!({"path": workspace.path().join("nested-memory.jsonl")}),
     )
     .expect("memory binding");

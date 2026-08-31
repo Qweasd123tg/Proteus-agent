@@ -13,8 +13,8 @@ use proteus_contracts::{
         WORKFLOW_HOST_SELECT_TOOLS_METHOD, WORKFLOW_HOST_VISIBLE_TOOLS_METHOD,
     },
     process_module::{
-        CompactorModuleHost, ContextBuilderModuleHost, ProcessModuleError, ToolModuleHost,
-        WorkflowModuleHost,
+        CompactorModuleHost, ContextBuilderModuleHost, MemoryModuleHost, ProcessModuleError,
+        ToolModuleHost, WorkflowModuleHost,
     },
 };
 use serde_json::{Value, json};
@@ -54,6 +54,14 @@ impl HostBridge {
 pub struct ToolHostBridge(pub HostBridge);
 
 impl ToolModuleHost for ToolHostBridge {
+    fn is_cancelled(&self) -> Result<bool, ProcessModuleError> {
+        Ok(self.0.is_cancelled())
+    }
+}
+
+pub struct MemoryHostBridge(pub HostBridge);
+
+impl MemoryModuleHost for MemoryHostBridge {
     fn is_cancelled(&self) -> Result<bool, ProcessModuleError> {
         Ok(self.0.is_cancelled())
     }

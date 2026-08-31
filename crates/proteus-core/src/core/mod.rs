@@ -1,6 +1,7 @@
 mod agent_control;
 pub mod approval;
 pub mod assembly;
+pub mod bound_memory;
 pub mod bound_model;
 pub mod bound_tools;
 mod compaction_host;
@@ -31,6 +32,7 @@ pub mod workspace;
 pub use agent_control::AgentControlRuntime;
 pub use approval::*;
 pub use assembly::*;
+pub use bound_memory::*;
 pub use bound_model::*;
 pub use bound_tools::*;
 pub use compaction_host::*;

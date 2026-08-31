@@ -16,7 +16,9 @@ use proteus_core::{
         AgentRuntime, AppConfig, BoundTools, HeadlessApprovalTransport, JournalEntry, ModuleEpoch,
         PreparedAssembly, RuntimeSnapshot, SessionStore, ToolExecutionBinding,
     },
-    domain::{PermissionMode, PolicyDecision, ToolCall, ToolCallResolution, ToolResult},
+    domain::{
+        MemoryItem, PermissionMode, PolicyDecision, ToolCall, ToolCallResolution, ToolResult,
+    },
     process_adapters::ProcessComponentConfig,
 };
 use serde_json::json;
@@ -136,6 +138,10 @@ async fn process_search_runs_through_execution_context_without_chat_identity() {
 #[test]
 fn bound_tools_source_does_not_import_chat_domain_types() {
     for (path, source) in [
+        (
+            "bound_memory.rs",
+            include_str!("../src/core/bound_memory.rs"),
+        ),
         ("bound_tools.rs", include_str!("../src/core/bound_tools.rs")),
         (
             "bound_tools/support.rs",
@@ -153,7 +159,7 @@ fn bound_tools_source_does_not_import_chat_domain_types() {
         ] {
             assert!(
                 !source.contains(forbidden),
-                "generic BoundTools source {path} imports chat-specific type {forbidden}"
+                "generic execution binding source {path} imports chat-specific type {forbidden}"
             );
         }
     }
@@ -382,6 +388,223 @@ async fn wait_for_file(path: &Path) {
     })
     .await
     .unwrap_or_else(|_| panic!("timed out waiting for {}", path.display()));
+}
+
+fn phase8_memory_config(record_path: &Path) -> AppConfig {
+    let component: ProcessComponentConfig = serde_json::from_value(json!({
+        "command": "python3",
+        "args": [
+            "-B",
+            workspace_file("crates/proteus-core/tests/fixtures/process_phase8_memory.py"),
+        ],
+        "handshake_timeout_ms": 3_000,
+        "exports": {
+            "memory": {
+                "phase8-memory": {
+                    "timeout_ms": 5_000,
+                }
+            },
+        },
+    }))
+    .expect("valid Phase 8B memory component");
+    let mut config = AppConfig::default();
+    config.modules.memory = Some("phase8-memory".to_owned());
+    config.tools.enabled.clear();
+    config.module_config.insert(
+        "memory".to_owned(),
+        [(
+            "phase8-memory".to_owned(),
+            json!({"record_path": record_path}),
+        )]
+        .into_iter()
+        .collect(),
+    );
+    config
+        .components
+        .insert("phase8-memory-component".to_owned(), component);
+    config
+}
+
+async fn phase8_memory_runtime(
+    workspace: &Path,
+    state_root: &Path,
+    record_path: &Path,
+) -> AgentRuntime {
+    AgentRuntime::builder(phase8_memory_config(record_path), workspace.to_path_buf())
+        .with_config_path(Some(&state_root.join("configs/proteus.toml")))
+        .build_async()
+        .await
+        .expect("Phase 8B memory runtime")
+}
+
+#[tokio::test]
+async fn agent_runtime_remember_uses_detached_memory_v2_without_tool_or_turn_state() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let state = tempfile::tempdir().expect("state root");
+    let record_path = state.path().join("memory-records.jsonl");
+    let runtime = phase8_memory_runtime(workspace.path(), state.path(), &record_path).await;
+
+    assert!(
+        runtime.tool_entries().await.is_empty(),
+        "remember_fact must be disabled"
+    );
+    runtime
+        .remember(
+            MemoryItem::new(
+                "preference",
+                "direct user memory",
+                json!({"source": "slash"}),
+            ),
+            CancellationToken::new(),
+        )
+        .await
+        .expect("top-level remember");
+
+    let record: serde_json::Value = serde_json::from_str(
+        std::fs::read_to_string(&record_path)
+            .expect("memory record")
+            .lines()
+            .next()
+            .expect("one memory record"),
+    )
+    .expect("memory record JSON");
+    assert_eq!(record["method"], "remember");
+    assert_eq!(record["item"]["content"], "direct user memory");
+    assert!(record["attribution"]["execution_id"].is_string());
+    assert!(record["attribution"]["agent"].is_null());
+    assert_eq!(runtime.history_len().await, 0);
+
+    assert!(
+        !runtime
+            .session_dir()
+            .expect("configured session path")
+            .exists(),
+        "memory must not create a session journal"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_runtime_memory_cancel_settles_and_keeps_process_sibling_alive() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let state = tempfile::tempdir().expect("state root");
+    let record_path = state.path().join("memory-records.jsonl");
+    let runtime =
+        Arc::new(phase8_memory_runtime(workspace.path(), state.path(), &record_path).await);
+    let started = state.path().join("memory-started");
+    let cancel_marker = state.path().join("memory-canceled");
+    let cancellation = CancellationToken::new();
+
+    let blocked = tokio::spawn({
+        let runtime = Arc::clone(&runtime);
+        let cancellation = cancellation.clone();
+        let started = started.clone();
+        let cancel_marker = cancel_marker.clone();
+        async move {
+            runtime
+                .remember(
+                    MemoryItem::new(
+                        "fact",
+                        "blocked",
+                        json!({
+                            "wait_for_cancel": true,
+                            "start_marker": started,
+                            "cancel_marker": cancel_marker,
+                        }),
+                    ),
+                    cancellation,
+                )
+                .await
+        }
+    });
+    wait_for_file(&started).await;
+
+    runtime
+        .remember(
+            MemoryItem::new("fact", "sibling", json!({})),
+            CancellationToken::new(),
+        )
+        .await
+        .expect("concurrent sibling remember");
+    cancellation.cancel();
+
+    let error = timeout(Duration::from_secs(2), blocked)
+        .await
+        .expect("canceled memory settled")
+        .expect("canceled memory task joined")
+        .expect_err("blocked memory must be canceled");
+    assert!(format!("{error:#}").contains("canceled"), "{error:#}");
+    wait_for_file(&cancel_marker).await;
+    let records = std::fs::read_to_string(&record_path).expect("memory records");
+    assert!(records.contains("sibling"));
+    assert!(!records.contains("\"content\": \"blocked\""));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn admitted_process_memory_keeps_old_config_across_runtime_reload() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let state = tempfile::tempdir().expect("state");
+    let old_records = state.path().join("old-memory.jsonl");
+    let new_records = state.path().join("new-memory.jsonl");
+    let started = state.path().join("old-memory-started");
+    let runtime = Arc::new(
+        AgentRuntime::builder(
+            phase8_memory_config(&old_records),
+            workspace.path().to_path_buf(),
+        )
+        .build_async()
+        .await
+        .expect("old memory runtime"),
+    );
+
+    let old_call = tokio::spawn({
+        let runtime = Arc::clone(&runtime);
+        let started = started.clone();
+        async move {
+            runtime
+                .remember(
+                    MemoryItem::new(
+                        "fact",
+                        "old selected store",
+                        json!({"start_marker": started, "delay_ms": 250}),
+                    ),
+                    CancellationToken::new(),
+                )
+                .await
+        }
+    });
+    wait_for_file(&started).await;
+
+    let next_config = phase8_memory_config(&new_records);
+    let next = PreparedAssembly::from_config(next_config, workspace.path().to_path_buf(), None)
+        .expect("new memory assembly");
+    runtime
+        .reload_assembly(next, None)
+        .await
+        .expect("reload memory assembly");
+
+    old_call
+        .await
+        .expect("old remember joined")
+        .expect("old remember completed");
+    runtime
+        .remember(
+            MemoryItem::new("fact", "new selected store", json!({})),
+            CancellationToken::new(),
+        )
+        .await
+        .expect("new remember completed");
+
+    assert!(
+        std::fs::read_to_string(old_records)
+            .expect("old records")
+            .contains("old selected store")
+    );
+    assert!(
+        std::fs::read_to_string(new_records)
+            .expect("new records")
+            .contains("new selected store")
+    );
+    assert_eq!(runtime.module_epoch().await.as_u64(), 1);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

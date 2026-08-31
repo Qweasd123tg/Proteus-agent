@@ -19,7 +19,8 @@ authority(module) = authority(slot, invocation_context)
 ```
 
 Все внешние modules являются exports process components: Component Runtime v2
-использует wire protocol v3, slot contracts остаются v1. Runtime допускает
+использует wire protocol v3; `tool` и `memory` используют strict contract v2,
+остальные process slots пока v1. Runtime допускает
 несколько одновременных и вложенных invocation одного component. Dylib ABI и
 native loader в проекте отсутствуют.
 
@@ -144,7 +145,9 @@ External example: `examples/modules/search-process/search.py`.
 
 ### Memory
 
-`remember` и `recall` с canonical `MemoryItem` / `MemoryQuery`.
+`memory/v2`: `remember` и `recall` с canonical `MemoryItem` / `MemoryQuery` и
+обязательной `ExecutionAttribution`. Cancellation остаётся host-owned и
+доставляется активной invocation через protocol cancel.
 `jsonl` и `sqlite` имеют одинаковую protocol authority; различается только
 storage implementation.
 

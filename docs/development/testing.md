@@ -190,6 +190,33 @@ Checkpoint 2026-08-30: оба focused command-а, format check, workspace check,
 включил production `broker_v3`/`multiplex_spike`, process-host session tests,
 reference conformance и topology/journal replay.
 
+### Phase 8B Memory Admission Gate
+
+Phase 8B дополнительно проверяет strict `memory/v2` и реальный `/remember`:
+
+```bash
+cargo test -p proteus-contracts process_slots::tests
+cargo test -p proteus-core core::runtime::tests::execution
+cargo test -p proteus-core --test execution_boundary
+cargo test -p proteus-core remember_command_uses_memory_v2_when_remember_fact_is_disabled
+cargo test -p proteus-reference-worker --test conformance
+cargo test -p proteus-reference-worker --test topology_journal
+```
+
+Evidence обязан фиксировать mandatory detached attribution, отсутствие v1
+reader-а, frozen store через reload, targeted cancel реального блокирующего
+worker-а, живой concurrent sibling и Turn, работу slash-команды при
+отключённом `remember_fact`, а также отсутствие history/Turn/memory journal
+facts. После focused suite применяются обычные format, workspace check,
+module-swap и full workspace gates.
+
+Checkpoint 2026-08-31: все перечисленные focused suites, module protocol,
+`cargo fmt --all -- --check`, `cargo check --workspace`, module swap и полный
+`cargo test --workspace --no-fail-fast` прошли. Первый full run обнаружил
+оставшийся hardcoded `ModuleManifest::process` api version v1; manifest теперь
+получает slot-owned contract version, профильный regression и повторный full
+run зелёные.
+
 ### P0 Multiplexed Broker Spike
 
 ```bash

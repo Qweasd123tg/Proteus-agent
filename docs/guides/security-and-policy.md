@@ -167,6 +167,11 @@ File I/O (`read_file`, `write_file`, `list_dir`, `grep`, `find_files`,
 каждого process tool декларируется в его `ToolSpec` и проверяется тем же
 механизмом, что и core facade tools.
 
+REPL `/remember` не является alias для `remember_fact`: это явная
+direct-user operation с authority выбранного memory slot-а. Она проходит
+top-level execution admission и `memory/v2` cancellation/attribution, но не
+зависит от `tools.enabled` и не получает tool policy/approval semantics.
+
 Process tool names валидируются при регистрации: пустое имя и duplicate между
 modules отклоняются. Если явно включённый process tool совпал с
 builtin/configured tool, сборка registry завершается ошибкой конфигурации;

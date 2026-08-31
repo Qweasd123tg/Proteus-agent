@@ -11,7 +11,8 @@ use tokio::time::timeout;
 use crate::{
     contracts::{
         AgentWorkflowContext, CompactionInput, CompactionOutput, ContextBuildInput,
-        ToolExposureInput, ToolExposureOutput, ToolExposureRequest, WorkflowRuntimeStatus,
+        ExecutionAttribution, MemoryInvocationContext, ToolExposureInput, ToolExposureOutput,
+        ToolExposureRequest, WorkflowRuntimeStatus,
     },
     domain::{AgentTask, Event, ToolCall, ToolResult, ToolSpec},
     model_standard::{CanonicalModelRequest, CanonicalModelResponse},
@@ -49,12 +50,22 @@ impl WorkflowHostRuntime {
     ) -> Result<crate::domain::ContextBundle> {
         let ctx = self.ctx.clone();
         self.run_active(async move {
+            let memory_context = MemoryInvocationContext::new(
+                ExecutionAttribution::for_turn(
+                    ctx.execution.scope.execution_id,
+                    ctx.session_id,
+                    ctx.thread_id,
+                    ctx.turn_id,
+                ),
+                ctx.execution.scope.cancellation.clone(),
+            );
             timeout(
                 Duration::from_millis(ctx.context_timeout_ms),
                 ctx.context.build(ContextBuildInput {
                     task,
                     search: ctx.execution.search.clone(),
                     memory: ctx.execution.memory.clone(),
+                    memory_context,
                 }),
             )
             .await

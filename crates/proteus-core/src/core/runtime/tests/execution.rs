@@ -11,11 +11,15 @@ use super::*;
 use crate::{
     contracts::{
         AgentWorkflowContext, ApprovalPolicy, ApprovalRequest, ApprovalResponse, ApprovalTransport,
-        CancellationToken, ExecutionAttribution, PolicyContext, PolicyVisibilityContext, Tool,
-        ToolContext, ToolRegistry, ToolSource, Workflow, WorkflowOutput,
+        CancellationToken, ExecutionAttribution, MemoryInvocationContext, MemoryStore,
+        PolicyContext, PolicyVisibilityContext, Tool, ToolContext, ToolRegistry, ToolSource,
+        Workflow, WorkflowOutput,
     },
     core::PreparedAssembly,
-    domain::{AgentTask, PolicyDecision, ToolCall, ToolResult, ToolSafety, ToolSpec},
+    domain::{
+        AgentTask, MemoryItem, MemoryQuery, PolicyDecision, ToolCall, ToolResult, ToolSafety,
+        ToolSpec,
+    },
     model_standard::CanonicalMessage,
 };
 
@@ -103,6 +107,188 @@ fn one_tool_registry(tool: Arc<dyn Tool>) -> ToolRegistry {
         )
         .expect("register Phase 8 test tool");
     registry
+}
+
+#[derive(Default)]
+struct RecordingMemory {
+    items: tokio::sync::Mutex<Vec<MemoryItem>>,
+    attributions: tokio::sync::Mutex<Vec<ExecutionAttribution>>,
+}
+
+#[async_trait]
+impl MemoryStore for RecordingMemory {
+    async fn remember(&self, item: MemoryItem, ctx: MemoryInvocationContext) -> Result<()> {
+        self.items.lock().await.push(item);
+        self.attributions.lock().await.push(ctx.attribution);
+        Ok(())
+    }
+
+    async fn recall(
+        &self,
+        _query: MemoryQuery,
+        _ctx: MemoryInvocationContext,
+    ) -> Result<Vec<MemoryItem>> {
+        Ok(self.items.lock().await.clone())
+    }
+}
+
+struct BlockingMemory {
+    started: Arc<Notify>,
+    proceed: Arc<Notify>,
+    items: tokio::sync::Mutex<Vec<MemoryItem>>,
+}
+
+#[async_trait]
+impl MemoryStore for BlockingMemory {
+    async fn remember(&self, item: MemoryItem, _ctx: MemoryInvocationContext) -> Result<()> {
+        self.started.notify_one();
+        self.proceed.notified().await;
+        self.items.lock().await.push(item);
+        Ok(())
+    }
+
+    async fn recall(
+        &self,
+        _query: MemoryQuery,
+        _ctx: MemoryInvocationContext,
+    ) -> Result<Vec<MemoryItem>> {
+        Ok(self.items.lock().await.clone())
+    }
+}
+
+#[tokio::test]
+async fn top_level_memory_keeps_its_snapshot_across_reload() {
+    let cwd = tempfile::tempdir().expect("temp dir");
+    let runtime = Arc::new(
+        AgentRuntime::builder(AppConfig::default(), cwd.path().to_path_buf())
+            .with_module_catalog(test_catalog())
+            .build()
+            .expect("runtime"),
+    );
+    let started = Arc::new(Notify::new());
+    let proceed = Arc::new(Notify::new());
+    let old = Arc::new(BlockingMemory {
+        started: started.clone(),
+        proceed: proceed.clone(),
+        items: tokio::sync::Mutex::new(Vec::new()),
+    });
+    runtime
+        .services
+        .execution_state
+        .write()
+        .await
+        .runtime
+        .registry
+        .memory = old.clone();
+
+    let running = tokio::spawn({
+        let runtime = runtime.clone();
+        async move {
+            runtime
+                .remember(
+                    MemoryItem::new("fact", "old snapshot", serde_json::Value::Null),
+                    CancellationToken::new(),
+                )
+                .await
+        }
+    });
+    started.notified().await;
+
+    let next = Arc::new(RecordingMemory::default());
+    let mut next_assembly = PreparedAssembly::from_catalog(
+        AppConfig::default(),
+        cwd.path().to_path_buf(),
+        None,
+        test_catalog(),
+    )
+    .expect("next assembly");
+    next_assembly.registry_mut().memory = next.clone();
+    runtime
+        .reload_assembly(next_assembly, None)
+        .await
+        .expect("reload runtime");
+
+    proceed.notify_one();
+    running
+        .await
+        .expect("old task joined")
+        .expect("old remember");
+    runtime
+        .remember(
+            MemoryItem::new("fact", "new snapshot", serde_json::Value::Null),
+            CancellationToken::new(),
+        )
+        .await
+        .expect("new remember");
+
+    assert_eq!(old.items.lock().await[0].content, "old snapshot");
+    assert_eq!(next.items.lock().await[0].content, "new snapshot");
+    assert_eq!(runtime.module_epoch().await.as_u64(), 1);
+}
+
+#[tokio::test]
+async fn every_top_level_memory_operation_gets_fresh_detached_attribution() {
+    let cwd = tempfile::tempdir().expect("temp dir");
+    let memory = Arc::new(RecordingMemory::default());
+    let runtime = AgentRuntime::builder(AppConfig::default(), cwd.path().to_path_buf())
+        .with_module_catalog(test_catalog())
+        .build()
+        .expect("runtime");
+    runtime
+        .services
+        .execution_state
+        .write()
+        .await
+        .runtime
+        .registry
+        .memory = memory.clone();
+
+    for content in ["first", "second"] {
+        runtime
+            .remember(
+                MemoryItem::new("fact", content, serde_json::Value::Null),
+                CancellationToken::new(),
+            )
+            .await
+            .expect("remember");
+    }
+
+    let attributions = memory.attributions.lock().await;
+    assert_eq!(attributions.len(), 2);
+    assert!(attributions.iter().all(|value| value.agent.is_none()));
+    assert_ne!(attributions[0].execution_id, attributions[1].execution_id);
+}
+
+#[tokio::test]
+async fn pre_canceled_top_level_memory_never_reaches_the_store() {
+    let cwd = tempfile::tempdir().expect("temp dir");
+    let memory = Arc::new(RecordingMemory::default());
+    let runtime = AgentRuntime::builder(AppConfig::default(), cwd.path().to_path_buf())
+        .with_module_catalog(test_catalog())
+        .build()
+        .expect("runtime");
+    runtime
+        .services
+        .execution_state
+        .write()
+        .await
+        .runtime
+        .registry
+        .memory = memory.clone();
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+
+    let error = runtime
+        .remember(
+            MemoryItem::new("fact", "must not write", serde_json::Value::Null),
+            cancellation,
+        )
+        .await
+        .expect_err("pre-canceled remember must fail");
+
+    assert!(error.to_string().contains("canceled"));
+    assert!(memory.items.lock().await.is_empty());
+    assert!(memory.attributions.lock().await.is_empty());
 }
 
 #[tokio::test]

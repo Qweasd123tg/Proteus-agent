@@ -92,7 +92,10 @@ impl AsyncHostRequestDispatcher for ContextDispatcher {
                     Err(error) => return Box::pin(async move { Err(error) }),
                 };
                 let memory = Arc::clone(&self.input.memory);
-                Box::pin(async move { host_result(memory.recall(input.query).await, &method) })
+                let memory_context = self.input.memory_context.clone();
+                Box::pin(async move {
+                    host_result(memory.recall(input.query, memory_context).await, &method)
+                })
             }
             CONTEXT_HOST_PROVIDER_METHOD => {
                 let input = match decode::<ProcessContextProviderInput>(request.params, &method) {
@@ -115,6 +118,7 @@ impl AsyncHostRequestDispatcher for ContextDispatcher {
                     task: input.task,
                     search: Arc::clone(&self.input.search),
                     memory: Arc::clone(&self.input.memory),
+                    memory_context: self.input.memory_context.clone(),
                 };
                 Box::pin(
                     async move { host_result(provider.provide(&provider_input).await, &method) },

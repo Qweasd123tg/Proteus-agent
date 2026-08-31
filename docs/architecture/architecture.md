@@ -387,7 +387,7 @@ queue и cancellation token journal не восстанавливает.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–8A реализованы; review stop перед memory/v2 Phase 8B**.
+Статус: **Phase 0–8 реализованы**.
 
 Принято направление отделить generic workload identity/lifecycle boundary от
 conversation Turn без переписывания agent loop или process protocol:
@@ -453,7 +453,7 @@ guards запрещают chat imports в generic execution contracts и в publ
 `BoundTools` boundary. Следующие phases и stop-gates находятся в
 [roadmap.md](../product/roadmap.md#executionscope-migration).
 
-### Реализованная Граница Phase 8A
+### Реализованная Граница Phase 8
 
 Phase 8 не публикует `ExecutionContext` как closure argument или service
 locator. Сейчас этот migration type всё ещё содержит raw registry/store/patch
@@ -473,7 +473,7 @@ AgentRuntime
      v
 typed top-level operation
      |-- BoundTools  -> first process-backed hard proof
-     |-- BoundMemory -> after strict memory/v2 cutover
+     |-- BoundMemory -> memory/v2
      `-- BoundModel  -> later, after request-default ownership decision
 ```
 
@@ -502,12 +502,16 @@ bounded-время продолжает polling tool future, поэтому proc
 доставить targeted protocol cancel; uncooperative tool не может удерживать
 entrypoint бесконечно.
 
-`/remember` является первым user-facing migration target, но текущий raw
-`MemoryStore` ещё не может честно участвовать в admission: trait и
-`memory/v1` DTO не несут execution attribution/cancellation, а drop ожидающего
-`InvocationHandle` не отменяет process invocation. Поэтому перед cutover
-нужны typed `BoundMemory` и strict slot-wide `memory/v2`; все producers и
-consumers меняются атомарно без compatibility reader.
+`/remember` является первым user-facing non-Turn consumer. Он вызывает узкую
+`AgentRuntime::remember(item, cancellation)` operation: private admission
+один раз захватывает selected `MemoryStore`, создаёт scope и bind-ит
+`BoundMemory`. Public raw `AgentRuntime::memory()` удалён.
+
+Canonical `MemoryStore` получает `MemoryInvocationContext` для `remember` и
+`recall`. Attribution сериализуется обязательным полем strict `memory/v2`, а
+host-owned token управляет targeted broker cancel и ожидает terminal
+settlement. Все tracked producers, consumers и reference implementations
+переведены одновременно; reader/alias для `memory/v1` отсутствует.
 
 Slash-команда остаётся explicit direct-user memory operation и не
 перенаправляется через опциональный tool `remember_fact`. Tool path продолжает
@@ -516,7 +520,7 @@ authority выбранного memory slot-а. MemoryStore остаётся dura
 а Phase 8 не превращает memory action в `ToolCall` и не добавляет journal fact
 без отдельного replay use case.
 
-Non-Turn operations не берут session `run_lock` и могут идти параллельно с
+Non-Turn tool и memory operations не берут session `run_lock` и могут идти параллельно с
 Turn и друг с другом. Изоляция обеспечивается distinct scope/grants/recorders,
 SessionStore сериализует append своим writer lock, а multiplexed component
 сохраняет общий process lifecycle/failure domain без union authority. Cancel

@@ -31,7 +31,7 @@
   [modules.md](architecture/modules.md).
 - **Продолжить ExecutionScope migration:** сначала current boundary в
   [architecture.md](architecture/architecture.md#executionscope-migration),
-  затем реализованные Phase 0–8A и review stop-gate перед memory/v2 Phase 8B в
+  затем реализованные Phase 0–8 и их evidence gates в
   [roadmap.md](product/roadmap.md#executionscope-migration).
 - **Понять направление subagents:** [subagents.md](architecture/subagents.md).
 - **Разобрать сбой:** [inspect.md](guides/inspect.md), затем профильный документ по

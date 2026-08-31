@@ -231,7 +231,9 @@ approval/cancellation/recording/invoke path; `ToolOrchestrator` только
 private atomic admission и отдельную typed top-level
 `AgentRuntime::execute_tool` surface без public ambient `ExecutionContext`.
 Она выполняет process-backed tool без fake Turn/Workflow и сохраняет detached
-tool facts; memory/v2 и перевод `/remember` остаются Phase 8B. Общая
+tool facts. Phase 8B добавила `BoundMemory`, strict `memory/v2` с обязательной
+execution attribution/cancellation и перевела `/remember` на тот же admission
+без history/Turn/journal facts. Общая
 `BoundCapability<T>` abstraction не введена. `Turn` остаётся application
 lifecycle, `Workflow` владеет agent-loop policy, а process `InvocationRef` не
 меняется. Канонический план и production stop-gates находятся в

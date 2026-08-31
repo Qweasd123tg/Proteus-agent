@@ -16,8 +16,8 @@ use proteus_contracts::{
     },
     domain::ToolSpec,
     process_module::{
-        ContextBuilderModuleInput, ToolModuleInvocationContext, WorkflowModuleInput,
-        WorkflowModuleOutput, WorkflowModuleRuntimeInfo,
+        ContextBuilderModuleInput, MemoryModuleInvocationContext, ToolModuleInvocationContext,
+        WorkflowModuleInput, WorkflowModuleOutput, WorkflowModuleRuntimeInfo,
     },
 };
 use proteus_module_protocol::process_contract_authority;
@@ -26,7 +26,8 @@ use serde_json::Value;
 
 use crate::{
     hosts::{
-        CompactorHostBridge, ContextHostBridge, HostBridge, ToolHostBridge, WorkflowHostBridge,
+        CompactorHostBridge, ContextHostBridge, HostBridge, MemoryHostBridge, ToolHostBridge,
+        WorkflowHostBridge,
     },
     registry::CollectedModules,
 };
@@ -92,7 +93,7 @@ impl ExportWorker {
         match self.binding.slot.as_str() {
             "tool" => self.tool(method, params, bridge),
             "search" => self.search(params),
-            "memory" => self.memory(method, params),
+            "memory" => self.memory(method, params, bridge),
             "patch" => self.patch(params),
             "policy" => self.policy(method, params),
             "tool_exposure" => self.tool_exposure(params),
@@ -160,7 +161,7 @@ impl ExportWorker {
         )?))
     }
 
-    fn memory(&self, method: &str, params: Value) -> Result<Value> {
+    fn memory(&self, method: &str, params: Value, bridge: &HostBridge) -> Result<Value> {
         let store = self
             .modules
             .memories
@@ -169,12 +170,30 @@ impl ExportWorker {
         match method {
             PROCESS_MEMORY_REMEMBER_METHOD => {
                 let input: ProcessMemoryRememberInput = decode(params)?;
-                store.remember_json(serde_json::to_string(&input.item)?)?;
+                let context_json = serde_json::to_string(&MemoryModuleInvocationContext {
+                    attribution: input.attribution,
+                    config: self.binding.module_config.clone(),
+                })?;
+                let mut host = MemoryHostBridge(bridge.clone());
+                store.remember_json(
+                    serde_json::to_string(&input.item)?,
+                    context_json,
+                    &mut host,
+                )?;
                 encode(ProcessMemoryRememberResponse::new(()))
             }
             PROCESS_MEMORY_RECALL_METHOD => {
                 let input: ProcessMemoryRecallInput = decode(params)?;
-                let output = store.recall_json(serde_json::to_string(&input.query)?)?;
+                let context_json = serde_json::to_string(&MemoryModuleInvocationContext {
+                    attribution: input.attribution,
+                    config: self.binding.module_config.clone(),
+                })?;
+                let mut host = MemoryHostBridge(bridge.clone());
+                let output = store.recall_json(
+                    serde_json::to_string(&input.query)?,
+                    context_json,
+                    &mut host,
+                )?;
                 encode(ProcessMemoryRecallResponse::new(serde_json::from_str(
                     output.as_str(),
                 )?))

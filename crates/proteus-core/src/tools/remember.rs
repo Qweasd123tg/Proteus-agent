@@ -1,8 +1,8 @@
 //! `remember_fact` tool: модель вызывает его чтобы явно положить
 //! preference/fact в long-term memory.
 //!
-//! Владеет `Arc<dyn MemoryStore>` (тот же паттерн что `ApplyPatchTool`
-//! для patch applier'а). Не требует расширения `ToolContext`.
+//! Владеет `Arc<dyn MemoryStore>` и передаёт execution attribution и
+//! cancellation из canonical `ToolContext` в memory contract.
 //!
 //! `kind` ограничен двумя значениями:
 //! - `"preference"` — устойчивые user/team conventions ("prefer tabs",
@@ -17,7 +17,7 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 
 use crate::{
-    contracts::{MemoryStore, Tool, ToolContext},
+    contracts::{MemoryInvocationContext, MemoryStore, Tool, ToolContext},
     domain::{MemoryItem, ToolCall, ToolResult, ToolSafety, ToolSpec},
 };
 
@@ -64,7 +64,7 @@ impl Tool for RememberFactTool {
         )
     }
 
-    async fn invoke(&self, call: &ToolCall, _ctx: ToolContext) -> Result<ToolResult> {
+    async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult> {
         let kind = call
             .args
             .get("kind")
@@ -83,7 +83,10 @@ impl Tool for RememberFactTool {
         }
         let metadata = call.args.get("metadata").cloned().unwrap_or(Value::Null);
         self.memory
-            .remember(MemoryItem::new(kind, content, metadata))
+            .remember(
+                MemoryItem::new(kind, content, metadata),
+                MemoryInvocationContext::new(ctx.attribution, ctx.cancellation),
+            )
             .await?;
         Ok(ToolResult::ok(
             call.id.clone(),
@@ -99,21 +102,26 @@ mod tests {
         contracts::MemoryStore,
         domain::{MemoryQuery, new_call_id},
     };
-    use std::sync::Mutex;
     use tokio::sync::Mutex as AsyncMutex;
 
     #[derive(Default)]
     struct RecordingMemory {
         items: AsyncMutex<Vec<MemoryItem>>,
+        attributions: AsyncMutex<Vec<crate::contracts::ExecutionAttribution>>,
     }
 
     #[async_trait]
     impl MemoryStore for RecordingMemory {
-        async fn remember(&self, item: MemoryItem) -> Result<()> {
+        async fn remember(&self, item: MemoryItem, ctx: MemoryInvocationContext) -> Result<()> {
             self.items.lock().await.push(item);
+            self.attributions.lock().await.push(ctx.attribution);
             Ok(())
         }
-        async fn recall(&self, _query: MemoryQuery) -> Result<Vec<MemoryItem>> {
+        async fn recall(
+            &self,
+            _query: MemoryQuery,
+            _ctx: MemoryInvocationContext,
+        ) -> Result<Vec<MemoryItem>> {
             Ok(self.items.lock().await.clone())
         }
     }
@@ -148,6 +156,10 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].kind, "preference");
         assert_eq!(items[0].content, "user prefers tabs");
+        drop(items);
+        let attributions = memory.attributions.lock().await;
+        assert_eq!(attributions.len(), 1);
+        assert!(attributions[0].agent.is_none());
     }
 
     #[tokio::test]
@@ -213,12 +225,5 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("missing 'kind'"));
-    }
-
-    // Проверяем что std::sync::Mutex импорт не помешал — он не используется
-    // в тестах (только AsyncMutex), но оставлен на случай future-proof.
-    #[test]
-    fn std_mutex_import_compiles() {
-        let _: Mutex<()> = Mutex::new(());
     }
 }

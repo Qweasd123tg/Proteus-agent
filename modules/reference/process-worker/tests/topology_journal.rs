@@ -13,7 +13,7 @@ use proteus_contracts::{
         CONTEXT_HOST_SEARCH_METHOD, CancellationToken, UserInputRequest, UserInputResponse,
         UserInputTransport, WORKFLOW_HOST_COMPLETE_MODEL_METHOD, WORKFLOW_HOST_EXECUTE_TOOL_METHOD,
     },
-    domain::MemoryQuery,
+    domain::MemoryItem,
     model_standard::ContentPart,
 };
 use proteus_core::{
@@ -180,15 +180,16 @@ async fn one_component_profile_preserves_pid_authority_cancellation_and_journal_
         .await
         .expect("workflow reached blocking user-input callback");
 
-    let memory = runtime.memory().await;
-    let sibling = tokio::time::timeout(
+    tokio::time::timeout(
         Duration::from_secs(5),
-        memory.recall(MemoryQuery::new("independent sibling", 5)),
+        runtime.remember(
+            MemoryItem::new("fact", "independent sibling", json!({})),
+            CancellationToken::new(),
+        ),
     )
     .await
     .expect("independent memory invocation did not deadlock")
     .expect("independent memory invocation");
-    assert!(sibling.is_empty());
     assert_eq!(recorded_pids(&marker), [live_pid]);
 
     cancellation.cancel();
@@ -201,8 +202,11 @@ async fn one_component_profile_preserves_pid_authority_cancellation_and_journal_
         format!("{canceled_error:#}").contains("canceled"),
         "{canceled_error:#}"
     );
-    memory
-        .recall(MemoryQuery::new("after cancellation", 5))
+    runtime
+        .remember(
+            MemoryItem::new("fact", "after cancellation", json!({})),
+            CancellationToken::new(),
+        )
         .await
         .expect("component remains usable after targeted cancellation");
 
@@ -302,7 +306,6 @@ async fn one_component_profile_preserves_pid_authority_cancellation_and_journal_
         )
     }));
 
-    drop(memory);
     drop(store);
     drop(runtime);
 

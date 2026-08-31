@@ -4,7 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 
 use crate::{
-    contracts::{MemoryStore, SearchBackend},
+    contracts::{MemoryInvocationContext, MemoryStore, SearchBackend},
     domain::{AgentTask, ContextBundle},
 };
 
@@ -13,6 +13,7 @@ pub struct ContextBuildInput {
     pub task: AgentTask,
     pub search: Arc<dyn SearchBackend>,
     pub memory: Arc<dyn MemoryStore>,
+    pub memory_context: MemoryInvocationContext,
 }
 
 impl ContextBuildInput {
@@ -20,11 +21,13 @@ impl ContextBuildInput {
         task: AgentTask,
         search: Arc<dyn SearchBackend>,
         memory: Arc<dyn MemoryStore>,
+        memory_context: MemoryInvocationContext,
     ) -> Self {
         Self {
             task,
             search,
             memory,
+            memory_context,
         }
     }
 }

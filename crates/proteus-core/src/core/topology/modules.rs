@@ -73,7 +73,7 @@ mod tests {
         let entry = ModuleCatalogEntrySummary {
             slot: "search".to_owned(),
             id: "rg".to_owned(),
-            manifest: ModuleManifest::process("rg", ModuleKind::Search, &["process"]),
+            manifest: ModuleManifest::process("rg", ModuleKind::Search, "v1", &["process"]),
         };
 
         assert_eq!(module_source(&entry), ModuleSourceTopology::Process);

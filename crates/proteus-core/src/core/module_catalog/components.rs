@@ -200,8 +200,15 @@ fn ensure_process_id_is_free(catalog: &ModuleCatalog, slot: SlotId, id: &str) ->
 }
 
 fn process_manifest(id: &str, kind: ModuleKind, description: Option<String>) -> ModuleManifest {
-    let mut manifest =
-        ModuleManifest::process(id, kind, &["process", "component", "stdio", "newline_json"]);
+    let contract_version = current_process_contract_authority(kind.as_str())
+        .expect("process module kind must have canonical authority")
+        .contract_version;
+    let mut manifest = ModuleManifest::process(
+        id,
+        kind,
+        contract_version,
+        &["process", "component", "stdio", "newline_json"],
+    );
     manifest.description = description;
     manifest
 }

@@ -44,12 +44,12 @@ impl ModuleManifest {
         }
     }
 
-    pub fn process(id: &str, kind: ModuleKind, capabilities: &[&str]) -> Self {
+    pub fn process(id: &str, kind: ModuleKind, api_version: &str, capabilities: &[&str]) -> Self {
         Self {
             id: id.to_owned(),
             kind,
             version: "external".to_owned(),
-            api_version: "v1".to_owned(),
+            api_version: api_version.to_owned(),
             capabilities: capabilities
                 .iter()
                 .map(|capability| capability.to_string())

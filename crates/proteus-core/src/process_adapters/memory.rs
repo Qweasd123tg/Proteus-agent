@@ -2,14 +2,15 @@ use std::{path::Path, sync::Arc};
 
 use crate::{
     contracts::{
-        MemoryStore, PROCESS_MEMORY_CONTRACT_VERSION, PROCESS_MEMORY_RECALL_METHOD,
-        PROCESS_MEMORY_REMEMBER_METHOD, ProcessMemoryRecallInput, ProcessMemoryRecallResponse,
-        ProcessMemoryRememberInput, ProcessMemoryRememberResponse,
+        MemoryInvocationContext, MemoryStore, PROCESS_MEMORY_CONTRACT_VERSION,
+        PROCESS_MEMORY_RECALL_METHOD, PROCESS_MEMORY_REMEMBER_METHOD, ProcessMemoryRecallInput,
+        ProcessMemoryRecallResponse, ProcessMemoryRememberInput, ProcessMemoryRememberResponse,
     },
     domain::{MemoryItem, MemoryQuery},
 };
 use anyhow::Result;
 use async_trait::async_trait;
+use proteus_module_protocol::v3::NoAsyncHostRequests;
 
 use super::{ProcessExportClient, ProcessExportConfig};
 
@@ -35,23 +36,39 @@ impl ProcessMemoryStore {
 
 #[async_trait]
 impl MemoryStore for ProcessMemoryStore {
-    async fn remember(&self, item: MemoryItem) -> Result<()> {
+    async fn remember(&self, item: MemoryItem, ctx: MemoryInvocationContext) -> Result<()> {
+        let cancellation = ctx.cancellation;
         let response: ProcessMemoryRememberResponse = self
             .client
-            .invoke(
+            .invoke_with_dispatcher_and_cancel_check(
                 PROCESS_MEMORY_REMEMBER_METHOD,
-                &ProcessMemoryRememberInput { item },
+                &ProcessMemoryRememberInput {
+                    item,
+                    attribution: ctx.attribution,
+                },
+                Arc::new(NoAsyncHostRequests),
+                move || cancellation.is_cancelled(),
             )
             .await?;
         Ok(response.result)
     }
 
-    async fn recall(&self, query: MemoryQuery) -> Result<Vec<MemoryItem>> {
+    async fn recall(
+        &self,
+        query: MemoryQuery,
+        ctx: MemoryInvocationContext,
+    ) -> Result<Vec<MemoryItem>> {
+        let cancellation = ctx.cancellation;
         let response: ProcessMemoryRecallResponse = self
             .client
-            .invoke(
+            .invoke_with_dispatcher_and_cancel_check(
                 PROCESS_MEMORY_RECALL_METHOD,
-                &ProcessMemoryRecallInput { query },
+                &ProcessMemoryRecallInput {
+                    query,
+                    attribution: ctx.attribution,
+                },
+                Arc::new(NoAsyncHostRequests),
+                move || cancellation.is_cancelled(),
             )
             .await?;
         Ok(response.result)

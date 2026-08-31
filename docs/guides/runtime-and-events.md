@@ -97,8 +97,9 @@ token отклоняется до запуска runtime и bind.
 
 `/history` показывает длину in-memory history. `/clear` и `/reset` очищают live
 history projection и, если подключён `SessionStore`, append-ят canonical empty
-replacement в journal. `/remember` пишет item в `MemoryStore` напрямую, минуя
-Workflow — это side-channel для ручных preferences/facts; первое слово
+replacement в journal. `/remember` запускает отдельную top-level execution,
+атомарно bind-ит выбранный `MemoryStore` через `BoundMemory` и минует Workflow —
+это explicit direct-user operation для ручных preferences/facts; первое слово
 интерпретируется как kind (`preference` или `fact`), остаток идёт как content.
 Если первое слово не распознано — всё считается `fact`.
 
@@ -202,8 +203,8 @@ source/spec, `agent_control_surface` и default permission mode. Каждый
 захватывает assembly snapshot вместе с effective `model_ref`, reasoning и
 permission mode в immutable `ExecutionAdmissionSnapshot`; Turn journal, model
 binding, policy и Workflow используют только эти значения до settlement.
-`AgentRuntime::execute_tool` использует тот же capture primitive и удерживает
-его до terminal `ToolResult`. Поэтому concurrent `/model`, `/mode`, `/effort`,
+`AgentRuntime::execute_tool` и `AgentRuntime::remember` используют тот же
+capture primitive и удерживают selected capability до terminal result. Поэтому concurrent `/model`, `/mode`, `/effort`,
 `/reasoning` или reload относятся уже к следующей execution и не создают смесь
 старого registry с новыми overrides.
 
@@ -218,8 +219,8 @@ replay использует компактный `SessionConfigSnapshot` с то
 вычисления. Он не содержит program counter, stack или suspended Workflow
 future и не позволяет продолжить оборванный call после crash. Текущий Turn
 удерживает один coherent snapshot до завершения; реализованный
-`ExecutionContext` bind-ится из него один раз. Top-level tool operation также
-bind-ит `BoundTools` ровно один раз, но не создаёт `ExecutionContext`.
+`ExecutionContext` bind-ится из него один раз. Top-level operations bind-ят
+`BoundTools` либо `BoundMemory` ровно один раз, но не создают `ExecutionContext`.
 
 Если у runtime есть `SessionStore`, top-level tool operation пишет canonical
 `ToolCallRecorded`/`ToolResultRecorded` с одним `execution_id` и без
@@ -250,9 +251,9 @@ bind-ит `BoundTools` ровно один раз, но не создаёт `Exe
 `PatchApplied` существует в enum, но текущие coding workflows его не испускают. Даже успешный `apply_patch` сейчас фиксируется обычным `ToolFinished`, потому что отдельный patch event path ещё не подключён.
 
 Автоматического post-turn memory event path больше нет: `MemoryPolicy` и
-эвристика `carry_forward` удалены. Явные записи `remember_fact` и `/remember`
-идут непосредственно через активный `MemoryStore`; отдельного memory event
-runtime не испускает.
+эвристика `carry_forward` удалены. `remember_fact` передаёт tool-owned
+attribution/cancellation, а `/remember` — detached top-level context в один
+активный `MemoryStore`; отдельного memory event runtime не испускает.
 
 `SubagentStarted` и `SubagentFinished` описывают live-работу process peer-а:
 роль, краткое описание, статус, число итераций и

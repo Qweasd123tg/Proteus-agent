@@ -1,4 +1,4 @@
-//! Strict process-v1 DTOs for slots whose canonical Rust traits do not carry
+//! Strict process DTOs for slots whose canonical Rust traits do not carry
 //! their own wire representation.
 //!
 //! The host chooses the contract from the slot, never from `module_id`.
@@ -17,7 +17,7 @@ use crate::{
 
 use super::ToolExposureInput;
 
-pub const PROCESS_MEMORY_CONTRACT_VERSION: &str = "v1";
+pub const PROCESS_MEMORY_CONTRACT_VERSION: &str = "v2";
 pub const PROCESS_MEMORY_REMEMBER_METHOD: &str = "remember";
 pub const PROCESS_MEMORY_RECALL_METHOD: &str = "recall";
 
@@ -64,12 +64,14 @@ impl<T> ProcessModuleResponse<T> {
 #[serde(deny_unknown_fields)]
 pub struct ProcessMemoryRememberInput {
     pub item: MemoryItem,
+    pub attribution: ExecutionAttribution,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessMemoryRecallInput {
     pub query: MemoryQuery,
+    pub attribution: ExecutionAttribution,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -204,5 +206,42 @@ mod tests {
         );
         serde_json::from_value::<ProcessToolInvokeInput>(legacy_owner)
             .expect_err("tool v1 owner must not be accepted by v2");
+    }
+
+    #[test]
+    fn memory_v2_requires_execution_attribution_and_rejects_v1_payloads() {
+        let attribution = ExecutionAttribution::detached(new_execution_id());
+        let remember = ProcessMemoryRememberInput {
+            item: MemoryItem::new("fact", "detached memory", serde_json::Value::Null),
+            attribution,
+        };
+        let value = serde_json::to_value(&remember).expect("memory input");
+        serde_json::from_value::<ProcessMemoryRememberInput>(value.clone())
+            .expect("detached execution must cross memory v2");
+
+        let mut v1 = value.clone();
+        v1.as_object_mut()
+            .expect("memory object")
+            .remove("attribution");
+        serde_json::from_value::<ProcessMemoryRememberInput>(v1)
+            .expect_err("memory v1 payload must not be accepted by v2");
+
+        let recall = ProcessMemoryRecallInput {
+            query: MemoryQuery::new("detached", 5),
+            attribution,
+        };
+        let mut legacy_owner = serde_json::to_value(recall).expect("recall input");
+        let object = legacy_owner.as_object_mut().expect("recall object");
+        object.remove("attribution");
+        object.insert(
+            "owner".to_owned(),
+            serde_json::json!({
+                "session_id": "session_legacy",
+                "thread_id": "thread_legacy",
+                "turn_id": "turn_legacy"
+            }),
+        );
+        serde_json::from_value::<ProcessMemoryRecallInput>(legacy_owner)
+            .expect_err("memory v1 owner must not be accepted by v2");
     }
 }

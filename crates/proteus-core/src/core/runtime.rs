@@ -468,13 +468,6 @@ impl AgentRuntime {
     pub fn cwd(&self) -> &Path {
         &self.services.cwd
     }
-
-    /// MemoryStore активной конфигурации. Используется REPL для
-    /// `/remember`-команды — запись идёт напрямую в store, минуя
-    /// Workflow (это не turn, а side-channel ручной записи).
-    pub async fn memory(&self) -> Arc<dyn crate::contracts::MemoryStore> {
-        self.snapshot().await.registry.memory.clone()
-    }
 }
 
 #[cfg(test)]

@@ -24,14 +24,14 @@ journal/replay evidence и `v0.1.0-alpha.1` уже завершены. Roadmap �
 [releases/v0.1.0-alpha.1.md](../releases/v0.1.0-alpha.1.md).
 
 Следующее принятое направление — минимальная `ExecutionScope` migration,
-описанная ниже. Phase 0–8A реализованы; перед strict memory contract cutover
-Phase 8B действует отдельный review stop-gate.
+описанная ниже. Phase 0–8 реализованы; Phase 8B завершила strict memory
+contract cutover и перевод `/remember` 2026-08-31.
 Остальные разделы остаются вариантами последующей работы, а не автоматической
 очередью.
 
 ## ExecutionScope Migration
 
-Статус: **Phase 0–8A реализованы; остановка для review перед Phase 8B**.
+Статус: **Phase 0–8 реализованы**.
 
 Supporting evidence, не заменяющий этот roadmap:
 [source-level audit](../research/execution-scope-source-audit-2026-08-27.md) и
@@ -889,7 +889,7 @@ classes.
 
 ### Phase 8 — Top-Level Non-Turn Admission
 
-Статус: **Phase 8A реализована 2026-08-30; review stop перед Phase 8B**.
+Статус: **Phase 8A реализована 2026-08-30; Phase 8B реализована 2026-08-31**.
 
 Старое supporting research предлагало
 `run_execution(|ctx: ExecutionContext| ...)`. Текущий source отвергает эту
@@ -944,7 +944,7 @@ AgentRuntime
             |
             |-- bind tools  -> BoundTools
             |-- bind model  -> BoundModel (не первый public surface)
-            `-- bind memory -> BoundMemory (после memory/v2 cutover)
+            `-- bind memory -> BoundMemory
 ```
 
 Это не обещание общего `CapabilityBinder<T>` API. Новая capability получает
@@ -983,10 +983,10 @@ context только ради доступа к модели.
 
 #### Реальный Consumer: `/remember`
 
-CLI `/remember` подтверждает наличие полезной работы вне Turn, но сегодня он
-вызывает raw `MemoryStore` из отдельного `RuntimeSnapshot` и потому не является
-proof Phase 8. Его нельзя исправить косметическим созданием неиспользуемого
-`ExecutionScope`.
+CLI `/remember` подтверждает наличие полезной работы вне Turn. После Phase 8B
+он вызывает `AgentRuntime::remember`, который admit-ит отдельную execution и
+bind-ит selected store через `BoundMemory`; raw `MemoryStore` наружу больше не
+выдаётся.
 
 Также запрещено молча перенаправлять `/remember` через tool `remember_fact`:
 
@@ -996,11 +996,11 @@ proof Phase 8. Его нельзя исправить косметическим
 - direct user memory operation и model/tool-requested memory write являются
   разными authority surfaces и не должны маскироваться одним fallback-ом.
 
-Перед миграцией `/remember` нужен strict slot-wide memory contract cutover:
+Strict slot-wide memory contract cutover выполнен так:
 
 1. canonical `MemoryStore` invocation получает execution attribution и
    cancellation context для `remember` и `recall`;
-2. process memory DTO/contract меняется с `memory/v1` на `memory/v2`, все
+2. process memory DTO/contract изменён с `memory/v1` на `memory/v2`, все
    tracked producers, consumers, reference workers и conformance tests
    обновляются атомарно без v1 reader/alias;
 3. `ProcessMemoryStore` использует broker cancellation, а не просто drop
@@ -1028,7 +1028,7 @@ worker применил side effect до потери ответа, резуль
 |---|---|
 | Identity | Один новый `ExecutionId` на top-level call; никакого fake `TurnId` или вывода id из transport request. |
 | Lifetime | Entry method ждёт terminal result; background spawn, attach и durable resume не добавляются. |
-| Cancellation | Caller передаёт token в один `ExecutionScope`; `BoundTools` и после memory/v2 `BoundMemory` обязаны довести cancel до process invocation. |
+| Cancellation | Caller передаёт token в один `ExecutionScope`; `BoundTools` и `BoundMemory` обязаны довести cancel до process invocation. |
 | Authority | Tool path использует frozen policy/mode/approval/grants; memory slash-команда использует ровно authority memory slot-а как explicit user operation. Union authority между exports запрещена. |
 | Recording | Model/tool facts могут писаться в session journal с `execution_id` и без thread/turn. Generic `ExecutionOpened/Settled` и memory journal facts не добавляются без отдельного replay/use-case решения. |
 | Failure | Возвращается capability `Result`/`ToolResult`; history, `AgentOutput`, Turn settlement и presentation events не фабрикуются. |
@@ -1066,7 +1066,7 @@ Verification checkpoint 2026-08-30: focused runtime/execution boundary suites,
 включил production broker, process-host, reference conformance,
 topology/journal replay и существующие Workflow/runtime regressions.
 
-**Phase 8B — memory/v2 + `/remember`:**
+**Phase 8B — memory/v2 + `/remember` (реализовано):**
 
 - strict canonical/process memory contract cutover;
 - typed `BoundMemory` и cancellable process adapter;
@@ -1076,6 +1076,20 @@ topology/journal replay и существующие Workflow/runtime regressions
 - real blocking-worker cancellation, concurrent Turn, reload и config-swap
   regressions;
 - documentation и полный gate отдельным commit.
+
+Реализация находится в `core/bound_memory.rs`, `core/runtime/execution.rs` и
+`process_adapters/memory.rs`. `MemoryInvocationContext` несёт attribution и
+host-owned cancellation; wire `memory/v2` требует attribution, а targeted
+cancel доставляется через broker до terminal settlement. `/remember` сохраняет
+прежний parsing и direct-user authority, работает без `remember_fact` и не
+создаёт history, Turn либо memory journal facts.
+
+Verification checkpoint 2026-08-31: contract strictness, runtime admission,
+CLI, real blocking-worker cancel/sibling, process config reload, reference
+conformance, one-component Turn concurrency/journal replay и module swap
+focused gates прошли. После исправления manifest version projection на
+slot-owned contract version повторный `cargo check --workspace` и полный
+`cargo test --workspace --no-fail-fast` завершились без failures.
 
 Phase 8 завершена только когда выполнены оба уровня evidence:
 

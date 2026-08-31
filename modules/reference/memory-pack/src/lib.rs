@@ -12,7 +12,9 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use proteus_contracts::{
     domain::{MemoryItem, MemoryQuery},
-    process_module::{MemoryModule, MemoryModuleObject, ModuleRegistry, ProcessModuleError},
+    process_module::{
+        MemoryModule, MemoryModuleHost, MemoryModuleObject, ModuleRegistry, ProcessModuleError,
+    },
 };
 use serde::Deserialize;
 #[cfg(test)]
@@ -58,14 +60,24 @@ impl Default for JsonlMemoryStoreModule {
 }
 
 impl MemoryModule for JsonlMemoryStoreModule {
-    fn remember_json(&self, item_json: String) -> Result<(), ProcessModuleError> {
+    fn remember_json(
+        &self,
+        item_json: String,
+        _context_json: String,
+        _host: &mut dyn MemoryModuleHost,
+    ) -> Result<(), ProcessModuleError> {
         match remember_impl(&self.path, &self.lock, item_json.as_str()) {
             Ok(()) => Ok(()),
             Err(error) => Err(ProcessModuleError::new(format!("{error:#}"))),
         }
     }
 
-    fn recall_json(&self, query_json: String) -> Result<String, ProcessModuleError> {
+    fn recall_json(
+        &self,
+        query_json: String,
+        _context_json: String,
+        _host: &mut dyn MemoryModuleHost,
+    ) -> Result<String, ProcessModuleError> {
         match recall_impl(&self.path, query_json.as_str()) {
             Ok(items) => match serde_json::to_string(&items) {
                 Ok(body) => Ok(body.into()),

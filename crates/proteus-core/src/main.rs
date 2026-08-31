@@ -13,7 +13,7 @@ use proteus_core::domain::{
     AgentOutput, ModuleManifest, PermissionMode, ToolSafety, new_thread_id,
 };
 use proteus_core::{
-    contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport},
+    contracts::{ApprovalRequest, ApprovalResponse, ApprovalTransport, CancellationToken},
     core::{
         AgentRuntime, AppConfig, AssemblyPlan, ModuleBuildContext, ModuleCatalog, ModuleEpoch,
         TopologyBuildInput, TopologyWarning, build_topology_snapshot, normalize_session_dir_path,
@@ -620,7 +620,7 @@ async fn handle_remember(runtime: &AgentRuntime, rest: &str) -> Result<String> {
         bail!("/remember: content is empty");
     }
     let item = proteus_core::domain::MemoryItem::new(&kind, &content, serde_json::Value::Null);
-    runtime.memory().await.remember(item).await?;
+    runtime.remember(item, CancellationToken::new()).await?;
     Ok(format!("stored ({kind}): {content}"))
 }
 
