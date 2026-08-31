@@ -12,7 +12,7 @@ use crate::{
         ModelExecutionBinding, ModelService, ModuleBuildContext, ModuleCatalog, PolicyBuildContext,
         TurnSettlementStatus, prepare_history_update,
     },
-    stubs::{NoMemory, NullPatchApplier, NullSearch},
+    stubs::{NoMemory, NullSearch},
 };
 
 mod fixture;
@@ -133,7 +133,6 @@ pub async fn replay_workflow(
         tools,
         policy,
         approval,
-        Arc::new(NullPatchApplier),
     );
     let workflow_context = AgentWorkflowContext::new(
         execution_context,

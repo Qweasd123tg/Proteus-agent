@@ -237,7 +237,7 @@ handles или удаляется. Сам факт успешной компил
 
 | Owner | Поля прежнего `RuntimeContext` |
 |---|---|
-| `ExecutionContext` | `scope`, `model_timeout_ms`, `model`, `search`, `memory`, `tools`, `policy`, `approval`, `permission_grants`, `patch`, `execution_recorder` |
+| `ExecutionContext` | `scope`, `model_timeout_ms`, `model`, `search`, `memory`, `tools`, `policy`, `approval`, `permission_grants` |
 | `AgentWorkflowContext` | `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `reasoning`, `context_timeout_ms`, `events`, `context`, `user_input`, `compactor`, `tool_exposure`, `agent_control`, `queued_user_messages`, `thread_label` |
 
 Таблица не является квотой на поля. Перед переносом каждой dependency нужно
@@ -894,7 +894,7 @@ classes.
 Старое supporting research предлагало
 `run_execution(|ctx: ExecutionContext| ...)`. Текущий source отвергает эту
 форму. `ExecutionContext` остаётся широким migration object и публично отдаёт
-raw `ToolRegistry`, `MemoryStore`, `PatchApplier`, policy/approval и другие
+raw `ToolRegistry`, `MemoryStore`, policy/approval и другие
 handles. Closure над всем context закрепил бы ambient service bag как новый
 top-level API сразу после его декомпозиции.
 
@@ -1323,10 +1323,10 @@ authenticated attach и persistence/reconnect. Они не входят в да�
 находятся в
 [post-Phase-8 audit](../research/post-phase-8-core-cleanup-audit-2026-08-31.md).
 
-Аудит не принял новый runtime primitive или crate split. Немедленный порядок:
+Аудит не принял новый runtime primitive или crate split. Текущий порядок:
 
-1. удалить неиспользуемые `ExecutionContext.patch` и
-   `ExecutionContext.execution_recorder`;
+1. ✅ удалить неиспользуемые `ExecutionContext.patch` и
+   `ExecutionContext.execution_recorder` — выполнено 2026-08-31;
 2. перенести `core/workspace.rs` к единственному owner-у в `agent_control`;
 3. сузить leaf visibility (`adapters`, `tools`, concrete process adapters),
    сохранив config DTO;

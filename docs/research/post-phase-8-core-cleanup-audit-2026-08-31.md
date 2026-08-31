@@ -100,8 +100,8 @@ Rustdoc дал следующее разбиение `core` public items:
 | `model_timeout_ms`, `model` | workflow/model/compaction/process workflow | Оставить |
 | `search`, `memory` | context building | Оставить до отдельного consumer migration; не изобретать `BoundSearch` |
 | `tools`, `policy`, `approval`, `permission_grants` | `ToolOrchestrator`/`BoundTools`, child approval forwarding | Оставить |
-| `patch` | Нет чтений после construction | Удалить сейчас; patch доступен tools через `ToolRegistry`/`ApplyPatchTool` |
-| `execution_recorder` | Нет чтений после construction | Удалить сейчас; recorder уже захватывается `ModelExecutionBinding`/`BoundModel` |
+| `patch` | Нет чтений после construction | Удалено 2026-08-31; patch доступен tools через `ToolRegistry`/`ApplyPatchTool` |
+| `execution_recorder` | Нет чтений после construction | Удалено 2026-08-31; recorder уже захватывается `ModelExecutionBinding`/`BoundModel` |
 
 Удаление двух полей должно одновременно обновить constructor calls, structural
 boundary tests и field maps в architecture/roadmap. Оно не меняет recording,
@@ -155,8 +155,8 @@ boundary. Полное сокращение требует сначала отд
 
 ## Принятый Порядок Changesets
 
-1. **Dead context fields:** удалить `patch` и `execution_recorder` из
-   `ExecutionContext`, обновить docs и boundary tests.
+1. **Dead context fields (выполнено 2026-08-31):** удалить `patch` и
+   `execution_recorder` из `ExecutionContext`, обновить docs и boundary tests.
 2. **Workspace ownership:** перенести `core/workspace.rs` в
    `core/agent_control/` без изменения поведения.
 3. **Leaf visibility:** internalize `adapters`, `tools` и concrete process

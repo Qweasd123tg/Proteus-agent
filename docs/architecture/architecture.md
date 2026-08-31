@@ -213,7 +213,7 @@ cancel, invalid response или смерть process классифицирую�
 | Turn | `SessionSteering` создаёт id; `AgentRuntime` открывает/settle-ит | Одна conversational operation; follow-up получает новый id | Chat/application lifecycle, history attribution и canonical settlement |
 | Workflow | Selected `Workflow` implementation | Один вызов внутри открытого Turn | Controller policy: ReAct/single loop, Codex loop, plan/execute/review или другой agent algorithm |
 | `ExecutionScope` | private `AgentRuntime` admission; используется Turn и typed top-level operations | Один logical workload; child cancellation view сохраняет id | Distinct `ExecutionId` и cancellation без chat/process identity |
-| `ExecutionContext` | agent binding adapter вызывает generic factory `RuntimeRegistry::execution_context` из одного captured snapshot | Один logical execution | Migration boundary для generic handles: model/search/memory/tools/policy/approval/patch/recorder |
+| `ExecutionContext` | agent binding adapter вызывает generic factory `RuntimeRegistry::execution_context` из одного captured snapshot | Один logical execution | Migration boundary для generic handles: model/search/memory/tools/policy/approval/grants |
 | `AgentWorkflowContext` | `RuntimeRegistry` оборачивает уже bound `ExecutionContext`; `AgentRuntime` добавляет live Turn state | Один Workflow invocation | Chat/application identity, context building, compaction, steering/presentation и один wrapped `ExecutionContext` |
 | `RuntimeSnapshot` | `RuntimeServices` | Immutable assembly/config view, удерживаемый всем ходом | Coherent `ModuleEpoch + AssemblyPlan + RuntimeRegistry + config snapshot`; не computation checkpoint |
 | Model invocation | Workflow инициирует; `WorkflowHostRuntime` и `ModelService` исполняют | Один shaped request/stream/terminal response | Provider-neutral model call, timeout, validation, deltas и текущая Turn attribution |
@@ -257,7 +257,7 @@ Phase 2 удалила прежний 26-field `RuntimeContext` без alias и�
 
 | Owner | Текущие поля |
 |---|---|
-| `ExecutionContext` | `scope`, `model_timeout_ms`, `model`, `search`, `memory`, `tools`, `policy`, `approval`, `permission_grants`, `patch`, `execution_recorder` |
+| `ExecutionContext` | `scope`, `model_timeout_ms`, `model`, `search`, `memory`, `tools`, `policy`, `approval`, `permission_grants` |
 | `AgentWorkflowContext` | `tool_recorder`, `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `reasoning`, `context_timeout_ms`, `events`, `context`, `user_input`, `compactor`, `tool_exposure`, `agent_control`, queued messages, `thread_label` |
 
 `ExecutionContext` является проверенной migration structure, но не объявлен
@@ -456,8 +456,8 @@ guards запрещают chat imports в generic execution contracts и в publ
 ### Реализованная Граница Phase 8
 
 Phase 8 не публикует `ExecutionContext` как closure argument или service
-locator. Сейчас этот migration type всё ещё содержит raw registry/store/patch
-и policy handles; передача его целиком превратила бы внутреннюю compile
+locator. Сейчас этот migration type всё ещё содержит raw registry/store и
+policy handles; передача его целиком превратила бы внутреннюю compile
 boundary в ambient top-level API.
 
 Первый non-Turn owner — `AgentRuntime`, потому что именно он уже владеет
@@ -487,7 +487,7 @@ state, поэтому reload не может собрать одну execution �
 Реализованная `AgentRuntime::execute_tool(call, cancellation)` получает только
 canonical input и cancellation token и возвращает typed result. Она не
 возвращает `RuntimeSnapshot`, registry,
-`ExecutionContext`, raw tools/memory/patch handles или generic resolver.
+`ExecutionContext`, raw tools/memory handles или generic resolver.
 Каждый call создаёт distinct `ExecutionId`, fresh grants и detached
 attribution; session `run_lock`, user message reservation, history,
 `AgentTask`, `AgentOutput` и Turn events отсутствуют.

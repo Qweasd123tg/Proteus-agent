@@ -18,7 +18,7 @@ use proteus_core::{
         new_thread_id, new_turn_id,
     },
     stubs::{
-        EmptyContextBuilder, FakeModelClient, NoCompactor, NoMemory, NullPatchApplier, NullSearch,
+        EmptyContextBuilder, FakeModelClient, NoCompactor, NoMemory, NullSearch,
         UnfilteredToolExposure,
     },
 };
@@ -46,7 +46,6 @@ fn test_runtime_context() -> proteus_core::contracts::AgentWorkflowContext {
         ToolRegistry::new(),
         Arc::new(AllowAllPolicy),
         Arc::new(HeadlessApprovalTransport),
-        Arc::new(NullPatchApplier),
     );
     proteus_core::contracts::AgentWorkflowContext::new(
         execution,

@@ -54,3 +54,20 @@ fn generic_execution_contracts_have_no_chat_domain_imports() {
         }
     }
 }
+
+#[test]
+fn execution_context_has_no_unbound_patch_or_recorder_handles() {
+    let source = include_str!("../src/contracts/execution.rs");
+
+    for forbidden in [
+        "PatchApplier",
+        "pub patch:",
+        "pub execution_recorder:",
+        "with_execution_recorder",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "generic execution context regained obsolete ambient handle {forbidden}"
+        );
+    }
+}

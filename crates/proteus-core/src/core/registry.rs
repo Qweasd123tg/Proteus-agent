@@ -153,7 +153,6 @@ impl RuntimeRegistry {
         permission_mode: crate::domain::PermissionMode,
     ) -> ExecutionContext {
         let scope = model_binding.scope().clone();
-        let recorder = model_binding.recorder();
         let model: Arc<dyn Model> =
             Arc::new(BoundModel::new(self.model_service.clone(), model_binding));
         ExecutionContext::new(
@@ -165,9 +164,7 @@ impl RuntimeRegistry {
             self.tools.clone(),
             Arc::new(ModeAwarePolicy::new(permission_mode, self.policy.clone())),
             approval,
-            self.patch.clone(),
         )
-        .with_execution_recorder(recorder)
     }
 
     /// Wraps an already-bound generic execution in the chat/application

@@ -3,8 +3,7 @@ use std::sync::Arc;
 use crate::{
     contracts::{
         ApprovalPolicy, ApprovalTransport, CancellationToken, ExecutionPermissionGrants,
-        ExecutionRecorder, MemoryStore, Model, NoopExecutionRecorder, PatchApplier, SearchBackend,
-        ToolRegistry,
+        MemoryStore, Model, SearchBackend, ToolRegistry,
     },
     domain::{ExecutionId, new_execution_id},
 };
@@ -57,8 +56,6 @@ pub struct ExecutionContext {
     /// Mutable authority issued during this execution binding. It is separate
     /// from the identity/cancellation-only `ExecutionScope`.
     pub permission_grants: Arc<ExecutionPermissionGrants>,
-    pub patch: Arc<dyn PatchApplier>,
-    pub execution_recorder: Arc<dyn ExecutionRecorder>,
 }
 
 impl ExecutionContext {
@@ -72,7 +69,6 @@ impl ExecutionContext {
         tools: ToolRegistry,
         policy: Arc<dyn ApprovalPolicy>,
         approval: Arc<dyn ApprovalTransport>,
-        patch: Arc<dyn PatchApplier>,
     ) -> Self {
         Self {
             scope,
@@ -84,18 +80,11 @@ impl ExecutionContext {
             policy,
             approval,
             permission_grants: Arc::default(),
-            patch,
-            execution_recorder: Arc::new(NoopExecutionRecorder),
         }
     }
 
     pub fn with_cancellation(mut self, cancellation: CancellationToken) -> Self {
         self.scope = ExecutionScope::new(self.scope.execution_id, cancellation);
-        self
-    }
-
-    pub fn with_execution_recorder(mut self, recorder: Arc<dyn ExecutionRecorder>) -> Self {
-        self.execution_recorder = recorder;
         self
     }
 
