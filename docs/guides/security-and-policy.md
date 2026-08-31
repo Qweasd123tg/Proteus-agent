@@ -546,8 +546,9 @@ Core учитывает `granted_permissions` только на approved-пут�
 После Phase 5 grant store принадлежит `ExecutionContext`, а `RequestOrigin`
 всегда содержит `ExecutionId`. Agent layer добавляет optional `ThreadId`,
 `TurnId` и label для UI; detached approval не фабрикует chat identity.
-`ApprovalPolicy` и `ApprovalTransport` traits при этом не менялись. См.
-[roadmap.md](../product/roadmap.md#phase-5--execution-scoped-authority-и-approval-origin).
+`ApprovalPolicy` и `ApprovalTransport` traits при этом не менялись. История
+Phase 5 сохранена в
+[архивном roadmap](../archive/roadmap-through-2026-08-31.md#phase-5--execution-scoped-authority-и-approval-origin).
 
 Субагенты изолированы структурно: дочерний execution binding получает свежий
 `ExecutionPermissionGrants`, поэтому `escalated_exec` родителя не протекает в ребёнка, а

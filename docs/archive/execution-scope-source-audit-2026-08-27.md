@@ -3,10 +3,10 @@
 > **Статус:** supporting research snapshot, не current architecture reference.
 > Аудит привязан к pre-documentation HEAD
 > `50055e2c834fc3052236b988e859ff64e735b48a`. Подтверждённая текущая граница
-> перенесена в [architecture.md](../architecture/architecture.md), а принятый
-> implementation order — в
-> [roadmap.md](../product/roadmap.md#executionscope-migration). При расхождении
-> прав актуальный source и эти канонические документы.
+> перенесена в [architecture.md](../architecture/architecture.md), а
+> завершённый implementation order сохранён в
+> [архивном roadmap](roadmap-through-2026-08-31.md#executionscope-migration).
+> При расхождении прав актуальный source и architecture reference.
 > Связанный design input:
 > [execution-scope-migration-design-2026-08-27.md](execution-scope-migration-design-2026-08-27.md).
 

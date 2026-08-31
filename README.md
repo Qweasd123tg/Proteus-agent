@@ -150,7 +150,7 @@ Process boundary пока не sandbox: worker получает очищенно
   `ToolRegistry -> ApprovalPolicy -> ToolSafety -> Tool`;
 - canonical model DTO, durable session journal, resume, HTTP/SSE app-server,
   CLI, chat и Inspector;
-- reference worker с 26 selectors и отдельный Python workflow/search/compactor
+- reference worker с 25 selectors и отдельный Python workflow/search/compactor
   examples;
 - conformance, real-worker execution и runtime swap regression gates.
 - P4 topology/journal gate: один PID выполняет callback-связанный workflow,

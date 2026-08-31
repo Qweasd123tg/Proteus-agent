@@ -124,18 +124,18 @@ source/target отклоняются до enqueue. `AgentControlMessage` хра�
 в model-visible user message. Authority при доставке не объединяется: peer
 продолжает исполнять tools только через собственные registry, policy и safety.
 
-## Порядок Реализации
+## Порядок Возможного Продолжения
 
-1. ✅ Определить typed agent-control DTO и exact lifecycle/failure semantics
-   для `spawn/send/follow-up/list/wait/interrupt`.
-2. ✅ Дать текущему stdio process path адресные mailbox и follow-up, проверив
-   одновременную работу минимум двух полных Proteus.
-3. Отделить root-owned agent record/tree от конкретного process connection,
+1. Отделить root-owned agent record/tree от конкретного process connection,
    process pool и transport.
-4. Добавить authenticated attach к уже работающему local app-server без
+2. Добавить authenticated attach к уже работающему local app-server без
    изменения agent semantics.
-5. Только затем решать persistence/reconnect, remote transport и нужен ли
+3. Только затем решать persistence/reconnect, remote transport и нужен ли
    прямой peer mesh.
+
+Реализованные DTO, stdio messaging и Agent-Control cutover описаны выше как
+текущая boundary; подробный старый changeset order сохранён в
+[архивном roadmap](../archive/roadmap-through-2026-08-31.md#agent-control-cutover).
 
 Каждый срез должен проверять addressable cancel, bounded queues, crash
 изоляцию, session ownership, terminal journal semantics и отсутствие расширения
@@ -143,10 +143,11 @@ authority.
 
 ## AssemblyPlan И Живая Карта
 
-Сейчас `AssemblyPlan` фиксирует только выбранный subagent runner и
-model-facing surface; role config остаётся opaque и не попадает в безопасную
-JSON projection. В будущем план может получить безопасное summary разрешённых
-role profiles и connection backend, но он не должен перечислять конкретные
+`AssemblyPlan` фиксирует model-facing `agent_control.surface`, но AgentControl
+не является behavior slot и не имеет выбранного subagent runner-а. Role
+profiles и process bounds читаются из top-level `[agent_control]`; безопасное
+summary ролей пока не входит в JSON projection. В будущем план может получить
+такое summary и connection backend, но он не должен перечислять конкретные
 запущенные peers: они появляются и исчезают во время работы.
 
 Живые экземпляры, их адреса, parent edges, mailbox и состояния относятся к

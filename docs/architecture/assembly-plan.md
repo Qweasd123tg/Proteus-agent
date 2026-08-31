@@ -32,7 +32,8 @@ modules и components из `AppConfig`. Даже одинаковая логик
 Теперь план содержит одну точную картину:
 
 - выбранный model profile и adapter;
-- все 11 behavior slots и точный `module_id` каждого выбора;
+- все 9 core behavior slots и точный `module_id` каждого выбора, отдельно от
+  ordered-many context providers и tool registry;
 - source реализации и `component_id` для process export-а;
 - configured components, exports, contract versions и host callbacks;
 - запрошенные tools, configured tools, MCP servers и subagent surface;
@@ -91,10 +92,10 @@ component args или environment values. Загрузить JSON плана о�
   доверенными executable с правами пользователя.
 - Точный model-visible список tools может меняться внутри invocation из-за
   policy и `ToolExposure`; статический план не подменяет эту проверку.
-- План фиксирует выбранный process subagent runner и
-  model-facing surface, но пока не сериализует безопасное summary ролей из
-  opaque `module_config`. Конкретные запущенные экземпляры Proteus в план не
-  входят: live agent tree является session-owned runtime state; см.
+- План фиксирует model-facing `agent_control.surface`, но не превращает
+  AgentControl в module slot и не сериализует безопасное summary role
+  profiles. Конкретные запущенные экземпляры Proteus в план не входят: live
+  agent tree является session-owned runtime state; см.
   [subagents.md](subagents.md).
 - Runtime model/reasoning/permission overrides не переписывают неизменяемый
   план текущего module epoch; live значения отдельно отдаёт `/config` и

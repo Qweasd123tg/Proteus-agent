@@ -13,8 +13,8 @@
 1. [scope.md](product/scope.md) — что Proteus представляет собой сейчас;
 2. [architecture.md](architecture/architecture.md) — как проходит обычный turn и где лежат
    основные части;
-3. [roadmap.md](product/roadmap.md) — принятое направление `ExecutionScope`,
-   его stop-gates и остальные открытые решения.
+3. [roadmap.md](product/roadmap.md) — текущий прикладной полигон и остальные
+   открытые решения.
 
 Остальные документы — справочники для конкретной задачи или исторические
 материалы.
@@ -29,10 +29,11 @@
 - **Сообщить о security-проблеме:** [SECURITY.md](../SECURITY.md).
 - **Понять архитектуру:** [architecture.md](architecture/architecture.md), затем
   [modules.md](architecture/modules.md).
-- **Продолжить ExecutionScope migration:** сначала current boundary в
+- **Посмотреть историю завершённой ExecutionScope migration:** текущая
+  boundary описана в
   [architecture.md](architecture/architecture.md#executionscope-migration),
-  затем реализованные Phase 0–8 и их evidence gates в
-  [roadmap.md](product/roadmap.md#executionscope-migration).
+  а Phase 0–8 и их evidence gates сохранены в
+  [архивном roadmap](archive/roadmap-through-2026-08-31.md#executionscope-migration).
 - **Понять направление subagents:** [subagents.md](architecture/subagents.md).
 - **Разобрать сбой:** [inspect.md](guides/inspect.md), затем профильный документ по
   runtime, config или policy.
@@ -97,8 +98,8 @@
 Читайте в таком порядке:
 
 1. [scope.md](product/scope.md) — текущее состояние и принятые границы.
-2. [roadmap.md](product/roadmap.md) — принятая следующая migration, stop-gates
-   и отложенный backlog.
+2. [roadmap.md](product/roadmap.md) — текущий полигон, критерии выбора первого
+   среза и отложенный backlog.
 3. [spec.md](product/spec.md) — долгосрочный замысел и non-goals.
 4. [dogfood-gate.md](development/dogfood-gate.md) — необязательный ручной diagnostic и
    исторический список blocking symptoms.
@@ -115,7 +116,8 @@
 | `guides/` | Настройка, запуск, диагностика, события и безопасность |
 | `development/` | Обязательные тесты и необязательный manual dogfood |
 | `releases/` | Состав, ограничения и воспроизводимый gate конкретного релиза |
-| `research/` | История решений и черновики; не действующий контракт |
+| `research/` | Исследования и гипотезы; не действующий контракт |
+| `archive/` | Завершённые планы, migration handoff-ы и старый порядок работ |
 | `examples/research/` | Большие snapshot-разборы сторонних проектов |
 
 Корневой [README](../README.md) остаётся короткой точкой входа с проверенными
@@ -126,24 +128,18 @@
 Если reference расходится с кодом или тестами, нужно исправить reference рядом
 с изменением поведения.
 
-## Research и архивы
+## Research И Архив
 
-Research хранит историю решений и upstream-разборы, но не описывает текущий
-контракт и не задаёт порядок разработки. Для обычной работы этот раздел читать
-не нужно.
+Архив хранит завершённые планы; research — source snapshots, upstream-разборы
+и отложенные гипотезы. Ни один из этих разделов не задаёт текущий порядок
+работы.
 
+- [archive/README.md](archive/README.md) — вход в завершённые планы;
+- [archive/roadmap-through-2026-08-31.md](archive/roadmap-through-2026-08-31.md) —
+  полный старый roadmap с Runtime v2, Agent-Control, `ExecutionScope` Phase
+  0–8 и post-Phase-8 cleanup;
 - [research/platform-expressiveness-after-runtime-v2-2026-08-22.md](research/platform-expressiveness-after-runtime-v2-2026-08-22.md) —
   короткая актуальная точка входа в отложенные архитектурные идеи;
-- [research/component-runtime-v2-plan-2026-08-21.md](research/component-runtime-v2-plan-2026-08-21.md) —
-  история завершённого Runtime v2 cutover;
-- [research/execution-scope-source-audit-2026-08-27.md](research/execution-scope-source-audit-2026-08-27.md) —
-  supporting source snapshot для текущего Turn/runtime coupling;
-- [research/execution-scope-migration-design-2026-08-27.md](research/execution-scope-migration-design-2026-08-27.md) —
-  расширенный implementation research; canonical Phase 0–3 и дальнейшие gates остаются в
-  `product/roadmap.md`;
-- [research/post-phase-8-core-cleanup-audit-2026-08-31.md](research/post-phase-8-core-cleanup-audit-2026-08-31.md) —
-  source inventory, visibility classification и stop-gates механической
-  очистки после завершения Phase 8;
 - [research/](research/) — остальные проектные исследования и postmortem;
 - [examples/research/](../examples/research/) — большие snapshot-разборы
   сторонних agent runtimes.

@@ -1,11 +1,10 @@
 # Proteus ExecutionScope Migration — Implementation Research
 
-> **Статус:** supporting implementation research, не исполняемый roadmap.
-> Архитектурное направление принято, но Phase 0–2 ещё не реализованы.
-> Канонические field ownership, compatibility rules, test gates и stop point
-> находятся в
-> [roadmap.md](../product/roadmap.md#executionscope-migration). При расхождении
-> прав актуальный source, `AGENTS.md` и roadmap; в частности, pre-release
+> **Статус:** исторический supporting implementation research, не исполняемый
+> roadmap. Phase 0–8 уже завершены. Field ownership, compatibility rules,
+> test gates и stop point на момент migration сохранены в
+> [архивном roadmap](roadmap-through-2026-08-31.md#executionscope-migration).
+> При расхождении прав актуальный source, `AGENTS.md` и architecture; pre-release
 > migration не сохраняет legacy aliases/readers без отдельного решения
 > владельца.
 > Source-аудит, на котором основан этот документ:
@@ -32,9 +31,10 @@
 
 Поэтому диаграммы, field maps и утверждения ниже о конечной форме
 `ExecutionContext` следует читать как исходную исследовательскую гипотезу.
-При расхождении действуют актуальные
-[roadmap](../product/roadmap.md#executionscope-migration) и
-[architecture](../architecture/architecture.md#planned-executionscope).
+При расхождении действует актуальная
+[architecture](../architecture/architecture.md#executionscope-migration), а
+история решения остаётся в
+[архивном roadmap](roadmap-through-2026-08-31.md#executionscope-migration).
 
 ## Срез текущего main и коррекции к предыдущему аудиту
 

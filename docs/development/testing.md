@@ -43,8 +43,8 @@ Protocol или architecture change без automated boundary evidence всё р
 
 ### ExecutionScope Phase 0–2 Gate (implemented)
 
-Реализованная migration и её review checkpoint описаны в
-[roadmap.md](../product/roadmap.md#executionscope-migration).
+Реализованная migration и её review checkpoint сохранены в
+[архивном roadmap](../archive/roadmap-through-2026-08-31.md#executionscope-migration).
 Её `Phase 0` — baseline конкретного changeset; она не связана с историческим
 `P0 Multiplexed Broker Spike` ниже.
 
@@ -585,7 +585,8 @@ cargo test -p proteus-core admitted_turn_freezes_registry_and_effective_settings
 
 Topology tests должны фиксировать:
 
-- 11 behavior slots отдельно от tool registry;
+- 9 core behavior slots отдельно от ordered-many context providers и tool
+  registry;
 - source `builtin | process | config | unknown`;
 - active/available process modules;
 - registered/enabled tools;

@@ -18,8 +18,9 @@
 > принадлежит `Workflow`. Принятое следующее направление — тонкий
 > `ExecutionScope` и context split без Workflow/process rewrite. Current
 > architecture находится в
-> [architecture.md](../architecture/architecture.md), implementation plan — в
-> [roadmap.md](../product/roadmap.md#executionscope-migration).
+> [architecture.md](../architecture/architecture.md), завершённый
+> implementation plan — в
+> [архивном roadmap](roadmap-through-2026-08-31.md#executionscope-migration).
 > Остальной текст сохранён как исторический audit input.
 
 ## Sequencing Addendum
@@ -60,7 +61,7 @@ reference implementations больше не получают привилеги�
 > runtime decorators?
 
 Предыдущий документ
-[deepseek-harness-lessons-2026-08-21.md](deepseek-harness-lessons-2026-08-21.md)
+[deepseek-harness-lessons-2026-08-21.md](../research/deepseek-harness-lessons-2026-08-21.md)
 сделал осторожный вывод «не менять порядок roadmap, идти в R1 Installed
 Dogfood». Более глубокая сверка source-level lifecycle показывает, что такой
 порядок нельзя считать решённым автоматически. Перед следующим большим
@@ -603,8 +604,8 @@ Proteus:
 
 - `crates/proteus-core/src/core/runtime/turn.rs`;
 - `crates/proteus-core/src/core/runtime/steering.rs`;
-- [roadmap.md](../product/roadmap.md#agent-control-cutover) — последующее
-  удаление внутреннего child loop;
+- [архивный roadmap](roadmap-through-2026-08-31.md#agent-control-cutover) —
+  последующее удаление внутреннего child loop;
 - `crates/proteus-core/src/core/session_journal/types.rs`;
 - `crates/proteus-contracts/src/contracts/workflow.rs`;
 - `modules/reference/coding-workflow/src/lib.rs`;

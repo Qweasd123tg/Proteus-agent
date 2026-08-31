@@ -191,83 +191,19 @@ Runtime должен сохранять эти свойства:
 - streaming model deltas через canonical model/event path;
 - durable journal, history/transcript projections и resume.
 
-## Planned Направления
+## Текущее Применение И Planned Направления
 
-Process-only module cutover из `process-module-architecture.md` завершён.
-Bounded P0 spike multiplexed Component Runtime v2 завершён changeset-ом
-`176d39f` и получил технический `GO`. Отдельно подтверждённый P1
-protocol-neutral duplex transport и отдельно подтверждённый P2
-broker/wire-v3 kernel завершены. Atomic P3 cutover завершён 2026-08-23:
-tracked host, workers и examples используют Component Runtime v2 / wire v3,
-а старый v2 path удалён без compatibility reader. P4 topology/journal evidence
-также завершён 2026-08-23: one-component profile проходит полный workflow,
-cancel, один PID и canonical replay.
-Generic actor не добавляется, model и subagent boundaries остаются отдельными
-contract decisions. Для subagents уже принята identity-модель «subagent —
-другой полный Proteus под root coordinator»; local-process DTO v1 реализован,
-а authenticated transport attach и persistence ещё planned. Подробнее:
-[subagents.md](../architecture/subagents.md). Актуальный
-критический путь ведётся в `scope.md`.
+Process-only Runtime v2 / wire v3, Agent-Control cutover, `ExecutionScope`
+Phase 0–8 и post-Phase-8 cleanup уже относятся к реализованному основанию, а
+не к будущему roadmap. Полные phase descriptions и production stop-gates
+сохранены в
+[архивном roadmap](../archive/roadmap-through-2026-08-31.md).
 
-В минимальном направлении Phase 0–7 `ExecutionScope` migration завершены:
-distinct `ExecutionId` и scope выражают identity, lifecycle/cancellation и
-execution attribution, но scope не является service container. Прежний
-`RuntimeContext` разделён на generic `ExecutionContext` и chat-specific
-`AgentWorkflowContext` без compatibility alias/Deref. Process-backed search
-доказал meaningful generic consumer без chat identities или fake Turn.
-`ExecutionContext` остаётся migration hypothesis, а не зафиксированным
-конечным API. `BoundModel` доказал immutable per-execution binding поверх
-shared provider: metadata, delta attribution и cancellation больше не зависят
-от mutable current Turn в `ModelService`. `BoundModel` пишет model facts через
-scope-bound `ExecutionRecorder` без chat IDs и не импортирует `SessionStore`.
-Journal schema v2, grants, approval origin и tool recording используют
-mandatory `ExecutionId` с optional agent projection. `BoundTools` является
-вторым concrete binding pattern и владеет generic registry/schema/policy/
-approval/cancellation/recording/invoke path; `ToolOrchestrator` только
-добавляет agent task/control/presentation. Normal Turn path уже cut over на
-явную последовательность
-`ExecutionScope -> ExecutionContext -> AgentWorkflowContext`. Phase 8A добавила
-private atomic admission и отдельную typed top-level
-`AgentRuntime::execute_tool` surface без public ambient `ExecutionContext`.
-Она выполняет process-backed tool без fake Turn/Workflow и сохраняет detached
-tool facts. Phase 8B добавила `BoundMemory`, strict `memory/v2` с обязательной
-execution attribution/cancellation и перевела `/remember` на тот же admission
-без history/Turn/journal facts. Общая
-`BoundCapability<T>` abstraction не введена. `Turn` остаётся application
-lifecycle, `Workflow` владеет agent-loop policy, а process `InvocationRef` не
-меняется. Канонический план и production stop-gates находятся в
-[roadmap.md](roadmap.md#executionscope-migration).
+Текущий продуктовый шаг — проверить основание прикладным полигоном через
+существующие profile/module/app-server boundaries. Он должен сначала показать
+наблюдаемую пользу или точный gap, а не заранее расширять Core.
 
-Phase 4 source review разделил durable owner и presentation attribution, а
-Phase 4A провела ownership seam без изменения schema:
-model/tool facts должны принадлежать `ExecutionId`, но один execution может
-отображаться через несколько root/child `ThreadId`. Runtime cancellation не
-является model error: начатый exchange остаётся interrupted, а chat lifecycle
-закрывается `TurnSettled(Canceled|Timeout)`. Generic execution terminal state
-machine и совместимый journal reader этим решением не вводятся.
-
-Долгосрочная альтернатива ambient context-у — typed capability binding:
-
-```text
-Controller -> ExecutionScope -> Capability Binder/Resolver
-                                      |-> BoundModel
-                                      |-> BoundTools
-                                      `-> BoundMemory/Search
-```
-
-Bound handle может нести attribution, cancellation, authority, budget и
-recording конкретной capability. На Phase 3 эта гипотеза подтверждена только
-конкретным `BoundModel`; это не основание обобщать её в
-`BoundCapability<T>`, менять `ToolOrchestrator`, approvals или вводить
-universal capability enum. Возможная durable `AgentIdentity` также остаётся
-отдельной от controller-а и `ExecutionId`; в текущую migration она не входит.
-
-Ownership PTY sessions, bounded retention process agent pool, общий
-policy path для `task`, fail-closed shell sandbox и token для non-loopback
-HTTP уже закрытые foundation, а не будущий backlog.
-
-После этого долгосрочный capability backlog должен развивать основание через
-существующие границы:
+Долгосрочный capability backlog:
 
 - улучшение качества и observability `repo_aware` providers без записи
   ephemeral context в conversation history;
@@ -275,7 +211,10 @@ HTTP уже закрытые foundation, а не будущий backlog.
 - table-driven tool rights: `hide`/`deny`/`ask`/`allow`, priority и limits;
 - MCP resources/prompts/subscriptions и non-stdio transports поверх текущих
   contracts, а не параллельный runtime;
-- streaming process contract для `Model` с exact terminal/cancel semantics.
+- возможный streaming process contract для `Model` с exact
+  terminal/cancel/credential/hosted-tool semantics;
+- durable AgentControl tree, authenticated attach и reconnect;
+- единая OS isolation policy и evidence до freeze внешнего protocol.
 
 Каждое направление должно иметь focused tests на boundary, а не только happy
 path CLI smoke test.
@@ -336,24 +275,14 @@ path CLI smoke test.
 
 ## External Modules
 
-Текущая стратегия описана в `process-module-architecture.md`:
-
-1. ✅ `proteus-contracts` содержит canonical DTO и worker helper API;
-2. ✅ strict component wire v3, per-export authority table и conformance runner;
-3. ✅ process contracts для всех бывших native reference slots;
-4. ✅ bidirectional Workflow/Context/Compactor callbacks используют общий
-   model/tool/policy path;
-5. ✅ reference implementations живут в `modules/reference` и экспортируются
-   ordinary worker-ом без особого origin;
-6. ✅ native ABI/loader удалён без shims;
-7. ✅ bounded Runtime v2 P0 spike: 18 automated scenarios и технический `GO`;
-8. ✅ отдельно подтверждённый P1 duplex transport завершён;
-9. ✅ отдельно подтверждённый P2 broker/wire-v3 kernel завершён;
-10. ✅ отдельно подтверждённый P3 atomic tracked cutover завершён;
-11. ✅ отдельно подтверждённый P4 topology/journal evidence завершён;
-12. ✅ agent-control boundary отдельно вынесена из module system и собрана за
-    `AgentControlRuntime`; model provider adapters остаются отдельной
-    core-owned selectable границей вне Runtime v2 acceptance.
+Текущая process-only стратегия описана в
+[process-module-architecture.md](../architecture/process-module-architecture.md).
+Native ABI/loader и старый wire path удалены; external и reference workers
+проходят один component v3 contract, authority и conformance path.
+AgentControl остаётся отдельной root-owned service boundary, а model provider
+adapters — честно названной core-owned selectable границей. История P0–P4 и
+atomic cutover сохранена в
+[архивном roadmap](../archive/roadmap-through-2026-08-31.md).
 
 Configured process/MCP tool executors являются явными tool surfaces и всегда
 встраиваются в тот же `ToolRegistry`/policy/safety path; они не образуют вторую

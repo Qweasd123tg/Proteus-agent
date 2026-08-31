@@ -2,8 +2,9 @@
 
 Дата source snapshot: 2026-08-31. Базовый commit: `1b4f8c3`.
 
-Этот документ поддерживает canonical порядок в
-[`roadmap.md`](../product/roadmap.md#post-phase-8-cleanup-audit). Он не
+Этот документ поддерживал завершённый порядок, сохранённый в
+[архивном roadmap](roadmap-through-2026-08-31.md#post-phase-8-cleanup-audit).
+Он не
 проектирует следующую runtime architecture и не вводит replacement
 abstractions. Цель — отделить механически удаляемые хвосты Phase 0–8 от
 реальных application/runtime механизмов и от уже известного CLI/Renderer

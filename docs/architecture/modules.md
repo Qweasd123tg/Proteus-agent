@@ -235,7 +235,7 @@ service. `ModuleKind::Subagent`, `modules.subagent` и catalog implementation
 
 ## Reference Worker
 
-`proteus-reference-worker` содержит 26 selectors и может подтвердить несколько
+`proteus-reference-worker` содержит 25 selectors и может подтвердить несколько
 из них как exports одного component. Он использует тот же protocol, что
 out-of-tree worker. Его Rust helper traits в
 `proteus-contracts::process_module` действуют только внутри executable и не

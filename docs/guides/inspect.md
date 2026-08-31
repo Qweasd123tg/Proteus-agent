@@ -63,7 +63,8 @@ app-server routes.
 - `module_epoch`;
 - permission mode;
 - active model provider/name/stream;
-- 11 behavior slots;
+- 9 core behavior slots отдельно от ordered-many context providers и tool
+  registry;
 - catalog modules;
 - registered/enabled tools;
 - graph edges;
@@ -76,7 +77,7 @@ builtin | process | config | unknown
 ```
 
 - `process` — export из `[components.<id>.exports...]`;
-- `builtin` — явно учтённые model/subagent adapters;
+- `builtin` — явно учтённые core-owned model adapters;
 - `config` — config-defined runtime contribution;
 - `unknown` — selected id, которого нет в catalog.
 

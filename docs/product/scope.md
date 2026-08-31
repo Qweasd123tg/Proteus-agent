@@ -1,6 +1,6 @@
 # Текущий Scope
 
-Последнее обновление: 2026-08-30.
+Последнее обновление: 2026-09-01.
 
 Этот документ отвечает только на два вопроса: что Proteus представляет собой
 сейчас и какое следующее направление принято или остаётся открытым. Подробная
@@ -73,45 +73,24 @@ wire/config/DTO меняются атомарно без legacy aliases и compa
 Как config превращается в runtime:
 [assembly-plan.md](../architecture/assembly-plan.md).
 
-## Что Ещё Нужно Решить
+## Текущая Точка Выбора
 
-ExecutionScope migration Phase 0–7 завершена. Distinct `ExecutionId` и
-минимальный `ExecutionScope` отделяют generic identity/cancellation от
-conversation `Turn`, не становясь контейнером services. `ExecutionContext`
-отделён от chat-specific `AgentWorkflowContext`; прежний `RuntimeContext`
-удалён без alias/Deref. Process-backed search подтверждает реальный generic
-capability call из coherent snapshot без fake Turn. `BoundModel` стал первым
-typed execution-bound handle: shared `ModelService` больше не хранит mutable
-current Turn, а request metadata, delta events, journal projection и
-cancellation изолированы immutable binding-ом. Каждый Turn создаёт один новый
-scope; child cancellation views сохраняют тот же execution id. `Turn` остаётся
-chat/application lifecycle, `Workflow` — владельцем agent-loop policy, а
-process `InvocationRef` — отдельной broker identity. Journal schema v2 хранит
-mandatory `ExecutionId` для model/tool facts и optional agent projection.
-`ExecutionRecorder` и `ToolExecutionRecorder` не требуют chat IDs;
-`BoundModel` не знает `SessionStore`, а process `tool/v2` переносит
-`ExecutionAttribution` без fake Turn. Grants и approval origin также
-execution-owned. `BoundTools` стал вторым concrete binding pattern: он владеет
-registry/schema/policy/approval/grants/cancellation/recording/invoke path и
-исполняет настоящий process tool без `AgentTask` или chat IDs.
-`ToolOrchestrator` теперь только agent adapter для events, attributed input и
-`AgentControl`. Normal `AgentRuntime` Turn path явно сначала bind-ит generic
-`ExecutionContext` из одного admitted snapshot/scope и только затем строит
-`AgentWorkflowContext`; combined registry factory удалён. Общая
-`BoundCapability<T>` abstraction не введена. Phase 8 реализовала private
-atomic admission и `AgentRuntime::execute_tool` без public `ExecutionContext`:
-process-backed non-Turn call проходит frozen registry/mode, policy, approval,
-fresh grants, detached recording и targeted cancellation, не создавая
-Turn/history. Phase 8B добавила typed `BoundMemory`, strict `memory/v2` и
-перевела `/remember` с raw store side-channel на top-level admission.
-Process terminal failures доходят до Core adapter boundary как typed
-`ProcessInvocationError`, а AppServer transport cancel handles называются
-`run_id`/`running_run_ids` и не маскируются под domain `TurnId`.
-Следующие phases и stop-gates находятся в
-[roadmap.md](roadmap.md#executionscope-migration).
+`ExecutionScope` Phase 0–8, Agent-Control cutover и post-Phase-8 cleanup
+завершены. Текущий runtime использует distinct `ExecutionId`, immutable
+execution-bound model/tools/memory, strict `tool/v2` и `memory/v2`, typed
+non-Turn admission, один app-server protocol для product clients и полные
+process peers вместо internal mini-agent. Подробные phase plans и stop-gates
+сохранены в
+[архивном roadmap](../archive/roadmap-through-2026-08-31.md).
 
-Остальные крупные направления ниже не входят в эту миграцию и требуют
-отдельного решения владельца.
+Следующее принятое направление — прикладной полигон: небольшой полезный
+сценарий поверх существующих profile/module/app-server boundaries. Он должен
+дать реальные journal/eval evidence и точный failure раньше новой общей
+migration Core. Кандидаты и критерии первого среза находятся в
+[roadmap.md](roadmap.md#текущее-направление-прикладной-полигон).
+
+Крупные platform decisions ниже остаются открытыми и требуют отдельного
+решения владельца.
 
 1. **Model boundary.** Либо оставить provider adapters честной core-owned
    границей, либо спроектировать полный внешний model contract со streaming,

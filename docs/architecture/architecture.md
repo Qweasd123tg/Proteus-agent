@@ -454,8 +454,8 @@ Phase 3 проверила эту форму на `BoundModel`: shared `ModelSer
 `AgentWorkflowContext`, execution-bound model и tool handles. Каждый Turn
 создаёт новый id; wrapper содержит ровно один execution context. Structural
 guards запрещают chat imports в generic execution contracts и в public
-`BoundTools` boundary. Следующие phases и stop-gates находятся в
-[roadmap.md](../product/roadmap.md#executionscope-migration).
+`BoundTools` boundary. История Phase 0–8 и их stop-gates сохранена в
+[архивном roadmap](../archive/roadmap-through-2026-08-31.md#executionscope-migration).
 
 ### Реализованная Граница Phase 8
 
@@ -530,7 +530,7 @@ SessionStore сериализует append своим writer lock, а multiplexe
 сохраняет общий process lifecycle/failure domain без union authority. Cancel
 одной execution не должен затрагивать sibling execution или Turn. Полный
 порядок changesets и evidence зафиксирован в
-[roadmap.md](../product/roadmap.md#phase-8--top-level-non-turn-admission).
+[архивном roadmap](../archive/roadmap-through-2026-08-31.md#phase-8--top-level-non-turn-admission).
 
 ## Capability, Slot, Module, Worker И Profile
 

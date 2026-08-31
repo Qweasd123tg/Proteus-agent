@@ -31,11 +31,11 @@ suspended future и не позволяет продолжить оборван�
 - Tool execution после reload остаётся в общем policy/safety path.
 - `module_epoch` попадает в observability.
 
-В планируемой `ExecutionScope` migration один `ExecutionContext` так же будет
-собираться из одного captured `RuntimeSnapshot`. Generic context не должен
-делать новый lookup из mutable published registry на каждом step. Это planned
-invariant Phase 2, а не уже существующий non-Turn entrypoint; подробности — в
-[roadmap.md](../product/roadmap.md#executionscope-migration).
+Завершённая `ExecutionScope` migration сохранила этот инвариант: один
+`ExecutionContext` собирается из одного captured `RuntimeSnapshot`, а generic
+context не делает новый lookup из mutable published registry на каждом step.
+История Phase 2 и её evidence сохранена в
+[архивном roadmap](../archive/roadmap-through-2026-08-31.md#executionscope-migration).
 
 ## Что Reload-ится Сейчас
 
