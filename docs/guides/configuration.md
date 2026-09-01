@@ -259,6 +259,15 @@ config больше нет. Подробности — в
 Это evidence topology, а не новый default: несколько components по-прежнему
 нужны, когда владелец хочет разные failure domains.
 
+Model-optional control-flow проверяет отдельный runnable профиль
+`examples/configs/proteus.project-check.example.toml`. Он выбирает
+`coding.project_check`, `ask_write` и только `git_status`, `list_dir`, `shell`;
+запуск test command проходит явный approval.
+Fake provider в примере не вызывается на success/unsupported/blocked ветках;
+для содержательного объяснения failed test его можно заменить обычным provider
+profile. Наличие active provider пока обязательно для всего `AppConfig` и
+является одним из зафиксированных результатов probe-а.
+
 ## Ordered-Many Modules
 
 `tool` и `context_provider` не имеют keys в `[modules]`. Все объявленные
@@ -284,7 +293,7 @@ builder запрашивает provider по id через `host.context.provide
 
 ```text
 workflow:         coding.single_loop, coding.codex_loop,
-                  coding.plan_execute_review
+                  coding.plan_execute_review, coding.project_check
 search:           rg
 memory:           jsonl, sqlite
 context:          simple, repo_aware, codex_context

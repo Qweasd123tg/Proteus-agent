@@ -50,6 +50,8 @@ config
 - CLI, HTTP/SSE app-server, web chat и Inspector;
 - process-backed Proteus peers через `AgentControl`, steering, follow-up и
   collaboration tools;
+- deterministic `coding.project_check`, где code-owned control flow вызывает
+  model только для объяснения failed test;
 - `AssemblyPlan`, `doctor`, module/tool list, topology и eval report;
 - versioned Linux install и опубликованный `v0.1.0-alpha.1`.
 
@@ -88,6 +90,12 @@ process peers вместо internal mini-agent. Подробные phase plans �
 дать реальные journal/eval evidence и точный failure раньше новой общей
 migration Core. Кандидаты и критерии первого среза находятся в
 [roadmap.md](roadmap.md#текущее-направление-прикладной-полигон).
+
+Первый deterministic-controller probe уже подтвердил model-free success Turn
+через текущий process workflow/tool path и локализовал оставшийся gap:
+workflow replay v0 пока требует хотя бы один model exchange. Agent-shaped
+`workflow/v1` envelope и обязательный active provider также остаются явно
+учтённым coupling, а не скрываются fake model call-ом.
 
 Крупные platform decisions ниже остаются открытыми и требуют отдельного
 решения владельца.

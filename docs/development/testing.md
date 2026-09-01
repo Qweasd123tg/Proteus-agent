@@ -422,7 +422,7 @@ cargo test -p proteus-reference-worker --test conformance -- --nocapture
 
 Suite подтверждает:
 
-- strict component-v3 handshake всех 25 selectors;
+- strict component-v3 handshake всех 26 selectors;
 - multi-export routing по одному persistent broker;
 - aggregate tool `list` и реальный `read_file`;
 - real `rg`, patch и обе memory implementations;
@@ -530,6 +530,27 @@ Replay отвечает «сохранилась ли эквивалентнос
 Поддерживаемый workflow replay проверяет root `Success` и `Error`.
 Runtime-owned `Canceled` / `Timeout` проверяются через journal и cold
 history, потому что внешний момент сигнала не является workflow output.
+
+Model-free workflow пока является локализованным исключением replay v0:
+`coding.project_check` сохраняет canonical tool facts, history и
+`TurnSettled(Success)` с нулём model records, после чего replay fail-closed
+сообщает, что completed root model exchanges отсутствуют. Нельзя добавлять
+фиктивный model call ради прохождения gate. Characterization и focused
+controller evidence:
+
+```bash
+cargo test -p coding-workflow project_check
+cargo test -p proteus-reference-worker --test project_check_workflow -- --nocapture
+```
+
+Первый test фиксирует code-owned branching: success без context/compaction/
+model, ровно один tool-free model call после test failure и нулевые model calls
+для unsupported/policy failures. Второй проходит настоящий
+`AgentRuntime -> component-v3 workflow -> ToolRegistry/policy -> external
+tool/v2` path, проверяет journal/cold history, `eval report` с нулём model
+calls, одобренный shell lifecycle и exact replay rejection. После
+реализации model-free replay последний expectation должен быть заменён на
+matched replay, а не сохранён compatibility branch-ом.
 
 Намеренный divergence:
 

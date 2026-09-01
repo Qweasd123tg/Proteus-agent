@@ -886,6 +886,20 @@ persistent history projection. В историю сохраняются поль
 сообщение, tool results, execute draft/final assistant messages и итоговый
 review answer.
 
+`coding.project_check` не является model/tool loop. Его Rust-controller сам
+задаёт последовательность `git_status -> list_dir -> shell`, выбирая одну из
+фиксированных команд: `cargo test`, `npm test`, `python -m pytest` или
+`go test ./...`. При passing test он возвращает output с
+`project_check.status = passed` и `model_calls = 0`. При command failure с
+exit metadata выполняется один model request без tools; unsupported marker и
+policy/tool failure завершаются без model call.
+
+`project_check.status = failed|unsupported|blocked` является domain outcome
+успешно завершившегося controller-а, поэтому durable runtime settlement
+остаётся `TurnSettled(Success)`. Ошибка самого workflow/model callback даёт
+обычный `TurnSettled(Error)`. Tool outputs сохраняются как отдельные journal
+facts, но controller не обязан добавлять их в conversation history.
+
 Если approval требуется, `ToolOrchestrator` отправляет запрос через
 `ApprovalTransport`. CLI single-run и line REPL спрашивают пользователя в
 терминале; app-server transport публикует approval request и ждёт ответ

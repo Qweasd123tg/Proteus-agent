@@ -9,6 +9,7 @@ mod history;
 mod host;
 mod metadata;
 mod output_text;
+mod project_check;
 mod scaffold;
 mod token_accounting;
 mod validation;
@@ -49,7 +50,8 @@ use output_text::{message_text, output_text};
 use scaffold::{PersistentRepair, TurnScaffold};
 use validation::{validate_codex_model_response, validate_model_response};
 pub use workflows::{
-    CodingCodexLoopWorkflow, CodingPlanExecuteReviewWorkflow, CodingSingleLoopWorkflow,
+    CodingCodexLoopWorkflow, CodingPlanExecuteReviewWorkflow, CodingProjectCheckWorkflow,
+    CodingSingleLoopWorkflow,
 };
 
 const SINGLE_LOOP_MODULE_ID: &str = "coding.single_loop";
@@ -488,7 +490,17 @@ pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), Process
     }
 
     let plan_workflow: WorkflowModuleObject = Box::new(CodingPlanExecuteReviewWorkflow);
-    registry.register_workflow(String::from(PLAN_EXECUTE_REVIEW_MODULE_ID), plan_workflow)
+    if let Err(err) =
+        registry.register_workflow(String::from(PLAN_EXECUTE_REVIEW_MODULE_ID), plan_workflow)
+    {
+        return Err(err);
+    }
+
+    let project_check: WorkflowModuleObject = Box::new(CodingProjectCheckWorkflow);
+    registry.register_workflow(
+        String::from(project_check::PROJECT_CHECK_MODULE_ID),
+        project_check,
+    )
 }
 
 #[cfg(test)]

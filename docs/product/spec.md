@@ -185,8 +185,8 @@ Runtime должен сохранять эти свойства:
 - process context builders `simple`, `repo_aware` и `codex_context`;
 - file/edit/git/shell/plan tools через `ToolRegistry` и текущие reference modules;
 - approval preview для `apply_patch`, `write_file` и `shell`;
-- process workflows `coding.single_loop`, `coding.codex_loop` и
-  `coding.plan_execute_review`;
+- process workflows `coding.single_loop`, `coding.codex_loop`,
+  `coding.plan_execute_review` и deterministic `coding.project_check`;
 - `eval report` поверх canonical session journal;
 - streaming model deltas через canonical model/event path;
 - durable journal, history/transcript projections и resume.

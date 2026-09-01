@@ -161,6 +161,7 @@ fn every_reference_export_completes_the_same_strict_v3_component_handshake() {
         ("workflow", "coding.single_loop"),
         ("workflow", "coding.codex_loop"),
         ("workflow", "coding.plan_execute_review"),
+        ("workflow", "coding.project_check"),
     ];
 
     for (slot, module_id) in modules {

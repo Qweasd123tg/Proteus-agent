@@ -65,7 +65,10 @@ impl CollectedModules {
             }
             (
                 "workflow",
-                "coding.single_loop" | "coding.codex_loop" | "coding.plan_execute_review",
+                "coding.single_loop"
+                | "coding.codex_loop"
+                | "coding.plan_execute_review"
+                | "coding.project_check",
             ) => coding_workflow::register_modules,
             _ => bail!("reference worker has no {slot} module {module_id:?}"),
         };

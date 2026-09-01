@@ -43,6 +43,40 @@ changesets не являются дальнейшим backlog.
 5. менять Core только после наблюдаемого failure, который нельзя устранить
    profile-ом, client-ом или implementation существующего contract.
 
+### Реализованный Probe: Deterministic Project Check
+
+Первым architecture stress-test стал не ещё один LLM-loop, а
+`coding.project_check`: обычный Rust-controller поверх существующего
+`workflow/v1` сам вызывает `git_status`, определяет root marker и запускает
+фиксированную test command. Model используется только один раз для объяснения
+failed test. Success, unsupported project и infrastructure/policy failure
+заканчиваются с нулём model calls.
+
+Automated evidence подтвердил без изменения Core:
+
+- controller работает как обычный process workflow и не вызывает context,
+  compactor или tool exposure;
+- все три действия проходят host-routed `ToolRegistry`, policy и safety path,
+  а `shell` — approval request/resolve;
+- success Turn сохраняет три tool lifecycle, cold history и
+  `TurnSettled(Success)` при полном отсутствии model records;
+- failed test формирует ровно один tool-free canonical model request.
+
+Probe локализовал три остаточных assumption-а:
+
+1. `workflow/v1` и его tool callback всё ещё имеют agent-shaped
+   `AgentTask/history/session/thread/turn` envelope;
+2. весь `AppConfig` требует active model даже для model-free success path;
+3. workflow replay v0 требует минимум один completed root model exchange и
+   не воспроизводит уже корректно записанный model-free Turn.
+
+Третий gap подтверждён characterization test-ом
+`project_check_workflow`; добавлять пустой model call как workaround нельзя.
+Следующее решение — отдельно выбрать, достаточно ли сначала обобщить replay
+для zero-model workflows или нужен более широкий non-chat top-level contract.
+Сам probe runnable через
+`examples/configs/proteus.project-check.example.toml` и не становится default.
+
 ### Кандидат 1: Change-Review
 
 Рекомендуемый первый срез:

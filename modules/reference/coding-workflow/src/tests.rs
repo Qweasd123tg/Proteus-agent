@@ -2,6 +2,7 @@ use super::*;
 use std::{collections::VecDeque, sync::Mutex};
 
 mod cache;
+mod project_check_workflow;
 
 use serde_json::Value;
 
@@ -255,9 +256,11 @@ struct FakeHost {
     requests: Mutex<Vec<CanonicalModelRequest>>,
     responses: Mutex<VecDeque<CanonicalModelResponse>>,
     context_text: Mutex<Option<String>>,
+    context_builds: Mutex<Vec<AgentTask>>,
     visible_tools: Mutex<Vec<ToolSpec>>,
     selected_tools: Mutex<Vec<ToolSpec>>,
     executed_calls: Mutex<Vec<ToolCall>>,
+    tool_results: Mutex<VecDeque<ToolResult>>,
     compactions: Mutex<Vec<CompactionInput>>,
     compaction_outputs: Mutex<VecDeque<proteus_contracts::contracts::CompactionOutput>>,
 }
@@ -281,6 +284,11 @@ impl FakeHost {
         self
     }
 
+    fn with_tool_results(mut self, results: Vec<ToolResult>) -> Self {
+        self.tool_results = Mutex::new(VecDeque::from(results));
+        self
+    }
+
     fn with_compaction_outputs(
         mut self,
         outputs: Vec<proteus_contracts::contracts::CompactionOutput>,
@@ -301,6 +309,10 @@ impl WorkflowModuleHost for FakeHost {
 
     fn build_context_json(&self, task_json: String) -> Result<String, ProcessModuleError> {
         let task: AgentTask = serde_json::from_str(task_json.as_str()).expect("task json");
+        self.context_builds
+            .lock()
+            .expect("context builds")
+            .push(task.clone());
         let context = self
             .context_text
             .lock()
@@ -404,8 +416,19 @@ impl WorkflowModuleHost for FakeHost {
             .lock()
             .expect("executed calls")
             .push(call.clone());
-        let result = ToolResult::ok(call.id.clone(), format!("{} ok", call.name))
-            .with_metadata(json!({ "inner": true }));
+        let result = self
+            .tool_results
+            .lock()
+            .expect("tool results")
+            .pop_front()
+            .map(|mut result| {
+                result.call_id = call.id.clone();
+                result
+            })
+            .unwrap_or_else(|| {
+                ToolResult::ok(call.id.clone(), format!("{} ok", call.name))
+                    .with_metadata(json!({ "inner": true }))
+            });
         Ok(String::from(
             serde_json::to_string(&result).expect("tool result json"),
         ))

@@ -41,7 +41,7 @@ native loader в проекте отсутствуют.
 
 | Slot | Composition | Selection | Component export | Reference ids |
 |---|---|---|---|---|
-| `workflow` | `select_one` | `modules.workflow` | да | `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review` |
+| `workflow` | `select_one` | `modules.workflow` | да | `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`, `coding.project_check` |
 | `search` | `select_one` | `modules.search` | да | `rg` |
 | `memory` | `select_one` | `modules.memory` | да | `jsonl`, `sqlite` |
 | `context` | `select_one` | `modules.context` | да | `simple`, `repo_aware`, `codex_context` |
@@ -136,6 +136,14 @@ callbacks сверяются с его authority, а не с объединен�
 runtime status, context, model completion, compaction, visible/selected tools,
 tool execution и event emission. Session ids, approvals, tool ownership и
 journal остаются host-owned.
+
+`coding.project_check` — reference code-heavy controller на том же
+`workflow/v1`. Он детерминированно вызывает `git_status`, определяет project по
+root marker, запускает фиксированную test command и обращается к model только
+один раз для объяснения failed test. Success path не вызывает model, context
+или compactor. Это architecture probe, не default workflow и не special
+authority: direct process execution внутри него отсутствует, каждый tool
+проходит общий host safety path.
 
 ### Search
 
@@ -235,7 +243,7 @@ service. `ModuleKind::Subagent`, `modules.subagent` и catalog implementation
 
 ## Reference Worker
 
-`proteus-reference-worker` содержит 25 selectors и может подтвердить несколько
+`proteus-reference-worker` содержит 26 selectors и может подтвердить несколько
 из них как exports одного component. Он использует тот же protocol, что
 out-of-tree worker. Его Rust helper traits в
 `proteus-contracts::process_module` действуют только внутри executable и не

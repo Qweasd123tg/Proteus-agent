@@ -1,0 +1,52 @@
+active_provider = "fake"
+
+[profile]
+name = "deterministic-project-check"
+
+# Success, unsupported-project and infrastructure-failure branches do not call
+# this model. It is bound only for the single explanation point after a real
+# test-command failure; replace the fake provider to inspect a useful live
+# explanation.
+[providers.fake]
+provider = "fake"
+model = "fake-tool-model"
+stream = true
+
+[modules]
+workflow = "coding.project_check"
+policy = "ask_write"
+
+# One ordinary component exports the controller and its configured tools. The
+# host still computes authority per active export; this is not union authority.
+[components.reference-controller]
+command = "proteus-reference-worker"
+
+[components.reference-controller.exports.workflow."coding.project_check"]
+
+[components.reference-controller.exports.policy.ask_write]
+
+[components.reference-controller.exports.tool."reference.tools"]
+
+[tools]
+enabled = ["git_status", "list_dir", "shell"]
+
+[permissions]
+mode = "normal"
+
+[module_config.policy.ask_write]
+allow = ["git_status", "list_dir"]
+ask_before = ["shell"]
+
+[agent_control]
+surface = "none"
+
+[app_server]
+approval_timeout_ms = 0
+
+[runtime]
+model_timeout_ms = 120000
+context_timeout_ms = 10000
+workflow_timeout_ms = 900000
+
+[event_log]
+path = ".proteus/events.jsonl"

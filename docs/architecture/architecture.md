@@ -140,7 +140,7 @@ client user input
   -> RuntimeRegistry wraps the ready ExecutionContext in AgentWorkflowContext
   -> selected Workflow::run(AgentTask, history, AgentWorkflowContext)
        -> optional context build
-       -> one or more model/tool/model steps chosen by Workflow
+       -> zero or more model/tool steps chosen by Workflow
        -> optional compaction and workflow events
        -> WorkflowOutput
   -> validate and commit history mutation
@@ -241,6 +241,7 @@ Workflow policy
   coding.single_loop
   coding.codex_loop
   coding.plan_execute_review
+  coding.project_check
           |
           v
 Core mechanisms
@@ -253,6 +254,38 @@ Core mechanisms
 `AgentOutput`. Поэтому arbitrary non-chat workload сегодня может использовать
 нижние capabilities/process substrate, но не имеет естественного top-level
 entrypoint через `AgentRuntime`.
+
+### Deterministic Controller Probe
+
+Reference `coding.project_check` проверяет эту границу обычным кодом, а не
+LLM-loop. Его state machine фиксирована implementation-ом:
+
+```text
+git_status
+  -> list_dir(".")
+  -> marker -> fixed test command
+       -> success: terminal output, model calls = 0
+       -> test failure: one tool-free model explanation -> terminal output
+```
+
+Все команды всё равно возвращаются в host через `host.tools.execute` и проходят
+`ToolRegistry -> policy -> approval -> safety`; worker не запускает shell
+самостоятельно. Success path не вызывает context, compactor, tool exposure или
+model и не читает history. Runnable profile:
+`examples/configs/proteus.project-check.example.toml`.
+
+Probe одновременно локализует оставшийся coupling, не разрешая новую Core
+migration автоматически:
+
+- `workflow/v1` input и tool callback всё ещё требуют agent-shaped
+  `AgentTask`, а invocation несёт history и session/thread/turn ids;
+- `AppConfig` всё ещё требует active model даже для model-free success path;
+- canonical journal и cold history принимают Turn без model records, но
+  workflow replay v0 пока отвергает его до запуска controller-а, потому что
+  требует хотя бы один completed root model exchange.
+
+Последний пункт закреплён runtime characterization test-ом. Добавлять fake
+model call ради replay запрещено: это скрыло бы именно проверяемую границу.
 
 ## Context Split И Оставшийся Coupling
 
@@ -385,6 +418,9 @@ background executions. Она не равна `ExecutionId` и не равна c
 
 Prompt replay повторяет один сохранённый provider-neutral model request;
 workflow replay заново запускает Workflow с записанными model/tool outcomes.
+Текущий replay v0 требует минимум один model outcome и поэтому ещё не
+поддерживает model-free Turn `coding.project_check`, хотя его tool facts,
+history и settlement уже сохраняются канонически.
 Они проверяют эквивалентность и projection, но не продолжают suspended Rust
 future после crash. Program counter, stack, local workflow variables, steering
 queue и cancellation token journal не восстанавливает.
