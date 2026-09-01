@@ -30,6 +30,16 @@ fn stream_error_fallback_is_explicit_diagnostic_mode() {
 }
 
 #[test]
+fn provider_config_rejects_non_boolean_http1_only() {
+    let error = OpenAiResponsesClient::from_provider_config(json!({
+        "http1_only": "yes"
+    }))
+    .expect_err("http1_only must remain an explicit boolean transport choice");
+
+    assert!(error.to_string().contains("http1_only must be a boolean"));
+}
+
+#[test]
 fn provider_config_reads_base_url_from_json_file() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("openai.json");

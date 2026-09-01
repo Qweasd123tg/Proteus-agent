@@ -97,9 +97,22 @@ impl OpenAiResponsesClient {
             .filter(|value| *value > 0);
         let prompt_cache = OpenAiPromptCacheConfig::from_provider_config(&config);
         let model_profile = OpenAiModelProfile::from_provider_config(&config)?;
+        let http1_only = config
+            .get("http1_only")
+            .map(|value| {
+                value
+                    .as_bool()
+                    .ok_or_else(|| anyhow::anyhow!("openai http1_only must be a boolean"))
+            })
+            .transpose()?
+            .unwrap_or(false);
+        let mut http = reqwest::Client::builder();
+        if http1_only {
+            http = http.http1_only();
+        }
 
         Ok(Self {
-            http: reqwest::Client::new(),
+            http: http.build()?,
             secret_config: config,
             base_url,
             stream_enabled,

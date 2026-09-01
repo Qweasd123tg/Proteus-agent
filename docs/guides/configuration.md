@@ -140,6 +140,12 @@ base_url_file = "$HOME/.config/Proteus-agent/secrets/openai.json"
 base_url_json_key = "base_url"
 ```
 
+OpenAI adapter по умолчанию использует согласованную HTTP-версию `reqwest`.
+Если OpenAI-compatible proxy некорректно обслуживает Responses API через
+HTTP/2, задайте `http1_only = true` в том же `provider_config`. Это transport
+compatibility switch конкретного provider profile, а не fallback workflow или
+исключение для module id.
+
 Не храните secret literal в tracked config. `proteus doctor` проверяет
 provider selection и доступность credential без model request.
 
