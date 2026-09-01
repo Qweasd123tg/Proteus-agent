@@ -15,6 +15,13 @@ function-style `apply_patch` из-за несовместимости лично
 custom-tool round-trip. Freeform в таблице ниже остаётся историческим состоянием
 этого audit и доступен только как явная capability совместимого endpoint/model.
 
+Статус-обновление 2026-09-01: активный upstream baseline и первый новый
+parity-срез вынесены в
+[codex-parity-baseline-2026-09-01.md](codex-parity-baseline-2026-09-01.md).
+Typed `MessagePhase` и ordered `CanonicalModelResponse.messages` теперь
+реализованы; строки ниже про потерю phase сохранены только как evidence того,
+как gap был обнаружен в этом датированном snapshot.
+
 - module-by-module сравнение с актуальным `openai/codex` и официальным manual;
 - локальный аудит concrete tools, plugin ABI, process/MCP host, policy,
   registry, doctor и resource boundaries.

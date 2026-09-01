@@ -130,7 +130,7 @@ impl Workflow for TwoRoundSteeringWorkflow {
         assert_eq!(ctx.queued_user_messages(), 1);
 
         let mut second_messages = history;
-        second_messages.push(first.message.clone());
+        second_messages.extend(first.messages.iter().cloned());
         second_messages.push(tool_message.clone());
         let second = ctx
             .execution
@@ -140,9 +140,12 @@ impl Workflow for TwoRoundSteeringWorkflow {
                 second_messages,
             ))
             .await?;
+        let mut new_messages = first.messages;
+        new_messages.push(tool_message);
+        new_messages.extend(second.messages);
         Ok(WorkflowOutput::new(
             AgentOutput::text("steered"),
-            vec![first.message, tool_message, second.message],
+            new_messages,
         ))
     }
 }
@@ -186,10 +189,10 @@ impl Workflow for CompactionBoundarySteeringWorkflow {
                 vec![CanonicalMessage::text(MessageRole::User, "summarize")],
             ))
             .await?;
-        assert_eq!(message_text_for_test(&summary.message), "summary");
+        assert_eq!(message_text_for_test(&summary.messages[0]), "summary");
 
         let mut second_messages = history;
-        second_messages.push(first.message.clone());
+        second_messages.extend(first.messages.iter().cloned());
         second_messages.push(tool_message.clone());
         let second = ctx
             .execution
@@ -199,9 +202,12 @@ impl Workflow for CompactionBoundarySteeringWorkflow {
                 second_messages,
             ))
             .await?;
+        let mut new_messages = first.messages;
+        new_messages.push(tool_message);
+        new_messages.extend(second.messages);
         Ok(WorkflowOutput::new(
             AgentOutput::text("steered after compaction"),
-            vec![first.message, tool_message, second.message],
+            new_messages,
         ))
     }
 }

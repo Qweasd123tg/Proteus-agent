@@ -98,8 +98,8 @@
 Читайте в таком порядке:
 
 1. [scope.md](product/scope.md) — текущее состояние и принятые границы.
-2. [roadmap.md](product/roadmap.md) — текущий полигон, критерии выбора первого
-   среза и отложенный backlog.
+2. [roadmap.md](product/roadmap.md) — текущая работа над Codex pack, порядок
+   parity-срезов и отложенный backlog.
 3. [spec.md](product/spec.md) — долгосрочный замысел и non-goals.
 4. [dogfood-gate.md](development/dogfood-gate.md) — необязательный ручной diagnostic и
    исторический список blocking symptoms.
@@ -140,6 +140,8 @@
   0–8 и post-Phase-8 cleanup;
 - [research/platform-expressiveness-after-runtime-v2-2026-08-22.md](research/platform-expressiveness-after-runtime-v2-2026-08-22.md) —
   короткая актуальная точка входа в отложенные архитектурные идеи;
+- [research/codex-parity-baseline-2026-09-01.md](research/codex-parity-baseline-2026-09-01.md) —
+  активный pinned upstream baseline и differential evidence для `codex` pack;
 - [research/](research/) — остальные проектные исследования и postmortem;
 - [examples/research/](../examples/research/) — большие snapshot-разборы
   сторонних agent runtimes.

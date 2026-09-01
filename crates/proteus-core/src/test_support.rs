@@ -67,12 +67,22 @@ impl Workflow for TestToolLoopWorkflow {
                 .with_tools(ctx.execution.tools.specs())
                 .with_reasoning(ctx.reasoning.clone());
             let response = ctx.execution.model.complete(request).await?;
-            messages.push(response.message.clone());
-            new_messages.push(response.message.clone());
+            messages.extend(response.messages.iter().cloned());
+            new_messages.extend(response.messages.iter().cloned());
 
             if response.tool_calls.is_empty() {
                 return Ok(WorkflowOutput::new(
-                    AgentOutput::text(message_text(&response.message)),
+                    AgentOutput::text(
+                        response
+                            .messages
+                            .iter()
+                            .rev()
+                            .find_map(|message| {
+                                let text = message_text(message);
+                                (!text.trim().is_empty()).then_some(text)
+                            })
+                            .unwrap_or_default(),
+                    ),
                     new_messages,
                 ));
             }

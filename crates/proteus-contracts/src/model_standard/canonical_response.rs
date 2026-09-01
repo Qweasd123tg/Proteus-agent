@@ -11,7 +11,10 @@ use crate::{
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct CanonicalModelResponse {
-    pub message: CanonicalMessage,
+    /// Ordered provider output messages. Item boundaries and assistant phases
+    /// are canonical facts: workflows must not flatten commentary and final
+    /// answer items into one synthetic message.
+    pub messages: Vec<CanonicalMessage>,
     pub tool_calls: Vec<ToolCall>,
     pub finish_reason: FinishReason,
     pub usage: Option<TokenUsage>,
@@ -27,8 +30,16 @@ impl CanonicalModelResponse {
         tool_calls: Vec<ToolCall>,
         finish_reason: FinishReason,
     ) -> Self {
+        Self::from_messages(vec![message], tool_calls, finish_reason)
+    }
+
+    pub fn from_messages(
+        messages: Vec<CanonicalMessage>,
+        tool_calls: Vec<ToolCall>,
+        finish_reason: FinishReason,
+    ) -> Self {
         Self {
-            message,
+            messages,
             tool_calls,
             finish_reason,
             usage: None,
@@ -57,8 +68,15 @@ impl CanonicalModelResponse {
 /// как consumer изменит историю или исполнит tools. Request-specific
 /// visibility/allowlist сюда намеренно не входит.
 pub fn validate_model_response_structure(response: &CanonicalModelResponse) -> Result<(), String> {
-    if response.message.role != MessageRole::Assistant {
-        return Err("model response message must use assistant role".to_owned());
+    if response.messages.is_empty() {
+        return Err("model response must contain at least one message".to_owned());
+    }
+    if response
+        .messages
+        .iter()
+        .any(|message| message.role != MessageRole::Assistant)
+    {
+        return Err("model response messages must use assistant role".to_owned());
     }
 
     match response.finish_reason {
@@ -84,9 +102,9 @@ pub fn validate_model_response_structure(response: &CanonicalModelResponse) -> R
     }
 
     let message_tool_calls = response
-        .message
-        .parts
+        .messages
         .iter()
+        .flat_map(|message| message.parts.iter())
         .filter_map(|part| match &part.payload {
             ContentPart::ToolCall { call } => Some(call),
             _ => None,
@@ -94,7 +112,7 @@ pub fn validate_model_response_structure(response: &CanonicalModelResponse) -> R
         .collect::<Vec<_>>();
     if message_tool_calls.len() != response.tool_calls.len() {
         return Err(format!(
-            "model response tool_calls length {} does not match assistant message tool_call parts {}",
+            "model response tool_calls length {} does not match assistant messages tool_call parts {}",
             response.tool_calls.len(),
             message_tool_calls.len()
         ));
@@ -248,7 +266,7 @@ mod tests {
             HostedToolConfig, ModelRef, ToolCallSurface, ToolSafety, ToolSpec, ToolSurface,
             WebSearchHostedToolConfig, new_call_id,
         },
-        model_standard::ContentPart,
+        model_standard::{ContentPart, MessagePhase},
     };
 
     fn response_with_call(call: ToolCall) -> CanonicalModelResponse {
@@ -414,5 +432,54 @@ mod tests {
         let error =
             validate_model_response_structure(&response).expect_err("Stop with calls must fail");
         assert!(error.contains("finish_reason=Stop"));
+    }
+
+    #[test]
+    fn response_structure_preserves_ordered_assistant_phases() {
+        let response = CanonicalModelResponse::from_messages(
+            vec![
+                CanonicalMessage::text(MessageRole::Assistant, "working")
+                    .with_phase(MessagePhase::Commentary),
+                CanonicalMessage::text(MessageRole::Assistant, "done")
+                    .with_phase(MessagePhase::FinalAnswer),
+            ],
+            Vec::new(),
+            FinishReason::Stop,
+        );
+
+        validate_model_response_structure(&response).expect("ordered assistant messages");
+        let value = serde_json::to_value(&response).expect("response JSON");
+        assert_eq!(value["messages"][0]["phase"], "commentary");
+        assert_eq!(value["messages"][1]["phase"], "final_answer");
+        assert!(value.get("message").is_none());
+    }
+
+    #[test]
+    fn response_wire_rejects_the_removed_singular_message_shape() {
+        let response = CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "done"),
+            Vec::new(),
+            FinishReason::Stop,
+        );
+        let mut value = serde_json::to_value(response).expect("response JSON");
+        let object = value.as_object_mut().expect("response object");
+        let message = object
+            .remove("messages")
+            .and_then(|messages| messages.as_array().and_then(|items| items.first().cloned()))
+            .expect("first response message");
+        object.insert("message".to_owned(), message);
+
+        serde_json::from_value::<CanonicalModelResponse>(value)
+            .expect_err("singular model response shape must not have a compatibility reader");
+    }
+
+    #[test]
+    fn response_structure_rejects_an_empty_message_vector() {
+        let response =
+            CanonicalModelResponse::from_messages(Vec::new(), Vec::new(), FinishReason::Stop);
+
+        let error = validate_model_response_structure(&response)
+            .expect_err("model response must retain at least one output message");
+        assert!(error.contains("at least one message"));
     }
 }

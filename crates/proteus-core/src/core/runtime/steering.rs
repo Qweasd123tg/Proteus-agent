@@ -385,12 +385,14 @@ impl SteeringModel {
 
     async fn observe_response(&self, response: &CanonicalModelResponse) {
         let mut deliveries = self.deliveries.lock().await;
-        for delivery in deliveries
-            .iter_mut()
-            .filter(|delivery| delivery.awaiting_anchor)
-        {
-            delivery.before_message_id = Some(response.message.id);
-            delivery.awaiting_anchor = false;
+        if let Some(first_message) = response.messages.first() {
+            for delivery in deliveries
+                .iter_mut()
+                .filter(|delivery| delivery.awaiting_anchor)
+            {
+                delivery.before_message_id = Some(first_message.id);
+                delivery.awaiting_anchor = false;
+            }
         }
         self.ready_after_tool_response
             .store(!response.tool_calls.is_empty(), Ordering::Release);

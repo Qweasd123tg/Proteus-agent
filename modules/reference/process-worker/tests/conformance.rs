@@ -783,7 +783,7 @@ fn workflow_input(workspace: &Path) -> Value {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn targeted_cancel_keeps_concurrent_sibling_and_generation_alive() {
     let workspace = tempfile::tempdir().expect("workspace");
-    let workflow = ProcessExportBinding::new("workflow", "coding.single_loop", "v1", json!({}))
+    let workflow = ProcessExportBinding::new("workflow", "coding.single_loop", "v2", json!({}))
         .expect("workflow binding");
     let workflow_target = workflow.export_ref();
     let policy =

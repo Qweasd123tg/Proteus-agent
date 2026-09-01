@@ -389,9 +389,9 @@ fn finish_reason_name(reason: &crate::model_standard::FinishReason) -> &'static 
 fn text_from_outcome(outcome: &ModelResponseOutcome) -> Option<String> {
     response_from_outcome(outcome).map(|response| {
         response
-            .message
-            .parts
+            .messages
             .iter()
+            .flat_map(|message| message.parts.iter())
             .filter_map(|part| match &part.payload {
                 ContentPart::Text { text } => Some(text.as_str()),
                 _ => None,
@@ -414,9 +414,9 @@ fn count_parts(
 ) -> usize {
     response.map_or(0, |response| {
         response
-            .message
-            .parts
+            .messages
             .iter()
+            .flat_map(|message| message.parts.iter())
             .filter(|part| predicate(&part.payload))
             .count()
     })

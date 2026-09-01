@@ -290,7 +290,7 @@ mod tests {
         ]));
         let service = ModelService::new(adapter);
         let response = service.complete(sample_request()).await.unwrap();
-        assert!(response.message.parts.is_empty());
+        assert!(response.messages[0].parts.is_empty());
         assert_eq!(response.finish_reason, FinishReason::Stop);
         assert_eq!(response.end_turn, Some(false));
     }

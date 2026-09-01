@@ -32,13 +32,13 @@ CompactionOutput` и не использует разрешённый contract-�
 родительских переменных перечисляются в `env_allowlist`, literal значения — в
 `env`.
 
-Worker использует общий component protocol v3 и compactor contract v1. Handshake
+Worker использует общий component protocol v3 и compactor contract v2. Handshake
 можно проверить отдельно от core:
 
 ```bash
 cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
   --component-id python-compactor \
-  --export '{"slot":"compactor","module_id":"python_suffix","contract_version":"v1","module_config":{"trigger_messages":12,"retain_user_turns":2}}' \
+  --export '{"slot":"compactor","module_id":"python_suffix","contract_version":"v2","module_config":{"trigger_messages":12,"retain_user_turns":2}}' \
   -- python3 examples/modules/compactor-process/compact.py
 ```
 

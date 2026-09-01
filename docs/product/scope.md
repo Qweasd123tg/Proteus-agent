@@ -85,16 +85,16 @@ process peers вместо internal mini-agent. Подробные phase plans �
 сохранены в
 [архивном roadmap](../archive/roadmap-through-2026-08-31.md).
 
-Следующее принятое направление — прикладной полигон: небольшой полезный
-сценарий поверх существующих profile/module/app-server boundaries. Он должен
-дать реальные journal/eval evidence и точный failure раньше новой общей
-migration Core. Кандидаты и критерии первого среза находятся в
-[roadmap.md](roadmap.md#текущее-направление-прикладной-полигон).
+Следующее принятое направление — pinned differential работа над `codex` pack
+поверх существующих profile/module/app-server boundaries. Каждый срез должен
+закрывать один наблюдаемый upstream gap, сохранять trace/fixture и проходить
+общий contract/process gate без исключения по `module_id`. Текущий порядок
+находится в [roadmap.md](roadmap.md#текущее-направление-codex-pack-parity).
 
-Первый deterministic-controller probe уже подтвердил model-free success Turn
+Завершённый deterministic-controller probe подтвердил model-free success Turn
 через текущий process workflow/tool path и локализовал оставшийся gap:
 workflow replay v0 пока требует хотя бы один model exchange. Agent-shaped
-`workflow/v1` envelope и обязательный active provider также остаются явно
+`workflow/v2` envelope и обязательный active provider также остаются явно
 учтённым coupling, а не скрываются fake model call-ом.
 
 Крупные platform decisions ниже остаются открытыми и требуют отдельного

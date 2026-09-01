@@ -31,7 +31,7 @@ pub(crate) use proteus_contracts::{
     domain::{ContextBundle, TokenUsageSnapshot, TokenUsageSource, ToolCall, ToolResult, ToolSpec},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart,
-        InstructionBlock, InstructionKind, MessageRole, TokenUsage,
+        InstructionBlock, InstructionKind, MessagePhase, MessageRole, TokenUsage,
     },
     process_module::WorkflowModule,
 };
@@ -48,7 +48,7 @@ use metadata::{cache_routing_key, insert_request_metadata_u32};
 use metadata::{output_metadata, output_metadata_with_extra, with_workflow_phase};
 use output_text::{message_text, output_text};
 use scaffold::{PersistentRepair, TurnScaffold};
-use validation::{validate_codex_model_response, validate_model_response};
+use validation::{response_output_message, validate_codex_model_response, validate_model_response};
 pub use workflows::{
     CodingCodexLoopWorkflow, CodingPlanExecuteReviewWorkflow, CodingProjectCheckWorkflow,
     CodingSingleLoopWorkflow,
@@ -132,8 +132,10 @@ pub(crate) fn run_single_loop(
         )?;
         validate_model_response("single_loop", &request, &response)?;
 
-        turn.model_messages.push(response.message.clone());
-        turn.persistent_messages.push(response.message.clone());
+        turn.model_messages
+            .extend(response.messages.iter().cloned());
+        turn.persistent_messages
+            .extend(response.messages.iter().cloned());
         if let Some(usage) = response.usage.clone() {
             last_usage = Some(LastModelUsage {
                 usage,
@@ -143,8 +145,9 @@ pub(crate) fn run_single_loop(
         let should_run_tools =
             response.finish_reason == FinishReason::ToolCalls && !response.tool_calls.is_empty();
         if !should_run_tools {
+            let output_message = response_output_message("single_loop", &response)?;
             let text = output_text(
-                &response.message,
+                output_message,
                 &turn.model_messages[turn.current_turn_messages_start..],
             );
             let metadata = output_metadata(
@@ -193,10 +196,13 @@ pub(crate) fn run_single_loop(
     )?;
     validate_model_response("single_loop_final", &request, &response)?;
 
-    turn.model_messages.push(response.message.clone());
-    turn.persistent_messages.push(response.message.clone());
+    turn.model_messages
+        .extend(response.messages.iter().cloned());
+    turn.persistent_messages
+        .extend(response.messages.iter().cloned());
+    let output_message = response_output_message("single_loop_final", &response)?;
     let text = output_text(
-        &response.message,
+        output_message,
         &turn.model_messages[turn.current_turn_messages_start..],
     );
     let metadata = output_metadata_with_extra(
@@ -259,9 +265,11 @@ pub(crate) fn run_codex_loop(
         let should_run_tools =
             response.finish_reason == FinishReason::ToolCalls && !response.tool_calls.is_empty();
         let model_requests_follow_up = response.end_turn == Some(false);
-        let assistant_message = response.message.clone();
-        turn.model_messages.push(assistant_message.clone());
-        turn.persistent_messages.push(assistant_message.clone());
+        let assistant_message = response_output_message("codex_loop", &response)?.clone();
+        turn.model_messages
+            .extend(response.messages.iter().cloned());
+        turn.persistent_messages
+            .extend(response.messages.iter().cloned());
         if let Some(usage) = response.usage.clone() {
             last_usage = Some(LastModelUsage {
                 usage,
@@ -352,9 +360,12 @@ pub(crate) fn run_plan_execute_review(
             },
         )?;
         validate_model_response("plan", &plan_request, &plan_response)?;
-        let plan_message =
-            with_workflow_phase(plan_response.message, PLAN_EXECUTE_REVIEW_MODULE_ID, "plan");
-        turn.model_messages.push(plan_message.clone());
+        let plan_messages = plan_response
+            .messages
+            .into_iter()
+            .map(|message| with_workflow_phase(message, PLAN_EXECUTE_REVIEW_MODULE_ID, "plan"))
+            .collect::<Vec<_>>();
+        turn.model_messages.extend(plan_messages.iter().cloned());
 
         let should_run_tools = plan_response.finish_reason == FinishReason::ToolCalls
             && !plan_response.tool_calls.is_empty();
@@ -362,7 +373,7 @@ pub(crate) fn run_plan_execute_review(
             break;
         }
         plan_tool_rounds_used += 1;
-        turn.persistent_messages.push(plan_message);
+        turn.persistent_messages.extend(plan_messages);
         for call in plan_response.tool_calls {
             let result = execute_or_handle_tool(host, &input, &call, "plan")?;
             turn.append_tool_results(std::iter::once(result));
@@ -403,11 +414,13 @@ pub(crate) fn run_plan_execute_review(
         validate_model_response("execute", &request, &response)?;
 
         let finish_reason = response.finish_reason.clone();
-        turn.model_messages.push(response.message.clone());
+        turn.model_messages
+            .extend(response.messages.iter().cloned());
         let should_run_tools =
             response.finish_reason == FinishReason::ToolCalls && !response.tool_calls.is_empty();
         if should_run_tools {
-            turn.persistent_messages.push(response.message.clone());
+            turn.persistent_messages
+                .extend(response.messages.iter().cloned());
         }
         if !should_run_tools {
             draft_finish_reason = Some(finish_reason);
@@ -452,11 +465,13 @@ pub(crate) fn run_plan_execute_review(
     )?;
     validate_model_response("review", &review_request, &final_response)?;
 
-    turn.model_messages.push(final_response.message.clone());
+    let final_message = response_output_message("review", &final_response)?.clone();
+    turn.model_messages
+        .extend(final_response.messages.iter().cloned());
     turn.persistent_messages
-        .push(final_response.message.clone());
+        .extend(final_response.messages.iter().cloned());
     let text = output_text(
-        &final_response.message,
+        &final_message,
         &turn.model_messages[turn.current_turn_messages_start..],
     );
     let metadata = output_metadata_with_extra(

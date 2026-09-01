@@ -82,9 +82,9 @@ impl Model for FakeModelClient {
 
 fn collect_text(response: &CanonicalModelResponse) -> Vec<String> {
     response
-        .message
-        .parts
+        .messages
         .iter()
+        .flat_map(|message| message.parts.iter())
         .filter_map(|part| match &part.payload {
             ContentPart::Text { text } => Some(text.as_str()),
             _ => None,

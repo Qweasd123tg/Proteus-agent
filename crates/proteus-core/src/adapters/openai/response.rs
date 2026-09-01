@@ -7,8 +7,8 @@ use crate::{
         ToolCallSurface, WebSearchAction, WebSearchSource,
     },
     model_standard::{
-        CanonicalMessage, CanonicalModelResponse, ContentPart, FinishReason, MessageRole,
-        TokenUsage,
+        CanonicalMessage, CanonicalModelResponse, ContentPart, FinishReason, MessagePhase,
+        MessageRole, TokenUsage,
     },
 };
 
@@ -25,7 +25,7 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
         return Err(anyhow!("Incomplete response returned, reason: {reason}"));
     }
 
-    let mut parts = Vec::new();
+    let mut messages = Vec::new();
     let mut tool_calls = Vec::new();
 
     for item in response
@@ -35,6 +35,10 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
     {
         match item.get("type").and_then(Value::as_str) {
             Some("message") => {
+                if item.get("role").and_then(Value::as_str) != Some("assistant") {
+                    return Err(anyhow!("OpenAI output message must use assistant role"));
+                }
+                let mut parts = Vec::new();
                 if let Some(content) = item.get("content").and_then(Value::as_array) {
                     for content_item in content {
                         if content_item.get("type").and_then(Value::as_str) == Some("output_text")
@@ -47,6 +51,11 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
                         }
                     }
                 }
+                let mut message = CanonicalMessage::new(MessageRole::Assistant, parts);
+                if let Some(phase) = parse_message_phase(item)? {
+                    message = message.with_phase(phase);
+                }
+                messages.push(message);
             }
             Some("reasoning") => {
                 let text = item
@@ -65,7 +74,10 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
                     .and_then(Value::as_str)
                     .map(str::to_owned);
                 if !text.is_empty() || signature.is_some() {
-                    parts.push(ContentPart::Reasoning { text, signature });
+                    messages.push(CanonicalMessage::new(
+                        MessageRole::Assistant,
+                        vec![ContentPart::Reasoning { text, signature }],
+                    ));
                 }
             }
             Some("function_call") => {
@@ -84,7 +96,10 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
                     .unwrap_or_else(|_| Value::String(raw_arguments.to_owned()));
                 let call =
                     ToolCall::new(call_id, name, args).with_raw_arguments(raw_arguments.to_owned());
-                parts.push(ContentPart::ToolCall { call: call.clone() });
+                messages.push(CanonicalMessage::new(
+                    MessageRole::Assistant,
+                    vec![ContentPart::ToolCall { call: call.clone() }],
+                ));
                 tool_calls.push(call);
             }
             Some("custom_tool_call") => {
@@ -105,18 +120,27 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
                     .to_owned();
                 let call = ToolCall::new(call_id, name, json!({ "input": input }))
                     .with_surface(ToolCallSurface::Freeform);
-                parts.push(ContentPart::ToolCall { call: call.clone() });
+                messages.push(CanonicalMessage::new(
+                    MessageRole::Assistant,
+                    vec![ContentPart::ToolCall { call: call.clone() }],
+                ));
                 tool_calls.push(call);
             }
             Some("web_search_call") => {
-                parts.push(ContentPart::HostedToolActivity {
-                    activity: parse_web_search_activity(item)?,
-                });
+                messages.push(CanonicalMessage::new(
+                    MessageRole::Assistant,
+                    vec![ContentPart::HostedToolActivity {
+                        activity: parse_web_search_activity(item)?,
+                    }],
+                ));
             }
             Some("file_search_call") => {
-                parts.push(ContentPart::HostedToolActivity {
-                    activity: parse_file_search_activity(item)?,
-                });
+                messages.push(CanonicalMessage::new(
+                    MessageRole::Assistant,
+                    vec![ContentPart::HostedToolActivity {
+                        activity: parse_file_search_activity(item)?,
+                    }],
+                ));
             }
             _ => {}
         }
@@ -127,9 +151,11 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
     } else {
         FinishReason::ToolCalls
     };
-    let message = CanonicalMessage::new(MessageRole::Assistant, parts);
+    if messages.is_empty() {
+        messages.push(CanonicalMessage::new(MessageRole::Assistant, Vec::new()));
+    }
     let usage = parse_usage(&response);
-    let mut resp = CanonicalModelResponse::new(message, tool_calls, finish_reason);
+    let mut resp = CanonicalModelResponse::from_messages(messages, tool_calls, finish_reason);
     if let Some(u) = usage {
         resp = resp.with_usage(u);
     }
@@ -137,6 +163,18 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
         resp = resp.with_end_turn(end_turn);
     }
     Ok(resp.with_provider_metadata(response))
+}
+
+fn parse_message_phase(item: &Value) -> Result<Option<MessagePhase>> {
+    match item.get("phase") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(phase)) if phase == "commentary" => Ok(Some(MessagePhase::Commentary)),
+        Some(Value::String(phase)) if phase == "final_answer" => {
+            Ok(Some(MessagePhase::FinalAnswer))
+        }
+        Some(Value::String(phase)) => Err(anyhow!("unknown OpenAI message phase '{phase}'")),
+        Some(_) => Err(anyhow!("OpenAI message phase must be a string or null")),
+    }
 }
 
 fn parse_annotations(content: &Value, parts: &mut Vec<ContentPart>) -> Result<()> {

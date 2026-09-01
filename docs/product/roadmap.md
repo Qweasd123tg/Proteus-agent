@@ -26,11 +26,45 @@ Phase 0–8 и post-Phase-8 cleanup перенесены в
 в [architecture.md](../architecture/architecture.md). Перечисленные выше
 changesets не являются дальнейшим backlog.
 
-## Текущее Направление: Прикладной Полигон
+## Текущее Направление: Codex Pack Parity
 
-Следующий этап — построить небольшой полезный сценарий **поверх** существующих
-границ и посмотреть, где платформа выдерживает реальную работу, а где возникает
-точный contract или product gap. Это не новая общая migration Core.
+Следующая product-работа — довести named `codex` pack до проверяемого
+Codex-compatible режима поверх общих границ Proteus. Это не один новый
+«Codex module»: pack складывается из model shaping, context, workflow, tools,
+policy, compactor, AgentControl и client/event semantics.
+
+Правило работы — один наблюдаемый gap за changeset:
+
+1. обновить upstream и зафиксировать commit;
+2. сохранить минимальный upstream trace/fixture и ожидаемое поведение;
+3. исправить существующую общую boundary или pack implementation без
+   исключения по `module_id`;
+4. прогнать focused, process/swap и полный gate;
+5. записать оставшийся divergence, не маскируя его эвристикой.
+
+Baseline зафиксирован на `openai/codex`
+`67cc3c318dc8b5532db6ade4182b1dc6f3870889`; подробности и evidence находятся
+в [codex-parity-baseline-2026-09-01.md](../research/codex-parity-baseline-2026-09-01.md).
+
+Первый срез закрывает потерю ordered assistant items и
+`MessagePhase::{Commentary, FinalAnswer}`: canonical response теперь хранит
+несколько сообщений, OpenAI adapter round-trip-ит phase, journal/replay не
+склеивают их, а `coding.codex_loop` возвращает последнее непустое сообщение
+как terminal output. App transcript сохраняет границы сообщений, но ещё не
+выдаёт typed phase. Старое singular wire-поле удалено без compatibility reader.
+
+Следующий срез — phase-aware presentation и live item lifecycle. Сейчас
+terminal response, history и journal точны, но app transcript и
+`AssistantTextDelta` ещё не сообщают item id/phase клиенту.
+После него отдельно рассматриваются established-stream retry и timing
+`output_item.done`; compaction, permissions, deferred tools и AgentControl
+сохраняются отдельными differential направлениями.
+
+## Завершённый Architecture Probe: Прикладной Полигон
+
+Предыдущий этап проверил небольшой полезный сценарий **поверх** существующих
+границ и показал, где платформа выдерживает real workload, а где возникает
+точный contract или product gap. Это не было новой общей migration Core.
 
 Полигон должен:
 
@@ -47,7 +81,7 @@ changesets не являются дальнейшим backlog.
 
 Первым architecture stress-test стал не ещё один LLM-loop, а
 `coding.project_check`: обычный Rust-controller поверх существующего
-`workflow/v1` сам вызывает `git_status`, определяет root marker и запускает
+`workflow/v2` сам вызывает `git_status`, определяет root marker и запускает
 фиксированную test command. Model используется только один раз для объяснения
 failed test. Success, unsupported project и infrastructure/policy failure
 заканчиваются с нулём model calls.
@@ -64,7 +98,7 @@ Automated evidence подтвердил без изменения Core:
 
 Probe локализовал три остаточных assumption-а:
 
-1. `workflow/v1` и его tool callback всё ещё имеют agent-shaped
+1. `workflow/v2` и его tool callback всё ещё имеют agent-shaped
    `AgentTask/history/session/thread/turn` envelope;
 2. весь `AppConfig` требует active model даже для model-free success path;
 3. workflow replay v0 требует минимум один completed root model exchange и
@@ -77,9 +111,9 @@ Probe локализовал три остаточных assumption-а:
 Сам probe runnable через
 `examples/configs/proteus.project-check.example.toml` и не становится default.
 
-### Кандидат 1: Change-Review
+### Отложенный Кандидат: Change-Review
 
-Рекомендуемый первый срез:
+Изначально рекомендованный срез:
 
 ```text
 task
@@ -99,7 +133,7 @@ surface. Первый прогон должен подтвердить, что �
 Минимальный результат — одна маленькая задача с корректным patch и passing
 focused test либо локализованный failure с понятным владельцем границы.
 
-### Кандидат 2: Внешний Repo Map
+### Отложенный Кандидат: Внешний Repo Map
 
 Отдельный read-only `context_provider` строит компактную карту репозитория:
 manifests, entry points, основные packages и релевантные файлы. Он использует
@@ -109,14 +143,14 @@ manifests, entry points, основные packages и релевантные ф�
 успешность навигационных задач, размер добавленного context, число лишних
 search/read rounds и latency.
 
-### Кандидат 3: Второй App-Server Client
+### Отложенный Кандидат: Второй App-Server Client
 
 Небольшой terminal/status client поверх app-server stdio или HTTP проверяет,
 что presentation действительно client-owned. Срез должен пройти send,
 streaming progress, approval, cancel, history и resume без прямого доступа к
 `AgentRuntime`.
 
-## Как Выбрать Первый Срез
+## Как Выбирать Следующий Прикладной Срез
 
 До реализации нужно зафиксировать четыре вещи:
 

@@ -1,6 +1,6 @@
 # Process agent worker
 
-`agent.py` — минимальный внешний `Workflow` v1 worker. Он не импортирует
+`agent.py` — минимальный внешний `Workflow` v2 worker. Он не импортирует
 `proteus-core`, Rust crates или provider SDK: связь с runtime состоит только из
 strict JSON-RPC поверх stdin/stdout.
 
@@ -33,7 +33,7 @@ executable + config-ом без Rust adapter под конкретный `module
 ```bash
 cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
   --component-id python-agent \
-  --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v1","module_config":{}}' \
+  --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v2","module_config":{}}' \
   -- python3 -B examples/modules/agent-worker/agent.py
 ```
 
@@ -53,10 +53,10 @@ execution закрыт structural deny. Чтобы проверить tool loop 
 выберите нужные tool modules/tools и policy в своём профиле; менять worker для
 этого не требуется.
 
-## Contract v1
+## Contract v2
 
 Module method: `run` (`ProcessWorkflowInput -> ProcessWorkflowResponse`).
-Разрешённые callbacks определяются только парой `workflow/v1`:
+Разрешённые callbacks определяются только парой `workflow/v2`:
 
 - `host.runtime.status`;
 - `host.context.build`;

@@ -140,7 +140,7 @@ impl Workflow for AtomicityProbeWorkflow {
         );
         self.observations.lock().await.push(ExecutionObservation {
             provider_id,
-            provider_response: message_text_for_test(&response.message),
+            provider_response: message_text_for_test(&response.messages[0]),
             model_ref,
             reasoning,
             write_decision,

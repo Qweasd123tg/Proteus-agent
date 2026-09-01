@@ -6,6 +6,10 @@ use crate::domain::{
     FileSearchResult, HostedToolActivity, HostedToolStatus, ModelLimits, ReasoningConfig,
     ResponseFormat, SamplingConfig, ToolResult, ToolSafety, WebSearchAction,
 };
+use crate::model_standard::MessagePhase;
+
+const CODEX_MULTI_MESSAGE_RESPONSE_FIXTURE: &str =
+    include_str!("fixtures/codex-multi-message-response.json");
 
 #[test]
 fn provider_config_does_not_require_secret_until_request() {
@@ -27,6 +31,32 @@ fn stream_error_fallback_is_explicit_diagnostic_mode() {
     .unwrap();
 
     assert!(client.stream_error_fallback);
+}
+
+#[test]
+fn codex_parity_preserves_ordered_commentary_and_final_messages() {
+    // Pinned upstream evidence: openai/codex 67cc3c318dc8b5532db6ade4182b1dc6f3870889,
+    // codex-rs/protocol/src/models.rs::MessagePhase and
+    // codex-rs/codex-api/src/sse/responses.rs::parses_items_and_completed.
+    let raw: Value = serde_json::from_str(CODEX_MULTI_MESSAGE_RESPONSE_FIXTURE)
+        .expect("Codex multi-message fixture JSON");
+    let response = from_openai_response(raw).expect("canonical Codex-shaped response");
+
+    assert_eq!(response.messages.len(), 2);
+    assert_eq!(response.messages[0].phase, Some(MessagePhase::Commentary));
+    assert_eq!(response.messages[1].phase, Some(MessagePhase::FinalAnswer));
+    assert_eq!(response.messages[0].parts.len(), 1);
+    assert_eq!(response.messages[1].parts.len(), 1);
+
+    let request = CanonicalModelRequest::new(
+        ModelRef::new("openai", "codex-parity"),
+        response.messages.clone(),
+    );
+    let body = to_openai_request(&request).expect("phase-preserving request round trip");
+    assert_eq!(body["input"][0]["phase"], "commentary");
+    assert_eq!(body["input"][1]["phase"], "final_answer");
+    assert_eq!(body["input"][0]["content"][0]["text"], "Проверяю файлы.");
+    assert_eq!(body["input"][1]["content"][0]["text"], "Готово.");
 }
 
 #[test]
@@ -88,9 +118,9 @@ fn completed_function_call_is_returned_as_executable_call() {
     );
     assert!(
         canonical
-            .message
-            .parts
+            .messages
             .iter()
+            .flat_map(|message| &message.parts)
             .any(|part| matches!(&part.payload, ContentPart::ToolCall { .. }))
     );
 }
@@ -111,21 +141,17 @@ fn malformed_function_arguments_are_preserved_for_failed_result_replay() {
     assert_eq!(call.args, json!("{bad"));
     assert_eq!(call.raw_arguments.as_deref(), Some("{bad"));
 
-    let request = CanonicalModelRequest::new(
-        ModelRef::new("openai", "gpt-test"),
-        vec![
-            canonical.message,
-            CanonicalMessage::new(
-                MessageRole::Tool,
-                vec![ContentPart::ToolResult {
-                    result: ToolResult::error(
-                        call.id,
-                        "failed to parse function arguments: key must be a string",
-                    ),
-                }],
+    let mut messages = canonical.messages;
+    messages.push(CanonicalMessage::new(
+        MessageRole::Tool,
+        vec![ContentPart::ToolResult {
+            result: ToolResult::error(
+                call.id,
+                "failed to parse function arguments: key must be a string",
             ),
-        ],
-    );
+        }],
+    ));
+    let request = CanonicalModelRequest::new(ModelRef::new("openai", "gpt-test"), messages);
     let body = to_openai_request(&request).expect("replay malformed call and failed output");
 
     assert_eq!(body["input"][0]["arguments"], "{bad");
@@ -336,9 +362,9 @@ fn empty_completed_output_recovered_from_output_item_done() {
     };
     assert_eq!(response.finish_reason, FinishReason::Stop);
     let text: String = response
-        .message
-        .parts
+        .messages
         .iter()
+        .flat_map(|message| &message.parts)
         .filter_map(|part| match &part.payload {
             ContentPart::Text { text } => Some(text.clone()),
             _ => None,
@@ -368,9 +394,9 @@ fn nonempty_completed_output_ignores_fallback_items() {
         panic!("expected single Response event");
     };
     let text: String = response
-        .message
-        .parts
+        .messages
         .iter()
+        .flat_map(|message| &message.parts)
         .filter_map(|part| match &part.payload {
             ContentPart::Text { text } => Some(text.clone()),
             _ => None,
@@ -398,9 +424,9 @@ fn empty_completed_output_recovers_streamed_text_in_adapter() {
     };
     assert_eq!(response.end_turn, Some(false));
     let text = response
-        .message
-        .parts
+        .messages
         .iter()
+        .flat_map(|message| &message.parts)
         .filter_map(|part| match &part.payload {
             ContentPart::Text { text } => Some(text.as_str()),
             _ => None,
@@ -589,14 +615,14 @@ fn response_reasoning_item_is_preserved_for_the_next_request() {
 
     let canonical = from_openai_response(response).unwrap();
     assert!(matches!(
-        &canonical.message.parts[0].payload,
+        &canonical.messages[0].parts[0].payload,
         ContentPart::Reasoning { text, signature }
             if text == "first\n\nsecond"
                 && signature.as_deref() == Some("encrypted-reasoning")
     ));
 
     let next_request =
-        CanonicalModelRequest::new(ModelRef::new("openai", "gpt-test"), vec![canonical.message])
+        CanonicalModelRequest::new(ModelRef::new("openai", "gpt-test"), canonical.messages)
             .with_reasoning(ReasoningConfig::new(Some("high".to_owned()), true));
     let body = to_openai_request(&next_request).unwrap();
 
@@ -839,7 +865,7 @@ fn response_preserves_hosted_activity_results_and_citations() {
     assert_eq!(canonical.finish_reason, FinishReason::Stop);
     assert!(canonical.tool_calls.is_empty());
     assert!(matches!(
-        &canonical.message.parts[0].payload,
+        &canonical.messages[0].parts[0].payload,
         ContentPart::HostedToolActivity {
             activity: HostedToolActivity::WebSearch {
                 id,
@@ -851,7 +877,7 @@ fn response_preserves_hosted_activity_results_and_citations() {
             && sources[0].title.as_deref() == Some("Using tools")
     ));
     assert!(matches!(
-        &canonical.message.parts[1].payload,
+        &canonical.messages[1].parts[0].payload,
         ContentPart::HostedToolActivity {
             activity: HostedToolActivity::FileSearch {
                 id,
@@ -868,13 +894,13 @@ fn response_preserves_hosted_activity_results_and_citations() {
             )
     ));
     assert!(matches!(
-        &canonical.message.parts[3].payload,
+        &canonical.messages[2].parts[1].payload,
         ContentPart::Citation {
             citation: Citation::Url { title, .. }
         } if title == "Using tools"
     ));
     assert!(matches!(
-        &canonical.message.parts[4].payload,
+        &canonical.messages[2].parts[2].payload,
         ContentPart::Citation {
             citation: Citation::File { file_id, .. }
         } if file_id == "file_1"
@@ -962,7 +988,11 @@ fn translate_sse_completed_emits_final_response() {
             "status": "completed",
             "end_turn": false,
             "output": [
-                { "type": "message", "content": [{ "type": "output_text", "text": "done" }] }
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{ "type": "output_text", "text": "done" }]
+                }
             ],
             "usage": { "input_tokens": 5, "output_tokens": 1 }
         }
@@ -973,9 +1003,9 @@ fn translate_sse_completed_emits_final_response() {
             assert_eq!(response.finish_reason, FinishReason::Stop);
             assert_eq!(response.end_turn, Some(false));
             let text = response
-                .message
-                .parts
+                .messages
                 .iter()
+                .flat_map(|message| &message.parts)
                 .filter_map(|p| match &p.payload {
                     ContentPart::Text { text } => Some(text.as_str()),
                     _ => None,

@@ -54,6 +54,12 @@ Storage envelope, sequence allocation, fsync/rename и projection code
 adapter не получают права писать journal напрямую. Они возвращают contract
 DTO, а core фиксирует факт только в своей lifecycle boundary.
 
+`CanonicalModelResponse` содержит непустой ordered `messages`, а не один
+синтетический assistant message. `CanonicalMessage.phase` опционально
+различает `commentary` и `final_answer`; journal и history projection сохраняют
+item boundaries и phase без provider-specific parsing. Singular legacy shape
+не читается.
+
 ### Parts
 
 В journal cutover `ContentPart` обёрнут в явный `CanonicalPart` со стабильным

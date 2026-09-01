@@ -20,7 +20,7 @@ use crate::{
     model_standard::{CanonicalMessage, CanonicalModelRequest, InstructionBlock},
 };
 
-pub const PROCESS_WORKFLOW_CONTRACT_VERSION: &str = "v1";
+pub const PROCESS_WORKFLOW_CONTRACT_VERSION: &str = "v2";
 pub const PROCESS_WORKFLOW_METHOD: &str = "run";
 
 pub const WORKFLOW_HOST_RUNTIME_STATUS_METHOD: &str = "host.runtime.status";
@@ -33,7 +33,7 @@ pub const WORKFLOW_HOST_EXECUTE_TOOL_METHOD: &str = "host.tools.execute";
 pub const WORKFLOW_HOST_EXECUTE_TOOLS_METHOD: &str = "host.tools.execute_batch";
 pub const WORKFLOW_HOST_EMIT_EVENT_METHOD: &str = "host.events.emit";
 
-/// Strict invocation payload for process Workflow contract v1.
+/// Strict invocation payload for process Workflow contract v2.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessWorkflowInput {
@@ -43,7 +43,7 @@ pub struct ProcessWorkflowInput {
     pub runtime: ProcessWorkflowRuntimeInfo,
 }
 
-/// Provider-neutral invocation context visible to every Workflow v1 module.
+/// Provider-neutral invocation context visible to every Workflow v2 module.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessWorkflowRuntimeInfo {
@@ -60,7 +60,7 @@ pub struct ProcessWorkflowRuntimeInfo {
     pub workflow_timeout_ms: u64,
 }
 
-/// Strict terminal result envelope for process Workflow contract v1.
+/// Strict terminal result envelope for process Workflow contract v2.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessWorkflowResponse {
@@ -335,15 +335,15 @@ mod process_contract_tests {
     }
 
     #[test]
-    fn process_workflow_response_requires_the_v1_envelope() {
+    fn process_workflow_response_requires_the_v2_envelope() {
         let output = WorkflowOutput::new(AgentOutput::text("done"), Vec::new());
         let bare = serde_json::to_value(output.clone()).expect("bare output");
         serde_json::from_value::<ProcessWorkflowResponse>(bare)
-            .expect_err("bare WorkflowOutput is not a v1 response");
+            .expect_err("bare WorkflowOutput is not a v2 response");
 
         let wrapped =
             serde_json::to_value(ProcessWorkflowResponse::new(output)).expect("wrapped response");
-        serde_json::from_value::<ProcessWorkflowResponse>(wrapped).expect("valid v1 response");
+        serde_json::from_value::<ProcessWorkflowResponse>(wrapped).expect("valid v2 response");
     }
 
     #[test]

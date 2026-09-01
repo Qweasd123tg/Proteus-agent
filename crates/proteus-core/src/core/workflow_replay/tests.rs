@@ -52,7 +52,7 @@ impl Workflow for ProbeWorkflow {
             first.metadata = json!({ "implementation_changed": true });
         }
         let first_response = ctx.execution.model.complete(first).await?;
-        let mut new_messages = vec![first_response.message.clone()];
+        let mut new_messages = first_response.messages.clone();
         let call = first_response
             .tool_calls
             .first()
@@ -74,7 +74,7 @@ impl Workflow for ProbeWorkflow {
         let second = CanonicalModelRequest::new(ctx.model_ref.clone(), second_messages)
             .with_tools(vec![spec]);
         let second_response = ctx.execution.model.complete(second).await?;
-        new_messages.push(second_response.message);
+        new_messages.extend(second_response.messages);
         Ok(WorkflowOutput::new(probe_output(&result), new_messages))
     }
 }
@@ -215,11 +215,12 @@ impl TestJournal {
             session_id,
             thread_id,
             turn_id,
-            vec![
-                user,
-                first_response.message.clone(),
-                source_tool_message.clone(),
-            ],
+            {
+                let mut messages = vec![user];
+                messages.extend(first_response.messages.iter().cloned());
+                messages.push(source_tool_message.clone());
+                messages
+            },
             spec,
         );
         append_exchange(
@@ -232,11 +233,9 @@ impl TestJournal {
         )
         .await;
 
-        let new_messages = vec![
-            first_response.message,
-            source_tool_message,
-            second_response.message,
-        ];
+        let mut new_messages = first_response.messages;
+        new_messages.push(source_tool_message);
+        new_messages.extend(second_response.messages);
         store
             .append_history(thread_id, Some(turn_id), &new_messages)
             .await
@@ -317,11 +316,7 @@ impl TestJournal {
         )
         .await;
         self.store
-            .append_history(
-                self.thread_id,
-                Some(turn_id),
-                std::slice::from_ref(&response.message),
-            )
+            .append_history(self.thread_id, Some(turn_id), &response.messages)
             .await
             .expect("second assistant history");
         self.store

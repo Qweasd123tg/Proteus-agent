@@ -277,7 +277,7 @@ model и не читает history. Runnable profile:
 Probe одновременно локализует оставшийся coupling, не разрешая новую Core
 migration автоматически:
 
-- `workflow/v1` input и tool callback всё ещё требуют agent-shaped
+- `workflow/v2` input и tool callback всё ещё требуют agent-shaped
   `AgentTask`, а invocation несёт history и session/thread/turn ids;
 - `AppConfig` всё ещё требует active model даже для model-free success path;
 - canonical journal и cold history принимают Turn без model records, но
@@ -339,6 +339,11 @@ attribution является optional-проекцией: agent execution доб
 `TurnId -> ExecutionId`, созданный `TurnOpened`; detached execution fact не
 требует открытого Turn. `HistoryMutated` и `TurnSettled` остаются chat/session
 lifecycle facts и не получают execution owner.
+
+Текущая journal schema v3 сохраняет те же execution-инварианты, но меняет
+canonical model payload на ordered `CanonicalModelResponse.messages` и typed
+`CanonicalMessage.phase`. Schema v2 намеренно не читается после этого
+pre-release cutover.
 
 Тип attribution immutable на протяжении journal projection: один
 `ExecutionId` нельзя сначала использовать detached, а затем привязать к Turn,

@@ -176,7 +176,7 @@ impl Workflow for ModelCallingWorkflow {
         let response = ctx.execution.model.complete(request).await?;
         Ok(WorkflowOutput::new(
             AgentOutput::text("done"),
-            vec![response.message],
+            response.messages,
         ))
     }
 }

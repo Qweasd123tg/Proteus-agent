@@ -72,7 +72,7 @@ impl Workflow for CompactionProbeWorkflow {
             .with_tools(vec![probe_tool_spec()]);
         let response = ctx.execution.model.complete(request).await?;
         Ok(
-            WorkflowOutput::new(AgentOutput::text("compacted"), vec![response.message])
+            WorkflowOutput::new(AgentOutput::text("compacted"), response.messages)
                 .with_history_replacement(compacted.messages)
                 .with_compactions(
                     if matches!(self.mode, CompactionProbeMode::InvalidHistory) {
@@ -184,7 +184,7 @@ async fn compacted_journal() -> TestJournal {
     .await;
 
     let mut final_history = compacted_messages;
-    final_history.push(response.message);
+    final_history.extend(response.messages);
     store
         .replace_history(thread_id, Some(turn_id), &final_history, Some(report))
         .await

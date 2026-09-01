@@ -10,7 +10,7 @@ use crate::domain::SessionId;
 
 const SESSION_METADATA_FILE: &str = "session.json";
 const SESSION_SCHEMA_VERSION: u32 = 4;
-const JOURNAL_SCHEMA_VERSION: u32 = 2;
+const JOURNAL_SCHEMA_VERSION: u32 = 3;
 const SHORT_SESSION_ID_MODULUS: u128 = 10_000_000_000;
 const SHORT_SESSION_ID_LEN: usize = 10;
 

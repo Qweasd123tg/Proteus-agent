@@ -17,11 +17,23 @@ pub enum MessageRole {
     Tool,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum MessagePhase {
+    Commentary,
+    FinalAnswer,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[non_exhaustive]
 pub struct CanonicalMessage {
     pub id: MessageId,
     pub role: MessageRole,
+    /// Provider-defined lifecycle phase for assistant output. `None` means
+    /// that the provider did not classify the message; consumers keep the
+    /// ordinary final-message fallback for such models.
+    pub phase: Option<MessagePhase>,
     pub parts: Vec<CanonicalPart>,
     pub name: Option<String>,
     pub tool_call_id: Option<CallId>,
@@ -139,6 +151,7 @@ impl CanonicalMessage {
         Self {
             id: crate::domain::new_message_id(),
             role,
+            phase: None,
             parts,
             name: None,
             tool_call_id: None,
@@ -148,6 +161,11 @@ impl CanonicalMessage {
 
     pub fn with_id(mut self, id: MessageId) -> Self {
         self.id = id;
+        self
+    }
+
+    pub fn with_phase(mut self, phase: MessagePhase) -> Self {
+        self.phase = Some(phase);
         self
     }
 

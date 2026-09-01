@@ -567,7 +567,7 @@ mod tests {
         match &final_events[0] {
             ModelStreamEvent::Response { response } => {
                 assert!(matches!(
-                    &response.message.parts[0].payload,
+                    &response.messages[0].parts[0].payload,
                     ContentPart::Reasoning { text, signature }
                         if text == "checked constraints" && signature.as_deref() == Some("sig")
                 ));
@@ -602,9 +602,9 @@ mod tests {
         assert!(canonical.tool_calls.is_empty());
         assert!(
             canonical
-                .message
-                .parts
+                .messages
                 .iter()
+                .flat_map(|message| &message.parts)
                 .all(|part| !matches!(&part.payload, ContentPart::ToolCall { .. }))
         );
     }
@@ -765,9 +765,9 @@ mod tests {
         match events.last().unwrap() {
             ModelStreamEvent::Response { response } => {
                 let final_text = response
-                    .message
-                    .parts
+                    .messages
                     .iter()
+                    .flat_map(|message| &message.parts)
                     .filter_map(|part| match &part.payload {
                         ContentPart::Text { text } => Some(text.as_str()),
                         _ => None,
@@ -874,9 +874,9 @@ mod tests {
         if let ModelStreamEvent::Response { response } = events.last().unwrap() {
             assert_eq!(response.finish_reason, FinishReason::Stop);
             let text = response
-                .message
-                .parts
+                .messages
                 .iter()
+                .flat_map(|message| &message.parts)
                 .filter_map(|p| match &p.payload {
                     ContentPart::Text { text } => Some(text.as_str()),
                     _ => None,

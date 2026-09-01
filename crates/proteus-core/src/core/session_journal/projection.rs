@@ -164,7 +164,7 @@ impl JournalValidationState {
                 }
                 if let super::types::ModelResponseOutcome::Response { response } = &response.outcome
                 {
-                    self.validate_part_id_stability(std::slice::from_ref(&response.message))?;
+                    self.validate_part_id_stability(&response.messages)?;
                 }
             }
             JournalEntry::ToolCallRecorded(tool) => {

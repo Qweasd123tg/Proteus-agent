@@ -41,8 +41,13 @@ pub(crate) fn try_model_summary(
 }
 
 fn validate_summary_response(response: &CanonicalModelResponse) -> Result<String, String> {
-    if response.message.role != MessageRole::Assistant {
-        return Err("codex compaction model summary must use assistant role".to_owned());
+    if response.messages.is_empty()
+        || response
+            .messages
+            .iter()
+            .any(|message| message.role != MessageRole::Assistant)
+    {
+        return Err("codex compaction model summary messages must use assistant role".to_owned());
     }
     if response.finish_reason != FinishReason::Stop {
         return Err(format!(
@@ -52,14 +57,14 @@ fn validate_summary_response(response: &CanonicalModelResponse) -> Result<String
     }
     if !response.tool_calls.is_empty()
         || response
-            .message
-            .parts
+            .messages
             .iter()
+            .flat_map(|message| message.parts.iter())
             .any(|part| matches!(&part.payload, ContentPart::ToolCall { .. }))
     {
         return Err("codex compaction model summary must not request tools".to_owned());
     }
-    let Some(text) = message_text(&response.message) else {
+    let Some(text) = response.messages.iter().rev().find_map(message_text) else {
         return Err("codex compaction model returned no summary text".to_owned());
     };
     let text = text.trim();

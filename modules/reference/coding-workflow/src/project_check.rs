@@ -13,7 +13,7 @@ use crate::{
     host::{complete_model, emit_event, execute_tool},
     metadata::with_workflow_phase,
     output_text::message_text,
-    validation::validate_model_response,
+    validation::{response_output_message, validate_model_response},
 };
 
 pub(crate) const PROJECT_CHECK_MODULE_ID: &str = "coding.project_check";
@@ -200,7 +200,10 @@ pub(crate) fn run_project_check(
         },
     )?;
     validate_model_response("project_check_explain_failure", &request, &response)?;
-    let explanation = message_text(&response.message);
+    let explanation = message_text(response_output_message(
+        "project_check_explain_failure",
+        &response,
+    )?);
 
     finish(
         host,

@@ -14,7 +14,7 @@ rpc_id() {
 
 IFS= read -r initialize_request
 initialize_id=$(rpc_id "$initialize_request")
-printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$initialize_id,\"result\":{\"protocol_version\":\"v3\",\"component_id\":\"$component_id\",\"exports\":[{\"slot\":\"search\",\"module_id\":\"$search_id\",\"contract_version\":\"v1\",\"composition\":\"select_one\",\"module_features\":[]},{\"slot\":\"compactor\",\"module_id\":\"$compactor_id\",\"contract_version\":\"v1\",\"composition\":\"select_one\",\"module_features\":[]}]}}"
+printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$initialize_id,\"result\":{\"protocol_version\":\"v3\",\"component_id\":\"$component_id\",\"exports\":[{\"slot\":\"search\",\"module_id\":\"$search_id\",\"contract_version\":\"v1\",\"composition\":\"select_one\",\"module_features\":[]},{\"slot\":\"compactor\",\"module_id\":\"$compactor_id\",\"contract_version\":\"v2\",\"composition\":\"select_one\",\"module_features\":[]}]}}"
 
 while IFS= read -r request; do
     request_id=$(rpc_id "$request")

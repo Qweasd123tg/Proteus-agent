@@ -1,0 +1,31 @@
+{
+  "id": "resp_codex_phase_fixture",
+  "status": "completed",
+  "output": [
+    {
+      "id": "msg_commentary",
+      "type": "message",
+      "role": "assistant",
+      "phase": "commentary",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "Проверяю файлы."
+        }
+      ]
+    },
+    {
+      "id": "msg_final",
+      "type": "message",
+      "role": "assistant",
+      "phase": "final_answer",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "Готово."
+        }
+      ]
+    }
+  ],
+  "end_turn": true
+}

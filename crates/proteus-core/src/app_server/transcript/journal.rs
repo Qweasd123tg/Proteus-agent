@@ -50,7 +50,9 @@ pub(crate) fn journal_transcript_messages(
                         .contains(&response.exchange_id) =>
             {
                 if let ModelResponseOutcome::Response { response } = &response.outcome {
-                    state.append_message(&response.message, false);
+                    for message in &response.messages {
+                        state.append_message(message, false);
+                    }
                 }
             }
             JournalEntry::ToolCallRecorded(tool)
@@ -134,9 +136,9 @@ impl TranscriptVisibility {
                 continue;
             };
             let committed = model
-                .message
-                .parts
+                .messages
                 .iter()
+                .flat_map(|message| message.parts.iter())
                 .any(|part| committed_parts.contains(&part.part_id));
             let executed = model
                 .tool_calls

@@ -3,7 +3,8 @@ use std::collections::HashSet;
 use proteus_contracts::{
     domain::{ToolCall, ToolSpec},
     model_standard::{
-        CanonicalModelRequest, CanonicalModelResponse, validate_model_response_against_request,
+        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart,
+        validate_model_response_against_request,
     },
     process_module::ProcessModuleError,
 };
@@ -14,6 +15,23 @@ pub(crate) fn validate_model_response(
     response: &CanonicalModelResponse,
 ) -> Result<(), ProcessModuleError> {
     validate_model_response_impl(workflow, request, response, true)
+}
+
+pub(crate) fn response_output_message<'a>(
+    workflow: &str,
+    response: &'a CanonicalModelResponse,
+) -> Result<&'a CanonicalMessage, ProcessModuleError> {
+    response
+        .messages
+        .iter()
+        .rev()
+        .find(|message| {
+            message.parts.iter().any(|part| {
+                matches!(&part.payload, ContentPart::Text { text } if !text.trim().is_empty())
+            })
+        })
+        .or_else(|| response.messages.last())
+        .ok_or_else(|| ProcessModuleError::new(format!("{workflow} returned no model messages")))
 }
 
 /// Upstream Codex turns an unsupported tool call into a failed tool output and

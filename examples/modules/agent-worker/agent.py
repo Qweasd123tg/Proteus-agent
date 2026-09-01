@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dependency-free out-of-tree Workflow v1 component for Proteus.
+"""Dependency-free out-of-tree Workflow v2 component for Proteus.
 
 The worker owns a small model/tool loop. Models, tools, policy, approvals,
 safety, events, and cancellation remain host capabilities reached only through
@@ -27,7 +27,7 @@ from component_runtime import (  # noqa: E402
 
 SLOT = "workflow"
 MODULE_ID = "python_agent_loop"
-CONTRACT_VERSION = "v1"
+CONTRACT_VERSION = "v2"
 
 INITIALIZE_FIELDS = {
     "protocol_version",
@@ -214,7 +214,7 @@ def complete_model(peer: Peer, request: dict[str, Any]) -> dict[str, Any]:
     response = require_object(
         response,
         {
-            "message",
+            "messages",
             "tool_calls",
             "finish_reason",
             "usage",
@@ -232,9 +232,14 @@ def complete_model(peer: Peer, request: dict[str, Any]) -> dict[str, Any]:
 
 
 def validate_model_response(response: dict[str, Any]) -> None:
-    message = response["message"]
-    if not isinstance(message, dict) or message.get("role") != "Assistant":
-        raise ProtocolError("model response message must have Assistant role")
+    messages = response["messages"]
+    if not isinstance(messages, list) or not messages:
+        raise ProtocolError("model response messages must be a non-empty array")
+    if any(
+        not isinstance(message, dict) or message.get("role") != "Assistant"
+        for message in messages
+    ):
+        raise ProtocolError("model response messages must have Assistant role")
     calls = response["tool_calls"]
     if not isinstance(calls, list):
         raise ProtocolError("model response tool_calls must be an array")
@@ -246,12 +251,13 @@ def validate_model_response(response: dict[str, Any]) -> None:
     if finish not in {"ToolCalls", "Stop"}:
         raise ProtocolError(f"model response did not finish successfully: {finish}")
     message_calls = []
-    for part in message.get("parts", []):
-        payload = part.get("payload") if isinstance(part, dict) else None
-        if isinstance(payload, dict) and set(payload) == {"ToolCall"}:
-            body = payload["ToolCall"]
-            if isinstance(body, dict):
-                message_calls.append(body.get("call"))
+    for message in messages:
+        for part in message.get("parts", []):
+            payload = part.get("payload") if isinstance(part, dict) else None
+            if isinstance(payload, dict) and set(payload) == {"ToolCall"}:
+                body = payload["ToolCall"]
+                if isinstance(body, dict):
+                    message_calls.append(body.get("call"))
     if message_calls != calls:
         raise ProtocolError("assistant tool-call parts do not match response.tool_calls")
 
@@ -279,6 +285,14 @@ def message_text(message: dict[str, Any]) -> str:
             if isinstance(body, dict) and isinstance(body.get("text"), str):
                 texts.append(body["text"])
     return "\n\n".join(texts)
+
+
+def response_output_message(response: dict[str, Any]) -> dict[str, Any]:
+    messages = response["messages"]
+    for message in reversed(messages):
+        if message_text(message).strip():
+            return message
+    return messages[-1]
 
 
 def run_workflow(
@@ -325,11 +339,12 @@ def run_workflow(
             config,
         )
         response = complete_model(peer, request)
-        assistant = response["message"]
-        messages.append(assistant)
-        persistent_new.append(assistant)
+        assistant_messages = response["messages"]
+        messages.extend(assistant_messages)
+        persistent_new.extend(assistant_messages)
 
         if response["finish_reason"] == "Stop":
+            assistant = response_output_message(response)
             text = message_text(assistant)
             output = {
                 "text": text,
@@ -386,7 +401,7 @@ def initialize(raw: Any) -> dict[str, Any]:
     if actual != expected:
         raise ProtocolError(f"unsupported initialize identity: {actual!r}")
     if require_string_list(export["host_features"], "host_features"):
-        raise ProtocolError("workflow v1 has no negotiated optional features")
+        raise ProtocolError("workflow v2 has no negotiated optional features")
     component_config = parse_config(export["module_config"])
     return {
         "protocol_version": PROTOCOL_VERSION,
@@ -407,7 +422,7 @@ def invoke(context: InvocationContext, method: str, params: Any) -> dict[str, An
     if context.export != {"slot": SLOT, "module_id": MODULE_ID}:
         raise ProtocolError(f"unknown component export: {context.export!r}")
     if method != "run":
-        raise ProtocolError(f"workflow v1 does not support method {method!r}")
+        raise ProtocolError(f"workflow v2 does not support method {method!r}")
     return run_workflow(Peer(context), params, component_config)
 
 

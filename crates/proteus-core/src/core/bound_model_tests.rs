@@ -191,7 +191,7 @@ fn response(text: &str) -> CanonicalModelResponse {
 }
 
 fn response_text(response: &CanonicalModelResponse) -> &str {
-    match &response.message.parts[0].payload {
+    match &response.messages[0].parts[0].payload {
         ContentPart::Text { text } => text,
         other => panic!("unexpected response part: {other:?}"),
     }

@@ -41,6 +41,34 @@ Manual dogfood не является обязательным gate или sequen
 Protocol или architecture change без automated boundary evidence всё равно
 неполон.
 
+### Codex Parity Gate
+
+Compatible/parity changes начинаются с pinned upstream commit и минимального
+trace/fixture. Fixture должен проверять наблюдаемое поведение и failure path, а
+не только совпадение имён tools или config keys. Первый baseline описан в
+[codex-parity-baseline-2026-09-01.md](../research/codex-parity-baseline-2026-09-01.md).
+
+Для изменения canonical model response и `coding.codex_loop` минимум:
+
+```bash
+cargo test -p proteus-contracts canonical_response
+cargo test -p proteus-core codex_parity_preserves_ordered_commentary_and_final_messages
+cargo test -p coding-workflow codex_loop_preserves_commentary_and_uses_the_last_message_as_final_output
+cargo test -p proteus-reference-worker --test conformance
+cargo test -p proteus-core --test module_swap
+cargo test --workspace --no-fail-fast
+```
+
+Breaking canonical response change одновременно обновляет все tracked
+producers/consumers, slot contracts `workflow/v2` и `compactor/v2`, а также
+durable journal schema v3. Старые singular response, contract v1 и journal v2
+не получают compatibility readers.
+
+Новый upstream commit не обновляет expected output автоматически: drift
+сначала классифицируется как required parity change, unsupported capability
+или намеренная documented divergence. Fake model call, metadata heuristic и
+Codex-only обход общей validation boundary не считаются evidence.
+
 ### ExecutionScope Phase 0–2 Gate (implemented)
 
 Реализованная migration и её review checkpoint сохранены в
@@ -446,13 +474,13 @@ cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --co
 Compactor:
 
 ```bash
-cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-compactor --export '{"slot":"compactor","module_id":"python_suffix","contract_version":"v1","module_config":{"trigger_messages":12,"retain_user_turns":2}}' -- python3 examples/modules/compactor-process/compact.py
+cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-compactor --export '{"slot":"compactor","module_id":"python_suffix","contract_version":"v2","module_config":{"trigger_messages":12,"retain_user_turns":2}}' -- python3 examples/modules/compactor-process/compact.py
 ```
 
 Workflow handshake:
 
 ```bash
-cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-agent --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v1","module_config":{}}' -- python3 examples/modules/agent-worker/agent.py
+cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-agent --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v2","module_config":{}}' -- python3 examples/modules/agent-worker/agent.py
 ```
 
 Conformance CLI без probe доказывает identity/authority, но не поведение slot.

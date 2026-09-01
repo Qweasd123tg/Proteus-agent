@@ -168,12 +168,19 @@ config запросил такой режим через provider profile `reaso
 chain-of-thought и без `event_log.persist_deltas = true` не восстанавливается
 после restart/resume.
 
+Terminal OpenAI Responses сохраняет ordered assistant items и typed
+`MessagePhase` (`commentary`/`final_answer`) в canonical response, history и
+journal. Cold app transcript не склеивает эти сообщения, но пока не экспортирует
+typed phase. Live `AssistantTextDelta` тоже не несёт item id или phase: до
+terminal response клиент видит обычный текстовый stream. Это зафиксированный
+Codex parity gap, а не основание угадывать phase по тексту.
+
 ## Файлы Сессии И Durable Snapshots
 
 Если runtime запущен с config path, рядом с config root создаётся дерево
 `sessions/<workspace>/<session>/` (подробно про layout, resume и lifecycle —
 раздел «Session Store» ниже). Source of truth — `journal.jsonl`, где одна
-строка является строгим record schema v2 с `record_id`, монотонным
+строка является строгим record schema v3 с `record_id`, монотонным
 `session_seq`, timestamp, mandatory session id, optional execution/thread/turn
 ids, `kind` и payload. `TurnOpened`, model и tool facts требуют
 `ExecutionId`; history/settlement остаются chat facts без execution owner.
@@ -592,16 +599,16 @@ directory: она материализуется при первом canonical r
 находится в parent directory, а время создания/изменения берётся из metadata
 файловой системы. Новая session получает 10-значный numeric basename,
 детерминированный из внутреннего UUID; полный `SessionId` сохраняется в
-`session.json` schema v4 вместе с `journal_schema_version = 2`. Перед записью runtime
+`session.json` schema v4 вместе с `journal_schema_version = 3`. Перед записью runtime
 проверяет metadata, поэтому коллизия коротких имён завершается ошибкой и не
 смешивает histories.
 
 Reader принимает только basename из 10 ASCII-цифр с обязательным
-`session.json` schema v4. UUID-basename directories, schema v3 и неизвестные
-wire/storage формы отвергаются явно: pre-release cutover не содержит legacy
-decoder или dual-read. Старые локальные dogfood sessions следует вручную
-переместить целиком за пределы active `sessions/`, если их нужно сохранить как
-архив.
+`session.json` schema v4 и journal schema v3. UUID-basename directories,
+session schema v3, journal schema v2 и неизвестные wire/storage формы
+отвергаются явно: pre-release cutover не содержит legacy decoder или dual-read.
+Старые локальные dogfood sessions следует вручную переместить целиком за
+пределы active `sessions/`, если их нужно сохранить как архив.
 
 Workspace задаётся именем внешней `<encoded-workspace>` directory. Resume
 декодирует этот parent до создания runtime services, event log sink и tool
@@ -627,7 +634,12 @@ runtime добавляет `history_mutated/append`. Если workflow верн�
 и добавляет `history_mutated/replace` с полной compacted projection и lineage.
 Старые records остаются в journal, но resume fold получает короткую историю.
 
-Conversation history хранит persistent сообщения: user prompts, assistant messages и tool results, которые нужны для продолжения диалога. `ContentPart::Context` из `ContextBuilder` добавляется только в model request текущего turn и не дописывается в runtime history/session store.
+Conversation history хранит persistent сообщения: user prompts, ordered
+assistant messages и tool results, которые нужны для продолжения диалога.
+Несколько model output items не склеиваются: их порядок и optional
+`CanonicalMessage.phase` сохраняются для следующего request, resume и cold
+transcript. `ContentPart::Context` из `ContextBuilder` добавляется только в
+model request текущего turn и не дописывается в runtime history/session store.
 User prompt текущего turn сохраняется в in-memory history и journal
 сразу после `TurnStarted`, до вызова workflow. Поэтому если workflow,
 provider, tool loop или процесс падает позже, принятый prompt не пропадает из
@@ -873,7 +885,9 @@ failure paths. Durable terminal source of truth — Core-owned journal record
 Он использует тот же event/runtime contract, но ведёт один Codex-shaped
 model/tool loop: model request с tools, tool execution через workflow host,
 следующий model request с обновлённой историей. Первый response без tool calls
-становится финальным ответом. Отдельного forced final request без tools нет;
+завершает sampling; все его ordered assistant messages сохраняются, а
+последнее непустое сообщение становится финальным ответом. Отдельного forced
+final request без tools нет;
 внутреннего лимита tool rounds нет, а пустой финальный ответ не подменяется
 последним tool result.
 

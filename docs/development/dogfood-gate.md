@@ -45,7 +45,7 @@ cargo run --bin proteus -- doctor
 `doctor` также валидирует persisted session directories и полностью читает их
 `journal.jsonl`, включая blob references и lifecycle projection. Актуальный
 write/read-format использует 10-значное имя каталога, полный UUID в
-`session.json` schema v4 и `journal_schema_version = 2`. UUID-basename/schema
+`session.json` schema v4 и `journal_schema_version = 3`. UUID-basename/schema
 v3 sessions намеренно не читаются; нужные старые dogfood каталоги архивируются
 вручную вне active `sessions/`.
 

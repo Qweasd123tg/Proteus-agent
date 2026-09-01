@@ -19,8 +19,8 @@ authority(module) = authority(slot, invocation_context)
 ```
 
 Все внешние modules являются exports process components: Component Runtime v2
-использует wire protocol v3; `tool` и `memory` используют strict contract v2,
-остальные process slots пока v1. Runtime допускает
+использует wire protocol v3; `tool`, `memory`, `workflow` и `compactor`
+используют strict contract v2, остальные process slots пока v1. Runtime допускает
 несколько одновременных и вложенных invocation одного component. Dylib ABI и
 native loader в проекте отсутствуют.
 
@@ -138,7 +138,7 @@ tool execution и event emission. Session ids, approvals, tool ownership и
 journal остаются host-owned.
 
 `coding.project_check` — reference code-heavy controller на том же
-`workflow/v1`. Он детерминированно вызывает `git_status`, определяет project по
+`workflow/v2`. Он детерминированно вызывает `git_status`, определяет project по
 root marker, запускает фиксированную test command и обращается к model только
 один раз для объяснения failed test. Success path не вызывает model, context
 или compactor. Это architecture probe, не default workflow и не special
@@ -179,7 +179,7 @@ Context builder получает callbacks `host.search.query`,
 ### Compactor
 
 Получает canonical history и может вызвать `host.model.complete`. Этот
-callback доступен всему `compactor/v1`, а не только `codex`. Deterministic
+callback доступен всему `compactor/v2`, а не только `codex`. Deterministic
 Python example не использует callback, но имеет ту же authority.
 
 ### Tool Exposure

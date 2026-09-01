@@ -652,6 +652,39 @@ fn codex_loop_continues_when_provider_sets_end_turn_false() {
 }
 
 #[test]
+fn codex_loop_preserves_commentary_and_uses_the_last_message_as_final_output() {
+    let input = workflow_input("preserve Codex response item phases");
+    let input_json = serde_json::to_string(&input).expect("input json");
+    let response = CanonicalModelResponse::from_messages(
+        vec![
+            CanonicalMessage::text(MessageRole::Assistant, "checking files")
+                .with_phase(MessagePhase::Commentary),
+            CanonicalMessage::text(MessageRole::Assistant, "done")
+                .with_phase(MessagePhase::FinalAnswer),
+        ],
+        Vec::new(),
+        FinishReason::Stop,
+    );
+    let mut host = FakeHost::with_responses(vec![response]);
+
+    let output_json = CodingCodexLoopWorkflow
+        .run_json(input_json, &mut host)
+        .unwrap_or_else(|error| panic!("workflow failed: {}", error.message));
+    let output: WorkflowModuleOutput =
+        serde_json::from_str(&output_json).expect("workflow output json");
+
+    assert_eq!(output.output.text, "done");
+    let assistant_messages = output
+        .new_messages
+        .iter()
+        .filter(|message| message.role == MessageRole::Assistant)
+        .collect::<Vec<_>>();
+    assert_eq!(assistant_messages.len(), 2);
+    assert_eq!(assistant_messages[0].phase, Some(MessagePhase::Commentary));
+    assert_eq!(assistant_messages[1].phase, Some(MessagePhase::FinalAnswer));
+}
+
+#[test]
 fn codex_loop_empty_final_response_stays_strict_by_default() {
     let input = workflow_input("change code");
     let input_json = serde_json::to_string(&input).expect("input json");

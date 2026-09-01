@@ -10,7 +10,9 @@ use crate::{
         FileSearchHostedToolConfig, HostedToolConfig, ResponseFormat, ToolCall, ToolCallSurface,
         ToolChoice, ToolSpec, ToolSurface, WebSearchHostedToolConfig,
     },
-    model_standard::{CanonicalMessage, CanonicalModelRequest, ContentPart, MessageRole},
+    model_standard::{
+        CanonicalMessage, CanonicalModelRequest, ContentPart, MessagePhase, MessageRole,
+    },
 };
 
 #[cfg(test)]
@@ -324,11 +326,7 @@ fn to_openai_input(messages: &[CanonicalMessage]) -> Result<Vec<Value>> {
     for message in messages {
         for part in &message.parts {
             match &part.payload {
-                ContentPart::Text { text } => input.push(json!({
-                    "type": "message",
-                    "role": role_to_openai(&message.role),
-                    "content": [{ "type": content_text_type(&message.role), "text": text }]
-                })),
+                ContentPart::Text { text } => input.push(openai_text_message(message, text)?),
                 ContentPart::Context { chunk } => input.push(json!({
                     "type": "message",
                     "role": "user",
@@ -411,6 +409,29 @@ fn to_openai_input(messages: &[CanonicalMessage]) -> Result<Vec<Value>> {
         }
     }
     Ok(input)
+}
+
+fn openai_text_message(message: &CanonicalMessage, text: &str) -> Result<Value> {
+    let mut value = json!({
+        "type": "message",
+        "role": role_to_openai(&message.role),
+        "content": [{ "type": content_text_type(&message.role), "text": text }]
+    });
+    if message.role == MessageRole::Assistant
+        && let Some(phase) = message.phase
+    {
+        let phase = match phase {
+            MessagePhase::Commentary => "commentary",
+            MessagePhase::FinalAnswer => "final_answer",
+            _ => {
+                return Err(anyhow!(
+                    "OpenAI does not support this canonical message phase"
+                ));
+            }
+        };
+        value["phase"] = Value::String(phase.to_owned());
+    }
+    Ok(value)
 }
 
 fn context_text(chunk: &ContextChunk) -> String {
