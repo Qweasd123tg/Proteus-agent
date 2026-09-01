@@ -41,11 +41,14 @@ Manual dogfood не является обязательным gate или sequen
 Protocol или architecture change без automated boundary evidence всё равно
 неполон.
 
-### Codex Parity Gate
+### Agent Reconstruction Compatibility Gate
 
-Compatible/parity changes начинаются с pinned upstream commit и минимального
-trace/fixture. Fixture должен проверять наблюдаемое поведение и failure path, а
-не только совпадение имён tools или config keys. Первый baseline описан в
+Каждая compatible reconstruction начинается с pinned target revision и
+минимального trace/fixture. Fixture должен проверять наблюдаемое поведение и
+failure path, а не только совпадение имён tools или config keys. Общие правила
+и список независимых workstreams описаны в
+[agent-runtime-reconstructions.md](../research/agent-runtime-reconstructions.md).
+Первый Codex baseline находится в
 [codex-parity-baseline-2026-09-01.md](../research/codex-parity-baseline-2026-09-01.md).
 
 Для изменения canonical model response и `coding.codex_loop` минимум:
@@ -377,7 +380,7 @@ peer Proteus с одинаковым root runner получают разные m
 surfaces исключительно из собственных child configs. Parent role не содержит
 prompt или tool allowlist, а каждый child явно выбирает свою policy.
 
-`scripts/alpha-smoke.sh` дополнительно проверяет, что isolated install
+`scripts/install-smoke.sh` дополнительно проверяет, что isolated install
 публикует `spawn_agent`/`send_message`/`followup_task`, после чего тот же
 real-process test запускает установленный `proteus` как peer binary.
 
@@ -655,30 +658,30 @@ env -u NO_COLOR trunk build
 
 ## Install Evidence
 
-Если меняется release layout:
+Если меняется layout локального build snapshot:
 
 ```bash
 sh -n install.sh
 cargo build --release -p proteus-core -p proteus-reference-worker
 ```
 
-Проверяется, что release содержит оба executable, wrapper добавляет current
-release в `PATH`, а configs не ссылаются на удалённые artifacts.
+Проверяется, что snapshot содержит оба executable, wrapper добавляет current
+snapshot в `PATH`, а configs не ссылаются на удалённые artifacts.
 
 Installer не должен собирать или копировать dylib modules.
 
-### v0.1 Alpha Release Smoke
+### Изолированная Проверка Установки
 
 Полный Linux developer contour запускается одной командой:
 
 ```bash
-./scripts/alpha-smoke.sh
+./scripts/install-smoke.sh
 ```
 
 Gate использует только каталоги из `mktemp` через `PROTEUS_BIN_DIR`,
 `PROTEUS_HOME` и `PROTEUS_CONFIG_HOME`. Он проверяет:
 
-- release содержит исполняемые `proteus` и `proteus-reference-worker`, но не
+- snapshot содержит исполняемые `proteus` и `proteus-reference-worker`, но не
   native extension libraries;
 - `proteus --version`, `init safe`, `doctor` и `inspect plan` работают на
   пустом состоянии;
@@ -688,9 +691,8 @@ Gate использует только каталоги из `mktemp` через
   полный callback/model turn без core fallback;
 - временная install/config/session/event state удаляется после gate.
 
-`.github/workflows/ci.yml` отдельно повторяет workspace tests, locked Trunk
-build обоих clients и этот isolated smoke. Наличие workflow-файла не считается
-зелёным CI: перед tag нужен успешный run на release commit.
+Это ручной локальный integration gate. Он не публикует release и не заменяет
+focused/boundary tests для затронутой semantics.
 
 ## Static Cutover Gate
 

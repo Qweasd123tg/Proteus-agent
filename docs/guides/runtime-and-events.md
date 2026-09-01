@@ -726,7 +726,7 @@ Provider-hosted tools потенциально выполняются внутр
 request с ними по умолчанию отклоняется до обращения к adapter-у. Флаг
 `--allow-hosted-tools` является явным согласием отправить исходный request с
 этими tools без фильтрации. Исходный journal всегда остаётся read-only; durable
-хранилища replay runs в v0 нет.
+durable хранилища replay runs сейчас нет.
 
 Human report и JSON schema v2 (`--json`) содержат обязательные
 execution/exchange ids, optional session/thread/turn ids, recorded/replay
@@ -763,7 +763,7 @@ history проходит общий runtime validator. Допустимая но
 `ToolResult.metadata.duration_ms`, включая зависящий от него итоговый
 `AgentOutput.metadata.context.token_estimate`.
 
-V0 не эмулирует root steering decorator: turn с доставленным steering или
+Текущий workflow replay не эмулирует root steering decorator: turn с доставленным steering или
 follow-up отклоняется fail-closed. Незавершённые model/tool pairs, overlap turns
 и отсутствующий snapshot также являются ошибкой выбора fixture. Terminal
 workflow `Error` поддерживается при завершённой последовательности records.

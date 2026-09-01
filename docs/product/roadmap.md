@@ -1,190 +1,133 @@
-# Roadmap
+# Roadmap: Практика Реконструкции Agent Runtimes
 
-Последнее обновление: 2026-09-01.
+Последнее обновление: 2026-09-02.
 
-Roadmap содержит только текущую точку выбора и незавершённые направления.
+Roadmap больше не является календарём внутренней перестройки Core или выпуска
+условной версии. Архитектурное основание Proteus в основном собрано, поэтому
+следующая работа проверяет его на практике: разные реальные agent runtimes
+воспроизводятся profiles и внешними components Proteus.
+
 Подробные планы уже выполненных Runtime v2, Agent-Control, `ExecutionScope`
-Phase 0–8 и post-Phase-8 cleanup перенесены в
+Phase 0-8 и post-Phase-8 cleanup перенесены в
 [архивный roadmap](../archive/roadmap-through-2026-08-31.md).
 
 ## От Какой Точки Продолжаем
 
-Крупная перестройка основания завершена:
+Сформированное основание включает:
 
-- process-only Component Runtime v2 / wire v3 работает без native extension
-  path и compatibility reader;
-- config проходит через единый `AssemblyPlan` и атомарный runtime snapshot;
-- journal, cold history, replay и eval используют canonical durable facts;
-- `AgentControl` запускает полные Proteus peers, а старый internal mini-agent
-  и subagent slot удалены;
-- `ExecutionScope`, execution-bound model/tools/memory и typed non-Turn
-  admission реализованы;
-- product CLI/REPL работает через app-server protocol, `Renderer` slot удалён,
-  лишняя public Core surface сокращена.
+- process-only Component Runtime v2 / wire v3 без native extension path и
+  compatibility reader;
+- единый `AssemblyPlan`, authority по slot contract и атомарный runtime
+  snapshot;
+- canonical journal, cold history, replay и eval evidence;
+- `AgentControl` для полных Proteus peers вместо internal mini-agent;
+- `ExecutionScope` и execution-bound model/tools/memory;
+- общий app-server protocol для CLI, chat и Inspector.
 
-Текущее состояние кратко описано в [scope.md](scope.md), действующие границы —
-в [architecture.md](../architecture/architecture.md). Перечисленные выше
-changesets не являются дальнейшим backlog.
+Это не означает freeze публичных wire/config/storage форматов и не превращает
+Proteus в один готовый агент. Core считается рабочим основанием, а изменения
+его границ теперь должны следовать из практического воспроизводимого gap-а.
 
-## Текущее Направление: Codex Pack Parity
+## Текущая Практика: Reconstruction Experiments
 
-Следующая product-работа — довести named `codex` pack до проверяемого
-Codex-compatible режима поверх общих границ Proteus. Это не один новый
-«Codex module»: pack складывается из model shaping, context, workflow, tools,
-policy, compactor, AgentControl и client/event semantics.
-
-Правило работы — один наблюдаемый gap за changeset:
-
-1. обновить upstream и зафиксировать commit;
-2. сохранить минимальный upstream trace/fixture и ожидаемое поведение;
-3. исправить существующую общую boundary или pack implementation без
-   исключения по `module_id`;
-4. прогнать focused, process/swap и полный gate;
-5. записать оставшийся divergence, не маскируя его эвристикой.
-
-Baseline зафиксирован на `openai/codex`
-`67cc3c318dc8b5532db6ade4182b1dc6f3870889`; подробности и evidence находятся
-в [codex-parity-baseline-2026-09-01.md](../research/codex-parity-baseline-2026-09-01.md).
-
-Первый срез закрывает потерю ordered assistant items и
-`MessagePhase::{Commentary, FinalAnswer}`: canonical response теперь хранит
-несколько сообщений, OpenAI adapter round-trip-ит phase, journal/replay не
-склеивают их, а `coding.codex_loop` возвращает последнее непустое сообщение
-как terminal output. App transcript сохраняет границы сообщений, но ещё не
-выдаёт typed phase. Старое singular wire-поле удалено без compatibility reader.
-
-Следующий срез — phase-aware presentation и live item lifecycle. Сейчас
-terminal response, history и journal точны, но app transcript и
-`AssistantTextDelta` ещё не сообщают item id/phase клиенту.
-После него отдельно рассматриваются established-stream retry и timing
-`output_item.done`; compaction, permissions, deferred tools и AgentControl
-сохраняются отдельными differential направлениями.
-
-## Завершённый Architecture Probe: Прикладной Полигон
-
-Предыдущий этап проверил небольшой полезный сценарий **поверх** существующих
-границ и показал, где платформа выдерживает real workload, а где возникает
-точный contract или product gap. Это не было новой общей migration Core.
-
-Полигон должен:
-
-1. использовать обычный profile/config, app-server и внешние capabilities;
-2. выполнять несколько воспроизводимых задач на отдельном небольшом
-   репозитории или fixture;
-3. сохранять journal, cold history и `eval report` для разбора результата;
-4. измерять успешность задачи, лишние model/tool rounds, ошибки, latency и
-   вмешательство пользователя;
-5. менять Core только после наблюдаемого failure, который нельзя устранить
-   profile-ом, client-ом или implementation существующего contract.
-
-### Реализованный Probe: Deterministic Project Check
-
-Первым architecture stress-test стал не ещё один LLM-loop, а
-`coding.project_check`: обычный Rust-controller поверх существующего
-`workflow/v2` сам вызывает `git_status`, определяет root marker и запускает
-фиксированную test command. Model используется только один раз для объяснения
-failed test. Success, unsupported project и infrastructure/policy failure
-заканчиваются с нулём model calls.
-
-Automated evidence подтвердил без изменения Core:
-
-- controller работает как обычный process workflow и не вызывает context,
-  compactor или tool exposure;
-- все три действия проходят host-routed `ToolRegistry`, policy и safety path,
-  а `shell` — approval request/resolve;
-- success Turn сохраняет три tool lifecycle, cold history и
-  `TurnSettled(Success)` при полном отсутствии model records;
-- failed test формирует ровно один tool-free canonical model request.
-
-Probe локализовал три остаточных assumption-а:
-
-1. `workflow/v2` и его tool callback всё ещё имеют agent-shaped
-   `AgentTask/history/session/thread/turn` envelope;
-2. весь `AppConfig` требует active model даже для model-free success path;
-3. workflow replay v0 требует минимум один completed root model exchange и
-   не воспроизводит уже корректно записанный model-free Turn.
-
-Третий gap подтверждён characterization test-ом
-`project_check_workflow`; добавлять пустой model call как workaround нельзя.
-Следующее решение — отдельно выбрать, достаточно ли сначала обобщить replay
-для zero-model workflows или нужен более широкий non-chat top-level contract.
-Сам probe runnable через
-`examples/configs/proteus.project-check.example.toml` и не становится default.
-
-### Отложенный Кандидат: Change-Review
-
-Изначально рекомендованный срез:
+Proteus проверяется созданием ограниченных воспроизводимых runtime-профилей
+для реальных agent systems. Речь не о копировании их исходников внутрь Core:
+наблюдаемое поведение должно собираться обычными средствами платформы:
 
 ```text
-task
-  -> read-only исследование репозитория
-  -> изолированная правка в worktree
-  -> focused tests и diff review
-  -> journal/eval postmortem
+pinned target behavior
+  -> Proteus profile
+  -> external component exports
+  -> common authority/lifecycle/journal/client boundaries
+  -> comparison evidence
 ```
 
-Он одновременно проверяет реальный provider/profile, app-server, tools,
-approvals, AgentControl, worktree lifecycle и terminal reporting. Текущая
-`collaboration` surface намеренно принимает только parallel-safe роли без
-изоляции, а пишущий `coder` с worktree запускается через синхронную `task`
-surface. Первый прогон должен подтвердить, что такое разделение понятно и
-пригодно для продукта; обходить его скрытым специальным путём нельзя.
+Каждый experiment фиксирует:
 
-Минимальный результат — одна маленькая задача с корректным patch и passing
-focused test либо локализованный failure с понятным владельцем границы.
+1. target runtime и источник поведения: pinned revision, trace, fixture или
+   вручную воспроизводимый сценарий;
+2. ограниченную задачу и наблюдаемый критерий результата;
+3. profile, model shaping и набор обычных component exports Proteus;
+4. результат, journal/trace, automated tests и явные divergences;
+5. следующий шаг: исправление profile/component, документированный предел
+   текущего contract или обоснованный запрос на общую platform change.
 
-### Отложенный Кандидат: Внешний Repo Map
+Один успешный сценарий не доказывает полную совместимость со всем target
+runtime. Exact compatibility заявляется только для явно названной поверхности,
+pinned baseline и differential evidence; inspired behavior называется
+отдельно.
 
-Отдельный read-only `context_provider` строит компактную карту репозитория:
-manifests, entry points, основные packages и релевантные файлы. Он использует
-существующий contract и не требует новой логики в Core.
+Общий индекс и правила отдельных работ находятся в
+[agent-runtime-reconstructions.md](../research/agent-runtime-reconstructions.md).
 
-Пользу нужно сравнивать с baseline на одном corpus и одном model/profile:
-успешность навигационных задач, размер добавленного context, число лишних
-search/read rounds и latency.
+## Границы Практики
 
-### Отложенный Кандидат: Второй App-Server Client
+- Target-specific поведение живёт в profile, component implementation, model
+  shaping или client projection, а не в специальной ветке Core.
+- Имя внешнего agent runtime не становится новым slot, дополнительным правом
+  или исключением по `module_id`.
+- Все implementations одного slot проходят одинаковые authority, validation,
+  cancellation и failure semantics.
+- Нельзя добавлять второй execution path или обходить
+  `ToolRegistry -> ApprovalPolicy -> ToolSafety -> Tool` ради сходства с
+  конкретным target.
+- Если experiment не помещается в существующие границы, сначала сохраняется
+  минимальный failure case. Изменение platform contract рассматривается
+  отдельно и должно быть применимо не только к одному target.
 
-Небольшой terminal/status client поверх app-server stdio или HTTP проверяет,
-что presentation действительно client-owned. Срез должен пройти send,
-streaming progress, approval, cancel, history и resume без прямого доступа к
-`AgentRuntime`.
+## Независимые Workstreams
 
-## Как Выбирать Следующий Прикладной Срез
+### Codex Reconstruction
 
-До реализации нужно зафиксировать четыре вещи:
+Codex reconstruction — отдельная работа поверх Proteus, а не цель или
+идентичность всей платформы. Текущий pinned upstream baseline, первый
+differential slice и оставшиеся divergences находятся в
+[codex-parity-baseline-2026-09-01.md](../research/codex-parity-baseline-2026-09-01.md).
 
-1. конкретного пользователя и задачу;
-2. наблюдаемый результат;
-3. существующую boundary, на которой строится решение;
-4. минимальный automated и live evidence.
+Её изменения могут исправлять общий contract только тогда, когда evidence
+показывает provider-neutral или platform-wide gap. Название `codex` само по
+себе не даёт implementation дополнительных прав или особого runtime path.
 
-Если задача требует нового public slot, scheduler, generic DAG или второго
-execution path до первого рабочего сценария, scope нужно уменьшить.
+### Другие Agent Runtimes
 
-## Открытые Platform Decisions
+Каждая следующая реконструкция получает собственный target, профиль, pinned
+evidence и список divergences. Она не обязана ждать полного завершения Codex
+workstream и не наследует его assumptions автоматически. Existing сравнения с
+Pi, OpenCode, Claude Code, DeepSeek Harness и другими системами остаются
+research inputs, пока для них не определён конкретный reconstruction
+experiment.
 
-Эти направления остаются реальными, но не запускаются автоматически раньше
-прикладного evidence.
+## Что Уже Подтверждено Практикой
+
+Предварительный `coding.project_check` показал, что обычный process workflow
+может выполнять полезный deterministic controller через общий tool/policy path
+и завершать успешный Turn без model call. Он также локализовал конкретные
+ограничения: agent-shaped `workflow/v2` envelope, обязательный active provider
+в `AppConfig` и отсутствие replay для zero-model workflow.
+
+Эти ограничения не становятся автоматическим планом переписывания Core. Они
+остаются входом для experiment-а, которому действительно мешают, и требуют
+отдельного regression evidence.
+
+## Вопросы, Которые Может Открыть Практика
 
 ### Model Boundary
 
-Provider adapters пока честно остаются core-owned. Process `model/v1` требует
-полной matrix: canonical request/response, streaming, hosted tools, secrets и
-network, cache/reasoning, timeout/cancel/retry, usage и replay parity. Нужны
-минимум две независимые implementations; второй путь для одного provider
-запрещён.
+Provider adapters пока честно остаются core-owned. Process `model` contract
+потребует полной matrix: canonical request/response, streaming, hosted tools,
+secrets/network, cache/reasoning, timeout/cancel/retry, usage и replay parity.
+Механический вынос одного provider-а не является достаточным основанием.
 
 ### Durable AgentControl
 
 Локальные process peers, bounded mailbox, messaging, cancel и sibling crash
 isolation реализованы. Durable root-owned tree, authenticated attach и
-reconnect ещё нет. Следующий срез допустим только после lifecycle-аудита и
-реального сценария, которому недостаточно текущего живого process ownership.
+reconnect нужны только сценарию, которому недостаточно текущего живого process
+ownership.
 
 ### OS-Изоляция Workers
 
-Process boundary управляет lifecycle, но не является sandbox. Будущая политика
+Process boundary управляет lifecycle, но не является sandbox. Будущая policy
 должна одинаково задавать filesystem, network, env/secrets, process и resource
 limits для всех implementations slot-а без исключений по `module_id`.
 
@@ -192,60 +135,49 @@ limits для всех implementations slot-а без исключений по 
 
 До обещания стабильности нужны out-of-tree workers на разных языках,
 malformed/hostile corpus, backpressure/resource evidence, long-running runs и
-явная version/upgrade policy. Пока config/wire/DTO остаются pre-release и
-меняются атомарно без legacy readers.
+явная version/upgrade policy. Пока собственные config/wire/DTO меняются
+атомарно без legacy readers.
 
-## Как Проверять Пользу
+## Как Проверять Результат
 
-Основная метрика — стоимость надёжно завершённой полезной задачи, а не сырое
-число токенов. Для одинакового corpus/config/model фиксируются:
+Для одного target scenario сравниваются:
 
-- success и качество patch/result;
-- tests и ручное вмешательство;
-- model/tool rounds, failed actions и retries;
-- latency и provider-reported usage;
-- compaction/recovery и ясность terminal failure;
-- воспроизводимость journal/replay evidence.
+- точность наблюдаемого поведения и terminal result;
+- model/tool requests, ordering, failures и retries;
+- approvals, cancellation, compaction и recovery;
+- journal/replay evidence и client-visible events;
+- latency, provider-reported usage и вмешательство пользователя;
+- явно принятые divergences.
 
-Module swap доказывает заменяемость, но не пользу. Replay доказывает
+Module swap доказывает заменяемость, но не сходство с target. Replay доказывает
 orchestration equivalence, но не качество live model-а. Денежную стоимость
 можно заявлять только по provider cost или versioned price snapshot.
 
-`--config codex` нельзя называть идентичным Codex без отдельного pinned
-differential harness. Inspired behavior должно быть названо отдельно от
-compatible/parity режима.
+## Не На Критическом Пути
 
-## Отложено
-
-Без отдельной измеримой проблемы не начинать:
+Без failure evidence из reconstruction experiment не начинать:
 
 - marketplace и package manager;
 - WASM и remote workers;
 - arbitrary hooks и общий scheduler;
 - generic multi-agent DAG и direct peer mesh;
-- новые memory architectures;
+- новую memory architecture;
 - общий multi-language LSP;
 - cosmetic UI rewrite;
-- crate split или новый generic capability binder ради формы.
+- crate split или generic capability binder ради формы.
 
-## Правило Следующей Задачи
+## Правило Следующего Изменения
 
-Перед изменением ответьте:
+Перед изменением платформы ответьте:
 
-1. Какую наблюдаемую проблему решает задача?
-2. Это дефект существующей возможности или новая host-owned semantics?
-3. Какая текущая часть проекта должна за неё отвечать?
-4. Можно ли решить её client/profile/module implementation без нового
-   contract или слоя?
-5. Какой минимальный regression и boundary evidence докажут результат?
-6. Какие config и русские документы меняются вместе с кодом?
+1. Какой target scenario не воспроизводится?
+2. Каким trace, fixture или regression это подтверждено?
+3. Почему проблема не решается profile, component implementation или client
+   projection?
+4. Какой общий contract владеет недостающей semantics?
+5. Как минимум две независимые реализации сохранят одинаковую authority и
+   failure semantics?
+6. Какие config, tests и русские документы меняются атомарно?
 
-Если ответов нет, идея остаётся в research, а не расширяет Core.
-
-## История Завершённых Работ
-
-Полный roadmap до 2026-08-31 со всеми phase descriptions, stop-gates и
-changeset order сохранён в
-[docs/archive/roadmap-through-2026-08-31.md](../archive/roadmap-through-2026-08-31.md).
-Release evidence находится в [releases/](../releases/), supporting source
-research — в [research/](../research/).
+Если этих ответов нет, работа остаётся внутри отдельного experiment-а и не
+расширяет Core.

@@ -1,11 +1,11 @@
-# v0 Manual Dogfood Diagnostic
+# Manual Dogfood Diagnostic
 
 Статус: необязательный manual diagnostic. Документ не задаёт текущий roadmap,
 не является sequencing prerequisite для Component Runtime v2 и используется
 только когда владельцу нужен живой end-to-end разбор.
 
-Этот документ фиксирует минимальный контур проверки реальности для v0. Его
-цель - не доказать, что агент уже хороший продукт, а регулярно получать
+Этот документ фиксирует минимальный контур живой диагностики. Его цель - не
+доказать, что агент уже хороший продукт, а получать
 воспроизводимый loop, в котором видно, где именно ломается стек:
 `core`, `workflow`, `context`, `tools`, `policy`, `patch`, provider adapter,
 app-server или текущий внешний UI-клиент.
@@ -65,7 +65,7 @@ boundary. Активное направление — Leptos chat client в `cli
 подключается к `proteus server http` через HTTP/SSE. Редкие config/architecture
 проверки вынесены в отдельный Leptos client `clients/inspector`.
 
-App-server запускается только на loopback (`127.0.0.1`) для v0 dogfood.
+App-server запускается только на loopback (`127.0.0.1`) для local dogfood.
 Wrapper `proteus` включает ephemeral session token по умолчанию
 (отключение — явное, `PROTEUS_NO_SESSION_TOKEN=1`); прямой запуск
 `proteus server http` без `--token` остаётся допустимым для loopback debug и
@@ -153,8 +153,8 @@ Diagnostic успешен, если сценарий можно пройти б�
     proteus --config codex replay workflow "/path/to/session-dir" --json
     ```
 
-    Для journal с несколькими turns нужно явно добавить `--turn-id`. V0
-    намеренно отклоняет turn с доставленным steering/follow-up и runtime-owned
+    Для journal с несколькими turns нужно явно добавить `--turn-id`. Текущий
+    workflow replay намеренно отклоняет turn с доставленным steering/follow-up и runtime-owned
     `Canceled`/`Timeout`; такие статусы проверяются по `TurnSettled` и cold
     `/history`. Этот отказ фиксирует известную границу replay, а не потерю
     durable данных.
@@ -166,7 +166,7 @@ postmortem, а не как блокер web/app-server boundary.
 
 ## Blocking Bugs
 
-Эти проблемы блокируют v0 dogfood и чинятся до polish:
+Эти проблемы блокируют полезный dogfood run и чинятся до polish:
 
 - нельзя отправить prompt;
 - нельзя прочитать финальный результат или ошибку;
@@ -188,7 +188,7 @@ postmortem, а не как блокер web/app-server boundary.
 
 ## Non-Blocking Irritants
 
-Эти вещи могут раздражать, но не блокируют v0 dogfood, если сценарий выше
+Эти вещи могут раздражать, но не блокируют dogfood, если сценарий выше
 остаётся воспроизводимым:
 
 - некрасивые отступы;

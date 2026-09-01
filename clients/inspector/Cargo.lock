@@ -1085,7 +1085,7 @@ dependencies = [
 
 [[package]]
 name = "proteus-inspector"
-version = "0.1.0-alpha.1"
+version = "0.0.0-dev"
 dependencies = [
  "console_error_panic_hook",
  "js-sys",

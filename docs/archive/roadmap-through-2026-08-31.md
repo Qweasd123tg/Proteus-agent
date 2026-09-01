@@ -18,15 +18,13 @@ Proteus развивается как платформа внешних agent ca
 дают research evidence, но не задают compatibility mode, product API или
 привилегированный execution path.
 
-Process-only cutover, Component Runtime v2 / wire v3, `AssemblyPlan`, topology,
-journal/replay evidence и `v0.1.0-alpha.1` уже завершены. Roadmap больше не
+Process-only cutover, Component Runtime v2 / wire v3, `AssemblyPlan`, topology
+и journal/replay evidence уже завершены. Roadmap больше не
 пересказывает этапы P0-P4: актуальный итог находится в
 [scope.md](../product/scope.md), точный protocol — в
 [process-module-architecture.md](../architecture/process-module-architecture.md), история
 решений — в
-[component-runtime-v2-plan-2026-08-21.md](component-runtime-v2-plan-2026-08-21.md),
-а состав релиза — в
-[releases/v0.1.0-alpha.1.md](../releases/v0.1.0-alpha.1.md).
+[component-runtime-v2-plan-2026-08-21.md](component-runtime-v2-plan-2026-08-21.md).
 
 Следующее принятое направление — минимальная `ExecutionScope` migration,
 описанная ниже. Phase 0–8 реализованы; Phase 8B завершила strict memory
@@ -1312,7 +1310,7 @@ Agent-control не является behavior slot Component Runtime и не вы
   sibling crash isolation;
 - `cargo fmt --all -- --check`, `cargo test --workspace`, config profile tests,
   `tests/process_agent_control.rs`, `tests/process_agent_pool.rs` и применимый
-  `scripts/alpha-smoke.sh` проходят;
+  `scripts/install-smoke.sh` проходят;
 - ближайшие config/runtime/architecture docs обновлены в том же breaking
   changeset.
 

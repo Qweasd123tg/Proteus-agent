@@ -1298,10 +1298,9 @@ P0 spike: technical GO
   -> ✅ отдельное решение владельца и завершённый P4 topology/journal slice
 ```
 
-Следующая точка после P4 была зафиксирована как v0.1 alpha release contour. На
-2026-08-24 он собран в локальный candidate; до публикации остаются зелёный
-remote CI и tag, а не изменение topology или автоматический старт P5. Исходная
-оценка P2 была:
+Следующая точка после P4 тогда была зафиксирована как ранний release contour.
+На 2026-08-24 он был собран в локальный candidate. Эта milestone рамка позднее
+была отброшена и не задаёт текущую практику. Исходная оценка P2 была:
 
 ```text
 3-5 commits
@@ -1512,7 +1511,7 @@ test(module-runtime): prove one-component topology and replay
 Второй добавил bounded production broker и strict v3 contract. Третий
 подключил его к core, reference worker и внешним examples и удалил component
 wire v2. Четвёртый доказал production adapter lineage, однопроцессную topology,
-cancellation и journal/replay. v0.1 alpha release contour затем собран в
+cancellation и journal/replay. Ранний release contour затем был собран в
 локальный candidate; `Workflow`, root steering и `SubagentRunner` не
 расширялись.
 

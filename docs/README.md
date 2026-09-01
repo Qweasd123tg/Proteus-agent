@@ -13,8 +13,8 @@
 1. [scope.md](product/scope.md) — что Proteus представляет собой сейчас;
 2. [architecture.md](architecture/architecture.md) — как проходит обычный turn и где лежат
    основные части;
-3. [roadmap.md](product/roadmap.md) — текущий прикладной полигон и остальные
-   открытые решения.
+3. [roadmap.md](product/roadmap.md) — как платформа проверяется реконструкцией
+   разных agent runtimes.
 
 Остальные документы — справочники для конкретной задачи или исторические
 материалы.
@@ -24,8 +24,11 @@
 - **Запустить Proteus локально:** [README](../README.md#быстрый-запуск).
 - **Поднять на другой машине:**
   [second-pc-bootstrap.md](guides/second-pc-bootstrap.md).
-- **Проверить или выпустить alpha:**
-  [v0.1.0-alpha.1 release notes](releases/v0.1.0-alpha.1.md).
+- **Понять идею платформы:** [spec.md](product/spec.md), затем
+  [scope.md](product/scope.md).
+- **Начать реконструкцию agent runtime:**
+  [roadmap.md](product/roadmap.md), затем
+  [индекс experiments](research/agent-runtime-reconstructions.md).
 - **Сообщить о security-проблеме:** [SECURITY.md](../SECURITY.md).
 - **Понять архитектуру:** [architecture.md](architecture/architecture.md), затем
   [modules.md](architecture/modules.md).
@@ -98,10 +101,11 @@
 Читайте в таком порядке:
 
 1. [scope.md](product/scope.md) — текущее состояние и принятые границы.
-2. [roadmap.md](product/roadmap.md) — текущая работа над Codex pack, порядок
-   parity-срезов и отложенный backlog.
-3. [spec.md](product/spec.md) — долгосрочный замысел и non-goals.
-4. [dogfood-gate.md](development/dogfood-gate.md) — необязательный ручной diagnostic и
+2. [spec.md](product/spec.md) — долговечная идея платформы и non-goals.
+3. [roadmap.md](product/roadmap.md) — общий метод reconstruction experiments.
+4. [agent-runtime-reconstructions.md](research/agent-runtime-reconstructions.md) —
+   независимые target-specific работы и их evidence.
+5. [dogfood-gate.md](development/dogfood-gate.md) — необязательный ручной diagnostic и
    исторический список blocking symptoms.
 
 Такой порядок важен: `spec` отвечает «куда проект может прийти», но не
@@ -115,8 +119,7 @@
 | `architecture/` | Устройство runtime, modules, данные turn-а и границы расширения |
 | `guides/` | Настройка, запуск, диагностика, события и безопасность |
 | `development/` | Обязательные тесты и необязательный manual dogfood |
-| `releases/` | Состав, ограничения и воспроизводимый gate конкретного релиза |
-| `research/` | Исследования и гипотезы; не действующий контракт |
+| `research/` | Reconstruction experiments, source snapshots и гипотезы; не platform contract |
 | `archive/` | Завершённые планы, migration handoff-ы и старый порядок работ |
 | `examples/research/` | Большие snapshot-разборы сторонних проектов |
 
@@ -130,21 +133,24 @@
 
 ## Research И Архив
 
-Архив хранит завершённые планы; research — source snapshots, upstream-разборы
-и отложенные гипотезы. Ни один из этих разделов не задаёт текущий порядок
-работы.
+Архив хранит завершённые планы. Research содержит как source snapshots и
+гипотезы, так и evidence отдельных reconstruction experiments; ни один target
+сам по себе не задаёт цель или общий roadmap Proteus.
 
 - [archive/README.md](archive/README.md) — вход в завершённые планы;
 - [archive/roadmap-through-2026-08-31.md](archive/roadmap-through-2026-08-31.md) —
   полный старый roadmap с Runtime v2, Agent-Control, `ExecutionScope` Phase
   0–8 и post-Phase-8 cleanup;
-- [research/platform-expressiveness-after-runtime-v2-2026-08-22.md](research/platform-expressiveness-after-runtime-v2-2026-08-22.md) —
-  короткая актуальная точка входа в отложенные архитектурные идеи;
+- [research/agent-runtime-reconstructions.md](research/agent-runtime-reconstructions.md) —
+  правила и индекс отдельных реконструкций;
 - [research/codex-parity-baseline-2026-09-01.md](research/codex-parity-baseline-2026-09-01.md) —
-  активный pinned upstream baseline и differential evidence для `codex` pack;
+  pinned upstream baseline и differential evidence отдельной Codex reconstruction;
+- [research/platform-expressiveness-after-runtime-v2-2026-08-22.md](research/platform-expressiveness-after-runtime-v2-2026-08-22.md) —
+  историческая research note после Runtime v2, не текущий product anchor;
 - [research/](research/) — остальные проектные исследования и postmortem;
 - [examples/research/](../examples/research/) — большие snapshot-разборы
   сторонних agent runtimes.
 
-Если идея из research снова становится актуальной, её сначала нужно перенести
-в `scope.md` или `roadmap.md` с новой проверкой против текущего кода.
+Если experiment обнаруживает общий platform gap, его сначала нужно проверить
+против текущего кода и правил `slot-governance.md`; target-specific research не
+расширяет Core автоматически.

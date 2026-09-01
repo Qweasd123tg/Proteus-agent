@@ -1,15 +1,15 @@
-# Modular Coding Agent Skeleton
+# Proteus: Платформа Component-Composed Agent Runtimes
 
-Этот документ фиксирует vision проекта и planned направления. Он не является
+Этот документ фиксирует долговечную идею и границы проекта. Он не является
 reference по текущей реализации: фактическое состояние описано в
 `architecture.md`, `modules.md`, `configuration.md`, `runtime-and-events.md`,
-`security-and-policy.md` и `testing.md`. Порядок ближайших этапов вынесен в
-`roadmap.md`.
+`security-and-policy.md` и `testing.md`. Текущая практическая работа вынесена в
+`scope.md` и `roadmap.md`.
 
 ## Главная Идея
 
-Проект является маленькой платформой для внешних реализаций возможностей
-coding-agent:
+Proteus является маленькой платформой для сборки разных agent runtimes из
+внешних реализаций возможностей:
 
 ```text
 Core -> Contract -> Module Implementation
@@ -42,6 +42,11 @@ slot behavior реализуется внешним component. Subagent lifecycl
 agent-control process contract; один Proteus не изображается component
 export-ом другого.
 
+Реальные agent runtimes являются объектами реконструкции и проверки платформы,
+а не наборами фич, которые Core должен вобрать. Profile и components могут
+воспроизводить их наблюдаемое поведение; имя target runtime не становится
+slot, capability, дополнительным правом или исключением в host.
+
 Реализации одного slot равноправны:
 
 ```text
@@ -66,7 +71,7 @@ workflow, tool, memory store или model adapter. Debug/visibility часть �
 
 ## Не-Цели
 
-Для v0 не делать:
+Вне текущей платформы и практики:
 
 - marketplace и package manager;
 - WASM runtime и hot-reload modules;
@@ -191,7 +196,7 @@ Runtime должен сохранять эти свойства:
 - streaming model deltas через canonical model/event path;
 - durable journal, history/transcript projections и resume.
 
-## Текущее Применение И Planned Направления
+## Практическое Применение Платформы
 
 Process-only Runtime v2 / wire v3, Agent-Control cutover, `ExecutionScope`
 Phase 0–8 и post-Phase-8 cleanup уже относятся к реализованному основанию, а
@@ -199,9 +204,20 @@ Phase 0–8 и post-Phase-8 cleanup уже относятся к реализо�
 сохранены в
 [архивном roadmap](../archive/roadmap-through-2026-08-31.md).
 
-Текущий продуктовый шаг — проверить основание прикладным полигоном через
-существующие profile/module/app-server boundaries. Он должен сначала показать
-наблюдаемую пользу или точный gap, а не заранее расширять Core.
+Текущий способ развивать Proteus — реконструировать ограниченные наблюдаемые
+сценарии разных реальных agent runtimes через существующие
+profile/component/app-server boundaries. Каждая такая работа остаётся
+самостоятельным experiment-ом с pinned target, comparison evidence и явными
+divergences; она не становится целью всего Proteus.
+
+Практическая проверка платформы успешна, когда новое agent behavior можно
+собрать из обычных components без target-specific ветки в Core. Если это не
+получается, experiment сначала фиксирует точный failure. Только доказанный
+общий host-owned gap может стать основанием для изменения contract-а.
+
+Codex reconstruction — первый оформленный differential workstream, но не
+default agent и не product roadmap Proteus. Его evidence находится в
+[индексе реконструкций](../research/agent-runtime-reconstructions.md).
 
 Долгосрочный capability backlog:
 
@@ -216,8 +232,8 @@ Phase 0–8 и post-Phase-8 cleanup уже относятся к реализо�
 - durable AgentControl tree, authenticated attach и reconnect;
 - единая OS isolation policy и evidence до freeze внешнего protocol.
 
-Каждое направление должно иметь focused tests на boundary, а не только happy
-path CLI smoke test.
+Каждое направление активируется только evidence из практики и должно иметь
+focused tests на boundary, а не только happy-path CLI smoke test.
 
 ## Intake Новых Идей
 
@@ -307,9 +323,9 @@ module system.
 `cursor_context` или `codex_tool_search`: такие идеи должны раскладываться на
 локальные contracts.
 
-## Definition Of Done Для v0
+## Инварианты Здоровой Платформы
 
-v0 считается здоровым, если:
+Основание остаётся здоровым, если:
 
 - `cargo test` подтверждает заменяемость ключевых slots;
 - model provider меняется без правок workflow;
@@ -326,3 +342,11 @@ v0 считается здоровым, если:
 
 Главное правило: маленькое ядро важнее быстрого добавления фич, если фича
 ломает modular boundary.
+
+## Когда Допустимо Менять Платформу
+
+Изменение Core или общего contract оправдано только тогда, когда reconstruction
+experiment показал воспроизводимый failure, который нельзя устранить profile,
+component implementation или client projection. Новая semantics должна быть
+host-owned, не зависеть от имени target runtime и сохранять одинаковые
+authority, lifecycle и failure semantics для независимых implementations.

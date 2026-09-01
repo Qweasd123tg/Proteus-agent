@@ -27,8 +27,8 @@ host-owned семантикой.
 ## Главный Тезис
 
 После production Runtime v2 платформа должна быть достаточно выразительной для
-первой публичной alpha. Следующая архитектурная идея не становится новым
-release blocker автоматически.
+практической реконструкции разных agent runtimes. Следующая архитектурная идея
+не становится изменением Core автоматически.
 
 Желаемый разрез:
 
@@ -47,36 +47,12 @@ Component может содержать собственный loop, hooks, sche
 Это не разрешает generic actor runtime, direct module links, ambient hooks или
 особые права по `module_id`.
 
-## Фиксированная Граница v0.1 Alpha
+## Отброшенная Milestone Рамка
 
-Статус 2026-08-24: пункты 1-4 собраны в локальный release candidate;
-публичный tag из пункта 5 остаётся внешним шагом после зелёного CI на release
-commit. Этот status update не меняет исторический parking lot ниже.
-
-`v0.1.0-alpha.1` считается готовой после:
-
-1. завершённые P1 duplex transport, P2 broker/wire-v3 kernel, P3 atomic
-   tracked cutover и отдельно owner-approved P4 topology/journal evidence;
-2. clean Linux developer install с `init`, `doctor`, fake-profile run и
-   topology check;
-3. CI/release notes/security scope и честного описания trusted executable
-   boundary;
-4. одного короткого внешнего component demo, показывающего замену без правок
-   core;
-5. опубликованного alpha tag.
-
-До alpha не требуется завершать:
-
-- process `model/v1` или `subagent/v1` migration;
-- uniform OS sandbox;
-- protocol freeze и marketplace;
-- Hermes/OpenClaw parity;
-- session tree, branch UI или live action rerun;
-- remote/WASM workers, arbitrary hooks или UI rewrite;
-- все идеи из этой заметки.
-
-Это фиксирует конец первой итерации. Release не означает конец развития
-личного конструктора.
+Ранняя версия этой заметки связывала завершение Runtime v2 с условным публичным
+milestone. Эта рамка больше не используется: архитектурное основание считается
+собранным, а дальнейшая проверка идёт через независимые reconstruction
+experiments, а не через подгонку platform work под номер выпуска.
 
 ## Не Сделать Ли Strict Contracts Узким Горлышком
 
@@ -226,4 +202,4 @@ critical path.
 - вводить direct same-process dispatch или общий additive hook bus;
 - заявлять upstream compatibility без parity evidence;
 - переносить research inventory в reference pack;
-- сдвигать `v0.1.0-alpha.1` новыми архитектурными идеями.
+- превращать новые архитектурные идеи в искусственный release milestone.

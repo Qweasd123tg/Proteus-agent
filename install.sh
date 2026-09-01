@@ -327,7 +327,7 @@ sed -i "s|__PROTEUS_PROJECT_DIR__|${escaped_project_dir}|g" "${bin_tmp}"
 chmod 755 "${bin_tmp}"
 
 # Stage the host and reference worker before the `current` symlink makes the
-# release visible.
+# build snapshot visible.
 mkdir -p "${release_tmp}"
 cp "${project_dir}/target/release/proteus" "${release_tmp}/proteus"
 cp "${project_dir}/target/release/proteus-reference-worker" "${release_tmp}/proteus-reference-worker"
@@ -413,7 +413,7 @@ install_managed_config_asset "prompts/codex-coder.md"
 install_managed_config_asset "prompts/opencode-default.md"
 
 echo "Installed: ${bin_path}"
-echo "Release:   ${release_dir}"
+echo "Snapshot:  ${release_dir}"
 echo "Worker:    ${current_release}/proteus-reference-worker"
 echo "Configs:   ${configs_dir}"
 echo "Next:      ${bin_path} init coding && ${bin_path} doctor"

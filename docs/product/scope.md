@@ -1,119 +1,116 @@
 # Текущий Scope
 
-Последнее обновление: 2026-09-01.
+Последнее обновление: 2026-09-02.
 
-Этот документ отвечает только на два вопроса: что Proteus представляет собой
-сейчас и какое следующее направление принято или остаётся открытым. Подробная
-архитектура находится в [architecture.md](../architecture/architecture.md), будущие работы — в
-[roadmap.md](roadmap.md), история релиза — в
-[releases/v0.1.0-alpha.1.md](../releases/v0.1.0-alpha.1.md).
+Этот документ отвечает на два вопроса: что Proteus представляет собой сейчас
+и как его архитектура проверяется дальше. Долговечная идея находится в
+[spec.md](spec.md), текущая практика — в [roadmap.md](roadmap.md), точные
+границы реализации — в профильных architecture/guides документах.
 
 ## Проект Простыми Словами
 
-Proteus запускает coding-agent и позволяет заменять его отдельные возможности:
-поиск, память, tools, policy, workflow и другие части. Возможность может быть
-реализована внешней программой на любом языке, если она говорит с Proteus по
-зафиксированному process protocol.
+Proteus — платформа для сборки agent runtimes из profiles и внешних process
+components. Она позволяет заменять поиск, память, tools, policy, workflow и
+другие части, не встраивая конкретный агент или алгоритм в Core.
 
 Главная программа:
 
-- читает config и выбирает реализации;
-- решает, какие операции им разрешены;
+- читает config и собирает выбранные реализации;
+- вычисляет их authority по общему slot contract;
 - запускает и останавливает внешние процессы;
-- ведёт session/turn lifecycle, history, steering и journal;
-- сохраняет session, события и данные для replay.
+- ведёт execution/session/turn lifecycle, history, steering и journal;
+- предоставляет единые model, tool, replay и client boundaries.
 
 Конкретный model/tool loop не зашит в Core: его порядок выбирает активный
-`Workflow`. Core предоставляет Workflow проверенные model/tool/context
-mechanisms и фиксирует результат хода.
-
-`proteus-reference-worker` поставляется вместе с проектом для dogfood и
-примеров. Он не получает скрытых привилегий и не является обязательным
-«стандартным набором» модулей.
+`Workflow`. Core предоставляет проверенные mechanisms и фиксирует наблюдаемый
+результат.
 
 ```text
-config
-  -> Proteus выбирает возможности и права
-  -> внешние процессы выполняют выбранные возможности
-  -> runtime проводит turn
-  -> journal сохраняет результат
+profile
+  -> Proteus собирает capabilities и authority
+  -> components реализуют поведение agent runtime
+  -> общий host проводит execution
+  -> journal и clients показывают результат
 ```
+
+`proteus-reference-worker` поставляется для разработки, tests и примеров. Он
+не получает скрытых привилегий и не является обязательным standard pack.
 
 ## Что Уже Работает
 
 - OpenAI, OpenAI-compatible, Anthropic и fake model adapters;
-- внешний Component Runtime v2 / wire v3 для workflow, search, memory,
-  context, policy, patch, compactor, tools и других существующих
-  slots;
+- Component Runtime v2 / wire v3 для workflow, search, memory, context,
+  policy, patch, compactor, tools и других существующих slots;
+- multi-export persistent components, host callbacks, cancellation, timeout и
+  restart после process failure;
 - единый путь tool safety и approvals;
 - session journal, history, resume, prompt replay и workflow replay;
 - CLI, HTTP/SSE app-server, web chat и Inspector;
 - process-backed Proteus peers через `AgentControl`, steering, follow-up и
   collaboration tools;
-- deterministic `coding.project_check`, где code-owned control flow вызывает
-  model только для объяснения failed test;
+- deterministic `coding.project_check` с model-free success path;
 - `AssemblyPlan`, `doctor`, module/tool list, topology и eval report;
-- versioned Linux install и опубликованный `v0.1.0-alpha.1`.
+- атомарная локальная установка `proteus` и `proteus-reference-worker`.
 
-«Работает» не означает «public API стабилен». Проект pre-release: собственные
-wire/config/DTO меняются атомарно без legacy aliases и compatibility readers.
+«Работает» не означает, что публичные форматы заморожены. Собственные
+wire/config/DTO пока меняются атомарно без legacy aliases и compatibility
+readers.
 
 ## Уже Принятые Границы
 
 - Внешние возможности подключаются только через process contracts. Старые
   dylib ABI, loader и wire v2 удалены.
 - Core знает contracts и lifecycle, но не детали конкретной реализации.
-- Права вычисляет host по активной возможности, а не по имени или языку
-  модуля.
-- Один process может предоставлять несколько возможностей и делит между ними
+- Права вычисляет host по активному export, а не по имени, языку или
+  расположению module implementation.
+- Один process может предоставлять несколько exports и делить между ними
   lifecycle/failure domain, но не объединяет их права.
-- Process boundary управляет запуском и обменом сообщениями, но сам по себе не
-  является OS sandbox.
+- Process boundary управляет запуском и protocol, но сам по себе не является
+  OS sandbox.
+- `AgentControl` связывает полные Proteus peers и не является behavior slot.
 
-Точные правила и protocol:
-[process-module-architecture.md](../architecture/process-module-architecture.md).
-Как config превращается в runtime:
+Точные правила process runtime описаны в
+[process-module-architecture.md](../architecture/process-module-architecture.md),
+а сборка config в runtime — в
 [assembly-plan.md](../architecture/assembly-plan.md).
 
-## Текущая Точка Выбора
+## Текущая Практика
 
-`ExecutionScope` Phase 0–8, Agent-Control cutover и post-Phase-8 cleanup
-завершены. Текущий runtime использует distinct `ExecutionId`, immutable
-execution-bound model/tools/memory, strict `tool/v2` и `memory/v2`, typed
-non-Turn admission, один app-server protocol для product clients и полные
-process peers вместо internal mini-agent. Подробные phase plans и stop-gates
-сохранены в
-[архивном roadmap](../archive/roadmap-through-2026-08-31.md).
+Архитектурное основание Proteus в основном собрано. Текущий этап — не новая
+общая migration и не движение к условной версии продукта, а reconstruction
+experiments: воспроизведение поведения разных реальных agent runtimes через
+profiles, component exports и обычные client/runtime boundaries Proteus.
 
-Следующее принятое направление — pinned differential работа над `codex` pack
-поверх существующих profile/module/app-server boundaries. Каждый срез должен
-закрывать один наблюдаемый upstream gap, сохранять trace/fixture и проходить
-общий contract/process gate без исключения по `module_id`. Текущий порядок
-находится в [roadmap.md](roadmap.md#текущее-направление-codex-pack-parity).
+Один experiment фиксирует target и pinned источник поведения, ограниченный
+scenario, используемую композицию, evidence результата и явные divergences.
+Он не получает специального пути в Core. Если scenario нельзя реализовать
+существующими components и contracts, сначала сохраняется точный failure, и
+только затем отдельно решается вопрос об общей platform change.
 
-Завершённый deterministic-controller probe подтвердил model-free success Turn
-через текущий process workflow/tool path и локализовал оставшийся gap:
-workflow replay v0 пока требует хотя бы один model exchange. Agent-shaped
-`workflow/v2` envelope и обязательный active provider также остаются явно
-учтённым coupling, а не скрываются fake model call-ом.
+Codex reconstruction — самостоятельный research workstream, а не цель,
+default или обещание совместимости всего Proteus. Его текущий baseline и
+evidence остаются в
+[codex-parity-baseline-2026-09-01.md](../research/codex-parity-baseline-2026-09-01.md).
+Общий индекс экспериментов находится в
+[agent-runtime-reconstructions.md](../research/agent-runtime-reconstructions.md).
 
-Крупные platform decisions ниже остаются открытыми и требуют отдельного
-решения владельца.
+## Вопросы, Которые Может Открыть Практика
+
+Эти решения не являются автоматическим backlog. К ним возвращаются только по
+evidence конкретной реконструкции.
 
 1. **Model boundary.** Либо оставить provider adapters честной core-owned
    границей, либо спроектировать полный внешний model contract со streaming,
-   credentials, hosted tools, cache, retry и usage parity.
-2. **Durable subagents.** Текущий process runner и messaging работают, но
-   постоянное root-owned дерево, authenticated attach и reconnect ещё не завершены.
-   Подробности: [subagents.md](../architecture/subagents.md).
-3. **Единая изоляция workers.** Нужна общая политика filesystem, network,
+   credentials, hosted tools, cache, retry и usage semantics.
+2. **Durable peers.** Текущий process runner и messaging работают, но
+   постоянное root-owned дерево, authenticated attach и reconnect ещё не
+   завершены.
+3. **Единая изоляция workers.** Нужна общая policy для filesystem, network,
    env/secrets, процессов и ресурсов без исключений для reference modules.
-4. **Protocol freeze.** До обещания стабильности нужны дополнительные внешние
-   workers, hostile corpus, long-running evidence и решение по обновлению
-   версий.
+4. **Protocol freeze.** До обещания стабильности нужны независимые внешние
+   workers, hostile corpus, long-running evidence и version/upgrade policy.
 
-Подробный backlog и условия этих работ находятся в
-[roadmap.md](roadmap.md).
+Подробные условия находятся в [roadmap.md](roadmap.md).
 
 ## Не На Критическом Пути
 
@@ -122,36 +119,37 @@ workflow replay v0 пока требует хотя бы один model exchange
 - произвольные event hooks;
 - общий multi-agent DAG;
 - новый memory backend без измеримой проблемы;
-- расширение LSP дальше проверенного Rust diagnostics slice;
+- расширение LSP без отдельного scenario;
 - косметический UI polish без конкретного blocker-а.
 
-Research не является текущим контрактом. `modules/research`, `docs/research`
-и `examples/research` используются только как исторические материалы или
-evidence для отдельного решения.
+`modules/research`, `docs/research` и `examples/research` содержат experiments,
+source snapshots и evidence. Они не меняют Core contract и product direction
+сами по себе.
 
 ## Где Искать Правду
 
 | Вопрос | Документ |
 |---|---|
 | Что существует сейчас? | этот `scope.md` |
-| Как устроен обычный turn и основные части? | [architecture.md](../architecture/architecture.md) |
-| Как устроены внешние modules? | [process-module-architecture.md](../architecture/process-module-architecture.md) |
-| Что делать дальше? | [roadmap.md](roadmap.md) |
-| Как проверять изменение? | [testing.md](../development/testing.md) |
-| Что было выпущено? | [releases/v0.1.0-alpha.1.md](../releases/v0.1.0-alpha.1.md) |
 | Каков долгосрочный замысел? | [spec.md](spec.md) |
+| Как проходит обычный turn/execution? | [architecture.md](../architecture/architecture.md) |
+| Как устроены внешние modules? | [process-module-architecture.md](../architecture/process-module-architecture.md) |
+| Как ведутся реконструкции агентов? | [roadmap.md](roadmap.md) и [индекс experiments](../research/agent-runtime-reconstructions.md) |
+| Как проверять изменение? | [testing.md](../development/testing.md) |
 
-Если обзор расходится с профильным документом, прав профильный документ. Если
-документ расходится с кодом или тестами, исправлять нужно документ рядом с
-изменением поведения.
+Если overview расходится с профильным reference, прав профильный reference.
+Если reference расходится с кодом или tests, их нужно исправить атомарно рядом
+с изменением поведения.
 
 ## Правило Следующей Задачи
 
-Перед изменением ответьте простыми словами:
+Перед изменением платформы ответьте простыми словами:
 
-1. Какую наблюдаемую проблему мы исправляем?
-2. Какая существующая часть проекта за неё отвечает?
-3. Можно ли решить её без нового contract или нового слоя?
-4. Какой минимальный тест докажет результат?
+1. Какой наблюдаемый target scenario не воспроизводится?
+2. Какая существующая boundary за него отвечает?
+3. Можно ли решить его profile, component implementation или client
+   projection без изменения Core?
+4. Какой минимальный regression докажет результат?
 
-Если ответа нет, задача остаётся в roadmap/research и не расширяет Core.
+Если ответа нет, работа остаётся внутри experiment/research и не расширяет
+Core.

@@ -1,6 +1,6 @@
 # Security И Policy
 
-Security path зарегистрированных tools в v0 держится на четырёх уровнях:
+Текущий security path зарегистрированных tools держится на четырёх уровнях:
 
 1. tools объявляют `ToolSafety`;
 2. `PermissionMode` оборачивает configured `ApprovalPolicy` в mode-aware policy;
@@ -13,15 +13,15 @@ ApprovalPolicy -> Tool::invoke`;
 worktree для пишущей роли создаётся только после разрешения. Остальные current
 gaps перечислены в разделе «Известные Ограничения Текущей Реализации».
 
-Этот документ описывает текущую реализацию v0. Более гибкая config-editable
+Этот документ описывает текущую реализацию. Более гибкая config-editable
 модель прав остаётся planned и кратко описана в конце.
 
-Для alpha reporting, поддерживаемой линии и короткой trust-boundary сводки
+Для reporting, поддерживаемой линии и короткой trust-boundary сводки
 используйте корневой [SECURITY.md](../../SECURITY.md). Process component считается
 доверенным executable: strict protocol ограничивает его callbacks в host, но
 не ограничивает прямые OS-действия самого процесса.
 
-В v0 нет универсального OS sandbox для всех tools. Текущая защита держится на
+У Proteus нет универсального OS sandbox для всех tools. Текущая защита держится на
 workspace boundary, safety classes, permission mode и approval policy; для
 process tool module `shell-tool` дополнительно использует
 bwrap-песочницу (см. «Exec Sandbox В shell-tool» ниже). Общий network gate,
@@ -89,7 +89,8 @@ non-loopback bind требует непустой token и отклоняетс�
 browser `EventSource` не выставляет произвольные headers; для обычных `fetch`
 requests предпочтителен `X-Proteus-Session` или
 `Authorization: Bearer <token>`. Raw token не печатать в обычные logs и не
-класть в `localStorage`; in-memory state или `sessionStorage` приемлемы для v0.
+класть в `localStorage`; текущие clients используют in-memory state или
+`sessionStorage`.
 
 Direct CLI и HTTP server boundary fail-closed связывают non-loopback bind с
 обязательным token: например, `--host 0.0.0.0` или `--host ::` без `--token`

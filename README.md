@@ -1,19 +1,18 @@
 # Proteus
 
-Proteus — локальный coding-agent runtime на Rust. Его основная граница:
+Proteus — платформа на Rust для сборки agent runtimes из profiles и внешних
+process components. Core владеет нейтральными contracts, authority, lifecycle,
+journal и client boundary; конкретное поведение agent-а задаёт выбранная
+композиция.
 
 ```text
 Core -> Contract -> Process Component Export
 ```
 
-Текущая release line — `v0.1.0-alpha.1`. Состав, ограничения и точный gate:
-[release notes](docs/releases/v0.1.0-alpha.1.md). Это pre-release без
-стабильности wire/config/storage форматов.
-
 Core управляет turn lifecycle, canonical history, approvals и wiring. Поиск,
 память, context, policy, patch, compaction, tool exposure, workflow и
 tools подключаются как exports внешних компонентов по strict JSON-RPC
-component protocol v3. Версии slot contracts пока остаются `v1`.
+component protocol v3. Каждый slot имеет собственную contract version.
 `module_id` выбирает реализацию, но не меняет её права:
 
 ```text
@@ -23,6 +22,15 @@ authority(module) = authority(slot, invocation_context)
 Native dylib ABI, `plugin.toml`, `abi_stable` и loader удалены. Reference
 реализации в `modules/reference` — тестовые/dogfood образцы, а не стандартный
 или привилегированный пакет.
+
+Архитектурное основание в основном собрано. Текущая практика — воспроизводить
+ограниченные сценарии разных реальных agent runtimes только через profiles,
+обычные component exports и общие client/runtime boundaries Proteus. Codex и
+другие targets ведутся как независимые reconstruction experiments: ни один из
+них не определяет цель платформы и не получает специального пути в Core.
+
+Собственные wire/config/storage форматы пока не заморожены и меняются атомарно
+без legacy compatibility readers.
 
 Tracked named profiles могут явно собираться через `include` из
 `configs/fragments/`. Fragment не активируется автоматически и не является
@@ -45,9 +53,9 @@ proteus init coding
 proteus doctor
 ```
 
-`install.sh` собирает `proteus` и `proteus-reference-worker`, публикует их
-одним versioned release под `~/.proteus/current` и атомарно переключает
-`current`. Wrapper добавляет release directory в `PATH`, поэтому components с
+`install.sh` собирает `proteus` и `proteus-reference-worker`, размещает их
+одним локальным build snapshot под `~/.proteus/current` и атомарно переключает
+`current`. Wrapper добавляет snapshot directory в `PATH`, поэтому components с
 `command = "proteus-reference-worker"` работают без абсолютного
 пути. Альтернативные каталоги задаются через `PROTEUS_BIN_DIR`,
 `PROTEUS_HOME` и `PROTEUS_CONFIG_HOME`.
@@ -80,10 +88,10 @@ PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config examples/co
 PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config examples/configs/proteus.process-agent.example.toml "explain this profile"
 ```
 
-Полный изолированный alpha smoke, не меняющий пользовательские каталоги:
+Полная изолированная проверка установки, не меняющая пользовательские каталоги:
 
 ```bash
-./scripts/alpha-smoke.sh
+./scripts/install-smoke.sh
 ```
 
 ## Как Подключается Модуль
@@ -214,11 +222,13 @@ docs/                           reference, testing rules и roadmap
   protocol, authority и результат cutover;
 - [configuration.md](docs/guides/configuration.md) — schema, components и exports;
 - [security-and-policy.md](docs/guides/security-and-policy.md) — tools и approvals;
-- [SECURITY.md](SECURITY.md) — reporting и точная trust boundary alpha;
-- [v0.1.0-alpha.1](docs/releases/v0.1.0-alpha.1.md) — состав и release gate;
+- [SECURITY.md](SECURITY.md) — reporting и текущая trust boundary;
 - [testing.md](docs/development/testing.md) — обязательные evidence gates;
-- [scope.md](docs/product/scope.md) и [roadmap.md](docs/product/roadmap.md) —
-  что дальше.
+- [scope.md](docs/product/scope.md) — что существует сейчас;
+- [spec.md](docs/product/spec.md) — идея и долговечные границы платформы;
+- [roadmap.md](docs/product/roadmap.md) — практика reconstruction experiments;
+- [agent-runtime-reconstructions.md](docs/research/agent-runtime-reconstructions.md) —
+  независимые работы по воспроизведению разных agent runtimes.
 
 Полный индекс: [docs/README.md](docs/README.md). Правила изменений:
 [AGENTS.md](AGENTS.md).
@@ -230,7 +240,7 @@ cargo fmt --all --check
 cargo test --workspace
 (cd clients/web && env -u NO_COLOR trunk build --locked)
 (cd clients/inspector && env -u NO_COLOR trunk build --locked)
-./scripts/alpha-smoke.sh
+./scripts/install-smoke.sh
 git diff --check
 ```
 

@@ -7,14 +7,12 @@
 ```bash
 git clone <repo> Agent
 cd Agent
-# После публикации alpha можно зафиксировать воспроизводимый source snapshot:
-git checkout v0.1.0-alpha.1
-./scripts/alpha-smoke.sh
+./scripts/install-smoke.sh
 ./install.sh
 proteus init coding
 ```
 
-`alpha-smoke.sh` использует временные install/config/runtime каталоги и не
+`install-smoke.sh` использует временные install/config/runtime каталоги и не
 трогает уже существующие пользовательские настройки. Для собственной
 постоянной раскладки `install.sh` принимает `PROTEUS_BIN_DIR`, `PROTEUS_HOME`
 и `PROTEUS_CONFIG_HOME`.
@@ -42,10 +40,10 @@ Secret-файлы не синхронизируются через git и дол
 отдельно.
 
 `install.sh` хранит пару executable `proteus` +
-`proteus-reference-worker` под `~/.proteus/releases/<release-id>/` и атомарно
+`proteus-reference-worker` под `~/.proteus/releases/<snapshot-id>/` и атомарно
 переключает symlink `~/.proteus/current`. Wrapper добавляет этот каталог в
 `PATH`, поэтому packaged components находят worker. Native module
-каталога и dylib artifacts в release нет.
+каталога и dylib artifacts в build snapshot нет.
 
 ## Проверка
 

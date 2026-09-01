@@ -2,7 +2,7 @@
 set -eu
 
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-smoke_root=$(mktemp -d "${TMPDIR:-/tmp}/proteus-alpha-smoke.XXXXXX")
+smoke_root=$(mktemp -d "${TMPDIR:-/tmp}/proteus-install-smoke.XXXXXX")
 bin_dir="${smoke_root}/bin"
 runtime_home="${smoke_root}/runtime"
 config_home="${smoke_root}/config"
@@ -10,7 +10,7 @@ output_dir="${smoke_root}/output"
 
 cleanup() {
   case "${smoke_root}" in
-    */proteus-alpha-smoke.*) rm -rf -- "${smoke_root}" ;;
+    */proteus-install-smoke.*) rm -rf -- "${smoke_root}" ;;
     *) echo "Refusing to remove unexpected smoke directory: ${smoke_root}" >&2 ;;
   esac
 }
@@ -28,7 +28,7 @@ run_and_capture() {
   if "$@" >"${output}" 2>&1; then
     return
   fi
-  echo "alpha smoke failed during ${label}" >&2
+  echo "install smoke failed during ${label}" >&2
   sed -n '1,240p' "${output}" >&2
   exit 1
 }
@@ -39,7 +39,7 @@ require_text() {
   if grep -F -- "${expected}" "${output}" >/dev/null; then
     return
   fi
-  echo "alpha smoke did not find '${expected}' in ${output}" >&2
+  echo "install smoke did not find '${expected}' in ${output}" >&2
   sed -n '1,240p' "${output}" >&2
   exit 1
 }
@@ -61,12 +61,12 @@ test -f "${config_home}/configs/prompts/codex-coder.md"
 
 if find -H "${runtime_home}/current" -maxdepth 1 -type f \
   \( -name '*.so' -o -name '*.dylib' -o -name '*.dll' \) | grep . >/dev/null; then
-  echo "alpha release unexpectedly contains a native extension library" >&2
+  echo "installed runtime unexpectedly contains a native extension library" >&2
   exit 1
 fi
 
 run_and_capture version "${output_dir}/version.txt" "${proteus}" --version
-require_text "proteus 0.1.0-alpha.1" "${output_dir}/version.txt"
+require_text "proteus " "${output_dir}/version.txt"
 
 run_and_capture init "${output_dir}/init.txt" "${proteus}" init safe
 test -f "${config_home}/configs/config.toml"
@@ -87,7 +87,7 @@ require_text "workflow        -> coding.single_loop" "${output_dir}/topology.txt
 require_text "[process" "${output_dir}/topology.txt"
 
 run_and_capture fake-profile "${output_dir}/fake-profile.txt" \
-  "${proteus}" --cwd "${project_dir}" "alpha smoke"
+  "${proteus}" --cwd "${project_dir}" "install smoke"
 require_text "Fake final answer." "${output_dir}/fake-profile.txt"
 
 external_config="${config_home}/configs/python-agent.toml"
@@ -104,7 +104,7 @@ require_text "workflow        -> python_agent_loop" "${output_dir}/external-topo
 
 run_and_capture external-component "${output_dir}/external-component.txt" \
   "${proteus}" --config "${external_config}" --cwd "${project_dir}" \
-  "alpha external component demo"
+  "install external component demo"
 require_text "Fake final answer." "${output_dir}/external-component.txt"
 
 run_and_capture collaboration-tools "${output_dir}/collaboration-tools.txt" \
@@ -127,4 +127,4 @@ run_and_capture process-peer-surfaces "${output_dir}/process-peer-surfaces.txt" 
   process_peers_derive_distinct_tool_surfaces_from_child_configs -- --exact
 require_text "test result: ok" "${output_dir}/process-peer-surfaces.txt"
 
-echo "alpha smoke passed: isolated install, init, doctor, assembly plan, fake profile, topology, external Python component, process-agent messaging and peer-owned tool surfaces"
+echo "install smoke passed: isolated install, init, doctor, assembly plan, fake profile, topology, external Python component, process-agent messaging and peer-owned tool surfaces"
