@@ -33,7 +33,7 @@ Reference modules и profiles — поставляемые примеры без
 | Presentation | AssistantTextDelta не несёт item id/typed phase; transcript не экспортирует MessagePhase |
 | Collaboration | Spawn принимает только parallel_safe роли с isolation=none; настроенный coder с worktree в эту surface не входит |
 | Peer recovery | Resume зависит от живого process; durable tree, attach и reconnect отсутствуют |
-| Worker trust | Process не является sandbox; workers исполняются с OS-правами пользователя |
+| Worker trust | Собственные workers доверенные и работают с OS-правами владельца; принятый локальный режим, sandbox не является задачей этапа |
 | Форматы | Config/API/DTO/wire/storage пока не стабилизированы |
 
 Точные границы: [modules.md](../architecture/modules.md),
