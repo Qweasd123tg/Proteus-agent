@@ -321,12 +321,34 @@ fn collect_hosted_tool_includes<'a>(tools: &'a [ToolSpec], include: &mut BTreeSe
 }
 
 fn to_openai_input(messages: &[CanonicalMessage]) -> Result<Vec<Value>> {
-    let mut input = Vec::new();
+    let mut input: Vec<Value> = Vec::new();
     let mut tool_call_surfaces = HashMap::new();
     for message in messages {
+        let mut text_message_index: Option<usize> = None;
         for part in &message.parts {
+            // Keep text parts of one message in one content array. Non-text
+            // items split the run to preserve reasoning/tool ordering; citation
+            // annotations do not introduce a separate model-facing item.
+            if !matches!(
+                part.payload,
+                ContentPart::Text { .. } | ContentPart::Citation { .. }
+            ) {
+                text_message_index = None;
+            }
             match &part.payload {
-                ContentPart::Text { text } => input.push(openai_text_message(message, text)?),
+                ContentPart::Text { text } => {
+                    if let Some(index) = text_message_index {
+                        let content = input[index]["content"]
+                            .as_array_mut()
+                            .expect("text content array");
+                        content.push(json!({
+                            "type": content_text_type(&message.role), "text": text,
+                        }));
+                    } else {
+                        text_message_index = Some(input.len());
+                        input.push(openai_text_message(message, text)?);
+                    }
+                }
                 ContentPart::Context { chunk } => input.push(json!({
                     "type": "message",
                     "role": "user",

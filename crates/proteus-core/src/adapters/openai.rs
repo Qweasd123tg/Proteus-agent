@@ -29,6 +29,8 @@ mod hosted_tools;
 mod model_profile;
 mod request;
 mod response;
+#[cfg(test)]
+mod round_trip_tests;
 mod stream;
 #[cfg(test)]
 mod tests;

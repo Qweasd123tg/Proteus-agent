@@ -29,11 +29,23 @@ Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 Proteus на upstream-shaped response. Они не запускают два полных runtimes
 и не являются полным differential harness.
 
+Сквозной [test](../../modules/reference/process-worker/tests/codex_model_resume.rs)
+запускает `coding.codex_loop` в process worker с локальным Responses server
+(JSON и SSE), выполняет `read_file`, завершает первый runtime process и
+продолжает session в новом. Проверяется фактический следующий HTTP request:
+порядок items, multipart text в одном message, phase, encrypted reasoning,
+точные function arguments и call/result ids. Journal и workflow replay
+проверяются для обоих turns. Это restart после завершённого turn, не recovery
+посреди исполнения. Отдельный [test](../../crates/proteus-core/src/adapters/openai/round_trip_tests.rs)
+проверяет custom-tool input/output через journal. Live модель не вызывается.
+
 ## Проверки
 
 ```bash
 cargo test -p proteus-contracts canonical_response
 cargo test -p proteus-core codex_parity_preserves_ordered_commentary_and_final_messages
+cargo test -p proteus-core --lib adapters::openai::round_trip_tests
+cargo test -p proteus-reference-worker --test codex_model_resume
 cargo test -p coding-workflow codex_loop_preserves_commentary_and_uses_the_last_message_as_final_output
 cargo test -p codex-compactor
 cargo test -p proteus-reference-worker --test conformance
