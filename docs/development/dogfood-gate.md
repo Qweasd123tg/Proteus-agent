@@ -1,8 +1,7 @@
 # Manual Dogfood Diagnostic
 
-Статус: необязательный manual diagnostic. Документ не задаёт текущий roadmap,
-не является sequencing prerequisite для Component Runtime v2 и используется
-только когда владельцу нужен живой end-to-end разбор.
+Необязательный manual diagnostic для живого end-to-end разбора конкретного
+сбоя. Условия экзамена Codex находятся в product roadmap.
 
 Этот документ фиксирует минимальный контур живой диагностики. Его цель - не
 доказать, что агент уже хороший продукт, а получать
@@ -200,8 +199,7 @@ postmortem, а не как блокер web/app-server boundary.
 - неполный onboarding для внешнего пользователя;
 - memory polish и production-ready состояние всех reference modules.
 
-Такие пункты идут в UI polish backlog или профильный research doc, а не
-становятся причиной переписывать UI-контур до завершения dogfood run-а.
+Значимость этих наблюдений оценивается по цели конкретного сценария.
 
 ## Шаблон Маленького Manual Test
 
@@ -250,19 +248,3 @@ proteus --config codex replay workflow "/path/to/session-dir" --json
 
 Провал задачи не равен провалу проекта. Провалом diagnostic считается ситуация, где
 после run-а нельзя понять, почему агент не справился.
-
-## Не На Критическом Пути
-
-После закрытия readiness checkpoint эти темы по-прежнему не становятся
-blocking scope без нового измеримого defect-а:
-
-- разделение репозиториев;
-- большой retained/native UI rewrite;
-- новые module slots без явного blocker-а;
-- новые feature packs ради сравнения идей;
-- memory polish;
-- внешний user onboarding;
-- попытку конкурировать с готовыми агентами по UX.
-
-Эти темы могут оставаться в roadmap, но не должны вытеснять следующий
-измеримый replay/eval slice или smallest подтверждённый dogfood defect.

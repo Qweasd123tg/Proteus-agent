@@ -4,17 +4,8 @@
 prompts внутри pack-а. Документ обновляется рядом с изменением producer или
 consumer, но сам по себе не вводит новый public contract.
 
-## Мотивирующий кейс
-
-Codex pack: `codex-compactor` бережно сохраняет user-message
-`<environment_context>` при компакции (parity-код из upstream Codex), но в
-стеке долго не было producer-а этого блока — ни один context builder его не
-эмитил. Модель не знала OS/shell и периодически галлюцинировала Windows `cmd`
-на Linux. Consumer без producer-а никем не detected: связка жила только в
-строковом префиксе.
-
-Вывод: при сборке пака по чужому agent-shape consumer-логика копируется легко,
-а producer-обязанность теряется молча. Такие связки нужно фиксировать явно.
+Модули могут зависеть от общих markers, tool names и metadata.
+При изменении producer нужно проверить соответствующий consumer.
 
 ## Инвентарь неявных контрактов
 
@@ -47,55 +38,17 @@ Codex pack: `codex-compactor` бережно сохраняет user-message
 | `ToolCall.raw_arguments` | model adapter (`openai.responses`) | tool orchestrator, request replay | optional исходная строка function arguments; является source of truth для parsed execution args, сохраняет malformed payload для failed tool output и следующего sampling round |
 | прогресс/финал-структура ответа | `configs/prompts/opencode-default.md` | web-клиент рендерит транскрипт | текст промпта, контракта нет (полагаемся на модель) |
 
-## Почему так
+## Проверка Связок
 
-Строки и metadata через process-границу — сознательный trade-off: не каждое
-profile-level соглашение заслуживает нового wire DTO, а `proteus-contracts`
-должен оставаться узким. Проблема не в самих строках, а в том, что пары
-producer/consumer нигде не перечислены и не проверяются.
+Общие markers находятся в `proteus_contracts::domain::markers`.
+Это уменьшает дрейф написания, но не доказывает совместимость поведения.
 
-## Направления снижения связанности
+`proteus doctor` предупреждает об неизвестных tool names в
+`module_config.*` списках `allow`, `allow_sandboxed`, `ask_before`,
+`deny`, `always_include` и вложенных `tools`.
+Имена `<server>__*` допускаются для configured MCP server, когда discovery
+недоступен при doctor run.
 
-Отсортировано от дешёвого к дорогому; начинать с первых.
-
-1. **Инвентарь (этот документ).** Любая новая межпаковая связка добавляется в
-   таблицу выше. При сборке нового пака (opencode) — сначала выписать все
-   consumer-ожидания, затем найти/создать producer-а для каждого.
-2. **[сделано] Константы в `proteus-contracts`.** Маркеры, которые используют
-   несколько crates, живут в `proteus_contracts::domain::markers`:
-   `CONTEXT_MESSAGE_NAME` (`coding-workflow` ↔ `codex-compactor`),
-   `ENVIRONMENT_CONTEXT_TAG` (`context-pack` ↔ `codex-compactor`),
-   `CONTEXT_RENDER_MODE_*` (`context-pack` ↔ model adapters),
-   `EXEC_SHELL` (`shell-tool` ↔ `context-pack`). Это не меняет wire contract и убирает
-   дрейф написания; связка проверяется компилятором через общий crate.
-3. **[сделано] Проверки в `proteus doctor`.** Doctor warn-ит на имена tools в
-   `module_config.*` списках (`allow`, `allow_sandboxed`, `ask_before`,
-   `deny`, `always_include`, вложенные `tools` вроде opencode
-   permission groups), которых нет в собранном tool registry. Имена
-   `<server>__*` пропускаются, если MCP server сконфигурирован (discovery
-   может быть недоступен при doctor run). Ловит опечатки и мёртвые записи
-   после переименований.
-4. **Pack-pair тесты.** Focused-тесты на связку в named config: например,
-   «`codex_context` эмитит `<environment_context>` chunk, и
-   `codex-compactor` сохраняет его при компакции». Тест живёт рядом с
-   consumer-ом и падает, если producer пропал из профиля. Частично покрыто
-   общими константами из п.2: producer и consumer тестируют один маркер.
-5. **Profile contract declaration (позже, если 1–4 не хватит).** Отдельная
-   typed config section может перечислять `produces`/`consumes` contract ids;
-   doctor сверит пары активного профиля. Не добавлять это в component/export launch config:
-   launch identity не должна знать композицию конкретного pack-а.
-6. **Typed message origin (отдельное решение).** Сниффинг префиксов текста в
-   compactor-е — следствие того, что у `CanonicalMessage` нет поля
-   «происхождение» (`user | generated:context | generated:summary | ...`).
-   Если появится второй compactor с той же логикой — рассмотреть typed
-   поле/enum в contracts вместо префиксов. До этого не трогать: одно
-   использование не оправдывает расширение DTO.
-
-## Не делать
-
-- Не типизировать все metadata keys подряд: string metadata остаётся wire
-  trade-off (см. `slot-governance.md`).
-- Не строить validation framework до того, как doctor-проверки и pack-pair
-  тесты покажут свои пределы.
-- Не блокировать загрузку профиля из-за несшитых пар: сначала warnings,
-  видимость важнее строгости.
+Для изменяемой связки проверяется, что producer действительно выдаёт
+ожидаемый input, а consumer сохраняет нужное поведение в собранном profile.
+Успешный handshake и совпадение констант сами по себе этого не доказывают.

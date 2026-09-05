@@ -31,11 +31,9 @@ suspended future и не позволяет продолжить оборван�
 - Tool execution после reload остаётся в общем policy/safety path.
 - `module_epoch` попадает в observability.
 
-Завершённая `ExecutionScope` migration сохранила этот инвариант: один
+Один
 `ExecutionContext` собирается из одного captured `RuntimeSnapshot`, а generic
 context не делает новый lookup из mutable published registry на каждом step.
-История Phase 2 и её evidence сохранена в
-[архивном roadmap](../archive/roadmap-through-2026-08-31.md#executionscope-migration).
 
 ## Что Reload-ится Сейчас
 
@@ -91,20 +89,6 @@ registered tools
 ```
 
 Bridge меняет model-visible catalog, но не execution authority.
-
-## Полный Module Reload
-
-Если он понадобится, минимальные требования:
-
-- атомарно перечитать selection + components/exports + config;
-- handshake всех новых selected workers до публикации;
-- сохранить старый snapshot для активных turns;
-- завершить новые workers при failed build;
-- показать changed identities и failures;
-- не переносить invocation state между module ids;
-- проверить policy/tool surface consistency.
-
-До реализации не называйте `reload_tools` полным module hot reload.
 
 ## Не Делать
 

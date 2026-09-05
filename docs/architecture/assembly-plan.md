@@ -102,7 +102,3 @@ component args или environment values. Загрузить JSON плана о�
   topology.
 - Это не общий hot reload. Сейчас атомарный путь используется при начальной
   сборке, Config Builder и поддержанном reload tools.
-
-Следующий пользовательский слой поверх этой основы — сравнение двух планов
-перед сохранением config-а. Оно должно быть projection над `AssemblyPlan`, а
-не ещё одним способом собирать runtime.

@@ -1,7 +1,7 @@
 # Архитектура Proteus
 
-Этот документ описывает текущее состояние. Долгосрочные идеи находятся в
-[spec.md](../product/spec.md), порядок будущей работы — в
+Этот документ описывает текущее состояние. Замысел находится в
+[spec.md](../product/spec.md), критерии завершения — в
 [roadmap.md](../product/roadmap.md).
 
 ## Инвариант
@@ -13,7 +13,8 @@ Core -> Contract -> Module Implementation
 `proteus-core` знает, когда вызвать search, policy или workflow, но не знает
 алгоритм конкретной реализации. DTO и traits принадлежат
 `proteus-contracts`; внешняя implementation говорит с host через component
-wire protocol v3, сохраняя slot contract v1.
+wire protocol v3. Contracts workflow, compactor, tool и memory используют v2;
+остальные process slots — v1.
 
 Для каждой invocation:
 
@@ -47,7 +48,7 @@ SessionState: Turn / History / Steering / SessionStore
 agent execution binding adapter
           |
           v
-ExecutionContext (migration boundary)
+ExecutionContext
           |-- ExecutionScope (ExecutionId + cancellation)
           `-- generic runtime capability handles
           |
@@ -217,7 +218,7 @@ cancel, invalid response или смерть process классифицирую�
 | Turn | `SessionSteering` создаёт id; `AgentRuntime` открывает/settle-ит | Одна conversational operation; follow-up получает новый id | Chat/application lifecycle, history attribution и canonical settlement |
 | Workflow | Selected `Workflow` implementation | Один вызов внутри открытого Turn | Controller policy: ReAct/single loop, Codex loop, plan/execute/review или другой agent algorithm |
 | `ExecutionScope` | private `AgentRuntime` admission; используется Turn и typed top-level operations | Один logical workload; child cancellation view сохраняет id | Distinct `ExecutionId` и cancellation без chat/process identity |
-| `ExecutionContext` | agent binding adapter вызывает generic factory `RuntimeRegistry::execution_context` из одного captured snapshot | Один logical execution | Migration boundary для generic handles: model/search/memory/tools/policy/approval/grants |
+| `ExecutionContext` | agent binding adapter вызывает generic factory `RuntimeRegistry::execution_context` из одного captured snapshot | Один logical execution | Binding для generic handles: model/search/memory/tools/policy/approval/grants |
 | `AgentWorkflowContext` | `RuntimeRegistry` оборачивает уже bound `ExecutionContext`; `AgentRuntime` добавляет live Turn state | Один Workflow invocation | Chat/application identity, context building, compaction, steering/presentation и один wrapped `ExecutionContext` |
 | `RuntimeSnapshot` | `RuntimeServices` | Immutable assembly/config view, удерживаемый всем ходом | Coherent `ModuleEpoch + AssemblyPlan + RuntimeRegistry + config snapshot`; не computation checkpoint |
 | Model invocation | Workflow инициирует; `WorkflowHostRuntime` и `ModelService` исполняют | Один shaped request/stream/terminal response | Provider-neutral model call, timeout, validation, deltas и текущая Turn attribution |
@@ -225,10 +226,9 @@ cancel, invalid response или смерть process классифицирую�
 | Journal | Core `SessionStore`/projection | Append-only lifetime session directory | Canonical durable turn/history/model/tool facts и replay input |
 | Process invocation | `ComponentBroker` | Один root/nested component call в одном process generation | Broker-owned target, parent/root/depth, deadline, cancel и terminal state |
 
-`AgentRuntime { services: RuntimeServices, session: SessionState }` уже проводит
-полезную границу: services владеют snapshot/transports/runtime overrides, а
-session — conversation state. Выполненный context split не потребовал
-раскалывать `RuntimeServices` ради симметрии.
+В `AgentRuntime { services: RuntimeServices, session: SessionState }`
+services владеют snapshot/transports/runtime overrides, а session —
+conversation state.
 
 ## Mechanism И Policy
 
@@ -287,101 +287,51 @@ migration автоматически:
 Последний пункт закреплён runtime characterization test-ом. Добавлять fake
 model call ради replay запрещено: это скрыло бы именно проверяемую границу.
 
-## Context Split И Оставшийся Coupling
+## Execution Context И Recording
 
-Phase 2 удалила прежний 26-field `RuntimeContext` без alias или `Deref` и
-разделила ownership на два реальных типа:
-
-| Owner | Текущие поля |
+| Owner | Поля |
 |---|---|
 | `ExecutionContext` | `scope`, `model_timeout_ms`, `model`, `search`, `memory`, `tools`, `policy`, `approval`, `permission_grants` |
 | `AgentWorkflowContext` | `tool_recorder`, `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `reasoning`, `context_timeout_ms`, `events`, `context`, `user_input`, `compactor`, `tool_exposure`, `agent_control`, queued messages, `thread_label` |
 
-`ExecutionContext` является проверенной migration structure, но не объявлен
-конечной ambient API-моделью. Process-backed `SearchBackend` уже вызывается
-через эту границу из coherent `RuntimeSnapshot` без fake Turn и chat identity.
-Дальнейший review может сохранить узкий context или заменить широкие handles
-typed execution-bound capabilities.
+`ExecutionScope` содержит identity и cancellation без chat types.
+`ExecutionContext` связывает generic handles с coherent runtime snapshot.
+`AgentWorkflowContext` добавляет conversational identity и services.
 
-`ContextBuilder` остаётся agent-specific: `ContextBuildInput` обязательно
-содержит `AgentTask`. Сами `SearchBackend` и `MemoryStore` этого требования не
-имеют. `ApprovalPolicy` также не принимает Turn. Phase 5 перенесла
-`ExecutionPermissionGrants` в execution context и сделала chat projection в
-`RequestOrigin` optional. Phase 6A заменила обязательного chat owner-а в
-`ToolContext`, process `tool/v2` и recorder calls на `ExecutionAttribution`.
-Phase 6B вынесла registry/schema/policy/approval/grants/cancellation/recording/
-invoke/bounds в immutable `BoundTools`. Его public `execute(cwd, call)` не
-принимает `AgentWorkflowContext`, `AgentTask` или chat identity. Оставшийся
-`ToolOrchestrator` является тонким agent adapter-ом: он имеет право знать
-`AgentWorkflowContext`, добавляет presentation events, attributed user input,
-task и optional `AgentControl` host.
+`ContextBuilder` требует `AgentTask`. SearchBackend, MemoryStore и
+ApprovalPolicy такого требования не имеют. Immutable `BoundTools` владеет
+registry/schema/policy/approval/grants/cancellation/recording и вызовом tools.
+Его `execute(cwd, call)` не принимает chat context. `ToolOrchestrator`
+добавляет agent presentation, user input, task и AgentControl.
 
-Phase 3 убрала mutable current attribution из shared `ModelService`. Registry
-хранит один stateless относительно execution provider service, а каждый Turn
-получает отдельный `BoundModel` с immutable `ExecutionScope` и текущей
-session/thread/turn projection. Поэтому два независимых model calls больше не
-могут перезаписать metadata, delta envelope или journal owner друг друга.
+Shared `ModelService` stateless относительно execution. `BoundModel`
+связывает его с immutable scope и recorder, поэтому concurrent calls имеют
+раздельные attribution, deltas и cancellation.
 
-Phase 4A разделила recorder ownership. Generic `ExecutionRecorder` принимает
-только model lifecycle facts и не имеет `SessionId`, `ThreadId` или `TurnId` в
-contract-е. `BoundModel` пишет через этот handle и больше не знает о
-`SessionStore`. Phase 6A завершила аналогичный strict cutover для tools:
-`ToolExecutionRecorder` принимает mandatory execution attribution и optional
-agent projection, а `SessionToolExecutionRecorder` валидирует session только
-когда projection действительно присутствует. Поздняя подмена recorder-а в
-Turn отсутствует.
+`ExecutionRecorder` принимает generic model facts.
+`ToolExecutionRecorder` — tool facts с mandatory execution attribution
+и optional agent projection. `SessionExecutionRecorder` и
+`SessionToolExecutionRecorder` связывают их с session-owned journal.
 
-Phase 4B завершила durable cutover. Journal schema v2 всегда хранит
-`ExecutionId` для `TurnOpened`, model и tool facts. Их conversational
-attribution является optional-проекцией: agent execution добавляет
-`SessionId`/`ThreadId`/`TurnId`, а detached model execution записывается без
-выдуманных thread/turn. Projection fail-closed проверяет mapping
-`TurnId -> ExecutionId`, созданный `TurnOpened`; detached execution fact не
-требует открытого Turn. `HistoryMutated` и `TurnSettled` остаются chat/session
-lifecycle facts и не получают execution owner.
+Journal schema v3 сохраняет `ExecutionId` для TurnOpened, model и tool facts,
+ordered `CanonicalModelResponse.messages` и `CanonicalMessage.phase`.
+Conversational attribution optional: detached fact не требует выдуманного
+Turn. Projection проверяет mapping `TurnId -> ExecutionId`.
 
-Текущая journal schema v3 сохраняет те же execution-инварианты, но меняет
-canonical model payload на ordered `CanonicalModelResponse.messages` и typed
-`CanonicalMessage.phase`. Schema v2 намеренно не читается после этого
-pre-release cutover.
+Один execution нельзя переводить между detached и conversational attribution
+или привязать к двум Turns. Один Turn может иметь root/child presentation
+threads с общим execution id; это не process invocation lineage.
+После settlement новые root-thread execution facts запрещены, но ранее
+начатый child-thread lifecycle может завершиться.
 
-Тип attribution immutable на протяжении journal projection: один
-`ExecutionId` нельзя сначала использовать detached, а затем привязать к Turn,
-или наоборот. Один execution также нельзя привязать к двум Turns. После
-settlement новые root-thread execution facts запрещены; уже начатый child
-thread lifecycle того же execution может завершиться позднее.
-
-`SessionExecutionRecorder` теперь захватывает `ExecutionAttribution`:
-обязательный `ExecutionId` плюс optional `AgentTurnAttribution`. Сам
-`ExecutionScope` по-прежнему не импортирует chat identities; attribution
-вынесена в отдельный contract-модуль и не превращает scope в service locator.
-Session journal остаётся session-owned durable store, но его generic execution
-facts больше не обязаны изображать chat Turn.
-
-Execution ownership нельзя отождествить с presentation thread. Agent-control
-child context сохраняет `ExecutionId` через `child_cancellation_scope()`, но
-заменяет `AgentWorkflowContext.thread_id`. Поэтому один execution уже может
-иметь root и child presentation threads:
-
-```text
-ExecutionId E1
-    |-- root ThreadId T1
-    `-- child ThreadId T2
-```
-
-Один durable `ExecutionId` может иметь root/child presentation threads одного
-Turn. Это не создаёт child execution lineage и не связывает картину с process
-`InvocationRef`.
-
-Cancellation также имеет два разных terminal уровня. Provider/model error
-получает `ModelResponseRecorded(Error)`, но runtime cancellation/timeout
-оставляет начатый exchange interrupted и завершается chat-фактом
-`TurnSettled(Canceled|Timeout)`. Подменять cancellation fake model error-ом или
-добавлять generic `ExecutionSettled` в этом cutover не потребовалось.
+HistoryMutated и TurnSettled — session/chat facts без execution owner.
+Runtime cancel/timeout может оставить model exchange interrupted и записать
+TurnSettled(Canceled|Timeout); provider error записывается как model error.
+Это разные terminal paths.
 
 ## Identity Domains
 
-Текущая migration taxonomy различает три identity:
+Используются три разных identity:
 
 ```text
 TurnId
@@ -394,21 +344,10 @@ InvocationRef
   ComponentBroker invocation identity and lineage
 ```
 
-`InvocationRef` уже существует и принадлежит exact `ComponentBroker`. Он
-содержит `id`, `generation`, target export, `root_id`, `parent_id`, `depth` и
-deadline; private поля не дают module fabricating parent lineage. Один будущий
-execution сможет начать несколько независимых process invocation roots.
-Поэтому запрещены равенства `ExecutionId == TurnId` и
-`ExecutionId == InvocationRef`, а broker lineage не переносится в upper scope.
-Если позже понадобится общая identity для model/tool/process/human invocation,
-она потребует отдельного source-level решения: существующий process
-`InvocationRef` ради этой теории не переименовывается и не обобщается.
-
-Возможная будущая `AgentIdentity` была бы четвёртым, долгоживущим domain
-concept: одна identity могла бы владеть memory, несколькими conversations и
-background executions. Она не равна `ExecutionId` и не равна controller-у.
-Такой тип сейчас не реализован и не входит в Phase 0–2; это уточнение лишь не
-позволяет ошибочно свести весь смысл agent-а к `Workflow` или одному execution.
+`InvocationRef` принадлежит конкретному ComponentBroker и содержит id,
+generation, target, root/parent ids, depth и deadline. Один execution может
+начать несколько process invocation roots. TurnId, ExecutionId и
+InvocationRef не взаимозаменяемы; broker lineage не переносится в upper scope.
 
 ## State Concepts
 
@@ -430,148 +369,46 @@ history и settlement уже сохраняются канонически.
 future после crash. Program counter, stack, local workflow variables, steering
 queue и cancellation token journal не восстанавливает.
 
-## ExecutionScope Migration
+## Top-Level Operations
 
-Статус: **Phase 0–8 реализованы**.
-
-Принято направление отделить generic workload identity/lifecycle boundary от
-conversation Turn без переписывания agent loop или process protocol:
-
-```text
-Turn / AgentRuntime
-        |
-        | creates
-        v
-ExecutionScope(ExecutionId, cancellation, attribution boundary)
-        |
-        v
-ExecutionContext (implemented migration hypothesis)
-        |
-        v
-AgentWorkflowContext(chat wrapper)
-        |
-        v
-existing Workflow
-```
-
-Главный invariant: **Turn создаёт ExecutionScope, но generic execution не знает,
-что такое Turn**. `Turn`, history, steering, Workflow v1 и AppServer остаются
-application/chat concepts. `InvocationRef` и Component Runtime v2 / wire v3
-не меняются.
-
-`ExecutionScope` не является контейнером services. Его роль ограничена
-identity, lifecycle/cancellation и attribution. Реализованный
-`ExecutionContext` — migration structure, а не утверждённая конечная
-API-модель. Phase 2 доказала process-backed search через generic boundary без
-fake Turn; после review context может остаться узким, быть раздроблен или
-уступить место typed execution-bound handles.
-
-Долгосрочная гипотеза проверена двумя concrete capabilities — model и tools:
-
-```text
-Controller -> ExecutionScope -> typed capability binder/resolver
-                                      |-> BoundModel
-                                      |-> BoundTools
-                                      |-> BoundSearch
-                                      `-> BoundMemory
-```
-
-`BoundModel` и `BoundTools` не сведены к premature `BoundCapability<T>`. Это не
-universal capability enum и не ambient service locator. Конкретная
-capability остаётся typed contract-ом, а bound handle захватывает только её
-execution attribution, cancellation, authority/budget и recording needs.
-
-Phase 3 проверила эту форму на `BoundModel`: shared `ModelService` stateless
-относительно execution, а отдельный immutable handle bind-ит его к
-`ExecutionScope` и optional текущей chat/journal projection.
-`ExecutionContext.model` хранит этот bound handle за существующим
-`Arc<dyn Model>`. Phase 6B дала второй независимый data point: `BoundTools`
-захватывает registry, policy, approval, grants, limits и execution binding,
-но не требует agent/chat context. Эти два concrete handle всё ещё не являются
-основанием вводить `BoundCapability<T>` или общий resolver.
-
-На текущем HEAD существуют distinct `ExecutionId`, минимальный
-`ExecutionScope`, generic `ExecutionContext`, chat-specific
-`AgentWorkflowContext`, execution-bound model и tool handles. Каждый Turn
-создаёт новый id; wrapper содержит ровно один execution context. Structural
-guards запрещают chat imports в generic execution contracts и в public
-`BoundTools` boundary. История Phase 0–8 и их stop-gates сохранена в
-[архивном roadmap](../archive/roadmap-through-2026-08-31.md#executionscope-migration).
-
-### Реализованная Граница Phase 8
-
-Phase 8 не публикует `ExecutionContext` как closure argument или service
-locator. Сейчас этот migration type всё ещё содержит raw registry/store и
-policy handles; передача его целиком превратила бы внутреннюю compile
-boundary в ambient top-level API.
-
-Первый non-Turn owner — `AgentRuntime`, потому что именно он уже владеет
-`RuntimeServices`, runtime reload/effective overrides и текущим реальным
-side-channel `/remember`. Новый path при этом не использует chat-owned
-`SessionState` lifecycle:
+AgentRuntime предоставляет typed non-Turn операции и владеет их admission:
 
 ```text
 AgentRuntime
-     |
-     | private atomic admission
-     | (effective snapshot + one ExecutionScope)
-     v
-typed top-level operation
-     |-- BoundTools  -> first process-backed hard proof
-     |-- BoundMemory -> memory/v2
-     `-- BoundModel  -> later, after request-default ownership decision
+  -> private atomic admission: RuntimeSnapshot + effective settings + ExecutionScope
+  -> execute_tool -> BoundTools
+  -> remember     -> BoundMemory
 ```
 
-Private admission захватывает под одним `RuntimeExecutionState` read lock тот
-же coherent набор, что normal Turn: `RuntimeSnapshot`, permission mode,
-model ref, reasoning и effective config snapshot. Turn и non-Turn path
-используют один capture primitive. Binding capability не перечитывает live
-state, поэтому reload не может собрать одну execution из разных module epochs
-или permission/model settings.
+Turn и non-Turn используют один capture primitive под
+RuntimeExecutionState read lock. Он фиксирует registry/config, permission
+mode, model ref и reasoning. Binding не перечитывает live state после
+admission; reload не смешивает разные epochs в одной execution.
 
-Реализованная `AgentRuntime::execute_tool(call, cancellation)` получает только
-canonical input и cancellation token и возвращает typed result. Она не
-возвращает `RuntimeSnapshot`, registry,
-`ExecutionContext`, raw tools/memory handles или generic resolver.
-Каждый call создаёт distinct `ExecutionId`, fresh grants и detached
-attribution; session `run_lock`, user message reservation, history,
-`AgentTask`, `AgentOutput` и Turn events отсутствуют.
+`AgentRuntime::execute_tool(call, cancellation)` возвращает canonical result.
+Каждый call получает distinct ExecutionId, fresh grants и detached
+attribution. Session run_lock, user message reservation и Turn events
+для него не создаются; наружу не выдаются raw registry или ExecutionContext.
 
-Первый hard proof проходит через `BoundTools`: эта boundary уже
-связывает registry, policy, approval, grants, cancellation, process
-attribution и canonical tool recording. Если у `AgentRuntime` есть
-`SessionStore`, tool/model facts могут записываться с `execution_id` и без
-thread/turn; `TurnOpened`/`TurnSettled` или новые generic lifecycle events для
-этого не фабрикуются. При cancel/timeout `BoundTools` отменяет child token и
-bounded-время продолжает polling tool future, поэтому process adapter успевает
-доставить targeted protocol cancel; uncooperative tool не может удерживать
-entrypoint бесконечно.
+BoundTools проводит весь tool safety path. При наличии SessionStore tool
+facts записываются с execution id и без chat ids. При cancel/timeout
+BoundTools отменяет child token и ограниченное время продолжает polling,
+чтобы process adapter доставил targeted protocol cancel.
 
-`/remember` является первым user-facing non-Turn consumer. Он вызывает узкую
-`AgentRuntime::remember(item, cancellation)` operation: private admission
-один раз захватывает selected `MemoryStore`, создаёт scope и bind-ит
-`BoundMemory`. Public raw `AgentRuntime::memory()` удалён.
+Slash-команда `/remember` вызывает
+`AgentRuntime::remember(item, cancellation)`. Admission фиксирует selected
+MemoryStore, scope и BoundMemory. MemoryInvocationContext передаёт
+обязательную attribution через strict memory/v2; host token управляет cancel.
 
-Canonical `MemoryStore` получает `MemoryInvocationContext` для `remember` и
-`recall`. Attribution сериализуется обязательным полем strict `memory/v2`, а
-host-owned token управляет targeted broker cancel и ожидает terminal
-settlement. Все tracked producers, consumers и reference implementations
-переведены одновременно; reader/alias для `memory/v1` отсутствует.
+Direct-user memory operation использует authority memory slot и не зависит
+от optional tool remember_fact. Вызов remember_fact остаётся отдельным
+tool path с policy/approval. Durable запись принадлежит MemoryStore;
+direct memory action не создаёт ToolCall или memory journal fact.
 
-Slash-команда остаётся explicit direct-user memory operation и не
-перенаправляется через опциональный tool `remember_fact`. Tool path продолжает
-проходить `BoundTools` и policy/approval; direct memory path получает только
-authority выбранного memory slot-а. MemoryStore остаётся durable owner записи,
-а Phase 8 не превращает memory action в `ToolCall` и не добавляет journal fact
-без отдельного replay use case.
-
-Non-Turn tool и memory operations не берут session `run_lock` и могут идти параллельно с
-Turn и друг с другом. Изоляция обеспечивается distinct scope/grants/recorders,
-SessionStore сериализует append своим writer lock, а multiplexed component
-сохраняет общий process lifecycle/failure domain без union authority. Cancel
-одной execution не должен затрагивать sibling execution или Turn. Полный
-порядок changesets и evidence зафиксирован в
-[архивном roadmap](../archive/roadmap-through-2026-08-31.md#phase-8--top-level-non-turn-admission).
+Non-Turn tool/memory operations могут идти параллельно с Turn и друг с другом.
+Scope/grants/recorders раздельны; SessionStore сериализует append writer lock.
+Exports одного component сохраняют shared process failure domain.
+Адресный cancel одной execution не отменяет sibling или Turn.
 
 ## Capability, Slot, Module, Worker И Profile
 
@@ -685,11 +522,8 @@ Process adapter сохраняет parent в локальном callback scope �
 того же exact broker. Поэтому Core продолжает работать с обычными typed traits
 и не знает wire ids, а другой component не может случайно стать descendant.
 
-P3 атомарно подключил `proteus-module-protocol::v3` к core, reference worker,
-examples и conformance. Старый wire-v2 session удалён без dual-read/dual-write
-или автоматического выбора версии. P4 затем подтвердил full workflow topology:
-один component/PID, concurrent sibling, targeted cancel, process tool и
-canonical journal/replay.
+Production conformance и topology/journal suites проверяют один component/PID,
+concurrent sibling, targeted cancel и canonical workflow replay.
 Подробнее: [process-module-architecture.md](process-module-architecture.md).
 
 Process boundary даёт lifecycle isolation, но пока не OS sandbox. Worker
@@ -700,8 +534,7 @@ sandbox policy.
 
 ## Core-Owned Границы
 
-После удаления dylib остаётся одна категория selectable implementations,
-которая ещё не processized:
+Core-owned selectable implementations модели:
 
 - model provider adapters `fake`, `openai`, `openai_compatible`,
   `anthropic`.

@@ -89,7 +89,7 @@ path = ".proteus/memory.sqlite"
 
 `examples/configs/proteus.one-component.example.toml` показывает допустимый
 крайний случай: десять callback-связанных exports reference worker-а собраны в
-один process. P4 test подтверждает один PID, nested lineage, адресную отмену и
+один process. Topology test подтверждает один PID, nested lineage, адресную отмену и
 canonical journal/replay; это не делает такую топологию обязательной.
 
 Нет специальных ids `default`, `none`, `process` или `all_visible`.

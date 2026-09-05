@@ -11,7 +11,7 @@
 - Upstream: [`deepseek-ai/deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness).
 - Проверенный upstream-срез: `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`.
 - Исходный подробный разбор:
-  [`examples/research/deepseek/deepseek-research-report.md`](../../examples/research/deepseek/deepseek-research-report.md).
+  [`examples/research/deepseek/deepseek-research-report.md`](../../../examples/research/deepseek/deepseek-research-report.md).
 
 ## Зачем Нужен Этот Документ
 

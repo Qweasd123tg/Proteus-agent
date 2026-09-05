@@ -1,9 +1,6 @@
 # Process Components И Module Contracts
 
-Статус: process-only cutover бывшей dylib system завершён 2026-08-07;
-Component Runtime v1 реализован 2026-08-08; protocol-neutral P1 duplex
-transport foundation и P2 multiplexed broker/wire-v3 kernel завершены
-2026-08-22; atomic P3 cutover host/workers/examples завершён 2026-08-23.
+Документ описывает действующий Component Runtime v2 / wire v3.
 
 Текущая внешняя граница:
 
@@ -283,7 +280,7 @@ DTO, adapter, protocol/conformance и swap evidence в одном commit.
 - crash, protocol/resource failure и cancel-grace failure domain;
 - reset и lazy restart.
 
-Нижний `proteus-process-host` после P1/P2 разделяет single-consumer frame
+Нижний `proteus-process-host` разделяет single-consumer frame
 reader, data/control writer lanes и cloneable lifecycle. Concurrent callers
 могут атомарно отправлять целые кадры; очереди ограничены количеством кадров,
 их суммарными byte-бюджетами и per-frame пределом. Control frame не обгоняет
@@ -335,7 +332,7 @@ Exports с callback-связями разрешено объединять; comp
 
 Runtime доказан hostile Python worker-ом в `tests/broker_v3.rs` и реальным
 reference worker-ом: nested callback входит в другой export того же PID, а
-targeted cancel сохраняет sibling и generation. Отдельный P4 profile
+targeted cancel сохраняет sibling и generation. Отдельный topology profile
 `examples/configs/proteus.one-component.example.toml` и test
 `topology_journal.rs` проводят полный process-backed workflow, параллельный
 sibling, cancel, process tool и canonical replay; live run остаётся
@@ -437,15 +434,7 @@ cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
 `--export` повторяется для multi-export component. Conformance требует exact
 handshake всего набора, даже если probe направлен только в один export.
 
-## Что Удалено И Что Осталось В Core
-
-Process-only cutover удалил:
-
-- `proteus-contracts::plugin` и ABI wrappers;
-- dylib loader/root exports и plugin scan directory;
-- `plugin.toml`, `cdylib`, `abi_stable`, `libloading`;
-- origin-specific registrations/capabilities;
-- старые config/wire shapes и ABI tests.
+## Core-Owned Границы
 
 Tracked reference crates — ordinary Rust libraries, линкуемые внутрь worker.
 

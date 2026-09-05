@@ -2,6 +2,14 @@
 
 Инструкции для агентов и контрибьюторов, работающих с этим репозиторием.
 
+## Актуальный Контекст
+
+Замысел, текущее состояние и ожидаемый результат находятся в
+`docs/product/spec.md`, `docs/product/scope.md` и `docs/product/roadmap.md`.
+Остальные действующие документы читаются по затронутой границе.
+`docs/archive/` и `examples/research/` исключайте из обычного поиска
+контекста; они нужны только по явному запросу истории конкретного решения.
+
 ## Главный Инвариант
 
 Проект является модульным каркасом:
@@ -99,7 +107,7 @@ modules/
         sqlite-memory/       - MemoryStore на SQLite FTS5
         codex-compactor/     - HistoryCompactor под id "codex"
         codex-tool-exposure/ - ToolExposure под id "codex_dynamic"
-        coding-workflow/     - Workflow modules под ids "coding.single_loop", "coding.codex_loop" и "coding.plan_execute_review"
+        coding-workflow/     - Workflow modules "coding.single_loop", "coding.codex_loop", "coding.plan_execute_review", "coding.project_check"
         context-pack/        - ContextBuilder modules под ids "simple", "repo_aware" и "codex_context"
         skill-pack/          - docs-on-disk skills: context provider "skills" + tool "skill"
         rust-lsp/             - tool lsp_diagnostics: Rust/rust-analyzer через persistent stdio LSP
@@ -148,7 +156,7 @@ Reference crates линкуются только внутрь `proteus-reference
 Проект находится в черновой pre-release фазе без внешних пользователей. Пока
 владелец проекта явно не объявит текущие поверхности стабилизированными,
 обратная совместимость для собственных config/API/DTO/wire/storage форматов
-форматов не является целью.
+не является целью.
 
 Практические правила:
 
@@ -218,6 +226,10 @@ runtime.
 
 Документация проекта ведётся на русском. Имена кода, API, traits, modules и config keys остаются английскими.
 
+Обновляйте существующий документ по его ответственности. Промежуточные планы,
+сводки прохода, гипотезы и завершённые этапы не добавляйте в текущие справочники.
+Отдельный документ нужен только для самостоятельной долговечной темы.
+
 При изменении поведения обновляйте ближайший документ (полный индекс —
 `docs/README.md`):
 
@@ -233,7 +245,8 @@ runtime.
 - vision/spec: `docs/product/spec.md`;
 - roadmap: `docs/product/roadmap.md`;
 - межпаковые контракты: `docs/architecture/pack-contracts.md`;
-- research-черновики и архивы: `docs/research/`.
+- текущая документация: по индексу `docs/README.md`; исторические материалы:
+  `docs/archive/`.
 
 ## Ведение Запросов Пользователя
 
@@ -251,11 +264,9 @@ runtime.
 остальные без статуса.
 
 Если в текущем заходе делается только часть списка, явно скажите, какие пункты
-закрыты, какие отложены и почему. Отложенные идеи, UX-наблюдения и будущие
-задачи фиксируйте в ближайшем подходящем markdown-документе
-(`docs/product/roadmap.md`, `docs/product/spec.md`, профильный документ в
-`docs/` или отдельный
-research/notes doc), чтобы их можно было закрыть позже.
+закрыты, какие отложены и почему. Согласованную с владельцем отложенную задачу
+фиксируйте кратко в подходящем существующем документе. Собственные гипотезы
+и наблюдения не превращайте автоматически в backlog или отдельный notes doc.
 
 ## Проверка Перед Завершением
 

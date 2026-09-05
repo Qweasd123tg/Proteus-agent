@@ -124,35 +124,16 @@ source/target отклоняются до enqueue. `AgentControlMessage` хра�
 в model-visible user message. Authority при доставке не объединяется: peer
 продолжает исполнять tools только через собственные registry, policy и safety.
 
-## Порядок Возможного Продолжения
-
-1. Отделить root-owned agent record/tree от конкретного process connection,
-   process pool и transport.
-2. Добавить authenticated attach к уже работающему local app-server без
-   изменения agent semantics.
-3. Только затем решать persistence/reconnect, remote transport и нужен ли
-   прямой peer mesh.
-
-Реализованные DTO, stdio messaging и Agent-Control cutover описаны выше как
-текущая boundary; подробный старый changeset order сохранён в
-[архивном roadmap](../archive/roadmap-through-2026-08-31.md#agent-control-cutover).
-
-Каждый срез должен проверять addressable cancel, bounded queues, crash
-изоляцию, session ownership, terminal journal semantics и отсутствие расширения
-authority.
-
 ## AssemblyPlan И Живая Карта
 
 `AssemblyPlan` фиксирует model-facing `agent_control.surface`, но AgentControl
 не является behavior slot и не имеет выбранного subagent runner-а. Role
 profiles и process bounds читаются из top-level `[agent_control]`; безопасное
-summary ролей пока не входит в JSON projection. В будущем план может получить
-такое summary и connection backend, но он не должен перечислять конкретные
-запущенные peers: они появляются и исчезают во время работы.
+summary ролей не входит в JSON projection. Конкретные peers появляются
+и исчезают во время работы и не являются частью статического плана.
 
 Живые экземпляры, их адреса, parent edges, mailbox и состояния относятся к
-session-owned runtime projection. Поэтому будущая карта агентов должна
-публиковаться рядом с runtime topology, но не становиться вторым config format.
+session-owned runtime state.
 
 ## Не Входит В Первый Contract
 
@@ -162,6 +143,3 @@ session-owned runtime projection. Поэтому будущая карта аг�
 - неограниченные mailbox/process residency;
 - автоматическое объединение histories или прав;
 - component-to-component вызовы в обход root coordinator.
-
-История вариантов и upstream-сравнение сохранены в
-[research/subagent-architecture-options.md](../research/subagent-architecture-options.md).

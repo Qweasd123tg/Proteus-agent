@@ -1,10 +1,7 @@
-# Design: Canonical Turn Data
+# Canonical Turn Data
 
-Статус: **journal v2, storage cutover, prompt replay v0 и workflow replay v0
-реализованы**. Resume history, web transcript, eval и оба replay-режима читают
-canonical journal. Дата решения: 2026-07-20, cutover и prompt replay:
-2026-07-23, workflow replay: 2026-07-24, execution ownership cutover:
-2026-08-29.
+Текущий формат — journal schema v3 и session metadata v4. Resume history,
+transcript, eval, prompt replay и workflow replay читают canonical journal.
 
 ## Решение
 
@@ -21,24 +18,6 @@ Resume history, transcript, replay input и eval rows являются
 Это решение не означает «сохранять provider wire». Канонической остаётся
 provider-neutral модель Proteus; OpenAI/Anthropic payload живёт только внутри
 adapter-а и может сохраняться отдельно как opt-in diagnostic artifact.
-
-## Зачем Один Контур
-
-До cutover полезные факты были разделены:
-
-- старый `messages.jsonl` хранил текущую conversation history, но compaction заменял
-  её проекцию;
-- `messages.pre-compaction.N.jsonl` страховал старую историю, но не описывал
-  lineage как данные;
-- `requests.jsonl` хранил shaped `CanonicalModelRequest`, но не canonical
-  response и не связь с tool/result boundary;
-- `config_snapshot.json` фиксирует последний resolved startup snapshot;
-- event log объясняет lifecycle, но намеренно не является lossless записью:
-  streaming deltas по умолчанию отфильтрованы, tool payload bounded.
-
-Если отдельно проектировать resume, replay, eval и недеструктивную compaction,
-каждый потребитель изобретёт собственный turn id, ordering и правила parts.
-Session journal задаёт эти правила один раз.
 
 ## Границы Канонической Модели
 
@@ -62,7 +41,7 @@ item boundaries и phase без provider-specific parsing. Singular legacy shape
 
 ### Parts
 
-В journal cutover `ContentPart` обёрнут в явный `CanonicalPart` со стабильным
+`ContentPart` обёрнут в явный `CanonicalPart` со стабильным
 `part_id`, provenance и scope. Структурная семантика не угадывается по
 `message.name` или свободному `metadata`.
 
@@ -90,7 +69,7 @@ provider-side execution и сохраняются в journal/transcript/eval pro
 `CanonicalPart` явно закрепляет их provenance/scope; угадывать hosted execution
 по provider metadata или тексту ответа нельзя.
 
-## Journal v1
+## Journal v3
 
 Одна JSONL-строка — один строгий record с общим envelope:
 
@@ -100,8 +79,9 @@ record_id
 session_seq
 timestamp_ms
 session_id
-thread_id
-turn_id?       # optional только для session-level факта
+execution_id? # обязателен для TurnOpened, model и tool facts
+thread_id?    # conversational attribution
+turn_id?      # conversational attribution
 kind
 payload
 ```
@@ -289,7 +269,7 @@ process-resident steering queue. Projection может показать неза
 
 ## Текущий Execution Owner
 
-Journal v2 разделяет durable execution owner и chat projection:
+Journal разделяет durable execution owner и chat projection:
 
 ```text
 ExecutionAttribution
@@ -314,7 +294,7 @@ call/result.
 `HistoryMutated` и `TurnSettled` остаются chat/session lifecycle facts и не
 несут `ExecutionId`. Поэтому cancellation/timeout по-прежнему может оставить
 model exchange interrupted и завершить именно Turn. Generic
-`ExecutionSettled` и durable continuation в schema v2 не добавлены.
+`ExecutionSettled` и durable continuation отсутствуют.
 
 `ExecutionRecorder` остаётся generic scope-bound contract без chat IDs.
 `SessionExecutionRecorder` адаптирует model facts к session journal через
@@ -326,47 +306,7 @@ detached tool facts не требуют invented Turn. Generic lifecycle исп�
 `AgentWorkflowContext`, presentation events, task/user-input и agent-control
 enrichment. Это не ограничение journal schema.
 
-## Выполненный Переход
-
-Проект pre-release, поэтому runtime compatibility shim и постоянный dual
-read/write не добавлялись. Cutover одним изменением обновил tracked
-producers/consumers и удалил старый active path.
-
-Выполненные шаги:
-
-1. ✅ Добавлены journal DTO/writer/projector и regression tests на
-   ordering, crash tail, history revision и compaction lineage;
-2. ✅ В test harness доказано, что journal projection совпадает с ожидаемой
-   current history/transcript;
-3. ✅ Runtime, resume, app-server history и eval переключены на journal в одном
-   cutover;
-4. ✅ Удалены active запись/чтение старых request/history JSONL и
-   pre-compaction archives; rebuildable history cache не оставлен.
-5. ✅ Runtime принимает только 10-значные session directories с
-   `session.json` schema v4/journal v2. Старые локальные dogfood sessions нужно
-   вручную перенести целиком за пределы active `sessions/`; старая форма не
-   распознаётся молча.
-6. ✅ Prompt replay v0 повторяет exact post-shaping request напрямую через
-   model adapter, не исполняет local tools и не изменяет journal; hosted tools
-   требуют явного opt-in.
-7. ✅ Workflow replay v0 запускает записанный Workflow с journal-backed
-   зависимостями, проверяет canonical orchestration/history и побайтовую
-   неизменность source journal без live provider/tool calls.
-
-## Не Решается Этим Документом
-
-- выбор SQLite против JSONL после появления измеренного bottleneck;
-- retention/GC content-addressed blobs;
-- хранение raw provider HTTP/SSE payload;
-- durable restart collaboration handles и queued steering;
-- cross-session DAG, merge semantics и marketplace artifacts;
-- durable workflow continuation/checkpointing;
-- generic terminal execution facts и cross-session execution storage.
-
-Эти решения могут использовать journal, но не должны менять его semantic
-ordering или превращать event log в второй источник истины.
-
-## Gate Реализации
+## Проверка
 
 - один turn полностью восстанавливается без event log;
 - accepted user message переживает provider/workflow failure;

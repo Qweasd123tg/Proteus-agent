@@ -1,7 +1,7 @@
 # Аудит Codex parity на 2026-07-14
 
 Этот документ — research snapshot активного профиля
-[`configs/codex.config.toml`](../../configs/codex.config.toml), а не заявление о
+[`configs/codex.config.toml`](../../../configs/codex.config.toml), а не заявление о
 полной совместимости Proteus с Codex. Он сводит два независимых прохода:
 
 Статус-обновление 2026-07-16: после этого snapshot public `MemoryPolicy` и
@@ -17,7 +17,7 @@ custom-tool round-trip. Freeform в таблице ниже остаётся и�
 
 Статус-обновление 2026-09-01: активный upstream baseline и первый новый
 parity-срез вынесены в
-[codex-parity-baseline-2026-09-01.md](codex-parity-baseline-2026-09-01.md).
+[codex-parity-baseline-2026-09-01.md](../../development/codex-baseline.md).
 Typed `MessagePhase` и ordered `CanonicalModelResponse.messages` теперь
 реализованы; строки ниже про потерю phase сохранены только как evidence того,
 как gap был обнаружен в этом датированном snapshot.

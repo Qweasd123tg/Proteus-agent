@@ -61,7 +61,7 @@ reference implementations больше не получают привилеги�
 > runtime decorators?
 
 Предыдущий документ
-[deepseek-harness-lessons-2026-08-21.md](../research/deepseek-harness-lessons-2026-08-21.md)
+[deepseek-harness-lessons-2026-08-21.md](research/deepseek-harness-lessons-2026-08-21.md)
 сделал осторожный вывод «не менять порядок roadmap, идти в R1 Installed
 Dogfood». Более глубокая сверка source-level lifecycle показывает, что такой
 порядок нельзя считать решённым автоматически. Перед следующим большим

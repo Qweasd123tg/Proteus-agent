@@ -27,7 +27,7 @@ model shaping и client projections. Target-specific path в Core не допу�
 
 | Target | Статус | Evidence |
 |---|---|---|
-| Codex | Первый bounded differential slice реализован; работа продолжается независимо от product roadmap Proteus | [pinned baseline и ordered response slice](codex-parity-baseline-2026-09-01.md) |
+| Codex | Первый bounded differential slice реализован; работа продолжается независимо от product roadmap Proteus | [pinned baseline и ordered response slice](../../development/codex-baseline.md) |
 
 Следующие targets добавляются отдельными строками только после появления
 конкретного scenario и evidence. Общие сравнения в `research/` и большие
@@ -43,5 +43,5 @@ host-owned, не зависит от имени target-а и сохраняет 
 lifecycle и failure semantics для независимых implementations.
 
 Текущий порядок практики и условные platform questions находятся в
-[product/roadmap.md](../product/roadmap.md). Долговечные границы проекта — в
-[product/spec.md](../product/spec.md).
+[product/roadmap.md](../../product/roadmap.md). Долговечные границы проекта — в
+[product/spec.md](../../product/spec.md).

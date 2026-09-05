@@ -35,21 +35,19 @@
 | Agent control/subagents | DTO/mailbox unit | минимум два real process peers | forged address/source, bounded FIFO, cancel handoff и sibling crash isolation |
 | HTTP/session | handler unit | reconnect/cold history | auth/SSE smoke |
 | Inspector/web | Rust unit | `trunk build` | browser smoke при UX change |
-| Docs only | link/config inspection | обычно не нужен | сообщить, если tests не запускались |
+| Docs only | link/config inspection | обычно не нужен | `cargo test --workspace` |
 
 Manual dogfood не является обязательным gate или sequencing prerequisite.
 Protocol или architecture change без automated boundary evidence всё равно
 неполон.
 
-### Agent Reconstruction Compatibility Gate
+### Проверка Совместимости Сборки
 
 Каждая compatible reconstruction начинается с pinned target revision и
 минимального trace/fixture. Fixture должен проверять наблюдаемое поведение и
 failure path, а не только совпадение имён tools или config keys. Общие правила
-и список независимых workstreams описаны в
-[agent-runtime-reconstructions.md](../research/agent-runtime-reconstructions.md).
-Первый Codex baseline находится в
-[codex-parity-baseline-2026-09-01.md](../research/codex-parity-baseline-2026-09-01.md).
+экзамена описаны в [roadmap.md](../product/roadmap.md).
+Существующий Codex baseline находится в [codex-baseline.md](codex-baseline.md).
 
 Для изменения canonical model response и `coding.codex_loop` минимум:
 
@@ -72,286 +70,24 @@ durable journal schema v3. Старые singular response, contract v1 и journa
 или намеренная documented divergence. Fake model call, metadata heuristic и
 Codex-only обход общей validation boundary не считаются evidence.
 
-### ExecutionScope Phase 0–2 Gate (implemented)
-
-Реализованная migration и её review checkpoint сохранены в
-[архивном roadmap](../archive/roadmap-through-2026-08-31.md#executionscope-migration).
-Её `Phase 0` — baseline конкретного changeset; она не связана с историческим
-`P0 Multiplexed Broker Spike` ниже.
-
-До diff зафиксировать HEAD/status и выполнить:
+### Execution И Top-Level Operations
 
 ```bash
-cargo test --workspace
-```
-
-После Phase 2 минимальный gate:
-
-```bash
-cargo test -p proteus-contracts
-cargo test -p proteus-core
-cargo test -p proteus-core --test module_swap
-cargo test -p proteus-module-protocol
-cargo test -p coding-workflow
-cargo test --workspace
-```
-
-Focused evidence доказывает independent construction
-`ExecutionScope`/`ExecutionContext`, unique scope per domain Turn,
-`AgentWorkflowContext` wrapping и отсутствие chat types в generic execution
-module. Одного constructor test недостаточно: selected process-backed
-`SearchBackend` из coherent `RuntimeSnapshot` возвращает canonical result
-через Phase 2 generic boundary без `SessionId`, `ThreadId`, `TurnId`,
-`AgentTask`, history или fake Turn. Existing steering, journal/replay, runtime
-snapshot, process lineage, cancellation и coding workflow tests являются
-regression boundary; их не переписывают под новую semantics. Если contract
-path меняется, все tracked workflow producers/consumers обновляются атомарно
-без legacy alias.
-
-### BoundModel Phase 3 Gate
-
-Phase 3 доказывает immutable capability binding, а не только отсутствие
-конкретного lock-а. Focused tests в `core/bound_model_tests.rs` создают два
-`BoundModel` поверх одного shared `ModelService`, удерживают оба provider call
-одновременно barrier-ом и проверяют раздельные request metadata, delta events,
-journal projection и cancellation. Там же проверяются detached construction
-без Turn и fail-closed reject reserved attribution metadata mismatch. После
-focused tests обязателен полный `cargo test --workspace`; journal schema,
-`Model` DTO/trait и process protocol в этой phase не меняются.
-
-### Execution Recording Phase 4 Gate
-
-Перед recorder refactor были добавлены characterization tests двух текущих
-interruption paths:
-
-- model request без response + `TurnSettled(Canceled|Timeout)` остаётся в
-  `interrupted_model_exchanges`, но Turn не остаётся unsettled;
-- cancellation во время approval может оставить tool call unresolved и не
-  фабрикует resolution/result.
-
-Phase 4A реализована 2026-08-28 и отдельно доказывает, что detached
-`BoundModel` записывает model facts в scope-bound in-memory
-`ExecutionRecorder` без chat IDs, а normal Turn передаёт один recorder при
-construction вместо поздней подмены. Current dynamic root/child thread
-attribution tool calls сохраняется через agent-specific recorder surface.
-Structural test также запрещает chat domain imports в generic `execution.rs`
-и `execution_recorder.rs`.
-
-Checkpoint 2026-08-28: focused Phase 4A tests и полный
-`cargo test --workspace --no-fail-fast` прошли без failures; `module_swap`,
-workflow/prompt replay, coding workflow, process lineage/cancellation и
-reference conformance входят в этот gate.
-
-Phase 4B реализована 2026-08-29 как strict schema cutover без compatibility
-reader. Gate проверяет:
-
-- один `ExecutionId` в `TurnOpened`, model/tool facts и runtime scope;
-- fail-closed mismatch `TurnId -> ExecutionId`;
-- один execution с несколькими presentation threads;
-- execution-owned model fact без открытого Turn;
-- explicit rejection schema v1 и round-trip новой session metadata version;
-- prompt/workflow replay, cold transcript/history и eval на новой schema;
-- существующие process lineage/conformance и `module_swap` без изменений.
-
-Дополнительный architecture guard создаёт detached
-`SessionExecutionRecorder`, записывает полноценный model request/error и
-строит journal projection без `SessionId`/`ThreadId`/`TurnId` в execution
-attribution. Agent-path tests отдельно проверяют mapping
-`TurnId -> ExecutionId`, dynamic child thread attribution и запрет смены owner
-между lifecycle facts. Journal schema v1 и session metadata v3 отвергаются
-явно; dual reader отсутствует.
-
-После каждого changeset выполняется `cargo test --workspace --no-fail-fast`.
-Phase 5 добавляет отдельные gates: grants A/B isolation, detached approval
-origin без chat identity, сохранение agent thread cache semantics и
-execution-isolated detached cache. Phase 6 generic tools, process protocol и
-event DTO в этот checkpoint ещё не входят.
-
-Checkpoint 2026-08-29: `cargo fmt --all -- --check`,
-`cargo check --workspace` и `cargo test --workspace` прошли. Strict
-`cargo clippy --workspace --all-targets --all-features -- -D warnings` всё ещё
-блокируется существующими до Phase 4B lint-ами Rust 1.97 в неизменённых
-reference packs и Core (`useless_conversion`, `question_mark`,
-`clone_on_copy`, `too_many_arguments`, `derivable_impls`, `needless_borrow`,
-`unit_arg`). Новый `append_record` lint был устранён в самом changeset; общий
-lint cleanup не смешивается с execution architecture.
-
-Phase 5 checkpoint 2026-08-29: focused grants/origin/cache suites, полный
-workspace test gate и `clients/web` `trunk build` прошли. Один первый полный
-test run вернул transient failure в `proteus-core --lib`; немедленный rerun
-этого target и затем всего workspace с тем же feature-unified binary прошли,
-поэтому воспроизводимого regression не установлено. Strict clippy повторно
-показал тот же pre-existing набор diagnostics в code lines вне changeset и не
-выявил нового lint-а в изменённых contracts.
-
-### Phase 8A Top-Level Non-Turn Gate
-
-Phase 8A проверяет public typed operation, а не только ручную сборку нижнего
-`BoundTools`. Focused gate:
-
-```bash
-cargo test -p proteus-core core::runtime::tests::execution --no-fail-fast
-cargo test -p proteus-core --test execution_boundary --no-fail-fast
-```
-
-Unit suite фиксирует один private admission primitive для Turn и non-Turn,
-frozen registry и permission mode через reload/runtime override, отсутствие
-session `run_lock`, fresh grants и distinct detached attribution. Boundary
-suite поднимает один реальный concurrent Python component с `tool/v2` и
-`policy/v1`, затем проверяет:
-
-- `AgentRuntime::execute_tool` возвращает canonical `ToolResult` без
-  Turn/Workflow/history;
-- journal содержит только tool facts с одним `execution_id` и без
-  `thread_id`/`turn_id`;
-- два calls одного multiplexed component имеют разные execution ids;
-- targeted cancel не затрагивает sibling, а cancel и tool timeout действительно
-  доходят до process invocation;
-- source guard запрещает ambient registry/context и chat types на новой public
-  operation boundary.
-
-После focused suite обязательны `cargo fmt --all -- --check`,
-`cargo check --workspace`, `cargo test -p proteus-core --test module_swap` и
-полный `cargo test --workspace --no-fail-fast`. Phase 8A не меняет process DTO,
-authority table, Workflow v1 или journal schema; существующие protocol,
-conformance, replay и swap suites остаются regression gate.
-
-Checkpoint 2026-08-30: оба focused command-а, format check, workspace check,
-`module_swap` и полный workspace test gate прошли без failures. Full gate
-включил production `broker_v3`/`multiplex_spike`, process-host session tests,
-reference conformance и topology/journal replay.
-
-### Phase 8B Memory Admission Gate
-
-Phase 8B дополнительно проверяет strict `memory/v2` и реальный `/remember`:
-
-```bash
-cargo test -p proteus-contracts process_slots::tests
 cargo test -p proteus-core core::runtime::tests::execution
 cargo test -p proteus-core --test execution_boundary
 cargo test -p proteus-core remember_command_uses_memory_v2_when_remember_fact_is_disabled
-cargo test -p proteus-reference-worker --test conformance
 cargo test -p proteus-reference-worker --test topology_journal
 ```
 
-Evidence обязан фиксировать mandatory detached attribution, отсутствие v1
-reader-а, frozen store через reload, targeted cancel реального блокирующего
-worker-а, живой concurrent sibling и Turn, работу slash-команды при
-отключённом `remember_fact`, а также отсутствие history/Turn/memory journal
-facts. После focused suite применяются обычные format, workspace check,
-module-swap и full workspace gates.
+Проверки подтверждают единый immutable admission для Turn и non-Turn,
+distinct execution attribution, frozen registry/grants через reload,
+typed tool/memory операции без выдуманных chat ids и адресную отмену
+при живом sibling. Topology/journal suite проверяет один component process,
+раздельную slot authority и canonical workflow replay.
 
-Checkpoint 2026-08-31: все перечисленные focused suites, module protocol,
-`cargo fmt --all -- --check`, `cargo check --workspace`, module swap и полный
-`cargo test --workspace --no-fail-fast` прошли. Первый full run обнаружил
-оставшийся hardcoded `ModuleManifest::process` api version v1; manifest теперь
-получает slot-owned contract version, профильный regression и повторный full
-run зелёные.
-
-### P0 Multiplexed Broker Spike
-
-```bash
-cargo test -p proteus-module-protocol --test multiplex_spike -- --nocapture
-```
-
-Это language-neutral automated research evidence для Runtime v2 P0. Gate
-проверяет multiplexing, reentrancy, targeted cancellation, causal priority,
-failure fan-out, admission/deadline semantics и bounded reader/writer/retained
-state на внешнем Python worker-е.
-
-Spike не является production contract. Он не заменяет P2/P3 conformance,
-`module_swap`, strict public DTO review, journal/replay, workspace/session,
-install или `doctor` gates. Действующий Runtime v2 / wire v3 проверяется
-production broker, swap и real-worker suites ниже.
-
-### P1 Duplex Transport Foundation
-
-```bash
-cargo test -p proteus-process-host -- --nocapture
-cargo test -p rust-lsp
-```
-
-Process-host suite дополнительно фиксирует protocol-neutral P1 boundary:
-
-- concurrent frame writers не смешивают байты разных кадров;
-- priority control frames обгоняют только queued, но не уже начатый data frame;
-- queued data frame можно отменить до write, а frame/count/aggregate byte
-  limits применяются отдельно к data и control lanes;
-- slow consumer не обходит aggregate receive frame/byte limits;
-- child exit имеет lifecycle signal отдельно от frame queue;
-- repeated terminate идемпотентен; остановка live Unix generation завершает
-  его process group и будит blocked reader и всех lifecycle waiters, даже если
-  обычный descendant удерживает унаследованные stdout/stderr;
-- `ProcessHost::terminate` прерывает blocked sequential request до его timeout;
-- initializer выполняется ровно один раз на generation и повторяется после
-  lazy restart.
-
-P1 сам по себе не является wire-v3 evidence. После P3 sequential facade
-остался только у MCP/LSP; component boundary проверяет `ComponentBroker`.
-
-### P2 Multiplexed Broker / Wire v3 Kernel
-
-```bash
-cargo test -p proteus-module-protocol --test broker_v3 -- --nocapture
-```
-
-Gate запускает production `ComponentBroker` против внешнего Python worker-а и
-проверяет:
-
-- strict exact-set handshake wire v3 и lazy handshake нового generation;
-- out-of-order calls, concurrent exports и direction-separated `h:*`/`m:*`
-  ids;
-- same-component nested invocation только через host, overlapping callbacks и
-  authority parent export-а;
-- documented sibling-parent trusted-component boundary, forged/stale/
-  wrong-generation parent, ссылка на ещё не отправленный invocation и
-  forbidden callback fail-closed;
-- live notification routing, slow/overflow consumer и bounded frame/byte
-  retention;
-- root admission, nested reserve, callback depth/count/id bounds и deadline,
-  включающий ожидание admission;
-- targeted user/timeout cancel, cancel до dispatch и во время callback,
-  uncooperative cancel grace reset;
-- crash/protocol/resource fan-out, exactly-once terminal, late/duplicate/
-  malformed/oversized frames.
-
-### P3 Atomic Cutover
-
-P3 evidence состоит не из отдельного mock-а, а из одновременного прохождения:
-
-```bash
-cargo test -p proteus-module-protocol
-cargo test -p proteus-core --test module_swap
-cargo test -p proteus-reference-worker --test conformance
-```
-
-Дополнительный static audit не допускает старые component session/DTO,
-`callback_dependency_slots`, `spawn_blocking` или `Handle::block_on` внутри
-process adapters. Real-worker suite проверяет same-component nested invocation
-и targeted cancel при живом sibling/PID/generation.
-
-### P4 Topology / Journal Evidence
-
-```bash
-cargo test -p proteus-core \
-  process_adapters::client::tests::callback_reentry_preserves_lineage_for_async_and_blocking_same_broker_calls
-cargo test -p proteus-reference-worker --test topology_journal -- --nocapture
-```
-
-Первый test доказывает, что production adapters автоматически продолжают
-broker-owned lineage при async и callback-free blocking reentry, но не
-оставляют parent после выхода из callback. Второй загружает
-`proteus.one-component.example.toml` и проверяет одним собранным profile:
-
-- workflow/context/search/memory/compactor/tool exposure/policy/tool
-  используют один configured component и один live PID;
-- во время заблокированного workflow независимый memory export завершается;
-- targeted cancellation записывается как `TurnSettled(Canceled)`, не меняет
-  PID и не мешает следующему успешному turn;
-- успешный turn реально исполняет process `read_file`, сохраняет context,
-  model/tool/result/settlement records и проходит side-effect-free workflow
-  replay без изменения source journal;
-- authority остаётся раздельной по slot, несмотря на общий process.
+Для model/grants/recording changes добавляются focused suites
+`bound_model_tests`, `bound_tools_tests` и session journal. Process cancellation,
+framing, backpressure и reentrancy проверяются protocol suites ниже.
 
 ### Agent-Control / Process Peers
 
@@ -394,6 +130,7 @@ git diff --check
 
 `cargo test` из workspace root является обязательным минимумом перед commit.
 `cargo check` полезен во время работы, но не заменяет tests.
+CI отключён по решению владельца; эти gates выполняются локально.
 
 ## Process Module Gates
 

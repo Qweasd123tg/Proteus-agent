@@ -23,11 +23,11 @@ Native dylib ABI, `plugin.toml`, `abi_stable` и loader удалены. Referenc
 реализации в `modules/reference` — тестовые/dogfood образцы, а не стандартный
 или привилегированный пакет.
 
-Архитектурное основание в основном собрано. Текущая практика — воспроизводить
-ограниченные сценарии разных реальных agent runtimes только через profiles,
-обычные component exports и общие client/runtime boundaries Proteus. Codex и
-другие targets ведутся как независимые reconstruction experiments: ни один из
-них не определяет цель платформы и не получает специального пути в Core.
+Proteus создаётся как конструктор: новый алгоритм должен подключаться узким
+модулем, а понравившиеся части разных агентов — собираться профилем.
+Первый экзамен платформы — обычная работа Codex с совпадающими результатами
+задач и расходом. Этот экзамен пока не пройден.
+Замысел, состояние и критерии результата: [документация](docs/README.md).
 
 Собственные wire/config/storage форматы пока не заморожены и меняются атомарно
 без legacy compatibility readers.
@@ -161,7 +161,7 @@ Process boundary пока не sandbox: worker получает очищенно
 - reference worker с 26 selectors, включая deterministic project-check, и
   отдельный Python workflow/search/compactor examples;
 - conformance, real-worker execution и runtime swap regression gates.
-- P4 topology/journal gate: один PID выполняет callback-связанный workflow,
+- topology/journal gate: один PID выполняет callback-связанный workflow,
   переживает адресную отмену и даёт совпадающий canonical workflow replay.
 
 Оставшаяся core-owned selectable граница названа явно: model provider adapters
@@ -226,9 +226,7 @@ docs/                           reference, testing rules и roadmap
 - [testing.md](docs/development/testing.md) — обязательные evidence gates;
 - [scope.md](docs/product/scope.md) — что существует сейчас;
 - [spec.md](docs/product/spec.md) — идея и долговечные границы платформы;
-- [roadmap.md](docs/product/roadmap.md) — практика reconstruction experiments;
-- [agent-runtime-reconstructions.md](docs/research/agent-runtime-reconstructions.md) —
-  независимые работы по воспроизведению разных agent runtimes.
+- [roadmap.md](docs/product/roadmap.md) — ожидаемый результат и условия завершения.
 
 Полный индекс: [docs/README.md](docs/README.md). Правила изменений:
 [AGENTS.md](AGENTS.md).

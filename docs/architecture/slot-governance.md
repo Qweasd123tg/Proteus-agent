@@ -20,10 +20,8 @@ Slot — host-defined selection/composition mechanism, не runtime primitive и
 identity. Это различие не вводит universal `Capability` enum, dynamic service
 locator или право worker-а объявлять новые capabilities во время handshake.
 
-Аудит Pi 2026-08-07 показал вторую, ортогональную потребность: несколько
-равноправных implementations иногда должны не заменять друг друга, а образовывать
-детерминированную цепочку на одной lifecycle boundary. Поэтому contract обязан
-явно выбрать cardinality:
+Несколько implementations могут быть альтернативами или упорядоченными
+contributions. Contract явно задаёт cardinality:
 
 ```text
 composition(contract) = select_one | ordered_many
@@ -118,32 +116,6 @@ session mutation, не принимается автоматически тол�
 | Нужно изменить provider request/streaming/usage? | `Model` / model standard |
 | Нужно показать debug/UX? | app-server protocol или UI/CLI client |
 | Несколько независимых обработчиков должны последовательно менять один DTO? | кандидат на `ordered_many` contract; сначала два simultaneous use cases и chain semantics |
-| Нужно обработать tool result перед возвратом модели? | Пока research: кандидат на generic `ToolResultProcessor`, не feature-specific slot |
-| Нужно складывать большие файлы/артефакты? | Пока research: кандидат на generic `ArtifactStore`, не Cursor-specific slot |
-
-## Intake Матрица
-
-Перед добавлением contract новая идея должна попасть в такую матрицу.
-
-| Feature idea | Existing slot | Missing generic contract | Решение сейчас |
-|---|---|---|---|
-| Cursor-like dynamic context discovery | `ContextBuilder`, `Compactor`, `SearchBackend`, `ToolExposure` | возможно `ToolResultProcessor`, `ArtifactStore`, `BudgetTracker` | держать как module/research pack, не добавлять `dynamic_context` slot |
-| Длинные outputs tools пишутся на диск | `Tool`, `Workflow` видит result; app-server показывает metadata | `ToolResultProcessor` или `ArtifactStore` | оставить draft `modules/research/tool-output-artifacts`, contract не стабилизирован |
-| Token/context usage breakdown | event/runtime accounting, app-server, UI client | `BudgetTracker` / `UsageMeter` может понадобиться позже | сначала instrumentation/events, не новый UX slot |
-| Codex-like deferred tool exposure | `ToolExposure`, `ToolRegistry` | возможно searchable tool catalog DTO | реализовывать через `ToolExposure`, не через отдельный `codex_tool_search` slot |
-| BM25/fuzzy search по tools | `ToolExposure` или будущий tool catalog facet | `SearchableToolCatalog` только если появятся несколько engines | пока module внутри `ToolExposure` |
-| Codex-like fuzzy file path search | `SearchBackend` | streaming `SearchSession` только если нужен live progress | сначала обычный `SearchBackend` module |
-| Exec policy с prefix-rule suggestions | `ApprovalPolicy`, approval transport | structured amendment DTO уже ближе к policy/protocol | расширять policy DTO, не отдельный `exec_policy` slot |
-| Verified apply_patch preview | `PatchApplier`, events, approval transport | patch preview event DTO | расширять `PatchApplier`/events, не отдельный preview slot |
-| Auto-compaction before model call | `Compactor`, `Workflow`, model capabilities | `BudgetTracker` если нужен общий budget API | использовать `Compactor` + workflow policy |
-| Skills / Agent Skills | `ContextBuilder`, `ToolProvider`/tools, docs on disk | `SkillCatalog` только если core должен discover/inject сам | пока context/tool module, не core subsystem |
-| Module mention injection | `ContextBuilder` / `context_provider` | `ModuleDescriptor` если нужно стабильно показывать capabilities | сначала provider внутри context pack |
-| Long-term memory consolidation jobs | `MemoryStore`, `Workflow`, explicit tools | background jobs/mailbox contract может понадобиться | research/private prototype; не возвращать lifecycle slot без двух работающих реализаций |
-| Subagents / cheaper model delegation | root-owned `AgentControl`, host-bound tools/app-server | persistent agent tree/reload/attach contract только после отдельного lifecycle audit и parity evidence | model-facing protocol выбирается `agent_control.surface = task|collaboration|none` без нового slot. Текущий collaboration slice — typed bounded session-owned lifecycle + messaging/follow-up у local stdio process peers, но ещё не stable/durable agent-tree contract; Component broker сам по себе не решает ownership/journal/resume |
-| OAuth model provider | `Model` | token store/auth helper можно держать provider-owned | provider adapter/module, не auth slot |
-| Resume/session picker | app-server protocol + UI client | session listing/search DTO уже protocol-level | client feature, не core slot |
-| Command autocomplete | UI/input routing | runtime request DTO только для команд, требующих runtime action | client feature, не core slot |
-| Markdown/table rendering | UI renderer/client | none | client feature, не core slot |
 
 ## Feature Pack Вместо Slot
 
@@ -171,10 +143,11 @@ quality baseline profile
   tool_exposure  = "deferred_tools"
 ```
 
-Такой profile может брать отдельные проверенные паттерны из чужих agent-ов, но
-каждая часть остаётся заменяемой и проверяемой отдельно. Названия конкретных
-продуктов допустимы в research notes/profile description, но не должны
-становиться названиями baseline, production profile или generic slots.
+Такой profile может брать отдельные проверенные паттерны из чужих агентов;
+каждая часть остаётся заменяемой и проверяемой отдельно. Названия продуктов
+допустимы у profiles и implementations, например `codex` или `opencode`.
+Они не дают дополнительных прав. Generic slot называется по обязанности;
+заявленная совместимость профиля требует evidence в явно заданной границе.
 
 ## Research Module Правило
 
@@ -202,8 +175,8 @@ Cursor-like output artifact идеи, но не доказывает, что н�
 - contracts, которые требуют от core знать порядок внутренних шагов module;
 - `ordered_many` chains, порядок которых не закреплён snapshot/config-ом;
 - broad extension contract, который даёт tool implementation дополнительные права только из-за способа регистрации;
-- compatibility fallback-и к старым experimental форматам без отдельной
-  миграционной причины.
+- compatibility fallback-и к старым experimental форматам без явного решения
+  владельца с указанной границей совместимости.
 
 ## Definition Of Done Для Нового Slot
 
