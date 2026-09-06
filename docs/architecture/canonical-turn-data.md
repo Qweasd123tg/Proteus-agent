@@ -166,6 +166,13 @@ contract.
 - Secrets/redaction применяются до записи. Нельзя сначала сохранить credential,
   а затем надеяться скрыть его в transcript projection.
 
+Key-based redaction не входит в schema-definition поля canonical request и
+config snapshot: `ToolSpec.input_schema`, function `output_schema` и
+`ResponseFormat::JsonSchema.schema` сохраняются без изменений. Те же
+sensitive keys в value-bearing metadata, client metadata и tool arguments
+по-прежнему заменяются до сериализации; произвольный metadata-путь не может
+объявить себя schema boundary совпадением имени.
+
 ## Проекции И Replay
 
 Из одного journal строятся или могут быть построены:

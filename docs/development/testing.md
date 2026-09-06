@@ -304,6 +304,19 @@ Replay отвечает «сохранилась ли эквивалентнос
 Runtime-owned `Canceled` / `Timeout` проверяются через journal и cold
 history, потому что внешний момент сигнала не является workflow output.
 
+При изменении journal redaction проверяйте одновременно точность schema и
+отсутствие credential values:
+
+```bash
+cargo test -p proteus-core journal_redaction
+cargo test -p proteus-core sensitive_json_keys_are_redacted_before_journal_write
+```
+
+`input_schema`, function `output_schema` и response JSON Schema должны
+round-trip без изменений, а sensitive keys в metadata и tool arguments —
+оставаться redacted. Это не меняет journal DTO и само по себе не требует новой
+версии schema.
+
 Model-free workflow пока является локализованным исключением replay v0:
 `coding.project_check` сохраняет canonical tool facts, history и
 `TurnSettled(Success)` с нулём model records, после чего replay fail-closed

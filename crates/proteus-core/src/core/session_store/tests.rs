@@ -1,9 +1,13 @@
-use std::io::Write;
+use std::{collections::BTreeMap, io::Write};
 
 use crate::{
-    core::{HistoryMutationKind, JOURNAL_FILE, JournalEntry},
-    domain::{HistoryCompactionReport, new_session_id, new_thread_id},
-    model_standard::{CanonicalMessage, MessageRole},
+    contracts::ExecutionAttribution,
+    core::{HistoryMutationKind, JOURNAL_FILE, JournalEntry, ModelRequestRecorded},
+    domain::{
+        HistoryCompactionReport, ResponseFormat, ToolSafety, ToolSpec, ToolSurface,
+        new_exchange_id, new_execution_id, new_session_id, new_thread_id,
+    },
+    model_standard::{CanonicalMessage, CanonicalModelRequest, MessageRole},
 };
 
 use super::*;
@@ -283,6 +287,114 @@ async fn sensitive_json_keys_are_redacted_before_journal_write() {
     assert_eq!(loaded[0].metadata["api_key"], "[REDACTED]");
     assert_eq!(loaded[0].metadata["nested"]["password"], "[REDACTED]");
     assert_eq!(loaded[0].metadata["safe"], "visible");
+}
+
+#[tokio::test]
+async fn journal_redaction_preserves_schemas_and_redacts_value_metadata() {
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let workspace = tempfile::tempdir().expect("workspace");
+    let store = test_store(config_dir.path(), workspace.path());
+    let input_schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "password": {
+                "type": "object",
+                "properties": { "secret": { "type": "string" } }
+            }
+        }
+    });
+    let output_schema = serde_json::json!({
+        "type": "object",
+        "properties": { "api_key": { "type": "string" } }
+    });
+    let response_schema = serde_json::json!({
+        "type": "object",
+        "properties": { "access_token": { "type": "string" } }
+    });
+    let mut tool = ToolSpec::new(
+        "login",
+        "test schema preservation",
+        input_schema.clone(),
+        ToolSafety::Network,
+    )
+    .with_metadata(serde_json::json!({
+        "password": "tool-secret",
+        "nested": { "api_key": "nested-tool-secret" }
+    }));
+    tool.surface = ToolSurface::Function {
+        strict: true,
+        output_schema: Some(output_schema.clone()),
+    };
+    let mut client_metadata = BTreeMap::new();
+    client_metadata.insert("api_key".to_owned(), "client-secret".to_owned());
+    let request = CanonicalModelRequest::new(
+        crate::domain::ModelRef::new("fake", "redaction"),
+        vec![CanonicalMessage::text(MessageRole::User, "schema test")],
+    )
+    .with_tools(vec![tool])
+    .with_response_format(ResponseFormat::JsonSchema {
+        name: "credential_shape".to_owned(),
+        schema: response_schema.clone(),
+        strict: true,
+    })
+    .with_client_metadata(client_metadata)
+    .with_metadata(serde_json::json!({
+        "nested": { "refresh_token": "request-secret" }
+    }));
+
+    store
+        .append_execution_journal_entry(
+            ExecutionAttribution::detached(new_execution_id()),
+            JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
+                exchange_id: new_exchange_id(),
+                request,
+            }),
+        )
+        .await
+        .expect("append redacted model request");
+
+    let raw = std::fs::read_to_string(store.journal_path()).expect("journal");
+    for secret in [
+        "tool-secret",
+        "nested-tool-secret",
+        "client-secret",
+        "request-secret",
+    ] {
+        assert!(!raw.contains(secret), "journal leaked {secret}");
+    }
+    let record = store
+        .load_records()
+        .expect("load redacted request")
+        .pop()
+        .expect("journal record");
+    let JournalEntry::ModelRequestRecorded(recorded) = record.entry else {
+        panic!("expected model request record");
+    };
+    let recorded_tool = &recorded.request.tools[0];
+    assert_eq!(recorded_tool.input_schema, input_schema);
+    assert_eq!(recorded_tool.metadata["password"], "[REDACTED]");
+    assert_eq!(recorded_tool.metadata["nested"]["api_key"], "[REDACTED]");
+    let ToolSurface::Function {
+        output_schema: Some(recorded_output),
+        ..
+    } = &recorded_tool.surface
+    else {
+        panic!("expected function output schema");
+    };
+    assert_eq!(recorded_output, &output_schema);
+    let ResponseFormat::JsonSchema {
+        schema: recorded_response,
+        ..
+    } = &recorded.request.response_format
+    else {
+        panic!("expected response schema");
+    };
+    assert_eq!(recorded_response, &response_schema);
+    assert_eq!(recorded.request.client_metadata["api_key"], "[REDACTED]");
+    assert_eq!(
+        recorded.request.metadata["nested"]["refresh_token"],
+        "[REDACTED]"
+    );
 }
 
 #[tokio::test]

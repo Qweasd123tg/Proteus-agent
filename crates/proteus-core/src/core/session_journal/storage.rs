@@ -16,6 +16,10 @@ use super::{
     types::{JOURNAL_SCHEMA_VERSION, JournalEntry, JournalKind, JournalRecord},
 };
 
+mod redaction;
+
+use redaction::redact_sensitive_values;
+
 pub const JOURNAL_FILE: &str = "journal.jsonl";
 const BLOBS_DIR: &str = "blobs";
 pub const DEFAULT_BLOB_THRESHOLD_BYTES: usize = 256 * 1024;
@@ -439,39 +443,4 @@ fn unix_timestamp_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis().try_into().unwrap_or(i64::MAX))
         .unwrap_or(0)
-}
-
-fn redact_sensitive_values(value: &mut serde_json::Value) {
-    match value {
-        serde_json::Value::Object(map) => {
-            for (key, nested) in map {
-                if is_sensitive_key(key) {
-                    *nested = serde_json::Value::String("[REDACTED]".to_owned());
-                } else {
-                    redact_sensitive_values(nested);
-                }
-            }
-        }
-        serde_json::Value::Array(values) => {
-            for nested in values {
-                redact_sensitive_values(nested);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn is_sensitive_key(key: &str) -> bool {
-    matches!(
-        key.to_ascii_lowercase().replace('-', "_").as_str(),
-        "authorization"
-            | "api_key"
-            | "access_token"
-            | "refresh_token"
-            | "session_token"
-            | "password"
-            | "secret"
-            | "cookie"
-            | "set_cookie"
-    )
 }
