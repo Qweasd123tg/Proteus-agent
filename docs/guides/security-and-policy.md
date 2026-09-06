@@ -422,7 +422,10 @@ fake visibility call.
 `ToolContext` содержит `CancellationToken`, чтобы long-running tools могли
 кооперативно остановиться. Текущие built-in tools пока в основном полагаются на
 host timeout/`kill_on_drop`, но contract уже не требует менять сигнатуру при
-добавлении cooperative cancellation.
+добавлении cooperative cancellation. Ожидание сначала регистрируется в
+`Notify`, затем проверяет durable-флаг отмены: cancel между этими действиями не
+теряется; один cancel пробуждает всех зарегистрированных waiters и каскадится
+в дочерние tokens.
 
 `ToolResult.output` остаётся text fallback для текущих adapters. Для platform
 path добавлен `ToolResult.content: Vec<ToolContent>` с text/json/image/binary

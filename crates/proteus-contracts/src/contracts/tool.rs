@@ -81,10 +81,7 @@ impl CancellationToken {
     }
 
     pub async fn cancelled(&self) {
-        if self.is_cancelled() {
-            return;
-        }
-        self.inner.notify.notified().await;
+        wait_for_cancellation(&self.inner, || {}).await;
     }
 
     /// Дочерний токен: отменяется вместе с родителем, но его собственный
@@ -108,6 +105,18 @@ impl CancellationToken {
         }
         Self { inner: child }
     }
+}
+
+async fn wait_for_cancellation(state: &Arc<CancellationState>, waiter_registered: impl FnOnce()) {
+    // `notify_waiters` does not leave a permit for a future waiter. Register
+    // first, then inspect the durable flag, so cancellation in either order is
+    // observed. The callback lets the unit test force that exact interleaving.
+    let notified = state.notify.notified();
+    waiter_registered();
+    if state.cancelled.load(Ordering::SeqCst) {
+        return;
+    }
+    notified.await;
 }
 
 fn cancel_state(state: &Arc<CancellationState>) {
@@ -163,6 +172,39 @@ mod tests {
         token.cancelled().await;
 
         assert!(token.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn cancellation_between_waiter_registration_and_flag_check_is_observed() {
+        let token = CancellationToken::new();
+        let cancel = token.clone();
+
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            wait_for_cancellation(&token.inner, move || cancel.cancel()),
+        )
+        .await
+        .expect("cancellation after waiter registration must not be lost");
+
+        assert!(token.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn cancellation_wakes_all_registered_waiters() {
+        let token = CancellationToken::new();
+        let mut waiters = Vec::new();
+        for _ in 0..8 {
+            let waiter = token.clone();
+            waiters.push(tokio::spawn(async move { waiter.cancelled().await }));
+        }
+
+        token.cancel();
+        for waiter in waiters {
+            tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
+                .await
+                .expect("every registered waiter must wake")
+                .expect("waiter task must complete");
+        }
     }
 
     #[tokio::test]
