@@ -97,6 +97,16 @@ def validate_input(params: Any) -> tuple[dict[str, Any], int, int]:
         raise ProtocolError("CompactionInput.messages must be an array")
     if any(not isinstance(message, dict) for message in compaction["messages"]):
         raise ProtocolError("CompactionInput.messages must contain objects")
+    for message in compaction["messages"]:
+        parts = message.get("parts")
+        if not isinstance(parts, list):
+            raise ProtocolError("canonical message parts must be an array")
+        if any(
+            not isinstance(part, dict)
+            or part.get("scope") not in ("conversation", "request", "trace")
+            for part in parts
+        ):
+            raise ProtocolError("canonical part scope must be conversation, request or trace")
 
     strategy = compaction["config"]
     if strategy is None:
@@ -114,7 +124,10 @@ def validate_input(params: Any) -> tuple[dict[str, Any], int, int]:
 
 
 def is_context_message(message: dict[str, Any]) -> bool:
-    return message.get("name") == "context"
+    # Match the common canonical scope contract, not a workflow's choice of
+    # message name. Empty messages are not request-only context.
+    parts = message["parts"]
+    return bool(parts) and all(part["scope"] == "request" for part in parts)
 
 
 def is_user_message(message: dict[str, Any]) -> bool:

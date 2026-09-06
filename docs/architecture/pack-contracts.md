@@ -9,16 +9,17 @@ consumer, но сам по себе не вводит новый public contract
 
 ## Инвентарь неявных контрактов
 
-Форма связи почти всегда — строка (префикс текста, `name`, metadata key),
-проходящая через JSON/process границу без compile-time проверки.
+Часть связей — строки (префиксы текста, имена tools, metadata keys),
+проходящие через JSON/process границу. Общие typed поля перечислены отдельно;
+имена и текстовые envelopes не заменяют их структурную семантику.
 
 | Контракт | Producer | Consumer | Форма |
 | --- | --- | --- | --- |
-| `<environment_context>` блок | `context-pack` provider `environment` | model adapters (verbatim render), `codex-compactor` (`is_generated_user_message`) | константа `ENVIRONMENT_CONTEXT_TAG` в contracts |
+| `<environment_context>` блок | `context-pack` provider `environment` | model-facing context render | текстовый envelope; компакторы определяют request context по scope, не по префиксу |
 | `<turn_aborted>` | нет (parity с upstream, producer отсутствует) | `codex-compactor` | префикс текста |
-| `# AGENTS.md instructions` | `context-pack` provider `project_instructions` в `codex_context` | model adapters (verbatim render), `codex-compactor` | upstream-shaped текстовый envelope |
+| `# AGENTS.md instructions` | `context-pack` provider `project_instructions` в `codex_context` | model-facing context render | upstream-shaped текстовый envelope; не признак persistent/ephemeral history |
 | summary prefix (`SUMMARY_PREFIX`) | `codex-compactor` | `codex-compactor` | префикс текста (само-согласован, ок) |
-| `message.name == "context"` | `coding-workflow` | `codex-compactor`, `coding-workflow/history.rs`, token accounting | константа `CONTEXT_MESSAGE_NAME` в contracts |
+| `CanonicalPart.scope` | workflow/context construction | `codex-compactor`, Python `python_suffix`, `coding-workflow/history.rs` | непустое сообщение со всеми parts в `request` — ephemeral context; `message.name` не влияет на классификацию |
 | context metadata `model_visible_render = "verbatim"` | `context-pack` (`codex_context`) | OpenAI/Anthropic model adapters | `CONTEXT_RENDER_MODE_*` в contracts |
 | chunk source `repo_aware:*` / `codex_context:*`, metadata `provider`/`reason`/`context_profile` | `context-pack` | app-server `context_map`, UI/debug views | строковые префиксы и metadata keys |
 | tool metadata `hot`, `category`, `tags`, `aliases` | tool packs и `[tools.configured]` в config | `codex-tool-exposure` (`metadata_hot`) | metadata JSON у tool spec |
@@ -52,3 +53,8 @@ consumer, но сам по себе не вводит новый public contract
 Для изменяемой связки проверяется, что producer действительно выдаёт
 ожидаемый input, а consumer сохраняет нужное поведение в собранном profile.
 Успешный handshake и совпадение констант сами по себе этого не доказывают.
+
+`cargo test -p proteus-reference-worker --test compactor_interop` запускает
+Rust и Python compactor через один process slot: переименование или отсутствие
+имени request context не меняет retention, а пользовательское имя `context`
+не превращает сообщение в служебное. Стратегии сжатия не обязаны совпадать.

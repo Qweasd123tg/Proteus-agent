@@ -28,6 +28,17 @@ CompactionOutput` и не использует разрешённый contract-�
 из последних user turns. Это проверяемый пример протокола, а не качественная
 замена model-aware `modules.compactor = "codex"`.
 
+Контекст определяется по canonical parts: непустое сообщение, у которого
+все parts имеют `scope = "request"`. Поле `name` не участвует: workflow может
+выбрать любое имя или не задавать его; user message с именем `context` остаётся
+обычным user turn. Отсутствующий или неизвестный scope — ошибка входа.
+
+Проверка общей семантики с Rust compactor через реальные worker processes:
+
+```bash
+cargo test -p proteus-reference-worker --test compactor_interop
+```
+
 Процесс получает очищенное окружение с `PATH`; дополнительные имена
 родительских переменных перечисляются в `env_allowlist`, literal значения — в
 `env`.
