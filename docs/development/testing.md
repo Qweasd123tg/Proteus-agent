@@ -187,6 +187,7 @@ Test fixtures — внешние shell workers. Они не линкуют refer
 
 ```bash
 cargo test -p proteus-reference-worker --test conformance -- --nocapture
+cargo test -p proteus-reference-worker --test patch_transaction -- --nocapture
 ```
 
 Suite подтверждает:
@@ -200,6 +201,9 @@ Suite подтверждает:
 - полный callback-driven workflow turn;
 - nested callback в другой export того же process;
 - targeted cancel сохраняет concurrent sibling, PID и generation.
+- patch transaction не оставляет частичную запись после preflight error,
+  positional hunk отвергается, а тот же worker остаётся пригодным для следующего
+  корректного вызова.
 
 Reference modules не получают отдельный облегчённый gate. Именно этот suite
 доказывает, что bundled worker говорит с host так же, как out-of-tree worker.

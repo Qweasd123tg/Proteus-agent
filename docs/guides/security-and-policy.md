@@ -267,6 +267,16 @@ symlink-escape; конечный symlink запрещён для Add/Update/Dele
 Move, даже если он указывает обратно внутрь workspace. `ToolOrchestrator` не
 делает workspace-санитизации за `PatchApplier` — это обязанность выбранной
 реализации.
+
+`direct-patch` принимает только bare `@@` внутреннего формата; positional
+unified headers вида `@@ -line,count +line,count @@` отклоняются до изменения
+файлов. Все операции сначала проигрываются в памяти, включая последовательные
+операции над одним путём. После полного preflight новые версии записываются во
+временный каталог внутри workspace и устанавливаются через rename. Ошибка
+commit запускает rollback исходных файлов; если сам rollback неполон, module
+возвращает явное сообщение `workspace may be partially modified` с ошибками
+восстановления и сохраняет recovery-файлы.
+
 В packaged proxy-профилях `codex`/`glm` model-facing форма `apply_patch` —
 обычный function tool. Явно настроенный freeform custom tool всё равно проходит
 через тот же `ToolOrchestrator`, `ApprovalPolicy` и `PatchApplier`.

@@ -7,6 +7,4 @@ publish = false
 [dependencies]
 proteus-contracts = { path = "../../../crates/proteus-contracts" }
 serde_json = "1"
-
-[dev-dependencies]
 tempfile = "3"
