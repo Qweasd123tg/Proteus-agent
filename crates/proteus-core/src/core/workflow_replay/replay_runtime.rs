@@ -181,18 +181,14 @@ impl ReplayState {
             &expected.messages,
             &inner.actual_to_expected,
         );
-        let mut metadata = serde_json::Map::new();
-        if let Some(trigger) = expected
-            .metadata
-            .get("compaction_trigger_tokens")
-            .and_then(serde_json::Value::as_u64)
-        {
-            metadata.insert("trigger_tokens".to_owned(), trigger.into());
-        }
         if equal {
             let mut output = CompactionOutput::unchanged(input.messages);
             output.token_estimate = input.token_estimate;
-            output.metadata = serde_json::Value::Object(metadata);
+            output.trigger_tokens = expected
+                .metadata
+                .get("compaction_trigger_tokens")
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|value| u32::try_from(value).ok());
             return Ok(output);
         }
 
@@ -221,10 +217,13 @@ impl ReplayState {
         let report = &mut inner.compactions[report_index];
         report.consumed = true;
         let recorded = report.report.clone();
-        insert_compaction_report_metadata(&mut metadata, &recorded);
         let mut output = CompactionOutput::changed(expected.messages, recorded.summary);
         output.token_estimate = recorded.output_token_estimate;
-        output.metadata = serde_json::Value::Object(metadata);
+        output.original_token_estimate = recorded.original_token_estimate;
+        output.trigger_tokens = recorded.trigger_tokens;
+        output.summary_source = recorded.summary_source;
+        output.skipped_reason = recorded.skipped_reason;
+        output.metadata = recorded.metadata;
         Ok(output)
     }
 
@@ -451,34 +450,6 @@ fn replay_capabilities(
         .with_provider_hosted_tools(hosted)
         .with_max_input_tokens(request.limits.max_input_tokens)
         .with_max_output_tokens(request.limits.max_output_tokens)
-}
-
-fn insert_compaction_report_metadata(
-    metadata: &mut serde_json::Map<String, serde_json::Value>,
-    report: &HistoryCompactionReport,
-) {
-    metadata.insert("input_messages".to_owned(), report.input_messages.into());
-    metadata.insert("output_messages".to_owned(), report.output_messages.into());
-    for (key, value) in [
-        ("original_token_estimate", report.original_token_estimate),
-        ("output_token_estimate", report.output_token_estimate),
-        ("trigger_tokens", report.trigger_tokens),
-    ] {
-        if let Some(value) = value {
-            metadata.insert(key.to_owned(), value.into());
-        }
-    }
-    for (key, value) in [
-        ("summary_source", report.summary_source.as_ref()),
-        ("skipped_reason", report.skipped_reason.as_ref()),
-    ] {
-        if let Some(value) = value {
-            metadata.insert(key.to_owned(), value.clone().into());
-        }
-    }
-    if let Some(recorded) = report.metadata.as_object() {
-        metadata.extend(recorded.clone());
-    }
 }
 
 fn match_tool_index(inner: &ReplayStateInner, actual: &ToolCall) -> Result<usize> {

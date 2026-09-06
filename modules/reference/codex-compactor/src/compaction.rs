@@ -26,7 +26,7 @@ pub(crate) fn compact(
         .unwrap_or_else(|| estimate_messages_tokens(&input.messages));
     let trigger_tokens = resolve_trigger_tokens(&input);
     if token_estimate <= trigger_tokens {
-        return Ok(unchanged_with_metadata(
+        return Ok(unchanged_with_diagnostics(
             input.messages,
             token_estimate,
             trigger_tokens,
@@ -36,7 +36,7 @@ pub(crate) fn compact(
 
     let history = split_history(&input.messages);
     if history.compactable_history.is_empty() {
-        return Ok(unchanged_with_metadata(
+        return Ok(unchanged_with_diagnostics(
             input.messages,
             token_estimate,
             trigger_tokens,
@@ -60,17 +60,13 @@ pub(crate) fn compact(
         ));
     }
 
-    let output_messages = replacement.len();
     let mut output = CompactionOutput::changed(replacement, Some(summary));
     output.token_estimate = Some(output_token_estimate);
+    output.original_token_estimate = Some(token_estimate);
+    output.trigger_tokens = Some(trigger_tokens);
+    output.summary_source = Some("model".to_owned());
     output.metadata = json!({
         "compactor": MODULE_ID,
-        "summary_source": "model",
-        "input_messages": input.messages.len(),
-        "output_messages": output_messages,
-        "original_token_estimate": token_estimate,
-        "output_token_estimate": output_token_estimate,
-        "trigger_tokens": trigger_tokens,
         "compacted_messages": history.compactable_history.len(),
         "preserved_user_messages": preserved_user_messages.len(),
         "ephemeral_context_messages": history.ephemeral_context.len(),
@@ -78,7 +74,7 @@ pub(crate) fn compact(
     Ok(output)
 }
 
-fn unchanged_with_metadata(
+fn unchanged_with_diagnostics(
     messages: Vec<proteus_contracts::model_standard::CanonicalMessage>,
     token_estimate: u32,
     trigger_tokens: u32,
@@ -86,11 +82,11 @@ fn unchanged_with_metadata(
 ) -> CompactionOutput {
     let mut output = CompactionOutput::unchanged(messages);
     output.token_estimate = Some(token_estimate);
+    output.original_token_estimate = Some(token_estimate);
+    output.trigger_tokens = Some(trigger_tokens);
+    output.skipped_reason = Some(reason.to_owned());
     output.metadata = json!({
         "compactor": MODULE_ID,
-        "skipped_reason": reason,
-        "original_token_estimate": token_estimate,
-        "trigger_tokens": trigger_tokens,
     });
     output
 }

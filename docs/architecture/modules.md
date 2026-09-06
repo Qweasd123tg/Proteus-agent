@@ -19,8 +19,8 @@ authority(module) = authority(slot, invocation_context)
 ```
 
 Все внешние modules являются exports process components: Component Runtime v2
-использует wire protocol v3; `tool`, `memory`, `workflow` и `compactor`
-используют strict contract v2, остальные process slots пока v1. Runtime допускает
+использует wire protocol v3; `workflow` и `compactor` используют strict contract
+v3, `tool` и `memory` — v2, остальные process slots пока v1. Runtime допускает
 несколько одновременных и вложенных invocation одного component. Dylib ABI и
 native loader в проекте отсутствуют.
 
@@ -138,7 +138,7 @@ tool execution и event emission. Session ids, approvals, tool ownership и
 journal остаются host-owned.
 
 `coding.project_check` — reference code-heavy controller на том же
-`workflow/v2`. Он детерминированно вызывает `git_status`, определяет project по
+`workflow/v3`. Он детерминированно вызывает `git_status`, определяет project по
 root marker, запускает фиксированную test command и обращается к model только
 один раз для объяснения failed test. Success path не вызывает model, context
 или compactor. Это architecture probe, не default workflow и не special
@@ -179,8 +179,22 @@ Context builder получает callbacks `host.search.query`,
 ### Compactor
 
 Получает canonical history и может вызвать `host.model.complete`. Этот
-callback доступен всему `compactor/v2`, а не только `codex`. Deterministic
+callback доступен всему `compactor/v3`, а не только `codex`. Deterministic
 Python example не использует callback, но имеет ту же authority.
+
+`CompactionOutput` передаёт результат и диагностику явными полями:
+`token_estimate` — оценка после сжатия, `original_token_estimate` — оценка
+входа, `trigger_tokens` — порог токеновой стратегии, `summary_source` и
+`skipped_reason` — описательные строки без влияния на dispatch. Неприменимые
+поля остаются `null`; если module не оценивал вход, отчёт использует
+`CompactionInput.token_estimate`. Числа сообщений считаются по фактическим
+input/output. `metadata` — непрозрачные данные module, не источник этих полей.
+
+Тот же DTO возвращает workflow callback `host.history.compact`, поэтому обе
+границы используют v3; старый slot contract v2 не принимается. Wire protocol
+остаётся v3. Структура `HistoryCompactionReport` и journal schema v3 не меняются;
+workflow replay сохраняет typed поля и весь `metadata`, не подмешивая и не
+удаляя ключи с известными именами.
 
 ### Tool Exposure
 

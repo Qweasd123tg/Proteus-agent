@@ -915,12 +915,8 @@ fn codex_loop_errors_when_changed_compaction_drops_current_user_message() {
         vec![CanonicalMessage::text(MessageRole::User, "summary only")],
         Some("summary only".to_owned()),
     );
-    bad_output.metadata = json!({
-        "input_messages": 2,
-        "output_messages": 1,
-        "original_token_estimate": 100,
-        "output_token_estimate": 10,
-    });
+    bad_output.original_token_estimate = Some(100);
+    bad_output.token_estimate = Some(10);
     let mut host = FakeHost::default().with_compaction_outputs(vec![bad_output]);
     let host_to = &mut host;
 

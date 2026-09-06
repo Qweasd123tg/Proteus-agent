@@ -14,7 +14,7 @@ rpc_id() {
 
 IFS= read -r initialize_request
 initialize_id=$(rpc_id "$initialize_request")
-printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$initialize_id,\"result\":{\"protocol_version\":\"v3\",\"component_id\":\"$component_id\",\"exports\":[{\"slot\":\"search\",\"module_id\":\"$search_id\",\"contract_version\":\"v1\",\"composition\":\"select_one\",\"module_features\":[]},{\"slot\":\"compactor\",\"module_id\":\"$compactor_id\",\"contract_version\":\"v2\",\"composition\":\"select_one\",\"module_features\":[]}]}}"
+printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$initialize_id,\"result\":{\"protocol_version\":\"v3\",\"component_id\":\"$component_id\",\"exports\":[{\"slot\":\"search\",\"module_id\":\"$search_id\",\"contract_version\":\"v1\",\"composition\":\"select_one\",\"module_features\":[]},{\"slot\":\"compactor\",\"module_id\":\"$compactor_id\",\"contract_version\":\"v3\",\"composition\":\"select_one\",\"module_features\":[]}]}}"
 
 while IFS= read -r request; do
     request_id=$(rpc_id "$request")
@@ -23,7 +23,7 @@ while IFS= read -r request; do
             printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$request_id,\"result\":{\"chunks\":[{\"source\":\"shared-component\",\"path\":\"sample.txt\",\"content\":\"shared search\",\"score\":1.0,\"metadata\":{\"fixture\":true}}]}}"
             ;;
         *'"method":"compact"'*)
-            printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$request_id,\"result\":{\"output\":{\"messages\":[],\"changed\":false,\"summary\":null,\"token_estimate\":null,\"metadata\":{\"fixture\":true}}}}"
+            printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$request_id,\"result\":{\"output\":{\"messages\":[],\"changed\":false,\"summary\":null,\"token_estimate\":null,\"original_token_estimate\":null,\"trigger_tokens\":null,\"summary_source\":null,\"skipped_reason\":null,\"metadata\":{\"fixture\":true}}}}"
             ;;
         *)
             printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$request_id,\"error\":{\"code\":-32601,\"message\":\"unknown fixture method\"}}"

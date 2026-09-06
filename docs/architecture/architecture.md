@@ -13,8 +13,8 @@ Core -> Contract -> Module Implementation
 `proteus-core` знает, когда вызвать search, policy или workflow, но не знает
 алгоритм конкретной реализации. DTO и traits принадлежат
 `proteus-contracts`; внешняя implementation говорит с host через component
-wire protocol v3. Contracts workflow, compactor, tool и memory используют v2;
-остальные process slots — v1.
+wire protocol v3. Contracts workflow и compactor используют v3, tool и memory —
+v2, остальные process slots — v1.
 
 Для каждой invocation:
 
@@ -277,7 +277,7 @@ model и не читает history. Runnable profile:
 Probe одновременно локализует оставшийся coupling, не разрешая новую Core
 migration автоматически:
 
-- `workflow/v2` input и tool callback всё ещё требуют agent-shaped
+- `workflow/v3` input и tool callback всё ещё требуют agent-shaped
   `AgentTask`, а invocation несёт history и session/thread/turn ids;
 - `AppConfig` всё ещё требует active model даже для model-free success path;
 - canonical journal и cold history принимают Turn без model records, но

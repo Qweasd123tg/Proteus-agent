@@ -277,8 +277,8 @@ fn leaves_context_only_input_unchanged_and_does_not_persist_a_summary() {
     assert!(!output.changed);
     assert_eq!(output.messages, messages);
     assert_eq!(
-        output.metadata["skipped_reason"],
-        "no_persistent_history_to_compact"
+        output.skipped_reason.as_deref(),
+        Some("no_persistent_history_to_compact")
     );
     assert!(host.requests.lock().unwrap().is_empty());
 }
@@ -295,7 +295,7 @@ fn uses_model_summary_when_host_returns_text() {
     let output = compact_with_host(input(messages, 500), &mut host);
 
     assert!(output.changed);
-    assert_eq!(output.metadata["summary_source"], "model");
+    assert_eq!(output.summary_source.as_deref(), Some("model"));
     let summary = output.summary.as_deref().unwrap();
     assert!(summary.starts_with(SUMMARY_PREFIX), "{summary}");
     assert!(

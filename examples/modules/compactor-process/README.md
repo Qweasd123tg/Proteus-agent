@@ -33,6 +33,12 @@ CompactionOutput` и не использует разрешённый contract-�
 выбрать любое имя или не задавать его; user message с именем `context` остаётся
 обычным user turn. Отсутствующий или неизвестный scope — ошибка входа.
 
+`summary_source` и `skipped_reason` возвращаются явными полями
+`CompactionOutput`, а не ключами `metadata`. Strategy считает сообщения, не
+токены, поэтому оценки и `trigger_tokens` остаются `null`. Общий отчёт берёт
+числа сообщений из input/output, а исходную оценку токенов — из input, если
+она была передана; module-specific `metadata` не переопределяет эти значения.
+
 Проверка общей семантики с Rust compactor через реальные worker processes:
 
 ```bash
@@ -43,13 +49,13 @@ cargo test -p proteus-reference-worker --test compactor_interop
 родительских переменных перечисляются в `env_allowlist`, literal значения — в
 `env`.
 
-Worker использует общий component protocol v3 и compactor contract v2. Handshake
+Worker использует общий component protocol v3 и compactor contract v3. Handshake
 можно проверить отдельно от core:
 
 ```bash
 cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
   --component-id python-compactor \
-  --export '{"slot":"compactor","module_id":"python_suffix","contract_version":"v2","module_config":{"trigger_messages":12,"retain_user_turns":2}}' \
+  --export '{"slot":"compactor","module_id":"python_suffix","contract_version":"v3","module_config":{"trigger_messages":12,"retain_user_turns":2}}' \
   -- python3 examples/modules/compactor-process/compact.py
 ```
 

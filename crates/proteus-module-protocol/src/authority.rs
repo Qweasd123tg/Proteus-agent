@@ -72,7 +72,7 @@ impl ProcessContractAuthority {
     }
 }
 
-/// Single source of truth for slot contracts admitted to Component Runtime v1.
+/// Single source of truth for slot contracts admitted to Component Runtime v2.
 /// More slots are added only together with their contract and
 /// conformance evidence.
 pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
@@ -240,6 +240,14 @@ mod tests {
         assert_eq!(authority.composition, ProcessModuleComposition::SelectOne);
         assert_eq!(authority.module_methods, [PROCESS_WORKFLOW_METHOD]);
         assert_eq!(authority.host_methods, WORKFLOW_HOST_METHODS);
+    }
+
+    #[test]
+    fn compaction_diagnostics_require_current_contract_on_both_boundaries() {
+        for slot in ["compactor", "workflow"] {
+            assert!(process_contract_authority(slot, "v2").is_none());
+            assert!(process_contract_authority(slot, "v3").is_some());
+        }
     }
 
     #[test]

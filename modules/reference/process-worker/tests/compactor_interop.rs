@@ -1,5 +1,5 @@
-//! A workflow's descriptive message names must not change a compactor's
-//! interpretation of the canonical request/conversation scopes.
+//! Swappable compactors obey canonical scopes and typed report fields,
+//! independently of descriptive message names and module-specific diagnostics.
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -9,7 +9,7 @@ use std::{
 use async_trait::async_trait;
 use proteus_contracts::{
     contracts::{CompactionHost, CompactionInput},
-    domain::{AgentTask, ModelRef},
+    domain::{AgentTask, HistoryCompactionReport, ModelRef},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, CanonicalPart,
         ContentPart, FinishReason, MessageRole, PartProvenance, PartScope,
@@ -133,10 +133,42 @@ async fn check_names(module_id: &str) {
         .with_config(strategy.clone());
         let output = registry
             .compactor
-            .compact(input, Arc::new(SummaryHost))
+            .compact(input.clone(), Arc::new(SummaryHost))
             .await
             .unwrap();
         assert!(output.changed, "{module_id}: {case} must still compact");
+        let report = HistoryCompactionReport::from_compaction_output(&input, &output);
+        assert_eq!(report.input_messages, messages.len());
+        assert_eq!(report.output_messages, output.messages.len());
+        assert_eq!(report.original_token_estimate, Some(100_000));
+        assert_eq!(report.output_token_estimate, output.token_estimate);
+        assert_eq!(report.skipped_reason, None);
+        if module_id == "codex" {
+            assert_eq!(report.trigger_tokens, Some(100));
+            assert_eq!(report.summary_source.as_deref(), Some("model"));
+            assert!(report.output_token_estimate.is_some());
+        } else {
+            // A message-count strategy has no token trigger to invent.
+            assert_eq!(report.trigger_tokens, None);
+            assert_eq!(
+                report.summary_source.as_deref(),
+                Some("deterministic_suffix")
+            );
+        }
+        for key in [
+            "input_messages",
+            "output_messages",
+            "original_token_estimate",
+            "output_token_estimate",
+            "trigger_tokens",
+            "summary_source",
+            "skipped_reason",
+        ] {
+            assert!(
+                output.metadata.get(key).is_none(),
+                "{module_id}: duplicated {key}"
+            );
+        }
         for index in [0, 3] {
             assert!(
                 output.messages.contains(&messages[index]),

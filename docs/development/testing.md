@@ -61,9 +61,10 @@ cargo test --workspace --no-fail-fast
 ```
 
 Breaking canonical response change одновременно обновляет все tracked
-producers/consumers, slot contracts `workflow/v2` и `compactor/v2`, а также
-durable journal schema v3. Старые singular response, contract v1 и journal v2
-не получают compatibility readers.
+producers/consumers и версии затронутых contracts/storage. Действующие версии:
+`workflow/v3`, `compactor/v3`, durable journal schema v3. Изменение process DTO
+само по себе не требует новой journal schema, если сохранённая форма не меняется.
+Старые формы не получают compatibility readers.
 
 Новый upstream commit не обновляет expected output автоматически: drift
 сначала классифицируется как required parity change, unsupported capability
@@ -214,13 +215,13 @@ cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --co
 Compactor:
 
 ```bash
-cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-compactor --export '{"slot":"compactor","module_id":"python_suffix","contract_version":"v2","module_config":{"trigger_messages":12,"retain_user_turns":2}}' -- python3 examples/modules/compactor-process/compact.py
+cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-compactor --export '{"slot":"compactor","module_id":"python_suffix","contract_version":"v3","module_config":{"trigger_messages":12,"retain_user_turns":2}}' -- python3 examples/modules/compactor-process/compact.py
 ```
 
 Workflow handshake:
 
 ```bash
-cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-agent --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v2","module_config":{}}' -- python3 examples/modules/agent-worker/agent.py
+cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-agent --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v3","module_config":{}}' -- python3 examples/modules/agent-worker/agent.py
 ```
 
 Conformance CLI без probe доказывает identity/authority, но не поведение slot.

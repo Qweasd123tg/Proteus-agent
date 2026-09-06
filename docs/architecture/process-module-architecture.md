@@ -17,7 +17,7 @@ one export = one slot contract + one module_id
 - **component wire protocol v3** — strict multi-export JSON-RPC handshake,
   target/lineage каждого вызова и direction-separated ids;
 - **slot-owned contract version** — DTO, module methods, callbacks и
-  composition конкретного slot; сейчас используются v1 и v2.
+  composition конкретного slot; сейчас используются v1, v2 и v3.
 
 `proteus-module-protocol::v3::ComponentBroker` является единственной внешней
 границей configured modules. Старый wire v2 удалён; compatibility reader и
@@ -263,8 +263,8 @@ invalid DTO и превышение limits являются fail-closed protocol
 | context provider | v1 | `provide` | — |
 | tool | v2 | `list`, `invoke` | — |
 | context | v1 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
-| compactor | v2 | `compact` | `host.model.complete` |
-| workflow | v2 | `run` | runtime status, context, model, compaction, tool visibility/selection/execution, events |
+| compactor | v3 | `compact` | `host.model.complete` |
+| workflow | v3 | `run` | runtime status, context, model, compaction, tool visibility/selection/execution, events |
 
 Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует

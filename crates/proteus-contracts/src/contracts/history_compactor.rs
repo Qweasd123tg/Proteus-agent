@@ -7,7 +7,7 @@ use crate::{
     model_standard::{CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse},
 };
 
-pub const PROCESS_COMPACTOR_CONTRACT_VERSION: &str = "v2";
+pub const PROCESS_COMPACTOR_CONTRACT_VERSION: &str = "v3";
 pub const PROCESS_COMPACTOR_METHOD: &str = "compact";
 pub const COMPACTOR_HOST_COMPLETE_MODEL_METHOD: &str = "host.model.complete";
 
@@ -25,8 +25,8 @@ pub struct CompactionInput {
     pub model_ref: ModelRef,
     pub messages: Vec<CanonicalMessage>,
     pub token_estimate: Option<u32>,
-    /// Сырой потолок контекстного окна модели. Компактор применяет к нему
-    /// `trigger_fraction` из конфига. `None` — если окно неизвестно.
+    /// Сырой потолок контекстного окна модели. Способ использования определяет
+    /// выбранная стратегия компактора. `None` — если окно неизвестно.
     pub window_tokens: Option<u32>,
     /// module-config компактора (`module_config.compactor.<id>`), который
     /// host передаёт выбранному process module.
@@ -76,6 +76,15 @@ pub struct CompactionOutput {
     pub changed: bool,
     pub summary: Option<String>,
     pub token_estimate: Option<u32>,
+    /// Module's estimate for the original input, if it computed one itself.
+    /// Otherwise the report retains the estimate supplied in CompactionInput.
+    pub original_token_estimate: Option<u32>,
+    /// Token-based trigger, if applicable to this compactor's strategy.
+    pub trigger_tokens: Option<u32>,
+    /// Descriptive module-defined labels; consumers must not dispatch on them.
+    pub summary_source: Option<String>,
+    pub skipped_reason: Option<String>,
+    /// Opaque diagnostics. Never overrides the typed result or message counts.
     pub metadata: serde_json::Value,
 }
 
@@ -86,6 +95,10 @@ impl CompactionOutput {
             changed: true,
             summary: summary.into(),
             token_estimate: None,
+            original_token_estimate: None,
+            trigger_tokens: None,
+            summary_source: None,
+            skipped_reason: None,
             metadata: serde_json::Value::Null,
         }
     }
@@ -96,6 +109,10 @@ impl CompactionOutput {
             changed: false,
             summary: None,
             token_estimate: None,
+            original_token_estimate: None,
+            trigger_tokens: None,
+            summary_source: None,
+            skipped_reason: None,
             metadata: serde_json::Value::Null,
         }
     }
@@ -118,45 +135,20 @@ impl ProcessCompactionResponse {
 
 impl HistoryCompactionReport {
     pub fn from_compaction_output(input: &CompactionInput, output: &CompactionOutput) -> Self {
-        let metadata = output.metadata.clone();
-        let input_messages =
-            metadata_usize(&metadata, "input_messages").unwrap_or(input.messages.len());
-        let output_messages =
-            metadata_usize(&metadata, "output_messages").unwrap_or(output.messages.len());
         Self {
             changed: output.changed,
             reason: input.reason.clone(),
-            input_messages,
-            output_messages,
-            original_token_estimate: metadata_u32(&metadata, "original_token_estimate")
-                .or(input.token_estimate),
-            output_token_estimate: metadata_u32(&metadata, "output_token_estimate")
-                .or(output.token_estimate),
-            trigger_tokens: metadata_u32(&metadata, "trigger_tokens"),
-            summary_source: metadata_string(&metadata, "summary_source"),
-            skipped_reason: metadata_string(&metadata, "skipped_reason"),
+            input_messages: input.messages.len(),
+            output_messages: output.messages.len(),
+            original_token_estimate: output.original_token_estimate.or(input.token_estimate),
+            output_token_estimate: output.token_estimate,
+            trigger_tokens: output.trigger_tokens,
+            summary_source: output.summary_source.clone(),
+            skipped_reason: output.skipped_reason.clone(),
             summary: output.summary.clone(),
-            metadata,
+            metadata: output.metadata.clone(),
         }
     }
-}
-
-fn metadata_u32(metadata: &serde_json::Value, key: &str) -> Option<u32> {
-    metadata
-        .get(key)?
-        .as_u64()
-        .and_then(|value| u32::try_from(value).ok())
-}
-
-fn metadata_usize(metadata: &serde_json::Value, key: &str) -> Option<usize> {
-    metadata
-        .get(key)?
-        .as_u64()
-        .and_then(|value| usize::try_from(value).ok())
-}
-
-fn metadata_string(metadata: &serde_json::Value, key: &str) -> Option<String> {
-    metadata.get(key)?.as_str().map(ToOwned::to_owned)
 }
 
 #[async_trait]
@@ -196,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn report_does_not_invent_trigger_without_compactor_metadata() {
+    fn report_does_not_invent_trigger_for_non_token_based_compactor() {
         let input = sample_input();
         let output = CompactionOutput::unchanged(input.messages.clone());
 
@@ -206,14 +198,61 @@ mod tests {
     }
 
     #[test]
-    fn report_uses_trigger_from_compactor_metadata() {
+    fn report_uses_typed_compactor_diagnostics() {
         let input = sample_input();
         let mut output = CompactionOutput::unchanged(input.messages.clone());
-        output.metadata = json!({ "trigger_tokens": 80 });
+        output.trigger_tokens = Some(80);
+        output.original_token_estimate = Some(96);
+        output.summary_source = Some("custom-strategy".to_owned());
+        output.skipped_reason = Some("custom-reason".to_owned());
 
         let report = HistoryCompactionReport::from_compaction_output(&input, &output);
 
         assert_eq!(report.trigger_tokens, Some(80));
+        assert_eq!(report.original_token_estimate, Some(96));
+        assert_eq!(report.summary_source.as_deref(), Some("custom-strategy"));
+        assert_eq!(report.skipped_reason.as_deref(), Some("custom-reason"));
+    }
+
+    #[test]
+    fn report_metadata_cannot_override_canonical_counts_and_estimates() {
+        let input = sample_input().with_token_estimate(Some(64));
+        let mut output = CompactionOutput::unchanged(input.messages.clone());
+        output.token_estimate = Some(12);
+        output.metadata = json!({
+            "input_messages": 999, "output_messages": 999,
+            "original_token_estimate": 999, "output_token_estimate": 999,
+            "trigger_tokens": 999, "summary_source": "private-label", "skipped_reason": "private-label"
+        });
+        let report = HistoryCompactionReport::from_compaction_output(&input, &output);
+        assert_eq!(report.input_messages, input.messages.len());
+        assert_eq!(report.output_messages, output.messages.len());
+        assert_eq!(report.original_token_estimate, Some(64));
+        assert_eq!(report.output_token_estimate, Some(12));
+        assert_eq!(report.trigger_tokens, None);
+        assert_eq!(report.summary_source, None);
+        assert_eq!(report.skipped_reason, None);
+        assert_eq!(report.metadata, output.metadata);
+    }
+
+    #[test]
+    fn process_compaction_response_rejects_malformed_typed_diagnostics() {
+        let output = CompactionOutput::unchanged(sample_input().messages);
+        let valid = serde_json::to_value(ProcessCompactionResponse::new(output)).unwrap();
+        for (field, value) in [
+            ("original_token_estimate", json!(-1)),
+            ("trigger_tokens", json!(u64::from(u32::MAX) + 1)),
+            ("trigger_tokens", json!("80")),
+            ("summary_source", json!([])),
+            ("skipped_reason", json!(false)),
+        ] {
+            let mut invalid = valid.clone();
+            invalid["output"][field] = value;
+            serde_json::from_value::<ProcessCompactionResponse>(invalid)
+                .expect_err("typed diagnostics must be validated at the process boundary");
+        }
+        serde_json::from_value::<ProcessCompactionResponse>(valid)
+            .expect("a strategy may leave inapplicable diagnostics null");
     }
 
     #[test]

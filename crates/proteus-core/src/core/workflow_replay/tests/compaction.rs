@@ -10,20 +10,24 @@ const COMPACTION_WORKFLOW_ID: &str = "replay.compaction_probe";
 const COMPACTION_REASON: &str = "workflow_replay_test";
 
 #[test]
-fn compaction_comparison_ignores_only_duplicated_derived_metadata() {
+fn compaction_comparison_preserves_opaque_metadata_even_with_known_field_names() {
     let mut expected = HistoryCompactionReport::unchanged(3, Some("test".to_owned()));
     expected.changed = true;
     expected.output_messages = 2;
     expected.original_token_estimate = Some(300);
     expected.output_token_estimate = Some(30);
     let mut replay = expected.clone();
+    assert!(super::super::normalize::changed_compactions_equal(
+        std::slice::from_ref(&replay),
+        std::slice::from_ref(&expected),
+    ));
     replay.metadata = json!({
         "input_messages": 3,
         "output_messages": 2,
         "original_token_estimate": 300,
         "output_token_estimate": 30
     });
-    assert!(super::super::normalize::changed_compactions_equal(
+    assert!(!super::super::normalize::changed_compactions_equal(
         std::slice::from_ref(&replay),
         std::slice::from_ref(&expected),
     ));
@@ -106,6 +110,15 @@ fn compaction_catalog(mode: CompactionProbeMode) -> ModuleCatalog {
 }
 
 async fn compacted_journal() -> TestJournal {
+    compacted_journal_with_metadata(json!({
+        "module_signal": "recorded",
+        "input_messages": 999,
+        "trigger_tokens": "private-diagnostic"
+    }))
+    .await
+}
+
+async fn compacted_journal_with_metadata(metadata: serde_json::Value) -> TestJournal {
     let config_dir = tempfile::tempdir().expect("config dir");
     let workspace = tempfile::tempdir().expect("workspace");
     let session_id = new_session_id();
@@ -152,14 +165,10 @@ async fn compacted_journal() -> TestJournal {
         Some("recorded compacted summary".to_owned()),
     );
     compaction_output.token_estimate = Some(40);
-    compaction_output.metadata = json!({
-        "input_messages": 1,
-        "output_messages": 2,
-        "original_token_estimate": 400,
-        "output_token_estimate": 40,
-        "trigger_tokens": 100,
-        "summary_source": "test_fixture"
-    });
+    compaction_output.original_token_estimate = Some(400);
+    compaction_output.trigger_tokens = Some(100);
+    compaction_output.summary_source = Some("test_fixture".to_owned());
+    compaction_output.metadata = metadata;
     let report =
         HistoryCompactionReport::from_compaction_output(&compaction_input, &compaction_output);
     let response = CanonicalModelResponse::new(
@@ -232,6 +241,28 @@ async fn changed_compaction_replays_the_recorded_history_replacement() {
     assert_eq!(report.model_exchanges.recorded, 1);
     assert_eq!(report.model_exchanges.replayed, 1);
     assert_eq!(before, after);
+}
+
+#[tokio::test]
+async fn changed_compaction_replay_preserves_non_object_metadata() {
+    for metadata in [
+        json!(["module-defined", 42]),
+        json!("diagnostic"),
+        json!({}),
+        json!(null),
+    ] {
+        let journal = compacted_journal_with_metadata(metadata).await;
+        let report = replay_workflow(
+            journal.store.session_dir(),
+            &AppConfig::default(),
+            &compaction_catalog(CompactionProbeMode::Match),
+            WorkflowReplayOptions::default(),
+        )
+        .await
+        .expect("opaque metadata replay");
+        assert!(report.comparison.matched, "{:?}", report.comparison.issues);
+        assert!(report.source_journal_unchanged);
+    }
 }
 
 #[tokio::test]

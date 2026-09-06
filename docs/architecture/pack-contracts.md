@@ -20,6 +20,7 @@ consumer, но сам по себе не вводит новый public contract
 | `# AGENTS.md instructions` | `context-pack` provider `project_instructions` в `codex_context` | model-facing context render | upstream-shaped текстовый envelope; не признак persistent/ephemeral history |
 | summary prefix (`SUMMARY_PREFIX`) | `codex-compactor` | `codex-compactor` | префикс текста (само-согласован, ок) |
 | `CanonicalPart.scope` | workflow/context construction | `codex-compactor`, Python `python_suffix`, `coding-workflow/history.rs` | непустое сообщение со всеми parts в `request` — ephemeral context; `message.name` не влияет на классификацию |
+| typed диагностика `CompactionOutput` | compactor modules | `HistoryCompactionReport`, workflow, replay | оценки, порог и описательные причины — явные поля; числа сообщений — фактические input/output; `metadata` переносится непрозрачно и не подменяет поля отчёта |
 | context metadata `model_visible_render = "verbatim"` | `context-pack` (`codex_context`) | OpenAI/Anthropic model adapters | `CONTEXT_RENDER_MODE_*` в contracts |
 | chunk source `repo_aware:*` / `codex_context:*`, metadata `provider`/`reason`/`context_profile` | `context-pack` | app-server `context_map`, UI/debug views | строковые префиксы и metadata keys |
 | tool metadata `hot`, `category`, `tags`, `aliases` | tool packs и `[tools.configured]` в config | `codex-tool-exposure` (`metadata_hot`) | metadata JSON у tool spec |
@@ -57,4 +58,6 @@ consumer, но сам по себе не вводит новый public contract
 `cargo test -p proteus-reference-worker --test compactor_interop` запускает
 Rust и Python compactor через один process slot: переименование или отсутствие
 имени request context не меняет retention, а пользовательское имя `context`
-не превращает сообщение в служебное. Стратегии сжатия не обязаны совпадать.
+не превращает сообщение в служебное. Тот же тест проверяет typed отчёт обеих
+реализаций без чтения module-specific `metadata`. Стратегии сжатия не обязаны
+совпадать.

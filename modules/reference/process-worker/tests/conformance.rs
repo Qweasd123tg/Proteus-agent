@@ -533,13 +533,19 @@ fn dispatch_workflow_callback(
         WORKFLOW_HOST_COMPACT_HISTORY_METHOD => {
             let input: WorkflowCompactHistoryRequest = serde_json::from_value(request.params)
                 .map_err(|error| ProcessModuleRpcError::new(-32602, error.to_string()))?;
-            encode_callback(proteus_contracts::contracts::CompactionOutput::unchanged(
-                input.input.messages,
-            ))
+            let mut output =
+                proteus_contracts::contracts::CompactionOutput::unchanged(input.input.messages);
+            output.original_token_estimate = Some(40);
+            output.token_estimate = Some(40);
+            output.trigger_tokens = Some(100);
+            output.skipped_reason = Some("fixture_below_trigger".to_owned());
+            output.metadata = json!({"trigger_tokens": 999, "input_messages": 999});
+            encode_callback(output)
         }
         WORKFLOW_HOST_COMPLETE_MODEL_METHOD => {
-            let _: WorkflowCompleteModelRequest = serde_json::from_value(request.params)
+            let input: WorkflowCompleteModelRequest = serde_json::from_value(request.params)
                 .map_err(|error| ProcessModuleRpcError::new(-32602, error.to_string()))?;
+            assert_eq!(input.request.metadata["compaction_trigger_tokens"], 100);
             encode_callback(CanonicalModelResponse::new(
                 CanonicalMessage::text(MessageRole::Assistant, "worker answer"),
                 Vec::new(),
@@ -597,6 +603,24 @@ fn workflow_worker_runs_a_complete_callback_driven_turn() {
         serde_json::from_value(value).expect("workflow response");
     assert_eq!(response.result.output.text, "worker answer");
     assert_eq!(response.result.new_messages.len(), 1);
+    let report = response
+        .result
+        .compactions
+        .first()
+        .expect("compaction report");
+    assert_eq!(report.original_token_estimate, Some(40));
+    assert_eq!(report.output_token_estimate, Some(40));
+    assert_eq!(report.trigger_tokens, Some(100));
+    assert_eq!(
+        report.skipped_reason.as_deref(),
+        Some("fixture_below_trigger")
+    );
+    assert_eq!(report.input_messages, report.output_messages);
+    assert_ne!(report.input_messages, 999);
+    assert_eq!(
+        report.metadata,
+        json!({"trigger_tokens": 999, "input_messages": 999})
+    );
 }
 
 struct NestedMemoryDispatcher {
@@ -783,7 +807,7 @@ fn workflow_input(workspace: &Path) -> Value {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn targeted_cancel_keeps_concurrent_sibling_and_generation_alive() {
     let workspace = tempfile::tempdir().expect("workspace");
-    let workflow = ProcessExportBinding::new("workflow", "coding.single_loop", "v2", json!({}))
+    let workflow = ProcessExportBinding::new("workflow", "coding.single_loop", "v3", json!({}))
         .expect("workflow binding");
     let workflow_target = workflow.export_ref();
     let policy =

@@ -20,7 +20,7 @@ if [ "$mode" = "mismatch" ]; then
 else
     slot=compactor
 fi
-printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$initialize_id,\"result\":{\"protocol_version\":\"v3\",\"component_id\":\"$component_id\",\"exports\":[{\"slot\":\"$slot\",\"module_id\":\"$module_id\",\"contract_version\":\"v2\",\"composition\":\"select_one\",\"module_features\":[]}]}}"
+printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$initialize_id,\"result\":{\"protocol_version\":\"v3\",\"component_id\":\"$component_id\",\"exports\":[{\"slot\":\"$slot\",\"module_id\":\"$module_id\",\"contract_version\":\"v3\",\"composition\":\"select_one\",\"module_features\":[]}]}}"
 
 while IFS= read -r compact_request; do
     request_id=$(rpc_id "$compact_request")
@@ -39,10 +39,10 @@ while IFS= read -r compact_request; do
             continue
             ;;
         invalid)
-            printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$request_id,\"result\":{\"messages\":[],\"changed\":false,\"summary\":null,\"token_estimate\":null,\"metadata\":null}}"
+            printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$request_id,\"result\":{\"messages\":[],\"changed\":false,\"summary\":null,\"token_estimate\":null,\"original_token_estimate\":null,\"trigger_tokens\":null,\"summary_source\":null,\"skipped_reason\":null,\"metadata\":null}}"
             continue
             ;;
     esac
 
-    printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$request_id,\"result\":{\"output\":{\"messages\":[],\"changed\":false,\"summary\":null,\"token_estimate\":null,\"metadata\":{\"fixture\":true}}}}"
+    printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$request_id,\"result\":{\"output\":{\"messages\":[],\"changed\":false,\"summary\":null,\"token_estimate\":null,\"original_token_estimate\":null,\"trigger_tokens\":null,\"summary_source\":null,\"skipped_reason\":null,\"metadata\":{\"fixture\":true}}}}"
 done
