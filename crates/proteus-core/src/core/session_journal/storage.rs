@@ -16,8 +16,10 @@ use super::{
     types::{JOURNAL_SCHEMA_VERSION, JournalEntry, JournalKind, JournalRecord},
 };
 
+mod ownership;
 mod redaction;
 
+use ownership::SessionWriteOwnership;
 use redaction::redact_sensitive_values;
 
 pub const JOURNAL_FILE: &str = "journal.jsonl";
@@ -53,11 +55,12 @@ enum StoredPayload {
     },
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub(crate) struct JournalWriterState {
     initialized: bool,
     next_seq: u64,
     validation: JournalValidationState,
+    _ownership: Option<SessionWriteOwnership>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -97,8 +100,8 @@ pub(crate) async fn append_record(
     blob_threshold_bytes: usize,
     state: &mut JournalWriterState,
 ) -> Result<JournalRecord> {
-    repair_unterminated_tail(&journal_path(session_dir))?;
     initialize_writer_state(session_dir, session_id, state)?;
+    repair_unterminated_tail(&journal_path(session_dir))?;
 
     let kind = entry.kind();
     let mut payload = entry.payload_value()?;
@@ -172,6 +175,7 @@ pub(crate) fn initialize_writer_state(
     if state.initialized {
         return Ok(());
     }
+    let ownership = SessionWriteOwnership::acquire(session_dir, session_id)?;
     repair_unterminated_tail(&journal_path(session_dir))?;
     let records = load_records(session_dir, session_id)?;
     let projection = JournalProjection::build(session_id, records.clone())?;
@@ -185,6 +189,7 @@ pub(crate) fn initialize_writer_state(
         .unwrap_or(1);
     debug_assert_eq!(validation.history_revision(), projection.history_revision);
     state.validation = validation;
+    state._ownership = Some(ownership);
     state.initialized = true;
     Ok(())
 }

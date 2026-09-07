@@ -577,9 +577,17 @@ directory: она материализуется при первом canonical r
 ```text
 <config-dir>/sessions/<encoded-workspace>/<10-digit-id>/session.json
 <config-dir>/sessions/<encoded-workspace>/<10-digit-id>/journal.jsonl
+<config-dir>/sessions/<encoded-workspace>/<10-digit-id>/journal.write.lock
 <config-dir>/sessions/<encoded-workspace>/<10-digit-id>/config_snapshot.json
 <config-dir>/sessions/<encoded-workspace>/<10-digit-id>/blobs/<sha256>.json
 ```
+
+`journal.write.lock` — постоянный lock-файл, а не признак живого owner сам по
+себе. При первой записи process берёт на нём exclusive advisory lock до конца
+writer lifetime; конкурентный writer той же session отказывает до изменения
+journal. ОС освобождает владение при закрытии process, включая crash/kill, после
+чего другой writer может продолжить с проверенного cold state. Обычные
+`history`, inspect и replay lock не берут и файл не удаляют.
 
 Пример:
 

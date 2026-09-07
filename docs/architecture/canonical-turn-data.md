@@ -154,7 +154,11 @@ contract.
 
 ## Запись И Recovery
 
-- Один session writer сериализует allocation `session_seq` и append.
+- Один OS process владеет write-session через advisory lock на весь lifetime
+  writer-а; второй process получает отказ до tail recovery и allocation
+  `session_seq`. Read-only projection lock не берёт.
+- Внутри owner process один session writer сериализует allocation
+  `session_seq` и append.
 - Record сначала полностью сериализуется и проходит size/redaction checks,
   затем дописывается одной critical section и flush-ится.
 - Незавершённая последняя JSONL-строка после power loss может быть отброшена;

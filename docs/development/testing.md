@@ -304,6 +304,16 @@ Replay отвечает «сохранилась ли эквивалентнос
 Runtime-owned `Canceled` / `Timeout` проверяются через journal и cold
 history, потому что внешний момент сигнала не является workflow output.
 
+Эксклюзивность session writer проверяется настоящим вторым OS process:
+
+```bash
+cargo test -p proteus-core --test session_writer_lock -- --nocapture
+```
+
+Gate требует отказа второго writer-а до записи, доступного read-only projection
+при живом owner-е, освобождения lock после kill и непрерывной sequence при
+следующем append.
+
 При изменении journal redaction проверяйте одновременно точность schema и
 отсутствие credential values:
 
