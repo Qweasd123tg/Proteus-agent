@@ -314,6 +314,18 @@ Gate требует отказа второго writer-а до записи, д�
 при живом owner-е, освобождения lock после kill и непрерывной sequence при
 следующем append.
 
+Steady-state append и recovery проверяются отдельно:
+
+```bash
+cargo test -p proteus-core repeated_appends_run_full_tail_recovery_only_at_writer_initialization
+cargo test -p proteus-core storage::recovery::tests
+```
+
+Первый test фиксирует один полный scan на writer lifetime вместо scan на каждый
+record. Второй фиксирует rollback к committed byte offset после прерванной
+записи и отказ расширять неожиданно укороченный journal. `sync_data` из append
+и recovery не убирается ради performance.
+
 При изменении journal redaction проверяйте одновременно точность schema и
 отсутствие credential values:
 

@@ -421,3 +421,27 @@ async fn concurrent_clones_allocate_monotonic_sequence() {
     assert_eq!(projection.records[1].session_seq, 2);
     assert_eq!(projection.history_revision, 2);
 }
+
+#[tokio::test]
+async fn repeated_appends_run_full_tail_recovery_only_at_writer_initialization() {
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let workspace = tempfile::tempdir().expect("workspace");
+    let store = test_store(config_dir.path(), workspace.path());
+
+    for text in ["first", "second", "third"] {
+        store
+            .append_history(
+                new_thread_id(),
+                None,
+                &[CanonicalMessage::text(MessageRole::User, text)],
+            )
+            .await
+            .expect("append history");
+    }
+
+    assert_eq!(store.writer.lock().await.initial_recovery_scans(), 1);
+    assert_eq!(
+        store.load_projection().expect("projection").records.len(),
+        3
+    );
+}

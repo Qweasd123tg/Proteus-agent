@@ -17,9 +17,11 @@ use super::{
 };
 
 mod ownership;
+mod recovery;
 mod redaction;
 
 use ownership::SessionWriteOwnership;
+use recovery::{AppendRollback, restore_committed_offset};
 use redaction::redact_sensitive_values;
 
 pub const JOURNAL_FILE: &str = "journal.jsonl";
@@ -60,7 +62,10 @@ pub(crate) struct JournalWriterState {
     initialized: bool,
     next_seq: u64,
     validation: JournalValidationState,
+    committed_offset: u64,
     _ownership: Option<SessionWriteOwnership>,
+    #[cfg(test)]
+    initial_recovery_scans: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -101,7 +106,8 @@ pub(crate) async fn append_record(
     state: &mut JournalWriterState,
 ) -> Result<JournalRecord> {
     initialize_writer_state(session_dir, session_id, state)?;
-    repair_unterminated_tail(&journal_path(session_dir))?;
+    let path = journal_path(session_dir);
+    restore_committed_offset(&path, state.committed_offset)?;
 
     let kind = entry.kind();
     let mut payload = entry.payload_value()?;
@@ -149,21 +155,43 @@ pub(crate) async fn append_record(
     };
     let mut line = serde_json::to_vec(&stored)?;
     line.push(b'\n');
-    let path = journal_path(session_dir);
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .await
-        .with_context(|| format!("failed to open {}", path.display()))?;
-    file.write_all(&line)
-        .await
-        .with_context(|| format!("failed to append {}", path.display()))?;
-    file.flush().await?;
-    file.sync_data().await?;
+    let next_committed_offset = state
+        .committed_offset
+        .checked_add(line.len() as u64)
+        .ok_or_else(|| anyhow!("journal offset overflow for {}", path.display()))?;
+    let mut rollback = AppendRollback::new(path.clone(), state.committed_offset);
+    let write_result = async {
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .await
+            .with_context(|| format!("failed to open {}", path.display()))?;
+        file.write_all(&line)
+            .await
+            .with_context(|| format!("failed to append {}", path.display()))?;
+        file.flush()
+            .await
+            .with_context(|| format!("failed to flush {}", path.display()))?;
+        file.sync_data()
+            .await
+            .with_context(|| format!("failed to sync {}", path.display()))?;
+        Ok::<(), anyhow::Error>(())
+    }
+    .await;
+    if let Err(error) = write_result {
+        return match rollback.rollback() {
+            Ok(()) => Err(error),
+            Err(rollback_error) => Err(anyhow!(
+                "{error:#}; journal rollback failed: {rollback_error:#}; next append will retry recovery"
+            )),
+        };
+    }
+    rollback.commit();
 
     state.next_seq = state.next_seq.saturating_add(1);
     state.validation = next_validation;
+    state.committed_offset = next_committed_offset;
     Ok(record)
 }
 
@@ -176,7 +204,12 @@ pub(crate) fn initialize_writer_state(
         return Ok(());
     }
     let ownership = SessionWriteOwnership::acquire(session_dir, session_id)?;
-    repair_unterminated_tail(&journal_path(session_dir))?;
+    let path = journal_path(session_dir);
+    repair_unterminated_tail(&path)?;
+    #[cfg(test)]
+    {
+        state.initial_recovery_scans += 1;
+    }
     let records = load_records(session_dir, session_id)?;
     let projection = JournalProjection::build(session_id, records.clone())?;
     let mut validation = JournalValidationState::default();
@@ -189,6 +222,7 @@ pub(crate) fn initialize_writer_state(
         .unwrap_or(1);
     debug_assert_eq!(validation.history_revision(), projection.history_revision);
     state.validation = validation;
+    state.committed_offset = journal_len(&path)?;
     state._ownership = Some(ownership);
     state.initialized = true;
     Ok(())
@@ -197,6 +231,11 @@ pub(crate) fn initialize_writer_state(
 impl JournalWriterState {
     pub(crate) fn history_revision(&self) -> u64 {
         self.validation.history_revision()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn initial_recovery_scans(&self) -> usize {
+        self.initial_recovery_scans
     }
 }
 
@@ -318,6 +357,14 @@ fn repair_unterminated_tail(path: &Path) -> Result<()> {
         .with_context(|| format!("failed to truncate interrupted tail in {}", path.display()))?;
     file.sync_data()?;
     Ok(())
+}
+
+fn journal_len(path: &Path) -> Result<u64> {
+    match std::fs::metadata(path) {
+        Ok(metadata) => Ok(metadata.len()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(0),
+        Err(error) => Err(error).with_context(|| format!("failed to inspect {}", path.display())),
+    }
 }
 
 async fn write_blob(session_dir: &Path, bytes: &[u8]) -> Result<StoredPayload> {

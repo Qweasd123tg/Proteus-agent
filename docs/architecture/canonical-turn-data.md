@@ -161,8 +161,16 @@ contract.
   `session_seq` и append.
 - Record сначала полностью сериализуется и проходит size/redaction checks,
   затем дописывается одной critical section и flush-ится.
-- Незавершённая последняя JSONL-строка после power loss может быть отброшена;
-  ошибка в середине файла завершает load явно.
+- Полный tail recovery выполняется один раз после захвата write-session. В
+  steady state writer хранит последний подтверждённый byte offset и не
+  перечитывает весь journal перед каждым append. Проверка размера через metadata
+  обрезает только обнаруженный лишний хвост и отклоняет неожиданно укороченный
+  файл.
+- Append считается подтверждённым только после `flush` и `sync_data`. При
+  ошибке или отмене armed rollback возвращает файл к committed offset; перед
+  следующим append незавершённый recovery повторяется. После cold start
+  незавершённая последняя JSONL-строка может быть отброшена, а ошибка в середине
+  файла завершает load явно.
 - History revision меняется только вместе с успешно записанным
   `history_mutated`.
 - UI notification и telemetry event публикуются после canonical commit там,
