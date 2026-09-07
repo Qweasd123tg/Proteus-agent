@@ -9,16 +9,15 @@ minimum useful worker shape in plain Python:
 * a lock around complete JSON-lines writes; and
 * per-invocation cancellation and callback wait state.
 
-The P0 harness uses ``params.input``; the production-v3 suite uses the strict
-``params.params`` wrapper. The fixture keeps those test contracts explicit and
-does not act as a compatibility layer for production code.
+The fixture uses the strict v3 ``params.params`` wrapper and does not act as a
+compatibility layer for production code.
 
     {"jsonrpc":"2.0", "id":"h:1:1", "method":"run",
-     "params":{"export": {...}, "lineage": {...}, "input":
+     "params":{"export": {...}, "lineage": {...}, "params":
         {"op":"echo", "value":"hello"}}}
 
 The worker intentionally accepts any host request method with an ``h:*`` id:
-P0 is exercising transport semantics rather than a particular slot method.
+the fixture exercises transport semantics rather than a particular slot method.
 """
 
 from __future__ import annotations
@@ -55,7 +54,6 @@ class Worker:
         self._invocations: Dict[str, Invocation] = {}
         self._callbacks: Dict[str, CallbackWaiter] = {}
         self._next_callback = 0
-        self._protocol_version = "component-v3-spike"
 
     def send(self, frame: JSON) -> None:
         """Write exactly one JSON frame; invocation threads never interleave bytes."""
@@ -102,12 +100,12 @@ class Worker:
                 daemon=True,
             ).start()
             if self._input(frame).get("op") == "stop_reading":
-                # Hostile P0 case: stdout/invocation threads remain alive while
+                # Hostile case: stdout/invocation threads remain alive while
                 # the sole stdin owner stops consuming frames.
                 time.sleep(self._milliseconds(self._input(frame)) or 60.0)
 
     def _initialize(self, frame: JSON) -> None:
-        """Answer either the P0 spike handshake or the exact P2 v3 manifest."""
+        """Answer the exact component-v3 manifest."""
         request_id = frame.get("id")
         params = frame.get("params")
         if not isinstance(request_id, str) or not request_id.startswith("h:"):
@@ -122,7 +120,6 @@ class Worker:
             if not isinstance(component_id, str) or not isinstance(exports, list):
                 self.send_error(request_id, -32602, "invalid component-v3 binding")
                 return
-            self._protocol_version = "v3"
             manifest_exports = []
             for export in exports:
                 if not isinstance(export, dict):
@@ -145,24 +142,7 @@ class Worker:
                 },
             })
             return
-        if protocol_version != "component-v3-spike":
-            self.send_error(request_id, -32602, "unknown component protocol")
-            return
-        self._protocol_version = "component-v3-spike"
-        self.send({
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": {
-                "protocol_version": "component-v3-spike",
-                "pid": os.getpid(),
-                "capabilities": [
-                    "concurrent_invocations",
-                    "targeted_cancel",
-                    "host_callbacks",
-                    "progress_notifications",
-                ],
-            },
-        })
+        self.send_error(request_id, -32602, "unknown component protocol")
 
     def _resolve_callback(self, response: JSON) -> None:
         callback_id = response.get("id")
@@ -190,15 +170,10 @@ class Worker:
         params = request.get("params")
         if not isinstance(params, dict):
             return {}
-        input_value = params.get("params", params.get("input"))
+        input_value = params.get("params")
         return input_value if isinstance(input_value, dict) else {}
 
-    def _is_v3(self) -> bool:
-        return self._protocol_version == "v3"
-
     def _callback_method(self, invocation: Invocation) -> str:
-        if not self._is_v3():
-            return "host.nested.invoke"
         params = invocation.request.get("params")
         export = params.get("export") if isinstance(params, dict) else None
         slot = export.get("slot") if isinstance(export, dict) else None
@@ -214,7 +189,7 @@ class Worker:
         params: JSON = {
             "invocation_id": parent_id if parent_id is not None else invocation.invocation_id,
         }
-        params["params" if self._is_v3() else "input"] = payload
+        params["params"] = payload
         return params
 
     @staticmethod
@@ -328,7 +303,6 @@ class Worker:
             if operation == "exit_process":
                 if delay:
                     time.sleep(delay)
-                # P0 needs a worker that dies without a terminal response.
                 # os._exit deliberately bypasses thread cleanup and stdio
                 # flushing, matching an abrupt component process loss.
                 os._exit(23)
@@ -445,11 +419,7 @@ class Worker:
         return f"{direction}:{generation}:{int(sequence) + offset}"
 
     def progress(self, invocation_id: str, sequence: int, payload: Any) -> None:
-        params = (
-            {"invocation_id": invocation_id, "payload": {"seq": sequence, "value": payload}}
-            if self._is_v3()
-            else {"invocation_id": invocation_id, "seq": sequence, "payload": payload}
-        )
+        params = {"invocation_id": invocation_id, "payload": {"seq": sequence, "value": payload}}
         self.send({"jsonrpc": "2.0", "method": "module.progress", "params": params})
 
     def send_result(self, invocation_id: Any, result: Any) -> None:

@@ -37,7 +37,7 @@ fn main() -> Result<()> {
         targeted_cancel_keeps_sibling_and_generation().await?;
         dropped_terminal_receiver_cancels_owned_work().await?;
         deadline_cancel_is_targeted().await?;
-        cancel_before_admission_never_starts_queued_work().await?;
+        queued_admission_is_bounded_and_cancellable().await?;
         parent_cancel_cascades_during_callback().await?;
         uncooperative_cancel_resets_failure_domain().await?;
         stopped_worker_reader_cannot_block_cancel_grace().await?;
@@ -265,7 +265,7 @@ async fn deadline_cancel_is_targeted() -> Result<()> {
     Ok(())
 }
 
-async fn cancel_before_admission_never_starts_queued_work() -> Result<()> {
+async fn queued_admission_is_bounded_and_cancellable() -> Result<()> {
     let options = ComponentBrokerOptions {
         max_active_roots: 1,
         max_active_total: 2,
@@ -274,9 +274,9 @@ async fn cancel_before_admission_never_starts_queued_work() -> Result<()> {
         max_callback_depth: 1,
         ..ComponentBrokerOptions::default()
     };
-    let broker = broker(options)?;
+    let cancel_broker = broker(options)?;
     let workflow = export("workflow", "fixture.workflow");
-    let mut blocker = broker
+    let mut blocker = cancel_broker
         .start_invocation(
             &workflow,
             PROCESS_WORKFLOW_METHOD,
@@ -284,7 +284,7 @@ async fn cancel_before_admission_never_starts_queued_work() -> Result<()> {
             INVOCATION_TIMEOUT,
         )
         .await?;
-    let mut queued = broker
+    let mut queued = cancel_broker
         .start_invocation(
             &workflow,
             PROCESS_WORKFLOW_METHOD,
@@ -295,6 +295,65 @@ async fn cancel_before_admission_never_starts_queued_work() -> Result<()> {
     queued.cancel(CancelCause::User)?;
     ensure!(queued.result().await? == InvocationTerminal::Canceled);
     ensure!(value(blocker.result().await?)? == json!("blocker"));
+
+    let timeout_broker = broker(options)?;
+    let mut blocker = timeout_broker
+        .start_invocation(
+            &workflow,
+            PROCESS_WORKFLOW_METHOD,
+            json!({"op":"echo", "value":"blocker", "delay_ms":100}),
+            INVOCATION_TIMEOUT,
+        )
+        .await?;
+    let mut queued = timeout_broker
+        .start_invocation(
+            &workflow,
+            PROCESS_WORKFLOW_METHOD,
+            json!({"op":"echo", "value":"must-time-out-before-admission"}),
+            Duration::from_millis(20),
+        )
+        .await?;
+    ensure!(queued.result().await? == InvocationTerminal::TimedOut);
+    ensure!(value(blocker.result().await?)? == json!("blocker"));
+
+    let capacity_options = ComponentBrokerOptions {
+        max_active_roots: 1,
+        max_pending_roots: 2,
+        max_active_total: 2,
+        reserved_nested: 1,
+        max_active_nested: 1,
+        max_callback_depth: 1,
+        ..ComponentBrokerOptions::default()
+    };
+    let capacity_broker = broker(capacity_options)?;
+    let mut blocker = capacity_broker
+        .start_invocation(
+            &workflow,
+            PROCESS_WORKFLOW_METHOD,
+            json!({"op":"echo", "value":"blocker", "delay_ms":100}),
+            INVOCATION_TIMEOUT,
+        )
+        .await?;
+    let mut queued = capacity_broker
+        .start_invocation(
+            &workflow,
+            PROCESS_WORKFLOW_METHOD,
+            json!({"op":"echo", "value":"queued"}),
+            INVOCATION_TIMEOUT,
+        )
+        .await?;
+    let overflow = capacity_broker
+        .start_invocation(
+            &workflow,
+            PROCESS_WORKFLOW_METHOD,
+            json!({"op":"echo", "value":"overflow"}),
+            INVOCATION_TIMEOUT,
+        )
+        .await
+        .expect_err("root pending capacity must reject overflow");
+    ensure!(overflow.kind == ComponentBrokerErrorKind::Admission);
+    ensure!(value(blocker.result().await?)? == json!("blocker"));
+    ensure!(value(queued.result().await?)? == json!("queued"));
     Ok(())
 }
 
@@ -810,6 +869,23 @@ async fn crash_and_resource_fault_fan_out() -> Result<()> {
             &workflow,
             PROCESS_WORKFLOW_METHOD,
             json!({"op":"oversized", "bytes":4096}),
+            INVOCATION_TIMEOUT,
+        )
+        .await?;
+    ensure!(
+        oversized.result().await? == InvocationTerminal::ComponentLost(ComponentFailure::Resource)
+    );
+
+    let outbound_options = ComponentBrokerOptions {
+        max_outbound_frame_bytes: 1024,
+        ..ComponentBrokerOptions::default()
+    };
+    let outbound_broker = broker(outbound_options)?;
+    let mut oversized = outbound_broker
+        .start_invocation(
+            &workflow,
+            PROCESS_WORKFLOW_METHOD,
+            json!({"op":"echo", "value":"x".repeat(4096)}),
             INVOCATION_TIMEOUT,
         )
         .await?;

@@ -16,11 +16,6 @@ tokio = { version = "1", features = ["rt", "sync"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 
 [[test]]
-name = "multiplex_spike"
-path = "tests/multiplex_spike.rs"
-harness = false
-
-[[test]]
 name = "broker_v3"
 path = "tests/broker_v3.rs"
 harness = false

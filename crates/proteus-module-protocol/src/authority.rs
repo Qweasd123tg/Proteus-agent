@@ -264,10 +264,4 @@ mod tests {
             assert!(process_contract_authority(slot, "v3").is_some());
         }
     }
-
-    #[test]
-    fn retired_renderer_contract_has_no_authority() {
-        assert!(process_contract_authority("renderer", "v1").is_none());
-        assert!(current_process_contract_authority("renderer").is_none());
-    }
 }

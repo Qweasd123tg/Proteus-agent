@@ -205,7 +205,7 @@ Reference crates линкуются только внутрь `proteus-reference
 6. Добавить protocol и runtime swap evidence, затем обновить
    `docs/architecture/modules.md` и `docs/guides/configuration.md`.
 
-Model provider implementations проходят общий `model/v1` process contract.
+Model provider implementations проходят общий `model/v2` process contract.
 Core владеет canonical shaping/validation, execution binding и journal, но не HTTP provider adapters. `AgentControl` — отдельный root-owned service для полных Proteus
 peers, а не behavior slot или основание возвращать общий native loader.
 Marketplace, package manager, hot reload и sandbox не входят в текущий process
@@ -231,6 +231,12 @@ runtime.
 Не каждая правка требует всех видов evidence. Выберите строку матрицы в
 `docs/development/testing.md` по затронутой границе и явно укажите непройденную применимую
 проверку.
+
+Не добавляйте тест для обратимой низкорисковой правки, если он только повторяет
+implementation. Сначала расширяйте существующий boundary-сценарий. Один
+инвариант проверяйте на нескольких слоях только тогда, когда каждый слой ловит
+свой отдельный источник дефекта; совпадение assertions само по себе не является
+основанием для ещё одного теста.
 
 ## Документация
 
