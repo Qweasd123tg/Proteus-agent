@@ -41,7 +41,7 @@ use cli_workflow_replay::run_workflow_replay;
 
 #[cfg(test)]
 use cli_doctor::{
-    DoctorFindings, check_external_commands, check_model_config, check_model_secret,
+    DoctorFindings, check_external_commands, check_model_config,
     check_module_config_tool_references, check_timeout_ms, command_resolves, format_timeout_ms,
 };
 #[cfg(test)]
@@ -130,7 +130,7 @@ async fn main() -> Result<()> {
 
     let mut config = AppConfig::load(cli.config.as_deref()).await?;
     if let Some(command) = prompt_replay {
-        println!("{}", run_prompt_replay(&config, command).await?);
+        println!("{}", run_prompt_replay(&config, &cwd, command).await?);
         return Ok(());
     }
     if let Some(command) = workflow_replay {
@@ -241,7 +241,7 @@ fn build_tool_registry_for_listing(
     let cwd = plan.cwd();
     let agent_control = AgentControlRuntime::from_config(&config.agent_control)?;
     let model_config = plan.model_config()?;
-    let model = catalog.build_model_adapter(&model_config)?;
+    let model = catalog.build_model_adapter(&model_config, cwd)?;
     let mut tools = catalog.build_tools_for_inspection(config, cwd)?;
     agent_control.register_tools(&mut tools, config.runtime.workflow_timeout_ms)?;
     register_provider_hosted_tools(
@@ -271,7 +271,7 @@ fn build_cli_topology(
         }
     };
     let hosted_tools = config.active_model_config().and_then(|model_config| {
-        let model = catalog.build_model_adapter(&model_config)?;
+        let model = catalog.build_model_adapter(&model_config, cwd)?;
         Ok((
             model.id().into_owned(),
             model.provider_hosted_tools(&model_config.model_ref()),
@@ -852,3 +852,7 @@ fn short_id(id: &str) -> &str {
 #[cfg(test)]
 #[path = "main_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../tests/support/model.rs"]
+mod test_model;

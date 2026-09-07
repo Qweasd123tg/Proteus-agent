@@ -33,7 +33,7 @@ pub struct ComponentBrokerOptions {
     pub max_callback_depth: usize,
     pub max_callbacks_per_root: usize,
     pub max_pending_callbacks: usize,
-    pub max_callback_ids_per_generation: usize,
+    pub max_callback_id_ranges: usize,
 }
 
 impl Default for ComponentBrokerOptions {
@@ -58,7 +58,7 @@ impl Default for ComponentBrokerOptions {
             max_callback_depth: 16,
             max_callbacks_per_root: 256,
             max_pending_callbacks: 256,
-            max_callback_ids_per_generation: 65_536,
+            max_callback_id_ranges: 65_536,
         }
     }
 }
@@ -95,10 +95,7 @@ impl ComponentBrokerOptions {
             ("max_callback_depth", self.max_callback_depth),
             ("max_callbacks_per_root", self.max_callbacks_per_root),
             ("max_pending_callbacks", self.max_pending_callbacks),
-            (
-                "max_callback_ids_per_generation",
-                self.max_callback_ids_per_generation,
-            ),
+            ("max_callback_id_ranges", self.max_callback_id_ranges),
         ] {
             if value == 0 {
                 bail!("component-v3 {label} must be greater than zero");

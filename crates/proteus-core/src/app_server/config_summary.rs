@@ -104,11 +104,6 @@ pub(super) fn configured_reasoning_effort_options(
         push_unique_strings(&mut options, &profile.reasoning_efforts);
     }
 
-    if looks_like_deepseek(config, active_model) {
-        push_unique(&mut options, "high");
-        push_unique(&mut options, "max");
-    }
-
     if let Some(effort) = reasoning.effort.as_deref() {
         push_unique(&mut options, effort);
     }
@@ -132,19 +127,6 @@ fn matching_provider_profiles<'a>(
 
 fn active_provider_profile(config: &AppConfig) -> Option<&crate::core::ProviderProfileConfig> {
     config.providers.get(&config.active_provider)
-}
-
-fn looks_like_deepseek(config: &AppConfig, active_model: &crate::domain::ModelRef) -> bool {
-    let model = active_model.model.to_ascii_lowercase();
-    let provider = active_model.provider.to_ascii_lowercase();
-    let provider_config = config
-        .active_model_config()
-        .ok()
-        .map(|model| model.provider_config.to_string().to_ascii_lowercase())
-        .unwrap_or_default();
-    model.contains("deepseek")
-        || provider.contains("deepseek")
-        || provider_config.contains("deepseek")
 }
 
 fn push_unique_strings(options: &mut Vec<String>, values: &[String]) {

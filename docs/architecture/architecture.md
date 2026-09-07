@@ -466,7 +466,7 @@ max_results = 50
 
 `ModuleCatalog::from_config`:
 
-1. добавляет явно учтённые core-owned model adapters;
+1. создаёт пустой каталог без встроенных behavior implementations;
 2. валидирует каждый component и его непустой exact export set;
 3. создаёт один shared launcher и регистрирует process factory каждого export;
 4. отклоняет duplicate identity и unsupported slot;
@@ -534,15 +534,13 @@ sandbox policy.
 
 ## Core-Owned Границы
 
-Core-owned selectable implementations модели:
+Core владеет provider-neutral `ModelService` и execution-bound `BoundModel`:
+canonical shaping/validation, deadline, attribution и journal. Provider
+HTTP adapters и secrets находятся в `modules/reference/model-pack`; runtime
+вызывает их через тот же `model/v1` contract, что и внешний worker.
+`describe` фиксирует capabilities/hosted tools export при сборке snapshot.
 
-- model provider adapters `fake`, `openai`, `openai_compatible`,
-  `anthropic`.
-
-Provider shaping допускается только в
-`crates/proteus-core/src/adapters` и model shaping layer. Эти границы нельзя
-использовать для добавления произвольных modules. Model migration требует
-полного slot contract и parity evidence. Subagents обслуживает отдельный
+Subagents обслуживает отдельный
 root-owned `AgentControl`: полный Proteus общается с другим полным Proteus,
 а не публикует себя как обычный Component Runtime export.
 

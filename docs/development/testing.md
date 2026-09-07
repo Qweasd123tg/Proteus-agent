@@ -53,7 +53,7 @@ failure path, а не только совпадение имён tools или co
 
 ```bash
 cargo test -p proteus-contracts canonical_response
-cargo test -p proteus-core codex_parity_preserves_ordered_commentary_and_final_messages
+cargo test -p model-pack codex_parity_preserves_ordered_commentary_and_final_messages
 cargo test -p coding-workflow codex_loop_preserves_commentary_and_uses_the_last_message_as_final_output
 cargo test -p proteus-reference-worker --test conformance
 cargo test -p proteus-core --test module_swap
@@ -85,6 +85,22 @@ distinct execution attribution, frozen registry/grants через reload,
 typed tool/memory операции без выдуманных chat ids и адресную отмену
 при живом sibling. Topology/journal suite проверяет один component process,
 раздельную slot authority и canonical workflow replay.
+
+Для model process boundary дополнительно обязательны:
+
+```bash
+cargo test -p model-pack
+cargo test -p proteus-core --test model_process --test module_swap
+cargo test -p proteus-reference-worker --test conformance --test model_exports --test codex_model_resume --test topology_journal
+cargo test -p proteus-module-protocol --test broker_v3
+```
+
+`model_process` проверяет arbitrary Python exports, exact canonical input/output,
+длинный поток сверх host-work callback budget, backpressure, drop/cancel,
+ошибки и malformed DTO. `codex_model_resume` проходит reference OpenAI provider
+в worker через JSON/SSE mock HTTP, journal и cold resume; live API этот gate
+не вызывает. Перед unit/runtime тестами Core fixture явно собирает reference
+worker: production Core от reference crate не зависит.
 
 Для model/grants/recording changes добавляются focused suites
 `bound_model_tests`, `bound_tools_tests` и session journal. Process cancellation,
@@ -192,7 +208,7 @@ cargo test -p proteus-reference-worker --test patch_transaction -- --nocapture
 
 Suite подтверждает:
 
-- strict component-v3 handshake всех 26 selectors;
+- strict component-v3 handshake 26 behavior selectors и четырёх model implementations;
 - multi-export routing по одному persistent broker;
 - aggregate tool `list` и реальный `read_file`;
 - real `rg`, patch и обе memory implementations;

@@ -267,8 +267,6 @@ pub struct ProviderProfileConfig {
     pub reasoning: ReasoningConfig,
     #[serde(default)]
     pub reasoning_efforts: Vec<String>,
-    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
-    pub provider_config: serde_json::Value,
 }
 
 impl Default for ProviderProfileConfig {
@@ -279,25 +277,17 @@ impl Default for ProviderProfileConfig {
             stream: default_model_stream(),
             reasoning: ReasoningConfig::default(),
             reasoning_efforts: Vec::new(),
-            provider_config: serde_json::Value::Null,
         }
     }
 }
 
 impl ProviderProfileConfig {
     pub fn to_model_config(&self) -> Result<ModelConfig> {
-        let provider_config = match &self.provider_config {
-            serde_json::Value::Null => serde_json::Value::Object(serde_json::Map::new()),
-            serde_json::Value::Object(_) => self.provider_config.clone(),
-            _ => bail!("provider_config must be a JSON object"),
-        };
-
         Ok(ModelConfig {
             provider: self.provider.clone(),
             model: self.model.clone(),
             stream: self.stream,
             reasoning: self.reasoning.clone(),
-            provider_config,
         })
     }
 }
@@ -327,8 +317,6 @@ pub struct ModelConfig {
     pub stream: bool,
     #[serde(default)]
     pub reasoning: ReasoningConfig,
-    #[serde(default)]
-    pub provider_config: serde_json::Value,
 }
 
 impl ModelConfig {
@@ -344,7 +332,6 @@ impl Default for ModelConfig {
             model: default_model_name(),
             stream: default_model_stream(),
             reasoning: ReasoningConfig::default(),
-            provider_config: serde_json::Value::Null,
         }
     }
 }

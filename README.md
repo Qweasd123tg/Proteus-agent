@@ -149,7 +149,7 @@ Process boundary пока не sandbox: worker получает очищенно
 
 - component runtime v2 / wire protocol v3 для slots: `workflow`, `search`, `memory`, `context`,
   `context_provider`, `policy`, `patch`, `compactor`,
-  `tool_exposure`, `tool`;
+  `tool_exposure`, `tool`, `model`;
 - multi-export persistent stdio component lifecycle, exact-set
   initialize/manifest handshake,
   bidirectional host callbacks, cancellation, timeout и lazy restart после
@@ -158,14 +158,15 @@ Process boundary пока не sandbox: worker получает очищенно
   `ToolRegistry -> ApprovalPolicy -> ToolSafety -> Tool`;
 - canonical model DTO, durable session journal, resume, HTTP/SSE app-server,
   CLI, chat и Inspector;
-- reference worker с 26 selectors, включая deterministic project-check, и
+- reference worker с behavior selectors и model implementations, включая
+  deterministic project-check, и
   отдельный Python workflow/search/compactor examples;
 - conformance, real-worker execution и runtime swap regression gates.
 - topology/journal gate: один PID выполняет callback-связанный workflow,
   переживает адресную отмену и даёт совпадающий canonical workflow replay.
 
-Оставшаяся core-owned selectable граница названа явно: model provider adapters
-(`fake`, `openai`, `openai_compatible`, `anthropic`). Root-owned
+Model implementations (`fake`, `openai`, `openai_compatible`, `anthropic`)
+живут в reference worker и заменяются внешними `model/v1` exports. Root-owned
 `AgentControl` не является slot: он запускает полные peer-экземпляры Proteus
 из top-level `agent_control` config и обслуживает обе model-facing facade.
 Это не dylib-путь и не исключение для reference modules. Подробнее:
@@ -204,7 +205,7 @@ Prompt/workflow replay и journal semantics описаны в
 crates/proteus-contracts/       traits, DTO, canonical model, worker helpers
 crates/proteus-module-protocol/ multiplexed component broker, authority, conformance CLI
 crates/proteus-process-host/    persistent child lifecycle и framing
-crates/proteus-core/            runtime, wiring, process/model adapters, server
+crates/proteus-core/            runtime, wiring, process adapters, model service, server
 modules/reference/              reference implementations и один worker
 modules/research/               нестабилизированные experiments
 clients/web/                    chat client

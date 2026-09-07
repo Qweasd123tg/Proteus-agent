@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 type RegisterFn = fn(&mut dyn ModuleRegistry) -> ProcessModuleResult<()>;
 
 pub struct CollectedModules {
+    pub models: HashMap<String, proteus_contracts::process_module::ModelModuleObject>,
     module_config: Value,
     pub tools: Vec<ToolModuleObject>,
     pub policies: HashMap<String, PolicyModuleObject>,
@@ -28,6 +29,10 @@ pub struct CollectedModules {
 impl CollectedModules {
     pub fn load(slot: &str, module_id: &str, module_config: Value) -> Result<Self> {
         let mut modules = Self::with_config(module_config);
+        if slot == "model" {
+            model_pack::register_model(&mut modules, module_id)?;
+            return Ok(modules);
+        }
         if (slot, module_id) == ("tool", "reference.tools") {
             for register in [
                 file_tools::register_modules as RegisterFn,
@@ -79,6 +84,7 @@ impl CollectedModules {
 
     fn with_config(module_config: Value) -> Self {
         Self {
+            models: HashMap::new(),
             module_config,
             tools: Vec::new(),
             policies: HashMap::new(),
@@ -113,6 +119,13 @@ fn insert<T>(map: &mut HashMap<String, T>, id: String, value: T) -> ProcessModul
 }
 
 impl ModuleRegistry for CollectedModules {
+    fn register_model(
+        &mut self,
+        module_id: String,
+        model: proteus_contracts::process_module::ModelModuleObject,
+    ) -> ProcessModuleResult<()> {
+        insert(&mut self.models, module_id, model)
+    }
     fn module_config(&self) -> &Value {
         &self.module_config
     }

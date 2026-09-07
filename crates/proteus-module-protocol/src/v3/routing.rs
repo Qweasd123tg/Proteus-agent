@@ -92,18 +92,20 @@ impl LoopState {
             ));
             return;
         }
-        if self.used_callback_ids.contains(&id) {
-            self.protocol_failure(format!("callback id {id} was reused"));
+        if let Err(error) = self
+            .used_callback_ids
+            .insert(wire_id.sequence, self.options.max_callback_id_ranges)
+        {
+            match error {
+                super::callback_ids::InsertError::Reused => {
+                    self.protocol_failure(format!("callback id {id} was reused"))
+                }
+                super::callback_ids::InsertError::Capacity => self.resource_failure(
+                    "component exceeded callback-id range retention limit".into(),
+                ),
+            }
             return;
         }
-        if self.used_callback_ids.len() >= self.options.max_callback_ids_per_generation {
-            self.resource_failure(format!(
-                "component exceeded callback-id retention limit {}",
-                self.options.max_callback_ids_per_generation
-            ));
-            return;
-        }
-        self.used_callback_ids.insert(id.clone());
         let callback_params = match serde_json::from_value::<CallbackParams>(params) {
             Ok(params) => params,
             Err(error) => {
@@ -169,7 +171,8 @@ impl LoopState {
 
         let root_id = parent.invocation.root_id.clone();
         let callback_count = self.callback_counts.entry(root_id.clone()).or_default();
-        if *callback_count >= self.options.max_callbacks_per_root {
+        let stream_delivery = parent.authority.is_stream_delivery(&method);
+        if !stream_delivery && *callback_count >= self.options.max_callbacks_per_root {
             let error = ProcessModuleRpcError::new(
                 -32012,
                 format!(
@@ -191,7 +194,9 @@ impl LoopState {
             self.queue_callback_response(&id, Err(error));
             return;
         }
-        *callback_count += 1;
+        if !stream_delivery {
+            *callback_count += 1;
+        }
 
         let Some(executor) = parent.executor.clone() else {
             let error = ProcessModuleRpcError::new(

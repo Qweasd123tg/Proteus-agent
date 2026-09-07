@@ -3,9 +3,11 @@ active_provider = "anthropic"
 [providers.anthropic]
 provider = "anthropic"
 model = "deepseek-v4-pro"
+reasoning_efforts = ["high", "max"]
 stream = true
 
-[providers.anthropic.provider_config]
+[module_config.model.anthropic]
+implementation = "anthropic"
 api_key_file = "$HOME/.config/Proteus-agent/secrets/anthropic.json"
 api_key_json_key = "anthropic_api_key"
 base_url_file = "$HOME/.config/Proteus-agent/secrets/anthropic.json"
@@ -91,3 +93,9 @@ workflow_timeout_ms = 14400000
 
 [event_log]
 path = ".proteus/events.jsonl"
+
+[components.reference-model]
+command = "proteus-reference-worker"
+env_allowlist = ["HOME", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
+
+[components.reference-model.exports.model.anthropic]

@@ -178,7 +178,7 @@ impl ProcessExportClient {
         &self.module_id
     }
 
-    async fn start(
+    pub(super) async fn start(
         &self,
         method: &str,
         params: Value,
@@ -228,7 +228,15 @@ impl ProcessExportClient {
         )
     }
 
-    fn decode<R: DeserializeOwned>(&self, method: &str, terminal: InvocationTerminal) -> Result<R> {
+    pub(super) fn reset(&self) {
+        let _ = self.broker.reset();
+    }
+
+    pub(super) fn decode<R: DeserializeOwned>(
+        &self,
+        method: &str,
+        terminal: InvocationTerminal,
+    ) -> Result<R> {
         let value = terminal_value(terminal, &self.module_id, method)?;
         match serde_json::from_value(value) {
             Ok(response) => Ok(response),

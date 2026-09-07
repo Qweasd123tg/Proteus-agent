@@ -180,6 +180,9 @@ impl LoopState {
     }
 
     fn accept_start(&mut self, request: StartRequest) {
+        if request.terminal.receiver_dropped() {
+            return;
+        }
         if request.bootstrap && (self.runtime_started || !self.pending.is_empty()) {
             request.ack.send(Err(ComponentBrokerError::new(
                 ComponentBrokerErrorKind::BootstrapClosed,

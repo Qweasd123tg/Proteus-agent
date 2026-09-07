@@ -51,11 +51,10 @@ native loader в проекте отсутствуют.
 | `tool_exposure` | `select_one` | `modules.tool_exposure` | да | `codex_dynamic` |
 | `tool` | `ordered_many` | exports + `tools.enabled` | да | `reference.tools` и узкие selectors |
 | `context_provider` | `ordered_many` | exports + context config | да | `skills` |
-| `model` | `select_one` | active provider profile | пока core-owned | `fake`, `openai`, `openai_compatible`, `anthropic` |
+| `model` | `select_one` | active provider profile | да, `model/v1` | `fake`, `openai`, `openai_compatible`, `anthropic` |
 
-Строка `model` — явно учтённый остаток, а не скрытый native extension path.
-Новую реализацию этого slot нельзя добавлять как builtin: сначала нужен единый
-process contract всего slot. Agent control в матрицу не входит, потому что это
+Все behavior implementations, включая `model`, используют process contract.
+Agent control в матрицу не входит, потому что это
 root-owned application service, а не выбираемый behavior slot.
 
 ## Component, Export И Selection
@@ -229,9 +228,20 @@ host-owned `ExecutionAttribution`: обязательный `ExecutionId` и opt
 
 ### Model
 
-Canonical model request/response уже provider-neutral, но transport adapters
-пока собираются в core. Provider-specific types не должны выходить из
-`crates/proteus-core/src/adapters` и shaping layer.
+Общий `model/v1` contract: `describe` возвращает неизменяемые adapter id,
+capabilities и hosted tools; `stream` принимает canonical request и флаг
+provider streaming. Дельты доставляются через acknowledged `host.model.emit`,
+полный response/error — отдельным terminal result. Порядок, backpressure и
+отмена принадлежат host adapter, provider HTTP/SDK — реализации.
+
+Reference implementations находятся в `modules/reference/model-pack` и
+линкуются в worker, не в Core. `providers.<name>.provider` выбирает export id,
+`module_config.model.<id>` передаётся реализации без разбора provider schema.
+Reference worker требует в нём `implementation`; export id не обязан совпадать
+с implementation, поэтому один provider можно подключить несколько раз.
+Core сохраняет `ModelService`, `BoundModel`, canonical validation и journal.
+Одинаковый contract действует для arbitrary external ids и reference ids;
+встроенной модели, включая `fake`, нет.
 
 ### Agent Control
 
@@ -257,9 +267,9 @@ service. `ModuleKind::Subagent`, `modules.subagent` и catalog implementation
 
 ## Reference Worker
 
-`proteus-reference-worker` содержит 26 selectors и может подтвердить несколько
-из них как exports одного component. Он использует тот же protocol, что
-out-of-tree worker. Его Rust helper traits в
+`proteus-reference-worker` содержит behavior selectors и model implementations
+и может подтвердить несколько exports одного component. Он использует тот же
+protocol, что out-of-tree worker. Его Rust helper traits в
 `proteus-contracts::process_module` действуют только внутри executable и не
 являются host ABI.
 

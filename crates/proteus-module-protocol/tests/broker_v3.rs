@@ -35,6 +35,7 @@ fn main() -> Result<()> {
         overlapping_callbacks_keep_parent_authority().await?;
         sibling_parent_is_a_documented_trusted_component_boundary().await?;
         targeted_cancel_keeps_sibling_and_generation().await?;
+        dropped_terminal_receiver_cancels_owned_work().await?;
         deadline_cancel_is_targeted().await?;
         cancel_before_admission_never_starts_queued_work().await?;
         parent_cancel_cascades_during_callback().await?;
@@ -208,6 +209,34 @@ async fn targeted_cancel_keeps_sibling_and_generation() -> Result<()> {
     let snapshot = broker.snapshot()?;
     ensure!(snapshot.generation == target.generation());
     ensure!(snapshot.pid == Some(target.pid()));
+    Ok(())
+}
+
+async fn dropped_terminal_receiver_cancels_owned_work() -> Result<()> {
+    let broker = broker(ComponentBrokerOptions::default())?;
+    let target = broker
+        .start_invocation(
+            &export("workflow", "fixture.workflow"),
+            PROCESS_WORKFLOW_METHOD,
+            json!({"op": "wait_cancel", "delay_ms": 1500}),
+            INVOCATION_TIMEOUT,
+        )
+        .await?;
+    let pid = target.pid();
+    let generation = target.generation();
+    drop(target); // No explicit cancel handle: receiver ownership alone must suffice.
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            let snapshot = broker.snapshot()?;
+            if snapshot.pending_invocations == 0 {
+                ensure!(snapshot.generation == generation);
+                ensure!(snapshot.pid == Some(pid));
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await??;
     Ok(())
 }
 
@@ -516,14 +545,17 @@ async fn callback_depth_and_count_are_bounded() -> Result<()> {
     ensure!(count_broker.snapshot()?.generation == count_generation);
 
     let id_options = ComponentBrokerOptions {
-        max_callback_ids_per_generation: 1,
+        max_callback_id_ranges: 1,
         ..ComponentBrokerOptions::default()
     };
     let id_broker = broker(id_options)?;
     let id_generation = id_broker.snapshot()?.generation;
     let mut ids = recursive_callback(&id_broker).await?;
-    ensure!(ids.result().await? == InvocationTerminal::ComponentLost(ComponentFailure::Resource));
-    ensure!(id_broker.snapshot()?.generation == id_generation + 1);
+    ensure!(matches!(
+        ids.result().await?,
+        InvocationTerminal::Success(_)
+    ));
+    ensure!(id_broker.snapshot()?.generation == id_generation);
     Ok(())
 }
 

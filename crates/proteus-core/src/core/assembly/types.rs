@@ -39,7 +39,7 @@ pub struct AssemblyPlan {
 pub struct AssemblyModelPlan {
     /// Имя выбранной записи из `[providers]`.
     pub profile_id: String,
-    /// Id core-owned model adapter-а.
+    /// Exact id выбранного model export.
     pub provider: String,
     pub name: String,
     pub stream: bool,

@@ -136,6 +136,10 @@ fn encode_callback<T: Serialize>(value: T) -> Result<Value, ProcessModuleRpcErro
 fn every_reference_export_completes_the_same_strict_v3_component_handshake() {
     let workspace = tempfile::tempdir().expect("workspace");
     let modules = [
+        ("model", "fake"),
+        ("model", "openai"),
+        ("model", "openai_compatible"),
+        ("model", "anthropic"),
         ("tool", "reference.tools"),
         ("tool", "file_tools"),
         ("tool", "git_tools"),
@@ -165,9 +169,19 @@ fn every_reference_export_completes_the_same_strict_v3_component_handshake() {
     ];
 
     for (slot, module_id) in modules {
-        let session = connect(workspace.path(), slot, module_id, json!({}));
+        let config = if slot == "model" {
+            json!({"implementation": module_id})
+        } else {
+            json!({})
+        };
+        let session = connect(workspace.path(), slot, module_id, config);
         assert_eq!(session.target.slot, slot);
         assert_eq!(session.target.module_id, module_id);
+        if slot == "model" {
+            let description: proteus_contracts::contracts::ProcessModelDescriptor =
+                invoke(&session, "describe", Value::Null);
+            assert!(!description.adapter_id.is_empty());
+        }
         session.inner.reset().expect("terminate worker generation");
     }
 }

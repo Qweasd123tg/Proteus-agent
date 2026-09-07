@@ -1,6 +1,9 @@
 //! Boundary evidence for root-coordinated messaging between full Proteus
 //! peers connected through the local stdio process backend.
 
+#[path = "support/model.rs"]
+mod test_model;
+
 use std::{path::PathBuf, sync::Arc};
 
 use proteus_contracts::{
@@ -15,8 +18,8 @@ use proteus_contracts::{
     },
 };
 use proteus_core::core::{
-    AgentControlConfig, AgentControlRuntime, AppConfig, HeadlessApprovalTransport,
-    HeadlessUserInputTransport, InMemoryEventStore, ModelExecutionBinding, RuntimeRegistry,
+    AgentControlConfig, AgentControlRuntime, HeadlessApprovalTransport, HeadlessUserInputTransport,
+    InMemoryEventStore, ModelExecutionBinding, RuntimeRegistry,
 };
 use serde_json::json;
 
@@ -33,7 +36,7 @@ impl ApprovalPolicy for AllowAllPolicy {
 }
 
 fn test_runtime_context() -> AgentWorkflowContext {
-    let registry = RuntimeRegistry::from_config(&AppConfig::default(), PathBuf::from("."))
+    let registry = RuntimeRegistry::from_config(&test_model::config(), PathBuf::from("."))
         .expect("default runtime registry");
     let mut execution = registry.execution_context(
         ModelExecutionBinding::detached(ExecutionScope::fresh(CancellationToken::new())),
@@ -92,9 +95,6 @@ provider = "fake"
 model = "fake-tool-model"
 stream = true
 
-[providers.fake.provider_config]
-stream_delay_ms = 40
-
 [modules]
 workflow = "python_agent_loop"
 
@@ -112,7 +112,8 @@ system_instructions = "Process-agent mailbox regression fixture."
 [tools]
 enabled = []
 "#
-        ),
+        ) + &test_model::toml_component()
+            + "stream_delay_ms = 40\n",
     )
     .expect("write messaging child config");
     config_path
@@ -206,7 +207,7 @@ for line in sys.stdin:
         "error": None,
     }}), flush=True)
 "#
-        ),
+        ) + &test_model::toml_component(),
     )
     .expect("write terminal-race peer");
     let mut permissions = std::fs::metadata(&script)

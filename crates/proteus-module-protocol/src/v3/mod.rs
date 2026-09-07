@@ -4,6 +4,7 @@
 //! component wire and callback-cycle workaround were removed by the P3 cutover.
 
 mod broker;
+mod callback_ids;
 mod config;
 mod failure;
 mod handshake;

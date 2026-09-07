@@ -23,6 +23,9 @@ pub(super) enum TerminalSender {
 }
 
 impl TerminalSender {
+    pub(super) fn receiver_dropped(&self) -> bool {
+        matches!(self, Self::Async(sender) if sender.is_closed())
+    }
     pub(super) fn send(self, terminal: InvocationTerminal) {
         match self {
             Self::Async(sender) => {
@@ -102,7 +105,7 @@ pub(super) struct LoopState {
     pub pending: HashMap<String, PendingInvocation>,
     pub queued_roots: VecDeque<String>,
     pub callbacks: HashMap<String, PendingCallback>,
-    pub used_callback_ids: HashSet<String>,
+    pub used_callback_ids: super::callback_ids::CallbackIds,
     pub callback_counts: HashMap<String, usize>,
     pub active_roots: usize,
     pub active_nested: usize,
@@ -129,7 +132,7 @@ impl LoopState {
             pending: HashMap::new(),
             queued_roots: VecDeque::new(),
             callbacks: HashMap::new(),
-            used_callback_ids: HashSet::new(),
+            used_callback_ids: Default::default(),
             callback_counts: HashMap::new(),
             active_roots: 0,
             active_nested: 0,

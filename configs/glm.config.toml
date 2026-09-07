@@ -6,7 +6,7 @@ include = [
 [providers.openai]
 model = "glm-5.2"
 
-[providers.openai.provider_config]
+[module_config.model.openai]
 # Diagnostic proxy profile: разрешаем прежний one-shot non-stream retry при
 # повреждённом SSE. Strict codex profile этот fallback намеренно не включает.
 stream_error_fallback = true

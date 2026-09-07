@@ -64,7 +64,7 @@ impl RuntimeRegistry {
             context_providers: &context_providers,
         };
         let model_config = plan.model_config()?;
-        let model_adapter = catalog.build_model_adapter(&model_config)?;
+        let model_adapter = catalog.build_model_adapter(&model_config, cwd)?;
         let model_service = Arc::new(ModelService::new(model_adapter));
 
         let search: Arc<dyn SearchBackend> = match plan.module_id(crate::domain::ModuleKind::Search)

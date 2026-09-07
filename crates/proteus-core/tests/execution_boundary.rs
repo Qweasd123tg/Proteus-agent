@@ -1,3 +1,6 @@
+#[path = "support/model.rs"]
+mod test_model;
+
 use std::{
     path::Path,
     sync::{
@@ -39,7 +42,7 @@ fn workspace_file(path: &str) -> String {
 fn permission_grants_are_bound_to_one_execution_context() {
     let workspace = tempfile::tempdir().expect("workspace");
     let assembly =
-        PreparedAssembly::from_config(AppConfig::default(), workspace.path().to_path_buf(), None)
+        PreparedAssembly::from_config(test_model::config(), workspace.path().to_path_buf(), None)
             .expect("prepared assembly");
     let snapshot = RuntimeSnapshot::new(ModuleEpoch::initial(), assembly, None);
     let execution_a = snapshot.registry.execution_context(
@@ -92,7 +95,7 @@ fn process_search_config() -> AppConfig {
         },
     }))
     .expect("valid process component");
-    let mut config = AppConfig::default();
+    let mut config = test_model::config();
     config.modules.search = Some("execution-boundary-search".to_owned());
     config
         .components
@@ -176,7 +179,7 @@ fn process_tool_config() -> AppConfig {
         },
     }))
     .expect("valid process tool component");
-    let mut config = AppConfig::default();
+    let mut config = test_model::config();
     config.tools.enabled = vec!["detached_probe".to_owned()];
     config
         .components
@@ -313,7 +316,7 @@ fn phase8_process_config() -> AppConfig {
         },
     }))
     .expect("valid Phase 8 component");
-    let mut config = AppConfig::default();
+    let mut config = test_model::config();
     config.modules.policy = Some("phase8-allow-all".to_owned());
     config.tools.enabled = vec!["phase8_probe".to_owned()];
     config
@@ -404,7 +407,7 @@ fn phase8_memory_config(record_path: &Path) -> AppConfig {
         },
     }))
     .expect("valid Phase 8B memory component");
-    let mut config = AppConfig::default();
+    let mut config = test_model::config();
     config.modules.memory = Some("phase8-memory".to_owned());
     config.tools.enabled.clear();
     config.module_config.insert(

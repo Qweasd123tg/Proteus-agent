@@ -30,6 +30,7 @@ rust-lsp = { path = "../rust-lsp", default-features = false }
 shell-tool = { path = "../shell-tool", default-features = false }
 skill-pack = { path = "../skill-pack", default-features = false }
 sqlite-memory = { path = "../sqlite-memory", default-features = false }
+model-pack = { path = "../model-pack" }
 
 [dev-dependencies]
 async-trait = "0.1"

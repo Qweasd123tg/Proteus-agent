@@ -12,8 +12,8 @@ use crate::{
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
     process_adapters::{
         ProcessApprovalPolicy, ProcessComponentLauncher, ProcessContextBuilder,
-        ProcessHistoryCompactor, ProcessMemoryStore, ProcessPatchApplier, ProcessSearchBackend,
-        ProcessToolExposure, ProcessWorkflowAdapter,
+        ProcessHistoryCompactor, ProcessMemoryStore, ProcessModel, ProcessPatchApplier,
+        ProcessSearchBackend, ProcessToolExposure, ProcessWorkflowAdapter,
     },
 };
 
@@ -48,7 +48,7 @@ impl ModuleCatalog {
                         "Process component {component_id} export {slot_name}/{module_id}."
                     ))
                 });
-                self.register_process_export(export, description)?;
+                self.register_process_export(export, description, config.runtime.model_timeout_ms)?;
             }
         }
         Ok(())
@@ -58,10 +58,26 @@ impl ModuleCatalog {
         &mut self,
         export: crate::process_adapters::ProcessExportConfig,
         description: Option<String>,
+        model_timeout_ms: u64,
     ) -> Result<()> {
         let slot_name = export.slot().to_owned();
         let module_id = export.module_id().to_owned();
         match slot_name.as_str() {
+            "model" => {
+                ensure_process_id_is_free(self, slot::MODEL, &module_id)?;
+                self.register_model(
+                    &module_id,
+                    process_manifest(&module_id, ModuleKind::Model, description),
+                    move |ctx| {
+                        Ok(Arc::new(ProcessModel::new(
+                            export.clone(),
+                            ctx.cwd,
+                            ctx.config.stream,
+                            model_timeout_ms,
+                        )?))
+                    },
+                );
+            }
             "tool" => self.process_tools.push(export),
             "context_provider" => self.process_context_providers.push(export),
             "search" => {

@@ -8,6 +8,6 @@ include = [
 [providers.openai]
 model = "gpt-5.6-luna"
 
-[providers.openai.provider_config]
+[module_config.model.openai]
 support_verbosity = true
 default_verbosity = "low"

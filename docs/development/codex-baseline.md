@@ -24,8 +24,8 @@ Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,
 `codex-rs/core/src/session/turn.rs` в указанном commit.
 
-Локальные [fixture](../../crates/proteus-core/src/adapters/openai/fixtures/codex-multi-message-response.json)
-и [test](../../crates/proteus-core/src/adapters/openai/tests.rs) проверяют
+Локальные [fixture](../../modules/reference/model-pack/src/adapters/openai/fixtures/codex-multi-message-response.json)
+и [test](../../modules/reference/model-pack/src/adapters/openai/tests.rs) проверяют
 Proteus на upstream-shaped response. Они не запускают два полных runtimes
 и не являются полным differential harness.
 
@@ -36,15 +36,15 @@ Proteus на upstream-shaped response. Они не запускают два п�
 порядок items, multipart text в одном message, phase, encrypted reasoning,
 точные function arguments и call/result ids. Journal и workflow replay
 проверяются для обоих turns. Это restart после завершённого turn, не recovery
-посреди исполнения. Отдельный [test](../../crates/proteus-core/src/adapters/openai/round_trip_tests.rs)
+посреди исполнения. Отдельный [test](../../modules/reference/model-pack/src/adapters/openai/round_trip_tests.rs)
 проверяет custom-tool input/output через journal. Live модель не вызывается.
 
 ## Проверки
 
 ```bash
 cargo test -p proteus-contracts canonical_response
-cargo test -p proteus-core codex_parity_preserves_ordered_commentary_and_final_messages
-cargo test -p proteus-core --lib adapters::openai::round_trip_tests
+cargo test -p model-pack codex_parity_preserves_ordered_commentary_and_final_messages
+cargo test -p model-pack --lib adapters::openai::round_trip_tests
 cargo test -p proteus-reference-worker --test codex_model_resume
 cargo test -p coding-workflow codex_loop_preserves_commentary_and_uses_the_last_message_as_final_output
 cargo test -p codex-compactor

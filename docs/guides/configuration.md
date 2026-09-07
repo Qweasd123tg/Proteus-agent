@@ -67,6 +67,14 @@ provider = "fake"
 model = "fake-tool-model"
 stream = true
 
+[components.reference-model]
+command = "proteus-reference-worker"
+
+[components.reference-model.exports.model.fake]
+
+[module_config.model.fake]
+implementation = "fake"
+
 [modules]
 workflow = "coding.single_loop"
 context = "simple"
@@ -114,26 +122,43 @@ effort = "high"
 summary = true
 budget_tokens = 8192
 
-[providers.anthropic.provider_config]
+[module_config.model.anthropic]
+implementation = "anthropic"
 api_key_env = "ANTHROPIC_API_KEY"
 base_url = "https://api.anthropic.com"
 auth = "x-api-key"
 api_version = "2023-06-01"
+
+[components.reference-model]
+command = "proteus-reference-worker"
+env_allowlist = ["HOME", "ANTHROPIC_API_KEY"]
+
+[components.reference-model.exports.model.anthropic]
 ```
 
-Поддержанные core adapters:
+Reference worker экспортирует следующие model implementations:
 
 - `fake`;
 - `openai`;
 - `openai_compatible`;
 - `anthropic`.
 
-`provider_config` остаётся provider-owned object. Актуальные варианты
+`providers.<name>.provider` — exact id model-export, не встроенный provider enum.
+Reference `model-pack` требует `module_config.model.<id>.implementation`
+(`fake`, `openai`, `openai_compatible`, `anthropic`). Id export произвольный:
+два exports могут выбрать одну implementation с разными endpoint/settings.
+Core этого ключа не интерпретирует.
+Для каждого id нужен явный `[components.<component>.exports.model.<id>]`.
+Несколько profiles могут использовать один export, меняя model/stream/reasoning;
+разные endpoint, credentials или capabilities требуют разных exports.
+
+`module_config.model.<id>` — opaque provider-owned object. Актуальные варианты
 OpenAI/Anthropic shaping лучше брать из tracked configs, а не копировать по
 памяти. Credentials можно читать из environment или JSON-файла:
 
 ```toml
-[providers.openai.provider_config]
+[module_config.model.openai]
+implementation = "openai"
 api_key_file = "$HOME/.config/Proteus-agent/secrets/openai.json"
 api_key_json_key = "openai_api_key"
 base_url_file = "$HOME/.config/Proteus-agent/secrets/openai.json"
@@ -142,12 +167,19 @@ base_url_json_key = "base_url"
 
 OpenAI adapter по умолчанию использует согласованную HTTP-версию `reqwest`.
 Если OpenAI-compatible proxy некорректно обслуживает Responses API через
-HTTP/2, задайте `http1_only = true` в том же `provider_config`. Это transport
+HTTP/2, задайте `http1_only = true` в `module_config.model.<id>`. Это transport
 compatibility switch конкретного provider profile, а не fallback workflow или
 исключение для module id.
 
-Не храните secret literal в tracked config. `proteus doctor` проверяет
-provider selection и доступность credential без model request.
+Environment читается внутри worker: нужные переменные (`HOME`, API key,
+proxy variables) явно перечисляются в `env_allowlist` component. Это относится
+и к `$HOME` в путях JSON secrets. Core не читает credential и не знает схему
+настроек провайдера. Reference modules разрешают ключ при первом запросе;
+`doctor` проверяет selection, handshake и descriptor, но не доступность ключа
+и не соединение с API. Не храните secret literal в tracked config.
+
+Варианты reasoning задаются `providers.<name>.reasoning_efforts` явно;
+Core не выводит их из имени модели или endpoint.
 
 `proteus init codex` создаёт top-level `config.toml`, parent/peer fragments,
 prompts и named child configs `codex-explore.config.toml` /
@@ -532,6 +564,6 @@ PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config configs/con
 
 `inspect plan` не запускает components. `doctor` не отправляет model request и
 не выполняет behavioral turn, но при сборке фактического tool registry может
-поднять process tool component и выполнить его bootstrap `list`/handshake.
+поднять model/tool components и выполнить bootstrap `describe`/`list` и handshake.
 Остальные selections он проверяет декларативно; полный strict handshake всех
 активных exports проверяют conformance gate и реальная сборка runtime snapshot.

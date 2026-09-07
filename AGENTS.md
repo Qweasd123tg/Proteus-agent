@@ -95,7 +95,7 @@ rendering, UI state, tests и provider/module-specific детали.
 ```text
 crates/
     proteus-contracts/     - публичный crate: traits, DTO, canonical model и process-module helpers
-    proteus-core/          - ядро: runtime, wiring, process adapters, model adapters и app-server
+    proteus-core/          - ядро: runtime, wiring, process adapters, model service и app-server
     proteus-module-protocol/ - strict component-v3 broker, authority table и conformance runner
     proteus-process-host/  - protocol-neutral lifecycle persistent stdio child-процессов
 clients/
@@ -103,6 +103,7 @@ clients/
     inspector/           - отдельный Leptos config/architecture-клиент
 modules/
     reference/           - reference/dogfood implementations; не default и не привилегированный pack
+        model-pack/          - process model implementations: fake, OpenAI Responses, Anthropic Messages
         process-worker/      - executable, публикующий exact reference exports по component v3
         file-tools/          - полноразмерные tools read/write/edit/list/grep
         git-tools/           - read-only git_status/git_diff tools
@@ -144,7 +145,7 @@ Reference crates линкуются только внутрь `proteus-reference
 - Не выдавать implementation дополнительные права из-за того, что она
   зарегистрировала tool через broad extension/hook path; одинаковая behavior
   surface должна проходить один contract и safety path.
-- Не импортировать provider-specific типы OpenAI, Anthropic или локальных API за пределами `crates/proteus-core/src/adapters` и model shaping слоя.
+- Не импортировать provider-specific типы OpenAI, Anthropic или локальных API за пределами provider implementation в `modules/reference/model-pack/src/adapters`. Core model shaping остаётся provider-neutral.
 - Не добавлять runtime-логику в CLI, если она принадлежит `core` или `workflow`.
 - Не обходить `ToolRegistry`, `ApprovalPolicy` и `ToolSafety` при исполнении tools.
 - Не менять DTO на границах модулей без обновления документации и тестов.
@@ -204,8 +205,8 @@ Reference crates линкуются только внутрь `proteus-reference
 6. Добавить protocol и runtime swap evidence, затем обновить
    `docs/architecture/modules.md` и `docs/guides/configuration.md`.
 
-Model provider adapters пока остаются явно учтённой core-owned selectable
-границей. `AgentControl` — отдельный root-owned service для полных Proteus
+Model provider implementations проходят общий `model/v1` process contract.
+Core владеет canonical shaping/validation, execution binding и journal, но не HTTP provider adapters. `AgentControl` — отдельный root-owned service для полных Proteus
 peers, а не behavior slot или основание возвращать общий native loader.
 Marketplace, package manager, hot reload и sandbox не входят в текущий process
 runtime.

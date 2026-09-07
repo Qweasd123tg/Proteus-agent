@@ -90,6 +90,7 @@ impl ExportWorker {
             );
         }
         match self.binding.slot.as_str() {
+            "model" => self.model(method, params, bridge),
             "tool" => self.tool(method, params, bridge),
             "search" => self.search(params),
             "memory" => self.memory(method, params, bridge),
@@ -142,6 +143,30 @@ impl ExportWorker {
                 let output = tool.invoke_json(call_json, context_json, &mut host)?;
                 let result = serde_json::from_str(output.as_str())?;
                 encode(ProcessToolInvokeResponse::new(result))
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn model(&self, method: &str, params: Value, bridge: &HostBridge) -> Result<Value> {
+        use proteus_contracts::contracts::{
+            PROCESS_MODEL_DESCRIBE_METHOD, PROCESS_MODEL_STREAM_METHOD,
+        };
+        let model = self
+            .modules
+            .models
+            .get(&self.binding.module_id)
+            .ok_or_else(|| anyhow!("model module was not registered"))?;
+        match method {
+            PROCESS_MODEL_DESCRIBE_METHOD => {
+                if !params.is_null() {
+                    bail!("model describe params must be null");
+                }
+                encode(model.describe())
+            }
+            PROCESS_MODEL_STREAM_METHOD => {
+                let input = decode(params)?;
+                encode(model.stream(input, &crate::hosts::ModelHostBridge(bridge.clone()))?)
             }
             _ => unreachable!(),
         }

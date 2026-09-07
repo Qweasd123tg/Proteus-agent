@@ -2,10 +2,7 @@ use super::*;
 use crate::cli_commands::{PromptReplayCommand, WorkflowReplayCommand};
 use proteus_contracts::{
     contracts::{Tool, ToolContext, ToolRegistry},
-    domain::{
-        ExchangeId, ModuleKind, ModuleManifest, ReasoningConfig, ToolCall, ToolResult, ToolSpec,
-        TurnId,
-    },
+    domain::{ExchangeId, ModuleKind, ModuleManifest, ToolCall, ToolResult, ToolSpec, TurnId},
 };
 
 #[test]
@@ -141,7 +138,7 @@ fn inspect_plan_command_parses_text_and_json() {
 
 #[test]
 fn inspect_plan_reports_blocking_selection_without_starting_runtime() {
-    let mut config = AppConfig::default();
+    let mut config = crate::test_model::config();
     config.modules.search = Some("missing-search".to_owned());
     let dir = tempfile::tempdir().expect("workspace");
     let (plan, _) = resolve_cli_assembly(&config, None, dir.path(), config.permissions.mode)
@@ -155,7 +152,7 @@ fn inspect_plan_reports_blocking_selection_without_starting_runtime() {
 
 #[test]
 fn inspect_topology_reports_invalid_backend_without_building_it() {
-    let mut config = AppConfig::default();
+    let mut config = crate::test_model::config();
     config.modules.search = Some("missing-search".to_owned());
 
     let snapshot = build_cli_topology(
@@ -175,12 +172,12 @@ fn inspect_topology_reports_invalid_backend_without_building_it() {
 }
 
 #[test]
-fn read_only_cli_paths_do_not_start_process_components() {
+fn read_only_cli_paths_do_not_start_unrelated_process_components() {
     let dir = tempfile::tempdir().expect("workspace");
     let marker = dir.path().join("process-search-started");
     let compactor_marker = dir.path().join("process-compactor-started");
     let workflow_marker = dir.path().join("process-workflow-started");
-    let mut config = AppConfig::default();
+    let mut config = crate::test_model::config();
     config.modules.workflow = Some("workflow-marker".to_owned());
     config.modules.search = Some("search-marker".to_owned());
     config.modules.compactor = Some("compactor-marker".to_owned());
@@ -206,6 +203,9 @@ fn read_only_cli_paths_do_not_start_process_components() {
         }
     }))
     .expect("component configs");
+    config
+        .components
+        .extend(crate::test_model::config().components);
 
     let (plan, catalog) = resolve_cli_assembly(&config, None, dir.path(), config.permissions.mode)
         .expect("assembly plan");
@@ -728,7 +728,7 @@ fn doctor_flags_unknown_tool_names_in_module_config_lists() {
         .register(StaticTool("read_file"))
         .expect("register read_file");
 
-    let mut config = AppConfig::default();
+    let mut config = crate::test_model::config();
     config.tools.mcp_servers.push(
         serde_json::from_value(serde_json::json!({
             "name": "playwright",
@@ -769,7 +769,7 @@ fn doctor_flags_unknown_tool_names_in_module_config_lists() {
 #[test]
 fn doctor_counts_resolved_module_config_tool_references() {
     let registry = ToolRegistry::new();
-    let mut config = AppConfig::default();
+    let mut config = crate::test_model::config();
     config.tools.mcp_servers.push(
         serde_json::from_value(serde_json::json!({
             "name": "playwright",
@@ -800,7 +800,7 @@ fn doctor_counts_resolved_module_config_tool_references() {
 #[test]
 fn doctor_checks_nested_module_config_tool_lists() {
     let registry = ToolRegistry::new();
-    let mut config = AppConfig::default();
+    let mut config = crate::test_model::config();
     config.module_config.insert(
         "policy".to_owned(),
         std::collections::BTreeMap::from([(
@@ -823,44 +823,14 @@ fn doctor_checks_nested_module_config_tool_lists() {
 
 #[test]
 fn doctor_accepts_fake_model_without_secret() {
-    let config = AppConfig::default();
+    let config = crate::test_model::config();
     let mut findings = DoctorFindings::default();
 
     check_model_config(&mut findings, &config);
 
     assert!(!findings.has_errors());
-    assert!(
-        findings
-            .entries
-            .iter()
-            .any(|entry| entry.message == "model secret: not required for fake provider")
-    );
-}
-
-#[test]
-fn doctor_flags_missing_provider_secret_env() {
-    const ENV_NAME: &str = "PROTEUS_DOCTOR_TEST_MISSING_API_KEY";
-    unsafe {
-        std::env::remove_var(ENV_NAME);
-    }
-    let model = proteus_core::core::ModelConfig {
-        provider: "anthropic".to_owned(),
-        model: "claude-test".to_owned(),
-        stream: false,
-        reasoning: ReasoningConfig::default(),
-        provider_config: serde_json::json!({ "api_key_env": ENV_NAME }),
-    };
-    let mut findings = DoctorFindings::default();
-
-    check_model_secret(&mut findings, &model);
-
-    assert!(findings.has_errors());
-    assert!(
-        findings
-            .entries
-            .iter()
-            .any(|entry| entry.message.contains(ENV_NAME))
-    );
+    assert!(findings.entries.iter().any(|entry| entry.message
+        == "model credentials and endpoint are owned by the selected component"));
 }
 
 #[test]
@@ -911,7 +881,7 @@ fn module_list_output_contains_catalog_rows() {
 
 #[test]
 fn tool_list_output_contains_registered_tools() {
-    let mut config = AppConfig::default();
+    let mut config = crate::test_model::config();
     config.tools.path = None;
     // File I/O and shell are process-provided; use the remaining host tools
     // to exercise render_tool_list without launching workers.

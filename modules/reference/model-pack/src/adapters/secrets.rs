@@ -1,7 +1,46 @@
 use anyhow::{Context, Result};
 use serde_json::Value;
 
-use crate::core::expand_user_path;
+fn expand_user_path(path: &str) -> std::path::PathBuf {
+    expand_user_path_with_home(path, std::env::var_os("HOME").as_deref())
+}
+
+fn expand_user_path_with_home(path: &str, home: Option<&std::ffi::OsStr>) -> std::path::PathBuf {
+    if let Some(home) = home {
+        for prefix in ["~", "$HOME", "${HOME}"] {
+            if path == prefix {
+                return std::path::PathBuf::from(home);
+            }
+            if let Some(suffix) = path.strip_prefix(&format!("{prefix}/")) {
+                return std::path::PathBuf::from(home).join(suffix);
+            }
+        }
+    }
+    std::path::PathBuf::from(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn worker_secret_paths_preserve_all_supported_home_forms() {
+        let home = std::ffi::OsStr::new("/fixture-home");
+        for prefix in ["~", "$HOME", "${HOME}"] {
+            assert_eq!(
+                expand_user_path_with_home(prefix, Some(home)),
+                std::path::PathBuf::from(home)
+            );
+            assert_eq!(
+                expand_user_path_with_home(&format!("{prefix}/secrets/key.json"), Some(home)),
+                std::path::PathBuf::from("/fixture-home/secrets/key.json")
+            );
+            assert_eq!(
+                expand_user_path_with_home(prefix, None),
+                std::path::PathBuf::from(prefix)
+            );
+        }
+    }
+}
 
 pub fn read_secret_from_config(
     config: &Value,

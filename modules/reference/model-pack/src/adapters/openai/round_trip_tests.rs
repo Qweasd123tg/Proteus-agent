@@ -1,7 +1,7 @@
 use super::*;
-use crate::core::SessionStore;
 use crate::domain::{ToolResult, new_session_id, new_thread_id};
 use crate::model_standard::MessagePhase;
+use proteus_core::core::SessionStore;
 
 #[test]
 fn text_grouping_keeps_message_boundaries_and_interleaved_items() {

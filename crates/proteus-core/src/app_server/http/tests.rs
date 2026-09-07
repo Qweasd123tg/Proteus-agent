@@ -47,9 +47,10 @@ fn request_with_origin(origin: Option<&str>) -> Request<()> {
 
 async fn test_state() -> (HttpAppState, AppServerHandle) {
     let cwd = tempfile::tempdir().expect("cwd");
-    let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
-        .await
-        .expect("app server");
+    let server =
+        AgentAppServer::launch(crate::test_model::config(), cwd.path().to_path_buf(), None)
+            .await
+            .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
     (state, server)
@@ -109,7 +110,7 @@ async fn dogfood_loop_state() -> (HttpAppState, AppServerHandle) {
 }
 
 fn dogfood_loop_config() -> AppConfig {
-    let mut config = AppConfig::default();
+    let mut config = crate::test_model::config();
     let active_provider = config.active_provider.clone();
     config
         .providers
@@ -395,7 +396,9 @@ model = "fake-fast"
 provider = "fake"
 model = "fake-smart"
 
-"#,
+"#
+        .to_owned()
+            + &crate::test_model::toml_component(),
     )
     .expect("write config");
     let config = {
@@ -478,7 +481,7 @@ async fn route_config_builder_creates_complete_provider_config() {
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
     let server = AgentAppServer::launch(
-        AppConfig::default(),
+        crate::test_model::config(),
         cwd.path().to_path_buf(),
         Some(&config_path),
     )
@@ -790,7 +793,7 @@ async fn route_accepts_allowed_origin_and_never_uses_wildcard_cors() {
 #[tokio::test]
 async fn route_inspect_topology_returns_json_and_mermaid() {
     let cwd = tempfile::tempdir().expect("cwd");
-    let mut config = AppConfig::default();
+    let mut config = crate::test_model::config();
     config.tools.enabled = vec!["apply_patch".to_owned()];
     let server = AgentAppServer::launch(config, cwd.path().to_path_buf(), None)
         .await
@@ -996,9 +999,10 @@ async fn event_stream_flushes_initial_heartbeat() {
 #[tokio::test]
 async fn request_dispatch_sets_permission_mode() {
     let cwd = tempfile::tempdir().expect("cwd");
-    let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
-        .await
-        .expect("app server");
+    let server =
+        AgentAppServer::launch(crate::test_model::config(), cwd.path().to_path_buf(), None)
+            .await
+            .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
 
@@ -1039,9 +1043,10 @@ async fn request_dispatch_sets_permission_mode() {
 #[tokio::test]
 async fn request_dispatch_sets_reasoning_effort() {
     let cwd = tempfile::tempdir().expect("cwd");
-    let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
-        .await
-        .expect("app server");
+    let server =
+        AgentAppServer::launch(crate::test_model::config(), cwd.path().to_path_buf(), None)
+            .await
+            .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
 
@@ -1086,9 +1091,10 @@ async fn request_dispatch_sets_reasoning_effort() {
 #[tokio::test]
 async fn reasoning_effort_none_toggles_reasoning() {
     let cwd = tempfile::tempdir().expect("cwd");
-    let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
-        .await
-        .expect("app server");
+    let server =
+        AgentAppServer::launch(crate::test_model::config(), cwd.path().to_path_buf(), None)
+            .await
+            .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
 
@@ -1142,7 +1148,9 @@ async fn reasoning_effort_none_toggles_reasoning() {
 #[tokio::test]
 async fn request_dispatch_sets_model_and_reasoning_enabled() {
     let cwd = tempfile::tempdir().expect("cwd");
-    let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
+    let mut config = crate::test_model::config();
+    config.providers.get_mut("fake").unwrap().reasoning_efforts = vec!["high".into(), "max".into()];
+    let server = AgentAppServer::launch(config, cwd.path().to_path_buf(), None)
         .await
         .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
@@ -1350,7 +1358,7 @@ async fn route_history_can_read_requested_session_without_switching_current() {
         .await
         .expect("append saved history");
     let server = AgentAppServer::launch(
-        AppConfig::default(),
+        crate::test_model::config(),
         cwd.path().to_path_buf(),
         Some(&config_path),
     )
@@ -1410,7 +1418,7 @@ async fn route_context_can_read_requested_session_without_switching_current() {
         .await
         .expect("append saved history");
     let server = AgentAppServer::launch(
-        AppConfig::default(),
+        crate::test_model::config(),
         cwd.path().to_path_buf(),
         Some(&config_path),
     )
@@ -1463,7 +1471,7 @@ async fn route_new_session_replaces_active_session_dir() {
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
     let server = AgentAppServer::launch(
-        AppConfig::default(),
+        crate::test_model::config(),
         cwd.path().to_path_buf(),
         Some(&config_path),
     )
@@ -1565,7 +1573,7 @@ async fn route_new_session_keeps_background_turn_registered() {
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
     let server = AgentAppServer::launch(
-        AppConfig::default(),
+        crate::test_model::config(),
         cwd.path().to_path_buf(),
         Some(&config_path),
     )
@@ -1650,7 +1658,7 @@ async fn route_send_async_targets_requested_session_after_current_switches() {
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
     let server = AgentAppServer::launch(
-        AppConfig::default(),
+        crate::test_model::config(),
         cwd.path().to_path_buf(),
         Some(&config_path),
     )
@@ -1722,7 +1730,7 @@ async fn route_resume_reuses_live_session_without_persisted_directory() {
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
     let server = AgentAppServer::launch(
-        AppConfig::default(),
+        crate::test_model::config(),
         cwd.path().to_path_buf(),
         Some(&config_path),
     )
@@ -1815,7 +1823,7 @@ async fn route_approval_resolves_background_session_request() {
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
     let server = AgentAppServer::launch(
-        AppConfig::default(),
+        crate::test_model::config(),
         cwd.path().to_path_buf(),
         Some(&config_path),
     )
@@ -1872,7 +1880,7 @@ async fn route_delete_unsaved_active_session_opens_new_one() {
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
     let server = AgentAppServer::launch(
-        AppConfig::default(),
+        crate::test_model::config(),
         cwd.path().to_path_buf(),
         Some(&config_path),
     )
@@ -2286,9 +2294,10 @@ async fn route_send_user_input_loop_completes_after_http_response() {
 #[tokio::test]
 async fn cancel_unknown_turn_returns_protocol_error() {
     let cwd = tempfile::tempdir().expect("cwd");
-    let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
-        .await
-        .expect("app server");
+    let server =
+        AgentAppServer::launch(crate::test_model::config(), cwd.path().to_path_buf(), None)
+            .await
+            .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
 
@@ -2321,9 +2330,10 @@ async fn cancel_unknown_turn_returns_protocol_error() {
 #[tokio::test]
 async fn cancel_active_run_keeps_foreign_pending_requests_until_requester_drops() {
     let cwd = tempfile::tempdir().expect("cwd");
-    let server = AgentAppServer::launch(AppConfig::default(), cwd.path().to_path_buf(), None)
-        .await
-        .expect("app server");
+    let server =
+        AgentAppServer::launch(crate::test_model::config(), cwd.path().to_path_buf(), None)
+            .await
+            .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security());
     let run_id = "run-cancel".to_owned();

@@ -7,31 +7,17 @@
     "anthropic": {
       "provider": "anthropic",
       "model": "claude-sonnet-4-20250514",
-      "stream": true,
-      "provider_config": {
-        "api_key": "sk-ant-...",
-        "base_url": "https://api.anthropic.com",
-        "auth": "x-api-key",
-        "api_version": "2023-06-01"
-      }
+      "stream": true
     },
     "openai": {
       "provider": "openai",
       "model": "gpt-4.1",
-      "stream": true,
-      "provider_config": {
-        "api_key": "sk-...",
-        "base_url": "https://api.openai.com/v1"
-      }
+      "stream": true
     },
     "local": {
       "provider": "openai_compatible",
       "model": "local-model-name",
-      "stream": true,
-      "provider_config": {
-        "api_key": "not-needed",
-        "base_url": "http://127.0.0.1:11434/v1"
-      }
+      "stream": true
     }
   },
   "modules": {
@@ -67,6 +53,21 @@
           "codex": {}
         }
       }
+    },
+    "reference-model": {
+      "command": "proteus-reference-worker",
+      "env_allowlist": [
+        "HOME",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY"
+      ],
+      "exports": {
+        "model": {
+          "anthropic": {},
+          "openai": {},
+          "openai_compatible": {}
+        }
+      }
     }
   },
   "agent_control": {
@@ -75,18 +76,48 @@
   "module_config": {
     "policy": {
       "ask_write": {
-        "ask_before": ["apply_patch", "remember_fact"],
-        "allow": ["search", "request_user_input"]
+        "ask_before": [
+          "apply_patch",
+          "remember_fact"
+        ],
+        "allow": [
+          "search",
+          "request_user_input"
+        ]
       }
     },
     "context": {
       "simple": {
         "max_search_results": 50
       }
+    },
+    "model": {
+      "anthropic": {
+        "api_key": "sk-ant-...",
+        "base_url": "https://api.anthropic.com",
+        "auth": "x-api-key",
+        "api_version": "2023-06-01",
+        "implementation": "anthropic"
+      },
+      "openai": {
+        "api_key": "sk-...",
+        "base_url": "https://api.openai.com/v1",
+        "implementation": "openai"
+      },
+      "openai_compatible": {
+        "api_key": "not-needed",
+        "base_url": "http://127.0.0.1:11434/v1",
+        "implementation": "openai_compatible"
+      }
     }
   },
   "tools": {
-    "enabled": ["apply_patch", "remember_fact", "request_user_input", "search"],
+    "enabled": [
+      "apply_patch",
+      "remember_fact",
+      "request_user_input",
+      "search"
+    ],
     "path": null
   },
   "permissions": {

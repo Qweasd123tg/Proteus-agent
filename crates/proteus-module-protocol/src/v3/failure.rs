@@ -64,6 +64,22 @@ impl LoopState {
     }
 
     pub(super) fn enforce_deadlines(&mut self) {
+        // Covers cancellation while awaiting admission, before an InvocationHandle exists.
+        let abandoned = self
+            .pending
+            .iter()
+            .filter(|(_, pending)| {
+                pending.cancel.is_none()
+                    && pending
+                        .terminal
+                        .as_ref()
+                        .is_some_and(|sender| sender.receiver_dropped())
+            })
+            .map(|(id, pending)| (id.clone(), pending.invocation.generation))
+            .collect::<Vec<_>>();
+        for (id, generation) in abandoned {
+            let _ = self.cancel(&id, generation, CancelCause::User);
+        }
         let now = Instant::now();
         if self.pending.values().any(|pending| {
             pending

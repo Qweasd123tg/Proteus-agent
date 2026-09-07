@@ -62,3 +62,12 @@ workflow_timeout_ms = 14400000
 
 [event_log]
 path = ".proteus/events.jsonl"
+
+[components.reference-model]
+command = "proteus-reference-worker"
+env_allowlist = ["HOME", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
+
+[components.reference-model.exports.model.fake]
+
+[module_config.model.fake]
+implementation = "fake"

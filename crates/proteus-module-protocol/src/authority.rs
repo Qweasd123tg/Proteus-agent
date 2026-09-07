@@ -1,10 +1,11 @@
 use proteus_contracts::contracts::{
     COMPACTOR_HOST_COMPLETE_MODEL_METHOD, CONTEXT_HOST_PROVIDER_METHOD,
-    CONTEXT_HOST_RECALL_MEMORY_METHOD, CONTEXT_HOST_SEARCH_METHOD,
+    CONTEXT_HOST_RECALL_MEMORY_METHOD, CONTEXT_HOST_SEARCH_METHOD, MODEL_HOST_EMIT_METHOD,
     PROCESS_COMPACTOR_CONTRACT_VERSION, PROCESS_COMPACTOR_METHOD, PROCESS_CONTEXT_BUILD_METHOD,
     PROCESS_CONTEXT_CONTRACT_VERSION, PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION,
     PROCESS_CONTEXT_PROVIDER_METHOD, PROCESS_MEMORY_CONTRACT_VERSION, PROCESS_MEMORY_RECALL_METHOD,
-    PROCESS_MEMORY_REMEMBER_METHOD, PROCESS_PATCH_APPLY_METHOD, PROCESS_PATCH_CONTRACT_VERSION,
+    PROCESS_MEMORY_REMEMBER_METHOD, PROCESS_MODEL_CONTRACT_VERSION, PROCESS_MODEL_DESCRIBE_METHOD,
+    PROCESS_MODEL_STREAM_METHOD, PROCESS_PATCH_APPLY_METHOD, PROCESS_PATCH_CONTRACT_VERSION,
     PROCESS_POLICY_CONTRACT_VERSION, PROCESS_POLICY_EVALUATE_METHOD,
     PROCESS_POLICY_VISIBILITY_METHOD, PROCESS_SEARCH_CONTRACT_VERSION, PROCESS_SEARCH_METHOD,
     PROCESS_TOOL_CONTRACT_VERSION, PROCESS_TOOL_EXPOSURE_CONTRACT_VERSION,
@@ -63,6 +64,11 @@ pub struct ProcessContractAuthority {
 }
 
 impl ProcessContractAuthority {
+    /// Delivery only: no nested execution or additional authority. It consumes
+    /// the pending callback/frame budget, but not the cumulative host-work budget.
+    pub fn is_stream_delivery(self, method: &str) -> bool {
+        self.slot == "model" && method == MODEL_HOST_EMIT_METHOD
+    }
     pub fn allows_host_method(self, method: &str) -> bool {
         self.host_methods.contains(&method)
     }
@@ -76,6 +82,15 @@ impl ProcessContractAuthority {
 /// More slots are added only together with their contract and
 /// conformance evidence.
 pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
+    ProcessContractAuthority {
+        slot: "model",
+        contract_version: PROCESS_MODEL_CONTRACT_VERSION,
+        composition: ProcessModuleComposition::SelectOne,
+        module_methods: &[PROCESS_MODEL_DESCRIBE_METHOD, PROCESS_MODEL_STREAM_METHOD],
+        host_methods: &[MODEL_HOST_EMIT_METHOD],
+        host_features: NO_PROTOCOL_FEATURES,
+        required_features: NO_PROTOCOL_FEATURES,
+    },
     ProcessContractAuthority {
         slot: "search",
         contract_version: PROCESS_SEARCH_CONTRACT_VERSION,

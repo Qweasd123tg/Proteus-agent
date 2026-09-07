@@ -2,7 +2,6 @@ use std::{any::Any, collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::{Result, bail};
 
-mod builtins;
 mod components;
 
 use crate::{
@@ -34,13 +33,18 @@ pub struct PolicyBuildContext<'a> {
     pub cwd: &'a Path,
 }
 
+pub struct ModelBuildContext<'a> {
+    pub config: &'a ModelConfig,
+    pub cwd: &'a Path,
+}
+
 /// Унифицированный вход для всех build-функций модулей. Разные slot'ы
 /// требуют разный контекст (ядро / policy / model); enum объединяет их
 /// для того, чтобы в Registry можно было хранить одну фабрику любого slot.
 pub enum ModuleBuildInput<'a, 'b: 'a> {
     Module(&'a ModuleBuildContext<'b>),
     Policy(&'a PolicyBuildContext<'b>),
-    Model(&'a ModelConfig),
+    Model(&'a ModelBuildContext<'b>),
 }
 
 impl<'a, 'b: 'a> ModuleBuildInput<'a, 'b> {
@@ -58,7 +62,7 @@ impl<'a, 'b: 'a> ModuleBuildInput<'a, 'b> {
         }
     }
 
-    pub fn model(&self) -> Result<&'a ModelConfig> {
+    pub fn model(&self) -> Result<&'a ModelBuildContext<'b>> {
         match self {
             Self::Model(config) => Ok(config),
             _ => bail!("expected ModuleBuildInput::Model"),
@@ -93,13 +97,11 @@ pub struct ModuleCatalog {
 
 impl ModuleCatalog {
     pub fn new() -> Self {
-        let mut catalog = Self {
+        Self {
             entries: HashMap::new(),
             process_tools: Vec::new(),
             process_context_providers: Vec::new(),
-        };
-        builtins::register_builtins(&mut catalog);
-        catalog
+        }
     }
 
     pub fn from_config(config: &AppConfig) -> Result<Self> {
@@ -132,7 +134,7 @@ impl ModuleCatalog {
         &mut self,
         module_id: &str,
         manifest: ModuleManifest,
-        build: fn(&ModelConfig) -> Result<Arc<dyn Model>>,
+        build: impl for<'a> Fn(&ModelBuildContext<'a>) -> Result<Arc<dyn Model>> + Send + Sync + 'static,
     ) {
         let erased: ErasedFactory = Box::new(move |input| {
             let config = input.model()?;
@@ -252,12 +254,19 @@ impl ModuleCatalog {
             .ok_or_else(|| anyhow::anyhow!("module {} in slot {} has unexpected type", id, slot_id))
     }
 
-    pub fn build_model_adapter(&self, model_config: &ModelConfig) -> Result<Arc<dyn Model>> {
+    pub fn build_model_adapter(
+        &self,
+        model_config: &ModelConfig,
+        cwd: &Path,
+    ) -> Result<Arc<dyn Model>> {
         let provider = model_config.provider.as_str();
         self.build_typed::<dyn Model>(
             slot::MODEL,
             provider,
-            &ModuleBuildInput::Model(model_config),
+            &ModuleBuildInput::Model(&ModelBuildContext {
+                config: model_config,
+                cwd,
+            }),
         )
     }
 

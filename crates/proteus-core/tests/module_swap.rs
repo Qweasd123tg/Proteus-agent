@@ -1,3 +1,6 @@
+#[path = "support/model.rs"]
+mod test_model;
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -58,7 +61,7 @@ fn component_exports(exports: &[(&str, &str)]) -> ProcessComponentConfig {
 }
 
 fn search_config(module_id: &str, mode: &str) -> AppConfig {
-    let mut config = AppConfig::default();
+    let mut config = test_model::config();
     config.modules.search = Some(module_id.to_owned());
     config.components.insert(
         "search-fixture".to_owned(),
@@ -80,7 +83,7 @@ fn compactor_config(module_id: &str, mode: &str, marker: Option<&Path>) -> AppCo
         args.push(&marker_text);
     }
 
-    let mut config = AppConfig::default();
+    let mut config = test_model::config();
     config.modules.compactor = Some(module_id.to_owned());
     config.components.insert(
         "compactor-fixture".to_owned(),
@@ -101,7 +104,7 @@ fn registry(config: &AppConfig, cwd: &Path) -> anyhow::Result<RuntimeRegistry> {
 #[tokio::test]
 async fn search_slot_swaps_component_exports_without_changing_canonical_contract() {
     let workspace = tempfile::tempdir().expect("workspace");
-    let absent = registry(&AppConfig::default(), workspace.path()).expect("absent search");
+    let absent = registry(&test_model::config(), workspace.path()).expect("absent search");
     assert!(
         absent
             .search
@@ -138,7 +141,7 @@ async fn search_slot_swaps_component_exports_without_changing_canonical_contract
 #[test]
 fn assembly_plan_requires_an_exact_registered_selection() {
     let workspace = tempfile::tempdir().expect("workspace");
-    let mut config = AppConfig::default();
+    let mut config = test_model::config();
     config.modules.search = Some("missing".to_owned());
 
     let error = match registry(&config, workspace.path()) {
@@ -178,7 +181,7 @@ fn duplicate_component_export_identity_is_rejected_before_runtime_build() {
 
 #[test]
 fn callback_dependency_cycle_no_longer_requires_component_splitting() {
-    let mut config = AppConfig::default();
+    let mut config = test_model::config();
     config.modules.workflow = Some("fixture-workflow".to_owned());
     config.modules.context = Some("fixture-context".to_owned());
     config.components.insert(
@@ -349,7 +352,7 @@ async fn multiple_exports_share_one_component_process_and_lifecycle() {
         },
     }))
     .expect("multi-export component config");
-    let mut config = AppConfig::default();
+    let mut config = test_model::config();
     config.modules.search = Some("fixture-search".to_owned());
     config.modules.compactor = Some("fixture-compactor".to_owned());
     config

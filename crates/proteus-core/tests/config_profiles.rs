@@ -42,6 +42,30 @@ async fn tracked_profiles_use_exact_catalog_ids_without_legacy_pseudo_modules() 
             panic!("failed to build catalog for {}: {error:#}", path.display())
         });
 
+        for profile in config.providers.values() {
+            let manifest = catalog
+                .manifest(
+                    proteus_contracts::domain::ModuleKind::Model,
+                    &profile.provider,
+                )
+                .unwrap_or_else(|| {
+                    panic!(
+                        "{} selects missing model export {}",
+                        path.display(),
+                        profile.provider
+                    )
+                });
+            assert_eq!(manifest.api_version, "v1");
+            let settings = config
+                .process_export_config("model", &profile.provider)
+                .unwrap();
+            assert!(
+                settings["implementation"].is_string(),
+                "{} must explicitly choose a reference model implementation",
+                path.display()
+            );
+        }
+
         for (kind, module_id) in config.modules.iter() {
             assert!(
                 !matches!(
@@ -130,38 +154,35 @@ async fn codex_family_fragments_preserve_profile_specific_overlays() {
         codex.agent_control.surface,
         AgentControlSurface::Collaboration
     );
-    assert_eq!(codex.components.len(), 3);
+    assert_eq!(codex.components.len(), 4);
     assert_eq!(
         codex
             .components
             .values()
             .map(|component| component.exports().count())
             .sum::<usize>(),
-        9
+        10
     );
     let codex_model = codex.active_model_config().expect("codex model");
     assert_eq!(codex_model.model, "gpt-5.6-luna");
-    assert_eq!(codex_model.provider_config["support_verbosity"], true);
-    assert!(
-        codex_model
-            .provider_config
-            .get("stream_error_fallback")
-            .is_none()
-    );
+    let codex_settings = codex.process_export_config("model", "openai").unwrap();
+    assert_eq!(codex_settings["support_verbosity"], true);
+    assert!(codex_settings.get("stream_error_fallback").is_none());
 
     assert_eq!(glm.profile.name, "glm-proxy");
-    assert_eq!(glm.components.len(), 3);
+    assert_eq!(glm.components.len(), 4);
     assert_eq!(
         glm.components
             .values()
             .map(|component| component.exports().count())
             .sum::<usize>(),
-        9
+        10
     );
     let glm_model = glm.active_model_config().expect("glm model");
     assert_eq!(glm_model.model, "glm-5.2");
-    assert_eq!(glm_model.provider_config["stream_error_fallback"], true);
-    assert!(glm_model.provider_config.get("support_verbosity").is_none());
+    let glm_settings = glm.process_export_config("model", "openai").unwrap();
+    assert_eq!(glm_settings["stream_error_fallback"], true);
+    assert!(glm_settings.get("support_verbosity").is_none());
 }
 
 #[tokio::test]

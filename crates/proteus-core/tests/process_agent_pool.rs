@@ -3,6 +3,9 @@
 //! конфигом (fake model, workflow selection отсутствует), запуск роли, resume по task_id
 //! и сброс истории между свежими задачами.
 
+#[path = "support/model.rs"]
+mod test_model;
+
 use std::{path::PathBuf, sync::Arc};
 
 use proteus_contracts::{
@@ -17,8 +20,8 @@ use proteus_contracts::{
     },
 };
 use proteus_core::core::{
-    AgentControlConfig, AgentControlRuntime, AppConfig, HeadlessApprovalTransport,
-    HeadlessUserInputTransport, InMemoryEventStore, ModelExecutionBinding, RuntimeRegistry,
+    AgentControlConfig, AgentControlRuntime, HeadlessApprovalTransport, HeadlessUserInputTransport,
+    InMemoryEventStore, ModelExecutionBinding, RuntimeRegistry,
 };
 use serde_json::json;
 
@@ -35,7 +38,7 @@ impl ApprovalPolicy for AllowAllPolicy {
 }
 
 fn test_runtime_context(events: Arc<InMemoryEventStore>) -> AgentWorkflowContext {
-    let registry = RuntimeRegistry::from_config(&AppConfig::default(), PathBuf::from("."))
+    let registry = RuntimeRegistry::from_config(&test_model::config(), PathBuf::from("."))
         .expect("default runtime registry");
     let mut execution = registry.execution_context(
         ModelExecutionBinding::detached(ExecutionScope::fresh(CancellationToken::new())),
@@ -68,12 +71,12 @@ fn write_child_config(config_home: &std::path::Path) -> PathBuf {
     let config_path = configs_dir.join("config.toml");
     std::fs::write(
         &config_path,
-        concat!(
+        String::from(concat!(
             "active_provider = \"fake\"\n\n",
             "[providers.fake]\n",
             "provider = \"fake\"\n",
             "model = \"fake-tool-model\"\n",
-        ),
+        )) + &test_model::toml_component(),
     )
     .expect("write child config");
     config_path
@@ -133,7 +136,7 @@ system_instructions = "Report only from this peer's configured tool surface."
 [tools]
 enabled = {enabled_tools}
 "#
-        ),
+        ) + &test_model::toml_component(),
     )
     .expect("write tool-surface child config");
     config_path

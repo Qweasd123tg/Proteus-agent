@@ -9,7 +9,7 @@ include = [
 [providers.openai]
 model = "gpt-5.6-luna"
 
-[providers.openai.provider_config]
+[module_config.model.openai]
 # Неизвестные model ids получают conservative capability fallback, поэтому
 # custom proxy slug декларирует model-specific controls явно.
 support_verbosity = true

@@ -114,13 +114,13 @@ fn config(endpoint: &str, streaming: bool) -> AppConfig {
     serde_json::from_value(json!({
         "active_provider": "fixture",
         "providers": {"fixture": {"provider": "openai", "model": "fixture-model",
-            "stream": streaming, "reasoning": {"effort": "high", "summary": true},
-            "provider_config": {"base_url": endpoint, "api_key": "local-fixture-only",
+            "stream": streaming, "reasoning": {"effort": "high", "summary": true}}},
+        "module_config": {"model": {"openai": {"implementation": "openai", "base_url": endpoint, "api_key": "local-fixture-only",
                 "http1_only": true, "capabilities": {"supports_reasoning_config": true}}}},
         "modules": {"workflow": "coding.codex_loop", "policy": "allow_all"},
         "components": {"fixture": {
             "command": env!("CARGO_BIN_EXE_proteus-reference-worker"),
-            "exports": {"workflow": {"coding.codex_loop": {}},
+            "exports": {"model": {"openai": {}}, "workflow": {"coding.codex_loop": {}},
                 "policy": {"allow_all": {}}, "tool": {"reference.tools": {}}}}},
         "tools": {"enabled": ["read_file"]},
         "runtime": {"model_timeout_ms": 5000, "workflow_timeout_ms": 15000}

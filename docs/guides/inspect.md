@@ -77,7 +77,7 @@ builtin | process | config | unknown
 ```
 
 - `process` — export из `[components.<id>.exports...]`;
-- `builtin` — явно учтённые core-owned model adapters;
+- `builtin` — host-owned структурные contributions; не путь регистрации model implementation;
 - `config` — config-defined runtime contribution;
 - `unknown` — selected id, которого нет в catalog.
 

@@ -62,6 +62,19 @@ fn config(module_id: &str) -> AppConfig {
     let mut component = command;
     component["exports"] = json!({"compactor": {module_id: {"timeout_ms": 5000}}});
     let mut config = AppConfig::default();
+    config
+        .module_config
+        .entry("model".into())
+        .or_default()
+        .insert("fake".into(), json!({"implementation": "fake"}));
+    config.components.insert(
+        "model".into(),
+        serde_json::from_value(json!({
+            "command": env!("CARGO_BIN_EXE_proteus-reference-worker"),
+            "exports": {"model": {"fake": {}}}
+        }))
+        .unwrap(),
+    );
     config.modules.compactor = Some(module_id.to_owned());
     config
         .module_config

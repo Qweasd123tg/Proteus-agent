@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::domain::HostedToolKind;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct ModelCapabilities {
     pub supports_tools: bool,

@@ -5,7 +5,8 @@ provider = "anthropic"
 model = "claude-sonnet-4-20250514"
 stream = true
 
-[providers.anthropic.provider_config]
+[module_config.model.anthropic]
+implementation = "anthropic"
 api_key_env = "ANTHROPIC_API_KEY"
 base_url = "https://api.anthropic.com"
 auth = "x-api-key"
@@ -19,3 +20,9 @@ prompt_cache = true
 effort = "high"
 summary = true
 budget_tokens = 8192
+
+[components.reference-model]
+command = "proteus-reference-worker"
+env_allowlist = ["HOME", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
+
+[components.reference-model.exports.model.anthropic]

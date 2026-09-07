@@ -4,6 +4,7 @@ use crate::domain::{CallId, ToolCall};
 use crate::model_standard::{CanonicalModelResponse, FinishReason, TokenUsage};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub enum ModelStreamEvent {
     Response {

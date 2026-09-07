@@ -52,6 +52,7 @@ async fn project_check_config() -> AppConfig {
         component(json!({
             "command": env!("CARGO_BIN_EXE_proteus-reference-worker"),
             "exports": {
+                "model": {"fake": {}},
                 "workflow": { "coding.project_check": {} },
                 "policy": { "ask_write": {} },
             },

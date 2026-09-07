@@ -65,7 +65,7 @@ impl AppConfig {
 
     fn validate_module_config_slots(&self) -> Result<()> {
         for slot in self.module_config.keys() {
-            if matches!(slot.as_str(), "tool" | "context_provider") {
+            if matches!(slot.as_str(), "tool" | "context_provider" | "model") {
                 continue;
             }
             match core_slot_descriptor_by_id(slot) {

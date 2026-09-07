@@ -80,6 +80,7 @@ fn assert_separate_slot_authority(config: &AppConfig) {
     assert_eq!(
         slots,
         HashSet::from([
+            "model",
             "workflow",
             "search",
             "memory",

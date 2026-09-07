@@ -263,6 +263,7 @@ invalid DTO и превышение limits являются fail-closed protocol
 | context provider | v1 | `provide` | — |
 | tool | v2 | `list`, `invoke` | — |
 | context | v1 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
+| model | v1 | `describe`, `stream` | `host.model.emit` (acknowledged canonical events) |
 | compactor | v3 | `compact` | `host.model.complete` |
 | workflow | v3 | `run` | runtime status, context, model, compaction, tool visibility/selection/execution, events |
 
@@ -434,15 +435,46 @@ cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
 `--export` повторяется для multi-export component. Conformance требует exact
 handshake всего набора, даже если probe направлен только в один export.
 
+## Model Streaming
+
+`model/v1` использует canonical DTO из `proteus-contracts::contracts::process_model`:
+
+Descriptor, capabilities, stream events и terminal DTO отклоняют неизвестные поля.
+
+- `describe(null) -> ProcessModelDescriptor`: стабильные adapter id,
+  capabilities и hosted tools данного export; вызывается при сборке snapshot.
+- `stream(ProcessModelInput { request, stream }) -> ProcessModelOutput`:
+  один canonical request; `stream` выбирает режим upstream transport.
+- До terminal worker последовательно вызывает `host.model.emit` с
+  `ProcessModelEvent { sequence, event }` и ждёт `null` ack. Нумерация с нуля,
+  без пропусков; `Response` и `Error` через emit запрещены.
+- Terminal содержит точный `event_count` и `response`, `stream_error` либо
+  `request_error`. Response полный: Core не восстанавливает его из дельт.
+
+Canonical события не используют lossy `module.progress`. Host держит очередь
+из одного события: медленный consumer замедляет worker, события не теряются.
+Emit разрешён только model export и только во время `stream`; он не вызывает
+host work, не получает tool/model authority и не расходует cumulative
+`max_callbacks_per_root`. Общие pending-callback, frame и deadline limits
+продолжают действовать. Callback ids сохраняются точными объединяемыми
+диапазонами: `max_callback_id_ranges` ограничивает разреженность, а не длину
+обычного потока; duplicate ids не забываются до смены generation.
+
+Drop потока отменяет invocation. Отказ от ожидания admission также отменяет
+оставшуюся работу через закрытый terminal receiver. Адресная отмена сохраняет
+siblings; некооперативный worker попадает под общий cancel-grace/reset.
+Reference provider retries и SSE fallback остаются внутри model-pack и не
+добавляются host adapter-ом. Canonical validation, usage/journal и execution
+identity остаются в Core. Разные descriptor capabilities выбираются отдельными
+exports, без угадывания по model name.
+
 ## Core-Owned Границы
 
 Tracked reference crates — ordinary Rust libraries, линкуемые внутрь worker.
 
-Одна selectable граница пока core-owned:
-
-1. model provider adapters — provider shaping является частью model service.
-
-Model processization требует отдельного полного slot contract и parity gate.
+Все behavior implementations, включая model providers, используют process
+exports. Core сохраняет canonical model service, execution binding и journal;
+provider HTTP/SDK implementations находятся в worker.
 Для subagents действует другой process contract: полный Proteus соединяется с
 другим полным Proteus через root-owned `AgentControl`, а не становится
 Component Runtime export-ом. Это не скрытый extension mechanism и не основание

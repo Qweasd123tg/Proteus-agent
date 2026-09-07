@@ -7,7 +7,7 @@ use anyhow::{Result, bail};
 use proteus_contracts::contracts::ToolRegistry;
 use proteus_core::core::{
     AppConfig, AssemblyCheckSeverity, AssemblyPlan, ConfiguredToolExecutorConfig, ModuleCatalog,
-    event_log_path, expand_user_path,
+    event_log_path,
 };
 use proteus_process_host::ProcessSpec;
 use serde_json::Value;
@@ -117,7 +117,7 @@ pub(crate) fn check_model_config(findings: &mut DoctorFindings, config: &AppConf
     };
 
     findings.ok(format!("model: {}/{}", model.provider, model.model));
-    check_model_secret(findings, &model);
+    findings.ok("model credentials and endpoint are owned by the selected component");
 }
 
 fn check_assembly_plan(findings: &mut DoctorFindings, plan: &AssemblyPlan) {
@@ -145,131 +145,6 @@ fn check_assembly_plan(findings: &mut DoctorFindings, plan: &AssemblyPlan) {
                 findings.error(format!("assembly [{}]: {}", check.code, check.message));
             }
         }
-    }
-}
-
-pub(crate) fn check_model_secret(
-    findings: &mut DoctorFindings,
-    model: &proteus_core::core::ModelConfig,
-) {
-    let Some((default_env, json_key)) = provider_secret_defaults(&model.provider) else {
-        if model.provider == "fake" {
-            findings.ok("model secret: not required for fake provider");
-        } else {
-            findings.warn(format!(
-                "model secret: no built-in secret check for provider '{}'",
-                model.provider
-            ));
-        }
-        return;
-    };
-
-    let Some(provider_config) = model.provider_config.as_object() else {
-        check_env_secret(findings, default_env);
-        return;
-    };
-
-    if provider_config
-        .get("api_key")
-        .and_then(Value::as_str)
-        .is_some_and(|value| !value.trim().is_empty())
-    {
-        findings.warn("model secret: inline api_key configured; env/file is safer");
-    } else if let Some(path) = provider_config.get("api_key_file").and_then(Value::as_str) {
-        let path = expand_user_path(path);
-        let key = provider_config
-            .get("api_key_json_key")
-            .and_then(Value::as_str)
-            .unwrap_or(json_key);
-        if path.exists() {
-            findings.ok(format!(
-                "model secret: api_key_file {} key '{}'",
-                path.display(),
-                key
-            ));
-        } else {
-            findings.error(format!("model secret file is missing: {}", path.display()));
-        }
-    } else {
-        let env_name = provider_config
-            .get("api_key_env")
-            .and_then(Value::as_str)
-            .unwrap_or(default_env);
-        check_env_secret(findings, env_name);
-    }
-
-    check_model_base_url(findings, &model.provider, provider_config);
-}
-
-fn check_model_base_url(
-    findings: &mut DoctorFindings,
-    provider: &str,
-    provider_config: &serde_json::Map<String, Value>,
-) {
-    if let Some(path) = provider_config.get("base_url_file").and_then(Value::as_str) {
-        let path = expand_user_path(path);
-        let key = provider_config
-            .get("base_url_json_key")
-            .and_then(Value::as_str)
-            .unwrap_or("base_url");
-        if path.exists() {
-            findings.ok(format!(
-                "model endpoint: base_url_file {} key '{}'",
-                path.display(),
-                key
-            ));
-        } else {
-            findings.error(format!(
-                "model endpoint secret file is missing: {}",
-                path.display()
-            ));
-        }
-        return;
-    }
-
-    if let Some(env_name) = provider_config.get("base_url_env").and_then(Value::as_str) {
-        match std::env::var(env_name) {
-            Ok(value) if !value.trim().is_empty() => {
-                findings.ok(format!("model endpoint: env {env_name} is set"));
-            }
-            _ => findings.error(format!(
-                "model endpoint env var is missing or empty: {env_name}"
-            )),
-        }
-        return;
-    }
-
-    if let Some(value) = provider_config.get("base_url").and_then(Value::as_str)
-        && !is_public_default_base_url(provider, value)
-    {
-        findings.warn("model endpoint: inline custom base_url configured; file/env is safer if this URL is private");
-    }
-}
-
-fn is_public_default_base_url(provider: &str, value: &str) -> bool {
-    let value = value.trim_end_matches('/');
-    matches!(
-        (provider, value),
-        ("anthropic", "https://api.anthropic.com")
-            | ("openai", "https://api.openai.com/v1")
-            | ("openai_compatible", "https://api.openai.com/v1")
-    )
-}
-
-fn provider_secret_defaults(provider: &str) -> Option<(&'static str, &'static str)> {
-    match provider {
-        "anthropic" => Some(("ANTHROPIC_API_KEY", "anthropic_api_key")),
-        "openai" | "openai_compatible" => Some(("OPENAI_API_KEY", "openai_api_key")),
-        _ => None,
-    }
-}
-
-fn check_env_secret(findings: &mut DoctorFindings, env_name: &str) {
-    match std::env::var(env_name) {
-        Ok(value) if !value.trim().is_empty() => {
-            findings.ok(format!("model secret: env {env_name} is set"));
-        }
-        _ => findings.error(format!("model secret env is missing: {env_name}")),
     }
 }
 

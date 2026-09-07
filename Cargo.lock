@@ -900,6 +900,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "model-pack"
+version = "0.0.0-dev"
+dependencies = [
+ "anyhow",
+ "async-stream",
+ "async-trait",
+ "eventsource-stream",
+ "futures-util",
+ "proteus-contracts",
+ "proteus-core",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "nix"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1061,7 +1079,6 @@ dependencies = [
  "async-trait",
  "bytes",
  "clap",
- "eventsource-stream",
  "futures-core",
  "futures-util",
  "http-body-util",
@@ -1070,7 +1087,6 @@ dependencies = [
  "proteus-contracts",
  "proteus-module-protocol",
  "proteus-process-host",
- "reqwest",
  "ring",
  "serde",
  "serde_json",
@@ -1117,6 +1133,7 @@ dependencies = [
  "file-tools",
  "git-tools",
  "memory-pack",
+ "model-pack",
  "plan-tool",
  "policy-pack",
  "proteus-contracts",

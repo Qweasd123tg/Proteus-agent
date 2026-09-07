@@ -1,6 +1,6 @@
 # Текущее Состояние
 
-Сверка 2026-09-05 по коду `8757ab9` до документационной правки.
+Модельная граница обновлена 2026-09-08.
 
 Замысел — в [spec.md](spec.md), ожидаемый результат — в
 [roadmap.md](roadmap.md). Здесь описана реализация.
@@ -10,7 +10,7 @@
 - Process-only Component Runtime v2 / wire v3: persistent multi-export
   components, concurrent invocation, callbacks, cancellation и restart.
 - Slots для workflow, search, memory, context/context providers, policy,
-  patch, compactor, tool exposure и tools.
+  patch, compactor, tool exposure, tools и model.
 - AssemblyPlan, атомарный runtime snapshot и ExecutionScope.
 - Общий tool safety/approval path и execution-bound model/tools/memory.
 - Canonical journal, history/resume, prompt replay и workflow replay
@@ -18,7 +18,8 @@
 - AgentControl для полных local Proteus peers: lifecycle, bounded mailbox,
   messaging, follow-up и адресная отмена.
 - CLI/REPL, HTTP/SSE/stdio app-server, web chat и Inspector.
-- Core-owned OpenAI, OpenAI-compatible, Anthropic и fake model adapters.
+- OpenAI, OpenAI-compatible, Anthropic и fake implementations в reference
+  `model-pack`; Core использует общий `model/v1` process adapter.
 - Doctor, inspect/topology, eval report и атомарная локальная установка.
 
 Reference modules и profiles — поставляемые примеры без особых прав.
@@ -27,7 +28,7 @@ Reference modules и profiles — поставляемые примеры без
 
 | Граница | Ограничение |
 |---|---|
-| Model | Внешнего process model contract нет. Новые adapter implementations требуют решения этой общей границы по текущим правилам |
+| Model | Capabilities и hosted tools фиксируются descriptor-ом export при сборке; разные наборы возможностей требуют отдельных exports |
 | Workflow | Process input требует task/history/chat ids и model reference; AppConfig требует active provider |
 | Replay | Workflow без model exchanges не воспроизводится, хотя Turn и tool facts записаны |
 | Presentation | AssistantTextDelta не несёт item id/typed phase; transcript не экспортирует MessagePhase |

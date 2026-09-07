@@ -64,3 +64,8 @@ workflow_timeout_ms = 30000
 
 [event_log]
 path = ".proteus/events.jsonl"
+
+[components.reference-agent.exports.model.fake]
+
+[module_config.model.fake]
+implementation = "fake"

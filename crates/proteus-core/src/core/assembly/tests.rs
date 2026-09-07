@@ -6,12 +6,15 @@ use super::*;
 use crate::{core::ModuleCatalog, domain::ModuleKind};
 
 fn process_search_config(command: &str) -> AppConfig {
-    let mut config = AppConfig::default();
+    let mut config = crate::test_model::config();
     config
-        .providers
-        .get_mut("fake")
-        .expect("fake provider")
-        .provider_config = json!({"api_key": "private-provider-secret"});
+        .module_config
+        .entry("model".into())
+        .or_default()
+        .insert(
+            "fake".into(),
+            json!({"implementation": "fake", "api_key": "private-provider-secret"}),
+        );
     config.modules.search = Some("external-search".to_owned());
     config.components.insert(
         "search-worker".to_owned(),
@@ -67,7 +70,7 @@ fn plan_resolves_exact_component_export_without_starting_it() {
 
 #[test]
 fn missing_selection_blocks_prepared_assembly_before_module_build() {
-    let mut config = AppConfig::default();
+    let mut config = crate::test_model::config();
     config.modules.search = Some("missing-search".to_owned());
     let catalog = ModuleCatalog::from_config(&config).expect("catalog");
     let plan = AssemblyPlan::resolve(config.clone(), None, PathBuf::from("."), &catalog)
@@ -92,7 +95,7 @@ fn missing_selection_blocks_prepared_assembly_before_module_build() {
 
 #[test]
 fn duplicate_requested_tool_is_one_shared_plan_error() {
-    let mut config = AppConfig::default();
+    let mut config = crate::test_model::config();
     config.tools.enabled = vec!["search".to_owned(), "search".to_owned()];
     let catalog = ModuleCatalog::from_config(&config).expect("catalog");
     let plan =
@@ -111,7 +114,7 @@ fn duplicate_requested_tool_is_one_shared_plan_error() {
 #[test]
 fn prepared_registry_uses_the_plan_selection() {
     let cwd = tempfile::tempdir().expect("workspace");
-    let config = AppConfig::default();
+    let config = crate::test_model::config();
     let assembly = PreparedAssembly::from_config(config, cwd.path().to_path_buf(), None)
         .expect("prepared assembly");
 

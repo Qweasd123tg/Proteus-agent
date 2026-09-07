@@ -264,11 +264,33 @@ pub trait WorkflowModule: Send + Sync + 'static {
 
 pub type WorkflowModuleObject = Box<dyn WorkflowModule>;
 
+pub trait ModelModuleHost: Send + Sync {
+    fn is_cancelled(&self) -> bool;
+    fn emit(&self, event: crate::contracts::ProcessModelEvent) -> ProcessModuleResult<()>;
+}
+
+pub trait ModelModule: Send + Sync + 'static {
+    fn describe(&self) -> crate::contracts::ProcessModelDescriptor;
+    fn stream(
+        &self,
+        input: crate::contracts::ProcessModelInput,
+        host: &dyn ModelModuleHost,
+    ) -> ProcessModuleResult<crate::contracts::ProcessModelOutput>;
+}
+
+pub type ModelModuleObject = Box<dyn ModelModule>;
+
 /// Link-time registry used only to assemble one process worker executable.
 /// It does not cross the host boundary and grants no runtime capabilities.
 pub trait ModuleRegistry {
     /// Opaque config received in the process initialize handshake.
     fn module_config(&self) -> &serde_json::Value;
+
+    fn register_model(
+        &mut self,
+        module_id: String,
+        model: ModelModuleObject,
+    ) -> ProcessModuleResult<()>;
 
     fn register_tool(&mut self, tool: ToolModuleObject) -> ProcessModuleResult<()>;
     fn register_policy(

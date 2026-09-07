@@ -7,14 +7,15 @@ active_provider = "openai"
 provider = "openai"
 stream = true
 
-[providers.openai.provider_config]
+[module_config.model.openai]
+implementation = "openai"
 api_key_file = "$HOME/.config/Proteus-agent/secrets/openai.json"
 api_key_json_key = "openai_api_key"
 base_url_file = "$HOME/.config/Proteus-agent/secrets/openai.json"
 base_url_json_key = "base_url"
 max_input_tokens = 400000
 
-[providers.openai.provider_config.capabilities]
+[module_config.model.openai.capabilities]
 supports_parallel_tool_calls = true
 supports_freeform_tools = false
 supports_json_schema = true
@@ -23,3 +24,9 @@ supports_reasoning_config = true
 [providers.openai.reasoning]
 effort = "high"
 summary = true
+
+[components.reference-model]
+command = "proteus-reference-worker"
+env_allowlist = ["HOME", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
+
+[components.reference-model.exports.model.openai]

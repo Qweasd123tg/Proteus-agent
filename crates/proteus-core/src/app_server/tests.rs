@@ -193,7 +193,7 @@ fn shell_approval_preview_uses_exact_command_metadata() {
 #[tokio::test]
 async fn app_server_updates_permission_mode_without_restart() {
     let cwd = tempfile::tempdir().expect("cwd");
-    let mut config = AppConfig::default();
+    let mut config = crate::test_model::config();
     config.permissions.mode = PermissionMode::Normal;
     let server = AgentAppServer::launch_with_module_catalog(
         config,
@@ -702,14 +702,16 @@ async fn zero_timeout_pending_user_input_resolves_on_shutdown() {
 #[tokio::test]
 async fn app_server_forwards_streaming_text_deltas_before_turn_output() {
     let cwd = tempfile::tempdir().expect("cwd");
-    let mut config = AppConfig::default();
+    let mut config = crate::test_model::config();
     crate::test_support::select_test_modules(&mut config, "coding.plan_execute_review");
-    let active_provider = config.active_provider.clone();
     config
-        .providers
-        .get_mut(&active_provider)
-        .expect("default provider")
-        .provider_config = serde_json::json!({ "stream_delay_ms": 1 });
+        .module_config
+        .entry("model".into())
+        .or_default()
+        .insert(
+            "fake".into(),
+            serde_json::json!({ "implementation": "fake", "stream_delay_ms": 1 }),
+        );
 
     let handle = AgentAppServer::launch_with_module_catalog(
         config,
@@ -760,7 +762,7 @@ async fn app_server_forwards_streaming_text_deltas_before_turn_output() {
 #[tokio::test]
 async fn transcript_projects_runtime_history_for_resume_ui() {
     let cwd = tempfile::tempdir().expect("cwd");
-    let mut config = AppConfig::default();
+    let mut config = crate::test_model::config();
     crate::test_support::select_test_modules(&mut config, "coding.plan_execute_review");
 
     let handle = AgentAppServer::launch_with_module_catalog(
@@ -818,7 +820,7 @@ async fn config_summary_includes_current_session_dir_field() {
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
     let handle = AgentAppServer::launch_with_module_catalog(
-        AppConfig::default(),
+        crate::test_model::config(),
         cwd.path().to_path_buf(),
         Some(&config_path),
         test_catalog(),
@@ -879,7 +881,7 @@ async fn launch_or_resume_latest_uses_last_non_empty_workspace_session() {
         .expect("clear empty session");
 
     let handle = AgentAppServer::launch_or_resume_latest(
-        AppConfig::default(),
+        crate::test_model::config(),
         cwd.path().to_path_buf(),
         Some(&config_path),
     )
@@ -912,7 +914,9 @@ active_provider = "fake"
 
 [tools]
 enabled = []
-"#,
+"#
+        .to_owned()
+            + &crate::test_model::toml_component(),
     )
     .expect("initial config");
     let config = AppConfig::load(Some(&config_path))
@@ -945,7 +949,9 @@ safety = "ReadOnly"
 kind = "process"
 command = "printf"
 args = ["ok"]
-"#,
+"#
+        .to_owned()
+            + &crate::test_model::toml_component(),
     )
     .expect("updated config");
 
@@ -1054,7 +1060,7 @@ async fn app_server_remember_uses_memory_v2_without_a_turn_or_tool() {
         },
     }))
     .expect("memory component config");
-    let mut config = AppConfig::default();
+    let mut config = crate::test_model::config();
     config.modules.memory = Some("phase8-memory".to_owned());
     config.tools.enabled.clear();
     config.module_config.insert(

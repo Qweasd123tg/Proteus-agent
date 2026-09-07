@@ -53,6 +53,32 @@ impl HostBridge {
 
 pub struct ToolHostBridge(pub HostBridge);
 
+pub struct ModelHostBridge(pub HostBridge);
+
+impl proteus_contracts::process_module::ModelModuleHost for ModelHostBridge {
+    fn is_cancelled(&self) -> bool {
+        self.0.is_cancelled()
+    }
+
+    fn emit(
+        &self,
+        event: proteus_contracts::contracts::ProcessModelEvent,
+    ) -> Result<(), ProcessModuleError> {
+        let params = serde_json::to_value(event)
+            .map_err(|error| ProcessModuleError::new(error.to_string()))?;
+        let result = self
+            .0
+            .call(proteus_contracts::contracts::MODEL_HOST_EMIT_METHOD, params)
+            .map_err(|error| ProcessModuleError::new(format!("{error:#}")))?;
+        if !result.is_null() {
+            return Err(ProcessModuleError::new(
+                "model event acknowledgement must be null",
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl ToolModuleHost for ToolHostBridge {
     fn is_cancelled(&self) -> Result<bool, ProcessModuleError> {
         Ok(self.0.is_cancelled())
