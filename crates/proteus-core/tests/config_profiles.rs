@@ -55,7 +55,12 @@ async fn tracked_profiles_use_exact_catalog_ids_without_legacy_pseudo_modules() 
                         profile.provider
                     )
                 });
-            assert_eq!(manifest.api_version, "v3");
+            assert_eq!(
+                manifest.api_version,
+                current_process_contract_authority("model")
+                    .expect("model authority")
+                    .contract_version
+            );
             let settings = config
                 .process_export_config("model", &profile.provider)
                 .unwrap();

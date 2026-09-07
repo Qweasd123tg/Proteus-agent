@@ -1,13 +1,7 @@
-use std::env::VarError;
-
-use proteus_contracts::{contracts::CompactionInput, model_standard::CanonicalMessage};
-use serde_json::Value;
-
 use crate::history::message_text;
+use proteus_contracts::{contracts::CompactionInput, model_standard::CanonicalMessage};
 
-pub(crate) const DEFAULT_TRIGGER_TOKENS: u32 = 160_000;
 const DEFAULT_USER_MESSAGE_BUDGET_TOKENS: usize = 20_000;
-const DEFAULT_SUMMARY_BUDGET_TOKENS: u32 = 4_000;
 
 pub(crate) fn estimate_messages_tokens(messages: &[CanonicalMessage]) -> u32 {
     let tokens = messages
@@ -19,111 +13,88 @@ pub(crate) fn estimate_messages_tokens(messages: &[CanonicalMessage]) -> u32 {
 }
 
 pub(crate) fn estimate_text_tokens(text: &str) -> usize {
-    (text.len() / 4).max(1)
+    text.len().saturating_add(3) / 4
 }
 
 pub(crate) fn truncate_to_tokens(text: &str, max_tokens: usize) -> String {
-    if estimate_text_tokens(text) <= max_tokens {
+    let max_bytes = max_tokens.saturating_mul(4);
+    if text.is_empty() || (max_tokens > 0 && text.len() <= max_bytes) {
         return text.to_owned();
     }
-    if max_tokens == 0 {
-        return String::new();
-    }
+    truncate_middle_with_token_budget(text, max_tokens)
+}
 
+fn truncate_middle_with_token_budget(text: &str, max_tokens: usize) -> String {
     let max_bytes = max_tokens.saturating_mul(4);
-    const MARKER: &str = "\n[tokens truncated by codex-compactor]";
-    if max_bytes <= MARKER.len() {
-        return prefix_within_bytes("[truncated]", max_bytes);
+    if max_bytes == 0 {
+        return format!("…{} tokens truncated…", estimate_text_tokens(text));
     }
-
-    let text_budget = max_bytes - MARKER.len();
-    let prefix = prefix_within_bytes(text, text_budget);
-    format!("{prefix}{MARKER}")
-}
-
-fn prefix_within_bytes(text: &str, max_bytes: usize) -> String {
-    let mut end = max_bytes.min(text.len());
-    while end > 0 && !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    text[..end].to_owned()
-}
-
-/// Порог токенов, на котором запускается автокомпакт. Приоритет:
-/// 1) `trigger_tokens` из module-config (жёсткий потолок);
-/// 2) env `PROTEUS_CODEX_COMPACTOR_TRIGGER_TOKENS`;
-/// 3) `trigger_fraction` из конфига × сырое окно `window_tokens`;
-/// 4) дефолтная константа.
-pub(crate) fn resolve_trigger_tokens(input: &CompactionInput) -> u32 {
-    if let Some(tokens) = config_u32(&input.config, "trigger_tokens") {
-        return tokens;
-    }
-    if let Some(tokens) = env_u32("PROTEUS_CODEX_COMPACTOR_TRIGGER_TOKENS") {
-        return tokens;
-    }
-    if let (Some(fraction), Some(window)) = (
-        config_fraction(&input.config, "trigger_fraction"),
-        input.window_tokens,
-    ) {
-        let trigger = (f64::from(window) * fraction).round();
-        if trigger >= 1.0 {
-            return trigger.min(f64::from(u32::MAX)) as u32;
+    let left_budget = max_bytes / 2;
+    let right_budget = max_bytes - left_budget;
+    let tail_start = text.len().saturating_sub(right_budget);
+    let mut prefix_end = 0;
+    let mut suffix_start = text.len();
+    let mut suffix_started = false;
+    for (index, character) in text.char_indices() {
+        let character_end = index + character.len_utf8();
+        if character_end <= left_budget {
+            prefix_end = character_end;
+        } else if index >= tail_start {
+            if !suffix_started {
+                suffix_start = index;
+                suffix_started = true;
+            }
         }
     }
-    DEFAULT_TRIGGER_TOKENS
+    if suffix_start < prefix_end {
+        suffix_start = prefix_end;
+    }
+    let removed_bytes = text.len().saturating_sub(max_bytes);
+    let marker_tokens = removed_bytes.saturating_add(3) / 4;
+    format!(
+        "{}…{marker_tokens} tokens truncated…{}",
+        &text[..prefix_end],
+        &text[suffix_start..]
+    )
 }
 
-fn config_u32(config: &Value, key: &str) -> Option<u32> {
+/// Mirrors the pinned Codex local auto-compact limit: 90% of the raw context
+/// window, with an explicitly configured limit capped at that value. The
+/// caller must not invent a default when the provider did not expose a window.
+pub(crate) fn resolve_trigger_tokens(input: &CompactionInput) -> Result<Option<u32>, String> {
+    let configured = config_trigger_tokens(&input.config)?;
+    let context_limit = input
+        .window_tokens
+        .map(|window| (u64::from(window) * 9 / 10) as u32);
+    match (configured, context_limit) {
+        (Some(configured), Some(context_limit)) => Ok(Some(configured.min(context_limit))),
+        (Some(configured), None) => Ok(Some(configured)),
+        (None, Some(context_limit)) => Ok(Some(context_limit)),
+        (None, None) => Ok(None),
+    }
+}
+
+fn config_trigger_tokens(config: &serde_json::Value) -> Result<Option<u32>, String> {
+    let config = config
+        .as_object()
+        .ok_or_else(|| "codex compactor config must be an object".to_owned())?;
+    if let Some(unknown) = config.keys().find(|key| key.as_str() != "trigger_tokens") {
+        return Err(format!(
+            "codex compactor config has unknown key '{unknown}'"
+        ));
+    }
     config
-        .get(key)?
-        .as_u64()
-        .and_then(|value| u32::try_from(value).ok())
-        .filter(|value| *value > 0)
-}
-
-fn config_fraction(config: &Value, key: &str) -> Option<f64> {
-    let value = config.get(key)?.as_f64()?;
-    (value.is_finite() && value > 0.0 && value <= 1.0).then_some(value)
+        .get("trigger_tokens")
+        .map(|value| {
+            value
+                .as_u64()
+                .and_then(|value| u32::try_from(value).ok())
+                .filter(|value| *value > 0)
+                .ok_or_else(|| "codex compactor trigger_tokens must be a positive u32".to_owned())
+        })
+        .transpose()
 }
 
 pub(crate) fn user_message_budget_tokens() -> usize {
-    env_usize("PROTEUS_CODEX_COMPACTOR_USER_MESSAGE_TOKENS")
-        .unwrap_or(DEFAULT_USER_MESSAGE_BUDGET_TOKENS)
-}
-
-pub(crate) fn summary_budget_tokens() -> Result<u32, String> {
-    match std::env::var("PROTEUS_CODEX_COMPACTOR_SUMMARY_TOKENS") {
-        Ok(value) => parse_summary_budget(Some(&value)),
-        Err(VarError::NotPresent) => Ok(DEFAULT_SUMMARY_BUDGET_TOKENS),
-        Err(VarError::NotUnicode(_)) => {
-            Err("PROTEUS_CODEX_COMPACTOR_SUMMARY_TOKENS must be valid UTF-8".to_owned())
-        }
-    }
-}
-
-pub(crate) fn parse_summary_budget(value: Option<&str>) -> Result<u32, String> {
-    let Some(value) = value else {
-        return Ok(DEFAULT_SUMMARY_BUDGET_TOKENS);
-    };
-    let parsed = value
-        .parse::<u64>()
-        .map_err(|_| "PROTEUS_CODEX_COMPACTOR_SUMMARY_TOKENS must be a positive u32".to_owned())?;
-    let parsed = u32::try_from(parsed)
-        .map_err(|_| "PROTEUS_CODEX_COMPACTOR_SUMMARY_TOKENS exceeds u32::MAX".to_owned())?;
-    if parsed == 0 {
-        return Err("PROTEUS_CODEX_COMPACTOR_SUMMARY_TOKENS must be greater than zero".to_owned());
-    }
-    Ok(parsed)
-}
-
-fn env_u32(name: &str) -> Option<u32> {
-    std::env::var(name).ok()?.parse().ok()
-}
-
-fn env_usize(name: &str) -> Option<usize> {
-    std::env::var(name)
-        .ok()?
-        .parse()
-        .ok()
-        .filter(|value| *value > 0)
+    DEFAULT_USER_MESSAGE_BUDGET_TOKENS
 }

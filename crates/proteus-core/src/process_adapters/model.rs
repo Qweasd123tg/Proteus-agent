@@ -193,16 +193,32 @@ impl Model for ProcessModel {
                 received += 1; yield event?;
             }
             guard.disarm();
-            let output: ProcessModelOutput = client.decode(PROCESS_MODEL_STREAM_METHOD, terminal?)?;
+            let output: ProcessModelOutput = client.decode(PROCESS_MODEL_STREAM_METHOD, terminal?).map_err(model_invocation_error)?;
             if output.event_count != received {
                 client.reset();
                 Err(anyhow::anyhow!("model terminal event_count does not match emitted events"))?;
             }
             match output.terminal {
                 ProcessModelTerminal::Response { response } => yield ModelStreamEvent::Response { response },
-                ProcessModelTerminal::StreamError { message } => yield ModelStreamEvent::Error { message },
-                ProcessModelTerminal::RequestError { message } => Err(anyhow::anyhow!(message))?,
+                ProcessModelTerminal::StreamError { failure } => yield ModelStreamEvent::Error { failure },
+                ProcessModelTerminal::RequestError { failure } => Err(anyhow::Error::new(failure))?,
             }
         }))
     }
+}
+
+fn model_invocation_error(error: anyhow::Error) -> anyhow::Error {
+    if let Some(invocation) = error.downcast_ref::<super::ProcessInvocationError>()
+        && matches!(
+            invocation.failure(),
+            super::ProcessInvocationFailure::Canceled
+        )
+    {
+        return crate::model_standard::ModelFailure::new(
+            crate::model_standard::ModelFailureKind::Interrupted,
+            error.to_string(),
+        )
+        .into();
+    }
+    error
 }

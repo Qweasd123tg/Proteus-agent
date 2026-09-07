@@ -20,7 +20,8 @@ authority(module) = authority(slot, invocation_context)
 
 Все внешние modules являются exports process components: Component Runtime v2
 использует wire protocol v3; `workflow` и `compactor` используют strict contract
-v3, `tool` и `memory` — v2, остальные process slots пока v1. Runtime допускает
+v5, `model` — v4; версии остальных slots приведены в authority table
+[process-module-architecture.md](process-module-architecture.md). Runtime допускает
 несколько одновременных и вложенных invocation одного component. Dylib ABI и
 native loader в проекте отсутствуют.
 
@@ -51,7 +52,7 @@ native loader в проекте отсутствуют.
 | `tool_exposure` | `select_one` | `modules.tool_exposure` | да | `codex_dynamic` |
 | `tool` | `ordered_many` | exports + `tools.enabled` | да | `reference.tools` и узкие selectors |
 | `context_provider` | `ordered_many` | exports + context config | да | `skills` |
-| `model` | `select_one` | active provider profile | да, `model/v3` | `fake`, `openai`, `openai_compatible`, `anthropic` |
+| `model` | `select_one` | active provider profile | да, `model/v4` | `fake`, `openai`, `openai_compatible`, `anthropic` |
 
 Все behavior implementations, включая `model`, используют process contract.
 Agent control в матрицу не входит, потому что это
@@ -137,7 +138,7 @@ tool execution и event emission. Session ids, approvals, tool ownership и
 journal остаются host-owned.
 
 `coding.project_check` — reference code-heavy controller на том же
-`workflow/v4`. Он детерминированно вызывает `git_status`, определяет project по
+`workflow/v5`. Он детерминированно вызывает `git_status`, определяет project по
 root marker, запускает фиксированную test command и обращается к model только
 один раз для объяснения failed test. Success path не вызывает model, context
 или compactor. Это architecture probe, не default workflow и не special
@@ -186,8 +187,11 @@ Context builder получает callbacks `host.search.query`,
 
 ### Compactor
 
-Получает canonical history и может вызвать `host.model.complete`. Этот
-callback доступен всему `compactor/v4`, а не только `codex`. Deterministic
+Получает `CompactionInput.request` — полный pending canonical model request,
+включая history, instructions, reasoning, limits и cache. Выбранный module
+определяет summary request и возвращает replacement history. Он может вызвать
+`host.model.complete`. Этот
+callback доступен всему `compactor/v5`, а не только `codex`. Deterministic
 Python example не использует callback, но имеет ту же authority.
 
 `CompactionOutput` передаёт результат и диагностику явными полями:
@@ -199,7 +203,7 @@ Python example не использует callback, но имеет ту же aut
 input/output. `metadata` — непрозрачные данные module, не источник этих полей.
 
 Тот же DTO возвращает workflow callback `host.history.compact`, поэтому обе
-границы используют v4 с явным context render mode; прежние slot versions не
+границы используют v5 с полным request в compaction input; прежние slot versions не
 принимаются. Wire protocol остаётся v3, журнал использует schema v4.
 Структура `HistoryCompactionReport` не меняется;
 workflow replay сохраняет typed поля и весь `metadata`, не подмешивая и не
@@ -238,7 +242,7 @@ host-owned `ExecutionAttribution`: обязательный `ExecutionId` и opt
 
 ### Model
 
-Общий `model/v3` contract: `describe` возвращает неизменяемые adapter id,
+Общий `model/v4` contract: `describe` возвращает неизменяемые adapter id,
 capabilities и hosted tools; `stream` принимает canonical request и флаг
 provider streaming. Дельты доставляются через acknowledged `host.model.emit`,
 полный response/error — отдельным terminal result. Порядок, backpressure и

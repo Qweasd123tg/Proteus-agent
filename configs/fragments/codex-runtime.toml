@@ -57,7 +57,7 @@ enabled = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_
 mode = "normal"
 
 [module_config.compactor.codex]
-trigger_fraction = 0.8
+# Порог по умолчанию: 90% окна модели; trigger_tokens может задать меньший.
 
 [agent_control]
 max_depth = 1
@@ -93,6 +93,8 @@ always_include = ["skill", "lsp_diagnostics", "request_user_input", "update_plan
 [module_config.context.codex_context]
 max_context_bytes = 60000
 max_bytes_per_file = 12000
+project_doc_max_bytes = 32768
+project_instruction_files = ["AGENTS.override.md", "AGENTS.md"]
 
 [app_server]
 approval_timeout_ms = 0

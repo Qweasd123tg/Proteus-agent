@@ -41,7 +41,7 @@ impl CompactorModule for CodexCompactorModule {
                 Ok(json) => Ok(String::from(json)),
                 Err(error) => compaction_err(error),
             },
-            Err(error) => compaction_err(error),
+            Err(error) => Err(error),
         }
     }
 }

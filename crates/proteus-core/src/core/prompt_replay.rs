@@ -273,8 +273,8 @@ async fn invoke_model(
                     .map_err(|error| anyhow!("invalid replay model response: {error}"))?;
                 return Ok(response);
             }
-            ModelStreamEvent::Error { message } => {
-                bail!("model stream error: {message}");
+            ModelStreamEvent::Error { failure } => {
+                return Err(anyhow::Error::new(failure));
             }
             _ => {}
         }

@@ -149,8 +149,10 @@ async fn check_names(module_id: &str) {
         }
         let input = CompactionInput::new(
             AgentTask::new("Current task.", cwd.clone()),
-            ModelRef::new("fake", "fixture"),
-            messages.clone(),
+            proteus_contracts::model_standard::CanonicalModelRequest::new(
+                ModelRef::new("fake", "fixture"),
+                messages.clone(),
+            ),
         )
         .with_token_estimate(Some(100_000))
         .with_config(strategy.clone());
@@ -250,8 +252,10 @@ async fn python_compactor_rejects_missing_or_invalid_scope_without_name_fallback
     .unwrap();
     let input = CompactionInput::new(
         AgentTask::new("Current task.", workspace.path().to_path_buf()),
-        ModelRef::new("fake", "fixture"),
-        history(),
+        proteus_contracts::model_standard::CanonicalModelRequest::new(
+            ModelRef::new("fake", "fixture"),
+            history(),
+        ),
     );
     let valid = serde_json::to_value(input).unwrap();
     for scope in [
@@ -261,7 +265,9 @@ async fn python_compactor_rejects_missing_or_invalid_scope_without_name_fallback
         Some(json!([])),
     ] {
         let mut invalid = valid.clone();
-        let part = invalid["messages"][0]["parts"][0].as_object_mut().unwrap();
+        let part = invalid["request"]["messages"][0]["parts"][0]
+            .as_object_mut()
+            .unwrap();
         if let Some(scope) = scope {
             part.insert("scope".to_owned(), scope);
         } else {

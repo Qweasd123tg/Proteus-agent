@@ -188,12 +188,12 @@ impl ReplayState {
         let expected = self.current_request()?;
         let mut inner = self.lock();
         let equal = messages_equal(
-            &input.messages,
+            &input.request.messages,
             &expected.messages,
             &inner.actual_to_expected,
         );
         if equal {
-            let mut output = CompactionOutput::unchanged(input.messages);
+            let mut output = CompactionOutput::unchanged(input.request.messages);
             output.token_estimate = input.token_estimate;
             output.trigger_tokens = expected
                 .metadata

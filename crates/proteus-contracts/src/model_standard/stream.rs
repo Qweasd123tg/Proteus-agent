@@ -39,6 +39,6 @@ pub enum ModelStreamEvent {
         finish_reason: FinishReason,
     },
     Error {
-        message: String,
+        failure: crate::model_standard::ModelFailure,
     },
 }

@@ -18,7 +18,7 @@ Baseline: `openai/codex` commit
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v4`, `compactor/v4`, journal schema v4.
+Действующие версии: `workflow/v5`, `compactor/v5`, journal schema v4.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,
@@ -41,6 +41,30 @@ Proteus на upstream-shaped response. Они не запускают два п�
 
 ## Проверки
 
+### Local Compaction И Project Instructions
+
+Для обычного OpenAI-compatible provider перенесён local путь `core/src/compact.rs`
+того же baseline: точные prompt/prefix, текущие instructions/reasoning/cache,
+summary без tools и output cap, порог 90% известного raw window и сохранение
+последних пользовательских сообщений в пределах 20 000 approximate tokens.
+При типизированном переполнении summary request удаляется старейший item с
+соответствующей парой call/result; остальные сбои имеют пять повторов с backoff,
+а отмена и session budget завершаются сразу. Это поведение самого компонента;
+recovery после ошибки обычного workflow model call сюда не входит.
+
+[HTTP/process regression](../../modules/reference/process-worker/tests/codex_compaction.rs)
+проверяет фактические запросы, короткий retry после HTTP 400
+`context_length_exceeded`, единственное исполнение tool и cold history. Применимый
+workflow replay этого сценария пока не проходит: внутренний model exchange
+смешивается с exchanges workflow. Полный compaction lifecycle, remote branches
+и replay класса ошибки этим срезом не подтверждаются.
+
+`codex_context.project_doc_max_bytes` соответствует общему лимиту 32 768 байт
+для цепочки проектных инструкций. [Тесты](../../modules/reference/context-pack/src/codex.rs)
+проверяют большой одиночный файл, остаток бюджета вложенного каталога и UTF-8.
+
+### Команды
+
 ```bash
 cargo test -p proteus-contracts canonical_response
 cargo test -p model-pack codex_parity_preserves_ordered_commentary_and_final_messages
@@ -48,6 +72,8 @@ cargo test -p model-pack --lib adapters::openai::round_trip_tests
 cargo test -p proteus-reference-worker --test codex_model_resume
 cargo test -p coding-workflow codex_loop_preserves_commentary_and_uses_the_last_message_as_final_output
 cargo test -p codex-compactor
+cargo test -p context-pack
+cargo test -p proteus-reference-worker --test codex_compaction --test compactor_interop
 cargo test -p proteus-reference-worker --test conformance
 cargo test -p proteus-core --test module_swap
 ```
@@ -60,7 +86,7 @@ cargo test -p proteus-core --test module_swap
 SSE stream, полного compaction lifecycle, filesystem/network permissions,
 deferred tool discovery и AgentControl semantics.
 
-Item identity и typed phase проходят через `model/v3`, live events и app
+Item identity и typed phase проходят через `model/v4`, live events и app
 transcript. Responses fixture отдаёт added/delta/done/completed, включая
 позднюю фазу и multipart текст; regression сверяет live ids/text/offsets
 с journal и cold app transcript. Web regression проверяет соседние items

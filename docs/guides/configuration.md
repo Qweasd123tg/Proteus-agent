@@ -216,6 +216,27 @@ tool_exposure = "codex_dynamic"
 
 ## Process Components И Exports
 
+### Настройки Codex Context И Compactor
+
+`module_config.context.codex_context.project_doc_max_bytes` по умолчанию равен
+`32768`: это общий бюджет исходных байтов проектных инструкций от корня до cwd.
+В каждом каталоге выбирается первый непустой `AGENTS.override.md` или `AGENTS.md`;
+следующий каталог получает оставшийся бюджет. Один файл может занять все 32 КиБ.
+Это отдельная настройка от `max_bytes_per_file` для прочих файлов и
+`max_context_bytes` для всего context bundle. Обёртки инструкций добавляются
+после чтения; текст сохраняется на границе UTF-8.
+
+Local `codex` compactor по умолчанию запускается при достижении 90% известного
+сырого окна модели. `module_config.compactor.codex.trigger_tokens` задаёт
+абсолютный порог, ограниченный теми же 90%. Если окно неизвестно и явного порога
+нет, автоматическое сжатие не запускается. `trigger_fraction` и прежние
+environment overrides удалены; старые/неизвестные module-config keys отвергаются.
+Summary использует текущую модель и её инструкции/reasoning/cache, без tools
+и отдельного лимита 4000 токенов. Срез совместимости и ограничения описаны в
+[codex-baseline.md](../development/codex-baseline.md).
+
+### Объявление Exports
+
 ```toml
 [components.python-search]
 command = "python3"

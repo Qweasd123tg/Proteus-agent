@@ -124,9 +124,8 @@ fn request_from_state_with_instruction_blocks_and_options(
             80,
         ));
     }
-    let compacted = compact_messages(input, host, messages, phase, options.last_usage)?;
     let mut request =
-        CanonicalModelRequest::new(input.runtime.model_ref.clone(), compacted.messages)
+        CanonicalModelRequest::new(input.runtime.model_ref.clone(), messages.to_vec())
             .with_instructions(instructions)
             .with_tools(tools)
             .with_reasoning(input.runtime.reasoning.clone())
@@ -135,6 +134,8 @@ fn request_from_state_with_instruction_blocks_and_options(
     // TokenUsageUpdated нёс max_input_tokens (хост-шейпер правит свою копию
     // уже после того, как module собрал снимок, поэтому делаем это здесь).
     request.limits.max_input_tokens = input.runtime.max_input_tokens;
+    let compacted = compact_messages(input, host, &request, phase, options.last_usage)?;
+    request.messages = compacted.messages;
     // Порог автокомпакта считает компактор (он владеет конфигом), а возвращает
     // его в отчёте. Кладём в metadata запроса, чтобы снимок взял именно его —
     // тогда метка на индикаторе контекста совпадает с реальным триггером.
@@ -173,27 +174,23 @@ pub(super) fn execute_or_handle_tool(
 fn compact_messages(
     input: &WorkflowModuleInput,
     host: &mut WorkflowModuleHostMut<'_>,
-    messages: &[CanonicalMessage],
+    request: &CanonicalModelRequest,
     reason: &str,
     last_usage: Option<&LastModelUsage>,
 ) -> Result<CompactedMessages, ProcessModuleError> {
     ensure_not_cancelled(host)?;
-    let compaction_input = CompactionInput::new(
-        input.task.clone(),
-        input.runtime.model_ref.clone(),
-        messages.to_vec(),
-    )
-    .with_reason(reason)
-    .with_token_estimate(effective_token_estimate(messages, last_usage))
-    .with_window_tokens(input.runtime.max_input_tokens);
+    let compaction_input = CompactionInput::new(input.task.clone(), request.clone())
+        .with_reason(reason)
+        .with_token_estimate(effective_token_estimate(&request.messages, last_usage))
+        .with_window_tokens(input.runtime.max_input_tokens);
     let input_json = to_json_string(&compaction_input)?;
     let output_json = match host.compact_history_json(String::from(input_json)) {
         Ok(json) => json,
-        Err(error) => return Err(ProcessModuleError::new(error.message)),
+        Err(error) => return Err(error),
     };
     let output: proteus_contracts::contracts::CompactionOutput =
         from_json_string(output_json.as_str())?;
-    if output.messages.is_empty() && !messages.is_empty() {
+    if output.messages.is_empty() && !request.messages.is_empty() {
         return Err(ProcessModuleError::new(
             "compactor returned empty messages for non-empty history",
         ));
@@ -227,7 +224,7 @@ pub(super) fn complete_model(
     let request_json = to_json_string(request)?;
     let response_json = match host.complete_model_json(String::from(request_json)) {
         Ok(json) => json,
-        Err(error) => return Err(ProcessModuleError::new(error.message)),
+        Err(error) => return Err(error),
     };
     let response: CanonicalModelResponse = from_json_string(response_json.as_str())?;
     emit_token_usage(host, request, response.usage.clone(), phase)?;

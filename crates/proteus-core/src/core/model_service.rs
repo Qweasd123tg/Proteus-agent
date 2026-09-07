@@ -76,8 +76,8 @@ impl Model for ModelService {
                 ModelStreamEvent::Response { response } => {
                     return Ok(response);
                 }
-                ModelStreamEvent::Error { message } => {
-                    return Err(anyhow!("model stream error: {message}"));
+                ModelStreamEvent::Error { failure } => {
+                    return Err(anyhow::Error::new(failure));
                 }
                 _ => {}
             }
@@ -455,7 +455,7 @@ mod tests {
     #[tokio::test]
     async fn stream_error_propagates_as_anyhow() {
         let adapter = Arc::new(ScriptedAdapter::new(vec![ModelStreamEvent::Error {
-            message: "provider exploded".into(),
+            failure: crate::model_standard::ModelFailure::other("provider exploded"),
         }]));
         let service = ModelService::new(adapter);
         let err = service.complete(sample_request()).await.unwrap_err();

@@ -174,9 +174,24 @@ impl CompactorModuleHost for CompactorHostBridge {
             Ok(value) => {
                 json_string(value).map_or_else(|error| Err(ProcessModuleError::new(error)), Ok)
             }
-            Err(error) => Err(ProcessModuleError::new(format!("{error:#}"))),
+            Err(error) => Err(model_callback_error(error)),
         }
     }
+}
+
+fn model_callback_error(error: anyhow::Error) -> ProcessModuleError {
+    if let Some(rpc) = error.downcast_ref::<proteus_module_protocol::ProcessModuleRpcError>()
+        && let Some(data) = rpc.data.clone()
+    {
+        return match serde_json::from_value::<proteus_contracts::model_standard::ModelFailure>(data)
+        {
+            Ok(failure) => ProcessModuleError::from_model_failure(failure),
+            Err(error) => {
+                ProcessModuleError::new(format!("invalid model callback failure: {error}"))
+            }
+        };
+    }
+    ProcessModuleError::new(format!("{error:#}"))
 }
 
 pub struct WorkflowHostBridge(pub HostBridge);
@@ -351,5 +366,5 @@ fn workflow_json(value: Value) -> Result<String, ProcessModuleError> {
 }
 
 fn workflow_error<T>(error: anyhow::Error) -> Result<T, ProcessModuleError> {
-    Err(ProcessModuleError::new(format!("{error:#}")))
+    Err(model_callback_error(error))
 }

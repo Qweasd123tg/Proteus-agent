@@ -1,178 +1,120 @@
 use proteus_contracts::{
     contracts::CompactionInput,
-    domain::{CacheHints, ToolChoice},
+    domain::{ResponseFormat, ToolChoice},
     model_standard::{
-        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
-        InstructionBlock, InstructionKind, MessageRole,
+        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, FinishReason, MessageRole,
     },
-    process_module::CompactorModuleHostMut,
-};
-use serde_json::json;
-
-use crate::{
-    MODULE_ID,
-    budget::{summary_budget_tokens, truncate_to_tokens},
-    history::message_text,
+    process_module::{CompactorModuleHostMut, ProcessModuleError},
 };
 
-const SUMMARY_SYSTEM_INSTRUCTIONS: &str = "You are compressing earlier conversation history for a coding agent handoff. Summarize only; do not solve the user's task.";
-pub(crate) const SUMMARY_PREFIX: &str = "Another language model started to solve this problem and produced a summary of its thinking process. You also have access to the state of the tools that were used by that language model. Use this to build on the work that has already been done and avoid duplicating work. Here is the summary produced by the other language model, use the information in this summary to assist with your own analysis:";
+use crate::history::message_text;
+
+/// OpenAI Codex prompt template, pinned at 67cc3c318dc8b5532db6ade4182b1dc6f3870889.
+pub(crate) const COMPACTION_PROMPT: &str = include_str!("upstream/compact_prompt.md");
+/// OpenAI Codex summary prefix, pinned at 67cc3c318dc8b5532db6ade4182b1dc6f3870889.
+/// `include_str!` retains the vendored file's terminal newline, while the
+/// pinned source has none; strip it before local `prefix + '\n' + suffix`.
+pub(crate) const SUMMARY_PREFIX: &str = include_str!("upstream/summary_prefix.md");
 
 pub(crate) fn try_model_summary(
     input: &CompactionInput,
     summary_history: &[CanonicalMessage],
     host: &mut CompactorModuleHostMut<'_>,
-) -> Result<String, String> {
+) -> Result<String, ProcessModuleError> {
     ensure_not_cancelled(host)?;
-    let summary_budget = summary_budget_tokens()?;
-    let request = model_summary_request(input, summary_history, summary_budget);
-    let request_json = serde_json::to_string(&request).map_err(|error| error.to_string())?;
-    let response_json = match host.complete_model_json(String::from(request_json)) {
-        Ok(json) => json,
-        Err(error) => return Err(error.message),
-    };
+    let request = model_summary_request(input, summary_history);
+    let request_json =
+        serde_json::to_string(&request).map_err(|error| compaction_error(error.to_string()))?;
+    let response_json = host.complete_model_json(request_json)?;
     ensure_not_cancelled(host)?;
     let response: CanonicalModelResponse =
         serde_json::from_str(response_json.as_str()).map_err(|error| {
-            format!("codex compaction model returned invalid response JSON: {error}")
+            compaction_error(format!(
+                "codex compaction model returned invalid response JSON: {error}"
+            ))
         })?;
-    let text = validate_summary_response(&response)?;
-    Ok(summary_with_prefix(&text, summary_budget))
+    let summary_suffix = validate_summary_response(&response).map_err(compaction_error)?;
+
+    // This is deliberately a single newline. The upstream compact.rs does not
+    // trim or cap the response before it turns it into the handoff item.
+    Ok(format!("{SUMMARY_PREFIX}\n{summary_suffix}"))
 }
 
 fn validate_summary_response(response: &CanonicalModelResponse) -> Result<String, String> {
-    if response.messages.is_empty()
-        || response
-            .messages
-            .iter()
-            .any(|message| message.role != MessageRole::Assistant)
-    {
-        return Err("codex compaction model summary messages must use assistant role".to_owned());
-    }
     if response.finish_reason != FinishReason::Stop {
         return Err(format!(
-            "codex compaction model summary must finish with Stop, got {:?}",
+            "codex compaction model must finish with Stop, got {:?}",
             response.finish_reason
         ));
     }
-    if !response.tool_calls.is_empty()
-        || response
-            .messages
-            .iter()
-            .flat_map(|message| message.parts.iter())
-            .any(|part| matches!(&part.payload, ContentPart::ToolCall { .. }))
-    {
-        return Err("codex compaction model summary must not request tools".to_owned());
+    if !response.tool_calls.is_empty() {
+        return Err("codex compaction model must not request tools".to_owned());
     }
-    let Some(text) = response.messages.iter().rev().find_map(message_text) else {
-        return Err("codex compaction model returned no summary text".to_owned());
-    };
-    let text = text.trim();
-    if text.is_empty() {
-        return Err("codex compaction model returned empty summary text".to_owned());
-    }
-    Ok(text.to_owned())
+
+    // `get_last_assistant_message_from_turn` in the pinned Codex source walks
+    // the completed turn backwards. The response is that completed turn here.
+    let summary_suffix = response
+        .messages
+        .iter()
+        .rev()
+        .filter(|message| message.role == MessageRole::Assistant)
+        .next()
+        .and_then(message_text)
+        .unwrap_or_default();
+    Ok(summary_suffix)
 }
 
 fn model_summary_request(
     input: &CompactionInput,
     summary_history: &[CanonicalMessage],
-    summary_budget: u32,
 ) -> CanonicalModelRequest {
-    let mut messages = summary_history.to_vec();
-    messages.push(CanonicalMessage::text(
-        MessageRole::User,
-        model_summary_prompt(input, summary_history.len()),
-    ));
-    let mut request = CanonicalModelRequest::new(input.model_ref.clone(), messages)
-        .with_instructions(vec![InstructionBlock::new(
-            InstructionKind::System,
-            SUMMARY_SYSTEM_INSTRUCTIONS,
-            100,
-        )])
-        .with_tool_choice(ToolChoice::None)
-        .with_cache(CacheHints::new(true, false).with_routing_key(cache_routing_key(input)))
-        .with_metadata(json!({
-            "compactor": MODULE_ID,
-            "phase": "history_compaction",
-            "suppress_stream_deltas": true,
-        }));
-    request.limits.max_output_tokens = Some(summary_budget);
+    // Preserve the pending model request's model, base instructions, reasoning,
+    // cache, limits, sampling, metadata and client metadata. Local Codex builds
+    // a default Prompt then replaces only its input and base instructions.
+    let mut request = input.request.clone();
+    request.messages = summary_history.to_vec();
+    request
+        .messages
+        .push(CanonicalMessage::text(MessageRole::User, COMPACTION_PROMPT));
+    request.tools.clear();
+    request.tool_choice = ToolChoice::None;
+    request.response_format = ResponseFormat::Text;
+    request.limits.max_output_tokens = None;
+    suppress_stream_deltas(&mut request);
     request
 }
 
-fn cache_routing_key(input: &CompactionInput) -> String {
-    let workspace_hash = stable_hash64(input.task.cwd.to_string_lossy().as_bytes());
-    let request_shape = format!(
-        "{}\0{}\0{}\0{}",
-        input.model_ref.provider,
-        input.model_ref.model,
-        SUMMARY_SYSTEM_INSTRUCTIONS,
-        SUMMARY_PREFIX,
-    );
-    let request_shape_hash = stable_hash64(request_shape.as_bytes());
-
-    // Hash unbounded components instead of exposing cwd/model or truncating
-    // them independently. The resulting routing namespace is compact and
-    // stable for an unchanged compaction request shape.
-    format!("proteus:compact:{workspace_hash:016x}:{request_shape_hash:016x}")
-}
-
-fn stable_hash64(bytes: &[u8]) -> u64 {
-    let mut hash = 0xcbf29ce484222325u64;
-    for byte in bytes {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
+/// The core-only marker prevents the invisible compaction completion from
+/// producing ordinary assistant stream events. It is not sent by adapters as
+/// prompt content and preserves every caller-provided metadata entry.
+fn suppress_stream_deltas(request: &mut CanonicalModelRequest) {
+    if request.metadata.is_null() {
+        request.metadata = serde_json::json!({ "suppress_stream_deltas": true });
+    } else if let Some(metadata) = request.metadata.as_object_mut() {
+        metadata.insert(
+            "suppress_stream_deltas".to_owned(),
+            serde_json::Value::Bool(true),
+        );
     }
-    hash
 }
 
-fn model_summary_prompt(input: &CompactionInput, compacted_messages: usize) -> String {
-    let mut prompt = String::new();
-    prompt.push_str("You are performing a CONTEXT CHECKPOINT COMPACTION.\n\n");
-    prompt.push_str("Summarize the conversation and tool state so another model can continue the same coding task without rereading all compacted messages.\n\n");
-    prompt.push_str("Return only the handoff summary body. Do not include the standard Codex prefix; the runtime will add it. Do not answer the current user task.\n\n");
-    prompt.push_str("Preserve:\n");
-    prompt.push_str("- current user goal and latest requested behavior\n");
-    prompt.push_str("- files changed or inspected, commands run, and important results\n");
-    prompt.push_str("- architectural decisions, constraints, and invariants\n");
-    prompt.push_str("- unresolved blockers, risks, and exact next steps\n");
-    prompt.push_str(
-        "- exact paths, module ids, config keys, error strings, and test names when relevant\n\n",
-    );
-    prompt.push_str("Current task:\n");
-    prompt.push_str(&input.task.text);
-    prompt.push_str("\n\n");
-    prompt.push_str(&format!("Compacted messages: {compacted_messages}\n"));
-    if let Some(reason) = input.reason.as_deref().filter(|reason| !reason.is_empty()) {
-        prompt.push_str("Compaction reason: ");
-        prompt.push_str(reason);
-        prompt.push('\n');
-    }
-    prompt
-}
-
-fn summary_with_prefix(text: &str, summary_budget: u32) -> String {
-    let text = text.trim();
-    let summary = if text.starts_with(SUMMARY_PREFIX) {
-        text.to_owned()
-    } else {
-        format!("{SUMMARY_PREFIX}\n\n{text}")
-    };
-    truncate_to_tokens(&summary, summary_budget as usize)
-}
-
-fn ensure_not_cancelled(host: &mut CompactorModuleHostMut<'_>) -> Result<(), String> {
+pub(crate) fn ensure_not_cancelled(
+    host: &mut CompactorModuleHostMut<'_>,
+) -> Result<(), ProcessModuleError> {
     match host.is_cancelled() {
         Ok(false) => Ok(()),
-        Ok(true) => Err("turn canceled by client".to_owned()),
-        Err(error) => Err(error.message),
+        Ok(true) => Err(ProcessModuleError::from_model_failure(
+            proteus_contracts::model_standard::ModelFailure::new(
+                proteus_contracts::model_standard::ModelFailureKind::Interrupted,
+                "turn canceled by client",
+            ),
+        )),
+        Err(error) => Err(error),
     }
 }
 
-#[cfg(test)]
-pub(crate) fn cache_routing_key_for_test(input: &CompactionInput) -> String {
-    cache_routing_key(input)
+fn compaction_error(message: impl Into<String>) -> ProcessModuleError {
+    ProcessModuleError::new(message)
 }
 
 #[cfg(test)]

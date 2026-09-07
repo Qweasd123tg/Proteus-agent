@@ -36,12 +36,13 @@ command = "proteus-reference-worker"
 surface = "none"
 
 [module_config.compactor.codex]
-trigger_fraction = 0.8
+# Порог по умолчанию: 90% окна модели; trigger_tokens может задать меньший.
 
 [module_config.context.codex_context]
 providers = ["project_instructions", "skills", "environment"]
 max_context_bytes = 60000
 max_bytes_per_file = 12000
+project_doc_max_bytes = 32768
 project_instruction_files = ["AGENTS.override.md", "AGENTS.md"]
 
 [app_server]

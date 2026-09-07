@@ -1,4 +1,4 @@
-//! Component model/v3: immutable export description and one canonical stream.
+//! Component model/v4: immutable export description and one canonical stream.
 //! Events use acknowledged host callbacks, so slow consumers exert bounded
 //! backpressure without dropping text, tool arguments or usage.
 
@@ -7,11 +7,12 @@ use serde::{Deserialize, Serialize};
 use crate::{
     domain::ToolSpec,
     model_standard::{
-        CanonicalModelRequest, CanonicalModelResponse, ModelCapabilities, ModelStreamEvent,
+        CanonicalModelRequest, CanonicalModelResponse, ModelCapabilities, ModelFailure,
+        ModelStreamEvent,
     },
 };
 
-pub const PROCESS_MODEL_CONTRACT_VERSION: &str = "v3";
+pub const PROCESS_MODEL_CONTRACT_VERSION: &str = "v4";
 pub const PROCESS_MODEL_DESCRIBE_METHOD: &str = "describe";
 pub const PROCESS_MODEL_STREAM_METHOD: &str = "stream";
 pub const MODEL_HOST_EMIT_METHOD: &str = "host.model.emit";
@@ -46,8 +47,8 @@ pub struct ProcessModelEvent {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProcessModelTerminal {
     Response { response: CanonicalModelResponse },
-    StreamError { message: String },
-    RequestError { message: String },
+    StreamError { failure: ModelFailure },
+    RequestError { failure: ModelFailure },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -80,10 +81,13 @@ mod tests {
     fn model_wire_rejects_unknown_fields_and_preserves_error_kind() {
         for terminal in [
             ProcessModelTerminal::StreamError {
-                message: "stream".into(),
+                failure: ModelFailure::other("stream"),
             },
             ProcessModelTerminal::RequestError {
-                message: "request".into(),
+                failure: ModelFailure::new(
+                    crate::model_standard::ModelFailureKind::ContextWindowExceeded,
+                    "request",
+                ),
             },
         ] {
             let output = ProcessModelOutput {

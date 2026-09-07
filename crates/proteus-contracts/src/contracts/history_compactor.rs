@@ -3,11 +3,11 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    domain::{AgentTask, HistoryCompactionReport, ModelRef},
+    domain::{AgentTask, HistoryCompactionReport},
     model_standard::{CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse},
 };
 
-pub const PROCESS_COMPACTOR_CONTRACT_VERSION: &str = "v4";
+pub const PROCESS_COMPACTOR_CONTRACT_VERSION: &str = "v5";
 pub const PROCESS_COMPACTOR_METHOD: &str = "compact";
 pub const COMPACTOR_HOST_COMPLETE_MODEL_METHOD: &str = "host.model.complete";
 
@@ -22,8 +22,9 @@ pub struct ProcessCompactorCompleteModelInput {
 #[non_exhaustive]
 pub struct CompactionInput {
     pub task: AgentTask,
-    pub model_ref: ModelRef,
-    pub messages: Vec<CanonicalMessage>,
+    /// Full pending request. The selected compactor owns how it reuses its
+    /// instructions, model controls, cache settings and conversation.
+    pub request: CanonicalModelRequest,
     pub token_estimate: Option<u32>,
     /// Сырой потолок контекстного окна модели. Способ использования определяет
     /// выбранная стратегия компактора. `None` — если окно неизвестно.
@@ -35,14 +36,13 @@ pub struct CompactionInput {
 }
 
 impl CompactionInput {
-    pub fn new(task: AgentTask, model_ref: ModelRef, messages: Vec<CanonicalMessage>) -> Self {
+    pub fn new(task: AgentTask, request: CanonicalModelRequest) -> Self {
         Self {
             task,
-            model_ref,
-            messages,
+            request,
             token_estimate: None,
             window_tokens: None,
-            config: serde_json::Value::Null,
+            config: serde_json::json!({}),
             reason: None,
         }
     }
@@ -138,7 +138,7 @@ impl HistoryCompactionReport {
         Self {
             changed: output.changed,
             reason: input.reason.clone(),
-            input_messages: input.messages.len(),
+            input_messages: input.request.messages.len(),
             output_messages: output.messages.len(),
             original_token_estimate: output.original_token_estimate.or(input.token_estimate),
             output_token_estimate: output.token_estimate,
@@ -177,20 +177,50 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{domain::AgentTask, model_standard::MessageRole};
+    use crate::{
+        domain::{AgentTask, ModelRef},
+        model_standard::MessageRole,
+    };
 
     fn sample_input() -> CompactionInput {
         CompactionInput::new(
             AgentTask::new("continue", std::path::PathBuf::from("/repo")),
-            ModelRef::new("fake", "model"),
-            vec![CanonicalMessage::text(MessageRole::User, "hello")],
+            crate::model_standard::CanonicalModelRequest::new(
+                ModelRef::new("fake", "model"),
+                vec![CanonicalMessage::text(MessageRole::User, "hello")],
+            ),
         )
+    }
+
+    #[test]
+    fn compaction_input_preserves_the_pending_request_and_rejects_old_shape() {
+        let mut input = sample_input();
+        input
+            .request
+            .instructions
+            .push(crate::model_standard::InstructionBlock::new(
+                crate::model_standard::InstructionKind::System,
+                "original instructions",
+                100,
+            ));
+        input.request.cache.routing_key = Some("same-session".to_owned());
+        input.request.limits.max_output_tokens = Some(12_345);
+        let value = serde_json::to_value(&input).unwrap();
+        let decoded: CompactionInput = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(decoded.request, input.request);
+
+        let mut old = value;
+        let fields = old.as_object_mut().unwrap();
+        let request = fields.remove("request").unwrap();
+        fields.insert("model_ref".to_owned(), request["model"].clone());
+        fields.insert("messages".to_owned(), request["messages"].clone());
+        assert!(serde_json::from_value::<CompactionInput>(old).is_err());
     }
 
     #[test]
     fn report_does_not_invent_trigger_for_non_token_based_compactor() {
         let input = sample_input();
-        let output = CompactionOutput::unchanged(input.messages.clone());
+        let output = CompactionOutput::unchanged(input.request.messages.clone());
 
         let report = HistoryCompactionReport::from_compaction_output(&input, &output);
 
@@ -200,7 +230,7 @@ mod tests {
     #[test]
     fn report_uses_typed_compactor_diagnostics() {
         let input = sample_input();
-        let mut output = CompactionOutput::unchanged(input.messages.clone());
+        let mut output = CompactionOutput::unchanged(input.request.messages.clone());
         output.trigger_tokens = Some(80);
         output.original_token_estimate = Some(96);
         output.summary_source = Some("custom-strategy".to_owned());
@@ -217,7 +247,7 @@ mod tests {
     #[test]
     fn report_metadata_cannot_override_canonical_counts_and_estimates() {
         let input = sample_input().with_token_estimate(Some(64));
-        let mut output = CompactionOutput::unchanged(input.messages.clone());
+        let mut output = CompactionOutput::unchanged(input.request.messages.clone());
         output.token_estimate = Some(12);
         output.metadata = json!({
             "input_messages": 999, "output_messages": 999,
@@ -225,7 +255,7 @@ mod tests {
             "trigger_tokens": 999, "summary_source": "private-label", "skipped_reason": "private-label"
         });
         let report = HistoryCompactionReport::from_compaction_output(&input, &output);
-        assert_eq!(report.input_messages, input.messages.len());
+        assert_eq!(report.input_messages, input.request.messages.len());
         assert_eq!(report.output_messages, output.messages.len());
         assert_eq!(report.original_token_estimate, Some(64));
         assert_eq!(report.output_token_estimate, Some(12));
@@ -237,7 +267,7 @@ mod tests {
 
     #[test]
     fn process_compaction_response_rejects_malformed_typed_diagnostics() {
-        let output = CompactionOutput::unchanged(sample_input().messages);
+        let output = CompactionOutput::unchanged(sample_input().request.messages);
         let valid = serde_json::to_value(ProcessCompactionResponse::new(output)).unwrap();
         for (field, value) in [
             ("original_token_estimate", json!(-1)),
@@ -258,7 +288,7 @@ mod tests {
     #[test]
     fn process_compaction_response_rejects_bare_output_and_unknown_fields() {
         let input = sample_input();
-        let output = CompactionOutput::unchanged(input.messages);
+        let output = CompactionOutput::unchanged(input.request.messages);
         let bare = serde_json::to_value(&output).expect("bare output value");
         serde_json::from_value::<ProcessCompactionResponse>(bare)
             .expect_err("bare CompactionOutput must not be accepted");

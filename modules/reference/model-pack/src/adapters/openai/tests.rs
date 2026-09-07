@@ -1,5 +1,9 @@
 use super::*;
 use std::collections::BTreeMap;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+};
 
 use crate::domain::{
     CacheHints, Citation, ContextChunk, ContextRenderMode, FileSearchResult, HostedToolActivity,
@@ -1055,8 +1059,88 @@ fn translate_sse_error_event() {
         &json!({ "error": { "message": "boom" } }).to_string(),
     );
     match events.as_slice() {
-        [ModelStreamEvent::Error { message }] => assert_eq!(message, "boom"),
+        [ModelStreamEvent::Error { failure }] => {
+            assert_eq!(failure.kind, crate::model_standard::ModelFailureKind::Other);
+            assert_eq!(failure.message, "boom");
+        }
         other => panic!("expected Error, got {other:?}"),
+    }
+}
+
+#[test]
+fn translate_sse_context_window_error_is_actionable_but_other_codes_are_not() {
+    for (code, expected) in [
+        (
+            "context_length_exceeded",
+            crate::model_standard::ModelFailureKind::ContextWindowExceeded,
+        ),
+        (
+            "rate_limit_exceeded",
+            crate::model_standard::ModelFailureKind::Other,
+        ),
+    ] {
+        let events = translate_sse_event(
+            "response.error",
+            &json!({"error": {"code": code, "message": "provider error"}}).to_string(),
+        );
+        match events.as_slice() {
+            [ModelStreamEvent::Error { failure }] => assert_eq!(failure.kind, expected),
+            other => panic!("expected Error, got {other:?}"),
+        }
+    }
+}
+
+async fn serve_openai_error(listener: TcpListener, body: Value) {
+    let (mut socket, _) = listener.accept().await.expect("fixture accept");
+    let mut request = [0; 4096];
+    let read = socket.read(&mut request).await.expect("fixture request");
+    assert!(read > 0, "fixture request ended early");
+    let body = body.to_string();
+    socket
+        .write_all(
+            format!(
+                "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("fixture response");
+}
+
+#[tokio::test]
+async fn http_400_classifies_only_openai_context_length_exceeded() {
+    for (body, expected) in [
+        (
+            json!({"error": {"code": "context_length_exceeded", "message": "too long"}}),
+            crate::model_standard::ModelFailureKind::ContextWindowExceeded,
+        ),
+        (
+            json!({"error": {"code": "invalid_request_error", "message": "bad request"}}),
+            crate::model_standard::ModelFailureKind::Other,
+        ),
+    ] {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("fixture listener");
+        let endpoint = format!("http://{}", listener.local_addr().expect("fixture address"));
+        let server = tokio::spawn(serve_openai_error(listener, body));
+        let client = OpenAiResponsesClient::from_provider_config(json!({
+            "base_url": endpoint,
+            "api_key": "local-fixture-only",
+            "stream": false,
+            "http1_only": true,
+        }))
+        .expect("client");
+        let error = client
+            .complete_response(CanonicalModelRequest::new(
+                ModelRef::new("openai", "fixture"),
+                vec![CanonicalMessage::text(MessageRole::User, "hello")],
+            ))
+            .await
+            .expect_err("HTTP 400 must fail");
+        assert_eq!(ModelFailure::from_error(&error).kind, expected);
+        server.await.expect("fixture task");
     }
 }
 
@@ -1073,7 +1157,10 @@ fn translate_sse_failed_event_is_terminal_error() {
         .to_string(),
     );
     match events.as_slice() {
-        [ModelStreamEvent::Error { message }] => assert_eq!(message, "upstream failed"),
+        [ModelStreamEvent::Error { failure }] => {
+            assert_eq!(failure.kind, crate::model_standard::ModelFailureKind::Other);
+            assert_eq!(failure.message, "upstream failed");
+        }
         other => panic!("expected Error, got {other:?}"),
     }
 }
@@ -1095,10 +1182,13 @@ fn translate_sse_incomplete_event_is_terminal_error() {
         .to_string(),
     );
     match events.as_slice() {
-        [ModelStreamEvent::Error { message }] => assert_eq!(
-            message,
-            "Incomplete response returned, reason: max_output_tokens"
-        ),
+        [ModelStreamEvent::Error { failure }] => {
+            assert_eq!(failure.kind, crate::model_standard::ModelFailureKind::Other);
+            assert_eq!(
+                failure.message,
+                "Incomplete response returned, reason: max_output_tokens"
+            );
+        }
         other => panic!("expected Error, got {other:?}"),
     }
 }

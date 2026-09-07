@@ -1,31 +1,29 @@
-use std::sync::Mutex;
+use std::{collections::BTreeMap, sync::Mutex};
 
 use proteus_contracts::{
     contracts::{CompactionInput, CompactionOutput},
     domain::{
-        AgentTask, CONTEXT_MESSAGE_NAME, ContextChunk, ModelRef, ToolCall, ToolChoice, new_call_id,
+        AgentTask, CacheHints, ModelLimits, ModelRef, ReasoningConfig, ResponseFormat,
+        SamplingConfig, ToolCall, ToolChoice, ToolResult, ToolSafety, ToolSpec, new_call_id,
     },
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
-        MessageRole, PartProvenance,
+        InstructionBlock, InstructionKind, MessageRole,
     },
     process_module::{CompactorModuleHost, ProcessModuleError},
 };
 use serde_json::json;
 
 use crate::{
-    budget::{
-        DEFAULT_TRIGGER_TOKENS, estimate_messages_tokens, estimate_text_tokens,
-        parse_summary_budget, resolve_trigger_tokens, summary_budget_tokens, truncate_to_tokens,
-    },
+    budget::{estimate_messages_tokens, resolve_trigger_tokens},
     compaction::compact,
     history::{message_text, select_recent_user_messages},
-    summary::{SUMMARY_PREFIX, cache_routing_key_for_test, validate_summary_response_for_test},
+    summary::{COMPACTION_PROMPT, SUMMARY_PREFIX, validate_summary_response_for_test},
 };
 
 #[derive(Default)]
 struct TestHost {
-    response: Option<CanonicalModelResponse>,
+    responses: Mutex<Vec<Result<CanonicalModelResponse, ProcessModuleError>>>,
     cancelled: bool,
     requests: Mutex<Vec<CanonicalModelRequest>>,
 }
@@ -44,8 +42,12 @@ impl TestHost {
     }
 
     fn with_model_response(response: CanonicalModelResponse) -> Self {
+        Self::with_results(vec![Ok(response)])
+    }
+
+    fn with_results(results: Vec<Result<CanonicalModelResponse, ProcessModuleError>>) -> Self {
         Self {
-            response: Some(response),
+            responses: Mutex::new(results),
             ..Self::default()
         }
     }
@@ -60,18 +62,48 @@ impl CompactorModuleHost for TestHost {
         let request: CanonicalModelRequest =
             serde_json::from_str(request_json.as_str()).expect("model request json");
         self.requests.lock().unwrap().push(request);
-        let Some(response) = self.response.as_ref() else {
-            return Err(ProcessModuleError::new("model unavailable"));
-        };
-        Ok(serde_json::to_string(response).unwrap())
+        let response = self
+            .responses
+            .lock()
+            .unwrap()
+            .drain(..1)
+            .next()
+            .unwrap_or_else(|| Err(ProcessModuleError::new("model unavailable")))?;
+        Ok(serde_json::to_string(&response).unwrap())
     }
+}
+
+fn request(messages: Vec<CanonicalMessage>) -> CanonicalModelRequest {
+    let mut client_metadata = BTreeMap::new();
+    client_metadata.insert("session".to_owned(), "sticky-route".to_owned());
+    CanonicalModelRequest::new(ModelRef::new("fake", "fake"), messages)
+        .with_instructions(vec![InstructionBlock::new(
+            InstructionKind::Developer,
+            "active base instructions",
+            100,
+        )])
+        .with_tools(vec![ToolSpec::new(
+            "write_file",
+            "write a file",
+            json!({"type":"object"}),
+            ToolSafety::WritesFiles,
+        )])
+        .with_tool_choice(ToolChoice::Required)
+        .with_response_format(ResponseFormat::Json)
+        .with_sampling(SamplingConfig::new(Some(0.7), Some(0.9)))
+        .with_reasoning(
+            ReasoningConfig::new(Some("high".to_owned()), true).with_budget_tokens(Some(900)),
+        )
+        .with_limits(ModelLimits::new(Some(128_000), Some(7777)))
+        .with_cache(CacheHints::new(true, true).with_routing_key("existing-cache-route"))
+        .with_client_metadata(client_metadata)
+        .with_metadata(json!({"phase":"regular_turn", "existing":"preserved"}))
 }
 
 fn input(messages: Vec<CanonicalMessage>, token_estimate: u32) -> CompactionInput {
     CompactionInput::new(
         AgentTask::new("continue implementation", std::path::PathBuf::from("/repo")),
-        ModelRef::new("fake", "fake"),
-        messages,
+        request(messages),
     )
     .with_token_estimate(Some(token_estimate))
     .with_config(json!({ "trigger_tokens": 100 }))
@@ -79,304 +111,126 @@ fn input(messages: Vec<CanonicalMessage>, token_estimate: u32) -> CompactionInpu
 }
 
 fn compact_with_host(input: CompactionInput, host: &mut TestHost) -> CompactionOutput {
-    compact_result_with_host(input, host).unwrap()
-}
-
-fn compact_result_with_host(
-    input: CompactionInput,
-    host: &mut TestHost,
-) -> Result<CompactionOutput, String> {
-    compact(input, host)
-}
-
-fn context_message(text: &str) -> CanonicalMessage {
-    CanonicalMessage::new(
-        MessageRole::User,
-        vec![ContentPart::Context {
-            chunk: ContextChunk::new("test", text),
-        }],
-    )
-    .with_name(CONTEXT_MESSAGE_NAME)
+    compact(input, host).unwrap()
 }
 
 #[test]
-fn cache_routing_key_is_bounded_and_varies_by_workspace_and_model() {
-    let base = input(
-        vec![CanonicalMessage::text(MessageRole::User, "old request")],
-        DEFAULT_TRIGGER_TOKENS + 1,
-    );
-    let key = cache_routing_key_for_test(&base);
+fn compacts_at_the_threshold() {
+    let messages = vec![CanonicalMessage::text(MessageRole::User, "hello")];
+    let mut host = TestHost::with_response("summary");
 
-    assert!(key.starts_with("proteus:compact:"), "{key}");
-    assert!(key.len() <= 64, "{}: {key}", key.len());
+    let output = compact_with_host(input(messages, 100), &mut host);
 
-    let other_workspace = CompactionInput::new(
-        AgentTask::new("continue implementation", "/different/repo".into()),
-        ModelRef::new("fake", "fake"),
-        base.messages.clone(),
-    );
-    assert_ne!(key, cache_routing_key_for_test(&other_workspace));
-
-    let huge_model = CompactionInput::new(
-        AgentTask::new("continue implementation", "/repo".into()),
-        ModelRef::new("provider".repeat(100), "model".repeat(100)),
-        base.messages,
-    );
-    let huge_key = cache_routing_key_for_test(&huge_model);
-    assert_ne!(key, huge_key);
-    assert!(huge_key.len() <= 64, "{}: {huge_key}", huge_key.len());
-}
-
-#[test]
-fn resolve_trigger_uses_config_fraction_of_window() {
-    let input = input(Vec::new(), 0)
-        .with_window_tokens(Some(200_000))
-        .with_config(json!({ "trigger_fraction": 0.8 }));
-    assert_eq!(resolve_trigger_tokens(&input), 160_000);
-}
-
-#[test]
-fn resolve_trigger_token_override_beats_fraction() {
-    let input = input(Vec::new(), 0)
-        .with_window_tokens(Some(200_000))
-        .with_config(json!({ "trigger_fraction": 0.8, "trigger_tokens": 90_000 }));
-    assert_eq!(resolve_trigger_tokens(&input), 90_000);
-}
-
-#[test]
-fn resolve_trigger_uses_default_without_config_or_window_fraction() {
-    let input = CompactionInput::new(
-        AgentTask::new("continue implementation", std::path::PathBuf::from("/repo")),
-        ModelRef::new("fake", "fake"),
-        Vec::new(),
-    );
-    assert_eq!(resolve_trigger_tokens(&input), 160_000);
+    assert!(output.changed);
+    assert_eq!(host.requests.lock().unwrap().len(), 1);
 }
 
 #[test]
 fn leaves_short_history_unchanged() {
     let messages = vec![CanonicalMessage::text(MessageRole::User, "hello")];
     let mut host = TestHost::unavailable();
-    let output = compact_with_host(input(messages.clone(), 10), &mut host);
+    let output = compact_with_host(input(messages.clone(), 99), &mut host);
     assert!(!output.changed);
     assert_eq!(output.messages, messages);
     assert!(host.requests.lock().unwrap().is_empty());
 }
 
 #[test]
-fn compacts_current_tail_and_keeps_summary_last() {
-    let context = context_message("fresh AGENTS and environment");
-    let older_user = CanonicalMessage::text(MessageRole::User, "older request");
-    let current_user = CanonicalMessage::text(MessageRole::User, "current request");
-    let current_user_id = current_user.id;
-    let messages = vec![
-        context.clone(),
-        older_user.clone(),
-        CanonicalMessage::text(MessageRole::Assistant, "implemented first half"),
-        current_user.clone(),
-        CanonicalMessage::text(MessageRole::Assistant, "calling current tool"),
-        CanonicalMessage::text(MessageRole::Tool, "latest tool output"),
-    ];
-
-    let mut host = TestHost::with_response(
-        "Model summary: implemented first half and captured latest tool output.",
-    );
-    let output = compact_with_host(input(messages, 500), &mut host);
-
-    assert!(output.changed);
-    assert_eq!(output.messages.len(), 4);
-    assert_eq!(output.messages[0], older_user);
-    assert_eq!(output.messages[1], context);
-    assert_eq!(output.messages[2].id, current_user_id);
-    assert_eq!(
-        message_text(&output.messages[2]).as_deref(),
-        Some("current request")
-    );
-    let summary = message_text(output.messages.last().unwrap()).unwrap();
-    assert!(summary.starts_with(SUMMARY_PREFIX), "{summary}");
-    assert!(summary.contains("latest tool output"), "{summary}");
-    assert!(output.messages.iter().all(|message| {
-        message_text(message).as_deref() != Some("calling current tool")
-            && message_text(message).as_deref() != Some("latest tool output")
-    }));
-
-    let requests = host.requests.lock().unwrap();
-    assert_eq!(requests.len(), 1);
-    let request_text = requests[0]
-        .messages
-        .iter()
-        .filter_map(message_text)
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(request_text.contains("fresh AGENTS and environment"));
-    assert!(request_text.contains("latest tool output"));
-}
-
-#[test]
-fn truncates_large_preserved_user_message_without_losing_identity() {
-    let message = CanonicalMessage::text(MessageRole::User, "word ".repeat(1000));
-    let message_id = message.id;
-    let selected = select_recent_user_messages(&[message], 16);
-    assert_eq!(selected.len(), 1);
-    assert_eq!(selected[0].id, message_id);
-    assert_eq!(selected[0].parts[0].provenance, PartProvenance::Compactor);
-    assert!(
-        message_text(&selected[0])
-            .unwrap()
-            .contains("tokens truncated by codex-compactor")
-    );
-}
-
-#[test]
-fn truncation_text_and_marker_stay_inside_the_token_budget() {
-    let text = "данные ".repeat(1_000);
-    assert_eq!(truncate_to_tokens(&text, 0), "");
-
-    for budget in [1, 4, 16, 128] {
-        let truncated = truncate_to_tokens(&text, budget);
-        assert!(truncated.len() <= budget * 4, "{budget}: {truncated:?}");
-        assert!(estimate_text_tokens(&truncated) <= budget);
-        assert!(truncated.is_char_boundary(truncated.len()));
-    }
-
-    assert!(truncate_to_tokens(&text, 16).contains("tokens truncated by codex-compactor"));
-}
-
-#[test]
-fn compacts_oversized_current_user_turn_with_a_bounded_replacement() {
-    let current_user = CanonicalMessage::text(MessageRole::User, "word ".repeat(20_000));
-    let current_user_id = current_user.id;
-    let messages = vec![current_user];
-    let token_estimate = estimate_messages_tokens(&messages);
-    assert!(token_estimate > 20_000);
-
-    let mut host = TestHost::with_response("The oversized current request remains active.");
-    let output = compact_with_host(input(messages, token_estimate), &mut host);
-
-    assert!(output.changed);
-    assert_eq!(output.messages[0].id, current_user_id);
-    assert!(
-        message_text(&output.messages[0])
-            .unwrap()
-            .contains("tokens truncated by codex-compactor")
-    );
-    assert!(output.token_estimate.unwrap() < token_estimate);
-    assert!(
-        message_text(output.messages.last().unwrap())
-            .unwrap()
-            .starts_with(SUMMARY_PREFIX)
-    );
-}
-
-#[test]
-fn leaves_context_only_input_unchanged_and_does_not_persist_a_summary() {
-    let messages = vec![context_message("fresh context")];
-    let mut host = TestHost::with_response("unused");
-    let output = compact_with_host(input(messages.clone(), 500), &mut host);
-
-    assert!(!output.changed);
-    assert_eq!(output.messages, messages);
-    assert_eq!(
-        output.skipped_reason.as_deref(),
-        Some("no_persistent_history_to_compact")
-    );
-    assert!(host.requests.lock().unwrap().is_empty());
-}
-
-#[test]
-fn uses_model_summary_when_host_returns_text() {
+fn local_compaction_inherits_active_request_and_appends_pinned_prompt() {
     let messages = vec![
         CanonicalMessage::text(MessageRole::User, "older request"),
         CanonicalMessage::text(MessageRole::Assistant, "implemented first half"),
         CanonicalMessage::text(MessageRole::User, "current request"),
     ];
-    let mut host = TestHost::with_response("Model summary with /repo/src/lib.rs and next step.");
+    let input = input(messages, 500);
+    let expected = input.request.clone();
+    let mut host = TestHost::with_response("summary suffix\nwith preserved whitespace ");
 
-    let output = compact_with_host(input(messages, 500), &mut host);
+    let output = compact_with_host(input, &mut host);
 
     assert!(output.changed);
-    assert_eq!(output.summary_source.as_deref(), Some("model"));
-    let summary = output.summary.as_deref().unwrap();
-    assert!(summary.starts_with(SUMMARY_PREFIX), "{summary}");
-    assert!(
-        summary.contains("Model summary with /repo/src/lib.rs"),
-        "{summary}"
+    let summary = output.summary.unwrap();
+    assert_eq!(
+        summary,
+        format!("{SUMMARY_PREFIX}\nsummary suffix\nwith preserved whitespace ")
     );
     let requests = host.requests.lock().unwrap();
     assert_eq!(requests.len(), 1);
-    assert!(requests[0].tools.is_empty());
-    assert_eq!(requests[0].tool_choice, ToolChoice::None);
-    assert_eq!(requests[0].model.model, "fake");
-    assert_eq!(requests[0].metadata["suppress_stream_deltas"], true);
-    assert!(
-        requests[0]
-            .cache
-            .routing_key
-            .as_deref()
-            .is_some_and(|key| key.starts_with("proteus:compact:"))
-    );
+    let actual = &requests[0];
+    assert_eq!(actual.model, expected.model);
+    assert_eq!(actual.instructions, expected.instructions);
+    assert_eq!(actual.sampling, expected.sampling);
+    assert_eq!(actual.reasoning, expected.reasoning);
     assert_eq!(
-        requests[0].limits.max_output_tokens,
-        Some(summary_budget_tokens().unwrap())
+        actual.limits.max_input_tokens,
+        expected.limits.max_input_tokens
     );
-    assert!(requests[0].messages.len() >= 4);
-}
-
-#[test]
-fn model_error_is_returned_instead_of_fallback_summary() {
-    let messages = vec![
-        CanonicalMessage::text(MessageRole::User, "older request"),
-        CanonicalMessage::text(MessageRole::Assistant, "implemented first half"),
-        CanonicalMessage::text(MessageRole::User, "current request"),
-    ];
-    let mut host = TestHost::unavailable();
-
-    let err = compact_result_with_host(input(messages, 500), &mut host).unwrap_err();
-
-    assert!(err.contains("model unavailable"), "{err}");
-}
-
-#[test]
-fn empty_model_summary_is_returned_as_compaction_error() {
-    let messages = vec![
-        CanonicalMessage::text(MessageRole::User, "older request"),
-        CanonicalMessage::text(MessageRole::Assistant, "implemented first half"),
-        CanonicalMessage::text(MessageRole::User, "current request"),
-    ];
-    let mut host = TestHost::with_response("");
-
-    let err = compact_result_with_host(input(messages, 500), &mut host).unwrap_err();
-
-    assert!(err.contains("summary text"), "{err}");
-}
-
-#[test]
-fn oversized_model_summary_is_returned_as_compaction_error() {
-    let messages = vec![
-        CanonicalMessage::text(MessageRole::User, "older request"),
-        CanonicalMessage::text(MessageRole::Assistant, "implemented first half"),
-        CanonicalMessage::text(MessageRole::User, "current request"),
-    ];
-    let mut host = TestHost::with_response("word ".repeat(2000));
-
-    let err = compact_result_with_host(input(messages, 500), &mut host).unwrap_err();
-
-    assert!(err.contains("replacement would not reduce tokens"), "{err}");
-}
-
-#[test]
-fn summary_response_must_be_a_stopped_assistant_message_without_tools() {
-    let wrong_role = CanonicalModelResponse::new(
-        CanonicalMessage::text(MessageRole::User, "summary"),
-        Vec::new(),
-        FinishReason::Stop,
+    assert_eq!(actual.limits.max_output_tokens, None);
+    assert_eq!(actual.cache, expected.cache);
+    assert_eq!(actual.client_metadata, expected.client_metadata);
+    assert_eq!(actual.metadata["existing"], "preserved");
+    assert_eq!(actual.metadata["suppress_stream_deltas"], true);
+    assert!(actual.tools.is_empty());
+    assert_eq!(actual.tool_choice, ToolChoice::None);
+    assert_eq!(actual.response_format, ResponseFormat::Text);
+    assert_eq!(
+        actual.messages.last().and_then(message_text).as_deref(),
+        Some(COMPACTION_PROMPT)
     );
-    assert!(
-        validate_summary_response_for_test(&wrong_role)
-            .unwrap_err()
-            .contains("assistant role")
-    );
+}
 
+#[test]
+fn keeps_structured_context_before_last_real_user_and_summary() {
+    let context = CanonicalMessage::from_parts(
+        MessageRole::User,
+        vec![proteus_contracts::model_standard::CanonicalPart::new(
+            proteus_contracts::model_standard::PartProvenance::ContextBuilder,
+            proteus_contracts::model_standard::PartScope::Request,
+            proteus_contracts::model_standard::ContentPart::Text {
+                text: "fresh AGENTS".to_owned(),
+            },
+        )],
+    );
+    let user = CanonicalMessage::text(MessageRole::User, "current request");
+    let user_id = user.id.clone();
+    let mut host = TestHost::with_response("summary");
+    let output = compact_with_host(input(vec![context.clone(), user], 500), &mut host);
+
+    assert_eq!(output.messages.len(), 3);
+    assert_eq!(output.messages[0], context);
+    assert_eq!(output.messages[1].id, user_id);
+    let expected_summary = format!("{SUMMARY_PREFIX}\nsummary");
+    assert_eq!(
+        message_text(output.messages.last().unwrap()).as_deref(),
+        Some(expected_summary.as_str())
+    );
+    assert!(output.messages.last().unwrap().metadata.is_null());
+}
+
+#[test]
+fn retained_user_history_is_newest_first_budgeted_then_restored_in_order() {
+    let first = CanonicalMessage::text(MessageRole::User, "first ".repeat(5_000));
+    let second = CanonicalMessage::text(MessageRole::User, "second ".repeat(5_000));
+    let selected = select_recent_user_messages(&[first, second.clone()], 20_000);
+
+    assert_eq!(selected.len(), 2);
+    assert_eq!(selected[1].id, second.id);
+}
+
+#[test]
+fn no_summary_budget_or_replacement_shrink_error_is_invented() {
+    let original = CanonicalMessage::text(MessageRole::User, "word ".repeat(100));
+    let token_estimate = estimate_messages_tokens(std::slice::from_ref(&original));
+    let mut host = TestHost::with_response("summary ".repeat(1000));
+
+    let output = compact_with_host(input(vec![original], token_estimate), &mut host);
+
+    assert!(output.changed);
+    assert!(output.summary.unwrap().len() > 4_000);
+}
+
+#[test]
+fn summary_response_requires_stop_but_keeps_an_empty_last_assistant_suffix() {
     let incomplete = CanonicalModelResponse::new(
         CanonicalMessage::text(MessageRole::Assistant, "summary"),
         Vec::new(),
@@ -388,27 +242,180 @@ fn summary_response_must_be_a_stopped_assistant_message_without_tools() {
             .contains("finish with Stop")
     );
 
-    let tool_call = ToolCall::new(new_call_id(), "read_file", json!({ "path": "src/lib.rs" }));
-    let with_tool = CanonicalModelResponse::new(
-        CanonicalMessage::text(MessageRole::Assistant, "summary"),
-        vec![tool_call],
+    let empty = CanonicalModelResponse::new(
+        CanonicalMessage::text(MessageRole::Assistant, ""),
+        Vec::new(),
         FinishReason::Stop,
     );
-    assert!(
-        validate_summary_response_for_test(&with_tool)
-            .unwrap_err()
-            .contains("must not request tools")
+    assert_eq!(
+        validate_summary_response_for_test(&empty),
+        Ok(String::new())
     );
 }
 
 #[test]
-fn summary_budget_parser_rejects_invalid_or_zero_values() {
-    assert_eq!(parse_summary_budget(None), Ok(4_000));
-    assert!(
-        parse_summary_budget(Some("0"))
-            .unwrap_err()
-            .contains("greater than zero")
+fn typed_context_overflow_retries_with_oldest_call_pair_removed() {
+    let call = ToolCall::new(new_call_id(), "read_file", json!({"path":"old.rs"}));
+    let result = CanonicalMessage::text(MessageRole::Tool, "old contents")
+        .with_tool_call_id(call.id.clone());
+    let messages = vec![
+        CanonicalMessage::new(MessageRole::Assistant, vec![ContentPart::ToolCall { call }]),
+        result,
+        CanonicalMessage::text(MessageRole::User, "current request"),
+    ];
+    let mut host = TestHost::with_results(vec![
+        Err(ProcessModuleError::from_model_failure(
+            proteus_contracts::model_standard::ModelFailure::new(
+                proteus_contracts::model_standard::ModelFailureKind::ContextWindowExceeded,
+                "context full",
+            ),
+        )),
+        Ok(CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "summary"),
+            Vec::new(),
+            FinishReason::Stop,
+        )),
+    ]);
+
+    let output = compact_with_host(input(messages, 500), &mut host);
+
+    assert!(output.changed);
+    let requests = host.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert!(requests[0].messages.iter().any(|message| {
+        message.tool_call_id.is_some()
+            || message
+                .parts
+                .iter()
+                .any(|part| matches!(&part.payload, ContentPart::ToolCall { .. }))
+    }));
+    assert!(requests[1].messages.iter().all(|message| {
+        message.tool_call_id.is_none()
+            && !message
+                .parts
+                .iter()
+                .any(|part| matches!(&part.payload, ContentPart::ToolCall { .. }))
+    }));
+}
+
+#[test]
+fn overflow_preserves_unrelated_parts_of_a_batched_counterpart() {
+    let call_a = ToolCall::new(new_call_id(), "read_file", json!({"path":"a.rs"}));
+    let call_b = ToolCall::new(new_call_id(), "read_file", json!({"path":"b.rs"}));
+    let result_a = CanonicalMessage::new(
+        MessageRole::Tool,
+        vec![ContentPart::ToolResult {
+            result: ToolResult::ok(call_a.id.clone(), "a contents"),
+        }],
     );
-    assert!(parse_summary_budget(Some("not-a-number")).is_err());
-    assert!(parse_summary_budget(Some("4294967296")).is_err());
+    let batched_calls = CanonicalMessage::new(
+        MessageRole::Assistant,
+        vec![
+            ContentPart::ToolCall {
+                call: call_a.clone(),
+            },
+            ContentPart::ToolCall {
+                call: call_b.clone(),
+            },
+        ],
+    );
+    let result_b = CanonicalMessage::new(
+        MessageRole::Tool,
+        vec![ContentPart::ToolResult {
+            result: ToolResult::ok(call_b.id.clone(), "b contents"),
+        }],
+    );
+    let mut host = TestHost::with_results(vec![
+        Err(ProcessModuleError::from_model_failure(
+            proteus_contracts::model_standard::ModelFailure::new(
+                proteus_contracts::model_standard::ModelFailureKind::ContextWindowExceeded,
+                "context full",
+            ),
+        )),
+        Ok(CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "summary"),
+            Vec::new(),
+            FinishReason::Stop,
+        )),
+    ]);
+
+    let output = compact_with_host(
+        input(
+            vec![
+                result_a,
+                batched_calls,
+                result_b,
+                CanonicalMessage::text(MessageRole::User, "current request"),
+            ],
+            500,
+        ),
+        &mut host,
+    );
+
+    assert!(output.changed);
+    let requests = host.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    let second = &requests[1];
+    assert!(second.messages.iter().all(|message| {
+        message.parts.iter().all(|part| match &part.payload {
+            ContentPart::ToolCall { call } => call.id != call_a.id,
+            ContentPart::ToolResult { result } => result.call_id != call_a.id,
+            _ => true,
+        })
+    }));
+    assert!(second.messages.iter().any(|message| {
+        message.parts.iter().any(|part| match &part.payload {
+            ContentPart::ToolCall { call } => call.id == call_b.id,
+            ContentPart::ToolResult { result } => result.call_id == call_b.id,
+            _ => false,
+        })
+    }));
+}
+
+#[test]
+fn typed_interruption_propagates_without_a_retry() {
+    let failure = proteus_contracts::model_standard::ModelFailure::new(
+        proteus_contracts::model_standard::ModelFailureKind::Interrupted,
+        "cancelled upstream",
+    );
+    let mut host = TestHost::with_results(vec![Err(ProcessModuleError::from_model_failure(
+        failure.clone(),
+    ))]);
+
+    let error = compact(
+        input(vec![CanonicalMessage::text(MessageRole::User, "work")], 500),
+        &mut host,
+    )
+    .expect_err("interruption must propagate");
+
+    assert_eq!(error.model_failure, Some(failure));
+    assert_eq!(host.requests.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn trigger_is_ninety_percent_of_raw_window_and_clamps_explicit_limit() {
+    let compaction_input = input(Vec::new(), 0)
+        .with_window_tokens(Some(200_000))
+        .with_config(json!({ "trigger_tokens": 190_000 }));
+    assert_eq!(resolve_trigger_tokens(&compaction_input), Ok(Some(180_000)));
+
+    let defaulted = input(Vec::new(), 0)
+        .with_config(json!({}))
+        .with_window_tokens(Some(200_000));
+    assert_eq!(resolve_trigger_tokens(&defaulted), Ok(Some(180_000)));
+
+    let large_window = defaulted.with_window_tokens(Some(u32::MAX));
+    assert_eq!(
+        resolve_trigger_tokens(&large_window),
+        Ok(Some(3_865_470_565))
+    );
+
+    let unknown_window = input(Vec::new(), 0).with_config(json!({}));
+    assert_eq!(resolve_trigger_tokens(&unknown_window), Ok(None));
+
+    let stale = input(Vec::new(), 0).with_config(json!({ "trigger_fraction": 0.8 }));
+    assert!(resolve_trigger_tokens(&stale).is_err());
+
+    let null = input(Vec::new(), 0).with_config(serde_json::Value::Null);
+    assert!(resolve_trigger_tokens(&null).is_err());
 }

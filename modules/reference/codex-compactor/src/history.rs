@@ -1,9 +1,7 @@
+use crate::{budget::truncate_to_tokens, summary::SUMMARY_PREFIX};
 use proteus_contracts::model_standard::{
     CanonicalMessage, CanonicalPart, ContentPart, MessageRole, PartProvenance, PartScope,
 };
-use serde_json::json;
-
-use crate::{MODULE_ID, budget::truncate_to_tokens, summary::SUMMARY_PREFIX};
 
 pub(crate) struct HistoryParts {
     /// Canonical workspace context is request-scoped. It is re-injected into
@@ -58,7 +56,11 @@ fn is_real_user_message(message: &CanonicalMessage) -> bool {
 }
 
 fn is_generated_user_message(text: &str) -> bool {
-    text.starts_with("<turn_aborted>") || text.starts_with(SUMMARY_PREFIX)
+    text.starts_with("<turn_aborted>") || is_summary_message(text)
+}
+
+fn is_summary_message(text: &str) -> bool {
+    text.starts_with(&format!("{SUMMARY_PREFIX}\n"))
 }
 
 fn is_structured_ephemeral_context_message(message: &CanonicalMessage) -> bool {
@@ -123,22 +125,16 @@ pub(crate) fn replacement_messages(
         context_insertion_index..context_insertion_index,
         ephemeral_context.iter().cloned(),
     );
-    replacement.push(
-        CanonicalMessage::from_parts(
-            MessageRole::User,
-            vec![CanonicalPart::new(
-                PartProvenance::Compactor,
-                PartScope::Conversation,
-                ContentPart::Text {
-                    text: summary.to_owned(),
-                },
-            )],
-        )
-        .with_metadata(json!({
-            "compactor": MODULE_ID,
-            "summary": true,
-        })),
-    );
+    replacement.push(CanonicalMessage::from_parts(
+        MessageRole::User,
+        vec![CanonicalPart::new(
+            PartProvenance::Compactor,
+            PartScope::Conversation,
+            ContentPart::Text {
+                text: summary.to_owned(),
+            },
+        )],
+    ));
     replacement
 }
 

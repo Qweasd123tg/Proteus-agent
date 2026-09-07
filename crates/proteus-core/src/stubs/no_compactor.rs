@@ -15,6 +15,6 @@ impl HistoryCompactor for NoCompactor {
         input: CompactionInput,
         _host: Arc<dyn CompactionHost>,
     ) -> Result<CompactionOutput> {
-        Ok(CompactionOutput::unchanged(input.messages))
+        Ok(CompactionOutput::unchanged(input.request.messages))
     }
 }

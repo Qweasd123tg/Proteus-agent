@@ -1,7 +1,8 @@
 use serde_json::Value;
 
+use super::errors::{failure_from_sse_error, failure_from_sse_failed};
 use super::response::{from_openai_response, from_openai_response_with_ids};
-use crate::model_standard::ModelStreamEvent;
+use crate::model_standard::{ModelFailure, ModelStreamEvent};
 
 /// Трансляция одного SSE event'а от OpenAI Responses API в наши
 /// `ModelStreamEvent`. Вариантов много; всё что не распознали —
@@ -74,7 +75,9 @@ pub(super) fn translate_non_message_event(event_type: &str, data: &str) -> Vec<M
             match from_openai_response(response_value) {
                 Ok(response) => vec![ModelStreamEvent::Response { response }],
                 Err(error) => vec![ModelStreamEvent::Error {
-                    message: format!("failed to parse final response: {error}"),
+                    failure: ModelFailure::other(format!(
+                        "failed to parse final response: {error}"
+                    )),
                 }],
             }
         }
@@ -86,34 +89,20 @@ pub(super) fn translate_non_message_event(event_type: &str, data: &str) -> Vec<M
                 .and_then(Value::as_str)
                 .unwrap_or("unknown");
             vec![ModelStreamEvent::Error {
-                message: format!("Incomplete response returned, reason: {reason}"),
+                failure: ModelFailure::other(format!(
+                    "Incomplete response returned, reason: {reason}"
+                )),
             }]
         }
         "response.error" | "error" => {
-            let message = parsed
-                .get("error")
-                .and_then(|e| e.get("message"))
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-                .or_else(|| {
-                    parsed
-                        .get("message")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                })
-                .unwrap_or_else(|| "unknown openai error".to_owned());
-            vec![ModelStreamEvent::Error { message }]
+            vec![ModelStreamEvent::Error {
+                failure: failure_from_sse_error(&parsed, "unknown openai error"),
+            }]
         }
         "response.failed" => {
-            let response = parsed.get("response").unwrap_or(&parsed);
-            let message = response
-                .get("error")
-                .and_then(|error| error.get("message"))
-                .and_then(Value::as_str)
-                .or_else(|| response.get("error").and_then(Value::as_str))
-                .unwrap_or("openai response failed")
-                .to_owned();
-            vec![ModelStreamEvent::Error { message }]
+            vec![ModelStreamEvent::Error {
+                failure: failure_from_sse_failed(&parsed, "openai response failed"),
+            }]
         }
         _ => Vec::new(),
     }
@@ -157,7 +146,7 @@ pub(super) fn finalize_completed_event(
     match from_openai_response_with_ids(response_value, ids) {
         Ok(response) => vec![ModelStreamEvent::Response { response }],
         Err(error) => vec![ModelStreamEvent::Error {
-            message: format!("failed to parse final response: {error}"),
+            failure: ModelFailure::other(format!("failed to parse final response: {error}")),
         }],
     }
 }

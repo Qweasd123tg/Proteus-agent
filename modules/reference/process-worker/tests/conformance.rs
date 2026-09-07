@@ -464,8 +464,10 @@ fn policy_exposure_provider_and_compactor_execute_in_worker() {
         serde_json::to_value(
             proteus_contracts::contracts::CompactionInput::new(
                 AgentTask::new("continue", workspace.path().to_path_buf()),
-                ModelRef::new("fake", "fake-model"),
-                messages.clone(),
+                proteus_contracts::model_standard::CanonicalModelRequest::new(
+                    ModelRef::new("fake", "fake-model"),
+                    messages.clone(),
+                ),
             )
             .with_token_estimate(Some(10)),
         )
@@ -547,8 +549,9 @@ fn dispatch_workflow_callback(
         WORKFLOW_HOST_COMPACT_HISTORY_METHOD => {
             let input: WorkflowCompactHistoryRequest = serde_json::from_value(request.params)
                 .map_err(|error| ProcessModuleRpcError::new(-32602, error.to_string()))?;
-            let mut output =
-                proteus_contracts::contracts::CompactionOutput::unchanged(input.input.messages);
+            let mut output = proteus_contracts::contracts::CompactionOutput::unchanged(
+                input.input.request.messages,
+            );
             output.original_token_estimate = Some(40);
             output.token_estimate = Some(40);
             output.trigger_tokens = Some(100);
@@ -821,7 +824,7 @@ fn workflow_input(workspace: &Path) -> Value {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn targeted_cancel_keeps_concurrent_sibling_and_generation_alive() {
     let workspace = tempfile::tempdir().expect("workspace");
-    let workflow = ProcessExportBinding::new("workflow", "coding.single_loop", "v4", json!({}))
+    let workflow = ProcessExportBinding::new("workflow", "coding.single_loop", "v5", json!({}))
         .expect("workflow binding");
     let workflow_target = workflow.export_ref();
     let policy =

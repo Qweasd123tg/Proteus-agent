@@ -22,12 +22,21 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessModuleError {
     pub message: String,
+    pub model_failure: Option<crate::model_standard::ModelFailure>,
 }
 
 impl ProcessModuleError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            model_failure: None,
+        }
+    }
+
+    pub fn from_model_failure(failure: crate::model_standard::ModelFailure) -> Self {
+        Self {
+            message: failure.message.clone(),
+            model_failure: Some(failure),
         }
     }
 }

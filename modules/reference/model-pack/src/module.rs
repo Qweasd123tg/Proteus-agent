@@ -7,7 +7,7 @@ use proteus_contracts::{
         ProcessModelTerminal,
     },
     domain::ModelRef,
-    model_standard::ModelStreamEvent,
+    model_standard::{ModelFailure, ModelStreamEvent},
     process_module::{
         ModelModule, ModelModuleHost, ModuleRegistry, ProcessModuleError, ProcessModuleResult,
     },
@@ -110,20 +110,22 @@ impl ModelModule for ProviderModule {
                 result = async {
                     let mut stream = match adapter.stream(input.request).await {
                         Ok(stream) => stream,
-                        Err(err) => return Ok(ProcessModelTerminal::RequestError { message: format!("{err:#}") }),
+                        Err(err) => return Ok(ProcessModelTerminal::RequestError { failure: ModelFailure::from_error(&err) }),
                     };
                     while let Some(event) = stream.next().await {
                         match event {
                             Ok(ModelStreamEvent::Response { response }) => return Ok(ProcessModelTerminal::Response { response }),
-                            Ok(ModelStreamEvent::Error { message }) => return Ok(ProcessModelTerminal::StreamError { message }),
-                            Err(err) => return Ok(ProcessModelTerminal::RequestError { message: format!("{err:#}") }),
+                            Ok(ModelStreamEvent::Error { failure }) => return Ok(ProcessModelTerminal::StreamError { failure }),
+                            Err(err) => return Ok(ProcessModelTerminal::RequestError { failure: ModelFailure::from_error(&err) }),
                             Ok(event) => {
                                 host.emit(ProcessModelEvent { sequence: count, event })?;
                                 count = count.checked_add(1).ok_or_else(|| ProcessModuleError::new("model event sequence overflow"))?;
                             }
                         }
                     }
-                    Ok::<_, ProcessModuleError>(ProcessModelTerminal::RequestError { message: "model stream ended without a complete response".into() })
+                    Ok::<_, ProcessModuleError>(ProcessModelTerminal::RequestError {
+                        failure: ModelFailure::other("model stream ended without a complete response"),
+                    })
                 } => result?,
             };
             Ok(ProcessModelOutput { event_count: count, terminal })

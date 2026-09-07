@@ -70,7 +70,13 @@ impl Workflow for Probe {
                 let _ = ctx.tool_exposure.select(input).await;
             }
             Self::Compaction => {
-                let input = CompactionInput::new(task, ctx.model_ref.clone(), history);
+                let input = CompactionInput::new(
+                    task,
+                    proteus_contracts::model_standard::CanonicalModelRequest::new(
+                        ctx.model_ref.clone(),
+                        history,
+                    ),
+                );
                 let _ = ctx
                     .compactor
                     .compact(input, Arc::new(RuntimeCompactionHost::new(ctx.clone())))

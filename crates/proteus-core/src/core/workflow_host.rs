@@ -104,7 +104,7 @@ impl WorkflowHostRuntime {
         self.run_active(async move {
             ctx.emit(Event::HistoryCompactionStarted {
                 reason: input.reason.clone(),
-                input_messages: input.messages.len(),
+                input_messages: input.request.messages.len(),
                 token_estimate: input.token_estimate,
                 trigger_tokens: None,
             })
@@ -124,7 +124,7 @@ impl WorkflowHostRuntime {
                 Err(error) => {
                     ctx.emit(Event::HistoryCompactionFailed {
                         reason: input.reason.clone(),
-                        input_messages: input.messages.len(),
+                        input_messages: input.request.messages.len(),
                         token_estimate: input.token_estimate,
                         trigger_tokens: None,
                         message: format!("{error:#}"),

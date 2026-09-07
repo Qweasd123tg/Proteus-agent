@@ -29,6 +29,48 @@ pub(crate) fn read_bounded_workspace_utf8_file(
     Ok(Some(String::from_utf8_lossy(&bytes).to_string()))
 }
 
+pub(crate) struct BoundedUtf8Prefix {
+    pub(crate) content: String,
+    pub(crate) bytes_read: usize,
+}
+
+/// Reads a valid UTF-8 prefix without exceeding `max_bytes` in either the raw
+/// read or the returned string. Project instructions use this because their
+/// shared budget is defined in bytes across all ancestor directories.
+pub(crate) fn read_bounded_workspace_utf8_prefix(
+    root: &Path,
+    path: &Path,
+    max_bytes: usize,
+) -> anyhow::Result<Option<BoundedUtf8Prefix>> {
+    let root = root.canonicalize()?;
+    let resolved = match path.canonicalize() {
+        Ok(path) => path,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if !resolved.starts_with(&root) {
+        return Ok(None);
+    }
+    let metadata = std::fs::metadata(&resolved)?;
+    if !metadata.is_file() {
+        return Ok(None);
+    }
+
+    let mut bytes = Vec::with_capacity(max_bytes.min(8192));
+    let mut file = std::fs::File::open(resolved)?;
+    file.by_ref()
+        .take(max_bytes as u64)
+        .read_to_end(&mut bytes)?;
+    let text = match std::str::from_utf8(&bytes) {
+        Ok(text) => text,
+        Err(error) => std::str::from_utf8(&bytes[..error.valid_up_to()])?,
+    };
+    Ok(Some(BoundedUtf8Prefix {
+        content: text.to_owned(),
+        bytes_read: bytes.len(),
+    }))
+}
+
 pub(crate) fn safe_relative_path(value: &str) -> Option<PathBuf> {
     let path = Path::new(value);
     if path.is_absolute() {

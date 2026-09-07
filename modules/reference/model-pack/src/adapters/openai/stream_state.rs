@@ -48,7 +48,7 @@ impl OpenAiStreamState {
                     }
                     Err(error) => {
                         return vec![ModelStreamEvent::Error {
-                            message: error.to_string(),
+                            failure: crate::model_standard::ModelFailure::other(error.to_string()),
                         }];
                     }
                 }
@@ -64,7 +64,9 @@ impl OpenAiStreamState {
                         }
                         Err(error) => {
                             return vec![ModelStreamEvent::Error {
-                                message: error.to_string(),
+                                failure: crate::model_standard::ModelFailure::other(
+                                    error.to_string(),
+                                ),
                             }];
                         }
                     }

@@ -718,7 +718,10 @@ fn stream_trace_error_event() {
         json!({ "error": { "type": "overloaded_error", "message": "overloaded" } }),
     )]);
     match events.as_slice() {
-        [ModelStreamEvent::Error { message }] => assert_eq!(message, "overloaded"),
+        [ModelStreamEvent::Error { failure }] => {
+            assert_eq!(failure.kind, crate::model_standard::ModelFailureKind::Other);
+            assert_eq!(failure.message, "overloaded");
+        }
         other => panic!("expected Error, got {other:?}"),
     }
 }

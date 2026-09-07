@@ -35,7 +35,7 @@ impl CompactionHost for RuntimeCompactionHost {
         request: CanonicalModelRequest,
     ) -> Result<CanonicalModelResponse> {
         if self.ctx.is_cancelled() {
-            anyhow::bail!("turn canceled by client");
+            return Err(interrupted());
         }
         let ctx = self.ctx.clone();
         let cancellation = ctx.execution.scope.cancellation.clone();
@@ -50,7 +50,15 @@ impl CompactionHost for RuntimeCompactionHost {
                         .map_err(|_| anyhow!("model request timed out after {}ms", ctx.execution.model_timeout_ms))?
                 }
             } => result,
-            _ = cancellation.cancelled() => Err(anyhow!("turn canceled by client")),
+            _ = cancellation.cancelled() => Err(interrupted()),
         }
     }
+}
+
+fn interrupted() -> anyhow::Error {
+    crate::model_standard::ModelFailure::new(
+        crate::model_standard::ModelFailureKind::Interrupted,
+        "turn canceled by client",
+    )
+    .into()
 }

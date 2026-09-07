@@ -130,7 +130,7 @@ impl WorkflowModuleHost for FakeHost {
             .expect("compaction outputs")
             .pop_front()
             .unwrap_or_else(|| {
-                proteus_contracts::contracts::CompactionOutput::unchanged(input.messages)
+                proteus_contracts::contracts::CompactionOutput::unchanged(input.request.messages)
             });
         Ok(String::from(
             serde_json::to_string(&output).expect("compaction output json"),

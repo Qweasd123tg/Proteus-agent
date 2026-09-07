@@ -94,9 +94,15 @@ fn replay_compaction_input(
     history: &[CanonicalMessage],
     model_ref: &ModelRef,
 ) -> CompactionInput {
-    CompactionInput::new(task.clone(), model_ref.clone(), history.to_vec())
-        .with_reason(COMPACTION_REASON)
-        .with_token_estimate(Some(400))
+    CompactionInput::new(
+        task.clone(),
+        proteus_contracts::model_standard::CanonicalModelRequest::new(
+            model_ref.clone(),
+            history.to_vec(),
+        ),
+    )
+    .with_reason(COMPACTION_REASON)
+    .with_token_estimate(Some(400))
 }
 
 fn compaction_catalog(mode: CompactionProbeMode) -> ModuleCatalog {

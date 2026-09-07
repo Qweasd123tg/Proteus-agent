@@ -45,7 +45,6 @@ impl ProcessInvocationError {
         &self.method
     }
 
-    #[cfg(test)]
     pub(crate) fn failure(&self) -> &ProcessInvocationFailure {
         &self.failure
     }

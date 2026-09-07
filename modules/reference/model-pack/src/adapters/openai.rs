@@ -15,7 +15,8 @@ use crate::{
     contracts::{Model, ModelEventStream},
     domain::ModelRef,
     model_standard::{
-        CanonicalModelRequest, CanonicalModelResponse, ModelCapabilities, ModelStreamEvent,
+        CanonicalModelRequest, CanonicalModelResponse, ModelCapabilities, ModelFailure,
+        ModelStreamEvent,
     },
 };
 
@@ -25,6 +26,7 @@ use crate::{
     model_standard::{CanonicalMessage, ContentPart, FinishReason, MessageRole},
 };
 
+mod errors;
 mod hosted_tools;
 mod model_profile;
 mod request;
@@ -36,6 +38,7 @@ mod stream_state;
 #[cfg(test)]
 mod tests;
 
+use errors::ensure_success;
 use model_profile::OpenAiModelProfile;
 #[cfg(test)]
 use request::to_openai_request;
@@ -194,12 +197,11 @@ impl OpenAiResponsesClient {
         let body = to_openai_request_with_cache(&request, &self.prompt_cache, &self.model_profile)?;
         let url = format!("{}/responses", self.base_url);
         let api_key = self.api_key()?;
-        let response: Value =
-            send_with_transport_retry(|| self.request_builder(&url, &body, &api_key))
-                .await?
-                .error_for_status()?
-                .json()
-                .await?;
+        let response = ensure_success(
+            send_with_transport_retry(|| self.request_builder(&url, &body, &api_key)).await?,
+        )
+        .await?;
+        let response: Value = response.json().await?;
 
         from_openai_response(response)
     }
@@ -210,9 +212,10 @@ impl OpenAiResponsesClient {
         body["stream"] = json!(true);
         let url = format!("{}/responses", self.base_url);
         let api_key = self.api_key()?;
-        let response = send_with_transport_retry(|| self.request_builder(&url, &body, &api_key))
-            .await?
-            .error_for_status()?;
+        let response = ensure_success(
+            send_with_transport_retry(|| self.request_builder(&url, &body, &api_key)).await?,
+        )
+        .await?;
 
         // reqwest bytes_stream → eventsource-stream Event → наши ModelStreamEvent.
         // State-parser хранит накопленные text parts / tool_calls / usage и
@@ -244,15 +247,19 @@ impl OpenAiResponsesClient {
                         if client.stream_error_fallback {
                             match client.complete_response(fallback_request).await {
                                 Ok(response) => yield Ok(ModelStreamEvent::Response { response }),
-                                Err(fallback_error) => yield Ok(ModelStreamEvent::Error {
-                                    message: format!(
+                                Err(fallback_error) => {
+                                    let failure = ModelFailure::from_error(&fallback_error);
+                                    let message = format!(
                                         "sse transport error: {error}; non-stream fallback failed: {fallback_error}"
-                                    ),
-                                }),
+                                    );
+                                    yield Ok(ModelStreamEvent::Error {
+                                        failure: ModelFailure::new(failure.kind, message),
+                                    });
+                                }
                             }
                         } else {
                             yield Ok(ModelStreamEvent::Error {
-                                message: format!("sse transport error: {error}"),
+                                failure: ModelFailure::other(format!("sse transport error: {error}")),
                             });
                         }
                         saw_terminal_event = true;
@@ -262,7 +269,9 @@ impl OpenAiResponsesClient {
             }
             if !saw_terminal_event {
                 yield Ok(ModelStreamEvent::Error {
-                    message: "openai responses stream ended without a terminal event".to_owned(),
+                    failure: ModelFailure::other(
+                        "openai responses stream ended without a terminal event",
+                    ),
                 });
             }
         };

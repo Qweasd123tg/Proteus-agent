@@ -263,9 +263,9 @@ invalid DTO и превышение limits являются fail-closed protocol
 | context provider | v2 | `provide` | — |
 | tool | v2 | `list`, `invoke` | — |
 | context | v2 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
-| model | v3 | `describe`, `stream` | `host.model.emit` (acknowledged canonical events) |
-| compactor | v4 | `compact` | `host.model.complete` |
-| workflow | v4 | `run` | runtime status, context, model, compaction, tool visibility/selection/execution, events |
+| model | v4 | `describe`, `stream` | `host.model.emit` (acknowledged canonical events) |
+| compactor | v5 | `compact` | `host.model.complete` |
+| workflow | v5 | `run` | runtime status, context, model, compaction, tool visibility/selection/execution, events |
 
 Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
@@ -437,7 +437,7 @@ handshake всего набора, даже если probe направлен т
 
 ## Model Streaming
 
-`model/v3` использует canonical DTO из `proteus-contracts::contracts::process_model`:
+`model/v4` использует canonical DTO из `proteus-contracts::contracts::process_model`:
 
 Descriptor, capabilities, stream events и terminal DTO отклоняют неизвестные поля.
 
@@ -454,6 +454,20 @@ Descriptor, capabilities, stream events и terminal DTO отклоняют не�
   передаёт `None`, а не выдуманную final phase.
 - Terminal содержит точный `event_count` и `response`, `stream_error` либо
   `request_error`. Response полный: Core не восстанавливает его из дельт.
+
+Оба error terminal и canonical stream error несут `ModelFailure { kind, message }`.
+Классы `context_window_exceeded`, `interrupted`, `session_budget_exceeded`,
+`other` задают общую алгоритмическую границу; provider implementation распознаёт
+свои коды, остальные слои не разбирают текст. `host.model.complete` передаёт
+этот DTO в JSON-RPC error `data` для workflow/compactor; Rust helper сохраняет
+его в `ProcessModuleError.model_failure`. Неизвестные поля и отсутствие
+обязательных полей внутри `ModelFailure` отклоняются; обычная callback error
+без модельной причины остаётся общей ошибкой. Broker wire остаётся v3.
+
+Текущий journal сохраняет текст модельной ошибки. Типизированная причина
+доступна во время исполнения, но replay класса ошибки этим изменением не
+объявляется поддержанным. HTTP status и Retry-After в этот минимальный DTO
+пока не входят.
 
 Canonical события не используют lossy `module.progress`. Host держит очередь
 из одного события: медленный consumer замедляет worker, события не теряются.

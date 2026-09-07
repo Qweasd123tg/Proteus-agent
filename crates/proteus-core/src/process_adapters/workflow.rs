@@ -244,5 +244,12 @@ fn host_result<T: Serialize>(
 }
 
 fn callback_error(method: &str, error: anyhow::Error) -> ProcessModuleRpcError {
-    ProcessModuleRpcError::new(HOST_CALLBACK_ERROR, format!("{method} failed: {error:#}"))
+    let rpc =
+        ProcessModuleRpcError::new(HOST_CALLBACK_ERROR, format!("{method} failed: {error:#}"));
+    match error.downcast_ref::<crate::model_standard::ModelFailure>() {
+        Some(failure) => {
+            rpc.with_data(serde_json::to_value(failure).expect("model failure serialization"))
+        }
+        None => rpc,
+    }
 }

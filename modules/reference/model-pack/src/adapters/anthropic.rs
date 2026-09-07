@@ -15,7 +15,8 @@ use crate::{
     contracts::{Model, ModelEventStream},
     domain::ModelRef,
     model_standard::{
-        CanonicalModelRequest, CanonicalModelResponse, ModelCapabilities, ModelStreamEvent,
+        CanonicalModelRequest, CanonicalModelResponse, ModelCapabilities, ModelFailure,
+        ModelStreamEvent,
     },
 };
 
@@ -235,9 +236,9 @@ impl AnthropicMessagesClient {
                         match client.complete_response(fallback_request).await {
                             Ok(response) => yield Ok(ModelStreamEvent::Response { response }),
                             Err(fallback_error) => yield Ok(ModelStreamEvent::Error {
-                                message: format!(
+                                failure: ModelFailure::other(format!(
                                     "sse transport error: {error}; non-stream fallback failed: {fallback_error}"
-                                ),
+                                )),
                             }),
                         }
                         saw_terminal_event = true;
@@ -247,7 +248,9 @@ impl AnthropicMessagesClient {
             }
             if !saw_terminal_event {
                 yield Ok(ModelStreamEvent::Error {
-                    message: "anthropic messages stream ended without a terminal event".to_owned(),
+                    failure: ModelFailure::other(
+                        "anthropic messages stream ended without a terminal event",
+                    ),
                 });
             }
         };

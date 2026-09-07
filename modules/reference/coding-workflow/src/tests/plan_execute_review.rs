@@ -80,6 +80,7 @@ fn plan_execute_review_runs_plan_execute_and_review_requests() {
     assert_eq!(compactions[2].window_tokens, Some(16_000));
     assert!(
         compactions[2]
+            .request
             .messages
             .iter()
             .any(|message| message_text(message) == "draft")

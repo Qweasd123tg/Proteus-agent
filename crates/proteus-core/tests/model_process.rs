@@ -138,7 +138,9 @@ async fn protocol_faults_crashes_and_provider_errors_are_not_success() {
     }
     for kind in ["stream_error", "request_error"] {
         let mut settings = settings();
-        settings["terminal"] = json!({"kind": kind, "message": "provider-error"});
+        settings["terminal"] = json!({"kind": kind, "failure": {
+            "kind": "context_window_exceeded", "message": "provider-error"
+        }});
         let adapter = model(&config(kind, settings), cwd.path()).unwrap();
         let mut stream = adapter.stream(request(kind)).await.unwrap();
         assert!(matches!(
@@ -150,11 +152,22 @@ async fn protocol_faults_crashes_and_provider_errors_are_not_success() {
             assert_eq!(
                 event.unwrap(),
                 ModelStreamEvent::Error {
-                    message: "provider-error".into()
+                    failure: proteus_contracts::model_standard::ModelFailure::new(
+                        proteus_contracts::model_standard::ModelFailureKind::ContextWindowExceeded,
+                        "provider-error",
+                    )
                 }
             );
         } else {
-            assert_eq!(event.unwrap_err().to_string(), "provider-error");
+            let error = event.unwrap_err();
+            assert_eq!(error.to_string(), "provider-error");
+            assert_eq!(
+                error
+                    .downcast_ref::<proteus_contracts::model_standard::ModelFailure>()
+                    .unwrap()
+                    .kind,
+                proteus_contracts::model_standard::ModelFailureKind::ContextWindowExceeded
+            );
         }
     }
 }

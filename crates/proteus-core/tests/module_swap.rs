@@ -295,11 +295,13 @@ impl CompactionHost for NoModelCompactionHost {
 fn compaction_input(cwd: &Path) -> CompactionInput {
     CompactionInput::new(
         AgentTask::new("current task", cwd.to_path_buf()),
-        ModelRef::new("fake", "fake-model"),
-        vec![
-            CanonicalMessage::text(MessageRole::User, "old task"),
-            CanonicalMessage::text(MessageRole::Assistant, "old answer"),
-        ],
+        proteus_contracts::model_standard::CanonicalModelRequest::new(
+            ModelRef::new("fake", "fake-model"),
+            vec![
+                CanonicalMessage::text(MessageRole::User, "old task"),
+                CanonicalMessage::text(MessageRole::Assistant, "old answer"),
+            ],
+        ),
     )
     .with_reason("test")
 }

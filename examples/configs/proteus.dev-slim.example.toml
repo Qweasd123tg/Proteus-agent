@@ -47,7 +47,7 @@ allow = ["search", "read_file", "list_dir", "find_files", "grep", "git_status", 
 ask_before = ["apply_patch", "shell"]
 
 [module_config.compactor.codex]
-trigger_fraction = 0.8
+# Порог по умолчанию: 90% окна модели; trigger_tokens может задать меньший.
 
 [module_config.context.repo_aware]
 providers = ["project_instructions", "manifest", "git_status", "repo_tree", "search"]

@@ -224,8 +224,8 @@ impl Model for BoundModel {
                     }
                     return Ok(response);
                 }
-                ModelStreamEvent::Error { message } => {
-                    return Err(anyhow!("model stream error: {message}"));
+                ModelStreamEvent::Error { failure } => {
+                    return Err(anyhow::Error::new(failure));
                 }
                 ModelStreamEvent::TextDelta {
                     message_id,
@@ -342,8 +342,8 @@ fn bound_recording_stream(
                     yield event;
                     break;
                 }
-                ModelStreamEvent::Error { message } => {
-                    recorder.model_error_recorded(exchange_id, message).await?;
+                ModelStreamEvent::Error { failure } => {
+                    recorder.model_error_recorded(exchange_id, &failure.message).await?;
                     terminal_recorded = true;
                     yield event;
                     break;
@@ -360,7 +360,11 @@ fn bound_recording_stream(
 }
 
 fn model_cancelled() -> anyhow::Error {
-    anyhow!("model execution canceled")
+    crate::model_standard::ModelFailure::new(
+        crate::model_standard::ModelFailureKind::Interrupted,
+        "model execution canceled",
+    )
+    .into()
 }
 
 #[cfg(test)]

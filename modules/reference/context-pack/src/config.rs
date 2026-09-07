@@ -63,6 +63,8 @@ pub(crate) struct CodexContextConfig {
     pub(crate) max_context_bytes: usize,
     #[serde(default = "default_codex_context_max_bytes_per_file")]
     pub(crate) max_bytes_per_file: usize,
+    #[serde(default = "default_codex_context_project_doc_max_bytes")]
+    pub(crate) project_doc_max_bytes: usize,
     #[serde(default = "default_codex_context_max_search_results")]
     pub(crate) max_search_results: usize,
     #[serde(default = "default_repo_aware_memory_limit")]
@@ -73,7 +75,7 @@ pub(crate) struct CodexContextConfig {
     pub(crate) repo_tree_max_depth: usize,
     #[serde(default = "default_codex_context_repo_tree_skip_entries")]
     pub(crate) repo_tree_skip_entries: Vec<String>,
-    #[serde(default = "default_project_instruction_files")]
+    #[serde(default = "default_codex_context_project_instruction_files")]
     pub(crate) project_instruction_files: Vec<String>,
     #[serde(default = "default_codex_context_manifest_files")]
     pub(crate) manifest_files: Vec<String>,
@@ -87,12 +89,13 @@ impl Default for CodexContextConfig {
             providers: default_codex_context_providers(),
             max_context_bytes: default_codex_context_max_context_bytes(),
             max_bytes_per_file: default_codex_context_max_bytes_per_file(),
+            project_doc_max_bytes: default_codex_context_project_doc_max_bytes(),
             max_search_results: default_codex_context_max_search_results(),
             memory_limit: default_repo_aware_memory_limit(),
             repo_tree_max_entries: default_codex_context_repo_tree_max_entries(),
             repo_tree_max_depth: default_codex_context_repo_tree_max_depth(),
             repo_tree_skip_entries: default_codex_context_repo_tree_skip_entries(),
-            project_instruction_files: default_project_instruction_files(),
+            project_instruction_files: default_codex_context_project_instruction_files(),
             manifest_files: default_codex_context_manifest_files(),
             git_diff_max_bytes: default_codex_context_git_diff_max_bytes(),
         }
@@ -177,6 +180,10 @@ fn default_codex_context_max_bytes_per_file() -> usize {
     12_000
 }
 
+fn default_codex_context_project_doc_max_bytes() -> usize {
+    32 * 1024
+}
+
 fn default_codex_context_max_search_results() -> usize {
     40
 }
@@ -255,6 +262,13 @@ fn default_project_instruction_files() -> Vec<String> {
     .into_iter()
     .map(str::to_owned)
     .collect()
+}
+
+fn default_codex_context_project_instruction_files() -> Vec<String> {
+    ["AGENTS.override.md", "AGENTS.md"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
 }
 
 fn default_manifest_files() -> Vec<String> {

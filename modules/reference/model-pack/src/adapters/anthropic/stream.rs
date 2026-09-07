@@ -5,7 +5,7 @@ use crate::{
     domain::ToolCall,
     model_standard::{
         CanonicalMessage, CanonicalModelResponse, ContentPart, FinishReason, MessageRole,
-        ModelStreamEvent, TokenUsage,
+        ModelFailure, ModelStreamEvent, TokenUsage,
     },
 };
 
@@ -243,7 +243,9 @@ impl AnthropicStreamState {
                     .and_then(Value::as_str)
                     .map(str::to_owned)
                     .unwrap_or_else(|| "unknown anthropic error".to_owned());
-                vec![ModelStreamEvent::Error { message }]
+                vec![ModelStreamEvent::Error {
+                    failure: ModelFailure::other(message),
+                }]
             }
             _ => Vec::new(),
         }

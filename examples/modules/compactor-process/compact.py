@@ -2,7 +2,7 @@
 """Dependency-free process HistoryCompactor example for Proteus.
 
 The module keeps a valid suffix beginning at one of the most recent user
-turns. Contract v4 permits the same host.model.complete callback for every
+turns. Contract v5 permits the same host.model.complete callback for every
 compactor, but this deterministic example does not need to call it.
 """
 
@@ -24,7 +24,7 @@ from component_runtime import (  # noqa: E402
 
 SLOT = "compactor"
 MODULE_ID = "python_suffix"
-CONTRACT_VERSION = "v4"
+CONTRACT_VERSION = "v5"
 
 INITIALIZE_FIELDS = {
     "protocol_version",
@@ -41,8 +41,7 @@ EXPORT_INITIALIZE_FIELDS = {
 }
 INPUT_FIELDS = {
     "task",
-    "model_ref",
-    "messages",
+    "request",
     "token_estimate",
     "window_tokens",
     "config",
@@ -87,17 +86,19 @@ def validate_initialize(params: Any) -> str:
     if not isinstance(export["module_config"], dict):
         raise ProtocolError("initialize module_config must be an object")
     if export["host_features"] != []:
-        raise ProtocolError("compactor v4 does not negotiate host features")
+        raise ProtocolError("compactor v5 does not negotiate host features")
     return component_id
 
 
 def validate_input(params: Any) -> tuple[dict[str, Any], int, int]:
     compaction = require_object(params, INPUT_FIELDS, "CompactionInput")
-    if not isinstance(compaction["messages"], list):
-        raise ProtocolError("CompactionInput.messages must be an array")
-    if any(not isinstance(message, dict) for message in compaction["messages"]):
-        raise ProtocolError("CompactionInput.messages must contain objects")
-    for message in compaction["messages"]:
+    if not isinstance(compaction["request"], dict):
+        raise ProtocolError("CompactionInput.request must be an object")
+    if not isinstance(compaction["request"].get("messages"), list):
+        raise ProtocolError("CompactionInput.request.messages must be an array")
+    if any(not isinstance(message, dict) for message in compaction["request"]["messages"]):
+        raise ProtocolError("CompactionInput.request.messages must contain objects")
+    for message in compaction["request"]["messages"]:
         parts = message.get("parts")
         if not isinstance(parts, list):
             raise ProtocolError("canonical message parts must be an array")
@@ -154,7 +155,7 @@ def unchanged(messages: list[dict[str, Any]], reason: str) -> dict[str, Any]:
 
 def compact(params: Any) -> dict[str, Any]:
     compaction, trigger_messages, retain_user_turns = validate_input(params)
-    messages = compaction["messages"]
+    messages = compaction["request"]["messages"]
     if len(messages) <= trigger_messages:
         return unchanged(messages, "below_trigger_messages")
 

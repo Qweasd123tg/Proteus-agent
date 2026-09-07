@@ -226,6 +226,7 @@ name = "codex-compactor"
 version = "0.0.0-dev"
 dependencies = [
  "proteus-contracts",
+ "rand",
  "serde_json",
 ]
 

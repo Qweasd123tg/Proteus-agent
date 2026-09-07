@@ -67,7 +67,7 @@ cargo test --workspace --no-fail-fast
 
 Breaking canonical response change одновременно обновляет все tracked
 producers/consumers и версии затронутых contracts/storage. Действующие версии:
-`workflow/v4`, `compactor/v4`, durable journal schema v4. Изменение process DTO
+`workflow/v5`, `compactor/v5`, durable journal schema v4. Изменение process DTO
 само по себе не требует новой journal schema, если сохранённая форма не меняется.
 Старые формы не получают compatibility readers.
 
@@ -99,6 +99,22 @@ cargo test -p proteus-core --test model_process --test module_swap
 cargo test -p proteus-reference-worker --test conformance --test model_exports --test codex_model_resume --test topology_journal
 cargo test -p proteus-module-protocol --test broker_v3
 ```
+
+Для local Codex compaction дополнительно:
+
+```bash
+cargo test -p codex-compactor
+cargo test -p context-pack
+cargo test -p proteus-reference-worker --test codex_compaction --test compactor_interop
+```
+
+Этот gate проверяет реальный HTTP request summary, перенос текущих instructions
+и model controls, replacement history, типизированное переполнение summary-запроса
+и journal/cold history. Применимая проверка workflow replay хода с реальным
+summary model call пока не проходит: replay включает этот внутренний exchange
+в последовательность workflow. Отдельные replay fixtures проверяют replacement
+history без такого callback. Класс модельной ошибки журнал пока хранит только
+как текст; его replay также не подтверждён.
 
 `model_process` проверяет arbitrary Python exports, exact canonical input/output,
 длинный поток сверх host-work callback budget, backpressure, drop/cancel,

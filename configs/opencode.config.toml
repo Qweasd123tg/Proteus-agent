@@ -96,10 +96,10 @@ max_context_bytes = 60000
 max_bytes_per_file = 12000
 project_instruction_files = ["AGENTS.override.md", "AGENTS.md", "CLAUDE.md", ".cursorrules"]
 
-# Компакция: upstream триггерит на input_limit минус ~20k reserved;
-# для большого окна это примерно 0.95 доли.
+# Экспериментальная сборка использует local Codex compactor с порогом 90% окна.
+# Это явное отличие от механизма compaction OpenCode.
 [module_config.compactor.codex]
-trigger_fraction = 0.95
+# trigger_tokens может задать меньший абсолютный порог.
 
 [app_server]
 approval_timeout_ms = 0
