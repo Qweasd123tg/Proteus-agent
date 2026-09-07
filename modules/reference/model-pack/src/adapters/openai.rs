@@ -32,6 +32,7 @@ mod response;
 #[cfg(test)]
 mod round_trip_tests;
 mod stream;
+mod stream_state;
 #[cfg(test)]
 mod tests;
 
@@ -40,7 +41,11 @@ use model_profile::OpenAiModelProfile;
 use request::to_openai_request;
 use request::to_openai_request_with_cache;
 use response::from_openai_response;
-use stream::{finalize_completed_event, translate_sse_event};
+#[cfg(test)]
+use stream::finalize_completed_event;
+use stream_state::OpenAiStreamState;
+#[cfg(test)]
+use stream_state::translate_sse_event;
 
 #[derive(Debug, Clone)]
 pub struct OpenAiResponsesClient {
@@ -216,31 +221,13 @@ impl OpenAiResponsesClient {
         let fallback_request = request.clone();
         let mut sse = response.bytes_stream().eventsource();
         let events = async_stream::stream! {
-            // Накапливаем финализированные output-item'ы из response.output_item.done.
-            // Некоторые OpenAI-совместимые прокси отдают response.completed с пустым
-            // output, хотя сами item'ы (message/function_call) уже были доставлены
-            // через output_item.done. Без этого ход теряется как <empty model response>.
-            let mut completed_items: Vec<Value> = Vec::new();
-            let mut streamed_text = String::new();
+            let mut state = OpenAiStreamState::default();
             let mut saw_terminal_event = false;
             while let Some(chunk) = sse.next().await {
                 match chunk {
                     Ok(event) => {
-                        if event.event == "response.output_item.done"
-                            && let Ok(parsed) = serde_json::from_str::<Value>(&event.data)
-                            && let Some(item) = parsed.get("item")
-                        {
-                            completed_items.push(item.clone());
-                        }
-                        let mapped = if event.event == "response.completed" {
-                            finalize_completed_event(&event.data, &completed_items, &streamed_text)
-                        } else {
-                            translate_sse_event(&event.event, &event.data)
-                        };
+                        let mapped = state.translate(&event.event, &event.data);
                         for mapped in mapped {
-                            if let ModelStreamEvent::TextDelta { text } = &mapped {
-                                streamed_text.push_str(text);
-                            }
                             if matches!(
                                 mapped,
                                 ModelStreamEvent::Response { .. } | ModelStreamEvent::Error { .. }

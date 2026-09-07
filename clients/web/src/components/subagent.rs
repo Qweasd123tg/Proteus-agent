@@ -227,8 +227,11 @@ fn NestedSubagentToolCard(
                 .find(|tool| tool.call_id == call_id)?
                 .clone();
             Some(Message {
+                message_id: None,
+                phase: None,
                 id: parent.id,
                 version: 0,
+                text_offset: 0,
                 role: MessageRole::System,
                 text: String::new(),
                 tool: Some(tool),

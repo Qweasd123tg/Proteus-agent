@@ -60,9 +60,13 @@ cargo test -p proteus-core --test module_swap
 SSE stream, полного compaction lifecycle, filesystem/network permissions,
 deferred tool discovery и AgentControl semantics.
 
-`AssistantTextDelta` содержит текст без item id и typed phase; app transcript
-также не экспортирует `MessagePhase`. Typed classification сейчас сохраняется
-в canonical response/history/journal.
+Item identity и typed phase проходят через `model/v2`, live events и app
+transcript. Responses fixture отдаёт added/delta/done/completed, включая
+позднюю фазу и multipart текст; regression сверяет live ids/text/offsets
+с journal и cold app transcript. Web regression проверяет соседние items
+с одинаковым текстом и перекрытие /history с SSE. Это не полный upstream
+live item lifecycle: остальные типы output items и failure paths этим срезом
+не объявляются эквивалентными.
 
 Необходимость дальнейших изменений определяется согласованным обычным
 сценарием. Этот список не назначает следующую реализацию.

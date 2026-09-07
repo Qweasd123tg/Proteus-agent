@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 
@@ -13,6 +15,20 @@ use crate::{
 };
 
 pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResponse> {
+    from_openai_response_with_ids(response, &HashMap::new())
+}
+
+pub(super) fn item_key(item: &Value, index: usize) -> String {
+    item.get("id")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("output:{index}"))
+}
+
+pub(super) fn from_openai_response_with_ids(
+    response: Value,
+    ids: &HashMap<String, crate::domain::MessageId>,
+) -> Result<CanonicalModelResponse> {
     if let Some(error) = response.get("error").filter(|error| !error.is_null()) {
         return Err(anyhow!("OpenAI API error: {error}"));
     }
@@ -28,11 +44,14 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
     let mut messages = Vec::new();
     let mut tool_calls = Vec::new();
 
-    for item in response
+    for (index, item) in response
         .get("output")
         .and_then(Value::as_array)
         .ok_or_else(|| anyhow!("OpenAI response did not contain output array"))?
+        .iter()
+        .enumerate()
     {
+        let before = messages.len();
         match item.get("type").and_then(Value::as_str) {
             Some("message") => {
                 if item.get("role").and_then(Value::as_str) != Some("assistant") {
@@ -144,6 +163,11 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
             }
             _ => {}
         }
+        if messages.len() > before
+            && let Some(id) = ids.get(&item_key(item, index))
+        {
+            messages.last_mut().unwrap().id = *id;
+        }
     }
 
     let finish_reason = if tool_calls.is_empty() {
@@ -165,7 +189,7 @@ pub(super) fn from_openai_response(response: Value) -> Result<CanonicalModelResp
     Ok(resp.with_provider_metadata(response))
 }
 
-fn parse_message_phase(item: &Value) -> Result<Option<MessagePhase>> {
+pub(super) fn parse_message_phase(item: &Value) -> Result<Option<MessagePhase>> {
     match item.get("phase") {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(phase)) if phase == "commentary" => Ok(Some(MessagePhase::Commentary)),

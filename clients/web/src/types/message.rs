@@ -1,3 +1,21 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum MessagePhase {
+    Commentary,
+    FinalAnswer,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AssistantTextUpdate {
+    pub(crate) offset: usize,
+    pub(crate) message_id: String,
+    pub(crate) phase: Option<MessagePhase>,
+    pub(crate) text: String,
+}
+
 use super::{SubagentActivity, ToolActivity};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -31,8 +49,11 @@ impl MessageRole {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Message {
+    pub(crate) message_id: Option<String>,
+    pub(crate) phase: Option<MessagePhase>,
     pub(crate) id: u64,
     pub(crate) version: u64,
+    pub(crate) text_offset: usize,
     pub(crate) role: MessageRole,
     pub(crate) text: String,
     pub(crate) tool: Option<ToolActivity>,

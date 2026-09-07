@@ -108,6 +108,9 @@ mod tests {
                 ctx(),
                 1,
                 Event::AssistantTextDelta {
+                    offset: 0,
+                    message_id: crate::domain::new_message_id(),
+                    phase: None,
                     text: "hi".to_owned(),
                 },
             ))
@@ -141,6 +144,9 @@ mod tests {
                 ctx(),
                 1,
                 Event::AssistantTextDelta {
+                    offset: 0,
+                    message_id: crate::domain::new_message_id(),
+                    phase: None,
                     text: "hi".to_owned(),
                 },
             ))
@@ -152,6 +158,9 @@ mod tests {
     #[test]
     fn is_streaming_delta_covers_all_delta_variants() {
         assert!(is_streaming_delta(&Event::AssistantTextDelta {
+            offset: 0,
+            message_id: crate::domain::new_message_id(),
+            phase: None,
             text: "x".to_owned()
         }));
         assert!(is_streaming_delta(&Event::AssistantToolArgsDelta {

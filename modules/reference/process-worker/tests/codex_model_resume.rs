@@ -17,6 +17,56 @@ use tokio::{
     process::Command,
 };
 
+#[derive(Default)]
+struct CapturedEvents(std::sync::Mutex<Vec<proteus_contracts::domain::EventEnvelope>>);
+
+#[async_trait::async_trait]
+impl proteus_contracts::contracts::EventSink for CapturedEvents {
+    async fn append(&self, event: proteus_contracts::domain::EventEnvelope) -> anyhow::Result<()> {
+        self.0.lock().unwrap().push(event);
+        Ok(())
+    }
+}
+
+fn sse_body(response: &Value) -> String {
+    let mut body = String::new();
+    let mut emit = |kind: &str, data: Value| {
+        body.push_str(&format!("event: {kind}\ndata: {data}\n\n"));
+    };
+    for (index, item) in response["output"].as_array().unwrap().iter().enumerate() {
+        if item["type"] != "message" {
+            continue;
+        }
+        let mut added = item.clone();
+        added["content"] = json!([]);
+        added["status"] = json!("in_progress");
+        // Some providers only classify an item when it completes.
+        if index == 2 {
+            added.as_object_mut().unwrap().remove("phase");
+        }
+        emit(
+            "response.output_item.added",
+            json!({"output_index": index, "item": added}),
+        );
+        for (part_index, part) in item["content"].as_array().unwrap().iter().enumerate() {
+            for ch in part["text"].as_str().unwrap().chars() {
+                emit(
+                    "response.output_text.delta",
+                    json!({
+                        "output_index": index, "item_id": item["id"], "content_index": part_index, "delta": ch.to_string()
+                    }),
+                );
+            }
+        }
+        emit(
+            "response.output_item.done",
+            json!({"output_index": index, "item": item}),
+        );
+    }
+    emit("response.completed", json!({"response": response}));
+    body
+}
+
 const CHILD_ROOT: &str = "PROTEUS_CODEX_RESUME_TEST_ROOT";
 
 fn message(phase: &str, texts: &[&str]) -> Value {
@@ -94,11 +144,7 @@ async fn serve(listener: TcpListener, streaming: bool) -> Vec<Value> {
         }
         requests.push(serde_json::from_slice(&bytes[header_end..header_end + length]).unwrap());
         let (content_type, body) = if streaming {
-            let event = json!({"type": "response.completed", "response": response});
-            (
-                "text/event-stream",
-                format!("event: response.completed\ndata: {event}\n\n"),
-            )
+            ("text/event-stream", sse_body(&response))
         } else {
             ("application/json", response.to_string())
         };
@@ -155,9 +201,19 @@ async fn cold_runtime_child() {
         builder = builder.with_session_ids(proteus_contracts::domain::new_session_id(), thread_id);
         (thread_id, "Прочитай probe.txt.")
     };
-    let runtime = builder.build_async().await.unwrap();
+    let captured = std::sync::Arc::new(CapturedEvents::default());
+    let runtime = builder
+        .with_event_sink(captured.clone())
+        .build_async()
+        .await
+        .unwrap();
     let output = runtime.run(prompt.to_owned()).await.unwrap();
     assert!(!output.text.is_empty());
+    std::fs::write(
+        root.join("events.json"),
+        serde_json::to_vec(&*captured.0.lock().unwrap()).unwrap(),
+    )
+    .unwrap();
     std::fs::write(
         note_path,
         json!({
@@ -217,6 +273,53 @@ async fn check_resume(streaming: bool) {
         .unwrap()
         .load_projection()
         .unwrap();
+    let first_events: Vec<proteus_contracts::domain::EventEnvelope> =
+        serde_json::from_slice(&std::fs::read(root.path().join("events.json")).unwrap()).unwrap();
+    let expected_messages: Vec<_> = first
+        .history
+        .iter()
+        .filter(|message| {
+            !message.display_text().is_empty()
+                && message.role == proteus_contracts::model_standard::MessageRole::Assistant
+        })
+        .collect();
+    for message in &expected_messages {
+        let completions: Vec<_> = first_events
+            .iter()
+            .filter_map(|envelope| match &envelope.event {
+                proteus_contracts::domain::Event::AssistantMessageCompleted {
+                    message_id,
+                    phase,
+                    text,
+                } if *message_id == message.id => Some((phase, text)),
+                _ => None,
+            })
+            .collect();
+        assert!(!completions.is_empty(), "missing presentation completion");
+        for (phase, text) in completions {
+            assert_eq!(*phase, message.phase);
+            assert_eq!(*text, message.display_text());
+        }
+        let mut streamed = String::new();
+        for envelope in &first_events {
+            if let proteus_contracts::domain::Event::AssistantTextDelta {
+                message_id,
+                offset,
+                text,
+                ..
+            } = &envelope.event
+                && *message_id == message.id
+            {
+                assert_eq!(*offset, streamed.len());
+                streamed.push_str(text);
+            }
+        }
+        if streaming {
+            assert_eq!(streamed, message.display_text());
+        } else {
+            assert!(streamed.is_empty());
+        }
+    }
     run_child(root.path()).await;
     let requests = tokio::time::timeout(Duration::from_secs(5), server)
         .await
@@ -267,6 +370,24 @@ async fn check_resume(streaming: bool) {
         .load_projection()
         .unwrap();
     assert_eq!(&restored.history[..first.history.len()], &first.history);
+    let cold = proteus_core::app_server::AgentAppServer::launch_resumed(
+        config.clone(),
+        root.path().join("workspace"),
+        Some(&root.path().join("config.json")),
+        session_dir.clone(),
+    )
+    .await
+    .unwrap();
+    let transcript = cold.transcript().await.unwrap();
+    for expected in &expected_messages {
+        let item = transcript
+            .iter()
+            .find(|item| item.message_id == Some(expected.id))
+            .expect("cold transcript id");
+        assert_eq!(item.phase, expected.phase);
+        assert_eq!(item.text, expected.display_text());
+        assert!(!item.streaming);
+    }
     assert!(restored.unsettled_turns.is_empty());
     assert!(restored.interrupted_model_exchanges.is_empty());
     assert!(restored.unresolved_tool_calls.is_empty());

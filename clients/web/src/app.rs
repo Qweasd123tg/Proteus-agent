@@ -79,8 +79,11 @@ pub(crate) fn App() -> impl IntoView {
         Err(error) => {
             let message = format!("Session token storage failed: {error}");
             set_messages.set(vec![Message {
+                message_id: None,
+                phase: None,
                 id: 1,
                 version: 0,
+                text_offset: 0,
                 role: MessageRole::System,
                 text: message,
                 tool: None,

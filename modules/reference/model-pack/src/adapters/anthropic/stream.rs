@@ -12,13 +12,25 @@ use crate::{
 /// Stateful аккумулятор для Anthropic SSE-потока: копит text parts и
 /// tool_use блоки по мере прихода, на `message_stop` отдаёт финальный
 /// CanonicalModelResponse.
-#[derive(Default)]
 pub(super) struct AnthropicStreamState {
+    message_id: crate::domain::MessageId,
     blocks: Vec<AnthropicBlock>,
     usage: Option<TokenUsage>,
     stop_reason: Option<String>,
     dsml_filter: DsmlStreamFilter,
     // Anthropic SSE референсит блоки по index, так что нужен index → block mapping.
+}
+
+impl Default for AnthropicStreamState {
+    fn default() -> Self {
+        Self {
+            message_id: crate::domain::new_message_id(),
+            blocks: Vec::new(),
+            usage: None,
+            stop_reason: None,
+            dsml_filter: DsmlStreamFilter::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -153,7 +165,11 @@ impl AnthropicStreamState {
                         if text.is_empty() {
                             Vec::new()
                         } else {
-                            vec![ModelStreamEvent::TextDelta { text }]
+                            vec![ModelStreamEvent::TextDelta {
+                                message_id: self.message_id,
+                                phase: None,
+                                text,
+                            }]
                         }
                     }
                     "input_json_delta" => {
@@ -284,7 +300,8 @@ impl AnthropicStreamState {
             _ if !tool_calls.is_empty() => FinishReason::ToolCalls,
             _ => FinishReason::Stop,
         };
-        let message = CanonicalMessage::new(MessageRole::Assistant, parts);
+        let mut message = CanonicalMessage::new(MessageRole::Assistant, parts);
+        message.id = self.message_id;
         let mut resp = CanonicalModelResponse::new(message, tool_calls, finish_reason);
         if let Some(u) = self.usage.take() {
             resp = resp.with_usage(u);

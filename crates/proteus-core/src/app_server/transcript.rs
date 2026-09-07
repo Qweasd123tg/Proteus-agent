@@ -2,7 +2,7 @@ use serde_json::Value;
 
 use crate::{
     domain::{Citation, HostedToolActivity, HostedToolStatus, ToolCall, ToolResult},
-    model_standard::{CanonicalMessage, ContentPart, MessageRole},
+    model_standard::{CanonicalMessage, ContentPart, MessagePhase, MessageRole},
 };
 
 mod journal;
@@ -11,6 +11,8 @@ pub(crate) use journal::journal_transcript_messages;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AppTranscriptMessage {
+    pub message_id: Option<crate::domain::MessageId>,
+    pub phase: Option<MessagePhase>,
     pub role: String,
     pub text: String,
     pub tool: Option<AppTranscriptTool>,
@@ -68,15 +70,15 @@ fn append_transcript_message(
                 text_parts.push(text.clone());
             }
             ContentPart::ToolCall { call } => {
-                flush_transcript_text(transcript, &role, &mut text_parts);
+                flush_transcript_text(transcript, &role, message, &mut text_parts);
                 append_transcript_tool_call(transcript, call);
             }
             ContentPart::ToolResult { result } => {
-                flush_transcript_text(transcript, &role, &mut text_parts);
+                flush_transcript_text(transcript, &role, message, &mut text_parts);
                 append_transcript_tool_result(transcript, result);
             }
             ContentPart::HostedToolActivity { activity } => {
-                flush_transcript_text(transcript, &role, &mut text_parts);
+                flush_transcript_text(transcript, &role, message, &mut text_parts);
                 append_hosted_tool_activity(transcript, activity);
             }
             ContentPart::Citation { citation } => {
@@ -85,11 +87,13 @@ fn append_transcript_message(
             _ => {}
         }
     }
-    flush_transcript_text(transcript, &role, &mut text_parts);
+    flush_transcript_text(transcript, &role, message, &mut text_parts);
 }
 
 fn append_transcript_tool_call(transcript: &mut Vec<AppTranscriptMessage>, call: &ToolCall) {
     transcript.push(AppTranscriptMessage {
+        message_id: None,
+        phase: None,
         role: "system".to_owned(),
         text: String::new(),
         tool: Some(AppTranscriptTool {
@@ -172,6 +176,8 @@ fn append_hosted_tool_activity(
         _ => None,
     };
     transcript.push(AppTranscriptMessage {
+        message_id: None,
+        phase: None,
         role: "system".to_owned(),
         text: String::new(),
         tool: Some(AppTranscriptTool {
@@ -224,14 +230,17 @@ fn append_citation_metadata(transcript: &mut [AppTranscriptMessage], citation: &
 fn flush_transcript_text(
     transcript: &mut Vec<AppTranscriptMessage>,
     role: &str,
+    message: &CanonicalMessage,
     text_parts: &mut Vec<String>,
 ) {
     if text_parts.is_empty() {
         return;
     }
     transcript.push(AppTranscriptMessage {
+        message_id: Some(message.id),
+        phase: message.phase,
         role: role.to_owned(),
-        text: text_parts.join("\n\n"),
+        text: text_parts.join("\n"),
         tool: None,
         subagent: None,
         streaming: false,
@@ -255,6 +264,8 @@ fn append_transcript_tool_result(transcript: &mut Vec<AppTranscriptMessage>, res
     }
 
     transcript.push(AppTranscriptMessage {
+        message_id: None,
+        phase: None,
         role: "system".to_owned(),
         text: String::new(),
         tool: Some(AppTranscriptTool {

@@ -473,7 +473,7 @@ fn stream_trace_filters_split_dsml_tool_blocks() {
     let streamed = events
         .iter()
         .filter_map(|event| match event {
-            ModelStreamEvent::TextDelta { text } => Some(text.as_str()),
+            ModelStreamEvent::TextDelta { text, .. } => Some(text.as_str()),
             _ => None,
         })
         .collect::<String>();
@@ -536,7 +536,7 @@ fn stream_trace_filters_incomplete_dsml_closing_marker() {
     let streamed = events
         .iter()
         .filter_map(|event| match event {
-            ModelStreamEvent::TextDelta { text } => Some(text.as_str()),
+            ModelStreamEvent::TextDelta { text, .. } => Some(text.as_str()),
             _ => None,
         })
         .collect::<String>();

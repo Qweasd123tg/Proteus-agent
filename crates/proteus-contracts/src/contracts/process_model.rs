@@ -1,4 +1,4 @@
-//! Component model/v1: immutable export description and one canonical stream.
+//! Component model/v2: immutable export description and one canonical stream.
 //! Events use acknowledged host callbacks, so slow consumers exert bounded
 //! backpressure without dropping text, tool arguments or usage.
 
@@ -11,7 +11,7 @@ use crate::{
     },
 };
 
-pub const PROCESS_MODEL_CONTRACT_VERSION: &str = "v1";
+pub const PROCESS_MODEL_CONTRACT_VERSION: &str = "v2";
 pub const PROCESS_MODEL_DESCRIBE_METHOD: &str = "describe";
 pub const PROCESS_MODEL_STREAM_METHOD: &str = "stream";
 pub const MODEL_HOST_EMIT_METHOD: &str = "host.model.emit";
@@ -68,7 +68,11 @@ mod tests {
         let descriptor =
             serde_json::json!({"adapter_id": "external", "capabilities": caps, "hosted_tools": []});
         assert!(serde_json::from_value::<ProcessModelDescriptor>(descriptor).is_err());
-        let event = serde_json::json!({"sequence": 0, "event": {"TextDelta": {"text": "hello", "unknown": true}}});
+        let mut event = serde_json::json!({"sequence": 0, "event": {"TextDelta": {
+            "message_id": crate::domain::new_message_id(), "phase": "commentary", "text": "hello"
+        }}});
+        assert!(serde_json::from_value::<ProcessModelEvent>(event.clone()).is_ok());
+        event["event"]["TextDelta"]["unknown"] = serde_json::json!(true);
         assert!(serde_json::from_value::<ProcessModelEvent>(event).is_err());
     }
 

@@ -125,7 +125,11 @@ fn text_message_view(message: Memo<Option<Message>>, turn_class: &'static str) -
             <div class="task-card-header">
                 <span class="assistant-role">{move || {
                     message
-                        .with(|message| message.as_ref().map(|message| message.role.label()))
+                        .with(|message| message.as_ref().map(|message| match message.phase {
+                            Some(crate::types::MessagePhase::Commentary) => "Proteus · комментарий",
+                            Some(crate::types::MessagePhase::FinalAnswer) => "Proteus · ответ",
+                            None => message.role.label(),
+                        }))
                         .unwrap_or("Сообщение")
                 }}</span>
                 <div class="message-actions">
@@ -371,8 +375,11 @@ mod tests {
     #[test]
     fn render_message_html_formats_markdown_while_streaming() {
         let html = render_message_html(&Message {
+            message_id: None,
+            phase: None,
             id: 1,
             version: 0,
+            text_offset: 0,
             role: MessageRole::Assistant,
             text: "**live** markdown".to_owned(),
             tool: None,
@@ -385,8 +392,11 @@ mod tests {
 
     fn running_tool_message(id: u64) -> Message {
         Message {
+            message_id: None,
+            phase: None,
             id,
             version: 0,
+            text_offset: 0,
             role: MessageRole::System,
             text: String::new(),
             tool: Some(ToolActivity {

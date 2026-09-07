@@ -38,7 +38,7 @@ fn settings() -> Value {
     json!({
         "descriptor": ProcessModelDescriptor { adapter_id: "independent-model".into(),
             capabilities: ModelCapabilities::basic_text_and_tools().with_streaming(true), hosted_tools: vec![] },
-        "events": [{"TextDelta": {"text": "hello"}}],
+        "events": [{"TextDelta": {"message_id": response().messages[0].id, "phase": null, "text": "hello"}}],
         "terminal": {"kind": "response", "response": response()}
     })
 }
@@ -64,6 +64,8 @@ async fn arbitrary_model_exports_preserve_exact_canonical_request_stream_and_ter
         let usage = TokenUsage::new(10, 3);
         let events = vec![
             ModelStreamEvent::TextDelta {
+                message_id: response().messages[0].id,
+                phase: None,
                 text: "hello".into(),
             },
             ModelStreamEvent::ReasoningSummaryDelta {

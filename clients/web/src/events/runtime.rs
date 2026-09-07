@@ -2,8 +2,8 @@ use leptos::prelude::*;
 use serde_json::Value;
 
 use super::stream::{
-    StreamFlushBindings, flush_stream_delta_buffer, queue_assistant_delta, set_stream_turn_thread,
-    stream_delta_is_foreign,
+    StreamFlushBindings, complete_assistant_message, flush_stream_delta_buffer,
+    queue_assistant_delta, set_stream_turn_thread, stream_delta_is_foreign,
 };
 use crate::app_helpers::save_context_usage;
 use crate::messages::{
@@ -170,8 +170,17 @@ pub(crate) fn update_runtime_status_and_tools(
         if !stream_bindings.streamed_this_turn.get_untracked() {
             set_agent_status.set("пишет".to_owned());
         }
-        if let Some(text) = delta_event.get("text").and_then(Value::as_str) {
-            queue_assistant_delta(stream_bindings, text);
+        if let Ok(update) = serde_json::from_value::<AssistantTextUpdate>(delta_event.clone()) {
+            queue_assistant_delta(stream_bindings, update);
+        }
+    } else if let Some(completed) = event.get("AssistantMessageCompleted") {
+        if stream_delta_is_foreign(stream_bindings, envelope_thread_id) {
+            return;
+        }
+        let mut completed = completed.clone();
+        completed["offset"] = serde_json::json!(0);
+        if let Ok(update) = serde_json::from_value::<AssistantTextUpdate>(completed) {
+            complete_assistant_message(stream_bindings, update);
         }
     } else if event.get("AssistantReasoningDelta").is_some() {
         // Reasoning streams can be very chatty. The working indicator already
@@ -333,6 +342,9 @@ pub(crate) fn update_runtime_status_and_tools(
             );
         }
     } else if let Some(turn_finished) = event.get("TurnFinished") {
+        if stream_delta_is_foreign(stream_bindings, envelope_thread_id) {
+            return;
+        }
         flush_stream_delta_buffer(stream_bindings);
         if let Some(text) = turn_finished
             .pointer("/output/text")

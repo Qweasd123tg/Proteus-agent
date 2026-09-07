@@ -537,7 +537,7 @@ sandbox policy.
 Core владеет provider-neutral `ModelService` и execution-bound `BoundModel`:
 canonical shaping/validation, deadline, attribution и journal. Provider
 HTTP adapters и secrets находятся в `modules/reference/model-pack`; runtime
-вызывает их через тот же `model/v1` contract, что и внешний worker.
+вызывает их через тот же `model/v2` contract, что и внешний worker.
 `describe` фиксирует capabilities/hosted tools export при сборке snapshot.
 
 Subagents обслуживает отдельный

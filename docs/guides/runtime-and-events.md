@@ -158,6 +158,7 @@ event
 По умолчанию `event_log.persist_deltas = false`: streaming delta events
 (`AssistantTextDelta`, `AssistantToolArgsDelta`, `AssistantReasoningDelta`)
 не пишутся в durable JSONL, но продолжают идти в live broadcast sinks для UI.
+Текущая форма `EventEnvelope` имеет `schema_version = 2`.
 Envelope создаётся до фильтрации, поэтому durable log может иметь
 non-contiguous `seq`. `seq` относится к полному runtime event stream, а не
 только к persisted subset.
@@ -170,10 +171,17 @@ chain-of-thought и без `event_log.persist_deltas = true` не восстан
 
 Terminal OpenAI Responses сохраняет ordered assistant items и typed
 `MessagePhase` (`commentary`/`final_answer`) в canonical response, history и
-journal. Cold app transcript не склеивает эти сообщения, но пока не экспортирует
-typed phase. Live `AssistantTextDelta` тоже не несёт item id или phase: до
-terminal response клиент видит обычный текстовый stream. Это зафиксированный
-Codex parity gap, а не основание угадывать phase по тексту.
+journal. Live `AssistantTextDelta` несёт canonical `message_id`, optional
+typed `phase` и UTF-8 byte `offset` внутри текста сообщения.
+`AssistantMessageCompleted` передаёт полный текст того же item и его фазу;
+повтор на terminal Response обновляет item по id, не создаёт дубль.
+Событие завершения item не означает завершения turn.
+
+App transcript экспортирует `message_id` и `phase`; live progress и cold
+history сохраняют раздельные commentary/final items. Клиент объединяет
+перекрывающиеся /history и SSE ranges по id/offset, а не совпадению текста.
+Если provider не классифицирует сообщения, `phase = null`: клиент не
+угадывает фазу. Ответ без стриминга проходит тот же item-completion путь.
 
 ## Файлы Сессии И Durable Snapshots
 

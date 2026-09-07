@@ -128,6 +128,18 @@ pub enum ContentPart {
 }
 
 impl CanonicalMessage {
+    /// Presentation text preserves ordered text parts without exposing reasoning.
+    pub fn display_text(&self) -> String {
+        self.parts
+            .iter()
+            .filter_map(|part| match &part.payload {
+                ContentPart::Text { text } if !text.trim().is_empty() => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     pub fn text(role: MessageRole, text: impl Into<String>) -> Self {
         Self::new(role, vec![ContentPart::Text { text: text.into() }])
     }

@@ -267,6 +267,8 @@ impl TranscriptProjectionState {
             .filter(|error| !error.is_empty())
             .unwrap_or(fallback);
         self.transcript.push(AppTranscriptMessage {
+            message_id: None,
+            phase: None,
             role: "system".to_owned(),
             text: format!("AppServer error: {error}"),
             tool: None,

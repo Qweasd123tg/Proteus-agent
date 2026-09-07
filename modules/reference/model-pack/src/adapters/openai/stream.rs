@@ -1,13 +1,13 @@
-use serde_json::{Value, json};
+use serde_json::Value;
 
-use super::response::from_openai_response;
+use super::response::{from_openai_response, from_openai_response_with_ids};
 use crate::model_standard::ModelStreamEvent;
 
 /// Трансляция одного SSE event'а от OpenAI Responses API в наши
 /// `ModelStreamEvent`. Вариантов много; всё что не распознали —
 /// игнорируем (возвращаем пустой вектор), это безопасно потому что
 /// финальный `Response` приходит на `response.completed`.
-pub(super) fn translate_sse_event(event_type: &str, data: &str) -> Vec<ModelStreamEvent> {
+pub(super) fn translate_non_message_event(event_type: &str, data: &str) -> Vec<ModelStreamEvent> {
     // [DONE] sentinel у OpenAI не используется в Responses API, но на
     // всякий случай — безопасный фаст-path.
     if data == "[DONE]" {
@@ -17,14 +17,6 @@ pub(super) fn translate_sse_event(event_type: &str, data: &str) -> Vec<ModelStre
         return Vec::new();
     };
     match event_type {
-        "response.output_text.delta" => {
-            if let Some(delta) = parsed.get("delta").and_then(Value::as_str) {
-                return vec![ModelStreamEvent::TextDelta {
-                    text: delta.to_owned(),
-                }];
-            }
-            Vec::new()
-        }
         "response.reasoning_summary_text.delta" | "response.reasoning_summary.delta" => {
             if let Some(delta) = parsed.get("delta").and_then(Value::as_str) {
                 return vec![ModelStreamEvent::ReasoningSummaryDelta {
@@ -134,7 +126,8 @@ pub(super) fn translate_sse_event(event_type: &str, data: &str) -> Vec<ModelStre
 pub(super) fn finalize_completed_event(
     data: &str,
     fallback_items: &[Value],
-    streamed_text: &str,
+    streamed_items: &[Value],
+    ids: &std::collections::HashMap<String, crate::domain::MessageId>,
 ) -> Vec<ModelStreamEvent> {
     let Ok(parsed) = serde_json::from_str::<Value>(data) else {
         return Vec::new();
@@ -148,15 +141,20 @@ pub(super) fn finalize_completed_event(
     if output.is_empty() {
         output.extend_from_slice(fallback_items);
     }
-    if !streamed_text.is_empty() && !has_emittable_text_or_tool_call(&output) {
-        output.push(json!({
-            "type": "message",
-            "role": "assistant",
-            "content": [{ "type": "output_text", "text": streamed_text }]
-        }));
+    if !has_emittable_text_or_tool_call(&output) {
+        for streamed in streamed_items {
+            if let Some(existing) = output
+                .iter_mut()
+                .find(|item| item.get("id").is_some() && item.get("id") == streamed.get("id"))
+            {
+                *existing = streamed.clone();
+            } else {
+                output.push(streamed.clone());
+            }
+        }
     }
     response_value["output"] = Value::Array(output);
-    match from_openai_response(response_value) {
+    match from_openai_response_with_ids(response_value, ids) {
         Ok(response) => vec![ModelStreamEvent::Response { response }],
         Err(error) => vec![ModelStreamEvent::Error {
             message: format!("failed to parse final response: {error}"),

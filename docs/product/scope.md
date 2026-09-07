@@ -19,7 +19,7 @@
   messaging, follow-up и адресная отмена.
 - CLI/REPL, HTTP/SSE/stdio app-server, web chat и Inspector.
 - OpenAI, OpenAI-compatible, Anthropic и fake implementations в reference
-  `model-pack`; Core использует общий `model/v1` process adapter.
+  `model-pack`; Core использует общий `model/v2` process adapter.
 - Doctor, inspect/topology, eval report и атомарная локальная установка.
 
 Reference modules и profiles — поставляемые примеры без особых прав.
@@ -31,7 +31,6 @@ Reference modules и profiles — поставляемые примеры без
 | Model | Capabilities и hosted tools фиксируются descriptor-ом export при сборке; разные наборы возможностей требуют отдельных exports |
 | Workflow | Process input требует task/history/chat ids и model reference; AppConfig требует active provider |
 | Replay | Workflow без model exchanges не воспроизводится, хотя Turn и tool facts записаны |
-| Presentation | AssistantTextDelta не несёт item id/typed phase; transcript не экспортирует MessagePhase |
 | Collaboration | Spawn принимает только parallel_safe роли с isolation=none; настроенный coder с worktree в эту surface не входит |
 | Peer recovery | Resume зависит от живого process; durable tree, attach и reconnect отсутствуют |
 | Worker trust | Собственные workers доверенные и работают с OS-правами владельца; принятый локальный режим, sandbox не является задачей этапа |
@@ -45,7 +44,7 @@ Reference modules и profiles — поставляемые примеры без
 ## Статус Первого Экзамена
 
 Codex profile существует. Ordered commentary/final messages сохраняются
-в canonical response/history/journal. Есть fixture и regression этого среза:
+в canonical response/history/journal, live events и app transcript. Есть fixture и regression этого среза:
 [codex-baseline.md](../development/codex-baseline.md).
 
 Полного differential harness и сравнительного отчёта по обычным задачам

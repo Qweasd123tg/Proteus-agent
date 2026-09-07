@@ -51,7 +51,7 @@ native loader в проекте отсутствуют.
 | `tool_exposure` | `select_one` | `modules.tool_exposure` | да | `codex_dynamic` |
 | `tool` | `ordered_many` | exports + `tools.enabled` | да | `reference.tools` и узкие selectors |
 | `context_provider` | `ordered_many` | exports + context config | да | `skills` |
-| `model` | `select_one` | active provider profile | да, `model/v1` | `fake`, `openai`, `openai_compatible`, `anthropic` |
+| `model` | `select_one` | active provider profile | да, `model/v2` | `fake`, `openai`, `openai_compatible`, `anthropic` |
 
 Все behavior implementations, включая `model`, используют process contract.
 Agent control в матрицу не входит, потому что это
@@ -228,7 +228,7 @@ host-owned `ExecutionAttribution`: обязательный `ExecutionId` и opt
 
 ### Model
 
-Общий `model/v1` contract: `describe` возвращает неизменяемые adapter id,
+Общий `model/v2` contract: `describe` возвращает неизменяемые adapter id,
 capabilities и hosted tools; `stream` принимает canonical request и флаг
 provider streaming. Дельты доставляются через acknowledged `host.model.emit`,
 полный response/error — отдельным terminal result. Порядок, backpressure и

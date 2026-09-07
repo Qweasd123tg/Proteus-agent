@@ -437,7 +437,7 @@ handshake всего набора, даже если probe направлен т
 
 ## Model Streaming
 
-`model/v1` использует canonical DTO из `proteus-contracts::contracts::process_model`:
+`model/v2` использует canonical DTO из `proteus-contracts::contracts::process_model`:
 
 Descriptor, capabilities, stream events и terminal DTO отклоняют неизвестные поля.
 
@@ -448,6 +448,10 @@ Descriptor, capabilities, stream events и terminal DTO отклоняют не�
 - До terminal worker последовательно вызывает `host.model.emit` с
   `ProcessModelEvent { sequence, event }` и ждёт `null` ack. Нумерация с нуля,
   без пропусков; `Response` и `Error` через emit запрещены.
+- `TextDelta { message_id, phase, text }` адресует canonical message id;
+  optional `MessageCompleted { message }` завершает один item. Terminal
+  Response сохраняет те же ids и typed phases. Provider без классификации
+  передаёт `None`, а не выдуманную final phase.
 - Terminal содержит точный `event_count` и `response`, `stream_error` либо
   `request_error`. Response полный: Core не восстанавливает его из дельт.
 

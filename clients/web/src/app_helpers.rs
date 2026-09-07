@@ -282,8 +282,11 @@ fn transcript_messages(items: Vec<TranscriptMessage>) -> Vec<Message> {
                 }
             }
             messages.push(Message {
+                message_id: item.message_id,
+                phase: item.phase,
                 id: 0,
                 version: 0,
+                text_offset: 0,
                 role: message_role_from_wire(&item.role),
                 text: item.text,
                 tool,
@@ -294,8 +297,11 @@ fn transcript_messages(items: Vec<TranscriptMessage>) -> Vec<Message> {
             continue;
         }
         messages.push(Message {
+            message_id: item.message_id,
+            phase: item.phase,
             id: 0,
             version: 0,
+            text_offset: 0,
             role: message_role_from_wire(&item.role),
             text: item.text,
             tool,
@@ -331,9 +337,7 @@ fn transcript_messages(items: Vec<TranscriptMessage>) -> Vec<Message> {
 
 fn collaboration_parent_matches(tool: &ToolActivity, task_name: &str) -> bool {
     match tool.name.as_str() {
-        SPAWN_AGENT_TOOL => {
-            tool.args.get("task_name").and_then(Value::as_str) == Some(task_name)
-        }
+        SPAWN_AGENT_TOOL => tool.args.get("task_name").and_then(Value::as_str) == Some(task_name),
         FOLLOWUP_TASK_TOOL => tool
             .args
             .get("target")
@@ -975,6 +979,8 @@ mod tests {
         // subagent-сообщение сразу за ней — как шлёт turn_progress.
         let messages = transcript_messages(vec![
             TranscriptMessage {
+                message_id: None,
+                phase: None,
                 role: "system".to_owned(),
                 text: String::new(),
                 tool: Some(TranscriptTool {
@@ -989,6 +995,8 @@ mod tests {
                 streaming: false,
             },
             TranscriptMessage {
+                message_id: None,
+                phase: None,
                 role: "system".to_owned(),
                 text: String::new(),
                 tool: None,
@@ -1017,6 +1025,8 @@ mod tests {
     fn transcript_messages_merge_background_subagent_into_matching_spawn_card() {
         let messages = transcript_messages(vec![
             TranscriptMessage {
+                message_id: None,
+                phase: None,
                 role: "system".to_owned(),
                 text: String::new(),
                 tool: Some(TranscriptTool {
@@ -1035,6 +1045,8 @@ mod tests {
                 streaming: false,
             },
             TranscriptMessage {
+                message_id: None,
+                phase: None,
                 role: "assistant".to_owned(),
                 text: "Продолжаю основной ход".to_owned(),
                 tool: None,
@@ -1042,6 +1054,8 @@ mod tests {
                 streaming: true,
             },
             TranscriptMessage {
+                message_id: None,
+                phase: None,
                 role: "system".to_owned(),
                 text: String::new(),
                 tool: None,
@@ -1067,6 +1081,8 @@ mod tests {
     fn transcript_messages_merge_background_subagent_into_matching_followup_card() {
         let messages = transcript_messages(vec![
             TranscriptMessage {
+                message_id: None,
+                phase: None,
                 role: "system".to_owned(),
                 text: String::new(),
                 tool: Some(TranscriptTool {
@@ -1084,6 +1100,8 @@ mod tests {
                 streaming: false,
             },
             TranscriptMessage {
+                message_id: None,
+                phase: None,
                 role: "system".to_owned(),
                 text: String::new(),
                 tool: None,
@@ -1112,6 +1130,8 @@ mod tests {
         // Committed history: карточек субагента нет, но у результата task
         // есть metadata SubagentResult — карточка восстанавливается из неё.
         let messages = transcript_messages(vec![TranscriptMessage {
+            message_id: None,
+            phase: None,
             role: "system".to_owned(),
             text: String::new(),
             tool: Some(TranscriptTool {
@@ -1156,6 +1176,8 @@ mod tests {
     #[test]
     fn transcript_messages_skip_reconstruction_for_failed_task_without_metadata() {
         let messages = transcript_messages(vec![TranscriptMessage {
+            message_id: None,
+            phase: None,
             role: "system".to_owned(),
             text: String::new(),
             tool: Some(TranscriptTool {
@@ -1180,6 +1202,8 @@ mod tests {
     #[test]
     fn transcript_messages_restore_tool_activity_cards() {
         let messages = transcript_messages(vec![TranscriptMessage {
+            message_id: None,
+            phase: None,
             role: "system".to_owned(),
             text: String::new(),
             tool: Some(TranscriptTool {
@@ -1206,6 +1230,8 @@ mod tests {
     #[test]
     fn transcript_messages_restore_subagent_activity_cards() {
         let messages = transcript_messages(vec![TranscriptMessage {
+            message_id: None,
+            phase: None,
             role: "system".to_owned(),
             text: String::new(),
             tool: None,

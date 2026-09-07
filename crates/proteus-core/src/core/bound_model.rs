@@ -110,6 +110,26 @@ impl ModelExecutionBinding {
         // A failed presentation sink must not fail a model call.
         let _ = turn.events.emit(context, event).await;
     }
+
+    async fn emit_message(
+        &self,
+        message: &crate::model_standard::CanonicalMessage,
+        completed: &mut std::collections::HashMap<
+            crate::domain::MessageId,
+            (Option<crate::model_standard::MessagePhase>, String),
+        >,
+    ) {
+        let text = message.display_text();
+        if !text.is_empty() && completed.get(&message.id) != Some(&(message.phase, text.clone())) {
+            completed.insert(message.id, (message.phase, text.clone()));
+            self.emit_delta(Event::AssistantMessageCompleted {
+                message_id: message.id,
+                phase: message.phase,
+                text,
+            })
+            .await;
+        }
+    }
 }
 
 /// A model capability bound immutably to one `ExecutionScope`.
@@ -191,17 +211,41 @@ impl Model for BoundModel {
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
         let mut stream = self.stream(request).await?;
+        let mut text_offsets = std::collections::HashMap::new();
+        let mut completed = std::collections::HashMap::new();
 
         while let Some(event) = stream.next().await {
             match event? {
-                ModelStreamEvent::Response { response } => return Ok(response),
+                ModelStreamEvent::Response { response } => {
+                    if !suppress_stream_deltas {
+                        for message in &response.messages {
+                            self.binding.emit_message(message, &mut completed).await;
+                        }
+                    }
+                    return Ok(response);
+                }
                 ModelStreamEvent::Error { message } => {
                     return Err(anyhow!("model stream error: {message}"));
                 }
-                ModelStreamEvent::TextDelta { text } if !suppress_stream_deltas => {
+                ModelStreamEvent::TextDelta {
+                    message_id,
+                    phase,
+                    text,
+                } if !suppress_stream_deltas => {
+                    let cursor = text_offsets.entry(message_id).or_insert(0);
+                    let offset = *cursor;
+                    *cursor += text.len();
                     self.binding
-                        .emit_delta(Event::AssistantTextDelta { text })
+                        .emit_delta(Event::AssistantTextDelta {
+                            offset,
+                            message_id,
+                            phase,
+                            text,
+                        })
                         .await;
+                }
+                ModelStreamEvent::MessageCompleted { message } if !suppress_stream_deltas => {
+                    self.binding.emit_message(&message, &mut completed).await;
                 }
                 ModelStreamEvent::ToolCallDelta {
                     call_id,

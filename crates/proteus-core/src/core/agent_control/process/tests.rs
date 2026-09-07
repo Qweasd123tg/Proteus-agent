@@ -27,6 +27,9 @@ fn forward_filter_passes_tool_lifecycle_and_drops_child_telemetry() {
         model: ModelRef::new("fake", "fake-model"),
     }));
     assert!(!should_forward_child_event(&Event::AssistantTextDelta {
+        offset: 0,
+        message_id: proteus_contracts::domain::new_message_id(),
+        phase: None,
         text: "chunk".to_owned(),
     }));
     assert!(!should_forward_child_event(&Event::TurnFinished {
@@ -42,9 +45,15 @@ fn turn_tracker_counts_iterations_and_collects_partial_text() {
         model: ModelRef::new("fake", "fake-model"),
     });
     tracker.observe(&Event::AssistantTextDelta {
+        offset: 0,
+        message_id: proteus_contracts::domain::new_message_id(),
+        phase: None,
         text: "first ".to_owned(),
     });
     tracker.observe(&Event::AssistantTextDelta {
+        offset: 0,
+        message_id: proteus_contracts::domain::new_message_id(),
+        phase: None,
         text: "answer".to_owned(),
     });
     tracker.observe(&Event::ModelResponseReceived {
@@ -60,6 +69,9 @@ fn turn_tracker_counts_iterations_and_collects_partial_text() {
         model: ModelRef::new("fake", "fake-model"),
     });
     tracker.observe(&Event::AssistantTextDelta {
+        offset: 0,
+        message_id: proteus_contracts::domain::new_message_id(),
+        phase: None,
         text: "partial tail".to_owned(),
     });
     assert_eq!(tracker.iterations, 2);

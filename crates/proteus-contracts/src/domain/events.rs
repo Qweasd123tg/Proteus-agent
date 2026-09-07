@@ -6,7 +6,7 @@ use crate::domain::{
     AgentOutput, AgentTask, CallId, EventId, MessageId, ModelRef, PatchResult, SessionId, ThreadId,
     ToolCall, ToolResult, TurnId, new_event_id,
 };
-use crate::model_standard::{FinishReason, TokenUsage};
+use crate::model_standard::{FinishReason, MessagePhase, TokenUsage};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -44,7 +44,7 @@ pub struct EventEnvelope {
 impl EventEnvelope {
     pub fn new(context: EventContext, seq: u64, event: Event) -> Self {
         Self {
-            schema_version: 1,
+            schema_version: 2,
             event_id: new_event_id(),
             session_id: context.session_id,
             thread_id: context.thread_id,
@@ -267,6 +267,17 @@ pub enum Event {
     /// `ModelResponseReceived`. UI использует для in-place append;
     /// persistence по умолчанию пропускает (см. `FilteredEventSink`).
     AssistantTextDelta {
+        /// UTF-8 byte offset within this item's presentation text.
+        offset: usize,
+        message_id: MessageId,
+        phase: Option<MessagePhase>,
+        text: String,
+    },
+    /// Полный текст одного assistant item, не terminal output всего turn.
+    /// Тот же id используется в canonical history и при восстановлении UI.
+    AssistantMessageCompleted {
+        message_id: MessageId,
+        phase: Option<MessagePhase>,
         text: String,
     },
     /// Частичные аргументы tool call'а от модели. Приходит построчно

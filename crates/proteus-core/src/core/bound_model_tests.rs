@@ -134,7 +134,11 @@ impl Model for ConcurrentAdapter {
         self.requests.lock().await.push(request);
         self.provider_barrier.wait().await;
         Ok(Box::pin(stream::iter(vec![
-            Ok(ModelStreamEvent::TextDelta { text: case.clone() }),
+            Ok(ModelStreamEvent::TextDelta {
+                message_id: proteus_contracts::domain::new_message_id(),
+                phase: None,
+                text: case.clone(),
+            }),
             Ok(ModelStreamEvent::Response {
                 response: response(&case),
             }),
@@ -370,10 +374,12 @@ async fn concurrent_bound_models_keep_metadata_events_and_journal_attribution_is
     drop(requests);
 
     let captured_events = sink.events.lock().await;
-    assert_eq!(captured_events.len(), 2);
+    assert_eq!(captured_events.len(), 4);
     for envelope in captured_events.iter() {
-        let Event::AssistantTextDelta { text } = &envelope.event else {
-            panic!("unexpected event: {:?}", envelope.event);
+        let text = match &envelope.event {
+            Event::AssistantTextDelta { text, .. }
+            | Event::AssistantMessageCompleted { text, .. } => text,
+            event => panic!("unexpected event: {event:?}"),
         };
         let (thread_id, turn_id) = if text == "A" {
             (thread_a, turn_a)

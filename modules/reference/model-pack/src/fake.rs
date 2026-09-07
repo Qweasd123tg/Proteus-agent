@@ -66,13 +66,22 @@ impl Model for FakeModelClient {
 
         // Stream-режим: бьём текст на слова, эмитим TextDelta каждое,
         // в конце отдаём финальный Response.
-        let words = collect_text(&response);
+        let words = response
+            .messages
+            .iter()
+            .flat_map(|message| {
+                collect_text(message)
+                    .into_iter()
+                    .map(|text| (message.id, message.phase, text))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
         let stream = async_stream::stream! {
-            for word in words {
+            for (message_id, phase, word) in words {
                 if let Some(delay) = chunking.delay {
                     tokio::time::sleep(delay).await;
                 }
-                yield Ok(ModelStreamEvent::TextDelta { text: word });
+                yield Ok(ModelStreamEvent::TextDelta { message_id, phase, text: word });
             }
             yield Ok(ModelStreamEvent::Response { response });
         };
@@ -80,31 +89,11 @@ impl Model for FakeModelClient {
     }
 }
 
-fn collect_text(response: &CanonicalModelResponse) -> Vec<String> {
-    response
-        .messages
-        .iter()
-        .flat_map(|message| message.parts.iter())
-        .filter_map(|part| match &part.payload {
-            ContentPart::Text { text } => Some(text.as_str()),
-            _ => None,
-        })
-        .flat_map(|s| {
-            // Разбиваем по словам, но сохраняем пробелы как часть чанка,
-            // чтобы конкатенация дельт дала оригинальный текст.
-            let mut out = Vec::new();
-            let mut buf = String::new();
-            for ch in s.chars() {
-                buf.push(ch);
-                if ch.is_whitespace() {
-                    out.push(std::mem::take(&mut buf));
-                }
-            }
-            if !buf.is_empty() {
-                out.push(buf);
-            }
-            out
-        })
+fn collect_text(message: &CanonicalMessage) -> Vec<String> {
+    message
+        .display_text()
+        .split_inclusive(char::is_whitespace)
+        .map(str::to_owned)
         .collect()
 }
 
@@ -345,7 +334,7 @@ mod tests {
         let mut got_response = false;
         while let Some(event) = stream.next().await {
             match event.unwrap() {
-                ModelStreamEvent::TextDelta { text } => deltas.push(text),
+                ModelStreamEvent::TextDelta { text, .. } => deltas.push(text),
                 ModelStreamEvent::Response { .. } => {
                     got_response = true;
                     break;

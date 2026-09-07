@@ -49,7 +49,7 @@ impl TurnTracker {
                 self.iterations = self.iterations.saturating_add(1);
                 self.stream_buffer.clear();
             }
-            Event::AssistantTextDelta { text } => {
+            Event::AssistantTextDelta { text, .. } => {
                 self.stream_buffer.push_str(text);
             }
             Event::ModelResponseReceived { .. } => {

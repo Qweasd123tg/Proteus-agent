@@ -23,6 +23,8 @@ pub(crate) struct SessionActivityInfo {
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub(crate) struct TranscriptMessage {
+    pub(crate) message_id: Option<String>,
+    pub(crate) phase: Option<super::MessagePhase>,
     pub(crate) role: String,
     pub(crate) text: String,
     pub(crate) tool: Option<TranscriptTool>,

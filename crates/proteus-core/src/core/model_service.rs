@@ -260,8 +260,16 @@ mod tests {
     #[tokio::test]
     async fn complete_returns_response_drained_from_stream() {
         let adapter = Arc::new(ScriptedAdapter::new(vec![
-            ModelStreamEvent::TextDelta { text: "he".into() },
-            ModelStreamEvent::TextDelta { text: "llo".into() },
+            ModelStreamEvent::TextDelta {
+                message_id: proteus_contracts::domain::new_message_id(),
+                phase: None,
+                text: "he".into(),
+            },
+            ModelStreamEvent::TextDelta {
+                message_id: proteus_contracts::domain::new_message_id(),
+                phase: None,
+                text: "llo".into(),
+            },
             ModelStreamEvent::Response {
                 response: final_response(),
             },
@@ -281,9 +289,13 @@ mod tests {
         .with_end_turn(false);
         let adapter = Arc::new(ScriptedAdapter::new(vec![
             ModelStreamEvent::TextDelta {
+                message_id: proteus_contracts::domain::new_message_id(),
+                phase: None,
                 text: "the time ".into(),
             },
             ModelStreamEvent::TextDelta {
+                message_id: proteus_contracts::domain::new_message_id(),
+                phase: None,
                 text: "is 12:00".into(),
             },
             ModelStreamEvent::Response { response: empty },
@@ -298,7 +310,11 @@ mod tests {
     #[tokio::test]
     async fn deltas_flow_to_emitter_when_context_set() {
         let adapter = Arc::new(ScriptedAdapter::new(vec![
-            ModelStreamEvent::TextDelta { text: "foo".into() },
+            ModelStreamEvent::TextDelta {
+                message_id: proteus_contracts::domain::new_message_id(),
+                phase: None,
+                text: "foo".into(),
+            },
             ModelStreamEvent::ToolCallDelta {
                 call_id: "call-1".into(),
                 name: None,
@@ -332,12 +348,13 @@ mod tests {
             .iter()
             .map(|e| match &e.event {
                 Event::AssistantTextDelta { .. } => "text",
+                Event::AssistantMessageCompleted { .. } => "completed",
                 Event::AssistantToolArgsDelta { .. } => "tool",
                 Event::AssistantReasoningDelta { .. } => "reasoning",
                 _ => "other",
             })
             .collect();
-        assert_eq!(kinds, vec!["text", "tool", "reasoning"]);
+        assert_eq!(kinds, vec!["text", "tool", "reasoning", "completed"]);
     }
 
     #[tokio::test]
@@ -378,7 +395,11 @@ mod tests {
     #[tokio::test]
     async fn request_metadata_can_suppress_stream_deltas() {
         let adapter = Arc::new(ScriptedAdapter::new(vec![
-            ModelStreamEvent::TextDelta { text: "foo".into() },
+            ModelStreamEvent::TextDelta {
+                message_id: proteus_contracts::domain::new_message_id(),
+                phase: None,
+                text: "foo".into(),
+            },
             ModelStreamEvent::ReasoningSummaryDelta {
                 text: "thinking".into(),
             },
@@ -413,7 +434,11 @@ mod tests {
     #[tokio::test]
     async fn deltas_dropped_silently_without_emitter() {
         let adapter = Arc::new(ScriptedAdapter::new(vec![
-            ModelStreamEvent::TextDelta { text: "hi".into() },
+            ModelStreamEvent::TextDelta {
+                message_id: proteus_contracts::domain::new_message_id(),
+                phase: None,
+                text: "hi".into(),
+            },
             ModelStreamEvent::Response {
                 response: final_response(),
             },
@@ -440,6 +465,8 @@ mod tests {
     #[tokio::test]
     async fn stream_ending_with_text_without_response_is_error() {
         let adapter = Arc::new(ScriptedAdapter::new(vec![ModelStreamEvent::TextDelta {
+            message_id: proteus_contracts::domain::new_message_id(),
+            phase: None,
             text: "foo".into(),
         }]));
         let service = ModelService::new(adapter);
@@ -459,6 +486,8 @@ mod tests {
     async fn stream_ending_with_tool_delta_without_response_is_error() {
         let adapter = Arc::new(ScriptedAdapter::new(vec![
             ModelStreamEvent::TextDelta {
+                message_id: proteus_contracts::domain::new_message_id(),
+                phase: None,
                 text: "calling".into(),
             },
             ModelStreamEvent::ToolCallDelta {

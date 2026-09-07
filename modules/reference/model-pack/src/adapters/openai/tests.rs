@@ -356,7 +356,7 @@ fn empty_completed_output_recovered_from_output_item_done() {
     })
     .to_string();
 
-    let events = finalize_completed_event(&completed, &fallback_items, "");
+    let events = finalize_completed_event(&completed, &fallback_items, &[], &Default::default());
     let [ModelStreamEvent::Response { response }] = events.as_slice() else {
         panic!("expected single Response event");
     };
@@ -389,7 +389,12 @@ fn nonempty_completed_output_ignores_fallback_items() {
     })
     .to_string();
 
-    let events = finalize_completed_event(&completed, &fallback_items, "FALLBACK");
+    let events = finalize_completed_event(
+        &completed,
+        &fallback_items,
+        &fallback_items,
+        &Default::default(),
+    );
     let [ModelStreamEvent::Response { response }] = events.as_slice() else {
         panic!("expected single Response event");
     };
@@ -418,11 +423,26 @@ fn empty_completed_output_recovers_streamed_text_in_adapter() {
     })
     .to_string();
 
-    let events = finalize_completed_event(&completed, &[], "streamed answer");
+    let mut stream = super::stream_state::OpenAiStreamState::default();
+    stream.translate("response.output_item.added", &json!({"output_index": 0, "item": {
+        "id": "real-provider-id", "type": "message", "role": "assistant", "phase": "commentary", "content": []
+    }}).to_string());
+    let deltas = stream.translate("response.output_text.delta", &json!({
+        "output_index": 0, "item_id": "real-provider-id", "content_index": 0, "delta": "streamed answer"
+    }).to_string());
+    let ModelStreamEvent::TextDelta { message_id, .. } = deltas[0] else {
+        panic!("delta")
+    };
+    let events = stream.translate("response.completed", &completed);
     let [ModelStreamEvent::Response { response }] = events.as_slice() else {
         panic!("expected single Response event");
     };
     assert_eq!(response.end_turn, Some(false));
+    assert_eq!(response.messages[0].id, message_id);
+    assert_eq!(
+        response.messages[0].phase,
+        Some(proteus_contracts::model_standard::MessagePhase::Commentary)
+    );
     let text = response
         .messages
         .iter()
@@ -915,7 +935,7 @@ fn translate_sse_text_delta() {
     );
     assert_eq!(events.len(), 1);
     match &events[0] {
-        ModelStreamEvent::TextDelta { text } => assert_eq!(text, "hello"),
+        ModelStreamEvent::TextDelta { text, .. } => assert_eq!(text, "hello"),
         other => panic!("expected TextDelta, got {other:?}"),
     }
 }
