@@ -360,16 +360,15 @@ round-trip без изменений, а sensitive keys в metadata и tool argu
 оставаться redacted. Это не меняет journal DTO и само по себе не требует новой
 версии schema.
 
-Model-free workflow пока является локализованным исключением replay v0:
+Model-free workflow проходит тот же replay gate без фиктивного model call.
 `coding.project_check` сохраняет canonical tool facts, history и
-`TurnSettled(Success)` с нулём model records, после чего replay fail-closed
-сообщает, что completed root model exchanges отсутствуют. Нельзя добавлять
-фиктивный model call ради прохождения gate. Characterization и focused
-controller evidence:
+`TurnSettled(Success)` с нулём model records, затем повторяется на записанных
+tool outcomes без исходных model/tool implementations. Focused evidence:
 
 ```bash
 cargo test -p coding-workflow project_check
 cargo test -p proteus-reference-worker --test project_check_workflow -- --nocapture
+cargo test -p proteus-core --lib core::workflow_replay
 ```
 
 Первый test фиксирует code-owned branching: success без context/compaction/
@@ -377,9 +376,14 @@ model, ровно один tool-free model call после test failure и ну�
 для unsupported/policy failures. Второй проходит настоящий
 `AgentRuntime -> component-v3 workflow -> ToolRegistry/policy -> external
 tool/v2` path, проверяет journal/cold history, `eval report` с нулём model
-calls, одобренный shell lifecycle и exact replay rejection. После
-реализации model-free replay последний expectation должен быть заменён на
-matched replay, а не сохранён compatibility branch-ом.
+calls, одобренный shell lifecycle и matched replay для passing tests и
+остановки на tool failure. Для replay из каталога удаляются исходные model и
+tools; history/output совпадают, source journal не меняется.
+Третий gate проверяет также root `Error` до первого model call, отличает
+отсутствующий exchange от оборванного и не допускает ложного match после
+перехваченных ошибок незаписанных model/tool calls или недоступных
+context/tool exposure/compaction данных. Он сохраняет проверки обычного
+model/tool replay и changed compaction.
 
 Намеренный divergence:
 
