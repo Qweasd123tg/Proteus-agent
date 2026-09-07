@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 exclude = [
+    "clients/common",
     "clients/web",
     "clients/inspector",
     "modules/research/tool-output-artifacts",

@@ -1084,12 +1084,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "proteus-client-common"
+version = "0.0.0-dev"
+dependencies = [
+ "serde",
+ "url",
+]
+
+[[package]]
 name = "proteus-inspector"
 version = "0.0.0-dev"
 dependencies = [
  "console_error_panic_hook",
  "js-sys",
  "leptos",
+ "proteus-client-common",
  "send_wrapper",
  "serde",
  "serde_json",

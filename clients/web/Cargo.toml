@@ -9,6 +9,7 @@ description = "Leptos web client for Proteus"
 console_error_panic_hook = "0.1"
 leptos = { version = "0.8.19", features = ["csr"] }
 pulldown-cmark = "0.13"
+proteus-client-common = { path = "../common" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 js-sys = "0.3"

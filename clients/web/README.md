@@ -113,8 +113,10 @@ AppServer HTTP по примеру выше слушает `http://127.0.0.1:878
 http://127.0.0.1:1420/?server=http%3A%2F%2F127.0.0.1%3A9000
 ```
 
-Клиент сохраняет это значение в `sessionStorage` под ключом
-`proteus.appServerOrigin`.
+Клиент принимает только local HTTP(S) origin (`localhost` или loopback IP),
+нормализует его URL parser-ом и сохраняет в `sessionStorage` под ключом
+`proteus.appServerOrigin`. Path, query, fragment, userinfo и удалённые hosts
+отклоняются.
 Откройте web-клиент:
 
 ```text
@@ -125,6 +127,13 @@ http://127.0.0.1:1420/
 `--token "$PROTEUS_SESSION_TOKEN"` app-server и открыть
 `http://127.0.0.1:1420/?token=<PROTEUS_SESSION_TOKEN>`. Если одновременно
 нужен custom app-server origin, используйте `?server=...&token=...`.
+Credential хранится вместе с точным нормализованным app-server origin. Поэтому
+переход на другой `server` без нового `token` сбрасывает прежний token, а не
+отправляет его новому endpoint. Старый несвязанный ключ
+`proteus.sessionToken` не читается.
+Автоматический перенос token в Inspector выполняется только для штатного
+`http://127.0.0.1:1421`; ссылка на custom Inspector origin не содержит token и
+требует отдельного pairing.
 
 ## Граница
 

@@ -1,0 +1,10 @@
+[package]
+name = "proteus-client-common"
+version = "0.0.0-dev"
+edition = "2024"
+publish = false
+description = "Shared browser-client origin and credential rules for Proteus"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+url = "2"

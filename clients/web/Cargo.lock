@@ -1176,6 +1176,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "proteus-client-common"
+version = "0.0.0-dev"
+dependencies = [
+ "serde",
+ "url",
+]
+
+[[package]]
 name = "proteus-contracts"
 version = "0.0.0-dev"
 dependencies = [
@@ -1198,6 +1206,7 @@ dependencies = [
  "console_error_panic_hook",
  "js-sys",
  "leptos",
+ "proteus-client-common",
  "proteus-contracts",
  "pulldown-cmark",
  "serde",

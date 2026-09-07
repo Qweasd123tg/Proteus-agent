@@ -1,5 +1,9 @@
 use std::cell::RefCell;
 
+use proteus_client_common::{
+    CredentialStorageUpdate, SessionCredential, credential_for_client_link, normalize_local_origin,
+    resolve_credential,
+};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
@@ -14,7 +18,8 @@ const CHAT_QUERY_KEY: &str = "chat";
 const SESSION_QUERY_KEY: &str = "token";
 const SERVER_STORAGE_KEY: &str = "proteus.appServerOrigin";
 const CHAT_STORAGE_KEY: &str = "proteus.chatOrigin";
-const SESSION_STORAGE_KEY: &str = "proteus.sessionToken";
+const SESSION_CREDENTIAL_STORAGE_KEY: &str = "proteus.sessionCredential";
+const LEGACY_SESSION_STORAGE_KEY: &str = "proteus.sessionToken";
 
 thread_local! {
     static APP_SERVER_ORIGIN: RefCell<String> = RefCell::new(DEFAULT_APP_SERVER_ORIGIN.to_owned());
@@ -25,18 +30,13 @@ thread_local! {
 pub(crate) fn load_session_token() -> Result<SessionToken, String> {
     load_app_server_origin()?;
     load_chat_origin()?;
-    let token = if let Some(token) = query_session_token() {
-        persist_session_token(&token)?;
-        token
-    } else if let Some(storage) = session_storage()? {
-        if let Some(value) = storage.get_item(SESSION_STORAGE_KEY).map_err(js_error)? {
-            SessionToken::new(value)
-        } else {
-            SessionToken::missing()
-        }
-    } else {
-        SessionToken::missing()
-    };
+    let stored = load_stored_credential()?;
+    let resolved = resolve_credential(&app_server_origin(), query_value(SESSION_QUERY_KEY), stored);
+    update_stored_credential(&resolved.storage_update)?;
+    let token = resolved
+        .token
+        .map(SessionToken::new)
+        .unwrap_or_else(SessionToken::missing);
 
     SESSION_TOKEN.with(|stored| *stored.borrow_mut() = token.clone());
     Ok(token)
@@ -134,15 +134,14 @@ fn current_session_token() -> SessionToken {
 }
 
 fn load_app_server_origin() -> Result<(), String> {
-    let origin = if let Some(origin) = query_app_server_origin() {
+    let origin = if let Some(origin) = query_app_server_origin()? {
         persist_app_server_origin(&origin)?;
         origin
     } else if let Some(storage) = session_storage()? {
-        storage
-            .get_item(SERVER_STORAGE_KEY)
-            .map_err(js_error)?
-            .map(normalize_app_server_origin)
-            .unwrap_or_else(|| DEFAULT_APP_SERVER_ORIGIN.to_owned())
+        match storage.get_item(SERVER_STORAGE_KEY).map_err(js_error)? {
+            Some(origin) => normalize_local_origin(&origin)?,
+            None => DEFAULT_APP_SERVER_ORIGIN.to_owned(),
+        }
     } else {
         DEFAULT_APP_SERVER_ORIGIN.to_owned()
     };
@@ -153,7 +152,7 @@ fn load_app_server_origin() -> Result<(), String> {
 
 fn load_chat_origin() -> Result<(), String> {
     let origin = if let Some(origin) = query_value(CHAT_QUERY_KEY) {
-        let origin = normalize_origin(origin, DEFAULT_CHAT_ORIGIN);
+        let origin = normalize_local_origin(&origin)?;
         if let Some(storage) = session_storage()? {
             storage
                 .set_item(CHAT_STORAGE_KEY, &origin)
@@ -164,7 +163,8 @@ fn load_chat_origin() -> Result<(), String> {
         storage
             .get_item(CHAT_STORAGE_KEY)
             .map_err(js_error)?
-            .map(|origin| normalize_origin(origin, DEFAULT_CHAT_ORIGIN))
+            .map(|origin| normalize_local_origin(&origin))
+            .transpose()?
             .unwrap_or_else(|| DEFAULT_CHAT_ORIGIN.to_owned())
     } else {
         DEFAULT_CHAT_ORIGIN.to_owned()
@@ -180,7 +180,10 @@ fn load_chat_origin() -> Result<(), String> {
 pub(crate) fn chat_link_url() -> String {
     let origin = CHAT_ORIGIN.with(|stored| stored.borrow().clone());
     let mut params = Vec::new();
-    if let Some(token) = current_session_token().as_deref() {
+    let current_token = current_session_token();
+    if let Some(token) =
+        credential_for_client_link(&origin, DEFAULT_CHAT_ORIGIN, current_token.as_deref())
+    {
         params.push(format!("token={}", encode_uri_component(token)));
     }
     params.push(format!(
@@ -202,12 +205,10 @@ fn app_server_url(path: &str) -> String {
     format!("{}{}", app_server_origin(), path)
 }
 
-fn query_app_server_origin() -> Option<String> {
-    query_value(SERVER_QUERY_KEY).map(normalize_app_server_origin)
-}
-
-fn query_session_token() -> Option<SessionToken> {
-    query_value(SESSION_QUERY_KEY).map(SessionToken::new)
+fn query_app_server_origin() -> Result<Option<String>, String> {
+    query_value(SERVER_QUERY_KEY)
+        .map(|origin| normalize_local_origin(&origin))
+        .transpose()
 }
 
 fn query_value(expected_key: &str) -> Option<String> {
@@ -235,16 +236,46 @@ fn persist_app_server_origin(origin: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn persist_session_token(token: &SessionToken) -> Result<(), String> {
-    let Some(value) = token.as_deref() else {
+fn load_stored_credential() -> Result<Option<SessionCredential>, String> {
+    let Some(storage) = session_storage()? else {
+        return Ok(None);
+    };
+    storage
+        .remove_item(LEGACY_SESSION_STORAGE_KEY)
+        .map_err(js_error)?;
+    let Some(value) = storage
+        .get_item(SESSION_CREDENTIAL_STORAGE_KEY)
+        .map_err(js_error)?
+    else {
+        return Ok(None);
+    };
+    match serde_json::from_str(&value) {
+        Ok(credential) => Ok(Some(credential)),
+        Err(_) => {
+            storage
+                .remove_item(SESSION_CREDENTIAL_STORAGE_KEY)
+                .map_err(js_error)?;
+            Ok(None)
+        }
+    }
+}
+
+fn update_stored_credential(update: &CredentialStorageUpdate) -> Result<(), String> {
+    let Some(storage) = session_storage()? else {
         return Ok(());
     };
-    if let Some(storage) = session_storage()? {
-        storage
-            .set_item(SESSION_STORAGE_KEY, value)
-            .map_err(js_error)?;
+    match update {
+        CredentialStorageUpdate::Keep => Ok(()),
+        CredentialStorageUpdate::Replace(credential) => storage
+            .set_item(
+                SESSION_CREDENTIAL_STORAGE_KEY,
+                &serde_json::to_string(credential).map_err(|error| error.to_string())?,
+            )
+            .map_err(js_error),
+        CredentialStorageUpdate::Remove => storage
+            .remove_item(SESSION_CREDENTIAL_STORAGE_KEY)
+            .map_err(js_error),
     }
-    Ok(())
 }
 
 fn session_storage() -> Result<Option<web_sys::Storage>, String> {
@@ -260,19 +291,6 @@ fn decode_uri_component(value: &str) -> Option<String> {
 
 fn encode_uri_component(value: &str) -> String {
     js_sys::encode_uri_component(value).into()
-}
-
-fn normalize_app_server_origin(origin: String) -> String {
-    normalize_origin(origin, DEFAULT_APP_SERVER_ORIGIN)
-}
-
-fn normalize_origin(origin: String, fallback: &str) -> String {
-    let origin = origin.trim().trim_end_matches('/');
-    if origin.is_empty() {
-        fallback.to_owned()
-    } else {
-        origin.to_owned()
-    }
 }
 
 fn http_error(status: u16, text: &str) -> String {

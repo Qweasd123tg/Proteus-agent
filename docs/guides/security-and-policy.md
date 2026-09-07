@@ -90,7 +90,15 @@ browser `EventSource` не выставляет произвольные headers
 requests предпочтителен `X-Proteus-Session` или
 `Authorization: Bearer <token>`. Raw token не печатать в обычные logs и не
 класть в `localStorage`; текущие clients используют in-memory state или
-`sessionStorage`.
+`sessionStorage`. Browser clients принимают app-server и взаимные client links
+только как local HTTP(S) origin (`localhost` или loopback IP) без path/query,
+userinfo и fragment. Session credential хранится вместе с точным
+нормализованным app-server origin: смена `server` без нового `token` удаляет
+credential, поэтому token предыдущего endpoint не попадает ни в fetch/SSE, ни
+в ссылку между chat и Inspector. Устаревший origin-less ключ token не читается.
+Автоматический перенос token между browser clients разрешён только на
+packaged sibling origin (`127.0.0.1:1420`/`:1421`); custom UI origin открывается
+без token и требует отдельного pairing.
 
 Direct CLI и HTTP server boundary fail-closed связывают non-loopback bind с
 обязательным token: например, `--host 0.0.0.0` или `--host ::` без `--token`

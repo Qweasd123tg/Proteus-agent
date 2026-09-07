@@ -61,6 +61,14 @@ http://127.0.0.1:1421/?token=<PROTEUS_SESSION_TOKEN>
 ```
 
 Custom app-server origin и token можно совмещать как `?server=...&token=...`.
+Допустим только local HTTP(S) origin (`localhost` или loopback IP) без path,
+query, fragment и userinfo. Credential хранится вместе с точным
+нормализованным app-server origin: смена `server` без нового `token` удаляет
+прежний token. Это же правило действует при переходах между Inspector и chat;
+старый несвязанный ключ `proteus.sessionToken` не читается.
+Автоматический перенос token в chat выполняется только для штатного
+`http://127.0.0.1:1420`; ссылка на custom chat origin не содержит token и
+требует отдельного pairing.
 
 ## Граница
 
