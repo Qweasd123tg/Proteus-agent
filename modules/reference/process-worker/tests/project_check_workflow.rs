@@ -41,7 +41,7 @@ fn component(value: serde_json::Value) -> ProcessComponentConfig {
     serde_json::from_value(value).expect("valid process component config")
 }
 
-async fn project_check_config() -> AppConfig {
+async fn project_check_config(git_failure: bool) -> AppConfig {
     let profile = workspace_file("examples/configs/proteus.project-check.example.toml");
     let mut config = AppConfig::load(Some(&profile))
         .await
@@ -65,7 +65,10 @@ async fn project_check_config() -> AppConfig {
             "args": [workspace_file(
                 "modules/reference/process-worker/tests/fixtures/project_check_tools.py"
             )],
-            "env": { "PYTHONDONTWRITEBYTECODE": "1" },
+            "env": {
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PROJECT_CHECK_GIT_FAILURE": git_failure.to_string(),
+            },
             "exports": {
                 "tool": { "project-check-fixture-tools": {} },
             },
@@ -75,11 +78,27 @@ async fn project_check_config() -> AppConfig {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn deterministic_controller_records_zero_model_calls_and_localizes_replay_gap() {
+async fn deterministic_controller_replays_without_model_or_tool_implementations() {
+    check_model_free_replay(false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deterministic_controller_replays_recorded_tool_failure() {
+    check_model_free_replay(true).await;
+}
+
+async fn check_model_free_replay(git_failure: bool) {
     let config_root = tempfile::tempdir().expect("config root");
     let workspace = tempfile::tempdir().expect("workspace");
     let config_path = config_root.path().join("config.toml");
-    let config = project_check_config().await;
+    let config = project_check_config(git_failure).await;
+    let expected_status = if git_failure { "blocked" } else { "passed" };
+    let expected_tools = if git_failure {
+        vec!["git_status"]
+    } else {
+        vec!["git_status", "list_dir", "shell"]
+    };
+    let expected_approvals = if git_failure { 0 } else { 1 };
     let catalog = ModuleCatalog::from_config(&config).expect("project-check module catalog");
     let runtime = AgentRuntime::builder(config.clone(), workspace.path().to_path_buf())
         .with_config_path(Some(&config_path))
@@ -93,12 +112,16 @@ async fn deterministic_controller_records_zero_model_calls_and_localizes_replay_
         .run("проверь проект".to_owned())
         .await
         .expect("deterministic project check");
-    assert!(output.text.contains("завершена успешно"));
+    assert!(output.text.contains(if git_failure {
+        "остановлена"
+    } else {
+        "завершена успешно"
+    }));
     assert_eq!(
         output.metadata["workflow"]["module_id"],
         "coding.project_check"
     );
-    assert_eq!(output.metadata["project_check"]["status"], "passed");
+    assert_eq!(output.metadata["project_check"]["status"], expected_status);
     assert_eq!(output.metadata["project_check"]["model_calls"], 0);
 
     let session_dir = runtime.session_dir().expect("session dir").to_path_buf();
@@ -130,7 +153,7 @@ async fn deterministic_controller_records_zero_model_calls_and_localizes_replay_
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(requested_tools, ["git_status", "list_dir", "shell"]);
+    assert_eq!(requested_tools, expected_tools);
     let settlement = projection
         .records
         .iter()
@@ -142,31 +165,45 @@ async fn deterministic_controller_records_zero_model_calls_and_localizes_replay_
     assert_eq!(settlement.status, TurnSettlementStatus::Success);
     assert_eq!(
         settlement.output.as_ref().expect("settled output").metadata["project_check"]["status"],
-        "passed"
+        expected_status
     );
     let eval = read_eval_report(&session_dir).expect("model-free eval report");
     assert!(eval.succeeded());
     assert_eq!(eval.model_calls, 0);
-    assert_eq!(eval.tool_calls, 3);
-    assert_eq!(eval.tool_failures, 0);
-    assert_eq!(eval.approvals_requested, 1);
-    assert_eq!(eval.approvals_resolved, 1);
-    assert_eq!(eval.approvals_approved, 1);
+    assert_eq!(eval.tool_calls, expected_tools.len());
+    assert_eq!(eval.tool_failures, usize::from(git_failure));
+    assert_eq!(eval.approvals_requested, expected_approvals);
+    assert_eq!(eval.approvals_resolved, expected_approvals);
+    assert_eq!(eval.approvals_approved, expected_approvals);
 
     drop(runtime);
-    let replay_catalog = ModuleCatalog::from_config(&config).expect("replay module catalog");
-    let replay_error = replay_workflow(
+    let mut replay_config = config.clone();
+    replay_config.components.remove("project-check-tools");
+    replay_config.components.insert(
+        "project-check-controller".to_owned(),
+        component(json!({
+            "command": env!("CARGO_BIN_EXE_proteus-reference-worker"),
+            "exports": {
+                "workflow": { "coding.project_check": {} },
+                "policy": { "ask_write": {} },
+            },
+        })),
+    );
+    let replay_catalog = ModuleCatalog::from_config(&replay_config).expect("replay module catalog");
+    let report = replay_workflow(
         &session_dir,
-        &config,
+        &replay_config,
         &replay_catalog,
         WorkflowReplayOptions::default(),
     )
     .await
-    .expect_err("current workflow replay requires a model exchange");
-    assert!(
-        replay_error
-            .to_string()
-            .contains("contains no completed root model exchanges"),
-        "{replay_error:#}"
-    );
+    .expect("model-free workflow replay");
+    assert!(report.comparison.matched, "{:?}", report.comparison.issues);
+    assert_eq!(report.model_exchanges.recorded, 0);
+    assert_eq!(report.model_exchanges.replayed, 0);
+    assert_eq!(report.tool_calls.recorded, expected_tools.len());
+    assert_eq!(report.tool_calls.replayed, expected_tools.len());
+    assert_eq!(report.comparison.history_equal, Some(true));
+    assert_eq!(report.comparison.output_equal, Some(true));
+    assert!(report.source_journal_unchanged);
 }

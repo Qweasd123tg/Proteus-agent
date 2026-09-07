@@ -27,6 +27,7 @@ use crate::{
 };
 
 mod compaction;
+mod model_free;
 mod terminal;
 
 const WORKFLOW_ID: &str = "replay.probe";

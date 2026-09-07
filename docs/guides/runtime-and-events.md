@@ -763,21 +763,30 @@ journal с единственным turn-ом; при нескольких turns
 Module ids, model/reasoning, tool specs и default permission mode берутся из
 `turn_opened.config_snapshot`. Текущий `--config` предоставляет module factory
 settings и instruction blocks, необходимые для построения записанных Workflow и
-Policy. Реальные model adapters, process modules, subagents и tool
-implementations не создаются: model responses, approval decisions и tool
-results последовательно подставляются из journal, а context, compaction и tool
+Policy. Их process implementations запускаются; реальные model adapters,
+context providers, subagents и tool implementations не создаются: model
+responses, approval decisions и tool results последовательно подставляются из
+journal, а context, compaction и tool
 exposure восстанавливаются из canonical records.
 
-Replay идёт через обычные Workflow, `ModelService`, `ApprovalPolicy`,
+Replay идёт через обычные Workflow, `ApprovalPolicy`,
 `ToolRegistry`, agent-адаптер `ToolOrchestrator` и generic mechanism
 `BoundTools`, поэтому проверяет фактический orchestration path, но не повторяет
-provider-hosted или local side effects. Он сравнивает
+provider-hosted или local tool side effects. При наличии model exchanges
+запросы проходят обычный `ModelService` с записанным model outcome. Он сравнивает
 post-shaping model requests, tool request/approval/resolution/result, changed
 compaction reports, settlement, output и итоговую history; построение финальной
 history проходит общий runtime validator. Допустимая нормализация ограничена
 заново создаваемыми message/part ids, generated inner call ids и
 `ToolResult.metadata.duration_ms`, включая зависящий от него итоговый
 `AgentOutput.metadata.context.token_estimate`.
+
+Turn без model exchanges также поддерживается: например, `coding.project_check`
+воспроизводит passing tests или остановку на tool failure по tool facts и
+settlement. Фиктивная модель не вызывается. Без записанного model request
+нельзя восстановить context, tool exposure или compaction input; запрос этих
+данных отмечается как divergence. Незаписанный model/tool call также остаётся
+divergence, даже если Workflow перехватил ошибку и вернул прежний итог.
 
 Текущий workflow replay не эмулирует root steering decorator: turn с доставленным steering или
 follow-up отклоняется fail-closed. Незавершённые model/tool pairs, overlap turns

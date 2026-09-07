@@ -33,7 +33,7 @@ pub(super) use adapters::{
 pub(super) struct ReplayState {
     inner: Mutex<ReplayStateInner>,
     capabilities: ModelCapabilities,
-    context: ContextBundle,
+    context: Option<ContextBundle>,
     registered_tool_names: HashSet<String>,
 }
 
@@ -71,11 +71,14 @@ impl ReplayState {
         exchanges: Vec<RecordedModelExchange>,
         tools: Vec<RecordedToolInvocation>,
         compactions: Vec<HistoryCompactionReport>,
-        context: ContextBundle,
+        context: Option<ContextBundle>,
         registered_tool_names: HashSet<String>,
         snapshot_reasoning: &ReasoningConfig,
     ) -> Self {
-        let capabilities = replay_capabilities(&exchanges[0].request, snapshot_reasoning);
+        let capabilities = exchanges
+            .first()
+            .map(|exchange| replay_capabilities(&exchange.request, snapshot_reasoning))
+            .unwrap_or_else(ModelCapabilities::empty);
         Self {
             inner: Mutex::new(ReplayStateInner {
                 exchanges,
@@ -111,17 +114,25 @@ impl ReplayState {
         self.capabilities.clone()
     }
 
-    pub fn context(&self) -> ContextBundle {
-        self.context.clone()
+    pub fn context(&self) -> Result<ContextBundle> {
+        match &self.context {
+            Some(context) => Ok(context.clone()),
+            None => mismatch(
+                &mut self.lock(),
+                "workflow requested context without a recorded model request; the journal has no replayable context bundle".to_owned(),
+            ),
+        }
     }
 
     pub fn current_request(&self) -> Result<CanonicalModelRequest> {
-        let inner = self.lock();
-        inner
-            .exchanges
-            .get(inner.next_exchange)
-            .map(|exchange| exchange.request.clone())
-            .ok_or_else(|| anyhow!("workflow requested another host capability after all recorded model exchanges were consumed"))
+        let mut inner = self.lock();
+        match inner.exchanges.get(inner.next_exchange) {
+            Some(exchange) => Ok(exchange.request.clone()),
+            None => mismatch(
+                &mut inner,
+                "workflow requested tool exposure or compaction without a remaining recorded model request".to_owned(),
+            ),
+        }
     }
 
     pub fn consume_model_request(
@@ -322,7 +333,10 @@ impl ReplayState {
 
     fn record_tool_requested(&self, call: &ToolCall) -> Result<()> {
         let mut inner = self.lock();
-        let index = match_tool_index(&inner, call)?;
+        let index = match match_tool_index(&inner, call) {
+            Ok(index) => index,
+            Err(error) => return mismatch(&mut inner, error.to_string()),
+        };
         if inner.tools[index].requested {
             return mismatch(
                 &mut inner,

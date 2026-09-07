@@ -1,8 +1,14 @@
 use super::*;
 
-async fn terminal_journal(
+pub(super) enum TerminalModel {
+    Absent,
+    Pending,
+    Outcome(ModelResponseOutcome),
+}
+
+pub(super) async fn terminal_journal(
     status: TurnSettlementStatus,
-    model_outcome: Option<ModelResponseOutcome>,
+    model: TerminalModel,
     settlement_error: &str,
 ) -> TestJournal {
     let config_dir = tempfile::tempdir().expect("config dir");
@@ -36,17 +42,19 @@ async fn terminal_journal(
         .expect("user history");
 
     let exchange_id = new_exchange_id();
-    store
-        .append_execution_journal_entry(
-            attribution,
-            JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
-                exchange_id,
-                request: recorded_request(session_id, thread_id, turn_id, vec![user], spec),
-            }),
-        )
-        .await
-        .expect("model request");
-    if let Some(outcome) = model_outcome {
+    if !matches!(model, TerminalModel::Absent) {
+        store
+            .append_execution_journal_entry(
+                attribution,
+                JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
+                    exchange_id,
+                    request: recorded_request(session_id, thread_id, turn_id, vec![user], spec),
+                }),
+            )
+            .await
+            .expect("model request");
+    }
+    if let TerminalModel::Outcome(outcome) = model {
         store
             .append_execution_journal_entry(
                 attribution,
@@ -86,7 +94,7 @@ async fn terminal_workflow_error_replays_as_a_matching_outcome() {
     let settlement_error = "model stream error: recorded provider failure";
     let journal = terminal_journal(
         TurnSettlementStatus::Error,
-        Some(ModelResponseOutcome::Error {
+        TerminalModel::Outcome(ModelResponseOutcome::Error {
             message: model_error.to_owned(),
         }),
         settlement_error,
@@ -125,7 +133,12 @@ async fn canceled_and_timeout_turns_fail_closed_before_incomplete_exchange_selec
             "runtime-owned timeout boundary",
         ),
     ] {
-        let journal = terminal_journal(status, None, "runtime-owned terminal boundary").await;
+        let journal = terminal_journal(
+            status,
+            TerminalModel::Pending,
+            "runtime-owned terminal boundary",
+        )
+        .await;
         let before = std::fs::read(journal.store.journal_path()).expect("journal before");
 
         let error = replay_workflow(

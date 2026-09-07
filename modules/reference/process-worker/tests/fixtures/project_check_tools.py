@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -107,6 +108,10 @@ def invoke(context, method, params):
     call = params.get("call") or {}
     name = call.get("name")
     if name == "git_status":
+        if os.environ.get("PROJECT_CHECK_GIT_FAILURE") == "true":
+            failed = result(call, "", {"fixture": True})
+            failed["result"].update(ok=False, error="recorded git failure")
+            return failed
         return result(call, "## main", {"fixture": True})
     if name == "list_dir":
         if (call.get("args") or {}).get("path") != ".":

@@ -274,18 +274,20 @@ git_status
 model и не читает history. Runnable profile:
 `examples/configs/proteus.project-check.example.toml`.
 
+Canonical journal, cold history и workflow replay принимают его Turn без model
+records. Replay повторяет controller на записанных tool outcomes, включая
+approval и ошибку инструмента; исходные tools и model provider не создаются.
+
 Probe одновременно локализует оставшийся coupling, не разрешая новую Core
 migration автоматически:
 
 - `workflow/v3` input и tool callback всё ещё требуют agent-shaped
   `AgentTask`, а invocation несёт history и session/thread/turn ids;
-- `AppConfig` всё ещё требует active model даже для model-free success path;
-- canonical journal и cold history принимают Turn без model records, но
-  workflow replay v0 пока отвергает его до запуска controller-а, потому что
-  требует хотя бы один completed root model exchange.
+- `AppConfig` всё ещё требует active model даже для model-free success path.
 
-Последний пункт закреплён runtime characterization test-ом. Добавлять fake
-model call ради replay запрещено: это скрыло бы именно проверяемую границу.
+Runtime/replay gate закреплён в `project_check_workflow`: model/tool
+implementations отсутствуют в replay-каталоге, итог и history совпадают.
+Добавлять fake model call ради replay запрещено.
 
 ## Execution Context И Recording
 
@@ -362,9 +364,10 @@ InvocationRef не взаимозаменяемы; broker lineage не пере�
 
 Prompt replay повторяет один сохранённый provider-neutral model request;
 workflow replay заново запускает Workflow с записанными model/tool outcomes.
-Текущий replay v0 требует минимум один model outcome и поэтому ещё не
-поддерживает model-free Turn `coding.project_check`, хотя его tool facts,
-history и settlement уже сохраняются канонически.
+Model outcome не обязателен: model-free Turn воспроизводится по tool facts,
+history и settlement. Без model request журнал не даёт replayable context,
+tool exposure и compaction input; запрос таких данных или незаписанный model/
+tool call отмечается как divergence, даже если Workflow перехватил ошибку.
 Они проверяют эквивалентность и projection, но не продолжают suspended Rust
 future после crash. Program counter, stack, local workflow variables, steering
 queue и cancellation token journal не восстанавливает.

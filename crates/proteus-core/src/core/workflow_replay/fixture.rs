@@ -27,7 +27,7 @@ pub(super) struct WorkflowReplayFixture {
     pub snapshot: SessionConfigSnapshot,
     pub initial_history: Vec<CanonicalMessage>,
     pub final_history: Vec<CanonicalMessage>,
-    pub context: ContextBundle,
+    pub context: Option<ContextBundle>,
     pub exchanges: Vec<RecordedModelExchange>,
     pub tools: Vec<RecordedToolInvocation>,
     pub compactions: Vec<HistoryCompactionReport>,
@@ -77,13 +77,10 @@ pub(super) fn load_fixture(
     ensure_replayable_settlement(turn_id, &settlement)?;
     let history = select_history(&projection.records, turn_id, thread_id, &opened)?;
     let exchanges = select_exchanges(&projection.records, execution_id, thread_id)?;
-    if exchanges.is_empty() {
-        bail!(
-            "turn {turn_id} contains no completed root model exchanges; workflow replay needs at least one recorded model outcome"
-        );
-    }
     let tools = select_tools(&projection.records, execution_id, thread_id)?;
-    let context = recorded_context(&exchanges[0].request, &settlement);
+    let context = exchanges
+        .first()
+        .map(|exchange| recorded_context(&exchange.request, &settlement));
 
     Ok(WorkflowReplayFixture {
         journal_path: store.journal_path(),

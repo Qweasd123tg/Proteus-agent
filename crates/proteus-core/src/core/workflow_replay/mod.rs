@@ -86,11 +86,10 @@ pub async fn replay_workflow(
     replay_config.profile.name = fixture.snapshot.profile_name.clone();
     replay_config.modules = fixture.snapshot.modules.clone();
     replay_config.permissions.mode = fixture.snapshot.permission_mode_default;
-    let context_providers = catalog.build_context_providers(&fixture.opened.task.cwd)?;
     let build_ctx = ModuleBuildContext {
         config: &replay_config,
         cwd: &fixture.opened.task.cwd,
-        context_providers: &context_providers,
+        context_providers: &[],
     };
     let workflow = catalog
         .build_workflow(&workflow_id, &build_ctx)
@@ -108,18 +107,23 @@ pub async fn replay_workflow(
 
     let event_store = Arc::new(InMemoryEventStore::new());
     let events = Arc::new(EventEmitter::new(event_store));
-    let model_service = Arc::new(ModelService::new(Arc::new(ReplayModel::new(state.clone()))));
     let scope = ExecutionScope::fresh(CancellationToken::new());
-    let model_binding = ModelExecutionBinding::for_turn(
-        scope.clone(),
-        events.clone(),
-        fixture.session_id,
-        fixture.thread_id,
-        fixture.turn_id,
-        Arc::new(NoopExecutionRecorder),
-    );
-    let model: Arc<dyn crate::contracts::Model> =
-        Arc::new(BoundModel::new(model_service, model_binding));
+    let model: Arc<dyn crate::contracts::Model> = if fixture.exchanges.is_empty() {
+        // No provider capabilities were recorded. Reject calls at the oracle
+        // before shaping can fail: even a caught error must mark divergence.
+        Arc::new(ReplayModel::new(state.clone()))
+    } else {
+        let model_service = Arc::new(ModelService::new(Arc::new(ReplayModel::new(state.clone()))));
+        let model_binding = ModelExecutionBinding::for_turn(
+            scope.clone(),
+            events.clone(),
+            fixture.session_id,
+            fixture.thread_id,
+            fixture.turn_id,
+            Arc::new(NoopExecutionRecorder),
+        );
+        Arc::new(BoundModel::new(model_service, model_binding))
+    };
     let approval: Arc<dyn crate::contracts::ApprovalTransport> =
         Arc::new(ReplayApprovalTransport::new(state.clone()));
     let execution_context = ExecutionContext::new(
