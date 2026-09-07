@@ -24,35 +24,9 @@ use serde_json::{Value, json};
 
 const INVOCATION_TIMEOUT: Duration = Duration::from_secs(3);
 
-fn main() -> Result<()> {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(2)
-        .enable_all()
-        .build()?;
-    runtime.block_on(async {
-        strict_handshake_and_out_of_order_responses().await?;
-        concurrent_exports_and_same_component_reentrancy().await?;
-        overlapping_callbacks_keep_parent_authority().await?;
-        sibling_parent_is_a_documented_trusted_component_boundary().await?;
-        targeted_cancel_keeps_sibling_and_generation().await?;
-        dropped_terminal_receiver_cancels_owned_work().await?;
-        deadline_cancel_is_targeted().await?;
-        queued_admission_is_bounded_and_cancellable().await?;
-        parent_cancel_cascades_during_callback().await?;
-        uncooperative_cancel_resets_failure_domain().await?;
-        stopped_worker_reader_cannot_block_cancel_grace().await?;
-        live_notifications_are_routed_by_invocation().await?;
-        notification_overflow_does_not_block_terminal().await?;
-        nested_reserve_survives_saturated_roots().await?;
-        callback_depth_and_count_are_bounded().await?;
-        queued_invocations_are_not_worker_addressable().await?;
-        protocol_faults_fail_closed_and_restart_lazily().await?;
-        crash_and_resource_fault_fan_out().await?;
-        bootstrap_closes_after_runtime_traffic().await?;
-        Ok(())
-    })
-}
-
+// Every scenario owns its broker and fixture child process; the fixture has no
+// mutable cross-process state. Libtest may therefore run these independently.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn concurrent_exports_and_same_component_reentrancy() -> Result<()> {
     let broker = broker(ComponentBrokerOptions::default())?;
     let dispatcher = Arc::new(NestedDispatcher::new(broker.downgrade()));
@@ -91,6 +65,7 @@ async fn concurrent_exports_and_same_component_reentrancy() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn overlapping_callbacks_keep_parent_authority() -> Result<()> {
     let broker = broker(ComponentBrokerOptions::default())?;
     let workflow_seen = Arc::new(Mutex::new(Vec::new()));
@@ -142,6 +117,7 @@ async fn overlapping_callbacks_keep_parent_authority() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sibling_parent_is_a_documented_trusted_component_boundary() -> Result<()> {
     let broker = broker(ComponentBrokerOptions::default())?;
     let owner_seen = Arc::new(Mutex::new(Vec::new()));
@@ -183,6 +159,7 @@ async fn sibling_parent_is_a_documented_trusted_component_boundary() -> Result<(
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn targeted_cancel_keeps_sibling_and_generation() -> Result<()> {
     let broker = broker(ComponentBrokerOptions::default())?;
     let workflow = export("workflow", "fixture.workflow");
@@ -212,6 +189,7 @@ async fn targeted_cancel_keeps_sibling_and_generation() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn dropped_terminal_receiver_cancels_owned_work() -> Result<()> {
     let broker = broker(ComponentBrokerOptions::default())?;
     let target = broker
@@ -240,6 +218,7 @@ async fn dropped_terminal_receiver_cancels_owned_work() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn deadline_cancel_is_targeted() -> Result<()> {
     let broker = broker(ComponentBrokerOptions::default())?;
     let workflow = export("workflow", "fixture.workflow");
@@ -265,6 +244,7 @@ async fn deadline_cancel_is_targeted() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn queued_admission_is_bounded_and_cancellable() -> Result<()> {
     let options = ComponentBrokerOptions {
         max_active_roots: 1,
@@ -357,6 +337,7 @@ async fn queued_admission_is_bounded_and_cancellable() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn parent_cancel_cascades_during_callback() -> Result<()> {
     let broker = broker(ComponentBrokerOptions::default())?;
     let mut root = broker
@@ -378,6 +359,7 @@ async fn parent_cancel_cascades_during_callback() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn uncooperative_cancel_resets_failure_domain() -> Result<()> {
     let options = ComponentBrokerOptions {
         cancel_grace: Duration::from_millis(40),
@@ -422,6 +404,7 @@ async fn uncooperative_cancel_resets_failure_domain() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stopped_worker_reader_cannot_block_cancel_grace() -> Result<()> {
     let options = ComponentBrokerOptions {
         cancel_grace: Duration::from_millis(40),
@@ -449,6 +432,7 @@ async fn stopped_worker_reader_cannot_block_cancel_grace() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn live_notifications_are_routed_by_invocation() -> Result<()> {
     let broker = broker(ComponentBrokerOptions::default())?;
     let workflow = export("workflow", "fixture.workflow");
@@ -501,6 +485,7 @@ async fn live_notifications_are_routed_by_invocation() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn notification_overflow_does_not_block_terminal() -> Result<()> {
     let options = ComponentBrokerOptions {
         notification_limits: ReceiveLimits::new(2, 512),
@@ -529,6 +514,7 @@ async fn notification_overflow_does_not_block_terminal() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn nested_reserve_survives_saturated_roots() -> Result<()> {
     let options = ComponentBrokerOptions {
         max_active_roots: 2,
@@ -572,6 +558,7 @@ async fn nested_reserve_survives_saturated_roots() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn callback_depth_and_count_are_bounded() -> Result<()> {
     let depth_options = ComponentBrokerOptions {
         max_active_roots: 2,
@@ -636,6 +623,7 @@ async fn recursive_callback(broker: &ComponentBroker) -> Result<InvocationHandle
         .await?)
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn protocol_faults_fail_closed_and_restart_lazily() -> Result<()> {
     let broker = broker(ComponentBrokerOptions::default())?;
     let workflow = export("workflow", "fixture.workflow");
@@ -782,6 +770,7 @@ async fn protocol_faults_fail_closed_and_restart_lazily() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn queued_invocations_are_not_worker_addressable() -> Result<()> {
     let workflow = export("workflow", "fixture.workflow");
     for operation in [
@@ -832,6 +821,7 @@ async fn queued_invocations_are_not_worker_addressable() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn crash_and_resource_fault_fan_out() -> Result<()> {
     let crash_broker = broker(ComponentBrokerOptions::default())?;
     let workflow = export("workflow", "fixture.workflow");
@@ -895,6 +885,7 @@ async fn crash_and_resource_fault_fan_out() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bootstrap_closes_after_runtime_traffic() -> Result<()> {
     let broker = broker(ComponentBrokerOptions::default())?;
     let search = export("search", "fixture.search");
@@ -936,6 +927,7 @@ async fn bootstrap_closes_after_runtime_traffic() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn strict_handshake_and_out_of_order_responses() -> Result<()> {
     let broker = broker(ComponentBrokerOptions::default())?;
     let workflow = export("workflow", "fixture.workflow");

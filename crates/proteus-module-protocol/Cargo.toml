@@ -13,9 +13,4 @@ serde_json = "1"
 tokio = { version = "1", features = ["rt", "sync"] }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
-
-[[test]]
-name = "broker_v3"
-path = "tests/broker_v3.rs"
-harness = false
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
