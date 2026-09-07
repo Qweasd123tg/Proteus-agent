@@ -1,3 +1,6 @@
+use std::collections::HashSet;
+
+use ammonia::Builder as HtmlSanitizer;
 use pulldown_cmark::{Event as MarkdownEvent, Options as MarkdownOptions, Parser, html};
 
 pub(crate) fn markdown_html(text: &str) -> String {
@@ -16,7 +19,17 @@ pub(crate) fn markdown_html(text: &str) -> String {
     for (token, html) in math_fragments {
         output = output.replace(&token, &html);
     }
-    enhance_code_blocks(&output)
+    sanitize_html(&enhance_code_blocks(&output))
+}
+
+fn sanitize_html(html: &str) -> String {
+    HtmlSanitizer::default()
+        .url_schemes(HashSet::from(["http", "https", "mailto"]))
+        .add_tags(["button"])
+        .add_generic_attributes(["class"])
+        .add_tag_attributes("button", ["type", "title"])
+        .clean(html)
+        .to_string()
 }
 
 pub(crate) fn plain_text_html(text: &str) -> String {
@@ -592,6 +605,39 @@ mod tests {
         let html = markdown_html("Energy: $E = mc^2$.");
 
         assert!(html.contains(r#"<span class="mathjax-inline">\(E = mc^2\)</span>"#));
+    }
+
+    #[test]
+    fn markdown_html_removes_active_dangerous_links_and_images() {
+        for markdown in [
+            "[run](javascript:alert(1))",
+            "[run](JaVaScRiPt:alert(1))",
+            "[run](data:text/html,<script>alert(1)</script>)",
+            "[download](ftp://example.com/payload)",
+            "[local](file:///etc/passwd)",
+            "![track](data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9YWxlcnQoMSk+)",
+        ] {
+            let html = markdown_html(markdown);
+            let active_html = html.to_ascii_lowercase();
+            assert!(
+                !active_html.contains("href=\"javascript:")
+                    && !active_html.contains("href=\"data:")
+                    && !active_html.contains("href=\"ftp:")
+                    && !active_html.contains("href=\"file:")
+                    && !active_html.contains("src=\"javascript:")
+                    && !active_html.contains("src=\"data:"),
+                "unsafe output: {html}"
+            );
+        }
+    }
+
+    #[test]
+    fn markdown_html_keeps_allowed_web_and_mail_links() {
+        let html =
+            markdown_html("[web](https://example.com/path?q=1) [mail](mailto:test@example.com)");
+
+        assert!(html.contains("href=\"https://example.com/path?q=1\""));
+        assert!(html.contains("href=\"mailto:test@example.com\""));
     }
 
     #[test]

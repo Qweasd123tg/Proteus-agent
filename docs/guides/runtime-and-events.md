@@ -982,7 +982,10 @@ upward wheel/scroll отключает прилипание, повторное 
 включается для отлипшего состояния. Список сообщений остаётся стабильным
 keyed-list; во время streaming пересоздаётся только меняющаяся assistant bubble,
 а не весь transcript. Streaming assistant text рендерится через тот же Markdown
-pipeline, что и завершённое сообщение, но MathJax запускается только после
+pipeline, что и завершённое сообщение. После Markdown, MathJax fragments и
+code-block decorations итоговый HTML очищается sanitizer-ом; raw HTML
+экранируется, а URL schemes вне allowlist не остаются активными в `href`/`src`.
+MathJax запускается только после
 окончания streaming turn, чтобы не перестраивать формулы на каждый token/delta.
 Ненулевой `app_server.approval_timeout_ms` закрывает pending user-input request
 пустым `UserInputResponse`; значение `0` отключает этот timeout и ждёт ответ
