@@ -722,7 +722,7 @@ impl AsyncHostRequestDispatcher for NestedMemoryDispatcher {
 async fn same_component_callback_can_reenter_another_export() {
     let workspace = tempfile::tempdir().expect("workspace");
     let context =
-        ProcessExportBinding::new("context", "simple", "v1", json!({})).expect("context binding");
+        ProcessExportBinding::new("context", "simple", "v2", json!({})).expect("context binding");
     let context_target = context.export_ref();
     let memory = ProcessExportBinding::new(
         "memory",
@@ -821,7 +821,7 @@ fn workflow_input(workspace: &Path) -> Value {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn targeted_cancel_keeps_concurrent_sibling_and_generation_alive() {
     let workspace = tempfile::tempdir().expect("workspace");
-    let workflow = ProcessExportBinding::new("workflow", "coding.single_loop", "v3", json!({}))
+    let workflow = ProcessExportBinding::new("workflow", "coding.single_loop", "v4", json!({}))
         .expect("workflow binding");
     let workflow_target = workflow.export_ref();
     let policy =

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dependency-free out-of-tree Workflow v3 component for Proteus.
+"""Dependency-free out-of-tree Workflow v4 component for Proteus.
 
 The worker owns a small model/tool loop. Models, tools, policy, approvals,
 safety, events, and cancellation remain host capabilities reached only through
@@ -27,7 +27,7 @@ from component_runtime import (  # noqa: E402
 
 SLOT = "workflow"
 MODULE_ID = "python_agent_loop"
-CONTRACT_VERSION = "v3"
+CONTRACT_VERSION = "v4"
 
 INITIALIZE_FIELDS = {
     "protocol_version",

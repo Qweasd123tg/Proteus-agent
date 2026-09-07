@@ -371,7 +371,7 @@ async fn uncooperative_cancel_resets_failure_domain() -> Result<()> {
         .start_invocation(
             &workflow,
             PROCESS_WORKFLOW_METHOD,
-            json!({"op":"ignore_cancel", "delay_ms":1000}),
+            json!({"op":"ignore_cancel", "delay_ms":1000, "notify_started":true}),
             INVOCATION_TIMEOUT,
         )
         .await?;
@@ -381,10 +381,19 @@ async fn uncooperative_cancel_resets_failure_domain() -> Result<()> {
         .start_invocation(
             &workflow,
             PROCESS_WORKFLOW_METHOD,
-            json!({"op":"echo", "value":"lost", "delay_ms":1000}),
+            json!({"op":"echo", "value":"lost", "delay_ms":1000, "notify_started":true}),
             INVOCATION_TIMEOUT,
         )
         .await?;
+    // A queued cancellation need not reset the worker. This scenario requires
+    // both invocations to have actually entered the shared failure domain.
+    for invocation in [&mut target, &mut sibling] {
+        let mut notifications = invocation.notifications()?;
+        let started = tokio::time::timeout(INVOCATION_TIMEOUT, notifications.recv())
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("worker did not confirm invocation start"))?;
+        ensure!(started.params["value"]["started"] == json!(true));
+    }
     target.cancel(CancelCause::Timeout)?;
     ensure!(target.result().await? == InvocationTerminal::TimedOut);
     ensure!(

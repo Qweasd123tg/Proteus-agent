@@ -67,7 +67,7 @@ cargo test --workspace --no-fail-fast
 
 Breaking canonical response change одновременно обновляет все tracked
 producers/consumers и версии затронутых contracts/storage. Действующие версии:
-`workflow/v3`, `compactor/v3`, durable journal schema v3. Изменение process DTO
+`workflow/v4`, `compactor/v4`, durable journal schema v4. Изменение process DTO
 само по себе не требует новой journal schema, если сохранённая форма не меняется.
 Старые формы не получают compatibility readers.
 
@@ -110,6 +110,16 @@ worker: production Core от reference crate не зависит.
 Для model/grants/recording changes добавляются focused suites
 `bound_model_tests`, `bound_tools_tests` и session journal. Process cancellation,
 framing, backpressure и reentrancy проверяются protocol suites ниже.
+
+Для `ContextChunk.render_mode` serde gate отвергает отсутствующий/неизвестный
+режим, adapter tests сравнивают точный текст обоих режимов в OpenAI/Anthropic
+request. `model_process` проверяет оба режима через независимый Python model,
+`module_swap` — source-annotated search result, `compactor_interop` — сохранение
+verbatim chunk обоими compactors. `codex_model_resume` проводит project
+instructions и environment из process `codex_context` через реальный model
+adapter до mock HTTP, journal, cold resume и matched workflow replay.
+Slot handshake принимает только актуальные версии из authority table;
+добавлять default/metadata reader ради старых fixtures нельзя.
 
 ### Agent-Control / Process Peers
 
@@ -234,7 +244,7 @@ Reference modules не получают отдельный облегчённы�
 Handshake отдельного Python worker-а:
 
 ```bash
-cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-search --export '{"slot":"search","module_id":"python_rg","contract_version":"v1","module_config":{}}' --probe-export search/python_rg --probe-method search --probe-params '{"text":"","cwd":".","max_results":0,"use_case":"conformance","starts_with":[],"ends_with":[]}' -- python3 examples/modules/search-process/search.py
+cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-search --export '{"slot":"search","module_id":"python_rg","contract_version":"v2","module_config":{}}' --probe-export search/python_rg --probe-method search --probe-params '{"text":"","cwd":".","max_results":0,"use_case":"conformance","starts_with":[],"ends_with":[]}' -- python3 examples/modules/search-process/search.py
 ```
 
 Compactor:

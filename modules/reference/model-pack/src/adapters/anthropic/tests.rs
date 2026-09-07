@@ -1,4 +1,33 @@
 use super::*;
+
+#[test]
+fn request_preserves_typed_context_rendering_and_ignores_metadata() {
+    use crate::domain::{ContextChunk, ContextRenderMode};
+    let verbatim = ContextChunk::new("external", "<instructions>\nexact text\n</instructions>\n")
+        .with_render_mode(ContextRenderMode::Verbatim)
+        .with_metadata(json!({"render_mode": "source_annotated"}));
+    let source = ContextChunk::new("external", "line one\nline two\n")
+        .with_path("src/main.rs".into())
+        .with_metadata(json!({"render_mode": "verbatim"}));
+    let request = CanonicalModelRequest::new(
+        ModelRef::new("anthropic", "test"),
+        vec![CanonicalMessage::new(
+            MessageRole::User,
+            vec![
+                ContentPart::Context {
+                    chunk: verbatim.clone(),
+                },
+                ContentPart::Context { chunk: source },
+            ],
+        )],
+    );
+    let body = to_anthropic_request(&request).unwrap();
+    assert_eq!(body["messages"][0]["content"][0]["text"], verbatim.content);
+    assert_eq!(
+        body["messages"][0]["content"][1]["text"],
+        "Context from external (src/main.rs):\nline one\nline two\n"
+    );
+}
 use crate::domain::{CacheHints, ReasoningConfig};
 use crate::model_standard::InstructionBlock;
 

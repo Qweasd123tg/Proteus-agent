@@ -18,7 +18,7 @@ Baseline: `openai/codex` commit
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v3`, `compactor/v3`, journal schema v3.
+Действующие версии: `workflow/v4`, `compactor/v4`, journal schema v4.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,
@@ -60,7 +60,7 @@ cargo test -p proteus-core --test module_swap
 SSE stream, полного compaction lifecycle, filesystem/network permissions,
 deferred tool discovery и AgentControl semantics.
 
-Item identity и typed phase проходят через `model/v2`, live events и app
+Item identity и typed phase проходят через `model/v3`, live events и app
 transcript. Responses fixture отдаёт added/delta/done/completed, включая
 позднюю фазу и multipart текст; regression сверяет live ids/text/offsets
 с journal и cold app transcript. Web regression проверяет соседние items

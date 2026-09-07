@@ -21,7 +21,7 @@ consumer, но сам по себе не вводит новый public contract
 | summary prefix (`SUMMARY_PREFIX`) | `codex-compactor` | `codex-compactor` | префикс текста (само-согласован, ок) |
 | `CanonicalPart.scope` | workflow/context construction | `codex-compactor`, Python `python_suffix`, `coding-workflow/history.rs` | непустое сообщение со всеми parts в `request` — ephemeral context; `message.name` не влияет на классификацию |
 | typed диагностика `CompactionOutput` | compactor modules | `HistoryCompactionReport`, workflow, replay | оценки, порог и описательные причины — явные поля; числа сообщений — фактические input/output; `metadata` переносится непрозрачно и не подменяет поля отчёта |
-| context metadata `model_visible_render = "verbatim"` | `context-pack` (`codex_context`) | OpenAI/Anthropic model adapters | `CONTEXT_RENDER_MODE_*` в contracts |
+| `ContextChunk.render_mode` | context builders/providers и search modules | model adapters | обязательный `ContextRenderMode`: `source_annotated` или `verbatim`; metadata не управляет model-visible текстом |
 | chunk source `repo_aware:*` / `codex_context:*`, metadata `provider`/`reason`/`context_profile` | `context-pack` | app-server `context_map`, UI/debug views | строковые префиксы и metadata keys |
 | tool metadata `hot`, `category`, `tags`, `aliases` | tool packs и `[tools.configured]` в config | `codex-tool-exposure` (`metadata_hot`) | metadata JSON у tool spec |
 | `always_include` / `allow` / `ask_before` / `deny` / `allow_sandboxed` списки | named config | `policy-pack`, `codex-tool-exposure` | имена tools; `proteus doctor` warn-ит на неизвестные. В codex profile collaboration-имена agent control валидны только при `agent_control.surface = "collaboration"` |

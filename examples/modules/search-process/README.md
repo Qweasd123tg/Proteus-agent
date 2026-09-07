@@ -26,13 +26,13 @@ timeout_ms = 60000
 Reference implementation запускает `rg`, поэтому в `PATH` нужны `python3` и
 `rg`.
 
-Компонент говорит на strict component protocol v3 и Search contract v1. Отдельный
+Компонент говорит на strict component protocol v3 и Search contract v2. Отдельный
 protocol smoke без запуска всего `proteus-core`:
 
 ```bash
 cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
   --component-id python-search \
-  --export '{"slot":"search","module_id":"python_rg","contract_version":"v1","module_config":{}}' \
+  --export '{"slot":"search","module_id":"python_rg","contract_version":"v2","module_config":{}}' \
   --probe-export search/python_rg \
   --probe-method search \
   --probe-params '{"text":"","cwd":".","max_results":0,"use_case":"conformance","starts_with":[],"ends_with":[]}' \

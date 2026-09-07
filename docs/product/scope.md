@@ -19,7 +19,7 @@
   messaging, follow-up и адресная отмена.
 - CLI/REPL, HTTP/SSE/stdio app-server, web chat и Inspector.
 - OpenAI, OpenAI-compatible, Anthropic и fake implementations в reference
-  `model-pack`; Core использует общий `model/v2` process adapter.
+  `model-pack`; Core использует общий `model/v3` process adapter.
 - Doctor, inspect/topology, eval report и атомарная локальная установка.
 
 Reference modules и profiles — поставляемые примеры без особых прав.

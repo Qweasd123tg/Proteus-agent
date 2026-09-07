@@ -9,7 +9,7 @@ use std::{
 use async_trait::async_trait;
 use proteus_contracts::{
     contracts::{CompactionHost, CompactionInput},
-    domain::{AgentTask, HistoryCompactionReport, ModelRef},
+    domain::{AgentTask, ContextChunk, ContextRenderMode, HistoryCompactionReport, ModelRef},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, CanonicalPart,
         ContentPart, FinishReason, MessageRole, PartProvenance, PartScope,
@@ -90,17 +90,27 @@ fn config(module_id: &str) -> AppConfig {
 
 fn history() -> Vec<CanonicalMessage> {
     vec![
-        // Text instead of Context payload: semantics come from scope, not from
-        // a particular context-pack payload, content envelope or message name.
+        // Mixed payloads: retention comes from scope, not a context-pack marker;
+        // both compactors must also preserve the explicit model render mode.
         CanonicalMessage::from_parts(
             MessageRole::User,
-            vec![CanonicalPart::new(
-                PartProvenance::ContextBuilder,
-                PartScope::Request,
-                ContentPart::Text {
-                    text: "Fresh workspace instructions.".to_owned(),
-                },
-            )],
+            vec![
+                CanonicalPart::new(
+                    PartProvenance::ContextBuilder,
+                    PartScope::Request,
+                    ContentPart::Text {
+                        text: "Fresh workspace instructions.".to_owned(),
+                    },
+                ),
+                CanonicalPart::new(
+                    PartProvenance::ContextBuilder,
+                    PartScope::Request,
+                    ContentPart::Context {
+                        chunk: ContextChunk::new("external", "Exact instructions.\n")
+                            .with_render_mode(ContextRenderMode::Verbatim),
+                    },
+                ),
+            ],
         )
         .with_name("context"),
         CanonicalMessage::text(MessageRole::User, "Old task."),

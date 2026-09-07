@@ -58,7 +58,7 @@ fn plan_resolves_exact_component_export_without_starting_it() {
     let export = &plan.components[0].exports[0];
     assert_eq!(export.slot, "search");
     assert_eq!(export.use_state, AssemblyExportUse::Selected);
-    assert_eq!(export.contract_version, "v1");
+    assert_eq!(export.contract_version, "v2");
     assert!(export.host_methods.is_empty());
 
     let serialized = serde_json::to_string(&plan).expect("plan JSON");

@@ -27,7 +27,7 @@ from component_runtime import (  # noqa: E402
 
 SLOT = "search"
 MODULE_ID = "python_rg"
-CONTRACT_VERSION = "v1"
+CONTRACT_VERSION = "v2"
 
 INITIALIZE_FIELDS = {
     "protocol_version",
@@ -214,6 +214,7 @@ def search(query: dict[str, Any], context: InvocationContext) -> dict[str, Any]:
                     "source": f"process:{MODULE_ID}",
                     "path": path,
                     "content": content,
+                    "render_mode": "source_annotated",
                     "score": None,
                     "metadata": {"line": line_number, "module_id": MODULE_ID},
                 }

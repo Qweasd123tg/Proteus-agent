@@ -22,7 +22,7 @@ if [ "$mode" = "mismatch" ]; then
 else
     slot=search
 fi
-printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$initialize_id,\"result\":{\"protocol_version\":\"v3\",\"component_id\":\"$component_id\",\"exports\":[{\"slot\":\"$slot\",\"module_id\":\"$module_id\",\"contract_version\":\"v1\",\"composition\":\"select_one\",\"module_features\":[]}]}}"
+printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$initialize_id,\"result\":{\"protocol_version\":\"v3\",\"component_id\":\"$component_id\",\"exports\":[{\"slot\":\"$slot\",\"module_id\":\"$module_id\",\"contract_version\":\"v2\",\"composition\":\"select_one\",\"module_features\":[]}]}}"
 
 while IFS= read -r search_request; do
     request_id=$(rpc_id "$search_request")
@@ -37,7 +37,7 @@ while IFS= read -r search_request; do
             printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$request_id,\"result\":[]}"
             ;;
         *)
-            printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$request_id,\"result\":{\"chunks\":[{\"source\":\"process:$module_id\",\"path\":\"sample.txt\",\"content\":\"hit from $module_id\",\"score\":1.0,\"metadata\":{\"fixture\":true}}]}}"
+            printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$request_id,\"result\":{\"chunks\":[{\"source\":\"process:$module_id\",\"path\":\"sample.txt\",\"content\":\"hit from $module_id\",\"render_mode\":\"source_annotated\",\"score\":1.0,\"metadata\":{\"fixture\":true}}]}}"
             ;;
     esac
 done

@@ -1,4 +1,4 @@
-//! Component model/v2: immutable export description and one canonical stream.
+//! Component model/v3: immutable export description and one canonical stream.
 //! Events use acknowledged host callbacks, so slow consumers exert bounded
 //! backpressure without dropping text, tool arguments or usage.
 
@@ -11,7 +11,7 @@ use crate::{
     },
 };
 
-pub const PROCESS_MODEL_CONTRACT_VERSION: &str = "v2";
+pub const PROCESS_MODEL_CONTRACT_VERSION: &str = "v3";
 pub const PROCESS_MODEL_DESCRIBE_METHOD: &str = "describe";
 pub const PROCESS_MODEL_STREAM_METHOD: &str = "stream";
 pub const MODEL_HOST_EMIT_METHOD: &str = "host.model.emit";

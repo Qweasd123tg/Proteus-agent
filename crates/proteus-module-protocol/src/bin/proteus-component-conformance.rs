@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 struct Cli {
     #[arg(long)]
     component_id: String,
-    /// Export binding as strict JSON: {"slot":"search","module_id":"rg","contract_version":"v1","module_config":{}}.
+    /// Export binding as strict JSON: {"slot":"search","module_id":"rg","contract_version":"v2","module_config":{}}.
     #[arg(long = "export", required = true)]
     exports: Vec<String>,
     #[arg(long, default_value_t = 30_000)]

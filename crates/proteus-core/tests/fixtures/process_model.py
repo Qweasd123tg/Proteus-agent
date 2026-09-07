@@ -1,6 +1,7 @@
-"""Non-Rust model/v2 boundary fixture; all test behavior is export-configured."""
+"""Non-Rust model/v3 boundary fixture; all test behavior is export-configured."""
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -15,8 +16,8 @@ def initialize(params):
         raise ProtocolError("expected component v3")
     exports = []
     for export in params["exports"]:
-        if (export["slot"], export["contract_version"], export["composition"]) != ("model", "v2", "select_one"):
-            raise ProtocolError("expected model/v2 select_one")
+        if (export["slot"], export["contract_version"], export["composition"]) != ("model", "v3", "select_one"):
+            raise ProtocolError("expected model/v3 select_one")
         settings[export["module_id"]] = export["module_config"]
         if "pid_marker" in export["module_config"]:
             with Path(export["module_config"]["pid_marker"]).open("a") as file:
@@ -38,9 +39,24 @@ def invoke(context, method, params):
         raise ProtocolError("canonical model input changed")
     mode = config.get("mode", "normal")
     marker = Path(config["marker"]) if "marker" in config else None
+    marker_lock = threading.Lock()
+    marker_terminal = False
+
+    def mark(value, terminal=False):
+        nonlocal marker_terminal
+        if not marker:
+            return
+        with marker_lock:
+            if marker_terminal:
+                return
+            marker_terminal = terminal
+            pending = marker.with_suffix(".pending")
+            pending.write_text(value)
+            pending.replace(marker)
+
     if marker:
-        marker.write_text("started")
-        context.on_cancel(lambda: marker.write_text("canceled"))
+        mark("started")
+        context.on_cancel(lambda: mark("canceled", terminal=True))
     if mode == "crash":
         os._exit(23)
     if mode == "forbidden":
@@ -55,13 +71,11 @@ def invoke(context, method, params):
                 context.host_call("host.model.emit", {"sequence": sequence, "event": event})
             except HostError:
                 if mode != "bad_sequence":
-                    if marker:
-                        marker.write_text("consumer_closed")
+                    mark("consumer_closed", terminal=True)
                     raise
                 break  # deliberately ignore rejection: host must still fail the stream
             count += 1
-            if marker:
-                marker.write_text(str(count))
+            mark(str(count))
     if mode == "wait":
         while not context.is_cancelled():
             time.sleep(0.005)

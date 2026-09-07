@@ -5,7 +5,10 @@ use std::{
     time::Duration,
 };
 
-use proteus_contracts::domain::new_thread_id;
+use proteus_contracts::{
+    domain::{ContextRenderMode, new_thread_id},
+    model_standard::ContentPart,
+};
 use proteus_core::core::{
     AgentRuntime, AppConfig, JournalEntry, ModuleCatalog, SessionStore, TurnSettlementStatus,
     WorkflowReplayOptions, replay_workflow,
@@ -162,11 +165,12 @@ fn config(endpoint: &str, streaming: bool) -> AppConfig {
         "providers": {"fixture": {"provider": "openai", "model": "fixture-model",
             "stream": streaming, "reasoning": {"effort": "high", "summary": true}}},
         "module_config": {"model": {"openai": {"implementation": "openai", "base_url": endpoint, "api_key": "local-fixture-only",
-                "http1_only": true, "capabilities": {"supports_reasoning_config": true}}}},
-        "modules": {"workflow": "coding.codex_loop", "policy": "allow_all"},
+                "http1_only": true, "capabilities": {"supports_reasoning_config": true}}},
+            "context": {"codex_context": {"providers": ["project_instructions", "environment"]}}},
+        "modules": {"workflow": "coding.codex_loop", "policy": "allow_all", "context": "codex_context"},
         "components": {"fixture": {
             "command": env!("CARGO_BIN_EXE_proteus-reference-worker"),
-            "exports": {"model": {"openai": {}}, "workflow": {"coding.codex_loop": {}},
+            "exports": {"model": {"openai": {}}, "workflow": {"coding.codex_loop": {}}, "context": {"codex_context": {}},
                 "policy": {"allow_all": {}}, "tool": {"reference.tools": {}}}}},
         "tools": {"enabled": ["read_file"]},
         "runtime": {"model_timeout_ms": 5000, "workflow_timeout_ms": 15000}
@@ -249,6 +253,7 @@ async fn run_child(root: &Path) {
 async fn check_resume(streaming: bool) {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir(root.path().join("workspace")).unwrap();
+    std::fs::write(root.path().join("workspace/AGENTS.md"), "Use cargo fmt.\n").unwrap();
     std::fs::write(
         root.path().join("workspace/probe.txt"),
         "fixture-file-content\n",
@@ -369,6 +374,46 @@ async fn check_resume(streaming: bool) {
         .unwrap()
         .load_projection()
         .unwrap();
+    let model_requests: Vec<_> = restored
+        .records
+        .iter()
+        .filter_map(|record| match &record.entry {
+            JournalEntry::ModelRequestRecorded(recorded) => Some(&recorded.request),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(model_requests.len(), requests.len());
+    for (canonical, wire) in model_requests.iter().zip(&requests) {
+        let chunks: Vec<_> = canonical
+            .messages
+            .iter()
+            .flat_map(|message| message.parts.iter().map(|part| &part.payload))
+            .filter_map(|part| match part {
+                ContentPart::Context { chunk } => Some(chunk),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            chunks.len(),
+            2,
+            "project instructions and environment reach every model round"
+        );
+        let wire_texts: Vec<_> = wire["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|item| item["content"].as_array())
+            .flatten()
+            .filter_map(|part| part["text"].as_str())
+            .collect();
+        for chunk in chunks {
+            assert_eq!(chunk.render_mode, ContextRenderMode::Verbatim);
+            assert!(
+                wire_texts.contains(&chunk.content.as_str()),
+                "context envelope changed on the process/model boundary"
+            );
+        }
+    }
     assert_eq!(&restored.history[..first.history.len()], &first.history);
     let cold = proteus_core::app_server::AgentAppServer::launch_resumed(
         config.clone(),

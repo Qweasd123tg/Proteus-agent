@@ -166,7 +166,7 @@ Process boundary пока не sandbox: worker получает очищенно
   переживает адресную отмену и даёт совпадающий canonical workflow replay.
 
 Model implementations (`fake`, `openai`, `openai_compatible`, `anthropic`)
-живут в reference worker и заменяются внешними `model/v2` exports. Root-owned
+живут в reference worker и заменяются внешними `model/v3` exports. Root-owned
 `AgentControl` не является slot: он запускает полные peer-экземпляры Proteus
 из top-level `agent_control` config и обслуживает обе model-facing facade.
 Это не dylib-путь и не исключение для reference modules. Подробнее:
@@ -193,7 +193,7 @@ cargo run -p proteus-core -- --config configs/config.toml inspect topology --for
 cargo run -p proteus-core -- --config configs/config.toml inspect topology --format map
 
 # protocol handshake отдельного worker-а
-cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-search --export '{"slot":"search","module_id":"python_rg","contract_version":"v1","module_config":{}}' --probe-export search/python_rg --probe-method search --probe-params '{"text":"","cwd":".","max_results":0,"use_case":"conformance","starts_with":[],"ends_with":[]}' -- python3 examples/modules/search-process/search.py
+cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-search --export '{"slot":"search","module_id":"python_rg","contract_version":"v2","module_config":{}}' --probe-export search/python_rg --probe-method search --probe-params '{"text":"","cwd":".","max_results":0,"use_case":"conformance","starts_with":[],"ends_with":[]}' -- python3 examples/modules/search-process/search.py
 ```
 
 Prompt/workflow replay и journal semantics описаны в

@@ -154,7 +154,7 @@ Worker не может изменить cardinality, сделать свой `mo
       {
         "slot": "search",
         "module_id": "rg",
-        "contract_version": "v1",
+        "contract_version": "v2",
         "composition": "select_one",
         "module_config": {},
         "host_features": []
@@ -185,7 +185,7 @@ Worker подтверждает тот же exact set:
       {
         "slot": "search",
         "module_id": "rg",
-        "contract_version": "v1",
+        "contract_version": "v2",
         "composition": "select_one",
         "module_features": []
       },
@@ -255,17 +255,17 @@ invalid DTO и превышение limits являются fail-closed protocol
 
 | Slot | Contract | Module methods | Host callbacks |
 |---|---|---|---|
-| search | v1 | `search` | — |
+| search | v2 | `search` | — |
 | memory | v2 | `remember`, `recall` | — |
 | patch | v1 | `apply` | — |
 | tool exposure | v1 | `select` | — |
 | policy | v1 | `evaluate`, `evaluate_visibility` | — |
-| context provider | v1 | `provide` | — |
+| context provider | v2 | `provide` | — |
 | tool | v2 | `list`, `invoke` | — |
-| context | v1 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
-| model | v1 | `describe`, `stream` | `host.model.emit` (acknowledged canonical events) |
-| compactor | v3 | `compact` | `host.model.complete` |
-| workflow | v3 | `run` | runtime status, context, model, compaction, tool visibility/selection/execution, events |
+| context | v2 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
+| model | v3 | `describe`, `stream` | `host.model.emit` (acknowledged canonical events) |
+| compactor | v4 | `compact` | `host.model.complete` |
+| workflow | v4 | `run` | runtime status, context, model, compaction, tool visibility/selection/execution, events |
 
 Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
@@ -425,7 +425,7 @@ single-export components:
 ```bash
 cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
   --component-id python-search \
-  --export '{"slot":"search","module_id":"python_rg","contract_version":"v1","module_config":{}}' \
+  --export '{"slot":"search","module_id":"python_rg","contract_version":"v2","module_config":{}}' \
   --probe-export search/python_rg \
   --probe-method search \
   --probe-params '{"text":"","cwd":".","max_results":0,"use_case":"conformance","starts_with":[],"ends_with":[]}' \
@@ -437,7 +437,7 @@ handshake всего набора, даже если probe направлен т
 
 ## Model Streaming
 
-`model/v2` использует canonical DTO из `proteus-contracts::contracts::process_model`:
+`model/v3` использует canonical DTO из `proteus-contracts::contracts::process_model`:
 
 Descriptor, capabilities, stream events и terminal DTO отклоняют неизвестные поля.
 

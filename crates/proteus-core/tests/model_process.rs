@@ -1,10 +1,10 @@
 use futures_util::StreamExt;
 use proteus_contracts::{
     contracts::{Model, ProcessModelDescriptor},
-    domain::ModelRef,
+    domain::{ContextChunk, ContextRenderMode, ModelRef},
     model_standard::{
-        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, FinishReason, MessageRole,
-        ModelCapabilities, ModelStreamEvent, TokenUsage,
+        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
+        MessageRole, ModelCapabilities, ModelStreamEvent, TokenUsage,
     },
 };
 use proteus_core::core::{
@@ -78,7 +78,19 @@ async fn arbitrary_model_exports_preserve_exact_canonical_request_stream_and_ter
         ];
         let mut settings = settings();
         settings["events"] = json!(events);
-        let input = request(id);
+        let mut input = request(id);
+        input.messages.push(CanonicalMessage::new(
+            MessageRole::User,
+            vec![
+                ContentPart::Context {
+                    chunk: ContextChunk::new("external", "exact context\n")
+                        .with_render_mode(ContextRenderMode::Verbatim),
+                },
+                ContentPart::Context {
+                    chunk: ContextChunk::new("search", "annotated context"),
+                },
+            ],
+        ));
         settings["expected_input"] = json!({"request": input, "stream": true});
         let adapter = model(&config(id, settings), cwd.path()).unwrap();
         assert_eq!(adapter.id(), "independent-model");
@@ -196,7 +208,12 @@ async fn marker_is_one_of(marker: &Path, expected: &[&str]) {
         }
     })
     .await
-    .expect("worker observed cancellation");
+    .unwrap_or_else(|_| {
+        panic!(
+            "worker marker {:?}, expected {expected:?}",
+            std::fs::read_to_string(marker)
+        )
+    });
 }
 
 #[tokio::test]

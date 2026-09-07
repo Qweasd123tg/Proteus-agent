@@ -5,8 +5,8 @@ use serde_json::{Value, json};
 
 use super::{OpenAiPromptCacheConfig, model_profile::OpenAiModelProfile};
 use crate::{
+    adapters::context_render::context_text,
     domain::{
-        CONTEXT_RENDER_MODE_KEY, CONTEXT_RENDER_MODE_VERBATIM, ContextChunk,
         FileSearchHostedToolConfig, HostedToolConfig, ResponseFormat, ToolCall, ToolCallSurface,
         ToolChoice, ToolSpec, ToolSurface, WebSearchHostedToolConfig,
     },
@@ -454,27 +454,6 @@ fn openai_text_message(message: &CanonicalMessage, text: &str) -> Result<Value> 
         value["phase"] = Value::String(phase.to_owned());
     }
     Ok(value)
-}
-
-fn context_text(chunk: &ContextChunk) -> String {
-    if chunk
-        .metadata
-        .get(CONTEXT_RENDER_MODE_KEY)
-        .and_then(Value::as_str)
-        == Some(CONTEXT_RENDER_MODE_VERBATIM)
-    {
-        return chunk.content.clone();
-    }
-    format!(
-        "Context from {}{}:\n{}",
-        chunk.source,
-        chunk
-            .path
-            .as_ref()
-            .map(|path| format!(" ({})", path.display()))
-            .unwrap_or_default(),
-        chunk.content
-    )
 }
 
 fn openai_reasoning_item(summary: &str, encrypted_content: Option<&str>) -> Value {

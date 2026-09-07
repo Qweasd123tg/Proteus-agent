@@ -258,10 +258,17 @@ mod tests {
     }
 
     #[test]
-    fn compaction_diagnostics_require_current_contract_on_both_boundaries() {
-        for slot in ["compactor", "workflow"] {
-            assert!(process_contract_authority(slot, "v2").is_none());
-            assert!(process_contract_authority(slot, "v3").is_some());
+    fn context_rendering_requires_current_contract_on_every_typed_boundary() {
+        for (slot, previous, current) in [
+            ("search", "v1", "v2"),
+            ("context", "v1", "v2"),
+            ("context_provider", "v1", "v2"),
+            ("model", "v2", "v3"),
+            ("compactor", "v3", "v4"),
+            ("workflow", "v3", "v4"),
+        ] {
+            assert!(process_contract_authority(slot, previous).is_none());
+            assert!(process_contract_authority(slot, current).is_some());
         }
     }
 }

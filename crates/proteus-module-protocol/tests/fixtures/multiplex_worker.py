@@ -211,6 +211,9 @@ class Worker:
                 self.send_canceled(invocation.invocation_id)
                 return
 
+            if input_value.get("notify_started"):
+                self.progress(invocation.invocation_id, 0, {"started": True})
+
             if operation == "forged_parent":
                 response = self._callback(
                     invocation,

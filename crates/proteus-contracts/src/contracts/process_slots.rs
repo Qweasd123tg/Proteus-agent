@@ -31,13 +31,13 @@ pub const PROCESS_POLICY_CONTRACT_VERSION: &str = "v1";
 pub const PROCESS_POLICY_EVALUATE_METHOD: &str = "evaluate";
 pub const PROCESS_POLICY_VISIBILITY_METHOD: &str = "evaluate_visibility";
 
-pub const PROCESS_CONTEXT_CONTRACT_VERSION: &str = "v1";
+pub const PROCESS_CONTEXT_CONTRACT_VERSION: &str = "v2";
 pub const PROCESS_CONTEXT_BUILD_METHOD: &str = "build";
 pub const CONTEXT_HOST_SEARCH_METHOD: &str = "host.search.query";
 pub const CONTEXT_HOST_RECALL_MEMORY_METHOD: &str = "host.memory.recall";
 pub const CONTEXT_HOST_PROVIDER_METHOD: &str = "host.context.provide";
 
-pub const PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION: &str = "v1";
+pub const PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION: &str = "v2";
 pub const PROCESS_CONTEXT_PROVIDER_METHOD: &str = "provide";
 
 pub const PROCESS_TOOL_CONTRACT_VERSION: &str = "v2";

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::ContextChunk;
 
-pub const PROCESS_SEARCH_CONTRACT_VERSION: &str = "v1";
+pub const PROCESS_SEARCH_CONTRACT_VERSION: &str = "v2";
 pub const PROCESS_SEARCH_METHOD: &str = "search";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

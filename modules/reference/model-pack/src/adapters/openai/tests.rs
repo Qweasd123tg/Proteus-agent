@@ -2,9 +2,9 @@ use super::*;
 use std::collections::BTreeMap;
 
 use crate::domain::{
-    CONTEXT_RENDER_MODE_KEY, CONTEXT_RENDER_MODE_VERBATIM, CacheHints, Citation, ContextChunk,
-    FileSearchResult, HostedToolActivity, HostedToolStatus, ModelLimits, ReasoningConfig,
-    ResponseFormat, SamplingConfig, ToolResult, ToolSafety, WebSearchAction,
+    CacheHints, Citation, ContextChunk, ContextRenderMode, FileSearchResult, HostedToolActivity,
+    HostedToolStatus, ModelLimits, ReasoningConfig, ResponseFormat, SamplingConfig, ToolResult,
+    ToolSafety, WebSearchAction,
 };
 use crate::model_standard::MessagePhase;
 
@@ -522,27 +522,37 @@ fn request_uses_codex_envelope_without_tools_or_reasoning() {
 }
 
 #[test]
-fn request_preserves_verbatim_codex_context_envelopes() {
+fn request_preserves_typed_context_rendering_and_ignores_metadata() {
     let environment = ContextChunk::new(
         "codex_context:environment",
         "<environment_context>\n  <cwd>/repo</cwd>\n</environment_context>",
     )
-    .with_metadata(json!({
-        (CONTEXT_RENDER_MODE_KEY): CONTEXT_RENDER_MODE_VERBATIM
-    }));
+    .with_render_mode(ContextRenderMode::Verbatim)
+    .with_metadata(json!({"render_mode": "source_annotated"}));
+    let source = ContextChunk::new("external", "line one\nline two\n")
+        .with_path("src/main.rs".into())
+        .with_metadata(json!({"render_mode": "verbatim"}));
     let request = CanonicalModelRequest::new(
         ModelRef::new("openai", "gpt-test"),
         vec![CanonicalMessage::new(
             MessageRole::User,
-            vec![ContentPart::Context { chunk: environment }],
+            vec![
+                ContentPart::Context {
+                    chunk: environment.clone(),
+                },
+                ContentPart::Context { chunk: source },
+            ],
         )],
     );
 
     let body = to_openai_request(&request).unwrap();
     let text = body["input"][0]["content"][0]["text"].as_str().unwrap();
 
-    assert!(text.starts_with("<environment_context>"), "{text}");
-    assert!(!text.contains("Context from"), "{text}");
+    assert_eq!(text, environment.content);
+    assert_eq!(
+        body["input"][1]["content"][0]["text"],
+        "Context from external (src/main.rs):\nline one\nline two\n"
+    );
 }
 
 #[test]

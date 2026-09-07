@@ -10,7 +10,7 @@ use std::{
 use async_trait::async_trait;
 use proteus_contracts::{
     contracts::{CompactionHost, CompactionInput, CompactionOutput, SearchQuery},
-    domain::{AgentTask, ModelRef},
+    domain::{AgentTask, ContextRenderMode, ModelRef},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, MessageRole,
     },
@@ -134,6 +134,7 @@ async fn search_slot_swaps_component_exports_without_changing_canonical_contract
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].source, format!("process:{module_id}"));
         assert_eq!(chunks[0].content, format!("hit from {module_id}"));
+        assert_eq!(chunks[0].render_mode, ContextRenderMode::SourceAnnotated);
         assert_eq!(chunks[0].metadata["fixture"], true);
     }
 }

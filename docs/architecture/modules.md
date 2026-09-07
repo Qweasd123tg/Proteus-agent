@@ -51,7 +51,7 @@ native loader в проекте отсутствуют.
 | `tool_exposure` | `select_one` | `modules.tool_exposure` | да | `codex_dynamic` |
 | `tool` | `ordered_many` | exports + `tools.enabled` | да | `reference.tools` и узкие selectors |
 | `context_provider` | `ordered_many` | exports + context config | да | `skills` |
-| `model` | `select_one` | active provider profile | да, `model/v2` | `fake`, `openai`, `openai_compatible`, `anthropic` |
+| `model` | `select_one` | active provider profile | да, `model/v3` | `fake`, `openai`, `openai_compatible`, `anthropic` |
 
 Все behavior implementations, включая `model`, используют process contract.
 Agent control в матрицу не входит, потому что это
@@ -110,7 +110,7 @@ canonical journal/replay; это не делает такую топологию
       {
         "slot": "search",
         "module_id": "rg",
-        "contract_version": "v1",
+        "contract_version": "v2",
         "composition": "select_one",
         "module_config": {},
         "host_features": []
@@ -137,7 +137,7 @@ tool execution и event emission. Session ids, approvals, tool ownership и
 journal остаются host-owned.
 
 `coding.project_check` — reference code-heavy controller на том же
-`workflow/v3`. Он детерминированно вызывает `git_status`, определяет project по
+`workflow/v4`. Он детерминированно вызывает `git_status`, определяет project по
 root marker, запускает фиксированную test command и обращается к model только
 один раз для объяснения failed test. Success path не вызывает model, context
 или compactor. Это architecture probe, не default workflow и не special
@@ -159,6 +159,15 @@ storage implementation.
 
 ### Context И Context Provider
 
+`ContextChunk.render_mode` — обязательное typed поле: `source_annotated`
+добавляет `Context from <source> (<path>):\n` (path необязателен), `verbatim`
+передаёт `content` дословно. Rust-конструктор `ContextChunk::new` выбирает
+`SourceAnnotated`; JSON/process input обязан указать режим явно. Неизвестный,
+null или отсутствующий режим — ошибка, metadata остаётся непрозрачной.
+`codex_context` помечает project instructions и environment как `Verbatim`.
+Reference OpenAI/Anthropic используют общий форматтер; новый provider должен
+сохранить эту семантику при своём преобразовании request.
+
 Context builder получает callbacks `host.search.query`,
 `host.memory.recall` и `host.context.provide`. Provider — отдельный
 `ordered_many` contract без дополнительных прав. Reference `skills`
@@ -178,7 +187,7 @@ Context builder получает callbacks `host.search.query`,
 ### Compactor
 
 Получает canonical history и может вызвать `host.model.complete`. Этот
-callback доступен всему `compactor/v3`, а не только `codex`. Deterministic
+callback доступен всему `compactor/v4`, а не только `codex`. Deterministic
 Python example не использует callback, но имеет ту же authority.
 
 `CompactionOutput` передаёт результат и диагностику явными полями:
@@ -190,8 +199,9 @@ Python example не использует callback, но имеет ту же aut
 input/output. `metadata` — непрозрачные данные module, не источник этих полей.
 
 Тот же DTO возвращает workflow callback `host.history.compact`, поэтому обе
-границы используют v3; старый slot contract v2 не принимается. Wire protocol
-остаётся v3. Структура `HistoryCompactionReport` и journal schema v3 не меняются;
+границы используют v4 с явным context render mode; прежние slot versions не
+принимаются. Wire protocol остаётся v3, журнал использует schema v4.
+Структура `HistoryCompactionReport` не меняется;
 workflow replay сохраняет typed поля и весь `metadata`, не подмешивая и не
 удаляя ключи с известными именами.
 
@@ -228,7 +238,7 @@ host-owned `ExecutionAttribution`: обязательный `ExecutionId` и opt
 
 ### Model
 
-Общий `model/v2` contract: `describe` возвращает неизменяемые adapter id,
+Общий `model/v3` contract: `describe` возвращает неизменяемые adapter id,
 capabilities и hosted tools; `stream` принимает canonical request и флаг
 provider streaming. Дельты доставляются через acknowledged `host.model.emit`,
 полный response/error — отдельным terminal result. Порядок, backpressure и

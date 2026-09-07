@@ -1,7 +1,12 @@
 # Canonical Turn Data
 
-Текущий формат — journal schema v3 и session metadata v4. Resume history,
+Текущий формат — journal schema v4 и session metadata v4. Resume history,
 transcript, eval, prompt replay и workflow replay читают canonical journal.
+
+Schema v4 сохраняет обязательный `ContextChunk.render_mode` внутри canonical
+context parts: `source_annotated` или `verbatim`. При replay поле переносится
+без переинтерпретации metadata. Journal schema v3 не читается; миграции или
+автоматического выбора режима для старых записей нет.
 
 ## Решение
 
