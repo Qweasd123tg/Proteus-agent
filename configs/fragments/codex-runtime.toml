@@ -6,7 +6,9 @@
 # codex-rs/protocol/src/prompts/base_instructions/default.md на commit
 # 2cf2a6a844f1fc2ddd489c8a67fa8bc2f59a6f3d. Harness-dependent divergence:
 # identity говорит Proteus/client вместо Codex CLI; proxy-safe
-# apply_patch остаётся function tool; permission-режимы названы auto/normal;
+# apply_patch остаётся function tool; validation guidance использует фактические
+# Proteus permission modes: normal делегирует policy, auto запрещает команды;
+# разрешённые проверки не требуют отдельного conversational confirmation;
 # добавлены фактическая per-command sandbox/netns семантика и предпочтение
 # structured read/search tools.
 [[instructions]]

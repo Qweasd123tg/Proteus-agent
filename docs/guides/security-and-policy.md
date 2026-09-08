@@ -132,6 +132,13 @@ dev-server port. Wildcard CORS допустим только для явно п�
 - `normal` использует `ApprovalPolicy` и `ApprovalTransport`;
 - `auto` разрешает `ReadOnly` и `WritesFiles` без approval, но запрещает `RunsCommands`, `Network` и `Dangerous`.
 
+Codex-профиль по умолчанию использует `normal`. Его prompt предлагает выполнять
+применимые проверки в рамках задачи; отдельное разговорное подтверждение
+проверок, разрешённых policy, не требуется. Реальный `Ask` по-прежнему проходит
+через approval transport. В `auto` обычные tests/lint через `shell` или
+`exec_command` недоступны: prompt требует указать невыполненные проверки,
+а не обещать их запуск. Задача на тестирование сама по себе не меняет права.
+
 Runtime применяет режим через `ModeAwarePolicy` на границе сборки execution
 binding. Для Turn policy входит в `ExecutionContext`, а
 `AgentRuntime::execute_tool` bind-ит тот же frozen mode напрямую в detached
