@@ -171,7 +171,7 @@ pub(crate) fn TopologyMapView(map: MapViewState) -> impl IntoView {
             class:fullscreen=move || fullscreen.get()
         >
             <div class="config-section-header">
-                <h3>"Map"</h3>
+                <h3>"Карта связей"</h3>
                 <div class="mermaid-summary-actions">
                     <span class="map-zoom-label" title="Колесо — зум, мышью — перемещение, двойной клик — вписать">
                         {move || format!("{:.0}%", map.scale.get() * 100.0)}
@@ -198,7 +198,7 @@ pub(crate) fn TopologyMapView(map: MapViewState) -> impl IntoView {
                         title="Вписать карту в окно"
                         on:click=move |_| map.fit()
                     >
-                        "fit"
+                        "Вписать"
                     </button>
                     <button
                         type="button"

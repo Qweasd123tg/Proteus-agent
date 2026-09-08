@@ -233,5 +233,4 @@ mod tests {
         assert_eq!(tools.source, "1 enabled");
         assert!(!tools.missing);
     }
-
 }
