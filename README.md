@@ -166,7 +166,7 @@ Process boundary пока не sandbox: worker получает очищенно
   переживает адресную отмену и даёт совпадающий canonical workflow replay.
 
 Model implementations (`fake`, `openai`, `openai_compatible`, `anthropic`)
-живут в reference worker и заменяются внешними `model/v5` exports. Root-owned
+живут в reference worker и заменяются внешними `model/v6` exports. Root-owned
 `AgentControl` не является slot: он запускает полные peer-экземпляры Proteus
 из top-level `agent_control` config и обслуживает обе model-facing facade.
 Это не dylib-путь и не исключение для reference modules. Подробнее:

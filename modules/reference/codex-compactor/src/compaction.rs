@@ -99,7 +99,9 @@ fn complete_summary_with_recovery(
                     remove_first_message_and_counterpart(&mut history);
                     retries = 0;
                 }
-                Some(ModelFailureKind::Other) | None if retries < MAX_MODEL_RETRIES => {
+                Some(ModelFailureKind::Other | ModelFailureKind::StreamDisconnected) | None
+                    if retries < MAX_MODEL_RETRIES =>
+                {
                     retries += 1;
                     wait_for_retry(host, retry_delay(retries))?;
                 }

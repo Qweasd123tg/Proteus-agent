@@ -316,7 +316,9 @@ pub(super) fn execute_tool(
     from_json_string(result_json.as_str())
 }
 
-fn ensure_not_cancelled(host: &mut WorkflowModuleHostMut<'_>) -> Result<(), ProcessModuleError> {
+pub(super) fn ensure_not_cancelled(
+    host: &mut WorkflowModuleHostMut<'_>,
+) -> Result<(), ProcessModuleError> {
     match host.is_cancelled() {
         Ok(false) => Ok(()),
         Ok(true) => Err(ProcessModuleError::new("turn canceled by client")),

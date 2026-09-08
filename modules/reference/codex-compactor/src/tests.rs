@@ -21,6 +21,8 @@ use crate::{
     summary::{COMPACTION_PROMPT, SUMMARY_PREFIX, validate_summary_response_for_test},
 };
 
+mod stream_recovery;
+
 #[derive(Default)]
 struct TestHost {
     responses: Mutex<Vec<Result<CanonicalModelResponse, ProcessModuleError>>>,

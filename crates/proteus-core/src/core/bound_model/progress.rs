@@ -3,9 +3,9 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{Result, bail};
 
 use crate::{
-    domain::MessageId,
+    domain::{MessageId, PartId},
     model_standard::{
-        CanonicalMessage, CanonicalModelRequest, ContentPart, MessageRole, ModelFailure,
+        CanonicalMessage, CanonicalModelRequest, ContentPart, MessageRole, ModelFailure, PartScope,
     },
 };
 
@@ -13,6 +13,7 @@ use crate::{
 #[derive(Clone)]
 pub(super) struct CompletedMessageProgress {
     request_ids: HashSet<MessageId>,
+    part_ids: HashSet<PartId>,
     messages: Vec<CanonicalMessage>,
     positions: HashMap<MessageId, usize>,
 }
@@ -21,6 +22,11 @@ impl CompletedMessageProgress {
     pub(super) fn new(request: &CanonicalModelRequest) -> Self {
         Self {
             request_ids: request.messages.iter().map(|message| message.id).collect(),
+            part_ids: request
+                .messages
+                .iter()
+                .flat_map(|message| message.parts.iter().map(|part| part.part_id))
+                .collect(),
             messages: Vec::new(),
             positions: HashMap::new(),
         }
@@ -53,6 +59,27 @@ impl CompletedMessageProgress {
             }
             return Ok(());
         }
+        // A completed item must be safe to retain as conversation history.
+        // Check before accepting it so malformed progress cannot invalidate a
+        // later workflow checkpoint containing previously accepted messages.
+        let mut message_part_ids = HashSet::new();
+        for part in &message.parts {
+            if part.scope != PartScope::Conversation {
+                bail!(
+                    "completed model message {} contains non-conversation part {}",
+                    message.id,
+                    part.part_id
+                );
+            }
+            if self.part_ids.contains(&part.part_id) || !message_part_ids.insert(part.part_id) {
+                bail!(
+                    "completed model message {} contains reused part id {}",
+                    message.id,
+                    part.part_id
+                );
+            }
+        }
+        self.part_ids.extend(message_part_ids);
         self.positions.insert(message.id, self.messages.len());
         self.messages.push(message);
         Ok(())

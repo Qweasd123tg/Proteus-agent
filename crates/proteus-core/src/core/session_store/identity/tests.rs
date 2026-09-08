@@ -111,7 +111,7 @@ fn metadata_session_id_must_match_short_directory_name() {
 
 #[tokio::test]
 async fn v4_metadata_round_trips_identity() {
-    assert_eq!(JOURNAL_SCHEMA_VERSION, 10);
+    assert_eq!(JOURNAL_SCHEMA_VERSION, 11);
     let root = tempfile::tempdir().expect("root");
     let session_id = new_session_id();
     let session_dir = root.path().join(short_session_directory_name(session_id));

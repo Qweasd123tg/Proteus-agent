@@ -3,6 +3,7 @@ use std::{collections::VecDeque, sync::Mutex};
 
 mod cache;
 mod codex_loop;
+mod codex_stream_recovery;
 mod codex_tool_dispatch;
 mod dynamic_tool_surface;
 mod output_helpers;

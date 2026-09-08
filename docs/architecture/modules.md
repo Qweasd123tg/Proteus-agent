@@ -19,8 +19,8 @@ authority(module) = authority(slot, invocation_context)
 ```
 
 Все внешние modules являются exports process components: Component Runtime v2
-использует wire protocol v3; `workflow` использует strict contract v10,
-`compactor` — v7, `model` — v5; версии остальных slots приведены в authority table
+использует wire protocol v3; `workflow` использует strict contract v11,
+`compactor` — v8, `model` — v6; версии остальных slots приведены в authority table
 [process-module-architecture.md](process-module-architecture.md). Runtime допускает
 несколько одновременных и вложенных invocation одного component. Dylib ABI и
 native loader в проекте отсутствуют.
@@ -52,7 +52,7 @@ native loader в проекте отсутствуют.
 | `tool_exposure` | `select_one` | `modules.tool_exposure` | да | `codex_dynamic` |
 | `tool` | `ordered_many` | exports + `tools.enabled` | да | `reference.tools` и узкие selectors |
 | `context_provider` | `ordered_many` | exports + context config | да | `skills` |
-| `model` | `select_one` | active provider profile | да, `model/v5` | `fake`, `openai`, `openai_compatible`, `anthropic` |
+| `model` | `select_one` | active provider profile | да, `model/v6` | `fake`, `openai`, `openai_compatible`, `anthropic` |
 
 Все behavior implementations, включая `model`, используют process contract.
 Agent control в матрицу не входит, потому что это
@@ -137,7 +137,7 @@ runtime status, context, model completion, compaction, visible/selected tools,
 tool execution и event emission. Session ids, approvals, tool ownership и
 journal остаются host-owned.
 
-`workflow/v10` возвращает success с `WorkflowOutput` либо error с
+`workflow/v11` возвращает success с `WorkflowOutput` либо error с
 `WorkflowFailure`. Ошибка может явно вернуть выполненную часть истории через
 `WorkflowHistoryUpdate`; Core проверяет её и сохраняет до terminal `Error`.
 `coding.codex_loop` использует этот путь после сбоя model call, включая
@@ -150,6 +150,14 @@ contract для любых workflow implementations, а не восстанов�
 его используют `coding.codex_loop` и Python example. Без checkpoint внутренние
 model/tool facts по-прежнему не превращаются в conversation history автоматически.
 
+Повтор оборванного stream выбирает `coding.codex_loop` по общей причине
+`StreamDisconnected`. Module config `stream_max_retries` задаёт число повторов
+после первой попытки (5 по умолчанию, максимум 100, `0` отключает).
+Перед backoff workflow подтверждает completed progress checkpoint-ом и
+дополняет им следующий model request. Частичные дельты не становятся history,
+а уже завершённые tools не запускаются заново. Другие workflows самостоятельно
+определяют реакцию на этот cause; Core не содержит retry loop или веток по id.
+
 Checkpoint связывает исходный call в history с явно объявленным
 `execution_call`. В `coding.codex_loop` этот общий contract используется для
 перехвата `shell`/`exec_command` с командой `apply_patch`: модуль разбирает
@@ -158,7 +166,7 @@ Checkpoint связывает исходный call в history с явно об�
 исполнение без преобразования. Подмена module не требует имени Codex в host.
 
 `coding.project_check` — reference code-heavy controller на том же
-`workflow/v10`. Он детерминированно вызывает `git_status`, определяет project по
+`workflow/v11`. Он детерминированно вызывает `git_status`, определяет project по
 root marker, запускает фиксированную test command и обращается к model только
 один раз для объяснения failed test. Success path не вызывает model, context
 или compactor. Это architecture probe, не default workflow и не special
@@ -211,7 +219,7 @@ Context builder получает callbacks `host.search.query`,
 включая history, instructions, reasoning, limits и cache. Выбранный module
 определяет summary request и возвращает replacement history. Он может вызвать
 `host.model.complete`. Этот
-callback доступен всему `compactor/v7`, а не только `codex`. Deterministic
+callback доступен всему `compactor/v8`, а не только `codex`. Deterministic
 Python example не использует callback, но имеет ту же authority.
 
 Compactor наследует общий бюджет workflow; export `timeout_ms` может задать
@@ -239,8 +247,8 @@ model history. При `changed = false` сообщения должны совп
 input/output. `metadata` — непрозрачные данные module, не источник этих полей.
 
 Тот же DTO возвращает workflow callback `host.history.compact`; актуальные
-границы — `compactor/v7` и `workflow/v10`, прежние slot versions не принимаются.
-Wire protocol остаётся v3, журнал использует schema v10.
+границы — `compactor/v8` и `workflow/v11`, прежние slot versions не принимаются.
+Wire protocol остаётся v3, журнал использует schema v11.
 Workflow replay сохраняет typed поля `HistoryCompactionReport` и весь `metadata`, не подмешивая и не
 удаляя ключи с известными именами. Core помечает внутренний model callback
 compactor origin-ом `compactor` в journal envelope. Workflow replay проверяет
@@ -280,7 +288,7 @@ host-owned `ExecutionAttribution`: обязательный `ExecutionId` и opt
 
 ### Model
 
-Общий `model/v5` contract: `describe` возвращает неизменяемые adapter id,
+Общий `model/v6` contract: `describe` возвращает неизменяемые adapter id,
 capabilities и hosted tools; `stream` принимает canonical request и флаг
 provider streaming. Дельты доставляются через acknowledged `host.model.emit`,
 полный response/error — отдельным terminal result. Порядок, backpressure и

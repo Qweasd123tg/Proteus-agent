@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use proteus_contracts::model_standard::{ContentPart, MessagePhase, MessageRole};
+use proteus_contracts::model_standard::{ContentPart, MessagePhase, MessageRole, ModelFailureKind};
 use proteus_core::core::{
     AgentRuntime, AppConfig, JournalEntry, ModuleCatalog, SessionStore, ToolCallRecordPhase,
     TurnSettlementStatus, WorkflowReplayOptions, replay_workflow,
@@ -129,6 +129,14 @@ async fn configure(root: &Path, endpoint: &str) -> AppConfig {
         .get_mut(&config.active_provider)
         .unwrap()
         .stream = true;
+    config
+        .module_config
+        .entry("workflow".to_owned())
+        .or_default()
+        .insert(
+            "coding.codex_loop".to_owned(),
+            json!({"stream_max_retries": 0}),
+        );
     std::fs::write(
         root.join("config.json"),
         serde_json::to_vec(&config).unwrap(),
@@ -174,6 +182,21 @@ fn assert_failed_history(projection: &proteus_core::core::JournalProjection) {
         settlements.first(),
         Some(&TurnSettlementStatus::Error),
         "a completed final-answer item cannot synthesize turn success"
+    );
+    assert_eq!(
+        projection
+            .records
+            .iter()
+            .filter(|record| matches!(
+                &record.entry,
+                JournalEntry::ModelResponseRecorded(response)
+                    if matches!(&response.outcome,
+                        proteus_core::core::ModelResponseOutcome::Error { failure }
+                            if failure.kind == ModelFailureKind::StreamDisconnected)
+            ))
+            .count(),
+        1,
+        "the intentionally disabled retry path retains the typed stream failure"
     );
 }
 

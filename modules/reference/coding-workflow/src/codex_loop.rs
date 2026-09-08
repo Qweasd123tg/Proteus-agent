@@ -9,8 +9,9 @@ use proteus_contracts::{
 use serde_json::{Value, json};
 
 use crate::{
+    codex_sampling::{StreamRetryConfig, complete_sampling_request},
     codex_tools::CodexToolBatch,
-    host::{complete_model, emit_event, request_from_state_with_instruction_blocks},
+    host::{emit_event, request_from_state_with_instruction_blocks},
     metadata::output_metadata_with_extra,
     output_text::message_text,
     scaffold::{PersistentRepair, TurnScaffold},
@@ -23,9 +24,10 @@ pub(crate) fn run_codex_loop(
     host: &mut WorkflowModuleHostMut<'_>,
     module_id: &str,
 ) -> Result<WorkflowModuleOutput, WorkflowFailure> {
+    let stream_retry = StreamRetryConfig::from_config(&input.config)?;
     let mut turn = TurnScaffold::begin(host, &input).map_err(WorkflowFailure::from)?;
     super::codex_recovery::normalize_missing_tool_outputs(&mut turn.model_messages);
-    match run_loop(&input, host, module_id, &mut turn) {
+    match run_loop(&input, host, module_id, &mut turn, stream_retry) {
         Ok((text, metadata)) => turn
             .finish(host, text, metadata)
             .map_err(|error| failure_with_history(error, &turn)),
@@ -53,6 +55,7 @@ fn run_loop(
     host: &mut WorkflowModuleHostMut<'_>,
     module_id: &str,
     turn: &mut TurnScaffold,
+    stream_retry: StreamRetryConfig,
 ) -> Result<(String, Value), ProcessModuleError> {
     let mut tool_rounds = 0usize;
     let mut executed_tools = Vec::new();
@@ -76,27 +79,8 @@ fn run_loop(
             last_usage = None;
             turn.checkpoint(host, &[])?;
         }
-        let request = prepared.request;
-        emit_event(
-            host,
-            &Event::ModelRequestPrepared {
-                model: request.model.clone(),
-            },
-        )?;
-        let response = match complete_model(host, &request, "codex_loop") {
-            Ok(response) => response,
-            Err(error) => {
-                // Only direct model output belongs to this turn's progress.
-                // A compactor failure can carry its own summary messages.
-                if let Some(failure) = &error.model_failure {
-                    turn.model_messages
-                        .extend(failure.completed_messages.iter().cloned());
-                    turn.persistent_messages
-                        .extend(failure.completed_messages.iter().cloned());
-                }
-                return Err(error);
-            }
-        };
+        let mut request = prepared.request;
+        let response = complete_sampling_request(host, turn, &mut request, stream_retry)?;
         emit_event(
             host,
             &Event::ModelResponseReceived {

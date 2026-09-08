@@ -35,6 +35,8 @@ mod partial_sse_recovery;
 mod patch_interception;
 #[path = "codex_model_resume/request_retry.rs"]
 mod request_retry;
+#[path = "codex_model_resume/stream_recovery.rs"]
+mod stream_recovery;
 
 #[derive(Default)]
 struct CapturedEvents(std::sync::Mutex<Vec<proteus_contracts::domain::EventEnvelope>>);

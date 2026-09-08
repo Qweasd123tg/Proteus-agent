@@ -8,6 +8,9 @@ use super::CanonicalMessage;
 #[non_exhaustive]
 pub enum ModelFailureKind {
     ContextWindowExceeded,
+    /// An established response stream disconnected before its terminal event.
+    /// The calling algorithm decides whether and how to request continuation.
+    StreamDisconnected,
     Interrupted,
     SessionBudgetExceeded,
     Other,

@@ -13,7 +13,7 @@ use crate::{
     domain::ModelRef,
     model_standard::{
         CanonicalModelRequest, CanonicalModelResponse, ModelCapabilities, ModelFailure,
-        ModelStreamEvent,
+        ModelFailureKind, ModelStreamEvent,
     },
 };
 
@@ -265,7 +265,7 @@ impl OpenAiResponsesClient {
                             }
                         } else {
                             yield Ok(ModelStreamEvent::Error {
-                                failure: ModelFailure::other(format!("sse transport error: {error}")),
+                                failure: ModelFailure::new(ModelFailureKind::StreamDisconnected, format!("sse transport error: {error}")),
                             });
                         }
                         saw_terminal_event = true;
@@ -275,7 +275,8 @@ impl OpenAiResponsesClient {
             }
             if !saw_terminal_event {
                 yield Ok(ModelStreamEvent::Error {
-                    failure: ModelFailure::other(
+                    failure: ModelFailure::new(
+                        ModelFailureKind::StreamDisconnected,
                         "openai responses stream ended without a terminal event",
                     ),
                 });

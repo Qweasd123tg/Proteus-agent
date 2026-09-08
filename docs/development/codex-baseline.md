@@ -18,7 +18,7 @@ Baseline: `openai/codex` commit
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v10`, `compactor/v7`, journal schema v10.
+Действующие версии: `workflow/v11`, `compactor/v8`, journal schema v11.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,
@@ -84,9 +84,45 @@ workflow replay воспроизводит записанный исход бе�
 Внешний Cancel проверяется через `TurnSettled(Canceled)` и cold history.
 
 Это срез до успешных HTTP-заголовков. Ошибки JSON body и восстановление уже
-открытого SSE stream сюда не входят. Отдельный regression подтверждает, что
+открытого SSE stream сюда не входят. При `stream_max_retries = 0` отдельный regression подтверждает, что
 завершённый SSE item с последующим EOF без terminal response не вызывает
 повторного HTTP-запроса; полученный `Error` проходит workflow replay.
+
+### Повтор Оборванного SSE
+
+`coding.codex_loop` повторяет запрос после `StreamDisconnected` в том же root
+turn. OpenAI adapter возвращает эту причину при ошибке установленного SSE и
+EOF до terminal event. Бюджет — пять повторов после первой попытки, максимум
+100; module config `stream_max_retries = 0` отключает этот путь. Backoff —
+200 мс × 2ⁿ со случайным множителем 0,9–1,1 и проверкой отмены. Бюджет
+сбрасывается после успешного model response, но не после completed item.
+
+Upstream anchors закреплённого `67cc3c3`:
+[`run_sampling_request`](https://github.com/openai/codex/blob/67cc3c318dc8b5532db6ade4182b1dc6f3870889/codex-rs/core/src/session/turn.rs#L1361-L1460)
+повторно строит prompt из history;
+[`stream_events_utils.rs`](https://github.com/openai/codex/blob/67cc3c318dc8b5532db6ade4182b1dc6f3870889/codex-rs/core/src/stream_events_utils.rs#L298-L361)
+записывает завершённые items. Proteus переносит completed assistant messages
+и предыдущие tool results в retry request, подтверждая checkpoint до ожидания.
+Каждая попытка — отдельный canonical model exchange, в отличие от HTTP retry
+внутри adapter-а. Core не содержит специального алгоритма повторов.
+
+[Process regression](../../modules/reference/process-worker/tests/codex_model_resume/stream_recovery.rs)
+проверяет `shell append → completed assistant item → обрыв SSE → итоговый ответ`
+без нового пользовательского turn: эффект один, незавершённые дельты отсутствуют
+в следующем request/history, journal и cold history согласованы, workflow replay
+не обращается к живой модели и не повторяет эффект. Другой process case
+проверяет clean EOF до исчерпания бюджета и matched Error replay;
+[Cancel case](../../modules/reference/process-worker/tests/codex_model_resume/stream_recovery/cancellation.rs)
+— отмену после checkpoint во время backoff, отсутствие следующего HTTP-запроса
+и cold history. Module regression проверяет сброс бюджета после успешного
+sampling request и отсутствие retry для остальных typed causes. Общий model
+deadline проверяется отдельным HTTP/process regression выше.
+
+Срез не включает раннее исполнение tool call по `output_item.done`: в Proteus
+tools доступны после полного canonical response. Также не реализуются здесь
+upstream idle timeout, первичный unbounded connection retry и WebSocket fallback.
+Общий model deadline остаётся неповторяемой ошибкой. Полное совпадение stream
+lifecycle этим срезом не заявляется.
 
 ### Shell-команда Apply Patch
 
@@ -110,7 +146,7 @@ parser, все формы команд и event lifecycle этим срезом 
 
 ### Продолжение После Модельной Ошибки
 
-`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v10`
+`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v11`
 failure envelope. Core сохраняет их до `TurnSettled(Error)`: следующий turn
 получает завершённые assistant items и tool results с исходными call ids.
 
@@ -125,10 +161,12 @@ model items и tool calls, `core/src/session/turn.rs` — завершённые
 `response.completed`. Model failure несёт их в `completed_messages`; Codex
 workflow выбирает этот progress для history. Исходные ids и phases сохраняются
 в journal, cold transcript и следующем HTTP request. Незавершённые дельты не
-попадают в history, исходный turn остаётся `Error`; Error и успешное продолжение
+попадают в history. В fixture повторы отключены (`stream_max_retries = 0`),
+исходный turn остаётся `Error`; Error и успешное продолжение
 проходят workflow replay. Внутренний summary compactor этим путём не сохраняется
 как пользовательская история. Срез не включает раннее исполнение tool calls,
-восстановление отдельных items после crash/внешнего Cancel или retry SSE stream.
+восстановление неподтверждённых items после crash/внешнего Cancel. Повтор SSE
+проверяется отдельным сценарием выше.
 
 [HTTP/process regression](../../modules/reference/process-worker/tests/codex_model_resume/model_failure_recovery.rs)
 проводит `write_file → пять HTTP 500 → новый turn`: проверяет исчерпание
@@ -244,11 +282,11 @@ cargo test -p proteus-core --test module_swap
 
 ## Граница Evidence
 
-Этот срез не доказывает совпадения live item lifecycle, retry установленного
-SSE stream, полного compaction lifecycle, filesystem/network permissions,
+Этот срез не доказывает полного совпадения live item lifecycle и всех причин
+stream retry, полного compaction lifecycle, filesystem/network permissions,
 deferred tool discovery и AgentControl semantics.
 
-Item identity и typed phase проходят через `model/v5`, live events и app
+Item identity и typed phase проходят через `model/v6`, live events и app
 transcript. Responses fixture отдаёт added/delta/done/completed, включая
 позднюю фазу и multipart текст; regression сверяет live ids/text/offsets
 с journal и cold app transcript. Web regression проверяет соседние items

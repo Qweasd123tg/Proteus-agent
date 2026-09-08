@@ -243,6 +243,7 @@ name = "coding-workflow"
 version = "0.0.0-dev"
 dependencies = [
  "proteus-contracts",
+ "rand",
  "serde",
  "serde_json",
 ]

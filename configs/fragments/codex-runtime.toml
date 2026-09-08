@@ -29,6 +29,10 @@ command = "proteus-reference-worker"
 
 [components.reference-workflow.exports.workflow."coding.codex_loop"]
 
+[module_config.workflow."coding.codex_loop"]
+# Повторы оборванного model stream с сохранённой историей; HTTP retry настраивается отдельно.
+stream_max_retries = 5
+
 [components.reference-context]
 command = "proteus-reference-worker"
 

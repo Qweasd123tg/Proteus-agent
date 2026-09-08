@@ -175,25 +175,44 @@ async fn start_failure_progress_is_validated_and_recorded() {
 #[tokio::test]
 async fn invalid_embedded_progress_records_protocol_failure_with_prior_progress() {
     let first = completed("valid progress", MessagePhase::Commentary);
-    let invalid = CanonicalMessage::text(MessageRole::User, "invalid role");
-    let failure = ModelFailure::other("provider stopped").with_completed_messages(vec![invalid]);
-    let (model, recorder) = recording_model(vec![
-        ModelStreamEvent::MessageCompleted {
-            message: first.clone(),
-        },
-        ModelStreamEvent::Error { failure },
-    ]);
+    let invalid_role = CanonicalMessage::text(MessageRole::User, "invalid role");
+    let mut invalid_scope = completed("request-scoped progress", MessagePhase::Commentary);
+    invalid_scope.parts[0].scope = PartScope::Request;
+    let mut reused_part = completed("reused part id", MessagePhase::Commentary);
+    reused_part.parts[0].part_id = first.parts[0].part_id;
+    let mut duplicate_part = completed("duplicate part id", MessagePhase::Commentary);
+    duplicate_part.parts.push(duplicate_part.parts[0].clone());
+    let current_request = request("failure-progress", "invalid embedded");
+    let mut request_part = completed("request part id", MessagePhase::Commentary);
+    request_part.parts[0].part_id = current_request.messages[0].parts[0].part_id;
+    for invalid in [
+        invalid_role,
+        invalid_scope,
+        reused_part,
+        duplicate_part,
+        request_part,
+    ] {
+        let failure = ModelFailure::new(
+            crate::model_standard::ModelFailureKind::StreamDisconnected,
+            "provider stopped",
+        )
+        .with_completed_messages(vec![invalid]);
+        let (model, recorder) = recording_model(vec![
+            ModelStreamEvent::MessageCompleted {
+                message: first.clone(),
+            },
+            ModelStreamEvent::Error { failure },
+        ]);
 
-    let error = model
-        .complete(request("failure-progress", "invalid embedded"))
-        .await
-        .unwrap_err();
-    let failure = ModelFailure::from_error(&error);
-    assert!(failure.message.contains("model protocol error"));
-    assert_eq!(failure.completed_messages, [first.clone()]);
-    let facts = recorder.facts.lock().await;
-    assert_eq!(facts.errors.len(), 1);
-    assert_eq!(facts.errors[0].2, [first]);
+        let error = model.complete(current_request.clone()).await.unwrap_err();
+        let failure = ModelFailure::from_error(&error);
+        assert!(failure.message.contains("model protocol error"));
+        assert_eq!(failure.kind, crate::model_standard::ModelFailureKind::Other);
+        assert_eq!(failure.completed_messages, [first.clone()]);
+        let facts = recorder.facts.lock().await;
+        assert_eq!(facts.errors.len(), 1);
+        assert_eq!(facts.errors[0].2, [first.clone()]);
+    }
 }
 
 #[tokio::test]

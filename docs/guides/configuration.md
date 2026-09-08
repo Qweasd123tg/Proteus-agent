@@ -186,6 +186,20 @@ JSON body и уже открытого SSE stream не запускают эту
 Диагностический `stream_error_fallback` остаётся отдельной явной настройкой;
 tracked Codex profile её не включает.
 
+У `coding.codex_loop` есть отдельный `stream_max_retries` в
+`module_config.workflow."coding.codex_loop"`.
+По умолчанию это 5 повторов после первой попытки; `0` отключает их, значения
+выше 100 ограничиваются 100. Принимается только неотрицательное целое число.
+Workflow повторяет `ModelFailureKind::StreamDisconnected`: OpenAI adapter
+так обозначает обрыв установленного SSE или EOF без terminal event. Каждый
+повтор получает завершённые assistant messages и прежние tool results;
+checkpoint сохраняет их до backoff. Задержка начинается с 200 мс, удваивается
+со случайным множителем 0,9–1,1 и прерывается отменой. Успешный model response
+завершает этот бюджет; следующий model round получает новый. Завершённый item
+оборванного потока не обнуляет счётчик. `Other`, ошибки canonical данных,
+отмена и общий model deadline не запускают этот retry. Каждый вызов модели
+имеет свой model deadline, а общий workflow deadline охватывает все попытки.
+
 Environment читается внутри worker: нужные переменные (`HOME`, API key,
 proxy variables) явно перечисляются в `env_allowlist` component. Это относится
 и к `$HOME` в путях JSON secrets. Core не читает credential и не знает схему

@@ -6,6 +6,7 @@
 
 mod codex_loop;
 mod codex_recovery;
+mod codex_sampling;
 mod codex_tools;
 mod dynamic_tools;
 mod history;

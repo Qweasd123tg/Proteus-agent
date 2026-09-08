@@ -2,7 +2,7 @@
 """Dependency-free process HistoryCompactor example for Proteus.
 
 The module keeps a valid suffix beginning at one of the most recent user
-turns. Contract v7 permits the same host.model.complete callback for every
+turns. Contract v8 permits the same host.model.complete callback for every
 compactor, but this deterministic example does not need to call it.
 """
 
@@ -24,7 +24,7 @@ from component_runtime import (  # noqa: E402
 
 SLOT = "compactor"
 MODULE_ID = "python_suffix"
-CONTRACT_VERSION = "v7"
+CONTRACT_VERSION = "v8"
 
 INITIALIZE_FIELDS = {
     "protocol_version",
@@ -86,7 +86,7 @@ def validate_initialize(params: Any) -> str:
     if not isinstance(export["module_config"], dict):
         raise ProtocolError("initialize module_config must be an object")
     if export["host_features"] != []:
-        raise ProtocolError("compactor v7 does not negotiate host features")
+        raise ProtocolError("compactor v8 does not negotiate host features")
     return component_id
 
 

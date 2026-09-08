@@ -38,6 +38,7 @@ impl Workflow for FailureRoutingWorkflow {
             ModelFailureKind::Interrupted => anyhow::bail!("branch:interrupted"),
             ModelFailureKind::SessionBudgetExceeded => anyhow::bail!("branch:budget"),
             ModelFailureKind::Other => anyhow::bail!("branch:other"),
+            ModelFailureKind::StreamDisconnected => anyhow::bail!("branch:stream-disconnected"),
             _ => anyhow::bail!("branch:unknown"),
         }
     }
@@ -53,6 +54,10 @@ async fn recorded_failure_kind_selects_the_same_workflow_branch() {
         (ModelFailureKind::Interrupted, "branch:interrupted"),
         (ModelFailureKind::SessionBudgetExceeded, "branch:budget"),
         (ModelFailureKind::Other, "branch:other"),
+        (
+            ModelFailureKind::StreamDisconnected,
+            "branch:stream-disconnected",
+        ),
     ] {
         let completed = CanonicalMessage::text(MessageRole::Assistant, "accepted progress")
             .with_phase(MessagePhase::Commentary);

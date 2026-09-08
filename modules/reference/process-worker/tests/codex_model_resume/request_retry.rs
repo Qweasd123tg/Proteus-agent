@@ -4,7 +4,10 @@ use std::{
     time::Duration,
 };
 
-use proteus_contracts::{contracts::CancellationToken, model_standard::ContentPart};
+use proteus_contracts::{
+    contracts::CancellationToken,
+    model_standard::{ContentPart, ModelFailureKind},
+};
 use proteus_core::core::{
     AgentRuntime, JournalEntry, ModelResponseOutcome, ModuleCatalog, SessionStore,
     TurnSettlementStatus, WorkflowReplayOptions, replay_workflow,
@@ -109,6 +112,18 @@ async fn check(mode: Mode) {
         .get_mut(&config.active_provider)
         .unwrap()
         .stream = mode.streaming();
+    if matches!(mode, Mode::PartialSse) {
+        // This scenario isolates the provider HTTP retry boundary. The workflow
+        // retry path has its own process regression in `stream_recovery`.
+        config
+            .module_config
+            .entry("workflow".to_owned())
+            .or_default()
+            .insert(
+                "coding.codex_loop".to_owned(),
+                json!({"stream_max_retries": 0}),
+            );
+    }
     config
         .module_config
         .get_mut("policy")
@@ -240,6 +255,21 @@ async fn check(mode: Mode) {
             .position(|record| matches!(&record.entry, JournalEntry::TurnSettled(_)))
             .expect("settlement");
         assert!(request_index < error_index && error_index < settlement_index);
+    }
+    if matches!(mode, Mode::PartialSse) {
+        assert_eq!(
+            projection
+                .records
+                .iter()
+                .filter(|record| matches!(
+                    &record.entry,
+                    JournalEntry::ModelResponseRecorded(response)
+                        if matches!(&response.outcome, ModelResponseOutcome::Error { failure }
+                            if failure.kind == ModelFailureKind::StreamDisconnected)
+                ))
+                .count(),
+            1
+        );
     }
     assert_eq!(
         projection
