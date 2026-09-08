@@ -130,10 +130,11 @@ impl ExecutionRecorder for BlockingErrorRecorder {
     async fn model_request_recorded(
         &self,
         exchange_id: ExchangeId,
+        origin: ModelCallOrigin,
         request: &CanonicalModelRequest,
     ) -> Result<()> {
         self.inner
-            .model_request_recorded(exchange_id, request)
+            .model_request_recorded(exchange_id, origin, request)
             .await
     }
 

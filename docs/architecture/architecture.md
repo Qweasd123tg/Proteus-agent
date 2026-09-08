@@ -368,6 +368,12 @@ InvocationRef не взаимозаменяемы; broker lineage не пере�
 
 Prompt replay повторяет один сохранённый provider-neutral model request;
 workflow replay заново запускает Workflow с записанными model/tool outcomes.
+Core записывает typed origin model exchange (`direct`/`compactor`) на host
+callback boundary отдельно от `ExecutionScope` и provider request. Replay
+валидирует все пары, но последовательность workflow и checkpoint positions
+считает по `direct`; compaction берёт из записанных report/history. Внутренние
+summary exchanges остаются доступны учёту usage и eval, алгоритм compactor
+повторно не исполняется.
 Model outcome не обязателен: model-free Turn воспроизводится по tool facts,
 history и settlement. Без model request журнал не даёт replayable context,
 tool exposure и compaction input; запрос таких данных или незаписанный model/

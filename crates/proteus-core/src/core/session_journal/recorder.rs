@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use proteus_contracts::{
-    contracts::{ExecutionAttribution, ExecutionRecorder, ToolExecutionRecorder},
+    contracts::{ExecutionAttribution, ExecutionRecorder, ModelCallOrigin, ToolExecutionRecorder},
     domain::{ExchangeId, ExecutionId, ThreadId, ToolCall, ToolCallResolution, ToolResult, TurnId},
     model_standard::{CanonicalModelRequest, CanonicalModelResponse},
 };
@@ -48,6 +48,7 @@ impl ExecutionRecorder for SessionExecutionRecorder {
     async fn model_request_recorded(
         &self,
         exchange_id: ExchangeId,
+        origin: ModelCallOrigin,
         request: &CanonicalModelRequest,
     ) -> Result<()> {
         self.store
@@ -55,6 +56,7 @@ impl ExecutionRecorder for SessionExecutionRecorder {
                 self.attribution,
                 JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                     exchange_id,
+                    origin,
                     request: request.clone(),
                 }),
             )
@@ -300,7 +302,7 @@ mod tests {
         );
 
         recorder
-            .model_request_recorded(exchange_id, &request)
+            .model_request_recorded(exchange_id, ModelCallOrigin::Direct, &request)
             .await
             .unwrap();
         recorder

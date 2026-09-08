@@ -1,4 +1,5 @@
 use proteus_contracts::{
+    contracts::ModelCallOrigin,
     domain::{
         AgentOutput, AgentTask, ExchangeId, ExecutionId, HistoryCompactionReport, RecordId,
         SessionId, ThreadId, ToolCall, ToolCallResolution, ToolResult, TurnId,
@@ -7,7 +8,7 @@ use proteus_contracts::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const JOURNAL_SCHEMA_VERSION: u32 = 6;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 7;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -41,6 +42,7 @@ pub struct HistoryMutated {
 #[serde(deny_unknown_fields)]
 pub struct ModelRequestRecorded {
     pub exchange_id: ExchangeId,
+    pub origin: ModelCallOrigin,
     pub request: CanonicalModelRequest,
 }
 

@@ -33,7 +33,7 @@ Reference modules и profiles — поставляемые примеры без
 |---|---|
 | Model | Capabilities и hosted tools фиксируются descriptor-ом export при сборке; разные наборы возможностей требуют отдельных exports |
 | Workflow | Process input требует task/history/chat ids и model reference; AppConfig требует active provider |
-| Replay | Model-free Turn поддержан; context/tool exposure/compaction требуют записанного model request. Прямые model calls workflow и внутренние вызовы его компонентов пока не различаются. Root steering и внешние Canceled/Timeout не эмулируются |
+| Replay | Model-free Turn поддержан; context/tool exposure/compaction требуют записанного model request. Прямые model calls workflow отделены от summary exchanges; replay хода с внутренним summary требует записанного changed-compaction checkpoint и следующего direct model request; внутренний алгоритм и typed error branches compactor не воспроизводятся. Root steering и внешние Canceled/Timeout не эмулируются |
 | Collaboration | Spawn принимает только parallel_safe роли с isolation=none; настроенный coder с worktree в эту surface не входит |
 | Peer recovery | Resume зависит от живого process; durable tree, attach и reconnect отсутствуют |
 | Worker trust | Собственные workers доверенные и работают с OS-правами владельца; принятый локальный режим, sandbox не является задачей этапа |

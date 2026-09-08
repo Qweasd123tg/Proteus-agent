@@ -11,8 +11,8 @@ use tokio::time::timeout;
 use crate::{
     contracts::{
         AgentWorkflowContext, CompactionInput, CompactionOutput, ContextBuildInput,
-        ExecutionAttribution, MemoryInvocationContext, ToolExposureInput, ToolExposureOutput,
-        ToolExposureRequest, WorkflowRuntimeStatus,
+        ExecutionAttribution, MemoryInvocationContext, ModelCallOrigin, ToolExposureInput,
+        ToolExposureOutput, ToolExposureRequest, WorkflowRuntimeStatus,
     },
     domain::{AgentTask, Event, ToolCall, ToolResult, ToolSpec},
     model_standard::{CanonicalModelRequest, CanonicalModelResponse},
@@ -21,6 +21,7 @@ use crate::{
 use super::{
     RuntimeCompactionHost, ToolOrchestrator,
     agent_control::{TASK_TOOL, calls_are_parallel_eligible},
+    model_call_scope::with_model_call_origin,
 };
 
 /// Async host capability surface shared by all process Workflow exports.
@@ -86,8 +87,14 @@ impl WorkflowHostRuntime {
         request: CanonicalModelRequest,
     ) -> Result<CanonicalModelResponse> {
         let ctx = self.ctx.clone();
-        self.run_active(async move { ctx.execution.model.complete(request).await })
+        self.run_active(async move {
+            with_model_call_origin(
+                ModelCallOrigin::Direct,
+                ctx.execution.model.complete(request),
+            )
             .await
+        })
+        .await
     }
 
     pub(crate) async fn compact_history(&self, input: CompactionInput) -> Result<CompactionOutput> {

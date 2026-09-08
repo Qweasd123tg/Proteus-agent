@@ -9,7 +9,7 @@ use crate::{
         EventEmitter, ExecutionRecorder, ExecutionScope, Model, ModelEventStream,
         NoopExecutionRecorder,
     },
-    core::ModelService,
+    core::{ModelService, model_call_scope::current_model_call_origin},
     domain::{
         Event, EventContext, ExchangeId, ModelRef, SessionId, ThreadId, ToolSpec, TurnId,
         new_exchange_id,
@@ -193,7 +193,7 @@ impl BoundModel {
 
         self.binding
             .recorder
-            .model_request_recorded(exchange_id, &request)
+            .model_request_recorded(exchange_id, current_model_call_origin(), &request)
             .await?;
 
         let validation_request = request.clone();

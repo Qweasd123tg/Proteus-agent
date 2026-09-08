@@ -2,11 +2,11 @@ use anyhow::Result;
 use async_trait::async_trait;
 
 use crate::{
-    contracts::{AgentWorkflowContext, CompactionHost},
+    contracts::{AgentWorkflowContext, CompactionHost, ModelCallOrigin},
     model_standard::{CanonicalModelRequest, CanonicalModelResponse},
 };
 
-use super::without_root_steering;
+use super::{model_call_scope::with_model_call_origin, without_root_steering};
 
 /// Host-owned implementation of the capabilities available to every
 /// `HistoryCompactor` invocation, independent of module identity.
@@ -37,7 +37,10 @@ impl CompactionHost for RuntimeCompactionHost {
         let ctx = self.ctx.clone();
         let cancellation = ctx.execution.scope.cancellation.clone();
         tokio::select! {
-            result = without_root_steering(ctx.execution.model.complete(request)) => result,
+            result = with_model_call_origin(
+                ModelCallOrigin::Compactor,
+                without_root_steering(ctx.execution.model.complete(request)),
+            ) => result,
             _ = cancellation.cancelled() => Err(interrupted()),
         }
     }

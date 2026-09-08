@@ -17,6 +17,9 @@ use crate::{
 
 use super::WorkflowReplayOptions;
 
+mod model_exchanges;
+use model_exchanges::select_exchanges;
+
 #[derive(Debug, Clone)]
 pub(super) struct WorkflowReplayFixture {
     pub checkpoints: Vec<super::replay_runtime::RecordedCheckpoint>,
@@ -77,7 +80,11 @@ pub(super) fn load_fixture(
         select_settlement_and_compactions(&projection.records, turn_id, thread_id)?;
     ensure_replayable_settlement(turn_id, &settlement)?;
     let history = select_history(&projection.records, turn_id, thread_id, &opened)?;
-    let exchanges = select_exchanges(&projection.records, execution_id, thread_id)?;
+    let exchanges = select_exchanges(&projection.records, execution_id, thread_id, turn_id)?;
+    let direct_exchange_ids = exchanges
+        .iter()
+        .map(|exchange| exchange.exchange_id)
+        .collect();
     let tools = select_tools(&projection.records, execution_id, thread_id)?;
     let context = exchanges
         .first()
@@ -88,6 +95,7 @@ pub(super) fn load_fixture(
             &projection.records,
             thread_id,
             turn_id,
+            &direct_exchange_ids,
         ),
         journal_path: store.journal_path(),
         session_id: store.session_id(),
@@ -273,63 +281,6 @@ fn validate_current_user_message(
         bail!("turn {turn_id} persisted user message does not match turn_opened task text");
     }
     Ok(())
-}
-
-fn select_exchanges(
-    records: &[JournalRecord],
-    execution_id: ExecutionId,
-    thread_id: ThreadId,
-) -> Result<Vec<RecordedModelExchange>> {
-    struct PendingExchange {
-        exchange_id: ExchangeId,
-        request: CanonicalModelRequest,
-        outcome: Option<ModelResponseOutcome>,
-    }
-
-    let mut exchanges = Vec::<PendingExchange>::new();
-    let mut positions = HashMap::new();
-    for record in records.iter().filter(|record| {
-        record.execution_id == Some(execution_id) && record.thread_id == Some(thread_id)
-    }) {
-        match &record.entry {
-            JournalEntry::ModelRequestRecorded(request) => {
-                positions.insert(request.exchange_id, exchanges.len());
-                exchanges.push(PendingExchange {
-                    exchange_id: request.exchange_id,
-                    request: request.request.clone(),
-                    outcome: None,
-                });
-            }
-            JournalEntry::ModelResponseRecorded(response) => {
-                let index = positions
-                    .get(&response.exchange_id)
-                    .copied()
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "model response {} has no selected root request",
-                            response.exchange_id
-                        )
-                    })?;
-                exchanges[index].outcome = Some(response.outcome.clone());
-            }
-            _ => {}
-        }
-    }
-    exchanges
-        .into_iter()
-        .map(|exchange| {
-            Ok(RecordedModelExchange {
-                exchange_id: exchange.exchange_id,
-                request: exchange.request,
-                outcome: exchange.outcome.ok_or_else(|| {
-                    anyhow!(
-                        "model exchange {} is incomplete and cannot be used for workflow replay",
-                        exchange.exchange_id
-                    )
-                })?,
-            })
-        })
-        .collect()
 }
 
 fn select_tools(

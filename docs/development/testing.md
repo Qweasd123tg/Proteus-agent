@@ -67,7 +67,7 @@ cargo test --workspace --no-fail-fast
 
 Breaking canonical response change одновременно обновляет все tracked
 producers/consumers и версии затронутых contracts/storage. Действующие версии:
-`workflow/v8`, `compactor/v6`, durable journal schema v6. Изменение process DTO
+`workflow/v8`, `compactor/v6`, durable journal schema v7. Изменение process DTO
 само по себе не требует новой journal schema, если сохранённая форма не меняется.
 Старые формы не получают compatibility readers.
 
@@ -112,13 +112,19 @@ cargo test -p proteus-reference-worker --test codex_compaction --test compactor_
 и model controls, replacement history, типизированное переполнение summary-запроса
 и journal/cold history. `codex_compaction/compatibility.rs` дополнительно
 проверяет summary дольше прежних 30 секунд и усечённый текущий ввод через
-checkpoint и cold resume; `compactor_interop` — явный короткий бюджет операции.
+checkpoint и cold resume, включая matched replay со сжатием до первого прямого
+запроса workflow; `compactor_interop` — явный короткий бюджет операции.
 Replay fixture с готовым результатом compactor проверяет typed связь исходного
-ввода с его новым представлением. Применимая проверка workflow replay хода с реальным
-summary model call пока не проходит: replay включает этот внутренний exchange
-в последовательность workflow. Отдельные replay fixtures проверяют replacement
-history без такого callback. Класс модельной ошибки журнал пока хранит только
-как текст; его replay также не подтверждён.
+ввода с его новым представлением. Process regression проверяет matched workflow
+replay хода `tool → summary → обычный model response → Success`: результат
+compactor берётся из записанных report/history, source journal не меняется,
+живые model/tool implementations не вызываются. То же подтверждено для summary
+с context-window retry после закрытия HTTP listener и удаления tool artifact.
+Replay проверяет завершённость всех model pairs, но в последовательности workflow
+и позициях checkpoint учитывает
+только origin `direct`; внутренние `compactor` exchanges остаются journal facts.
+Это не replay внутреннего алгоритма сжатия. Класс модельной ошибки журнал пока
+хранит только как текст; его typed branches этим gate не подтверждаются.
 
 `model_process` проверяет arbitrary Python exports, exact canonical input/output,
 длинный поток сверх host-work callback budget, backpressure, drop/cancel,

@@ -231,9 +231,12 @@ input/output. `metadata` — непрозрачные данные module, не 
 
 Тот же DTO возвращает workflow callback `host.history.compact`; актуальные
 границы — `compactor/v6` и `workflow/v8`, прежние slot versions не принимаются.
-Wire protocol остаётся v3, журнал использует schema v6.
+Wire protocol остаётся v3, журнал использует schema v7.
 Workflow replay сохраняет typed поля `HistoryCompactionReport` и весь `metadata`, не подмешивая и не
-удаляя ключи с известными именами.
+удаляя ключи с известными именами. Core помечает внутренний model callback
+compactor origin-ом `compactor` в journal envelope. Workflow replay проверяет
+завершённость этих exchanges, но восстанавливает compaction по report/history,
+не включая summary outcomes в последовательность прямых model calls workflow.
 
 ### Tool Exposure
 

@@ -8,6 +8,7 @@ pub(super) enum TerminalModel {
 
 pub(super) async fn terminal_journal(
     status: TurnSettlementStatus,
+    origin: crate::contracts::ModelCallOrigin,
     model: TerminalModel,
     settlement_error: &str,
 ) -> TestJournal {
@@ -48,6 +49,7 @@ pub(super) async fn terminal_journal(
                 attribution,
                 JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                     exchange_id,
+                    origin,
                     request: recorded_request(session_id, thread_id, turn_id, vec![user], spec),
                 }),
             )
@@ -94,6 +96,7 @@ async fn terminal_workflow_error_replays_as_a_matching_outcome() {
     let settlement_error = model_error;
     let journal = terminal_journal(
         TurnSettlementStatus::Error,
+        crate::contracts::ModelCallOrigin::Direct,
         TerminalModel::Outcome(ModelResponseOutcome::Error {
             message: model_error.to_owned(),
         }),
@@ -135,6 +138,7 @@ async fn canceled_and_timeout_turns_fail_closed_before_incomplete_exchange_selec
     ] {
         let journal = terminal_journal(
             status,
+            crate::contracts::ModelCallOrigin::Direct,
             TerminalModel::Pending,
             "runtime-owned terminal boundary",
         )

@@ -352,6 +352,7 @@ async fn append_exchange(
             attribution,
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                 exchange_id,
+                origin: crate::contracts::ModelCallOrigin::Direct,
                 request,
             }),
         )

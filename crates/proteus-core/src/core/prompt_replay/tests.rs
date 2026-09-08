@@ -11,7 +11,7 @@ use tempfile::TempDir;
 
 use super::*;
 use crate::{
-    contracts::{ExecutionAttribution, Model, ModelEventStream},
+    contracts::{ExecutionAttribution, Model, ModelCallOrigin, ModelEventStream},
     core::{JournalEntry, ModelRequestRecorded, ModelResponseRecorded, SessionStore, TurnOpened},
     domain::{
         AgentTask, CacheHints, Citation, ExecutionId, HostedToolActivity, HostedToolConfig,
@@ -119,6 +119,7 @@ impl TestJournal {
                 ),
                 JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                     exchange_id,
+                    origin: ModelCallOrigin::Direct,
                     request,
                 }),
             )

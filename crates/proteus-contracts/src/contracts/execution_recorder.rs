@@ -1,10 +1,20 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     domain::ExchangeId,
     model_standard::{CanonicalModelRequest, CanonicalModelResponse},
 };
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelCallOrigin {
+    /// An ordinary workflow or detached model call.
+    Direct,
+    /// A model callback made through the `HistoryCompactor` host surface.
+    Compactor,
+}
 
 /// Execution-bound sink for generic model lifecycle facts.
 ///
@@ -16,6 +26,7 @@ pub trait ExecutionRecorder: Send + Sync {
     async fn model_request_recorded(
         &self,
         exchange_id: ExchangeId,
+        origin: ModelCallOrigin,
         request: &CanonicalModelRequest,
     ) -> Result<()>;
 
@@ -36,6 +47,7 @@ impl ExecutionRecorder for NoopExecutionRecorder {
     async fn model_request_recorded(
         &self,
         _exchange_id: ExchangeId,
+        _origin: ModelCallOrigin,
         _request: &CanonicalModelRequest,
     ) -> Result<()> {
         Ok(())

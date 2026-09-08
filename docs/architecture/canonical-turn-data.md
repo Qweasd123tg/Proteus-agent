@@ -1,6 +1,6 @@
 # Canonical Turn Data
 
-Текущий формат — journal schema v6 и session metadata v4. Resume history,
+Текущий формат — journal schema v7 и session metadata v4. Resume history,
 transcript, eval, prompt replay и workflow replay читают canonical journal.
 
 Schema v4 сохраняет обязательный `ContextChunk.render_mode` внутри canonical
@@ -104,7 +104,7 @@ root/child threads. `record_id` идентифицирует record и дела�
   replace после compaction; содержит previous/new revision и сами canonical
   messages;
 - `model_request_recorded` — полный request после `RequestShaper`, до adapter
-  call, с `exchange_id`;
+  call, с `exchange_id` и обязательным typed `origin` (`direct` или `compactor`);
 - `model_response_recorded` — terminal canonical response или canonical error,
   связанный с `exchange_id`;
 - `tool_call_recorded` — call и policy/approval resolution до потенциального
@@ -118,6 +118,12 @@ Tool call пишется до invocation, result — после. Поэтому 
 пара означает «результат неизвестен» и никогда не разрешает replay
 автоматически повторить mutating tool. Аналогично request без response —
 оборванный model exchange, а не пустой ответ.
+
+`origin` назначает Core на границе host callback: прямой вызов модели workflow
+получает `direct`, внутренний summary call — `compactor`. Небольшой invocation
+scope отделён от `ExecutionScope`; происхождение не выводится из `module_id`
+или provider metadata и не меняет authority. Поле принадлежит journal envelope,
+а не `CanonicalModelRequest`: provider request и process/wire contracts не меняются.
 
 Initial user prompt записывается `history_mutated/append` до запуска workflow,
 сохраняя текущую failure semantics. Steering после доставки становится
@@ -272,6 +278,17 @@ factories, их settings и instruction blocks. Если journal содержи�
 turns, `--turn-id` обязателен. Неизвестный id, child turn, незавершённый
 model/tool record, overlap turns или runtime-owned `Canceled`/`Timeout`
 отклоняется без эвристики.
+
+До построения последовательности workflow replay проверяет завершённость всех
+model exchanges выбранного turn, включая `compactor`. В последовательность model
+outcomes и позиции checkpoint входят только `direct` exchanges. Результат
+compaction восстанавливается из записанных report/history; summary exchanges
+остаются в журнале и доступны prompt replay, учёту usage и eval. Replay не
+исполняет внутренний алгоритм compactor и не воспроизводит его typed error branches.
+Поддержанный путь требует записанного checkpoint с changed compaction и следующего
+model request с origin `direct`. Вложенный summary call без такого результата
+или следующего запроса отклоняется до запуска replay: его нельзя принять за
+успешный model-free turn.
 
 Replay runtime строит выбранные Workflow и Policy, но не вызывает real provider
 adapters, subagents или настоящие tools. Model responses и tool results последовательно берутся из

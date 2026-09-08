@@ -13,7 +13,7 @@ use crate::{
         HistoryMutationKind, JournalEntry, JournalRecord, ToolCallRecordPhase,
         prepare_failed_history_update,
     },
-    domain::{CallId, ThreadId, TurnId},
+    domain::{CallId, ExchangeId, ThreadId, TurnId},
     model_standard::CanonicalMessage,
 };
 
@@ -28,6 +28,7 @@ pub(crate) fn recorded_checkpoints(
     records: &[JournalRecord],
     thread: ThreadId,
     turn: TurnId,
+    direct_exchange_ids: &HashSet<ExchangeId>,
 ) -> Vec<RecordedCheckpoint> {
     let mut position = (0, 0, 0);
     let mut checkpoints = Vec::new();
@@ -36,7 +37,11 @@ pub(crate) fn recorded_checkpoints(
         .filter(|record| record.thread_id == Some(thread) && record.turn_id == Some(turn))
     {
         match &record.entry {
-            JournalEntry::ModelResponseRecorded(_) => position.0 += 1,
+            JournalEntry::ModelResponseRecorded(response)
+                if direct_exchange_ids.contains(&response.exchange_id) =>
+            {
+                position.0 += 1
+            }
             JournalEntry::ToolCallRecorded(tool)
                 if tool.phase == ToolCallRecordPhase::Requested =>
             {

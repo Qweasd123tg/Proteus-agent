@@ -8,7 +8,7 @@ use tokio::sync::{Barrier, Mutex};
 use super::*;
 use crate::{
     contracts::{
-        CancellationToken, EventSink, ExecutionAttribution, ExecutionRecorder,
+        CancellationToken, EventSink, ExecutionAttribution, ExecutionRecorder, ModelCallOrigin,
         NoopExecutionRecorder,
     },
     core::{JournalEntry, SessionExecutionRecorder, SessionStore, TurnOpened},
@@ -26,7 +26,7 @@ struct CollectingSink {
 
 #[derive(Default)]
 struct RecordedModelFacts {
-    requests: Vec<(ExchangeId, CanonicalModelRequest)>,
+    requests: Vec<(ExchangeId, ModelCallOrigin, CanonicalModelRequest)>,
     responses: Vec<(ExchangeId, CanonicalModelResponse)>,
     errors: Vec<(ExchangeId, String)>,
 }
@@ -41,13 +41,14 @@ impl ExecutionRecorder for CollectingExecutionRecorder {
     async fn model_request_recorded(
         &self,
         exchange_id: ExchangeId,
+        origin: ModelCallOrigin,
         request: &CanonicalModelRequest,
     ) -> Result<()> {
         self.facts
             .lock()
             .await
             .requests
-            .push((exchange_id, request.clone()));
+            .push((exchange_id, origin, request.clone()));
         Ok(())
     }
 
@@ -248,7 +249,39 @@ async fn detached_bound_model_records_lifecycle_without_chat_identity() {
     assert_eq!(facts.responses.len(), 1);
     assert!(facts.errors.is_empty());
     assert_eq!(facts.requests[0].0, facts.responses[0].0);
+    assert_eq!(facts.requests[0].1, ModelCallOrigin::Direct);
     assert_eq!(model.binding().scope().execution_id, scope.execution_id);
+}
+
+#[tokio::test]
+async fn request_metadata_cannot_choose_model_call_origin() {
+    let adapter = Arc::new(ImmediateAdapter::new());
+    let service = Arc::new(ModelService::new(adapter));
+    let recorder = Arc::new(CollectingExecutionRecorder::default());
+    let model = BoundModel::new(
+        service,
+        ModelExecutionBinding::with_recorder(
+            ExecutionScope::fresh(CancellationToken::new()),
+            recorder.clone(),
+        ),
+        0,
+    );
+    let mut client_metadata = BTreeMap::new();
+    client_metadata.insert("model_call_origin".to_owned(), "direct".to_owned());
+    let request = request("immediate", "metadata-origin")
+        .with_metadata(serde_json::json!({ "origin": "direct" }))
+        .with_client_metadata(client_metadata);
+
+    crate::core::model_call_scope::with_model_call_origin(
+        ModelCallOrigin::Compactor,
+        model.complete(request),
+    )
+    .await
+    .unwrap();
+
+    let facts = recorder.facts.lock().await;
+    assert_eq!(facts.requests.len(), 1);
+    assert_eq!(facts.requests[0].1, ModelCallOrigin::Compactor);
 }
 
 #[tokio::test]

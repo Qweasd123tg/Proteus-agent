@@ -8,9 +8,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::SessionId;
 
+use super::super::session_journal::JOURNAL_SCHEMA_VERSION;
+
 const SESSION_METADATA_FILE: &str = "session.json";
 const SESSION_SCHEMA_VERSION: u32 = 4;
-const JOURNAL_SCHEMA_VERSION: u32 = 4;
 const SHORT_SESSION_ID_MODULUS: u128 = 10_000_000_000;
 const SHORT_SESSION_ID_LEN: usize = 10;
 

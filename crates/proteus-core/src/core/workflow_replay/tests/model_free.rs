@@ -4,8 +4,8 @@ use super::{
 };
 use crate::{
     contracts::{
-        CompactionInput, ContextBuildInput, MemoryInvocationContext, ToolExposureInput,
-        ToolExposureRequest,
+        CompactionInput, ContextBuildInput, MemoryInvocationContext, ModelCallOrigin,
+        ToolExposureInput, ToolExposureRequest,
     },
     core::RuntimeCompactionHost,
 };
@@ -88,8 +88,13 @@ impl Workflow for Probe {
 }
 
 async fn replay_probe(probe: Probe) -> WorkflowReplayReport {
-    let journal =
-        terminal_journal(TurnSettlementStatus::Error, TerminalModel::Absent, FAILURE).await;
+    let journal = terminal_journal(
+        TurnSettlementStatus::Error,
+        ModelCallOrigin::Direct,
+        TerminalModel::Absent,
+        FAILURE,
+    )
+    .await;
     let mut catalog = ModuleCatalog::new();
     catalog.register_test_workflow(WORKFLOW_ID, Arc::new(probe));
     catalog.register_test_policy(POLICY_ID, Arc::new(ReplayAllowAll));
@@ -168,20 +173,59 @@ async fn caught_unavailable_compaction_still_diverges() {
 
 #[tokio::test]
 async fn incomplete_model_exchange_is_not_a_model_free_turn() {
-    let journal =
-        terminal_journal(TurnSettlementStatus::Error, TerminalModel::Pending, FAILURE).await;
+    for origin in [ModelCallOrigin::Direct, ModelCallOrigin::Compactor] {
+        let journal = terminal_journal(
+            TurnSettlementStatus::Error,
+            origin,
+            TerminalModel::Pending,
+            FAILURE,
+        )
+        .await;
+        let error = replay_workflow(
+            journal.store.session_dir(),
+            &AppConfig::default(),
+            &catalog(false),
+            WorkflowReplayOptions::default(),
+        )
+        .await
+        .expect_err("incomplete model request must remain unsupported");
+        assert!(
+            error
+                .to_string()
+                .contains("is incomplete and cannot be used for workflow replay"),
+            "{origin:?}: {error:#}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn compactor_failure_without_recorded_result_is_not_a_model_free_turn() {
+    let journal = terminal_journal(
+        TurnSettlementStatus::Error,
+        ModelCallOrigin::Compactor,
+        TerminalModel::Outcome(ModelResponseOutcome::Error {
+            message: FAILURE.to_owned(),
+        }),
+        FAILURE,
+    )
+    .await;
+    let mut catalog = ModuleCatalog::new();
+    // Without the nested-work check this changed workflow could omit the
+    // compaction entirely and still match the recorded terminal error/history.
+    catalog.register_test_workflow(WORKFLOW_ID, Arc::new(Probe::NoCalls));
+    catalog.register_test_policy(POLICY_ID, Arc::new(ReplayAllowAll));
     let error = replay_workflow(
         journal.store.session_dir(),
         &AppConfig::default(),
-        &catalog(false),
+        &catalog,
         WorkflowReplayOptions::default(),
     )
     .await
-    .expect_err("incomplete model request must remain unsupported");
+    .expect_err("nested failure must not become a matching model-free failure");
     assert!(
         error
             .to_string()
-            .contains("is incomplete and cannot be used for workflow replay"),
+            .contains("compactor model exchanges require a recorded changed-compaction checkpoint"),
         "{error:#}"
     );
 }

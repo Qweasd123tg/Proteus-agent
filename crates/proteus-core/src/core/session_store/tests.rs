@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, io::Write};
 
 use crate::{
-    contracts::ExecutionAttribution,
+    contracts::{ExecutionAttribution, ModelCallOrigin},
     core::{HistoryMutationKind, JOURNAL_FILE, JournalEntry, ModelRequestRecorded},
     domain::{
         HistoryCompactionReport, ResponseFormat, ToolSafety, ToolSpec, ToolSurface,
@@ -347,6 +347,7 @@ async fn journal_redaction_preserves_schemas_and_redacts_value_metadata() {
             ExecutionAttribution::detached(new_execution_id()),
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                 exchange_id: new_exchange_id(),
+                origin: ModelCallOrigin::Direct,
                 request,
             }),
         )

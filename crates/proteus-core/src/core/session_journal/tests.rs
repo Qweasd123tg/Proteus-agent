@@ -1,6 +1,7 @@
 use serde_json::json;
 
 use crate::{
+    contracts::ModelCallOrigin,
     domain::{
         AgentTask, ModelRef, ToolCall, ToolResult, new_call_id, new_exchange_id, new_execution_id,
         new_record_id, new_session_id, new_thread_id, new_turn_id,
@@ -87,6 +88,31 @@ fn projection_rejects_previous_record_schema() {
 }
 
 #[test]
+fn model_request_origin_is_required_and_uses_snake_case() {
+    let recorded = ModelRequestRecorded {
+        exchange_id: new_exchange_id(),
+        origin: ModelCallOrigin::Compactor,
+        request: CanonicalModelRequest::new(
+            ModelRef::new("fake", "model"),
+            vec![CanonicalMessage::text(MessageRole::User, "compact")],
+        ),
+    };
+    let mut value = serde_json::to_value(recorded).expect("serialize model request");
+
+    assert_eq!(value["origin"], "compactor");
+    value
+        .as_object_mut()
+        .expect("model request object")
+        .remove("origin");
+    let error = serde_json::from_value::<ModelRequestRecorded>(value)
+        .expect_err("origin must not have a legacy default");
+    assert!(
+        error.to_string().contains("missing field `origin`"),
+        "{error}"
+    );
+}
+
+#[test]
 fn detached_model_exchange_needs_no_chat_identity() {
     let session_id = new_session_id();
     let execution_id = new_execution_id();
@@ -109,6 +135,7 @@ fn detached_model_exchange_needs_no_chat_identity() {
             1,
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                 exchange_id,
+                origin: ModelCallOrigin::Direct,
                 request,
             }),
         ),
@@ -150,6 +177,7 @@ fn execution_cannot_switch_between_detached_and_agent_attribution() {
             1,
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                 exchange_id: new_exchange_id(),
+                origin: ModelCallOrigin::Direct,
                 request: detached_request.clone(),
             }),
         ),
@@ -186,6 +214,7 @@ fn execution_cannot_switch_between_detached_and_agent_attribution() {
             2,
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                 exchange_id: new_exchange_id(),
+                origin: ModelCallOrigin::Direct,
                 request: detached_request,
             }),
         ),
@@ -278,6 +307,7 @@ fn model_request_requires_a_previously_opened_turn() {
         1,
         JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
             exchange_id: new_exchange_id(),
+            origin: ModelCallOrigin::Direct,
             request,
         }),
     )];
@@ -318,6 +348,7 @@ fn agent_execution_fact_must_match_the_turn_execution() {
             2,
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                 exchange_id: new_exchange_id(),
+                origin: ModelCallOrigin::Direct,
                 request,
             }),
         ),
@@ -364,6 +395,7 @@ fn model_exchange_can_use_a_child_thread_but_cannot_change_owner() {
             2,
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                 exchange_id,
+                origin: ModelCallOrigin::Direct,
                 request,
             }),
         ),
@@ -438,6 +470,7 @@ fn background_child_exchange_may_finish_after_root_settlement() {
             2,
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                 exchange_id,
+                origin: ModelCallOrigin::Direct,
                 request,
             }),
         ),
@@ -508,6 +541,7 @@ fn root_execution_fact_cannot_start_after_turn_settlement() {
             3,
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                 exchange_id: new_exchange_id(),
+                origin: ModelCallOrigin::Direct,
                 request,
             }),
         ),
@@ -547,6 +581,7 @@ fn request_without_response_and_call_without_result_remain_interrupted() {
             2,
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                 exchange_id,
+                origin: ModelCallOrigin::Direct,
                 request,
             }),
         ),
@@ -602,6 +637,7 @@ fn canceled_and_timeout_turns_keep_model_request_interrupted_without_synthetic_r
                 2,
                 JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                     exchange_id,
+                    origin: ModelCallOrigin::Direct,
                     request,
                 }),
             ),

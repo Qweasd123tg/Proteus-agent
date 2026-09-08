@@ -18,7 +18,7 @@ Baseline: `openai/codex` commit
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v8`, `compactor/v6`, journal schema v6.
+Действующие версии: `workflow/v8`, `compactor/v6`, journal schema v7.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,
@@ -169,17 +169,25 @@ recovery после ошибки обычного workflow model call сюда �
 
 [HTTP/process regression](../../modules/reference/process-worker/tests/codex_compaction.rs)
 проверяет фактические запросы, короткий retry после HTTP 400
-`context_length_exceeded`, единственное исполнение tool и cold history. Применимый
-workflow replay этого сценария пока не проходит: внутренний model exchange
-смешивается с exchanges workflow. Полный compaction lifecycle, remote branches
-и replay класса ошибки этим срезом не подтверждаются.
+`context_length_exceeded`, единственное исполнение tool и cold history. Workflow
+replay сценария `tool → summary → обычный model response → Success` использует
+записанный результат compaction и только прямые model outcomes workflow; исходный
+journal остаётся неизменным, model/tool implementations повторно не вызываются.
+Matched replay подтверждён и для summary после retry при переполнении context
+window: listener провайдера уже закрыт, исходный tool artifact удалён;
+воспроизводятся два прямых model exchanges и один tool outcome.
+Внутренние summary exchanges сохраняются в журнале с origin `compactor`.
+Это проверка orchestration по готовому compaction report, а не повторное исполнение
+алгоритма compactor. Полный compaction lifecycle, remote branches и replay
+типизированного класса ошибки этим срезом не подтверждаются.
 
 Проверки [совместимости compactor](../../modules/reference/process-worker/tests/codex_compaction/compatibility.rs)
 проводят summary дольше 30 секунд при достаточном общем бюджете workflow и
 текущий пользовательский ввод больше 20 000 приблизительных токенов. Первый
 сценарий проверяет вложенный process/model deadline, второй — точное middle
 truncation выбранного Codex, checkpoint, сохранение и следующий HTTP request
-после cold resume. Upstream anchor: `compact.rs::build_compacted_history_with_limit`.
+после cold resume, а также matched replay со сжатием до первого прямого запроса
+workflow. Upstream anchor: `compact.rs::build_compacted_history_with_limit`.
 Сокращённое сообщение получает новый canonical id и typed связь с исходным;
 полный принятый ввод остаётся в journal. Это сохраняет ограничение модельной
 истории без скрытой подмены исходного сообщения.

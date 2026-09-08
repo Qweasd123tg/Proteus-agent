@@ -85,6 +85,15 @@ async fn large_current_input_is_compacted_and_survives_cold_resume() {
         .unwrap()
         .load_projection()
         .unwrap();
+    let first_turn_id = cold
+        .records
+        .iter()
+        .find_map(|record| {
+            matches!(record.entry, JournalEntry::TurnOpened(_))
+                .then_some(record.turn_id)
+                .flatten()
+        })
+        .unwrap();
     assert!(cold.unsettled_turns.is_empty());
     assert!(cold.records.iter().any(|record| matches!(&record.entry,
         JournalEntry::HistoryMutated(mutation) if mutation.messages.iter().any(|message| message.display_text() == prompt)
@@ -151,6 +160,7 @@ async fn large_current_input_is_compacted_and_survives_cold_resume() {
         assert!(!texts.contains(&prompt.as_str()));
     }
     drop(resumed);
+    replay::check_compaction_before_first_request(&session_dir, &config, first_turn_id).await;
     let app = proteus_core::app_server::AgentAppServer::launch_resumed(
         config,
         root.path().to_path_buf(),

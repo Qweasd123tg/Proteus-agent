@@ -284,6 +284,7 @@ mod tests {
 
     use super::*;
     use crate::{
+        contracts::ModelCallOrigin,
         core::{
             HistoryMutated, JOURNAL_SCHEMA_VERSION, JournalRecord, ModelRequestRecorded,
             ModelResponseRecorded, ToolCallRecorded, ToolResultRecorded, TurnOpened, TurnSettled,
@@ -382,6 +383,7 @@ mod tests {
                 3,
                 JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                     exchange_id,
+                    origin: ModelCallOrigin::Direct,
                     request,
                 }),
             ),

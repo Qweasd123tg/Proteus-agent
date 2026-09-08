@@ -263,7 +263,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        contracts::ExecutionAttribution,
+        contracts::{ExecutionAttribution, ModelCallOrigin},
         core::{
             ModelRequestRecorded, ModelResponseRecorded, ToolCallRecorded, ToolResultRecorded,
             TurnOpened, TurnSettled,
@@ -314,6 +314,7 @@ mod tests {
                 attribution,
                 JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                     exchange_id,
+                    origin: ModelCallOrigin::Direct,
                     request,
                 }),
             )

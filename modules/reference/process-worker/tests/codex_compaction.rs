@@ -15,6 +15,8 @@ use tokio::{
 
 #[path = "codex_compaction/compatibility.rs"]
 mod compatibility;
+#[path = "codex_compaction/replay.rs"]
+mod replay;
 
 const COMPACTION_PROMPT: &str =
     include_str!("../../codex-compactor/src/upstream/compact_prompt.md");
@@ -261,7 +263,7 @@ async fn check_codex_compaction(context_window_once: bool) {
     .expect("config file");
     let server = tokio::spawn(serve(listener, scripted_replies(context_window_once)));
 
-    let runtime = AgentRuntime::builder(config.clone(), workspace)
+    let runtime = AgentRuntime::builder(config.clone(), workspace.clone())
         .with_config_path(Some(&config_path))
         .with_session_ids(new_session_id(), proteus_contracts::domain::new_thread_id())
         .build_async()
@@ -402,6 +404,7 @@ async fn check_codex_compaction(context_window_once: bool) {
         1,
         "compaction recovery must not repeat the already completed tool"
     );
+    replay::check(&session_dir, &workspace, &config, context_window_once).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
