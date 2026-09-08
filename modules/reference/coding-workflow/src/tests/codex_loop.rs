@@ -119,7 +119,10 @@ fn codex_loop_returns_completed_tool_progress_when_the_next_model_call_fails() {
     let input_json = serde_json::to_string(&input).expect("input json");
     let read_file = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
     let call = ToolCall::new(new_call_id(), "read_file", json!({ "path": "src/lib.rs" }));
-    let model_failure = proteus_contracts::model_standard::ModelFailure::other("provider failed");
+    let completed = CanonicalMessage::text(MessageRole::Assistant, "finished commentary")
+        .with_phase(proteus_contracts::model_standard::MessagePhase::Commentary);
+    let model_failure = proteus_contracts::model_standard::ModelFailure::other("provider failed")
+        .with_completed_messages(vec![completed.clone()]);
     let mut host = FakeHost::with_responses(vec![tool_call_response(call.clone())])
         .with_tools(vec![read_file.clone()], vec![read_file])
         .with_model_failure(
@@ -134,7 +137,8 @@ fn codex_loop_returns_completed_tool_progress_when_the_next_model_call_fails() {
     assert_eq!(failure.model_failure, Some(model_failure));
     let history = failure.history.expect("completed tool progress");
     assert!(history.history_replacement.is_none());
-    assert_eq!(history.new_messages.len(), 2);
+    assert_eq!(history.new_messages.len(), 3);
+    assert_eq!(history.new_messages[2], completed);
     assert_eq!(history.new_messages[0].role, MessageRole::Assistant);
     assert!(history.new_messages[0].parts.iter().any(|part| {
         matches!(&part.payload, ContentPart::ToolCall { call: persisted } if persisted.id == call.id)
@@ -173,6 +177,28 @@ fn codex_loop_omits_history_when_the_first_model_call_fails() {
 
     assert!(failure.history.is_none());
     assert!(failure.model_failure.is_some());
+}
+
+#[test]
+fn codex_loop_does_not_preserve_summary_output_from_a_failed_compactor() {
+    let input_json = serde_json::to_string(&workflow_input("change code")).unwrap();
+    let summary = CanonicalMessage::text(MessageRole::Assistant, "internal summary");
+    let mut host = FakeHost {
+        compaction_failure: Some(ProcessModuleError::from_model_failure(
+            proteus_contracts::model_standard::ModelFailure::other("summary stream broke")
+                .with_completed_messages(vec![summary]),
+        )),
+        ..FakeHost::default()
+    };
+
+    let failure = CodingCodexLoopWorkflow
+        .run_json(input_json, &mut host)
+        .unwrap_err();
+    assert!(
+        failure.history.is_none(),
+        "summary output is not workflow history"
+    );
+    assert!(host.requests.lock().unwrap().is_empty());
 }
 
 #[test]

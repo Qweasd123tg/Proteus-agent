@@ -263,15 +263,15 @@ invalid DTO и превышение limits являются fail-closed protocol
 | context provider | v2 | `provide` | — |
 | tool | v2 | `list`, `invoke` | — |
 | context | v2 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
-| model | v4 | `describe`, `stream` | `host.model.emit` (acknowledged canonical events) |
-| compactor | v6 | `compact` | `host.model.complete` |
-| workflow | v8 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
+| model | v5 | `describe`, `stream` | `host.model.emit` (acknowledged canonical events) |
+| compactor | v7 | `compact` | `host.model.complete` |
+| workflow | v9 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
 
 Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
 DTO, adapter, protocol/conformance и swap evidence в одном commit.
 
-`workflow/v8` возвращает strict terminal envelope: `status = "success"` с
+`workflow/v9` возвращает strict terminal envelope: `status = "success"` с
 `result: WorkflowOutput` либо `status = "error"` с `failure: WorkflowFailure`.
 Ошибка алгоритма может содержать `history: WorkflowHistoryUpdate` — завершённые
 `new_messages`, optional `history_replacement` и `compactions`; `model_failure`
@@ -476,7 +476,7 @@ handshake всего набора, даже если probe направлен т
 
 ## Model Streaming
 
-`model/v4` использует canonical DTO из `proteus-contracts::contracts::process_model`:
+`model/v5` использует canonical DTO из `proteus-contracts::contracts::process_model`:
 
 Descriptor, capabilities, stream events и terminal DTO отклоняют неизвестные поля.
 
@@ -494,7 +494,15 @@ Descriptor, capabilities, stream events и terminal DTO отклоняют не�
 - Terminal содержит точный `event_count` и `response`, `stream_error` либо
   `request_error`. Response полный: Core не восстанавливает его из дельт.
 
-Оба error terminal и canonical stream error несут `ModelFailure { kind, message }`.
+Оба error terminal и canonical stream error несут
+`ModelFailure { kind, message, completed_messages }`. Обязательный
+`completed_messages` содержит подтверждённые assistant messages до ошибки,
+либо пустой массив. Это progress ошибочного запроса, без synthetic `Response`.
+Core собирает `MessageCompleted` независимо от presentation и проверяет роль,
+идентичность сообщений и отсутствие tool call/result parts; дельты не
+становятся завершёнными сообщениями. Workflow явно выбирает сохранение этого
+progress. В `coding.codex_loop` сохраняется только output прямого model call,
+а не внутренний summary неудачного compactor.
 Классы `context_window_exceeded`, `interrupted`, `session_budget_exceeded`,
 `other` задают общую алгоритмическую границу; provider implementation распознаёт
 свои коды, остальные слои не разбирают текст. `host.model.complete` передаёт
@@ -503,7 +511,8 @@ Descriptor, capabilities, stream events и terminal DTO отклоняют не�
 обязательных полей внутри `ModelFailure` отклоняются; обычная callback error
 без модельной причины остаётся общей ошибкой. Broker wire остаётся v3.
 
-Текущий journal сохраняет текст модельной ошибки. Типизированная причина
+Текущий journal сохраняет текст модельной ошибки и `completed_messages`.
+Workflow replay возвращает тот же progress вместе с ошибкой. Типизированная причина
 доступна во время исполнения, но replay класса ошибки этим изменением не
 объявляется поддержанным. HTTP status и Retry-After в этот минимальный DTO
 пока не входят.

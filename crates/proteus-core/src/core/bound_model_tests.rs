@@ -18,6 +18,8 @@ use crate::{
 
 #[path = "bound_model_tests/deadline.rs"]
 mod deadline;
+#[path = "bound_model_tests/failure_progress.rs"]
+mod failure_progress;
 
 #[derive(Default)]
 struct CollectingSink {
@@ -28,7 +30,7 @@ struct CollectingSink {
 struct RecordedModelFacts {
     requests: Vec<(ExchangeId, ModelCallOrigin, CanonicalModelRequest)>,
     responses: Vec<(ExchangeId, CanonicalModelResponse)>,
-    errors: Vec<(ExchangeId, String)>,
+    errors: Vec<(ExchangeId, String, Vec<CanonicalMessage>)>,
 }
 
 #[derive(Default)]
@@ -65,12 +67,16 @@ impl ExecutionRecorder for CollectingExecutionRecorder {
         Ok(())
     }
 
-    async fn model_error_recorded(&self, exchange_id: ExchangeId, message: &str) -> Result<()> {
-        self.facts
-            .lock()
-            .await
-            .errors
-            .push((exchange_id, message.to_owned()));
+    async fn model_error_recorded(
+        &self,
+        exchange_id: ExchangeId,
+        failure: &crate::model_standard::ModelFailure,
+    ) -> Result<()> {
+        self.facts.lock().await.errors.push((
+            exchange_id,
+            failure.message.clone(),
+            failure.completed_messages.clone(),
+        ));
         Ok(())
     }
 }

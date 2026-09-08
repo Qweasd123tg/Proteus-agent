@@ -148,10 +148,14 @@ impl ExecutionRecorder for BlockingErrorRecorder {
             .await
     }
 
-    async fn model_error_recorded(&self, exchange_id: ExchangeId, message: &str) -> Result<()> {
+    async fn model_error_recorded(
+        &self,
+        exchange_id: ExchangeId,
+        failure: &crate::model_standard::ModelFailure,
+    ) -> Result<()> {
         self.error_started.notify_one();
         self.release_error.notified().await;
-        self.inner.model_error_recorded(exchange_id, message).await
+        self.inner.model_error_recorded(exchange_id, failure).await
     }
 }
 

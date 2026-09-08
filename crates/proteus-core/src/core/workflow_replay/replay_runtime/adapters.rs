@@ -41,8 +41,12 @@ impl Model for ReplayModel {
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
         let event = match self.state.consume_model_request(&request)? {
             ModelResponseOutcome::Response { response } => ModelStreamEvent::Response { response },
-            ModelResponseOutcome::Error { message } => ModelStreamEvent::Error {
-                failure: crate::model_standard::ModelFailure::other(message),
+            ModelResponseOutcome::Error {
+                message,
+                completed_messages,
+            } => ModelStreamEvent::Error {
+                failure: crate::model_standard::ModelFailure::other(message)
+                    .with_completed_messages(completed_messages),
             },
         };
         Ok(Box::pin(stream::once(async move { Ok(event) })))

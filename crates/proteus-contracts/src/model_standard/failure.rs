@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::CanonicalMessage;
+
 /// Provider-neutral causes that an algorithm can act on without parsing text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -11,11 +13,14 @@ pub enum ModelFailureKind {
     Other,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelFailure {
     pub kind: ModelFailureKind,
     pub message: String,
+    /// Fully completed assistant messages accepted before the model call failed.
+    /// Partial deltas and tool calls are never represented here.
+    pub completed_messages: Vec<CanonicalMessage>,
 }
 
 impl ModelFailure {
@@ -23,7 +28,13 @@ impl ModelFailure {
         Self {
             kind,
             message: message.into(),
+            completed_messages: Vec::new(),
         }
+    }
+
+    pub fn with_completed_messages(mut self, completed_messages: Vec<CanonicalMessage>) -> Self {
+        self.completed_messages = completed_messages;
+        self
     }
 
     pub fn other(message: impl Into<String>) -> Self {
@@ -60,11 +71,17 @@ mod tests {
             serde_json::from_value::<ModelFailure>(value.clone()).unwrap(),
             failure
         );
-        let mut unknown = value;
+        let mut unknown = value.clone();
         unknown["kind"] = serde_json::json!("provider_specific");
         assert!(serde_json::from_value::<ModelFailure>(unknown).is_err());
         assert!(
             serde_json::from_value::<ModelFailure>(serde_json::json!({"message":"old"})).is_err()
         );
+        let mut missing_progress = value;
+        missing_progress
+            .as_object_mut()
+            .unwrap()
+            .remove("completed_messages");
+        assert!(serde_json::from_value::<ModelFailure>(missing_progress).is_err());
     }
 }

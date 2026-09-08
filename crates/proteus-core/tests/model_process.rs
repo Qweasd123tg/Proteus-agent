@@ -139,7 +139,7 @@ async fn protocol_faults_crashes_and_provider_errors_are_not_success() {
     for kind in ["stream_error", "request_error"] {
         let mut settings = settings();
         settings["terminal"] = json!({"kind": kind, "failure": {
-            "kind": "context_window_exceeded", "message": "provider-error"
+            "kind": "context_window_exceeded", "message": "provider-error", "completed_messages": []
         }});
         let adapter = model(&config(kind, settings), cwd.path()).unwrap();
         let mut stream = adapter.stream(request(kind)).await.unwrap();

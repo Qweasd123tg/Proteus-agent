@@ -84,7 +84,20 @@ fn run_loop(
                 model: request.model.clone(),
             },
         )?;
-        let response = complete_model(host, &request, "codex_loop")?;
+        let response = match complete_model(host, &request, "codex_loop") {
+            Ok(response) => response,
+            Err(error) => {
+                // Only direct model output belongs to this turn's progress.
+                // A compactor failure can carry its own summary messages.
+                if let Some(failure) = &error.model_failure {
+                    turn.model_messages
+                        .extend(failure.completed_messages.iter().cloned());
+                    turn.persistent_messages
+                        .extend(failure.completed_messages.iter().cloned());
+                }
+                return Err(error);
+            }
+        };
         emit_event(
             host,
             &Event::ModelResponseReceived {

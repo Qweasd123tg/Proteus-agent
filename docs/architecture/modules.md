@@ -19,8 +19,8 @@ authority(module) = authority(slot, invocation_context)
 ```
 
 Все внешние modules являются exports process components: Component Runtime v2
-использует wire protocol v3; `workflow` использует strict contract v8,
-`compactor` — v6, `model` — v4; версии остальных slots приведены в authority table
+использует wire protocol v3; `workflow` использует strict contract v9,
+`compactor` — v7, `model` — v5; версии остальных slots приведены в authority table
 [process-module-architecture.md](process-module-architecture.md). Runtime допускает
 несколько одновременных и вложенных invocation одного component. Dylib ABI и
 native loader в проекте отсутствуют.
@@ -52,7 +52,7 @@ native loader в проекте отсутствуют.
 | `tool_exposure` | `select_one` | `modules.tool_exposure` | да | `codex_dynamic` |
 | `tool` | `ordered_many` | exports + `tools.enabled` | да | `reference.tools` и узкие selectors |
 | `context_provider` | `ordered_many` | exports + context config | да | `skills` |
-| `model` | `select_one` | active provider profile | да, `model/v4` | `fake`, `openai`, `openai_compatible`, `anthropic` |
+| `model` | `select_one` | active provider profile | да, `model/v5` | `fake`, `openai`, `openai_compatible`, `anthropic` |
 
 Все behavior implementations, включая `model`, используют process contract.
 Agent control в матрицу не входит, потому что это
@@ -137,10 +137,12 @@ runtime status, context, model completion, compaction, visible/selected tools,
 tool execution и event emission. Session ids, approvals, tool ownership и
 journal остаются host-owned.
 
-`workflow/v8` возвращает success с `WorkflowOutput` либо error с
+`workflow/v9` возвращает success с `WorkflowOutput` либо error с
 `WorkflowFailure`. Ошибка может явно вернуть выполненную часть истории через
 `WorkflowHistoryUpdate`; Core проверяет её и сохраняет до terminal `Error`.
-`coding.codex_loop` использует этот путь после сбоя model call. Это общий
+`coding.codex_loop` использует этот путь после сбоя model call, включая
+завершённые assistant messages из `ModelFailure.completed_messages` прямого
+запроса. Ошибка compactor не добавляет внутренний summary в history. Это общий
 contract для любых workflow implementations, а не восстановление локального
 состояния потерянного worker-а. Дополнительно `host.history.checkpoint` позволяет
 явно подтвердить промежуточную history и выбрать calls, результаты которых Core
@@ -149,7 +151,7 @@ contract для любых workflow implementations, а не восстанов�
 model/tool facts по-прежнему не превращаются в conversation history автоматически.
 
 `coding.project_check` — reference code-heavy controller на том же
-`workflow/v8`. Он детерминированно вызывает `git_status`, определяет project по
+`workflow/v9`. Он детерминированно вызывает `git_status`, определяет project по
 root marker, запускает фиксированную test command и обращается к model только
 один раз для объяснения failed test. Success path не вызывает model, context
 или compactor. Это architecture probe, не default workflow и не special
@@ -202,7 +204,7 @@ Context builder получает callbacks `host.search.query`,
 включая history, instructions, reasoning, limits и cache. Выбранный module
 определяет summary request и возвращает replacement history. Он может вызвать
 `host.model.complete`. Этот
-callback доступен всему `compactor/v6`, а не только `codex`. Deterministic
+callback доступен всему `compactor/v7`, а не только `codex`. Deterministic
 Python example не использует callback, но имеет ту же authority.
 
 Compactor наследует общий бюджет workflow; export `timeout_ms` может задать
@@ -230,8 +232,8 @@ model history. При `changed = false` сообщения должны совп
 input/output. `metadata` — непрозрачные данные module, не источник этих полей.
 
 Тот же DTO возвращает workflow callback `host.history.compact`; актуальные
-границы — `compactor/v6` и `workflow/v8`, прежние slot versions не принимаются.
-Wire protocol остаётся v3, журнал использует schema v7.
+границы — `compactor/v7` и `workflow/v9`, прежние slot versions не принимаются.
+Wire protocol остаётся v3, журнал использует schema v8.
 Workflow replay сохраняет typed поля `HistoryCompactionReport` и весь `metadata`, не подмешивая и не
 удаляя ключи с известными именами. Core помечает внутренний model callback
 compactor origin-ом `compactor` в journal envelope. Workflow replay проверяет
@@ -271,7 +273,7 @@ host-owned `ExecutionAttribution`: обязательный `ExecutionId` и opt
 
 ### Model
 
-Общий `model/v4` contract: `describe` возвращает неизменяемые adapter id,
+Общий `model/v5` contract: `describe` возвращает неизменяемые adapter id,
 capabilities и hosted tools; `stream` принимает canonical request и флаг
 provider streaming. Дельты доставляются через acknowledged `host.model.emit`,
 полный response/error — отдельным terminal result. Порядок, backpressure и

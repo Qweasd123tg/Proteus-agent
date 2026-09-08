@@ -99,6 +99,7 @@ async fn terminal_workflow_error_replays_as_a_matching_outcome() {
         crate::contracts::ModelCallOrigin::Direct,
         TerminalModel::Outcome(ModelResponseOutcome::Error {
             message: model_error.to_owned(),
+            completed_messages: Vec::new(),
         }),
         settlement_error,
     )

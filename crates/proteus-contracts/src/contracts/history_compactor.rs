@@ -7,7 +7,7 @@ use crate::{
     model_standard::{CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse},
 };
 
-pub const PROCESS_COMPACTOR_CONTRACT_VERSION: &str = "v6";
+pub const PROCESS_COMPACTOR_CONTRACT_VERSION: &str = "v7";
 pub const PROCESS_COMPACTOR_METHOD: &str = "compact";
 pub const COMPACTOR_HOST_COMPLETE_MODEL_METHOD: &str = "host.model.complete";
 

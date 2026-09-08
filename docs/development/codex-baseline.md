@@ -18,7 +18,7 @@ Baseline: `openai/codex` commit
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v8`, `compactor/v6`, journal schema v7.
+Действующие версии: `workflow/v9`, `compactor/v7`, journal schema v8.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,
@@ -90,7 +90,7 @@ workflow replay воспроизводит записанный исход бе�
 
 ### Продолжение После Модельной Ошибки
 
-`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v8`
+`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v9`
 failure envelope. Core сохраняет их до `TurnSettled(Error)`: следующий turn
 получает завершённые assistant items и tool results с исходными call ids.
 
@@ -98,8 +98,17 @@ Upstream anchors того же baseline: `core/src/stream_events_utils.rs` со�
 model items и tool calls, `core/src/session/turn.rs` — завершённые tool results;
 ошибка следующего model call не откатывает эту историю. Proteus подтверждает
 этот путь для явно возвращённого terminal failure. Дополнительно checkpoints
-сохраняют завершённый canonical model response до tools; запись отдельных
-items незавершённого SSE response этим срезом не воспроизводится.
+сохраняют завершённый canonical model response до tools.
+
+[SSE regression](../../modules/reference/process-worker/tests/codex_model_resume/partial_sse_recovery.rs)
+проверяет завершённые assistant message items, за которыми следует обрыв до
+`response.completed`. Model failure несёт их в `completed_messages`; Codex
+workflow выбирает этот progress для history. Исходные ids и phases сохраняются
+в journal, cold transcript и следующем HTTP request. Незавершённые дельты не
+попадают в history, исходный turn остаётся `Error`; Error и успешное продолжение
+проходят workflow replay. Внутренний summary compactor этим путём не сохраняется
+как пользовательская история. Срез не включает раннее исполнение tool calls,
+восстановление отдельных items после crash/внешнего Cancel или retry SSE stream.
 
 [HTTP/process regression](../../modules/reference/process-worker/tests/codex_model_resume/model_failure_recovery.rs)
 проводит `write_file → пять HTTP 500 → новый turn`: проверяет исчерпание
@@ -219,7 +228,7 @@ cargo test -p proteus-core --test module_swap
 SSE stream, полного compaction lifecycle, filesystem/network permissions,
 deferred tool discovery и AgentControl semantics.
 
-Item identity и typed phase проходят через `model/v4`, live events и app
+Item identity и typed phase проходят через `model/v5`, live events и app
 transcript. Responses fixture отдаёт added/delta/done/completed, включая
 позднюю фазу и multipart текст; regression сверяет live ids/text/offsets
 с journal и cold app transcript. Web regression проверяет соседние items

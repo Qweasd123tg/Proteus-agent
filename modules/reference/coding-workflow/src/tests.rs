@@ -34,6 +34,7 @@ struct FakeHost {
     tool_results: Mutex<VecDeque<ToolResult>>,
     compactions: Mutex<Vec<CompactionInput>>,
     compaction_outputs: Mutex<VecDeque<proteus_contracts::contracts::CompactionOutput>>,
+    compaction_failure: Option<ProcessModuleError>,
 }
 
 impl FakeHost {
@@ -140,6 +141,9 @@ impl WorkflowModuleHost for FakeHost {
     }
 
     fn compact_history_json(&self, input_json: String) -> Result<String, ProcessModuleError> {
+        if let Some(error) = &self.compaction_failure {
+            return Err(error.clone());
+        }
         let input: CompactionInput =
             serde_json::from_str(input_json.as_str()).expect("compaction input json");
         self.compactions

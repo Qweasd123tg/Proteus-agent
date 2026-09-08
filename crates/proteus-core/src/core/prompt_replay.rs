@@ -141,6 +141,8 @@ pub async fn replay_prompt(
         Ok(response) => ModelResponseOutcome::Response { response },
         Err(error) => ModelResponseOutcome::Error {
             message: format!("{error:#}"),
+            completed_messages: crate::model_standard::ModelFailure::from_error(&error)
+                .completed_messages,
         },
     };
     let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -363,7 +365,7 @@ fn outcome_summary(
             error: None,
             text,
         },
-        ModelResponseOutcome::Error { message } => PromptReplayOutcomeSummary {
+        ModelResponseOutcome::Error { message, .. } => PromptReplayOutcomeSummary {
             status: PromptReplayOutcomeStatus::Error,
             finish_reason: None,
             error: Some(message.clone()),

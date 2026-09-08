@@ -159,6 +159,27 @@ fn detached_model_exchange_needs_no_chat_identity() {
 }
 
 #[test]
+fn model_error_round_trip_requires_explicit_completed_messages() {
+    let completed = CanonicalMessage::text(MessageRole::Assistant, "completed item");
+    let outcome = ModelResponseOutcome::Error {
+        message: "stream interrupted".to_owned(),
+        completed_messages: vec![completed],
+    };
+    let mut value = serde_json::to_value(&outcome).unwrap();
+    assert_eq!(
+        serde_json::from_value::<ModelResponseOutcome>(value.clone()).unwrap(),
+        outcome
+    );
+    value.as_object_mut().unwrap().remove("completed_messages");
+    let error = serde_json::from_value::<ModelResponseOutcome>(value).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("missing field `completed_messages`")
+    );
+}
+
+#[test]
 fn execution_cannot_switch_between_detached_and_agent_attribution() {
     let session_id = new_session_id();
     let execution_id = new_execution_id();
@@ -279,6 +300,7 @@ fn model_response_requires_matching_request() {
                 exchange_id,
                 outcome: ModelResponseOutcome::Error {
                     message: "network".to_owned(),
+                    completed_messages: Vec::new(),
                 },
             }),
         ),

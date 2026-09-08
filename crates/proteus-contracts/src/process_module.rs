@@ -19,7 +19,7 @@ use crate::{
     model_standard::{CanonicalMessage, InstructionBlock},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProcessModuleError {
     pub message: String,
     pub model_failure: Option<crate::model_standard::ModelFailure>,

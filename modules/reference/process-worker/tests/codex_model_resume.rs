@@ -29,6 +29,8 @@ mod direct_tool_surface;
 mod interruption_recovery;
 #[path = "codex_model_resume/model_failure_recovery.rs"]
 mod model_failure_recovery;
+#[path = "codex_model_resume/partial_sse_recovery.rs"]
+mod partial_sse_recovery;
 #[path = "codex_model_resume/request_retry.rs"]
 mod request_retry;
 

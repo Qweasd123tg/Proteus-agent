@@ -4,6 +4,11 @@ use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use futures_util::StreamExt;
 
+#[path = "bound_model/progress.rs"]
+mod progress;
+
+use progress::CompletedMessageProgress;
+
 use crate::{
     contracts::{
         EventEmitter, ExecutionRecorder, ExecutionScope, Model, ModelEventStream,
@@ -204,21 +209,22 @@ impl BoundModel {
             _ = cancellation.cancelled() => return Err(model_cancelled()),
             _ = wait_for_deadline(deadline), if deadline.is_some() => {
                 let error = model_timeout(self.model_timeout_ms);
-                recorder
-                    .model_error_recorded(exchange_id, &error.to_string())
-                    .await?;
-                return Err(error);
+                let mut progress = CompletedMessageProgress::new(&validation_request);
+                let failure = progress.attach_to_failure(
+                    crate::model_standard::ModelFailure::from_error(&error),
+                );
+                let failure = record_failure(&recorder, exchange_id, failure).await?;
+                return Err(anyhow::Error::new(failure));
             }
             result = self.service.start_prepared(request) => match result {
                 Ok(stream) => stream,
                 Err(error) => {
-                    recorder
-                        .model_error_recorded(
-                            exchange_id,
-                            &format!("{error:#}"),
-                        )
-                        .await?;
-                    return Err(error);
+                    let mut progress = CompletedMessageProgress::new(&validation_request);
+                    let failure = progress.attach_to_failure(
+                        crate::model_standard::ModelFailure::from_error(&error),
+                    );
+                    let failure = record_failure(&recorder, exchange_id, failure).await?;
+                    return Err(anyhow::Error::new(failure));
                 }
             },
         };
@@ -371,6 +377,7 @@ fn bound_recording_stream(
 ) -> ModelEventStream {
     Box::pin(async_stream::try_stream! {
         let mut terminal_recorded = false;
+        let mut progress = CompletedMessageProgress::new(&validation_request);
         loop {
             enum Next {
                 Item(Option<Result<ModelStreamEvent>>),
@@ -389,10 +396,11 @@ fn bound_recording_stream(
                 Next::Deadline => {
                     drop(stream);
                     let error = model_timeout(model_timeout_ms);
-                    recorder
-                        .model_error_recorded(exchange_id, &error.to_string())
-                        .await?;
-                    Err(error)?;
+                    let failure = progress.attach_to_failure(
+                        crate::model_standard::ModelFailure::from_error(&error),
+                    );
+                    let failure = record_failure(&recorder, exchange_id, failure).await?;
+                    Err(anyhow::Error::new(failure))?;
                     unreachable!();
                 }
             };
@@ -402,13 +410,11 @@ fn bound_recording_stream(
             let event = match item {
                 Ok(event) => event,
                 Err(error) => {
-                    recorder
-                        .model_error_recorded(
-                            exchange_id,
-                            &format!("{error:#}"),
-                        )
-                        .await?;
-                    Err(error)?;
+                    let failure = progress.attach_to_failure(
+                        crate::model_standard::ModelFailure::from_error(&error),
+                    );
+                    let failure = record_failure(&recorder, exchange_id, failure).await?;
+                    Err(anyhow::Error::new(failure))?;
                     unreachable!();
                 }
             };
@@ -418,10 +424,11 @@ fn bound_recording_stream(
                         validate_model_response_against_request(&validation_request, response)
                     {
                         let error = anyhow!("model protocol error: {error}");
-                        recorder
-                            .model_error_recorded(exchange_id, &error.to_string())
-                            .await?;
-                        Err(error)?;
+                        let failure = progress.attach_to_failure(
+                            crate::model_standard::ModelFailure::from_error(&error),
+                        );
+                        let failure = record_failure(&recorder, exchange_id, failure).await?;
+                        Err(anyhow::Error::new(failure))?;
                     }
                     recorder
                         .model_response_recorded(exchange_id, response)
@@ -431,20 +438,45 @@ fn bound_recording_stream(
                     break;
                 }
                 ModelStreamEvent::Error { failure } => {
-                    recorder.model_error_recorded(exchange_id, &failure.message).await?;
+                    let failure = progress.attach_to_failure(failure.clone());
+                    let failure = record_failure(&recorder, exchange_id, failure).await?;
                     terminal_recorded = true;
-                    yield event;
+                    yield ModelStreamEvent::Error { failure };
                     break;
+                }
+                ModelStreamEvent::MessageCompleted { message } => {
+                    if let Err(error) = progress.accept(message.clone()) {
+                        let failure = progress.attach_to_failure(
+                            crate::model_standard::ModelFailure::other(format!(
+                                "model protocol error: {error}"
+                            )),
+                        );
+                        let failure = record_failure(&recorder, exchange_id, failure).await?;
+                        Err(anyhow::Error::new(failure))?;
+                    }
+                    yield event;
                 }
                 _ => yield event,
             }
         }
         if !terminal_recorded {
             let message = "model stream ended without Response event".to_owned();
-            recorder.model_error_recorded(exchange_id, &message).await?;
-            Err(anyhow!(message))?;
+            let failure = progress.attach_to_failure(
+                crate::model_standard::ModelFailure::other(message),
+            );
+            let failure = record_failure(&recorder, exchange_id, failure).await?;
+            Err(anyhow::Error::new(failure))?;
         }
     })
+}
+
+async fn record_failure(
+    recorder: &Arc<dyn ExecutionRecorder>,
+    exchange_id: ExchangeId,
+    failure: crate::model_standard::ModelFailure,
+) -> Result<crate::model_standard::ModelFailure> {
+    recorder.model_error_recorded(exchange_id, &failure).await?;
+    Ok(failure)
 }
 
 async fn wait_for_deadline(deadline: Option<tokio::time::Instant>) {

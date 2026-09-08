@@ -1,6 +1,6 @@
 # Canonical Turn Data
 
-Текущий формат — journal schema v7 и session metadata v4. Resume history,
+Текущий формат — journal schema v8 и session metadata v4. Resume history,
 transcript, eval, prompt replay и workflow replay читают canonical journal.
 
 Schema v4 сохраняет обязательный `ContextChunk.render_mode` внутри canonical
@@ -124,6 +124,17 @@ Tool call пишется до invocation, result — после. Поэтому 
 scope отделён от `ExecutionScope`; происхождение не выводится из `module_id`
 или provider metadata и не меняет authority. Поле принадлежит journal envelope,
 а не `CanonicalModelRequest`: provider request и process/wire contracts не меняются.
+
+Generic `ExecutionRecorder` принимает модельный `ModelFailure` целиком;
+session recorder записывает canonical error с `message` и обязательным `completed_messages`.
+Если поток прервался после `MessageCompleted`, завершённые assistant messages
+записываются в error outcome с исходными ids/parts/phases. Пустой массив означает
+отсутствие такого progress; текстовые дельты не восстанавливаются в messages.
+Запись error сама по себе не изменяет history: workflow выбирает progress через
+`WorkflowFailure.history`. `coding.codex_loop` сохраняет завершённые сообщения
+прямого model call, и workflow replay получает их вместе с записанной ошибкой.
+Этот путь требует terminal Error; crash или внешняя отмена до его записи
+не получают неявной history mutation из live events.
 
 Initial user prompt записывается `history_mutated/append` до запуска workflow,
 сохраняя текущую failure semantics. Steering после доставки становится

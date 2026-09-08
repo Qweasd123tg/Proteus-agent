@@ -8,7 +8,7 @@ use proteus_contracts::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const JOURNAL_SCHEMA_VERSION: u32 = 7;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 8;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -49,8 +49,13 @@ pub struct ModelRequestRecorded {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ModelResponseOutcome {
-    Response { response: CanonicalModelResponse },
-    Error { message: String },
+    Response {
+        response: CanonicalModelResponse,
+    },
+    Error {
+        message: String,
+        completed_messages: Vec<CanonicalMessage>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

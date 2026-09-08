@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use proteus_contracts::{
     contracts::{ExecutionAttribution, ExecutionRecorder, ModelCallOrigin, ToolExecutionRecorder},
     domain::{ExchangeId, ExecutionId, ThreadId, ToolCall, ToolCallResolution, ToolResult, TurnId},
-    model_standard::{CanonicalModelRequest, CanonicalModelResponse},
+    model_standard::{CanonicalModelRequest, CanonicalModelResponse, ModelFailure},
 };
 
 use crate::core::SessionStore;
@@ -78,11 +78,16 @@ impl ExecutionRecorder for SessionExecutionRecorder {
         .await
     }
 
-    async fn model_error_recorded(&self, exchange_id: ExchangeId, message: &str) -> Result<()> {
+    async fn model_error_recorded(
+        &self,
+        exchange_id: ExchangeId,
+        failure: &ModelFailure,
+    ) -> Result<()> {
         self.record_model_outcome(
             exchange_id,
             ModelResponseOutcome::Error {
-                message: message.to_owned(),
+                message: failure.message.clone(),
+                completed_messages: failure.completed_messages.clone(),
             },
         )
         .await
@@ -306,7 +311,7 @@ mod tests {
             .await
             .unwrap();
         recorder
-            .model_error_recorded(exchange_id, "expected test error")
+            .model_error_recorded(exchange_id, &ModelFailure::other("expected test error"))
             .await
             .unwrap();
 

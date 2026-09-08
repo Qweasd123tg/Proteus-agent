@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     domain::ExchangeId,
-    model_standard::{CanonicalModelRequest, CanonicalModelResponse},
+    model_standard::{CanonicalModelRequest, CanonicalModelResponse, ModelFailure},
 };
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -36,7 +36,11 @@ pub trait ExecutionRecorder: Send + Sync {
         response: &CanonicalModelResponse,
     ) -> Result<()>;
 
-    async fn model_error_recorded(&self, exchange_id: ExchangeId, message: &str) -> Result<()>;
+    async fn model_error_recorded(
+        &self,
+        exchange_id: ExchangeId,
+        failure: &ModelFailure,
+    ) -> Result<()>;
 }
 
 #[derive(Debug, Default)]
@@ -61,7 +65,11 @@ impl ExecutionRecorder for NoopExecutionRecorder {
         Ok(())
     }
 
-    async fn model_error_recorded(&self, _exchange_id: ExchangeId, _message: &str) -> Result<()> {
+    async fn model_error_recorded(
+        &self,
+        _exchange_id: ExchangeId,
+        _failure: &ModelFailure,
+    ) -> Result<()> {
         Ok(())
     }
 }

@@ -177,6 +177,13 @@ typed `phase` и UTF-8 byte `offset` внутри текста сообщени�
 повтор на terminal Response обновляет item по id, не создаёт дубль.
 Событие завершения item не означает завершения turn.
 
+Если после завершённых assistant items поток модели возвращает ошибку,
+`coding.codex_loop` сохраняет эти сообщения через failure progress. Они остаются
+в cold history и следующем запросе к модели с теми же ids и phases; статус
+хода остаётся `Error`. Незавершённые текстовые дельты не становятся history.
+Это сохранение при terminal model error, а не восстановление stream после
+аварийного завершения процесса или внешней отмены.
+
 App transcript экспортирует `message_id` и `phase`; live progress и cold
 history сохраняют раздельные commentary/final items. Клиент объединяет
 перекрывающиеся /history и SSE ranges по id/offset, а не совпадению текста.
@@ -188,7 +195,7 @@ history сохраняют раздельные commentary/final items. Клие
 Если runtime запущен с config path, рядом с config root создаётся дерево
 `sessions/<workspace>/<session>/` (подробно про layout, resume и lifecycle —
 раздел «Session Store» ниже). Source of truth — `journal.jsonl`, где одна
-строка является строгим record schema v7 с `record_id`, монотонным
+строка является строгим record schema v8 с `record_id`, монотонным
 `session_seq`, timestamp, mandatory session id, optional execution/thread/turn
 ids, `kind` и payload. `TurnOpened`, model и tool facts требуют
 `ExecutionId`; history/settlement остаются chat facts без execution owner.
@@ -615,12 +622,12 @@ journal. ОС освобождает владение при закрытии pr
 находится в parent directory, а время создания/изменения берётся из metadata
 файловой системы. Новая session получает 10-значный numeric basename,
 детерминированный из внутреннего UUID; полный `SessionId` сохраняется в
-`session.json` schema v4 вместе с `journal_schema_version = 7`. Перед записью runtime
+`session.json` schema v4 вместе с `journal_schema_version = 8`. Перед записью runtime
 проверяет metadata, поэтому коллизия коротких имён завершается ошибкой и не
 смешивает histories.
 
 Reader принимает только basename из 10 ASCII-цифр с обязательным
-`session.json` schema v4 и journal schema v7. UUID-basename directories,
+`session.json` schema v4 и journal schema v8. UUID-basename directories,
 прежние session/journal schemas и неизвестные wire/storage формы
 отвергаются явно: pre-release cutover не содержит legacy decoder или dual-read.
 Старые локальные dogfood sessions следует вручную переместить целиком за
@@ -673,11 +680,14 @@ compactions должна завершаться сохранённым conversat
 resume используют сокращённое представление. Runtime атомарно заменяет историю
 этим snapshot-ом и затем дописывает `new_messages`.
 
-`workflow/v8` также позволяет вернуть `WorkflowFailure` с накопленным history
+`workflow/v9` также позволяет вернуть `WorkflowFailure` с накопленным history
 update. Core проверяет и сохраняет его до settlement со статусом `Error`.
 `coding.codex_loop` использует этот путь: если tool завершился, а следующий
 model call упал, новый turn получает прежний call/result и после перезапуска
-runtime. Завершённый replacement после compaction можно сохранить без нового
+runtime. Если до ошибки пришли завершённые assistant messages, workflow также
+сохраняет их из `ModelFailure.completed_messages`. Внутренние summary messages
+ошибочного compactor не включаются в этот progress. Завершённый replacement
+после compaction можно сохранить без нового
 ответа. Автоматического повтора tool или продолжения workflow с места падения
 этот механизм не выполняет.
 
