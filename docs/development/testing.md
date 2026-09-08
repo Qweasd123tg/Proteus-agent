@@ -67,7 +67,7 @@ cargo test --workspace --no-fail-fast
 
 Breaking canonical response change одновременно обновляет все tracked
 producers/consumers и версии затронутых contracts/storage. Действующие версии:
-`workflow/v6`, `compactor/v5`, durable journal schema v4. Изменение process DTO
+`workflow/v7`, `compactor/v5`, durable journal schema v5. Изменение process DTO
 само по себе не требует новой journal schema, если сохранённая форма не меняется.
 Старые формы не получают compatibility readers.
 
@@ -131,6 +131,17 @@ workflow replay. Runtime steering regression отдельно проверяет
 уточнения пользователя после выполненного tool при таком сбое. DTO/history
 tests отвергают устаревший envelope и невалидный failure update, включая
 replacement без changed compaction и произвольный user suffix.
+
+`codex_model_resume::crash_recovery` принудительно завершает real runtime
+после side effect до result и после durable result до workflow acknowledgement.
+Проверяет cold request, transcript, отсутствие повторного эффекта и replay
+успешного продолжения. Незавершённый crash turn не эмулируется replay.
+`session_store::checkpoint` проверяет strict result bindings, точный call,
+revision и порядок history при обратном завершении tools; незаявленный result
+остаётся execution fact. `module_swap::workflow_checkpoint` проводит Rust и
+Python workflows через одну checkpoint surface и replay. Replay сверяет сами
+checkpoint snapshots, набор выбранных calls и их положение относительно
+model/tool records; отсутствие checkpoint не маскируется совпавшим final output.
 
 Для model/grants/recording changes добавляются focused suites
 `bound_model_tests`, `bound_tools_tests` и session journal. Process cancellation,
@@ -281,7 +292,7 @@ cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --co
 Workflow handshake:
 
 ```bash
-cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-agent --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v6","module_config":{}}' -- python3 examples/modules/agent-worker/agent.py
+cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-agent --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v7","module_config":{}}' -- python3 examples/modules/agent-worker/agent.py
 ```
 
 Conformance CLI без probe доказывает identity/authority, но не поведение slot.

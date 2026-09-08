@@ -251,6 +251,7 @@ pub struct WorkflowModuleOutput {
 }
 
 pub trait WorkflowModuleHost: Send + Sync {
+    fn checkpoint_history_json(&self, checkpoint_json: String) -> ProcessModuleResult<()>;
     fn is_cancelled(&self) -> ProcessModuleResult<bool>;
     fn queued_user_messages(&self) -> ProcessModuleResult<u32>;
     fn build_context_json(&self, task_json: String) -> ProcessModuleResult<String>;

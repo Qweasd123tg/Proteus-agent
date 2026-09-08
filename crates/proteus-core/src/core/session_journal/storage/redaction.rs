@@ -18,6 +18,14 @@ pub(super) fn redact_sensitive_values(value: &mut Value) {
     redact_at_path(value, &mut Vec::new());
 }
 
+pub(crate) fn redacted_history(
+    messages: &[crate::model_standard::CanonicalMessage],
+) -> anyhow::Result<Vec<crate::model_standard::CanonicalMessage>> {
+    let mut payload = serde_json::json!({"messages": messages});
+    redact_sensitive_values(&mut payload);
+    Ok(serde_json::from_value(payload["messages"].take())?)
+}
+
 fn redact_at_path(value: &mut Value, path: &mut Vec<PathSegment>) {
     match value {
         Value::Object(map) => {

@@ -20,6 +20,12 @@ impl AgentRuntime {
         current_user: &CanonicalMessage,
         deliveries: &[SteeringDeliveryRecord],
     ) -> Result<AgentOutput> {
+        if let Some(store) = &self.session.session_store {
+            super::history::refresh_committed_history(
+                &mut *self.session.history.lock().await,
+                store.load_messages()?,
+            )?;
+        }
         let progress = turn_error
             .downcast_ref::<WorkflowFailure>()
             .and_then(|failure| failure.history.clone());
@@ -39,13 +45,8 @@ impl AgentRuntime {
                 progress.compactions.iter().any(|report| report.changed),
                 &allowed,
             )?;
-            self.commit_history_update(
-                turn_id,
-                update,
-                &progress.new_messages,
-                &progress.compactions,
-            )
-            .await
+            self.commit_history_update(turn_id, update, &progress.compactions, true)
+                .await
         }
         .await;
         match persist {

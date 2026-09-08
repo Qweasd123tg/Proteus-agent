@@ -25,6 +25,7 @@ pub(crate) fn run_codex_loop(
     module_id: &str,
 ) -> Result<WorkflowModuleOutput, WorkflowFailure> {
     let mut turn = TurnScaffold::begin(host, &input).map_err(WorkflowFailure::from)?;
+    super::codex_recovery::normalize_missing_tool_outputs(&mut turn.model_messages);
     match run_loop(&input, host, module_id, &mut turn) {
         Ok((text, metadata)) => turn
             .finish(host, text, metadata)
@@ -74,6 +75,7 @@ fn run_loop(
             PersistentRepair::ReplaceAfter,
         )? {
             last_usage = None;
+            turn.checkpoint(host, &[])?;
         }
         let request = prepared.request;
         emit_event(
@@ -107,6 +109,13 @@ fn run_loop(
         }
 
         if should_run_tools {
+            let captured_calls = response
+                .tool_calls
+                .iter()
+                .filter(|call| request.tools.iter().any(|spec| spec.name == call.name))
+                .cloned()
+                .collect::<Vec<_>>();
+            turn.checkpoint(host, &captured_calls)?;
             tool_rounds += 1;
             for call in &response.tool_calls {
                 executed_tools.push(call.name.clone());
@@ -121,6 +130,7 @@ fn run_loop(
             turn.append_tool_results(results);
             continue;
         }
+        turn.checkpoint(host, &[])?;
         if model_requests_follow_up {
             continue;
         }

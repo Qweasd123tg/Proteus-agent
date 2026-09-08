@@ -1,5 +1,5 @@
 use proteus_contracts::{
-    contracts::WorkflowHistoryUpdate,
+    contracts::{WorkflowHistoryCheckpoint, WorkflowHistoryUpdate, WorkflowToolResultBinding},
     domain::{
         AgentOutput, CONTEXT_MESSAGE_NAME, Event, HistoryCompactionReport, MessageId, ToolResult,
     },
@@ -29,6 +29,7 @@ pub(crate) struct TurnScaffold {
     pub(crate) context_token_estimate: Option<u32>,
     compactions: Vec<HistoryCompactionReport>,
     history_replacement_len: Option<usize>,
+    result_bindings: std::collections::HashMap<String, WorkflowToolResultBinding>,
 }
 
 impl TurnScaffold {
@@ -93,18 +94,48 @@ impl TurnScaffold {
             context_token_estimate,
             compactions: Vec::new(),
             history_replacement_len: None,
+            result_bindings: Default::default(),
         })
     }
 
     pub(crate) fn append_tool_results(&mut self, results: impl IntoIterator<Item = ToolResult>) {
         for result in results {
             let call_id = result.call_id.clone();
-            let tool_result_message =
-                CanonicalMessage::new(MessageRole::Tool, vec![ContentPart::ToolResult { result }])
-                    .with_tool_call_id(call_id);
+            let binding = self
+                .result_bindings
+                .remove(&call_id)
+                .unwrap_or_else(|| WorkflowToolResultBinding::new(call_id));
+            let tool_result_message = binding.message(result);
             self.model_messages.push(tool_result_message.clone());
             self.persistent_messages.push(tool_result_message);
         }
+    }
+
+    pub(crate) fn checkpoint(
+        &mut self,
+        host: &mut WorkflowModuleHostMut<'_>,
+        calls: &[proteus_contracts::domain::ToolCall],
+    ) -> Result<(), ProcessModuleError> {
+        let Some(history) = self.history_update()? else {
+            return Ok(());
+        };
+        let bindings = calls
+            .iter()
+            .map(|call| WorkflowToolResultBinding::new(call.id.clone()))
+            .collect::<Vec<_>>();
+        let checkpoint = WorkflowHistoryCheckpoint {
+            history,
+            tool_results: bindings.clone(),
+        };
+        host.checkpoint_history_json(
+            serde_json::to_string(&checkpoint)
+                .map_err(|error| ProcessModuleError::new(error.to_string()))?,
+        )?;
+        self.result_bindings = bindings
+            .into_iter()
+            .map(|binding| (binding.call_id.clone(), binding))
+            .collect();
+        Ok(())
     }
 
     pub(crate) fn apply_compaction_report(

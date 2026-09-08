@@ -21,6 +21,7 @@ use crate::{
 };
 
 mod builder;
+mod checkpoint;
 mod execution;
 mod execution_binding;
 mod failed_history;
@@ -134,7 +135,7 @@ struct SessionState {
     thread_id: ThreadId,
     run_lock: Mutex<()>,
     session_started: Mutex<bool>,
-    history: Mutex<Vec<CanonicalMessage>>,
+    history: Arc<Mutex<Vec<CanonicalMessage>>>,
     session_store: Option<SessionStore>,
     steering: Arc<SessionSteering>,
 }
@@ -152,7 +153,7 @@ impl SessionState {
             thread_id,
             run_lock: Mutex::new(()),
             session_started: Mutex::new(session_started),
-            history: Mutex::new(history),
+            history: Arc::new(Mutex::new(history)),
             session_store,
             steering: Arc::new(SessionSteering::default()),
         }

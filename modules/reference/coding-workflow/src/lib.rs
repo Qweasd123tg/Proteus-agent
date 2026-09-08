@@ -5,6 +5,7 @@
 //! tool execution, and event emission.
 
 mod codex_loop;
+mod codex_recovery;
 mod dynamic_tools;
 mod history;
 mod host;

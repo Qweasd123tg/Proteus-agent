@@ -1,6 +1,6 @@
 # Canonical Turn Data
 
-Текущий формат — journal schema v4 и session metadata v4. Resume history,
+Текущий формат — journal schema v5 и session metadata v4. Resume history,
 transcript, eval, prompt replay и workflow replay читают canonical journal.
 
 Schema v4 сохраняет обязательный `ContextChunk.render_mode` внутри canonical
@@ -125,11 +125,12 @@ Initial user prompt записывается `history_mutated/append` до за�
 process-resident queued receipt не выдаётся за durable turn fact.
 
 Если workflow завершился `WorkflowFailure` с явным history update, Core
-валидирует его и записывает `history_mutated` до `turn_settled(error)`.
+валидирует его и записывает ещё не подтверждённый suffix до `turn_settled(error)`.
 Сохранённые assistant messages и tool results доступны следующему turn и cold
-resume, хотя итог предыдущего turn остаётся ошибкой. Model/tool records сами
-по себе не добавляют сообщения в active history: при потере worker-а без
-terminal update его локальная история не восстанавливается автоматически.
+resume, хотя итог предыдущего turn остаётся ошибкой. Без явного history checkpoint
+model/tool records сами по себе не добавляют сообщения в active history.
+Checkpoint и выбранные им tool results переживают потерю worker-а без terminal
+update; стек и локальное состояние workflow не восстанавливаются.
 
 `model_response_recorded/error.message` содержит текст ошибки, переданной
 вызывающему workflow, без дополнительных префиксов writer-а. Это позволяет
@@ -138,11 +139,18 @@ workflow replay сравнивать terminal error без удаления ди
 
 ## History И Compaction
 
-Conversation history — fold `history_mutated` по revision:
+Conversation history — fold явных history mutations и объявленных tool results:
 
 - `append` добавляет canonical messages;
 - `replace` указывает входную revision, полный replacement и
   `HistoryCompactionReport`;
+- `checkpoint` сохраняет подтверждённый workflow snapshot и ordered
+  `tool_results` bindings. Формат binding и validation описаны в
+  [process-module-architecture.md](process-module-architecture.md);
+- root `tool_result_recorded`, выбранный активным checkpoint, вставляет canonical
+  tool message с заранее выделенными ids в порядок bindings и увеличивает history
+  revision. Результат и его участие в history — один durable record; отдельного
+  acknowledgement от workflow не требуется;
 - mismatch revision является corruption/concurrency error, а не поводом
   «починить» порядок эвристикой.
 
@@ -153,7 +161,7 @@ pre-compaction exchanges и точную lineage. Отдельные
 данных.
 
 Отдельного history cache после cutover нет: resume всегда fold-ит
-`history_mutated` из journal. Добавлять rebuildable cache следует только после
+history mutations и выбранные tool results из journal. Добавлять rebuildable cache следует только после
 измеренного bottleneck и с явным правилом, что при расхождении прав journal.
 
 ## Большие Payload
@@ -189,7 +197,7 @@ contract.
   незавершённая последняя JSONL-строка может быть отброшена, а ошибка в середине
   файла завершает load явно.
 - History revision меняется только вместе с успешно записанным
-  `history_mutated`.
+  `history_mutated` или `tool_result_recorded` для активного history binding.
 - UI notification и telemetry event публикуются после canonical commit там,
   где факт влияет на resume; потеря клиента не откатывает journal.
 - Secrets/redaction применяются до записи. Нельзя сначала сохранить credential,
@@ -279,6 +287,9 @@ resolution/result, changed compaction report, settlement, `AgentOutput` и
 history validation, что и обычный root runtime. Для terminal `WorkflowFailure`
 проверяется также явно возвращённый history update; успешный `AgentOutput`
 при этом не создаётся.
+Checkpoint snapshots, набор выбранных calls и положение callback относительно
+model/tool boundaries также сравниваются; одинаковый final output не скрывает
+потерю промежуточной durable записи.
 Нормализация ограничена заново создаваемыми `MessageId`/`PartId`, внутренними
 generated call ids, недетерминированным `ToolResult.metadata.duration_ms` и
 зависящим от него итоговым `AgentOutput.metadata.context.token_estimate`;

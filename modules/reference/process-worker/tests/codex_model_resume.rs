@@ -20,6 +20,9 @@ use tokio::{
     process::Command,
 };
 
+#[path = "codex_model_resume/crash_recovery.rs"]
+#[cfg(unix)]
+mod crash_recovery;
 #[path = "codex_model_resume/direct_tool_surface.rs"]
 mod direct_tool_surface;
 #[path = "codex_model_resume/model_failure_recovery.rs"]

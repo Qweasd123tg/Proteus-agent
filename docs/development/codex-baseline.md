@@ -18,7 +18,7 @@ Baseline: `openai/codex` commit
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v6`, `compactor/v5`, journal schema v4.
+Действующие версии: `workflow/v7`, `compactor/v5`, journal schema v5.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,
@@ -63,15 +63,16 @@ requests, прямое исполнение ранее скрытого tool, jo
 
 ### Продолжение После Модельной Ошибки
 
-`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v6`
+`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v7`
 failure envelope. Core сохраняет их до `TurnSettled(Error)`: следующий turn
 получает завершённые assistant items и tool results с исходными call ids.
 
 Upstream anchors того же baseline: `core/src/stream_events_utils.rs` сохраняет
 model items и tool calls, `core/src/session/turn.rs` — завершённые tool results;
 ошибка следующего model call не откатывает эту историю. Proteus подтверждает
-этот путь для явно возвращённого terminal failure. Инкрементальная запись
-каждого workflow item до потери процесса этим срезом не воспроизводится.
+этот путь для явно возвращённого terminal failure. Дополнительно checkpoints
+сохраняют завершённый canonical model response до tools; запись отдельных
+items незавершённого SSE response этим срезом не воспроизводится.
 
 [HTTP/process regression](../../modules/reference/process-worker/tests/codex_model_resume/model_failure_recovery.rs)
 проводит `write_file → HTTP 500 → новый turn`: проверяет единственное
@@ -80,6 +81,31 @@ model items и tool calls, `core/src/session/turn.rs` — завершённые
 runtime и в новом процессе. Это восстановление контекста следующего turn;
 автоматический retry model call и возобновление прерванного workflow сюда
 не входят.
+
+### Потеря Процесса После Side Effect
+
+`coding.codex_loop` подтверждает history через общий `host.history.checkpoint`
+и заранее выделяет identities ожидаемых tool messages. Core включает выбранный
+root result в history вместе с его durable записью, до ответа workflow.
+Upstream anchors того же baseline: запись перед постановкой tool futures в
+`core/src/stream_events_utils.rs`, `drain_in_flight` в `core/src/session/turn.rs`,
+prompt-only `aborted` для отсутствующего function output в
+`core/src/context_manager/normalize.rs` и `history.rs::for_prompt_annotated`.
+
+[Crash regression](../../modules/reference/process-worker/tests/codex_model_resume/crash_recovery.rs)
+завершает настоящий runtime process через kill в двух контролируемых точках:
+после записи трёх файлов, до tool result; после `ToolResultRecorded`, до возврата
+workflow. Неидемпотентный append подтверждает отсутствие повторного исполнения.
+Новый runtime сверяет фактический HTTP request, journal и cold transcript:
+известный call/result сохраняется с исходным содержимым, а отсутствие result
+остаётся неизвестным исходом. `aborted` имеет request scope и не становится
+записанным результатом tool. Success следующего turn проходит workflow replay;
+незавершённый аварийный turn replay отклоняет.
+
+Этот срез не обещает exactly-once внешнего эффекта, продолжения старого workflow,
+совпадения synthetic provider item ids или missing-output поведения custom и
+hosted tools. Он проверяет сохранение известного прогресса и function-call
+нормализацию следующего запроса.
 
 ### Local Compaction И Project Instructions
 

@@ -20,6 +20,7 @@ use crate::{
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 
+mod checkpoint;
 mod identity;
 mod workspace_dir;
 
@@ -151,6 +152,7 @@ impl SessionStore {
             JournalEntry::HistoryMutated(HistoryMutated {
                 previous_revision,
                 new_revision: previous_revision.saturating_add(1),
+                tool_results: Vec::new(),
                 mutation: HistoryMutationKind::Append,
                 messages: messages.to_vec(),
                 compaction: None,
@@ -180,6 +182,7 @@ impl SessionStore {
             JournalEntry::HistoryMutated(HistoryMutated {
                 previous_revision,
                 new_revision: previous_revision.saturating_add(1),
+                tool_results: Vec::new(),
                 mutation: HistoryMutationKind::Replace,
                 messages: messages.to_vec(),
                 compaction,

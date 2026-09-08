@@ -75,6 +75,9 @@ impl FakeHost {
 }
 
 impl WorkflowModuleHost for FakeHost {
+    fn checkpoint_history_json(&self, _checkpoint_json: String) -> Result<(), ProcessModuleError> {
+        Ok(())
+    }
     fn is_cancelled(&self) -> Result<bool, ProcessModuleError> {
         Ok(false)
     }

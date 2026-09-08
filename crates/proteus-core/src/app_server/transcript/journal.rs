@@ -32,7 +32,7 @@ pub(crate) fn journal_transcript_messages(
                 {
                     state.reset();
                 }
-                let hide_compactor_parts = mutation.mutation == HistoryMutationKind::Replace
+                let hide_compactor_parts = mutation.mutation != HistoryMutationKind::Append
                     && mutation.compaction.is_some();
                 for message in &mutation.messages {
                     if record.turn_id == live_turn_id {
@@ -368,6 +368,7 @@ mod tests {
                 JournalEntry::HistoryMutated(HistoryMutated {
                     previous_revision: 0,
                     new_revision: 1,
+                    tool_results: Vec::new(),
                     mutation: HistoryMutationKind::Append,
                     messages: vec![user],
                     compaction: None,

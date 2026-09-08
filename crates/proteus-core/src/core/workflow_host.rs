@@ -30,6 +30,13 @@ pub(crate) struct WorkflowHostRuntime {
 }
 
 impl WorkflowHostRuntime {
+    pub(crate) async fn checkpoint_history(
+        &self,
+        checkpoint: crate::contracts::WorkflowHistoryCheckpoint,
+    ) -> Result<()> {
+        self.ensure_active()?;
+        self.ctx.history_recorder.checkpoint(checkpoint).await
+    }
     pub(crate) fn new(ctx: AgentWorkflowContext) -> Self {
         Self {
             ctx,

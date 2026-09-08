@@ -119,12 +119,28 @@ impl super::AgentRuntime {
         &self,
         turn_id: TurnId,
         update: PreparedHistoryUpdate,
-        new_messages: &[CanonicalMessage],
         compactions: &[HistoryCompactionReport],
+        preserve_completed_suffix: bool,
     ) -> Result<()> {
         let mut history = self.session.history.lock().await;
         if let Some(store) = &self.session.session_store {
-            if update.replace {
+            // A callback can lose its acknowledgement after its journal append.
+            refresh_committed_history(&mut history, store.load_messages()?)?;
+        }
+        if history.starts_with(&update.final_messages) {
+            ensure!(
+                preserve_completed_suffix || *history == update.final_messages,
+                "successful workflow omitted committed checkpoint progress"
+            );
+            return Ok(());
+        }
+        let suffix = update.final_messages.strip_prefix(history.as_slice());
+        ensure!(
+            suffix.is_some() || update.replace,
+            "workflow terminal history disagrees with committed checkpoints"
+        );
+        if let Some(store) = &self.session.session_store {
+            if suffix.is_none() {
                 store
                     .replace_history(
                         self.session.thread_id,
@@ -139,7 +155,11 @@ impl super::AgentRuntime {
                     .await?;
             } else {
                 store
-                    .append_history(self.session.thread_id, Some(turn_id), new_messages)
+                    .append_history(
+                        self.session.thread_id,
+                        Some(turn_id),
+                        suffix.expect("validated history suffix"),
+                    )
                     .await?;
             }
         }
@@ -148,9 +168,48 @@ impl super::AgentRuntime {
     }
 }
 
+/// Reload missing committed progress without replacing still-live values with
+/// their redacted disk representation. Changed checkpoint snapshots still win.
+pub(super) fn refresh_committed_history(
+    history: &mut Vec<CanonicalMessage>,
+    durable: Vec<CanonicalMessage>,
+) -> Result<()> {
+    let redacted = crate::core::session_journal::redacted_history(history)?;
+    let originals = history
+        .iter()
+        .zip(&redacted)
+        .map(|(raw, stored)| (raw.id, (raw, stored)))
+        .collect::<std::collections::HashMap<_, _>>();
+    let merged = durable
+        .into_iter()
+        .map(|message| match originals.get(&message.id) {
+            Some((raw, stored)) if **stored == message => (*raw).clone(),
+            _ => message,
+        })
+        .collect();
+    *history = merged;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refreshing_a_checkpoint_keeps_live_values_and_adopts_missing_progress() {
+        let mut live = CanonicalMessage::text(MessageRole::Assistant, "known");
+        live.metadata = serde_json::json!({"secret": "live-only"});
+        let mut history = vec![live.clone()];
+        let mut durable = crate::core::session_journal::redacted_history(&history).unwrap();
+        let completed = CanonicalMessage::text(MessageRole::Assistant, "acknowledgement lost");
+        durable.push(completed.clone());
+        refresh_committed_history(&mut history, durable).unwrap();
+        assert_eq!(history, vec![live, completed]);
+        let mut replacement = history[0].clone();
+        replacement.metadata = serde_json::json!({"checkpoint": "changed"});
+        refresh_committed_history(&mut history, vec![replacement.clone()]).unwrap();
+        assert_eq!(history, vec![replacement]);
+    }
 
     #[test]
     fn append_update_keeps_persisted_user_and_adds_turn_messages() {

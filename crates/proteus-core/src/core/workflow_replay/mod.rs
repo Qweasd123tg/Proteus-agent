@@ -136,7 +136,12 @@ pub async fn replay_workflow(
         policy,
         approval,
     );
-    let workflow_context = AgentWorkflowContext::new(
+    let checkpoint_recorder = Arc::new(replay_runtime::ReplayCheckpointRecorder::new(
+        state.clone(),
+        fixture.initial_history.clone(),
+        fixture.checkpoints.clone(),
+    ));
+    let mut workflow_context = AgentWorkflowContext::new(
         execution_context,
         fixture.session_id,
         fixture.thread_id,
@@ -153,6 +158,7 @@ pub async fn replay_workflow(
     )
     .with_tool_recorder(state.clone())
     .with_instructions(replay_config.instruction_blocks());
+    workflow_context.history_recorder = checkpoint_recorder.clone();
 
     let replay_result = workflow
         .run(
@@ -235,6 +241,7 @@ pub async fn replay_workflow(
             )
         }
     };
+    checkpoint_recorder.finish();
     let summary = state.summary();
     let journal_after = std::fs::read(&fixture.journal_path).with_context(|| {
         format!(

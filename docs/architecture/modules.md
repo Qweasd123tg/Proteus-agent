@@ -19,7 +19,7 @@ authority(module) = authority(slot, invocation_context)
 ```
 
 Все внешние modules являются exports process components: Component Runtime v2
-использует wire protocol v3; `workflow` использует strict contract v6,
+использует wire protocol v3; `workflow` использует strict contract v7,
 `compactor` — v5, `model` — v4; версии остальных slots приведены в authority table
 [process-module-architecture.md](process-module-architecture.md). Runtime допускает
 несколько одновременных и вложенных invocation одного component. Dylib ABI и
@@ -137,15 +137,19 @@ runtime status, context, model completion, compaction, visible/selected tools,
 tool execution и event emission. Session ids, approvals, tool ownership и
 journal остаются host-owned.
 
-`workflow/v6` возвращает success с `WorkflowOutput` либо error с
+`workflow/v7` возвращает success с `WorkflowOutput` либо error с
 `WorkflowFailure`. Ошибка может явно вернуть выполненную часть истории через
 `WorkflowHistoryUpdate`; Core проверяет её и сохраняет до terminal `Error`.
 `coding.codex_loop` использует этот путь после сбоя model call. Это общий
 contract для любых workflow implementations, а не восстановление локального
-состояния потерянного worker-а.
+состояния потерянного worker-а. Дополнительно `host.history.checkpoint` позволяет
+явно подтвердить промежуточную history и выбрать calls, результаты которых Core
+должен включать в неё при записи journal. Callback доступен всем workflow exports;
+его используют `coding.codex_loop` и Python example. Без checkpoint внутренние
+model/tool facts по-прежнему не превращаются в conversation history автоматически.
 
 `coding.project_check` — reference code-heavy controller на том же
-`workflow/v6`. Он детерминированно вызывает `git_status`, определяет project по
+`workflow/v7`. Он детерминированно вызывает `git_status`, определяет project по
 root marker, запускает фиксированную test command и обращается к model только
 один раз для объяснения failed test. Success path не вызывает model, context
 или compactor. Это architecture probe, не default workflow и не special

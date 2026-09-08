@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dependency-free out-of-tree Workflow v6 component for Proteus.
+"""Dependency-free out-of-tree Workflow v7 component for Proteus.
 
 The worker owns a small model/tool loop. Models, tools, policy, approvals,
 safety, events, and cancellation remain host capabilities reached only through
@@ -27,7 +27,7 @@ from component_runtime import (  # noqa: E402
 
 SLOT = "workflow"
 MODULE_ID = "python_agent_loop"
-CONTRACT_VERSION = "v6"
+CONTRACT_VERSION = "v7"
 
 INITIALIZE_FIELDS = {
     "protocol_version",
@@ -343,6 +343,14 @@ def run_workflow(
         messages.extend(assistant_messages)
         persistent_new.extend(assistant_messages)
 
+        captured = response["tool_calls"] if response["finish_reason"] != "Stop" and not final_round else []
+        bindings = {call["id"]: {"call_id": call["id"], "message_id": uuid_string(), "part_id": uuid_string()} for call in captured}
+        acknowledgement = peer.host_call("host.history.checkpoint", {
+            "history": {"new_messages": persistent_new, "history_replacement": None, "compactions": []},
+            "tool_results": list(bindings.values()),
+        })
+        require_object(acknowledgement, set(), "checkpoint acknowledgement")
+
         if response["finish_reason"] == "Stop":
             assistant = response_output_message(response)
             text = message_text(assistant)
@@ -370,6 +378,9 @@ def run_workflow(
         results = execute_tools(peer, task, response["tool_calls"])
         for result in results:
             message = tool_result_message(result)
+            binding = bindings[result["call_id"]]
+            message["id"] = binding["message_id"]
+            message["parts"][0]["part_id"] = binding["part_id"]
             messages.append(message)
             persistent_new.append(message)
         tool_rounds += 1
@@ -402,7 +413,7 @@ def initialize(raw: Any) -> dict[str, Any]:
     if actual != expected:
         raise ProtocolError(f"unsupported initialize identity: {actual!r}")
     if require_string_list(export["host_features"], "host_features"):
-        raise ProtocolError("workflow v6 has no negotiated optional features")
+        raise ProtocolError("workflow v7 has no negotiated optional features")
     component_config = parse_config(export["module_config"])
     return {
         "protocol_version": PROTOCOL_VERSION,
@@ -423,7 +434,7 @@ def invoke(context: InvocationContext, method: str, params: Any) -> dict[str, An
     if context.export != {"slot": SLOT, "module_id": MODULE_ID}:
         raise ProtocolError(f"unknown component export: {context.export!r}")
     if method != "run":
-        raise ProtocolError(f"workflow v6 does not support method {method!r}")
+        raise ProtocolError(f"workflow v7 does not support method {method!r}")
     return run_workflow(Peer(context), params, component_config)
 
 

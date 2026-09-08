@@ -211,6 +211,23 @@ impl AsyncHostRequestDispatcher for ProcessWorkflowDispatcher {
                     encode(WorkflowHostAck::default(), &method)
                 })
             }
+            crate::contracts::WORKFLOW_HOST_CHECKPOINT_HISTORY_METHOD => {
+                let input = match decode::<crate::contracts::WorkflowHistoryCheckpoint>(
+                    request.params,
+                    &method,
+                ) {
+                    Ok(input) => input,
+                    Err(error) => return Box::pin(async move { Err(error) }),
+                };
+                let runtime = Arc::clone(&self.runtime);
+                Box::pin(async move {
+                    runtime
+                        .checkpoint_history(input)
+                        .await
+                        .map_err(|error| callback_error(&method, error))?;
+                    encode(WorkflowHostAck::default(), &method)
+                })
+            }
             _ => Box::pin(async move {
                 Err(ProcessModuleRpcError::new(
                     -32601,

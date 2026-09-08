@@ -24,6 +24,8 @@ use super::{
 };
 
 mod adapters;
+mod checkpoints;
+pub(super) use checkpoints::{RecordedCheckpoint, ReplayCheckpointRecorder, recorded_checkpoints};
 
 pub(super) use adapters::{
     ReplayApprovalTransport, ReplayCompactor, ReplayContextBuilder, ReplayModel,

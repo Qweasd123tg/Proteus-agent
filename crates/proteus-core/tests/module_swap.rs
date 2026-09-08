@@ -1,5 +1,7 @@
 #[path = "support/model.rs"]
 mod test_model;
+#[path = "module_swap/workflow_checkpoint.rs"]
+mod workflow_checkpoint;
 
 use std::{
     path::{Path, PathBuf},
@@ -260,12 +262,11 @@ async fn invalid_slot_response_is_rejected_without_legacy_shape() {
 #[tokio::test(flavor = "current_thread")]
 async fn process_handshake_does_not_block_the_async_runtime() {
     let workspace = tempfile::tempdir().expect("workspace");
+    // Fixture construction may compile its worker. Measure the async runtime
+    // build/handshake, not this synchronous test prerequisite.
+    let config = search_config("fixture", "slow_initialize");
     let started = Instant::now();
-    let build = AgentRuntime::builder(
-        search_config("fixture", "slow_initialize"),
-        workspace.path().to_path_buf(),
-    )
-    .build_async();
+    let build = AgentRuntime::builder(config, workspace.path().to_path_buf()).build_async();
     let heartbeat = async {
         tokio::time::sleep(Duration::from_millis(40)).await;
         started.elapsed()

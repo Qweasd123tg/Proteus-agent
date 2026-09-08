@@ -298,6 +298,24 @@ impl AgentRuntime {
             turn_id,
         );
         workflow_context.execution.model = Arc::new(steering_model.clone());
+        let checkpoint_recorder = Arc::new(super::checkpoint::TurnHistoryRecorder {
+            attribution: ExecutionAttribution::for_turn(
+                workflow_context.execution.scope.execution_id,
+                self.session.session_id,
+                self.session.thread_id,
+                turn_id,
+            ),
+            store: self.session.session_store.clone(),
+            history: self.session.history.clone(),
+            initial_history: history.clone(),
+            current_user: user_message.clone(),
+            steering: steering_model.clone(),
+            tools: workflow_context.tool_recorder.clone(),
+            capture: Default::default(),
+            recorded_compactions: Default::default(),
+        });
+        workflow_context.history_recorder = checkpoint_recorder.clone();
+        workflow_context.tool_recorder = checkpoint_recorder;
         let workflow_timeout_ms = snapshot.runtime.registry.runtime_config.workflow_timeout_ms;
         let workflow =
             snapshot
@@ -371,13 +389,8 @@ impl AgentRuntime {
                     .await;
             }
         };
-        self.commit_history_update(
-            turn_id,
-            history_update,
-            &workflow_output.new_messages,
-            &workflow_output.compactions,
-        )
-        .await?;
+        self.commit_history_update(turn_id, history_update, &workflow_output.compactions, false)
+            .await?;
         Ok(workflow_output.output)
     }
 

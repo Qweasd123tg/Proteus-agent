@@ -40,6 +40,7 @@ const CONTEXT_PROVIDER_METHODS: &[&str] = &[PROCESS_CONTEXT_PROVIDER_METHOD];
 const TOOL_METHODS: &[&str] = &[PROCESS_TOOL_LIST_METHOD, PROCESS_TOOL_INVOKE_METHOD];
 const WORKFLOW_METHODS: &[&str] = &[PROCESS_WORKFLOW_METHOD];
 const WORKFLOW_HOST_METHODS: &[&str] = &[
+    proteus_contracts::contracts::WORKFLOW_HOST_CHECKPOINT_HISTORY_METHOD,
     WORKFLOW_HOST_RUNTIME_STATUS_METHOD,
     WORKFLOW_HOST_BUILD_CONTEXT_METHOD,
     WORKFLOW_HOST_COMPLETE_MODEL_METHOD,
@@ -265,7 +266,7 @@ mod tests {
             ("context_provider", "v1", "v2"),
             ("model", "v3", "v4"),
             ("compactor", "v4", "v5"),
-            ("workflow", "v5", "v6"),
+            ("workflow", "v6", "v7"),
         ] {
             assert!(process_contract_authority(slot, previous).is_none());
             assert!(process_contract_authority(slot, current).is_some());

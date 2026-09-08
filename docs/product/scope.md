@@ -15,6 +15,9 @@
 - Общий tool safety/approval path и execution-bound model/tools/memory.
 - Canonical journal, history/resume, prompt replay и workflow replay
   в поддержанной границе.
+- Workflow checkpoints и явные bindings tool results: выбранный прогресс
+  сохраняется при потере процесса, результат неизвестного side effect не
+  выдумывается. Используется Codex workflow и Python example.
 - AgentControl для полных local Proteus peers: lifecycle, bounded mailbox,
   messaging, follow-up и адресная отмена.
 - CLI/REPL, HTTP/SSE/stdio app-server, web chat и Inspector.

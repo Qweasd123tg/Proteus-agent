@@ -197,6 +197,16 @@ fn model_callback_error(error: anyhow::Error) -> ProcessModuleError {
 pub struct WorkflowHostBridge(pub HostBridge);
 
 impl WorkflowModuleHost for WorkflowHostBridge {
+    fn checkpoint_history_json(&self, checkpoint_json: String) -> Result<(), ProcessModuleError> {
+        let checkpoint = parse_value(checkpoint_json).map_err(ProcessModuleError::new)?;
+        match self.0.call(
+            proteus_contracts::contracts::WORKFLOW_HOST_CHECKPOINT_HISTORY_METHOD,
+            checkpoint,
+        ) {
+            Ok(_) => Ok(()),
+            Err(error) => workflow_error(error),
+        }
+    }
     fn is_cancelled(&self) -> Result<bool, ProcessModuleError> {
         Ok(self.0.is_cancelled())
     }

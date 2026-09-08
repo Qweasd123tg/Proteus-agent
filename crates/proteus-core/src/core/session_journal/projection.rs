@@ -12,6 +12,8 @@ use super::types::{
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct JournalValidationState {
+    capture: super::history_capture::HistoryCapture,
+    capture_owner: Option<JournalRecordAttributionOwner>,
     history: Vec<CanonicalMessage>,
     history_revision: u64,
     record_ids: HashSet<RecordId>,
@@ -24,6 +26,8 @@ pub(crate) struct JournalValidationState {
     model_responses: HashSet<ExchangeId>,
     tool_calls: HashMap<CallId, ToolLifecycle>,
 }
+
+type JournalRecordAttributionOwner = (ThreadId, TurnId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TurnLifecycle {
@@ -55,6 +59,8 @@ impl JournalValidationState {
 
         match &record.entry {
             JournalEntry::TurnOpened(opened) => {
+                self.capture = Default::default();
+                self.capture_owner = None;
                 let turn_id = required_turn_id(record)?;
                 let thread_id = required_thread_id(record)?;
                 let execution_id = required_execution_id(record)?;
@@ -110,6 +116,11 @@ impl JournalValidationState {
                 }
                 validate_conversation_messages(&mutation.messages)?;
                 self.validate_part_id_stability(&mutation.messages)?;
+                if mutation.mutation != HistoryMutationKind::Checkpoint
+                    && !mutation.tool_results.is_empty()
+                {
+                    bail!("only a workflow checkpoint may bind tool results");
+                }
                 match mutation.mutation {
                     HistoryMutationKind::Append => {
                         if mutation.messages.is_empty() {
@@ -121,6 +132,8 @@ impl JournalValidationState {
                         self.history.extend(mutation.messages.iter().cloned());
                     }
                     HistoryMutationKind::Replace => {
+                        self.capture = Default::default();
+                        self.capture_owner = None;
                         if mutation
                             .compaction
                             .as_ref()
@@ -128,6 +141,22 @@ impl JournalValidationState {
                         {
                             bail!("history replacement compaction report must be changed=true");
                         }
+                        self.history = mutation.messages.clone();
+                    }
+                    HistoryMutationKind::Checkpoint => {
+                        let turn_id = self.require_root_turn(record)?;
+                        if mutation
+                            .tool_results
+                            .iter()
+                            .any(|binding| self.known_parts.contains_key(&binding.part_id))
+                        {
+                            bail!("checkpoint reuses a previously recorded result part identity");
+                        }
+                        self.capture = super::history_capture::HistoryCapture::new(
+                            &mutation.messages,
+                            &mutation.tool_results,
+                        )?;
+                        self.capture_owner = Some((required_thread_id(record)?, turn_id));
                         self.history = mutation.messages.clone();
                     }
                 }
@@ -169,6 +198,9 @@ impl JournalValidationState {
             }
             JournalEntry::ToolCallRecorded(tool) => {
                 let owner = self.require_execution_fact(record)?;
+                if record.thread_id.zip(record.turn_id) == self.capture_owner {
+                    self.capture.validate_call(&tool.call)?;
+                }
                 let lifecycle = self.tool_calls.entry(tool.call.id.clone()).or_default();
                 match &tool.phase {
                     ToolCallRecordPhase::Requested => {
@@ -256,12 +288,23 @@ impl JournalValidationState {
                     bail!("duplicate tool result {}", tool.result.call_id);
                 }
                 lifecycle.result = true;
+                if record.thread_id.zip(record.turn_id) == self.capture_owner
+                    && self.capture.record(&mut self.history, &tool.result)?
+                {
+                    self.history_revision = self.history_revision.saturating_add(1);
+                    validate_active_history_ids(&self.history)?;
+                    self.validate_part_id_stability(&self.history.clone())?;
+                }
             }
             JournalEntry::TurnSettled(_) => {
                 reject_execution_id(record)?;
                 let turn_id = self.require_root_turn(record)?;
                 if !self.settled_turns.insert(turn_id) {
                     bail!("turn {turn_id} settled more than once");
+                }
+                if self.capture_owner == record.thread_id.zip(record.turn_id) {
+                    self.capture = Default::default();
+                    self.capture_owner = None;
                 }
             }
         }
@@ -270,6 +313,10 @@ impl JournalValidationState {
 
     pub(crate) fn history_revision(&self) -> u64 {
         self.history_revision
+    }
+
+    pub(crate) fn history(&self) -> &[CanonicalMessage] {
+        &self.history
     }
 
     fn validate_part_id_stability(&mut self, messages: &[CanonicalMessage]) -> Result<()> {

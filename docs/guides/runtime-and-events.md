@@ -188,7 +188,7 @@ history сохраняют раздельные commentary/final items. Клие
 Если runtime запущен с config path, рядом с config root создаётся дерево
 `sessions/<workspace>/<session>/` (подробно про layout, resume и lifecycle —
 раздел «Session Store» ниже). Source of truth — `journal.jsonl`, где одна
-строка является строгим record schema v4 с `record_id`, монотонным
+строка является строгим record schema v5 с `record_id`, монотонным
 `session_seq`, timestamp, mandatory session id, optional execution/thread/turn
 ids, `kind` и payload. `TurnOpened`, model и tool facts требуют
 `ExecutionId`; history/settlement остаются chat facts без execution owner.
@@ -615,12 +615,12 @@ journal. ОС освобождает владение при закрытии pr
 находится в parent directory, а время создания/изменения берётся из metadata
 файловой системы. Новая session получает 10-значный numeric basename,
 детерминированный из внутреннего UUID; полный `SessionId` сохраняется в
-`session.json` schema v4 вместе с `journal_schema_version = 4`. Перед записью runtime
+`session.json` schema v4 вместе с `journal_schema_version = 5`. Перед записью runtime
 проверяет metadata, поэтому коллизия коротких имён завершается ошибкой и не
 смешивает histories.
 
 Reader принимает только basename из 10 ASCII-цифр с обязательным
-`session.json` schema v4 и journal schema v4. UUID-basename directories,
+`session.json` schema v4 и journal schema v5. UUID-basename directories,
 прежние session/journal schemas и неизвестные wire/storage формы
 отвергаются явно: pre-release cutover не содержит legacy decoder или dual-read.
 Старые локальные dogfood sessions следует вручную переместить целиком за
@@ -667,14 +667,28 @@ suffix без повторной передачи user prompt. Changed compactio
 точный current user message вместе с его id; runtime атомарно заменяет историю
 этим snapshot-ом и затем дописывает `new_messages`.
 
-`workflow/v6` также позволяет вернуть `WorkflowFailure` с накопленным history
+`workflow/v7` также позволяет вернуть `WorkflowFailure` с накопленным history
 update. Core проверяет и сохраняет его до settlement со статусом `Error`.
 `coding.codex_loop` использует этот путь: если tool завершился, а следующий
 model call упал, новый turn получает прежний call/result и после перезапуска
 runtime. Завершённый replacement после compaction можно сохранить без нового
 ответа. Автоматического повтора tool или продолжения workflow с места падения
-этот механизм не выполняет. Если worker не вернул terminal update, Core не
-восстанавливает его локальное состояние по отдельным model/tool records.
+этот механизм не выполняет.
+
+Workflow может раньше подтвердить progress через `host.history.checkpoint`.
+В `coding.codex_loop` это происходит после завершённого model response и до
+tools, а также после changed compaction. Выбранный результат tool попадает
+в history вместе с `tool_result_recorded`; потеря ответа между Core и workflow
+его не удаляет. Resume сохраняет эти данные при аварийном завершении процесса,
+даже если `TurnSettled` не был записан. Неподтверждённые model/tool facts не
+используются для угадывания workflow history.
+
+Если side effect произошёл, но result не записан, journal сохраняет неизвестный
+исход. Codex при формировании следующего request добавляет для такого function
+call prompt-only output `aborted`. Это нормализация запроса, а не запись
+успешного/неуспешного результата tool в history. В transcript карточка остаётся
+`interrupted`. Runtime не переисполняет прошлые calls и не продолжает workflow
+с его старого program counter.
 
 `SessionId` и `ThreadId` по умолчанию создаются при построении `AgentRuntime`.
 Builder умеет принять existing ids через `with_session_ids` или открыть

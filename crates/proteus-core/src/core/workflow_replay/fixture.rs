@@ -4,7 +4,7 @@ use anyhow::{Context, Result, anyhow, bail};
 
 use crate::{
     core::{
-        HistoryMutated, HistoryMutationKind, JournalEntry, JournalRecord, ModelResponseOutcome,
+        HistoryMutationKind, JournalEntry, JournalRecord, ModelResponseOutcome,
         SessionConfigSnapshot, SessionStore, ToolCallRecordPhase, TurnOpened, TurnSettled,
         normalize_session_dir_path,
     },
@@ -19,6 +19,7 @@ use super::WorkflowReplayOptions;
 
 #[derive(Debug, Clone)]
 pub(super) struct WorkflowReplayFixture {
+    pub checkpoints: Vec<super::replay_runtime::RecordedCheckpoint>,
     pub journal_path: std::path::PathBuf,
     pub session_id: SessionId,
     pub thread_id: ThreadId,
@@ -83,6 +84,11 @@ pub(super) fn load_fixture(
         .map(|exchange| recorded_context(&exchange.request, &settlement));
 
     Ok(WorkflowReplayFixture {
+        checkpoints: super::replay_runtime::recorded_checkpoints(
+            &projection.records,
+            thread_id,
+            turn_id,
+        ),
         journal_path: store.journal_path(),
         session_id: store.session_id(),
         thread_id,
@@ -186,8 +192,7 @@ fn select_history(
     thread_id: ThreadId,
     opened: &TurnOpened,
 ) -> Result<SelectedHistory> {
-    let mut history = Vec::new();
-    let mut revision = 0_u64;
+    let mut state = crate::core::session_journal::JournalValidationState::default();
     let mut turn_open = false;
     let mut initial = None;
     let mut final_history = None;
@@ -195,6 +200,7 @@ fn select_history(
     for record in records {
         if matches!(&record.entry, JournalEntry::TurnOpened(_)) && record.turn_id == Some(turn_id) {
             turn_open = true;
+            let revision = state.history_revision();
             if revision != opened.base_history_revision {
                 bail!(
                     "turn {turn_id} base history revision {} does not match replay fold revision {revision}",
@@ -203,6 +209,8 @@ fn select_history(
             }
         }
 
+        state.apply(record)?;
+        let history = state.history();
         if let JournalEntry::HistoryMutated(mutation) = &record.entry {
             if turn_open
                 && final_history.is_none()
@@ -213,14 +221,13 @@ fn select_history(
                     "turn {turn_id} overlaps another turn's history mutation; concurrent same-session workflow replay is not supported"
                 );
             }
-            apply_history_mutation(&mut history, &mut revision, mutation)?;
             if record.turn_id == Some(turn_id) && record.thread_id == Some(thread_id) {
                 if initial.is_none() {
                     if mutation.mutation != HistoryMutationKind::Append {
                         bail!("turn {turn_id} did not begin with a persisted user-message append");
                     }
                     validate_current_user_message(&history, opened, turn_id)?;
-                    initial = Some(history.clone());
+                    initial = Some(history.to_vec());
                 } else if mutation.mutation == HistoryMutationKind::Append
                     && mutation
                         .messages
@@ -238,7 +245,7 @@ fn select_history(
             && record.turn_id == Some(turn_id)
             && record.thread_id == Some(thread_id)
         {
-            final_history = Some(history.clone());
+            final_history = Some(history.to_vec());
             turn_open = false;
         }
     }
@@ -252,26 +259,6 @@ fn select_history(
         final_history: final_history
             .ok_or_else(|| anyhow!("turn {turn_id} has no terminal turn_settled record"))?,
     })
-}
-
-fn apply_history_mutation(
-    history: &mut Vec<CanonicalMessage>,
-    revision: &mut u64,
-    mutation: &HistoryMutated,
-) -> Result<()> {
-    if mutation.previous_revision != *revision {
-        bail!(
-            "history revision mismatch while selecting workflow replay: expected {}, found {}",
-            *revision,
-            mutation.previous_revision
-        );
-    }
-    match mutation.mutation {
-        HistoryMutationKind::Append => history.extend(mutation.messages.iter().cloned()),
-        HistoryMutationKind::Replace => *history = mutation.messages.clone(),
-    }
-    *revision = mutation.new_revision;
-    Ok(())
 }
 
 fn validate_current_user_message(

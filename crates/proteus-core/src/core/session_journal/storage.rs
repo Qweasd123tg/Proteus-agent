@@ -23,6 +23,7 @@ mod redaction;
 use ownership::SessionWriteOwnership;
 use recovery::{AppendRollback, restore_committed_offset};
 use redaction::redact_sensitive_values;
+pub(crate) use redaction::redacted_history;
 
 pub const JOURNAL_FILE: &str = "journal.jsonl";
 const BLOBS_DIR: &str = "blobs";

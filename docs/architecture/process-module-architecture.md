@@ -265,13 +265,13 @@ invalid DTO и превышение limits являются fail-closed protocol
 | context | v2 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
 | model | v4 | `describe`, `stream` | `host.model.emit` (acknowledged canonical events) |
 | compactor | v5 | `compact` | `host.model.complete` |
-| workflow | v6 | `run` | runtime status, context, model, compaction, tool visibility/selection/execution, events |
+| workflow | v7 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
 
 Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
 DTO, adapter, protocol/conformance и swap evidence в одном commit.
 
-`workflow/v6` возвращает strict terminal envelope: `status = "success"` с
+`workflow/v7` возвращает strict terminal envelope: `status = "success"` с
 `result: WorkflowOutput` либо `status = "error"` с `failure: WorkflowFailure`.
 Ошибка алгоритма может содержать `history: WorkflowHistoryUpdate` — завершённые
 `new_messages`, optional `history_replacement` и `compactions`; `model_failure`
@@ -285,8 +285,29 @@ compaction и точного current user message. При ошибке допу�
 replacement без последующего ответа. Core не создаёт `AgentOutput` для ошибки.
 Отсутствующий `history` означает отсутствие возвращённых данных, а не отсутствие
 side effects. Потеря worker-а, cancel и timeout не восстанавливают его локальное
-состояние из model/tool journal records. Эта граница одинакова для всех workflow
-exports; `coding.codex_loop` использует её для сохранения выполненных шагов.
+состояние. Эта граница одинакова для всех workflow exports.
+
+`host.history.checkpoint` принимает `WorkflowHistoryCheckpoint`: cumulative
+`history: WorkflowHistoryUpdate` относительно исходного input и ordered
+`tool_results: Vec<WorkflowToolResultBinding>`. Binding содержит `call_id`,
+заранее выделенные `message_id` и `part_id`; call должен точно присутствовать
+в подтверждаемой conversation history и ещё не иметь результата. Identities
+уникальны, последующее исполнение не может менять объявленный call.
+
+Core валидирует update тем же history validator, вплетает доставленный steering
+и подтверждает callback после durable checkpoint. Новое сокращение history
+требует нового changed compaction. Terminal output использует тот же cumulative
+формат: подтверждённый prefix повторно не добавляется. Failure может вернуть
+prefix без уже записанного tool result, потерянного при передаче ответа worker-у;
+такой результат сохраняется. Success не может опускать подтверждённый прогресс.
+
+Последующие root `ToolResultRecorded` для объявленных calls сами завершают
+history binding в journal, до возврата результата workflow. Другие root tools,
+child/detached facts и внутренние model calls не становятся conversation history
+автоматически. Порядок bindings сохраняется при обратном порядке завершения
+tools. Запрос без результата остаётся неизвестным исходом, повтор не выполняется.
+`coding.codex_loop` и Python example используют checkpoints; callback доступен
+всем implementations workflow slot с одинаковой authority.
 
 ## Shared Lifecycle И Multiplexed Broker
 

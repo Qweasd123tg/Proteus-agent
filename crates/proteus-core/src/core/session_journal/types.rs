@@ -7,7 +7,7 @@ use proteus_contracts::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const JOURNAL_SCHEMA_VERSION: u32 = 4;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -23,6 +23,7 @@ pub struct TurnOpened {
 pub enum HistoryMutationKind {
     Append,
     Replace,
+    Checkpoint,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -33,6 +34,7 @@ pub struct HistoryMutated {
     pub mutation: HistoryMutationKind,
     pub messages: Vec<CanonicalMessage>,
     pub compaction: Option<HistoryCompactionReport>,
+    pub tool_results: Vec<proteus_contracts::contracts::WorkflowToolResultBinding>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

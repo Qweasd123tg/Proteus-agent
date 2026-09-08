@@ -205,6 +205,7 @@ fn projection_rejects_history_revision_mismatch() {
     let mutation = JournalEntry::HistoryMutated(HistoryMutated {
         previous_revision: 7,
         new_revision: 8,
+        tool_results: Vec::new(),
         mutation: HistoryMutationKind::Append,
         messages: vec![CanonicalMessage::text(MessageRole::User, "hello")],
         compaction: None,
@@ -731,6 +732,7 @@ fn history_rejects_request_scoped_context_parts() {
     let mutation = JournalEntry::HistoryMutated(HistoryMutated {
         previous_revision: 0,
         new_revision: 1,
+        tool_results: Vec::new(),
         mutation: HistoryMutationKind::Append,
         messages: vec![message],
         compaction: None,
@@ -759,6 +761,7 @@ fn active_history_rejects_duplicate_part_ids_across_messages() {
     let mutation = JournalEntry::HistoryMutated(HistoryMutated {
         previous_revision: 0,
         new_revision: 1,
+        tool_results: Vec::new(),
         mutation: HistoryMutationKind::Append,
         messages: vec![first, second],
         compaction: None,
@@ -793,6 +796,7 @@ fn history_replacement_cannot_change_a_recorded_part() {
             JournalEntry::HistoryMutated(HistoryMutated {
                 previous_revision: 0,
                 new_revision: 1,
+                tool_results: Vec::new(),
                 mutation: HistoryMutationKind::Append,
                 messages: vec![original],
                 compaction: None,
@@ -807,6 +811,7 @@ fn history_replacement_cannot_change_a_recorded_part() {
             JournalEntry::HistoryMutated(HistoryMutated {
                 previous_revision: 1,
                 new_revision: 2,
+                tool_results: Vec::new(),
                 mutation: HistoryMutationKind::Replace,
                 messages: vec![changed],
                 compaction: None,
