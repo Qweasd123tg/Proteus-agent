@@ -61,7 +61,8 @@ fn success_response() -> Value {
 
 async fn serve(listener: TcpListener) -> Vec<Value> {
     let mut requests = Vec::new();
-    for round in 0..3 {
+    // Exhaust the default four request retries before starting a new turn.
+    for round in 0..7 {
         let (mut socket, _) = tokio::time::timeout(Duration::from_secs(10), listener.accept())
             .await
             .expect("bounded fixture accept")
@@ -69,11 +70,11 @@ async fn serve(listener: TcpListener) -> Vec<Value> {
         requests.push(super::read_json_request(&mut socket).await);
         let (status, body) = match round {
             0 => ("200 OK", tool_response().to_string()),
-            1 => (
+            1..=5 => (
                 "500 Internal Server Error",
                 json!({"error": {"message": "fixture model failure", "type": "server_error", "code": "typedOther"}}).to_string(),
             ),
-            2 => ("200 OK", success_response().to_string()),
+            6 => ("200 OK", success_response().to_string()),
             _ => unreachable!(),
         };
         socket
@@ -316,8 +317,9 @@ async fn completed_tool_survives_model_failure_and_warm_continuation() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(requests.len(), 3);
-    assert_resume_request(&requests[1], &requests[2]);
+    assert_eq!(requests.len(), 7);
+    assert!(requests[1..6].windows(2).all(|pair| pair[0] == pair[1]));
+    assert_resume_request(&requests[1], &requests[6]);
     let session_dir = runtime.session_dir().unwrap();
     assert_canonical_session(&config, &session_dir).await;
     assert_cold_history(config, root.path(), &session_dir).await;
@@ -429,8 +431,9 @@ async fn completed_tool_survives_model_failure_and_cold_process_restart() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(requests.len(), 3);
-    assert_resume_request(&requests[1], &requests[2]);
+    assert_eq!(requests.len(), 7);
+    assert!(requests[1..6].windows(2).all(|pair| pair[0] == pair[1]));
+    assert_resume_request(&requests[1], &requests[6]);
 
     let note: Value =
         serde_json::from_slice(&std::fs::read(root.path().join("resume.json")).unwrap()).unwrap();

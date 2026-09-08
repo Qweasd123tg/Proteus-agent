@@ -61,6 +61,32 @@ Upstream anchors того же baseline: `core/src/session/turn.rs` формир
 requests, прямое исполнение ранее скрытого tool, journal, cold history
 и workflow replay. Policy и approval остаются общей границей исполнения.
 
+### Повторы HTTP-запроса Модели
+
+OpenAI и OpenAI-compatible adapter используют HTTP-политику выбранного
+baseline: `model-provider-info/src/lib.rs::request_max_retries` и
+`codex-client/src/retry.rs`. По умолчанию разрешены четыре повтора после
+первой попытки, для transport errors и HTTP 5xx. HTTP 429 и остальные 4xx
+на этом уровне не повторяются. Backoff начинается с 200 мс, удваивается
+и получает jitter 0,9–1,1; настройка `request_max_retries` ограничена 100.
+
+[HTTP/process regression](../../modules/reference/process-worker/tests/codex_model_resume/request_retry.rs)
+проводит `shell append → HTTP 500 → HTTP 200` для JSON и SSE. Ход завершается
+без нового сообщения пользователя, запрос при retry не меняется, эффект tool
+происходит ровно один раз. Journal содержит один model exchange на логический
+запрос; внутренние HTTP attempts не становятся отдельными model outcomes.
+History, cold transcript и workflow replay сохраняют подтверждённый результат.
+
+Общий model deadline и Cancel останавливают дальнейшие HTTP attempts, включая
+ожидание backoff, и не удаляют выполненный tool. Model deadline завершает root
+turn как `Error`, но этот replay пока отклоняется: exchange остаётся без terminal
+outcome. Внешний Cancel проверяется через `TurnSettled(Canceled)` и cold history.
+
+Это срез до успешных HTTP-заголовков. Ошибки JSON body и восстановление уже
+открытого SSE stream сюда не входят. Отдельный regression подтверждает, что
+завершённый SSE item с последующим EOF без terminal response не вызывает
+повторного HTTP-запроса; полученный `Error` проходит workflow replay.
+
 ### Продолжение После Модельной Ошибки
 
 `coding.codex_loop` возвращает выполненные шаги через общий `workflow/v8`
@@ -75,12 +101,12 @@ model items и tool calls, `core/src/session/turn.rs` — завершённые
 items незавершённого SSE response этим срезом не воспроизводится.
 
 [HTTP/process regression](../../modules/reference/process-worker/tests/codex_model_resume/model_failure_recovery.rs)
-проводит `write_file → HTTP 500 → новый turn`: проверяет единственное
+проводит `write_file → пять HTTP 500 → новый turn`: проверяет исчерпание
+четырёх HTTP-повторов с неизменным request, единственное
 исполнение tool, call/result в фактическом следующем request, journal, history
 и matched workflow replay обоих turns. Продолжение проверяется в том же
-runtime и в новом процессе. Это восстановление контекста следующего turn;
-автоматический retry model call и возобновление прерванного workflow сюда
-не входят.
+runtime и в новом процессе. Это восстановление контекста следующего turn
+после окончательной ошибки; возобновление прерванного workflow сюда не входит.
 
 ### Потеря Процесса После Side Effect
 

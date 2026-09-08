@@ -127,8 +127,19 @@ history без такого callback. Класс модельной ошибки
 не вызывает. Перед unit/runtime тестами Core fixture явно собирает reference
 worker: production Core от reference crate не зависит.
 
-`codex_model_resume::model_failure_recovery` проверяет `write_file → ошибка
-следующего model call → новый turn` в живом runtime и после перезапуска:
+`codex_model_resume::request_retry` проверяет `shell append → HTTP 500 → 200`
+в одном turn через JSON и SSE. Сравнивает полный повторяемый HTTP request,
+единственный side effect и tool result, history, cold transcript и matched
+workflow replay. Отдельные сценарии проверяют остановку attempts при Cancel
+и общем model deadline, а также отсутствие HTTP retry после принятого SSE item
+с последующим обрывом stream. Error такого stream проходит replay; внешний
+model deadline оставляет incomplete exchange и replay явно его отклоняет.
+Cancel проверяется через settlement и cold history. Unit HTTP fixture проверяет
+5xx, отсутствие повторов 400/401/403/429, лимит attempts, последнюю ошибку
+и отказ невалидного request до отправки.
+
+`codex_model_resume::model_failure_recovery` проверяет `write_file → пять
+HTTP 500 следующего model call → новый turn` в живом runtime и после перезапуска:
 реальный HTTP request содержит прежний call/result ровно один раз, tool не
 исполняется повторно, journal сохраняет `Error`/`Success`, оба turns проходят
 workflow replay. Runtime steering regression отдельно проверяет порядок

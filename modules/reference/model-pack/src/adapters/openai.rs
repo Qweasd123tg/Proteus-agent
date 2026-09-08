@@ -8,10 +8,7 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{Value, json};
 
 use crate::{
-    adapters::{
-        http_retry::send_with_transport_retry,
-        secrets::{read_config_string_or_default, read_secret_from_config},
-    },
+    adapters::secrets::{read_config_string_or_default, read_secret_from_config},
     contracts::{Model, ModelEventStream},
     domain::ModelRef,
     model_standard::{
@@ -28,6 +25,7 @@ use crate::{
 
 mod errors;
 mod hosted_tools;
+mod http_retry;
 mod model_profile;
 mod request;
 mod response;
@@ -39,6 +37,7 @@ mod stream_state;
 mod tests;
 
 use errors::ensure_success;
+use http_retry::RequestRetry;
 use model_profile::OpenAiModelProfile;
 #[cfg(test)]
 use request::to_openai_request;
@@ -68,6 +67,7 @@ pub struct OpenAiResponsesClient {
     max_input_tokens: Option<u32>,
     prompt_cache: OpenAiPromptCacheConfig,
     model_profile: OpenAiModelProfile,
+    request_retry: RequestRetry,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -107,6 +107,7 @@ impl OpenAiResponsesClient {
             .filter(|value| *value > 0);
         let prompt_cache = OpenAiPromptCacheConfig::from_provider_config(&config);
         let model_profile = OpenAiModelProfile::from_provider_config(&config)?;
+        let request_retry = RequestRetry::from_config(&config)?;
         let http1_only = config
             .get("http1_only")
             .map(|value| {
@@ -130,6 +131,7 @@ impl OpenAiResponsesClient {
             max_input_tokens,
             prompt_cache,
             model_profile,
+            request_retry,
         })
     }
 }
@@ -198,7 +200,9 @@ impl OpenAiResponsesClient {
         let url = format!("{}/responses", self.base_url);
         let api_key = self.api_key()?;
         let response = ensure_success(
-            send_with_transport_retry(|| self.request_builder(&url, &body, &api_key)).await?,
+            self.request_retry
+                .send(|| self.request_builder(&url, &body, &api_key))
+                .await?,
         )
         .await?;
         let response: Value = response.json().await?;
@@ -213,7 +217,9 @@ impl OpenAiResponsesClient {
         let url = format!("{}/responses", self.base_url);
         let api_key = self.api_key()?;
         let response = ensure_success(
-            send_with_transport_retry(|| self.request_builder(&url, &body, &api_key)).await?,
+            self.request_retry
+                .send(|| self.request_builder(&url, &body, &api_key))
+                .await?,
         )
         .await?;
 

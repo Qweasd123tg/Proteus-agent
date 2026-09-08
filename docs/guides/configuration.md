@@ -171,6 +171,21 @@ HTTP/2, задайте `http1_only = true` в `module_config.model.<id>`. Это
 compatibility switch конкретного provider profile, а не fallback workflow или
 исключение для module id.
 
+В OpenAI и OpenAI-compatible adapter `request_max_retries` задаёт число
+HTTP-повторов после первой попытки: по умолчанию 4, `0` отключает повторы,
+значения выше 100 ограничиваются 100, как в выбранном Codex. Ключ находится
+в `module_config.model.<id>` и принимает только неотрицательное целое число.
+Повторяются транспортные ошибки отправки и HTTP 5xx; HTTP 4xx, включая 429,
+возвращаются сразу. Задержки начинаются с 200 мс и растут вдвое со случайным
+множителем от 0,9 до 1,1. После исчерпания попыток сохраняется последняя ошибка
+провайдера. Общий model deadline и cancellation охватывают запросы и задержки,
+а не назначаются заново каждой попытке.
+
+Повторы заканчиваются после успешных HTTP-заголовков: ошибки чтения/разбора
+JSON body и уже открытого SSE stream не запускают эту политику повторно.
+Диагностический `stream_error_fallback` остаётся отдельной явной настройкой;
+tracked Codex profile её не включает.
+
 Environment читается внутри worker: нужные переменные (`HOME`, API key,
 proxy variables) явно перечисляются в `env_allowlist` component. Это относится
 и к `$HOME` в путях JSON secrets. Core не читает credential и не знает схему

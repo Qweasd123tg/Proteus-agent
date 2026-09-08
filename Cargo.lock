@@ -911,6 +911,7 @@ dependencies = [
  "futures-util",
  "proteus-contracts",
  "proteus-core",
+ "rand",
  "reqwest",
  "serde",
  "serde_json",
