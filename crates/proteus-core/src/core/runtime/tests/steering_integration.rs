@@ -10,7 +10,7 @@ use super::*;
 use crate::{
     contracts::{
         AgentWorkflowContext, CancellationToken, CompactionHost, EventSink, Model,
-        ModelEventStream, Workflow, WorkflowOutput,
+        ModelEventStream, Workflow, WorkflowFailure, WorkflowHistoryUpdate, WorkflowOutput,
     },
     core::RuntimeCompactionHost,
     domain::{
@@ -132,6 +132,8 @@ impl Workflow for TwoRoundSteeringWorkflow {
         let mut second_messages = history;
         second_messages.extend(first.messages.iter().cloned());
         second_messages.push(tool_message.clone());
+        let mut new_messages = first.messages;
+        new_messages.push(tool_message);
         let second = ctx
             .execution
             .model
@@ -139,9 +141,11 @@ impl Workflow for TwoRoundSteeringWorkflow {
                 ctx.model_ref.clone(),
                 second_messages,
             ))
-            .await?;
-        let mut new_messages = first.messages;
-        new_messages.push(tool_message);
+            .await
+            .map_err(|error| {
+                WorkflowFailure::new(format!("{error:#}"))
+                    .with_history(WorkflowHistoryUpdate::new(new_messages.clone()))
+            })?;
         new_messages.extend(second.messages);
         Ok(WorkflowOutput::new(
             AgentOutput::text("steered"),
@@ -352,7 +356,7 @@ async fn queued_message_is_delivered_before_model_call_after_tool_boundary() {
 }
 
 #[tokio::test]
-async fn delivered_message_survives_model_failure_in_history_and_session_store() {
+async fn delivered_message_and_completed_work_survive_model_failure_in_history_and_session_store() {
     let config_root = tempfile::tempdir().expect("config root");
     let workspace = tempfile::tempdir().expect("workspace");
     let config_path = config_root.path().join("configs").join("config.toml");
@@ -411,14 +415,20 @@ async fn delivered_message_survives_model_failure_in_history_and_session_store()
         .expect_err("second model request must fail");
     assert!(error.to_string().contains("scripted response exhausted"));
     let history = runtime.history().await;
-    assert_eq!(history.len(), 2);
-    assert!(
+    assert_eq!(
         history
             .iter()
-            .all(|message| message.role == MessageRole::User)
+            .map(|message| message.role.clone())
+            .collect::<Vec<_>>(),
+        [
+            MessageRole::User,
+            MessageRole::Assistant,
+            MessageRole::Tool,
+            MessageRole::User
+        ]
     );
     assert_eq!(message_text_for_test(&history[0]), "initial");
-    assert_eq!(message_text_for_test(&history[1]), "keep this instruction");
+    assert_eq!(message_text_for_test(&history[3]), "keep this instruction");
     let stored = runtime
         .session
         .session_store

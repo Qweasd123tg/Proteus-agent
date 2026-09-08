@@ -187,7 +187,7 @@ impl Model for BoundModel {
                     recorder
                         .model_error_recorded(
                             exchange_id,
-                            &format!("model adapter error: {error:#}"),
+                            &format!("{error:#}"),
                         )
                         .await?;
                     return Err(error);
@@ -317,7 +317,7 @@ fn bound_recording_stream(
                     recorder
                         .model_error_recorded(
                             exchange_id,
-                            &format!("model stream transport error: {error:#}"),
+                            &format!("{error:#}"),
                         )
                         .await?;
                     Err(error)?;

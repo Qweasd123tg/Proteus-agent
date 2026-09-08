@@ -7,7 +7,7 @@
 //! to follow-up turns after settlement.
 
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::VecDeque,
     future::Future,
     sync::{
         Arc, Mutex as StdMutex,
@@ -15,13 +15,13 @@ use std::{
     },
 };
 
-use anyhow::{Result, anyhow, ensure};
+use anyhow::{Result, ensure};
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::{
-    contracts::{EventEmitter, Model, ModelEventStream, WorkflowOutput},
+    contracts::{EventEmitter, Model, ModelEventStream},
     domain::{
         Event, EventContext, MessageId, ModelRef, SteeringDeliveryKind, ThreadId, TurnId,
         new_turn_id,
@@ -31,6 +31,13 @@ use crate::{
         ModelCapabilities, ModelStreamEvent,
     },
 };
+
+mod weave;
+
+#[cfg(test)]
+use crate::contracts::WorkflowOutput;
+use weave::weave_deliveries_into_request;
+pub(crate) use weave::{weave_deliveries_into_failed_history, weave_deliveries_into_output};
 
 const MAX_QUEUED_MESSAGES: usize = 32;
 const MAX_QUEUED_BYTES: usize = 512 * 1024;
@@ -442,83 +449,10 @@ impl Model for SteeringModel {
     }
 }
 
-fn weave_deliveries_into_request(
-    messages: &mut Vec<CanonicalMessage>,
-    deliveries: &mut [SteeringDeliveryRecord],
-) {
-    for delivery in deliveries {
-        if messages
-            .iter()
-            .any(|message| message.id == delivery.message.id)
-        {
-            continue;
-        }
-        if let Some(index) = delivery
-            .before_message_id
-            .and_then(|target| messages.iter().position(|message| message.id == target))
-        {
-            messages.insert(index, delivery.message.clone());
-        } else {
-            // A workflow-side compaction may have removed the original anchor
-            // without ever seeing the injected message. Keep the fresh user
-            // instruction and re-anchor it to the next response.
-            messages.push(delivery.message.clone());
-            delivery.awaiting_anchor = true;
-        }
-    }
-}
-
-/// Weaves core-injected messages into the persistent workflow delta. A
-/// workflow is not allowed to manufacture user messages itself; the returned
-/// set is passed to history validation as the exact runtime authorization.
-pub(crate) fn weave_deliveries_into_output(
-    output: &mut WorkflowOutput,
-    deliveries: &[SteeringDeliveryRecord],
-) -> Result<HashSet<MessageId>> {
-    let allowed = deliveries
-        .iter()
-        .map(|delivery| delivery.message.id)
-        .collect::<HashSet<_>>();
-
-    for delivery in deliveries {
-        if output
-            .new_messages
-            .iter()
-            .chain(output.history_replacement.iter().flatten())
-            .any(|message| message.id == delivery.message.id)
-        {
-            continue;
-        }
-        let target = delivery.before_message_id.ok_or_else(|| {
-            anyhow!(
-                "steering message {} was delivered without a terminal model response",
-                delivery.message.id
-            )
-        })?;
-        if let Some(index) = output
-            .new_messages
-            .iter()
-            .position(|message| message.id == target)
-        {
-            output.new_messages.insert(index, delivery.message.clone());
-            continue;
-        }
-        if let Some(replacement) = output.history_replacement.as_mut()
-            && let Some(index) = replacement.iter().position(|message| message.id == target)
-        {
-            replacement.insert(index, delivery.message.clone());
-            continue;
-        }
-        return Err(anyhow!(
-            "workflow output dropped steering response anchor {target}"
-        ));
-    }
-    Ok(allowed)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     #[tokio::test]
     async fn dropped_run_guard_releases_reservation_and_queue() {

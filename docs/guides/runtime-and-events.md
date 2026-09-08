@@ -667,6 +667,15 @@ suffix без повторной передачи user prompt. Changed compactio
 точный current user message вместе с его id; runtime атомарно заменяет историю
 этим snapshot-ом и затем дописывает `new_messages`.
 
+`workflow/v6` также позволяет вернуть `WorkflowFailure` с накопленным history
+update. Core проверяет и сохраняет его до settlement со статусом `Error`.
+`coding.codex_loop` использует этот путь: если tool завершился, а следующий
+model call упал, новый turn получает прежний call/result и после перезапуска
+runtime. Завершённый replacement после compaction можно сохранить без нового
+ответа. Автоматического повтора tool или продолжения workflow с места падения
+этот механизм не выполняет. Если worker не вернул terminal update, Core не
+восстанавливает его локальное состояние по отдельным model/tool records.
+
 `SessionId` и `ThreadId` по умолчанию создаются при построении `AgentRuntime`.
 Builder умеет принять existing ids через `with_session_ids` или открыть
 существующую session directory через `resume_from_session_dir`. При resume
@@ -791,7 +800,8 @@ divergence, даже если Workflow перехватил ошибку и ве
 Текущий workflow replay не эмулирует root steering decorator: turn с доставленным steering или
 follow-up отклоняется fail-closed. Незавершённые model/tool pairs, overlap turns
 и отсутствующий snapshot также являются ошибкой выбора fixture. Terminal
-workflow `Error` поддерживается при завершённой последовательности records.
+workflow `Error` поддерживается при завершённой последовательности records,
+включая сравнение явно возвращённого workflow history update.
 `Canceled`/`Timeout` принадлежат внешнему runtime control plane, момент сигнала
 не записан в journal и поэтому отклоняется до replay с указанием проверить
 canonical `TurnSettled` и cold `/history`. Исходный journal сравнивается
@@ -835,8 +845,10 @@ Runtime пишет `SteeringQueued` и `SteeringDelivered` в обычные
 `EventEnvelope` с session/thread/turn/seq. `SteeringDelivered.kind` различает
 `steering` и `follow_up`. Доставленный текст сохраняется как user history; если
 provider или workflow падает уже после доставки, runtime всё равно дописывает
-это user message в session store, не коммитя незавершённые assistant/tool
-сообщения. Не доставленный хвост при cancel/error очищается вместе с root
+это user message в session store. При наличии валидного failure history update
+оно сохраняется вместе с завершёнными assistant/tool messages; если следующий
+model call упал без ответа, уточнение остаётся после выполненных шагов.
+Не доставленный хвост при cancel/error очищается вместе с root
 цепочкой.
 
 Terminal app event публикуется до снятия finalization gate session. Поэтому
@@ -865,8 +877,9 @@ Core path:
 5. Core bind-ит `ExecutionContext` из captured immutable state, оборачивает его
    в `AgentWorkflowContext`, подменяет model
    steering-wrapper-ом и вызывает selected `Workflow::run`;
-6. после `WorkflowOutput` Core валидирует history replacement/suffix,
-   записывает mutation и фиксирует `TurnSettled`;
+6. после `WorkflowOutput` либо `WorkflowFailure` с history update Core
+   валидирует replacement/suffix, записывает mutation и фиксирует
+   соответствующий `TurnSettled`;
 7. недоставленное queued сообщение может открыть follow-up с новым domain
    `TurnId` в той же `run_reserved_chain`.
 

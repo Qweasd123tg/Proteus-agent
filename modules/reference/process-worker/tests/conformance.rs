@@ -618,13 +618,15 @@ fn workflow_worker_runs_a_complete_callback_driven_turn() {
     };
     let response: ProcessWorkflowResponse =
         serde_json::from_value(value).expect("workflow response");
-    assert_eq!(response.result.output.text, "worker answer");
-    assert_eq!(response.result.new_messages.len(), 1);
-    let report = response
-        .result
-        .compactions
-        .first()
-        .expect("compaction report");
+    let result = match response {
+        ProcessWorkflowResponse::Success { result } => result,
+        ProcessWorkflowResponse::Error { failure } => {
+            panic!("workflow failed: {}", failure.message)
+        }
+    };
+    assert_eq!(result.output.text, "worker answer");
+    assert_eq!(result.new_messages.len(), 1);
+    let report = result.compactions.first().expect("compaction report");
     assert_eq!(report.original_token_estimate, Some(40));
     assert_eq!(report.output_token_estimate, Some(40));
     assert_eq!(report.trigger_tokens, Some(100));
@@ -824,7 +826,7 @@ fn workflow_input(workspace: &Path) -> Value {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn targeted_cancel_keeps_concurrent_sibling_and_generation_alive() {
     let workspace = tempfile::tempdir().expect("workspace");
-    let workflow = ProcessExportBinding::new("workflow", "coding.single_loop", "v5", json!({}))
+    let workflow = ProcessExportBinding::new("workflow", "coding.single_loop", "v6", json!({}))
         .expect("workflow binding");
     let workflow_target = workflow.export_ref();
     let policy =

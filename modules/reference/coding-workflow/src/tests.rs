@@ -25,6 +25,7 @@ struct FakeHost {
     events: Mutex<Vec<Event>>,
     requests: Mutex<Vec<CanonicalModelRequest>>,
     responses: Mutex<VecDeque<CanonicalModelResponse>>,
+    model_failures: Mutex<VecDeque<(usize, ProcessModuleError)>>,
     context_text: Mutex<Option<String>>,
     context_builds: Mutex<Vec<AgentTask>>,
     visible_tools: Mutex<Vec<ToolSpec>>,
@@ -41,6 +42,11 @@ impl FakeHost {
             responses: Mutex::new(VecDeque::from(responses)),
             ..Self::default()
         }
+    }
+
+    fn with_model_failure(mut self, call_number: usize, error: ProcessModuleError) -> Self {
+        self.model_failures = Mutex::new(VecDeque::from([(call_number, error)]));
+        self
     }
 
     fn with_tools(mut self, visible_tools: Vec<ToolSpec>, selected_tools: Vec<ToolSpec>) -> Self {
@@ -99,7 +105,20 @@ impl WorkflowModuleHost for FakeHost {
     fn complete_model_json(&self, request_json: String) -> Result<String, ProcessModuleError> {
         let request: CanonicalModelRequest =
             serde_json::from_str(request_json.as_str()).expect("request json");
-        self.requests.lock().expect("requests").push(request);
+        let call_number = {
+            let mut requests = self.requests.lock().expect("requests");
+            requests.push(request);
+            requests.len()
+        };
+        let mut failures = self.model_failures.lock().expect("model failures");
+        if failures
+            .front()
+            .is_some_and(|(failure_call, _)| *failure_call == call_number)
+        {
+            let (_, error) = failures.pop_front().expect("scripted model failure");
+            return Err(error);
+        }
+        drop(failures);
         let response = self
             .responses
             .lock()

@@ -1,5 +1,6 @@
-use proteus_contracts::process_module::{
-    ProcessModuleError, WorkflowModule, WorkflowModuleHostMut, WorkflowModuleInput,
+use proteus_contracts::{
+    contracts::WorkflowFailure,
+    process_module::{WorkflowModule, WorkflowModuleHostMut, WorkflowModuleInput},
 };
 
 use super::{
@@ -28,7 +29,7 @@ impl WorkflowModule for CodingSingleLoopWorkflow {
         &self,
         input_json: String,
         host: &mut WorkflowModuleHostMut<'_>,
-    ) -> Result<String, ProcessModuleError> {
+    ) -> Result<String, WorkflowFailure> {
         let input: WorkflowModuleInput = match serde_json::from_str(input_json.as_str()) {
             Ok(input) => input,
             Err(error) => return workflow_err(error),
@@ -39,7 +40,7 @@ impl WorkflowModule for CodingSingleLoopWorkflow {
                 Ok(json) => Ok(String::from(json)),
                 Err(error) => workflow_err(error),
             },
-            Err(error) => Err(error),
+            Err(error) => Err(error.into()),
         }
     }
 }
@@ -49,7 +50,7 @@ impl WorkflowModule for CodingCodexLoopWorkflow {
         &self,
         input_json: String,
         host: &mut WorkflowModuleHostMut<'_>,
-    ) -> Result<String, ProcessModuleError> {
+    ) -> Result<String, WorkflowFailure> {
         let input: WorkflowModuleInput = match serde_json::from_str(input_json.as_str()) {
             Ok(input) => input,
             Err(error) => return workflow_err(error),
@@ -70,7 +71,7 @@ impl WorkflowModule for CodingPlanExecuteReviewWorkflow {
         &self,
         input_json: String,
         host: &mut WorkflowModuleHostMut<'_>,
-    ) -> Result<String, ProcessModuleError> {
+    ) -> Result<String, WorkflowFailure> {
         let input: WorkflowModuleInput = match serde_json::from_str(input_json.as_str()) {
             Ok(input) => input,
             Err(error) => return workflow_err(error),
@@ -81,7 +82,7 @@ impl WorkflowModule for CodingPlanExecuteReviewWorkflow {
                 Ok(json) => Ok(String::from(json)),
                 Err(error) => workflow_err(error),
             },
-            Err(error) => Err(error),
+            Err(error) => Err(error.into()),
         }
     }
 }
@@ -91,7 +92,7 @@ impl WorkflowModule for CodingProjectCheckWorkflow {
         &self,
         input_json: String,
         host: &mut WorkflowModuleHostMut<'_>,
-    ) -> Result<String, ProcessModuleError> {
+    ) -> Result<String, WorkflowFailure> {
         let input: WorkflowModuleInput = match serde_json::from_str(input_json.as_str()) {
             Ok(input) => input,
             Err(error) => return workflow_err(error),
@@ -102,11 +103,11 @@ impl WorkflowModule for CodingProjectCheckWorkflow {
                 Ok(json) => Ok(json),
                 Err(error) => workflow_err(error),
             },
-            Err(error) => Err(error),
+            Err(error) => Err(error.into()),
         }
     }
 }
 
-fn workflow_err<T>(error: impl ToString) -> Result<T, ProcessModuleError> {
-    Err(ProcessModuleError::new(error.to_string()))
+fn workflow_err<T>(error: impl ToString) -> Result<T, WorkflowFailure> {
+    Err(WorkflowFailure::new(error.to_string()))
 }

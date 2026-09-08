@@ -49,6 +49,16 @@ impl std::fmt::Display for ProcessModuleError {
 
 impl std::error::Error for ProcessModuleError {}
 
+impl From<ProcessModuleError> for crate::contracts::WorkflowFailure {
+    fn from(error: ProcessModuleError) -> Self {
+        Self {
+            message: error.message,
+            model_failure: error.model_failure,
+            history: None,
+        }
+    }
+}
+
 pub type ProcessModuleResult<T> = Result<T, ProcessModuleError>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -268,7 +278,7 @@ pub trait WorkflowModule: Send + Sync + 'static {
         &self,
         input_json: String,
         host: &mut dyn WorkflowModuleHost,
-    ) -> ProcessModuleResult<String>;
+    ) -> Result<String, crate::contracts::WorkflowFailure>;
 }
 
 pub type WorkflowModuleObject = Box<dyn WorkflowModule>;

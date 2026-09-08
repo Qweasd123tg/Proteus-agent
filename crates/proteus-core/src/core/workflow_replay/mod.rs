@@ -10,7 +10,7 @@ use crate::{
     core::{
         AppConfig, BoundModel, HeadlessUserInputTransport, InMemoryEventStore, ModeAwarePolicy,
         ModelExecutionBinding, ModelService, ModuleBuildContext, ModuleCatalog, PolicyBuildContext,
-        TurnSettlementStatus, prepare_history_update,
+        TurnSettlementStatus, prepare_failed_history_update, prepare_history_update,
     },
     stubs::{NoMemory, NullSearch},
 };
@@ -191,15 +191,49 @@ pub async fn replay_workflow(
             Some(history),
             Some(compactions),
         ),
-        Err(error) => (
-            WorkflowReplayOutcome {
-                status: TurnSettlementStatus::Error,
-                output: None,
-                error: Some(format!("{error:#}")),
-            },
-            Some(fixture.initial_history.clone()),
-            None,
-        ),
+        Err(mut error) => {
+            let mut history = fixture.initial_history.clone();
+            let mut compactions = None;
+            if let Some(progress) = error
+                .downcast_ref::<crate::contracts::WorkflowFailure>()
+                .and_then(|failure| failure.history.clone())
+            {
+                let update = fixture
+                    .initial_history
+                    .last()
+                    .context("workflow replay fixture has no persisted current user message")
+                    .and_then(|user| {
+                        prepare_failed_history_update(
+                            &fixture.initial_history,
+                            user,
+                            &progress.new_messages,
+                            progress.history_replacement.as_deref(),
+                            progress.compactions.iter().any(|report| report.changed),
+                            &HashSet::new(),
+                        )
+                    });
+                match update {
+                    Ok(update) => {
+                        history = update.final_messages;
+                        compactions = Some(progress.compactions);
+                    }
+                    Err(validation) => {
+                        error = error.context(format!(
+                            "failed to persist workflow progress: {validation:#}"
+                        ));
+                    }
+                }
+            }
+            (
+                WorkflowReplayOutcome {
+                    status: TurnSettlementStatus::Error,
+                    output: None,
+                    error: Some(format!("{error:#}")),
+                },
+                Some(history),
+                compactions,
+            )
+        }
     };
     let summary = state.summary();
     let journal_after = std::fs::read(&fixture.journal_path).with_context(|| {

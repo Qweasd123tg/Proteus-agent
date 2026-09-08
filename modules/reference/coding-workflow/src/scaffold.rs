@@ -1,4 +1,5 @@
 use proteus_contracts::{
+    contracts::WorkflowHistoryUpdate,
     domain::{
         AgentOutput, CONTEXT_MESSAGE_NAME, Event, HistoryCompactionReport, MessageId, ToolResult,
     },
@@ -151,7 +152,7 @@ impl TurnScaffold {
     }
 
     pub(crate) fn finish(
-        self,
+        &self,
         host: &mut WorkflowModuleHostMut<'_>,
         output_text: String,
         metadata: Value,
@@ -163,7 +164,28 @@ impl TurnScaffold {
                 output: output.clone(),
             },
         )?;
-        let mut history_prefix = self.persistent_messages;
+        let history = self.history_update_parts()?;
+        Ok(WorkflowModuleOutput {
+            output,
+            new_messages: history.new_messages,
+            history_replacement: history.history_replacement,
+            compactions: history.compactions,
+        })
+    }
+
+    pub(crate) fn history_update(
+        &self,
+    ) -> Result<Option<WorkflowHistoryUpdate>, ProcessModuleError> {
+        let history = self.history_update_parts()?;
+        if history.new_messages.is_empty() && history.history_replacement.is_none() {
+            Ok(None)
+        } else {
+            Ok(Some(history))
+        }
+    }
+
+    fn history_update_parts(&self) -> Result<WorkflowHistoryUpdate, ProcessModuleError> {
+        let mut history_prefix = self.persistent_messages.clone();
         let (history_replacement, new_messages) = match self.history_replacement_len {
             Some(replacement_len) => {
                 if replacement_len > history_prefix.len() {
@@ -187,12 +209,12 @@ impl TurnScaffold {
                 (None, new_messages)
             }
         };
-        Ok(WorkflowModuleOutput {
-            output,
-            new_messages,
-            history_replacement,
-            compactions: self.compactions,
-        })
+        let mut history =
+            WorkflowHistoryUpdate::new(new_messages).with_compactions(self.compactions.clone());
+        if let Some(history_replacement) = history_replacement {
+            history = history.with_history_replacement(history_replacement);
+        }
+        Ok(history)
     }
 }
 

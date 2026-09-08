@@ -67,7 +67,7 @@ cargo test --workspace --no-fail-fast
 
 Breaking canonical response change одновременно обновляет все tracked
 producers/consumers и версии затронутых contracts/storage. Действующие версии:
-`workflow/v5`, `compactor/v5`, durable journal schema v4. Изменение process DTO
+`workflow/v6`, `compactor/v5`, durable journal schema v4. Изменение process DTO
 само по себе не требует новой journal schema, если сохранённая форма не меняется.
 Старые формы не получают compatibility readers.
 
@@ -122,6 +122,15 @@ history без такого callback. Класс модельной ошибки
 в worker через JSON/SSE mock HTTP, journal и cold resume; live API этот gate
 не вызывает. Перед unit/runtime тестами Core fixture явно собирает reference
 worker: production Core от reference crate не зависит.
+
+`codex_model_resume::model_failure_recovery` проверяет `write_file → ошибка
+следующего model call → новый turn` в живом runtime и после перезапуска:
+реальный HTTP request содержит прежний call/result ровно один раз, tool не
+исполняется повторно, journal сохраняет `Error`/`Success`, оба turns проходят
+workflow replay. Runtime steering regression отдельно проверяет порядок
+уточнения пользователя после выполненного tool при таком сбое. DTO/history
+tests отвергают устаревший envelope и невалидный failure update, включая
+replacement без changed compaction и произвольный user suffix.
 
 Для model/grants/recording changes добавляются focused suites
 `bound_model_tests`, `bound_tools_tests` и session journal. Process cancellation,
@@ -266,13 +275,13 @@ cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --co
 Compactor:
 
 ```bash
-cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-compactor --export '{"slot":"compactor","module_id":"python_suffix","contract_version":"v3","module_config":{"trigger_messages":12,"retain_user_turns":2}}' -- python3 examples/modules/compactor-process/compact.py
+cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-compactor --export '{"slot":"compactor","module_id":"python_suffix","contract_version":"v5","module_config":{"trigger_messages":12,"retain_user_turns":2}}' -- python3 examples/modules/compactor-process/compact.py
 ```
 
 Workflow handshake:
 
 ```bash
-cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-agent --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v3","module_config":{}}' -- python3 examples/modules/agent-worker/agent.py
+cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-agent --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v6","module_config":{}}' -- python3 examples/modules/agent-worker/agent.py
 ```
 
 Conformance CLI без probe доказывает identity/authority, но не поведение slot.

@@ -18,7 +18,7 @@ use tokio::{io::AsyncWriteExt, net::TcpListener, process::Command};
 const CHILD_ROOT: &str = "PROTEUS_CODEX_DIRECT_TOOLS_TEST_ROOT";
 const WRITTEN_CONTENT: &str = "direct Codex profile tool call\n";
 
-struct ApprovingTransport;
+pub(super) struct ApprovingTransport;
 
 #[async_trait]
 impl ApprovalTransport for ApprovingTransport {
@@ -119,7 +119,7 @@ async fn serve(listener: TcpListener) -> Vec<Value> {
     requests
 }
 
-async fn fixture_config(endpoint: &str) -> AppConfig {
+pub(super) async fn fixture_config(endpoint: &str) -> AppConfig {
     let profile = workspace_file("configs/codex.config.toml");
     let mut config = AppConfig::load(Some(&profile))
         .await

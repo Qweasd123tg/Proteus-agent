@@ -361,7 +361,10 @@ impl ExportWorker {
             },
         };
         let mut host = WorkflowHostBridge(bridge.clone());
-        let output = workflow.run_json(serde_json::to_string(&module_input)?, &mut host)?;
+        let output = match workflow.run_json(serde_json::to_string(&module_input)?, &mut host) {
+            Ok(output) => output,
+            Err(failure) => return encode(ProcessWorkflowResponse::failed(failure)),
+        };
         let output: WorkflowModuleOutput = serde_json::from_str(output.as_str())?;
         let mut result = WorkflowOutput::new(output.output, output.new_messages)
             .with_compactions(output.compactions);

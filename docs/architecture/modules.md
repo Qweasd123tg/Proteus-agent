@@ -19,8 +19,8 @@ authority(module) = authority(slot, invocation_context)
 ```
 
 Все внешние modules являются exports process components: Component Runtime v2
-использует wire protocol v3; `workflow` и `compactor` используют strict contract
-v5, `model` — v4; версии остальных slots приведены в authority table
+использует wire protocol v3; `workflow` использует strict contract v6,
+`compactor` — v5, `model` — v4; версии остальных slots приведены в authority table
 [process-module-architecture.md](process-module-architecture.md). Runtime допускает
 несколько одновременных и вложенных invocation одного component. Dylib ABI и
 native loader в проекте отсутствуют.
@@ -137,8 +137,15 @@ runtime status, context, model completion, compaction, visible/selected tools,
 tool execution и event emission. Session ids, approvals, tool ownership и
 journal остаются host-owned.
 
+`workflow/v6` возвращает success с `WorkflowOutput` либо error с
+`WorkflowFailure`. Ошибка может явно вернуть выполненную часть истории через
+`WorkflowHistoryUpdate`; Core проверяет её и сохраняет до terminal `Error`.
+`coding.codex_loop` использует этот путь после сбоя model call. Это общий
+contract для любых workflow implementations, а не восстановление локального
+состояния потерянного worker-а.
+
 `coding.project_check` — reference code-heavy controller на том же
-`workflow/v5`. Он детерминированно вызывает `git_status`, определяет project по
+`workflow/v6`. Он детерминированно вызывает `git_status`, определяет project по
 root marker, запускает фиксированную test command и обращается к model только
 один раз для объяснения failed test. Success path не вызывает model, context
 или compactor. Это architecture probe, не default workflow и не special

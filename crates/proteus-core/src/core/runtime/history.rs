@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use anyhow::{Result, ensure};
 
 use crate::{
-    domain::MessageId,
+    domain::{HistoryCompactionReport, MessageId, TurnId},
     model_standard::{CanonicalMessage, MessageRole},
 };
 
@@ -22,12 +22,53 @@ pub(crate) fn prepare_history_update(
     runtime_user_messages: &HashSet<MessageId>,
 ) -> Result<PreparedHistoryUpdate> {
     ensure!(
-        current_history.last() == Some(persisted_user_message),
-        "runtime history does not end with the persisted current user message"
-    );
-    ensure!(
         !new_messages.is_empty(),
         "workflow returned no new persistent turn messages"
+    );
+    prepare_update(
+        current_history,
+        persisted_user_message,
+        new_messages,
+        history_replacement,
+        history_compacted,
+        runtime_user_messages,
+    )
+}
+
+/// A failed workflow can return a completed replacement without a later answer.
+pub(crate) fn prepare_failed_history_update(
+    current_history: &[CanonicalMessage],
+    persisted_user_message: &CanonicalMessage,
+    new_messages: &[CanonicalMessage],
+    history_replacement: Option<&[CanonicalMessage]>,
+    history_compacted: bool,
+    runtime_user_messages: &HashSet<MessageId>,
+) -> Result<PreparedHistoryUpdate> {
+    ensure!(
+        !new_messages.is_empty() || history_replacement.is_some(),
+        "workflow failure returned an empty history update"
+    );
+    prepare_update(
+        current_history,
+        persisted_user_message,
+        new_messages,
+        history_replacement,
+        history_compacted,
+        runtime_user_messages,
+    )
+}
+
+fn prepare_update(
+    current_history: &[CanonicalMessage],
+    persisted_user_message: &CanonicalMessage,
+    new_messages: &[CanonicalMessage],
+    history_replacement: Option<&[CanonicalMessage]>,
+    history_compacted: bool,
+    runtime_user_messages: &HashSet<MessageId>,
+) -> Result<PreparedHistoryUpdate> {
+    ensure!(
+        current_history.last() == Some(persisted_user_message),
+        "runtime history does not end with the persisted current user message"
     );
     for (index, message) in new_messages.iter().enumerate() {
         ensure!(
@@ -70,6 +111,40 @@ pub(crate) fn prepare_history_update(
                 replace: false,
             })
         }
+    }
+}
+
+impl super::AgentRuntime {
+    pub(super) async fn commit_history_update(
+        &self,
+        turn_id: TurnId,
+        update: PreparedHistoryUpdate,
+        new_messages: &[CanonicalMessage],
+        compactions: &[HistoryCompactionReport],
+    ) -> Result<()> {
+        let mut history = self.session.history.lock().await;
+        if let Some(store) = &self.session.session_store {
+            if update.replace {
+                store
+                    .replace_history(
+                        self.session.thread_id,
+                        Some(turn_id),
+                        &update.final_messages,
+                        compactions
+                            .iter()
+                            .rev()
+                            .find(|report| report.changed)
+                            .cloned(),
+                    )
+                    .await?;
+            } else {
+                store
+                    .append_history(self.session.thread_id, Some(turn_id), new_messages)
+                    .await?;
+            }
+        }
+        *history = update.final_messages;
+        Ok(())
     }
 }
 
@@ -151,5 +226,42 @@ mod tests {
         .expect_err("workflow must return only assistant/tool messages");
 
         assert!(error.to_string().contains("non-persistent turn role User"));
+    }
+
+    #[test]
+    fn failed_replacement_without_an_answer_preserves_the_same_validation_boundary() {
+        let user = CanonicalMessage::text(MessageRole::User, "question");
+        let summary = CanonicalMessage::text(MessageRole::User, "completed summary");
+        let replacement = vec![user.clone(), summary];
+        let allowed = HashSet::new();
+        let original = std::slice::from_ref(&user);
+        let update =
+            prepare_failed_history_update(original, &user, &[], Some(&replacement), true, &allowed)
+                .unwrap();
+        assert_eq!(update.final_messages, replacement);
+        assert!(update.replace);
+        assert!(
+            prepare_history_update(original, &user, &[], Some(&replacement), true, &allowed)
+                .is_err()
+        );
+        assert!(
+            prepare_failed_history_update(
+                original,
+                &user,
+                &[],
+                Some(&replacement),
+                false,
+                &allowed
+            )
+            .is_err()
+        );
+        assert!(
+            prepare_failed_history_update(original, &user, &[], None, false, &allowed).is_err()
+        );
+        let forged_user = CanonicalMessage::text(MessageRole::User, "injected");
+        assert!(
+            prepare_failed_history_update(original, &user, &[forged_user], None, false, &allowed)
+                .is_err()
+        );
     }
 }

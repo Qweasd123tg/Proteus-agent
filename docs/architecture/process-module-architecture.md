@@ -265,11 +265,28 @@ invalid DTO и превышение limits являются fail-closed protocol
 | context | v2 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
 | model | v4 | `describe`, `stream` | `host.model.emit` (acknowledged canonical events) |
 | compactor | v5 | `compact` | `host.model.complete` |
-| workflow | v5 | `run` | runtime status, context, model, compaction, tool visibility/selection/execution, events |
+| workflow | v6 | `run` | runtime status, context, model, compaction, tool visibility/selection/execution, events |
 
 Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
 DTO, adapter, protocol/conformance и swap evidence в одном commit.
+
+`workflow/v6` возвращает strict terminal envelope: `status = "success"` с
+`result: WorkflowOutput` либо `status = "error"` с `failure: WorkflowFailure`.
+Ошибка алгоритма может содержать `history: WorkflowHistoryUpdate` — завершённые
+`new_messages`, optional `history_replacement` и `compactions`; `model_failure`
+сохраняет типизированную модельную причину, если она известна. Это обычный result
+invocation, а protocol/transport failure остаётся ошибкой broker-а.
+
+Core сохраняет явно возвращённую историю до `TurnSettled(Error)` через тот же
+validator, что и успешный output: новые сообщения имеют роли assistant/tool
+либо принадлежат доставленному Core steering; replacement требует changed
+compaction и точного current user message. При ошибке допустим завершённый
+replacement без последующего ответа. Core не создаёт `AgentOutput` для ошибки.
+Отсутствующий `history` означает отсутствие возвращённых данных, а не отсутствие
+side effects. Потеря worker-а, cancel и timeout не восстанавливают его локальное
+состояние из model/tool journal records. Эта граница одинакова для всех workflow
+exports; `coding.codex_loop` использует её для сохранения выполненных шагов.
 
 ## Shared Lifecycle И Multiplexed Broker
 

@@ -18,7 +18,7 @@ Baseline: `openai/codex` commit
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v5`, `compactor/v5`, journal schema v4.
+Действующие версии: `workflow/v6`, `compactor/v5`, journal schema v4.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,
@@ -60,6 +60,26 @@ Upstream anchors того же baseline: `core/src/session/turn.rs` формир
 использует tracked профиль и локальный HTTP server: проверяет фактические
 requests, прямое исполнение ранее скрытого tool, journal, cold history
 и workflow replay. Policy и approval остаются общей границей исполнения.
+
+### Продолжение После Модельной Ошибки
+
+`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v6`
+failure envelope. Core сохраняет их до `TurnSettled(Error)`: следующий turn
+получает завершённые assistant items и tool results с исходными call ids.
+
+Upstream anchors того же baseline: `core/src/stream_events_utils.rs` сохраняет
+model items и tool calls, `core/src/session/turn.rs` — завершённые tool results;
+ошибка следующего model call не откатывает эту историю. Proteus подтверждает
+этот путь для явно возвращённого terminal failure. Инкрементальная запись
+каждого workflow item до потери процесса этим срезом не воспроизводится.
+
+[HTTP/process regression](../../modules/reference/process-worker/tests/codex_model_resume/model_failure_recovery.rs)
+проводит `write_file → HTTP 500 → новый turn`: проверяет единственное
+исполнение tool, call/result в фактическом следующем request, journal, history
+и matched workflow replay обоих turns. Продолжение проверяется в том же
+runtime и в новом процессе. Это восстановление контекста следующего turn;
+автоматический retry model call и возобновление прерванного workflow сюда
+не входят.
 
 ### Local Compaction И Project Instructions
 

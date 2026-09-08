@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dependency-free out-of-tree Workflow v5 component for Proteus.
+"""Dependency-free out-of-tree Workflow v6 component for Proteus.
 
 The worker owns a small model/tool loop. Models, tools, policy, approvals,
 safety, events, and cancellation remain host capabilities reached only through
@@ -27,7 +27,7 @@ from component_runtime import (  # noqa: E402
 
 SLOT = "workflow"
 MODULE_ID = "python_agent_loop"
-CONTRACT_VERSION = "v5"
+CONTRACT_VERSION = "v6"
 
 INITIALIZE_FIELDS = {
     "protocol_version",
@@ -356,6 +356,7 @@ def run_workflow(
             }
             emit(peer, {"TurnFinished": {"output": output}})
             return {
+                "status": "success",
                 "result": {
                     "output": output,
                     "new_messages": persistent_new,
@@ -401,7 +402,7 @@ def initialize(raw: Any) -> dict[str, Any]:
     if actual != expected:
         raise ProtocolError(f"unsupported initialize identity: {actual!r}")
     if require_string_list(export["host_features"], "host_features"):
-        raise ProtocolError("workflow v3 has no negotiated optional features")
+        raise ProtocolError("workflow v6 has no negotiated optional features")
     component_config = parse_config(export["module_config"])
     return {
         "protocol_version": PROTOCOL_VERSION,
@@ -422,7 +423,7 @@ def invoke(context: InvocationContext, method: str, params: Any) -> dict[str, An
     if context.export != {"slot": SLOT, "module_id": MODULE_ID}:
         raise ProtocolError(f"unknown component export: {context.export!r}")
     if method != "run":
-        raise ProtocolError(f"workflow v3 does not support method {method!r}")
+        raise ProtocolError(f"workflow v6 does not support method {method!r}")
     return run_workflow(Peer(context), params, component_config)
 
 

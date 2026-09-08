@@ -25,6 +25,7 @@ pub mod tool_exposure;
 pub mod tool_provider;
 pub mod user_input;
 pub mod workflow;
+pub mod workflow_failure;
 
 pub use agent_control::*;
 pub use approval_policy::*;
@@ -48,3 +49,4 @@ pub use tool_exposure::*;
 pub use tool_provider::*;
 pub use user_input::*;
 pub use workflow::*;
+pub use workflow_failure::*;

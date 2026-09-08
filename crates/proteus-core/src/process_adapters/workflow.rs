@@ -106,7 +106,10 @@ impl Workflow for ProcessWorkflowAdapter {
                 || cancellation.is_cancelled(),
             )
             .await?;
-        Ok(response.result)
+        match response {
+            ProcessWorkflowResponse::Success { result } => Ok(result),
+            ProcessWorkflowResponse::Error { failure } => Err(failure.into()),
+        }
     }
 }
 

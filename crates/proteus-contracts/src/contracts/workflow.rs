@@ -11,7 +11,7 @@ use crate::{
     contracts::{
         AgentControl, CancellationToken, ContextBuilder, EventEmitter, ExecutionContext,
         HistoryCompactor, NoopToolExecutionRecorder, ToolExecutionRecorder, ToolExposure,
-        UserInputTransport,
+        UserInputTransport, WorkflowFailure,
     },
     domain::{
         AgentOutput, AgentTask, Event, EventContext, HistoryCompactionReport, ModelRef,
@@ -20,7 +20,7 @@ use crate::{
     model_standard::{CanonicalMessage, CanonicalModelRequest, InstructionBlock},
 };
 
-pub const PROCESS_WORKFLOW_CONTRACT_VERSION: &str = "v5";
+pub const PROCESS_WORKFLOW_CONTRACT_VERSION: &str = "v6";
 pub const PROCESS_WORKFLOW_METHOD: &str = "run";
 
 pub const WORKFLOW_HOST_RUNTIME_STATUS_METHOD: &str = "host.runtime.status";
@@ -33,7 +33,7 @@ pub const WORKFLOW_HOST_EXECUTE_TOOL_METHOD: &str = "host.tools.execute";
 pub const WORKFLOW_HOST_EXECUTE_TOOLS_METHOD: &str = "host.tools.execute_batch";
 pub const WORKFLOW_HOST_EMIT_EVENT_METHOD: &str = "host.events.emit";
 
-/// Strict invocation payload for process Workflow contract v5.
+/// Strict invocation payload for process Workflow contract v6.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessWorkflowInput {
@@ -43,7 +43,7 @@ pub struct ProcessWorkflowInput {
     pub runtime: ProcessWorkflowRuntimeInfo,
 }
 
-/// Provider-neutral invocation context visible to every Workflow v5 module.
+/// Provider-neutral invocation context visible to every Workflow v6 module.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessWorkflowRuntimeInfo {
@@ -60,16 +60,21 @@ pub struct ProcessWorkflowRuntimeInfo {
     pub workflow_timeout_ms: u64,
 }
 
-/// Strict terminal result envelope for process Workflow contract v5.
+/// Strict terminal result envelope for process Workflow contract v6.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct ProcessWorkflowResponse {
-    pub result: WorkflowOutput,
+#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ProcessWorkflowResponse {
+    Success { result: WorkflowOutput },
+    Error { failure: WorkflowFailure },
 }
 
 impl ProcessWorkflowResponse {
     pub fn new(result: WorkflowOutput) -> Self {
-        Self { result }
+        Self::Success { result }
+    }
+
+    pub fn failed(failure: WorkflowFailure) -> Self {
+        Self::Error { failure }
     }
 }
 
@@ -247,6 +252,9 @@ impl AgentWorkflowContext {
 
 #[async_trait]
 pub trait Workflow: Send + Sync {
+    /// A terminal algorithm error may return [`WorkflowFailure`] through anyhow
+    /// to preserve explicitly completed history. Transport loss carries no
+    /// implicit history update.
     async fn run(
         &self,
         task: AgentTask,
@@ -335,15 +343,36 @@ mod process_contract_tests {
     }
 
     #[test]
-    fn process_workflow_response_requires_the_v3_envelope() {
+    fn process_workflow_response_requires_the_current_tagged_envelope() {
         let output = WorkflowOutput::new(AgentOutput::text("done"), Vec::new());
         let bare = serde_json::to_value(output.clone()).expect("bare output");
         serde_json::from_value::<ProcessWorkflowResponse>(bare)
-            .expect_err("bare WorkflowOutput is not a v3 response");
+            .expect_err("bare WorkflowOutput is not a workflow response");
+
+        let old_envelope = json!({"result": output});
+        serde_json::from_value::<ProcessWorkflowResponse>(old_envelope)
+            .expect_err("an untagged success envelope must fail");
 
         let wrapped =
             serde_json::to_value(ProcessWorkflowResponse::new(output)).expect("wrapped response");
-        serde_json::from_value::<ProcessWorkflowResponse>(wrapped).expect("valid v3 response");
+        serde_json::from_value::<ProcessWorkflowResponse>(wrapped).expect("valid success response");
+    }
+
+    #[test]
+    fn workflow_failure_round_trip_preserves_explicit_progress() {
+        let message = CanonicalMessage::text(MessageRole::Assistant, "completed work");
+        let failure = WorkflowFailure::new("next model request failed")
+            .with_history(crate::contracts::WorkflowHistoryUpdate::new(vec![message]));
+        let response = ProcessWorkflowResponse::failed(failure);
+        let value = serde_json::to_value(&response).unwrap();
+        assert_eq!(value["status"], "error");
+        assert_eq!(
+            serde_json::from_value::<ProcessWorkflowResponse>(value.clone()).unwrap(),
+            response
+        );
+        let mut unknown = value;
+        unknown["failure"]["unvalidated_messages"] = json!([]);
+        assert!(serde_json::from_value::<ProcessWorkflowResponse>(unknown).is_err());
     }
 
     #[test]

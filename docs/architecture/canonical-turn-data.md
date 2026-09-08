@@ -124,6 +124,18 @@ Initial user prompt записывается `history_mutated/append` до за�
 обычным user message с тем же `MessageId` и target `TurnId`; сам
 process-resident queued receipt не выдаётся за durable turn fact.
 
+Если workflow завершился `WorkflowFailure` с явным history update, Core
+валидирует его и записывает `history_mutated` до `turn_settled(error)`.
+Сохранённые assistant messages и tool results доступны следующему turn и cold
+resume, хотя итог предыдущего turn остаётся ошибкой. Model/tool records сами
+по себе не добавляют сообщения в active history: при потере worker-а без
+terminal update его локальная история не восстанавливается автоматически.
+
+`model_response_recorded/error.message` содержит текст ошибки, переданной
+вызывающему workflow, без дополнительных префиксов writer-а. Это позволяет
+workflow replay сравнивать terminal error без удаления диагностик по эвристике;
+типизированный класс модели в текущем journal пока не сохраняется.
+
 ## History И Compaction
 
 Conversation history — fold `history_mutated` по revision:
@@ -253,8 +265,8 @@ turns, `--turn-id` обязателен. Неизвестный id, child turn, 
 model/tool record, overlap turns или runtime-owned `Canceled`/`Timeout`
 отклоняется без эвристики.
 
-Replay runtime не строит real provider adapters, process modules, subagents или
-настоящие tools. Model responses и tool results последовательно берутся из
+Replay runtime строит выбранные Workflow и Policy, но не вызывает real provider
+adapters, subagents или настоящие tools. Model responses и tool results последовательно берутся из
 `model_response_recorded`/`tool_result_recorded`; context, compaction и tool
 exposure восстанавливаются из canonical request/history records. Approval
 проходит обычный `ApprovalPolicy -> ToolOrchestrator` path, но ответ transport-а
@@ -264,7 +276,9 @@ provider-hosted side effect повторно не выполняются.
 Runner сравнивает каждый post-shaping model request, tool request/approval/
 resolution/result, changed compaction report, settlement, `AgentOutput` и
 итоговую persistent history. Workflow output проходит тот же core-owned
-history validation, что и обычный root runtime.
+history validation, что и обычный root runtime. Для terminal `WorkflowFailure`
+проверяется также явно возвращённый history update; успешный `AgentOutput`
+при этом не создаётся.
 Нормализация ограничена заново создаваемыми `MessageId`/`PartId`, внутренними
 generated call ids, недетерминированным `ToolResult.metadata.duration_ms` и
 зависящим от него итоговым `AgentOutput.metadata.context.token_estimate`;

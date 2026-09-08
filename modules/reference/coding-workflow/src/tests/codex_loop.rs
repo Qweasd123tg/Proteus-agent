@@ -114,6 +114,95 @@ fn codex_loop_runs_tool_round_then_stops_on_non_tool_response() {
 }
 
 #[test]
+fn codex_loop_returns_completed_tool_progress_when_the_next_model_call_fails() {
+    let input = workflow_input("change code");
+    let input_json = serde_json::to_string(&input).expect("input json");
+    let read_file = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
+    let call = ToolCall::new(new_call_id(), "read_file", json!({ "path": "src/lib.rs" }));
+    let model_failure = proteus_contracts::model_standard::ModelFailure::other("provider failed");
+    let mut host = FakeHost::with_responses(vec![tool_call_response(call.clone())])
+        .with_tools(vec![read_file.clone()], vec![read_file])
+        .with_model_failure(
+            2,
+            ProcessModuleError::from_model_failure(model_failure.clone()),
+        );
+
+    let failure = CodingCodexLoopWorkflow
+        .run_json(input_json, &mut host)
+        .expect_err("second model call must fail");
+
+    assert_eq!(failure.model_failure, Some(model_failure));
+    let history = failure.history.expect("completed tool progress");
+    assert!(history.history_replacement.is_none());
+    assert_eq!(history.new_messages.len(), 2);
+    assert_eq!(history.new_messages[0].role, MessageRole::Assistant);
+    assert!(history.new_messages[0].parts.iter().any(|part| {
+        matches!(&part.payload, ContentPart::ToolCall { call: persisted } if persisted.id == call.id)
+    }));
+    assert_eq!(history.new_messages[1].role, MessageRole::Tool);
+    assert_eq!(
+        history.new_messages[1].tool_call_id.as_ref(),
+        Some(&call.id)
+    );
+    assert!(history.new_messages[1].parts.iter().any(|part| {
+        matches!(&part.payload, ContentPart::ToolResult { result } if result.call_id == call.id && result.output == "read_file ok")
+    }));
+    assert!(
+        host.events
+            .lock()
+            .expect("events")
+            .iter()
+            .all(|event| !matches!(event, Event::TurnFinished { .. }))
+    );
+}
+
+#[test]
+fn codex_loop_omits_history_when_the_first_model_call_fails() {
+    let input = workflow_input("change code");
+    let input_json = serde_json::to_string(&input).expect("input json");
+    let mut host = FakeHost::default().with_model_failure(
+        1,
+        ProcessModuleError::from_model_failure(
+            proteus_contracts::model_standard::ModelFailure::other("provider failed"),
+        ),
+    );
+
+    let failure = CodingCodexLoopWorkflow
+        .run_json(input_json, &mut host)
+        .expect_err("first model call must fail");
+
+    assert!(failure.history.is_none());
+    assert!(failure.model_failure.is_some());
+}
+
+#[test]
+fn codex_loop_returns_applied_compaction_when_model_call_fails() {
+    let input = workflow_input("change code");
+    let current_user = input.history.last().expect("current user").clone();
+    let generated_summary = CanonicalMessage::text(MessageRole::User, "compacted summary")
+        .with_metadata(json!({ "generated": true, "summary": true }));
+    let compacted_history = vec![current_user, generated_summary];
+    let compacted_output = proteus_contracts::contracts::CompactionOutput::changed(
+        compacted_history.clone(),
+        Some("compacted summary".to_owned()),
+    );
+    let input_json = serde_json::to_string(&input).expect("input json");
+    let mut host = FakeHost::default()
+        .with_compaction_outputs(vec![compacted_output])
+        .with_model_failure(1, ProcessModuleError::new("provider failed"));
+
+    let failure = CodingCodexLoopWorkflow
+        .run_json(input_json, &mut host)
+        .expect_err("model call must fail");
+
+    let history = failure.history.expect("applied compaction state");
+    assert_eq!(history.history_replacement, Some(compacted_history));
+    assert!(history.new_messages.is_empty());
+    assert_eq!(history.compactions.len(), 1);
+    assert!(history.compactions[0].changed);
+}
+
+#[test]
 fn codex_loop_continues_when_provider_sets_end_turn_false() {
     let input = workflow_input("continue until the provider ends the turn");
     let input_json = serde_json::to_string(&input).expect("input json");

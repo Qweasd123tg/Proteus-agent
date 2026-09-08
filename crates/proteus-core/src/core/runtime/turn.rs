@@ -13,7 +13,7 @@ use crate::{
 use super::{
     AgentRuntime, ExecutionAdmissionSnapshot, ReservedRunCompletion, prepare_history_update,
     steering::{
-        self, ReservedUserMessage, RootTurnSettlement, SteeringModel, UserMessageReservation,
+        ReservedUserMessage, RootTurnSettlement, SteeringModel, UserMessageReservation,
         weave_deliveries_into_output,
     },
 };
@@ -324,7 +324,13 @@ impl AgentRuntime {
             Ok(output) => output,
             Err(error) => {
                 return self
-                    .fail_turn_preserving_steering(turn_id, error, &delivery_records)
+                    .fail_turn_with_progress(
+                        turn_id,
+                        error,
+                        &history,
+                        &user_message,
+                        &delivery_records,
+                    )
                     .await;
             }
         };
@@ -365,74 +371,14 @@ impl AgentRuntime {
                     .await;
             }
         };
-        let mut history = self.session.history.lock().await;
-        if let Some(session_store) = &self.session.session_store {
-            if history_update.replace {
-                session_store
-                    .replace_history(
-                        self.session.thread_id,
-                        Some(turn_id),
-                        &history_update.final_messages,
-                        workflow_output
-                            .compactions
-                            .iter()
-                            .rev()
-                            .find(|report| report.changed)
-                            .cloned(),
-                    )
-                    .await?;
-            } else {
-                session_store
-                    .append_history(
-                        self.session.thread_id,
-                        Some(turn_id),
-                        &workflow_output.new_messages,
-                    )
-                    .await?;
-            }
-        }
-        *history = history_update.final_messages;
+        self.commit_history_update(
+            turn_id,
+            history_update,
+            &workflow_output.new_messages,
+            &workflow_output.compactions,
+        )
+        .await?;
         Ok(workflow_output.output)
-    }
-
-    async fn fail_turn_preserving_steering(
-        &self,
-        turn_id: crate::domain::TurnId,
-        turn_error: anyhow::Error,
-        deliveries: &[steering::SteeringDeliveryRecord],
-    ) -> Result<AgentOutput> {
-        if let Err(persist_error) = self
-            .persist_failed_steering_messages(turn_id, deliveries)
-            .await
-        {
-            return Err(anyhow::anyhow!(
-                "{turn_error:#}; additionally failed to persist delivered steering messages: {persist_error:#}"
-            ));
-        }
-        Err(turn_error)
-    }
-
-    async fn persist_failed_steering_messages(
-        &self,
-        turn_id: crate::domain::TurnId,
-        deliveries: &[steering::SteeringDeliveryRecord],
-    ) -> Result<()> {
-        let mut history = self.session.history.lock().await;
-        let messages = deliveries
-            .iter()
-            .map(|delivery| delivery.message.clone())
-            .filter(|message| !history.iter().any(|stored| stored.id == message.id))
-            .collect::<Vec<_>>();
-        if messages.is_empty() {
-            return Ok(());
-        }
-        if let Some(session_store) = &self.session.session_store {
-            session_store
-                .append_history(self.session.thread_id, Some(turn_id), &messages)
-                .await?;
-        }
-        history.extend(messages);
-        Ok(())
     }
 
     async fn persist_current_user_message(
