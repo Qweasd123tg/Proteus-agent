@@ -1,8 +1,5 @@
-use std::time::Duration;
-
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use async_trait::async_trait;
-use tokio::time::timeout;
 
 use crate::{
     contracts::{AgentWorkflowContext, CompactionHost},
@@ -40,16 +37,7 @@ impl CompactionHost for RuntimeCompactionHost {
         let ctx = self.ctx.clone();
         let cancellation = ctx.execution.scope.cancellation.clone();
         tokio::select! {
-            result = async move {
-                let completion = without_root_steering(ctx.execution.model.complete(request));
-                if ctx.execution.model_timeout_ms == 0 {
-                    completion.await
-                } else {
-                    timeout(Duration::from_millis(ctx.execution.model_timeout_ms), completion)
-                        .await
-                        .map_err(|_| anyhow!("model request timed out after {}ms", ctx.execution.model_timeout_ms))?
-                }
-            } => result,
+            result = without_root_steering(ctx.execution.model.complete(request)) => result,
             _ = cancellation.cancelled() => Err(interrupted()),
         }
     }

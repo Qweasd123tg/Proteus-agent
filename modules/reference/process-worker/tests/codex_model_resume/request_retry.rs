@@ -6,8 +6,8 @@ use std::{
 
 use proteus_contracts::{contracts::CancellationToken, model_standard::ContentPart};
 use proteus_core::core::{
-    AgentRuntime, JournalEntry, ModuleCatalog, SessionStore, TurnSettlementStatus,
-    WorkflowReplayOptions, replay_workflow,
+    AgentRuntime, JournalEntry, ModelResponseOutcome, ModuleCatalog, SessionStore,
+    TurnSettlementStatus, WorkflowReplayOptions, replay_workflow,
 };
 use serde_json::{Value, json};
 use tokio::{io::AsyncWriteExt, net::TcpListener, sync::Notify};
@@ -160,6 +160,12 @@ async fn check(mode: Mode) {
                 "{error}"
             );
         }
+        if matches!(mode, Mode::ModelTimeout) {
+            assert!(
+                error.contains("model request timed out after 1000ms"),
+                "{error}"
+            );
+        }
     }
     let at_settlement = requests.lock().unwrap().len();
     if mode.interrupted() || matches!(mode, Mode::PartialSse) {
@@ -204,6 +210,37 @@ async fn check(mode: Mode) {
         .unwrap();
     assert_eq!(projection.history, runtime.history().await);
     assert!(projection.unresolved_tool_calls.is_empty());
+    if !matches!(mode, Mode::Cancel) {
+        assert!(projection.interrupted_model_exchanges.is_empty());
+    }
+    if matches!(mode, Mode::ModelTimeout) {
+        let errors: Vec<_> = projection
+            .records
+            .iter()
+            .enumerate()
+            .filter_map(|(index, record)| match &record.entry {
+                JournalEntry::ModelResponseRecorded(response) => match &response.outcome {
+                    ModelResponseOutcome::Error { message } => {
+                        Some((index, response.exchange_id, message))
+                    }
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+        assert_eq!(errors.len(), 1, "deadline records one terminal model error");
+        let (error_index, exchange_id, message) = errors[0];
+        assert_eq!(message, "model request timed out after 1000ms");
+        let request_index = projection.records.iter().position(|record| matches!(
+            &record.entry, JournalEntry::ModelRequestRecorded(request) if request.exchange_id == exchange_id
+        )).expect("deadline outcome belongs to its recorded request");
+        let settlement_index = projection
+            .records
+            .iter()
+            .position(|record| matches!(&record.entry, JournalEntry::TurnSettled(_)))
+            .expect("settlement");
+        assert!(request_index < error_index && error_index < settlement_index);
+    }
     assert_eq!(
         projection
             .records
@@ -243,7 +280,7 @@ async fn check(mode: Mode) {
     );
     let app = proteus_core::app_server::AgentAppServer::launch_resumed(
         config.clone(),
-        workspace,
+        workspace.clone(),
         Some(&config_path),
         session_dir.clone(),
     )
@@ -265,23 +302,15 @@ async fn check(mode: Mode) {
             &ModuleCatalog::from_config(&config).unwrap(),
             WorkflowReplayOptions::default(),
         )
-        .await;
-        if matches!(mode, Mode::ModelTimeout) {
-            // The external model deadline leaves an incomplete exchange;
-            // replay cannot fabricate its missing terminal outcome.
-            let error = format!(
-                "{:#}",
-                replay.expect_err("incomplete exchange is not replayable")
-            );
-            assert!(
-                error.contains("is incomplete and cannot be used for workflow replay"),
-                "{error}"
-            );
-        } else {
-            let replay = replay.unwrap();
-            assert!(replay.comparison.matched, "{:?}", replay.comparison.issues);
-            assert!(replay.source_journal_unchanged);
-        }
+        .await
+        .unwrap();
+        assert!(replay.comparison.matched, "{replay:#?}");
+        assert!(replay.source_journal_unchanged);
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("effects.log")).unwrap(),
+            "x",
+            "workflow replay must not repeat the tool effect"
+        );
     }
 }
 

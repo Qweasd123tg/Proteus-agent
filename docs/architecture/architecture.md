@@ -221,7 +221,7 @@ cancel, invalid response или смерть process классифицирую�
 | `ExecutionContext` | agent binding adapter вызывает generic factory `RuntimeRegistry::execution_context` из одного captured snapshot | Один logical execution | Binding для generic handles: model/search/memory/tools/policy/approval/grants |
 | `AgentWorkflowContext` | `RuntimeRegistry` оборачивает уже bound `ExecutionContext`; `AgentRuntime` добавляет live Turn state | Один Workflow invocation | Chat/application identity, context building, compaction, steering/presentation и один wrapped `ExecutionContext` |
 | `RuntimeSnapshot` | `RuntimeServices` | Immutable assembly/config view, удерживаемый всем ходом | Coherent `ModuleEpoch + AssemblyPlan + RuntimeRegistry + config snapshot`; не computation checkpoint |
-| Model invocation | Workflow инициирует; `WorkflowHostRuntime` и `ModelService` исполняют | Один shaped request/stream/terminal response | Provider-neutral model call, timeout, validation, deltas и текущая Turn attribution |
+| Model invocation | Workflow инициирует; `BoundModel` исполняет через `ModelService` | Один shaped request/stream/terminal response | Provider-neutral model call, timeout, validation, deltas и текущая Turn attribution |
 | Tool invocation | Workflow инициирует; `BoundTools` владеет safety path, `ToolOrchestrator` — agent enrichment | Один `ToolCall` до `ToolResult` | Registry lookup, policy, approval, child cancellation, invoke и recording без mandatory chat; events/user input/agent control добавляются wrapper-ом |
 | Journal | Core `SessionStore`/projection | Append-only lifetime session directory | Canonical durable turn/history/model/tool facts и replay input |
 | Process invocation | `ComponentBroker` | Один root/nested component call в одном process generation | Broker-owned target, parent/root/depth, deadline, cancel и terminal state |
@@ -307,8 +307,12 @@ registry/schema/policy/approval/grants/cancellation/recording и вызовом 
 добавляет agent presentation, user input, task и AgentControl.
 
 Shared `ModelService` stateless относительно execution. `BoundModel`
-связывает его с immutable scope и recorder, поэтому concurrent calls имеют
-раздельные attribution, deltas и cancellation.
+связывает его с immutable scope, recorder и `runtime.model_timeout_ms`, поэтому
+concurrent calls имеют раздельные attribution, deltas и cancellation.
+`BoundModel` владеет единым deadline на запуск запроса и чтение stream, включая
+provider retry/backoff. При истечении deadline он записывает terminal model
+error в тот же exchange до возврата ошибки. Replay binding не применяет
+wall-clock deadline и воспроизводит записанный исход.
 
 `ExecutionRecorder` принимает generic model facts.
 `ToolExecutionRecorder` — tool facts с mandatory execution attribution
@@ -327,8 +331,8 @@ threads с общим execution id; это не process invocation lineage.
 начатый child-thread lifecycle может завершиться.
 
 HistoryMutated и TurnSettled — session/chat facts без execution owner.
-Runtime cancel/timeout может оставить model exchange interrupted и записать
-TurnSettled(Canceled|Timeout); provider error записывается как model error.
+Внешний cancel или workflow timeout может оставить model exchange interrupted
+и записать TurnSettled(Canceled|Timeout); provider error записывается как model error.
 Это разные terminal paths.
 
 ## Identity Domains

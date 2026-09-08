@@ -79,8 +79,9 @@ History, cold transcript и workflow replay сохраняют подтверж�
 
 Общий model deadline и Cancel останавливают дальнейшие HTTP attempts, включая
 ожидание backoff, и не удаляют выполненный tool. Model deadline завершает root
-turn как `Error`, но этот replay пока отклоняется: exchange остаётся без terminal
-outcome. Внешний Cancel проверяется через `TurnSettled(Canceled)` и cold history.
+turn как `Error` и записывает terminal model error в тот же exchange;
+workflow replay воспроизводит записанный исход без wall-clock deadline.
+Внешний Cancel проверяется через `TurnSettled(Canceled)` и cold history.
 
 Это срез до успешных HTTP-заголовков. Ошибки JSON body и восстановление уже
 открытого SSE stream сюда не входят. Отдельный regression подтверждает, что

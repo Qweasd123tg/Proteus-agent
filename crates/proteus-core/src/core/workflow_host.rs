@@ -86,24 +86,8 @@ impl WorkflowHostRuntime {
         request: CanonicalModelRequest,
     ) -> Result<CanonicalModelResponse> {
         let ctx = self.ctx.clone();
-        self.run_active(async move {
-            if ctx.execution.model_timeout_ms == 0 {
-                ctx.execution.model.complete(request).await
-            } else {
-                timeout(
-                    Duration::from_millis(ctx.execution.model_timeout_ms),
-                    ctx.execution.model.complete(request),
-                )
-                .await
-                .map_err(|_| {
-                    anyhow!(
-                        "model request timed out after {}ms",
-                        ctx.execution.model_timeout_ms
-                    )
-                })?
-            }
-        })
-        .await
+        self.run_active(async move { ctx.execution.model.complete(request).await })
+            .await
     }
 
     pub(crate) async fn compact_history(&self, input: CompactionInput) -> Result<CompactionOutput> {

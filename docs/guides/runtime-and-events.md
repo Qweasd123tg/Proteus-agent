@@ -1129,6 +1129,13 @@ turn-level cancellation token. `ExecutionScope` внутри `ExecutionContext`
 session отправляет cancel и после bounded grace reset-ит/останавливает child;
 следующая invocation может запустить новый worker, но текущий turn не retry-ится.
 
+`runtime.model_timeout_ms` исполняется в `BoundModel`: единый deadline охватывает
+запуск запроса и чтение model stream, включая provider retry/backoff. При его
+истечении journal получает terminal model error того же exchange, root turn
+завершается как `Error`, а выполненные tools сохраняются. Workflow replay
+воспроизводит эту ошибку из journal без wall-clock deadline. Внешний Cancel
+и workflow timeout остаются отдельными путями settlement `Canceled`/`Timeout`.
+
 `runtime.model_timeout_ms = 0` отключает timeout одного model request,
 `runtime.workflow_timeout_ms = 0` отключает timeout всего workflow turn.
 Дефолты: 3 часа на model request и 4 часа на workflow turn. UI-клиент может

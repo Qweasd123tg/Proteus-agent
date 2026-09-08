@@ -340,6 +340,7 @@ mod tests {
                 new_turn_id(),
                 Arc::new(NoopExecutionRecorder),
             ),
+            0,
         );
 
         let _ = model.complete(sample_request()).await.unwrap();
@@ -376,6 +377,7 @@ mod tests {
                 turn_id,
                 Arc::new(NoopExecutionRecorder),
             ),
+            0,
         );
 
         model.complete(sample_request()).await.unwrap();
@@ -420,6 +422,7 @@ mod tests {
                 new_turn_id(),
                 Arc::new(NoopExecutionRecorder),
             ),
+            0,
         );
 
         let request = sample_request().with_metadata(serde_json::json!({
@@ -447,6 +450,7 @@ mod tests {
         let model = BoundModel::new(
             service,
             ModelExecutionBinding::detached(ExecutionScope::fresh(CancellationToken::new())),
+            0,
         );
         let response = model.complete(sample_request()).await.unwrap();
         assert_eq!(response.finish_reason, FinishReason::Stop);

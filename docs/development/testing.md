@@ -132,8 +132,9 @@ worker: production Core от reference crate не зависит.
 единственный side effect и tool result, history, cold transcript и matched
 workflow replay. Отдельные сценарии проверяют остановку attempts при Cancel
 и общем model deadline, а также отсутствие HTTP retry после принятого SSE item
-с последующим обрывом stream. Error такого stream проходит replay; внешний
-model deadline оставляет incomplete exchange и replay явно его отклоняет.
+с последующим обрывом stream. Ошибки stream и model deadline проходят matched
+workflow replay; deadline закрывает model exchange terminal error без потери
+уже выполненного tool.
 Cancel проверяется через settlement и cold history. Unit HTTP fixture проверяет
 5xx, отсутствие повторов 400/401/403/429, лимит attempts, последнюю ошибку
 и отказ невалидного request до отправки.

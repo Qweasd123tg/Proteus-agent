@@ -16,6 +16,9 @@ use crate::{
     model_standard::{CanonicalMessage, ContentPart, FinishReason, MessageRole},
 };
 
+#[path = "bound_model_tests/deadline.rs"]
+mod deadline;
+
 #[derive(Default)]
 struct CollectingSink {
     events: Mutex<Vec<EventEnvelope>>,
@@ -203,7 +206,7 @@ fn response_text(response: &CanonicalModelResponse) -> &str {
 
 fn detached_model(service: Arc<ModelService>) -> (ExecutionScope, BoundModel) {
     let scope = ExecutionScope::fresh(CancellationToken::new());
-    let model = BoundModel::new(service, ModelExecutionBinding::detached(scope.clone()));
+    let model = BoundModel::new(service, ModelExecutionBinding::detached(scope.clone()), 0);
     (scope, model)
 }
 
@@ -231,6 +234,7 @@ async fn detached_bound_model_records_lifecycle_without_chat_identity() {
     let model = BoundModel::new(
         service,
         ModelExecutionBinding::with_recorder(scope.clone(), recorder.clone()),
+        0,
     );
 
     let result = model
@@ -260,7 +264,7 @@ async fn reserved_turn_metadata_cannot_override_binding() {
         new_turn_id(),
         Arc::new(NoopExecutionRecorder),
     );
-    let model = BoundModel::new(service, binding);
+    let model = BoundModel::new(service, binding, 0);
     let mut metadata = BTreeMap::new();
     metadata.insert("session_id".to_owned(), new_session_id().to_string());
 
@@ -330,6 +334,7 @@ async fn concurrent_bound_models_keep_metadata_events_and_journal_attribution_is
                 turn_a,
             )),
         ),
+        0,
     );
     let model_b = BoundModel::new(
         service,
@@ -346,6 +351,7 @@ async fn concurrent_bound_models_keep_metadata_events_and_journal_attribution_is
                 turn_b,
             )),
         ),
+        0,
     );
 
     let (result_a, result_b) = tokio::join!(

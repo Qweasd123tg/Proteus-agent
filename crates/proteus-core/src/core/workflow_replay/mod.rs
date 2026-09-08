@@ -122,7 +122,7 @@ pub async fn replay_workflow(
             fixture.turn_id,
             Arc::new(NoopExecutionRecorder),
         );
-        Arc::new(BoundModel::new(model_service, model_binding))
+        Arc::new(BoundModel::new(model_service, model_binding, 0))
     };
     let approval: Arc<dyn crate::contracts::ApprovalTransport> =
         Arc::new(ReplayApprovalTransport::new(state.clone()));

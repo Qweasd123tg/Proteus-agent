@@ -141,8 +141,11 @@ impl RuntimeRegistry {
         permission_mode: crate::domain::PermissionMode,
     ) -> ExecutionContext {
         let scope = model_binding.scope().clone();
-        let model: Arc<dyn Model> =
-            Arc::new(BoundModel::new(self.model_service.clone(), model_binding));
+        let model: Arc<dyn Model> = Arc::new(BoundModel::new(
+            self.model_service.clone(),
+            model_binding,
+            self.runtime_config.model_timeout_ms,
+        ));
         ExecutionContext::new(
             scope,
             self.runtime_config.model_timeout_ms,

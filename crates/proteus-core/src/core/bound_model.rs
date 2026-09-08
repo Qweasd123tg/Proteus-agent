@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
@@ -111,6 +111,18 @@ impl ModelExecutionBinding {
         let _ = turn.events.emit(context, event).await;
     }
 
+    async fn emit_delta_before_deadline(
+        &self,
+        event: Event,
+        deadline: Option<tokio::time::Instant>,
+    ) -> bool {
+        tokio::select! {
+            biased;
+            _ = wait_for_deadline(deadline), if deadline.is_some() => false,
+            _ = self.emit_delta(event) => true,
+        }
+    }
+
     async fn emit_message(
         &self,
         message: &crate::model_standard::CanonicalMessage,
@@ -118,17 +130,23 @@ impl ModelExecutionBinding {
             crate::domain::MessageId,
             (Option<crate::model_standard::MessagePhase>, String),
         >,
-    ) {
+        deadline: Option<tokio::time::Instant>,
+    ) -> bool {
         let text = message.display_text();
         if !text.is_empty() && completed.get(&message.id) != Some(&(message.phase, text.clone())) {
             completed.insert(message.id, (message.phase, text.clone()));
-            self.emit_delta(Event::AssistantMessageCompleted {
-                message_id: message.id,
-                phase: message.phase,
-                text,
-            })
-            .await;
+            return self
+                .emit_delta_before_deadline(
+                    Event::AssistantMessageCompleted {
+                        message_id: message.id,
+                        phase: message.phase,
+                        text,
+                    },
+                    deadline,
+                )
+                .await;
         }
+        true
     }
 }
 
@@ -139,33 +157,36 @@ impl ModelExecutionBinding {
 pub struct BoundModel {
     service: Arc<ModelService>,
     binding: ModelExecutionBinding,
+    model_timeout_ms: u64,
 }
 
 impl BoundModel {
-    pub(crate) fn new(service: Arc<ModelService>, binding: ModelExecutionBinding) -> Self {
-        Self { service, binding }
+    pub(crate) fn new(
+        service: Arc<ModelService>,
+        binding: ModelExecutionBinding,
+        model_timeout_ms: u64,
+    ) -> Self {
+        Self {
+            service,
+            binding,
+            model_timeout_ms,
+        }
     }
 
     pub fn binding(&self) -> &ModelExecutionBinding {
         &self.binding
     }
-}
 
-#[async_trait]
-impl Model for BoundModel {
-    fn id(&self) -> std::borrow::Cow<'static, str> {
-        self.service.id()
+    fn deadline(&self) -> Option<tokio::time::Instant> {
+        (self.model_timeout_ms != 0)
+            .then(|| tokio::time::Instant::now() + Duration::from_millis(self.model_timeout_ms))
     }
 
-    fn capabilities(&self, model: &ModelRef) -> ModelCapabilities {
-        self.service.capabilities(model)
-    }
-
-    fn provider_hosted_tools(&self, model: &ModelRef) -> Vec<ToolSpec> {
-        self.service.provider_hosted_tools(model)
-    }
-
-    async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
+    async fn stream_with_deadline(
+        &self,
+        request: CanonicalModelRequest,
+        deadline: Option<tokio::time::Instant>,
+    ) -> Result<ModelEventStream> {
         let mut request = self.service.prepare_request(request)?;
         self.binding.bind_request(&mut request)?;
         let exchange_id = new_exchange_id();
@@ -181,6 +202,13 @@ impl Model for BoundModel {
         let stream = tokio::select! {
             biased;
             _ = cancellation.cancelled() => return Err(model_cancelled()),
+            _ = wait_for_deadline(deadline), if deadline.is_some() => {
+                let error = model_timeout(self.model_timeout_ms);
+                recorder
+                    .model_error_recorded(exchange_id, &error.to_string())
+                    .await?;
+                return Err(error);
+            }
             result = self.service.start_prepared(request) => match result {
                 Ok(stream) => stream,
                 Err(error) => {
@@ -201,16 +229,38 @@ impl Model for BoundModel {
             recorder,
             exchange_id,
             cancellation,
+            deadline,
+            self.model_timeout_ms,
         ))
+    }
+}
+
+#[async_trait]
+impl Model for BoundModel {
+    fn id(&self) -> std::borrow::Cow<'static, str> {
+        self.service.id()
+    }
+
+    fn capabilities(&self, model: &ModelRef) -> ModelCapabilities {
+        self.service.capabilities(model)
+    }
+
+    fn provider_hosted_tools(&self, model: &ModelRef) -> Vec<ToolSpec> {
+        self.service.provider_hosted_tools(model)
+    }
+
+    async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
+        self.stream_with_deadline(request, self.deadline()).await
     }
 
     async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
+        let deadline = self.deadline();
         let suppress_stream_deltas = request
             .metadata
             .get("suppress_stream_deltas")
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
-        let mut stream = self.stream(request).await?;
+        let mut stream = self.stream_with_deadline(request, deadline).await?;
         let mut text_offsets = std::collections::HashMap::new();
         let mut completed = std::collections::HashMap::new();
 
@@ -219,7 +269,13 @@ impl Model for BoundModel {
                 ModelStreamEvent::Response { response } => {
                     if !suppress_stream_deltas {
                         for message in &response.messages {
-                            self.binding.emit_message(message, &mut completed).await;
+                            if !self
+                                .binding
+                                .emit_message(message, &mut completed, deadline)
+                                .await
+                            {
+                                break;
+                            }
                         }
                     }
                     return Ok(response);
@@ -236,16 +292,21 @@ impl Model for BoundModel {
                     let offset = *cursor;
                     *cursor += text.len();
                     self.binding
-                        .emit_delta(Event::AssistantTextDelta {
-                            offset,
-                            message_id,
-                            phase,
-                            text,
-                        })
+                        .emit_delta_before_deadline(
+                            Event::AssistantTextDelta {
+                                offset,
+                                message_id,
+                                phase,
+                                text,
+                            },
+                            deadline,
+                        )
                         .await;
                 }
                 ModelStreamEvent::MessageCompleted { message } if !suppress_stream_deltas => {
-                    self.binding.emit_message(&message, &mut completed).await;
+                    self.binding
+                        .emit_message(&message, &mut completed, deadline)
+                        .await;
                 }
                 ModelStreamEvent::ToolCallDelta {
                     call_id,
@@ -253,15 +314,21 @@ impl Model for BoundModel {
                     ..
                 } if !suppress_stream_deltas => {
                     self.binding
-                        .emit_delta(Event::AssistantToolArgsDelta {
-                            call_id,
-                            args_delta,
-                        })
+                        .emit_delta_before_deadline(
+                            Event::AssistantToolArgsDelta {
+                                call_id,
+                                args_delta,
+                            },
+                            deadline,
+                        )
                         .await;
                 }
                 ModelStreamEvent::ReasoningSummaryDelta { text } if !suppress_stream_deltas => {
                     self.binding
-                        .emit_delta(Event::AssistantReasoningDelta { text })
+                        .emit_delta_before_deadline(
+                            Event::AssistantReasoningDelta { text },
+                            deadline,
+                        )
                         .await;
                 }
                 _ => {}
@@ -299,15 +366,36 @@ fn bound_recording_stream(
     recorder: Arc<dyn ExecutionRecorder>,
     exchange_id: ExchangeId,
     cancellation: crate::contracts::CancellationToken,
+    deadline: Option<tokio::time::Instant>,
+    model_timeout_ms: u64,
 ) -> ModelEventStream {
     Box::pin(async_stream::try_stream! {
         let mut terminal_recorded = false;
         loop {
-            let item = tokio::select! {
+            enum Next {
+                Item(Option<Result<ModelStreamEvent>>),
+                Cancelled,
+                Deadline,
+            }
+            let next = tokio::select! {
                 biased;
-                _ = cancellation.cancelled() => Err(model_cancelled()),
-                item = stream.next() => Ok(item),
-            }?;
+                _ = cancellation.cancelled() => Next::Cancelled,
+                _ = wait_for_deadline(deadline), if deadline.is_some() => Next::Deadline,
+                item = stream.next() => Next::Item(item),
+            };
+            let item = match next {
+                Next::Item(item) => item,
+                Next::Cancelled => Err(model_cancelled())?,
+                Next::Deadline => {
+                    drop(stream);
+                    let error = model_timeout(model_timeout_ms);
+                    recorder
+                        .model_error_recorded(exchange_id, &error.to_string())
+                        .await?;
+                    Err(error)?;
+                    unreachable!();
+                }
+            };
             let Some(item) = item else {
                 break;
             };
@@ -357,6 +445,18 @@ fn bound_recording_stream(
             Err(anyhow!(message))?;
         }
     })
+}
+
+async fn wait_for_deadline(deadline: Option<tokio::time::Instant>) {
+    tokio::time::sleep_until(deadline.expect("deadline branch is disabled without a deadline"))
+        .await;
+}
+
+fn model_timeout(model_timeout_ms: u64) -> anyhow::Error {
+    crate::model_standard::ModelFailure::other(format!(
+        "model request timed out after {model_timeout_ms}ms"
+    ))
+    .into()
 }
 
 fn model_cancelled() -> anyhow::Error {
