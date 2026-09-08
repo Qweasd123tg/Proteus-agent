@@ -29,6 +29,7 @@ use crate::{
 mod compaction;
 mod model_free;
 mod terminal;
+mod typed_failures;
 
 const WORKFLOW_ID: &str = "replay.probe";
 const POLICY_ID: &str = "replay.allow";

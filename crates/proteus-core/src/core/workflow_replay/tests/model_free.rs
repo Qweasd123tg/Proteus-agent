@@ -204,8 +204,7 @@ async fn compactor_failure_without_recorded_result_is_not_a_model_free_turn() {
         TurnSettlementStatus::Error,
         ModelCallOrigin::Compactor,
         TerminalModel::Outcome(ModelResponseOutcome::Error {
-            message: FAILURE.to_owned(),
-            completed_messages: Vec::new(),
+            failure: crate::model_standard::ModelFailure::other(FAILURE),
         }),
         FAILURE,
     )

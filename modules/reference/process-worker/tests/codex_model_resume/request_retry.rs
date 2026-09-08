@@ -220,8 +220,8 @@ async fn check(mode: Mode) {
             .enumerate()
             .filter_map(|(index, record)| match &record.entry {
                 JournalEntry::ModelResponseRecorded(response) => match &response.outcome {
-                    ModelResponseOutcome::Error { message, .. } => {
-                        Some((index, response.exchange_id, message))
+                    ModelResponseOutcome::Error { failure } => {
+                        Some((index, response.exchange_id, &failure.message))
                     }
                     _ => None,
                 },

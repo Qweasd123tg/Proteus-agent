@@ -140,9 +140,7 @@ pub async fn replay_prompt(
     let replay_outcome = match invoke_model(model, exchange.request.clone()).await {
         Ok(response) => ModelResponseOutcome::Response { response },
         Err(error) => ModelResponseOutcome::Error {
-            message: format!("{error:#}"),
-            completed_messages: crate::model_standard::ModelFailure::from_error(&error)
-                .completed_messages,
+            failure: crate::model_standard::ModelFailure::from_error(&error),
         },
     };
     let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -365,10 +363,10 @@ fn outcome_summary(
             error: None,
             text,
         },
-        ModelResponseOutcome::Error { message, .. } => PromptReplayOutcomeSummary {
+        ModelResponseOutcome::Error { failure } => PromptReplayOutcomeSummary {
             status: PromptReplayOutcomeStatus::Error,
             finish_reason: None,
-            error: Some(message.clone()),
+            error: Some(failure.message.clone()),
             text: None,
         },
     }

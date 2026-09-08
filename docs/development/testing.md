@@ -67,7 +67,7 @@ cargo test --workspace --no-fail-fast
 
 Breaking canonical response change одновременно обновляет все tracked
 producers/consumers и версии затронутых contracts/storage. Действующие версии:
-`workflow/v9`, `compactor/v7`, durable journal schema v8. Изменение process DTO
+`workflow/v9`, `compactor/v7`, durable journal schema v9. Изменение process DTO
 само по себе не требует новой journal schema, если сохранённая форма не меняется.
 Старые формы не получают compatibility readers.
 
@@ -123,8 +123,15 @@ compactor берётся из записанных report/history, source journa
 Replay проверяет завершённость всех model pairs, но в последовательности workflow
 и позициях checkpoint учитывает
 только origin `direct`; внутренние `compactor` exchanges остаются journal facts.
-Это не replay внутреннего алгоритма сжатия. Класс модельной ошибки журнал пока
-хранит только как текст; его typed branches этим gate не подтверждаются.
+Это не replay внутреннего алгоритма сжатия; его typed branches этим compactor
+gate не подтверждаются.
+
+`workflow_replay::tests::typed_failures` записывает ошибку через настоящий
+`SessionExecutionRecorder` и воспроизводит workflow, выбирающий terminal branch
+по `ModelFailureKind`. Для одинакового текста ошибки проверяются все четыре
+класса, сохранение полного failure с completed messages и неизменность source
+journal. Это проверка прямого model call в root `Error`; внешние
+`Canceled`/`Timeout` остаются за границей workflow replay.
 
 `codex_model_resume::partial_sse_recovery` проверяет
 `завершённые assistant items → обрыв SSE → Error → продолжение с tool`.

@@ -511,11 +511,11 @@ progress. В `coding.codex_loop` сохраняется только output пр
 обязательных полей внутри `ModelFailure` отклоняются; обычная callback error
 без модельной причины остаётся общей ошибкой. Broker wire остаётся v3.
 
-Текущий journal сохраняет текст модельной ошибки и `completed_messages`.
-Workflow replay возвращает тот же progress вместе с ошибкой. Типизированная причина
-доступна во время исполнения, но replay класса ошибки этим изменением не
-объявляется поддержанным. HTTP status и Retry-After в этот минимальный DTO
-пока не входят.
+Journal сохраняет полный `ModelFailure`; workflow replay возвращает тот же
+`kind`, текст и `completed_messages`. Ветвление workflow по типу ошибки прямого
+model call воспроизводится без разбора текста. Это не запуск внутреннего
+алгоритма compactor: его replay по-прежнему использует готовый report/history.
+HTTP status и Retry-After в этот минимальный DTO пока не входят.
 
 Canonical события не используют lossy `module.progress`. Host держит очередь
 из одного события: медленный consumer замедляет worker, события не теряются.

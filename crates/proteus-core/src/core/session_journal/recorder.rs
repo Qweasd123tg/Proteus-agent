@@ -86,8 +86,7 @@ impl ExecutionRecorder for SessionExecutionRecorder {
         self.record_model_outcome(
             exchange_id,
             ModelResponseOutcome::Error {
-                message: failure.message.clone(),
-                completed_messages: failure.completed_messages.clone(),
+                failure: failure.clone(),
             },
         )
         .await

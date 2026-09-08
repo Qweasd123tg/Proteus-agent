@@ -4,6 +4,7 @@ pub(super) enum TerminalModel {
     Absent,
     Pending,
     Outcome(ModelResponseOutcome),
+    Failure(crate::model_standard::ModelFailure),
 }
 
 pub(super) async fn terminal_journal(
@@ -56,6 +57,18 @@ pub(super) async fn terminal_journal(
             .await
             .expect("model request");
     }
+    if let TerminalModel::Failure(ref failure) = model {
+        use crate::contracts::ExecutionRecorder;
+        crate::core::SessionExecutionRecorder::for_turn(
+            store.clone(),
+            execution_id,
+            thread_id,
+            turn_id,
+        )
+        .model_error_recorded(exchange_id, failure)
+        .await
+        .expect("model failure");
+    }
     if let TerminalModel::Outcome(outcome) = model {
         store
             .append_execution_journal_entry(
@@ -98,8 +111,7 @@ async fn terminal_workflow_error_replays_as_a_matching_outcome() {
         TurnSettlementStatus::Error,
         crate::contracts::ModelCallOrigin::Direct,
         TerminalModel::Outcome(ModelResponseOutcome::Error {
-            message: model_error.to_owned(),
-            completed_messages: Vec::new(),
+            failure: crate::model_standard::ModelFailure::other(model_error),
         }),
         settlement_error,
     )

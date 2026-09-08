@@ -195,7 +195,7 @@ history сохраняют раздельные commentary/final items. Клие
 Если runtime запущен с config path, рядом с config root создаётся дерево
 `sessions/<workspace>/<session>/` (подробно про layout, resume и lifecycle —
 раздел «Session Store» ниже). Source of truth — `journal.jsonl`, где одна
-строка является строгим record schema v8 с `record_id`, монотонным
+строка является строгим record schema v9 с `record_id`, монотонным
 `session_seq`, timestamp, mandatory session id, optional execution/thread/turn
 ids, `kind` и payload. `TurnOpened`, model и tool facts требуют
 `ExecutionId`; history/settlement остаются chat facts без execution owner.
@@ -622,12 +622,12 @@ journal. ОС освобождает владение при закрытии pr
 находится в parent directory, а время создания/изменения берётся из metadata
 файловой системы. Новая session получает 10-значный numeric basename,
 детерминированный из внутреннего UUID; полный `SessionId` сохраняется в
-`session.json` schema v4 вместе с `journal_schema_version = 8`. Перед записью runtime
+`session.json` schema v4 вместе с `journal_schema_version = 9`. Перед записью runtime
 проверяет metadata, поэтому коллизия коротких имён завершается ошибкой и не
 смешивает histories.
 
 Reader принимает только basename из 10 ASCII-цифр с обязательным
-`session.json` schema v4 и journal schema v8. UUID-basename directories,
+`session.json` schema v4 и journal schema v9. UUID-basename directories,
 прежние session/journal schemas и неизвестные wire/storage формы
 отвергаются явно: pre-release cutover не содержит legacy decoder или dual-read.
 Старые локальные dogfood sessions следует вручную переместить целиком за
@@ -815,6 +815,11 @@ exchanges. Все пары проверяются на завершённост�
 checkpoint учитывают только `direct`. Summary вызовы остаются в journal для
 prompt replay, usage и eval; workflow replay использует готовый compaction
 report/history, не повторяя внутренний алгоритм и его typed error branches.
+
+Ошибки прямых model calls возвращаются как сохранённый `ModelFailure` с исходными
+`kind`, текстом и completed messages. Это позволяет workflow при replay выбрать
+ту же ветку обработки ошибки. Типизированная модельная ошибка не заменяет
+внешние runtime-owned статусы `Canceled`/`Timeout` и не эмулирует их timing.
 
 Replay идёт через обычные Workflow, `ApprovalPolicy`,
 `ToolRegistry`, agent-адаптер `ToolOrchestrator` и generic mechanism

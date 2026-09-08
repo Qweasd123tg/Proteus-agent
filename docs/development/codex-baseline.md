@@ -18,7 +18,7 @@ Baseline: `openai/codex` commit
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v9`, `compactor/v7`, journal schema v8.
+Действующие версии: `workflow/v9`, `compactor/v7`, journal schema v9.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,
@@ -188,7 +188,7 @@ window: listener провайдера уже закрыт, исходный tool
 Внутренние summary exchanges сохраняются в журнале с origin `compactor`.
 Это проверка orchestration по готовому compaction report, а не повторное исполнение
 алгоритма compactor. Полный compaction lifecycle, remote branches и replay
-типизированного класса ошибки этим срезом не подтверждаются.
+внутренних типизированных веток ошибки compactor этим срезом не подтверждаются.
 
 Проверки [совместимости compactor](../../modules/reference/process-worker/tests/codex_compaction/compatibility.rs)
 проводят summary дольше 30 секунд при достаточном общем бюджете workflow и

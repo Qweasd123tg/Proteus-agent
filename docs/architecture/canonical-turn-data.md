@@ -1,6 +1,6 @@
 # Canonical Turn Data
 
-Текущий формат — journal schema v8 и session metadata v4. Resume history,
+Текущий формат — journal schema v9 и session metadata v4. Resume history,
 transcript, eval, prompt replay и workflow replay читают canonical journal.
 
 Schema v4 сохраняет обязательный `ContextChunk.render_mode` внутри canonical
@@ -126,7 +126,8 @@ scope отделён от `ExecutionScope`; происхождение не вы
 а не `CanonicalModelRequest`: provider request и process/wire contracts не меняются.
 
 Generic `ExecutionRecorder` принимает модельный `ModelFailure` целиком;
-session recorder записывает canonical error с `message` и обязательным `completed_messages`.
+session recorder записывает canonical error с обязательным `failure`:
+`ModelFailure { kind, message, completed_messages }`.
 Если поток прервался после `MessageCompleted`, завершённые assistant messages
 записываются в error outcome с исходными ids/parts/phases. Пустой массив означает
 отсутствие такого progress; текстовые дельты не восстанавливаются в messages.
@@ -149,10 +150,13 @@ model/tool records сами по себе не добавляют сообщен
 Checkpoint и выбранные им tool results переживают потерю worker-а без terminal
 update; стек и локальное состояние workflow не восстанавливаются.
 
-`model_response_recorded/error.message` содержит текст ошибки, переданной
+`model_response_recorded/error.failure.message` содержит текст ошибки, переданной
 вызывающему workflow, без дополнительных префиксов writer-а. Это позволяет
-workflow replay сравнивать terminal error без удаления диагностик по эвристике;
-типизированный класс модели в текущем journal пока не сохраняется.
+workflow replay сравнивать terminal error без удаления диагностик по эвристике.
+`failure.kind` сохраняется вместе с сообщениями; replay передаёт тот же
+`ModelFailure`, поэтому workflow может выбрать ту же ветку по типу ошибки.
+Текст ошибки не используется для восстановления её класса. Старый error payload
+с отдельными `message`/`completed_messages` не принимается.
 
 ## History И Compaction
 

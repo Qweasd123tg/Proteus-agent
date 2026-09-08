@@ -6,7 +6,10 @@ use crate::{
         AgentTask, ModelRef, ToolCall, ToolResult, new_call_id, new_exchange_id, new_execution_id,
         new_record_id, new_session_id, new_thread_id, new_turn_id,
     },
-    model_standard::{CanonicalMessage, CanonicalModelRequest, MessageRole},
+    model_standard::{
+        CanonicalMessage, CanonicalModelRequest, MessagePhase, MessageRole, ModelFailure,
+        ModelFailureKind,
+    },
 };
 
 use super::*;
@@ -159,23 +162,34 @@ fn detached_model_exchange_needs_no_chat_identity() {
 }
 
 #[test]
-fn model_error_round_trip_requires_explicit_completed_messages() {
-    let completed = CanonicalMessage::text(MessageRole::Assistant, "completed item");
+fn model_error_round_trip_preserves_typed_failure_and_rejects_removed_shape() {
+    let completed = CanonicalMessage::text(MessageRole::Assistant, "completed item")
+        .with_phase(MessagePhase::Commentary);
+    let failure = ModelFailure::new(
+        ModelFailureKind::ContextWindowExceeded,
+        "stream interrupted",
+    )
+    .with_completed_messages(vec![completed.clone()]);
     let outcome = ModelResponseOutcome::Error {
-        message: "stream interrupted".to_owned(),
-        completed_messages: vec![completed],
+        failure: failure.clone(),
     };
     let mut value = serde_json::to_value(&outcome).unwrap();
     assert_eq!(
         serde_json::from_value::<ModelResponseOutcome>(value.clone()).unwrap(),
         outcome
     );
-    value.as_object_mut().unwrap().remove("completed_messages");
-    let error = serde_json::from_value::<ModelResponseOutcome>(value).unwrap_err();
+    assert_eq!(value["failure"]["kind"], "context_window_exceeded");
+    assert_eq!(value["failure"]["message"], "stream interrupted");
+    assert_eq!(
+        serde_json::from_value::<ModelFailure>(value["failure"].clone()).unwrap(),
+        failure
+    );
+    value.as_object_mut().unwrap().remove("failure");
+    value["message"] = json!("stream interrupted");
+    value["completed_messages"] = serde_json::to_value([completed]).unwrap();
     assert!(
-        error
-            .to_string()
-            .contains("missing field `completed_messages`")
+        serde_json::from_value::<ModelResponseOutcome>(value).is_err(),
+        "removed message/completed_messages journal shape must not deserialize"
     );
 }
 
@@ -299,8 +313,7 @@ fn model_response_requires_matching_request() {
             JournalEntry::ModelResponseRecorded(ModelResponseRecorded {
                 exchange_id,
                 outcome: ModelResponseOutcome::Error {
-                    message: "network".to_owned(),
-                    completed_messages: Vec::new(),
+                    failure: ModelFailure::other("network"),
                 },
             }),
         ),

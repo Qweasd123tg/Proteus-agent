@@ -4,11 +4,13 @@ use proteus_contracts::{
         AgentOutput, AgentTask, ExchangeId, ExecutionId, HistoryCompactionReport, RecordId,
         SessionId, ThreadId, ToolCall, ToolCallResolution, ToolResult, TurnId,
     },
-    model_standard::{CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse},
+    model_standard::{
+        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ModelFailure,
+    },
 };
 use serde::{Deserialize, Serialize};
 
-pub const JOURNAL_SCHEMA_VERSION: u32 = 8;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 9;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -49,13 +51,8 @@ pub struct ModelRequestRecorded {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ModelResponseOutcome {
-    Response {
-        response: CanonicalModelResponse,
-    },
-    Error {
-        message: String,
-        completed_messages: Vec<CanonicalMessage>,
-    },
+    Response { response: CanonicalModelResponse },
+    Error { failure: ModelFailure },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
