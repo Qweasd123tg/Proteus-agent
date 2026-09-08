@@ -9,9 +9,8 @@ use proteus_contracts::{
 use serde_json::{Value, json};
 
 use crate::{
-    host::{
-        complete_model, emit_event, execute_codex_tools, request_from_state_with_instruction_blocks,
-    },
+    codex_tools::CodexToolBatch,
+    host::{complete_model, emit_event, request_from_state_with_instruction_blocks},
     metadata::output_metadata_with_extra,
     output_text::message_text,
     scaffold::{PersistentRepair, TurnScaffold},
@@ -122,24 +121,13 @@ fn run_loop(
         }
 
         if should_run_tools {
-            let captured_calls = response
-                .tool_calls
-                .iter()
-                .filter(|call| request.tools.iter().any(|spec| spec.name == call.name))
-                .cloned()
-                .collect::<Vec<_>>();
-            turn.checkpoint(host, &captured_calls)?;
+            let batch = CodexToolBatch::prepare(&response.tool_calls, &request.tools);
+            turn.checkpoint(host, &batch.execution_calls())?;
             tool_rounds += 1;
             for call in &response.tool_calls {
                 executed_tools.push(call.name.clone());
             }
-            let results = execute_codex_tools(
-                host,
-                input,
-                &response.tool_calls,
-                &request.tools,
-                "codex_loop",
-            )?;
+            let results = batch.execute(host, input, "codex_loop")?;
             turn.append_tool_results(results);
             continue;
         }

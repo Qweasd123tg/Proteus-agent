@@ -2,36 +2,6 @@ use super::*;
 use crate::domain::{HostedToolConfig, ToolSafety, ToolSurface, WebSearchHostedToolConfig};
 
 #[test]
-fn extract_apply_patch_body_supports_heredoc_quotes_and_bare() {
-    let patch = "*** Begin Patch\n*** Add File: hi.txt\n+hi\n*** End Patch";
-    let heredoc = format!("apply_patch <<'EOF'\n{patch}\nEOF");
-    assert_eq!(extract_apply_patch_body(&heredoc).as_deref(), Some(patch));
-    let heredoc_plain = format!("apply_patch <<EOF\n{patch}\nEOF\n");
-    assert_eq!(
-        extract_apply_patch_body(&heredoc_plain).as_deref(),
-        Some(patch)
-    );
-    let quoted = format!("apply_patch '{patch}'");
-    assert_eq!(extract_apply_patch_body(&quoted).as_deref(), Some(patch));
-    let bare = format!("apply_patch {patch}");
-    assert_eq!(extract_apply_patch_body(&bare).as_deref(), Some(patch));
-}
-
-#[test]
-fn extract_apply_patch_body_rejects_non_patch_commands() {
-    assert_eq!(extract_apply_patch_body("cargo test"), None);
-    assert_eq!(extract_apply_patch_body("apply_patch --help"), None);
-    assert_eq!(
-        extract_apply_patch_body("apply_patch <<'EOF'\nnot a patch\nEOF"),
-        None
-    );
-    assert_eq!(
-        extract_apply_patch_body("echo apply_patch <<'EOF'\n*** Begin Patch\nEOF"),
-        None
-    );
-}
-
-#[test]
 fn truncate_utf8_adds_visible_notice_within_limit() {
     let original = "a".repeat(120);
     let (output, truncated, original_bytes) = truncate_utf8(original, 80, "output");

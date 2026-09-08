@@ -20,12 +20,8 @@ use crate::{
 };
 
 use self::support::{
-    intercept_apply_patch_call, metadata_with, truncate_utf8, validate_tool_call_args,
-    visibility_decision_allows,
+    metadata_with, truncate_utf8, validate_tool_call_args, visibility_decision_allows,
 };
-
-#[cfg(test)]
-use self::support::extract_apply_patch_body;
 
 mod support;
 
@@ -178,8 +174,6 @@ impl BoundTools {
         {
             call.args = parsed_arguments;
         }
-        let call = intercept_apply_patch_call(&self.registry, &call).unwrap_or(call);
-
         self.binding
             .recorder
             .tool_call_requested(self.binding.attribution, &call)

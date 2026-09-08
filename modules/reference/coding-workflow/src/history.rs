@@ -1,9 +1,15 @@
 use proteus_contracts::{
-    domain::MessageId,
-    model_standard::{CanonicalMessage, PartScope},
+    domain::{MessageId, ToolResult},
+    model_standard::{CanonicalMessage, ContentPart, MessageRole, PartScope},
     process_module::ProcessModuleError,
 };
 use serde_json::Value;
+
+pub(crate) fn tool_result_message(result: ToolResult) -> CanonicalMessage {
+    let call_id = result.call_id.clone();
+    CanonicalMessage::new(MessageRole::Tool, vec![ContentPart::ToolResult { result }])
+        .with_tool_call_id(call_id)
+}
 
 pub(crate) fn current_user_index(
     messages: &[CanonicalMessage],

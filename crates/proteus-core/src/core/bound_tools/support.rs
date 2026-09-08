@@ -1,9 +1,6 @@
-use serde_json::{Value, json};
+use serde_json::Value;
 
-use crate::{
-    contracts::ToolRegistry,
-    domain::{PolicyDecision, ToolCall, ToolSpec, ToolSurface},
-};
+use crate::domain::{PolicyDecision, ToolCall, ToolSpec, ToolSurface};
 
 pub(super) fn visibility_decision_allows(
     spec: &ToolSpec,
@@ -21,57 +18,6 @@ pub(super) fn visibility_decision_allows(
         PolicyDecision::Deny { .. } => false,
         _ => false,
     }
-}
-
-pub(super) fn intercept_apply_patch_call(
-    registry: &ToolRegistry,
-    call: &ToolCall,
-) -> Option<ToolCall> {
-    if call.name != "shell" && call.name != "exec_command" {
-        return None;
-    }
-    let command = call
-        .args
-        .get("command")
-        .or_else(|| call.args.get("cmd"))
-        .and_then(Value::as_str)?;
-    let patch = extract_apply_patch_body(command)?;
-    registry.spec("apply_patch").ok()?;
-    Some(ToolCall::new(
-        call.id.clone(),
-        "apply_patch".to_owned(),
-        json!({ "patch": patch }),
-    ))
-}
-
-pub(super) fn extract_apply_patch_body(command: &str) -> Option<String> {
-    let rest = command.trim().strip_prefix("apply_patch")?.trim();
-    if let Some(heredoc) = rest.strip_prefix("<<") {
-        let (delimiter_line, body) = heredoc.split_once('\n')?;
-        let delimiter = delimiter_line
-            .trim()
-            .trim_start_matches('-')
-            .trim_matches(|quote| quote == '\'' || quote == '"');
-        if delimiter.is_empty() {
-            return None;
-        }
-        let body = body.trim_end().strip_suffix(delimiter)?;
-        return normalized_patch(body.strip_suffix('\n').unwrap_or(body));
-    }
-    for quote in ['\'', '"'] {
-        if let Some(inner) = rest
-            .strip_prefix(quote)
-            .and_then(|inner| inner.strip_suffix(quote))
-        {
-            return normalized_patch(inner);
-        }
-    }
-    normalized_patch(rest)
-}
-
-fn normalized_patch(text: &str) -> Option<String> {
-    let text = text.trim();
-    text.starts_with("*** Begin Patch").then(|| text.to_owned())
 }
 
 pub(super) fn truncate_utf8(value: String, max_bytes: usize, kind: &str) -> (String, bool, usize) {

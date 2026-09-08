@@ -50,15 +50,26 @@ async fn checkpoint_captures_only_declared_root_results_in_binding_order() {
             .collect(),
     );
     let history = vec![user, assistant];
-    let bindings = calls
+    let mut execution_calls = calls.clone();
+    execution_calls[0].name = "read_excerpt".into();
+    execution_calls[0].args = json!({"path": "a", "start": 1});
+    let bindings = execution_calls
         .iter()
-        .map(|call| WorkflowToolResultBinding::new(call.id.clone()))
+        .cloned()
+        .map(WorkflowToolResultBinding::new)
         .collect::<Vec<_>>();
 
     // Reject malformed declarations before any result can be adopted.
+    let mut wrong_id = bindings[0].clone();
+    wrong_id.execution_call.id = "other".into();
     for invalid in [
-        vec![WorkflowToolResultBinding::new("absent".into())],
+        vec![WorkflowToolResultBinding::new(ToolCall::new(
+            "absent",
+            "read_file",
+            json!({}),
+        ))],
         vec![bindings[0].clone(), bindings[0].clone()],
+        vec![wrong_id],
     ] {
         assert!(
             store
@@ -73,17 +84,19 @@ async fn checkpoint_captures_only_declared_root_results_in_binding_order() {
         .await
         .unwrap();
     let recorder = SessionToolExecutionRecorder::new(store.clone());
-    let mut forged_call = calls[0].clone();
+    let mut forged_call = execution_calls[0].clone();
     forged_call.args = json!({"path": "changed"});
-    assert!(
-        recorder
-            .tool_call_requested(attribution, &forged_call)
-            .await
-            .is_err()
-    );
+    for invalid in [&forged_call, &calls[0]] {
+        assert!(
+            recorder
+                .tool_call_requested(attribution, invalid)
+                .await
+                .is_err()
+        );
+    }
 
     let undeclared = ToolCall::new("other", "read_file", json!({"path": "c"}));
-    for call in calls.iter().chain(std::iter::once(&undeclared)) {
+    for call in execution_calls.iter().chain(std::iter::once(&undeclared)) {
         recorder
             .tool_call_requested(attribution, call)
             .await

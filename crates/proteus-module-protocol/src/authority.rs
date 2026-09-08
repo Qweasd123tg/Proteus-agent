@@ -266,7 +266,7 @@ mod tests {
             ("context_provider", "v1", "v2"),
             ("model", "v4", "v5"),
             ("compactor", "v6", "v7"),
-            ("workflow", "v8", "v9"),
+            ("workflow", "v9", "v10"),
         ] {
             assert!(process_contract_authority(slot, previous).is_none());
             assert!(process_contract_authority(slot, current).is_some());

@@ -38,6 +38,7 @@ consumer, но сам по себе не вводит новый public contract
 | `CanonicalMessage.phase` + ordered response item boundary | OpenAI Responses adapter | workflows, journal/transcript/replay, compactor, следующий model request | typed `MessagePhase::{Commentary, FinalAnswer}`; `None` для providers без классификации; consumers сохраняют все items, terminal output выбирает последнее непустое assistant message |
 | `CanonicalModelResponse.end_turn` | model adapter (`openai.responses`) | strict `coding.codex_loop` | optional canonical field; `false` требует следующий model round без provider-specific parsing в consumer-е |
 | `ToolCall.raw_arguments` | model adapter (`openai.responses`) | tool orchestrator, request replay | optional исходная строка function arguments; является source of truth для parsed execution args, сохраняет malformed payload для failed tool output и следующего sampling round |
+| `WorkflowToolResultBinding.execution_call` | workflow module | checkpoint validation, tool recorder, journal/replay | обязательная точная операция с тем же `call_id`; canonical history хранит исходный call. Codex-loop использует для module-owned `shell`/`exec_command` → `apply_patch`, Core не разбирает команды |
 | прогресс/финал-структура ответа | `configs/prompts/opencode-default.md` | web-клиент рендерит транскрипт | текст промпта, контракта нет (полагаемся на модель) |
 
 ## Проверка Связок

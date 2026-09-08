@@ -67,9 +67,16 @@ cargo test --workspace --no-fail-fast
 
 Breaking canonical response change одновременно обновляет все tracked
 producers/consumers и версии затронутых contracts/storage. Действующие версии:
-`workflow/v9`, `compactor/v7`, durable journal schema v9. Изменение process DTO
+`workflow/v10`, `compactor/v7`, durable journal schema v10. Изменение process DTO
 само по себе не требует новой journal schema, если сохранённая форма не меняется.
 Старые формы не получают compatibility readers.
+
+Checkpoint binding содержит обязательный `execution_call`. Проверяйте точное
+соответствие его id исходному history call, отказ изменённой операции до эффекта
+и сравнение binding в replay даже без последующего tool request.
+`codex_model_resume::patch_interception` проверяет преобразование shell → patch
+через общий policy path, cold history и replay без повторного эффекта;
+`module_swap::workflow_checkpoint` — тот же contract у Rust и Python workflows.
 
 Новый upstream commit не обновляет expected output автоматически: drift
 сначала классифицируется как required parity change, unsupported capability
@@ -340,7 +347,7 @@ cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --co
 Workflow handshake:
 
 ```bash
-cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-agent --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v9","module_config":{}}' -- python3 examples/modules/agent-worker/agent.py
+cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-agent --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v10","module_config":{}}' -- python3 examples/modules/agent-worker/agent.py
 ```
 
 Conformance CLI без probe доказывает identity/authority, но не поведение slot.

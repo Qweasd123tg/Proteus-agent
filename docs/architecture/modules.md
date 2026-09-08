@@ -19,7 +19,7 @@ authority(module) = authority(slot, invocation_context)
 ```
 
 Все внешние modules являются exports process components: Component Runtime v2
-использует wire protocol v3; `workflow` использует strict contract v9,
+использует wire protocol v3; `workflow` использует strict contract v10,
 `compactor` — v7, `model` — v5; версии остальных slots приведены в authority table
 [process-module-architecture.md](process-module-architecture.md). Runtime допускает
 несколько одновременных и вложенных invocation одного component. Dylib ABI и
@@ -137,7 +137,7 @@ runtime status, context, model completion, compaction, visible/selected tools,
 tool execution и event emission. Session ids, approvals, tool ownership и
 journal остаются host-owned.
 
-`workflow/v9` возвращает success с `WorkflowOutput` либо error с
+`workflow/v10` возвращает success с `WorkflowOutput` либо error с
 `WorkflowFailure`. Ошибка может явно вернуть выполненную часть истории через
 `WorkflowHistoryUpdate`; Core проверяет её и сохраняет до terminal `Error`.
 `coding.codex_loop` использует этот путь после сбоя model call, включая
@@ -150,8 +150,15 @@ contract для любых workflow implementations, а не восстанов�
 его используют `coding.codex_loop` и Python example. Без checkpoint внутренние
 model/tool facts по-прежнему не превращаются в conversation history автоматически.
 
+Checkpoint связывает исходный call в history с явно объявленным
+`execution_call`. В `coding.codex_loop` этот общий contract используется для
+перехвата `shell`/`exec_command` с командой `apply_patch`: модуль разбирает
+команду, Core проверяет и исполняет целевой tool. Другие workflows получают
+исходную shell-команду без скрытой подмены в Core; Python example объявляет
+исполнение без преобразования. Подмена module не требует имени Codex в host.
+
 `coding.project_check` — reference code-heavy controller на том же
-`workflow/v9`. Он детерминированно вызывает `git_status`, определяет project по
+`workflow/v10`. Он детерминированно вызывает `git_status`, определяет project по
 root marker, запускает фиксированную test command и обращается к model только
 один раз для объяснения failed test. Success path не вызывает model, context
 или compactor. Это architecture probe, не default workflow и не special
@@ -232,8 +239,8 @@ model history. При `changed = false` сообщения должны совп
 input/output. `metadata` — непрозрачные данные module, не источник этих полей.
 
 Тот же DTO возвращает workflow callback `host.history.compact`; актуальные
-границы — `compactor/v7` и `workflow/v9`, прежние slot versions не принимаются.
-Wire protocol остаётся v3, журнал использует schema v9.
+границы — `compactor/v7` и `workflow/v10`, прежние slot versions не принимаются.
+Wire protocol остаётся v3, журнал использует schema v10.
 Workflow replay сохраняет typed поля `HistoryCompactionReport` и весь `metadata`, не подмешивая и не
 удаляя ключи с известными именами. Core помечает внутренний model callback
 compactor origin-ом `compactor` в journal envelope. Workflow replay проверяет

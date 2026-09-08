@@ -3,6 +3,7 @@ use std::{collections::VecDeque, sync::Mutex};
 
 mod cache;
 mod codex_loop;
+mod codex_tool_dispatch;
 mod dynamic_tool_surface;
 mod output_helpers;
 mod plan_execute_review;
@@ -22,6 +23,7 @@ use proteus_contracts::{
 
 #[derive(Default)]
 struct FakeHost {
+    checkpoints: Mutex<Vec<proteus_contracts::contracts::WorkflowHistoryCheckpoint>>,
     events: Mutex<Vec<Event>>,
     requests: Mutex<Vec<CanonicalModelRequest>>,
     responses: Mutex<VecDeque<CanonicalModelResponse>>,
@@ -76,7 +78,11 @@ impl FakeHost {
 }
 
 impl WorkflowModuleHost for FakeHost {
-    fn checkpoint_history_json(&self, _checkpoint_json: String) -> Result<(), ProcessModuleError> {
+    fn checkpoint_history_json(&self, checkpoint_json: String) -> Result<(), ProcessModuleError> {
+        self.checkpoints
+            .lock()
+            .unwrap()
+            .push(serde_json::from_str(&checkpoint_json).unwrap());
         Ok(())
     }
     fn is_cancelled(&self) -> Result<bool, ProcessModuleError> {

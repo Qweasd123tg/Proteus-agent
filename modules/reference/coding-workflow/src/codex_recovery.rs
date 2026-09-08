@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 
 use proteus_contracts::{
-    contracts::WorkflowToolResultBinding,
     domain::{ToolCallSurface, ToolResult},
     model_standard::{CanonicalMessage, ContentPart, PartScope},
 };
@@ -25,8 +24,10 @@ pub(crate) fn normalize_missing_tool_outputs(messages: &mut Vec<CanonicalMessage
                 && call.surface == ToolCallSurface::Function
                 && !completed.contains(&call.id)
             {
-                let mut output = WorkflowToolResultBinding::new(call.id.clone())
-                    .message(ToolResult::error(call.id.clone(), "aborted"));
+                let mut output = crate::history::tool_result_message(ToolResult::error(
+                    call.id.clone(),
+                    "aborted",
+                ));
                 output.parts[0].scope = PartScope::Request;
                 inserts.push((index + 1, output));
             }

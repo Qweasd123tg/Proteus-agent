@@ -101,11 +101,10 @@ impl TurnScaffold {
     pub(crate) fn append_tool_results(&mut self, results: impl IntoIterator<Item = ToolResult>) {
         for result in results {
             let call_id = result.call_id.clone();
-            let binding = self
-                .result_bindings
-                .remove(&call_id)
-                .unwrap_or_else(|| WorkflowToolResultBinding::new(call_id));
-            let tool_result_message = binding.message(result);
+            let tool_result_message = match self.result_bindings.remove(&call_id) {
+                Some(binding) => binding.message(result),
+                None => crate::history::tool_result_message(result),
+            };
             self.model_messages.push(tool_result_message.clone());
             self.persistent_messages.push(tool_result_message);
         }
@@ -121,7 +120,8 @@ impl TurnScaffold {
         };
         let bindings = calls
             .iter()
-            .map(|call| WorkflowToolResultBinding::new(call.id.clone()))
+            .cloned()
+            .map(WorkflowToolResultBinding::new)
             .collect::<Vec<_>>();
         let checkpoint = WorkflowHistoryCheckpoint {
             history,

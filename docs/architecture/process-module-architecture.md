@@ -265,13 +265,13 @@ invalid DTO и превышение limits являются fail-closed protocol
 | context | v2 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
 | model | v5 | `describe`, `stream` | `host.model.emit` (acknowledged canonical events) |
 | compactor | v7 | `compact` | `host.model.complete` |
-| workflow | v9 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
+| workflow | v10 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
 
 Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
 DTO, adapter, protocol/conformance и swap evidence в одном commit.
 
-`workflow/v9` возвращает strict terminal envelope: `status = "success"` с
+`workflow/v10` возвращает strict terminal envelope: `status = "success"` с
 `result: WorkflowOutput` либо `status = "error"` с `failure: WorkflowFailure`.
 Ошибка алгоритма может содержать `history: WorkflowHistoryUpdate` — завершённые
 `new_messages`, optional `history_replacement` и `compactions`; `model_failure`
@@ -291,9 +291,15 @@ side effects. Потеря worker-а, cancel и timeout не восстанав�
 `host.history.checkpoint` принимает `WorkflowHistoryCheckpoint`: cumulative
 `history: WorkflowHistoryUpdate` относительно исходного input и ordered
 `tool_results: Vec<WorkflowToolResultBinding>`. Binding содержит `call_id`,
-заранее выделенные `message_id` и `part_id`; call должен точно присутствовать
-в подтверждаемой conversation history и ещё не иметь результата. Identities
-уникальны, последующее исполнение не может менять объявленный call.
+обязательный `execution_call: ToolCall`, заранее выделенные `message_id` и
+`part_id`. Исходный call с этим `call_id` должен ровно один раз присутствовать
+в conversation history и ещё не иметь результата. `execution_call.id` совпадает
+с `call_id`, но имя и аргументы операции могут отличаться: преобразование
+выбирает workflow, не переписывая ответ модели. Identities уникальны;
+последующее исполнение должно точно совпасть с объявленным `execution_call`.
+Registry, policy, approval и safety проверяют фактически выполняемую операцию;
+binding сам по себе не даёт ей дополнительных прав. Replay сравнивает полный
+execution binding даже при отсутствии последующего tool request.
 
 Core валидирует update тем же history validator, вплетает доставленный steering
 и подтверждает callback после durable checkpoint. Новое сокращение history

@@ -195,7 +195,7 @@ history сохраняют раздельные commentary/final items. Клие
 Если runtime запущен с config path, рядом с config root создаётся дерево
 `sessions/<workspace>/<session>/` (подробно про layout, resume и lifecycle —
 раздел «Session Store» ниже). Source of truth — `journal.jsonl`, где одна
-строка является строгим record schema v9 с `record_id`, монотонным
+строка является строгим record schema v10 с `record_id`, монотонным
 `session_seq`, timestamp, mandatory session id, optional execution/thread/turn
 ids, `kind` и payload. `TurnOpened`, model и tool facts требуют
 `ExecutionId`; history/settlement остаются chat facts без execution owner.
@@ -622,12 +622,12 @@ journal. ОС освобождает владение при закрытии pr
 находится в parent directory, а время создания/изменения берётся из metadata
 файловой системы. Новая session получает 10-значный numeric basename,
 детерминированный из внутреннего UUID; полный `SessionId` сохраняется в
-`session.json` schema v4 вместе с `journal_schema_version = 9`. Перед записью runtime
+`session.json` schema v4 вместе с `journal_schema_version = 10`. Перед записью runtime
 проверяет metadata, поэтому коллизия коротких имён завершается ошибкой и не
 смешивает histories.
 
 Reader принимает только basename из 10 ASCII-цифр с обязательным
-`session.json` schema v4 и journal schema v9. UUID-basename directories,
+`session.json` schema v4 и journal schema v10. UUID-basename directories,
 прежние session/journal schemas и неизвестные wire/storage формы
 отвергаются явно: pre-release cutover не содержит legacy decoder или dual-read.
 Старые локальные dogfood sessions следует вручную переместить целиком за
@@ -680,7 +680,7 @@ compactions должна завершаться сохранённым conversat
 resume используют сокращённое представление. Runtime атомарно заменяет историю
 этим snapshot-ом и затем дописывает `new_messages`.
 
-`workflow/v9` также позволяет вернуть `WorkflowFailure` с накопленным history
+`workflow/v10` также позволяет вернуть `WorkflowFailure` с накопленным history
 update. Core проверяет и сохраняет его до settlement со статусом `Error`.
 `coding.codex_loop` использует этот путь: если tool завершился, а следующий
 model call упал, новый turn получает прежний call/result и после перезапуска
@@ -701,6 +701,13 @@ workflow timeout или инфраструктурной ошибке следу
 остаётся `Canceled`, `Timeout` или `Error`. Resume сохраняет эти данные при
 аварийном завершении процесса, даже если `TurnSettled` не был записан.
 Неподтверждённые model/tool facts не используются для угадывания workflow history.
+
+Если workflow преобразует вызов модели, checkpoint явно связывает исходный
+call с `execution_call` с тем же id. Например, Codex-loop проводит shell-команду
+`apply_patch` через целевой patch tool: history и следующий model request
+сохраняют исходный shell call, tool lifecycle и approvals показывают реальный
+`apply_patch`. Core не разбирает shell-команды. Изменение заявленной операции
+после checkpoint отклоняется; replay проверяет ту же связь.
 
 Если side effect произошёл, но result не записан, journal сохраняет неизвестный
 исход. Codex при формировании следующего request добавляет для такого function

@@ -289,6 +289,14 @@ commit запускает rollback исходных файлов; если са�
 обычный function tool. Явно настроенный freeform custom tool всё равно проходит
 через тот же `ToolOrchestrator`, `ApprovalPolicy` и `PatchApplier`.
 
+`coding.codex_loop` распознаёт поддержанные формы shell-команды `apply_patch`
+и явно передаёт её через целевой tool. Исходный `shell`/`exec_command` должен
+присутствовать в model request; преобразование не делает скрытый исходный tool доступным.
+Целевой `apply_patch` проходит собственные registry/policy/approval/safety
+проверки. Его запрет, отсутствие или ошибка не приводят к повтору через shell.
+Связь исходного вызова с операцией сохраняется в checkpoint, исходный model call
+не меняется. Другие workflows такого преобразования автоматически не получают.
+
 Tools из текущих reference modules `file-tools` (`read_file` / `write_file` / `list_dir` /
 `grep` / `find_files` / `read_many_files`), `git-tools` (`git_status` /
 `git_diff`) и `shell-tool` применяют свои

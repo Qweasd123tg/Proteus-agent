@@ -1,6 +1,6 @@
 # Canonical Turn Data
 
-Текущий формат — journal schema v9 и session metadata v4. Resume history,
+Текущий формат — journal schema v10 и session metadata v4. Resume history,
 transcript, eval, prompt replay и workflow replay читают canonical journal.
 
 Schema v4 сохраняет обязательный `ContextChunk.render_mode` внутри canonical
@@ -166,7 +166,10 @@ Conversation history — fold явных history mutations и объявленн
 - `replace` указывает входную revision, полный replacement и
   `HistoryCompactionReport`;
 - `checkpoint` сохраняет подтверждённый workflow snapshot и ordered
-  `tool_results` bindings. Формат binding и validation описаны в
+  `tool_results` bindings: исходный model call остаётся в history, а обязательный
+  `execution_call` задаёт точную операцию с тем же call id. Tool lifecycle
+  записывает эту операцию; replay проверяет и history, и execution binding.
+  Формат binding и validation описаны в
   [process-module-architecture.md](process-module-architecture.md);
 - root `tool_result_recorded`, выбранный активным checkpoint, вставляет canonical
   tool message с заранее выделенными ids в порядок bindings и увеличивает history

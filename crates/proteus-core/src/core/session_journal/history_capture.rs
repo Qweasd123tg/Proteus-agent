@@ -34,6 +34,10 @@ impl HistoryCapture {
         let mut calls = Vec::new();
         for binding in bindings {
             ensure!(
+                binding.execution_call.id == binding.call_id,
+                "checkpoint execution call id disagrees with history binding"
+            );
+            ensure!(
                 seen.insert(binding.call_id.clone()),
                 "duplicate checkpoint tool binding {}",
                 binding.call_id
@@ -49,7 +53,7 @@ impl HistoryCapture {
                     ContentPart::ToolCall { call } if call.id == binding.call_id => Some(call),
                     _ => None,
                 });
-            let call = matching.next().ok_or_else(|| {
+            matching.next().ok_or_else(|| {
                 anyhow::anyhow!("checkpoint binding {} has no history call", binding.call_id)
             })?;
             ensure!(
@@ -57,7 +61,7 @@ impl HistoryCapture {
                 "checkpoint binding has ambiguous history call"
             );
             ensure!(!history.iter().flat_map(|message| &message.parts).any(|part| matches!(&part.payload, ContentPart::ToolResult { result } if result.call_id == binding.call_id)), "checkpoint binding already has a history result");
-            calls.push((call.clone(), binding.clone(), false));
+            calls.push((binding.execution_call.clone(), binding.clone(), false));
         }
         Ok(Self {
             base: history.len(),
@@ -73,7 +77,7 @@ impl HistoryCapture {
         {
             ensure!(
                 call == expected,
-                "executed tool call disagrees with checkpoint history"
+                "executed tool call disagrees with checkpoint execution binding"
             );
         }
         Ok(())

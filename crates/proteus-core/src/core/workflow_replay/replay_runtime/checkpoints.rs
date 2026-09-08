@@ -6,21 +6,21 @@ use std::{
 use anyhow::{Result, ensure};
 use async_trait::async_trait;
 
-use super::{ReplayState, messages_equal};
+use super::{ReplayState, calls_equal, messages_equal};
 use crate::{
     contracts::{WorkflowHistoryCheckpoint, WorkflowHistoryRecorder},
     core::{
         HistoryMutationKind, JournalEntry, JournalRecord, ToolCallRecordPhase,
         prepare_failed_history_update,
     },
-    domain::{CallId, ExchangeId, ThreadId, TurnId},
+    domain::{ExchangeId, ThreadId, ToolCall, TurnId},
     model_standard::CanonicalMessage,
 };
 
 #[derive(Debug, Clone)]
 pub(crate) struct RecordedCheckpoint {
     messages: Vec<CanonicalMessage>,
-    calls: Vec<CallId>,
+    calls: Vec<ToolCall>,
     position: (usize, usize, usize),
 }
 
@@ -56,7 +56,7 @@ pub(crate) fn recorded_checkpoints(
                     calls: mutation
                         .tool_results
                         .iter()
-                        .map(|binding| binding.call_id.clone())
+                        .map(|binding| binding.execution_call.clone())
                         .collect(),
                     position,
                 })
@@ -126,21 +126,29 @@ impl WorkflowHistoryRecorder for ReplayCheckpointRecorder {
             for (binding, expected_call) in checkpoint.tool_results.iter().zip(&expected.calls) {
                 if let Some(mapped) = inner.actual_to_expected.get(&binding.call_id) {
                     ensure!(
-                        mapped == expected_call,
+                        mapped == &expected_call.id,
                         "checkpoint changed a tool call identity"
                     );
                 } else {
                     ensure!(
-                        !inner.expected_to_actual.contains_key(expected_call),
+                        !inner.expected_to_actual.contains_key(&expected_call.id),
                         "checkpoint reused a tool call identity"
                     );
                     inner
                         .actual_to_expected
-                        .insert(binding.call_id.clone(), expected_call.clone());
+                        .insert(binding.call_id.clone(), expected_call.id.clone());
                     inner
                         .expected_to_actual
-                        .insert(expected_call.clone(), binding.call_id.clone());
+                        .insert(expected_call.id.clone(), binding.call_id.clone());
                 }
+                ensure!(
+                    calls_equal(
+                        &binding.execution_call,
+                        expected_call,
+                        &inner.actual_to_expected
+                    ),
+                    "checkpoint changed a tool execution binding"
+                );
             }
             let position = (
                 inner.next_exchange,
@@ -176,3 +184,7 @@ impl WorkflowHistoryRecorder for ReplayCheckpointRecorder {
         result
     }
 }
+
+#[cfg(test)]
+#[path = "checkpoint_tests.rs"]
+mod tests;

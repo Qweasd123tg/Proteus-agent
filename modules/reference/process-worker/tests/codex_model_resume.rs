@@ -31,6 +31,8 @@ mod interruption_recovery;
 mod model_failure_recovery;
 #[path = "codex_model_resume/partial_sse_recovery.rs"]
 mod partial_sse_recovery;
+#[path = "codex_model_resume/patch_interception.rs"]
+mod patch_interception;
 #[path = "codex_model_resume/request_retry.rs"]
 mod request_retry;
 

@@ -18,7 +18,7 @@ Baseline: `openai/codex` commit
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v9`, `compactor/v7`, journal schema v9.
+Действующие версии: `workflow/v10`, `compactor/v7`, journal schema v10.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,
@@ -88,9 +88,29 @@ workflow replay воспроизводит записанный исход бе�
 завершённый SSE item с последующим EOF без terminal response не вызывает
 повторного HTTP-запроса; полученный `Error` проходит workflow replay.
 
+### Shell-команда Apply Patch
+
+`coding.codex_loop` владеет разбором поддержанных heredoc, quoted и bare форм
+`apply_patch` внутри `shell`/`exec_command`. Исходный model call сохраняется,
+checkpoint объявляет целевой `execution_call`, Core проводит его через общий
+registry/policy/safety path. Host не содержит перехвата по именам tools.
+
+[Process regression](../../modules/reference/process-worker/tests/codex_model_resume/patch_interception.rs)
+проверяет оба shell tools и прямой `apply_patch`: изменение файла, исходный call
+в history, целевой call в journal, cold history и matched replay без повторного
+эффекта. Проверяются также approval и запрет целевого patch, в том числе когда
+он скрыт из model request. Отсутствующий или запрещённый target не запускает
+shell как запасной путь. Module tests проверяют скрытый исходный shell,
+malformed raw arguments и отсутствие адаптации у другого workflow.
+
+Upstream anchor закреплённого baseline:
+`core/src/tools/handlers/apply_patch.rs::intercept_apply_patch` сохраняет исходный
+call id и проводит распознанный patch через patch execution path. Полный shell
+parser, все формы команд и event lifecycle этим срезом не подтверждаются.
+
 ### Продолжение После Модельной Ошибки
 
-`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v9`
+`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v10`
 failure envelope. Core сохраняет их до `TurnSettled(Error)`: следующий turn
 получает завершённые assistant items и tool results с исходными call ids.
 

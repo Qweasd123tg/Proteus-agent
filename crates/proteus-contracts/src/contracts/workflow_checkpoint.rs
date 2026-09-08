@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     contracts::WorkflowHistoryUpdate,
-    domain::{CallId, MessageId, PartId, ToolResult, new_message_id, new_part_id},
+    domain::{CallId, MessageId, PartId, ToolCall, ToolResult, new_message_id, new_part_id},
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 
@@ -12,18 +12,24 @@ pub const WORKFLOW_HOST_CHECKPOINT_HISTORY_METHOD: &str = "host.history.checkpoi
 
 /// A workflow explicitly opts these calls into durable conversation history.
 /// The host fills the reserved identities only with an actually recorded result.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct WorkflowToolResultBinding {
     pub call_id: CallId,
+    /// Exact operation selected by the workflow for this history call. Its id
+    /// must equal call_id; its name/arguments may differ from the model input.
+    /// This declaration grants no authority: execution still checks the target
+    /// registry, policy and safety through the ordinary host tool path.
+    pub execution_call: ToolCall,
     pub message_id: MessageId,
     pub part_id: PartId,
 }
 
 impl WorkflowToolResultBinding {
-    pub fn new(call_id: CallId) -> Self {
+    pub fn new(execution_call: ToolCall) -> Self {
         Self {
-            call_id,
+            call_id: execution_call.id.clone(),
+            execution_call,
             message_id: new_message_id(),
             part_id: new_part_id(),
         }
@@ -62,5 +68,28 @@ pub struct NoopWorkflowHistoryRecorder;
 impl WorkflowHistoryRecorder for NoopWorkflowHistoryRecorder {
     async fn checkpoint(&self, _checkpoint: WorkflowHistoryCheckpoint) -> Result<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn checkpoint_binding_requires_an_explicit_execution_call() {
+        let binding = WorkflowToolResultBinding::new(ToolCall::new("call", "probe", json!({})));
+        let mut value = serde_json::to_value(&binding).unwrap();
+        assert_eq!(
+            serde_json::from_value::<WorkflowToolResultBinding>(value.clone()).unwrap(),
+            binding
+        );
+        value.as_object_mut().unwrap().remove("execution_call");
+        assert!(
+            serde_json::from_value::<WorkflowToolResultBinding>(value)
+                .unwrap_err()
+                .to_string()
+                .contains("execution_call")
+        );
     }
 }
