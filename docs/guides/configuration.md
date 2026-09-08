@@ -462,6 +462,15 @@ reference implementation с той же authority.
 
 ## Tool Exposure
 
+Codex-family profiles не задают `modules.tool_exposure`: workflow получает
+весь набор tools, видимых по текущей policy, без hot set и дополнительных
+`proteus_tool_*` посредников. Состав задаётся `tools.enabled` и настроенной
+AgentControl surface; approval проверяется при исполнении.
+
+Для собственной сборки можно отдельно включить эвристический selector
+`codex_dynamic`. Это алгоритм Proteus, он не воспроизводит upstream Codex
+`tool_search`:
+
 ```toml
 [modules]
 tool_exposure = "codex_dynamic"

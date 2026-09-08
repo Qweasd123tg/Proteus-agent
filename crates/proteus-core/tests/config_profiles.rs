@@ -119,10 +119,7 @@ async fn codex_family_fragments_preserve_profile_specific_overlays() {
         );
         assert_eq!(config.modules.context.as_deref(), Some("codex_context"));
         assert_eq!(config.modules.policy.as_deref(), Some("codex_policy"));
-        assert_eq!(
-            config.modules.tool_exposure.as_deref(),
-            Some("codex_dynamic")
-        );
+        assert!(config.modules.tool_exposure.is_none());
         assert_eq!(config.agent_control.roles.len(), 2);
         assert!(
             config
@@ -166,7 +163,7 @@ async fn codex_family_fragments_preserve_profile_specific_overlays() {
             .values()
             .map(|component| component.exports().count())
             .sum::<usize>(),
-        10
+        9
     );
     let codex_model = codex.active_model_config().expect("codex model");
     assert_eq!(codex_model.model, "gpt-5.6-luna");
@@ -181,7 +178,7 @@ async fn codex_family_fragments_preserve_profile_specific_overlays() {
             .values()
             .map(|component| component.exports().count())
             .sum::<usize>(),
-        10
+        9
     );
     let glm_model = glm.active_model_config().expect("glm model");
     assert_eq!(glm_model.model, "glm-5.2");
@@ -208,6 +205,7 @@ async fn packaged_codex_peers_own_distinct_models_prompts_tools_and_policy() {
         );
         assert_eq!(peer.modules.workflow.as_deref(), Some("coding.codex_loop"));
         assert_eq!(peer.modules.policy.as_deref(), Some("codex_policy"));
+        assert!(peer.modules.tool_exposure.is_none());
         assert!(peer.agent_control.roles.is_empty());
         assert_eq!(peer.agent_control.surface, AgentControlSurface::None);
     }

@@ -640,12 +640,7 @@ async fn init_codex_writes_loadable_config_with_runtime_fragment() {
         config.module_config_value(ModuleKind::Context, "codex_context")["providers"],
         serde_json::json!(["project_instructions", "skills", "environment"])
     );
-    // Cache-stable codex_dynamic не использует task text как implicit query;
-    // hidden tools остаются доступны через deferred meta-tools workflow-а.
-    assert_eq!(
-        config.modules.tool_exposure.as_deref(),
-        Some("codex_dynamic")
-    );
+    assert!(config.modules.tool_exposure.is_none());
     assert!(dir.path().join("prompts/codex-default.md").exists());
     assert!(dir.path().join("prompts/codex-explore.md").exists());
     assert!(dir.path().join("prompts/codex-coder.md").exists());

@@ -21,7 +21,6 @@ context = "codex_context"
 policy = "codex_policy"
 patch = "direct"
 compactor = "codex"
-tool_exposure = "codex_dynamic"
 
 [components.reference-workflow]
 command = "proteus-reference-worker"
@@ -45,8 +44,6 @@ command = "proteus-reference-worker"
 [components.reference-capabilities.exports.patch.direct]
 
 [components.reference-capabilities.exports.compactor.codex]
-
-[components.reference-capabilities.exports.tool_exposure.codex_dynamic]
 
 [components.reference-capabilities.exports.tool."reference.tools"]
 
@@ -85,10 +82,6 @@ isolation = "worktree"
 max_processes = 4
 timeout_ms = 14400000
 max_summary_bytes = 8192
-
-[module_config.tool_exposure.codex_dynamic]
-max_hot_tools = 10
-always_include = ["skill", "lsp_diagnostics", "request_user_input", "update_plan", "request_permissions", "exec_command", "write_stdin", "apply_patch"]
 
 [module_config.context.codex_context]
 max_context_bytes = 60000

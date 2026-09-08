@@ -20,6 +20,9 @@ use tokio::{
     process::Command,
 };
 
+#[path = "codex_model_resume/direct_tool_surface.rs"]
+mod direct_tool_surface;
+
 #[derive(Default)]
 struct CapturedEvents(std::sync::Mutex<Vec<proteus_contracts::domain::EventEnvelope>>);
 
@@ -95,6 +98,38 @@ fn responses() -> Vec<Value> {
     ]
 }
 
+async fn read_json_request(socket: &mut tokio::net::TcpStream) -> Value {
+    let mut bytes = Vec::new();
+    let header_end = loop {
+        let mut chunk = [0; 4096];
+        let n = socket.read(&mut chunk).await.unwrap();
+        assert!(n > 0, "request ended before headers");
+        bytes.extend_from_slice(&chunk[..n]);
+        assert!(bytes.len() < 1_000_000);
+        if let Some(offset) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+            break offset + 4;
+        }
+    };
+    let headers = std::str::from_utf8(&bytes[..header_end]).unwrap();
+    assert!(headers.starts_with("POST /responses HTTP/1.1"));
+    let length: usize = headers
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("content-length")
+                .then(|| value.trim().parse().unwrap())
+        })
+        .expect("content length");
+    assert!(length < 1_000_000);
+    while bytes.len() < header_end + length {
+        let mut chunk = [0; 4096];
+        let n = socket.read(&mut chunk).await.unwrap();
+        assert!(n > 0, "truncated request");
+        bytes.extend_from_slice(&chunk[..n]);
+    }
+    serde_json::from_slice(&bytes[header_end..header_end + length]).unwrap()
+}
+
 async fn serve(listener: TcpListener, streaming: bool) -> Vec<Value> {
     let mut requests = Vec::new();
     for (round, mut response) in responses().into_iter().enumerate() {
@@ -117,35 +152,7 @@ async fn serve(listener: TcpListener, streaming: bool) -> Vec<Value> {
             }
         }
         let (mut socket, _) = listener.accept().await.unwrap();
-        let mut bytes = Vec::new();
-        let header_end = loop {
-            let mut chunk = [0; 4096];
-            let n = socket.read(&mut chunk).await.unwrap();
-            assert!(n > 0, "request ended before headers");
-            bytes.extend_from_slice(&chunk[..n]);
-            assert!(bytes.len() < 1_000_000);
-            if let Some(offset) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
-                break offset + 4;
-            }
-        };
-        let headers = std::str::from_utf8(&bytes[..header_end]).unwrap();
-        assert!(headers.starts_with("POST /responses HTTP/1.1"));
-        let length: usize = headers
-            .lines()
-            .find_map(|line| {
-                let (name, value) = line.split_once(':')?;
-                name.eq_ignore_ascii_case("content-length")
-                    .then(|| value.trim().parse().unwrap())
-            })
-            .expect("content length");
-        assert!(length < 1_000_000);
-        while bytes.len() < header_end + length {
-            let mut chunk = [0; 4096];
-            let n = socket.read(&mut chunk).await.unwrap();
-            assert!(n > 0, "truncated request");
-            bytes.extend_from_slice(&chunk[..n]);
-        }
-        requests.push(serde_json::from_slice(&bytes[header_end..header_end + length]).unwrap());
+        requests.push(read_json_request(&mut socket).await);
         let (content_type, body) = if streaming {
             ("text/event-stream", sse_body(&response))
         } else {

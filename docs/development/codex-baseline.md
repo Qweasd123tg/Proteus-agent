@@ -41,6 +41,26 @@ Proteus на upstream-shaped response. Они не запускают два п�
 
 ## Проверки
 
+### Прямая Выдача Локальных Инструментов
+
+Codex-family profiles передают модели все policy-visible tools без
+дополнительного отбора по hot set. Ранее включённый `codex_dynamic` скрывал
+часть настроенных tools; workflow добавлял `proteus_tool_search`,
+`proteus_tool_describe`, `proteus_tool_call` и инструкции их протокола.
+В текущих profiles этот selector не выбран, поэтому tools доступны напрямую.
+
+Upstream anchors того же baseline: `core/src/session/turn.rs` формирует request
+из `ToolRouter::model_visible_specs()`, а `core/src/tools/spec_plan.rs`
+задаёт direct/deferred exposure отдельных tools. Проверяется прямая выдача
+настроенных локальных tools; upstream-протокол `tool_search`, динамическая
+загрузка schemas и полное совпадение каталога этим срезом не подтверждаются.
+
+Сквозная проверка в
+[codex_model_resume](../../modules/reference/process-worker/tests/codex_model_resume.rs)
+использует tracked профиль и локальный HTTP server: проверяет фактические
+requests, прямое исполнение ранее скрытого tool, journal, cold history
+и workflow replay. Policy и approval остаются общей границей исполнения.
+
 ### Local Compaction И Project Instructions
 
 Для обычного OpenAI-compatible provider перенесён local путь `core/src/compact.rs`
