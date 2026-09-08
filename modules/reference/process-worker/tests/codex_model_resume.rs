@@ -25,6 +25,8 @@ use tokio::{
 mod crash_recovery;
 #[path = "codex_model_resume/direct_tool_surface.rs"]
 mod direct_tool_surface;
+#[path = "codex_model_resume/interruption_recovery.rs"]
+mod interruption_recovery;
 #[path = "codex_model_resume/model_failure_recovery.rs"]
 mod model_failure_recovery;
 

@@ -140,6 +140,17 @@ replacement без changed compaction и произвольный user suffix.
 после side effect до result и после durable result до workflow acknowledgement.
 Проверяет cold request, transcript, отсутствие повторного эффекта и replay
 успешного продолжения. Незавершённый crash turn не эмулируется replay.
+
+`codex_model_resume::interruption_recovery` проверяет один batch при Cancel,
+workflow timeout после durable result до workflow acknowledgement и при
+инфраструктурном `Err` approval transport второго tool. Первый процесс
+сверяет живую history с journal; отдельный новый процесс продолжает сессию.
+Проверяются точный `TurnSettled` (`Canceled`/`Timeout`/`Error`), исходный
+call/result в HTTP request, отсутствие повторного эффекта, cold transcript
+и request-only `aborted` для второго call. Success продолжения проходит replay.
+Исходные Cancel/Timeout replay явно отклоняет; Error с оборванным approval
+тоже не воспроизводится без записанных tool resolution/result.
+
 `session_store::checkpoint` проверяет strict result bindings, точный call,
 revision и порядок history при обратном завершении tools; незаявленный result
 остаётся execution fact. `module_swap::workflow_checkpoint` проводит Rust и

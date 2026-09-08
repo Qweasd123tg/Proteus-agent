@@ -685,9 +685,12 @@ Workflow может раньше подтвердить progress через `hos
 В `coding.codex_loop` это происходит после завершённого model response и до
 tools, а также после changed compaction. Выбранный результат tool попадает
 в history вместе с `tool_result_recorded`; потеря ответа между Core и workflow
-его не удаляет. Resume сохраняет эти данные при аварийном завершении процесса,
-даже если `TurnSettled` не был записан. Неподтверждённые model/tool facts не
-используются для угадывания workflow history.
+его не удаляет. Подтверждённый результат сохраняется и при Cancel, внешнем
+workflow timeout или инфраструктурной ошибке следующего tool в том же batch,
+даже если workflow не получил весь вектор результатов. Статус turn при этом
+остаётся `Canceled`, `Timeout` или `Error`. Resume сохраняет эти данные при
+аварийном завершении процесса, даже если `TurnSettled` не был записан.
+Неподтверждённые model/tool facts не используются для угадывания workflow history.
 
 Если side effect произошёл, но result не записан, journal сохраняет неизвестный
 исход. Codex при формировании следующего request добавляет для такого function

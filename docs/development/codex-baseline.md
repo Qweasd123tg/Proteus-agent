@@ -107,6 +107,28 @@ workflow. Неидемпотентный append подтверждает отс�
 hosted tools. Он проверяет сохранение известного прогресса и function-call
 нормализацию следующего запроса.
 
+### Cancel, Timeout И Ошибка Batch
+
+[Interruption regression](../../modules/reference/process-worker/tests/codex_model_resume/interruption_recovery.rs)
+проводит один batch из двух function calls через три способа прерывания.
+Первый tool делает неидемпотентный append. Cancel и workflow timeout наступают
+после durable `ToolResultRecorded`, до подтверждения результата workflow;
+в третьем сценарии первый результат уже вернулся в batch, но approval transport
+второго вызова возвращает инфраструктурный `Err`.
+
+Во всех случаях Core сохраняет одинаковый подтверждённый call/result в живой
+и persistent history, а root turn получает соответственно `Canceled`, `Timeout`
+или `Error`. После завершения первого процесса новый Core продолжает сессию:
+фактический HTTP request содержит исходный результат, первый tool не повторяется,
+второй не исполняется. Для второго call `aborted` остаётся только в запросе,
+а cold transcript показывает карточки `done` и `interrupted`.
+
+Успешное продолжение проходит workflow replay без изменения source journal.
+Исходные Cancel/Timeout replay явно отклоняет как внешние границы исполнения;
+исходный Error с оборванным approval также пока не воспроизводится, поскольку
+для второго tool нет записанных resolution/result. Этот срез не проверяет
+Cancel после успешного ответа workflow или частично завершённый SSE response.
+
 ### Local Compaction И Project Instructions
 
 Для обычного OpenAI-compatible provider перенесён local путь `core/src/compact.rs`
