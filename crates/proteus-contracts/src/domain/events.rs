@@ -1,3 +1,4 @@
+use super::HistoryCompactionReport;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -162,41 +163,6 @@ impl TokenUsageSnapshot {
     pub fn with_compaction_trigger_tokens(mut self, trigger_tokens: Option<u32>) -> Self {
         self.compaction_trigger_tokens = trigger_tokens;
         self
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub struct HistoryCompactionReport {
-    pub changed: bool,
-    pub reason: Option<String>,
-    pub input_messages: usize,
-    pub output_messages: usize,
-    pub original_token_estimate: Option<u32>,
-    pub output_token_estimate: Option<u32>,
-    pub trigger_tokens: Option<u32>,
-    pub summary_source: Option<String>,
-    pub skipped_reason: Option<String>,
-    pub summary: Option<String>,
-    pub metadata: serde_json::Value,
-}
-
-impl HistoryCompactionReport {
-    pub fn unchanged(input_messages: usize, reason: Option<String>) -> Self {
-        Self {
-            changed: false,
-            reason,
-            input_messages,
-            output_messages: input_messages,
-            original_token_estimate: None,
-            output_token_estimate: None,
-            trigger_tokens: None,
-            summary_source: None,
-            skipped_reason: None,
-            summary: None,
-            metadata: serde_json::Value::Null,
-        }
     }
 }
 

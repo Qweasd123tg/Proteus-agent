@@ -15,21 +15,33 @@ use crate::contracts::{
 
 use super::{ProcessExportClient, ProcessExportConfig};
 
-const DEFAULT_TIMEOUT_MS: u64 = 30_000;
-
 pub struct ProcessHistoryCompactor {
     client: Arc<ProcessExportClient>,
 }
 
 impl ProcessHistoryCompactor {
-    pub fn new(config: ProcessExportConfig, workspace: &Path) -> Result<Self> {
+    pub fn new(
+        config: ProcessExportConfig,
+        workspace: &Path,
+        workflow_timeout_ms: u64,
+    ) -> Result<Self> {
+        // Compaction can perform multiple model calls. Its inherited total
+        // budget belongs to the enclosing workflow, not to one sampling call.
+        // Leave settlement to the outer timeout; an explicit export override
+        // can intentionally impose a shorter operation budget. An unbounded
+        // workflow requires an explicit finite export timeout.
+        let timeout_ms = if workflow_timeout_ms == 0 {
+            0
+        } else {
+            workflow_timeout_ms.saturating_add(1_000)
+        };
         Ok(Self {
             client: Arc::new(ProcessExportClient::connect(
                 "compactor",
                 PROCESS_COMPACTOR_CONTRACT_VERSION,
                 config,
                 workspace,
-                DEFAULT_TIMEOUT_MS,
+                timeout_ms,
             )?),
         })
     }
@@ -57,6 +69,7 @@ impl HistoryCompactor for ProcessHistoryCompactor {
                 || cancellation.is_cancelled(),
             )
             .await?;
+        crate::contracts::validate_compaction_output(&input, &response.output)?;
         Ok(response.output)
     }
 }

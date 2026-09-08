@@ -165,12 +165,29 @@ async fn compacted_journal_with_metadata(metadata: serde_json::Value) -> TestJou
         &ModelRef::new("missing-provider", "offline-model"),
     );
     let summary = CanonicalMessage::text(MessageRole::User, "recorded compacted summary");
-    let compacted_messages = vec![summary, user];
+    let compacted_user = CanonicalMessage::from_parts(
+        MessageRole::User,
+        vec![crate::model_standard::CanonicalPart::new(
+            crate::model_standard::PartProvenance::Compactor,
+            crate::model_standard::PartScope::Conversation,
+            ContentPart::Text {
+                text: "compacted user input".to_owned(),
+            },
+        )],
+    );
+    let replacement = crate::domain::CompactionUserMessageReplacement {
+        source_message_id: user.id,
+        replacement_message_id: compacted_user.id,
+    };
+    let compacted_messages = vec![summary, compacted_user];
     let mut compaction_output = CompactionOutput::changed(
         compacted_messages.clone(),
         Some("recorded compacted summary".to_owned()),
     );
     compaction_output.token_estimate = Some(40);
+    compaction_output
+        .user_message_replacements
+        .push(replacement);
     compaction_output.original_token_estimate = Some(400);
     compaction_output.trigger_tokens = Some(100);
     compaction_output.summary_source = Some("test_fixture".to_owned());
@@ -227,7 +244,7 @@ async fn compacted_journal_with_metadata(metadata: serde_json::Value) -> TestJou
 }
 
 #[tokio::test]
-async fn changed_compaction_replays_the_recorded_history_replacement() {
+async fn changed_compaction_replays_the_declared_user_message_replacement() {
     let journal = compacted_journal().await;
     let before = std::fs::read(journal.store.journal_path()).expect("journal before");
 

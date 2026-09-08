@@ -370,16 +370,12 @@ impl AgentRuntime {
                         .await;
                 }
             };
-        let history_compacted = workflow_output
-            .compactions
-            .iter()
-            .any(|report| report.changed);
         let history_update = match prepare_history_update(
             &history,
             &user_message,
             &workflow_output.new_messages,
             workflow_output.history_replacement.as_deref(),
-            history_compacted,
+            &workflow_output.compactions,
             &runtime_user_messages,
         ) {
             Ok(update) => update,

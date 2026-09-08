@@ -235,6 +235,14 @@ Summary использует текущую модель и её инструк�
 и отдельного лимита 4000 токенов. Срез совместимости и ограничения описаны в
 [codex-baseline.md](../development/codex-baseline.md).
 
+Без export override compactor наследует общий `runtime.workflow_timeout_ms`:
+внутренние model calls и повторные попытки расходуют оставшийся бюджет turn.
+`runtime.model_timeout_ms` ограничивает отдельный model call. Protocol deadline
+compactor имеет запас 1000 мс для settlement внешнего timeout; общий лимит turn
+от этого не увеличивается. `components.<id>.exports.compactor.<module>.timeout_ms`
+может явно ограничить всю compaction сильнее. При `workflow_timeout_ms = 0`
+compactor требует явный положительный export timeout.
+
 ### Объявление Exports
 
 ```toml

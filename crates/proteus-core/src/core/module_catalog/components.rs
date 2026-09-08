@@ -150,6 +150,7 @@ impl ModuleCatalog {
                         Ok(Arc::new(ProcessHistoryCompactor::new(
                             export.clone(),
                             ctx.cwd,
+                            ctx.config.runtime.workflow_timeout_ms,
                         )?))
                     },
                 );

@@ -33,6 +33,53 @@ fn strategy(module_id: &str) -> Value {
 
 struct SummaryHost;
 
+struct DelayedSummaryHost;
+
+#[async_trait]
+impl CompactionHost for DelayedSummaryHost {
+    async fn complete_model(
+        &self,
+        request: CanonicalModelRequest,
+    ) -> anyhow::Result<CanonicalModelResponse> {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        SummaryHost.complete_model(request).await
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn explicit_compactor_budget_limits_the_whole_model_callback() {
+    let workspace = tempfile::tempdir().unwrap();
+    for (budget, succeeds) in [(200, false), (5_000, true)] {
+        let mut value = serde_json::to_value(config("codex")).unwrap();
+        value["components"]["swappable-compactor"]["exports"]["compactor"]["codex"]["timeout_ms"] =
+            json!(budget);
+        let config: AppConfig = serde_json::from_value(value).unwrap();
+        let cwd = workspace.path().to_path_buf();
+        let registry = tokio::task::spawn_blocking({
+            let cwd = cwd.clone();
+            move || RuntimeRegistry::from_config(&config, cwd)
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        let input = CompactionInput::new(
+            AgentTask::new("Current task.", cwd),
+            CanonicalModelRequest::new(ModelRef::new("fake", "fixture"), history()),
+        )
+        .with_config(strategy("codex"))
+        .with_token_estimate(Some(100_000));
+        let result = registry
+            .compactor
+            .compact(input, Arc::new(DelayedSummaryHost))
+            .await;
+        if succeeds {
+            assert!(result.unwrap().changed);
+        } else {
+            assert!(format!("{:#}", result.unwrap_err()).contains("timed out"));
+        }
+    }
+}
+
 #[async_trait]
 impl CompactionHost for SummaryHost {
     async fn complete_model(
@@ -187,6 +234,7 @@ async fn check_names(module_id: &str) {
             "output_token_estimate",
             "trigger_tokens",
             "summary_source",
+            "user_message_replacements",
             "skipped_reason",
         ] {
             assert!(

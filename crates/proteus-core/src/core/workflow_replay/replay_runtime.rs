@@ -231,6 +231,7 @@ impl ReplayState {
         report.consumed = true;
         let recorded = report.report.clone();
         let mut output = CompactionOutput::changed(expected.messages, recorded.summary);
+        output.user_message_replacements = recorded.user_message_replacements;
         output.token_estimate = recorded.output_token_estimate;
         output.original_token_estimate = recorded.original_token_estimate;
         output.trigger_tokens = recorded.trigger_tokens;

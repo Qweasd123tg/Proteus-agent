@@ -264,14 +264,14 @@ invalid DTO и превышение limits являются fail-closed protocol
 | tool | v2 | `list`, `invoke` | — |
 | context | v2 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
 | model | v4 | `describe`, `stream` | `host.model.emit` (acknowledged canonical events) |
-| compactor | v5 | `compact` | `host.model.complete` |
-| workflow | v7 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
+| compactor | v6 | `compact` | `host.model.complete` |
+| workflow | v8 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
 
 Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
 DTO, adapter, protocol/conformance и swap evidence в одном commit.
 
-`workflow/v7` возвращает strict terminal envelope: `status = "success"` с
+`workflow/v8` возвращает strict terminal envelope: `status = "success"` с
 `result: WorkflowOutput` либо `status = "error"` с `failure: WorkflowFailure`.
 Ошибка алгоритма может содержать `history: WorkflowHistoryUpdate` — завершённые
 `new_messages`, optional `history_replacement` и `compactions`; `model_failure`
@@ -281,7 +281,8 @@ invocation, а protocol/transport failure остаётся ошибкой broker
 Core сохраняет явно возвращённую историю до `TurnSettled(Error)` через тот же
 validator, что и успешный output: новые сообщения имеют роли assistant/tool
 либо принадлежат доставленному Core steering; replacement требует changed
-compaction и точного current user message. При ошибке допустим завершённый
+compaction и точного current user message либо typed цепочки его замен
+через `user_message_replacements` с новыми ids. При ошибке допустим завершённый
 replacement без последующего ответа. Core не создаёт `AgentOutput` для ошибки.
 Отсутствующий `history` означает отсутствие возвращённых данных, а не отсутствие
 side effects. Потеря worker-а, cancel и timeout не восстанавливают его локальное

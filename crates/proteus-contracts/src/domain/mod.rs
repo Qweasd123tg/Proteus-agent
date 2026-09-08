@@ -5,6 +5,7 @@
 //! contracts and in core stubs, adapters, configured tools, or external
 //! modules.
 
+pub mod compaction;
 pub mod context;
 pub mod events;
 pub mod hosted_tool;
@@ -18,6 +19,7 @@ pub mod patch;
 pub mod task;
 pub mod tool;
 
+pub use compaction::*;
 pub use context::*;
 pub use events::*;
 pub use hosted_tool::*;

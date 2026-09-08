@@ -3,11 +3,11 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    domain::{AgentTask, HistoryCompactionReport},
+    domain::{AgentTask, CompactionUserMessageReplacement, HistoryCompactionReport},
     model_standard::{CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse},
 };
 
-pub const PROCESS_COMPACTOR_CONTRACT_VERSION: &str = "v5";
+pub const PROCESS_COMPACTOR_CONTRACT_VERSION: &str = "v6";
 pub const PROCESS_COMPACTOR_METHOD: &str = "compact";
 pub const COMPACTOR_HOST_COMPLETE_MODEL_METHOD: &str = "host.model.complete";
 
@@ -73,6 +73,9 @@ impl CompactionInput {
 #[non_exhaustive]
 pub struct CompactionOutput {
     pub messages: Vec<CanonicalMessage>,
+    /// Explicit replacements of accepted user inputs. Contents must never be
+    /// rewritten under an existing message identity.
+    pub user_message_replacements: Vec<CompactionUserMessageReplacement>,
     pub changed: bool,
     pub summary: Option<String>,
     pub token_estimate: Option<u32>,
@@ -93,6 +96,7 @@ impl CompactionOutput {
         Self {
             messages,
             changed: true,
+            user_message_replacements: Vec::new(),
             summary: summary.into(),
             token_estimate: None,
             original_token_estimate: None,
@@ -107,6 +111,7 @@ impl CompactionOutput {
         Self {
             messages,
             changed: false,
+            user_message_replacements: Vec::new(),
             summary: None,
             token_estimate: None,
             original_token_estimate: None,
@@ -137,6 +142,7 @@ impl HistoryCompactionReport {
     pub fn from_compaction_output(input: &CompactionInput, output: &CompactionOutput) -> Self {
         Self {
             changed: output.changed,
+            user_message_replacements: output.user_message_replacements.clone(),
             reason: input.reason.clone(),
             input_messages: input.request.messages.len(),
             output_messages: output.messages.len(),

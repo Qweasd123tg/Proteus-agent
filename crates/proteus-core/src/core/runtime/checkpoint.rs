@@ -44,7 +44,7 @@ impl WorkflowHistoryRecorder for TurnHistoryRecorder {
             &self.current_user,
             &progress.new_messages,
             progress.history_replacement.as_deref(),
-            progress.compactions.iter().any(|report| report.changed),
+            &progress.compactions,
             &allowed,
         )?;
         let next_capture = HistoryCapture::new(&prepared.final_messages, &checkpoint.tool_results)?;

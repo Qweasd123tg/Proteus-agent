@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+mod compacted_user;
+
 use anyhow::{Result, ensure};
 
 use crate::{
@@ -18,7 +20,7 @@ pub(crate) fn prepare_history_update(
     persisted_user_message: &CanonicalMessage,
     new_messages: &[CanonicalMessage],
     history_replacement: Option<&[CanonicalMessage]>,
-    history_compacted: bool,
+    compactions: &[HistoryCompactionReport],
     runtime_user_messages: &HashSet<MessageId>,
 ) -> Result<PreparedHistoryUpdate> {
     ensure!(
@@ -30,7 +32,7 @@ pub(crate) fn prepare_history_update(
         persisted_user_message,
         new_messages,
         history_replacement,
-        history_compacted,
+        compactions,
         runtime_user_messages,
     )
 }
@@ -41,7 +43,7 @@ pub(crate) fn prepare_failed_history_update(
     persisted_user_message: &CanonicalMessage,
     new_messages: &[CanonicalMessage],
     history_replacement: Option<&[CanonicalMessage]>,
-    history_compacted: bool,
+    compactions: &[HistoryCompactionReport],
     runtime_user_messages: &HashSet<MessageId>,
 ) -> Result<PreparedHistoryUpdate> {
     ensure!(
@@ -53,7 +55,7 @@ pub(crate) fn prepare_failed_history_update(
         persisted_user_message,
         new_messages,
         history_replacement,
-        history_compacted,
+        compactions,
         runtime_user_messages,
     )
 }
@@ -63,7 +65,7 @@ fn prepare_update(
     persisted_user_message: &CanonicalMessage,
     new_messages: &[CanonicalMessage],
     history_replacement: Option<&[CanonicalMessage]>,
-    history_compacted: bool,
+    compactions: &[HistoryCompactionReport],
     runtime_user_messages: &HashSet<MessageId>,
 ) -> Result<PreparedHistoryUpdate> {
     ensure!(
@@ -80,7 +82,10 @@ fn prepare_update(
         );
     }
 
-    match (history_compacted, history_replacement) {
+    match (
+        compactions.iter().any(|report| report.changed),
+        history_replacement,
+    ) {
         (true, None) => {
             anyhow::bail!("workflow reported changed compaction without history replacement")
         }
@@ -88,12 +93,12 @@ fn prepare_update(
             anyhow::bail!("workflow returned history replacement without changed compaction")
         }
         (true, Some(replacement)) => {
-            ensure!(
-                replacement
-                    .iter()
-                    .any(|message| message == persisted_user_message),
-                "workflow history replacement does not preserve the exact current user message"
-            );
+            compacted_user::validate_current_user(
+                current_history,
+                persisted_user_message,
+                replacement,
+                compactions,
+            )?;
             let mut final_messages = Vec::with_capacity(replacement.len() + new_messages.len());
             final_messages.extend_from_slice(replacement);
             final_messages.extend_from_slice(new_messages);
@@ -211,6 +216,12 @@ mod tests {
         assert_eq!(history, vec![replacement]);
     }
 
+    fn changed_report() -> HistoryCompactionReport {
+        let mut report = HistoryCompactionReport::unchanged(1, None);
+        report.changed = true;
+        report
+    }
+
     #[test]
     fn append_update_keeps_persisted_user_and_adds_turn_messages() {
         let user = CanonicalMessage::text(MessageRole::User, "question");
@@ -221,7 +232,7 @@ mod tests {
             &user,
             std::slice::from_ref(&assistant),
             None,
-            false,
+            &[],
             &HashSet::new(),
         )
         .expect("append update");
@@ -241,7 +252,7 @@ mod tests {
             &user,
             std::slice::from_ref(&assistant),
             Some(std::slice::from_ref(&recreated_user)),
-            true,
+            &[changed_report()],
             &HashSet::new(),
         )
         .expect_err("replacement must preserve the stored message id");
@@ -261,7 +272,7 @@ mod tests {
             &user,
             std::slice::from_ref(&assistant),
             Some(&replacement),
-            true,
+            &[changed_report()],
             &HashSet::new(),
         )
         .expect("compacted history update");
@@ -279,7 +290,7 @@ mod tests {
             &user,
             std::slice::from_ref(&user),
             None,
-            false,
+            &[],
             &HashSet::new(),
         )
         .expect_err("workflow must return only assistant/tool messages");
@@ -294,32 +305,36 @@ mod tests {
         let replacement = vec![user.clone(), summary];
         let allowed = HashSet::new();
         let original = std::slice::from_ref(&user);
-        let update =
-            prepare_failed_history_update(original, &user, &[], Some(&replacement), true, &allowed)
-                .unwrap();
+        let update = prepare_failed_history_update(
+            original,
+            &user,
+            &[],
+            Some(&replacement),
+            &[changed_report()],
+            &allowed,
+        )
+        .unwrap();
         assert_eq!(update.final_messages, replacement);
         assert!(update.replace);
         assert!(
-            prepare_history_update(original, &user, &[], Some(&replacement), true, &allowed)
-                .is_err()
-        );
-        assert!(
-            prepare_failed_history_update(
+            prepare_history_update(
                 original,
                 &user,
                 &[],
                 Some(&replacement),
-                false,
+                &[changed_report()],
                 &allowed
             )
             .is_err()
         );
         assert!(
-            prepare_failed_history_update(original, &user, &[], None, false, &allowed).is_err()
+            prepare_failed_history_update(original, &user, &[], Some(&replacement), &[], &allowed)
+                .is_err()
         );
+        assert!(prepare_failed_history_update(original, &user, &[], None, &[], &allowed).is_err());
         let forged_user = CanonicalMessage::text(MessageRole::User, "injected");
         assert!(
-            prepare_failed_history_update(original, &user, &[forged_user], None, false, &allowed)
+            prepare_failed_history_update(original, &user, &[forged_user], None, &[], &allowed)
                 .is_err()
         );
     }

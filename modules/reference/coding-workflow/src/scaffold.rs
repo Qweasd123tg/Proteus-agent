@@ -153,6 +153,14 @@ impl TurnScaffold {
             return Ok(false);
         }
 
+        if let Some(replacement) = report
+            .user_message_replacements
+            .iter()
+            .find(|replacement| replacement.source_message_id == self.current_user_message_id)
+        {
+            self.current_user_message_id = replacement.replacement_message_id;
+        }
+
         match repair {
             PersistentRepair::Rebuild => {
                 self.model_messages = compacted_messages.to_vec();

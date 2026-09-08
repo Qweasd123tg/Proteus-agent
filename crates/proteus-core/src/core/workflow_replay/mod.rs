@@ -172,13 +172,12 @@ pub async fn replay_workflow(
                 .initial_history
                 .last()
                 .context("workflow replay fixture has no persisted current user message")?;
-            let history_compacted = output.compactions.iter().any(|report| report.changed);
             let history_update = prepare_history_update(
                 &fixture.initial_history,
                 persisted_user,
                 &output.new_messages,
                 output.history_replacement.as_deref(),
-                history_compacted,
+                &output.compactions,
                 &HashSet::new(),
             )?;
             Ok((
@@ -214,7 +213,7 @@ pub async fn replay_workflow(
                             user,
                             &progress.new_messages,
                             progress.history_replacement.as_deref(),
-                            progress.compactions.iter().any(|report| report.changed),
+                            &progress.compactions,
                             &HashSet::new(),
                         )
                     });

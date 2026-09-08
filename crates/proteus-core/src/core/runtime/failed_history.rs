@@ -42,7 +42,7 @@ impl AgentRuntime {
                 current_user,
                 &progress.new_messages,
                 progress.history_replacement.as_deref(),
-                progress.compactions.iter().any(|report| report.changed),
+                &progress.compactions,
                 &allowed,
             )?;
             self.commit_history_update(turn_id, update, &progress.compactions, true)

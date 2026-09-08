@@ -106,7 +106,7 @@ impl WorkflowHistoryRecorder for ReplayCheckpointRecorder {
                     .ok_or_else(|| anyhow::anyhow!("missing replay user"))?,
                 &progress.new_messages,
                 progress.history_replacement.as_deref(),
-                progress.compactions.iter().any(|report| report.changed),
+                &progress.compactions,
                 &HashSet::new(),
             )?;
             crate::core::session_journal::history_capture::HistoryCapture::new(

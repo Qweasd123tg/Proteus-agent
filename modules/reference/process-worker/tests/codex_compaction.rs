@@ -13,6 +13,9 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 
+#[path = "codex_compaction/compatibility.rs"]
+mod compatibility;
+
 const COMPACTION_PROMPT: &str =
     include_str!("../../codex-compactor/src/upstream/compact_prompt.md");
 const USER_TASK: &str = "Прочитай probe.txt.";
@@ -31,6 +34,7 @@ fn expected_summary() -> String {
 enum FixtureReply {
     Json(Value),
     Status { status: u16, body: Value },
+    Delayed { delay: Duration, body: Value },
 }
 
 fn assistant(phase: &str, text: &str) -> Value {
@@ -143,6 +147,10 @@ async fn serve(listener: TcpListener, replies: Vec<FixtureReply>) -> Vec<Value> 
         let (status, body) = match reply {
             FixtureReply::Json(body) => (200, body),
             FixtureReply::Status { status, body } => (status, body),
+            FixtureReply::Delayed { delay, body } => {
+                tokio::time::sleep(delay).await;
+                (200, body)
+            }
         };
         let status_text = if status == 200 { "OK" } else { "Fixture Error" };
         let body = body.to_string();

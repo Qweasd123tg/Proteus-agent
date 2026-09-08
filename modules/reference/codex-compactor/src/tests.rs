@@ -213,8 +213,8 @@ fn retained_user_history_is_newest_first_budgeted_then_restored_in_order() {
     let second = CanonicalMessage::text(MessageRole::User, "second ".repeat(5_000));
     let selected = select_recent_user_messages(&[first, second.clone()], 20_000);
 
-    assert_eq!(selected.len(), 2);
-    assert_eq!(selected[1].id, second.id);
+    assert_eq!(selected.messages.len(), 2);
+    assert_eq!(selected.messages[1].id, second.id);
 }
 
 #[test]

@@ -188,7 +188,7 @@ history сохраняют раздельные commentary/final items. Клие
 Если runtime запущен с config path, рядом с config root создаётся дерево
 `sessions/<workspace>/<session>/` (подробно про layout, resume и lifecycle —
 раздел «Session Store» ниже). Source of truth — `journal.jsonl`, где одна
-строка является строгим record schema v5 с `record_id`, монотонным
+строка является строгим record schema v6 с `record_id`, монотонным
 `session_seq`, timestamp, mandatory session id, optional execution/thread/turn
 ids, `kind` и payload. `TurnOpened`, model и tool facts требуют
 `ExecutionId`; history/settlement остаются chat facts без execution owner.
@@ -615,12 +615,12 @@ journal. ОС освобождает владение при закрытии pr
 находится в parent directory, а время создания/изменения берётся из metadata
 файловой системы. Новая session получает 10-значный numeric basename,
 детерминированный из внутреннего UUID; полный `SessionId` сохраняется в
-`session.json` schema v4 вместе с `journal_schema_version = 5`. Перед записью runtime
+`session.json` schema v4 вместе с `journal_schema_version = 6`. Перед записью runtime
 проверяет metadata, поэтому коллизия коротких имён завершается ошибкой и не
 смешивает histories.
 
 Reader принимает только basename из 10 ASCII-цифр с обязательным
-`session.json` schema v4 и journal schema v5. UUID-basename directories,
+`session.json` schema v4 и journal schema v6. UUID-basename directories,
 прежние session/journal schemas и неизвестные wire/storage формы
 отвергаются явно: pre-release cutover не содержит legacy decoder или dual-read.
 Старые локальные dogfood sessions следует вручную переместить целиком за
@@ -664,10 +664,16 @@ resume/history. Workflow получает input history, который уже �
 turn-а с ролями assistant/tool. Для обычного turn runtime дописывает этот
 suffix без повторной передачи user prompt. Changed compaction дополнительно
 возвращает `history_replacement`: compacted persistent snapshot обязан сохранить
-точный current user message вместе с его id; runtime атомарно заменяет историю
+точный current user message вместе с его id либо его явно объявленное сокращённое
+представление. `HistoryCompactionReport.user_message_replacements` связывает
+`source_message_id` с новым `replacement_message_id`; цепочка нескольких
+compactions должна завершаться сохранённым conversation user message с provenance
+`Compactor`. Изменение содержимого под исходным id запрещено. Оригинал остаётся
+в admission record журнала и пользовательском transcript; model history и cold
+resume используют сокращённое представление. Runtime атомарно заменяет историю
 этим snapshot-ом и затем дописывает `new_messages`.
 
-`workflow/v7` также позволяет вернуть `WorkflowFailure` с накопленным history
+`workflow/v8` также позволяет вернуть `WorkflowFailure` с накопленным history
 update. Core проверяет и сохраняет его до settlement со статусом `Error`.
 `coding.codex_loop` использует этот путь: если tool завершился, а следующий
 model call упал, новый turn получает прежний call/result и после перезапуска

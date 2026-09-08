@@ -60,19 +60,20 @@ pub(crate) fn compact(
     let summary = complete_summary_with_recovery(&input, history.summary_history, host)?;
     let replacement = replacement_messages(
         &history.ephemeral_context,
-        &preserved_user_messages,
+        &preserved_user_messages.messages,
         &summary,
     );
     let output_token_estimate = estimate_messages_tokens(&replacement);
 
     let mut output = CompactionOutput::changed(replacement, Some(summary));
+    output.user_message_replacements = preserved_user_messages.replacements;
     output.token_estimate = Some(output_token_estimate);
     output.original_token_estimate = Some(token_estimate);
     output.trigger_tokens = Some(trigger_tokens);
     output.summary_source = Some("model".to_owned());
     output.metadata = json!({
         "compacted_messages": history.compactable_history.len(),
-        "preserved_user_messages": preserved_user_messages.len(),
+        "preserved_user_messages": preserved_user_messages.messages.len(),
         "ephemeral_context_messages": history.ephemeral_context.len(),
     });
     Ok(output)

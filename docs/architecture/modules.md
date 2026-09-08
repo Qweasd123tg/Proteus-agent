@@ -19,8 +19,8 @@ authority(module) = authority(slot, invocation_context)
 ```
 
 Все внешние modules являются exports process components: Component Runtime v2
-использует wire protocol v3; `workflow` использует strict contract v7,
-`compactor` — v5, `model` — v4; версии остальных slots приведены в authority table
+использует wire protocol v3; `workflow` использует strict contract v8,
+`compactor` — v6, `model` — v4; версии остальных slots приведены в authority table
 [process-module-architecture.md](process-module-architecture.md). Runtime допускает
 несколько одновременных и вложенных invocation одного component. Dylib ABI и
 native loader в проекте отсутствуют.
@@ -137,7 +137,7 @@ runtime status, context, model completion, compaction, visible/selected tools,
 tool execution и event emission. Session ids, approvals, tool ownership и
 journal остаются host-owned.
 
-`workflow/v7` возвращает success с `WorkflowOutput` либо error с
+`workflow/v8` возвращает success с `WorkflowOutput` либо error с
 `WorkflowFailure`. Ошибка может явно вернуть выполненную часть истории через
 `WorkflowHistoryUpdate`; Core проверяет её и сохраняет до terminal `Error`.
 `coding.codex_loop` использует этот путь после сбоя model call. Это общий
@@ -149,7 +149,7 @@ contract для любых workflow implementations, а не восстанов�
 model/tool facts по-прежнему не превращаются в conversation history автоматически.
 
 `coding.project_check` — reference code-heavy controller на том же
-`workflow/v7`. Он детерминированно вызывает `git_status`, определяет project по
+`workflow/v8`. Он детерминированно вызывает `git_status`, определяет project по
 root marker, запускает фиксированную test command и обращается к model только
 один раз для объяснения failed test. Success path не вызывает model, context
 или compactor. Это architecture probe, не default workflow и не special
@@ -202,8 +202,24 @@ Context builder получает callbacks `host.search.query`,
 включая history, instructions, reasoning, limits и cache. Выбранный module
 определяет summary request и возвращает replacement history. Он может вызвать
 `host.model.complete`. Этот
-callback доступен всему `compactor/v5`, а не только `codex`. Deterministic
+callback доступен всему `compactor/v6`, а не только `codex`. Deterministic
 Python example не использует callback, но имеет ту же authority.
+
+Compactor наследует общий бюджет workflow; export `timeout_ms` может задать
+отдельный предел всей операции, включая model callbacks и retries. Подробности
+в [configuration.md](../guides/configuration.md).
+
+`CompactionOutput.user_message_replacements` явно связывает исходный
+conversation user message с новым сообщением, созданным compactor. Поля
+`source_message_id` и `replacement_message_id` образуют one-to-one отображение;
+новое сообщение имеет provenance `Compactor` и conversation scope. Host
+отклоняет неизвестный source, повторное использование id, отсутствующий target,
+сохранение source рядом с target и изменение содержимого под прежним id.
+Та же typed связь входит в `HistoryCompactionReport`: workflow, checkpoints,
+terminal validation и replay используют её для отслеживания текущего ввода.
+Оригинальный принятый ввод остаётся в журнале, компактное представление — в
+model history. При `changed = false` сообщения должны совпадать с input,
+а список замен должен быть пустым.
 
 `CompactionOutput` передаёт результат и диагностику явными полями:
 `token_estimate` — оценка после сжатия, `original_token_estimate` — оценка
@@ -213,11 +229,10 @@ Python example не использует callback, но имеет ту же aut
 `CompactionInput.token_estimate`. Числа сообщений считаются по фактическим
 input/output. `metadata` — непрозрачные данные module, не источник этих полей.
 
-Тот же DTO возвращает workflow callback `host.history.compact`, поэтому обе
-границы используют v5 с полным request в compaction input; прежние slot versions не
-принимаются. Wire protocol остаётся v3, журнал использует schema v4.
-Структура `HistoryCompactionReport` не меняется;
-workflow replay сохраняет typed поля и весь `metadata`, не подмешивая и не
+Тот же DTO возвращает workflow callback `host.history.compact`; актуальные
+границы — `compactor/v6` и `workflow/v8`, прежние slot versions не принимаются.
+Wire protocol остаётся v3, журнал использует schema v6.
+Workflow replay сохраняет typed поля `HistoryCompactionReport` и весь `metadata`, не подмешивая и не
 удаляя ключи с известными именами.
 
 ### Tool Exposure

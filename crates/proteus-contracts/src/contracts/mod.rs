@@ -6,6 +6,7 @@
 pub mod agent_control;
 pub mod approval_policy;
 pub mod approval_transport;
+pub mod compaction_validation;
 pub mod context_builder;
 pub mod event_sink;
 pub mod execution;
@@ -31,6 +32,7 @@ pub mod workflow_failure;
 pub use agent_control::*;
 pub use approval_policy::*;
 pub use approval_transport::*;
+pub use compaction_validation::*;
 pub use context_builder::*;
 pub use event_sink::*;
 pub use execution::*;

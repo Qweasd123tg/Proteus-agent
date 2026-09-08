@@ -18,7 +18,7 @@ Baseline: `openai/codex` commit
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v7`, `compactor/v5`, journal schema v5.
+Действующие версии: `workflow/v8`, `compactor/v6`, journal schema v6.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,
@@ -63,7 +63,7 @@ requests, прямое исполнение ранее скрытого tool, jo
 
 ### Продолжение После Модельной Ошибки
 
-`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v7`
+`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v8`
 failure envelope. Core сохраняет их до `TurnSettled(Error)`: следующий turn
 получает завершённые assistant items и tool results с исходными call ids.
 
@@ -124,6 +124,16 @@ recovery после ошибки обычного workflow model call сюда �
 workflow replay этого сценария пока не проходит: внутренний model exchange
 смешивается с exchanges workflow. Полный compaction lifecycle, remote branches
 и replay класса ошибки этим срезом не подтверждаются.
+
+Проверки [совместимости compactor](../../modules/reference/process-worker/tests/codex_compaction/compatibility.rs)
+проводят summary дольше 30 секунд при достаточном общем бюджете workflow и
+текущий пользовательский ввод больше 20 000 приблизительных токенов. Первый
+сценарий проверяет вложенный process/model deadline, второй — точное middle
+truncation выбранного Codex, checkpoint, сохранение и следующий HTTP request
+после cold resume. Upstream anchor: `compact.rs::build_compacted_history_with_limit`.
+Сокращённое сообщение получает новый canonical id и typed связь с исходным;
+полный принятый ввод остаётся в journal. Это сохраняет ограничение модельной
+истории без скрытой подмены исходного сообщения.
 
 `codex_context.project_doc_max_bytes` соответствует общему лимиту 32 768 байт
 для цепочки проектных инструкций. [Тесты](../../modules/reference/context-pack/src/codex.rs)

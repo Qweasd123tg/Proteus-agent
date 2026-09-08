@@ -190,6 +190,8 @@ fn compact_messages(
     };
     let output: proteus_contracts::contracts::CompactionOutput =
         from_json_string(output_json.as_str())?;
+    proteus_contracts::contracts::validate_compaction_output(&compaction_input, &output)
+        .map_err(|error| ProcessModuleError::new(error.to_string()))?;
     if output.messages.is_empty() && !request.messages.is_empty() {
         return Err(ProcessModuleError::new(
             "compactor returned empty messages for non-empty history",

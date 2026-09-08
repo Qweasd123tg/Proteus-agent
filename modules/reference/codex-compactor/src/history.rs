@@ -1,4 +1,5 @@
 use crate::{budget::truncate_to_tokens, summary::SUMMARY_PREFIX};
+use proteus_contracts::domain::{CompactionUserMessageReplacement, new_message_id};
 use proteus_contracts::model_standard::{
     CanonicalMessage, CanonicalPart, ContentPart, MessageRole, PartProvenance, PartScope,
 };
@@ -71,15 +72,22 @@ fn is_structured_ephemeral_context_message(message: &CanonicalMessage) -> bool {
             .all(|part| part.scope == PartScope::Request)
 }
 
+#[derive(Default)]
+pub(crate) struct SelectedUserMessages {
+    pub(crate) messages: Vec<CanonicalMessage>,
+    pub(crate) replacements: Vec<CompactionUserMessageReplacement>,
+}
+
 pub(crate) fn select_recent_user_messages(
     messages: &[CanonicalMessage],
     budget_tokens: usize,
-) -> Vec<CanonicalMessage> {
+) -> SelectedUserMessages {
     if budget_tokens == 0 {
-        return Vec::new();
+        return SelectedUserMessages::default();
     }
 
     let mut selected = Vec::new();
+    let mut replacements = Vec::new();
     let mut remaining = budget_tokens;
     for message in messages.iter().rev() {
         if remaining == 0 {
@@ -94,6 +102,7 @@ pub(crate) fn select_recent_user_messages(
             remaining = remaining.saturating_sub(tokens);
         } else {
             let mut truncated = message.clone();
+            truncated.id = new_message_id();
             truncated.parts = vec![CanonicalPart::new(
                 PartProvenance::Compactor,
                 PartScope::Conversation,
@@ -101,12 +110,19 @@ pub(crate) fn select_recent_user_messages(
                     text: truncate_to_tokens(&text, remaining),
                 },
             )];
+            replacements.push(CompactionUserMessageReplacement {
+                source_message_id: message.id,
+                replacement_message_id: truncated.id,
+            });
             selected.push(truncated);
             break;
         }
     }
     selected.reverse();
-    selected
+    SelectedUserMessages {
+        messages: selected,
+        replacements,
+    }
 }
 
 pub(crate) fn replacement_messages(
