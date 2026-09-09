@@ -118,23 +118,31 @@ impl TurnScaffold {
         let Some(history) = self.history_update()? else {
             return Ok(());
         };
-        let bindings = calls
+        for call in calls {
+            self.result_bindings
+                .entry(call.id.clone())
+                .or_insert_with(|| WorkflowToolResultBinding::new(call.clone()));
+        }
+        // Conversation order, independent of HashMap iteration and completion order.
+        let bindings = self
+            .persistent_messages
             .iter()
-            .cloned()
-            .map(WorkflowToolResultBinding::new)
+            .flat_map(|message| &message.parts)
+            .filter_map(|part| match &part.payload {
+                proteus_contracts::model_standard::ContentPart::ToolCall { call } => {
+                    self.result_bindings.get(&call.id).cloned()
+                }
+                _ => None,
+            })
             .collect::<Vec<_>>();
         let checkpoint = WorkflowHistoryCheckpoint {
             history,
-            tool_results: bindings.clone(),
+            tool_results: bindings,
         };
         host.checkpoint_history_json(
             serde_json::to_string(&checkpoint)
                 .map_err(|error| ProcessModuleError::new(error.to_string()))?,
         )?;
-        self.result_bindings = bindings
-            .into_iter()
-            .map(|binding| (binding.call_id.clone(), binding))
-            .collect();
         Ok(())
     }
 

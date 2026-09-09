@@ -265,13 +265,13 @@ invalid DTO и превышение limits являются fail-closed protocol
 | context | v2 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
 | model | v6 | `describe`, `stream` | `host.model.emit` (acknowledged canonical events) |
 | compactor | v8 | `compact` | `host.model.complete` |
-| workflow | v11 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
+| workflow | v12 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
 
 Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
 DTO, adapter, protocol/conformance и swap evidence в одном commit.
 
-`workflow/v11` возвращает strict terminal envelope: `status = "success"` с
+`workflow/v12` возвращает strict terminal envelope: `status = "success"` с
 `result: WorkflowOutput` либо `status = "error"` с `failure: WorkflowFailure`.
 Ошибка алгоритма может содержать `history: WorkflowHistoryUpdate` — завершённые
 `new_messages`, optional `history_replacement` и `compactions`; `model_failure`
@@ -315,6 +315,38 @@ child/detached facts и внутренние model calls не становятс
 tools. Запрос без результата остаётся неизвестным исходом, повтор не выполняется.
 `coding.codex_loop` и Python example используют checkpoints; callback доступен
 всем implementations workflow slot с одинаковой authority.
+
+## Model Stream В Workflow
+
+`workflow/v12` предоставляет всем exports два callbacks:
+
+- `host.model.stream.start(WorkflowCompleteModelRequest) -> { stream_id }`;
+- `host.model.stream.next({ stream_id }) -> WorkflowModelStreamItem` с
+  `type = message_completed | response | error` и соответствующим
+  `message`, `response` или `failure`.
+
+На invocation разрешён один активный cursor. Повторный start, чужой/погашенный
+cursor и конкурентный next завершаются явной ошибкой. Terminal item гасит cursor;
+выход, cancellation или потеря workflow освобождают pump и provider stream.
+Success с неполученным terminal отклоняется. Прерванный незавершённый model
+exchange не получает synthetic response и не поддерживается workflow replay.
+`host.model.complete` остаётся самостоятельной операцией полного запроса,
+в том числе для compactor; скрытого перехода между двумя операциями нет.
+
+Core читает model stream независимо от tool callback, сохраняет model facts и
+публикует UI deltas. Очередь до 64 completed items сохраняет порядок и создаёт
+backpressure при медленном workflow. `next` — delivery без новых прав и без
+расхода cumulative host-work budget; frame/pending/deadline limits действуют.
+Никакой model item не запускает tool в Core автоматически.
+
+`coding.codex_loop` подтверждает каждый completed item и запускает его calls,
+не ожидая terminal. Calls разных items обрабатываются последовательно;
+обычная batch semantics внутри item сохраняется. Результаты сразу durable,
+но workflow добавляет их в prompt после всех model items, также при Error.
+Checkpoint может расширить model prefix и повторить прежние bindings с теми же
+identities: Core переносит сохранённый result suffix за новый prefix. Удаление
+результата или изменение binding запрещены; после drain результаты явно входят
+в history, а bindings снимаются. Live и cold projection используют один алгоритм.
 
 ## Shared Lifecycle И Multiplexed Broker
 
@@ -509,7 +541,11 @@ Core собирает `MessageCompleted` независимо от presentation 
 идентичность сообщений, conversation scope, уникальность part ids, отсутствие
 tool result parts, соответствие function/freeform/hosted surface запросу и
 отсутствие повторных call ids в progress и request history. Повтор того же
-completed message id с тем же содержимым идемпотентен. Дельты аргументов не
+completed message id с тем же содержимым идемпотентен и повторно не доставляется.
+Terminal response обязан сохранить этот prefix по ids, порядку и содержимому;
+Core переносит исходные part ids после повторного разбора provider output.
+Изменение/исчезновение completed item — protocol error с прежним progress.
+Дельты аргументов не
 становятся вызовом. Workflow явно выбирает сохранение этого
 progress. В `coding.codex_loop` сохраняется только output прямого model call,
 а не внутренний summary неудачного compactor. Завершённые calls проходят общий
@@ -528,11 +564,13 @@ event; это причина, а не команда Core повторить з�
 классифицирует так ошибки чтения SSE и EOF без завершения, сохраняя остальные
 ошибки данных и deadline отдельными. Codex workflow принимает решение о повторе
 с подтверждённой историей; compactor сохраняет свою политику повторов.
-Действуют `model/v6`, `workflow/v11`, `compactor/v8` и journal schema v11,
+Действуют `model/v6`, `workflow/v12`, `compactor/v8` и journal schema v12,
 без readers старых форм.
 Передача `ToolCall` в существующем `CanonicalMessage` не меняет wire/storage DTO.
 
-Journal сохраняет полный `ModelFailure`; workflow replay возвращает тот же
+Journal schema v12 записывает `ModelMessageRecorded { exchange_id, message }`
+до доставки completed item и сохраняет полный `ModelFailure`; workflow replay
+воспроизводит последовательность completed items и возвращает тот же
 `kind`, текст и `completed_messages`. Ветвление workflow по типу ошибки прямого
 model call воспроизводится без разбора текста. Это не запуск внутреннего
 алгоритма compactor: его replay по-прежнему использует готовый report/history.

@@ -46,7 +46,7 @@ impl CompletedMessageProgress {
         }
     }
 
-    pub(super) fn accept(&mut self, message: CanonicalMessage) -> Result<()> {
+    pub(super) fn accept(&mut self, message: CanonicalMessage) -> Result<bool> {
         if message.role != MessageRole::Assistant {
             bail!("completed model message must have the assistant role");
         }
@@ -70,7 +70,7 @@ impl CompletedMessageProgress {
             if !same_message_ignoring_part_ids(&self.messages[index], &message) {
                 bail!("completed model message id {} was reused", message.id);
             }
-            return Ok(());
+            return Ok(false);
         }
         // A completed item must be safe to retain as conversation history.
         // Check before accepting it so malformed progress cannot invalidate a
@@ -107,6 +107,27 @@ impl CompletedMessageProgress {
         self.call_ids.extend(message_call_ids);
         self.positions.insert(message.id, self.messages.len());
         self.messages.push(message);
+        Ok(true)
+    }
+
+    /// Accepted completed items are authoritative. Terminal output must retain
+    /// their order/content; reuse their canonical part identities after parsing.
+    pub(super) fn reconcile_response(
+        &self,
+        response: &mut crate::model_standard::CanonicalModelResponse,
+    ) -> Result<()> {
+        if response.messages.len() < self.messages.len() {
+            bail!("terminal response omitted completed model messages");
+        }
+        for (accepted, terminal) in self.messages.iter().zip(&mut response.messages) {
+            if accepted.id != terminal.id || !same_message_ignoring_part_ids(accepted, terminal) {
+                bail!(
+                    "terminal response changed completed model message {}",
+                    accepted.id
+                );
+            }
+            *terminal = accepted.clone();
+        }
         Ok(())
     }
 

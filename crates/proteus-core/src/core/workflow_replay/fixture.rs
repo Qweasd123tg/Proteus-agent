@@ -40,6 +40,7 @@ pub(super) struct WorkflowReplayFixture {
 
 #[derive(Debug, Clone)]
 pub(super) struct RecordedModelExchange {
+    pub completed_messages: Vec<CanonicalMessage>,
     pub exchange_id: ExchangeId,
     pub request: CanonicalModelRequest,
     pub outcome: ModelResponseOutcome,

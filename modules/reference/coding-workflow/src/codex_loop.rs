@@ -93,19 +93,18 @@ fn run_loop(
             response.finish_reason == FinishReason::ToolCalls && !response.tool_calls.is_empty();
         let model_requests_follow_up = response.end_turn == Some(false);
         let assistant_message = response_output_message("codex_loop", &response)?.clone();
-        turn.model_messages
-            .extend(response.messages.iter().cloned());
-        turn.persistent_messages
-            .extend(response.messages.iter().cloned());
         if let Some(usage) = response.usage.clone() {
             last_usage = Some(LastModelUsage {
                 usage,
-                message_count: turn.model_messages.len(),
+                message_count: turn
+                    .model_messages
+                    .len()
+                    .saturating_sub(response.tool_calls.len()),
             });
         }
 
         if should_run_tools {
-            tools.execute(host, input, turn, &response.tool_calls, &request.tools)?;
+            turn.checkpoint(host, &[])?;
             continue;
         }
         turn.checkpoint(host, &[])?;

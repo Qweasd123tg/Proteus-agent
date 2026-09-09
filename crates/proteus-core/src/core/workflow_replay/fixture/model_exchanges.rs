@@ -16,6 +16,7 @@ struct PendingExchange {
     origin: ModelCallOrigin,
     request: CanonicalModelRequest,
     outcome: Option<ModelResponseOutcome>,
+    completed_messages: Vec<crate::model_standard::CanonicalMessage>,
 }
 
 pub(super) fn select_exchanges(
@@ -37,7 +38,16 @@ pub(super) fn select_exchanges(
                     origin: request.origin,
                     request: request.request.clone(),
                     outcome: None,
+                    completed_messages: Vec::new(),
                 });
+            }
+            JournalEntry::ModelMessageRecorded(item) => {
+                let index = *positions
+                    .get(&item.exchange_id)
+                    .ok_or_else(|| anyhow!("completed model item has no root request"))?;
+                exchanges[index]
+                    .completed_messages
+                    .push(item.message.clone());
             }
             JournalEntry::ModelResponseRecorded(response) => {
                 let index = positions
@@ -60,6 +70,7 @@ pub(super) fn select_exchanges(
         .into_iter()
         .map(|exchange| {
             Ok((exchange.origin, RecordedModelExchange {
+                completed_messages: exchange.completed_messages,
                 exchange_id: exchange.exchange_id,
                 request: exchange.request,
                 outcome: exchange.outcome.ok_or_else(|| {

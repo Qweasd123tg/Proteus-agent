@@ -203,14 +203,14 @@ history сохраняют раздельные commentary/final items. Клие
 Если runtime запущен с config path, рядом с config root создаётся дерево
 `sessions/<workspace>/<session>/` (подробно про layout, resume и lifecycle —
 раздел «Session Store» ниже). Source of truth — `journal.jsonl`, где одна
-строка является строгим record schema v11 с `record_id`, монотонным
+строка является строгим record schema v12 с `record_id`, монотонным
 `session_seq`, timestamp, mandatory session id, optional execution/thread/turn
 ids, `kind` и payload. `TurnOpened`, model и tool facts требуют
 `ExecutionId`; history/settlement остаются chat facts без execution owner.
 Detached execution facts имеют execution id, но не выдумывают thread/turn.
 
 Journal фиксирует `turn_opened`, revisioned `history_mutated`, точные shaped
-model request/terminal response, tool request/approval/resolution/result и
+model request/completed items/terminal response, tool request/approval/resolution/result и
 `turn_settled`. Conversation history для resume получается fold-ом
 `history_mutated`; request-scoped context в неё не попадает. Compaction пишет
 append-only replacement с lineage и не удаляет исходные records.
@@ -630,12 +630,12 @@ journal. ОС освобождает владение при закрытии pr
 находится в parent directory, а время создания/изменения берётся из metadata
 файловой системы. Новая session получает 10-значный numeric basename,
 детерминированный из внутреннего UUID; полный `SessionId` сохраняется в
-`session.json` schema v4 вместе с `journal_schema_version = 11`. Перед записью runtime
+`session.json` schema v4 вместе с `journal_schema_version = 12`. Перед записью runtime
 проверяет metadata, поэтому коллизия коротких имён завершается ошибкой и не
 смешивает histories.
 
 Reader принимает только basename из 10 ASCII-цифр с обязательным
-`session.json` schema v4 и journal schema v11. UUID-basename directories,
+`session.json` schema v4 и journal schema v12. UUID-basename directories,
 прежние session/journal schemas и неизвестные wire/storage формы
 отвергаются явно: pre-release cutover не содержит legacy decoder или dual-read.
 Старые локальные dogfood sessions следует вручную переместить целиком за
@@ -688,7 +688,7 @@ compactions должна завершаться сохранённым conversat
 resume используют сокращённое представление. Runtime атомарно заменяет историю
 этим snapshot-ом и затем дописывает `new_messages`.
 
-`workflow/v11` также позволяет вернуть `WorkflowFailure` с накопленным history
+`workflow/v12` также позволяет вернуть `WorkflowFailure` с накопленным history
 update. Core проверяет и сохраняет его до settlement со статусом `Error`.
 `coding.codex_loop` использует этот путь: если tool завершился, а следующий
 model call упал, новый turn получает прежний call/result и после перезапуска
@@ -700,9 +700,11 @@ runtime. Если до ошибки пришли завершённые assistan
 этот механизм не выполняет.
 
 Workflow может раньше подтвердить progress через `host.history.checkpoint`.
-В `coding.codex_loop` это происходит после завершённого model response и до
-tools, перед исполнением завершённых calls из model failure, после changed
-compaction и перед повтором оборванного model stream.
+В `coding.codex_loop` это происходит для каждого completed model item, включая
+calls при открытом stream, после changed compaction и перед повтором оборванного
+stream. Model IO и UI deltas продолжаются во время исполнения tool. Результаты
+добавляются в следующий prompt после model items; промежуточный checkpoint
+расширяет model prefix с прежними bindings, сохраняя durable result suffix.
 Выбранный результат tool попадает
 в history вместе с `tool_result_recorded`; потеря ответа между Core и workflow
 его не удаляет. Подтверждённый результат сохраняется и при Cancel, внешнем

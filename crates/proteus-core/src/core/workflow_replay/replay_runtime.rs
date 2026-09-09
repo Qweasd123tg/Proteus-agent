@@ -140,7 +140,10 @@ impl ReplayState {
     pub fn consume_model_request(
         &self,
         actual: &CanonicalModelRequest,
-    ) -> Result<ModelResponseOutcome> {
+    ) -> Result<(
+        Vec<crate::model_standard::CanonicalMessage>,
+        ModelResponseOutcome,
+    )> {
         let mut inner = self.lock();
         let index = inner.next_exchange;
         let Some(expected) = inner.exchanges.get(index).cloned() else {
@@ -166,7 +169,7 @@ impl ReplayState {
         }
         let outcome = expected.outcome.clone();
         inner.next_exchange += 1;
-        Ok(outcome)
+        Ok((expected.completed_messages, outcome))
     }
 
     pub fn tool_exposure(&self) -> Result<ToolExposureOutput> {

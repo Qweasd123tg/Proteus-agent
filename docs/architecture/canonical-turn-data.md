@@ -1,6 +1,6 @@
 # Canonical Turn Data
 
-Текущий формат — journal schema v11 и session metadata v4. Resume history,
+Текущий формат — journal schema v12 и session metadata v4. Resume history,
 transcript, eval, prompt replay и workflow replay читают canonical journal.
 
 Schema v4 сохраняет обязательный `ContextChunk.render_mode` внутри canonical
@@ -74,7 +74,7 @@ provider-side execution и сохраняются в journal/transcript/eval pro
 `CanonicalPart` явно закрепляет их provenance/scope; угадывать hosted execution
 по provider metadata или тексту ответа нельзя.
 
-## Journal v3
+## Journal v12
 
 Одна JSONL-строка — один строгий record с общим envelope:
 
@@ -105,6 +105,7 @@ root/child threads. `record_id` идентифицирует record и дела�
   messages;
 - `model_request_recorded` — полный request после `RequestShaper`, до adapter
   call, с `exchange_id` и обязательным typed `origin` (`direct` или `compactor`);
+- `model_message_recorded` — принятый completed item с `exchange_id`, до доставки workflow;
 - `model_response_recorded` — terminal canonical response или canonical error,
   связанный с `exchange_id`;
 - `tool_call_recorded` — call и policy/approval resolution до потенциального
@@ -124,6 +125,18 @@ Tool call пишется до invocation, result — после. Поэтому 
 scope отделён от `ExecutionScope`; происхождение не выводится из `module_id`
 или provider metadata и не меняет authority. Поле принадлежит journal envelope,
 а не `CanonicalModelRequest`: provider request и process/wire contracts не меняются.
+
+`ModelMessageRecorded` не меняет conversation history автоматически. Workflow
+выбирает completed item checkpoint-ом; terminal обязан сохранять его ids,
+содержимое и порядок. Replay получает записанные completed items до terminal.
+Checkpoint position сравнивается по начатым direct requests и tool facts:
+при независимом model IO момент terminal относительно tool callback может
+различаться, но порядок items, calls/results и snapshots должен совпадать.
+
+Во время stream checkpoint может расширить model prefix с теми же result
+bindings. Уже записанные результаты переносятся за новый prefix в порядке
+bindings; изменение identities/operation или потеря результата отклоняются.
+После drain workflow включает результаты в history и снимает bindings.
 
 Generic `ExecutionRecorder` принимает модельный `ModelFailure` целиком;
 session recorder записывает canonical error с обязательным `failure`:

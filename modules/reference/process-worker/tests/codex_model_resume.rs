@@ -56,6 +56,10 @@ fn sse_body(response: &Value) -> String {
     };
     for (index, item) in response["output"].as_array().unwrap().iter().enumerate() {
         if item["type"] != "message" {
+            emit(
+                "response.output_item.done",
+                json!({"output_index": index, "item": item}),
+            );
             continue;
         }
         let mut added = item.clone();

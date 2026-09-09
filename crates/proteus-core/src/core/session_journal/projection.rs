@@ -145,19 +145,24 @@ impl JournalValidationState {
                     }
                     HistoryMutationKind::Checkpoint => {
                         let turn_id = self.require_root_turn(record)?;
-                        if mutation
-                            .tool_results
-                            .iter()
-                            .any(|binding| self.known_parts.contains_key(&binding.part_id))
-                        {
+                        if mutation.tool_results.iter().any(|binding| {
+                            self.known_parts.contains_key(&binding.part_id)
+                                && !self.capture.has_binding(binding)
+                        }) {
                             bail!("checkpoint reuses a previously recorded result part identity");
                         }
-                        self.capture = super::history_capture::HistoryCapture::new(
+                        let (capture, history) = self.capture.rebase(
+                            &self.history,
                             &mutation.messages,
                             &mutation.tool_results,
+                            mutation
+                                .compaction
+                                .as_ref()
+                                .is_some_and(|report| report.changed),
                         )?;
+                        self.capture = capture;
+                        self.history = history;
                         self.capture_owner = Some((required_thread_id(record)?, turn_id));
-                        self.history = mutation.messages.clone();
                     }
                 }
                 validate_active_history_ids(&self.history)?;
@@ -173,6 +178,15 @@ impl JournalValidationState {
                 {
                     bail!("duplicate model exchange request {}", request.exchange_id);
                 }
+            }
+            JournalEntry::ModelMessageRecorded(item) => {
+                let owner = self.require_execution_fact(record)?;
+                if self.model_requests.get(&item.exchange_id) != Some(&owner)
+                    || self.model_responses.contains(&item.exchange_id)
+                {
+                    bail!("completed model message has no active exchange with the same owner");
+                }
+                self.validate_part_id_stability(std::slice::from_ref(&item.message))?;
             }
             JournalEntry::ModelResponseRecorded(response) => {
                 let owner = self.require_execution_fact(record)?;

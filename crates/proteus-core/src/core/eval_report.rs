@@ -168,7 +168,7 @@ impl EvalAccumulator {
                         .or_else(|| Some(format!("turn settled with status {:?}", settled.status)));
                 }
             }
-            JournalEntry::HistoryMutated(_) => {}
+            JournalEntry::HistoryMutated(_) | JournalEntry::ModelMessageRecorded(_) => {}
         }
         Ok(())
     }

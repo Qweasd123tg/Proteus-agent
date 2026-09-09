@@ -14,7 +14,8 @@ use proteus_contracts::contracts::{
     WORKFLOW_HOST_BUILD_CONTEXT_METHOD, WORKFLOW_HOST_COMPACT_HISTORY_METHOD,
     WORKFLOW_HOST_COMPLETE_MODEL_METHOD, WORKFLOW_HOST_EMIT_EVENT_METHOD,
     WORKFLOW_HOST_EXECUTE_TOOL_METHOD, WORKFLOW_HOST_EXECUTE_TOOLS_METHOD,
-    WORKFLOW_HOST_RUNTIME_STATUS_METHOD, WORKFLOW_HOST_SELECT_TOOLS_METHOD,
+    WORKFLOW_HOST_NEXT_MODEL_STREAM_METHOD, WORKFLOW_HOST_RUNTIME_STATUS_METHOD,
+    WORKFLOW_HOST_SELECT_TOOLS_METHOD, WORKFLOW_HOST_START_MODEL_STREAM_METHOD,
     WORKFLOW_HOST_VISIBLE_TOOLS_METHOD,
 };
 
@@ -41,6 +42,8 @@ const TOOL_METHODS: &[&str] = &[PROCESS_TOOL_LIST_METHOD, PROCESS_TOOL_INVOKE_ME
 const WORKFLOW_METHODS: &[&str] = &[PROCESS_WORKFLOW_METHOD];
 const WORKFLOW_HOST_METHODS: &[&str] = &[
     proteus_contracts::contracts::WORKFLOW_HOST_CHECKPOINT_HISTORY_METHOD,
+    WORKFLOW_HOST_START_MODEL_STREAM_METHOD,
+    WORKFLOW_HOST_NEXT_MODEL_STREAM_METHOD,
     WORKFLOW_HOST_RUNTIME_STATUS_METHOD,
     WORKFLOW_HOST_BUILD_CONTEXT_METHOD,
     WORKFLOW_HOST_COMPLETE_MODEL_METHOD,
@@ -68,7 +71,8 @@ impl ProcessContractAuthority {
     /// Delivery only: no nested execution or additional authority. It consumes
     /// the pending callback/frame budget, but not the cumulative host-work budget.
     pub fn is_stream_delivery(self, method: &str) -> bool {
-        self.slot == "model" && method == MODEL_HOST_EMIT_METHOD
+        (self.slot == "model" && method == MODEL_HOST_EMIT_METHOD)
+            || (self.slot == "workflow" && method == WORKFLOW_HOST_NEXT_MODEL_STREAM_METHOD)
     }
     pub fn allows_host_method(self, method: &str) -> bool {
         self.host_methods.contains(&method)
@@ -256,6 +260,15 @@ mod tests {
         assert_eq!(authority.composition, ProcessModuleComposition::SelectOne);
         assert_eq!(authority.module_methods, [PROCESS_WORKFLOW_METHOD]);
         assert_eq!(authority.host_methods, WORKFLOW_HOST_METHODS);
+        assert!(authority.is_stream_delivery(WORKFLOW_HOST_NEXT_MODEL_STREAM_METHOD));
+        assert!(!authority.is_stream_delivery(WORKFLOW_HOST_START_MODEL_STREAM_METHOD));
+        for other in PROCESS_CONTRACT_AUTHORITIES
+            .iter()
+            .filter(|item| item.slot != "workflow")
+        {
+            assert!(!other.allows_host_method(WORKFLOW_HOST_START_MODEL_STREAM_METHOD));
+            assert!(!other.allows_host_method(WORKFLOW_HOST_NEXT_MODEL_STREAM_METHOD));
+        }
     }
 
     #[test]
@@ -266,7 +279,7 @@ mod tests {
             ("context_provider", "v1", "v2"),
             ("model", "v5", "v6"),
             ("compactor", "v7", "v8"),
-            ("workflow", "v10", "v11"),
+            ("workflow", "v11", "v12"),
         ] {
             assert!(process_contract_authority(slot, previous).is_none());
             assert!(process_contract_authority(slot, current).is_some());

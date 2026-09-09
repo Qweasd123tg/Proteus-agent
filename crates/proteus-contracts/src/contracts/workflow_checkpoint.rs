@@ -47,6 +47,10 @@ impl WorkflowToolResultBinding {
 
 /// Cumulative update relative to the invocation's input history, just like its
 /// terminal output. A checkpoint is committed before its acknowledgement.
+/// During model streaming a workflow may extend the model prefix while keeping
+/// identical pending result bindings. The host carries already recorded results
+/// to the end of that prefix in binding order. Once drained, results appear in
+/// `history` with the reserved identities and their bindings are removed.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct WorkflowHistoryCheckpoint {

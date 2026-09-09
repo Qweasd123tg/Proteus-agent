@@ -24,6 +24,7 @@ use proteus_contracts::{
 
 #[derive(Default)]
 struct FakeHost {
+    stream_items: Mutex<VecDeque<proteus_contracts::contracts::WorkflowModelStreamItem>>,
     checkpoints: Mutex<Vec<proteus_contracts::contracts::WorkflowHistoryCheckpoint>>,
     events: Mutex<Vec<Event>>,
     requests: Mutex<Vec<CanonicalModelRequest>>,
@@ -111,6 +112,28 @@ impl WorkflowModuleHost for FakeHost {
         Ok(String::from(
             serde_json::to_string(&bundle).expect("bundle json"),
         ))
+    }
+
+    fn start_model_stream_json(&self, request_json: String) -> Result<String, ProcessModuleError> {
+        use proteus_contracts::contracts::WorkflowModelStreamItem;
+        let item = match self.complete_model_json(request_json) {
+            Ok(json) => WorkflowModelStreamItem::Response {
+                response: serde_json::from_str(&json).unwrap(),
+            },
+            Err(error) => match error.model_failure {
+                Some(failure) => WorkflowModelStreamItem::Error { failure },
+                None => return Err(error),
+            },
+        };
+        self.stream_items.lock().unwrap().push_back(item);
+        Ok(
+            serde_json::json!({"stream_id": proteus_contracts::domain::new_message_id()})
+                .to_string(),
+        )
+    }
+
+    fn next_model_stream_json(&self, _cursor_json: String) -> Result<String, ProcessModuleError> {
+        Ok(serde_json::to_string(&self.stream_items.lock().unwrap().pop_front().unwrap()).unwrap())
     }
 
     fn complete_model_json(&self, request_json: String) -> Result<String, ProcessModuleError> {

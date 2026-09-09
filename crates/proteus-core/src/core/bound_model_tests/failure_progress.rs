@@ -93,6 +93,70 @@ fn recording_model(
 }
 
 #[tokio::test]
+async fn terminal_output_cannot_revise_or_omit_an_accepted_completed_item() {
+    let accepted = completed("authoritative item", MessagePhase::Commentary);
+    for changed in [false, true] {
+        let terminal = if changed {
+            let mut message = accepted.clone();
+            message.parts[0].payload = ContentPart::Text {
+                text: "revised item".into(),
+            };
+            message
+        } else {
+            completed("different item", MessagePhase::FinalAnswer)
+        };
+        let (model, recorder) = recording_model(vec![
+            ModelStreamEvent::MessageCompleted {
+                message: accepted.clone(),
+            },
+            ModelStreamEvent::Response {
+                response: CanonicalModelResponse::new(terminal, vec![], FinishReason::Stop),
+            },
+        ]);
+        let error = model
+            .complete(request("failure-progress", "terminal validation"))
+            .await
+            .unwrap_err();
+        let failure = ModelFailure::from_error(&error);
+        assert!(
+            failure
+                .message
+                .contains("terminal response changed completed model message")
+        );
+        assert_eq!(failure.completed_messages, [accepted.clone()]);
+        assert!(recorder.facts.lock().await.responses.is_empty());
+    }
+    let mut terminal = accepted.clone();
+    terminal.parts[0].part_id = new_part_id();
+    let (model, _) = recording_model(vec![
+        ModelStreamEvent::MessageCompleted {
+            message: accepted.clone(),
+        },
+        ModelStreamEvent::MessageCompleted {
+            message: terminal.clone(),
+        },
+        ModelStreamEvent::Response {
+            response: CanonicalModelResponse::new(terminal, vec![], FinishReason::Stop),
+        },
+    ]);
+    let events = model
+        .stream(request("failure-progress", "stable identity"))
+        .await
+        .unwrap()
+        .collect::<Vec<_>>()
+        .await;
+    assert_eq!(
+        events.len(),
+        2,
+        "duplicate completion is not delivered twice"
+    );
+    let Ok(ModelStreamEvent::Response { response }) = &events[1] else {
+        panic!("missing response");
+    };
+    assert_eq!(response.messages, [accepted]);
+}
+
+#[tokio::test]
 async fn completed_messages_are_attached_on_eof_even_when_deltas_are_suppressed() {
     let message = completed("durable before EOF", MessagePhase::Commentary);
     let (model, recorder) = recording_model(vec![

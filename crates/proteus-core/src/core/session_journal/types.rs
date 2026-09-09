@@ -10,7 +10,7 @@ use proteus_contracts::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const JOURNAL_SCHEMA_VERSION: u32 = 11;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 12;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -46,6 +46,13 @@ pub struct ModelRequestRecorded {
     pub exchange_id: ExchangeId,
     pub origin: ModelCallOrigin,
     pub request: CanonicalModelRequest,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ModelMessageRecorded {
+    pub exchange_id: ExchangeId,
+    pub message: CanonicalMessage,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -106,6 +113,7 @@ pub enum JournalKind {
     TurnOpened,
     HistoryMutated,
     ModelRequestRecorded,
+    ModelMessageRecorded,
     ModelResponseRecorded,
     ToolCallRecorded,
     ToolResultRecorded,
@@ -123,6 +131,7 @@ pub enum JournalEntry {
     TurnOpened(TurnOpened),
     HistoryMutated(HistoryMutated),
     ModelRequestRecorded(ModelRequestRecorded),
+    ModelMessageRecorded(ModelMessageRecorded),
     ModelResponseRecorded(ModelResponseRecorded),
     ToolCallRecorded(ToolCallRecorded),
     ToolResultRecorded(ToolResultRecorded),
@@ -135,6 +144,7 @@ impl JournalEntry {
             Self::TurnOpened(_) => JournalKind::TurnOpened,
             Self::HistoryMutated(_) => JournalKind::HistoryMutated,
             Self::ModelRequestRecorded(_) => JournalKind::ModelRequestRecorded,
+            Self::ModelMessageRecorded(_) => JournalKind::ModelMessageRecorded,
             Self::ModelResponseRecorded(_) => JournalKind::ModelResponseRecorded,
             Self::ToolCallRecorded(_) => JournalKind::ToolCallRecorded,
             Self::ToolResultRecorded(_) => JournalKind::ToolResultRecorded,

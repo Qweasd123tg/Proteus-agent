@@ -16,6 +16,9 @@ use super::{
     read_json_request, sse_body,
 };
 
+#[path = "stream_recovery/early_execution.rs"]
+mod early_execution;
+
 #[path = "stream_recovery/cancellation.rs"]
 mod cancellation;
 #[path = "stream_recovery/tool_progress.rs"]

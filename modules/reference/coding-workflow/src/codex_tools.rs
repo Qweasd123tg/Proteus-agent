@@ -24,18 +24,15 @@ impl CodexToolRun {
         turn: &mut TurnScaffold,
         calls: &[ToolCall],
         request_tools: &[ToolSpec],
-    ) -> Result<(), ProcessModuleError> {
+    ) -> Result<Vec<ToolResult>, ProcessModuleError> {
         if calls.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
         let batch = CodexToolBatch::prepare(calls, request_tools);
         turn.checkpoint(host, &batch.execution_calls())?;
-        self.tool_rounds += 1;
         self.executed_tools
             .extend(calls.iter().map(|call| call.name.clone()));
-        let results = batch.execute(host, input, "codex_loop")?;
-        turn.append_tool_results(results);
-        Ok(())
+        batch.execute(host, input, "codex_loop")
     }
 }
 

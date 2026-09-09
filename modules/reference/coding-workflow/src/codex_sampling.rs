@@ -5,9 +5,7 @@ use std::time::Duration;
 
 use proteus_contracts::{
     domain::Event,
-    model_standard::{
-        CanonicalModelRequest, CanonicalModelResponse, ContentPart, ModelFailureKind,
-    },
+    model_standard::{CanonicalModelRequest, CanonicalModelResponse, ModelFailureKind},
     process_module::{ProcessModuleError, WorkflowModuleHostMut, WorkflowModuleInput},
 };
 use rand::Rng;
@@ -16,7 +14,7 @@ use serde_json::Value;
 
 use crate::{
     codex_tools::CodexToolRun,
-    host::{complete_model, emit_event, ensure_not_cancelled},
+    host::{emit_event, ensure_not_cancelled},
     scaffold::TurnScaffold,
 };
 
@@ -60,30 +58,10 @@ pub(crate) fn complete_sampling_request(
                 model: request.model.clone(),
             },
         )?;
-        let error = match complete_model(host, request, "codex_loop") {
+        let error = match crate::codex_stream::sample(host, input, turn, request, tools) {
             Ok(response) => return Ok(response),
             Err(error) => error,
         };
-        // Only direct model output belongs here. A compactor failure's summary
-        // messages must never enter the conversation through this path.
-        if let Some(failure) = &error.model_failure {
-            turn.model_messages
-                .extend(failure.completed_messages.iter().cloned());
-            turn.persistent_messages
-                .extend(failure.completed_messages.iter().cloned());
-            let calls = failure
-                .completed_messages
-                .iter()
-                .flat_map(|message| &message.parts)
-                .filter_map(|part| match &part.payload {
-                    ContentPart::ToolCall { call } => Some(call.clone()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
-            // Codex drains completed calls even when the stream cannot be
-            // retried. A failed sample is not a successful model response.
-            tools.execute(host, input, turn, &calls, &request.tools)?;
-        }
         let disconnected = error
             .model_failure
             .as_ref()

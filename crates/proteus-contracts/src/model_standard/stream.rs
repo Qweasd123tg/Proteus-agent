@@ -18,7 +18,10 @@ pub enum ModelStreamEvent {
         text: String,
     },
     /// Authoritative completed assistant item, including tool calls. The terminal
-    /// Response retains the same id; a failure retains it in completed_messages.
+    /// Response retains the same id and content; a failure retains it in
+    /// completed_messages. Completed items form an ordered prefix of Response.
+    /// Adapters may omit this event entirely, or stop emitting it at a prefix
+    /// boundary, but must not skip an earlier output item then emit a later one.
     MessageCompleted {
         message: CanonicalMessage,
     },

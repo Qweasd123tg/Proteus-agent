@@ -18,7 +18,7 @@ Baseline: `openai/codex` commit
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v11`, `compactor/v8`, journal schema v11.
+Действующие версии: `workflow/v12`, `compactor/v8`, journal schema v12.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,
@@ -127,11 +127,19 @@ deadline проверяется отдельным HTTP/process regression вы�
 Upstream `stream_events_utils.rs::handle_output_item_done` сохраняет completed
 call и ставит tool в исполнение; `session/turn.rs::try_run_sampling_request`
 вызывает `drain_in_flight` после выхода из stream loop, в том числе по ошибке.
-Proteus подтверждает сохранение call и обработку его результата перед retry
-либо terminal Error. Момент запуска отличается: `host.model.complete` возвращает
-completed calls workflow после полного ответа или ошибки; параллельное исполнение
-tools во время ещё открытого stream этим срезом не реализовано. Также не реализуются
-upstream idle timeout, первичный unbounded connection retry и WebSocket fallback.
+Proteus через `host.model.stream.start/next` запускает completed call до terminal
+и сохраняет result до retry либо Error. [Early-execution regression](../../modules/reference/process-worker/tests/codex_model_resume/stream_recovery/early_execution.rs)
+не завершает SSE до эффекта tool, затем отправляет поздний commentary item и
+проверяет порядок model items/result, cold history и matched replay. Вторая
+ветка обрывает stream после эффекта: retry не исполняет call повторно. Cancel
+при открытом SSE сохраняет checkpoint/result и закрывает provider connection.
+
+Остаётся ограничение: calls из разных completed items обрабатываются
+последовательно, хотя model IO продолжается независимо; upstream запускает
+параллельно допустимые calls и затем `drain_in_flight` сохраняет порядок результатов.
+Batch из одного item по-прежнему использует общий `execute_batch`.
+Также не реализуются upstream idle timeout, первичный unbounded connection retry
+и WebSocket fallback.
 Общий model deadline остаётся неповторяемой ошибкой. Полное совпадение stream
 lifecycle этим срезом не заявляется.
 
@@ -158,7 +166,7 @@ parser, все формы команд и event lifecycle этим срезом 
 
 ### Продолжение После Модельной Ошибки
 
-`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v11`
+`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v12`
 failure envelope. Core сохраняет их до `TurnSettled(Error)`: следующий turn
 получает завершённые assistant items и tool results с исходными call ids.
 
@@ -166,7 +174,7 @@ Upstream anchors того же baseline: `core/src/stream_events_utils.rs` со�
 model items и tool calls, `core/src/session/turn.rs` — завершённые tool results;
 ошибка следующего model call не откатывает эту историю. Proteus подтверждает
 этот путь для явно возвращённого terminal failure. Дополнительно checkpoints
-сохраняют завершённый canonical model response до tools.
+сохраняют completed model items до tools, также при открытом stream.
 
 [SSE regression](../../modules/reference/process-worker/tests/codex_model_resume/partial_sse_recovery.rs)
 проверяет завершённые assistant message items, за которыми следует обрыв до
@@ -176,8 +184,8 @@ workflow выбирает этот progress для history. Исходные ids
 попадают в history. В fixture повторы отключены (`stream_max_retries = 0`),
 исходный turn остаётся `Error`; Error и успешное продолжение
 проходят workflow replay. Внутренний summary compactor этим путём не сохраняется
-как пользовательская история. Срез не включает раннее исполнение tool calls,
-восстановление неподтверждённых items после crash/внешнего Cancel. Повтор SSE
+как пользовательская история. Неподтверждённые items после crash/внешнего Cancel
+не восстанавливаются. Раннее исполнение calls и повтор SSE
 проверяется отдельным сценарием выше.
 
 [HTTP/process regression](../../modules/reference/process-worker/tests/codex_model_resume/model_failure_recovery.rs)

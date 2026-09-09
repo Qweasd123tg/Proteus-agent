@@ -11,7 +11,11 @@ use proteus_contracts::{contracts::CancellationToken, model_standard::ModelFailu
 use proteus_core::core::{
     AgentRuntime, JournalEntry, ModelResponseOutcome, SessionStore, TurnSettlementStatus,
 };
-use tokio::{net::TcpListener, sync::Mutex};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+    sync::Mutex,
+};
 
 use super::{
     ApprovingTransport, CALL_ID, EFFECT, EFFECT_FILE, PROMPT, UNFINISHED, configure,
@@ -24,6 +28,7 @@ async fn serve(
     listener: TcpListener,
     request_count: Arc<AtomicUsize>,
     requests: Arc<Mutex<Vec<serde_json::Value>>>,
+    keep_open: bool,
 ) {
     loop {
         let Ok((mut socket, _)) = listener.accept().await else {
@@ -34,20 +39,24 @@ async fn serve(
             .lock()
             .await
             .push(read_json_request(&mut socket).await);
-        write_sse(
-            &mut socket,
-            &format!(
-                "{}{}",
-                super::tool_progress::completed_tool_sse(),
-                partial_sse_body(&format!("canceled_progress_{index}"), CANCELED_PROGRESS)
-            ),
-        )
-        .await;
+        let body = format!(
+            "{}{}",
+            super::tool_progress::completed_tool_sse(),
+            partial_sse_body(&format!("canceled_progress_{index}"), CANCELED_PROGRESS)
+        );
+        if keep_open {
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n").await.unwrap();
+            socket.write_all(body.as_bytes()).await.unwrap();
+            let mut byte = [0u8; 1];
+            // The pump's cancellation must drop the provider connection.
+            assert_eq!(socket.read(&mut byte).await.unwrap(), 0);
+            return;
+        }
+        write_sse(&mut socket, &body).await;
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn cancel_after_partial_checkpoint_stops_next_stream_attempt() {
+async fn check(keep_open: bool) {
     let root = tempfile::tempdir().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let config = configure(
@@ -60,7 +69,12 @@ async fn cancel_after_partial_checkpoint_stops_next_stream_attempt() {
     std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
     let request_count = Arc::new(AtomicUsize::new(0));
     let requests = Arc::new(Mutex::new(Vec::new()));
-    let server = tokio::spawn(serve(listener, request_count.clone(), requests.clone()));
+    let server = tokio::spawn(serve(
+        listener,
+        request_count.clone(),
+        requests.clone(),
+        keep_open,
+    ));
     let runtime = Arc::new(
         AgentRuntime::builder(config.clone(), root.path().join("workspace"))
             .with_config_path(Some(&config_path))
@@ -113,7 +127,7 @@ async fn cancel_after_partial_checkpoint_stops_next_stream_attempt() {
         let tool_result_is_durable = projection.records.iter().any(|record| {
             matches!(&record.entry, JournalEntry::ToolResultRecorded(tool) if tool.result.call_id == CALL_ID)
         });
-        if progress_is_durable && stream_error_is_durable && tool_result_is_durable {
+        if progress_is_durable && (keep_open || stream_error_is_durable) && tool_result_is_durable {
             break;
         }
         assert!(
@@ -121,6 +135,18 @@ async fn cancel_after_partial_checkpoint_stops_next_stream_attempt() {
             "partial checkpoint was not recorded"
         );
         tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    if keep_open {
+        let projection = SessionStore::open(session_dir.clone())
+            .unwrap()
+            .load_projection()
+            .unwrap();
+        assert!(
+            !projection
+                .records
+                .iter()
+                .any(|record| matches!(&record.entry, JournalEntry::ModelResponseRecorded(_)))
+        );
     }
     cancel.cancel();
     let result = tokio::time::timeout(Duration::from_secs(5), run)
@@ -134,7 +160,14 @@ async fn cancel_after_partial_checkpoint_stops_next_stream_attempt() {
         1,
         "cancellation during retry backoff must prevent the next request"
     );
-    server.abort();
+    if keep_open {
+        tokio::time::timeout(Duration::from_secs(3), server)
+            .await
+            .unwrap()
+            .unwrap();
+    } else {
+        server.abort();
+    }
     assert_eq!(requests.lock().await.len(), 1);
     assert_eq!(
         std::fs::read_to_string(root.path().join("workspace").join(EFFECT_FILE)).unwrap(),
@@ -198,4 +231,14 @@ async fn cancel_after_partial_checkpoint_stops_next_stream_attempt() {
             .iter()
             .all(|item| !item.text.contains(UNFINISHED))
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancel_after_partial_checkpoint_stops_next_stream_attempt() {
+    check(false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancel_while_stream_open_preserves_early_tool_and_closes_provider() {
+    check(true).await;
 }

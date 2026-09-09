@@ -47,7 +47,6 @@ impl WorkflowHistoryRecorder for TurnHistoryRecorder {
             &progress.compactions,
             &allowed,
         )?;
-        let next_capture = HistoryCapture::new(&prepared.final_messages, &checkpoint.tool_results)?;
         let mut capture = self.capture.lock().await;
         let mut recorded_compactions = self.recorded_compactions.lock().await;
         let mut history = self.history.lock().await;
@@ -62,10 +61,12 @@ impl WorkflowHistoryRecorder for TurnHistoryRecorder {
             .rev()
             .find(|report| report.changed)
             .cloned();
-        ensure!(
-            prepared.final_messages.starts_with(&history) || compaction.is_some(),
-            "checkpoint discarded committed history without a new compaction"
-        );
+        let (next_capture, next_history) = capture.rebase(
+            &history,
+            &prepared.final_messages,
+            &checkpoint.tool_results,
+            compaction.is_some(),
+        )?;
         if let Some(store) = &self.store {
             let agent = self.attribution.agent.expect("root turn attribution");
             store
@@ -78,7 +79,7 @@ impl WorkflowHistoryRecorder for TurnHistoryRecorder {
                 )
                 .await?;
         }
-        *history = prepared.final_messages;
+        *history = next_history;
         *capture = next_capture;
         *recorded_compactions = progress.compactions.len();
         Ok(())

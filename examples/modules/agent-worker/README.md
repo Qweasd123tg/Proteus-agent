@@ -1,6 +1,6 @@
 # Process agent worker
 
-`agent.py` — минимальный внешний `Workflow` v11 worker. Он не импортирует
+`agent.py` — минимальный внешний `Workflow` v12 worker. Он не импортирует
 `proteus-core`, Rust crates или provider SDK: связь с runtime состоит только из
 strict JSON-RPC поверх stdin/stdout.
 
@@ -33,7 +33,7 @@ executable + config-ом без Rust adapter под конкретный `module
 ```bash
 cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
   --component-id python-agent \
-  --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v11","module_config":{}}' \
+  --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v12","module_config":{}}' \
   -- python3 -B examples/modules/agent-worker/agent.py
 ```
 
@@ -53,7 +53,7 @@ execution закрыт structural deny. Чтобы проверить tool loop 
 выберите нужные tool modules/tools и policy в своём профиле; менять worker для
 этого не требуется.
 
-## Contract v11
+## Contract v12
 
 Module method: `run` (`ProcessWorkflowInput -> ProcessWorkflowResponse`).
 Успешный ответ использует явный envelope
@@ -70,11 +70,15 @@ Module method: `run` (`ProcessWorkflowInput -> ProcessWorkflowResponse`).
 исходный call без преобразований. Host проверяет совпадение id с `call_id` и
 точное соответствие последующего исполнения объявленной операции.
 
-Разрешённые callbacks определяются только парой `workflow/v11`:
+Пример читает completed items через `host.model.stream.start/next`, ожидает
+terminal и затем исполняет tools. Выбор раннего исполнения принадлежит workflow;
+Core предоставляет Python и Rust одну streaming boundary.
+
+Разрешённые callbacks определяются только парой `workflow/v12`:
 
 - `host.runtime.status`;
 - `host.context.build`;
-- `host.model.complete`;
+- `host.model.complete`, `host.model.stream.start`, `host.model.stream.next`;
 - `host.history.compact`;
 - `host.history.checkpoint`;
 - `host.tools.visible`;

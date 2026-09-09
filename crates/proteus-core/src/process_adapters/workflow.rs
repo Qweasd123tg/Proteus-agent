@@ -93,11 +93,12 @@ impl Workflow for ProcessWorkflowAdapter {
             },
         };
         let cancellation = ctx.execution.scope.cancellation.clone();
+        let runtime = Arc::new(WorkflowHostRuntime::new(ctx));
         let dispatcher: Arc<dyn AsyncHostRequestDispatcher> = Arc::new(ProcessWorkflowDispatcher {
-            runtime: Arc::new(WorkflowHostRuntime::new(ctx)),
+            runtime: runtime.clone(),
         });
 
-        let response: ProcessWorkflowResponse = self
+        let response: Result<ProcessWorkflowResponse> = self
             .client
             .invoke_with_dispatcher_and_cancel_check(
                 PROCESS_WORKFLOW_METHOD,
@@ -105,7 +106,12 @@ impl Workflow for ProcessWorkflowAdapter {
                 dispatcher,
                 || cancellation.is_cancelled(),
             )
-            .await?;
+            .await;
+        let unfinished = runtime.close_model_stream().await;
+        let response = response?;
+        if matches!(response, ProcessWorkflowResponse::Success { .. }) && unfinished {
+            anyhow::bail!("workflow returned success with an unconsumed model stream");
+        }
         match response {
             ProcessWorkflowResponse::Success { result } => Ok(result),
             ProcessWorkflowResponse::Error { failure } => Err(failure.into()),
@@ -145,6 +151,29 @@ impl AsyncHostRequestDispatcher for ProcessWorkflowDispatcher {
                 Box::pin(async move {
                     host_result(runtime.complete_model(input.request).await, &method)
                 })
+            }
+            crate::contracts::WORKFLOW_HOST_START_MODEL_STREAM_METHOD => {
+                let input = match decode::<WorkflowCompleteModelRequest>(request.params, &method) {
+                    Ok(input) => input,
+                    Err(error) => return Box::pin(async move { Err(error) }),
+                };
+                let runtime = Arc::clone(&self.runtime);
+                Box::pin(async move {
+                    host_result(runtime.start_model_stream(input.request).await, &method)
+                })
+            }
+            crate::contracts::WORKFLOW_HOST_NEXT_MODEL_STREAM_METHOD => {
+                let input = match decode::<crate::contracts::WorkflowModelStreamCursor>(
+                    request.params,
+                    &method,
+                ) {
+                    Ok(input) => input,
+                    Err(error) => return Box::pin(async move { Err(error) }),
+                };
+                let runtime = Arc::clone(&self.runtime);
+                Box::pin(
+                    async move { host_result(runtime.next_model_stream(input).await, &method) },
+                )
             }
             WORKFLOW_HOST_COMPACT_HISTORY_METHOD => {
                 let input = match decode::<WorkflowCompactHistoryRequest>(request.params, &method) {

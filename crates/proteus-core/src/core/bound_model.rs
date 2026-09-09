@@ -4,6 +4,8 @@ use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use futures_util::StreamExt;
 
+#[path = "bound_model/presentation.rs"]
+mod presentation;
 #[path = "bound_model/progress.rs"]
 mod progress;
 
@@ -256,87 +258,27 @@ impl Model for BoundModel {
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
-        self.stream_with_deadline(request, self.deadline()).await
-    }
-
-    async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
         let deadline = self.deadline();
-        let suppress_stream_deltas = request
+        let suppress = request
             .metadata
             .get("suppress_stream_deltas")
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
-        let mut stream = self.stream_with_deadline(request, deadline).await?;
-        let mut text_offsets = std::collections::HashMap::new();
-        let mut completed = std::collections::HashMap::new();
+        let stream = self.stream_with_deadline(request, deadline).await?;
+        Ok(presentation::present_stream(
+            stream,
+            self.binding.clone(),
+            suppress,
+            deadline,
+        ))
+    }
 
+    async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
+        let mut stream = self.stream(request).await?;
         while let Some(event) = stream.next().await {
             match event? {
-                ModelStreamEvent::Response { response } => {
-                    if !suppress_stream_deltas {
-                        for message in &response.messages {
-                            if !self
-                                .binding
-                                .emit_message(message, &mut completed, deadline)
-                                .await
-                            {
-                                break;
-                            }
-                        }
-                    }
-                    return Ok(response);
-                }
-                ModelStreamEvent::Error { failure } => {
-                    return Err(anyhow::Error::new(failure));
-                }
-                ModelStreamEvent::TextDelta {
-                    message_id,
-                    phase,
-                    text,
-                } if !suppress_stream_deltas => {
-                    let cursor = text_offsets.entry(message_id).or_insert(0);
-                    let offset = *cursor;
-                    *cursor += text.len();
-                    self.binding
-                        .emit_delta_before_deadline(
-                            Event::AssistantTextDelta {
-                                offset,
-                                message_id,
-                                phase,
-                                text,
-                            },
-                            deadline,
-                        )
-                        .await;
-                }
-                ModelStreamEvent::MessageCompleted { message } if !suppress_stream_deltas => {
-                    self.binding
-                        .emit_message(&message, &mut completed, deadline)
-                        .await;
-                }
-                ModelStreamEvent::ToolCallDelta {
-                    call_id,
-                    args_delta,
-                    ..
-                } if !suppress_stream_deltas => {
-                    self.binding
-                        .emit_delta_before_deadline(
-                            Event::AssistantToolArgsDelta {
-                                call_id,
-                                args_delta,
-                            },
-                            deadline,
-                        )
-                        .await;
-                }
-                ModelStreamEvent::ReasoningSummaryDelta { text } if !suppress_stream_deltas => {
-                    self.binding
-                        .emit_delta_before_deadline(
-                            Event::AssistantReasoningDelta { text },
-                            deadline,
-                        )
-                        .await;
-                }
+                ModelStreamEvent::Response { response } => return Ok(response),
+                ModelStreamEvent::Error { failure } => return Err(failure.into()),
                 _ => {}
             }
         }
@@ -407,7 +349,7 @@ fn bound_recording_stream(
             let Some(item) = item else {
                 break;
             };
-            let event = match item {
+            let mut event = match item {
                 Ok(event) => event,
                 Err(error) => {
                     let failure = progress.attach_to_failure(
@@ -418,10 +360,13 @@ fn bound_recording_stream(
                     unreachable!();
                 }
             };
-            match &event {
+            match &mut event {
                 ModelStreamEvent::Response { response } => {
                     if let Err(error) =
-                        validate_model_response_against_request(&validation_request, response)
+                        progress.reconcile_response(response).and_then(|_| {
+                            validate_model_response_against_request(&validation_request, response)
+                                .map_err(anyhow::Error::msg)
+                        })
                     {
                         let error = anyhow!("model protocol error: {error}");
                         let failure = progress.attach_to_failure(
@@ -445,7 +390,8 @@ fn bound_recording_stream(
                     break;
                 }
                 ModelStreamEvent::MessageCompleted { message } => {
-                    if let Err(error) = progress.accept(message.clone()) {
+                    let accepted = progress.accept(message.clone());
+                    if let Err(error) = &accepted {
                         let failure = progress.attach_to_failure(
                             crate::model_standard::ModelFailure::other(format!(
                                 "model protocol error: {error}"
@@ -454,7 +400,10 @@ fn bound_recording_stream(
                         let failure = record_failure(&recorder, exchange_id, failure).await?;
                         Err(anyhow::Error::new(failure))?;
                     }
-                    yield event;
+                    if accepted? {
+                        recorder.model_stream_event_recorded(exchange_id, &event).await?;
+                        yield event;
+                    }
                 }
                 _ => yield event,
             }

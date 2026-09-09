@@ -67,14 +67,17 @@ cargo test --workspace --no-fail-fast
 
 Breaking canonical response change одновременно обновляет все tracked
 producers/consumers и версии затронутых contracts/storage. Действующие версии:
-`workflow/v11`, `compactor/v8`, durable journal schema v11. Изменение process DTO
+`workflow/v12`, `compactor/v8`, durable journal schema v12. Изменение process DTO
 само по себе не требует новой journal schema, если сохранённая форма не меняется.
 Старые формы не получают compatibility readers.
 
 `codex_model_resume::stream_recovery` проверяет completed tool call без
-`response.completed`, его исполнение после обрыва SSE и продолжение в том же
-root turn: следующий request, cold history, Error/Success journal и workflow replay. Retry вызывает
-workflow по типизированному `StreamDisconnected`, а не adapter по тексту;
+`response.completed`, его исполнение при открытом SSE и продолжение в том же
+root turn: следующий request, cold history, Error/Success journal и workflow
+replay. Early-execution fixture удерживает terminal до эффекта tool, затем
+проверяет поздний model item и перенос result suffix.
+Cancel fixture дополнительно проверяет освобождение открытого provider connection.
+Retry вызывает workflow по типизированному `StreamDisconnected`, а не adapter по тексту;
 `recorded_failure_kind_selects_the_same_workflow_branch` проверяет сохранение
 этой причины через journal/replay. Module regression отдельно проверяет бюджет
 на sampling request, отсутствие его сброса от completed items и запрет повторов
@@ -367,7 +370,7 @@ cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --co
 Workflow handshake:
 
 ```bash
-cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-agent --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v11","module_config":{}}' -- python3 examples/modules/agent-worker/agent.py
+cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-agent --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v12","module_config":{}}' -- python3 examples/modules/agent-worker/agent.py
 ```
 
 Conformance CLI без probe доказывает identity/authority, но не поведение slot.

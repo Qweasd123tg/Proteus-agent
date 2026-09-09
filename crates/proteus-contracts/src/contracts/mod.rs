@@ -28,6 +28,7 @@ pub mod user_input;
 pub mod workflow;
 pub mod workflow_checkpoint;
 pub mod workflow_failure;
+pub mod workflow_stream;
 
 pub use agent_control::*;
 pub use approval_policy::*;
@@ -54,3 +55,4 @@ pub use user_input::*;
 pub use workflow::*;
 pub use workflow_checkpoint::*;
 pub use workflow_failure::*;
+pub use workflow_stream::*;

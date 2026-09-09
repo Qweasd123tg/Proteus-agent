@@ -39,11 +39,16 @@ impl Model for ReplayModel {
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
-        let event = match self.state.consume_model_request(&request)? {
+        let (messages, outcome) = self.state.consume_model_request(&request)?;
+        let event = match outcome {
             ModelResponseOutcome::Response { response } => ModelStreamEvent::Response { response },
             ModelResponseOutcome::Error { failure } => ModelStreamEvent::Error { failure },
         };
-        Ok(Box::pin(stream::once(async move { Ok(event) })))
+        let events = messages
+            .into_iter()
+            .map(|message| Ok(ModelStreamEvent::MessageCompleted { message }))
+            .chain(std::iter::once(Ok(event)));
+        Ok(Box::pin(stream::iter(events)))
     }
 }
 

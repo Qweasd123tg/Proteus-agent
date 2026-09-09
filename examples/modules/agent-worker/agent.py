@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dependency-free out-of-tree Workflow v11 component for Proteus.
+"""Dependency-free out-of-tree Workflow v12 component for Proteus.
 
 The worker owns a small model/tool loop. Models, tools, policy, approvals,
 safety, events, and cancellation remain host capabilities reached only through
@@ -27,7 +27,7 @@ from component_runtime import (  # noqa: E402
 
 SLOT = "workflow"
 MODULE_ID = "python_agent_loop"
-CONTRACT_VERSION = "v11"
+CONTRACT_VERSION = "v12"
 
 INITIALIZE_FIELDS = {
     "protocol_version",
@@ -210,7 +210,24 @@ def model_request(
 
 def complete_model(peer: Peer, request: dict[str, Any]) -> dict[str, Any]:
     emit(peer, {"ModelRequestPrepared": {"model": request["model"]}})
-    response = peer.host_call("host.model.complete", {"request": request})
+    cursor = require_object(peer.host_call("host.model.stream.start", {"request": request}), {"stream_id"}, "model stream cursor")
+    while True:
+        peer.ensure_active()
+        item = peer.host_call("host.model.stream.next", cursor)
+        if not isinstance(item, dict):
+            raise ProtocolError("model stream item must be an object")
+        kind = item.get("type")
+        if kind == "message_completed":
+            require_object(item, {"type", "message"}, "completed model item")
+            continue
+        if kind == "error":
+            require_object(item, {"type", "failure"}, "model stream error")
+            raise ProtocolError(item["failure"]["message"])
+        require_object(item, {"type", "response"}, "model stream response")
+        if kind != "response":
+            raise ProtocolError(f"unknown model stream item: {kind!r}")
+        response = item["response"]
+        break
     response = require_object(
         response,
         {
@@ -413,7 +430,7 @@ def initialize(raw: Any) -> dict[str, Any]:
     if actual != expected:
         raise ProtocolError(f"unsupported initialize identity: {actual!r}")
     if require_string_list(export["host_features"], "host_features"):
-        raise ProtocolError("workflow v11 has no negotiated optional features")
+        raise ProtocolError("workflow v12 has no negotiated optional features")
     component_config = parse_config(export["module_config"])
     return {
         "protocol_version": PROTOCOL_VERSION,
@@ -434,7 +451,7 @@ def invoke(context: InvocationContext, method: str, params: Any) -> dict[str, An
     if context.export != {"slot": SLOT, "module_id": MODULE_ID}:
         raise ProtocolError(f"unknown component export: {context.export!r}")
     if method != "run":
-        raise ProtocolError(f"workflow v11 does not support method {method!r}")
+        raise ProtocolError(f"workflow v12 does not support method {method!r}")
     return run_workflow(Peer(context), params, component_config)
 
 

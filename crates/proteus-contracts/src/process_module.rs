@@ -255,6 +255,9 @@ pub trait WorkflowModuleHost: Send + Sync {
     fn is_cancelled(&self) -> ProcessModuleResult<bool>;
     fn queued_user_messages(&self) -> ProcessModuleResult<u32>;
     fn build_context_json(&self, task_json: String) -> ProcessModuleResult<String>;
+    fn start_model_stream_json(&self, request_json: String) -> ProcessModuleResult<String>;
+    fn next_model_stream_json(&self, cursor_json: String) -> ProcessModuleResult<String>;
+
     fn complete_model_json(&self, request_json: String) -> ProcessModuleResult<String>;
     fn compact_history_json(&self, input_json: String) -> ProcessModuleResult<String>;
     fn visible_tools_json(&self, cwd: String) -> ProcessModuleResult<String>;

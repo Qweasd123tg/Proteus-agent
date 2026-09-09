@@ -37,8 +37,8 @@ pub(crate) fn recorded_checkpoints(
         .filter(|record| record.thread_id == Some(thread) && record.turn_id == Some(turn))
     {
         match &record.entry {
-            JournalEntry::ModelResponseRecorded(response)
-                if direct_exchange_ids.contains(&response.exchange_id) =>
+            JournalEntry::ModelRequestRecorded(request)
+                if direct_exchange_ids.contains(&request.exchange_id) =>
             {
                 position.0 += 1
             }

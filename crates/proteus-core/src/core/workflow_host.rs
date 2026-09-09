@@ -1,7 +1,9 @@
 //! Core-owned implementation of the Workflow host capability surface.
 //!
-//! Process Workflow v1 delegates here, so module identity cannot change model,
+//! Process Workflow delegates here, so module identity cannot change model,
 //! tool, policy, cancellation, or event semantics.
+
+mod model_stream;
 
 use std::{future::Future, path::PathBuf, sync::Arc, time::Duration};
 
@@ -28,6 +30,7 @@ use super::{
 pub(crate) struct WorkflowHostRuntime {
     ctx: AgentWorkflowContext,
     tool_orchestrator: ToolOrchestrator,
+    model_streams: model_stream::ModelStreams,
 }
 
 impl WorkflowHostRuntime {
@@ -41,6 +44,7 @@ impl WorkflowHostRuntime {
     pub(crate) fn new(ctx: AgentWorkflowContext) -> Self {
         Self {
             ctx,
+            model_streams: Default::default(),
             tool_orchestrator: ToolOrchestrator::default(),
         }
     }
@@ -80,6 +84,25 @@ impl WorkflowHostRuntime {
             .map_err(|_| anyhow!("context build timed out after {}ms", ctx.context_timeout_ms))?
         })
         .await
+    }
+
+    pub(crate) async fn start_model_stream(
+        &self,
+        request: CanonicalModelRequest,
+    ) -> Result<crate::contracts::WorkflowModelStreamCursor> {
+        self.ensure_active()?;
+        self.model_streams.start(&self.ctx, request).await
+    }
+
+    pub(crate) async fn next_model_stream(
+        &self,
+        cursor: crate::contracts::WorkflowModelStreamCursor,
+    ) -> Result<crate::contracts::WorkflowModelStreamItem> {
+        self.run_active(self.model_streams.next(cursor)).await
+    }
+
+    pub(crate) async fn close_model_stream(&self) -> bool {
+        self.model_streams.close().await
     }
 
     pub(crate) async fn complete_model(

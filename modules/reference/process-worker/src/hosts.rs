@@ -238,6 +238,26 @@ impl WorkflowModuleHost for WorkflowHostBridge {
         )
     }
 
+    fn start_model_stream_json(&self, request_json: String) -> Result<String, ProcessModuleError> {
+        workflow_call(
+            &self.0,
+            proteus_contracts::contracts::WORKFLOW_HOST_START_MODEL_STREAM_METHOD,
+            "request",
+            request_json,
+        )
+    }
+
+    fn next_model_stream_json(&self, cursor_json: String) -> Result<String, ProcessModuleError> {
+        let cursor = parse_value(cursor_json).map_err(ProcessModuleError::new)?;
+        match self.0.call(
+            proteus_contracts::contracts::WORKFLOW_HOST_NEXT_MODEL_STREAM_METHOD,
+            cursor,
+        ) {
+            Ok(value) => workflow_json(value),
+            Err(error) => workflow_error(error),
+        }
+    }
+
     fn complete_model_json(&self, request_json: String) -> Result<String, ProcessModuleError> {
         workflow_call(
             &self.0,

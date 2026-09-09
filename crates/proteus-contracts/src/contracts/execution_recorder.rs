@@ -30,6 +30,16 @@ pub trait ExecutionRecorder: Send + Sync {
         request: &CanonicalModelRequest,
     ) -> Result<()>;
 
+    /// Validated canonical model progress, independent of chat history ownership.
+    /// A recorder may retain completed items and omit presentation-only deltas.
+    async fn model_stream_event_recorded(
+        &self,
+        _exchange_id: ExchangeId,
+        _event: &crate::model_standard::ModelStreamEvent,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     async fn model_response_recorded(
         &self,
         exchange_id: ExchangeId,

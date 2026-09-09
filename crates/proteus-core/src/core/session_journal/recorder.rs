@@ -64,6 +64,26 @@ impl ExecutionRecorder for SessionExecutionRecorder {
         Ok(())
     }
 
+    async fn model_stream_event_recorded(
+        &self,
+        exchange_id: ExchangeId,
+        event: &crate::model_standard::ModelStreamEvent,
+    ) -> Result<()> {
+        let crate::model_standard::ModelStreamEvent::MessageCompleted { message } = event else {
+            return Ok(());
+        };
+        self.store
+            .append_execution_journal_entry(
+                self.attribution,
+                JournalEntry::ModelMessageRecorded(super::ModelMessageRecorded {
+                    exchange_id,
+                    message: message.clone(),
+                }),
+            )
+            .await?;
+        Ok(())
+    }
+
     async fn model_response_recorded(
         &self,
         exchange_id: ExchangeId,
