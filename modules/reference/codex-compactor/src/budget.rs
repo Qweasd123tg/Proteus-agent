@@ -62,7 +62,7 @@ fn truncate_middle_with_token_budget(text: &str, max_tokens: usize) -> String {
 /// window, with an explicitly configured limit capped at that value. The
 /// caller must not invent a default when the provider did not expose a window.
 pub(crate) fn resolve_trigger_tokens(input: &CompactionInput) -> Result<Option<u32>, String> {
-    let configured = config_trigger_tokens(&input.config)?;
+    let configured = crate::config::CompactorConfig::parse(&input.config)?.trigger_tokens;
     let context_limit = input
         .window_tokens
         .map(|window| (u64::from(window) * 9 / 10) as u32);
@@ -72,27 +72,6 @@ pub(crate) fn resolve_trigger_tokens(input: &CompactionInput) -> Result<Option<u
         (None, Some(context_limit)) => Ok(Some(context_limit)),
         (None, None) => Ok(None),
     }
-}
-
-fn config_trigger_tokens(config: &serde_json::Value) -> Result<Option<u32>, String> {
-    let config = config
-        .as_object()
-        .ok_or_else(|| "codex compactor config must be an object".to_owned())?;
-    if let Some(unknown) = config.keys().find(|key| key.as_str() != "trigger_tokens") {
-        return Err(format!(
-            "codex compactor config has unknown key '{unknown}'"
-        ));
-    }
-    config
-        .get("trigger_tokens")
-        .map(|value| {
-            value
-                .as_u64()
-                .and_then(|value| u32::try_from(value).ok())
-                .filter(|value| *value > 0)
-                .ok_or_else(|| "codex compactor trigger_tokens must be a positive u32".to_owned())
-        })
-        .transpose()
 }
 
 pub(crate) fn user_message_budget_tokens() -> usize {

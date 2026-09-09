@@ -279,6 +279,14 @@ Summary использует текущую модель и её инструк�
 и отдельного лимита 4000 токенов. Срез совместимости и ограничения описаны в
 [codex-baseline.md](../development/codex-baseline.md).
 
+`module_config.compactor.codex.stream_max_retries` задаёт число повторов summary
+после первой попытки: по умолчанию `5`, `0` отключает повторы, значения выше
+`100` ограничиваются сотней, как в выбранном Codex. Это отдельная настройка
+compactor; она не наследует retry budget workflow или HTTP provider. Для
+сравнения одной сборки задавайте одинаковый stream budget явно. При переполнении
+контекста compactor сокращает историю и сбрасывает счётчик повторов; переполнение
+запроса из одного summary prompt, отмена и session budget завершаются сразу.
+
 Без export override compactor наследует общий `runtime.workflow_timeout_ms`:
 внутренние model calls и повторные попытки расходуют оставшийся бюджет turn.
 `runtime.model_timeout_ms` ограничивает отдельный model call. Protocol deadline

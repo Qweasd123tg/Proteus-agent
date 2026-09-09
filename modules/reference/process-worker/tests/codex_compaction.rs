@@ -15,6 +15,8 @@ use tokio::{
 
 #[path = "codex_compaction/compatibility.rs"]
 mod compatibility;
+#[path = "codex_compaction/recovery.rs"]
+mod recovery;
 #[path = "codex_compaction/replay.rs"]
 mod replay;
 
@@ -242,7 +244,16 @@ fn history_texts(history: &[proteus_contracts::model_standard::CanonicalMessage]
         .collect()
 }
 
-async fn check_codex_compaction(context_window_once: bool) {
+#[derive(Clone, Copy)]
+enum SummaryRetry {
+    None,
+    ContextWindow,
+    Transient,
+}
+
+async fn check_codex_compaction(retry: SummaryRetry) {
+    let context_window_once = matches!(retry, SummaryRetry::ContextWindow);
+    let retried = !matches!(retry, SummaryRetry::None);
     let root = tempfile::tempdir().expect("test root");
     let workspace = root.path().join("workspace");
     std::fs::create_dir(&workspace).expect("workspace");
@@ -251,17 +262,39 @@ async fn check_codex_compaction(context_window_once: bool) {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("fixture listener");
-    let config = config(&format!(
+    let mut config = config(&format!(
         "http://{}",
         listener.local_addr().expect("fixture address")
     ));
+    config
+        .module_config
+        .get_mut("compactor")
+        .unwrap()
+        .get_mut("codex")
+        .unwrap()["stream_max_retries"] = json!(1);
+    config
+        .module_config
+        .get_mut("model")
+        .unwrap()
+        .get_mut("openai")
+        .unwrap()["request_max_retries"] = json!(0);
     let config_path = root.path().join("config.json");
     std::fs::write(
         &config_path,
         serde_json::to_vec(&config).expect("config JSON"),
     )
     .expect("config file");
-    let server = tokio::spawn(serve(listener, scripted_replies(context_window_once)));
+    let mut replies = scripted_replies(context_window_once);
+    if matches!(retry, SummaryRetry::Transient) {
+        replies.insert(
+            1,
+            FixtureReply::Status {
+                status: 500,
+                body: json!({"error": {"message": "transient summary failure"}}),
+            },
+        );
+    }
+    let server = tokio::spawn(serve(listener, replies));
 
     let runtime = AgentRuntime::builder(config.clone(), workspace.clone())
         .with_config_path(Some(&config_path))
@@ -281,9 +314,9 @@ async fn check_codex_compaction(context_window_once: bool) {
         .await
         .expect("fixture completed")
         .expect("fixture task");
-    assert_eq!(requests.len(), if context_window_once { 4 } else { 3 });
+    assert_eq!(requests.len(), if retried { 4 } else { 3 });
     let initial = &requests[0];
-    let compaction_requests = if context_window_once {
+    let compaction_requests = if retried {
         vec![&requests[1], &requests[2]]
     } else {
         vec![&requests[1]]
@@ -338,6 +371,11 @@ async fn check_codex_compaction(context_window_once: bool) {
                     .expect("initial input")
                     .len(),
             "context-window recovery must trim history before retrying"
+        );
+    } else if retried {
+        assert_eq!(
+            compaction_requests[0], compaction_requests[1],
+            "transient retry preserves the HTTP request"
         );
     }
 
@@ -404,15 +442,20 @@ async fn check_codex_compaction(context_window_once: bool) {
         1,
         "compaction recovery must not repeat the already completed tool"
     );
-    replay::check(&session_dir, &workspace, &config, context_window_once).await;
+    replay::check(&session_dir, &workspace, &config, retried).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn codex_compaction_uses_a_real_process_model_and_preserves_cold_history() {
-    check_codex_compaction(false).await;
+    check_codex_compaction(SummaryRetry::None).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn codex_compaction_retries_a_typed_context_window_failure_with_shorter_history() {
-    check_codex_compaction(true).await;
+    check_codex_compaction(SummaryRetry::ContextWindow).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn codex_compaction_retries_transient_summary_failure_without_changing_input() {
+    check_codex_compaction(SummaryRetry::Transient).await;
 }

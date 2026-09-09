@@ -294,8 +294,13 @@ Cancel после успешного ответа workflow или частичн
 summary без tools и output cap, порог 90% известного raw window и сохранение
 последних пользовательских сообщений в пределах 20 000 approximate tokens.
 При типизированном переполнении summary request удаляется старейший item с
-соответствующей парой call/result; остальные сбои имеют пять повторов с backoff,
-а отмена и session budget завершаются сразу. Это поведение самого компонента;
+соответствующей парой call/result и сбрасывается retry budget. Переполнение
+запроса из одного summary prompt, отмена и session budget завершаются сразу.
+Остальные сбои повторяются с backoff в пределах
+`module_config.compactor.codex.stream_max_retries`: default `5`, максимум `100`,
+`0` отключает повторы, как `ModelProviderInfo::stream_max_retries` выбранного
+Codex. Настройка принадлежит compactor и задаётся отдельно от workflow и
+HTTP provider. Это поведение самого компонента;
 recovery после ошибки обычного workflow model call сюда не входит.
 
 [HTTP/process regression](../../modules/reference/process-worker/tests/codex_compaction.rs)
@@ -305,12 +310,16 @@ replay сценария `tool → summary → обычный model response → 
 записанный результат compaction и только прямые model outcomes workflow; исходный
 journal остаётся неизменным, model/tool implementations повторно не вызываются.
 Matched replay подтверждён и для summary после retry при переполнении context
-window: listener провайдера уже закрыт, исходный tool artifact удалён;
+window и после HTTP 500: listener провайдера уже закрыт, исходный tool artifact удалён;
 воспроизводятся два прямых model exchanges и один tool outcome.
 Внутренние summary exchanges сохраняются в журнале с origin `compactor`.
 Это проверка orchestration по готовому compaction report, а не повторное исполнение
-алгоритма compactor. Полный compaction lifecycle, remote branches и replay
-внутренних типизированных веток ошибки compactor этим срезом не подтверждаются.
+алгоритма compactor. [Recovery regression](../../modules/reference/process-worker/tests/codex_compaction/recovery.rs)
+проверяет исчерпание summary retries, переполнение минимального prompt и отмену:
+выполненный tool остаётся в journal и cold history, новый summary не появляется,
+root получает `Error` или `Canceled`. Replay ошибки compactor без changed
+checkpoint явно отклоняется. Полный compaction lifecycle, remote branches и
+replay внутренних типизированных веток ошибки compactor пока не подтверждены.
 
 Проверки [совместимости compactor](../../modules/reference/process-worker/tests/codex_compaction/compatibility.rs)
 проводят summary дольше 30 секунд при достаточном общем бюджете workflow и

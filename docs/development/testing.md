@@ -165,12 +165,17 @@ Replay fixture с готовым результатом compactor проверя
 replay хода `tool → summary → обычный model response → Success`: результат
 compactor берётся из записанных report/history, source journal не меняется,
 живые model/tool implementations не вызываются. То же подтверждено для summary
-с context-window retry после закрытия HTTP listener и удаления tool artifact.
+с context-window retry и HTTP 500 после закрытия HTTP listener и удаления tool artifact.
 Replay проверяет завершённость всех model pairs, но в последовательности workflow
 и позициях checkpoint учитывает
 только origin `direct`; внутренние `compactor` exchanges остаются journal facts.
-Это не replay внутреннего алгоритма сжатия; его typed branches этим compactor
-gate не подтверждаются.
+Это не replay внутреннего алгоритма сжатия. Unit gate проверяет точный retry
+budget, его сброс при сокращении истории и немедленные terminal branches.
+`codex_compaction/recovery.rs` проводит исчерпание retries, prompt-only overflow
+и отмену через process/HTTP: завершённый tool сохраняется в journal и cold
+history, нового compaction checkpoint нет, settlement — `Error` или `Canceled`.
+Ошибка compactor без changed checkpoint пока не поддерживается workflow replay;
+regression проверяет явный отказ вместо ложного matched результата.
 
 `workflow_replay::tests::typed_failures` записывает ошибку через настоящий
 `SessionExecutionRecorder` и воспроизводит workflow, выбирающий terminal branch

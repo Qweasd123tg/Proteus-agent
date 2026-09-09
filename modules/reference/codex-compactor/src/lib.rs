@@ -8,7 +8,9 @@
 
 mod budget;
 mod compaction;
+mod config;
 mod history;
+mod recovery;
 mod summary;
 
 use compaction::compact;
