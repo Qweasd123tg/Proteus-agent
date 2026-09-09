@@ -400,6 +400,14 @@ priority surface. Tool registration фильтруется `tools.enabled`; cont
 builder запрашивает provider по id через `host.context.provide`, а нужный
 порядок providers задаёт его собственный `module_config`.
 
+Tool export получает список specs с bootstrap timeout 30 000 мс. При исполнении
+каждого tool process adapter использует его `ToolSpec.timeout_ms` (при отсутствии
+— 30 000 мс) с запасом 1000 мс для settlement внешнего tool timeout. Явный
+`components.<id>.exports.tool.<module>.timeout_ms` переопределяет protocol budget
+всех tools этого export; общий бюджет turn и timeout самого tool продолжают
+действовать. Это одинаковый путь для любого component/export, без исключений
+по имени tool или реализации.
+
 ## Reference Inventory
 
 Удобный dogfood executable `proteus-reference-worker` публикует:

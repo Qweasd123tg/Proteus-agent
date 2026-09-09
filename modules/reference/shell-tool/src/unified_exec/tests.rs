@@ -11,6 +11,7 @@ use proteus_contracts::{
 use serde_json::{Value, json};
 
 use super::*;
+use proteus_contracts::process_module::ProcessModuleError;
 
 struct TestToolHost {
     cancelled: Arc<AtomicBool>,
@@ -106,8 +107,10 @@ fn exec_command_keeps_session_and_write_stdin_interacts() {
     let dir = tempfile::tempdir().expect("workspace");
     let context = invocation_context(dir.path());
 
-    let started =
-        exec_command_with_context(&context, json!({ "cmd": "cat", "yield_time_ms": 300 }));
+    let started = exec_command_with_context(
+        &context,
+        json!({ "cmd": "cat", "tty": true, "yield_time_ms": 300 }),
+    );
     assert_eq!(started["ok"], true);
     assert_eq!(started["metadata"]["exited"], false);
     let session_id = started["metadata"]["session_id"]
@@ -205,7 +208,7 @@ fn write_stdin_enforces_session_thread_and_workspace_ownership() {
     let owner_context = invocation_context(dir.path());
     let started = exec_command_with_context(
         &owner_context,
-        json!({ "cmd": "cat", "yield_time_ms": 300 }),
+        json!({ "cmd": "cat", "tty": true, "yield_time_ms": 300 }),
     );
     let session_id = started["metadata"]["session_id"]
         .as_i64()
@@ -252,8 +255,10 @@ fn detached_exec_session_is_owned_by_execution_without_chat_identity() {
         attribution: ExecutionAttribution::detached(execution_id),
         config: json!({}),
     };
-    let started =
-        exec_command_with_context(&context, json!({ "cmd": "cat", "yield_time_ms": 300 }));
+    let started = exec_command_with_context(
+        &context,
+        json!({ "cmd": "cat", "tty": true, "yield_time_ms": 300 }),
+    );
     let session_id = started["metadata"]["session_id"]
         .as_i64()
         .expect("session id");
@@ -290,7 +295,7 @@ fn cancellation_kills_and_removes_interactive_session() {
         "id": "call_cancel",
         "name": "exec_command",
         "args": {
-            "cmd": "cat",
+            "cmd": "cat", "tty": true,
             "yield_time_ms": 30000,
             "with_escalated_permissions": true
         }
@@ -517,3 +522,5 @@ fn truncate_head_tail_respects_char_boundaries() {
     assert!(!was_truncated);
     assert_eq!(untouched, "short");
 }
+
+mod pipe_exec;

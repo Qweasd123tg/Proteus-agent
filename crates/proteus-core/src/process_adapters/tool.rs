@@ -23,7 +23,7 @@ pub fn build_process_tools(
         let client = Arc::new(ProcessExportClient::connect(
             "tool",
             PROCESS_TOOL_CONTRACT_VERSION,
-            config,
+            config.clone(),
             workspace,
             DEFAULT_TIMEOUT_MS,
         )?);
@@ -37,9 +37,24 @@ pub fn build_process_tools(
         }
         for spec in response.result {
             let name = spec.name.clone();
+            // The bootstrap/list deadline is not the invocation budget. Each
+            // listed tool supplies its own execution timeout through ToolSpec;
+            // an explicit host export override still wins in connect(). The
+            // grace leaves settlement to the outer ToolRegistry timeout.
+            let timeout_ms = spec
+                .timeout_ms
+                .unwrap_or(DEFAULT_TIMEOUT_MS)
+                .saturating_add(1_000);
+            let invocation_client = Arc::new(ProcessExportClient::connect(
+                "tool",
+                PROCESS_TOOL_CONTRACT_VERSION,
+                config.clone(),
+                workspace,
+                timeout_ms,
+            )?);
             let tool: Arc<dyn Tool> = Arc::new(ProcessTool {
                 spec,
-                client: Arc::clone(&client),
+                client: invocation_client,
             });
             if tools.insert(name.clone(), tool).is_some() {
                 bail!("duplicate process tool name: {name}");

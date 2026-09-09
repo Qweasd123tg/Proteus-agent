@@ -146,6 +146,25 @@ cargo test -p proteus-reference-worker --test conformance --test model_exports -
 cargo test -p proteus-module-protocol --test broker_v3
 ```
 
+Для local terminal tools дополнительно:
+
+```bash
+cargo test -p shell-tool
+cargo test -p proteus-reference-worker --test codex_model_resume terminal::
+```
+
+Unit scenarios проверяют default pipes/явный PTY, EOF stdin, Ctrl-C, output
+head/tail, получение stdout/stderr после exit и отмену process group.
+`codex_model_resume::terminal` проверяет model-visible schema, обычный input
+без PTY как tool error, успешный последующий poll и ненулевой exit как данные:
+journal/cold history сохраняют результаты, workflow replay не запускает
+команду снова. Poll длится 31 секунду и пересекает прежний default deadline
+process adapter; `terminal/deadline.rs` отдельно проверяет явный export timeout
+и replay его tool error. Внешний cancel долгого poll проверяется через остановку дочернего
+процесса, `TurnSettled(Canceled)` и cold history, без заявления matched replay.
+Граница upstream comparison и оставшиеся различия — в
+[codex-baseline.md](codex-baseline.md#terminal-tools).
+
 Для local Codex compaction дополнительно:
 
 ```bash

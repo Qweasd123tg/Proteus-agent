@@ -162,7 +162,7 @@ Worker не может изменить cardinality, сделать свой `mo
       {
         "slot": "tool",
         "module_id": "reference.tools",
-        "contract_version": "v2",
+        "contract_version": "v3",
         "composition": "ordered_many",
         "module_config": {},
         "host_features": []
@@ -192,7 +192,7 @@ Worker подтверждает тот же exact set:
       {
         "slot": "tool",
         "module_id": "reference.tools",
-        "contract_version": "v2",
+        "contract_version": "v3",
         "composition": "ordered_many",
         "module_features": []
       }
@@ -206,6 +206,13 @@ Worker подтверждает тот же exact set:
 unoffered feature и unknown fields закрывают snapshot build до первого turn.
 Handshake имеет отдельный timeout. Stdout содержит только compact
 newline-delimited JSON-RPC; stderr дренируется отдельно.
+
+Bootstrap `list` и `invoke` tool export имеют разные бюджеты. По умолчанию list
+ограничен 30 секундами, а invoke наследует `ToolSpec.timeout_ms` конкретного tool
+(без него — 30 секунд) с запасом 1 секунду для settlement внешнего tool timeout.
+Явный export timeout переопределяет protocol budget; nested invocation также
+ограничена parent deadline. Все specs одного export используют тот же broker
+и общий lifecycle, включая tools с разными timeout.
 
 ## Invocation Routing
 

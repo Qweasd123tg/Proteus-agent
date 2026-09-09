@@ -666,15 +666,37 @@ split_commands = true
 правилами группы `bash`. Порядок правил значим — более специфичные правила
 ставьте ниже общих.
 
-## Interactive Exec Lifecycle
+## Terminal Exec Lifecycle
 
-PTY registry `exec_command`/`write_stdin` остаётся process-wide как деталь
+`exec_command` по умолчанию запускает `sh -lc` с закрытым stdin и pipes для
+stdout/stderr. Для интерактивной команды передавайте `tty: true`: тогда
+`write_stdin` принимает текст, Ctrl-C и Ctrl-D. Без PTY доступны пустой опрос и
+Ctrl-C; прочий ввод возвращает явную ошибку `stdin is closed`, сохраняя session.
+В Unix Ctrl-C без PTY посылает SIGINT группе запущенной команды.
+
+Первый вызов ждёт 250–30 000 мс (default 10 000). `write_stdin` с текстом ждёт
+250–30 000 мс (default 250), пустой — 5 000–300 000 мс (default 5 000). Выход
+процесса завершает ожидание раньше; непрочитанный stdout/stderr забирается с
+exit code. После получения terminal result handle удаляется. Ненулевой exit
+code остаётся данными успешного tool result. Внешние runtime/export deadlines
+могут закончить вызов раньше запрошенного ожидания.
+
+`max_output_tokens` по умолчанию равен 10 000 approximate tokens, `0` скрывает
+текст вывода; отдельного потолка 25 000 нет. Буфер ограничен 1 МиБ и сохраняет
+начало и конец, отмечая пропущенную середину. Сам результат также сокращается
+по запрошенному лимиту. Метаданные содержат `tty`, `session_id`, `exited`,
+`exit_code`, объём вывода и пропусков.
+
+Registry `exec_command`/`write_stdin` остаётся process-wide как деталь
 реализации, но numeric session id служит только locator-ом. Handle принадлежит
 runtime session/thread/workspace: тот же thread может продолжить процесс между
 turn'ами, а другой session, thread или workspace получает явную ошибку.
-Завершённые sessions и sessions с idle age от 30 минут удаляет минутный
-janitor; общий cap 16 сохраняет LRU-eviction. Cancellation активного вызова
-убивает процесс и удаляет handle.
+Sessions с idle age от 30 минут удаляет минутный janitor; свежая завершённая
+session сохраняется до получения её вывода. Общий cap 16 сохраняет
+LRU-eviction с приоритетом завершённых sessions. Cancellation активного вызова
+убивает процесс и удаляет handle; для pipes в Unix завершается вся группа
+команды. Граница сравнения с Codex описана в
+[codex-baseline.md](../development/codex-baseline.md).
 
 ## Известные Ограничения Текущей Реализации
 

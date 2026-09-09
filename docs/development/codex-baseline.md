@@ -287,6 +287,38 @@ hosted tools. Он проверяет сохранение известного 
 для второго tool нет записанных resolution/result. Этот срез не проверяет
 Cancel после успешного ответа workflow или частично завершённый SSE response.
 
+### Terminal Tools
+
+`exec_command` и `write_stdin` сопоставлены с
+`core/src/tools/handlers/unified_exec.rs`, `core/src/unified_exec/process_manager.rs`,
+`head_tail_buffer.rs` и `utils/pty/src/{pipe,process}.rs` выбранного commit.
+Подтверждён local Unix срез: pipes с закрытым stdin по умолчанию, явный
+`tty=true`, ошибка обычного ввода без PTY, Ctrl-C для process group, интерактивный
+ввод, ненулевой exit как tool result data и получение последнего stdout/stderr.
+Пустой poll допускает 5–300 секунд, непустой — 250–30 000 мс. По умолчанию
+возвращаются 10 000 approximate tokens, без прежнего cap 25 000; буфер 1 МиБ
+сохраняет исходное начало и актуальный конец. После exit ожидание закрытия
+output ограничено 50 мс.
+
+[Unit fixtures](../../modules/reference/shell-tool/src/unified_exec/tests/pipe_exec.rs)
+проверяют эти ветки настоящими процессами, включая большой вывод и отмену
+группы команды. [Process fixtures](../../modules/reference/process-worker/tests/codex_model_resume/terminal.rs)
+проводят model-issued запуск, input/poll и exit через component-v3, следующие
+HTTP requests, journal, cold history и matched workflow replay с закрытым
+provider и удалённым файлом-эффектом. Poll действительно длится больше 30 секунд:
+общий process tool adapter наследует timeout конкретного `ToolSpec`, а не
+bootstrap timeout списка. Отдельный fixture проверяет приоритет явного export
+timeout и replay записанной ошибки tool. Отмена долгого poll проверяет остановку
+процесса, `TurnSettled(Canceled)` и сохранение завершённого запуска в cold history;
+внешняя отмена не выдаётся за replayable outcome.
+
+Это не полная копия terminal runtime Codex. Reference implementation сохраняет
+свой выбор `sh -lc`, cap 16 sessions, idle janitor 30 минут, ownership по
+session/thread/workspace и форму `ToolResult`. Выбор shell/login, настраиваемый
+background timeout сверх текущих bounds, upstream pruning 64 processes и
+remote execution этим срезом не реализованы. Проверки не подтверждают
+сохранение живых terminal handles при перезапуске component.
+
 ### Local Compaction И Project Instructions
 
 Для обычного OpenAI-compatible provider перенесён local путь `core/src/compact.rs`

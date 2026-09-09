@@ -37,6 +37,8 @@ mod patch_interception;
 mod request_retry;
 #[path = "codex_model_resume/stream_recovery.rs"]
 mod stream_recovery;
+#[path = "codex_model_resume/terminal.rs"]
+mod terminal;
 
 #[derive(Default)]
 struct CapturedEvents(std::sync::Mutex<Vec<proteus_contracts::domain::EventEnvelope>>);
