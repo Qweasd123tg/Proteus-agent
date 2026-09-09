@@ -131,7 +131,10 @@ scope отделён от `ExecutionScope`; происхождение не вы
 содержимое и порядок. Replay получает записанные completed items до terminal.
 Checkpoint position сравнивается по начатым direct requests и tool facts:
 при независимом model IO момент terminal относительно tool callback может
-различаться, но порядок items, calls/results и snapshots должен совпадать.
+различаться. Для calls, явно выбранных текущими result bindings, момент
+request/result относительно checkpoint также недетерминирован и исключён из
+счётчиков позиции. Точные bindings, snapshots, остальные tool boundaries и
+порядок результатов в следующем request/history по-прежнему сравниваются.
 
 Во время stream checkpoint может расширить model prefix с теми же result
 bindings. Уже записанные результаты переносятся за новый prefix в порядке
@@ -342,9 +345,12 @@ history validation, что и обычный root runtime. Для terminal `Work
 при этом не создаётся.
 Checkpoint snapshots, набор выбранных calls и положение callback относительно
 model/tool boundaries также сравниваются; одинаковый final output не скрывает
-потерю промежуточной durable записи.
+потерю промежуточной durable записи. Lifecycles объявленных in-flight calls
+могут пересекать checkpoint независимо от исходного момента завершения, но
+replay всё равно требует их полное исполнение и правильный final drain.
 Нормализация ограничена заново создаваемыми `MessageId`/`PartId`, внутренними
-generated call ids, недетерминированным `ToolResult.metadata.duration_ms` и
+generated call ids, описанным выше scheduling объявленных in-flight calls,
+недетерминированным `ToolResult.metadata.duration_ms` и
 зависящим от него итоговым `AgentOutput.metadata.context.token_estimate`;
 остальные различия остаются divergence. Доставленный steering/follow-up внутри
 выбранного turn-а пока отклоняется fail-closed: v0 не эмулирует root steering

@@ -112,7 +112,7 @@ impl TurnScaffold {
 
     pub(crate) fn checkpoint(
         &mut self,
-        host: &mut WorkflowModuleHostMut<'_>,
+        host: &WorkflowModuleHostMut<'_>,
         calls: &[proteus_contracts::domain::ToolCall],
     ) -> Result<(), ProcessModuleError> {
         let Some(history) = self.history_update()? else {

@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 use proteus_contracts::{
     contracts::WorkflowModelStreamItem,
-    domain::{MessageId, ToolResult},
+    domain::MessageId,
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart,
     },
@@ -14,6 +14,9 @@ use proteus_contracts::{
 
 use crate::{codex_tools::CodexToolRun, scaffold::TurnScaffold};
 
+mod in_flight;
+use in_flight::InFlight;
+
 pub(crate) fn sample(
     host: &mut WorkflowModuleHostMut<'_>,
     input: &WorkflowModuleInput,
@@ -21,69 +24,70 @@ pub(crate) fn sample(
     request: &CanonicalModelRequest,
     tools: &mut CodexToolRun,
 ) -> Result<CanonicalModelResponse, ProcessModuleError> {
-    let mut sample = SampleProgress::default();
-    let outcome = (|| {
-        let cursor =
-            host.start_model_stream_json(serde_json::to_string(request).map_err(json_error)?)?;
-        loop {
-            crate::host::ensure_not_cancelled(host)?;
-            let item: WorkflowModelStreamItem =
-                serde_json::from_str(&host.next_model_stream_json(cursor.clone())?)
-                    .map_err(json_error)?;
-            match item {
-                WorkflowModelStreamItem::MessageCompleted { message } => {
-                    sample.accept(
-                        host,
-                        input,
-                        turn,
-                        request,
-                        tools,
-                        std::slice::from_ref(&message),
-                    )?;
-                }
-                WorkflowModelStreamItem::Response { response } => {
-                    crate::validation::validate_codex_model_response(
-                        "codex_loop",
-                        request,
-                        &response,
-                    )?;
-                    sample.accept(host, input, turn, request, tools, &response.messages)?;
-                    return Ok(response);
-                }
-                WorkflowModelStreamItem::Error { failure } => {
-                    sample.accept(
-                        host,
-                        input,
-                        turn,
-                        request,
-                        tools,
-                        &failure.completed_messages,
-                    )?;
-                    return Err(ProcessModuleError::from_model_failure(failure));
+    std::thread::scope(|scope| {
+        let host = &*host;
+        let mut sample = SampleProgress::default();
+        let mut in_flight = InFlight::default();
+        let mut accept = |messages: &[CanonicalMessage]| {
+            sample.accept(host, turn, request, tools, messages, |batch, parallel| {
+                in_flight.start(scope, host, input, batch, parallel)
+            })
+        };
+        let outcome = (|| {
+            let cursor =
+                host.start_model_stream_json(serde_json::to_string(request).map_err(json_error)?)?;
+            loop {
+                crate::host::ensure_not_cancelled(host)?;
+                let item: WorkflowModelStreamItem =
+                    serde_json::from_str(&host.next_model_stream_json(cursor.clone())?)
+                        .map_err(json_error)?;
+                match item {
+                    WorkflowModelStreamItem::MessageCompleted { message } => {
+                        accept(std::slice::from_ref(&message))?;
+                    }
+                    WorkflowModelStreamItem::Response { response } => {
+                        crate::validation::validate_codex_model_response(
+                            "codex_loop",
+                            request,
+                            &response,
+                        )?;
+                        accept(&response.messages)?;
+                        return Ok(response);
+                    }
+                    WorkflowModelStreamItem::Error { failure } => {
+                        accept(&failure.completed_messages)?;
+                        return Err(ProcessModuleError::from_model_failure(failure));
+                    }
                 }
             }
+        })();
+        let (results, tool_failure) = in_flight.drain();
+        turn.append_tool_results(results);
+        match tool_failure {
+            Some(error) => Err(error),
+            None => outcome,
         }
-    })();
-    turn.append_tool_results(sample.results);
-    outcome
+    })
 }
 
 #[derive(Default)]
 struct SampleProgress {
     messages: HashSet<MessageId>,
-    results: Vec<ToolResult>,
     had_tools: bool,
 }
 
 impl SampleProgress {
     fn accept(
         &mut self,
-        host: &mut WorkflowModuleHostMut<'_>,
-        input: &WorkflowModuleInput,
+        host: &WorkflowModuleHostMut<'_>,
         turn: &mut TurnScaffold,
         request: &CanonicalModelRequest,
         tools: &mut CodexToolRun,
         messages: &[CanonicalMessage],
+        mut start: impl FnMut(
+            crate::codex_tools::CodexToolBatch,
+            bool,
+        ) -> Result<(), ProcessModuleError>,
     ) -> Result<(), ProcessModuleError> {
         let mut calls = Vec::new();
         let mut changed = false;
@@ -104,8 +108,9 @@ impl SampleProgress {
                 tools.tool_rounds += 1;
                 self.had_tools = true;
             }
-            self.results
-                .extend(tools.execute(host, input, turn, &calls, &request.tools)?);
+            let batch = tools.prepare(host, turn, &calls, &request.tools)?;
+            let parallel = batch.permits_parallel(&request.tools);
+            start(batch, parallel)?;
         } else if changed {
             turn.checkpoint(host, &[])?;
         }

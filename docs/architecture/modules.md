@@ -154,7 +154,10 @@ model/tool facts по-прежнему не превращаются в conversa
 items до terminal. Core владеет IO, UI deltas и cancellation; workflow выбирает
 checkpoint и исполнение calls. `coding.codex_loop` исполняет завершённый call
 при открытом stream, а его результат добавляет в prompt после всех model items.
-Calls разных items пока последовательны; batch policy/safety остаётся общей.
+Calls из разных items с эффективным `ToolSafety::ReadOnly` исполняются
+параллельно. Остальные ждут предыдущие calls и удерживают следующие до своего
+завершения; batch policy/safety остаётся общей. Drain сохраняет порядок calls,
+даже если результаты завершились в другом порядке или stream оборвался.
 Повторные items не повторяют эффект. Terminal не может изменить принятый item.
 
 Повтор оборванного stream выбирает `coding.codex_loop` по общей причине

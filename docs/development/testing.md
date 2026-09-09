@@ -77,6 +77,13 @@ root turn: следующий request, cold history, Error/Success journal и wo
 replay. Early-execution fixture удерживает terminal до эффекта tool, затем
 проверяет поздний model item и перенос result suffix.
 Cancel fixture дополнительно проверяет освобождение открытого provider connection.
+`stream_recovery::parallel_execution` использует независимый Python tool
+component с управляемыми barriers: два чтения перекрываются до terminal SSE,
+результаты завершаются в обратном порядке, exclusive call и следующее чтение
+ждут своей очереди. Проверяются approval allow/deny, drain перед retry после
+обрыва, порядок следующего request, cold history и matched replay без эффекта.
+Cancel при активном и ожидающих calls сохраняет завершённый result, отменяет
+активный component invocation и не создаёт requested facts для очереди.
 Retry вызывает workflow по типизированному `StreamDisconnected`, а не adapter по тексту;
 `recorded_failure_kind_selects_the_same_workflow_branch` проверяет сохранение
 этой причины через journal/replay. Module regression отдельно проверяет бюджет
@@ -220,6 +227,10 @@ revision и порядок history при обратном завершении 
 Python workflows через одну checkpoint surface и replay. Replay сверяет сами
 checkpoint snapshots, набор выбранных calls и их положение относительно
 model/tool records; отсутствие checkpoint не маскируется совпавшим final output.
+Для явно выбранных in-flight bindings replay нормализует пересечение
+request/result с checkpoint. Unit regression отдельно сохраняет identity двух
+одинаковых операций при обратном dispatch, отвергает пересечение незаявленного
+tool и не позволяет пропустить его lifecycle при итоговой проверке.
 
 Для model/grants/recording changes добавляются focused suites
 `bound_model_tests`, `bound_tools_tests` и session journal. Process cancellation,

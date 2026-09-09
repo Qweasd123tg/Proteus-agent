@@ -129,7 +129,7 @@ pub fn meta_tool_specs_for_phase(phase: &str) -> Vec<ToolSpec> {
 }
 
 pub fn all_policy_visible_tools(
-    host: &mut WorkflowModuleHostMut<'_>,
+    host: &WorkflowModuleHostMut<'_>,
     input: &WorkflowModuleInput,
 ) -> Result<Vec<ToolSpec>, ProcessModuleError> {
     let tools_json =
@@ -141,7 +141,7 @@ pub fn all_policy_visible_tools(
 }
 
 pub fn handle_meta_tool_call(
-    host: &mut WorkflowModuleHostMut<'_>,
+    host: &WorkflowModuleHostMut<'_>,
     input: &WorkflowModuleInput,
     call: &ToolCall,
     phase: &str,
@@ -158,7 +158,7 @@ pub fn handle_meta_tool_call(
 }
 
 fn handle_search(
-    host: &mut WorkflowModuleHostMut<'_>,
+    host: &WorkflowModuleHostMut<'_>,
     input: &WorkflowModuleInput,
     call: &ToolCall,
 ) -> Result<ToolResult, ProcessModuleError> {
@@ -221,7 +221,7 @@ fn handle_search(
 }
 
 fn handle_describe(
-    host: &mut WorkflowModuleHostMut<'_>,
+    host: &WorkflowModuleHostMut<'_>,
     input: &WorkflowModuleInput,
     call: &ToolCall,
 ) -> Result<ToolResult, ProcessModuleError> {
@@ -270,7 +270,7 @@ fn handle_describe(
 }
 
 fn handle_deferred_call(
-    host: &mut WorkflowModuleHostMut<'_>,
+    host: &WorkflowModuleHostMut<'_>,
     input: &WorkflowModuleInput,
     outer_call: &ToolCall,
     phase: &str,

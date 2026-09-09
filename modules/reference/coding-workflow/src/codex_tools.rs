@@ -1,7 +1,7 @@
 //! Codex-owned adaptation from a model call to an explicit host operation.
 //! Model history stays unchanged; checkpoint and execution use the same calls.
 use proteus_contracts::{
-    domain::{ToolCall, ToolCallSurface, ToolResult, ToolSpec},
+    domain::{ToolCall, ToolCallSurface, ToolResult, ToolSafety, ToolSpec},
     process_module::{ProcessModuleError, WorkflowModuleHostMut, WorkflowModuleInput},
 };
 use serde_json::{Value, json};
@@ -17,22 +17,18 @@ pub(crate) struct CodexToolRun {
 }
 
 impl CodexToolRun {
-    pub(crate) fn execute(
+    pub(crate) fn prepare(
         &mut self,
-        host: &mut WorkflowModuleHostMut<'_>,
-        input: &WorkflowModuleInput,
+        host: &WorkflowModuleHostMut<'_>,
         turn: &mut TurnScaffold,
         calls: &[ToolCall],
         request_tools: &[ToolSpec],
-    ) -> Result<Vec<ToolResult>, ProcessModuleError> {
-        if calls.is_empty() {
-            return Ok(Vec::new());
-        }
+    ) -> Result<CodexToolBatch, ProcessModuleError> {
         let batch = CodexToolBatch::prepare(calls, request_tools);
         turn.checkpoint(host, &batch.execution_calls())?;
         self.executed_tools
             .extend(calls.iter().map(|call| call.name.clone()));
-        batch.execute(host, input, "codex_loop")
+        Ok(batch)
     }
 }
 
@@ -65,6 +61,15 @@ impl CodexToolBatch {
         }
     }
 
+    pub(crate) fn permits_parallel(&self, tools: &[ToolSpec]) -> bool {
+        self.calls.iter().all(|call| match call {
+            Ok(call) => tools
+                .iter()
+                .any(|tool| tool.name == call.name && tool.safety == ToolSafety::ReadOnly),
+            Err(_) => false,
+        })
+    }
+
     pub(crate) fn execution_calls(&self) -> Vec<ToolCall> {
         self.calls
             .iter()
@@ -74,7 +79,7 @@ impl CodexToolBatch {
 
     pub(crate) fn execute(
         &self,
-        host: &mut WorkflowModuleHostMut<'_>,
+        host: &WorkflowModuleHostMut<'_>,
         input: &WorkflowModuleInput,
         phase: &str,
     ) -> Result<Vec<ToolResult>, ProcessModuleError> {

@@ -134,10 +134,22 @@ Proteus через `host.model.stream.start/next` запускает completed c
 ветка обрывает stream после эффекта: retry не исполняет call повторно. Cancel
 при открытом SSE сохраняет checkpoint/result и закрывает provider connection.
 
-Остаётся ограничение: calls из разных completed items обрабатываются
-последовательно, хотя model IO продолжается независимо; upstream запускает
-параллельно допустимые calls и затем `drain_in_flight` сохраняет порядок результатов.
-Batch из одного item по-прежнему использует общий `execute_batch`.
+Calls из разных completed items запускаются через FIFO shared/exclusive gate
+workflow-модуля, пока чтение stream продолжается. Gate повторяет форму
+`ToolCallRuntime` из закреплённого `core/src/tools/parallel.rs`; drain собирает
+все outcomes в порядке calls, как `session/turn.rs::drain_in_flight`, в том числе
+при обрыве SSE. Batch из одного item использует общий `execute_batch`.
+[Process regression](../../modules/reference/process-worker/tests/codex_model_resume/stream_recovery/parallel_execution.rs)
+удерживает SSE открытым, доказывает перекрытие двух чтений, обратное завершение
+и exclusive fence перед следующим чтением. Проверяются approval allow/deny,
+retry после обрыва при работающих calls, отсутствие повторного эффекта, cold
+history и matched replay. Отдельная отмена сохраняет завершённое чтение,
+отменяет активное и не исполняет calls, ожидающие gate.
+
+Ограничение eligibility: upstream использует явный `supports_parallel_tool_calls`
+handler-а; текущий Proteus contract предоставляет `ToolSafety`, поэтому shared
+gate допускает только batches с эффективными `ReadOnly` calls. Другие safety
+классы эксклюзивны. Полное совпадение набора параллельных tools не заявляется.
 Также не реализуются upstream idle timeout, первичный unbounded connection retry
 и WebSocket fallback.
 Общий model deadline остаётся неповторяемой ошибкой. Полное совпадение stream

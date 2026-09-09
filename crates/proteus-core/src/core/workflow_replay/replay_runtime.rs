@@ -473,6 +473,15 @@ fn replay_capabilities(
 }
 
 fn match_tool_index(inner: &ReplayStateInner, actual: &ToolCall) -> Result<usize> {
+    // Checkpoints may bind identical calls before their concurrent dispatch.
+    // Preserve that bijection even when workers reach the host out of order.
+    if let Some(expected_id) = inner.actual_to_expected.get(&actual.id) {
+        return inner
+            .tools
+            .iter()
+            .position(|tool| &tool.recorded.call.id == expected_id)
+            .ok_or_else(|| anyhow!("checkpoint-bound replay tool {expected_id} is missing"));
+    }
     if let Some(index) = inner
         .tools
         .iter()

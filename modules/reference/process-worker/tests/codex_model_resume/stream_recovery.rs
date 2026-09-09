@@ -19,6 +19,9 @@ use super::{
 #[path = "stream_recovery/early_execution.rs"]
 mod early_execution;
 
+#[path = "stream_recovery/parallel_execution.rs"]
+mod parallel_execution;
+
 #[path = "stream_recovery/cancellation.rs"]
 mod cancellation;
 #[path = "stream_recovery/tool_progress.rs"]

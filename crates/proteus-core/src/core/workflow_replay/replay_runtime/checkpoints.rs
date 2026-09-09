@@ -30,7 +30,9 @@ pub(crate) fn recorded_checkpoints(
     turn: TurnId,
     direct_exchange_ids: &HashSet<ExchangeId>,
 ) -> Vec<RecordedCheckpoint> {
-    let mut position = (0, 0, 0);
+    let mut model_requests = 0;
+    let mut requested = HashSet::new();
+    let mut results = HashSet::new();
     let mut checkpoints = Vec::new();
     for record in records
         .iter()
@@ -40,17 +42,24 @@ pub(crate) fn recorded_checkpoints(
             JournalEntry::ModelRequestRecorded(request)
                 if direct_exchange_ids.contains(&request.exchange_id) =>
             {
-                position.0 += 1
+                model_requests += 1
             }
             JournalEntry::ToolCallRecorded(tool)
                 if tool.phase == ToolCallRecordPhase::Requested =>
             {
-                position.1 += 1
+                requested.insert(tool.call.id.clone());
             }
-            JournalEntry::ToolResultRecorded(_) => position.2 += 1,
+            JournalEntry::ToolResultRecorded(tool) => {
+                results.insert(tool.result.call_id.clone());
+            }
             JournalEntry::HistoryMutated(mutation)
                 if mutation.mutation == HistoryMutationKind::Checkpoint =>
             {
+                let pending = mutation
+                    .tool_results
+                    .iter()
+                    .map(|binding| binding.call_id.clone())
+                    .collect::<HashSet<_>>();
                 checkpoints.push(RecordedCheckpoint {
                     messages: mutation.messages.clone(),
                     calls: mutation
@@ -58,7 +67,11 @@ pub(crate) fn recorded_checkpoints(
                         .iter()
                         .map(|binding| binding.execution_call.clone())
                         .collect(),
-                    position,
+                    position: (
+                        model_requests,
+                        requested.difference(&pending).count(),
+                        results.difference(&pending).count(),
+                    ),
                 })
             }
             _ => {}
@@ -150,13 +163,27 @@ impl WorkflowHistoryRecorder for ReplayCheckpointRecorder {
                     "checkpoint changed a tool execution binding"
                 );
             }
+            // A declared capture may still be in flight on either side of a
+            // checkpoint. Normalize only these lifecycles; non-pending tools,
+            // the exact binding set, snapshots and final drain remain strict.
+            let pending = expected
+                .calls
+                .iter()
+                .map(|call| &call.id)
+                .collect::<HashSet<_>>();
             let position = (
                 inner.next_exchange,
-                inner.tools.iter().filter(|tool| tool.requested).count(),
                 inner
                     .tools
                     .iter()
-                    .filter(|tool| tool.result_recorded)
+                    .filter(|tool| tool.requested && !pending.contains(&tool.recorded.call.id))
+                    .count(),
+                inner
+                    .tools
+                    .iter()
+                    .filter(|tool| {
+                        tool.result_recorded && !pending.contains(&tool.recorded.call.id)
+                    })
                     .count(),
             );
             ensure!(

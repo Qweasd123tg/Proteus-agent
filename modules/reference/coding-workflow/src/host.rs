@@ -35,7 +35,7 @@ struct RequestOptions<'a> {
 
 pub(super) fn request_from_state(
     input: &WorkflowModuleInput,
-    host: &mut WorkflowModuleHostMut<'_>,
+    host: &WorkflowModuleHostMut<'_>,
     messages: &[CanonicalMessage],
     system_instructions: &str,
     developer_instructions: Option<&str>,
@@ -63,7 +63,7 @@ pub(super) fn request_from_state(
 
 pub(super) fn request_from_state_with_instruction_blocks(
     input: &WorkflowModuleInput,
-    host: &mut WorkflowModuleHostMut<'_>,
+    host: &WorkflowModuleHostMut<'_>,
     messages: &[CanonicalMessage],
     instructions: Vec<InstructionBlock>,
     developer_instructions: Option<&str>,
@@ -87,7 +87,7 @@ pub(super) fn request_from_state_with_instruction_blocks(
 
 fn request_from_state_with_instruction_blocks_and_options(
     input: &WorkflowModuleInput,
-    host: &mut WorkflowModuleHostMut<'_>,
+    host: &WorkflowModuleHostMut<'_>,
     messages: &[CanonicalMessage],
     mut instructions: Vec<InstructionBlock>,
     developer_instructions: Option<&str>,
@@ -159,7 +159,7 @@ fn request_from_state_with_instruction_blocks_and_options(
 }
 
 pub(super) fn execute_or_handle_tool(
-    host: &mut WorkflowModuleHostMut<'_>,
+    host: &WorkflowModuleHostMut<'_>,
     input: &WorkflowModuleInput,
     call: &ToolCall,
     phase: &str,
@@ -173,7 +173,7 @@ pub(super) fn execute_or_handle_tool(
 
 fn compact_messages(
     input: &WorkflowModuleInput,
-    host: &mut WorkflowModuleHostMut<'_>,
+    host: &WorkflowModuleHostMut<'_>,
     request: &CanonicalModelRequest,
     reason: &str,
     last_usage: Option<&LastModelUsage>,
@@ -205,7 +205,7 @@ fn compact_messages(
 }
 
 pub(super) fn build_context(
-    host: &mut WorkflowModuleHostMut<'_>,
+    host: &WorkflowModuleHostMut<'_>,
     input: &WorkflowModuleInput,
 ) -> Result<ContextBundle, ProcessModuleError> {
     ensure_not_cancelled(host)?;
@@ -218,7 +218,7 @@ pub(super) fn build_context(
 }
 
 pub(super) fn complete_model(
-    host: &mut WorkflowModuleHostMut<'_>,
+    host: &WorkflowModuleHostMut<'_>,
     request: &CanonicalModelRequest,
     phase: &str,
 ) -> Result<CanonicalModelResponse, ProcessModuleError> {
@@ -248,7 +248,7 @@ impl SelectedTools {
 }
 
 fn visible_tools(
-    host: &mut WorkflowModuleHostMut<'_>,
+    host: &WorkflowModuleHostMut<'_>,
     input: &WorkflowModuleInput,
     phase: &str,
 ) -> Result<SelectedTools, ProcessModuleError> {
@@ -274,7 +274,7 @@ fn visible_tools(
 /// (включая facade-tool `task`) уходят в host batch API, где core применяет
 /// registry/policy/orchestrator и выбирает допустимую concurrency.
 pub(super) fn execute_tools(
-    host: &mut WorkflowModuleHostMut<'_>,
+    host: &WorkflowModuleHostMut<'_>,
     input: &WorkflowModuleInput,
     calls: &[ToolCall],
     phase: &str,
@@ -301,7 +301,7 @@ pub(super) fn execute_tools(
 }
 
 pub(super) fn execute_tool(
-    host: &mut WorkflowModuleHostMut<'_>,
+    host: &WorkflowModuleHostMut<'_>,
     input: &WorkflowModuleInput,
     call: &ToolCall,
 ) -> Result<ToolResult, ProcessModuleError> {
@@ -317,7 +317,7 @@ pub(super) fn execute_tool(
 }
 
 pub(super) fn ensure_not_cancelled(
-    host: &mut WorkflowModuleHostMut<'_>,
+    host: &WorkflowModuleHostMut<'_>,
 ) -> Result<(), ProcessModuleError> {
     match host.is_cancelled() {
         Ok(false) => Ok(()),
@@ -327,7 +327,7 @@ pub(super) fn ensure_not_cancelled(
 }
 
 pub(super) fn emit_event(
-    host: &mut WorkflowModuleHostMut<'_>,
+    host: &WorkflowModuleHostMut<'_>,
     event: &Event,
 ) -> Result<(), ProcessModuleError> {
     let event_json = to_json_string(event)?;
@@ -348,7 +348,7 @@ pub(super) fn from_json_string<T: serde::de::DeserializeOwned>(
 }
 
 fn emit_token_usage(
-    host: &mut WorkflowModuleHostMut<'_>,
+    host: &WorkflowModuleHostMut<'_>,
     request: &CanonicalModelRequest,
     actual: Option<TokenUsage>,
     phase: &str,

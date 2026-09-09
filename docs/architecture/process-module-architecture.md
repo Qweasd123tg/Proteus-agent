@@ -340,8 +340,16 @@ backpressure при медленном workflow. `next` — delivery без но
 Никакой model item не запускает tool в Core автоматически.
 
 `coding.codex_loop` подтверждает каждый completed item и запускает его calls,
-не ожидая terminal. Calls разных items обрабатываются последовательно;
-обычная batch semantics внутри item сохраняется. Результаты сразу durable,
+не ожидая terminal и не блокируя чтение следующих items на исполнении tool.
+Batch с эффективными `ToolSafety::ReadOnly` calls допускается к общему shared
+gate; остальные получают exclusive gate в порядке поступления. Ожидающий
+exclusive batch не пропускает последующие чтения. Обычная batch semantics
+внутри item сохраняется. Реализация принадлежит workflow-модулю и использует
+конкурентные callbacks существующего контракта; новых host прав нет.
+Результаты drain собираются в порядке calls, в том числе после ошибки stream.
+Отмена останавливает активные host invocations и не допускает ожидающие calls
+до исполнения. Ошибка одного tool callback не отменяет drain остальных.
+Результаты сразу durable,
 но workflow добавляет их в prompt после всех model items, также при Error.
 Checkpoint может расширить model prefix и повторить прежние bindings с теми же
 identities: Core переносит сохранённый result suffix за новый prefix. Удаление
