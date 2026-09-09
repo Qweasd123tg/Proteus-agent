@@ -74,7 +74,7 @@ pub(crate) fn load_web_settings(set_tool_cards_collapsed: WriteSignal<bool>) {
 pub(crate) fn load_runtime_settings(
     set_mode: WriteSignal<PermissionMode>,
     set_model_name: WriteSignal<String>,
-    set_model_options: WriteSignal<Vec<String>>,
+    set_model_options: WriteSignal<Vec<ModelOption>>,
     set_reasoning_enabled: WriteSignal<bool>,
     set_effort: WriteSignal<ReasoningEffort>,
     set_effort_options: WriteSignal<Vec<String>>,
@@ -122,57 +122,15 @@ pub(crate) fn load_runtime_settings(
                 if let Some(mode) = config.get("permission_mode").and_then(Value::as_str) {
                     set_mode.set(PermissionMode::from_value(mode));
                 }
-                if let Some(model) = config.pointer("/model/name").and_then(Value::as_str) {
-                    set_model_name.set(model.to_owned());
+                crate::model_settings::ModelSettings {
+                    model: set_model_name,
+                    models: set_model_options,
+                    enabled: set_reasoning_enabled,
+                    effort: set_effort,
+                    efforts: set_effort_options,
+                    status: set_transport_status,
                 }
-                let mut options = config
-                    .get("model_options")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|item| {
-                        item.get("name")
-                            .and_then(Value::as_str)
-                            .map(ToOwned::to_owned)
-                    })
-                    .collect::<Vec<_>>();
-                if let Some(model) = config.pointer("/model/name").and_then(Value::as_str)
-                    && !options.iter().any(|item| item == model)
-                {
-                    options.push(model.to_owned());
-                }
-                set_model_options.set(options);
-                let reasoning_enabled = config
-                    .pointer("/reasoning/enabled")
-                    .and_then(Value::as_bool);
-                if let Some(enabled) = reasoning_enabled {
-                    set_reasoning_enabled.set(enabled);
-                }
-                let current_effort = config.pointer("/reasoning/effort").and_then(Value::as_str);
-                let mut effort_options = config
-                    .pointer("/reasoning/effort_options")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_str)
-                    .filter(|value| !value.trim().is_empty())
-                    // «none» и «auto» — служебные значения, кнопка none в меню
-                    // своя; из опций сервера их не дублируем.
-                    .filter(|value| {
-                        !value.eq_ignore_ascii_case("none") && !value.eq_ignore_ascii_case("auto")
-                    })
-                    .map(ToOwned::to_owned)
-                    .collect::<Vec<_>>();
-                if let Some(effort) = current_effort {
-                    if !effort_options.iter().any(|item| item == effort) {
-                        effort_options.push(effort.to_owned());
-                    }
-                    set_effort.set(ReasoningEffort::from_value(effort));
-                } else if reasoning_enabled == Some(false) {
-                    // Рассуждения выключены — в меню effort подсвечиваем none.
-                    set_effort.set(ReasoningEffort::None);
-                }
-                set_effort_options.set(effort_options);
+                .apply(&config);
             }
             Err(error) => report_error(
                 set_messages,

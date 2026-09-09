@@ -148,6 +148,20 @@ impl Model for ProcessModel {
         self.descriptor.hosted_tools.clone()
     }
 
+    async fn catalog(&self) -> Result<Option<crate::contracts::ModelCatalog>> {
+        let result: Option<crate::contracts::ModelCatalog> = self
+            .client
+            .invoke(crate::contracts::PROCESS_MODEL_CATALOG_METHOD, &Value::Null)
+            .await?;
+        if let Some(catalog) = &result {
+            if let Err(error) = catalog.validate() {
+                self.client.reset();
+                bail!("invalid model catalog: {error}");
+            }
+        }
+        Ok(result)
+    }
+
     async fn stream(
         &self,
         request: CanonicalModelRequest,

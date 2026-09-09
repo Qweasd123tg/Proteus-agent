@@ -3,7 +3,7 @@ use crate::adapters::test_http;
 use futures_util::StreamExt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-fn auth_file(root: &std::path::Path) -> std::path::PathBuf {
+pub(super) fn auth_file(root: &std::path::Path) -> std::path::PathBuf {
     let path = root.join("chatgpt.json");
     std::fs::write(&path, json!({
         "access_token": "fixture-access", "refresh_token": "fixture-refresh", "account_id": "fixture-account",
@@ -34,6 +34,7 @@ async fn subscription_uses_oauth_and_sse_for_stream_and_complete() {
         )
         .unwrap();
         let mut request = request();
+        request.reasoning.effort = Some("none".into());
         request.limits.max_output_tokens = Some(123);
         let mut events = client.stream(request).await.unwrap();
         let mut terminal = None;
@@ -54,6 +55,7 @@ async fn subscription_uses_oauth_and_sse_for_stream_and_complete() {
         assert_eq!(body["stream"], true);
         assert_eq!(body["store"], false);
         assert_eq!(body["instructions"], "");
+        assert_eq!(body["reasoning"]["effort"], "none");
         assert!(body.get("max_output_tokens").is_none());
     }
 }

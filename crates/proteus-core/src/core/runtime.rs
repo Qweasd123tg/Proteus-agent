@@ -27,6 +27,7 @@ mod execution_binding;
 mod failed_history;
 mod history;
 mod paths;
+mod settings;
 mod steering;
 mod turn;
 
@@ -225,73 +226,6 @@ impl AgentRuntime {
 
     pub async fn permission_mode(&self) -> PermissionMode {
         self.services.execution_state.read().await.permission_mode
-    }
-
-    pub async fn set_model_name(&self, model: String) {
-        let model = model.trim();
-        if model.is_empty() {
-            return;
-        }
-        self.services.execution_state.write().await.model_ref.model = model.to_owned();
-    }
-
-    /// Полная замена provider+model, например после смены `active_provider`
-    /// через config builder: `reload_assembly` пересобирает model adapter, но
-    /// не трогает runtime override model_ref.
-    pub async fn set_model_ref(&self, model_ref: ModelRef) {
-        self.services.execution_state.write().await.model_ref = model_ref;
-    }
-
-    pub async fn model_ref(&self) -> ModelRef {
-        self.services.execution_state.read().await.model_ref.clone()
-    }
-
-    pub async fn set_reasoning_enabled(&self, enabled: bool) {
-        let mut state = self.services.execution_state.write().await;
-        let reasoning = &mut state.reasoning;
-        if enabled {
-            if reasoning.effort.is_none() {
-                reasoning.effort = self.services.default_reasoning.effort.clone();
-            }
-            reasoning.summary = self.services.default_reasoning.summary;
-            reasoning.budget_tokens = self.services.default_reasoning.budget_tokens;
-        } else {
-            reasoning.effort = None;
-            reasoning.summary = false;
-            reasoning.budget_tokens = None;
-        }
-    }
-
-    pub async fn set_reasoning_effort(&self, effort: Option<String>) {
-        let mut state = self.services.execution_state.write().await;
-        let reasoning = &mut state.reasoning;
-        match effort.as_deref() {
-            // «none» — первоклассное значение effort: выключает рассуждения
-            // целиком. Веб-клиент шлёт его вместо пары /reasoning + /effort.
-            Some(value) if value.eq_ignore_ascii_case("none") => {
-                reasoning.effort = None;
-                reasoning.summary = false;
-                reasoning.budget_tokens = None;
-            }
-            // Конкретный effort включает рассуждения, даже если они были
-            // выключены: summary/budget возвращаются к дефолтам конфига.
-            Some(value) => {
-                if reasoning.effort.is_none()
-                    && !reasoning.summary
-                    && reasoning.budget_tokens.is_none()
-                {
-                    reasoning.summary = self.services.default_reasoning.summary;
-                    reasoning.budget_tokens = self.services.default_reasoning.budget_tokens;
-                }
-                reasoning.effort = Some(value.to_owned());
-            }
-            // null — «auto»: явного effort нет, остальное не трогаем.
-            None => reasoning.effort = None,
-        }
-    }
-
-    pub async fn reasoning(&self) -> ReasoningConfig {
-        self.services.execution_state.read().await.reasoning.clone()
     }
 
     pub async fn tool_entries(&self) -> Vec<(ToolSource, ToolSpec)> {

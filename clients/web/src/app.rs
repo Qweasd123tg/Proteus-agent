@@ -97,7 +97,7 @@ pub(crate) fn App() -> impl IntoView {
     let (queued_prompts, set_queued_prompts) = signal(Vec::<QueuedPromptInfo>::new());
     let (mode, set_mode) = signal(PermissionMode::Normal);
     let (model_name, set_model_name) = signal(String::new());
-    let (model_options, set_model_options) = signal(Vec::<String>::new());
+    let (model_options, set_model_options) = signal(Vec::<ModelOption>::new());
     let (reasoning_enabled, set_reasoning_enabled) = signal(true);
     let (effort, set_effort) = signal(ReasoningEffort::Config);
     let (effort_options, set_effort_options) = signal(Vec::<String>::new());
@@ -429,6 +429,8 @@ pub(crate) fn App() -> impl IntoView {
         set_mode,
         model_name,
         set_model_name,
+        set_model_options,
+        set_effort_options,
         reasoning_enabled,
         set_reasoning_enabled,
         effort,

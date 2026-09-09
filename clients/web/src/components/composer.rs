@@ -14,7 +14,7 @@ pub(crate) fn ComposerView<S, K, R, T, DE, NB>(
     set_draft: WriteSignal<String>,
     mode: ReadSignal<PermissionMode>,
     model_name: ReadSignal<String>,
-    model_options: ReadSignal<Vec<String>>,
+    model_options: ReadSignal<Vec<ModelOption>>,
     reasoning_enabled: ReadSignal<bool>,
     effort: ReadSignal<ReasoningEffort>,
     effort_options: ReadSignal<Vec<String>>,
@@ -157,10 +157,11 @@ where
                                                 view! {
                                                     <For
                                                         each=move || model_options.get()
-                                                        key=|model| model.clone()
+                                                        key=|model| model.name.clone()
                                                         children=move |model| {
-                                                            let active_model = model.clone();
-                                                            let click_model = model.clone();
+                                                            let active_model = model.name.clone();
+                                                            let click_model = model.name.clone();
+                                                            let label = if model.hidden { format!("{} (скрытая)", model.label) } else { model.label };
                                                             view! {
                                                                 <button
                                                                     type="button"
@@ -168,7 +169,7 @@ where
                                                                     class:active=move || model_name.get() == active_model
                                                                     on:click=move |_| actions.set_model_name(click_model.clone())
                                                                 >
-                                                                    <span class="menu-option-title">{model}</span>
+                                                                    <span class="menu-option-title">{label}</span>
                                                                     <span class="menu-option-check" aria-hidden="true">"✓"</span>
                                                                 </button>
                                                             }
@@ -222,20 +223,9 @@ where
                                     </div>
                                 </section>
 
-                                // Единственная ручка рассуждений: «none»
-                                // выключает их целиком, любой effort включает.
                                 <section class="composer-menu-section compact">
                                     <span class="composer-menu-label">"effort"</span>
                                     <div class="composer-menu-options">
-                                        <button
-                                            type="button"
-                                            class="menu-option"
-                                            class:active=move || !reasoning_enabled.get()
-                                            title="Без рассуждений"
-                                            on:click=move |_| actions.set_reasoning_effort(ReasoningEffort::None)
-                                        >
-                                            "none"
-                                        </button>
                                         <For
                                             each=move || effort_options.get()
                                             key=|option| option.clone()
@@ -247,8 +237,7 @@ where
                                                         type="button"
                                                         class="menu-option"
                                                         class:active=move || {
-                                                            reasoning_enabled.get()
-                                                                && effort.get().value() == active_effort
+                                                            effort.get().value() == active_effort
                                                         }
                                                         on:click=move |_| actions.set_reasoning_effort(click_effort.clone())
                                                     >

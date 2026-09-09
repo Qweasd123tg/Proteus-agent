@@ -119,10 +119,9 @@ async fn reasoning_effort_none_toggles_reasoning() {
             .and_then(Value::as_bool),
         Some(false)
     );
-    assert!(
-        summary
-            .pointer("/reasoning/effort")
-            .is_none_or(Value::is_null)
+    assert_eq!(
+        summary.pointer("/reasoning/effort").and_then(Value::as_str),
+        Some("none")
     );
 
     // Выбор конкретного effort включает рассуждения обратно.
@@ -196,7 +195,7 @@ async fn request_dispatch_sets_model_and_reasoning_enabled() {
             .pointer("/reasoning/effort_options")
             .and_then(Value::as_array)
             .map(|values| values.iter().filter_map(Value::as_str).collect::<Vec<_>>()),
-        Some(vec!["high", "max"])
+        Some(vec!["none", "high", "max"])
     );
     assert_eq!(
         summary

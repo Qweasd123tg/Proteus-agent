@@ -77,6 +77,10 @@ async fn arbitrary_model_exports_preserve_exact_canonical_request_stream_and_ter
             },
         ];
         let mut settings = settings();
+        let catalog = json!({"models": [{"id": format!("{id}-discovered"),
+            "display_name": "External", "description": null, "hidden": true,
+            "reasoning_efforts": ["high", "future"], "default_reasoning_effort": "future"}]});
+        settings["catalog"] = catalog.clone();
         settings["events"] = json!(events);
         let mut input = request(id);
         input.messages.push(CanonicalMessage::new(
@@ -94,6 +98,10 @@ async fn arbitrary_model_exports_preserve_exact_canonical_request_stream_and_ter
         settings["expected_input"] = json!({"request": input, "stream": true});
         let adapter = model(&config(id, settings), cwd.path()).unwrap();
         assert_eq!(adapter.id(), "independent-model");
+        assert_eq!(
+            serde_json::to_value(adapter.catalog().await.unwrap().unwrap()).unwrap(),
+            catalog
+        );
         assert!(adapter.capabilities(&request(id).model).supports_streaming);
         let mut stream = adapter.stream(input).await.unwrap();
         let mut actual = Vec::new();
@@ -336,4 +344,67 @@ async fn model_export_deadline_cancels_the_worker_invocation() {
     let error = adapter.complete(request("timeout")).await.unwrap_err();
     assert!(format!("{error:#}").contains("timed out"), "{error:#}");
     marker_is(&marker, "canceled").await;
+}
+
+#[tokio::test]
+async fn external_catalog_drives_selection_and_rejects_invalid_metadata() {
+    use proteus_core::app_server::AgentAppServer;
+    let cwd = tempfile::tempdir().unwrap();
+    let catalog = json!({"models": [
+        {"id": "first", "display_name": "First", "description": null, "hidden": false,
+            "reasoning_efforts": ["high", "ultra"], "default_reasoning_effort": "high"},
+        {"id": "second", "display_name": "Second", "description": null, "hidden": true,
+            "reasoning_efforts": ["none", "low"], "default_reasoning_effort": "low"}
+    ]});
+    let mut settings = settings();
+    settings["catalog"] = catalog.clone();
+    let mut config = config("arbitrary", settings.clone());
+    config.providers.get_mut("fixture").unwrap().model = "first".into();
+    let server = AgentAppServer::launch(config, cwd.path().to_path_buf(), None)
+        .await
+        .unwrap();
+    server
+        .set_reasoning_effort(Some("ultra".into()))
+        .await
+        .unwrap();
+    let summary = server.config_summary().await;
+    assert_eq!(summary["model_options"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        summary["reasoning"]["effort_options"],
+        json!(["high", "ultra"])
+    );
+    assert!(summary["model_catalog_error"].is_null());
+    server.set_model_name("second".into()).await.unwrap();
+    let summary = server.config_summary().await;
+    assert_eq!(summary["model"]["name"], "second");
+    assert_eq!(summary["reasoning"]["effort"], "low");
+    assert_eq!(
+        summary["reasoning"]["effort_options"],
+        json!(["none", "low"])
+    );
+    assert!(
+        server
+            .set_reasoning_effort(Some("ultra".into()))
+            .await
+            .is_err()
+    );
+    assert!(server.set_model_name("invented".into()).await.is_err());
+    server
+        .set_reasoning_effort(Some("none".into()))
+        .await
+        .unwrap();
+    let summary = server.config_summary().await;
+    assert_eq!(summary["reasoning"]["effort"], "none");
+    assert_eq!(summary["reasoning"]["enabled"], false);
+    server.shutdown().await;
+
+    for malformed in [json!({"models": [{"id": "missing-fields"}]}), {
+        let mut duplicate = catalog.clone();
+        duplicate["models"][1]["id"] = json!("first");
+        duplicate
+    }] {
+        settings["catalog"] = malformed;
+        let adapter = model(&self::config("invalid", settings.clone()), cwd.path()).unwrap();
+        assert!(adapter.catalog().await.is_err());
+    }
 }

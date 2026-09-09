@@ -10,6 +10,7 @@ mod components;
 mod events;
 mod markdown;
 mod messages;
+mod model_settings;
 mod tool_names;
 mod types;
 mod ui_utils;

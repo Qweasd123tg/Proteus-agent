@@ -1,4 +1,4 @@
-"""Non-Rust model/v7 boundary fixture; all test behavior is export-configured."""
+"""Non-Rust model/v8 boundary fixture; all test behavior is export-configured."""
 import os
 import sys
 import threading
@@ -16,8 +16,8 @@ def initialize(params):
         raise ProtocolError("expected component v3")
     exports = []
     for export in params["exports"]:
-        if (export["slot"], export["contract_version"], export["composition"]) != ("model", "v7", "select_one"):
-            raise ProtocolError("expected model/v7 select_one")
+        if (export["slot"], export["contract_version"], export["composition"]) != ("model", "v8", "select_one"):
+            raise ProtocolError("expected model/v8 select_one")
         settings[export["module_id"]] = export["module_config"]
         if "pid_marker" in export["module_config"]:
             with Path(export["module_config"]["pid_marker"]).open("a") as file:
@@ -33,6 +33,10 @@ def invoke(context, method, params):
         if params is not None:
             raise ProtocolError("describe expects null")
         return config["descriptor"]
+    if method == "catalog":
+        if params is not None:
+            raise ProtocolError("catalog expects null")
+        return config.get("catalog")
     if method != "stream" or set(params) != {"request", "stream"}:
         raise ProtocolError("invalid model request")
     if "expected_input" in config and params != config["expected_input"]:

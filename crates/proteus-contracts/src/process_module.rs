@@ -294,6 +294,10 @@ pub trait ModelModuleHost: Send + Sync {
 
 pub trait ModelModule: Send + Sync + 'static {
     fn describe(&self) -> crate::contracts::ProcessModelDescriptor;
+    fn catalog(
+        &self,
+        host: &dyn ModelModuleHost,
+    ) -> ProcessModuleResult<Option<crate::contracts::ModelCatalog>>;
     fn stream(
         &self,
         input: crate::contracts::ProcessModelInput,

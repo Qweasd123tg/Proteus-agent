@@ -39,6 +39,10 @@ pub struct RuntimeRegistry {
 }
 
 impl RuntimeRegistry {
+    pub(crate) async fn model_catalog(&self) -> Result<Option<crate::contracts::ModelCatalog>> {
+        self.model_service.catalog().await
+    }
+
     pub fn from_config(config: &AppConfig, cwd: PathBuf) -> Result<Self> {
         Ok(PreparedAssembly::from_config(config.clone(), cwd, None)?
             .into_parts()

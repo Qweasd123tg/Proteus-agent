@@ -87,21 +87,20 @@ pub(super) async fn execute_app_request(
             Ok(Some(json!({ "mode": mode })))
         }
         StdioRequest::SetModel { model, .. } => {
-            state
-                .current_server()
-                .await
-                .set_model_name(model.clone())
-                .await;
-            Ok(Some(json!({ "model": model })))
+            let server = state.current_server().await;
+            match server.set_model_name(model.clone()).await {
+                Ok(()) => Ok(Some(
+                    json!({ "model": model, "config": server.config_summary().await }),
+                )),
+                Err(error) => Err(error),
+            }
         }
-        StdioRequest::SetReasoningEffort { effort, .. } => {
-            state
-                .current_server()
-                .await
-                .set_reasoning_effort(effort.clone())
-                .await;
-            Ok(Some(json!({ "effort": effort })))
-        }
+        StdioRequest::SetReasoningEffort { effort, .. } => state
+            .current_server()
+            .await
+            .set_reasoning_effort(effort.clone())
+            .await
+            .map(|_| Some(json!({ "effort": effort }))),
         StdioRequest::SetReasoningEnabled { enabled, .. } => {
             state
                 .current_server()
@@ -274,8 +273,10 @@ pub(super) async fn execute_set_model(
 ) -> StdioOutput {
     let result = async {
         let server = server_for_optional_session(state, session_dir).await?;
-        server.set_model_name(model.clone()).await;
-        Ok(Some(json!({ "model": model })))
+        server.set_model_name(model.clone()).await?;
+        Ok(Some(
+            json!({ "model": model, "config": server.config_summary().await }),
+        ))
     }
     .await;
     command_response(id, result)
@@ -305,7 +306,7 @@ pub(super) async fn execute_set_reasoning_effort(
 ) -> StdioOutput {
     let result = async {
         let server = server_for_optional_session(state, session_dir).await?;
-        server.set_reasoning_effort(effort.clone()).await;
+        server.set_reasoning_effort(effort.clone()).await?;
         Ok(Some(json!({ "effort": effort })))
     }
     .await;

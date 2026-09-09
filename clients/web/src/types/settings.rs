@@ -34,6 +34,13 @@ impl PermissionMode {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ModelOption {
+    pub name: String,
+    pub label: String,
+    pub hidden: bool,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) enum ReasoningEffort {
     #[default]
@@ -70,12 +77,9 @@ impl ReasoningEffort {
 
     pub(crate) fn from_value(value: &str) -> Self {
         let value = value.trim();
-        if value.is_empty()
-            || value.eq_ignore_ascii_case("auto")
-            || value.eq_ignore_ascii_case("config")
-        {
+        if value.is_empty() || value == "auto" {
             Self::Config
-        } else if value.eq_ignore_ascii_case("none") || value.eq_ignore_ascii_case("off") {
+        } else if value == "none" {
             Self::None
         } else {
             Self::Custom(value.to_owned())

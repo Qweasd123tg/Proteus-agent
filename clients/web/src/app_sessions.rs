@@ -16,7 +16,7 @@ use crate::ui_utils::short_id;
 pub(crate) struct RuntimeSettingsBindings {
     pub(crate) set_mode: WriteSignal<PermissionMode>,
     pub(crate) set_model_name: WriteSignal<String>,
-    pub(crate) set_model_options: WriteSignal<Vec<String>>,
+    pub(crate) set_model_options: WriteSignal<Vec<ModelOption>>,
     pub(crate) set_reasoning_enabled: WriteSignal<bool>,
     pub(crate) set_effort: WriteSignal<ReasoningEffort>,
     pub(crate) set_effort_options: WriteSignal<Vec<String>>,

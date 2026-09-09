@@ -447,8 +447,12 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
         .expect("reload registry");
     runtime
         .set_model_name("runtime-model-override".to_owned())
-        .await;
-    runtime.set_reasoning_effort(Some("high".to_owned())).await;
+        .await
+        .unwrap();
+    runtime
+        .set_reasoning_effort(Some("high".to_owned()))
+        .await
+        .unwrap();
     runtime.set_permission_mode(PermissionMode::Plan).await;
     runtime.run("after reload".to_owned()).await.unwrap();
 

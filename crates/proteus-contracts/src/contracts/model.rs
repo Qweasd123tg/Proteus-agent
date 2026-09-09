@@ -19,6 +19,12 @@ pub trait Model: Send + Sync {
     fn id(&self) -> Cow<'static, str>;
     fn capabilities(&self, model: &ModelRef) -> ModelCapabilities;
 
+    /// Live selection metadata owned by this provider. None means discovery
+    /// is unsupported; an empty catalog is an authoritative empty result.
+    async fn catalog(&self) -> Result<Option<super::ModelCatalog>> {
+        Ok(None)
+    }
+
     /// Configured provider-hosted tool instances for this model. The default
     /// keeps providers without hosted execution unchanged.
     fn provider_hosted_tools(&self, _model: &ModelRef) -> Vec<ToolSpec> {

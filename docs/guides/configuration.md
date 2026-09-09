@@ -208,9 +208,19 @@ proteus-reference-worker auth openai_codex logout
 
 Готовый `codex-chatgpt` использует `gpt-5.6-luna` и собственные
 `codex-chatgpt-explore`/`codex-chatgpt-coder`: peers также обращаются через
-подписку. Модель задаётся в `providers.chatgpt.model`; доступные модели и лимиты
-определяются аккаунтом. Фрагмент `fragments/openai-chatgpt.toml` задаёт explicit
+подписку. Модель при запуске задаётся в `providers.chatgpt.model`; доступные
+модели и лимиты определяются аккаунтом. Фрагмент `fragments/openai-chatgpt.toml` задаёт explicit
 model export, capabilities и консервативный порог контекста 200000 tokens.
+
+`openai_codex` сам запрашивает `GET /backend-api/codex/models` с ChatGPT OAuth.
+Web показывает все возвращённые модели, включая entries с отметкой «скрытая»,
+и только их `supported_reasoning_levels`, включая новые строковые значения.
+Успешный каталог кэшируется в worker на 5 минут; следующая загрузка настроек
+после expiry запрашивает его снова. Параллельные загрузки объединяются.
+Каталог не расходует inference tokens. При ошибке web показывает причину,
+список не подменяется статическим или API-каталогом. Ошибка не мешает загрузке
+остального `/config`; текущая модель остаётся видна. Доступность в каталоге не
+означает гарантию квоты на каждый последующий запрос.
 
 Provider config:
 
@@ -306,8 +316,16 @@ proxy variables) явно перечисляются в `env_allowlist` componen
 `doctor` проверяет selection, handshake и descriptor, но не доступность ключа
 и не соединение с API. Не храните secret literal в tracked config.
 
-Варианты reasoning задаются `providers.<name>.reasoning_efforts` явно;
-Core не выводит их из имени модели или endpoint.
+Для implementations без discovery варианты reasoning задаются
+`providers.<name>.reasoning_efforts` явно. Если model export поддерживает
+`catalog`, меню использует его модели и effort выбранной модели; список
+конфига не дополняет live catalog. Core не выводит effort из имени модели
+или endpoint. `/model` и stdio `set_model` возвращают выбранную модель вместе
+с актуальным `config`; web применяет модель и effort одновременно. При смене
+модели поддерживаемый effort сохраняется, иначе выбирается default из каталога.
+Неизвестные модель или effort отклоняются. Явный effort `none` сохраняется в
+model request как `none`, отключая summary/budget; он показывается в live меню
+только если входит в supported efforts.
 
 `proteus init codex` создаёт top-level `config.toml`, parent/peer fragments,
 prompts и named child configs `codex-explore.config.toml` /

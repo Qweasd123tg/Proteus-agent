@@ -1,4 +1,4 @@
-//! Component model/v7: immutable export description and one canonical stream.
+//! Component model/v8: immutable export description, live catalog and canonical stream.
 //! Events use acknowledged host callbacks, so slow consumers exert bounded
 //! backpressure without dropping text, tool arguments or usage.
 
@@ -12,10 +12,54 @@ use crate::{
     },
 };
 
-pub const PROCESS_MODEL_CONTRACT_VERSION: &str = "v7";
+pub const PROCESS_MODEL_CONTRACT_VERSION: &str = "v8";
 pub const PROCESS_MODEL_DESCRIBE_METHOD: &str = "describe";
+pub const PROCESS_MODEL_CATALOG_METHOD: &str = "catalog";
 pub const PROCESS_MODEL_STREAM_METHOD: &str = "stream";
 pub const MODEL_HOST_EMIT_METHOD: &str = "host.model.emit";
+
+/// Selection metadata only: catalog entries do not grant capabilities or tools.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ModelCatalog {
+    pub models: Vec<ModelCatalogEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ModelCatalogEntry {
+    pub id: String,
+    pub display_name: String,
+    pub description: Option<String>,
+    pub hidden: bool,
+    pub reasoning_efforts: Vec<String>,
+    pub default_reasoning_effort: Option<String>,
+}
+
+impl ModelCatalog {
+    pub fn validate(&self) -> Result<(), String> {
+        let mut ids = std::collections::HashSet::new();
+        for model in &self.models {
+            if model.id.trim().is_empty() || !ids.insert(&model.id) {
+                return Err("model catalog contains an empty or duplicate model id".into());
+            }
+            let mut efforts = std::collections::HashSet::new();
+            for effort in &model.reasoning_efforts {
+                if effort.trim().is_empty() || !efforts.insert(effort) {
+                    return Err("model catalog contains an empty or duplicate effort".into());
+                }
+            }
+            if model
+                .default_reasoning_effort
+                .as_ref()
+                .is_some_and(|v| !efforts.contains(v))
+            {
+                return Err("model catalog default effort is not supported".into());
+            }
+        }
+        Ok(())
+    }
+}
 
 /// Capabilities and hosted tools apply to the configured export. Profiles
 /// requiring different capabilities select distinct exports/configurations.

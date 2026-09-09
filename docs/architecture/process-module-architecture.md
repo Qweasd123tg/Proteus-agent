@@ -270,7 +270,7 @@ invalid DTO и превышение limits являются fail-closed protocol
 | context provider | v2 | `provide` | — |
 | tool | v3 | `list`, `invoke` | — |
 | context | v2 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
-| model | v7 | `describe`, `stream` | `host.model.emit` (acknowledged canonical events) |
+| model | v8 | `describe`, `catalog`, `stream` | `host.model.emit` (acknowledged canonical events) |
 | compactor | v9 | `compact` | `host.model.complete` |
 | workflow | v13 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
 
@@ -539,12 +539,22 @@ handshake всего набора, даже если probe направлен т
 
 ## Model Streaming
 
-`model/v7` использует canonical DTO из `proteus-contracts::contracts::process_model`:
+`model/v8` использует canonical DTO из `proteus-contracts::contracts::process_model`:
 
-Descriptor, capabilities, stream events и terminal DTO отклоняют неизвестные поля.
+Descriptor, catalog, capabilities, stream events и terminal DTO отклоняют неизвестные поля.
 
 - `describe(null) -> ProcessModelDescriptor`: стабильные adapter id,
   capabilities и hosted tools данного export; вызывается при сборке snapshot.
+- `catalog(null) -> Option<ModelCatalog>`: живые selection metadata данного
+  provider export. `null` означает отсутствие discovery; `models = []` —
+  успешный пустой каталог. Entries содержат `id`, `display_name`, `description`,
+  `hidden`, `reasoning_efforts`, `default_reasoning_effort`. Имена и effort —
+  строки, без provider-specific enum в Core; id и effort не могут быть пустыми
+  или дублироваться, default должен входить в supported efforts.
+  Вызов идёт после сборки через обычный deadline/cancellation path без host
+  callbacks. Сетевые запросы, OAuth и cache принадлежат implementation.
+  Catalog не меняет capabilities, instructions или authority snapshot и не
+  является inference exchange в journal.
 - `stream(ProcessModelInput { request, stream }) -> ProcessModelOutput`:
   один canonical request; `stream` выбирает streaming или complete режим
   реализации. Если provider поддерживает только SSE, complete собирает один
@@ -592,7 +602,7 @@ event; это причина, а не команда Core повторить з�
 без завершения, сохраняя остальные
 ошибки данных и deadline отдельными. Codex workflow принимает решение о повторе
 с подтверждённой историей; compactor сохраняет свою политику повторов.
-Действуют `model/v7`, `workflow/v13`, `compactor/v9` и journal schema v13,
+Действуют `model/v8`, `workflow/v13`, `compactor/v9` и journal schema v13,
 без readers старых форм.
 Передача `ToolCall` в существующем `CanonicalMessage` не меняет wire/storage DTO.
 

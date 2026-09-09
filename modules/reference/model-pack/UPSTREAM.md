@@ -12,6 +12,7 @@ Codex или OpenCode.
   account id, Bearer/ChatGPT-Account-Id и `/backend-api/codex/responses`.
 - Codex `0bbea86a6aae37b1f243676db4248000f04ad111`:
   [login](https://github.com/openai/codex/tree/0bbea86a6aae37b1f243676db4248000f04ad111/codex-rs/login/src),
+  [Models endpoint](https://github.com/openai/codex/blob/0bbea86a6aae37b1f243676db4248000f04ad111/codex-rs/codex-api/src/endpoint/models.rs),
   [Responses request](https://github.com/openai/codex/blob/0bbea86a6aae37b1f243676db4248000f04ad111/codex-rs/codex-api/src/common.rs).
   Проверка auth/backend boundary и набора полей запроса. Общий Responses/SSE
   mapper Proteus сохраняет собственную ранее закреплённую provenance.
@@ -47,6 +48,13 @@ Client id соответствует OAuth-приложению Codex, как в
 - API credentials, non-stream error fallback и `prompt_cache_retention` в
   subscription config отклоняются. При 429 нет повторов, переключения на API
   или другую модель. Общие Responses error/canonical semantics сохраняются.
+- Каталог запрашивается отдельным `GET /models?client_version=<semver Proteus>`
+  с теми же OAuth headers и однократным refresh после 401. Все remote entries
+  сохраняются, `visibility` становится `hidden`, порядок задаёт `priority`.
+  Из catalog не импортируются base instructions, tools или capabilities.
+  В отличие от полного Codex ModelsManager здесь только memory cache на
+  5 минут и общий deadline 30 секунд: нет disk cache, embedded model list,
+  ETag merge или stale fallback при ошибке.
 - `logout` удаляет только локальные credentials Proteus. `status` показывает
   наличие и срок access token, не проверяет доступность модели или остаток
   подписки по сети.

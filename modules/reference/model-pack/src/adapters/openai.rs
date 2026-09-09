@@ -24,6 +24,9 @@ use crate::{
     model_standard::{CanonicalMessage, ContentPart, FinishReason, MessageRole},
 };
 
+mod codex_catalog;
+#[cfg(test)]
+mod codex_catalog_tests;
 mod codex_config;
 #[cfg(test)]
 mod codex_tests;
@@ -60,6 +63,7 @@ pub struct OpenAiResponsesClient {
     http: reqwest::Client,
     secret_config: Value,
     codex_auth: Option<CodexAuth>,
+    catalog_cache: Arc<codex_catalog::CatalogCache>,
     base_url: String,
     /// Включает SSE-стрим на `/responses`. Управляется через поле
     /// `stream` в provider config. Provider profiles по умолчанию включают
@@ -138,6 +142,7 @@ impl OpenAiResponsesClient {
             http: http.build()?,
             secret_config: config,
             codex_auth: None,
+            catalog_cache: Arc::default(),
             base_url,
             stream_enabled,
             stream_error_fallback,
@@ -184,6 +189,10 @@ fn non_empty_config_string(config: &Value, key: &str) -> Option<String> {
 
 #[async_trait]
 impl Model for OpenAiResponsesClient {
+    async fn catalog(&self) -> Result<Option<proteus_contracts::contracts::ModelCatalog>> {
+        self.codex_catalog().await
+    }
+
     fn id(&self) -> std::borrow::Cow<'static, str> {
         if self.codex_auth.is_some() {
             "openai.codex_subscription".into()

@@ -711,3 +711,18 @@ Checklist:
 - отдельный commit создан.
 
 Если применимая проверка не запускалась, это указывается в handoff с причиной.
+
+### Каталог Моделей И Effort
+
+`model/v8` отделяет immutable descriptor от живого `catalog(null)`. Provider
+fixtures проверяют OAuth GET, полный список (включая hidden), новые строковые
+effort, cache/coalescing, 401 refresh и ошибку без stale fallback.
+`model_process` пропускает каталог внешнего Python worker через strict adapter
+и app-server selection: корректный default при смене модели, explicit none,
+отклонение неподдерживаемых значений и malformed/duplicate entries.
+`model_exports::subscription_catalog_crosses_real_worker_and_updates_app_selection`
+проверяет всю цепочку reference OAuth adapter → wire → Core → config summary.
+Это discovery без inference и tool side effects, поэтому отдельный journal
+exchange или workflow replay ему не приписываются. Изменения обычного stream
+по-прежнему проходят workspace gate, conformance и `module_swap`.
+Web проверяется `trunk build` и browser smoke смены модели/effort.

@@ -32,6 +32,7 @@ mod config_builder;
 mod config_summary;
 mod context_map;
 pub mod http;
+mod model_selection;
 mod path_utils;
 pub mod stdio;
 mod transcript;
@@ -47,10 +48,7 @@ use config_builder::{
     read_toml_document_or_empty, set_module_slot, validate_config_builder_modules,
     validate_config_builder_provider, validate_module_config_toml,
 };
-use config_summary::{
-    config_files, configured_model_options, configured_reasoning_effort_options, module_summary,
-    render_config_summary,
-};
+use config_summary::{config_files, module_summary, render_config_summary};
 use context_map::{ContextMapInput, build_context_map_snapshot};
 use path_utils::paths_equal;
 pub(crate) use transcript::journal_transcript_messages;
@@ -208,16 +206,16 @@ impl AppServerHandle {
         self.runtime.permission_mode().await
     }
 
-    pub async fn set_model_name(&self, model: String) {
-        self.runtime.set_model_name(model).await;
+    pub async fn set_model_name(&self, model: String) -> Result<()> {
+        self.runtime.set_model_name(model).await
     }
 
     pub async fn set_reasoning_enabled(&self, enabled: bool) {
         self.runtime.set_reasoning_enabled(enabled).await;
     }
 
-    pub async fn set_reasoning_effort(&self, effort: Option<String>) {
-        self.runtime.set_reasoning_effort(effort).await;
+    pub async fn set_reasoning_effort(&self, effort: Option<String>) -> Result<()> {
+        self.runtime.set_reasoning_effort(effort).await
     }
 
     /// Обновляет секцию `[web]` конфига (in-memory + запись в файл). Переданные
@@ -261,10 +259,14 @@ impl AppServerHandle {
         let reasoning = self.runtime.reasoning().await;
         let module_epoch = self.runtime.module_epoch().await;
         let config = self.config.read().await.clone();
-        let effort_options = configured_reasoning_effort_options(&config, &model_ref, &reasoning);
+        let selection = model_selection::selection_summary(
+            &config,
+            &model_ref,
+            &reasoning,
+            self.runtime.model_catalog().await,
+        );
         let tools = self.runtime.tool_entries().await;
         let config_files = config_files(self.config_path.as_deref());
-        let model_options = configured_model_options(&config);
         json!({
             "display_text": render_config_summary(
                 &config,
@@ -293,18 +295,12 @@ impl AppServerHandle {
                 "name": model_ref.model.clone(),
                 "label": format!("{}/{}", model_ref.provider, model_ref.model),
             },
-            "model_options": model_options
-                .iter()
-                .map(|model| json!({
-                    "provider": model.provider.clone(),
-                    "name": model.model.clone(),
-                    "label": format!("{}/{}", model.provider, model.model),
-                }))
-                .collect::<Vec<_>>(),
+            "model_options": selection.models,
+            "model_catalog_error": selection.error,
             "reasoning": {
-                "enabled": reasoning.effort.is_some() || reasoning.summary || reasoning.budget_tokens.is_some(),
+                "enabled": reasoning.is_enabled(),
                 "effort": reasoning.effort,
-                "effort_options": effort_options,
+                "effort_options": selection.efforts,
                 "summary": reasoning.summary,
                 "budget_tokens": reasoning.budget_tokens,
             },

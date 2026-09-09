@@ -50,6 +50,14 @@ pub struct ReasoningConfig {
 }
 
 impl ReasoningConfig {
+    pub fn is_enabled(&self) -> bool {
+        self.effort
+            .as_deref()
+            .is_some_and(|effort| effort != "none")
+            || self.summary
+            || self.budget_tokens.is_some()
+    }
+
     pub fn new(effort: Option<String>, summary: bool) -> Self {
         Self {
             effort,

@@ -93,6 +93,20 @@ impl ModelModule for ProviderModule {
         }
     }
 
+    fn catalog(
+        &self,
+        host: &dyn ModelModuleHost,
+    ) -> ProcessModuleResult<Option<proteus_contracts::contracts::ModelCatalog>> {
+        self.runtime.block_on(async {
+            tokio::select! {
+                result = self.streaming.catalog() => result.map_err(error),
+                _ = async { while !host.is_cancelled() { tokio::time::sleep(Duration::from_millis(5)).await; } } => {
+                    Err(ProcessModuleError::new("model catalog canceled"))
+                }
+            }
+        })
+    }
+
     fn stream(
         &self,
         input: ProcessModelInput,

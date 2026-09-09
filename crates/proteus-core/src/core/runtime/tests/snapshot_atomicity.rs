@@ -179,7 +179,10 @@ async fn admitted_turn_freezes_registry_and_effective_settings_until_settlement(
     }
     let model_a = ModelRef::new("provider-a", "model-a");
     runtime.set_model_ref(model_a.clone()).await;
-    runtime.set_reasoning_effort(Some("low".to_owned())).await;
+    runtime
+        .set_reasoning_effort(Some("low".to_owned()))
+        .await
+        .unwrap();
     runtime.set_permission_mode(PermissionMode::Normal).await;
 
     let running_runtime = runtime.clone();
@@ -229,7 +232,10 @@ async fn admitted_turn_freezes_registry_and_effective_settings_until_settlement(
         .expect("reload runtime");
     let model_b = ModelRef::new("provider-b", "model-b");
     runtime.set_model_ref(model_b.clone()).await;
-    runtime.set_reasoning_effort(Some("high".to_owned())).await;
+    runtime
+        .set_reasoning_effort(Some("high".to_owned()))
+        .await
+        .unwrap();
     runtime.set_permission_mode(PermissionMode::Plan).await;
 
     gate.proceed.add_permits(1);

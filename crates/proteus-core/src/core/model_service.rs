@@ -60,6 +60,10 @@ impl Model for ModelService {
         self.adapter.provider_hosted_tools(model)
     }
 
+    async fn catalog(&self) -> Result<Option<crate::contracts::ModelCatalog>> {
+        self.adapter.catalog().await
+    }
+
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
         let request = self.prepare_request(request)?;
         let validation_request = request.clone();

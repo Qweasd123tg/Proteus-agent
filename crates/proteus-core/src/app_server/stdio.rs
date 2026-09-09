@@ -209,20 +209,23 @@ pub async fn run_stdio_app_server(
                 .await;
             }
             StdioRequest::SetModel { model, .. } => {
-                server.set_model_name(model.clone()).await;
+                let result = server.set_model_name(model.clone()).await;
                 send_stdio_response(
                     &output_tx,
                     id,
-                    Ok(Some(serde_json::json!({ "model": model }))),
+                    match result {
+                        Ok(()) => Ok(Some(serde_json::json!({ "model": model, "config": server.config_summary().await }))),
+                        Err(error) => Err(error),
+                    },
                 )
                 .await;
             }
             StdioRequest::SetReasoningEffort { effort, .. } => {
-                server.set_reasoning_effort(effort.clone()).await;
+                let result = server.set_reasoning_effort(effort.clone()).await;
                 send_stdio_response(
                     &output_tx,
                     id,
-                    Ok(Some(serde_json::json!({ "effort": effort }))),
+                    result.map(|_| Some(serde_json::json!({ "effort": effort }))),
                 )
                 .await;
             }

@@ -18,6 +18,8 @@ pub(crate) struct AppActions {
     pub(crate) set_mode: WriteSignal<PermissionMode>,
     pub(crate) model_name: ReadSignal<String>,
     pub(crate) set_model_name: WriteSignal<String>,
+    pub(crate) set_model_options: WriteSignal<Vec<ModelOption>>,
+    pub(crate) set_effort_options: WriteSignal<Vec<String>>,
     pub(crate) reasoning_enabled: ReadSignal<bool>,
     pub(crate) set_reasoning_enabled: WriteSignal<bool>,
     pub(crate) effort: ReadSignal<ReasoningEffort>,
@@ -80,18 +82,40 @@ impl AppActions {
                 &SetModelRequest {
                     id: Some(request_id),
                     model: requested_model,
-                    session_dir,
+                    session_dir: session_dir.clone(),
                 },
             )
             .await
             {
                 Ok(output) => {
+                    let config = match &output {
+                        StdioOutput::Response {
+                            output: Some(data), ..
+                        } => data.get("config").cloned(),
+                        _ => None,
+                    };
                     if handle_control_response(
                         output,
                         self.set_transport_status,
                         "Model update failed",
-                    ) {
-                        self.set_model_name.set(new_model);
+                    ) && self.active_session_dir.get_untracked() == session_dir
+                    {
+                        if let Some(config) = config {
+                            crate::model_settings::ModelSettings {
+                                model: self.set_model_name,
+                                models: self.set_model_options,
+                                enabled: self.set_reasoning_enabled,
+                                effort: self.set_effort,
+                                efforts: self.set_effort_options,
+                                status: self.set_transport_status,
+                            }
+                            .apply(&config);
+                        } else {
+                            self.set_control_error(
+                                "Model update failed",
+                                "missing model settings in response".into(),
+                            );
+                        }
                     }
                 }
                 Err(error) => self.set_control_error("Model update failed", error),
