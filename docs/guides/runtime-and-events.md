@@ -180,6 +180,11 @@ typed `phase` и UTF-8 byte `offset` внутри текста сообщени�
 Если после завершённых assistant items поток модели возвращает ошибку,
 `coding.codex_loop` сохраняет эти сообщения через failure progress. Они остаются
 в cold history и следующем запросе к модели с теми же ids и phases.
+Завершённые tool calls из этого progress workflow исполняет через обычные
+checkpoint/approval/safety до следующего запроса, включая перехват shell → patch.
+При отключённых retries calls также обрабатываются, а ход завершается исходной
+ошибкой модели. Неполные аргументы не исполняются; повтор завершённого item
+с тем же id не создаёт второй вызов.
 Для `StreamDisconnected` workflow продолжает тот же ход: подтверждает progress
 checkpoint-ом, ждёт backoff и повторяет model request с этой историей.
 Каждая попытка — отдельный journal model exchange. Исчерпание бюджета или
@@ -696,7 +701,8 @@ runtime. Если до ошибки пришли завершённые assistan
 
 Workflow может раньше подтвердить progress через `host.history.checkpoint`.
 В `coding.codex_loop` это происходит после завершённого model response и до
-tools, после changed compaction и перед повтором оборванного model stream.
+tools, перед исполнением завершённых calls из model failure, после changed
+compaction и перед повтором оборванного model stream.
 Выбранный результат tool попадает
 в history вместе с `tool_result_recorded`; потеря ответа между Core и workflow
 его не удаляет. Подтверждённый результат сохраняется и при Cancel, внешнем

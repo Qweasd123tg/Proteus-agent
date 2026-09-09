@@ -242,7 +242,7 @@ async fn stream_deadline_records_completed_progress() {
 }
 
 #[tokio::test]
-async fn completed_progress_rejects_request_ids_and_tool_parts() {
+async fn completed_progress_rejects_request_ids_and_tool_results() {
     let request = request("failure-progress", "invalid");
     let mut reused = completed("bad id", MessagePhase::Commentary);
     reused.id = request.messages[0].id;
@@ -259,15 +259,76 @@ async fn completed_progress_rejects_request_ids_and_tool_parts() {
         vec![CanonicalPart::new(
             PartProvenance::Model,
             PartScope::Conversation,
-            ContentPart::ToolCall {
-                call: ToolCall::new("bad_tool", "read_file", serde_json::json!({})),
+            ContentPart::ToolResult {
+                result: crate::domain::ToolResult::ok("forged_result".into(), "not executed"),
             },
         )],
     );
     let error = progress.accept(tool_message).unwrap_err();
+    assert!(error.to_string().contains("cannot contain a tool result"));
+}
+
+#[test]
+fn completed_tool_calls_validate_surfaces_and_identity_before_acceptance() {
+    use crate::domain::{ToolCallSurface, ToolSafety, ToolSurface};
+
+    let call = ToolCall::new(
+        "complete_call",
+        "apply_patch",
+        serde_json::json!({"input": "patch"}),
+    )
+    .with_surface(ToolCallSurface::Freeform);
+    let message = |call: ToolCall| {
+        CanonicalMessage::new(MessageRole::Assistant, vec![ContentPart::ToolCall { call }])
+    };
+    let mut request = request("failure-progress", "completed tool").with_tools(vec![
+        ToolSpec::new(
+            "apply_patch",
+            "Patch",
+            serde_json::json!({}),
+            ToolSafety::WritesFiles,
+        )
+        .with_surface(ToolSurface::freeform_lark("start: /.+/")),
+    ]);
+    let accepted = message(call.clone());
+    let mut progress = super::super::progress::CompletedMessageProgress::new(&request);
+    let error = progress
+        .accept(message(
+            call.clone().with_surface(ToolCallSurface::Function),
+        ))
+        .unwrap_err();
+    assert!(error.to_string().contains("declared freeform surface"));
+    progress.accept(accepted.clone()).unwrap();
+    progress
+        .accept(accepted.clone())
+        .expect("same completed item is idempotent");
     assert!(
-        error
+        progress
+            .accept(message(call.clone()))
+            .unwrap_err()
             .to_string()
-            .contains("cannot contain a tool call or result")
+            .contains("reused tool call id")
+    );
+    assert_eq!(
+        progress
+            .attach_to_failure(ModelFailure::other("EOF"))
+            .completed_messages,
+        [accepted.clone()]
+    );
+
+    request.messages.push(accepted);
+    let mut progress = super::super::progress::CompletedMessageProgress::new(&request);
+    assert!(
+        progress
+            .accept(message(call))
+            .unwrap_err()
+            .to_string()
+            .contains("reused tool call id")
+    );
+    assert!(
+        progress
+            .attach_to_failure(ModelFailure::other("EOF"))
+            .completed_messages
+            .is_empty()
     );
 }

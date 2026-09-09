@@ -183,10 +183,13 @@ fn codex_loop_omits_history_when_the_first_model_call_fails() {
 fn codex_loop_does_not_preserve_summary_output_from_a_failed_compactor() {
     let input_json = serde_json::to_string(&workflow_input("change code")).unwrap();
     let summary = CanonicalMessage::text(MessageRole::Assistant, "internal summary");
+    let summary_tool = tool_call_response(ToolCall::new("summary_call", "read_file", json!({})))
+        .messages
+        .remove(0);
     let mut host = FakeHost {
         compaction_failure: Some(ProcessModuleError::from_model_failure(
             proteus_contracts::model_standard::ModelFailure::other("summary stream broke")
-                .with_completed_messages(vec![summary]),
+                .with_completed_messages(vec![summary, summary_tool]),
         )),
         ..FakeHost::default()
     };
@@ -199,6 +202,7 @@ fn codex_loop_does_not_preserve_summary_output_from_a_failed_compactor() {
         "summary output is not workflow history"
     );
     assert!(host.requests.lock().unwrap().is_empty());
+    assert_no_executed_calls(&host);
 }
 
 #[test]

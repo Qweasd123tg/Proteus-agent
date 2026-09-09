@@ -7,6 +7,37 @@ use proteus_contracts::{
 use serde_json::{Value, json};
 
 use crate::host::{execute_or_handle_tool, execute_tools};
+use crate::scaffold::TurnScaffold;
+
+/// One execution path for calls from successful and interrupted responses.
+#[derive(Default)]
+pub(crate) struct CodexToolRun {
+    pub(crate) tool_rounds: usize,
+    pub(crate) executed_tools: Vec<String>,
+}
+
+impl CodexToolRun {
+    pub(crate) fn execute(
+        &mut self,
+        host: &mut WorkflowModuleHostMut<'_>,
+        input: &WorkflowModuleInput,
+        turn: &mut TurnScaffold,
+        calls: &[ToolCall],
+        request_tools: &[ToolSpec],
+    ) -> Result<(), ProcessModuleError> {
+        if calls.is_empty() {
+            return Ok(());
+        }
+        let batch = CodexToolBatch::prepare(calls, request_tools);
+        turn.checkpoint(host, &batch.execution_calls())?;
+        self.tool_rounds += 1;
+        self.executed_tools
+            .extend(calls.iter().map(|call| call.name.clone()));
+        let results = batch.execute(host, input, "codex_loop")?;
+        turn.append_tool_results(results);
+        Ok(())
+    }
+}
 
 pub(crate) struct CodexToolBatch {
     calls: Vec<Result<ToolCall, ToolResult>>,

@@ -17,7 +17,8 @@ pub enum ModelStreamEvent {
         phase: Option<MessagePhase>,
         text: String,
     },
-    /// Authoritative completed item; the terminal Response retains the same id.
+    /// Authoritative completed assistant item, including tool calls. The terminal
+    /// Response retains the same id; a failure retains it in completed_messages.
     MessageCompleted {
         message: CanonicalMessage,
     },

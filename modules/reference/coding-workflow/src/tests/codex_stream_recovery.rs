@@ -107,3 +107,40 @@ fn disconnected(message: CanonicalMessage) -> ProcessModuleError {
             .with_completed_messages(vec![message]),
     )
 }
+
+#[test]
+fn completed_tools_are_drained_before_terminal_model_failure() {
+    for kind in [
+        ModelFailureKind::StreamDisconnected,
+        ModelFailureKind::Other,
+    ] {
+        let mut input = workflow_input("read then handle failure");
+        input.config = json!({"stream_max_retries": 0});
+        let call = ToolCall::new("completed_call", "read_file", json!({"path": "src/lib.rs"}));
+        let message = tool_call_response(call.clone()).messages.remove(0);
+        let read = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
+        let expected = ModelFailure::new(kind, "terminal sample error")
+            .with_completed_messages(vec![message.clone()]);
+        let mut host = FakeHost::default()
+            .with_tools(vec![read.clone()], vec![read])
+            .with_model_failure(1, ProcessModuleError::from_model_failure(expected.clone()));
+        let failure = CodingCodexLoopWorkflow
+            .run_json(serde_json::to_string(&input).unwrap(), &mut host)
+            .unwrap_err();
+        assert_eq!(failure.model_failure, Some(expected));
+        assert_eq!(
+            host.executed_calls.lock().unwrap().as_slice(),
+            &[call.clone()]
+        );
+        let history = failure.history.unwrap().new_messages;
+        assert_eq!(history[0], message);
+        assert!(
+            matches!(&history[1].parts[0].payload, ContentPart::ToolResult { result } if result.call_id == call.id)
+        );
+        assert_eq!(
+            host.checkpoints.lock().unwrap()[0].tool_results[0].execution_call,
+            call
+        );
+        assert_eq!(host.requests.lock().unwrap().len(), 1);
+    }
+}

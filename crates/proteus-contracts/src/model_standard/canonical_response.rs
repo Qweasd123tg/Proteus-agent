@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    domain::ToolCall,
+    domain::{ToolCall, ToolSpec},
     model_standard::{CanonicalMessage, CanonicalModelRequest, ContentPart, MessageRole},
 };
 
@@ -151,30 +151,32 @@ pub fn validate_model_response_against_request(
     validate_model_response_structure(response)?;
 
     for call in &response.tool_calls {
-        let Some(tool) = request.tools.iter().find(|tool| tool.name == call.name) else {
-            continue;
-        };
-        match tool.surface.call_surface() {
-            Some(expected) if call.surface != expected => {
-                return Err(format!(
-                    "model response tool '{}' used {} surface, but request declared {} surface",
-                    call.name,
-                    call.surface.as_str(),
-                    expected.as_str()
-                ));
-            }
-            Some(_) => {}
-            None => {
-                return Err(format!(
-                    "model response returned provider-hosted tool '{}' as a client-executed {} call",
-                    call.name,
-                    call.surface.as_str()
-                ));
-            }
-        }
+        validate_model_tool_call_surface(&request.tools, call)?;
     }
 
     Ok(())
+}
+
+/// A completed stream item and a terminal response use the same tool surface.
+/// Unknown names remain the workflow's responsibility, including error outputs.
+pub fn validate_model_tool_call_surface(tools: &[ToolSpec], call: &ToolCall) -> Result<(), String> {
+    let Some(tool) = tools.iter().find(|tool| tool.name == call.name) else {
+        return Ok(());
+    };
+    match tool.surface.call_surface() {
+        Some(expected) if call.surface != expected => Err(format!(
+            "model response tool '{}' used {} surface, but request declared {} surface",
+            call.name,
+            call.surface.as_str(),
+            expected.as_str()
+        )),
+        Some(_) => Ok(()),
+        None => Err(format!(
+            "model response returned provider-hosted tool '{}' as a client-executed {} call",
+            call.name,
+            call.surface.as_str()
+        )),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

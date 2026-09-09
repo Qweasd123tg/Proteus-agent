@@ -5,14 +5,17 @@ use std::time::Duration;
 
 use proteus_contracts::{
     domain::Event,
-    model_standard::{CanonicalModelRequest, CanonicalModelResponse, ModelFailureKind},
-    process_module::{ProcessModuleError, WorkflowModuleHostMut},
+    model_standard::{
+        CanonicalModelRequest, CanonicalModelResponse, ContentPart, ModelFailureKind,
+    },
+    process_module::{ProcessModuleError, WorkflowModuleHostMut, WorkflowModuleInput},
 };
 use rand::Rng;
 use serde::Deserialize;
 use serde_json::Value;
 
 use crate::{
+    codex_tools::CodexToolRun,
     host::{complete_model, emit_event, ensure_not_cancelled},
     scaffold::TurnScaffold,
 };
@@ -40,9 +43,11 @@ impl StreamRetryConfig {
 
 pub(crate) fn complete_sampling_request(
     host: &mut WorkflowModuleHostMut<'_>,
+    input: &WorkflowModuleInput,
     turn: &mut TurnScaffold,
     request: &mut CanonicalModelRequest,
     config: StreamRetryConfig,
+    tools: &mut CodexToolRun,
 ) -> Result<CanonicalModelResponse, ProcessModuleError> {
     // Budget belongs to this sampling request, not to the whole turn and not
     // to each completed item emitted by an unsuccessful stream.
@@ -66,6 +71,18 @@ pub(crate) fn complete_sampling_request(
                 .extend(failure.completed_messages.iter().cloned());
             turn.persistent_messages
                 .extend(failure.completed_messages.iter().cloned());
+            let calls = failure
+                .completed_messages
+                .iter()
+                .flat_map(|message| &message.parts)
+                .filter_map(|part| match &part.payload {
+                    ContentPart::ToolCall { call } => Some(call.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            // Codex drains completed calls even when the stream cannot be
+            // retried. A failed sample is not a successful model response.
+            tools.execute(host, input, turn, &calls, &request.tools)?;
         }
         let disconnected = error
             .model_failure

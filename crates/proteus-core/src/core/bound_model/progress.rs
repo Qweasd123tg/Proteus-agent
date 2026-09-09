@@ -3,19 +3,22 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{Result, bail};
 
 use crate::{
-    domain::{MessageId, PartId},
+    domain::{CallId, MessageId, PartId, ToolSpec},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, ContentPart, MessageRole, ModelFailure, PartScope,
+        validate_model_tool_call_surface,
     },
 };
 
-/// Completed assistant text accepted before a terminal model failure.
+/// Completed assistant items accepted before a terminal model failure.
 #[derive(Clone)]
 pub(super) struct CompletedMessageProgress {
     request_ids: HashSet<MessageId>,
     part_ids: HashSet<PartId>,
     messages: Vec<CanonicalMessage>,
     positions: HashMap<MessageId, usize>,
+    call_ids: HashSet<CallId>,
+    tools: Vec<ToolSpec>,
 }
 
 impl CompletedMessageProgress {
@@ -29,6 +32,17 @@ impl CompletedMessageProgress {
                 .collect(),
             messages: Vec::new(),
             positions: HashMap::new(),
+            call_ids: request
+                .messages
+                .iter()
+                .flat_map(|message| &message.parts)
+                .filter_map(|part| match &part.payload {
+                    ContentPart::ToolCall { call } => Some(call.id.clone()),
+                    ContentPart::ToolResult { result } => Some(result.call_id.clone()),
+                    _ => None,
+                })
+                .collect(),
+            tools: request.tools.clone(),
         }
     }
 
@@ -42,14 +56,13 @@ impl CompletedMessageProgress {
                 message.id
             );
         }
-        if message.parts.iter().any(|part| {
-            matches!(
-                part.payload,
-                ContentPart::ToolCall { .. } | ContentPart::ToolResult { .. }
-            )
-        }) {
+        if message
+            .parts
+            .iter()
+            .any(|part| matches!(part.payload, ContentPart::ToolResult { .. }))
+        {
             bail!(
-                "completed model message {} cannot contain a tool call or result",
+                "completed model message {} cannot contain a tool result",
                 message.id
             );
         }
@@ -63,6 +76,7 @@ impl CompletedMessageProgress {
         // Check before accepting it so malformed progress cannot invalidate a
         // later workflow checkpoint containing previously accepted messages.
         let mut message_part_ids = HashSet::new();
+        let mut message_call_ids = HashSet::new();
         for part in &message.parts {
             if part.scope != PartScope::Conversation {
                 bail!(
@@ -78,8 +92,19 @@ impl CompletedMessageProgress {
                     part.part_id
                 );
             }
+            if let ContentPart::ToolCall { call } = &part.payload {
+                validate_model_tool_call_surface(&self.tools, call).map_err(anyhow::Error::msg)?;
+                if self.call_ids.contains(&call.id) || !message_call_ids.insert(call.id.clone()) {
+                    bail!(
+                        "completed model message {} reused tool call id '{}'",
+                        message.id,
+                        call.id
+                    );
+                }
+            }
         }
         self.part_ids.extend(message_part_ids);
+        self.call_ids.extend(message_call_ids);
         self.positions.insert(message.id, self.messages.len());
         self.messages.push(message);
         Ok(())

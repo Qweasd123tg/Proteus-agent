@@ -154,7 +154,11 @@ model/tool facts по-прежнему не превращаются в conversa
 `StreamDisconnected`. Module config `stream_max_retries` задаёт число повторов
 после первой попытки (5 по умолчанию, максимум 100, `0` отключает).
 Перед backoff workflow подтверждает completed progress checkpoint-ом и
-дополняет им следующий model request. Частичные дельты не становятся history,
+дополняет им следующий model request. Если ошибочный sample содержит завершённые
+tool calls, workflow сначала выбирает их checkpoint-ом, исполняет через тот же
+путь, что calls успешного ответа, и добавляет результаты. Это происходит и
+при отключённых retries или неповторяемой ошибке; исходный sample остаётся Error.
+Частичные дельты не становятся history,
 а уже завершённые tools не запускаются заново. Другие workflows самостоятельно
 определяют реакцию на этот cause; Core не содержит retry loop или веток по id.
 

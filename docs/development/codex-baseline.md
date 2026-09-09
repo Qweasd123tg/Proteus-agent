@@ -107,19 +107,30 @@ Upstream anchors закреплённого `67cc3c3`:
 внутри adapter-а. Core не содержит специального алгоритма повторов.
 
 [Process regression](../../modules/reference/process-worker/tests/codex_model_resume/stream_recovery.rs)
-проверяет `shell append → completed assistant item → обрыв SSE → итоговый ответ`
+проверяет `completed shell call → обрыв SSE → исполнение shell → retry →
+completed assistant item → обрыв SSE → итоговый ответ`
 без нового пользовательского turn: эффект один, незавершённые дельты отсутствуют
 в следующем request/history, journal и cold history согласованы, workflow replay
-не обращается к живой модели и не повторяет эффект. Другой process case
-проверяет clean EOF до исчерпания бюджета и matched Error replay;
+не обращается к живой модели и не повторяет эффект. До call сохраняется encrypted
+reasoning; повтор того же completed item не дублирует эффект, а полные аргументы
+без `output_item.done` не становятся выполненным call. Отдельный
+[terminal case](../../modules/reference/process-worker/tests/codex_model_resume/stream_recovery/tool_progress.rs)
+проверяет исполнение completed call при `stream_max_retries = 0`: исходный model
+Error и call/result остаются в journal, cold history и matched Error replay.
+Другой process case проверяет clean EOF до исчерпания бюджета и matched Error replay;
 [Cancel case](../../modules/reference/process-worker/tests/codex_model_resume/stream_recovery/cancellation.rs)
-— отмену после checkpoint во время backoff, отсутствие следующего HTTP-запроса
-и cold history. Module regression проверяет сброс бюджета после успешного
-sampling request и отсутствие retry для остальных typed causes. Общий model
+— отмену после сохранённого результата tool из ошибочного sample, отсутствие
+следующего HTTP-запроса и cold history. Module regression проверяет сброс бюджета
+после успешного sampling request и отсутствие retry для остальных typed causes. Общий model
 deadline проверяется отдельным HTTP/process regression выше.
 
-Срез не включает раннее исполнение tool call по `output_item.done`: в Proteus
-tools доступны после полного canonical response. Также не реализуются здесь
+Upstream `stream_events_utils.rs::handle_output_item_done` сохраняет completed
+call и ставит tool в исполнение; `session/turn.rs::try_run_sampling_request`
+вызывает `drain_in_flight` после выхода из stream loop, в том числе по ошибке.
+Proteus подтверждает сохранение call и обработку его результата перед retry
+либо terminal Error. Момент запуска отличается: `host.model.complete` возвращает
+completed calls workflow после полного ответа или ошибки; параллельное исполнение
+tools во время ещё открытого stream этим срезом не реализовано. Также не реализуются
 upstream idle timeout, первичный unbounded connection retry и WebSocket fallback.
 Общий model deadline остаётся неповторяемой ошибкой. Полное совпадение stream
 lifecycle этим срезом не заявляется.
@@ -135,8 +146,9 @@ registry/policy/safety path. Host не содержит перехвата по 
 проверяет оба shell tools и прямой `apply_patch`: изменение файла, исходный call
 в history, целевой call в journal, cold history и matched replay без повторного
 эффекта. Проверяются также approval и запрет целевого patch, в том числе когда
-он скрыт из model request. Отсутствующий или запрещённый target не запускает
-shell как запасной путь. Module tests проверяют скрытый исходный shell,
+завершённый shell call пришёл перед обрывом SSE и отсутствует полный model response.
+При запрете целевой patch скрыт из model request. Отсутствующий или запрещённый
+target не запускает shell как запасной путь. Module tests проверяют скрытый исходный shell,
 malformed raw arguments и отсутствие адаптации у другого workflow.
 
 Upstream anchor закреплённого baseline:

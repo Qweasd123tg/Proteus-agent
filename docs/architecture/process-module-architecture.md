@@ -503,13 +503,18 @@ Descriptor, capabilities, stream events и terminal DTO отклоняют не�
 Оба error terminal и canonical stream error несут
 `ModelFailure { kind, message, completed_messages }`. Обязательный
 `completed_messages` содержит подтверждённые assistant messages до ошибки,
-либо пустой массив. Это progress ошибочного запроса, без synthetic `Response`.
+включая завершённые `ToolCall` parts, либо пустой массив. Это progress ошибочного
+запроса, без synthetic `Response` и без выдуманных tool results.
 Core собирает `MessageCompleted` независимо от presentation и проверяет роль,
-идентичность сообщений, conversation scope, уникальность part ids и отсутствие
-tool call/result parts; дельты не
-становятся завершёнными сообщениями. Workflow явно выбирает сохранение этого
+идентичность сообщений, conversation scope, уникальность part ids, отсутствие
+tool result parts, соответствие function/freeform/hosted surface запросу и
+отсутствие повторных call ids в progress и request history. Повтор того же
+completed message id с тем же содержимым идемпотентен. Дельты аргументов не
+становятся вызовом. Workflow явно выбирает сохранение этого
 progress. В `coding.codex_loop` сохраняется только output прямого model call,
-а не внутренний summary неудачного compactor.
+а не внутренний summary неудачного compactor. Завершённые calls проходят общий
+checkpoint/registry/policy/safety path до retry или terminal Error; Core сам
+не исполняет tools из модельного progress.
 Классы `context_window_exceeded`, `stream_disconnected`, `interrupted`, `session_budget_exceeded`,
 `other` задают общую алгоритмическую границу; provider implementation распознаёт
 свои коды, остальные слои не разбирают текст. `host.model.complete` передаёт
@@ -523,8 +528,9 @@ event; это причина, а не команда Core повторить з�
 классифицирует так ошибки чтения SSE и EOF без завершения, сохраняя остальные
 ошибки данных и deadline отдельными. Codex workflow принимает решение о повторе
 с подтверждённой историей; compactor сохраняет свою политику повторов.
-Новый enum variant меняет strict error surface: действуют `model/v6`,
-`workflow/v11`, `compactor/v8` и journal schema v11, без readers старых форм.
+Действуют `model/v6`, `workflow/v11`, `compactor/v8` и journal schema v11,
+без readers старых форм.
+Передача `ToolCall` в существующем `CanonicalMessage` не меняет wire/storage DTO.
 
 Journal сохраняет полный `ModelFailure`; workflow replay возвращает тот же
 `kind`, текст и `completed_messages`. Ветвление workflow по типу ошибки прямого

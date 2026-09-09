@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use crate::{
     codex_sampling::{StreamRetryConfig, complete_sampling_request},
-    codex_tools::CodexToolBatch,
+    codex_tools::CodexToolRun,
     host::{emit_event, request_from_state_with_instruction_blocks},
     metadata::output_metadata_with_extra,
     output_text::message_text,
@@ -57,8 +57,7 @@ fn run_loop(
     turn: &mut TurnScaffold,
     stream_retry: StreamRetryConfig,
 ) -> Result<(String, Value), ProcessModuleError> {
-    let mut tool_rounds = 0usize;
-    let mut executed_tools = Vec::new();
+    let mut tools = CodexToolRun::default();
     let mut last_usage: Option<LastModelUsage> = None;
 
     loop {
@@ -80,7 +79,8 @@ fn run_loop(
             turn.checkpoint(host, &[])?;
         }
         let mut request = prepared.request;
-        let response = complete_sampling_request(host, turn, &mut request, stream_retry)?;
+        let response =
+            complete_sampling_request(host, input, turn, &mut request, stream_retry, &mut tools)?;
         emit_event(
             host,
             &Event::ModelResponseReceived {
@@ -105,14 +105,7 @@ fn run_loop(
         }
 
         if should_run_tools {
-            let batch = CodexToolBatch::prepare(&response.tool_calls, &request.tools);
-            turn.checkpoint(host, &batch.execution_calls())?;
-            tool_rounds += 1;
-            for call in &response.tool_calls {
-                executed_tools.push(call.name.clone());
-            }
-            let results = batch.execute(host, input, "codex_loop")?;
-            turn.append_tool_results(results);
+            tools.execute(host, input, turn, &response.tool_calls, &request.tools)?;
             continue;
         }
         turn.checkpoint(host, &[])?;
@@ -128,9 +121,9 @@ fn run_loop(
             turn.context_chunks,
             turn.context_token_estimate,
             json!({
-                "tool_rounds": tool_rounds,
+                "tool_rounds": tools.tool_rounds,
                 "phases": ["turn_loop"],
-                "executed_tools": executed_tools,
+                "executed_tools": tools.executed_tools,
             }),
         );
         return Ok((text, metadata));

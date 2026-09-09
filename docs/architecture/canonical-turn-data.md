@@ -131,9 +131,14 @@ session recorder записывает canonical error с обязательны�
 Если поток прервался после `MessageCompleted`, завершённые assistant messages
 записываются в error outcome с исходными ids/parts/phases. Пустой массив означает
 отсутствие такого progress; текстовые дельты не восстанавливаются в messages.
+Завершённые function/freeform calls сохраняются как `ToolCall` parts;
+незавершённые аргументы и tool results сюда не входят. Повторные call ids и
+несоответствие объявленной tool surface отклоняются до принятия progress.
 Запись error сама по себе не изменяет history: workflow выбирает progress через
-`WorkflowFailure.history`. `coding.codex_loop` сохраняет завершённые сообщения
-прямого model call, и workflow replay получает их вместе с записанной ошибкой.
+checkpoint или `WorkflowFailure.history`. `coding.codex_loop` сохраняет
+завершённые сообщения прямого model call и исполняет завершённые calls через
+общую tool boundary до retry либо возврата ошибки. Workflow replay получает
+progress вместе с записанной ошибкой и использует записанные tool outcomes.
 Этот путь требует terminal Error; crash или внешняя отмена до его записи
 не получают неявной history mutation из live events.
 

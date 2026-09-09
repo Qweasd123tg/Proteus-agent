@@ -138,9 +138,21 @@ async fn protocol_faults_crashes_and_provider_errors_are_not_success() {
     }
     for kind in ["stream_error", "request_error"] {
         let mut settings = settings();
-        settings["terminal"] = json!({"kind": kind, "failure": {
-            "kind": "context_window_exceeded", "message": "provider-error", "completed_messages": []
-        }});
+        let failure = proteus_contracts::model_standard::ModelFailure::new(
+            proteus_contracts::model_standard::ModelFailureKind::StreamDisconnected,
+            "provider-error",
+        )
+        .with_completed_messages(vec![CanonicalMessage::new(
+            MessageRole::Assistant,
+            vec![ContentPart::ToolCall {
+                call: proteus_contracts::domain::ToolCall::new(
+                    "external_call",
+                    "external_tool",
+                    json!({"value": 1}),
+                ),
+            }],
+        )]);
+        settings["terminal"] = json!({"kind": kind, "failure": failure});
         let adapter = model(&config(kind, settings), cwd.path()).unwrap();
         let mut stream = adapter.stream(request(kind)).await.unwrap();
         assert!(matches!(
@@ -149,24 +161,15 @@ async fn protocol_faults_crashes_and_provider_errors_are_not_success() {
         ));
         let event = stream.next().await.unwrap();
         if kind == "stream_error" {
-            assert_eq!(
-                event.unwrap(),
-                ModelStreamEvent::Error {
-                    failure: proteus_contracts::model_standard::ModelFailure::new(
-                        proteus_contracts::model_standard::ModelFailureKind::ContextWindowExceeded,
-                        "provider-error",
-                    )
-                }
-            );
+            assert_eq!(event.unwrap(), ModelStreamEvent::Error { failure });
         } else {
             let error = event.unwrap_err();
             assert_eq!(error.to_string(), "provider-error");
             assert_eq!(
                 error
                     .downcast_ref::<proteus_contracts::model_standard::ModelFailure>()
-                    .unwrap()
-                    .kind,
-                proteus_contracts::model_standard::ModelFailureKind::ContextWindowExceeded
+                    .unwrap(),
+                &failure
             );
         }
     }

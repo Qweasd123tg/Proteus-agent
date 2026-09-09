@@ -18,6 +18,8 @@ use super::{
 
 #[path = "stream_recovery/cancellation.rs"]
 mod cancellation;
+#[path = "stream_recovery/tool_progress.rs"]
+mod tool_progress;
 
 const PROMPT: &str = "Измени файл и закончи работу после восстановления потока.";
 const CALL_ID: &str = "call_before_stream_retry";
@@ -104,7 +106,7 @@ async fn write_sse(socket: &mut tokio::net::TcpStream, body: &str) {
         .unwrap();
 }
 
-async fn write_truncated_sse(socket: &mut tokio::net::TcpStream, body: &str) {
+pub(super) async fn write_truncated_sse(socket: &mut tokio::net::TcpStream, body: &str) {
     socket
         .write_all(
             format!(
@@ -126,7 +128,11 @@ async fn serve_success(listener: TcpListener) -> Vec<Value> {
             .unwrap();
         requests.push(read_json_request(&mut socket).await);
         match round {
-            0 => write_sse(&mut socket, &sse_body(&tool_response())).await,
+            // The call is complete, but its response never completes. The
+            // workflow must drain it before requesting stream continuation.
+            0 => {
+                write_truncated_sse(&mut socket, &tool_progress::completed_tool_sse()).await;
+            }
             1 => {
                 write_truncated_sse(
                     &mut socket,
@@ -254,6 +260,7 @@ async fn accepted_sse_disconnect_retries_same_turn_without_repeating_tool_effect
         .unwrap()
         .unwrap();
     assert_eq!(requests.len(), 3);
+    tool_progress::assert_completed_call_and_reasoning(&requests[1]);
     assert_retry_request(&requests[2]);
     assert_eq!(
         std::fs::read_to_string(root.path().join("workspace").join(EFFECT_FILE)).unwrap(),
@@ -278,7 +285,7 @@ async fn accepted_sse_disconnect_retries_same_turn_without_repeating_tool_effect
                     } if failure.kind == ModelFailureKind::StreamDisconnected)
             ))
             .count(),
-        1
+        2
     );
     let completed_messages: Vec<_> = projection
         .history

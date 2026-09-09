@@ -71,9 +71,9 @@ producers/consumers и версии затронутых contracts/storage. Де
 само по себе не требует новой journal schema, если сохранённая форма не меняется.
 Старые формы не получают compatibility readers.
 
-`codex_model_resume::stream_recovery` проверяет повтор установленного SSE
-в том же root turn с уже завершённым tool и assistant item: следующий request,
-cold history, Error/Success journal и workflow replay. Retry вызывает
+`codex_model_resume::stream_recovery` проверяет completed tool call без
+`response.completed`, его исполнение после обрыва SSE и продолжение в том же
+root turn: следующий request, cold history, Error/Success journal и workflow replay. Retry вызывает
 workflow по типизированному `StreamDisconnected`, а не adapter по тексту;
 `recorded_failure_kind_selects_the_same_workflow_branch` проверяет сохранение
 этой причины через journal/replay. Module regression отдельно проверяет бюджет
@@ -81,16 +81,21 @@ workflow по типизированному `StreamDisconnected`, а не adapt
 для остальных причин. Старые manual-resume fixtures явно задают
 `stream_max_retries = 0`, чтобы продолжать проверять terminal failure path.
 Process fixture отдельно проверяет clean EOF с исчерпанием двух повторов и
-`TurnSettled(Error)`, а также Cancel после durable checkpoint во время backoff:
-следующего HTTP-запроса нет, cold transcript содержит подтверждённый item.
-`failure_progress` отклоняет неверный scope и коллизии part ids до передачи
-ошибочного progress в workflow, сохраняя ранее принятые сообщения.
+`TurnSettled(Error)`. `tool_progress` проверяет исполнение completed call при
+отключённых retries и matched Error replay; основной сценарий — сохранение
+encrypted reasoning, raw arguments, идемпотентную доставку completed item и
+отсутствие исполнения одних лишь argument deltas. Cancel после сохранённого
+tool result останавливает следующую попытку и сохраняет этот результат в cold
+transcript. `failure_progress` отклоняет неверный scope, коллизии part/call ids,
+подмену function/freeform/hosted surface и tool results до передачи ошибочного
+progress в workflow, сохраняя ранее принятые сообщения.
 
 Checkpoint binding содержит обязательный `execution_call`. Проверяйте точное
 соответствие его id исходному history call, отказ изменённой операции до эффекта
 и сравнение binding в replay даже без последующего tool request.
 `codex_model_resume::patch_interception` проверяет преобразование shell → patch
-через общий policy path, cold history и replay без повторного эффекта;
+через общий policy path, cold history и replay без повторного эффекта, включая
+completed shell call из оборванного SSE с approval/deny целевого patch;
 `module_swap::workflow_checkpoint` — тот же contract у Rust и Python workflows.
 
 Новый upstream commit не обновляет expected output автоматически: drift
@@ -165,8 +170,8 @@ tool effect. Отдельная workflow-проверка запрещает с�
 
 `model_process` проверяет arbitrary Python exports, exact canonical input/output,
 длинный поток сверх host-work callback budget, backpressure, drop/cancel,
-ошибки и malformed DTO. `codex_model_resume` проходит reference OpenAI provider
-в worker через JSON/SSE mock HTTP, journal и cold resume; live API этот gate
+ошибки с completed tool calls и malformed DTO. `codex_model_resume` проходит
+reference OpenAI provider в worker через JSON/SSE mock HTTP, journal и cold resume; live API этот gate
 не вызывает. Перед unit/runtime тестами Core fixture явно собирает reference
 worker: production Core от reference crate не зависит.
 

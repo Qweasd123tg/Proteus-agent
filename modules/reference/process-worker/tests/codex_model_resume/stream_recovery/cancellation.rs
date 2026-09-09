@@ -14,8 +14,8 @@ use proteus_core::core::{
 use tokio::{net::TcpListener, sync::Mutex};
 
 use super::{
-    ApprovingTransport, PROMPT, UNFINISHED, configure, partial_sse_body, read_json_request,
-    write_sse,
+    ApprovingTransport, CALL_ID, EFFECT, EFFECT_FILE, PROMPT, UNFINISHED, configure,
+    partial_sse_body, read_json_request, write_sse,
 };
 
 const CANCELED_PROGRESS: &str = "Этот завершённый фрагмент сохранён перед отменой.";
@@ -36,7 +36,11 @@ async fn serve(
             .push(read_json_request(&mut socket).await);
         write_sse(
             &mut socket,
-            &partial_sse_body(&format!("canceled_progress_{index}"), CANCELED_PROGRESS),
+            &format!(
+                "{}{}",
+                super::tool_progress::completed_tool_sse(),
+                partial_sse_body(&format!("canceled_progress_{index}"), CANCELED_PROGRESS)
+            ),
         )
         .await;
     }
@@ -79,7 +83,8 @@ async fn cancel_after_partial_checkpoint_stops_next_stream_attempt() {
 
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
-        let projection = if session_dir.exists() {
+        // Directory creation precedes the atomic identity metadata write.
+        let projection = if session_dir.join("session.json").is_file() {
             SessionStore::open(session_dir.clone())
                 .unwrap()
                 .load_projection()
@@ -105,7 +110,10 @@ async fn cancel_after_partial_checkpoint_stops_next_stream_attempt() {
                     } if failure.kind == ModelFailureKind::StreamDisconnected)
             )
         });
-        if progress_is_durable && stream_error_is_durable {
+        let tool_result_is_durable = projection.records.iter().any(|record| {
+            matches!(&record.entry, JournalEntry::ToolResultRecorded(tool) if tool.result.call_id == CALL_ID)
+        });
+        if progress_is_durable && stream_error_is_durable && tool_result_is_durable {
             break;
         }
         assert!(
@@ -128,6 +136,10 @@ async fn cancel_after_partial_checkpoint_stops_next_stream_attempt() {
     );
     server.abort();
     assert_eq!(requests.lock().await.len(), 1);
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("workspace").join(EFFECT_FILE)).unwrap(),
+        EFFECT
+    );
 
     let projection = SessionStore::open(session_dir.clone())
         .unwrap()
@@ -166,6 +178,14 @@ async fn cancel_after_partial_checkpoint_stops_next_stream_attempt() {
     .await
     .unwrap();
     let transcript = cold.transcript().await.unwrap();
+    assert_eq!(
+        transcript
+            .iter()
+            .filter_map(|item| item.tool.as_ref())
+            .filter(|tool| tool.call_id == CALL_ID && tool.status == "done")
+            .count(),
+        1
+    );
     assert_eq!(
         transcript
             .iter()

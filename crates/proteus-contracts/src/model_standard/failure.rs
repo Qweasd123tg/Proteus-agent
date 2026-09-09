@@ -22,7 +22,8 @@ pub struct ModelFailure {
     pub kind: ModelFailureKind,
     pub message: String,
     /// Fully completed assistant messages accepted before the model call failed.
-    /// Partial deltas and tool calls are never represented here.
+    /// May contain completed tool calls, but never partial deltas or tool results.
+    /// The workflow owns execution and explicitly chooses retained history.
     pub completed_messages: Vec<CanonicalMessage>,
 }
 

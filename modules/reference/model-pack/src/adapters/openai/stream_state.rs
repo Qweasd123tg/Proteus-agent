@@ -11,6 +11,9 @@ use crate::{
     model_standard::{MessagePhase, ModelStreamEvent},
 };
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Default)]
 pub(super) struct OpenAiStreamState {
     ids: HashMap<String, MessageId>,
@@ -37,7 +40,17 @@ impl OpenAiStreamState {
                 if event_type == "response.output_item.done" {
                     self.completed_items.push(item.clone());
                 }
-                if item.get("type").and_then(Value::as_str) != Some("message") {
+                if !matches!(
+                    item.get("type").and_then(Value::as_str),
+                    Some(
+                        "message"
+                            | "function_call"
+                            | "custom_tool_call"
+                            | "reasoning"
+                            | "web_search_call"
+                            | "file_search_call"
+                    )
+                ) {
                     return Vec::new();
                 }
                 let key = item_key(item, index);

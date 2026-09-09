@@ -97,16 +97,28 @@ fn responses(surface: Surface) -> [Value; 2] {
     ]
 }
 
-async fn serve(listener: TcpListener, surface: Surface) -> Vec<Value> {
+async fn serve(listener: TcpListener, surface: Surface, broken_stream: bool) -> Vec<Value> {
     let mut requests = Vec::new();
     for fixture in responses(surface) {
         let (mut socket, _) = listener.accept().await.unwrap();
         requests.push(super::read_json_request(&mut socket).await);
-        let body = fixture.to_string();
+        if broken_stream && requests.len() == 1 {
+            let body = format!(
+                "event: response.output_item.done\ndata: {}\n\n",
+                json!({"output_index": 0, "item": fixture["output"][0]})
+            );
+            super::stream_recovery::write_truncated_sse(&mut socket, &body).await;
+            continue;
+        }
+        let (body, content_type) = if broken_stream {
+            (super::sse_body(&fixture), "text/event-stream")
+        } else {
+            (fixture.to_string(), "application/json")
+        };
         socket
             .write_all(
                 format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                     body.len()
                 )
                 .as_bytes(),
@@ -160,16 +172,21 @@ fn configure_policy(config: &mut proteus_core::core::AppConfig, mode: PolicyMode
         .push(json!("apply_patch"));
 }
 
-async fn check_surface(surface: Surface, policy_mode: PolicyMode) {
+async fn check_surface(surface: Surface, policy_mode: PolicyMode, broken_stream: bool) {
     let root = tempfile::tempdir().unwrap();
     let workspace = root.path().join("workspace");
     std::fs::create_dir(&workspace).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let mut config = fixture_config(&format!("http://{}", listener.local_addr().unwrap())).await;
+    config
+        .providers
+        .get_mut(&config.active_provider)
+        .unwrap()
+        .stream = broken_stream;
     configure_policy(&mut config, policy_mode);
     let config_path = root.path().join("config.json");
     std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
-    let server = tokio::spawn(serve(listener, surface));
+    let server = tokio::spawn(serve(listener, surface, broken_stream));
 
     let runtime = AgentRuntime::builder(config.clone(), workspace.clone())
         .with_config_path(Some(&config_path))
@@ -370,14 +387,18 @@ async fn check_surface(surface: Surface, policy_mode: PolicyMode) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shell_and_exec_patch_interception_preserve_model_history_and_effective_execution() {
-    for surface in [Surface::Shell, Surface::ExecCommand, Surface::Direct] {
-        check_surface(surface, PolicyMode::Allow).await;
+    for (surface, broken_stream) in [
+        (Surface::Shell, false),
+        (Surface::ExecCommand, true),
+        (Surface::Direct, false),
+    ] {
+        check_surface(surface, PolicyMode::Allow, broken_stream).await;
     }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn intercepted_patch_uses_effective_target_policy_for_approval_and_denial() {
-    check_surface(Surface::Shell, PolicyMode::Ask).await;
-    check_surface(Surface::ExecCommand, PolicyMode::Deny).await;
-    check_surface(Surface::Shell, PolicyMode::Unavailable).await;
+    check_surface(Surface::Shell, PolicyMode::Ask, true).await;
+    check_surface(Surface::ExecCommand, PolicyMode::Deny, true).await;
+    check_surface(Surface::Shell, PolicyMode::Unavailable, false).await;
 }
