@@ -86,6 +86,12 @@ fn request_serializes_reasoning_effort_and_thinking_budget() {
             "display": "summarized"
         })
     );
+
+    let disabled = request.with_reasoning(ReasoningConfig::new(Some("none".into()), false));
+    let body = to_anthropic_request(&disabled).unwrap();
+    assert!(body.get("output_config").is_none());
+    assert!(body.get("thinking").is_none());
+    assert!(body.get("temperature").is_some());
 }
 
 #[test]

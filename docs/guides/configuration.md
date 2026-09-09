@@ -326,6 +326,8 @@ proxy variables) явно перечисляются в `env_allowlist` componen
 Неизвестные модель или effort отклоняются. Явный effort `none` сохраняется в
 model request как `none`, отключая summary/budget; он показывается в live меню
 только если входит в supported efforts.
+Anthropic adapter передаёт это отключение отсутствием `thinking` и
+`output_config.effort`, сохраняя прежнюю семантику своего endpoint.
 
 `proteus init codex` создаёт top-level `config.toml`, parent/peer fragments,
 prompts и named child configs `codex-explore.config.toml` /

@@ -78,7 +78,13 @@ pub(super) fn to_anthropic_request_with_cache(
         }
     }
 
-    if let Some(effort) = &request.reasoning.effort {
+    // Canonical `none` disables reasoning; it is not an Anthropic effort value.
+    if let Some(effort) = request
+        .reasoning
+        .effort
+        .as_deref()
+        .filter(|value| *value != "none")
+    {
         body["output_config"] = json!({ "effort": effort });
     }
 
