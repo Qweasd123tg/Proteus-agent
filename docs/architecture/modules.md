@@ -47,7 +47,7 @@ native loader в проекте отсутствуют.
 | `memory` | `select_one` | `modules.memory` | да | `jsonl`, `sqlite` |
 | `context` | `select_one` | `modules.context` | да | `simple`, `repo_aware`, `codex_context` |
 | `policy` | `select_one` | `modules.policy` | да | `allow_all`, `ask_write`, `codex_policy`, `opencode_policy` |
-| `patch` | `select_one` | `modules.patch` | да | `direct` |
+| `patch` | `select_one` | `modules.patch` | да | `direct`, `codex` |
 | `compactor` | `select_one` | `modules.compactor` | да | `codex` |
 | `tool_exposure` | `select_one` | `modules.tool_exposure` | да | `codex_dynamic` |
 | `tool` | `ordered_many` | exports + `tools.enabled` | да | `reference.tools` и узкие selectors |
@@ -229,8 +229,12 @@ Context builder получает callbacks `host.search.query`,
 
 ### Patch
 
-Получает canonical `Patch` и workspace cwd. Reference `direct` понимает
-внутренний Proteus patch format.
+Получает canonical `Patch` и workspace cwd через `patch/v1`. Reference `direct`
+применяет внутренний Proteus format транзакционно; `codex` повторяет parser,
+context matching и последовательное применение pinned Codex. Оба exports
+проходят один adapter и authority path. Core facade передаёт opaque patch text;
+синтаксис выбранной реализации задают profile instructions. Граница `codex`
+и provenance находятся в [UPSTREAM.md](../../modules/reference/codex-patch/UPSTREAM.md).
 
 ### Compactor
 

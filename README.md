@@ -60,7 +60,8 @@ proteus doctor
 пути. Альтернативные каталоги задаются через `PROTEUS_BIN_DIR`,
 `PROTEUS_HOME` и `PROTEUS_CONFIG_HOME`.
 
-`proteus init coding` создаёт config только когда вы явно вызываете init. Уже
+`proteus init coding` создаёт config и `prompts/direct-patch.md` с синтаксисом
+выбранного patch module только когда вы явно вызываете init. Уже
 существующий рабочий config перезаписывать не нужно. Затем перейдите в целевой
 репозиторий и запустите:
 

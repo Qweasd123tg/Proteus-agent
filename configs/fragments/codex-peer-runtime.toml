@@ -5,6 +5,7 @@
 workflow = "coding.codex_loop"
 search = "rg"
 context = "codex_context"
+patch = "codex"
 compactor = "codex"
 
 [components.reference-workflow]
@@ -26,7 +27,7 @@ command = "proteus-reference-worker"
 
 [components.reference-capabilities.exports.policy.codex_policy]
 
-[components.reference-capabilities.exports.patch.direct]
+[components.reference-capabilities.exports.patch.codex]
 
 [components.reference-capabilities.exports.compactor.codex]
 

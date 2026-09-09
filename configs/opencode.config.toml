@@ -1,5 +1,10 @@
 include = "proteus.provider.example.toml"
 
+[[instructions]]
+kind = "System"
+file = "prompts/direct-patch.md"
+priority = 90
+
 # Base prompt: адаптированный upstream OpenCode GPT prompt
 # (packages/opencode/src/session/prompt/gpt.txt). Divergence от upstream:
 # identity без "OpenCode", tool-имена наши (grep/find_files/read_file/

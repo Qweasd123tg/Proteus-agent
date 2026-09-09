@@ -420,6 +420,15 @@ cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --co
 Conformance CLI без probe доказывает identity/authority, но не поведение slot.
 Для module admission нужен безопасный probe или integration test.
 
+`patch_transaction` проверяет замену `direct`/`codex` через один `patch/v1`,
+разницу context/EOF semantics и сохранение процесса после module error.
+`codex-patch` отдельно проверяет pinned parser/replacements и поздние write
+failures; `codex_model_resume::patch_interception` проводит выбранный профиль
+через policy/approval, canonical history и workflow replay.
+`codex_model_resume::crash_recovery` использует function и custom calls:
+missing result дополняется `aborted` только в следующем request, известный
+result не дублируется, cold transcript сохраняет действительный исход.
+
 ## Negative Protocol Evidence
 
 Strict draft protocol должен иметь tests минимум на:

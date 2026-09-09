@@ -1,5 +1,10 @@
 include = "../../configs/proteus.provider.example.toml"
 
+[[instructions]]
+kind = "System"
+file = "../../configs/prompts/direct-patch.md"
+priority = 90
+
 [profile]
 name = "coding-local"
 

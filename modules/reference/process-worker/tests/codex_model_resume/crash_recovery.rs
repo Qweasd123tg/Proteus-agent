@@ -74,14 +74,13 @@ async fn wait_for_file(path: &Path) {
     .unwrap_or_else(|_| panic!("barrier not reached: {}", path.display()));
 }
 
-async fn crash_and_resume(after_result: bool) {
+async fn crash_and_resume(after_result: bool, freeform: bool) {
     let root = tempfile::tempdir().unwrap();
     let workspace = root.path().join("workspace");
     std::fs::create_dir(&workspace).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let config = fixture_config(&format!("http://{}", listener.local_addr().unwrap())).await;
+    let mut config = fixture_config(&format!("http://{}", listener.local_addr().unwrap())).await;
     let config_path = root.path().join("config.json");
-    std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
     if after_result {
         std::fs::write(root.path().join("after-result"), "").unwrap();
     }
@@ -93,17 +92,55 @@ async fn crash_and_resume(after_result: bool) {
     } else {
         "python3 -c 'from pathlib import Path; import socket; f=open(\"effects.log\",\"a\"); f.write(\"x\"); f.close(); [Path(n+\".txt\").write_text(n) for n in \"abc\"]; s=socket.socket(socket.AF_UNIX); s.connect(\"crash-gate.sock\"); s.recv(1)'".to_owned()
     };
+    if freeform {
+        // The local Responses fixture supports custom tools; the packaged
+        // proxy deliberately declares only the function surface.
+        config
+            .module_config
+            .get_mut("model")
+            .unwrap()
+            .get_mut("openai")
+            .unwrap()["capabilities"]["supports_freeform_tools"] = json!(true);
+        config.tools.configured.push(
+            serde_json::from_value(json!({
+                "name": "crash_probe",
+                "description": "Write the fixture files from a custom tool invocation.",
+                "surface": {"kind": "freeform", "format": {"type": "grammar", "syntax": "lark", "definition": "start: /[a-z ]+/"}},
+                "safety": "RunsCommands",
+                "timeout_ms": 20000,
+                "executor": {"kind": "process", "command": "/bin/sh", "args": ["-c", command]}
+            }))
+            .unwrap(),
+        );
+    }
+    std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
+    let call_type = if freeform {
+        "custom_tool_call"
+    } else {
+        "function_call"
+    };
+    let output_type = if freeform {
+        "custom_tool_call_output"
+    } else {
+        "function_call_output"
+    };
     let model = tokio::spawn(async move {
         let (mut socket, _) = listener.accept().await.unwrap();
-        super::read_json_request(&mut socket).await;
-        reply(
-            &mut socket,
-            json!([{
-                "type": "function_call", "call_id": CALL_ID, "name": "shell",
-                "arguments": serde_json::to_string(&json!({"command": command})).unwrap()
-            }]),
-        )
-        .await;
+        let request = super::read_json_request(&mut socket).await;
+        let call = if freeform {
+            assert!(
+                request["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|tool| tool["type"] == "custom" && tool["name"] == "crash_probe")
+            );
+            json!({"type": call_type, "call_id": CALL_ID, "name": "crash_probe", "input": "change files"})
+        } else {
+            json!({"type": call_type, "call_id": CALL_ID, "name": "shell",
+                "arguments": serde_json::to_string(&json!({"command": command})).unwrap()})
+        };
+        reply(&mut socket, json!([call])).await;
         let (mut socket, _) = listener.accept().await.unwrap();
         let resumed_request = super::read_json_request(&mut socket).await;
         reply(
@@ -184,7 +221,7 @@ async fn crash_and_resume(after_result: bool) {
     let items = request["input"].as_array().unwrap();
     let calls: Vec<_> = items
         .iter()
-        .filter(|item| item["type"] == "function_call" && item["call_id"] == CALL_ID)
+        .filter(|item| item["type"] == call_type && item["call_id"] == CALL_ID)
         .collect();
     assert_eq!(
         calls.len(),
@@ -193,7 +230,7 @@ async fn crash_and_resume(after_result: bool) {
     );
     let results: Vec<_> = items
         .iter()
-        .filter(|item| item["type"] == "function_call_output" && item["call_id"] == CALL_ID)
+        .filter(|item| item["type"] == output_type && item["call_id"] == CALL_ID)
         .collect();
     assert_eq!(
         results.len(),
@@ -282,10 +319,20 @@ async fn crash_and_resume(after_result: bool) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn effect_without_result_survives_crash_as_unknown() {
-    crash_and_resume(false).await;
+    crash_and_resume(false, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn committed_result_survives_crash_before_workflow_acknowledgement() {
-    crash_and_resume(true).await;
+    crash_and_resume(true, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn custom_effect_without_result_gets_prompt_only_aborted_on_cold_resume() {
+    crash_and_resume(false, true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn committed_custom_result_survives_crash_without_a_synthetic_duplicate() {
+    crash_and_resume(true, true).await;
 }

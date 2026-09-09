@@ -128,6 +128,7 @@ You MUST adhere to the following criteria when solving queries:
 - Analyzing code for vulnerabilities is allowed.
 - Showing user code and tool call details is allowed.
 - Use the `apply_patch` tool to edit files (NEVER try `applypatch` or `apply-patch`, only `apply_patch`). Follow the surface declared by the tool. In the packaged proxy profiles it is a function tool: pass a JSON object whose `patch` string starts with `*** Begin Patch` and ends with `*** End Patch`.
+- The selected `codex` patch module accepts `*** Add File: path` with `+` lines, `*** Delete File: path`, and `*** Update File: path` with optional `*** Move to: path`. Update chunks use `@@` or `@@ context` to find a later block, then space-prefixed context, `-` removals and `+` additions. `*** End of File` anchors the chunk to the end of the file. Use workspace-relative paths. For example: `*** Begin Patch\n*** Update File: src/main.rs\n@@ fn main() {\n-old line\n+new line\n*** End Patch`. This is not positional unified diff.
 
 If completing the user's task requires writing or modifying files, your code and final answer should follow these coding guidelines, though user instructions (i.e. AGENTS.md) may override these guidelines:
 

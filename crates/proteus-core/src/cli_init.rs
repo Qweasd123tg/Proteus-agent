@@ -19,6 +19,8 @@ const CODEX_CODER_PEER_CONFIG: &str =
 const PROVIDER_PROFILE_CONFIG: &str =
     include_str!("../../../configs/proteus.provider.example.toml");
 const SAFE_PROFILE_CONFIG: &str = include_str!("../../../examples/configs/proteus.example.toml");
+const DIRECT_PATCH_PROMPT: &str = include_str!("../../../configs/prompts/direct-patch.md");
+const DIRECT_PATCH_PROMPT_FILE: &str = "prompts/direct-patch.md";
 const CODEX_DEFAULT_PROMPT: &str = include_str!("../../../configs/prompts/codex-default.md");
 const CODEX_EXPLORE_PROMPT: &str = include_str!("../../../configs/prompts/codex-explore.md");
 const CODEX_CODER_PROMPT: &str = include_str!("../../../configs/prompts/codex-coder.md");
@@ -64,7 +66,12 @@ impl InitProfile {
     fn config_body_for_init(self) -> String {
         match self {
             Self::Coding | Self::Full => {
-                let profile_body = strip_profile_include(self.config_body()).trim_start();
+                let profile_body = strip_profile_include(self.config_body())
+                    .trim_start()
+                    .replace(
+                        "../../configs/prompts/direct-patch.md",
+                        DIRECT_PATCH_PROMPT_FILE,
+                    );
                 format!("{}\n\n{}", PROVIDER_PROFILE_CONFIG.trim_end(), profile_body)
             }
             Self::Codex => format!(
@@ -102,7 +109,10 @@ impl InitProfile {
                     codex_child_config_for_init(CODEX_CODER_PEER_FILE),
                 ),
             ],
-            Self::Coding | Self::Full | Self::Safe => Vec::new(),
+            Self::Coding | Self::Full => {
+                vec![(DIRECT_PATCH_PROMPT_FILE, DIRECT_PATCH_PROMPT.to_owned())]
+            }
+            Self::Safe => Vec::new(),
         }
     }
 }

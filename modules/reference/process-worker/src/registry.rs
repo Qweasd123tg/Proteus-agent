@@ -57,6 +57,7 @@ impl CollectedModules {
             ("tool", "policy_tools") => policy_pack::register_modules,
             ("search", "rg") => rg_search::register_modules,
             ("patch", "direct") => direct_patch::register_modules,
+            ("patch", "codex") => codex_patch::register_modules,
             ("memory", "jsonl") => memory_pack::register_modules,
             ("memory", "sqlite") => sqlite_memory::register_modules,
             ("context", "simple" | "repo_aware" | "codex_context") => {

@@ -15,6 +15,7 @@ proteus-module-protocol = { path = "../../../crates/proteus-module-protocol" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+codex-patch = { path = "../codex-patch" }
 codex-compactor = { path = "../codex-compactor", default-features = false }
 codex-tool-exposure = { path = "../codex-tool-exposure", default-features = false }
 coding-workflow = { path = "../coding-workflow", default-features = false }

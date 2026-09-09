@@ -297,8 +297,9 @@ duplicate-name и visibility checks, но выполняются OpenAI внут
 ## Workspace Boundary
 
 `apply_patch` остаётся core tool-ом, но сам алгоритм применения patch живёт в
-выбранном `PatchApplier`. Reference module `direct-patch` канонизирует `cwd` и target
-path перед записью и отклоняет absolute paths, parent traversal и
+выбранном `PatchApplier`. Reference modules `direct-patch` и `codex-patch`
+канонизируют `cwd`, проверяют target path и отклоняют absolute paths,
+parent traversal и
 symlink-escape; конечный symlink запрещён для Add/Update/Delete и обеих сторон
 Move, даже если он указывает обратно внутрь workspace. `ToolOrchestrator` не
 делает workspace-санитизации за `PatchApplier` — это обязанность выбранной
@@ -312,6 +313,15 @@ unified headers вида `@@ -line,count +line,count @@` отклоняются 
 commit запускает rollback исходных файлов; если сам rollback неполон, module
 возвращает явное сообщение `workspace may be partially modified` с ошибками
 восстановления и сохраняет recovery-файлы.
+
+Reference `codex-patch` выбран в Codex-family profiles. Он принимает `@@ context`,
+ищет chunks с pinned порядком exact/whitespace/Unicode matching и трактует
+`*** End of File` как привязку chunk к концу файла. Перед записью проверяются
+все операции; повторный source path запрещён, Add и Move могут перезаписать
+существующий destination. Применение повторно читает файлы в порядке hunks;
+ошибка записи сохраняет уже сделанные изменения без rollback. Summary группирует
+пути как `A`/`M`/`D`. Подробная граница default file-update mode и provenance:
+[codex-patch/UPSTREAM.md](../../modules/reference/codex-patch/UPSTREAM.md).
 
 В packaged proxy-профилях `codex`/`glm` model-facing форма `apply_patch` —
 обычный function tool. Явно настроенный freeform custom tool всё равно проходит

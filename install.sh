@@ -411,6 +411,7 @@ install_managed_config_asset "prompts/codex-default.md"
 install_managed_config_asset "prompts/codex-explore.md"
 install_managed_config_asset "prompts/codex-coder.md"
 install_managed_config_asset "prompts/opencode-default.md"
+install_managed_config_asset "prompts/direct-patch.md"
 
 echo "Installed: ${bin_path}"
 echo "Snapshot:  ${release_dir}"

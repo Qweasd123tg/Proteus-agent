@@ -722,8 +722,9 @@ call с `execution_call` с тем же id. Например, Codex-loop про�
 после checkpoint отклоняется; replay проверяет ту же связь.
 
 Если side effect произошёл, но result не записан, journal сохраняет неизвестный
-исход. Codex при формировании следующего request добавляет для такого function
-call prompt-only output `aborted`. Это нормализация запроса, а не запись
+исход. `coding.codex_loop` при формировании следующего request добавляет для
+такого function или freeform custom call prompt-only output `aborted`. Это
+нормализация запроса, а не запись
 успешного/неуспешного результата tool в history. В transcript карточка остаётся
 `interrupted`. Runtime не переисполняет прошлые calls и не продолжает workflow
 с его старого program counter.

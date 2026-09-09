@@ -585,6 +585,7 @@ async fn init_coding_writes_loadable_single_config_file() {
 
     let profile = dir.path().join(INIT_CONFIG_FILE);
     assert!(profile.exists());
+    assert!(dir.path().join("prompts/direct-patch.md").exists());
     let profile_body = std::fs::read_to_string(&profile).expect("profile body");
     assert!(profile_body.starts_with("active_provider = \"anthropic\""));
     assert!(
@@ -634,6 +635,7 @@ async fn init_codex_writes_loadable_config_with_runtime_fragment() {
         Some("coding.codex_loop")
     );
     assert_eq!(config.modules.context.as_deref(), Some("codex_context"));
+    assert_eq!(config.modules.patch.as_deref(), Some("codex"));
     assert_eq!(config.modules.compactor.as_deref(), Some("codex"));
     assert_eq!(config.agent_control.roles.len(), 2);
     assert_eq!(

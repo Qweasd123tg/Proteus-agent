@@ -61,6 +61,35 @@ Upstream anchors того же baseline: `core/src/session/turn.rs` формир
 requests, прямое исполнение ранее скрытого tool, journal, cold history
 и workflow replay. Policy и approval остаются общей границей исполнения.
 
+### Применение Патчей
+
+Codex-family profiles используют reference export `patch/codex` через общий
+`patch/v1`. Parser, default `NormalizeToLf` replacement algorithm, verification
+и порядок записи адаптированы из `codex-rs/apply-patch/src/` pinned commit;
+[provenance и ограничения](../../modules/reference/codex-patch/UPSTREAM.md)
+перечисляют точные upstream files.
+
+[Module fixtures](../../modules/reference/codex-patch/src/tests.rs) проверяют
+`@@ context`, EOF anchoring, приоритет exact перед whitespace/Unicode matching,
+несколько chunks, завершающую пустую context line, Add/Move с перезаписью,
+отказ пустого Update и повторного source path, полную verification до writes
+и сохранение эффекта при поздней ошибке применения. Перенесённые streaming
+parser fixtures проверяют тот же синтаксис при разбиении входа на дельты.
+
+[Process substitution](../../modules/reference/process-worker/tests/patch_transaction.rs)
+меняет `direct` на `codex` в том же slot: common patch проходит оба exports,
+context/EOF semantics выбирается реализацией, module error не разрушает broker.
+[Conformance](../../modules/reference/process-worker/tests/conformance.rs)
+проверяет handshake и canonical DTO обоих exports. Существующий
+[workflow fixture](../../modules/reference/process-worker/tests/codex_model_resume/patch_interception.rs)
+использует tracked Codex profile: function patch и shell interception проходят
+policy, approval, journal, cold history и replay с выбранным `codex` export.
+
+Этот срез сохраняет локальную workspace path boundary Proteus и function
+surface proxy-профилей. Optional PreserveLineEndings, remote environments,
+applied-delta/diff-progress protocol и upstream output wrappers не заявлены.
+Это source-anchored regression, а не запуск двух полных runtimes.
+
 ### Повторы HTTP-запроса Модели
 
 OpenAI и OpenAI-compatible adapter используют HTTP-политику выбранного
@@ -247,11 +276,12 @@ runtime и в новом процессе. Это восстановление �
 root result в history вместе с его durable записью, до ответа workflow.
 Upstream anchors того же baseline: запись перед постановкой tool futures в
 `core/src/stream_events_utils.rs`, `drain_in_flight` в `core/src/session/turn.rs`,
-prompt-only `aborted` для отсутствующего function output в
+prompt-only `aborted` для отсутствующего function/custom output в
 `core/src/context_manager/normalize.rs` и `history.rs::for_prompt_annotated`.
 
 [Crash regression](../../modules/reference/process-worker/tests/codex_model_resume/crash_recovery.rs)
-завершает настоящий runtime process через kill в двух контролируемых точках:
+завершает настоящий runtime process через kill для function и freeform custom
+calls в двух контролируемых точках:
 после записи трёх файлов, до tool result; после `ToolResultRecorded`, до возврата
 workflow. Неидемпотентный append подтверждает отсутствие повторного исполнения.
 Новый runtime сверяет фактический HTTP request, journal и cold transcript:
@@ -261,9 +291,11 @@ workflow. Неидемпотентный append подтверждает отс�
 незавершённый аварийный turn replay отклоняет.
 
 Этот срез не обещает exactly-once внешнего эффекта, продолжения старого workflow,
-совпадения synthetic provider item ids или missing-output поведения custom и
-hosted tools. Он проверяет сохранение известного прогресса и function-call
-нормализацию следующего запроса.
+совпадения synthetic provider item ids или missing-output поведения hosted
+и tool-search items. Он проверяет сохранение известного прогресса и
+function/custom-call нормализацию следующего запроса. Custom fixture явно
+включает capability локального Responses server; packaged proxy по-прежнему
+объявляет function surface.
 
 ### Cancel, Timeout И Ошибка Batch
 

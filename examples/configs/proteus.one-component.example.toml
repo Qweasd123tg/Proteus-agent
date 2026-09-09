@@ -1,5 +1,10 @@
 active_provider = "fake"
 
+[[instructions]]
+kind = "System"
+file = "../../configs/prompts/direct-patch.md"
+priority = 90
+
 [profile]
 name = "component-runtime-evidence"
 

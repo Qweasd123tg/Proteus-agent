@@ -111,6 +111,7 @@ modules/
         plan-tool/           - tool update_plan (пошаговый план в transcript)
         rg-search/           - SearchBackend на ripgrep под id "rg"
         direct-patch/        - PatchApplier internal patch format под id "direct"
+        codex-patch/         - PatchApplier pinned Codex algorithm под id "codex"
         sqlite-memory/       - MemoryStore на SQLite FTS5
         codex-compactor/     - HistoryCompactor под id "codex"
         codex-tool-exposure/ - ToolExposure под id "codex_dynamic"

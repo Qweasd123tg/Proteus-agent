@@ -1,5 +1,10 @@
 active_provider = "anthropic"
 
+[[instructions]]
+kind = "System"
+file = "prompts/direct-patch.md"
+priority = 90
+
 [providers.anthropic]
 provider = "anthropic"
 model = "deepseek-v4-pro"

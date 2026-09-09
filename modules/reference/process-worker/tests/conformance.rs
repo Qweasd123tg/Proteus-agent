@@ -150,6 +150,7 @@ fn every_reference_export_completes_the_same_strict_v3_component_handshake() {
         ("tool", "policy_tools"),
         ("search", "rg"),
         ("patch", "direct"),
+        ("patch", "codex"),
         ("memory", "jsonl"),
         ("memory", "sqlite"),
         ("context", "simple"),
@@ -357,23 +358,26 @@ fn search_patch_and_memory_round_trip_canonical_dtos() {
         assert_eq!(response.chunks[0].source, "rg");
     }
 
-    let patch = connect(workspace.path(), "patch", "direct", json!({}));
-    let response: ProcessPatchResponse = invoke(
-        &patch,
-        PROCESS_PATCH_APPLY_METHOD,
-        serde_json::to_value(ProcessPatchInput {
-            patch: Patch::new(
-                "*** Begin Patch\n*** Add File: added.txt\n+created by process\n*** End Patch",
-            ),
-            cwd: workspace.path().to_path_buf(),
-        })
-        .expect("patch input"),
-    );
-    assert!(response.result.ok);
-    assert_eq!(
-        std::fs::read_to_string(workspace.path().join("added.txt")).expect("added file"),
-        "created by process\n"
-    );
+    for module_id in ["direct", "codex"] {
+        let patch = connect(workspace.path(), "patch", module_id, json!({}));
+        let filename = format!("added-{module_id}.txt");
+        let response: ProcessPatchResponse = invoke(
+            &patch,
+            PROCESS_PATCH_APPLY_METHOD,
+            serde_json::to_value(ProcessPatchInput {
+                patch: Patch::new(format!(
+                    "*** Begin Patch\n*** Add File: {filename}\n+created by process\n*** End Patch",
+                )),
+                cwd: workspace.path().to_path_buf(),
+            })
+            .expect("patch input"),
+        );
+        assert!(response.result.ok);
+        assert_eq!(
+            std::fs::read_to_string(workspace.path().join(filename)).expect("added file"),
+            "created by process\n"
+        );
+    }
 
     for module_id in ["jsonl", "sqlite"] {
         let path = workspace.path().join(format!("configured-{module_id}.db"));

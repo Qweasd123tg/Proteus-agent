@@ -420,7 +420,7 @@ memory:           jsonl, sqlite
 context:          simple, repo_aware, codex_context
 context_provider: skills
 policy:           allow_all, ask_write, codex_policy, opencode_policy
-patch:            direct
+patch:            direct, codex
 compactor:        codex
 tool_exposure:    codex_dynamic
 tool:             reference.tools и узкие selectors
@@ -428,6 +428,13 @@ tool:             reference.tools и узкие selectors
 
 Это reference/test inventory, не обязательный пакет. Любой другой executable,
 прошедший тот же contract, настраивается тем же способом.
+
+Codex-family fragments выбирают `modules.patch = "codex"` и exact export
+`components.reference-capabilities.exports.patch.codex`; остальные packaged
+profiles сохраняют `direct`. Tool `apply_patch` передаёт текст выбранному
+module без знания его алгоритма. При смене patch export согласуйте синтаксис
+в instructions: `prompts/codex-default.md` описывает `codex`,
+`prompts/direct-patch.md` — `direct`. Installer публикует оба prompt assets.
 
 ## Instructions
 

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use proteus_contracts::{
-    domain::{ToolCallSurface, ToolResult},
+    domain::ToolResult,
     model_standard::{CanonicalMessage, ContentPart, PartScope},
 };
 
@@ -21,7 +21,6 @@ pub(crate) fn normalize_missing_tool_outputs(messages: &mut Vec<CanonicalMessage
     for (index, message) in messages.iter().enumerate() {
         for part in &message.parts {
             if let ContentPart::ToolCall { call } = &part.payload
-                && call.surface == ToolCallSurface::Function
                 && !completed.contains(&call.id)
             {
                 let mut output = crate::history::tool_result_message(ToolResult::error(
