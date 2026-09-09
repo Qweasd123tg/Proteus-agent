@@ -41,8 +41,11 @@ cargo test -p proteus-core --test module_swap
 cargo run --bin proteus -- doctor
 ```
 
-`doctor` также валидирует persisted session directories и полностью читает их
-`journal.jsonl`, включая blob references и lifecycle projection. Актуальный
+`doctor` также валидирует persisted session directories текущего workspace
+(`--cwd`) и полностью читает их `journal.jsonl`, включая blob references и
+lifecycle projection. `doctor --all-sessions` явно проверяет все workspaces.
+Выбранная область печатается в findings; повреждённая или устаревшая сессия
+внутри неё остаётся ошибкой. Актуальный
 write/read-format использует 10-значное имя каталога, полный UUID в
 `session.json` schema v4 и `journal_schema_version = 13`. UUID-basename/schema
 v3 sessions намеренно не читаются; нужные старые dogfood каталоги архивируются

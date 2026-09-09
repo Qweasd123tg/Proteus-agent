@@ -4,6 +4,9 @@ use anyhow::{Result, bail};
 use proteus_contracts::domain::{ExchangeId, TurnId};
 use proteus_core::app_server::http::HttpServerConfig;
 
+mod dispatch;
+pub(crate) use dispatch::{CliCommand, parse_cli_command};
+
 pub(crate) fn is_modules_list_command(task: &[String]) -> bool {
     matches!(task, [module, command] if module == "modules" && command == "list")
 }
@@ -375,8 +378,4 @@ fn inspect_topology_format_value(value: &str) -> Result<InspectTopologyFormat> {
 
 fn inspect_topology_usage() -> &'static str {
     "usage: proteus inspect [topology] [--format table|json|markdown|runtime|runtime-mermaid|map|mermaid]"
-}
-
-pub(crate) fn is_doctor_command(task: &[String]) -> bool {
-    matches!(task, [command] if command == "doctor")
 }

@@ -249,6 +249,17 @@ fn read_only_cli_paths_do_not_start_unrelated_process_components() {
 
 #[test]
 fn app_server_stdio_command_is_exact() {
+    let cli = Cli::try_parse_from(["proteus", "--new-session", "server", "stdio"]).unwrap();
+    assert!(cli.new_session);
+    assert!(matches!(
+        parse_cli_command(&cli.task).unwrap(),
+        CliCommand::ServerStdio
+    ));
+    let prompt = Cli::try_parse_from(["proteus", "inspect this project"]).unwrap();
+    assert!(matches!(
+        parse_cli_command(&prompt.task).unwrap(),
+        CliCommand::Task
+    ));
     assert!(is_app_server_stdio_command(&[
         "server".to_owned(),
         "stdio".to_owned()
@@ -324,16 +335,19 @@ fn app_server_http_command_parses_defaults_and_bind_options() {
 }
 
 #[test]
-fn doctor_command_is_exact() {
-    assert!(is_doctor_command(&["doctor".to_owned()]));
-    assert!(!is_doctor_command(&[
-        "doctor".to_owned(),
-        "extra".to_owned()
-    ]));
-    assert!(!is_doctor_command(&[
-        "tools".to_owned(),
-        "doctor".to_owned()
-    ]));
+fn doctor_command_accepts_only_explicit_session_scope() {
+    use crate::cli_doctor::SessionScope;
+    for (args, all) in [
+        (vec!["doctor"], false),
+        (vec!["doctor", "--all-sessions"], true),
+    ] {
+        let args = args.into_iter().map(str::to_owned).collect::<Vec<_>>();
+        let CliCommand::Doctor(scope) = parse_cli_command(&args).expect("doctor command") else {
+            panic!("expected doctor");
+        };
+        assert_eq!(matches!(scope, SessionScope::All), all);
+    }
+    assert!(parse_cli_command(&["doctor".into(), "--unknown".into()]).is_err());
 }
 
 #[test]

@@ -28,14 +28,15 @@ mod cli_prompt_replay;
 mod cli_workflow_replay;
 
 use cli_app::CliAppClient;
+use cli_commands::{CliCommand, InspectPlanFormat, InspectTopologyFormat, parse_cli_command};
+#[cfg(test)]
 use cli_commands::{
-    InspectPlanFormat, InspectTopologyFormat, is_app_server_stdio_command, is_doctor_command,
-    is_modules_list_command, is_tools_list_command, parse_app_server_http_command,
-    parse_eval_report_command, parse_inspect_plan_command, parse_inspect_topology_command,
-    parse_prompt_replay_command, parse_workflow_replay_command,
+    is_app_server_stdio_command, is_modules_list_command, is_tools_list_command,
+    parse_app_server_http_command, parse_eval_report_command, parse_inspect_plan_command,
+    parse_inspect_topology_command, parse_prompt_replay_command, parse_workflow_replay_command,
 };
 use cli_doctor::run_doctor;
-use cli_init::{parse_init_command, run_init};
+use cli_init::run_init;
 use cli_prompt_replay::run_prompt_replay;
 use cli_workflow_replay::run_workflow_replay;
 
@@ -47,7 +48,7 @@ use cli_doctor::{
 #[cfg(test)]
 use cli_init::{
     INIT_CONFIG_FILE, InitProfile, init_config_path_from_arg, init_destination_path,
-    mixed_config_files_warning, single_config_file_for_warning,
+    mixed_config_files_warning, parse_init_command, single_config_file_for_warning,
 };
 #[cfg(test)]
 use std::path::Path;
@@ -102,38 +103,36 @@ impl From<CliPermissionMode> for PermissionMode {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    if let Some(profile) = parse_init_command(&cli.task)? {
+    let command = parse_cli_command(&cli.task)?;
+    if let CliCommand::Init(profile) = command {
         return run_init(profile, cli.config.as_deref());
     }
-    if is_modules_list_command(&cli.task) {
+    if matches!(command, CliCommand::ModulesList) {
         let config = AppConfig::load(cli.config.as_deref()).await?;
         let catalog = proteus_core::core::ModuleCatalog::from_config(&config)?;
         println!("{}", render_module_list(&catalog.manifests()));
         return Ok(());
     }
-    if let Some(path) = parse_eval_report_command(&cli.task)? {
+    if let CliCommand::EvalReport(path) = command {
         let report = proteus_core::core::read_eval_report(path)?;
         println!("{}", render_eval_report(&report));
         return Ok(());
     }
-    let prompt_replay = parse_prompt_replay_command(&cli.task)?;
-    let workflow_replay = parse_workflow_replay_command(&cli.task)?;
-
     let config_path = AppConfig::resolve_config_path(cli.config.as_deref()).await?;
     let cwd = match cli.cwd {
         Some(ref cwd) => cwd.clone(),
         None => std::env::current_dir()?,
     };
-    if is_doctor_command(&cli.task) {
-        return run_doctor(cli.config.as_deref(), config_path.as_deref(), &cwd).await;
+    if let CliCommand::Doctor(scope) = command {
+        return run_doctor(cli.config.as_deref(), config_path.as_deref(), &cwd, scope).await;
     }
 
     let mut config = AppConfig::load(cli.config.as_deref()).await?;
-    if let Some(command) = prompt_replay {
+    if let CliCommand::PromptReplay(command) = command {
         println!("{}", run_prompt_replay(&config, &cwd, command).await?);
         return Ok(());
     }
-    if let Some(command) = workflow_replay {
+    if let CliCommand::WorkflowReplay(command) = command {
         println!("{}", run_workflow_replay(&config, command).await?);
         return Ok(());
     }
@@ -141,7 +140,7 @@ async fn main() -> Result<()> {
     if cli.new_session && cli.resume_session.is_some() {
         anyhow::bail!("--new-session conflicts with --resume-session");
     }
-    if let Some(format) = parse_inspect_plan_command(&cli.task)? {
+    if let CliCommand::InspectPlan(format) = command {
         let (plan, _) = resolve_cli_assembly(
             &config,
             config_path.as_deref(),
@@ -152,7 +151,7 @@ async fn main() -> Result<()> {
         plan.ensure_valid()?;
         return Ok(());
     }
-    if let Some(format) = parse_inspect_topology_command(&cli.task)? {
+    if let CliCommand::InspectTopology(format) = command {
         let snapshot = build_cli_topology(
             &config,
             config_path.as_deref(),
@@ -162,7 +161,7 @@ async fn main() -> Result<()> {
         println!("{}", render_inspect_topology(&snapshot, format)?);
         return Ok(());
     }
-    if is_tools_list_command(&cli.task) {
+    if matches!(command, CliCommand::ToolsList) {
         let (plan, catalog) = resolve_cli_assembly(
             &config,
             config_path.as_deref(),
@@ -174,7 +173,7 @@ async fn main() -> Result<()> {
         println!("{}", render_tool_list(&registry));
         return Ok(());
     }
-    if is_app_server_stdio_command(&cli.task) {
+    if matches!(command, CliCommand::ServerStdio) {
         return run_stdio_app_server(
             config,
             cwd,
@@ -184,7 +183,7 @@ async fn main() -> Result<()> {
         )
         .await;
     }
-    if let Some(http_config) = parse_app_server_http_command(&cli.task)? {
+    if let CliCommand::ServerHttp(http_config) = command {
         return run_http_app_server(config, cwd, config_path, cli.resume_session, http_config)
             .await;
     }

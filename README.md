@@ -200,6 +200,7 @@ cargo run -p proteus-core
 
 # config/catalog/tools без model request
 cargo run -p proteus-core -- --config configs/config.toml doctor
+cargo run -p proteus-core -- --config configs/config.toml doctor --all-sessions
 cargo run -p proteus-core -- --config configs/config.toml modules list
 cargo run -p proteus-core -- --config configs/config.toml tools list
 
@@ -214,6 +215,16 @@ cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --co
 
 Prompt/workflow replay и journal semantics описаны в
 [runtime-and-events.md](docs/guides/runtime-and-events.md).
+
+Глобальные flags ставятся перед командой: `proteus --new-session server stdio`.
+Namespaces `init`, `modules`, `tools`, `doctor`, `server`, `inspect`, `eval`,
+`replay` зарезервированы: неверная форма завершается ошибкой до загрузки config
+и не отправляется модели. Обычный prompt с такими словами передавайте одной
+строкой в кавычках, например `proteus "inspect this project"`.
+
+`doctor` проверяет сессии выбранного через `--cwd` workspace (по умолчанию —
+текущий каталог). `doctor --all-sessions` проверяет всё хранилище; ошибка старой
+сессии другого проекта не блокирует обычную диагностику текущего workspace.
 
 ## Структура Репозитория
 

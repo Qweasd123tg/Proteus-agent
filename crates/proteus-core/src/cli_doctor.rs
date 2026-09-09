@@ -15,11 +15,13 @@ use serde_json::Value;
 use crate::cli_init::{mixed_config_files_warning, single_config_file_for_warning};
 
 mod session_storage;
+pub(crate) use session_storage::SessionScope;
 
 pub(crate) async fn run_doctor(
     explicit_config: Option<&std::path::Path>,
     effective_config: Option<&std::path::Path>,
     cwd: &std::path::Path,
+    session_scope: SessionScope,
 ) -> Result<()> {
     let mut findings = DoctorFindings::default();
     findings.ok(format!("cwd: {}", cwd.display()));
@@ -86,7 +88,7 @@ pub(crate) async fn run_doctor(
     check_external_commands(&mut findings, &config, cwd);
     check_runtime_limits(&mut findings, &config);
     check_filesystem_paths(&mut findings, &config, cwd, effective_config);
-    session_storage::check_session_storage(&mut findings, effective_config);
+    session_storage::check_session_storage(&mut findings, effective_config, cwd, session_scope);
 
     if plan.is_valid() {
         match super::build_tool_registry_for_listing(&plan, &catalog) {
