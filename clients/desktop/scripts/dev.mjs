@@ -33,7 +33,7 @@ function rebuild() {
     catch (error) { console.error(error.message); }
   }, 300);
 }
-for (const directory of ['clients/web/src', 'clients/web/css', 'clients/inspector/src', 'clients/inspector/css', 'clients/common/src', 'clients/desktop/launcher']) {
+for (const directory of ['clients/web/src', 'clients/web/css', 'clients/web/extensions', 'clients/inspector/src', 'clients/inspector/css', 'clients/common/src', 'clients/desktop/launcher']) {
   watch(path.join(root, directory), { recursive: true }, rebuild);
 }
 for (const file of ['clients/web/index.html', 'clients/inspector/index.html', 'clients/inspector/inspector.css']) {

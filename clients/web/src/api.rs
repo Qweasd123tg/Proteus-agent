@@ -104,10 +104,18 @@ pub(crate) async fn get_json<T: for<'de> Deserialize<'de>>(path: &str) -> Result
 }
 
 pub(crate) async fn get_text(path: &str) -> Result<String, String> {
+    get_text_with_signal(path, None).await
+}
+
+pub(crate) async fn get_text_with_signal(
+    path: &str,
+    signal: Option<&web_sys::AbortSignal>,
+) -> Result<String, String> {
     let token = current_session_token();
     let init = RequestInit::new();
     init.set_method("GET");
     init.set_mode(RequestMode::Cors);
+    init.set_signal(signal);
     let headers = Headers::new().map_err(js_error)?;
     set_authorization_header(&headers, &token)?;
     init.set_headers(headers.as_ref());

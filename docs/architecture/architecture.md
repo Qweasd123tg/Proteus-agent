@@ -130,6 +130,14 @@ Leptos-клиенты, но не линкует Core. Она владеет то
 approvals и process-module authority остаются за существующими границами.
 Запуск и сборка: [desktop.md](../guides/desktop.md).
 
+UI — сменный клиент и витрина возможностей агента. Его расширения принадлежат
+клиенту: отдельные ES modules с манифестами, своим lifecycle и необязательными
+интерфейсами данных. Правые панели web/desktop загружаются независимо от backend
+modules; общий загрузчик не зависит от transport агента. Привязка конкретного
+клиента к публичному `/config` находится в его `web-adapter.js` и HTTP-коде.
+Установка UI-пакета не меняет profiles, slots, process exports или authority.
+Контракт и примеры: [ui-extensions.md](../guides/ui-extensions.md).
+
 ## Фактический Путь Одного Turn
 
 Основной AppServer path:

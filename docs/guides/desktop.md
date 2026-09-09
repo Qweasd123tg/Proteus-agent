@@ -73,6 +73,10 @@ MathJax и Mermaid включены локально.
 
 ## Проверка
 
+Панели [UI-расширений](ui-extensions.md) доступны в правой области чата.
+Они используют тот же загрузчик и контракт, что browser-клиент; desktop не
+добавляет связь с runtime modules.
+
 После `npm run prepare:assets` в `clients/desktop`:
 
 ```bash

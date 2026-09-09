@@ -3,6 +3,7 @@ mod chat_results;
 mod composer;
 mod context_map;
 mod controls;
+mod extensions;
 mod info_panel;
 mod message;
 mod resume;

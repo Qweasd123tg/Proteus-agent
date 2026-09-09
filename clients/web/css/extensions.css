@@ -1,0 +1,23 @@
+.extension-host { border-bottom: 1px solid var(--border-subtle); }
+.extension-manager { padding: 0 0 var(--space-3); }
+.extension-manager summary { cursor: pointer; color: var(--text-muted); font-size: 12px; }
+.extension-list { display: grid; gap: 8px; margin-top: var(--space-3); }
+.extension-choice { display: flex; align-items: center; gap: 2px; }
+.extension-choice label { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; }
+.extension-choice label span { overflow-wrap: anywhere; }
+.extension-choice input { width: 14px; height: 14px; accent-color: var(--accent-blue); }
+.extension-choice button { min-width: 24px; padding: 0 5px; }
+.extension-install { display: grid; gap: 8px; margin: 12px 0; }
+.extension-install input { padding: 8px; font-size: 12px; }
+.extension-install button { border-color: var(--border-strong); }
+.extension-reset { height: auto; padding: 4px 0; white-space: normal; text-align: left; font-size: 11px; color: var(--text-muted); }
+.extension-panel { padding: 12px 0; border-top: 1px solid var(--border-subtle); }
+.extension-panel-header { display: flex; margin-bottom: 8px; }
+.extension-panel-title { justify-content: flex-start; padding: 0; min-height: 24px; font-size: 12px; color: var(--text-muted); }
+.extension-panel-title::before { content: '⌄'; width: 12px; }
+.extension-panel-title[aria-expanded=false]::before { content: '›'; }
+.extension-panel-content { min-width: 0; }
+.extension-error { color: var(--accent-red); font-size: 12px; overflow-wrap: anywhere; }
+.extension-error:empty { display: none; }
+.extension-host [hidden] { display: none; }
+.extension-host :focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 2px; }

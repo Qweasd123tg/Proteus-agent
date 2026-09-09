@@ -15,6 +15,7 @@
 |---|---|
 | Установить и запустить | [README](../README.md), [другая машина](guides/second-pc-bootstrap.md) |
 | Собрать и использовать desktop-приложение | [desktop.md](guides/desktop.md) |
+| Подключить или написать расширение UI | [ui-extensions.md](guides/ui-extensions.md) |
 | Настроить profile, model, tools | [configuration.md](guides/configuration.md) |
 | Понять runtime и ownership | [architecture.md](architecture/architecture.md) |
 | Понять сборку и reload | [assembly-plan.md](architecture/assembly-plan.md), [hot-swap.md](architecture/hot-swap.md) |

@@ -1,0 +1,7 @@
+{
+  "apiVersion": 1,
+  "panels": [
+    { "id": "agent-info", "url": "./agent-info/extension.json", "enabled": true, "collapsed": false },
+    { "id": "notes", "url": "./notes/extension.json", "enabled": false, "collapsed": false }
+  ]
+}

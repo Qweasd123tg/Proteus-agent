@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use web_sys::MouseEvent;
 
 use super::controls::ContextRing;
+use super::extensions::ExtensionsView;
 use super::format_token_count;
 use super::tool_activity::{PlanStepPreview, parse_plan_steps};
 use crate::tool_names::UPDATE_PLAN_TOOL;
@@ -193,6 +194,7 @@ where
             </div>
 
             <div class="info-panel-body">
+                <ExtensionsView />
                 <section class="info-panel-section">
                     <div class="info-panel-section-head">
                         <span class="panel-kicker">"План"</span>
