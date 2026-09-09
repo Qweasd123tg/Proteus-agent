@@ -1,5 +1,23 @@
 //! Completed calls survive a failed sample; partial argument streams do not.
 use super::*;
+use tokio::io::AsyncReadExt;
+
+#[derive(Clone, Copy, PartialEq)]
+enum Ending {
+    Eof,
+    Idle,
+    ModelDeadline,
+}
+
+impl Ending {
+    fn message(self) -> &'static str {
+        match self {
+            Self::Eof => "stream ended without a terminal event",
+            Self::Idle => "idle timeout waiting for SSE",
+            Self::ModelDeadline => "model request timed out after 1000ms",
+        }
+    }
+}
 
 pub(super) fn completed_tool_sse() -> String {
     let reasoning = json!({"type": "reasoning", "id": "reasoning_before_call",
@@ -62,22 +80,52 @@ pub(super) fn assert_completed_call_and_reasoning(request: &Value) {
     );
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn completed_tool_is_drained_when_stream_retry_is_disabled() {
+async fn check(ending: Ending) {
     let root = tempfile::tempdir().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let config = configure(
+    let mut config = configure(
         root.path(),
         &format!("http://{}", listener.local_addr().unwrap()),
-        0,
+        if ending == Ending::ModelDeadline {
+            2
+        } else {
+            0
+        },
     )
     .await;
+    if ending != Ending::Eof {
+        config
+            .module_config
+            .get_mut("model")
+            .unwrap()
+            .get_mut("openai")
+            .unwrap()["stream_idle_timeout_ms"] = json!(if ending == Ending::Idle {
+            1_000
+        } else {
+            10_000
+        });
+    }
+    if ending == Ending::ModelDeadline {
+        config.runtime.model_timeout_ms = 1_000;
+    }
     let config_path = root.path().join("config.json");
     std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
     let server = tokio::spawn(async move {
         let (mut socket, _) = listener.accept().await.unwrap();
         read_json_request(&mut socket).await;
-        write_sse(&mut socket, &completed_tool_sse()).await;
+        if ending == Ending::Eof {
+            write_sse(&mut socket, &completed_tool_sse()).await;
+        } else {
+            write_truncated_sse(&mut socket, &completed_tool_sse()).await;
+            let mut byte = [0u8; 1];
+            assert_eq!(
+                tokio::time::timeout(Duration::from_secs(4), socket.read(&mut byte))
+                    .await
+                    .expect("timeout must close the provider connection")
+                    .unwrap(),
+                0
+            );
+        }
     });
     let runtime = AgentRuntime::builder(config.clone(), root.path().join("workspace"))
         .with_config_path(Some(&config_path))
@@ -86,10 +134,7 @@ async fn completed_tool_is_drained_when_stream_retry_is_disabled() {
         .await
         .unwrap();
     let error = runtime.run(PROMPT.to_owned()).await.unwrap_err();
-    assert!(
-        format!("{error:#}").contains("stream ended without a terminal event"),
-        "{error:#}"
-    );
+    assert!(format!("{error:#}").contains(ending.message()), "{error:#}");
     server.await.unwrap();
     let effect = root.path().join("workspace").join(EFFECT_FILE);
     assert_eq!(std::fs::read_to_string(&effect).unwrap(), EFFECT);
@@ -112,7 +157,15 @@ async fn completed_tool_is_drained_when_stream_retry_is_disabled() {
         })
         .collect::<Vec<_>>();
     assert_eq!(failures.len(), 1);
-    assert_eq!(failures[0].kind, ModelFailureKind::StreamDisconnected);
+    assert_eq!(
+        failures[0].kind,
+        if ending == Ending::ModelDeadline {
+            ModelFailureKind::Other
+        } else {
+            ModelFailureKind::StreamDisconnected
+        }
+    );
+    assert!(failures[0].message.contains(ending.message()));
     let retained = failures[0]
         .completed_messages
         .iter()
@@ -178,4 +231,19 @@ async fn completed_tool_is_drained_when_stream_retry_is_disabled() {
     assert!(replay.comparison.matched, "{:?}", replay.comparison.issues);
     assert!(replay.source_journal_unchanged);
     assert!(!effect.exists());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn completed_tool_is_drained_when_stream_retry_is_disabled() {
+    check(Ending::Eof).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sse_idle_timeout_preserves_tool_progress_when_retry_is_disabled() {
+    check(Ending::Idle).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn model_deadline_precedes_sse_idle_and_never_retries() {
+    check(Ending::ModelDeadline).await;
 }

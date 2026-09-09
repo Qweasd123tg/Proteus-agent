@@ -186,12 +186,27 @@ JSON body и уже открытого SSE stream не запускают эту
 Диагностический `stream_error_fallback` остаётся отдельной явной настройкой;
 tracked Codex profile её не включает.
 
+Для SSE OpenAI и OpenAI-compatible adapter принимает
+`module_config.model.<id>.stream_idle_timeout_ms`: неотрицательное целое число,
+по умолчанию `300000` (5 минут), как в закреплённом Codex. Это ожидание следующего
+целого SSE-события после успешных HTTP-заголовков. Полученное событие, даже
+игнорируемое adapter-ом, запускает новый интервал; отдельные байты, незаконченный
+event и комментарии keep-alive его не продлевают. Время обработки события и
+ожидание downstream consumer не входят в этот интервал. `0` задаёт нулевое
+ожидание, а не отключает таймер. Non-stream JSON и ожидание HTTP-заголовков
+этой настройкой не ограничиваются. Общий model deadline и cancellation
+по-прежнему могут остановить запрос раньше.
+
+При idle timeout adapter возвращает `StreamDisconnected` с сообщением
+`idle timeout waiting for SSE` и закрывает поток. Это не HTTP retry и не
+переход к non-stream запросу: дальнейшее восстановление выбирает workflow.
+
 У `coding.codex_loop` есть отдельный `stream_max_retries` в
 `module_config.workflow."coding.codex_loop"`.
 По умолчанию это 5 повторов после первой попытки; `0` отключает их, значения
 выше 100 ограничиваются 100. Принимается только неотрицательное целое число.
 Workflow повторяет `ModelFailureKind::StreamDisconnected`: OpenAI adapter
-так обозначает обрыв установленного SSE или EOF без terminal event. Каждый
+так обозначает обрыв установленного SSE, idle timeout или EOF без terminal event. Каждый
 повтор получает завершённые assistant messages и прежние tool results;
 checkpoint сохраняет их до backoff. Задержка начинается с 200 мс, удваивается
 со случайным множителем 0,9–1,1 и прерывается отменой. Успешный model response

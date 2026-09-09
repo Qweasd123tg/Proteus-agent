@@ -233,7 +233,11 @@ async fn run_initial(root: &Path, config: AppConfig, config_path: &Path, mode: I
     );
     let known = results(&before.history, COMPLETED_CALL);
     assert_eq!(known.len(), 1);
-    assert!(known[0].ok);
+    assert!(
+        known[0].ok,
+        "first tool failed before interruption: {:?}",
+        known[0]
+    );
     assert!(results(&before.history, PENDING_CALL).is_empty());
 }
 

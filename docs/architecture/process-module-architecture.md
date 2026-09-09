@@ -569,7 +569,8 @@ checkpoint/registry/policy/safety path до retry или terminal Error; Core с
 
 `stream_disconnected` означает обрыв уже установленного потока до terminal
 event; это причина, а не команда Core повторить запрос. OpenAI adapter
-классифицирует так ошибки чтения SSE и EOF без завершения, сохраняя остальные
+классифицирует так ошибки чтения SSE, таймаут ожидания целого SSE-события и EOF
+без завершения, сохраняя остальные
 ошибки данных и deadline отдельными. Codex workflow принимает решение о повторе
 с подтверждённой историей; compactor сохраняет свою политику повторов.
 Действуют `model/v6`, `workflow/v12`, `compactor/v8` и journal schema v12,

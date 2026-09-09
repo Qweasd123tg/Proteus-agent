@@ -77,6 +77,13 @@ root turn: следующий request, cold history, Error/Success journal и wo
 replay. Early-execution fixture удерживает terminal до эффекта tool, затем
 проверяет поздний model item и перенос result suffix.
 Cancel fixture дополнительно проверяет освобождение открытого provider connection.
+`early_execution` и `tool_progress` включают SSE idle timeout при открытом
+соединении: успешный retry, Error без повторов и model deadline раньше idle.
+Проверяются закрытие provider connection, точный cause, сохранение completed
+call/result, cold history и matched replay без нового эффекта.
+`model-pack::sse_idle` отдельно использует виртуальное время для границы
+таймера: целые SSE events, включая игнорируемые, сбрасывают его; comments и
+частичные байты — нет; время между polls не считается ожиданием провайдера.
 `stream_recovery::parallel_execution` использует независимый Python tool
 component с управляемыми barriers: два чтения перекрываются до terminal SSE,
 результаты завершаются в обратном порядке, exclusive call и следующее чтение

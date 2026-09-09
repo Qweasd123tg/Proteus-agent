@@ -150,10 +150,36 @@ history и matched replay. Отдельная отмена сохраняет з
 handler-а; текущий Proteus contract предоставляет `ToolSafety`, поэтому shared
 gate допускает только batches с эффективными `ReadOnly` calls. Другие safety
 классы эксклюзивны. Полное совпадение набора параллельных tools не заявляется.
-Также не реализуются upstream idle timeout, первичный unbounded connection retry
-и WebSocket fallback.
+Также не реализуются первичный unbounded connection retry и WebSocket fallback.
 Общий model deadline остаётся неповторяемой ошибкой. Полное совпадение stream
 lifecycle этим срезом не заявляется.
+
+### Таймаут Бездействия SSE
+
+OpenAI adapter повторяет границу таймера из закреплённого
+`codex-api/src/sse/responses.rs::process_sse_with_treatment`: timeout оборачивает
+один `eventsource().next()`, а не чтение байтов или ожидание canonical model
+event. По умолчанию `stream_idle_timeout_ms = 300000`, как в
+`model-provider-info/src/lib.rs`; настройка находится в opaque model config.
+Целое SSE-событие сбрасывает ожидание даже при неизвестном type, пустом data
+или невалидном JSON. Comments и частичные frames таймер не сбрасывают;
+обработка события и downstream backpressure не расходуют следующее ожидание.
+
+Истечение даёт `StreamDisconnected("idle timeout waiting for SSE")` и закрывает
+соединение. `coding.codex_loop` использует тот же бюджет восстановления и
+перенос completed progress, что при обрыве. HTTP retry и диагностический
+non-stream fallback из-за idle timeout не запускаются. Общий model deadline
+и Cancel сохраняют свои failure paths.
+
+[Adapter regression](../../modules/reference/model-pack/src/adapters/openai/sse_idle_tests.rs)
+проверяет config и границу parsed event с виртуальным временем.
+Существующие process fixtures
+[early_execution](../../modules/reference/process-worker/tests/codex_model_resume/stream_recovery/early_execution.rs)
+и [tool_progress](../../modules/reference/process-worker/tests/codex_model_resume/stream_recovery/tool_progress.rs)
+держат соединение открытым после completed call и ждут закрытия клиентом:
+проверяются успешный retry, terminal Error при отключённых повторах и
+неповторяемый model deadline раньше idle. Во всех случаях tool effect один,
+cold history сохраняет результат, journal и workflow replay совпадают.
 
 ### Shell-команда Apply Patch
 

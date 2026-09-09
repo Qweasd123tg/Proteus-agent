@@ -163,6 +163,9 @@ Calls из разных items с эффективным `ToolSafety::ReadOnly` �
 Повтор оборванного stream выбирает `coding.codex_loop` по общей причине
 `StreamDisconnected`. Module config `stream_max_retries` задаёт число повторов
 после первой попытки (5 по умолчанию, максимум 100, `0` отключает).
+OpenAI adapter возвращает эту причину также при истечении
+`stream_idle_timeout_ms` — ожидания целого SSE-события. Настройка и таймер принадлежат model
+implementation; workflow получает общий cause и не разбирает текст ошибки.
 Перед backoff workflow подтверждает completed progress checkpoint-ом и
 дополняет им следующий model request. Если ошибочный sample содержит завершённые
 tool calls, workflow сначала выбирает их checkpoint-ом, исполняет через тот же

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
 use eventsource_stream::Eventsource;
-use futures_util::{StreamExt, stream as futures_stream};
+use futures_util::stream as futures_stream;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{Value, json};
 
@@ -31,6 +31,7 @@ mod request;
 mod response;
 #[cfg(test)]
 mod round_trip_tests;
+mod sse_idle;
 mod stream;
 mod stream_state;
 #[cfg(test)]
@@ -43,6 +44,7 @@ use model_profile::OpenAiModelProfile;
 use request::to_openai_request;
 use request::to_openai_request_with_cache;
 use response::from_openai_response;
+use sse_idle::SseIdleTimeout;
 #[cfg(test)]
 use stream::finalize_completed_event;
 use stream_state::OpenAiStreamState;
@@ -68,6 +70,7 @@ pub struct OpenAiResponsesClient {
     prompt_cache: OpenAiPromptCacheConfig,
     model_profile: OpenAiModelProfile,
     request_retry: RequestRetry,
+    stream_idle_timeout: SseIdleTimeout,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -108,6 +111,7 @@ impl OpenAiResponsesClient {
         let prompt_cache = OpenAiPromptCacheConfig::from_provider_config(&config);
         let model_profile = OpenAiModelProfile::from_provider_config(&config)?;
         let request_retry = RequestRetry::from_config(&config)?;
+        let stream_idle_timeout = SseIdleTimeout::from_config(&config)?;
         let http1_only = config
             .get("http1_only")
             .map(|value| {
@@ -132,6 +136,7 @@ impl OpenAiResponsesClient {
             prompt_cache,
             model_profile,
             request_retry,
+            stream_idle_timeout,
         })
     }
 }
@@ -232,7 +237,16 @@ impl OpenAiResponsesClient {
         let events = async_stream::stream! {
             let mut state = OpenAiStreamState::default();
             let mut saw_terminal_event = false;
-            while let Some(chunk) = sse.next().await {
+            loop {
+                let chunk = match client.stream_idle_timeout.next(&mut sse).await {
+                    Ok(Some(chunk)) => chunk,
+                    Ok(None) => break,
+                    Err(failure) => {
+                        yield Ok(ModelStreamEvent::Error { failure });
+                        saw_terminal_event = true;
+                        break;
+                    }
+                };
                 match chunk {
                     Ok(event) => {
                         let mapped = state.translate(&event.event, &event.data);

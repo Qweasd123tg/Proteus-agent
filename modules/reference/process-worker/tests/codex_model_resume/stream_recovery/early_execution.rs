@@ -1,8 +1,16 @@
 //! The server deliberately withholds terminal SSE until the tool has changed
 //! the workspace. A complete-then-execute implementation cannot pass this.
 use super::*;
+use tokio::io::AsyncReadExt;
 
-async fn serve(listener: TcpListener, effect: std::path::PathBuf, disconnect: bool) -> Vec<Value> {
+#[derive(Clone, Copy, PartialEq)]
+enum Ending {
+    Complete,
+    Disconnect,
+    Idle,
+}
+
+async fn serve(listener: TcpListener, effect: std::path::PathBuf, ending: Ending) -> Vec<Value> {
     let (mut socket, _) = listener.accept().await.unwrap();
     let first = read_json_request(&mut socket).await;
     socket
@@ -41,7 +49,7 @@ async fn serve(listener: TcpListener, effect: std::path::PathBuf, disconnect: bo
         )
         .await
         .unwrap();
-    if !disconnect {
+    if ending == Ending::Complete {
         let terminal = response(
             json!([
                 {"type":"reasoning", "id":"reasoning_before_call", "summary":[], "encrypted_content":"retained-reasoning"},
@@ -54,7 +62,18 @@ async fn serve(listener: TcpListener, effect: std::path::PathBuf, disconnect: bo
             .await
             .unwrap();
     }
-    socket.shutdown().await.unwrap();
+    if ending == Ending::Idle {
+        let mut byte = [0u8; 1];
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(4), socket.read(&mut byte))
+                .await
+                .expect("idle timeout must close the provider connection")
+                .unwrap(),
+            0
+        );
+    } else {
+        socket.shutdown().await.unwrap();
+    }
     let (mut socket, _) = tokio::time::timeout(Duration::from_secs(8), listener.accept())
         .await
         .unwrap()
@@ -64,20 +83,28 @@ async fn serve(listener: TcpListener, effect: std::path::PathBuf, disconnect: bo
     vec![first, second]
 }
 
-async fn check(disconnect: bool) {
+async fn check(ending: Ending) {
     let root = tempfile::tempdir().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let config = configure(
+    let mut config = configure(
         root.path(),
         &format!("http://{}", listener.local_addr().unwrap()),
         1,
     )
     .await;
+    if ending == Ending::Idle {
+        config
+            .module_config
+            .get_mut("model")
+            .unwrap()
+            .get_mut("openai")
+            .unwrap()["stream_idle_timeout_ms"] = json!(1_000);
+    }
     let config_path = root.path().join("config.json");
     std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
     let workspace = root.path().join("workspace");
     let effect = workspace.join(EFFECT_FILE);
-    let server = tokio::spawn(serve(listener, effect.clone(), disconnect));
+    let server = tokio::spawn(serve(listener, effect.clone(), ending));
     let runtime = AgentRuntime::builder(config.clone(), workspace.clone())
         .with_config_path(Some(&config_path))
         .with_approval(Arc::new(ApprovingTransport))
@@ -102,6 +129,26 @@ async fn check(disconnect: bool) {
         .load_projection()
         .unwrap();
     assert_eq!(projection.history, runtime.history().await);
+    if ending == Ending::Idle {
+        let failures = projection
+            .records
+            .iter()
+            .filter_map(|record| match &record.entry {
+                JournalEntry::ModelResponseRecorded(response) => match &response.outcome {
+                    ModelResponseOutcome::Error { failure } => Some(failure),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            failures.len(),
+            1,
+            "idle must produce one typed error before retry"
+        );
+        assert_eq!(failures[0].kind, ModelFailureKind::StreamDisconnected);
+        assert_eq!(failures[0].message, "idle timeout waiting for SSE");
+    }
     let tool_started = projection.records.iter().position(|record| matches!(&record.entry, JournalEntry::ToolCallRecorded(tool) if tool.call.id == CALL_ID && tool.phase == proteus_core::core::ToolCallRecordPhase::Requested)).unwrap();
     let terminal = projection
         .records
@@ -148,10 +195,15 @@ async fn check(disconnect: bool) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn completed_tool_executes_before_terminal_sse() {
-    check(false).await;
+    check(Ending::Complete).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn early_tool_survives_later_disconnect_without_reexecution() {
-    check(true).await;
+    check(Ending::Disconnect).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn early_tool_survives_sse_idle_timeout_without_reexecution() {
+    check(Ending::Idle).await;
 }
