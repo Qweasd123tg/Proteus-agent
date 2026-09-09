@@ -115,6 +115,7 @@ modules/
 clients/
   web/                     chat
   inspector/               config и topology
+  desktop/                 Tauri-окна, process supervisor и упаковка клиентов
 configs/                   packaged profiles
 examples/                  configs, external workers, MCP smoke
 ```
@@ -122,6 +123,12 @@ examples/                  configs, external workers, MCP smoke
 `modules/reference` — source organization, а не runtime trust tier.
 `proteus-reference-worker` линкует эти Rust crates в один executable для
 удобства dogfood. На host boundary он ничем не отличается от Python worker-а.
+
+Desktop-оболочка поставляет согласованную пару `proteus`/worker и статические
+Leptos-клиенты, но не линкует Core. Она владеет только окнами, выбором проекта,
+готовностью и завершением дочернего app-server. HTTP/SSE, session store,
+approvals и process-module authority остаются за существующими границами.
+Запуск и сборка: [desktop.md](../guides/desktop.md).
 
 ## Фактический Путь Одного Turn
 

@@ -40,6 +40,7 @@
 | Agent control/subagents | DTO/mailbox unit | минимум два real process peers | forged address/source, bounded FIFO, cancel handoff и sibling crash isolation |
 | HTTP/session | handler unit | reconnect/cold history | auth/SSE smoke |
 | Inspector/web | Rust unit | `trunk build` | browser smoke при UX change |
+| Desktop launch/package | desktop Rust unit | packaged backend readiness/auth/cold history/shutdown | release portable build + native window smoke; команды в [desktop.md](../guides/desktop.md) |
 | Docs only | link/config inspection | обычно не нужен | `cargo test --workspace` |
 
 Manual dogfood не является обязательным gate или sequencing prerequisite.

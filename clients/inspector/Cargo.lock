@@ -1087,8 +1087,11 @@ dependencies = [
 name = "proteus-client-common"
 version = "0.0.0-dev"
 dependencies = [
+ "js-sys",
  "serde",
+ "serde_json",
  "url",
+ "wasm-bindgen",
 ]
 
 [[package]]

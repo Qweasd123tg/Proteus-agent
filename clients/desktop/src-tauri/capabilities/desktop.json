@@ -1,0 +1,6 @@
+{
+  "identifier": "desktop",
+  "description": "Local Proteus windows",
+  "windows": ["launcher", "main", "inspector"],
+  "permissions": ["core:default"]
+}

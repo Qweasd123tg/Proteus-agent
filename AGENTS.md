@@ -101,6 +101,7 @@ crates/
 clients/
     web/                 - основной Leptos chat-клиент
     inspector/           - отдельный Leptos config/architecture-клиент
+    desktop/             - Tauri-оболочка, supervisor app-server и portable packaging
 modules/
     reference/           - reference/dogfood implementations; не default и не привилегированный pack
         model-pack/          - process model implementations: fake, OpenAI Responses, Anthropic Messages

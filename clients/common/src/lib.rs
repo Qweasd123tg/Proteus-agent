@@ -3,6 +3,8 @@ use std::net::IpAddr;
 use serde::{Deserialize, Serialize};
 use url::{Host, Url};
 
+pub mod desktop;
+
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct SessionCredential {
     pub app_server_origin: String,

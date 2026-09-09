@@ -4,6 +4,7 @@ exclude = [
     "clients/common",
     "clients/web",
     "clients/inspector",
+    "clients/desktop/src-tauri",
     "modules/research/tool-output-artifacts",
 ]
 members = [

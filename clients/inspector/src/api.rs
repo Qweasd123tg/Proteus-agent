@@ -19,7 +19,6 @@ const SESSION_QUERY_KEY: &str = "token";
 const SERVER_STORAGE_KEY: &str = "proteus.appServerOrigin";
 const CHAT_STORAGE_KEY: &str = "proteus.chatOrigin";
 const SESSION_CREDENTIAL_STORAGE_KEY: &str = "proteus.sessionCredential";
-const LEGACY_SESSION_STORAGE_KEY: &str = "proteus.sessionToken";
 
 thread_local! {
     static APP_SERVER_ORIGIN: RefCell<String> = RefCell::new(DEFAULT_APP_SERVER_ORIGIN.to_owned());
@@ -28,6 +27,12 @@ thread_local! {
 }
 
 pub(crate) fn load_session_token() -> Result<SessionToken, String> {
+    if let Some(connection) = proteus_client_common::desktop::connection()? {
+        APP_SERVER_ORIGIN.with(|stored| *stored.borrow_mut() = connection.app_server_origin);
+        let token = SessionToken::new(connection.token);
+        SESSION_TOKEN.with(|stored| *stored.borrow_mut() = token.clone());
+        return Ok(token);
+    }
     load_app_server_origin()?;
     load_chat_origin()?;
     let stored = load_stored_credential()?;
@@ -178,6 +183,9 @@ fn load_chat_origin() -> Result<(), String> {
 /// зеркально `inspector_link_url()` в `clients/web`: hardcoded href терял бы
 /// token при включённом token-режиме и нестандартных портах.
 pub(crate) fn chat_link_url() -> String {
+    if proteus_client_common::desktop::is_desktop() {
+        return "proteus-desktop:chat".to_owned();
+    }
     let origin = CHAT_ORIGIN.with(|stored| stored.borrow().clone());
     let mut params = Vec::new();
     let current_token = current_session_token();
@@ -240,9 +248,6 @@ fn load_stored_credential() -> Result<Option<SessionCredential>, String> {
     let Some(storage) = session_storage()? else {
         return Ok(None);
     };
-    storage
-        .remove_item(LEGACY_SESSION_STORAGE_KEY)
-        .map_err(js_error)?;
     let Some(value) = storage
         .get_item(SESSION_CREDENTIAL_STORAGE_KEY)
         .map_err(js_error)?

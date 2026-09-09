@@ -21,6 +21,8 @@
 - AgentControl для полных local Proteus peers: lifecycle, bounded mailbox,
   messaging, follow-up и адресная отмена.
 - CLI/REPL, HTTP/SSE/stdio app-server, web chat и Inspector.
+- Desktop-оболочка Tauri под Fedora: готовые клиенты и backend в переносимой папке,
+  автоматическое подключение, выбор проекта/профиля и отдельное окно Inspector.
 - OpenAI, OpenAI-compatible, ChatGPT subscription OAuth (`openai_codex`),
   Anthropic и fake implementations в reference
   `model-pack`; Core использует общий `model/v8` process adapter.

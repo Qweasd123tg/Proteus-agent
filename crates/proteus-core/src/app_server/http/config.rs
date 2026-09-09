@@ -8,6 +8,8 @@ pub struct HttpServerConfig {
     pub session_token: String,
     pub require_session_token: bool,
     pub allowed_origins: Vec<String>,
+    /// Emit one JSON readiness record after the listener has bound.
+    pub ready_stdout: bool,
 }
 
 impl Default for HttpServerConfig {
@@ -17,6 +19,7 @@ impl Default for HttpServerConfig {
             session_token: new_session_token(),
             require_session_token: false,
             allowed_origins: default_allowed_origins(),
+            ready_stdout: false,
         }
     }
 }

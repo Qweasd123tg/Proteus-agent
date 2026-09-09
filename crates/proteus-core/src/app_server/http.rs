@@ -82,6 +82,17 @@ pub async fn run_http_app_server(
     let security = HttpSecurity::from_config(&http_config);
     let state = HttpAppState::new(server, shutdown, security);
     let listener = TcpListener::bind(http_config.bind).await?;
+    if http_config.ready_stdout {
+        use std::io::Write;
+        println!(
+            "{}",
+            serde_json::json!({
+                "type": "http_ready",
+                "origin": format!("http://{}", listener.local_addr()?),
+            })
+        );
+        std::io::stdout().flush()?;
+    }
     println!(
         "Proteus app-server HTTP listening on http://{}",
         listener.local_addr()?

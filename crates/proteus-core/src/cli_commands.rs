@@ -213,6 +213,7 @@ pub(crate) fn parse_app_server_http_command(task: &[String]) -> Result<Option<Ht
     let mut args = rest.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--ready-stdout" => config.ready_stdout = true,
             "--host" => {
                 let value = args
                     .next()
@@ -254,7 +255,7 @@ pub(crate) fn parse_app_server_http_command(task: &[String]) -> Result<Option<Ht
 }
 
 fn app_server_http_usage() -> &'static str {
-    "usage: proteus server http [--host <ip>] [--port <port>] [--token <token>] [--allow-origin <origin>]"
+    "usage: proteus server http [--host <ip>] [--port <port>] [--token <token>] [--allow-origin <origin>] [--ready-stdout]"
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

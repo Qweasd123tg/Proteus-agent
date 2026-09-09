@@ -38,6 +38,15 @@ standard pack; итоговый profile всё равно содержит то�
 
 ## Быстрый Запуск
 
+Для обычной работы под Fedora доступно desktop-приложение: готовые chat и
+Inspector, автоматический запуск backend и запоминание последнего проекта.
+Сборка готового приложения из репозитория — `./scripts/desktop.sh build`; разработка интерфейса —
+`./scripts/desktop.sh dev`. Готовый запуск —
+`clients/desktop/build/Proteus/proteus-desktop`: без Trunk и ручного сессионного токена.
+Зависимости и установка: [desktop-приложение](docs/guides/desktop.md).
+
+Ниже — отдельный browser/CLI-сценарий разработки.
+
 Для web-клиентов один раз нужны:
 
 ```bash

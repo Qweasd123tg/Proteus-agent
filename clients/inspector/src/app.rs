@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use proteus_client_common::desktop;
 use web_sys::window;
 
 use crate::{
@@ -11,15 +12,27 @@ use crate::{
 pub(crate) fn App() -> impl IntoView {
     let is_architecture = window()
         .and_then(|window| window.location().pathname().ok())
-        .is_some_and(|path| path == "/architecture");
+        .is_some_and(|path| {
+            path == "/architecture"
+                || (desktop::is_desktop()
+                    && window()
+                        .and_then(|w| w.location().search().ok())
+                        .is_some_and(|q| q == "?view=architecture"))
+        });
     let token_error = load_session_token().err();
     let origin = app_server_origin();
     let endpoint = origin
         .trim_start_matches("http://")
         .trim_start_matches("https://")
         .to_owned();
+    let endpoint = desktop::connection()
+        .ok()
+        .flatten()
+        .map(|c| c.workspace)
+        .unwrap_or(endpoint);
     let access_label = match token_error {
         Some(_) => "Хранилище сессии недоступно",
+        None if desktop::is_desktop() => "Подключено",
         None if has_session_token() => "Токен сессии настроен",
         None => "Локальный сервер",
     };
@@ -28,7 +41,7 @@ pub(crate) fn App() -> impl IntoView {
         <div class="inspector-shell">
             <a class="skip-link" href="#inspector-content">"Перейти к содержимому"</a>
             <aside class="inspector-sidebar">
-                <a class="inspector-brand" href="/configs" aria-label="Proteus — сборка агента">
+                <a class="inspector-brand" href=desktop::inspector_route(false) aria-label="Proteus — сборка агента">
                     <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
                     <span><strong>"proteus"</strong><small>"INSPECTOR"</small></span>
                 </a>
@@ -36,14 +49,14 @@ pub(crate) fn App() -> impl IntoView {
                 <nav class="inspector-nav" aria-label="Разделы Inspector">
                     <a class="inspector-nav-item" class:active=!is_architecture
                         aria-current=if !is_architecture { Some("page") } else { None }
-                        href="/configs">
+                        href=desktop::inspector_route(false)>
                         <NavIcon kind="assembly"/>
                         <span>"Сборка агента"</span>
                         <span class="nav-indicator" aria-hidden="true"></span>
                     </a>
                     <a class="inspector-nav-item" class:active=is_architecture
                         aria-current=if is_architecture { Some("page") } else { None }
-                        href="/architecture">
+                        href=desktop::inspector_route(true)>
                         <NavIcon kind="architecture"/>
                         <span>"Архитектура"</span>
                         <span class="nav-indicator" aria-hidden="true"></span>

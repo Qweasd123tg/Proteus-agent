@@ -1,6 +1,15 @@
 target/
 /clients/web/dist/
 /clients/inspector/dist/
+/clients/desktop/dist/
+/clients/desktop/dist.next/
+/clients/desktop/dist.previous/
+/clients/desktop/build/
+/clients/desktop/scripts/__pycache__/
+/clients/desktop/node_modules/
+/clients/desktop/src-tauri/resources/
+/clients/desktop/src-tauri/target/
+/clients/desktop/src-tauri/gen/
 /.proteus/
 /.playwright-mcp/
 /.agent/

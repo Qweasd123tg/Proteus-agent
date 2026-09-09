@@ -279,6 +279,18 @@ fn app_server_http_command_parses_defaults_and_bind_options() {
         .expect("http command");
     assert_eq!(default_config.bind.to_string(), "127.0.0.1:8787");
     assert!(!default_config.require_session_token);
+    assert!(!default_config.ready_stdout);
+    let supervised = parse_app_server_http_command(&[
+        "server".to_owned(),
+        "http".to_owned(),
+        "--port".to_owned(),
+        "0".to_owned(),
+        "--ready-stdout".to_owned(),
+    ])
+    .expect("parse")
+    .expect("http command");
+    assert_eq!(supervised.bind.port(), 0);
+    assert!(supervised.ready_stdout);
 
     let custom_loopback_config = parse_app_server_http_command(&[
         "server".to_owned(),

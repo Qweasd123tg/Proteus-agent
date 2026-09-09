@@ -1,0 +1,97 @@
+# Desktop-приложение
+
+`clients/desktop` — оболочка Tauri 2 для Fedora x86_64. Она встраивает готовые
+Leptos chat и Inspector, запускает поставляемый `proteus server http` и
+завершает его при выходе. Runtime и implementations модулей остаются во внешних
+процессах; desktop не зависит от `proteus-core` и не выбирает slots за профиль.
+
+## Использование
+
+Запустите `clients/desktop/build/Proteus/proteus-desktop`. Установка не нужна.
+Папку `Proteus` можно целиком перенести в удобное место; `bin/` и `lib/` должны
+оставаться рядом с файлом запуска. При первом запуске выберите папку проекта и именованный
+профиль, например `codex` или `codex-chatgpt`. Можно указать абсолютный путь к
+собственному config-файлу. Последний выбор сохраняется в
+`~/.config/dev.proteus.agent/preferences.json` и открывается автоматически.
+`proteus-desktop /path/to/project` явно задаёт проект при первом запуске процесса.
+Повторный запуск уже работающего приложения фокусирует его окно.
+
+Меню **Proteus → Открыть проект…** меняет проект/профиль и завершает предыдущую
+сессию при подтверждении формы. История остаётся в существующем session store.
+**Inspector** открывается отдельным окном внутри приложения. Закрытие этого
+окна скрывает его, сохраняя выбранный раздел; закрытие чата завершает приложение.
+
+Backend сам выбирает свободный loopback-порт. Оболочка передаёт сессионный
+credential непосредственно в память клиентов до запуска Leptos. Порт, токен,
+Trunk и URL подключения вводить не нужно. HTTP/SSE сохраняют существующую
+авторизацию; это не отключение policy или approval. При ошибке запуска или
+выходе backend появляется окно с диагностикой и повторным выбором проекта.
+
+Приложение использует обычные настройки и credentials Proteus. Именованные
+configs копируются из пакета только при отсутствии, `fragments/` и `prompts/`
+обновляются как managed assets по тому же правилу, что и `install.sh`.
+`PROTEUS_CONFIG_HOME`/`PROTEUS_CONFIG_PATH` применяются при запуске процесса.
+Ключи моделей и OAuth не входят в пакет; имеющаяся авторизация сохраняется.
+Настройка доступа к новому provider пока выполняется существующими средствами,
+описанными в [configuration.md](configuration.md).
+
+## Сборка и разработка
+
+На машине разработчика нужны Rust, target `wasm32-unknown-unknown`, Trunk,
+Node.js/npm, Git и системные библиотеки:
+
+```bash
+sudo dnf install webkit2gtk4.1-devel openssl-devel librsvg2-devel libxdo-devel
+rustup target add wasm32-unknown-unknown
+cargo install trunk --locked
+./scripts/desktop.sh dev
+```
+
+Dev-команда собирает backend и оба клиента, поднимает локальную раздачу на
+`127.0.0.1:1430` и запускает Tauri. Изменения Rust/CSS/HTML клиентов пересобираются
+и перезагружают окна; изменения самой оболочки отслеживает Tauri. После правок
+backend или process workers перезапустите dev-команду, чтобы обновить бинарники.
+Эти процессы нужны только разработчику.
+
+Готовое приложение:
+
+```bash
+./scripts/desktop.sh build
+./clients/desktop/build/Proteus/proteus-desktop
+```
+
+В папку `clients/desktop/build/Proteus` входят оболочка, готовый backend,
+reference worker той же сборки, tracked configs и статические интерфейсы.
+MathJax и Mermaid включены локально.
+На машине пользователя не нужны исходники, Cargo, Trunk или Node.js. Обновление
+приложения — замена этой папки новой сборкой при закрытом приложении;
+запуск ничего не компилирует.
+
+Поставляемый reference worker не получает особых прав. Его каталог добавляется
+в `PATH` дочернего backend, как в CLI installer; любой другой component command
+из пользовательского профиля проходит прежний process contract.
+
+## Проверка
+
+После `npm run prepare:assets` в `clients/desktop`:
+
+```bash
+cargo test --manifest-path clients/desktop/src-tauri/Cargo.toml -- --include-ignored
+```
+
+Packaged-backend test запускает настоящий backend с fake model, проверяет JSON
+readiness, authenticated `/config`, CORS native origin, cold `/history`, отказ
+без credential, SSE reconnect, завершение и повторное открытие проекта. Отдельно проверяются
+ошибка старта и правило обновления config assets. Для UI применяются Rust unit
+tests web/Inspector и `trunk build`. После release-сборки
+`python3 clients/desktop/scripts/native-smoke.py` переносит готовую папку во
+временный каталог и открывает сохранённый fake-проект в Xvfb с отдельным D-Bus.
+`SessionStarted` в event log подтверждает весь путь native launcher → WASM →
+authenticated SSE. Нужны `Xvfb` и `dbus-run-session`; личные настройки и открытый
+Proteus не затрагиваются. Inspector, выбор папки, повторный запуск и закрытие
+окон дополнительно проверяются вручную.
+
+Бинарники собираются под текущую Fedora и её WebKit/GLib. На другой Fedora
+нужны runtime-пакеты `webkit2gtk4.1`, `gtk3`, `libxdo`, `openssl-libs`, `ripgrep`
+и `git`. Перенос на другие системы,
+автообновление и новый дизайн интерфейса не входят в эту реализацию.

@@ -89,6 +89,14 @@ session-семантики product client запускает свежую sessio
 может работать без token для local debug; любой non-loopback bind без непустого
 token отклоняется до запуска runtime и bind.
 
+Для process supervisor предусмотрен `server http --port 0 --ready-stdout`:
+после сборки runtime и фактического bind сервер печатает и flush-ит одну JSON
+строку `{"type":"http_ready","origin":"http://127.0.0.1:<port>"}`. Остальные
+строки stdout остаются диагностикой; credential в readiness не входит.
+Supervisor передаёт `--token` и нужные `--allow-origin` явно, проверяет `/config`
+и завершает сервер через authenticated `POST /shutdown`. Эту границу использует
+[desktop-клиент](desktop.md).
+
 ## REPL Commands
 
 ```text

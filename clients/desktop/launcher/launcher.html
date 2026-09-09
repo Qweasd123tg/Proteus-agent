@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Proteus — открыть проект</title>
+  <link rel="stylesheet" href="/launcher.css">
+  <script src="/launcher.js" defer></script>
+</head>
+<body>
+  <main>
+    <div class="brand"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span> proteus</div>
+    <h1>Откройте проект</h1>
+    <p class="intro">Ваш агент, инструменты и история — в одном приложении.</p>
+    <form id="launch-form">
+      <label for="workspace">Папка проекта</label>
+      <div class="folder-row"><input id="workspace" name="workspace" required spellcheck="false" autocomplete="off"><button type="button" id="choose-folder">Выбрать…</button></div>
+      <label for="config">Профиль агента</label>
+      <input id="config" name="config" list="profiles" required spellcheck="false" autocomplete="off">
+      <datalist id="profiles"></datalist>
+      <p class="hint">Профили и доступ к моделям берутся из ваших настроек Proteus. Последний проект откроется автоматически при следующем запуске.</p>
+      <p id="switch-note" class="hint" hidden>Открытие проекта остановит текущую сессию. История сохранится.</p>
+      <div class="actions"><span id="status" role="status" aria-live="polite">Загрузка настроек…</span><button class="primary" id="start" type="submit" disabled>Открыть проект <span aria-hidden="true">↗</span></button></div>
+    </form>
+    <section id="error-box" role="alert" hidden><strong>Не удалось открыть проект</strong><pre id="error"></pre></section>
+  </main>
+</body>
+</html>
