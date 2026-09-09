@@ -8,6 +8,37 @@ fn workspace_root() -> PathBuf {
 }
 
 #[tokio::test]
+async fn context_search_profile_changes_only_the_context_selection_and_configuration() {
+    let root = workspace_root();
+    let base = AppConfig::load(Some(&root.join("configs/codex-chatgpt.config.toml")))
+        .await
+        .unwrap();
+    let experiment = AppConfig::load(Some(
+        &root.join("configs/context-search-chatgpt.config.toml"),
+    ))
+    .await
+    .unwrap();
+    assert_eq!(experiment.modules.context.as_deref(), Some("repo_aware"));
+    let mut base = serde_json::to_value(base).unwrap();
+    let mut experiment = serde_json::to_value(experiment).unwrap();
+    // Everything outside this slot, including model limits/effort, peers, tools,
+    // workflow and permissions, must remain identical to the working profile.
+    for value in [&mut base, &mut experiment] {
+        value["profile"].as_object_mut().unwrap().remove("name");
+        value["modules"].as_object_mut().unwrap().remove("context");
+        value["module_config"]
+            .as_object_mut()
+            .unwrap()
+            .remove("context");
+        value["components"]["reference-context"]["exports"]
+            .as_object_mut()
+            .unwrap()
+            .remove("context");
+    }
+    assert_eq!(base, experiment);
+}
+
+#[tokio::test]
 async fn subscription_profiles_keep_root_and_every_peer_on_oauth() {
     let root = workspace_root();
     let config = AppConfig::load(Some(&root.join("configs/codex-chatgpt.config.toml")))

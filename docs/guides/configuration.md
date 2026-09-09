@@ -212,6 +212,23 @@ proteus-reference-worker auth openai_codex logout
 модели и лимиты определяются аккаунтом. Фрагмент `fragments/openai-chatgpt.toml` задаёт explicit
 model export, capabilities и консервативный порог контекста 200000 tokens.
 
+Экспериментальный `context-search-chatgpt` включает этот же profile и меняет
+только context selection на `repo_aware`. Запуск:
+
+```bash
+proteus --config context-search-chatgpt
+```
+
+Он подгружает project instructions, skills, environment и до 8 результатов
+поиска по словам текущей задачи через выбранный `search` slot. Общий бюджет
+контекста — 60000 bytes; model limits, capabilities, effort, workflow, tools
+и конфигурация peers наследуются без изменения. Это отдельная сборка для
+экспериментов, а не заявление о Codex parity: `repo_aware` также добавляет task
+chunk и иначе оформляет project instructions. Поиск может добавить шум и
+увеличить первый запрос. Он не видит историю прочитанных файлов и не удаляет
+из контекста уже известные модели фрагменты. Выбор обычного `codex-chatgpt`
+возвращает исходную сборку.
+
 `openai_codex` сам запрашивает `GET /backend-api/codex/models` с ChatGPT OAuth.
 Web показывает все возвращённые модели, включая entries с отметкой «скрытая»,
 и только их `supported_reasoning_levels`, включая новые строковые значения.
@@ -788,3 +805,8 @@ PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config configs/con
 поднять model/tool components и выполнить bootstrap `describe`/`list` и handshake.
 Остальные selections он проверяет декларативно; полный strict handshake всех
 активных exports проверяют conformance gate и реальная сборка runtime snapshot.
+
+Сессии `doctor` проверяет только для выбранного `--cwd` (или текущего каталога).
+Для полного аудита используйте `proteus --config codex doctor --all-sessions`.
+Scope указывается в выводе; проверка остаётся строгой и не обновляет старые
+session formats автоматически.

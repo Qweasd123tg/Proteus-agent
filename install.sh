@@ -392,6 +392,7 @@ install_config() {
 
 install_config "codex.config.toml" "configs/codex.config.toml"
 install_config "codex-chatgpt.config.toml" "configs/codex-chatgpt.config.toml"
+install_config "context-search-chatgpt.config.toml" "configs/context-search-chatgpt.config.toml"
 install_config "codex-chatgpt-explore.config.toml" "configs/codex-chatgpt-explore.config.toml"
 install_config "codex-chatgpt-coder.config.toml" "configs/codex-chatgpt-coder.config.toml"
 install_config "codex-explore.config.toml" "configs/codex-explore.config.toml"

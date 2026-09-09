@@ -46,6 +46,18 @@ Manual dogfood не является обязательным gate или sequen
 Protocol или architecture change без automated boundary evidence всё равно
 неполон.
 
+`cli_dispatch` запускает CLI с неверными командами и сломанным config:
+ошибка команды должна предшествовать config loading и любому model request.
+Doctor regression отдельно проверяет workspace scope и explicit full audit,
+сохраняя строгий отказ на старой session schema без изменения её файлов.
+
+`config_profiles` проверяет, что экспериментальный `context-search-chatgpt`
+меняет только context boundary. `context_profile_swap` проводит оба профиля
+через real workflow/context/search components с локальным Responses fixture: найденный код
+появляется в canonical model request только у поисковой сборки, journal
+читается после остановки runtime, а workflow replay совпадает после изменения
+исходного файла. Качество живого агента этот тест не измеряет.
+
 ### Проверка Совместимости Сборки
 
 Каждая compatible reconstruction начинается с pinned target revision и

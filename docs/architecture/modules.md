@@ -221,6 +221,12 @@ Context builder получает callbacks `host.search.query`,
 `ordered_many` contract без дополнительных прав. Reference `skills`
 возвращает docs-on-disk skill context.
 
+Profile `context-search-chatgpt` демонстрирует замену `codex_context` на
+существующий `repo_aware` через тот же `context/v2`: предварительный поиск
+выполняется callback-ом к выбранному search module. Workflow и Core не знают
+об имени экспериментального profile. Настройки и отличия — в
+[configuration.md](../guides/configuration.md).
+
 ### Policy
 
 Выполняет `evaluate` и `evaluate_visibility`. Permission mode оборачивает
