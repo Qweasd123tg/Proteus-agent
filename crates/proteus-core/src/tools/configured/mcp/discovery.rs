@@ -50,6 +50,10 @@ pub(super) fn mcp_tools_from_list_result(
                 input_schema,
                 effective_mcp_safety(server.safety.clone()),
             )
+            .with_parallel_tool_calls(
+                server.supports_parallel_tool_calls
+                    || item["annotations"]["readOnlyHint"].as_bool() == Some(true),
+            )
             .with_metadata(metadata);
             let spec = if let Some(timeout_ms) = server.timeout_ms {
                 spec.with_timeout(timeout_ms)
@@ -106,4 +110,42 @@ fn default_tool_input_schema_value() -> Value {
         "properties": {},
         "additionalProperties": true
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parallel_permission_comes_from_config_or_annotation_without_lowering_safety() {
+        let mut server: ConfiguredMcpServerConfig = serde_json::from_value(json!({
+            "name": "probe", "command": "unused", "safety": "ReadOnly"
+        }))
+        .unwrap();
+        let result = json!({"tools": [
+            {"name": "read", "annotations": {"readOnlyHint": true}},
+            {"name": "other", "annotations": {"readOnlyHint": false}},
+            {"name": "unannotated"}
+        ]});
+        let tools = mcp_tools_from_list_result(&server, &result).unwrap();
+        assert_eq!(
+            tools
+                .iter()
+                .map(|tool| tool.spec.supports_parallel_tool_calls)
+                .collect::<Vec<_>>(),
+            [true, false, false]
+        );
+        assert!(
+            tools
+                .iter()
+                .all(|tool| tool.spec.safety == ToolSafety::RunsCommands)
+        );
+        server.supports_parallel_tool_calls = true;
+        assert!(
+            mcp_tools_from_list_result(&server, &result)
+                .unwrap()
+                .iter()
+                .all(|tool| tool.spec.supports_parallel_tool_calls)
+        );
+    }
 }

@@ -29,7 +29,7 @@ def initialize(params):
         export.get("contract_version"),
         export.get("composition"),
     )
-    if identity != (SLOT, MODULE_ID, "v1", "select_one"):
+    if identity != (SLOT, MODULE_ID, "v2", "select_one"):
         raise ProtocolError("unexpected policy fixture export")
     return {
         "protocol_version": PROTOCOL_VERSION,
@@ -38,7 +38,7 @@ def initialize(params):
             {
                 "slot": SLOT,
                 "module_id": MODULE_ID,
-                "contract_version": "v1",
+                "contract_version": "v2",
                 "composition": "select_one",
                 "module_features": [],
             }

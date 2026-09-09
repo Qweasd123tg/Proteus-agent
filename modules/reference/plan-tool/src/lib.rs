@@ -50,6 +50,7 @@ impl ToolModule for PlanTool {
             },
             "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "ReadOnly",
+            "supports_parallel_tool_calls": false,
             "timeout_ms": null,
             "metadata": {
                 "category": "planning",

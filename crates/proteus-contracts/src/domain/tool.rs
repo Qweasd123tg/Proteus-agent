@@ -202,6 +202,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn tool_spec_requires_explicit_parallel_permission_on_the_wire() {
+        let spec = ToolSpec::new("probe", "probe", json!({}), ToolSafety::ReadOnly);
+        let mut value = serde_json::to_value(&spec).unwrap();
+        assert_eq!(value["supports_parallel_tool_calls"], false);
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("supports_parallel_tool_calls");
+        assert!(
+            serde_json::from_value::<ToolSpec>(value.clone())
+                .unwrap_err()
+                .to_string()
+                .contains("supports_parallel_tool_calls")
+        );
+        value["supports_parallel_tool_calls"] = json!("true");
+        assert!(serde_json::from_value::<ToolSpec>(value).is_err());
+        let command = spec.with_parallel_tool_calls(true);
+        assert_eq!(
+            serde_json::from_value::<ToolSpec>(serde_json::to_value(&command).unwrap()).unwrap(),
+            command
+        );
+    }
+
+    #[test]
     fn successful_empty_tool_result_has_status_text() {
         let result = ToolResult::ok("call-1".to_owned(), "");
 
@@ -264,6 +288,9 @@ pub struct ToolSpec {
     pub input_schema: serde_json::Value,
     pub surface: ToolSurface,
     pub safety: ToolSafety,
+    /// Execution scheduling permission, independent of policy/safety. False
+    /// requires exclusive execution within a workflow tool-call sequence.
+    pub supports_parallel_tool_calls: bool,
     pub timeout_ms: Option<u64>,
     pub metadata: serde_json::Value,
 }
@@ -281,6 +308,7 @@ impl ToolSpec {
             input_schema,
             surface: ToolSurface::default(),
             safety,
+            supports_parallel_tool_calls: false,
             timeout_ms: None,
             metadata: serde_json::Value::Null,
         }
@@ -288,6 +316,11 @@ impl ToolSpec {
 
     pub fn with_timeout(mut self, timeout_ms: u64) -> Self {
         self.timeout_ms = Some(timeout_ms);
+        self
+    }
+
+    pub fn with_parallel_tool_calls(mut self, supports: bool) -> Self {
+        self.supports_parallel_tool_calls = supports;
         self
     }
 

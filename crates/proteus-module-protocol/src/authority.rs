@@ -272,14 +272,17 @@ mod tests {
     }
 
     #[test]
-    fn context_rendering_requires_current_contract_on_every_typed_boundary() {
+    fn typed_boundaries_require_current_contract_versions() {
         for (slot, previous, current) in [
             ("search", "v1", "v2"),
             ("context", "v1", "v2"),
             ("context_provider", "v1", "v2"),
-            ("model", "v5", "v6"),
-            ("compactor", "v7", "v8"),
-            ("workflow", "v11", "v12"),
+            ("model", "v6", "v7"),
+            ("compactor", "v8", "v9"),
+            ("workflow", "v12", "v13"),
+            ("tool", "v2", "v3"),
+            ("policy", "v1", "v2"),
+            ("tool_exposure", "v1", "v2"),
         ] {
             assert!(process_contract_authority(slot, previous).is_none());
             assert!(process_contract_authority(slot, current).is_some());

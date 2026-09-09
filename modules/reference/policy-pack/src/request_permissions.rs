@@ -43,6 +43,7 @@ impl ToolModule for RequestPermissionsTool {
             },
             "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "RunsCommands",
+            "supports_parallel_tool_calls": false,
             "timeout_ms": 5000,
             "metadata": {
                 "category": "policy",

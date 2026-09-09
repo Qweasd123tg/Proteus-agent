@@ -67,7 +67,7 @@ cargo test --workspace --no-fail-fast
 
 Breaking canonical response change одновременно обновляет все tracked
 producers/consumers и версии затронутых contracts/storage. Действующие версии:
-`workflow/v12`, `compactor/v8`, durable journal schema v12. Изменение process DTO
+`workflow/v13`, `compactor/v9`, durable journal schema v13 и config snapshot v4. Изменение process DTO
 само по себе не требует новой journal schema, если сохранённая форма не меняется.
 Старые формы не получают compatibility readers.
 
@@ -85,9 +85,11 @@ call/result, cold history и matched replay без нового эффекта.
 таймера: целые SSE events, включая игнорируемые, сбрасывают его; comments и
 частичные байты — нет; время между polls не считается ожиданием провайдера.
 `stream_recovery::parallel_execution` использует независимый Python tool
-component с управляемыми barriers: два чтения перекрываются до terminal SSE,
-результаты завершаются в обратном порядке, exclusive call и следующее чтение
-ждут своей очереди. Проверяются approval allow/deny, drain перед retry после
+component с управляемыми barriers: два `RunsCommands` tools с явным parallel
+разрешением перекрываются до terminal SSE, результаты завершаются в обратном
+порядке. Write и отдельный `ReadOnly` с запретом параллельности удерживают
+последующие вызовы. Тот же сценарий без промежуточных items проверяет host
+batch. Проверяются approval allow/deny, drain перед retry после
 обрыва, порядок следующего request, cold history и matched replay без эффекта.
 Cancel при активном и ожидающих calls сохраняет завершённый result, отменяет
 активный component invocation и не создаёт requested facts для очереди.
@@ -382,13 +384,13 @@ cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --co
 Compactor:
 
 ```bash
-cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-compactor --export '{"slot":"compactor","module_id":"python_suffix","contract_version":"v8","module_config":{"trigger_messages":12,"retain_user_turns":2}}' -- python3 examples/modules/compactor-process/compact.py
+cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-compactor --export '{"slot":"compactor","module_id":"python_suffix","contract_version":"v9","module_config":{"trigger_messages":12,"retain_user_turns":2}}' -- python3 examples/modules/compactor-process/compact.py
 ```
 
 Workflow handshake:
 
 ```bash
-cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-agent --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v12","module_config":{}}' -- python3 examples/modules/agent-worker/agent.py
+cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-agent --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v13","module_config":{}}' -- python3 examples/modules/agent-worker/agent.py
 ```
 
 Conformance CLI без probe доказывает identity/authority, но не поведение slot.
@@ -442,7 +444,7 @@ origin-specific privilege.
 - bounded output;
 - duplicate name.
 
-Process tool дополнительно проходит `tool/v2 list + invoke`, включая detached
+Process tool дополнительно проходит `tool/v3 list + invoke`, включая detached
 `ExecutionAttribution` без chat IDs, но его runtime вызов всё равно должен
 дойти через общий `BoundTools -> ToolRegistry -> policy` path.
 
@@ -517,7 +519,7 @@ cargo test -p proteus-core --lib core::workflow_replay
 model, ровно один tool-free model call после test failure и нулевые model calls
 для unsupported/policy failures. Второй проходит настоящий
 `AgentRuntime -> component-v3 workflow -> ToolRegistry/policy -> external
-tool/v2` path, проверяет journal/cold history, `eval report` с нулём model
+tool/v3` path, проверяет journal/cold history, `eval report` с нулём model
 calls, одобренный shell lifecycle и matched replay для passing tests и
 остановки на tool failure. Для replay из каталога удаляются исходные model и
 tools; history/output совпадают, source journal не меняется.

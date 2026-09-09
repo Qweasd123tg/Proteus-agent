@@ -1,12 +1,13 @@
 # Canonical Turn Data
 
-Текущий формат — journal schema v12 и session metadata v4. Resume history,
+Текущий формат — journal schema v13, config snapshot v4 и session metadata v4. Resume history,
 transcript, eval, prompt replay и workflow replay читают canonical journal.
 
-Schema v4 сохраняет обязательный `ContextChunk.render_mode` внутри canonical
-context parts: `source_annotated` или `verbatim`. При replay поле переносится
-без переинтерпретации metadata. Journal schema v3 не читается; миграции или
-автоматического выбора режима для старых записей нет.
+Canonical context parts сохраняют обязательный `ContextChunk.render_mode`:
+`source_annotated` или `verbatim`. Model requests сохраняют обязательный
+`ToolSpec.supports_parallel_tool_calls` независимо от `safety`. При replay
+эти поля переносятся без переинтерпретации metadata. Reader принимает только
+текущую journal schema; миграций и автоматического выбора старой формы нет.
 
 ## Решение
 
@@ -74,7 +75,7 @@ provider-side execution и сохраняются в journal/transcript/eval pro
 `CanonicalPart` явно закрепляет их provenance/scope; угадывать hosted execution
 по provider metadata или тексту ответа нельзя.
 
-## Journal v12
+## Journal v13
 
 Одна JSONL-строка — один строгий record с общим envelope:
 

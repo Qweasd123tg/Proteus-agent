@@ -17,7 +17,7 @@ MODULE_ID = "project-check-fixture-tools"
 EXPORT = {
     "slot": "tool",
     "module_id": MODULE_ID,
-    "contract_version": "v2",
+    "contract_version": "v3",
     "composition": "ordered_many",
     "module_features": [],
 }
@@ -37,7 +37,7 @@ def initialize(params):
         )
         for export in exports
     }
-    expected_exports = {("tool", MODULE_ID, "v2", "ordered_many")}
+    expected_exports = {("tool", MODULE_ID, "v3", "ordered_many")}
     if actual != expected_exports:
         raise ProtocolError(f"unexpected project-check exports: {exports!r}")
     return {
@@ -58,6 +58,7 @@ def tool_spec(name, description, safety, properties=None, required=None):
         },
         "surface": {"kind": "function", "strict": False, "output_schema": None},
         "safety": safety,
+        "supports_parallel_tool_calls": False,
         "timeout_ms": 3000,
         "metadata": {"fixture": True},
     }

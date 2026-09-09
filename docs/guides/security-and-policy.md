@@ -162,6 +162,27 @@ plan flow UI может просить модель вернуть staged read-o
 эти ответы являются обычным следующим user turn и не дают обхода
 `ModeAwarePolicy`.
 
+## Параллельное Исполнение Tools
+
+`ToolSpec.supports_parallel_tool_calls` — отдельное разрешение scheduling.
+При `true` соседние вызовы могут перекрываться; при `false` вызов ждёт
+предыдущие и удерживает следующие до завершения. `ToolSafety` продолжает
+определять policy/approval: командный tool может поддерживать параллельность,
+а `ReadOnly` — требовать последовательного запуска.
+
+Общий host batch и streamed calls `coding.codex_loop` используют этот признак.
+`ToolExposure` сохраняет зарегистрированное значение, включая запрет; менять
+его при отборе нельзя. Provider-hosted tools исполняются провайдером и не
+участвуют в локальном gate. Root-owned `task` сохраняет отдельную семантику
+группы: совместный запуск детей требует подходящих `AgentProfile` с
+`parallel_safe` и `isolation = none`; общий признак не заменяет эту проверку.
+
+Reference `exec_command` / `write_stdin`, file read/search/list, git reads и
+`skill` явно разрешают параллельность. `shell`, file write/edit,
+`update_plan`, `request_permissions` и `lsp_diagnostics` — последовательные.
+Core facade `search` и workflow-owned search/describe также разрешают её;
+остальные facades используют исходное `false`.
+
 ## Встроенные Tools
 
 | Tool | Safety | Поведение |

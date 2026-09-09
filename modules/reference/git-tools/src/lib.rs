@@ -43,6 +43,7 @@ impl ToolModule for GitStatusTool {
             },
             "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "ReadOnly",
+            "supports_parallel_tool_calls": true,
             "timeout_ms": TIMEOUT_MS,
             "metadata": {
                 "hot": true,
@@ -102,6 +103,7 @@ impl ToolModule for GitDiffTool {
             },
             "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "ReadOnly",
+            "supports_parallel_tool_calls": true,
             "timeout_ms": TIMEOUT_MS,
             "metadata": {
                 "hot": true,

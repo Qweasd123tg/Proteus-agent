@@ -204,6 +204,7 @@ fn configured_tool_spec(configured: &ConfiguredToolConfig) -> ToolSpec {
         configured.input_schema.clone(),
         effective_configured_tool_safety(configured),
     )
+    .with_parallel_tool_calls(configured.supports_parallel_tool_calls)
     .with_surface(configured.surface.clone())
     .with_metadata(configured.metadata.clone());
     if let Some(timeout_ms) = configured.timeout_ms {
@@ -284,6 +285,20 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn configured_parallel_permission_is_independent_of_safety() {
+        let mut config: ConfiguredToolConfig = serde_json::from_value(json!({
+            "name": "probe", "description": "probe", "safety": "RunsCommands",
+            "executor": {"kind": "process", "command": "unused"}
+        }))
+        .unwrap();
+        assert!(!configured_tool_spec(&config).supports_parallel_tool_calls);
+        config.supports_parallel_tool_calls = true;
+        let spec = configured_tool_spec(&config);
+        assert!(spec.supports_parallel_tool_calls);
+        assert_eq!(spec.safety, ToolSafety::RunsCommands);
+    }
 
     #[tokio::test]
     async fn configured_process_output_is_bounded_before_returning_result() {

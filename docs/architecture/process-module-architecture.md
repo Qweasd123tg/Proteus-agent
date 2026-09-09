@@ -258,20 +258,29 @@ invalid DTO и превышение limits являются fail-closed protocol
 | search | v2 | `search` | — |
 | memory | v2 | `remember`, `recall` | — |
 | patch | v1 | `apply` | — |
-| tool exposure | v1 | `select` | — |
-| policy | v1 | `evaluate`, `evaluate_visibility` | — |
+| tool exposure | v2 | `select` | — |
+| policy | v2 | `evaluate`, `evaluate_visibility` | — |
 | context provider | v2 | `provide` | — |
-| tool | v2 | `list`, `invoke` | — |
+| tool | v3 | `list`, `invoke` | — |
 | context | v2 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
-| model | v6 | `describe`, `stream` | `host.model.emit` (acknowledged canonical events) |
-| compactor | v8 | `compact` | `host.model.complete` |
-| workflow | v12 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
+| model | v7 | `describe`, `stream` | `host.model.emit` (acknowledged canonical events) |
+| compactor | v9 | `compact` | `host.model.complete` |
+| workflow | v13 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
 
 Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
 DTO, adapter, protocol/conformance и swap evidence в одном commit.
 
-`workflow/v12` возвращает strict terminal envelope: `status = "success"` с
+`ToolSpec` содержит обязательный boolean `supports_parallel_tool_calls`,
+независимый от `safety`. Он проходит через tool list, policy, tool exposure,
+canonical model request, workflow/compactor, journal schema v13 и config
+snapshot v4. Rust
+constructor задаёт `false`, worker JSON обязан передать поле явно. Selector
+сохраняет зарегистрированное значение; несовпадение отклоняется. Старые
+версии этих contracts и ToolSpec без поля не принимаются. Wire остаётся v3;
+параллельность вызовов не меняет composition slot-а и его host authority.
+
+`workflow/v13` возвращает strict terminal envelope: `status = "success"` с
 `result: WorkflowOutput` либо `status = "error"` с `failure: WorkflowFailure`.
 Ошибка алгоритма может содержать `history: WorkflowHistoryUpdate` — завершённые
 `new_messages`, optional `history_replacement` и `compactions`; `model_failure`
@@ -318,7 +327,7 @@ tools. Запрос без результата остаётся неизвес�
 
 ## Model Stream В Workflow
 
-`workflow/v12` предоставляет всем exports два callbacks:
+`workflow/v13` предоставляет всем exports два callbacks:
 
 - `host.model.stream.start(WorkflowCompleteModelRequest) -> { stream_id }`;
 - `host.model.stream.next({ stream_id }) -> WorkflowModelStreamItem` с
@@ -341,9 +350,10 @@ backpressure при медленном workflow. `next` — delivery без но
 
 `coding.codex_loop` подтверждает каждый completed item и запускает его calls,
 не ожидая terminal и не блокируя чтение следующих items на исполнении tool.
-Batch с эффективными `ToolSafety::ReadOnly` calls допускается к общему shared
-gate; остальные получают exclusive gate в порядке поступления. Ожидающий
-exclusive batch не пропускает последующие чтения. Обычная batch semantics
+Batch, у которого все эффективные tools имеют
+`supports_parallel_tool_calls = true`, допускается к общему shared gate;
+остальные получают exclusive gate в порядке поступления. Ожидающий
+exclusive batch не пропускает последующие calls. Обычная batch semantics
 внутри item сохраняется. Реализация принадлежит workflow-модулю и использует
 конкурентные callbacks существующего контракта; новых host прав нет.
 Результаты drain собираются в порядке calls, в том числе после ошибки stream.
@@ -471,7 +481,7 @@ ToolRegistry
   -> invoke
 ```
 
-Component не задаёт execution/chat ownership. В `tool/v2` host передаёт
+Component не задаёт execution/chat ownership. В `tool/v3` host передаёт
 `ExecutionAttribution` из активного execution binding: `ExecutionId` обязателен,
 а `SessionId`/`ThreadId`/`TurnId` существуют только как optional agent
 projection. Detached execution проходит wire без fake chat identities.
@@ -522,7 +532,7 @@ handshake всего набора, даже если probe направлен т
 
 ## Model Streaming
 
-`model/v6` использует canonical DTO из `proteus-contracts::contracts::process_model`:
+`model/v7` использует canonical DTO из `proteus-contracts::contracts::process_model`:
 
 Descriptor, capabilities, stream events и terminal DTO отклоняют неизвестные поля.
 
@@ -573,11 +583,11 @@ event; это причина, а не команда Core повторить з�
 без завершения, сохраняя остальные
 ошибки данных и deadline отдельными. Codex workflow принимает решение о повторе
 с подтверждённой историей; compactor сохраняет свою политику повторов.
-Действуют `model/v6`, `workflow/v12`, `compactor/v8` и journal schema v12,
+Действуют `model/v7`, `workflow/v13`, `compactor/v9` и journal schema v13,
 без readers старых форм.
 Передача `ToolCall` в существующем `CanonicalMessage` не меняет wire/storage DTO.
 
-Journal schema v12 записывает `ModelMessageRecorded { exchange_id, message }`
+Journal schema v13 записывает `ModelMessageRecorded { exchange_id, message }`
 до доставки completed item и сохраняет полный `ModelFailure`; workflow replay
 воспроизводит последовательность completed items и возвращает тот же
 `kind`, текст и `completed_messages`. Ветвление workflow по типу ошибки прямого

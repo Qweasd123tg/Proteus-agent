@@ -28,6 +28,7 @@ impl ToolModule for ListDirTool {
             },
             "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "ReadOnly",
+            "supports_parallel_tool_calls": true,
             "timeout_ms": 60000,
             "metadata": {
                 "hot": true,

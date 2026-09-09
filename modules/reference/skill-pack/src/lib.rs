@@ -71,6 +71,7 @@ impl ToolModule for SkillTool {
                 },
                 "surface": { "kind": "function", "strict": false, "output_schema": null },
                 "safety": "ReadOnly",
+                "supports_parallel_tool_calls": true,
                 "timeout_ms": 10_000,
                 "metadata": {
                     "hot": true,

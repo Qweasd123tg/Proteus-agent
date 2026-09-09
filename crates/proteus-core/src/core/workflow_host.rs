@@ -222,22 +222,20 @@ impl WorkflowHostRuntime {
 }
 
 /// Executes a batch through the same registry/policy/safety path as in-process
-/// workflows. Consecutive read-only calls may run concurrently; mutations keep
-/// model order.
+/// workflows. Consecutive explicitly parallel calls may overlap; other calls
+/// fence the sequence. The root-owned task group has its own role eligibility.
 async fn execute_tool_batch(
     orchestrator: &ToolOrchestrator,
     ctx: &AgentWorkflowContext,
     task: &AgentTask,
     calls: Vec<ToolCall>,
 ) -> Result<Vec<ToolResult>> {
-    use crate::domain::ToolSafety;
-
     let specs = orchestrator.visible_tool_specs(ctx, &task.cwd);
-    let read_only = |call: &ToolCall| {
+    let parallel = |call: &ToolCall| {
         specs
             .iter()
             .find(|spec| spec.name == call.name)
-            .is_some_and(|spec| matches!(spec.safety, ToolSafety::ReadOnly))
+            .is_some_and(|spec| spec.supports_parallel_tool_calls)
     };
 
     let mut results = Vec::with_capacity(calls.len());
@@ -271,9 +269,9 @@ async fn execute_tool_batch(
             }
             continue;
         }
-        if read_only(&call) {
+        if parallel(&call) {
             let mut group = vec![call];
-            while queue.peek().is_some_and(&read_only) {
+            while queue.peek().is_some_and(&parallel) {
                 group.push(queue.next().expect("peeked call"));
             }
             let outputs = futures_util::future::join_all(

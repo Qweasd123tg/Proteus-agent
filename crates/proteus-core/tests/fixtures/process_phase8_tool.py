@@ -18,14 +18,14 @@ POLICY_MODULE_ID = "phase8-allow-all"
 TOOL_EXPORT = {
     "slot": "tool",
     "module_id": TOOL_MODULE_ID,
-    "contract_version": "v2",
+    "contract_version": "v3",
     "composition": "ordered_many",
     "module_features": [],
 }
 POLICY_EXPORT = {
     "slot": "policy",
     "module_id": POLICY_MODULE_ID,
-    "contract_version": "v1",
+    "contract_version": "v2",
     "composition": "select_one",
     "module_features": [],
 }
@@ -34,8 +34,8 @@ POLICY_EXPORT = {
 def initialize(params):
     exports = params.get("exports")
     expected = {
-        ("tool", TOOL_MODULE_ID, "v2", "ordered_many"),
-        ("policy", POLICY_MODULE_ID, "v1", "select_one"),
+        ("tool", TOOL_MODULE_ID, "v3", "ordered_many"),
+        ("policy", POLICY_MODULE_ID, "v2", "select_one"),
     }
     actual = {
         (
@@ -76,6 +76,7 @@ def tool_spec():
         },
         "surface": {"kind": "function", "strict": False, "output_schema": None},
         "safety": "ReadOnly",
+        "supports_parallel_tool_calls": True,
         "timeout_ms": 750,
         "metadata": {"fixture": True},
     }

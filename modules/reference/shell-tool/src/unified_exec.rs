@@ -91,6 +91,7 @@ impl ToolModule for ExecCommandTool {
             },
             "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "RunsCommands",
+            "supports_parallel_tool_calls": true,
             "timeout_ms": SPEC_TIMEOUT_MS,
             "metadata": {
                 "category": "terminal",
@@ -145,6 +146,7 @@ impl ToolModule for WriteStdinTool {
             },
             "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "RunsCommands",
+            "supports_parallel_tool_calls": true,
             "timeout_ms": SPEC_TIMEOUT_MS,
             "metadata": {
                 "category": "terminal",

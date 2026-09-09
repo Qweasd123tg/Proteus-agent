@@ -203,7 +203,7 @@ history сохраняют раздельные commentary/final items. Клие
 Если runtime запущен с config path, рядом с config root создаётся дерево
 `sessions/<workspace>/<session>/` (подробно про layout, resume и lifecycle —
 раздел «Session Store» ниже). Source of truth — `journal.jsonl`, где одна
-строка является строгим record schema v12 с `record_id`, монотонным
+строка является строгим record schema v13 с `record_id`, монотонным
 `session_seq`, timestamp, mandatory session id, optional execution/thread/turn
 ids, `kind` и payload. `TurnOpened`, model и tool facts требуют
 `ExecutionId`; history/settlement остаются chat facts без execution owner.
@@ -250,8 +250,8 @@ capture primitive и удерживают selected capability до terminal resu
 рядом с созданным из него `RuntimeRegistry`. Начальная сборка и reload передают
 их только единым `PreparedAssembly`, поэтому diagnostics не могут увидеть
 новый план со старым registry. Сам план не дублируется в canonical journal:
-replay использует компактный `SessionConfigSnapshot` с точными module ids и
-зарегистрированными tools.
+replay использует компактный `SessionConfigSnapshot` schema v4 с точными module
+ids и зарегистрированными tools, включая их `supports_parallel_tool_calls`.
 
 `RuntimeSnapshot` — snapshot assembly/configuration, а не checkpoint
 вычисления. Он не содержит program counter, stack или suspended Workflow
@@ -630,12 +630,12 @@ journal. ОС освобождает владение при закрытии pr
 находится в parent directory, а время создания/изменения берётся из metadata
 файловой системы. Новая session получает 10-значный numeric basename,
 детерминированный из внутреннего UUID; полный `SessionId` сохраняется в
-`session.json` schema v4 вместе с `journal_schema_version = 12`. Перед записью runtime
+`session.json` schema v4 вместе с `journal_schema_version = 13`. Перед записью runtime
 проверяет metadata, поэтому коллизия коротких имён завершается ошибкой и не
 смешивает histories.
 
 Reader принимает только basename из 10 ASCII-цифр с обязательным
-`session.json` schema v4 и journal schema v12. UUID-basename directories,
+`session.json` schema v4 и journal schema v13. UUID-basename directories,
 прежние session/journal schemas и неизвестные wire/storage формы
 отвергаются явно: pre-release cutover не содержит legacy decoder или dual-read.
 Старые локальные dogfood sessions следует вручную переместить целиком за
@@ -688,7 +688,7 @@ compactions должна завершаться сохранённым conversat
 resume используют сокращённое представление. Runtime атомарно заменяет историю
 этим snapshot-ом и затем дописывает `new_messages`.
 
-`workflow/v12` также позволяет вернуть `WorkflowFailure` с накопленным history
+`workflow/v13` также позволяет вернуть `WorkflowFailure` с накопленным history
 update. Core проверяет и сохраняет его до settlement со статусом `Error`.
 `coding.codex_loop` использует этот путь: если tool завершился, а следующий
 model call упал, новый turn получает прежний call/result и после перезапуска

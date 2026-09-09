@@ -455,6 +455,8 @@ pub struct ConfiguredToolConfig {
     pub surface: crate::domain::ToolSurface,
     pub safety: crate::domain::ToolSafety,
     #[serde(default)]
+    pub supports_parallel_tool_calls: bool,
+    #[serde(default)]
     pub timeout_ms: Option<u64>,
     #[serde(default)]
     pub metadata: serde_json::Value,
@@ -515,6 +517,9 @@ pub struct ConfiguredMcpServerConfig {
     pub protocol_version: String,
     #[serde(default = "default_mcp_discovered_tool_safety")]
     pub safety: crate::domain::ToolSafety,
+    /// Explicit server permission; readOnlyHint can also opt an individual tool in.
+    #[serde(default)]
+    pub supports_parallel_tool_calls: bool,
     #[serde(default)]
     pub timeout_ms: Option<u64>,
     /// Максимальный размер одной JSON-строки ответа сервера в байтах.

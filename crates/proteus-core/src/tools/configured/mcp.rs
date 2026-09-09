@@ -275,6 +275,7 @@ mod tests {
             environment: ProcessEnvironmentConfig::default(),
             protocol_version: "2024-11-05".to_owned(),
             safety: ToolSafety::ReadOnly,
+            supports_parallel_tool_calls: false,
             timeout_ms: Some(100),
             metadata: Value::Null,
         };

@@ -278,6 +278,19 @@ fn aggregate_tool_module_lists_and_invokes_real_tools() {
     let session = connect(workspace.path(), "tool", "reference.tools", json!({}));
 
     let listed: ProcessToolListResponse = invoke(&session, PROCESS_TOOL_LIST_METHOD, Value::Null);
+    for (name, parallel) in [
+        ("read_file", true),
+        ("git_status", true),
+        ("exec_command", true),
+        ("write_stdin", true),
+        ("shell", false),
+        ("update_plan", false),
+        ("write_file", false),
+        ("request_permissions", false),
+    ] {
+        let spec = listed.result.iter().find(|spec| spec.name == name).unwrap();
+        assert_eq!(spec.supports_parallel_tool_calls, parallel, "{name}");
+    }
     let names = listed
         .result
         .iter()
@@ -826,11 +839,11 @@ fn workflow_input(workspace: &Path) -> Value {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn targeted_cancel_keeps_concurrent_sibling_and_generation_alive() {
     let workspace = tempfile::tempdir().expect("workspace");
-    let workflow = ProcessExportBinding::new("workflow", "coding.single_loop", "v12", json!({}))
+    let workflow = ProcessExportBinding::new("workflow", "coding.single_loop", "v13", json!({}))
         .expect("workflow binding");
     let workflow_target = workflow.export_ref();
     let policy =
-        ProcessExportBinding::new("policy", "allow_all", "v1", json!({})).expect("policy binding");
+        ProcessExportBinding::new("policy", "allow_all", "v2", json!({})).expect("policy binding");
     let policy_target = policy.export_ref();
     let broker = ComponentBroker::connect(
         worker_spec(workspace.path()),

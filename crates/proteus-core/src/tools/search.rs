@@ -47,6 +47,7 @@ impl Tool for SearchTool {
             }),
             ToolSafety::ReadOnly,
         )
+        .with_parallel_tool_calls(true)
         .with_timeout(60_000)
         .with_metadata(json!({
             "hot": true,

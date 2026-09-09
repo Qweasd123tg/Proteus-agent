@@ -18,7 +18,7 @@ Baseline: `openai/codex` commit
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v12`, `compactor/v8`, journal schema v12.
+Действующие версии: `workflow/v13`, `compactor/v9`, journal schema v13 и config snapshot v4.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,
@@ -140,17 +140,23 @@ workflow-модуля, пока чтение stream продолжается. Ga
 все outcomes в порядке calls, как `session/turn.rs::drain_in_flight`, в том числе
 при обрыве SSE. Batch из одного item использует общий `execute_batch`.
 [Process regression](../../modules/reference/process-worker/tests/codex_model_resume/stream_recovery/parallel_execution.rs)
-удерживает SSE открытым, доказывает перекрытие двух чтений, обратное завершение
-и exclusive fence перед следующим чтением. Проверяются approval allow/deny,
+удерживает SSE открытым, доказывает перекрытие двух командных tools, обратное завершение
+и последовательные write/ReadOnly участки перед следующим parallel call. Проверяются approval allow/deny,
 retry после обрыва при работающих calls, отсутствие повторного эффекта, cold
-history и matched replay. Отдельная отмена сохраняет завершённое чтение,
+history и matched replay. Отдельная отмена сохраняет завершённый tool result,
 отменяет активное и не исполняет calls, ожидающие gate.
 
-Ограничение eligibility: upstream использует явный `supports_parallel_tool_calls`
-handler-а; текущий Proteus contract предоставляет `ToolSafety`, поэтому shared
-gate допускает только batches с эффективными `ReadOnly` calls. Другие safety
-классы эксклюзивны. Полное совпадение набора параллельных tools не заявляется.
-Также не реализуются первичный unbounded connection retry и WebSocket fallback.
+Eligibility задаёт обязательный `ToolSpec.supports_parallel_tool_calls`.
+Исходное `false` повторяет `tools/src/tool_executor.rs`; reference
+`exec_command` / `write_stdin` объявляют `true`, а `shell`, `apply_patch`,
+`update_plan` остаются последовательными, как handlers закреплённой сборки.
+После перехвата shell/exec → patch учитывается разрешение эффективного tool.
+Host batch использует то же поле. MCP discovery повторяет OR явного server
+разрешения и `annotations.readOnlyHint` из `tools/handlers/mcp.rs`; safety и
+approval остаются самостоятельными. Proteus file/git/skill tools имеют свои
+явные объявления; совпадение всего каталога upstream не заявляется.
+
+Не реализуются первичный unbounded connection retry и WebSocket fallback.
 Общий model deadline остаётся неповторяемой ошибкой. Полное совпадение stream
 lifecycle этим срезом не заявляется.
 
@@ -204,7 +210,7 @@ parser, все формы команд и event lifecycle этим срезом 
 
 ### Продолжение После Модельной Ошибки
 
-`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v12`
+`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v13`
 failure envelope. Core сохраняет их до `TurnSettled(Error)`: следующий turn
 получает завершённые assistant items и tool results с исходными call ids.
 
@@ -344,7 +350,7 @@ cargo test -p proteus-core --test module_swap
 stream retry, полного compaction lifecycle, filesystem/network permissions,
 deferred tool discovery и AgentControl semantics.
 
-Item identity и typed phase проходят через `model/v6`, live events и app
+Item identity и typed phase проходят через `model/v7`, live events и app
 transcript. Responses fixture отдаёт added/delta/done/completed, включая
 позднюю фазу и multipart текст; regression сверяет live ids/text/offsets
 с journal и cold app transcript. Web regression проверяет соседние items

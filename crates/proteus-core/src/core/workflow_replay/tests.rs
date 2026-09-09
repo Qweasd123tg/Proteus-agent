@@ -394,7 +394,7 @@ fn snapshot(spec: &ToolSpec) -> SessionConfigSnapshot {
         ..ModulesConfig::default()
     };
     SessionConfigSnapshot {
-        schema_version: 3,
+        schema_version: SessionConfigSnapshot::SCHEMA_VERSION,
         ts: 1,
         profile_name: "replay-test".to_owned(),
         active_provider: "missing-provider".to_owned(),

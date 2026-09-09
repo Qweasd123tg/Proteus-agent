@@ -463,6 +463,7 @@ Unknown enabled tool и name collision — ошибка. Tool export сам по
 name = "lint"
 description = "Run the project linter"
 safety = "RunsCommands"
+supports_parallel_tool_calls = false
 timeout_ms = 60000
 input_schema = { type = "object", properties = {} }
 
@@ -478,6 +479,11 @@ Configured tool — отдельная tool execution surface, не behavior mod
 `native` executor разрешён только для существующих core handlers и не может
 понизить их safety.
 
+`supports_parallel_tool_calls` по умолчанию `false`: вызов ждёт предыдущие
+tools и удерживает следующие до завершения. Значение `true` разрешает совместное
+исполнение соседних parallel calls через тот же registry/policy/approval path.
+`ReadOnly` сам по себе этого разрешения не даёт.
+
 ### MCP
 
 ```toml
@@ -486,6 +492,7 @@ name = "local_echo"
 command = "sh"
 args = ["examples/mcp/echo_server.sh"]
 safety = "RunsCommands"
+supports_parallel_tool_calls = false
 timeout_ms = 30000
 protocol_version = "2025-06-18"
 max_response_bytes = 20000
@@ -494,6 +501,10 @@ metadata = { scope = "local-smoke-test" }
 
 Текущий MCP scope — stdio tool discovery/invocation. Resources, prompts,
 subscriptions и remote transports не входят в реализованную границу.
+Для discovered tool параллельный запуск разрешён, если у сервера задано
+`supports_parallel_tool_calls = true` или tool объявил MCP
+`annotations.readOnlyHint = true`. Без обоих признаков вызов последовательный.
+Это правило scheduling не понижает `ToolSafety` и не отменяет approval.
 
 ## Policy И Permissions
 

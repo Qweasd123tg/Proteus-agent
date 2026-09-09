@@ -1,7 +1,7 @@
 //! Codex-owned adaptation from a model call to an explicit host operation.
 //! Model history stays unchanged; checkpoint and execution use the same calls.
 use proteus_contracts::{
-    domain::{ToolCall, ToolCallSurface, ToolResult, ToolSafety, ToolSpec},
+    domain::{ToolCall, ToolCallSurface, ToolResult, ToolSpec},
     process_module::{ProcessModuleError, WorkflowModuleHostMut, WorkflowModuleInput},
 };
 use serde_json::{Value, json};
@@ -65,7 +65,7 @@ impl CodexToolBatch {
         self.calls.iter().all(|call| match call {
             Ok(call) => tools
                 .iter()
-                .any(|tool| tool.name == call.name && tool.safety == ToolSafety::ReadOnly),
+                .any(|tool| tool.name == call.name && tool.supports_parallel_tool_calls),
             Err(_) => false,
         })
     }
@@ -158,6 +158,30 @@ fn normalized_patch(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proteus_contracts::domain::ToolSafety;
+
+    #[test]
+    fn scheduling_uses_the_effective_tools_explicit_permission() {
+        let tools = [
+            ToolSpec::new("read", "read", json!({}), ToolSafety::ReadOnly),
+            ToolSpec::new("exec_command", "exec", json!({}), ToolSafety::RunsCommands)
+                .with_parallel_tool_calls(true),
+            ToolSpec::new("apply_patch", "patch", json!({}), ToolSafety::WritesFiles),
+        ];
+        let permits = |name, args| {
+            CodexToolBatch::prepare(&[ToolCall::new("call", name, args)], &tools)
+                .permits_parallel(&tools)
+        };
+        assert!(!permits("read", json!({})));
+        assert!(permits("exec_command", json!({"cmd": "cargo test"})));
+        assert!(!permits(
+            "exec_command",
+            json!({
+                "cmd": "apply_patch '*** Begin Patch\n*** End Patch'"
+            })
+        ));
+        assert!(!permits("unknown", json!({})));
+    }
     #[test]
     fn extract_apply_patch_body_supports_heredoc_quotes_and_bare() {
         let patch = "*** Begin Patch\n*** Add File: hi.txt\n+hi\n*** End Patch";

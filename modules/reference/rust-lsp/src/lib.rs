@@ -112,6 +112,7 @@ impl ToolModule for RustLspDiagnosticsTool {
                 },
                 "surface": { "kind": "function", "strict": false, "output_schema": null },
                 "safety": "RunsCommands",
+                "supports_parallel_tool_calls": false,
                 "timeout_ms": TOOL_TIMEOUT_MS,
                 "metadata": {
                     "hot": true,

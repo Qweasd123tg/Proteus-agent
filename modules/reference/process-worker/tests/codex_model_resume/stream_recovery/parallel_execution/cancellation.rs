@@ -5,7 +5,7 @@ use tokio::io::AsyncReadExt;
 use super::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn cancel_preserves_completed_reader_and_never_dispatches_queued_calls() {
+async fn cancel_preserves_completed_tool_and_never_dispatches_queued_calls() {
     let root = tempfile::tempdir().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let config = config(root.path(), &listener).await;
@@ -59,10 +59,12 @@ async fn cancel_preserves_completed_reader_and_never_dispatches_queued_calls() {
             .unwrap(),
         0
     );
-    for label in ["write", "c"] {
+    for label in ["write", "serial", "c"] {
         assert!(!directory.join(format!("started-{label}")).exists());
     }
-    assert!(approval.calls.lock().unwrap().is_empty());
+    let mut approvals = approval.calls.lock().unwrap().clone();
+    approvals.sort();
+    assert_eq!(approvals, ["call_a", "call_b"]);
     assert!(!directory.join("effects.log").exists());
     let projection = SessionStore::open(session.clone())
         .unwrap()
@@ -86,7 +88,7 @@ async fn cancel_preserves_completed_reader_and_never_dispatches_queued_calls() {
             .iter()
             .all(|record| !matches!(&record.entry,
         JournalEntry::ToolCallRecorded(tool) if tool.phase == ToolCallRecordPhase::Requested
-            && (tool.call.id == "call_write" || tool.call.id == "call_c")))
+            && (tool.call.id == "call_write" || tool.call.id == "call_serial" || tool.call.id == "call_c")))
     );
     assert!(
         projection

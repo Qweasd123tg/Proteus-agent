@@ -36,6 +36,7 @@ name = "local_echo"
 command = "sh"
 args = ["examples/mcp/echo_server.sh"]
 safety = "RunsCommands"
+supports_parallel_tool_calls = false # individual readOnlyHint также разрешает параллельность
 timeout_ms = 30000
 # env_allowlist = ["LOCAL_ECHO_TOKEN"] # копирует только названный parent env
 # env = { MCP_MODE = "isolated" }      # scoped literal; не храните тут secrets

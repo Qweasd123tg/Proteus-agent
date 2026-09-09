@@ -73,6 +73,7 @@ pub fn meta_tool_specs_for_phase(phase: &str) -> Vec<ToolSpec> {
             }),
             ToolSafety::ReadOnly,
         )
+        .with_parallel_tool_calls(true)
         .with_metadata(json!({
             "category": "proteus_dynamic_tools",
             "hot": true,
@@ -92,6 +93,7 @@ pub fn meta_tool_specs_for_phase(phase: &str) -> Vec<ToolSpec> {
             }),
             ToolSafety::ReadOnly,
         )
+        .with_parallel_tool_calls(true)
         .with_metadata(json!({
             "category": "proteus_dynamic_tools",
             "hot": true,

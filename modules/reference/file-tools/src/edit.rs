@@ -32,6 +32,7 @@ impl ToolModule for EditFileTool {
             },
             "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "WritesFiles",
+            "supports_parallel_tool_calls": false,
             "timeout_ms": 60000,
             "metadata": {
                 "category": "filesystem",

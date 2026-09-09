@@ -11,8 +11,8 @@ use super::*;
 #[path = "parallel_execution/cancellation.rs"]
 mod cancellation;
 
-const LABELS: [&str; 4] = ["a", "b", "write", "c"];
-const QUEUED: &str = "Все четыре вызова переданы на исполнение.";
+const LABELS: [&str; 5] = ["a", "b", "write", "serial", "c"];
+const QUEUED: &str = "Все пять вызовов переданы на исполнение.";
 
 struct ApprovalProbe {
     deny: bool,
@@ -27,7 +27,7 @@ impl ApprovalTransport for ApprovalProbe {
 
     async fn request_approval(&self, request: ApprovalRequest) -> anyhow::Result<ApprovalResponse> {
         self.calls.lock().unwrap().push(request.call.id.clone());
-        Ok(if self.deny {
+        Ok(if self.deny && request.call.name == "exclusive_probe" {
             ApprovalResponse::deny("fixture denial")
         } else {
             ApprovalResponse::approve()
@@ -42,10 +42,14 @@ async fn config(root: &Path, listener: &TcpListener) -> AppConfig {
         1,
     )
     .await;
-    config.tools.enabled = vec!["parallel_probe".into(), "exclusive_probe".into()];
+    config.tools.enabled = vec![
+        "parallel_probe".into(),
+        "exclusive_probe".into(),
+        "serial_read_probe".into(),
+    ];
     config.module_config.get_mut("policy").unwrap().insert(
         "codex_policy".into(),
-        json!({"allow": ["parallel_probe"], "ask_before": ["exclusive_probe"]}),
+        json!({"allow": ["serial_read_probe"], "ask_before": ["parallel_probe", "exclusive_probe"]}),
     );
     config.components.insert("stream-tools-component".into(), serde_json::from_value(json!({
         "command": "python3", "args": ["-B", Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/stream_tools.py")],
@@ -62,7 +66,7 @@ fn items(directory: &Path) -> Vec<Value> {
             json!({
                 "type": "function_call", "id": format!("item_{label}"), "status": "completed",
                 "call_id": format!("call_{label}"),
-                "name": if label == "write" { "exclusive_probe" } else { "parallel_probe" },
+                "name": match label { "write" => "exclusive_probe", "serial" => "serial_read_probe", _ => "parallel_probe" },
                 "arguments": json!({"directory": directory, "label": label}).to_string(),
             })
         })
@@ -96,6 +100,15 @@ async fn open_stream(
     directory: &Path,
     session: &Path,
 ) -> (tokio::net::TcpStream, Value) {
+    open_response(listener, directory, session, false).await
+}
+
+async fn open_response(
+    listener: &TcpListener,
+    directory: &Path,
+    session: &Path,
+    terminal_batch: bool,
+) -> (tokio::net::TcpStream, Value) {
     let (mut socket, _) = listener.accept().await.unwrap();
     let request = read_json_request(&mut socket).await;
     socket
@@ -104,19 +117,27 @@ async fn open_stream(
         )
         .await
         .unwrap();
-    for (index, item) in items(directory).iter().enumerate() {
+    if terminal_batch {
         socket
-            .write_all(
-                format!(
-                    "event: response.output_item.done\ndata: {}\n\n",
-                    json!({"output_index": index, "item": item})
-                )
-                .as_bytes(),
-            )
+            .write_all(sse_body(&response(json!(items(directory)), "batch_response")).as_bytes())
             .await
             .unwrap();
+        socket.shutdown().await.unwrap();
+    } else {
+        for (index, item) in items(directory).iter().enumerate() {
+            socket
+                .write_all(
+                    format!(
+                        "event: response.output_item.done\ndata: {}\n\n",
+                        json!({"output_index": index, "item": item})
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+        }
     }
-    wait_for("two tools execute while SSE stays open", || {
+    wait_for("two explicitly parallel tools execute", || {
         directory.join("started-a").exists() && directory.join("started-b").exists()
     })
     .await;
@@ -151,8 +172,9 @@ async fn serve(
     session: PathBuf,
     disconnect: bool,
     deny: bool,
+    terminal_batch: bool,
 ) -> Value {
-    let (mut socket, _) = open_stream(&listener, &directory, &session).await;
+    let (mut socket, _) = open_response(&listener, &directory, &session, terminal_batch).await;
     if disconnect {
         socket.shutdown().await.unwrap();
     }
@@ -172,13 +194,24 @@ async fn serve(
         release(&directory, "write");
     }
     wait_for("exclusive result settles", || has_result(&session, "write")).await;
-    wait_for("last reader starts after exclusive call", || {
-        directory.join("started-c").exists()
+    wait_for("serial read-only tool starts after exclusive call", || {
+        directory.join("started-serial").exists()
     })
+    .await;
+    assert!(!directory.join("started-c").exists());
+    release(&directory, "serial");
+    wait_for("serial read-only result settles", || {
+        has_result(&session, "serial")
+    })
+    .await;
+    wait_for(
+        "last parallel call starts after serial read-only tool",
+        || directory.join("started-c").exists(),
+    )
     .await;
     release(&directory, "c");
     wait_for("last reader result commits", || has_result(&session, "c")).await;
-    if !disconnect {
+    if !disconnect && !terminal_batch {
         socket
             .write_all(
                 sse_body(&response(json!(items(&directory)), "parallel_response")).as_bytes(),
@@ -196,7 +229,7 @@ async fn serve(
     next
 }
 
-async fn check(disconnect: bool, deny: bool) {
+async fn check(disconnect: bool, deny: bool, terminal_batch: bool) {
     let root = tempfile::tempdir().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let config = config(root.path(), &listener).await;
@@ -220,6 +253,7 @@ async fn check(disconnect: bool, deny: bool) {
         session.clone(),
         disconnect,
         deny,
+        terminal_batch,
     ));
     assert_eq!(runtime.run(PROMPT.to_owned()).await.unwrap().text, FINAL);
     let next = server.await.unwrap();
@@ -234,9 +268,11 @@ async fn check(disconnect: bool, deny: bool) {
             .iter()
             .map(|item| item["call_id"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["call_a", "call_b", "call_write", "call_c"]
+        ["call_a", "call_b", "call_write", "call_serial", "call_c"]
     );
-    assert_eq!(approval.calls.lock().unwrap().as_slice(), ["call_write"]);
+    let mut approvals = approval.calls.lock().unwrap().clone();
+    approvals.sort();
+    assert_eq!(approvals, ["call_a", "call_b", "call_c", "call_write"]);
     let effect = directory.join("effects.log");
     if deny {
         assert!(!effect.exists());
@@ -257,7 +293,10 @@ async fn check(disconnect: bool, deny: bool) {
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(result_order, ["call_b", "call_a", "call_write", "call_c"]);
+    assert_eq!(
+        result_order,
+        ["call_b", "call_a", "call_write", "call_serial", "call_c"]
+    );
     drop(runtime);
     let cold = proteus_core::app_server::AgentAppServer::launch_resumed(
         config.clone(),
@@ -302,16 +341,21 @@ async fn check(disconnect: bool, deny: bool) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn streamed_readers_overlap_and_results_drain_in_model_order() {
-    check(false, false).await;
+async fn streamed_parallel_tools_overlap_and_results_drain_in_model_order() {
+    check(false, false, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn disconnect_drains_in_flight_calls_before_retry() {
-    check(true, false).await;
+    check(true, false, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn denied_exclusive_call_releases_the_next_reader() {
-    check(false, true).await;
+    check(false, true, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn terminal_batch_obeys_the_same_parallel_permissions() {
+    check(false, false, true).await;
 }

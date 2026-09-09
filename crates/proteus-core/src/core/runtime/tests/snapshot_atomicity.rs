@@ -197,6 +197,7 @@ async fn admitted_turn_freezes_registry_and_effective_settings_until_settlement(
         input_schema: serde_json::json!({"type": "object"}),
         surface: crate::domain::ToolSurface::default(),
         safety: ToolSafety::ReadOnly,
+        supports_parallel_tool_calls: false,
         timeout_ms: None,
         metadata: serde_json::Value::Null,
         executor: ConfiguredToolExecutorConfig::Process {

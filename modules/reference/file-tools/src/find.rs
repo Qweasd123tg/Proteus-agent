@@ -47,6 +47,7 @@ impl ToolModule for FindFilesTool {
             },
             "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "ReadOnly",
+            "supports_parallel_tool_calls": true,
             "timeout_ms": FIND_TIMEOUT.as_millis() as u64,
             "metadata": {
                 "hot": true,

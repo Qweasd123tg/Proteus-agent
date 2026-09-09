@@ -37,6 +37,8 @@ pub struct SessionConfigTool {
 }
 
 impl SessionConfigSnapshot {
+    pub const SCHEMA_VERSION: u32 = 4;
+
     pub fn from_runtime_config(
         config: &AppConfig,
         registry: &RuntimeRegistry,
@@ -52,7 +54,7 @@ impl SessionConfigSnapshot {
             })
             .collect();
         Self {
-            schema_version: 3,
+            schema_version: Self::SCHEMA_VERSION,
             ts: unix_timestamp_ms(),
             profile_name: config.profile.name.clone(),
             active_provider: config.active_provider.clone(),
@@ -91,7 +93,7 @@ mod tests {
     #[test]
     fn legacy_subagent_surface_is_rejected_without_alias() {
         let snapshot = SessionConfigSnapshot {
-            schema_version: 3,
+            schema_version: SessionConfigSnapshot::SCHEMA_VERSION,
             ts: 0,
             profile_name: "test".to_owned(),
             active_provider: "fake".to_owned(),

@@ -321,6 +321,7 @@ impl AppServerHandle {
                     "name": spec.name,
                     "source": source.label(),
                     "safety": format!("{:?}", spec.safety),
+                    "supports_parallel_tool_calls": spec.supports_parallel_tool_calls,
                     "description": spec.description,
                 }))
                 .collect::<Vec<_>>(),

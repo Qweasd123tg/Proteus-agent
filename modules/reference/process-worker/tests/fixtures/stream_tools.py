@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[5] / "examples/modules")
 from component_runtime import PROTOCOL_VERSION, ProtocolError, run_component
 
 EXPORT = {
-    "slot": "tool", "module_id": "stream-tools", "contract_version": "v2",
+    "slot": "tool", "module_id": "stream-tools", "contract_version": "v3",
     "composition": "ordered_many", "module_features": [],
 }
 LOCK = threading.Lock()
@@ -24,14 +24,14 @@ def initialize(params):
             "component_id": params["component_id"], "exports": [EXPORT]}
 
 
-def spec(name, safety):
+def spec(name, safety, parallel):
     return {
         "name": name, "description": "Barrier-controlled stream probe",
         "input_schema": {"type": "object", "properties": {
             "directory": {"type": "string"}, "label": {"type": "string"}},
             "required": ["directory", "label"], "additionalProperties": False},
         "surface": {"kind": "function", "strict": False, "output_schema": None},
-        "safety": safety, "timeout_ms": 10000, "metadata": {},
+        "safety": safety, "supports_parallel_tool_calls": parallel, "timeout_ms": 10000, "metadata": {},
     }
 
 
@@ -39,14 +39,15 @@ def invoke(context, method, params):
     if context.export != {"slot": "tool", "module_id": "stream-tools"}:
         raise ProtocolError("unexpected export")
     if method == "list":
-        return {"result": [spec("parallel_probe", "ReadOnly"),
-                           spec("exclusive_probe", "WritesFiles")]}
+        return {"result": [spec("parallel_probe", "RunsCommands", True),
+                           spec("exclusive_probe", "WritesFiles", False),
+                           spec("serial_read_probe", "ReadOnly", False)]}
     if method != "invoke":
         raise ProtocolError("unexpected method")
     call = params["call"]
     label = call["args"]["label"]
     directory = Path(call["args"]["directory"])
-    exclusive = call["name"] == "exclusive_probe"
+    exclusive = call["name"] != "parallel_probe"
     context.on_cancel(lambda: (directory / f"canceled-{label}").write_text("canceled"))
     with LOCK:
         if (exclusive and ACTIVE) or "exclusive" in ACTIVE:
@@ -63,7 +64,7 @@ def invoke(context, method, params):
                 raise ProtocolError(f"fixture barrier timed out: {label}")
             time.sleep(0.005)
         context.ensure_active()
-        if exclusive:
+        if call["name"] == "exclusive_probe":
             with (directory / "effects.log").open("a") as output:
                 output.write(label + "\n")
         return {"result": {"call_id": call["id"], "ok": True, "output": label,

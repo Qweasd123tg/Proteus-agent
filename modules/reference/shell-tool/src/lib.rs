@@ -85,6 +85,7 @@ impl ToolModule for ShellTool {
             },
             "surface": { "kind": "function", "strict": false, "output_schema": null },
             "safety": "RunsCommands",
+            "supports_parallel_tool_calls": false,
             "timeout_ms": TIMEOUT_MS,
             "metadata": {
                 "category": "terminal",

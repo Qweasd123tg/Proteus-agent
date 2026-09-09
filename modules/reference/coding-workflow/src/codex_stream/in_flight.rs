@@ -1,6 +1,6 @@
 //! Start calls as items arrive, then drain in model order. The fair gate has
-//! the same shared/exclusive shape as Codex's ToolCallRuntime RwLock. Proteus's
-//! current tool contract admits ReadOnly batches to the shared side.
+//! the same shared/exclusive shape as Codex's ToolCallRuntime RwLock. Only
+//! batches whose effective tools explicitly allow parallel calls share it.
 use std::{
     sync::{Arc, Condvar, Mutex},
     thread::{Scope, ScopedJoinHandle},
