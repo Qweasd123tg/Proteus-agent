@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use serde_json::Value;
 
-fn expand_user_path(path: &str) -> std::path::PathBuf {
+pub(super) fn expand_user_path(path: &str) -> std::path::PathBuf {
     expand_user_path_with_home(path, std::env::var_os("HOME").as_deref())
 }
 

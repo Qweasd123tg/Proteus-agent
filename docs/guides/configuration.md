@@ -141,11 +141,12 @@ Reference worker экспортирует следующие model implementatio
 - `fake`;
 - `openai`;
 - `openai_compatible`;
+- `openai_codex` (ChatGPT subscription OAuth);
 - `anthropic`.
 
 `providers.<name>.provider` — exact id model-export, не встроенный provider enum.
 Reference `model-pack` требует `module_config.model.<id>.implementation`
-(`fake`, `openai`, `openai_compatible`, `anthropic`). Id export произвольный:
+(`fake`, `openai`, `openai_compatible`, `openai_codex`, `anthropic`). Id export произвольный:
 два exports могут выбрать одну implementation с разными endpoint/settings.
 Core этого ключа не интерпретирует.
 Для каждого id нужен явный `[components.<component>.exports.model.<id>]`.
@@ -164,6 +165,89 @@ api_key_json_key = "openai_api_key"
 base_url_file = "$HOME/.config/Proteus-agent/secrets/openai.json"
 base_url_json_key = "base_url"
 ```
+
+### ChatGPT Subscription Через OAuth
+
+`openai_codex` обращается напрямую к Codex Responses backend с ChatGPT OAuth.
+Workflow и исполнение tools остаются в Proteus. Установленный Codex CLI,
+OpenCode или отдельный API proxy не требуются.
+
+После `./install.sh`:
+
+```bash
+proteus-reference-worker auth openai_codex login
+proteus-reference-worker auth openai_codex status
+proteus --config codex-chatgpt
+```
+
+Для машины без callback в браузере:
+
+```bash
+proteus-reference-worker auth openai_codex login --device-auth
+```
+
+Device-code login должен быть разрешён в настройках ChatGPT. Обычный вход
+слушает `127.0.0.1:1455`, открывает браузер и проверяет PKCE/state. Если порт
+занят другим login, команда завершается ошибкой. `--no-browser` печатает ссылку
+без автоматического открытия. Вход ограничен 15 минутами, Ctrl+C отменяет его.
+
+Credentials хранятся только у provider-а в
+`$HOME/.config/Proteus-agent/secrets/chatgpt.json`. `login`, `status` и `logout`
+принимают `--auth-file /absolute/path/chatgpt.json`; тот же путь необходимо
+задать в `module_config.model.<id>.auth_file` у всех нужных profiles. Путь к
+файлу можно настроить независимо от каталогов установки. Файлы Codex/OpenCode
+не читаются и не импортируются. На Unix файл записывается атомарно с mode 0600;
+отдельный OS lock сериализует login/logout/refresh между процессами. Refresh
+token автоматически обновляется вместе с access token. `status` не раскрывает
+токены и не запрашивает сетевой остаток allowance; `logout` удаляет локальную
+сессию Proteus, не отзывает все сессии ChatGPT.
+
+```bash
+proteus-reference-worker auth openai_codex logout
+```
+
+Готовый `codex-chatgpt` использует `gpt-5.6-luna` и собственные
+`codex-chatgpt-explore`/`codex-chatgpt-coder`: peers также обращаются через
+подписку. Модель задаётся в `providers.chatgpt.model`; доступные модели и лимиты
+определяются аккаунтом. Фрагмент `fragments/openai-chatgpt.toml` задаёт explicit
+model export, capabilities и консервативный порог контекста 200000 tokens.
+
+Provider config:
+
+```toml
+[providers.chatgpt]
+provider = "openai_codex"
+model = "gpt-5.6-luna"
+stream = true
+
+[module_config.model.openai_codex]
+implementation = "openai_codex"
+auth_file = "$HOME/.config/Proteus-agent/secrets/chatgpt.json"
+
+[components.reference-model]
+command = "proteus-reference-worker"
+env_allowlist = ["HOME"]
+
+[components.reference-model.exports.model.openai_codex]
+```
+
+По умолчанию используются `https://auth.openai.com` и
+`https://chatgpt.com/backend-api/codex`. Явные `oauth_issuer` и `base_url` нужны
+для тестовых/настроенных endpoints: допустимы HTTPS или loopback HTTP, без
+credentials, query и fragment. Provider не следует HTTP redirects.
+
+Подписочный transport всегда SSE с `store=false`; `stream=false`, включая
+внутренний complete, собирает ответ из одного SSE request без промежуточных
+events. Поле `max_output_tokens` не отправляется, как в выбранном OpenCode;
+оно не является provider-enforced output cap этого режима. Общие deadline и
+cancellation продолжают действовать. API-key settings,
+`stream_error_fallback=true` и `prompt_cache_retention` отклоняются.
+HTTP 401 допускает один refresh и повтор запроса; 429 возвращает ошибку лимита
+без повторов и без переключения на платный API. Расход идёт по подписочному
+доступу/кредитам аккаунта, а не исчезает. Provenance и точные отличия:
+[model-pack/UPSTREAM.md](../../modules/reference/model-pack/UPSTREAM.md).
+
+### OpenAI Responses Transport
 
 OpenAI adapter по умолчанию использует согласованную HTTP-версию `reqwest`.
 Если OpenAI-compatible proxy некорректно обслуживает Responses API через
@@ -413,6 +497,7 @@ Tool export получает список specs с bootstrap timeout 30 000 мс
 Удобный dogfood executable `proteus-reference-worker` публикует:
 
 ```text
+model:            fake, openai, openai_compatible, openai_codex, anthropic
 workflow:         coding.single_loop, coding.codex_loop,
                   coding.plan_execute_review, coding.project_check
 search:           rg

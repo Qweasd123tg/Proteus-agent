@@ -52,7 +52,7 @@ native loader в проекте отсутствуют.
 | `tool_exposure` | `select_one` | `modules.tool_exposure` | да | `codex_dynamic` |
 | `tool` | `ordered_many` | exports + `tools.enabled` | да | `reference.tools` и узкие selectors |
 | `context_provider` | `ordered_many` | exports + context config | да | `skills` |
-| `model` | `select_one` | active provider profile | да, `model/v7` | `fake`, `openai`, `openai_compatible`, `anthropic` |
+| `model` | `select_one` | active provider profile | да, `model/v7` | `fake`, `openai`, `openai_compatible`, `openai_codex`, `anthropic` |
 
 Все behavior implementations, включая `model`, используют process contract.
 Agent control в матрицу не входит, потому что это
@@ -325,6 +325,15 @@ Reference worker требует в нём `implementation`; export id не об�
 Core сохраняет `ModelService`, `BoundModel`, canonical validation и journal.
 Одинаковый contract действует для arbitrary external ids и reference ids;
 встроенной модели, включая `fake`, нет.
+
+`openai_codex` использует ChatGPT OAuth и подписочный Codex Responses backend.
+Credentials, browser/device login и refresh принадлежат model-pack; команды
+управления вызываются у executable `proteus-reference-worker auth openai_codex`.
+Это локальная management surface поставляемого component, не новый host method
+или slot. Core, workflow и tool authority не различают способ оплаты модели.
+`stream=false` собирает один provider SSE в terminal response. Хранилище,
+конкурентный refresh и отличия от upstream описаны в
+[model-pack/UPSTREAM.md](../../modules/reference/model-pack/UPSTREAM.md).
 
 ### Agent Control
 

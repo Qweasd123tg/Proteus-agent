@@ -1,0 +1,32 @@
+# Подписочный доступ: credentials принадлежат model worker, API key не используется.
+active_provider = "chatgpt"
+
+[providers.chatgpt]
+provider = "openai_codex"
+model = "gpt-5.6-luna"
+stream = true
+
+[providers.chatgpt.reasoning]
+effort = "high"
+summary = true
+
+[module_config.model.openai_codex]
+implementation = "openai_codex"
+auth_file = "$HOME/.config/Proteus-agent/secrets/chatgpt.json"
+# Консервативный локальный порог compaction; не динамический каталог аккаунта.
+max_input_tokens = 200000
+support_verbosity = true
+default_verbosity = "low"
+prompt_cache = true
+
+[module_config.model.openai_codex.capabilities]
+supports_parallel_tool_calls = true
+supports_freeform_tools = false
+supports_json_schema = true
+supports_reasoning_config = true
+
+[components.reference-model]
+command = "proteus-reference-worker"
+env_allowlist = ["HOME", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
+
+[components.reference-model.exports.model.openai_codex]

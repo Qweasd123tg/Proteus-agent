@@ -4,11 +4,12 @@ use anyhow::Result;
 use async_trait::async_trait;
 use eventsource_stream::Eventsource;
 use futures_util::stream as futures_stream;
-use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(test)]
+use serde_json::json;
 
 use crate::{
-    adapters::secrets::{read_config_string_or_default, read_secret_from_config},
+    adapters::{codex_auth::CodexAuth, secrets::read_config_string_or_default},
     contracts::{Model, ModelEventStream},
     domain::ModelRef,
     model_standard::{
@@ -23,6 +24,9 @@ use crate::{
     model_standard::{CanonicalMessage, ContentPart, FinishReason, MessageRole},
 };
 
+mod codex_config;
+#[cfg(test)]
+mod codex_tests;
 mod errors;
 mod hosted_tools;
 mod http_retry;
@@ -36,8 +40,8 @@ mod stream;
 mod stream_state;
 #[cfg(test)]
 mod tests;
+mod transport;
 
-use errors::ensure_success;
 use http_retry::RequestRetry;
 use model_profile::OpenAiModelProfile;
 #[cfg(test)]
@@ -55,6 +59,7 @@ use stream_state::translate_sse_event;
 pub struct OpenAiResponsesClient {
     http: reqwest::Client,
     secret_config: Value,
+    codex_auth: Option<CodexAuth>,
     base_url: String,
     /// Включает SSE-стрим на `/responses`. Управляется через поле
     /// `stream` в provider config. Provider profiles по умолчанию включают
@@ -82,6 +87,9 @@ struct OpenAiPromptCacheConfig {
 
 impl OpenAiResponsesClient {
     pub fn from_provider_config(config: Value) -> Result<Self> {
+        if config.get("prompt_caching").is_some() {
+            anyhow::bail!("unknown openai setting prompt_caching; use prompt_cache");
+        }
         let base_url = read_config_string_or_default(
             &config,
             "base_url",
@@ -129,6 +137,7 @@ impl OpenAiResponsesClient {
         Ok(Self {
             http: http.build()?,
             secret_config: config,
+            codex_auth: None,
             base_url,
             stream_enabled,
             stream_error_fallback,
@@ -139,6 +148,10 @@ impl OpenAiResponsesClient {
             stream_idle_timeout,
         })
     }
+}
+
+pub fn build_codex_responses_adapter(config: Value) -> Result<Arc<dyn Model>> {
+    Ok(Arc::new(OpenAiResponsesClient::from_codex_config(config)?))
 }
 
 pub fn build_openai_responses_adapter(config: Value) -> Result<Arc<dyn Model>> {
@@ -152,7 +165,6 @@ impl OpenAiPromptCacheConfig {
         Self {
             enabled: config
                 .get("prompt_cache")
-                .or_else(|| config.get("prompt_caching"))
                 .and_then(Value::as_bool)
                 .unwrap_or(true),
             key: non_empty_config_string(config, "prompt_cache_key"),
@@ -173,7 +185,11 @@ fn non_empty_config_string(config: &Value, key: &str) -> Option<String> {
 #[async_trait]
 impl Model for OpenAiResponsesClient {
     fn id(&self) -> std::borrow::Cow<'static, str> {
-        "openai.responses".into()
+        if self.codex_auth.is_some() {
+            "openai.codex_subscription".into()
+        } else {
+            "openai.responses".into()
+        }
     }
 
     fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
@@ -188,7 +204,11 @@ impl Model for OpenAiResponsesClient {
         if self.stream_enabled {
             self.stream_response(request).await
         } else {
-            let response = self.complete_response(request).await?;
+            let response = if self.codex_auth.is_some() {
+                self.collect_codex_response(request).await?
+            } else {
+                self.complete_response(request).await?
+            };
             Ok(Box::pin(futures_stream::once(async move {
                 Ok(ModelStreamEvent::Response { response })
             })))
@@ -201,32 +221,16 @@ impl OpenAiResponsesClient {
         &self,
         request: CanonicalModelRequest,
     ) -> Result<CanonicalModelResponse> {
-        let body = to_openai_request_with_cache(&request, &self.prompt_cache, &self.model_profile)?;
-        let url = format!("{}/responses", self.base_url);
-        let api_key = self.api_key()?;
-        let response = ensure_success(
-            self.request_retry
-                .send(|| self.request_builder(&url, &body, &api_key))
-                .await?,
-        )
-        .await?;
+        let body = self.request_body(&request, false)?;
+        let response = self.send_response(&body).await?;
         let response: Value = response.json().await?;
 
         from_openai_response(response)
     }
 
     async fn stream_response(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
-        let mut body =
-            to_openai_request_with_cache(&request, &self.prompt_cache, &self.model_profile)?;
-        body["stream"] = json!(true);
-        let url = format!("{}/responses", self.base_url);
-        let api_key = self.api_key()?;
-        let response = ensure_success(
-            self.request_retry
-                .send(|| self.request_builder(&url, &body, &api_key))
-                .await?,
-        )
-        .await?;
+        let body = self.request_body(&request, true)?;
+        let response = self.send_response(&body).await?;
 
         // reqwest bytes_stream → eventsource-stream Event → наши ModelStreamEvent.
         // State-parser хранит накопленные text parts / tool_calls / usage и
@@ -297,17 +301,5 @@ impl OpenAiResponsesClient {
             }
         };
         Ok(Box::pin(events))
-    }
-
-    fn api_key(&self) -> Result<String> {
-        read_secret_from_config(&self.secret_config, "OPENAI_API_KEY", "openai_api_key")
-    }
-
-    fn request_builder(&self, url: &str, body: &Value, api_key: &str) -> reqwest::RequestBuilder {
-        self.http
-            .post(url)
-            .header(AUTHORIZATION, format!("Bearer {api_key}"))
-            .header(CONTENT_TYPE, "application/json")
-            .json(body)
     }
 }

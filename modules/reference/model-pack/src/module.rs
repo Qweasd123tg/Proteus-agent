@@ -15,7 +15,10 @@ use proteus_contracts::{
 use serde_json::Value;
 
 use crate::{
-    adapters::{build_anthropic_messages_adapter, build_openai_responses_adapter},
+    adapters::{
+        build_anthropic_messages_adapter, build_codex_responses_adapter,
+        build_openai_responses_adapter,
+    },
     fake::FakeModelClient,
 };
 
@@ -64,6 +67,7 @@ fn build(id: &str, config: &Value, stream: bool) -> ProcessModuleResult<Arc<dyn 
     let config = Value::Object(config);
     match id {
         "openai" | "openai_compatible" => build_openai_responses_adapter(config).map_err(error),
+        "openai_codex" => build_codex_responses_adapter(config).map_err(error),
         "anthropic" => build_anthropic_messages_adapter(config).map_err(error),
         "fake" => Ok(if stream {
             Arc::new(FakeModelClient::with_streaming(

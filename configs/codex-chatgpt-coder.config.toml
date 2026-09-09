@@ -1,0 +1,8 @@
+include = [
+  "fragments/openai-chatgpt.toml",
+  "fragments/codex-peer-runtime.toml",
+  "fragments/codex-coder-peer.toml",
+]
+
+[profile]
+name = "codex-chatgpt-coder"

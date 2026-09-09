@@ -7,17 +7,20 @@ publish = false
 [dependencies]
 proteus-contracts = { path = "../../../crates/proteus-contracts" }
 anyhow = "1"
+base64 = "0.22"
+clap = { version = "4", features = ["derive"] }
 async-trait = "0.1"
 async-stream = "0.3"
 eventsource-stream = "0.2"
 futures-util = "0.3"
 rand = "0.9"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+ring = "0.17"
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", features = ["rt-multi-thread", "time", "macros", "net", "io-util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "macros", "net", "io-util", "signal"] }
+tempfile = "3"
 
 [dev-dependencies]
 proteus-core = { path = "../../../crates/proteus-core" }
-tempfile = "3"
 tokio = { version = "1", features = ["test-util"] }

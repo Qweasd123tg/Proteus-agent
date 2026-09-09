@@ -588,6 +588,18 @@ PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config examples/co
 
 Не сохраняйте старые config aliases без отдельного решения владельца.
 
+### Подписочная Model Implementation
+
+Подписочный `openai_codex` проверяется без live credentials:
+`cargo test -p model-pack` покрывает browser/device OAuth, PKCE/state,
+refresh, конкурентные readers и отмену во время ротации; worker
+`auth_commands` проверяет management CLI без раскрытия tokens. Существующий
+`codex_model_resume` также проходит subscription streaming/complete варианты:
+tool loop, cold history, отсутствие tokens в journal и workflow replay.
+HTTP 429 после завершённого tool сохраняет root Error и matched replay без
+повторов inference или tool effect.
+`config_profiles` проверяет, что root и peers подписочной сборки выбирают OAuth.
+
 ### AssemblyPlan
 
 При изменении пути `AppConfig -> AssemblyPlan -> RuntimeRegistry` проверяйте:

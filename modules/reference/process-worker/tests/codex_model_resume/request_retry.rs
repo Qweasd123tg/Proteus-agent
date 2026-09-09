@@ -21,6 +21,11 @@ const CALL: &str = "call_once_before_retry";
 const PROMPT: &str = "Выполни изменение и проверь результат.";
 const FINAL: &str = "Запрос восстановлен без повторного изменения.";
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn subscription_quota_stops_without_retry_and_preserves_error_replay() {
+    check(Mode::SubscriptionQuota).await;
+}
+
 #[derive(Clone, Copy)]
 enum Mode {
     Json,
@@ -28,11 +33,12 @@ enum Mode {
     Cancel,
     ModelTimeout,
     PartialSse,
+    SubscriptionQuota,
 }
 
 impl Mode {
     fn streaming(self) -> bool {
-        matches!(self, Self::Sse | Self::PartialSse)
+        matches!(self, Self::Sse | Self::PartialSse | Self::SubscriptionQuota)
     }
     fn interrupted(self) -> bool {
         matches!(self, Self::Cancel | Self::ModelTimeout)
@@ -41,7 +47,9 @@ impl Mode {
         match self {
             Self::Json | Self::Sse => TurnSettlementStatus::Success,
             Self::Cancel => TurnSettlementStatus::Canceled,
-            Self::ModelTimeout | Self::PartialSse => TurnSettlementStatus::Error,
+            Self::ModelTimeout | Self::PartialSse | Self::SubscriptionQuota => {
+                TurnSettlementStatus::Error
+            }
         }
     }
 }
@@ -66,32 +74,41 @@ async fn serve(
         let (mut socket, _) = listener.accept().await.unwrap();
         let request = super::read_json_request(&mut socket).await;
         requests.lock().unwrap().push(request);
-        let (status, content_type, body) =
-            if index == 1 || (index > 1 && matches!(mode, Mode::ModelTimeout)) {
-                (
-                    "500 Internal Server Error",
-                    "application/json",
-                    json!({"error": {"message": "temporary failure"}}).to_string(),
-                )
-            } else if index > 1 && matches!(mode, Mode::PartialSse) {
-                // A completed item is followed by EOF without response.completed.
-                // HTTP retries must never resubmit this accepted response.
-                (
-                    "200 OK",
-                    "text/event-stream",
-                    format!(
-                        "event: response.output_item.done\ndata: {}\n\n",
-                        json!({"output_index": 0, "item": response(false)["output"][0]})
-                    ),
-                )
+        let (status, content_type, body) = if index >= 1 && matches!(mode, Mode::SubscriptionQuota)
+        {
+            (
+                "429 Too Many Requests",
+                "application/json",
+                json!({"error": {
+                    "type": "usage_limit_reached", "message": "subscription allowance exhausted"
+                }})
+                .to_string(),
+            )
+        } else if index == 1 || (index > 1 && matches!(mode, Mode::ModelTimeout)) {
+            (
+                "500 Internal Server Error",
+                "application/json",
+                json!({"error": {"message": "temporary failure"}}).to_string(),
+            )
+        } else if index > 1 && matches!(mode, Mode::PartialSse) {
+            // A completed item is followed by EOF without response.completed.
+            // HTTP retries must never resubmit this accepted response.
+            (
+                "200 OK",
+                "text/event-stream",
+                format!(
+                    "event: response.output_item.done\ndata: {}\n\n",
+                    json!({"output_index": 0, "item": response(false)["output"][0]})
+                ),
+            )
+        } else {
+            let response = response(index == 0);
+            if mode.streaming() {
+                ("200 OK", "text/event-stream", super::sse_body(&response))
             } else {
-                let response = response(index == 0);
-                if mode.streaming() {
-                    ("200 OK", "text/event-stream", super::sse_body(&response))
-                } else {
-                    ("200 OK", "application/json", response.to_string())
-                }
-            };
+                ("200 OK", "application/json", response.to_string())
+            }
+        };
         socket.write_all(format!(
             "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()
         ).as_bytes()).await.unwrap();
@@ -107,6 +124,9 @@ async fn check(mode: Mode) {
     std::fs::create_dir(&workspace).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let mut config = fixture_config(&format!("http://{}", listener.local_addr().unwrap())).await;
+    if matches!(mode, Mode::SubscriptionQuota) {
+        super::use_subscription(&mut config, root.path());
+    }
     config
         .providers
         .get_mut(&config.active_provider)
@@ -169,6 +189,12 @@ async fn check(mode: Mode) {
         assert_eq!(result.unwrap().text, FINAL);
     } else {
         let error = format!("{:#}", result.unwrap_err());
+        if matches!(mode, Mode::SubscriptionQuota) {
+            assert!(
+                error.contains("subscription allowance exhausted"),
+                "{error}"
+            );
+        }
         if matches!(mode, Mode::PartialSse) {
             assert!(
                 error.contains("stream ended without a terminal event"),
@@ -192,7 +218,7 @@ async fn check(mode: Mode) {
     server.abort();
     let requests = requests.lock().unwrap().clone();
     match mode {
-        Mode::Cancel => assert_eq!(requests.len(), 2),
+        Mode::Cancel | Mode::SubscriptionQuota => assert_eq!(requests.len(), 2),
         Mode::ModelTimeout => assert!(
             (3..=4).contains(&requests.len()),
             "{} requests",

@@ -139,6 +139,7 @@ fn every_reference_export_completes_the_same_strict_v3_component_handshake() {
         ("model", "fake"),
         ("model", "openai"),
         ("model", "openai_compatible"),
+        ("model", "openai_codex"),
         ("model", "anthropic"),
         ("tool", "reference.tools"),
         ("tool", "file_tools"),
@@ -171,7 +172,7 @@ fn every_reference_export_completes_the_same_strict_v3_component_handshake() {
 
     for (slot, module_id) in modules {
         let config = if slot == "model" {
-            json!({"implementation": module_id})
+            json!({"implementation": module_id, "auth_file": workspace.path().join("chatgpt.json")})
         } else {
             json!({})
         };

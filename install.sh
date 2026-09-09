@@ -16,19 +16,20 @@ cargo build --release --manifest-path "${project_dir}/Cargo.toml" \
 
 mkdir -p "${bin_dir}"
 bin_tmp="${bin_path}.tmp.$$"
+worker_tmp="${bin_dir}/proteus-reference-worker.tmp.$$"
 release_id=$(date -u +%Y%m%dT%H%M%SZ)-$$
 release_tmp="${releases_dir}/.${release_id}.tmp"
 release_dir="${releases_dir}/${release_id}"
 current_tmp="${proteus_home}/.current.$$"
 release_published=0
-rm -f "${bin_tmp}" "${current_tmp}"
+rm -f "${bin_tmp}" "${worker_tmp}" "${current_tmp}"
 rm -rf "${release_tmp}"
 
 cleanup_install() {
   status=$?
   trap - EXIT HUP INT TERM
   set +e
-  rm -f "${bin_tmp}" "${current_tmp}"
+  rm -f "${bin_tmp}" "${worker_tmp}" "${current_tmp}"
   rm -rf "${release_tmp}"
   if [ "${release_published}" -eq 0 ]; then
     rm -rf "${release_dir}"
@@ -326,6 +327,15 @@ escaped_project_dir=$(printf '%s' "${project_dir}" | sed 's/[&|]/\\&/g')
 sed -i "s|__PROTEUS_PROJECT_DIR__|${escaped_project_dir}|g" "${bin_tmp}"
 chmod 755 "${bin_tmp}"
 
+# The provider's management commands use the same atomically selected snapshot.
+cat > "${worker_tmp}" <<'WORKER_WRAPPER'
+#!/usr/bin/env sh
+set -eu
+proteus_home="${PROTEUS_HOME:-${HOME}/.proteus}"
+exec "${proteus_home}/current/proteus-reference-worker" "$@"
+WORKER_WRAPPER
+chmod 755 "${worker_tmp}"
+
 # Stage the host and reference worker before the `current` symlink makes the
 # build snapshot visible.
 mkdir -p "${release_tmp}"
@@ -365,6 +375,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 mv "${bin_tmp}" "${bin_path}"
+mv "${worker_tmp}" "${bin_dir}/proteus-reference-worker"
 
 trap - EXIT HUP INT TERM
 
@@ -380,6 +391,9 @@ install_config() {
 }
 
 install_config "codex.config.toml" "configs/codex.config.toml"
+install_config "codex-chatgpt.config.toml" "configs/codex-chatgpt.config.toml"
+install_config "codex-chatgpt-explore.config.toml" "configs/codex-chatgpt-explore.config.toml"
+install_config "codex-chatgpt-coder.config.toml" "configs/codex-chatgpt-coder.config.toml"
 install_config "codex-explore.config.toml" "configs/codex-explore.config.toml"
 install_config "codex-coder.config.toml" "configs/codex-coder.config.toml"
 install_config "opencode.config.toml" "configs/opencode.config.toml"
@@ -402,6 +416,7 @@ install_managed_config_asset() {
   cp "${source_path}" "${dest_path}"
 }
 install_managed_config_asset "fragments/openai-proxy.toml"
+install_managed_config_asset "fragments/openai-chatgpt.toml"
 install_managed_config_asset "fragments/codex-runtime.toml"
 install_managed_config_asset "fragments/codex-profile.toml"
 install_managed_config_asset "fragments/codex-peer-runtime.toml"

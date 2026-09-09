@@ -278,7 +278,30 @@ async fn run_child(root: &Path) {
     );
 }
 
-async fn check_resume(streaming: bool) {
+fn use_subscription(config: &mut AppConfig, root: &Path) {
+    let auth_file = root.join("chatgpt.json");
+    std::fs::write(
+        &auth_file,
+        json!({
+            "access_token": "fixture-oauth-secret", "refresh_token": "fixture-refresh-secret",
+            "account_id": "fixture-account", "expires_at": 4102444800u64,
+        })
+        .to_string(),
+    )
+    .unwrap();
+    // Same arbitrary export id and authority, different implementation.
+    let model = config
+        .module_config
+        .get_mut("model")
+        .unwrap()
+        .get_mut("openai")
+        .unwrap();
+    model.as_object_mut().unwrap().remove("api_key");
+    model["implementation"] = json!("openai_codex");
+    model["auth_file"] = json!(auth_file);
+}
+
+async fn check_resume(streaming: bool, subscription: bool) {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir(root.path().join("workspace")).unwrap();
     std::fs::write(root.path().join("workspace/AGENTS.md"), "Use cargo fmt.\n").unwrap();
@@ -288,16 +311,19 @@ async fn check_resume(streaming: bool) {
     )
     .unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let config = config(
+    let mut config = config(
         &format!("http://{}", listener.local_addr().unwrap()),
         streaming,
     );
+    if subscription {
+        use_subscription(&mut config, root.path());
+    }
     std::fs::write(
         root.path().join("config.json"),
         serde_json::to_vec(&config).unwrap(),
     )
     .unwrap();
-    let server = tokio::spawn(serve(listener, streaming));
+    let server = tokio::spawn(serve(listener, streaming || subscription));
     run_child(root.path()).await;
     let note: Value =
         serde_json::from_slice(&std::fs::read(root.path().join("resume.json")).unwrap()).unwrap();
@@ -402,6 +428,16 @@ async fn check_resume(streaming: bool) {
         .unwrap()
         .load_projection()
         .unwrap();
+    if subscription {
+        let journal =
+            std::fs::read_to_string(session_dir.join(proteus_core::core::JOURNAL_FILE)).unwrap();
+        assert!(!journal.contains("fixture-oauth-secret"));
+        assert!(!journal.contains("fixture-refresh-secret"));
+        for request in &requests {
+            assert_eq!(request["stream"], true);
+            assert!(request.get("max_output_tokens").is_none());
+        }
+    }
     let model_requests: Vec<_> = restored
         .records
         .iter()
@@ -495,10 +531,20 @@ async fn check_resume(streaming: bool) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn codex_model_state_survives_cold_resume_json() {
-    check_resume(false).await;
+    check_resume(false, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn codex_model_state_survives_cold_resume_sse() {
-    check_resume(true).await;
+    check_resume(true, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn subscription_model_preserves_tools_journal_and_cold_resume_sse() {
+    check_resume(true, true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn subscription_complete_collects_sse_and_preserves_cold_resume() {
+    check_resume(false, true).await;
 }

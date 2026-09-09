@@ -48,11 +48,16 @@ run_and_capture install "${output_dir}/install.txt" "${project_dir}/install.sh"
 
 proteus="${bin_dir}/proteus"
 test -x "${proteus}"
+test -x "${bin_dir}/proteus-reference-worker"
 test -L "${runtime_home}/current"
 test -x "${runtime_home}/current/proteus"
 test -x "${runtime_home}/current/proteus-reference-worker"
 test -f "${config_home}/configs/codex-explore.config.toml"
 test -f "${config_home}/configs/codex-coder.config.toml"
+test -f "${config_home}/configs/codex-chatgpt.config.toml"
+test -f "${config_home}/configs/codex-chatgpt-explore.config.toml"
+test -f "${config_home}/configs/codex-chatgpt-coder.config.toml"
+test -f "${config_home}/configs/fragments/openai-chatgpt.toml"
 test -f "${config_home}/configs/fragments/codex-peer-runtime.toml"
 test -f "${config_home}/configs/fragments/codex-explore-peer.toml"
 test -f "${config_home}/configs/fragments/codex-coder-peer.toml"
@@ -67,6 +72,16 @@ fi
 
 run_and_capture version "${output_dir}/version.txt" "${proteus}" --version
 require_text "proteus " "${output_dir}/version.txt"
+
+run_and_capture auth-help "${output_dir}/auth-help.txt" \
+  "${bin_dir}/proteus-reference-worker" auth openai_codex login --help
+require_text "--device-auth" "${output_dir}/auth-help.txt"
+run_and_capture auth-status "${output_dir}/auth-status.txt" \
+  "${bin_dir}/proteus-reference-worker" auth openai_codex status --auth-file "${smoke_root}/chatgpt.json"
+require_text "вход не выполнен" "${output_dir}/auth-status.txt"
+run_and_capture subscription-doctor "${output_dir}/subscription-doctor.txt" \
+  "${proteus}" --config codex-chatgpt doctor
+require_text "openai_codex" "${output_dir}/subscription-doctor.txt"
 
 run_and_capture init "${output_dir}/init.txt" "${proteus}" init safe
 test -f "${config_home}/configs/config.toml"

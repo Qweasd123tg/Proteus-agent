@@ -546,7 +546,9 @@ Descriptor, capabilities, stream events и terminal DTO отклоняют не�
 - `describe(null) -> ProcessModelDescriptor`: стабильные adapter id,
   capabilities и hosted tools данного export; вызывается при сборке snapshot.
 - `stream(ProcessModelInput { request, stream }) -> ProcessModelOutput`:
-  один canonical request; `stream` выбирает режим upstream transport.
+  один canonical request; `stream` выбирает streaming или complete режим
+  реализации. Если provider поддерживает только SSE, complete собирает один
+  SSE request в terminal без промежуточных events (`openai_codex`).
 - До terminal worker последовательно вызывает `host.model.emit` с
   `ProcessModelEvent { sequence, event }` и ждёт `null` ack. Нумерация с нуля,
   без пропусков; `Response` и `Error` через emit запрещены.

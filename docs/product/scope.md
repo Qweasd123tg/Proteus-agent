@@ -21,7 +21,8 @@
 - AgentControl для полных local Proteus peers: lifecycle, bounded mailbox,
   messaging, follow-up и адресная отмена.
 - CLI/REPL, HTTP/SSE/stdio app-server, web chat и Inspector.
-- OpenAI, OpenAI-compatible, Anthropic и fake implementations в reference
+- OpenAI, OpenAI-compatible, ChatGPT subscription OAuth (`openai_codex`),
+  Anthropic и fake implementations в reference
   `model-pack`; Core использует общий `model/v7` process adapter.
 - Doctor, inspect/topology, eval report и атомарная локальная установка.
 

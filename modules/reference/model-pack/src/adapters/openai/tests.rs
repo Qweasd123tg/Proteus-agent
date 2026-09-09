@@ -71,6 +71,7 @@ fn provider_config_rejects_non_boolean_http1_only() {
     .expect_err("http1_only must remain an explicit boolean transport choice");
 
     assert!(error.to_string().contains("http1_only must be a boolean"));
+    assert!(OpenAiResponsesClient::from_provider_config(json!({"prompt_caching": true})).is_err());
 }
 
 #[test]

@@ -60,6 +60,21 @@ proteus doctor
 пути. Альтернативные каталоги задаются через `PROTEUS_BIN_DIR`,
 `PROTEUS_HOME` и `PROTEUS_CONFIG_HOME`.
 
+Для подключения подписки ChatGPT через OAuth, как в OpenCode:
+
+```bash
+proteus-reference-worker auth openai_codex login
+proteus --config codex-chatgpt
+```
+
+Installer также публикует launcher `proteus-reference-worker` для команд
+авторизации provider-а. `login --device-auth` позволяет войти без локального
+browser callback; `status` показывает локальный вход, `logout` удаляет его.
+Отдельные credentials Proteus не затрагивают вход Codex/OpenCode. Профиль
+`codex-chatgpt` и его peers используют подписочный backend; автоматического
+перехода на API key нет. Настройки и ограничения:
+[ChatGPT subscription](docs/guides/configuration.md#chatgpt-subscription-через-oauth).
+
 `proteus init coding` создаёт config и `prompts/direct-patch.md` с синтаксисом
 выбранного patch module только когда вы явно вызываете init. Уже
 существующий рабочий config перезаписывать не нужно. Затем перейдите в целевой

@@ -1,0 +1,27 @@
+include = [
+  "fragments/openai-chatgpt.toml",
+  "fragments/codex-runtime.toml",
+  "fragments/codex-profile.toml",
+]
+
+[profile]
+name = "codex-chatgpt"
+
+# Массив полностью заменяет роли codex-runtime: peers также используют подписку.
+[[agent_control.roles]]
+name = "explore"
+description = "Read-only codebase explorer. Uses the ChatGPT subscription profile."
+config = "codex-chatgpt-explore"
+parallel_safe = true
+max_processes = 4
+timeout_ms = 14400000
+max_summary_bytes = 8192
+
+[[agent_control.roles]]
+name = "coder"
+description = "Isolated coder in its own worktree. Uses the ChatGPT subscription profile."
+config = "codex-chatgpt-coder"
+isolation = "worktree"
+max_processes = 4
+timeout_ms = 14400000
+max_summary_bytes = 8192
