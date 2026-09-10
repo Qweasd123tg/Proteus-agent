@@ -14,8 +14,10 @@ use crate::app_server::{AppServerEvent, StdioOutput};
 
 const SSE_HEARTBEAT_SECS: u64 = 15;
 
-pub(super) async fn sse_response(state: HttpAppState) -> HttpResponse {
-    let server = state.current_server().await;
+pub(super) async fn sse_response(
+    state: HttpAppState,
+    server: crate::app_server::AppServerHandle,
+) -> HttpResponse {
     let mut events = server.subscribe();
     let mut activity_events = state.subscribe_activity();
     let body = StreamBody::new(stream! {
@@ -26,7 +28,6 @@ pub(super) async fn sse_response(state: HttpAppState) -> HttpResponse {
             yield Ok(Frame::data(encode_sse_output(&output)));
             return;
         }
-        state.remember_server(server.clone()).await;
         state.emit_session_activity_for_server(&server).await;
 
         let mut heartbeat = tokio::time::interval(Duration::from_secs(SSE_HEARTBEAT_SECS));

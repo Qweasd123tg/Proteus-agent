@@ -3,12 +3,17 @@ use super::*;
 #[tokio::test]
 async fn request_dispatch_sets_permission_mode() {
     let cwd = tempfile::tempdir().expect("cwd");
-    let server =
-        AgentAppServer::launch(crate::test_model::config(), cwd.path().to_path_buf(), None)
-            .await
-            .expect("app server");
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let config_path = config_dir.path().join("config.toml");
+    let server = AgentAppServer::launch(
+        crate::test_model::config(),
+        cwd.path().to_path_buf(),
+        Some(&config_path),
+    )
+    .await
+    .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
 
     let output = execute_app_request(
         &state,
@@ -16,6 +21,7 @@ async fn request_dispatch_sets_permission_mode() {
             id: Some("mode-1".to_owned()),
             mode: PermissionMode::Auto,
         },
+        Some(&session_query(&server)),
     )
     .await;
 
@@ -47,12 +53,17 @@ async fn request_dispatch_sets_permission_mode() {
 #[tokio::test]
 async fn request_dispatch_sets_reasoning_effort() {
     let cwd = tempfile::tempdir().expect("cwd");
-    let server =
-        AgentAppServer::launch(crate::test_model::config(), cwd.path().to_path_buf(), None)
-            .await
-            .expect("app server");
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let config_path = config_dir.path().join("config.toml");
+    let server = AgentAppServer::launch(
+        crate::test_model::config(),
+        cwd.path().to_path_buf(),
+        Some(&config_path),
+    )
+    .await
+    .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
 
     let output = execute_app_request(
         &state,
@@ -60,6 +71,7 @@ async fn request_dispatch_sets_reasoning_effort() {
             id: Some("effort-1".to_owned()),
             effort: Some("high".to_owned()),
         },
+        Some(&session_query(&server)),
     )
     .await;
 
@@ -95,12 +107,17 @@ async fn request_dispatch_sets_reasoning_effort() {
 #[tokio::test]
 async fn reasoning_effort_none_toggles_reasoning() {
     let cwd = tempfile::tempdir().expect("cwd");
-    let server =
-        AgentAppServer::launch(crate::test_model::config(), cwd.path().to_path_buf(), None)
-            .await
-            .expect("app server");
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let config_path = config_dir.path().join("config.toml");
+    let server = AgentAppServer::launch(
+        crate::test_model::config(),
+        cwd.path().to_path_buf(),
+        Some(&config_path),
+    )
+    .await
+    .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
 
     // effort «none» выключает рассуждения целиком.
     let output = execute_app_request(
@@ -109,6 +126,7 @@ async fn reasoning_effort_none_toggles_reasoning() {
             id: Some("effort-none".to_owned()),
             effort: Some("none".to_owned()),
         },
+        Some(&session_query(&server)),
     )
     .await;
     assert!(matches!(output, StdioOutput::Response { ok: true, .. }));
@@ -131,6 +149,7 @@ async fn reasoning_effort_none_toggles_reasoning() {
             id: Some("effort-back".to_owned()),
             effort: Some("high".to_owned()),
         },
+        Some(&session_query(&server)),
     )
     .await;
     assert!(matches!(output, StdioOutput::Response { ok: true, .. }));
@@ -151,13 +170,15 @@ async fn reasoning_effort_none_toggles_reasoning() {
 #[tokio::test]
 async fn request_dispatch_sets_model_and_reasoning_enabled() {
     let cwd = tempfile::tempdir().expect("cwd");
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let config_path = config_dir.path().join("config.toml");
     let mut config = crate::test_model::config();
     config.providers.get_mut("fake").unwrap().reasoning_efforts = vec!["high".into(), "max".into()];
-    let server = AgentAppServer::launch(config, cwd.path().to_path_buf(), None)
+    let server = AgentAppServer::launch(config, cwd.path().to_path_buf(), Some(&config_path))
         .await
         .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
 
     let model_output = execute_app_request(
         &state,
@@ -165,6 +186,7 @@ async fn request_dispatch_sets_model_and_reasoning_enabled() {
             id: Some("model-1".to_owned()),
             model: "deepseek-v4-pro".to_owned(),
         },
+        Some(&session_query(&server)),
     )
     .await;
     assert!(matches!(
@@ -178,6 +200,7 @@ async fn request_dispatch_sets_model_and_reasoning_enabled() {
             id: Some("reasoning-1".to_owned()),
             enabled: false,
         },
+        Some(&session_query(&server)),
     )
     .await;
     assert!(matches!(
@@ -208,13 +231,13 @@ async fn request_dispatch_sets_model_and_reasoning_enabled() {
 
 #[tokio::test]
 async fn route_approval_resolves_pending_request_with_auth_and_cors() {
-    let (state, server) = test_state().await;
+    let (state, server, _config_dir) = test_state().await;
     let (approval_tx, approval_rx) = tokio::sync::oneshot::channel();
     let approval_id = "approval-route".to_owned();
     register_pending_approval(&server, &approval_id, approval_tx).await;
     let request = Request::builder()
         .method(Method::POST)
-        .uri("/approval")
+        .uri(session_uri("/approval", &server))
         .header(ORIGIN, "http://127.0.0.1:1420")
         .header(AUTHORIZATION, "Bearer session-secret")
         .header(CONTENT_TYPE, "application/json")
@@ -255,13 +278,13 @@ async fn route_approval_resolves_pending_request_with_auth_and_cors() {
 
 #[tokio::test]
 async fn route_user_input_resolves_pending_request_with_auth_and_cors() {
-    let (state, server) = test_state().await;
+    let (state, server, _config_dir) = test_state().await;
     let (input_tx, input_rx) = tokio::sync::oneshot::channel();
     let request_id = "input-route".to_owned();
     register_pending_user_input(&server, &request_id, input_tx).await;
     let request = Request::builder()
         .method(Method::POST)
-        .uri("/user-input")
+        .uri(session_uri("/user-input", &server))
         .header(ORIGIN, "http://127.0.0.1:1420")
         .header(AUTHORIZATION, "Bearer session-secret")
         .header(CONTENT_TYPE, "application/json")
@@ -310,7 +333,7 @@ async fn route_user_input_resolves_pending_request_with_auth_and_cors() {
 
 #[tokio::test]
 async fn route_pending_returns_current_pending_requests_with_auth_and_cors() {
-    let (state, server) = test_state().await;
+    let (state, server, _config_dir) = test_state().await;
     let (approval_tx, _approval_rx) = tokio::sync::oneshot::channel();
     let approval_id = "approval-pending".to_owned();
     register_pending_approval(&server, &approval_id, approval_tx).await;
@@ -318,7 +341,7 @@ async fn route_pending_returns_current_pending_requests_with_auth_and_cors() {
     let request_id = "input-pending".to_owned();
     register_pending_user_input(&server, &request_id, input_tx).await;
 
-    let response = route_request(state, authed_get_request("/pending"))
+    let response = route_request(state, authed_get_request(&session_uri("/pending", &server)))
         .await
         .expect("response");
 

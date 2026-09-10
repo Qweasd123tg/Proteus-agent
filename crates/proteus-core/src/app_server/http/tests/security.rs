@@ -250,7 +250,7 @@ fn options_response_adds_cors_headers_for_allowed_origin() {
 
 #[tokio::test]
 async fn route_rejects_missing_token_before_dispatching_protected_endpoint() {
-    let (state, server) = test_state().await;
+    let (state, server, _config_dir) = test_state().await;
     let request = Request::builder()
         .method(Method::GET)
         .uri("/config")
@@ -271,7 +271,7 @@ async fn route_rejects_missing_token_before_dispatching_protected_endpoint() {
 
 #[tokio::test]
 async fn route_rejects_event_stream_without_token() {
-    let (state, server) = test_state().await;
+    let (state, server, _config_dir) = test_state().await;
     let request = Request::builder()
         .method(Method::GET)
         .uri("/events")
@@ -286,7 +286,7 @@ async fn route_rejects_event_stream_without_token() {
 
 #[tokio::test]
 async fn route_rejects_mutating_endpoint_without_token() {
-    let (state, server) = test_state().await;
+    let (state, server, _config_dir) = test_state().await;
     let request = Request::builder()
         .method(Method::POST)
         .uri("/send")
@@ -301,7 +301,7 @@ async fn route_rejects_mutating_endpoint_without_token() {
 
 #[tokio::test]
 async fn route_rejects_bad_origin_even_with_valid_token() {
-    let (state, server) = test_state().await;
+    let (state, server, _config_dir) = test_state().await;
     let request = Request::builder()
         .method(Method::GET)
         .uri("/config")
@@ -324,10 +324,10 @@ async fn route_rejects_bad_origin_even_with_valid_token() {
 
 #[tokio::test]
 async fn route_accepts_allowed_origin_and_never_uses_wildcard_cors() {
-    let (state, server) = test_state().await;
+    let (state, server, _config_dir) = test_state().await;
     let request = Request::builder()
         .method(Method::GET)
-        .uri("/config")
+        .uri(session_uri("/config", &server))
         .header(ORIGIN, "http://127.0.0.1:1420")
         .header(AUTHORIZATION, "Bearer session-secret")
         .body(empty_body())

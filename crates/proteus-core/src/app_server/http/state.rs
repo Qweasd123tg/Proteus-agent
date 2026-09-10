@@ -6,7 +6,7 @@ use std::{
 
 use tokio::sync::{Mutex, broadcast};
 
-use crate::contracts::CancellationToken;
+use crate::{contracts::CancellationToken, core::AppConfig};
 
 use super::{AppServerEvent, AppServerHandle, AppSessionActivity, security::HttpSecurity};
 
@@ -26,8 +26,19 @@ impl RunningRun {
 }
 
 #[derive(Clone)]
+pub(super) struct HttpLaunchContext {
+    pub(super) config: AppConfig,
+    pub(super) cwd: PathBuf,
+    pub(super) config_path: Option<PathBuf>,
+    pub(super) initial_session_dir: Option<PathBuf>,
+}
+
+#[derive(Clone)]
 pub(super) struct HttpAppState {
-    pub(super) server: Arc<Mutex<AppServerHandle>>,
+    pub(super) launch: Arc<HttpLaunchContext>,
+    // Serialize registry lifecycle changes, so concurrent resume cannot create
+    // two runtimes writing the same session journal.
+    pub(super) session_lifecycle: Arc<Mutex<()>>,
     pub(super) session_servers: Arc<Mutex<HashMap<PathBuf, AppServerHandle>>>,
     pub(super) running_runs: Arc<Mutex<HashMap<String, RunningRun>>>,
     activity_events: broadcast::Sender<AppServerEvent>,
@@ -37,19 +48,26 @@ pub(super) struct HttpAppState {
 }
 
 impl HttpAppState {
-    pub(super) fn new(
+    pub(super) async fn new(
         server: AppServerHandle,
         shutdown: broadcast::Sender<()>,
         security: HttpSecurity,
     ) -> Self {
         let initial_server = server.clone();
+        let launch = HttpLaunchContext {
+            config: server.config.read().await.clone(),
+            cwd: server.cwd.clone(),
+            config_path: server.config_path.clone(),
+            initial_session_dir: server.session_dir_path(),
+        };
         let mut session_servers = HashMap::new();
         if let Some(session_dir) = server.session_dir_path() {
             session_servers.insert(session_key(session_dir), server.clone());
         }
         let (activity_events, _) = broadcast::channel(1024);
         let state = Self {
-            server: Arc::new(Mutex::new(server)),
+            launch: Arc::new(launch),
+            session_lifecycle: Arc::new(Mutex::new(())),
             session_servers: Arc::new(Mutex::new(session_servers)),
             running_runs: Arc::new(Mutex::new(HashMap::new())),
             activity_events,
@@ -61,17 +79,8 @@ impl HttpAppState {
         state
     }
 
-    pub(super) async fn current_server(&self) -> AppServerHandle {
-        self.server.lock().await.clone()
-    }
-
     pub(super) fn subscribe_activity(&self) -> broadcast::Receiver<AppServerEvent> {
         self.activity_events.subscribe()
-    }
-
-    pub(super) async fn set_current_server(&self, server: AppServerHandle) {
-        self.remember_server(server.clone()).await;
-        *self.server.lock().await = server;
     }
 
     pub(super) async fn remember_server(&self, server: AppServerHandle) {
@@ -91,6 +100,10 @@ impl HttpAppState {
         session_dir: &Path,
     ) -> Option<AppServerHandle> {
         let key = session_key(session_dir.to_path_buf());
+        self.watched_sessions
+            .lock()
+            .expect("session watcher lock")
+            .remove(&key);
         self.session_servers.lock().await.remove(&key)
     }
 
@@ -103,42 +116,12 @@ impl HttpAppState {
     }
 
     pub(super) async fn all_servers(&self) -> Vec<AppServerHandle> {
-        let current = self.current_server().await;
-        let mut servers = vec![current.clone()];
-        let current_dir = current.session_dir_path().map(session_key);
-        servers.extend(
-            self.session_servers
-                .lock()
-                .await
-                .iter()
-                .filter(|(session_dir, _)| Some(*session_dir) != current_dir.as_ref())
-                .map(|(_, server)| server.clone()),
-        );
-        servers
-    }
-
-    pub(super) async fn server_for_pending_approval(
-        &self,
-        approval_id: &str,
-    ) -> Option<AppServerHandle> {
-        for server in self.all_servers().await {
-            if server.has_pending_approval(approval_id).await {
-                return Some(server);
-            }
-        }
-        None
-    }
-
-    pub(super) async fn server_for_pending_user_input(
-        &self,
-        request_id: &str,
-    ) -> Option<AppServerHandle> {
-        for server in self.all_servers().await {
-            if server.has_pending_user_input(request_id).await {
-                return Some(server);
-            }
-        }
-        None
+        self.session_servers
+            .lock()
+            .await
+            .values()
+            .cloned()
+            .collect()
     }
 
     pub(super) async fn running_run_ids_for(&self, session_dir: Option<&Path>) -> Vec<String> {
@@ -216,8 +199,8 @@ impl HttpAppState {
         }
 
         let state = self.clone();
+        let mut events = server.subscribe();
         tokio::spawn(async move {
-            let mut events = server.subscribe();
             loop {
                 match events.recv().await {
                     Ok(event) => {

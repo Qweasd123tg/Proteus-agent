@@ -1,4 +1,10 @@
 use serde::Deserialize;
+
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct BootstrapInfo {
+    pub(crate) session_dir: Option<String>,
+    pub(crate) cwd: String,
+}
 use serde_json::Value;
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]

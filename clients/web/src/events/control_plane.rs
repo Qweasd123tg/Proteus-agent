@@ -1,8 +1,12 @@
-use crate::{api::get_json, types::*};
+use crate::{
+    api::{get_json, session_path},
+    types::*,
+};
 use leptos::{prelude::*, task::spawn_local};
 use wasm_bindgen::JsValue;
 
 pub(super) fn refresh_pending_control_plane(
+    session_dir: String,
     set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
     set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
     set_queued_prompts: WriteSignal<Vec<QueuedPromptInfo>>,
@@ -10,7 +14,8 @@ pub(super) fn refresh_pending_control_plane(
     expected: u64,
 ) {
     spawn_local(async move {
-        let result = get_json::<PendingControlPlaneInfo>("/pending").await;
+        let result =
+            get_json::<PendingControlPlaneInfo>(&session_path("/pending", &session_dir)).await;
         if generation.try_get_untracked() != Some(expected) {
             return;
         }

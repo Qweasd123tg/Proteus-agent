@@ -17,6 +17,7 @@ pub(crate) fn HeaderView<N, R, O, C, T>(
     workspace_label: ReadSignal<String>,
     transport_status: ReadSignal<TransportStatus>,
     waiting_background_sessions: Memo<Vec<SessionSummary>>,
+    active_session_dir: ReadSignal<Option<String>>,
     active_run_id: ReadSignal<Option<String>>,
     event_count: ReadSignal<u64>,
     tool_activities: ReadSignal<Vec<ToolActivity>>,
@@ -133,7 +134,9 @@ where
                             <div class="topbar-menu-panel">
                                 <a
                                     class="topbar-menu-item"
-                                    href=crate::api::inspector_link_url()
+                                    href=move || crate::api::inspector_link_url(
+                                        active_session_dir.get().as_deref()
+                                    )
                                     on:click=move |_| close_topbar_menu()
                                 >
                                     "Inspector"

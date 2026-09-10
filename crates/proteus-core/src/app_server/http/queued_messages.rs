@@ -1,6 +1,4 @@
-use super::{
-    commands::command_response, sessions::server_for_optional_session, state::HttpAppState,
-};
+use super::{commands::command_response, sessions::server_for_session, state::HttpAppState};
 use crate::{app_server::StdioOutput, domain::MessageId};
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -9,7 +7,7 @@ use std::path::PathBuf;
 #[serde(deny_unknown_fields)]
 pub(super) struct EditQueuedMessageRequest {
     pub id: Option<String>,
-    pub session_dir: Option<PathBuf>,
+    pub session_dir: PathBuf,
     pub message_id: MessageId,
     pub text: String,
 }
@@ -18,13 +16,13 @@ pub(super) struct EditQueuedMessageRequest {
 #[serde(deny_unknown_fields)]
 pub(super) struct DeleteQueuedMessageRequest {
     pub id: Option<String>,
-    pub session_dir: Option<PathBuf>,
+    pub session_dir: PathBuf,
     pub message_id: MessageId,
 }
 
 pub(super) async fn edit(state: &HttpAppState, request: EditQueuedMessageRequest) -> StdioOutput {
     let result = async {
-        let server = server_for_optional_session(state, request.session_dir).await?;
+        let server = server_for_session(state, request.session_dir).await?;
         server
             .edit_queued_user_message(request.message_id, request.text)
             .await?;
@@ -39,7 +37,7 @@ pub(super) async fn delete(
     request: DeleteQueuedMessageRequest,
 ) -> StdioOutput {
     let result = async {
-        let server = server_for_optional_session(state, request.session_dir).await?;
+        let server = server_for_session(state, request.session_dir).await?;
         server
             .delete_queued_user_message(request.message_id)
             .await?;

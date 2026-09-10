@@ -142,7 +142,7 @@ cargo test --manifest-path clients/desktop/src-tauri/Cargo.toml -- --include-ign
 ```
 
 Packaged-backend test запускает настоящий backend с fake model, проверяет JSON
-readiness, authenticated `/config`, CORS native origin, cold `/history`, отказ
+readiness, authenticated `/bootstrap` и адресованный `/config`, CORS native origin, cold `/history`, отказ
 без credential, SSE reconnect, завершение и повторное открытие проекта. Отдельно проверяются
 ошибка старта и правило обновления config assets. Для UI применяются Rust unit
 tests web/Inspector и `trunk build`. После release-сборки

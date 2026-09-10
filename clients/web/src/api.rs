@@ -15,7 +15,8 @@ const DEFAULT_APP_SERVER_ORIGIN: &str = "http://127.0.0.1:8787";
 const DEFAULT_INSPECTOR_ORIGIN: &str = "http://127.0.0.1:1421";
 const SERVER_QUERY_KEY: &str = "server";
 const INSPECTOR_QUERY_KEY: &str = "inspector";
-const SESSION_QUERY_KEY: &str = "token";
+const TOKEN_QUERY_KEY: &str = "token";
+const SESSION_DIR_QUERY_KEY: &str = "session_dir";
 const SERVER_STORAGE_KEY: &str = "proteus.appServerOrigin";
 const INSPECTOR_STORAGE_KEY: &str = "proteus.inspectorOrigin";
 const SESSION_CREDENTIAL_STORAGE_KEY: &str = "proteus.sessionCredential";
@@ -36,7 +37,7 @@ pub(crate) fn load_session_token() -> Result<SessionToken, String> {
     load_app_server_origin()?;
     load_inspector_origin()?;
     let stored = load_stored_credential()?;
-    let resolved = resolve_credential(&app_server_origin(), query_value(SESSION_QUERY_KEY), stored);
+    let resolved = resolve_credential(&app_server_origin(), query_value(TOKEN_QUERY_KEY), stored);
     update_stored_credential(&resolved.storage_update)?;
     let token = resolved
         .token
@@ -47,17 +48,94 @@ pub(crate) fn load_session_token() -> Result<SessionToken, String> {
     Ok(token)
 }
 
-pub(crate) fn event_stream_url() -> String {
+pub(crate) fn event_stream_url(session_dir: &str) -> String {
     let token = current_session_token();
     let origin = app_server_origin();
-    match token.as_deref() {
-        Some(token) => format!(
-            "{origin}/events?{}={}",
-            SESSION_QUERY_KEY,
+    let mut url = format!(
+        "{origin}/events?{SESSION_DIR_QUERY_KEY}={}",
+        encode_uri_component(session_dir)
+    );
+    if let Some(token) = token.as_deref() {
+        url.push_str(&format!(
+            "&{TOKEN_QUERY_KEY}={}",
             encode_uri_component(token)
-        ),
-        None => format!("{origin}/events"),
+        ));
     }
+    url
+}
+
+pub(crate) fn session_path(path: &str, session_dir: &str) -> String {
+    let separator = if path.contains('?') { '&' } else { '?' };
+    format!(
+        "{path}{separator}{SESSION_DIR_QUERY_KEY}={}",
+        encode_uri_component(session_dir)
+    )
+}
+
+pub(crate) fn requested_session_dir() -> Option<String> {
+    query_value(SESSION_DIR_QUERY_KEY).filter(|value| !value.trim().is_empty())
+}
+
+pub(crate) fn load_selected_session_dir() -> Result<Option<String>, String> {
+    let Some(storage) = session_storage()? else {
+        return Ok(None);
+    };
+    storage
+        .get_item(&selected_session_storage_key())
+        .map_err(js_error)
+}
+
+pub(crate) fn persist_selected_session_dir(session_dir: &str) -> Result<(), String> {
+    if let Some(storage) = session_storage()? {
+        storage
+            .set_item(&selected_session_storage_key(), session_dir)
+            .map_err(js_error)?;
+    }
+    replace_requested_session_dir(Some(session_dir))
+}
+
+pub(crate) fn clear_selected_session_dir() -> Result<(), String> {
+    if let Some(storage) = session_storage()? {
+        storage
+            .remove_item(&selected_session_storage_key())
+            .map_err(js_error)?;
+    }
+    replace_requested_session_dir(None)
+}
+
+fn selected_session_storage_key() -> String {
+    proteus_client_common::selected_session_storage_key(&app_server_origin())
+}
+
+fn replace_requested_session_dir(session_dir: Option<&str>) -> Result<(), String> {
+    let window = window().ok_or_else(|| "window is unavailable".to_owned())?;
+    let location = window.location();
+    let search = location.search().map_err(js_error)?;
+    let mut pairs: Vec<String> = search
+        .trim_start_matches('?')
+        .split('&')
+        .filter(|pair| !pair.is_empty())
+        .filter(|pair| pair.split_once('=').map_or(*pair, |(key, _)| key) != SESSION_DIR_QUERY_KEY)
+        .map(ToOwned::to_owned)
+        .collect();
+    if let Some(session_dir) = session_dir {
+        pairs.push(format!(
+            "{SESSION_DIR_QUERY_KEY}={}",
+            encode_uri_component(session_dir)
+        ));
+    }
+    let query = if pairs.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", pairs.join("&"))
+    };
+    let path = location.pathname().map_err(js_error)?;
+    let hash = location.hash().map_err(js_error)?;
+    window
+        .history()
+        .map_err(js_error)?
+        .replace_state_with_url(&JsValue::NULL, "", Some(&format!("{path}{query}{hash}")))
+        .map_err(js_error)
 }
 
 pub(crate) async fn post_json<T: Serialize>(path: &str, body: &T) -> Result<StdioOutput, String> {
@@ -198,9 +276,16 @@ fn load_inspector_origin() -> Result<(), String> {
 
 /// Ссылка на Inspector с пробросом session token и app-server origin:
 /// hardcoded href терял бы token при включённом token-режиме.
-pub(crate) fn inspector_link_url() -> String {
+pub(crate) fn inspector_link_url(session_dir: Option<&str>) -> String {
     if proteus_client_common::desktop::is_desktop() {
-        return "proteus-desktop:inspector".to_owned();
+        return session_dir
+            .map(|session_dir| {
+                format!(
+                    "proteus-desktop:inspector?session_dir={}",
+                    encode_uri_component(session_dir)
+                )
+            })
+            .unwrap_or_else(|| "proteus-desktop:inspector".to_owned());
     }
     let origin = INSPECTOR_ORIGIN.with(|stored| stored.borrow().clone());
     let mut params = Vec::new();
@@ -214,6 +299,9 @@ pub(crate) fn inspector_link_url() -> String {
         "server={}",
         encode_uri_component(&app_server_origin())
     ));
+    if let Some(session_dir) = session_dir {
+        params.push(format!("session_dir={}", encode_uri_component(session_dir)));
+    }
     format!("{origin}/?{}", params.join("&"))
 }
 
@@ -306,10 +394,6 @@ fn encode_uri_component(value: &str) -> String {
     js_sys::encode_uri_component(value)
         .as_string()
         .unwrap_or_else(|| value.to_owned())
-}
-
-pub(crate) fn encode_query_component(value: &str) -> String {
-    encode_uri_component(value)
 }
 
 fn decode_uri_component(value: &str) -> Option<String> {

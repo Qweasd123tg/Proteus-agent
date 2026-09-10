@@ -150,7 +150,7 @@ impl Backend {
 
     fn check_connection(&self) -> Result<()> {
         let response = self
-            .request("GET", "/config")
+            .request("GET", "/bootstrap")
             .context("Backend запущен, но подключение не удалось")?;
         if !response.starts_with("HTTP/1.1 200 ")
             || !response

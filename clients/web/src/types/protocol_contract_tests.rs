@@ -26,10 +26,11 @@ fn assert_endpoint_body_matches_contract<T: Serialize, U: Serialize>(
     web_request: T,
     contract_request: U,
 ) {
-    assert_eq!(
-        serde_json::to_value(web_request).expect("web request JSON"),
-        endpoint_body(contract_request)
-    );
+    let mut web_request = serde_json::to_value(web_request).expect("web request JSON");
+    if let Some(object) = web_request.as_object_mut() {
+        object.remove("session_dir");
+    }
+    assert_eq!(web_request, endpoint_body(contract_request));
 }
 
 fn contract_approval_request() -> contract_protocol::AppApprovalRequest {
@@ -271,7 +272,7 @@ fn queued_message_commands_match_the_app_contract() {
     let id = contract_domain::new_message_id();
     let mut edit = endpoint_body(EditQueuedMessageRequest {
         id: Some("queue-edit".into()),
-        session_dir: None,
+        session_dir: "/tmp/session".to_owned(),
         message_id: id.to_string(),
         text: "updated text".into(),
     });
@@ -283,7 +284,7 @@ fn queued_message_commands_match_the_app_contract() {
     );
     let mut delete = endpoint_body(DeleteQueuedMessageRequest {
         id: None,
-        session_dir: None,
+        session_dir: "/tmp/session".to_owned(),
         message_id: id.to_string(),
     });
     delete.as_object_mut().unwrap().remove("session_dir");
@@ -359,7 +360,7 @@ fn web_endpoint_request_bodies_match_contract_stdio_requests_without_transport_t
         SendRequest {
             id: Some("send-1".to_owned()),
             text: "hello".to_owned(),
-            session_dir: None,
+            session_dir: "/tmp/session".to_owned(),
         },
         contract_protocol::StdioRequest::Send {
             id: Some("send-1".to_owned()),
@@ -370,7 +371,7 @@ fn web_endpoint_request_bodies_match_contract_stdio_requests_without_transport_t
         SetPermissionModeRequest {
             id: Some("mode-1".to_owned()),
             mode: PermissionMode::Auto,
-            session_dir: None,
+            session_dir: "/tmp/session".to_owned(),
         },
         contract_protocol::StdioRequest::SetPermissionMode {
             id: Some("mode-1".to_owned()),
@@ -381,7 +382,7 @@ fn web_endpoint_request_bodies_match_contract_stdio_requests_without_transport_t
         SetModelRequest {
             id: Some("model-1".to_owned()),
             model: "gpt-5".to_owned(),
-            session_dir: None,
+            session_dir: "/tmp/session".to_owned(),
         },
         contract_protocol::StdioRequest::SetModel {
             id: Some("model-1".to_owned()),
@@ -392,7 +393,7 @@ fn web_endpoint_request_bodies_match_contract_stdio_requests_without_transport_t
         SetReasoningEffortRequest {
             id: Some("effort-1".to_owned()),
             effort: Some("high".to_owned()),
-            session_dir: None,
+            session_dir: "/tmp/session".to_owned(),
         },
         contract_protocol::StdioRequest::SetReasoningEffort {
             id: Some("effort-1".to_owned()),
@@ -405,7 +406,7 @@ fn web_endpoint_request_bodies_match_contract_stdio_requests_without_transport_t
         SetReasoningEffortRequest {
             id: Some("effort-2".to_owned()),
             effort: Some("none".to_owned()),
-            session_dir: None,
+            session_dir: "/tmp/session".to_owned(),
         },
         contract_protocol::StdioRequest::SetReasoningEffort {
             id: Some("effort-2".to_owned()),

@@ -18,6 +18,7 @@ pub(super) fn AppShell(
         tool_activities,
         pending_approvals,
         pending_user_inputs,
+        transcript_generation,
         messages,
         ..
     } = state.chat;
@@ -133,7 +134,7 @@ pub(super) fn AppShell(
 
             <main class="workspace-main">
                 <crate::components::header::HeaderView
-                    route workspace_label transport_status waiting_background_sessions active_run_id event_count tool_activities info_panel_open
+                    route workspace_label transport_status waiting_background_sessions active_session_dir active_run_id event_count tool_activities info_panel_open
                     on_navigate=topnav_click on_reconnect=reconnect_transport
                     on_open_session=move |session| session_actions.open_sidebar_session(session)
                     on_cancel=move |value| commands.cancel_turn.run(value) on_toggle_info=toggle_info_panel
@@ -155,7 +156,7 @@ pub(super) fn AppShell(
                             />
                         }.into_any()
                     } else if current == "/settings" {
-                        view! { <SettingsView tool_cards_collapsed set_tool_cards_collapsed /> }.into_any()
+                        view! { <SettingsView active_session_dir transcript_generation tool_cards_collapsed set_tool_cards_collapsed /> }.into_any()
                     } else {
                         view! {
                             <ChatResultsView

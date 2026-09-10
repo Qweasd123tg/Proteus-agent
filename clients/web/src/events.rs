@@ -37,7 +37,6 @@ pub(crate) struct EventStreamBindings {
     pub(crate) set_workspace_label: WriteSignal<String>,
     pub(crate) set_session_label: WriteSignal<String>,
     pub(crate) active_session_dir: ReadSignal<Option<String>>,
-    pub(crate) set_active_session_dir: WriteSignal<Option<String>>,
     pub(crate) set_is_sending: WriteSignal<bool>,
     pub(crate) set_active_run_id: WriteSignal<Option<String>>,
     pub(crate) active_stream_message_id: ReadSignal<Option<u64>>,
@@ -67,7 +66,6 @@ fn handle_app_output(
     set_workspace_label: WriteSignal<String>,
     set_session_label: WriteSignal<String>,
     active_session_dir: ReadSignal<Option<String>>,
-    set_active_session_dir: WriteSignal<Option<String>>,
     set_is_sending: WriteSignal<bool>,
     set_active_run_id: WriteSignal<Option<String>>,
     active_stream_message_id: ReadSignal<Option<u64>>,
@@ -99,7 +97,6 @@ fn handle_app_output(
                 set_workspace_label,
                 set_session_label,
                 active_session_dir,
-                set_active_session_dir,
                 set_is_sending,
                 set_active_run_id,
                 active_stream_message_id,
@@ -138,7 +135,6 @@ fn handle_app_event(
     set_workspace_label: WriteSignal<String>,
     set_session_label: WriteSignal<String>,
     active_session_dir: ReadSignal<Option<String>>,
-    set_active_session_dir: WriteSignal<Option<String>>,
     set_is_sending: WriteSignal<bool>,
     set_active_run_id: WriteSignal<Option<String>>,
     active_stream_message_id: ReadSignal<Option<u64>>,
@@ -180,12 +176,7 @@ fn handle_app_event(
                 set_context_usage,
                 set_queued_prompts,
             );
-            update_session_labels(
-                envelope,
-                set_workspace_label,
-                set_session_label,
-                set_active_session_dir,
-            );
+            update_session_labels(envelope, set_workspace_label, set_session_label);
         }
         AppServerEvent::UserMessageSubmitted { text } => {
             flush_stream_delta_buffer(stream_bindings);
@@ -375,7 +366,11 @@ fn handle_app_event(
             set_active_stream_message_id.set(None);
             set_streamed_this_turn.set(false);
             let expected_generation = transcript_generation.get_untracked();
+            let Some(session_dir) = active_session_dir.get_untracked() else {
+                return;
+            };
             replace_transcript(
+                session_dir.clone(),
                 set_messages,
                 transcript_generation,
                 expected_generation,
@@ -386,6 +381,7 @@ fn handle_app_event(
                 set_transport_status,
             );
             refresh_pending_control_plane(
+                session_dir,
                 set_pending_approvals,
                 set_pending_user_inputs,
                 set_queued_prompts,

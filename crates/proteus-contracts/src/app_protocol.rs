@@ -11,7 +11,9 @@
 //! `proteus server stdio` читает по одной JSONL-строке `StdioRequest` из
 //! stdin и пишет по одной JSONL-строке `StdioOutput` в stdout.
 //! `proteus server http` принимает тот же `StdioRequest` через `POST /request`
-//! и публикует `StdioOutput::Event` через `GET /events` как SSE. Оба формата
+//! и публикует `StdioOutput::Event` через `GET /events` как SSE. Сессионные
+//! HTTP-команды `/request` и подписка требуют явный `?session_dir=...`; stdio
+//! привязан к сессии запуском процесса. Оба формата
 //! используют tagged enum с полем `"type"`.
 //!
 //! ## Жизненный цикл
@@ -38,7 +40,7 @@ mod requests;
 mod session;
 pub use requests::StdioRequest;
 
-pub use session::{AppSessionActivity, AppSessionActivityStatus, AppSessionSummary};
+pub use session::{AppBootstrap, AppSessionActivity, AppSessionActivityStatus, AppSessionSummary};
 
 /// ID approval'а — произвольная строка, уникальная для session агента.
 pub type AppApprovalId = String;

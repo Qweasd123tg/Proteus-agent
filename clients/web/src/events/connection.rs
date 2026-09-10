@@ -56,7 +56,8 @@ fn connect_event_stream(
     bindings: EventStreamBindings,
     refresh_history: bool,
 ) -> Option<EventConnection> {
-    let url = event_stream_url();
+    let session_dir = bindings.active_session_dir.get_untracked()?;
+    let url = event_stream_url(&session_dir);
     let stream_generation = bindings.transcript_generation.get_untracked();
     let source = match EventSource::new(&url) {
         Ok(source) => source,
@@ -90,6 +91,7 @@ fn connect_event_stream(
             .set_transport_status
             .set(TransportStatus::Connected);
         super::control_plane::refresh_pending_control_plane(
+            session_dir.clone(),
             bindings.set_pending_approvals,
             bindings.set_pending_user_inputs,
             bindings.set_queued_prompts,
@@ -106,6 +108,7 @@ fn connect_event_stream(
             bindings.set_streamed_this_turn.set(false);
             let expected_generation = bindings.transcript_generation.get_untracked();
             replace_transcript(
+                session_dir.clone(),
                 bindings.set_messages,
                 bindings.transcript_generation,
                 expected_generation,
@@ -143,7 +146,6 @@ fn connect_event_stream(
                     bindings.set_workspace_label,
                     bindings.set_session_label,
                     bindings.active_session_dir,
-                    bindings.set_active_session_dir,
                     bindings.set_is_sending,
                     bindings.set_active_run_id,
                     bindings.active_stream_message_id,

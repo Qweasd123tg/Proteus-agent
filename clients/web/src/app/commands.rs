@@ -1,7 +1,11 @@
 use super::{connection::ClientConnection, state::AppState};
 use crate::{
-    actions::*, api::post_json, app_keyboard::install_global_keydown, messages::report_error,
-    types::*, ui_utils::input::insert_textarea_newline,
+    actions::*,
+    api::{post_json, session_path},
+    app_keyboard::install_global_keydown,
+    messages::report_error,
+    types::*,
+    ui_utils::input::insert_textarea_newline,
 };
 use leptos::{prelude::*, task::spawn_local};
 use std::collections::HashMap;
@@ -28,6 +32,7 @@ pub(super) fn commands(state: AppState, connection: ClientConnection) -> ChatCom
         set_is_sending,
         active_run_id,
         set_active_run_id,
+        transcript_generation,
         set_messages,
         ..
     } = state.chat;
@@ -40,6 +45,7 @@ pub(super) fn commands(state: AppState, connection: ClientConnection) -> ChatCom
         ..
     } = state.request;
     let super::state::SessionState {
+        active_session_dir,
         set_transport_status,
         ..
     } = state.session;
@@ -51,10 +57,14 @@ pub(super) fn commands(state: AppState, connection: ClientConnection) -> ChatCom
         ..
     } = state.view;
     let resolve_approval = move |approval_id: String, approved: bool, cache: ApprovalCacheScope| {
+        let Some(session_dir) = active_session_dir.get_untracked() else {
+            return;
+        };
+        let generation = transcript_generation.get_untracked();
         let request_id = take_request_id(next_request_id, set_next_request_id, "approval");
         spawn_local(async move {
             match post_json(
-                "/approval",
+                &session_path("/approval", &session_dir),
                 &ResolveApprovalRequest {
                     id: Some(request_id),
                     approval_id,
@@ -65,14 +75,28 @@ pub(super) fn commands(state: AppState, connection: ClientConnection) -> ChatCom
             )
             .await
             {
-                Ok(output) => handle_command_response(
-                    output,
-                    set_messages,
-                    next_message_id,
-                    set_next_message_id,
-                    set_transport_status,
-                ),
+                Ok(output) => {
+                    if transcript_generation.get_untracked() != generation
+                        || active_session_dir.get_untracked().as_deref()
+                            != Some(session_dir.as_str())
+                    {
+                        return;
+                    }
+                    handle_command_response(
+                        output,
+                        set_messages,
+                        next_message_id,
+                        set_next_message_id,
+                        set_transport_status,
+                    );
+                }
                 Err(error) => {
+                    if transcript_generation.get_untracked() != generation
+                        || active_session_dir.get_untracked().as_deref()
+                            != Some(session_dir.as_str())
+                    {
+                        return;
+                    }
                     report_error(
                         set_messages,
                         next_message_id,
@@ -88,6 +112,10 @@ pub(super) fn commands(state: AppState, connection: ClientConnection) -> ChatCom
 
     let submit_user_input =
         move |request_id_value: String, answers: HashMap<String, Vec<String>>| {
+            let Some(session_dir) = active_session_dir.get_untracked() else {
+                return;
+            };
+            let generation = transcript_generation.get_untracked();
             set_stick_to_bottom.set(true);
             let request_id = take_request_id(next_request_id, set_next_request_id, "input");
             let response = UserInputResponseBody {
@@ -98,7 +126,7 @@ pub(super) fn commands(state: AppState, connection: ClientConnection) -> ChatCom
             };
             spawn_local(async move {
                 match post_json(
-                    "/user-input",
+                    &session_path("/user-input", &session_dir),
                     &UserInputSubmitRequest {
                         id: Some(request_id),
                         request_id: request_id_value,
@@ -107,14 +135,28 @@ pub(super) fn commands(state: AppState, connection: ClientConnection) -> ChatCom
                 )
                 .await
                 {
-                    Ok(output) => handle_command_response(
-                        output,
-                        set_messages,
-                        next_message_id,
-                        set_next_message_id,
-                        set_transport_status,
-                    ),
+                    Ok(output) => {
+                        if transcript_generation.get_untracked() != generation
+                            || active_session_dir.get_untracked().as_deref()
+                                != Some(session_dir.as_str())
+                        {
+                            return;
+                        }
+                        handle_command_response(
+                            output,
+                            set_messages,
+                            next_message_id,
+                            set_next_message_id,
+                            set_transport_status,
+                        );
+                    }
                     Err(error) => {
+                        if transcript_generation.get_untracked() != generation
+                            || active_session_dir.get_untracked().as_deref()
+                                != Some(session_dir.as_str())
+                        {
+                            return;
+                        }
                         report_error(
                             set_messages,
                             next_message_id,
@@ -130,6 +172,8 @@ pub(super) fn commands(state: AppState, connection: ClientConnection) -> ChatCom
 
     let cancel_turn = move |_| {
         cancel_active_run(
+            active_session_dir,
+            transcript_generation,
             active_run_id,
             next_request_id,
             set_next_request_id,
@@ -218,6 +262,8 @@ pub(super) fn commands(state: AppState, connection: ClientConnection) -> ChatCom
     install_global_keydown(
         composer_ref,
         resize,
+        active_session_dir,
+        transcript_generation,
         active_run_id,
         next_request_id,
         set_next_request_id,

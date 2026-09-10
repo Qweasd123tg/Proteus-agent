@@ -6,14 +6,15 @@ use serde::Deserialize;
 use crate::domain::PermissionMode;
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct SendRequest {
     pub(super) id: Option<String>,
     pub(super) text: String,
-    #[serde(default)]
-    pub(super) session_dir: Option<PathBuf>,
+    pub(super) session_dir: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct ApprovalRequest {
     pub(super) id: Option<String>,
     pub(super) approval_id: String,
@@ -24,6 +25,7 @@ pub(super) struct ApprovalRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct UserInputRequest {
     pub(super) id: Option<String>,
     pub(super) request_id: String,
@@ -31,44 +33,46 @@ pub(super) struct UserInputRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct CancelRequest {
     pub(super) id: Option<String>,
     pub(super) target_id: String,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct SetPermissionModeRequest {
     pub(super) id: Option<String>,
     pub(super) mode: PermissionMode,
-    #[serde(default)]
-    pub(super) session_dir: Option<PathBuf>,
+    pub(super) session_dir: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct SetModelRequest {
     pub(super) id: Option<String>,
     pub(super) model: String,
-    #[serde(default)]
-    pub(super) session_dir: Option<PathBuf>,
+    pub(super) session_dir: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct SetReasoningEffortRequest {
     pub(super) id: Option<String>,
     pub(super) effort: Option<String>,
-    #[serde(default)]
-    pub(super) session_dir: Option<PathBuf>,
+    pub(super) session_dir: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct SetReasoningEnabledRequest {
     pub(super) id: Option<String>,
     pub(super) enabled: bool,
-    #[serde(default)]
-    pub(super) session_dir: Option<PathBuf>,
+    pub(super) session_dir: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct SetConfigBuilderRequest {
     #[serde(default)]
     pub(super) modules: BTreeMap<String, String>,
@@ -86,6 +90,7 @@ pub(super) struct SetConfigBuilderRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct SetWebConfigRequest {
     pub(super) id: Option<String>,
     #[serde(default)]
@@ -93,17 +98,21 @@ pub(super) struct SetWebConfigRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct ResumeSessionRequest {
     pub(super) id: Option<String>,
     pub(super) session_dir: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct NewSessionRequest {
     pub(super) id: Option<String>,
+    pub(super) source_session_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct DeleteSessionRequest {
     pub(super) id: Option<String>,
     pub(super) session_dir: PathBuf,

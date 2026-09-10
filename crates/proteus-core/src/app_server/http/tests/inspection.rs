@@ -3,11 +3,17 @@ use super::*;
 #[tokio::test]
 async fn quota_endpoint_requires_auth_and_distinguishes_unsupported() {
     let cwd = tempfile::tempdir().unwrap();
-    let server = AgentAppServer::launch(crate::test_model::config(), cwd.path().to_owned(), None)
-        .await
-        .unwrap();
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let config_path = config_dir.path().join("config.toml");
+    let server = AgentAppServer::launch(
+        crate::test_model::config(),
+        cwd.path().to_owned(),
+        Some(&config_path),
+    )
+    .await
+    .unwrap();
     let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
     let unauthorized = route_request(
         state.clone(),
         Request::builder()
@@ -18,9 +24,12 @@ async fn quota_endpoint_requires_auth_and_distinguishes_unsupported() {
     .await
     .unwrap();
     assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
-    let response = route_request(state, authed_get_request("/model/quota"))
-        .await
-        .unwrap();
+    let response = route_request(
+        state,
+        authed_get_request(&session_uri("/model/quota", &server)),
+    )
+    .await
+    .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         serde_json::from_slice::<Value>(&response_bytes(response).await).unwrap(),
@@ -32,17 +41,22 @@ async fn quota_endpoint_requires_auth_and_distinguishes_unsupported() {
 #[tokio::test]
 async fn route_inspect_topology_returns_json_and_mermaid() {
     let cwd = tempfile::tempdir().expect("cwd");
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let config_path = config_dir.path().join("config.toml");
     let mut config = crate::test_model::config();
     config.tools.enabled = vec!["apply_patch".to_owned()];
-    let server = AgentAppServer::launch(config, cwd.path().to_path_buf(), None)
+    let server = AgentAppServer::launch(config, cwd.path().to_path_buf(), Some(&config_path))
         .await
         .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
 
-    let response = route_request(state.clone(), authed_get_request("/inspect/topology"))
-        .await
-        .expect("topology response");
+    let response = route_request(
+        state.clone(),
+        authed_get_request(&session_uri("/inspect/topology", &server)),
+    )
+    .await
+    .expect("topology response");
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         response
@@ -109,9 +123,12 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
             && edge.get("kind").and_then(Value::as_str) == Some("registered_tool")
     }));
 
-    let response = route_request(state.clone(), authed_get_request("/inspect/plan"))
-        .await
-        .expect("assembly plan response");
+    let response = route_request(
+        state.clone(),
+        authed_get_request(&session_uri("/inspect/plan", &server)),
+    )
+    .await
+    .expect("assembly plan response");
     assert_eq!(response.status(), StatusCode::OK);
     let body = response_bytes(response).await;
     let plan: Value = serde_json::from_slice(&body).expect("assembly plan JSON");
@@ -127,9 +144,12 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
     );
     assert!(plan.get("config").is_none(), "raw config leaked into plan");
 
-    let response = route_request(state.clone(), authed_get_request("/inspect/topology.mmd"))
-        .await
-        .expect("mermaid response");
+    let response = route_request(
+        state.clone(),
+        authed_get_request(&session_uri("/inspect/topology.mmd", &server)),
+    )
+    .await
+    .expect("mermaid response");
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         response
@@ -147,9 +167,12 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
     assert!(body.contains("selects modules"));
     assert!(!body.contains("Warnings"));
 
-    let response = route_request(state.clone(), authed_get_request("/inspect/topology.map"))
-        .await
-        .expect("map response");
+    let response = route_request(
+        state.clone(),
+        authed_get_request(&session_uri("/inspect/topology.map", &server)),
+    )
+    .await
+    .expect("map response");
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         response
@@ -165,7 +188,7 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
 
     let response = route_request(
         state.clone(),
-        authed_get_request("/inspect/topology.runtime"),
+        authed_get_request(&session_uri("/inspect/topology.runtime", &server)),
     )
     .await
     .expect("runtime response");
@@ -182,9 +205,12 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
     assert!(body.contains("Active product path"));
     assert!(body.contains("ToolRegistry"));
 
-    let response = route_request(state, authed_get_request("/inspect/topology.runtime.mmd"))
-        .await
-        .expect("runtime mermaid response");
+    let response = route_request(
+        state,
+        authed_get_request(&session_uri("/inspect/topology.runtime.mmd", &server)),
+    )
+    .await
+    .expect("runtime mermaid response");
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         response
@@ -202,10 +228,10 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
 
 #[tokio::test]
 async fn event_stream_flushes_initial_heartbeat() {
-    let (state, server) = test_state().await;
+    let (state, server, _config_dir) = test_state().await;
     let request = Request::builder()
         .method(Method::GET)
-        .uri("/events?token=session-secret")
+        .uri(session_uri("/events?token=session-secret", &server))
         .header(ORIGIN, "http://127.0.0.1:1420")
         .body(empty_body())
         .expect("request");

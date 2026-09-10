@@ -1,24 +1,25 @@
 use leptos::prelude::*;
+use leptos::task::spawn_local;
 use proteus_client_common::desktop;
 use web_sys::window;
 
 use crate::{
-    api::{app_server_origin, chat_link_url, has_session_token, load_session_token},
+    api::{
+        app_server_origin, chat_link_url, has_session_token, initialize_selected_session,
+        load_session_token, query_value,
+    },
     architecture::ArchitectureView,
     configs::ConfigsView,
 };
 
 #[component]
 pub(crate) fn App() -> impl IntoView {
-    let is_architecture = window()
-        .and_then(|window| window.location().pathname().ok())
-        .is_some_and(|path| {
-            path == "/architecture"
-                || (desktop::is_desktop()
-                    && window()
-                        .and_then(|w| w.location().search().ok())
-                        .is_some_and(|q| q == "?view=architecture"))
-        });
+    let path = window().and_then(|window| window.location().pathname().ok());
+    let is_architecture = is_architecture_route(
+        path.as_deref(),
+        query_value("view").as_deref(),
+        desktop::is_desktop(),
+    );
     let token_error = load_session_token().err();
     let origin = app_server_origin();
     let endpoint = origin
@@ -30,12 +31,25 @@ pub(crate) fn App() -> impl IntoView {
         .flatten()
         .map(|c| c.workspace)
         .unwrap_or(endpoint);
-    let access_label = match token_error {
+    let access_label = match token_error.as_ref() {
         Some(_) => "Хранилище сессии недоступно",
         None if desktop::is_desktop() => "Подключено",
         None if has_session_token() => "Токен сессии настроен",
         None => "Локальный сервер",
     };
+    let selected_session = RwSignal::new(None::<Result<String, String>>);
+    let chat_url = RwSignal::new(chat_link_url());
+    if let Some(error) = token_error {
+        selected_session.set(Some(Err(error)));
+    } else {
+        spawn_local(async move {
+            let result = initialize_selected_session().await;
+            if result.is_ok() {
+                chat_url.set(chat_link_url());
+            }
+            selected_session.set(Some(result));
+        });
+    }
 
     view! {
         <div class="inspector-shell">
@@ -75,18 +89,32 @@ pub(crate) fn App() -> impl IntoView {
             <main class="inspector-main">
                 <header class="inspector-topbar">
                     <div class="inspector-breadcrumb"><span>"Рабочее пространство"</span><span aria-hidden="true">"/"</span><strong>"Inspector"</strong></div>
-                    <a class="inspector-chat-link" href=chat_link_url()>"Открыть чат"<span aria-hidden="true">"↗"</span></a>
+                    <a class="inspector-chat-link" href=move || chat_url.get()>"Открыть чат"<span aria-hidden="true">"↗"</span></a>
                 </header>
                 <div class="inspector-content" id="inspector-content" tabindex="-1">
-                    {if is_architecture {
-                        view! { <ArchitectureView/> }.into_any()
-                    } else {
-                        view! { <ConfigsView/> }.into_any()
+                    {move || match selected_session.get() {
+                        Some(Ok(_)) if is_architecture => view! { <ArchitectureView/> }.into_any(),
+                        Some(Ok(_)) => view! { <ConfigsView/> }.into_any(),
+                        Some(Err(error)) => view! {
+                            <div class="empty-state">
+                                <div class="empty-state-title">"Не удалось выбрать сессию"</div>
+                                <p>{error}</p>
+                            </div>
+                        }.into_any(),
+                        None => view! {
+                            <div class="empty-state">
+                                <div class="empty-state-title">"Подключаю сессию…"</div>
+                            </div>
+                        }.into_any(),
                     }}
                 </div>
             </main>
         </div>
     }
+}
+
+fn is_architecture_route(path: Option<&str>, view: Option<&str>, is_desktop: bool) -> bool {
+    path == Some("/architecture") || (is_desktop && view == Some("architecture"))
 }
 
 #[component]
@@ -98,5 +126,22 @@ fn NavIcon(kind: &'static str) -> impl IntoView {
     };
     view! {
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d=path/></svg>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_architecture_route;
+
+    #[test]
+    fn desktop_architecture_view_does_not_depend_on_other_query_parameters() {
+        // `view` is parsed by key before this decision, so a sibling
+        // `session_dir` query parameter cannot change the selected page.
+        assert!(is_architecture_route(
+            Some("/inspector.html"),
+            Some("architecture"),
+            true
+        ));
+        assert!(!is_architecture_route(Some("/inspector.html"), None, true));
     }
 }

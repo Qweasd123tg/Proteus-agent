@@ -179,6 +179,9 @@ const usage = await services['agent.usage.read'].read();
 
 Укажите используемые интерфейсы в `requires` манифеста.
 Ответы — неизменённый JSON публичных `GET /config` и `GET /model/quota`.
+Клиентский transport добавляет `?session_dir=<path>` к config, quota и usage
+запросам по выбору чата конкретного окна. Сам пакет не выбирает глобальную
+session на сервере; открытие другого окна не меняет адрес этих чтений.
 Usage reader отдаёт `SessionUsageSnapshot` из публичного `GET /usage` для
 выбранного чата либо `null`, если runtime не ведёт canonical journal.
 Quota reader возвращает snapshot из `api.d.ts` или `null` (не поддерживается);

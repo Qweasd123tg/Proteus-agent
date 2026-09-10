@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-async fn route_new_session_replaces_active_session_dir() {
+async fn route_new_session_registers_an_independently_addressable_session() {
     let cwd = tempfile::tempdir().expect("cwd");
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
@@ -20,7 +20,7 @@ async fn route_new_session_replaces_active_session_dir() {
         .expect("original session dir")
         .to_owned();
     let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
 
     let response = route_request(
         state.clone(),
@@ -44,20 +44,19 @@ async fn route_new_session_replaces_active_session_dir() {
         .and_then(Value::as_str)
         .expect("new session dir");
     assert_ne!(next_session_dir, original_session_dir);
-    assert_eq!(
+    assert!(
         state
-            .current_server()
+            .server_for_session_dir(PathBuf::from(next_session_dir).as_path())
             .await
-            .config_summary()
-            .await
-            .get("session_dir")
-            .and_then(Value::as_str),
-        Some(next_session_dir)
+            .is_some()
     );
 
-    let response = route_request(state.clone(), authed_get_request("/sessions/current"))
-        .await
-        .expect("sessions response");
+    let response = route_request(
+        state.clone(),
+        authed_get_request(&format!("/sessions/current?session_dir={next_session_dir}")),
+    )
+    .await
+    .expect("sessions response");
     assert_eq!(response.status(), StatusCode::OK);
     let bytes = response_bytes(response).await;
     let sessions: Vec<Value> = serde_json::from_slice(&bytes).expect("sessions JSON");
@@ -84,22 +83,25 @@ async fn route_new_session_replaces_active_session_dir() {
     .expect("resume response");
     assert_eq!(response.status(), StatusCode::OK);
 
-    let response = route_request(state.clone(), authed_get_request("/sessions/current"))
-        .await
-        .expect("sessions response after resume");
+    let response = route_request(
+        state.clone(),
+        authed_get_request(&format!(
+            "/sessions/current?session_dir={original_session_dir}"
+        )),
+    )
+    .await
+    .expect("sessions response after resume");
     assert_eq!(response.status(), StatusCode::OK);
     let bytes = response_bytes(response).await;
     let sessions: Vec<Value> = serde_json::from_slice(&bytes).expect("sessions JSON");
     assert!(
-        !sessions
-            .iter()
-            .any(|session| session.get("session_dir").and_then(Value::as_str)
-                == Some(next_session_dir)),
-        "background empty idle session should disappear after switching away"
+        sessions.iter().any(|session| {
+            session.get("session_dir").and_then(Value::as_str) == Some(next_session_dir)
+        }),
+        "every live empty session should remain listed"
     );
 
-    server.shutdown().await;
-    state.current_server().await.shutdown().await;
+    shutdown_test_servers(&state).await;
 }
 
 #[tokio::test]
@@ -122,7 +124,7 @@ async fn route_new_session_keeps_background_turn_registered() {
         .expect("original session dir")
         .to_owned();
     let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
     let cancellation = CancellationToken::new();
     state.running_runs.lock().await.insert(
         "run-background".to_owned(),
@@ -155,9 +157,14 @@ async fn route_new_session_keeps_background_turn_registered() {
             .is_some()
     );
 
-    let response = route_request(state.clone(), authed_get_request("/sessions/current"))
-        .await
-        .expect("sessions response");
+    let response = route_request(
+        state.clone(),
+        authed_get_request(&format!(
+            "/sessions/current?session_dir={original_session_dir}"
+        )),
+    )
+    .await
+    .expect("sessions response");
     assert_eq!(response.status(), StatusCode::OK);
     let bytes = response_bytes(response).await;
     let sessions: Vec<Value> = serde_json::from_slice(&bytes).expect("sessions JSON");
@@ -183,12 +190,11 @@ async fn route_new_session_keeps_background_turn_registered() {
     );
 
     cancellation.cancel();
-    server.shutdown().await;
-    state.current_server().await.shutdown().await;
+    shutdown_test_servers(&state).await;
 }
 
 #[tokio::test]
-async fn route_send_async_targets_requested_session_after_current_switches() {
+async fn route_send_async_targets_requested_session_after_another_is_created() {
     let cwd = tempfile::tempdir().expect("cwd");
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
@@ -207,7 +213,7 @@ async fn route_send_async_targets_requested_session_after_current_switches() {
         .expect("original session dir")
         .to_owned();
     let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
 
     let response = route_request(
         state.clone(),
@@ -216,8 +222,24 @@ async fn route_send_async_targets_requested_session_after_current_switches() {
     .await
     .expect("new session response");
     assert_eq!(response.status(), StatusCode::OK);
-    let current_after_switch = state.current_server().await;
-    assert!(!current_after_switch.is_session_dir(PathBuf::from(&original_session_dir).as_path()));
+    let output = response_output(response).await;
+    let StdioOutput::Response {
+        ok: true,
+        output: Some(summary),
+        ..
+    } = output
+    else {
+        panic!("expected successful new-session response");
+    };
+    let next_session_dir = summary
+        .get("session_dir")
+        .and_then(Value::as_str)
+        .expect("new session dir")
+        .to_owned();
+    let next_server = state
+        .server_for_session_dir(PathBuf::from(&next_session_dir).as_path())
+        .await
+        .expect("new session server");
 
     let response = route_request(
         state.clone(),
@@ -245,9 +267,7 @@ async fn route_send_async_targets_requested_session_after_current_switches() {
             .any(|message| message.role == "user" && message.text == "sent to original session")
     );
     assert!(
-        !state
-            .current_server()
-            .await
+        !next_server
             .transcript()
             .await
             .expect("transcript")
@@ -255,8 +275,7 @@ async fn route_send_async_targets_requested_session_after_current_switches() {
             .any(|message| message.text == "sent to original session")
     );
 
-    server.shutdown().await;
-    state.current_server().await.shutdown().await;
+    shutdown_test_servers(&state).await;
 }
 
 #[tokio::test]
@@ -280,7 +299,7 @@ async fn route_resume_reuses_live_session_without_persisted_directory() {
         .to_owned();
     assert!(!PathBuf::from(&original_session_dir).exists());
     let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
 
     let response = route_request(
         state.clone(),
@@ -337,19 +356,15 @@ async fn route_resume_reuses_live_session_without_persisted_directory() {
             .and_then(Value::as_str),
         Some("run-original")
     );
-    assert_eq!(
+    assert!(
         state
-            .current_server()
+            .server_for_session_dir(PathBuf::from(&original_session_dir).as_path())
             .await
-            .config_summary()
-            .await
-            .get("session_dir")
-            .and_then(Value::as_str),
-        Some(original_session_dir.as_str())
+            .is_some()
     );
 
     original_cancellation.cancel();
-    state.current_server().await.shutdown().await;
+    shutdown_test_servers(&state).await;
 }
 
 #[tokio::test]
@@ -365,7 +380,7 @@ async fn route_approval_resolves_background_session_request() {
     .await
     .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
     let (responder, response_rx) = tokio::sync::oneshot::channel();
     let approval_id = "approval-background".to_owned();
     register_pending_approval(&server, &approval_id, responder).await;
@@ -381,7 +396,7 @@ async fn route_approval_resolves_background_session_request() {
     let response = route_request(
         state.clone(),
         authed_json_request(
-            "/approval",
+            &session_uri("/approval", &server),
             json!({
                 "id": "approval-response",
                 "approval_id": approval_id,
@@ -405,12 +420,11 @@ async fn route_approval_resolves_background_session_request() {
     assert!(approval.approved);
     assert_eq!(approval.note.as_deref(), Some("approved in background"));
 
-    server.shutdown().await;
-    state.current_server().await.shutdown().await;
+    shutdown_test_servers(&state).await;
 }
 
 #[tokio::test]
-async fn route_delete_unsaved_active_session_opens_new_one() {
+async fn route_delete_unsaved_live_session_removes_it_without_replacement() {
     let cwd = tempfile::tempdir().expect("cwd");
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
@@ -431,7 +445,7 @@ async fn route_delete_unsaved_active_session_opens_new_one() {
     server.start_session().await.expect("start session");
     assert!(!PathBuf::from(&original_session_dir).exists());
     let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
 
     let response = route_request(
         state.clone(),
@@ -456,24 +470,14 @@ async fn route_delete_unsaved_active_session_opens_new_one() {
     else {
         panic!("expected successful delete-session response");
     };
-    assert_eq!(summary.get("deleted").and_then(Value::as_bool), Some(false));
-    assert_eq!(
-        summary.get("active_replaced").and_then(Value::as_bool),
-        Some(true)
-    );
+    assert_eq!(summary.get("deleted").and_then(Value::as_bool), Some(true));
+    assert!(summary.get("active_replaced").is_none());
     assert!(!PathBuf::from(&original_session_dir).exists());
-    let next_session_dir = state
-        .current_server()
-        .await
-        .config_summary()
-        .await
-        .get("session_dir")
-        .and_then(Value::as_str)
-        .expect("next session dir")
-        .to_owned();
-    assert_ne!(next_session_dir, original_session_dir);
-    assert!(!PathBuf::from(next_session_dir).exists());
-
-    server.shutdown().await;
-    state.current_server().await.shutdown().await;
+    assert!(
+        state
+            .server_for_session_dir(PathBuf::from(&original_session_dir).as_path())
+            .await
+            .is_none()
+    );
+    assert!(state.all_servers().await.is_empty());
 }

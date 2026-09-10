@@ -95,18 +95,13 @@ mod browser {
     ) {
         Effect::new(move |_| {
             let Some(element) = root.get() else { return };
-            let path = session_dir
-                .get()
-                .map(|dir| {
-                    format!(
-                        "/usage?session_dir={}",
-                        crate::api::encode_query_component(&dir)
-                    )
-                })
-                .unwrap_or_else(|| "/usage".to_owned());
+            let Some(session_dir) = session_dir.get() else {
+                return;
+            };
+            let path = crate::api::session_path("/usage", &session_dir);
             let readers = StoredValue::new_local((
-                reader("/config".into()),
-                reader("/model/quota".into()),
+                reader(crate::api::session_path("/config", &session_dir)),
+                reader(crate::api::session_path("/model/quota", &session_dir)),
                 reader(path),
             ));
             let mounted = readers.with_value(|(config, quota, usage)| {

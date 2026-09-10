@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, bail};
-use proteus_client_common::desktop::DesktopConnection;
+use proteus_client_common::{desktop::DesktopConnection, selected_session_storage_key};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_opener::OpenerExt;
 
@@ -25,8 +25,22 @@ pub fn launcher(app: &AppHandle) -> Result<()> {
     Ok(())
 }
 
-pub fn client(app: &AppHandle, label: &str, connection: &DesktopConnection) -> Result<()> {
-    if app.get_webview_window(label).is_some() {
+pub fn client(
+    app: &AppHandle,
+    label: &str,
+    connection: &DesktopConnection,
+    session_dir: Option<&str>,
+) -> Result<()> {
+    if let Some(window) = app.get_webview_window(label) {
+        if let Some(session_dir) = session_dir {
+            let storage_key = selected_session_storage_key(&connection.app_server_origin);
+            window.eval(format!(
+                "(() => {{ sessionStorage.setItem({}, {}); const url = new URL(location.href); url.searchParams.set('session_dir', {}); location.href = url.href; }})();",
+                serde_json::to_string(&storage_key)?,
+                serde_json::to_string(session_dir)?,
+                serde_json::to_string(session_dir)?,
+            ))?;
+        }
         return focus(app, label);
     }
     let (file, title) = match label {
@@ -41,6 +55,10 @@ pub fn client(app: &AppHandle, label: &str, connection: &DesktopConnection) -> R
     );
     let opener = app.clone();
     let new_window_opener = app.clone();
+    let file = match session_dir {
+        Some(session_dir) => format!("{file}?session_dir={}", percent_encode_query(session_dir)),
+        None => file.to_owned(),
+    };
     WebviewWindowBuilder::new(app, label, WebviewUrl::App(file.into()))
         .title(format!("{title} — {}", connection.workspace))
         .inner_size(1440.0, 940.0)
@@ -73,4 +91,16 @@ pub fn client(app: &AppHandle, label: &str, connection: &DesktopConnection) -> R
         })
         .build()?;
     Ok(())
+}
+
+fn percent_encode_query(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
 }

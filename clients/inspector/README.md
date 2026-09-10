@@ -31,6 +31,11 @@ runtime-control state.
   показывает карту связей, путь запроса, слоты, модули, инструменты и
   предупреждения. Карта поддерживает pan/zoom, автоматический `fit` и
   полноэкранный режим с выходом по `Escape`.
+- До загрузки страниц Inspector выбирает одну сессию окна: сначала из
+  `session_dir` в URL, затем из `sessionStorage` для точного app-server origin,
+  затем из `/bootstrap`. Выбор подтверждается через `/resume`; если сессий ещё
+  нет, Inspector создаёт её через `/new-session`. Все config/inspect запросы
+  содержат явный `session_dir`.
 
 Ссылка «Открыть чат» в верхней панели строится динамически и пробрасывает `session` token и
 `server` origin обратно в chat-клиент; origin chat-клиента переопределяется
@@ -74,7 +79,8 @@ http://127.0.0.1:1421/?server=http%3A%2F%2F127.0.0.1%3A9000
 http://127.0.0.1:1421/?token=<PROTEUS_SESSION_TOKEN>
 ```
 
-Custom app-server origin и token можно совмещать как `?server=...&token=...`.
+Custom app-server origin, token и сессию можно совмещать как
+`?server=...&token=...&session_dir=...`.
 Допустим только local HTTP(S) origin (`localhost` или loopback IP) без path,
 query, fragment и userinfo. Credential хранится вместе с точным
 нормализованным app-server origin: смена `server` без нового `token` удаляет

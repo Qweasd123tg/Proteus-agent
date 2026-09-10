@@ -5,6 +5,11 @@ use url::{Host, Url};
 
 pub mod desktop;
 
+/// Per-window session selection is scoped to one exact app-server origin.
+pub fn selected_session_storage_key(app_server_origin: &str) -> String {
+    format!("proteus.selectedSessionDir:{app_server_origin}")
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct SessionCredential {
     pub app_server_origin: String,

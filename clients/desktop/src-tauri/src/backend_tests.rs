@@ -35,9 +35,20 @@ path = ".proteus/events.jsonl"
     let origin = backend.connection.app_server_origin.clone();
     assert!(!origin.ends_with(":0"));
     assert!(!backend.diagnostics().contains(&backend.connection.token));
+    let bootstrap = backend.request("GET", "/bootstrap").unwrap();
+    assert!(bootstrap.starts_with("HTTP/1.1 200 "), "{bootstrap}");
+    let body = bootstrap.split("\r\n\r\n").nth(1).unwrap();
+    let session_dir = serde_json::from_str::<serde_json::Value>(body).unwrap()["session_dir"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let encoded_session_dir = percent_encode_query(&session_dir);
     assert!(
         backend
-            .request("GET", "/history")
+            .request(
+                "GET",
+                &format!("/history?session_dir={encoded_session_dir}"),
+            )
             .unwrap()
             .starts_with("HTTP/1.1 200 ")
     );
@@ -48,7 +59,7 @@ path = ".proteus/events.jsonl"
         .unwrap();
     write!(
         unauthorized,
-        "GET /config HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n"
+        "GET /config?session_dir={encoded_session_dir} HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n"
     )
     .unwrap();
     let mut response = String::new();
@@ -62,8 +73,8 @@ path = ".proteus/events.jsonl"
             .unwrap();
         write!(
             events,
-            "GET /events?token={} HTTP/1.1\r\nHost: {address}\r\nOrigin: tauri://localhost\r\n\r\n",
-            backend.connection.token
+            "GET /events?session_dir={encoded_session_dir}&token={} HTTP/1.1\r\nHost: {address}\r\nOrigin: tauri://localhost\r\n\r\n",
+            backend.connection.token,
         )
         .unwrap();
         let mut response = String::new();
@@ -92,6 +103,18 @@ path = ".proteus/events.jsonl"
         )
         .unwrap(),
     );
+}
+
+fn percent_encode_query(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
 }
 
 #[test]

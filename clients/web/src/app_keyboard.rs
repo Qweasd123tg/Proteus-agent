@@ -9,6 +9,8 @@ use crate::types::TransportStatus;
 pub(crate) fn install_global_keydown(
     composer_ref: NodeRef<html::Textarea>,
     resize: crate::app_resize::AppResizeState,
+    active_session_dir: ReadSignal<Option<String>>,
+    transcript_generation: ReadSignal<u64>,
     active_run_id: ReadSignal<Option<String>>,
     next_request_id: ReadSignal<u64>,
     set_next_request_id: WriteSignal<u64>,
@@ -47,6 +49,8 @@ pub(crate) fn install_global_keydown(
                 if active_run_id.get().is_some() {
                     ev.prevent_default();
                     cancel_active_run(
+                        active_session_dir,
+                        transcript_generation,
                         active_run_id,
                         next_request_id,
                         set_next_request_id,

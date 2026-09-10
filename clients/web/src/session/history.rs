@@ -1,5 +1,5 @@
 use crate::{
-    api::{encode_query_component, get_json},
+    api::{get_json, session_path},
     messages::{adopt_streaming_tail, prepend_history_messages, report_error},
     tool_names::{FOLLOWUP_TASK_TOOL, SPAWN_AGENT_TOOL, TASK_TOOL},
     types::*,
@@ -10,6 +10,7 @@ use serde_json::Value;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn load_transcript(
+    session_dir: String,
     messages: crate::transcript::Transcript,
     set_messages: crate::transcript::TranscriptWriter,
     transcript_generation: ReadSignal<u64>,
@@ -22,11 +23,13 @@ pub(crate) fn load_transcript(
 ) {
     let expected_next_message_id = next_message_id.get_untracked();
     spawn_local(async move {
-        match get_json::<Vec<TranscriptMessage>>("/history").await {
+        let result =
+            get_json::<Vec<TranscriptMessage>>(&session_path("/history", &session_dir)).await;
+        if transcript_generation.get_untracked() != expected_generation {
+            return;
+        }
+        match result {
             Ok(items) => {
-                if transcript_generation.get_untracked() != expected_generation {
-                    return;
-                }
                 let transcript = transcript_messages(items);
                 if transcript.is_empty() {
                     return;
@@ -220,6 +223,7 @@ fn subagent_from_task_transcript_tool(tool: &TranscriptTool) -> Option<SubagentA
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn replace_transcript(
+    session_dir: String,
     set_messages: crate::transcript::TranscriptWriter,
     transcript_generation: ReadSignal<u64>,
     expected_generation: u64,
@@ -230,7 +234,7 @@ pub(crate) fn replace_transcript(
     set_transport_status: WriteSignal<TransportStatus>,
 ) {
     replace_transcript_for_session(
-        None,
+        session_dir,
         set_messages,
         transcript_generation,
         expected_generation,
@@ -244,7 +248,7 @@ pub(crate) fn replace_transcript(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn replace_transcript_for_session(
-    session_dir: Option<String>,
+    session_dir: String,
     set_messages: crate::transcript::TranscriptWriter,
     transcript_generation: ReadSignal<u64>,
     expected_generation: u64,
@@ -255,11 +259,13 @@ pub(crate) fn replace_transcript_for_session(
     set_transport_status: WriteSignal<TransportStatus>,
 ) {
     spawn_local(async move {
-        match get_json::<Vec<TranscriptMessage>>(&history_path(session_dir.as_deref())).await {
+        let result =
+            get_json::<Vec<TranscriptMessage>>(&session_path("/history", &session_dir)).await;
+        if transcript_generation.get_untracked() != expected_generation {
+            return;
+        }
+        match result {
             Ok(items) => {
-                if transcript_generation.get_untracked() != expected_generation {
-                    return;
-                }
                 let transcript = transcript_messages(items);
                 set_next_message_id.set(next_message_id_after(&transcript));
                 adopt_streaming_tail(
@@ -279,16 +285,6 @@ pub(crate) fn replace_transcript_for_session(
             ),
         }
     });
-}
-
-fn history_path(session_dir: Option<&str>) -> String {
-    match session_dir {
-        Some(session_dir) => format!(
-            "/history?session_dir={}",
-            encode_query_component(session_dir)
-        ),
-        None => "/history".to_owned(),
-    }
 }
 
 fn message_role_from_wire(role: &str) -> MessageRole {

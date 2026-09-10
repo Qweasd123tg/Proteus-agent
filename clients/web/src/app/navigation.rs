@@ -6,13 +6,18 @@ use web_sys::{MouseEvent, window};
 pub(super) struct AppRouter {
     pub route: ReadSignal<String>,
     set_route: WriteSignal<String>,
+    active_session_dir: ReadSignal<Option<String>>,
 }
 impl AppRouter {
-    pub fn new() -> Self {
+    pub fn new(active_session_dir: ReadSignal<Option<String>>) -> Self {
         let (route, set_route) = signal(current_path());
         if let Some(window) = window() {
-            let listener =
-                Closure::<dyn FnMut(web_sys::Event)>::new(move |_| set_route.set(current_path()));
+            let listener = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
+                set_route.set(current_path());
+                if let Some(session_dir) = active_session_dir.get_untracked() {
+                    let _ = crate::api::persist_selected_session_dir(&session_dir);
+                }
+            });
             let _ = window
                 .add_event_listener_with_callback("popstate", listener.as_ref().unchecked_ref());
             // Keep exactly one listener for the lifetime of the client owner.
@@ -26,7 +31,11 @@ impl AppRouter {
                 })
             });
         }
-        Self { route, set_route }
+        Self {
+            route,
+            set_route,
+            active_session_dir,
+        }
     }
     pub fn is_chat(self) -> bool {
         !matches!(
@@ -41,7 +50,12 @@ impl AppRouter {
         if let Some(window) = window()
             && let Ok(history) = window.history()
         {
-            let _ = history.push_state_with_url(&JsValue::NULL, "", Some(path));
+            let path = self
+                .active_session_dir
+                .get_untracked()
+                .map(|session_dir| crate::api::session_path(path, &session_dir))
+                .unwrap_or_else(|| path.to_owned());
+            let _ = history.push_state_with_url(&JsValue::NULL, "", Some(&path));
         }
         self.set_route.set(path.to_owned());
     }

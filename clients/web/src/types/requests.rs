@@ -8,14 +8,13 @@ use super::{ApprovalCacheScope, PermissionMode};
 pub(crate) struct SendRequest {
     pub(crate) id: Option<String>,
     pub(crate) text: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) session_dir: Option<String>,
+    pub(crate) session_dir: String,
 }
 
 #[derive(Debug, Serialize)]
 pub(crate) struct EditQueuedMessageRequest {
     pub(crate) id: Option<String>,
-    pub(crate) session_dir: Option<String>,
+    pub(crate) session_dir: String,
     pub(crate) message_id: String,
     pub(crate) text: String,
 }
@@ -23,7 +22,7 @@ pub(crate) struct EditQueuedMessageRequest {
 #[derive(Debug, Serialize)]
 pub(crate) struct DeleteQueuedMessageRequest {
     pub(crate) id: Option<String>,
-    pub(crate) session_dir: Option<String>,
+    pub(crate) session_dir: String,
     pub(crate) message_id: String,
 }
 
@@ -31,24 +30,21 @@ pub(crate) struct DeleteQueuedMessageRequest {
 pub(crate) struct SetPermissionModeRequest {
     pub(crate) id: Option<String>,
     pub(crate) mode: PermissionMode,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) session_dir: Option<String>,
+    pub(crate) session_dir: String,
 }
 
 #[derive(Debug, Serialize)]
 pub(crate) struct SetModelRequest {
     pub(crate) id: Option<String>,
     pub(crate) model: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) session_dir: Option<String>,
+    pub(crate) session_dir: String,
 }
 
 #[derive(Debug, Serialize)]
 pub(crate) struct SetReasoningEffortRequest {
     pub(crate) id: Option<String>,
     pub(crate) effort: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) session_dir: Option<String>,
+    pub(crate) session_dir: String,
 }
 
 #[derive(Debug, Serialize)]

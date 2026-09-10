@@ -1,7 +1,7 @@
 use leptos::{prelude::*, task::spawn_local};
 
 use super::format_token_count;
-use crate::api::{encode_query_component, get_json};
+use crate::api::{get_json, session_path};
 use crate::session::summaries::sidebar_session_title;
 use crate::types::*;
 use crate::ui_utils::{set_timeout, short_id, short_path};
@@ -40,21 +40,37 @@ pub(crate) fn ContextMapView(
 
     load_context_map_snapshot(
         selected_session_dir.get_untracked(),
+        selected_session_dir,
         set_snapshot,
         set_status,
     );
+    Effect::new(move |_| {
+        let active = active_session_dir.get();
+        if selected_session_dir.get_untracked().is_none()
+            && let Some(session_dir) = active
+        {
+            set_selected_session_dir.set(Some(session_dir.clone()));
+            load_context_map_snapshot(
+                Some(session_dir),
+                selected_session_dir,
+                set_snapshot,
+                set_status,
+            );
+        }
+    });
     schedule_context_refresh(selected_session_dir, set_snapshot);
 
     let refresh = move |_| {
         load_context_map_snapshot(
             selected_session_dir.get_untracked(),
+            selected_session_dir,
             set_snapshot,
             set_status,
         );
     };
     let select_session = move |session_dir: Option<String>| {
         set_selected_session_dir.set(session_dir.clone());
-        load_context_map_snapshot(session_dir, set_snapshot, set_status);
+        load_context_map_snapshot(session_dir, selected_session_dir, set_snapshot, set_status);
     };
 
     view! {
@@ -71,7 +87,7 @@ pub(crate) fn ContextMapView(
                         on:change:target=move |ev| {
                             let value = ev.target().value();
                             if value.trim().is_empty() {
-                                select_session(None);
+                                select_session(active_session_dir.get_untracked());
                             } else {
                                 select_session(Some(value));
                             }
@@ -109,12 +125,22 @@ pub(crate) fn ContextMapView(
 
 fn load_context_map_snapshot(
     session_dir: Option<String>,
+    selected_session_dir: ReadSignal<Option<String>>,
     set_snapshot: WriteSignal<Option<ContextMapSnapshot>>,
     set_status: WriteSignal<String>,
 ) {
+    let Some(session_dir) = session_dir else {
+        set_status.set("сессия ещё не выбрана".to_owned());
+        set_snapshot.set(None);
+        return;
+    };
     set_status.set("загружаю карту контекста".to_owned());
     spawn_local(async move {
-        match get_json::<ContextMapSnapshot>(&context_map_path(session_dir.as_deref())).await {
+        let result = get_json::<ContextMapSnapshot>(&session_path("/context", &session_dir)).await;
+        if selected_session_dir.get_untracked().as_deref() != Some(session_dir.as_str()) {
+            return;
+        }
+        match result {
             Ok(snapshot) => {
                 let label = snapshot
                     .session_dir
@@ -142,27 +168,18 @@ fn schedule_context_refresh(
     set_timeout(CONTEXT_REFRESH_MS, move || {
         let session_dir = selected_session_dir.get_untracked();
         spawn_local(async move {
-            if let Ok(snapshot) =
-                get_json::<ContextMapSnapshot>(&context_map_path(session_dir.as_deref())).await
+            if let Some(session_dir) = session_dir.clone()
+                && let Ok(snapshot) =
+                    get_json::<ContextMapSnapshot>(&session_path("/context", &session_dir)).await
             {
                 // Пока запрос летел, могли выбрать другую сессию — не затираем.
-                if selected_session_dir.get_untracked() == session_dir {
+                if selected_session_dir.get_untracked().as_deref() == Some(session_dir.as_str()) {
                     set_snapshot.set(Some(snapshot));
                 }
             }
             schedule_context_refresh(selected_session_dir, set_snapshot);
         });
     });
-}
-
-fn context_map_path(session_dir: Option<&str>) -> String {
-    match session_dir {
-        Some(session_dir) => format!(
-            "/context?session_dir={}",
-            encode_query_component(session_dir)
-        ),
-        None => "/context".to_owned(),
-    }
 }
 
 fn context_session_option_label(session: &SessionSummary) -> String {

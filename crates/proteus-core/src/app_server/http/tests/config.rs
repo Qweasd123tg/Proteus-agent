@@ -2,18 +2,21 @@ use super::*;
 
 #[tokio::test]
 async fn route_config_builder_returns_editable_module_slots() {
-    let (state, server) = test_state().await;
+    let (state, server, _config_dir) = test_state().await;
 
-    let response = route_request(state, authed_get_request("/config/builder"))
-        .await
-        .expect("config builder response");
+    let response = route_request(
+        state,
+        authed_get_request(&session_uri("/config/builder", &server)),
+    )
+    .await
+    .expect("config builder response");
 
     assert_eq!(response.status(), StatusCode::OK);
     let bytes = response_bytes(response).await;
     let snapshot: Value = serde_json::from_slice(&bytes).expect("builder JSON");
     assert_eq!(
         snapshot.get("writable").and_then(Value::as_bool),
-        Some(false)
+        Some(true)
     );
     let slots = snapshot
         .get("slots")
@@ -100,12 +103,12 @@ model = "fake-smart"
         .await
         .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
 
     let response = route_request(
         state,
         authed_json_request(
-            "/config/builder",
+            &session_uri("/config/builder", &server),
             json!({
                 "modules": {},
                 "tools_enabled": ["apply_patch", "search"],
@@ -179,12 +182,12 @@ async fn route_config_builder_creates_complete_provider_config() {
     .await
     .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
 
     let response = route_request(
         state,
         authed_json_request(
-            "/config/builder",
+            &session_uri("/config/builder", &server),
             json!({
                 "modules": {},
                 "module_config": {}

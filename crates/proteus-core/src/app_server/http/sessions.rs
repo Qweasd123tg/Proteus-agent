@@ -6,7 +6,11 @@ use std::{
 
 use anyhow::{Result, anyhow};
 
-use crate::core::{SessionStore, canonicalize_session_dir_path};
+use crate::app_server::context_map::{ContextMapInput, build_context_map_snapshot};
+use crate::core::{
+    SessionStore, canonicalize_session_dir_path, config_store_root, event_log_path,
+    list_session_summaries, list_workspace_session_summaries,
+};
 
 use super::{HttpAppState, state::session_key as canonical_session_key};
 use crate::app_server::{
@@ -16,18 +20,18 @@ use crate::app_server::{
 
 pub(super) async fn session_summaries(
     state: &HttpAppState,
-    current_workspace_only: bool,
+    workspace: Option<PathBuf>,
 ) -> Result<Vec<AppSessionSummary>> {
-    let current = state.current_server().await;
-    let stored_summaries = if current_workspace_only {
-        current.workspace_session_summaries()?
-    } else {
-        current.session_summaries()?
+    let stored_summaries = match state.launch.config_path.as_deref() {
+        Some(path) => match workspace.as_deref() {
+            Some(cwd) => list_workspace_session_summaries(&config_store_root(path), cwd)?,
+            None => list_session_summaries(&config_store_root(path))?,
+        },
+        None => Vec::new(),
     };
     let activity_by_dir = state.activity_by_session_dir().await;
     let mut seen = HashSet::new();
     let mut summaries = Vec::new();
-    let current_session_key = current.session_dir_path().map(canonical_session_key);
 
     for mut summary in stored_summaries {
         let session_dir = summary.session_dir.clone();
@@ -47,16 +51,14 @@ pub(super) async fn session_summaries(
         if seen.contains(&session_key) {
             continue;
         }
-        if current_workspace_only
-            && !super::super::paths_equal(server.cwd_path(), current.cwd_path())
+        if workspace
+            .as_deref()
+            .is_some_and(|cwd| !super::super::paths_equal(server.cwd_path(), cwd))
         {
             continue;
         }
         let activity = state.activity_for_server(&server).await;
-        let include_empty_idle = Some(&session_key) == current_session_key.as_ref();
-        if let Some(summary) =
-            known_session_summary(&server, &session_dir, activity, include_empty_idle).await?
-        {
+        if let Some(summary) = known_session_summary(&server, &session_dir, activity).await? {
             seen.insert(session_key);
             summaries.push(summary);
         }
@@ -75,14 +77,9 @@ async fn known_session_summary(
     server: &AppServerHandle,
     session_dir: &Path,
     activity: AppSessionActivity,
-    include_empty_idle: bool,
 ) -> Result<Option<AppSessionSummary>> {
     let transcript = server.transcript().await?;
     let message_count = transcript.len();
-    if message_count == 0 && activity.is_idle() && !include_empty_idle {
-        return Ok(None);
-    }
-
     Ok(Some(
         AppSessionSummary::new(
             session_dir.to_path_buf(),
@@ -128,9 +125,7 @@ pub(super) async fn history_json(
     state: &HttpAppState,
     query: Option<&str>,
 ) -> Result<Vec<AppTranscriptMessage>> {
-    let Some(session_dir) = query_path_param(query, "session_dir")? else {
-        return state.current_server().await.transcript().await;
-    };
+    let session_dir = required_session_query(query)?;
     let session_dir = canonicalize_session_dir_path(session_dir)?;
     if let Some(server) = state.server_for_session_dir(&session_dir).await {
         return server.transcript().await;
@@ -144,31 +139,35 @@ pub(super) async fn context_map_json(
     state: &HttpAppState,
     query: Option<&str>,
 ) -> Result<AppContextMapSnapshot> {
-    let Some(session_dir) = query_path_param(query, "session_dir")? else {
-        let server = state.current_server().await;
-        let activity = state.activity_for_server(&server).await;
-        return server.context_map_snapshot(Some(activity)).await;
-    };
+    let session_dir = required_session_query(query)?;
     let session_dir = canonicalize_session_dir_path(session_dir)?;
     if let Some(server) = state.server_for_session_dir(&session_dir).await {
         let activity = state.activity_for_server(&server).await;
         return server.context_map_snapshot(Some(activity)).await;
     }
 
-    state
-        .current_server()
-        .await
-        .context_map_snapshot_for_session_dir(session_dir, None)
-        .await
+    let store = SessionStore::open(session_dir.clone())?;
+    let workspace_path = store.workspace_path()?;
+    build_context_map_snapshot(ContextMapInput {
+        session_dir: Some(session_dir),
+        session_id: Some(store.session_id()),
+        event_log_path: event_log_path(
+            &state.launch.config.event_log.path,
+            state.launch.config_path.as_deref(),
+            &workspace_path,
+        ),
+        workspace_path: Some(workspace_path),
+        activity: None,
+        history: store.load_messages()?,
+        diagnostics: Vec::new(),
+    })
 }
 
 pub(super) async fn usage_json(
     state: &HttpAppState,
     query: Option<&str>,
 ) -> Result<Option<crate::domain::SessionUsageSnapshot>> {
-    let Some(session_dir) = query_path_param(query, "session_dir")? else {
-        return state.current_server().await.usage_snapshot().await;
-    };
+    let session_dir = required_session_query(query)?;
     let session_dir = canonicalize_session_dir_path(session_dir)?;
     if let Some(server) = state.server_for_session_dir(&session_dir).await {
         return server.usage_snapshot().await;
@@ -179,13 +178,13 @@ pub(super) async fn usage_json(
         .map(Some)
 }
 
-pub(super) async fn server_for_optional_session(
+pub(super) async fn server_for_session(
     state: &HttpAppState,
-    session_dir: Option<PathBuf>,
+    session_dir: PathBuf,
 ) -> Result<AppServerHandle> {
-    let Some(session_dir) = session_dir else {
-        return Ok(state.current_server().await);
-    };
+    if !session_dir.is_absolute() {
+        return Err(anyhow!("session_dir must be an absolute path"));
+    }
     let session_dir = canonicalize_session_dir_path(session_dir)?;
     state
         .server_for_session_dir(&session_dir)
@@ -198,20 +197,33 @@ pub(super) async fn server_for_optional_session(
         })
 }
 
-fn query_path_param(query: Option<&str>, name: &str) -> Result<Option<PathBuf>> {
-    let Some(query) = query else {
-        return Ok(None);
-    };
-    for pair in query.split('&') {
-        if pair.is_empty() {
-            continue;
-        }
+pub(super) fn required_session_query(query: Option<&str>) -> Result<PathBuf> {
+    let mut session_dir = None;
+    for pair in query
+        .unwrap_or_default()
+        .split('&')
+        .filter(|part| !part.is_empty())
+    {
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-        if key == name {
-            return Ok(Some(PathBuf::from(percent_decode_query_value(value)?)));
+        if key == "session_dir" {
+            if session_dir.is_some() {
+                return Err(anyhow!("duplicate session_dir query parameter"));
+            }
+            let path = PathBuf::from(percent_decode_query_value(value)?);
+            if !path.is_absolute() {
+                return Err(anyhow!("session_dir must be an absolute path"));
+            }
+            session_dir = Some(path);
         }
     }
-    Ok(None)
+    session_dir.ok_or_else(|| anyhow!("missing required session_dir query parameter"))
+}
+
+pub(super) async fn server_for_query(
+    state: &HttpAppState,
+    query: Option<&str>,
+) -> Result<AppServerHandle> {
+    server_for_session(state, required_session_query(query)?).await
 }
 
 fn percent_decode_query_value(value: &str) -> Result<String> {

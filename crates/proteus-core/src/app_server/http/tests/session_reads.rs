@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-async fn route_history_can_read_requested_session_without_switching_current() {
+async fn route_history_can_read_requested_cold_session_without_changing_live_registry() {
     let cwd = tempfile::tempdir().expect("cwd");
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
@@ -28,7 +28,7 @@ async fn route_history_can_read_requested_session_without_switching_current() {
     .await
     .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
 
     let response = route_request(
         state.clone(),
@@ -52,16 +52,29 @@ async fn route_history_can_read_requested_session_without_switching_current() {
         transcript[0].get("text").and_then(Value::as_str),
         Some("saved cold history")
     );
-    assert_ne!(
-        state.current_server().await.session_dir_path().as_deref(),
-        Some(saved_store.session_dir())
+    assert!(
+        state
+            .server_for_session_dir(saved_store.session_dir())
+            .await
+            .is_none()
+    );
+    assert!(
+        state
+            .server_for_session_dir(
+                server
+                    .session_dir_path()
+                    .expect("live session dir")
+                    .as_path(),
+            )
+            .await
+            .is_some()
     );
 
     server.shutdown().await;
 }
 
 #[tokio::test]
-async fn route_context_can_read_requested_session_without_switching_current() {
+async fn route_context_can_read_requested_cold_session_without_changing_live_registry() {
     let cwd = tempfile::tempdir().expect("cwd");
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
@@ -88,7 +101,7 @@ async fn route_context_can_read_requested_session_without_switching_current() {
     .await
     .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
 
     let response = route_request(
         state.clone(),
@@ -120,9 +133,22 @@ async fn route_context_can_read_requested_session_without_switching_current() {
             .and_then(Value::as_array)
             .is_some_and(|items| !items.is_empty())
     );
-    assert_ne!(
-        state.current_server().await.session_dir_path().as_deref(),
-        Some(saved_store.session_dir())
+    assert!(
+        state
+            .server_for_session_dir(saved_store.session_dir())
+            .await
+            .is_none()
+    );
+    assert!(
+        state
+            .server_for_session_dir(
+                server
+                    .session_dir_path()
+                    .expect("live session dir")
+                    .as_path(),
+            )
+            .await
+            .is_some()
     );
 
     server.shutdown().await;

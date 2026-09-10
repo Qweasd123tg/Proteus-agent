@@ -4,6 +4,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::SessionId;
 
+/// Server startup context. The suggested session never tracks a client's selection.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AppBootstrap {
+    pub session_dir: Option<PathBuf>,
+    pub cwd: PathBuf,
+}
+
 /// Canonical summary одной session для app-server clients.
 ///
 /// Durable и live sessions используют один DTO: storage заполняет общие

@@ -436,8 +436,11 @@ approval остаётся валидным и должен рендеритьс�
 
 Headless runtime без approval transport отказывает `Ask`. App-server transport
 публикует `ApprovalRequested` и ждёт ответ UI-клиента через `approval`.
-Pending request хранится в app-server и доступен через `GET /pending`, поэтому
-краткий SSE reconnect не отклоняет approval сам по себе. Если клиент не
+Pending request хранится в app-server и доступен через
+`GET /pending?session_dir=<path>`, поэтому
+краткий SSE reconnect не отклоняет approval сам по себе. HTTP-ответ через
+`POST /approval?session_dir=<path>` должен адресовать ту же session: request id
+другой session не разрешается. То же правило действует для `/user-input`. Если клиент не
 ответил до ненулевого `app_server.approval_timeout_ms`, app-server отклоняет
 approval и очищает pending request. При дефолтном значении `0` timeout
 отключён, и интерактивный prompt ждёт пользователя до ответа, cancel или

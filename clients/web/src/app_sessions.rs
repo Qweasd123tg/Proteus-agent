@@ -1,10 +1,11 @@
+mod bootstrap;
+
 use crate::events::EventConnection;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use serde_json::{Value, json};
 use web_sys::window;
 
-use crate::api::post_json;
+use crate::api::{clear_selected_session_dir, persist_selected_session_dir, post_json};
 use crate::events::{EventStreamBindings, close_event_stream, reconnect_event_stream};
 use crate::session::history::{
     load_transcript, replace_transcript, replace_transcript_for_session,
@@ -14,6 +15,7 @@ use crate::session::summaries::{apply_active_session_activity, load_sidebar_sess
 use crate::types::*;
 use crate::ui_preferences::{remove_context_usage, remove_session_draft};
 use crate::ui_utils::short_id;
+use bootstrap::create_session;
 
 #[derive(Clone, Copy)]
 pub(crate) struct RuntimeSettingsBindings {
@@ -25,6 +27,8 @@ pub(crate) struct RuntimeSettingsBindings {
     pub(crate) set_effort_options: WriteSignal<Vec<String>>,
     pub(crate) set_workspace_label: WriteSignal<String>,
     pub(crate) set_active_session_dir: WriteSignal<Option<String>>,
+    pub(crate) active_session_dir: ReadSignal<Option<String>>,
+    pub(crate) transcript_generation: ReadSignal<u64>,
     pub(crate) set_is_sending: WriteSignal<bool>,
     pub(crate) set_active_run_id: WriteSignal<Option<String>>,
     pub(crate) set_agent_status: WriteSignal<String>,
@@ -35,8 +39,12 @@ pub(crate) struct RuntimeSettingsBindings {
 }
 
 impl RuntimeSettingsBindings {
-    pub(crate) fn load(self) {
+    pub(crate) fn load(self, session_dir: String, expected_generation: u64) {
         load_runtime_settings(
+            session_dir,
+            self.active_session_dir,
+            self.transcript_generation,
+            expected_generation,
             self.set_mode,
             self.set_model_name,
             self.set_model_options,
@@ -44,7 +52,6 @@ impl RuntimeSettingsBindings {
             self.set_effort,
             self.set_effort_options,
             self.set_workspace_label,
-            self.set_active_session_dir,
             self.set_is_sending,
             self.set_active_run_id,
             self.set_agent_status,
@@ -68,8 +75,9 @@ pub(crate) struct TranscriptBindings {
 }
 
 impl TranscriptBindings {
-    pub(crate) fn load_initial(self, messages: crate::transcript::Transcript) {
+    pub(crate) fn load_initial(self, session_dir: String, messages: crate::transcript::Transcript) {
         load_transcript(
+            session_dir,
             messages,
             self.set_messages,
             self.transcript_generation,
@@ -82,8 +90,9 @@ impl TranscriptBindings {
         );
     }
 
-    fn replace_current(self, expected_generation: u64) {
+    fn replace_current(self, session_dir: String, expected_generation: u64) {
         replace_transcript(
+            session_dir,
             self.set_messages,
             self.transcript_generation,
             expected_generation,
@@ -97,7 +106,7 @@ impl TranscriptBindings {
 
     fn replace_for_session(self, session_dir: String, expected_generation: u64) {
         replace_transcript_for_session(
-            Some(session_dir),
+            session_dir,
             self.set_messages,
             self.transcript_generation,
             expected_generation,
@@ -129,6 +138,7 @@ pub(crate) struct AppSessionActions {
     pub(crate) set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
     pub(crate) set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
     pub(crate) set_stick_to_bottom: WriteSignal<bool>,
+    pub(crate) sidebar_sessions: ReadSignal<Vec<SessionSummary>>,
     pub(crate) set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
     pub(crate) set_sidebar_sessions_status: WriteSignal<String>,
 }
@@ -147,6 +157,7 @@ impl AppSessionActions {
     }
 
     pub(crate) fn start_new_session(self) {
+        let previous_session = self.active_session_dir.get_untracked();
         close_event_stream(self.event_source);
         self.reset_chat_view();
         let expected_generation = self.transcript.transcript_generation.get_untracked();
@@ -155,31 +166,27 @@ impl AppSessionActions {
         self.set_sidebar_sessions_status
             .set("создаю новую сессию".to_owned());
         spawn_local(async move {
-            match post_json("/new-session", &json!({ "id": "new-session" })).await {
-                Ok(StdioOutput::Response { ok: true, .. }) => {
-                    if self.transcript.transcript_generation.get_untracked() != expected_generation
-                    {
-                        return;
-                    }
+            let result = create_session(previous_session.clone()).await;
+            if self.transcript.transcript_generation.get_untracked() != expected_generation {
+                return;
+            }
+            match result {
+                Ok(session_dir) => {
                     self.set_sidebar_sessions_status
                         .set("новая сессия открыта".to_owned());
+                    self.activate_session(session_dir.clone());
                     reconnect_event_stream(self.event_source, self.event_stream);
-                    self.runtime_settings.load();
-                    self.transcript.replace_current(expected_generation);
-                }
-                Ok(StdioOutput::Response { error, .. }) => {
-                    self.set_sidebar_sessions_status
-                        .set(error.unwrap_or_else(|| "не удалось создать сессию".to_owned()));
-                    self.reconnect_if_current(expected_generation);
-                }
-                Ok(StdioOutput::Event { .. }) => {
-                    self.set_sidebar_sessions_status
-                        .set("неожиданное событие new-session".to_owned());
-                    self.reconnect_if_current(expected_generation);
+                    self.runtime_settings
+                        .load(session_dir.clone(), expected_generation);
+                    self.transcript
+                        .replace_current(session_dir, expected_generation);
                 }
                 Err(error) => {
                     self.set_sidebar_sessions_status
                         .set(format!("не удалось создать сессию: {error}"));
+                    if let Some(previous_session) = previous_session {
+                        self.activate_session(previous_session);
+                    }
                     self.reconnect_if_current(expected_generation);
                 }
             }
@@ -198,6 +205,7 @@ impl AppSessionActions {
         self.runtime_settings
             .set_active_session_dir
             .set(Some(session.session_dir.clone()));
+        let _ = persist_selected_session_dir(&session.session_dir);
         self.runtime_settings
             .set_workspace_label
             .set(session.workspace_path.clone());
@@ -219,27 +227,26 @@ impl AppSessionActions {
         self.set_pending_user_inputs.set(Vec::new());
 
         let session_dir = session.session_dir.clone();
-        self.transcript
-            .replace_for_session(session_dir.clone(), expected_generation);
         self.set_sidebar_sessions_status
             .set("открываю сессию".to_owned());
         spawn_local(async move {
-            match post_json(
+            let result = post_json(
                 "/resume",
                 &ResumeSessionRequest {
                     id: Some("sidebar-resume".to_owned()),
                     session_dir: session_dir.clone(),
                 },
             )
-            .await
+            .await;
+            if self.transcript.transcript_generation.get_untracked() != expected_generation
+                || self.active_session_dir.get_untracked().as_deref() != Some(session_dir.as_str())
             {
+                return;
+            }
+            match result {
                 Ok(StdioOutput::Response {
                     ok: true, output, ..
                 }) => {
-                    if self.transcript.transcript_generation.get_untracked() != expected_generation
-                    {
-                        return;
-                    }
                     if let Some(activity) = output
                         .as_ref()
                         .and_then(|value| value.get("activity"))
@@ -256,24 +263,35 @@ impl AppSessionActions {
                     self.set_sidebar_sessions_status
                         .set("сессия открыта".to_owned());
                     reconnect_event_stream(self.event_source, self.event_stream);
-                    self.runtime_settings.load();
+                    self.runtime_settings
+                        .load(session_dir.clone(), expected_generation);
                     self.transcript
                         .replace_for_session(session_dir.clone(), expected_generation);
                 }
                 Ok(StdioOutput::Response { error, .. }) => {
                     self.set_sidebar_sessions_status
                         .set(error.unwrap_or_else(|| "не удалось открыть сессию".to_owned()));
-                    self.reconnect_if_current(expected_generation);
+                    self.runtime_settings
+                        .set_transport_status
+                        .set(TransportStatus::Error(
+                            "не удалось открыть выбранную сессию".to_owned(),
+                        ));
                 }
                 Ok(StdioOutput::Event { .. }) => {
                     self.set_sidebar_sessions_status
                         .set("неожиданное событие resume".to_owned());
-                    self.reconnect_if_current(expected_generation);
+                    self.runtime_settings
+                        .set_transport_status
+                        .set(TransportStatus::Error(
+                            "неожиданное событие resume".to_owned(),
+                        ));
                 }
                 Err(error) => {
                     self.set_sidebar_sessions_status
                         .set(format!("не удалось открыть сессию: {error}"));
-                    self.reconnect_if_current(expected_generation);
+                    self.runtime_settings
+                        .set_transport_status
+                        .set(TransportStatus::Error(error));
                 }
             }
             self.load_sidebar_sessions();
@@ -293,8 +311,6 @@ impl AppSessionActions {
             self.active_session_dir.get().as_deref() == Some(session_dir.as_str());
         let delete_request_generation = self.transcript.transcript_generation.get_untracked();
         if deleting_active {
-            // Сервер перезапускает активный runtime и рвёт SSE — закрываем
-            // стрим сами, иначе обрыв мигает ошибкой до нашего реконнекта.
             close_event_stream(self.event_source);
         }
         self.set_sidebar_sessions_status
@@ -312,6 +328,19 @@ impl AppSessionActions {
                 Ok(StdioOutput::Response {
                     ok: true, output, ..
                 }) => {
+                    let deleted = output
+                        .as_ref()
+                        .and_then(|value| value.get("deleted"))
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false);
+                    if !deleted {
+                        self.set_sidebar_sessions_status
+                            .set("сервер не удалил сессию".to_owned());
+                        if deleting_active {
+                            self.reconnect_if_current(delete_request_generation);
+                        }
+                        return;
+                    }
                     self.set_sidebar_sessions.update(|items| {
                         items.retain(|item| item.session_dir != session_dir);
                     });
@@ -319,27 +348,22 @@ impl AppSessionActions {
                     remove_context_usage(&session_dir);
                     self.set_sidebar_sessions_status
                         .set("сессия удалена".to_owned());
-                    let active_replaced = output
-                        .as_ref()
-                        .and_then(|value| value.get("active_replaced"))
-                        .and_then(Value::as_bool)
-                        .unwrap_or(deleting_active);
-                    if active_replaced {
+                    if deleting_active {
                         if self.transcript.transcript_generation.get_untracked()
                             != delete_request_generation
                         {
                             return;
                         }
                         self.reset_chat_view();
-                        let expected_generation =
-                            self.transcript.transcript_generation.get_untracked();
                         self.runtime_settings.set_active_session_dir.set(None);
+                        let _ = clear_selected_session_dir();
                         self.set_session_label.set("not started".to_owned());
-                        reconnect_event_stream(self.event_source, self.event_stream);
-                        self.runtime_settings.load();
-                        self.transcript.replace_current(expected_generation);
-                    } else if deleting_active {
-                        self.reconnect_if_current(delete_request_generation);
+                        let replacement = self.sidebar_sessions_first();
+                        if let Some(replacement) = replacement {
+                            self.open_sidebar_session(replacement);
+                        } else {
+                            self.start_new_session();
+                        }
                     }
                 }
                 Ok(StdioOutput::Response { error, .. }) => {
@@ -383,5 +407,16 @@ impl AppSessionActions {
         self.set_active_run_id.set(None);
         self.set_agent_status.set("ожидает".to_owned());
         self.set_stick_to_bottom.set(true);
+    }
+
+    fn activate_session(self, session_dir: String) {
+        let _ = persist_selected_session_dir(&session_dir);
+        self.runtime_settings
+            .set_active_session_dir
+            .set(Some(session_dir));
+    }
+
+    fn sidebar_sessions_first(self) -> Option<SessionSummary> {
+        self.sidebar_sessions.get_untracked().first().cloned()
     }
 }

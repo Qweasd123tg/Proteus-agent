@@ -21,7 +21,7 @@ def run(command, js, wait_for, web, origin, loaded):
     command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
     wait_for(loaded, 'Leptos transport did not deliver authenticated config')
     assert js("return !document.querySelector('.extension-manager') && !document.querySelector('.extension-install') && !document.querySelector('[data-extension-id=model-quota]')")
-    js("window.savedFetch=window.fetch;window.fetch=(input,init)=>String(input.url||input).endsWith('/config')?Promise.resolve(new Response(JSON.stringify({error:'offline fixture'}),{status:502})):window.savedFetch(input,init)")
+    js("window.savedFetch=window.fetch;window.fetch=(input,init)=>String(input.url||input).split('?')[0].endsWith('/config')?Promise.resolve(new Response(JSON.stringify({error:'offline fixture'}),{status:502})):window.savedFetch(input,init)")
     settings()
     wait_for(lambda: js("return document.querySelector('.settings-status').textContent.includes('Не удалось загрузить')"), 'Initial settings failure was hidden')
     assert js("return document.querySelector('#general input').disabled && !document.querySelector('[data-extension-choice=notes] input').disabled"), 'Agent outage blocked local extension settings'
@@ -58,7 +58,7 @@ def run(command, js, wait_for, web, origin, loaded):
     wait_for(lambda: js("return document.querySelector('.settings-status').textContent === 'Сохранено'"), 'Chat setting save failed')
     assert js("return document.querySelector('#general input').checked")
     # A failed save rolls the visual state back and leaves server setting intact.
-    js("window.realFetch=window.fetch;window.fetch=(input,init)=>String(input.url||input).endsWith('/config/web')?Promise.resolve(new Response(JSON.stringify({error:'fixture failure'}),{status:502})):window.realFetch(input,init);document.querySelector('#general input').click()")
+    js("window.realFetch=window.fetch;window.fetch=(input,init)=>String(input.url||input).split('?')[0].endsWith('/config/web')?Promise.resolve(new Response(JSON.stringify({error:'fixture failure'}),{status:502})):window.realFetch(input,init);document.querySelector('#general input').click()")
     wait_for(lambda: js("return document.querySelector('.settings-status').textContent.includes('Не сохранено')"), 'Failure did not reach settings')
     assert js("return document.querySelector('#general input').checked && !document.querySelector('#general input').disabled")
     js('window.fetch=window.realFetch')

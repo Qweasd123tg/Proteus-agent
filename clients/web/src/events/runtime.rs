@@ -26,7 +26,6 @@ pub(crate) fn update_session_labels(
     envelope: Value,
     set_workspace_label: WriteSignal<String>,
     set_session_label: WriteSignal<String>,
-    set_active_session_dir: WriteSignal<Option<String>>,
 ) {
     let Some(started) = envelope.pointer("/event/SessionStarted") else {
         return;
@@ -35,7 +34,6 @@ pub(crate) fn update_session_labels(
         set_workspace_label.set(cwd.to_owned());
     }
     if let Some(session_dir) = started.get("session_dir").and_then(Value::as_str) {
-        set_active_session_dir.set(Some(session_dir.to_owned()));
         set_session_label.set(short_path(session_dir));
     } else if let Some(session_id) = started.get("session_id").and_then(Value::as_str) {
         set_session_label.set(short_id(session_id).to_owned());

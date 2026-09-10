@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn route_send_async_returns_run_id_while_domain_turn_keeps_running() {
-    let (state, server) = dogfood_loop_state().await;
+    let (state, server, _config_dir) = dogfood_loop_state().await;
     let mut event_rx = server.subscribe();
     let run_id = "run-async".to_owned();
 
@@ -13,6 +13,7 @@ async fn route_send_async_returns_run_id_while_domain_turn_keeps_running() {
             json!({
                 "id": run_id,
                 "text": "apply_patch",
+                "session_dir": server.session_dir_path(),
             }),
         ),
     )
@@ -43,7 +44,7 @@ async fn route_send_async_returns_run_id_while_domain_turn_keeps_running() {
     let response = route_request(
         state.clone(),
         authed_json_request(
-            "/cancel",
+            &session_uri("/cancel", &server),
             json!({
                 "id": "cancel-async",
                 "target_id": run_id,
@@ -62,7 +63,7 @@ async fn route_send_async_returns_run_id_while_domain_turn_keeps_running() {
 
 #[tokio::test]
 async fn route_send_async_queues_second_message_for_same_session() {
-    let (state, server) = dogfood_loop_state().await;
+    let (state, server, _config_dir) = dogfood_loop_state().await;
     let mut event_rx = server.subscribe();
     let existing_cancellation = CancellationToken::new();
     let existing_receiver = match spawn_send_run(
@@ -87,6 +88,7 @@ async fn route_send_async_queues_second_message_for_same_session() {
             json!({
                 "id": "run-next",
                 "text": "hello",
+                "session_dir": server.session_dir_path(),
             }),
         ),
     )
@@ -161,6 +163,7 @@ async fn route_send_async_queues_second_message_for_same_session() {
             message_id,
             text: "too late".into(),
         },
+        Some(&session_query(&server)),
     )
     .await;
     assert!(matches!(late, StdioOutput::Response { ok: false, .. }));
@@ -172,7 +175,7 @@ async fn route_send_async_queues_second_message_for_same_session() {
 
 #[tokio::test]
 async fn send_run_cleanup_survives_dropped_waiter() {
-    let (state, server) = dogfood_loop_state().await;
+    let (state, server, _config_dir) = dogfood_loop_state().await;
     let mut event_rx = server.subscribe();
     let run_id = "sync-send-drop".to_owned();
     let receiver = match spawn_send_run(
@@ -196,7 +199,7 @@ async fn send_run_cleanup_survives_dropped_waiter() {
     let approval_response = route_request(
         state.clone(),
         authed_json_request(
-            "/approval",
+            &session_uri("/approval", &server),
             json!({
                 "id": "approval-after-dropped-waiter",
                 "approval_id": approval.approval_id,
@@ -226,8 +229,9 @@ async fn send_run_cleanup_survives_dropped_waiter() {
 
 #[tokio::test]
 async fn route_send_approval_loop_completes_after_http_approval() {
-    let (state, server) = dogfood_loop_state().await;
+    let (state, server, _config_dir) = dogfood_loop_state().await;
     let mut event_rx = server.subscribe();
+    let session_dir = server.session_dir_path();
     let send_state = state.clone();
     let send_task = tokio::spawn(async move {
         let request = authed_json_request(
@@ -235,6 +239,7 @@ async fn route_send_approval_loop_completes_after_http_approval() {
             json!({
                 "id": "turn-approval",
                 "text": "apply_patch",
+                "session_dir": session_dir,
             }),
         );
         route_request(send_state, request)
@@ -261,7 +266,7 @@ async fn route_send_approval_loop_completes_after_http_approval() {
     let approval_response = route_request(
         state.clone(),
         authed_json_request(
-            "/approval",
+            &session_uri("/approval", &server),
             json!({
                 "id": "approval-response",
                 "approval_id": approval.approval_id,
@@ -312,8 +317,9 @@ async fn route_send_approval_loop_completes_after_http_approval() {
 
 #[tokio::test]
 async fn route_send_user_input_loop_completes_after_http_response() {
-    let (state, server) = dogfood_loop_state().await;
+    let (state, server, _config_dir) = dogfood_loop_state().await;
     let mut event_rx = server.subscribe();
+    let session_dir = server.session_dir_path();
     let send_state = state.clone();
     let send_task = tokio::spawn(async move {
         let request = authed_json_request(
@@ -321,6 +327,7 @@ async fn route_send_user_input_loop_completes_after_http_response() {
             json!({
                 "id": "turn-input",
                 "text": "request_user_input",
+                "session_dir": session_dir,
             }),
         );
         route_request(send_state, request)
@@ -338,7 +345,7 @@ async fn route_send_user_input_loop_completes_after_http_response() {
     let input_response = route_request(
         state.clone(),
         authed_json_request(
-            "/user-input",
+            &session_uri("/user-input", &server),
             json!({
                 "id": "input-response",
                 "request_id": input.request_id,
@@ -395,12 +402,17 @@ async fn route_send_user_input_loop_completes_after_http_response() {
 #[tokio::test]
 async fn cancel_unknown_turn_returns_protocol_error() {
     let cwd = tempfile::tempdir().expect("cwd");
-    let server =
-        AgentAppServer::launch(crate::test_model::config(), cwd.path().to_path_buf(), None)
-            .await
-            .expect("app server");
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let config_path = config_dir.path().join("config.toml");
+    let server = AgentAppServer::launch(
+        crate::test_model::config(),
+        cwd.path().to_path_buf(),
+        Some(&config_path),
+    )
+    .await
+    .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
 
     let output = execute_app_request(
         &state,
@@ -408,6 +420,7 @@ async fn cancel_unknown_turn_returns_protocol_error() {
             id: Some("cancel-1".to_owned()),
             target_id: "missing".to_owned(),
         },
+        Some(&session_query(&server)),
     )
     .await;
 
@@ -416,7 +429,7 @@ async fn cancel_unknown_turn_returns_protocol_error() {
             assert!(!ok);
             assert_eq!(
                 error.as_deref(),
-                Some("unknown or completed run id: missing")
+                Some("unknown or completed run id for session: missing")
             );
         }
         StdioOutput::Event { .. } => panic!("expected command response"),
@@ -431,12 +444,17 @@ async fn cancel_unknown_turn_returns_protocol_error() {
 #[tokio::test]
 async fn cancel_active_run_keeps_foreign_pending_requests_until_requester_drops() {
     let cwd = tempfile::tempdir().expect("cwd");
-    let server =
-        AgentAppServer::launch(crate::test_model::config(), cwd.path().to_path_buf(), None)
-            .await
-            .expect("app server");
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let config_path = config_dir.path().join("config.toml");
+    let server = AgentAppServer::launch(
+        crate::test_model::config(),
+        cwd.path().to_path_buf(),
+        Some(&config_path),
+    )
+    .await
+    .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
     let run_id = "run-cancel".to_owned();
     let cancellation = CancellationToken::new();
     state.running_runs.lock().await.insert(
@@ -458,6 +476,7 @@ async fn cancel_active_run_keeps_foreign_pending_requests_until_requester_drops(
             id: Some("cancel-1".to_owned()),
             target_id: run_id,
         },
+        Some(&session_query(&server)),
     )
     .await;
 

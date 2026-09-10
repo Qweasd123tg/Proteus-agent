@@ -132,7 +132,7 @@ pub(crate) fn load_sidebar_sessions(
 ) {
     set_status.set("загружаю сессии".to_owned());
     spawn_local(async move {
-        match get_json::<Vec<SessionSummary>>("/sessions/current").await {
+        match get_json::<Vec<SessionSummary>>("/sessions").await {
             Ok(items) => {
                 let count = items.len();
                 set_sessions.set(items);

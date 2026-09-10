@@ -45,15 +45,19 @@ fn request_with_origin(origin: Option<&str>) -> Request<()> {
     builder.body(()).expect("request")
 }
 
-async fn test_state() -> (HttpAppState, AppServerHandle) {
-    let cwd = tempfile::tempdir().expect("cwd");
-    let server =
-        AgentAppServer::launch(crate::test_model::config(), cwd.path().to_path_buf(), None)
-            .await
-            .expect("app server");
+async fn test_state() -> (HttpAppState, AppServerHandle, tempfile::TempDir) {
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let config_path = config_dir.path().join("config.toml");
+    let server = AgentAppServer::launch(
+        crate::test_model::config(),
+        config_dir.path().to_path_buf(),
+        Some(&config_path),
+    )
+    .await
+    .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
-    (state, server)
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
+    (state, server, config_dir)
 }
 
 async fn register_pending_approval(
@@ -94,19 +98,20 @@ async fn register_pending_user_input(
     .await;
 }
 
-async fn dogfood_loop_state() -> (HttpAppState, AppServerHandle) {
-    let cwd = tempfile::tempdir().expect("cwd");
+async fn dogfood_loop_state() -> (HttpAppState, AppServerHandle, tempfile::TempDir) {
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let config_path = config_dir.path().join("config.toml");
     let server = AgentAppServer::launch_with_module_catalog(
         dogfood_loop_config(),
-        cwd.path().to_path_buf(),
-        None,
+        config_dir.path().to_path_buf(),
+        Some(&config_path),
         dogfood_loop_catalog(),
     )
     .await
     .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
-    let state = HttpAppState::new(server.clone(), shutdown, test_security());
-    (state, server)
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
+    (state, server, config_dir)
 }
 
 fn dogfood_loop_config() -> AppConfig {
@@ -182,6 +187,33 @@ fn authed_json_request(path: &str, value: Value) -> Request<Full<Bytes>> {
         .expect("request")
 }
 
+fn session_uri(path: &str, server: &AppServerHandle) -> String {
+    let separator = if path.contains('?') { '&' } else { '?' };
+    format!(
+        "{path}{separator}session_dir={}",
+        server
+            .session_dir_path()
+            .expect("test server must have a session directory")
+            .display()
+    )
+}
+
+fn session_query(server: &AppServerHandle) -> String {
+    format!(
+        "session_dir={}",
+        server
+            .session_dir_path()
+            .expect("test server must have a session directory")
+            .display()
+    )
+}
+
+async fn shutdown_test_servers(state: &HttpAppState) {
+    for server in state.all_servers().await {
+        server.shutdown().await;
+    }
+}
+
 async fn wait_for_approval_request(
     event_rx: &mut broadcast::Receiver<AppServerEvent>,
 ) -> crate::app_server::AppApprovalRequest {
@@ -232,6 +264,7 @@ async fn wait_for_transcript_text(
     server.transcript().await.expect("transcript")
 }
 
+mod addressing;
 mod commands;
 mod config;
 mod inspection;

@@ -14,6 +14,7 @@ pub(crate) struct AppActions {
     pub(crate) set_next_message_id: WriteSignal<u64>,
     pub(crate) set_transport_status: WriteSignal<TransportStatus>,
     pub(crate) active_session_dir: ReadSignal<Option<String>>,
+    pub(crate) transcript_generation: ReadSignal<u64>,
     pub(crate) next_request_id: ReadSignal<u64>,
     pub(crate) set_next_request_id: WriteSignal<u64>,
     pub(crate) mode: ReadSignal<PermissionMode>,
@@ -35,8 +36,11 @@ pub(crate) struct AppActions {
 
 impl AppActions {
     pub(crate) fn set_permission_mode(self, new_mode: PermissionMode) {
+        let Some(session_dir) = self.active_session_dir.get_untracked() else {
+            return;
+        };
+        let generation = self.transcript_generation.get_untracked();
         let previous_mode = self.mode.get();
-        let session_dir = self.active_session_dir.get_untracked();
         self.set_mode.set(new_mode);
         let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "mode");
         spawn_local(async move {
@@ -45,12 +49,15 @@ impl AppActions {
                 &SetPermissionModeRequest {
                     id: Some(request_id),
                     mode: new_mode,
-                    session_dir,
+                    session_dir: session_dir.clone(),
                 },
             )
             .await
             {
                 Ok(output) => {
+                    if !self.is_current_session(&session_dir, generation) {
+                        return;
+                    }
                     if !handle_control_response(
                         output,
                         self.set_transport_status,
@@ -60,6 +67,9 @@ impl AppActions {
                     }
                 }
                 Err(error) => {
+                    if !self.is_current_session(&session_dir, generation) {
+                        return;
+                    }
                     self.set_mode.set(previous_mode);
                     self.set_control_error("Mode update failed", error);
                 }
@@ -76,7 +86,10 @@ impl AppActions {
             return;
         }
         let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "model");
-        let session_dir = self.active_session_dir.get_untracked();
+        let Some(session_dir) = self.active_session_dir.get_untracked() else {
+            return;
+        };
+        let generation = self.transcript_generation.get_untracked();
         spawn_local(async move {
             let requested_model = new_model.clone();
             match post_json(
@@ -90,6 +103,9 @@ impl AppActions {
             .await
             {
                 Ok(output) => {
+                    if !self.is_current_session(&session_dir, generation) {
+                        return;
+                    }
                     let config = match &output {
                         StdioOutput::Response {
                             output: Some(data), ..
@@ -100,8 +116,7 @@ impl AppActions {
                         output,
                         self.set_transport_status,
                         "Model update failed",
-                    ) && self.active_session_dir.get_untracked() == session_dir
-                    {
+                    ) {
                         if let Some(config) = config {
                             crate::model_settings::ModelSettings {
                                 model: self.set_model_name,
@@ -120,7 +135,11 @@ impl AppActions {
                         }
                     }
                 }
-                Err(error) => self.set_control_error("Model update failed", error),
+                Err(error) => {
+                    if self.is_current_session(&session_dir, generation) {
+                        self.set_control_error("Model update failed", error);
+                    }
+                }
             }
         });
     }
@@ -138,19 +157,25 @@ impl AppActions {
         self.set_effort.set(new_effort);
         self.set_reasoning_enabled.set(enables);
         let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "effort");
-        let session_dir = self.active_session_dir.get_untracked();
+        let Some(session_dir) = self.active_session_dir.get_untracked() else {
+            return;
+        };
+        let generation = self.transcript_generation.get_untracked();
         spawn_local(async move {
             match post_json(
                 "/effort",
                 &SetReasoningEffortRequest {
                     id: Some(request_id),
                     effort: effort_value,
-                    session_dir,
+                    session_dir: session_dir.clone(),
                 },
             )
             .await
             {
                 Ok(output) => {
+                    if !self.is_current_session(&session_dir, generation) {
+                        return;
+                    }
                     if !handle_control_response(
                         output,
                         self.set_transport_status,
@@ -161,6 +186,9 @@ impl AppActions {
                     }
                 }
                 Err(error) => {
+                    if !self.is_current_session(&session_dir, generation) {
+                        return;
+                    }
                     self.set_effort.set(previous_effort);
                     self.set_reasoning_enabled.set(previous_enabled);
                     self.set_control_error("Effort update failed", error);
@@ -174,6 +202,9 @@ impl AppActions {
         if text.is_empty() || self.is_sending.get() {
             return;
         }
+        let Some(session_dir) = self.active_session_dir.get_untracked() else {
+            return;
+        };
 
         if let Some(new_mode) = forced_mode {
             self.set_mode.set(new_mode);
@@ -190,7 +221,6 @@ impl AppActions {
             .map(|_| take_request_id(self.next_request_id, self.set_next_request_id, "mode"));
         let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "send");
         let run_id = request_id.clone();
-        let session_dir = self.active_session_dir.get_untracked();
         self.set_active_run_id.set(Some(run_id.clone()));
 
         spawn_local(async move {
@@ -276,6 +306,11 @@ impl AppActions {
         self.set_active_run_id.set(None);
     }
 
+    fn is_current_session(self, session_dir: &str, generation: u64) -> bool {
+        self.transcript_generation.get_untracked() == generation
+            && self.active_session_dir.get_untracked().as_deref() == Some(session_dir)
+    }
+
     fn push_error(self, prefix: &str, error: String) {
         report_error(
             self.set_messages,
@@ -358,6 +393,8 @@ pub(crate) fn handle_command_response(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn cancel_active_run(
+    active_session_dir: ReadSignal<Option<String>>,
+    transcript_generation: ReadSignal<u64>,
     active_run_id: ReadSignal<Option<String>>,
     next_request_id: ReadSignal<u64>,
     set_next_request_id: WriteSignal<u64>,
@@ -371,10 +408,14 @@ pub(crate) fn cancel_active_run(
     let Some(target_id) = active_run_id.get() else {
         return;
     };
+    let Some(session_dir) = active_session_dir.get_untracked() else {
+        return;
+    };
+    let generation = transcript_generation.get_untracked();
     let request_id = take_request_id(next_request_id, set_next_request_id, "cancel");
     spawn_local(async move {
         match post_json(
-            "/cancel",
+            &crate::api::session_path("/cancel", &session_dir),
             &CancelRequest {
                 id: Some(request_id),
                 target_id,
@@ -383,6 +424,11 @@ pub(crate) fn cancel_active_run(
         .await
         {
             Ok(output) => {
+                if transcript_generation.get_untracked() != generation
+                    || active_session_dir.get_untracked().as_deref() != Some(session_dir.as_str())
+                {
+                    return;
+                }
                 set_is_sending.set(false);
                 set_active_run_id.set(None);
                 handle_command_response(
@@ -394,6 +440,11 @@ pub(crate) fn cancel_active_run(
                 );
             }
             Err(error) => {
+                if transcript_generation.get_untracked() != generation
+                    || active_session_dir.get_untracked().as_deref() != Some(session_dir.as_str())
+                {
+                    return;
+                }
                 report_error(
                     set_messages,
                     next_message_id,

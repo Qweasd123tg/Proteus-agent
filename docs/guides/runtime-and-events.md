@@ -93,7 +93,7 @@ token отклоняется до запуска runtime и bind.
 после сборки runtime и фактического bind сервер печатает и flush-ит одну JSON
 строку `{"type":"http_ready","origin":"http://127.0.0.1:<port>"}`. Остальные
 строки stdout остаются диагностикой; credential в readiness не входит.
-Supervisor передаёт `--token` и нужные `--allow-origin` явно, проверяет `/config`
+Supervisor передаёт `--token` и нужные `--allow-origin` явно, проверяет `/bootstrap`
 и завершает сервер через authenticated `POST /shutdown`. Эту границу использует
 [desktop-клиент](desktop.md).
 
@@ -516,7 +516,20 @@ HTTP/SSE transport:
   через `AppServerHandle::usage_snapshot` и stdio/`POST /request` команду
   `usage_summary`. `null` означает runtime без canonical journal.
 
+HTTP app-server владеет реестром живых sessions, а выбранный чат принадлежит
+конкретному клиентскому окну. Глобальной «текущей session» в HTTP API нет.
+Все сессионные GET, включая `/events`, `/config`, `/model/quota`,
+`/config/builder`, `/inspect/*`, `/pending`, `/history`, `/context`, `/usage`
+и `/sessions/current`, требуют query `?session_dir=<URL-encoded path>`.
+Ниже пути этих endpoint-ов сокращены; отсутствие адреса является ошибкой,
+а не выбором session по умолчанию. HTTP launch требует настроенного session
+store; stdio остаётся привязанным к одной session при запуске процесса.
+
 - `GET /health` - healthcheck;
+- `GET /bootstrap` - server-scoped `{session_dir, cwd}`: фиксированная подсказка
+  session и workspace при старте. Создание и открытие других sessions её не
+  меняет; после удаления стартовой session `session_dir` становится `null`.
+  Клиент сам сохраняет свой выбор и при необходимости создаёт новую session;
 - `GET /events` - SSE stream, где `data:` содержит JSON `StdioOutput::Event`.
   Доставка идёт через tokio broadcast ring: если клиент читает медленнее, чем
   runtime производит события, старые события выбрасываются, а клиент получает
@@ -526,8 +539,7 @@ HTTP/SSE transport:
   `/pending`, как после SSE reconnect — среди потерянных событий могли быть
   `ToolFinished`/`TurnOutput`, без resync карточки остались бы «бегущими»
   навсегда;
-- `GET /config` - текущий config summary, включая активный `session_dir`, если
-  runtime подключён к session store;
+- `GET /config` - config summary явно адресованной session, включая её `session_dir`;
 - `GET /model/quota` — provider-neutral `ModelQuotaSnapshot` текущего model
   export или JSON `null`, если чтение квоты не поддержано. Требует обычной
   авторизации app-server. Ошибка lookup/validation возвращает HTTP 502 с
@@ -547,17 +559,15 @@ HTTP/SSE transport:
 - `GET /inspect/topology.mmd` - Mermaid export/debug view из того же snapshot;
 - `GET /sessions` - durable session summaries из config store с optional
   live `activity` для sessions, открытых в текущем app-server process;
-- `GET /sessions/current` - тот же список, ограниченный workspace текущего
-  app-server;
+- `GET /sessions/current` - тот же список, ограниченный workspace явно адресованной session;
 - `GET /pending` - snapshot pending approval/user-input запросов и ещё не
   доставленных root steering messages выбранной session для восстановления UI
   после initial load или SSE reconnect;
-- `POST /request` - generic `StdioRequest`, ответом является `StdioOutput::Response`;
-- `GET /history` - transcript текущей live session; `GET
-  /history?session_dir=<path>` читает transcript указанной session, не меняя
-  текущую выбранную session и без обязательного cold resume;
-- `GET /context` - diagnostic context map текущей live session; `GET
-  /context?session_dir=<path>` читает карту указанной session с fallback из
+- `POST /request?session_dir=<path>` - generic `StdioRequest` для указанной
+  live session, ответом является `StdioOutput::Response`;
+- `GET /history` - transcript указанной live или cold session без обязательного
+  cold resume;
+- `GET /context` - diagnostic context map указанной session с fallback из
   event log/history и без обязательного cold resume;
 - `POST /send` - запускает turn и держит HTTP request до финального
   `AgentOutput`; если root turn уже активен, сразу возвращает queued receipt;
@@ -567,24 +577,33 @@ HTTP/SSE transport:
   `Error` приходят через `GET /events`;
 - `POST /queue/edit` - меняет `text` сообщения с указанным `message_id`, пока
   оно находится в очереди; `POST /queue/delete` удаляет его. Оба принимают
-  optional `id` и `session_dir`. Через stdio или `POST /request` те же действия
-  доступны как `edit_queued_message` и `delete_queued_message` для текущей session;
-- `POST /cancel`, `/approval`, `/user-input`, `/mode`, `/model`, `/reasoning`,
-  `/effort` - короткие endpoint'ы над соответствующими командами; mutating
-  request bodies могут передать `session_dir`, чтобы команда ушла в конкретную
-  live session, а не в process-wide текущую session;
+  optional `id` и обязательный `session_dir` в JSON body. Через stdio или
+  `POST /request` доступны `edit_queued_message` и `delete_queued_message`;
+- `POST /send`, `/send-async`, `/mode`, `/model`, `/reasoning`, `/effort`
+  требуют `session_dir` в JSON body;
+- `POST /cancel`, `/approval`, `/user-input`, `/clear`, `/reload-tools`,
+  `/config/builder`, `/config/web` требуют query `?session_dir=<path>`.
+  Cancel и ответы на pending запросы действуют только внутри этой session;
 - `POST /config/builder` - сохраняет выбор Config Builder; `POST /config/web`
   обновляет поддержанные web preferences;
-- `POST /resume` - переключает текущий HTTP app-server на выбранный
-  `session_dir` без отмены running turn старой session;
-- `POST /new-session` - выбирает новый пустой runtime, не отменяя фоновые
-  turns других sessions;
+- `POST /resume` - обеспечивает наличие live runtime указанного в body
+  `session_dir`, возвращая его summary. Не меняет выбор других клиентов и
+  не отменяет running turns;
+- `POST /new-session` - регистрирует новый пустой runtime и возвращает его
+  summary. Optional `source_session_dir` в body явно выбирает live session,
+  от которой берутся workspace и конфигурация; web передаёт свой выбранный чат.
+  Без этого поля используется стартовая конфигурация и workspace сервера.
+  Создание не меняет выбор других окон и не отменяет фоновые turns;
 - `POST /delete-session` - удаляет указанную durable session и отменяет только
-  связанную с ней live работу;
-- `POST /clear`, `/reload-tools` и `/shutdown` - control-plane команды без
-  body.
+  связанную с ней live работу. Возвращает `{deleted}` и не создаёт замену:
+  дальнейший выбор делает клиент;
+- `POST /shutdown` - server-scoped завершение процесса без body.
 
-Оба session endpoint-а сериализуют единый contract DTO `AppSessionSummary`.
+`/health`, `/bootstrap`, `/sessions`, `/new-session` и `/shutdown` относятся
+к серверу. `/resume` и `/delete-session` адресуют session через JSON body.
+
+`/sessions` и `/sessions/current` сериализуют единый contract DTO
+`AppSessionSummary`.
 `SessionStore` заполняет durable поля (`session_id`, workspace, count, preview
 и timestamp), а HTTP control-plane только накладывает live `activity`. Ещё не
 materialized live session строится через тот же DTO, поэтому transport не
@@ -601,16 +620,16 @@ source of truth для sidebar и активного чата после `/resum
 
 HTTP `send` держит request до завершения turn'а и параллельно публикует
 progress/final события через `/events`. `cancel.target_id` ссылается на `id`
-исходного `send` и сигналит тот же turn-level `CancellationToken`, даже если
-пользователь уже переключился на другую session.
+исходного `send` и сигналит тот же turn-level `CancellationToken`; запрос
+отмены должен по-прежнему адресовать session этого `send`, даже если окно
+уже показывает другой чат.
 `send-async` возвращает acceptance/protocol response сразу после постановки
 root turn-а или сообщения в очередь; его завершение не возвращается вторым
 HTTP-ответом и наблюдается через SSE (`TurnOutput` или `Error`). В одной
 session выполняется одна root-цепочка, но последующие `Send` принимаются в её
 bounded runtime-очередь. Разные sessions по-прежнему работают параллельно.
-`POST /request` сохраняет stdio-compatible поведение и работает с текущей
-выбранной session; для parallel-session UI нужно использовать короткие HTTP
-endpoint'ы с явным `session_dir`.
+`POST /request` сохраняет stdio-compatible команды, но HTTP transport требует
+явный `session_dir` в query.
 Pending approval/user-input живут в app-server до ответа UI, timeout, cancel,
 delete или shutdown. Если SSE connection оборвался до доставки
 `ApprovalRequested`/`UserInputRequested`, новый клиент перечитывает `/pending`
@@ -776,14 +795,12 @@ runtime восстанавливает cwd из имени parent workspace dire
 
 Во внешнем UI resume picker является app-client командой, а не visual-layer
 логикой. HTTP app-server отдаёт список sessions через `GET /sessions`,
-переключает текущий runtime через `POST /resume` и отдаёт transcript текущего
-runtime через `GET /history`, чтобы web-клиент мог сразу восстановить чат после
-resume. Текущий `session_dir` также возвращается в `GET /config`, чтобы UI мог
-пометить активную сессию после reload без ожидания нового `SessionStarted`.
-HTTP app-server может держать несколько live `AgentRuntime` handles для разных
-sessions одного процесса: выбранная session получает полный SSE transcript
-stream, а фоновые sessions продолжают turns и публикуют только
-`SessionActivityUpdated` для sidebar. Это transport-level manager; сам
+открывает live runtime через `POST /resume` и отдаёт transcript по
+`GET /history?session_dir=<path>`. Выбранный чат хранит клиент; начальную
+подсказку возвращает `/bootstrap`. Перезагрузка окна не меняет выбор других
+клиентов. HTTP app-server держит несколько live `AgentRuntime` handles:
+каждое SSE-подключение явно адресует одну session и получает её полный stream,
+а также `SessionActivityUpdated` фоновых sessions для sidebar. Сам
 `AgentRuntime` остаётся session-scoped.
 При старте HTTP/STDIO app-server без явного `--resume-session` runtime
 автоматически открывает последнюю непустую resumable session текущего

@@ -1,5 +1,9 @@
 use super::summaries::{apply_active_session_activity, session_activity_is_busy};
-use crate::{api::get_json, messages::report_error, types::*};
+use crate::{
+    api::{get_json, session_path},
+    messages::report_error,
+    types::*,
+};
 use leptos::{prelude::*, task::spawn_local};
 use serde_json::Value;
 
@@ -7,20 +11,36 @@ use serde_json::Value;
 /// Разовая загрузка веб-настроек из секции [web] конфига (config_summary.web).
 /// Отдельно от load_runtime_settings, чтобы не тащить параметр через её 4
 /// вызова (они делят хвостовые аргументы с другими функциями).
-pub(crate) fn load_web_settings(set_tool_cards_collapsed: WriteSignal<bool>) {
-    spawn_local(async move {
-        if let Ok(config) = get_json::<Value>("/config").await
-            && let Some(collapsed) = config
-                .pointer("/web/tool_cards_collapsed")
-                .and_then(Value::as_bool)
-        {
-            set_tool_cards_collapsed.set(collapsed);
-        }
+pub(crate) fn load_web_settings(
+    active_session_dir: ReadSignal<Option<String>>,
+    transcript_generation: ReadSignal<u64>,
+    set_tool_cards_collapsed: WriteSignal<bool>,
+) {
+    Effect::new(move |_| {
+        let Some(session_dir) = active_session_dir.get() else {
+            return;
+        };
+        let generation = transcript_generation.get_untracked();
+        spawn_local(async move {
+            if let Ok(config) = get_json::<Value>(&session_path("/config", &session_dir)).await
+                && active_session_dir.get_untracked().as_deref() == Some(session_dir.as_str())
+                && transcript_generation.get_untracked() == generation
+                && let Some(collapsed) = config
+                    .pointer("/web/tool_cards_collapsed")
+                    .and_then(Value::as_bool)
+            {
+                set_tool_cards_collapsed.set(collapsed);
+            }
+        });
     });
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn load_runtime_settings(
+    session_dir: String,
+    active_session_dir: ReadSignal<Option<String>>,
+    transcript_generation: ReadSignal<u64>,
+    expected_generation: u64,
     set_mode: WriteSignal<PermissionMode>,
     set_model_name: WriteSignal<String>,
     set_model_options: WriteSignal<Vec<ModelOption>>,
@@ -28,7 +48,6 @@ pub(crate) fn load_runtime_settings(
     set_effort: WriteSignal<ReasoningEffort>,
     set_effort_options: WriteSignal<Vec<String>>,
     set_workspace_label: WriteSignal<String>,
-    set_active_session_dir: WriteSignal<Option<String>>,
     set_is_sending: WriteSignal<bool>,
     set_active_run_id: WriteSignal<Option<String>>,
     set_agent_status: WriteSignal<String>,
@@ -38,17 +57,17 @@ pub(crate) fn load_runtime_settings(
     set_transport_status: WriteSignal<TransportStatus>,
 ) {
     spawn_local(async move {
-        match get_json::<Value>("/config").await {
+        let result = get_json::<Value>(&session_path("/config", &session_dir)).await;
+        if transcript_generation.get_untracked() != expected_generation
+            || active_session_dir.get_untracked().as_deref() != Some(session_dir.as_str())
+        {
+            return;
+        }
+        match result {
             Ok(config) => {
                 if let Some(cwd) = config.get("cwd").and_then(Value::as_str) {
                     set_workspace_label.set(cwd.to_owned());
                 }
-                set_active_session_dir.set(
-                    config
-                        .get("session_dir")
-                        .and_then(Value::as_str)
-                        .map(ToOwned::to_owned),
-                );
                 // Сервер кладёт в /config activity текущей сессии. Если ход ещё
                 // выполняется (страница открылась посреди хода), сразу помечаем
                 // занятость: composer уводит новые сообщения в очередь, а не в

@@ -105,6 +105,8 @@ pub(super) fn connect(state: AppState) -> ClientConnection {
         set_effort_options,
         set_workspace_label,
         set_active_session_dir,
+        active_session_dir,
+        transcript_generation,
         set_is_sending,
         set_active_run_id,
         set_agent_status,
@@ -123,9 +125,6 @@ pub(super) fn connect(state: AppState) -> ClientConnection {
         set_transport_status,
     };
 
-    runtime_settings.load();
-    transcript_bindings.load_initial(messages);
-
     let event_source = StoredValue::new_local(None::<EventConnection>);
     let event_stream_bindings = EventStreamBindings {
         set_messages,
@@ -137,7 +136,6 @@ pub(super) fn connect(state: AppState) -> ClientConnection {
         set_workspace_label,
         set_session_label,
         active_session_dir,
-        set_active_session_dir,
         set_is_sending,
         set_active_run_id,
         active_stream_message_id,
@@ -174,16 +172,17 @@ pub(super) fn connect(state: AppState) -> ClientConnection {
         set_pending_user_inputs,
         set_stick_to_bottom,
         set_sidebar_sessions,
+        sidebar_sessions: state.session.sidebar_sessions,
         set_sidebar_sessions_status,
     };
-    session_actions.load_sidebar_sessions();
-    reconnect_event_stream(event_source, event_stream_bindings);
+    session_actions.initialize(messages);
     let actions = AppActions {
         set_messages,
         next_message_id,
         set_next_message_id,
         set_transport_status,
         active_session_dir,
+        transcript_generation,
         next_request_id,
         set_next_request_id,
         mode,

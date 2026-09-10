@@ -111,7 +111,7 @@ async fn start_agent(app: AppHandle, preferences: Preferences) -> Result<(), Str
             window.destroy().map_err(|e| e.to_string())?;
         }
     }
-    windows::client(&app, "main", &connection).map_err(display_error)?;
+    windows::client(&app, "main", &connection, None).map_err(display_error)?;
     if let Some(window) = app.get_webview_window("launcher") {
         window.hide().map_err(|e| e.to_string())?;
     }
@@ -119,7 +119,11 @@ async fn start_agent(app: AppHandle, preferences: Preferences) -> Result<(), Str
 }
 
 #[tauri::command]
-async fn open_client(app: AppHandle, label: String) -> Result<(), String> {
+async fn open_client(
+    app: AppHandle,
+    label: String,
+    session_dir: Option<String>,
+) -> Result<(), String> {
     let connection = app
         .state::<DesktopState>()
         .backend
@@ -128,7 +132,7 @@ async fn open_client(app: AppHandle, label: String) -> Result<(), String> {
         .as_ref()
         .map(|backend| backend.connection.clone())
         .ok_or("Backend не запущен")?;
-    windows::client(&app, &label, &connection).map_err(display_error)
+    windows::client(&app, &label, &connection, session_dir.as_deref()).map_err(display_error)
 }
 
 fn display_error(error: anyhow::Error) -> String {
@@ -220,7 +224,7 @@ fn main() {
             "inspector" => {
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
-                    let _ = open_client(app, "inspector".to_owned()).await;
+                    let _ = open_client(app, "inspector".to_owned(), None).await;
                 });
             }
             _ => {}

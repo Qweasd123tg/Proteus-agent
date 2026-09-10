@@ -1,5 +1,5 @@
 use super::extensions::ExtensionSettingsView;
-use crate::api::{get_json, post_json};
+use crate::api::{get_json, post_json, session_path};
 use crate::types::*;
 use leptos::{prelude::*, task::spawn_local};
 use serde_json::Value;
@@ -10,6 +10,8 @@ use std::sync::{
 
 #[component]
 pub(crate) fn SettingsView(
+    active_session_dir: ReadSignal<Option<String>>,
+    transcript_generation: ReadSignal<u64>,
     tool_cards_collapsed: ReadSignal<bool>,
     set_tool_cards_collapsed: WriteSignal<bool>,
 ) -> impl IntoView {
@@ -24,7 +26,7 @@ pub(crate) fn SettingsView(
             </nav>
             <section class="settings-section" id="general">
                 <h2>"Чат"</h2>
-                <ChatSettings tool_cards_collapsed set_tool_cards_collapsed />
+                <ChatSettings active_session_dir transcript_generation tool_cards_collapsed set_tool_cards_collapsed />
             </section>
             <section class="settings-section" id="extensions">
                 <h2>"Расширения"</h2>
@@ -37,6 +39,8 @@ pub(crate) fn SettingsView(
 
 #[component]
 fn ChatSettings(
+    active_session_dir: ReadSignal<Option<String>>,
+    transcript_generation: ReadSignal<u64>,
     tool_cards_collapsed: ReadSignal<bool>,
     set_tool_cards_collapsed: WriteSignal<bool>,
 ) -> impl IntoView {
@@ -47,13 +51,22 @@ fn ChatSettings(
     let alive = Arc::new(AtomicBool::new(true));
     let cleanup = alive.clone();
     on_cleanup(move || cleanup.store(false, Ordering::Relaxed));
-    let load = move || {
+    let load = Callback::new(move |()| {
+        let Some(session_dir) = active_session_dir.get_untracked() else {
+            set_status.set("Сессия ещё не выбрана".into());
+            set_pending.set(false);
+            return;
+        };
+        let generation = transcript_generation.get_untracked();
         let alive = alive.clone();
         set_pending.set(true);
         set_status.set("Загрузка…".into());
         spawn_local(async move {
-            let result = get_json::<Value>("/config").await;
-            if !alive.load(Ordering::Relaxed) {
+            let result = get_json::<Value>(&session_path("/config", &session_dir)).await;
+            if !alive.load(Ordering::Relaxed)
+                || active_session_dir.get_untracked().as_deref() != Some(session_dir.as_str())
+                || transcript_generation.get_untracked() != generation
+            {
                 return;
             }
             match result {
@@ -79,20 +92,27 @@ fn ChatSettings(
             }
             set_pending.set(false);
         });
-    };
-    load();
+    });
+    Effect::new(move |_| {
+        active_session_dir.track();
+        load.run(());
+    });
     let toggle = move |_| {
         if pending.get_untracked() {
             return;
         }
         let previous = value.get_untracked();
         let next = !previous;
+        let Some(session_dir) = active_session_dir.get_untracked() else {
+            return;
+        };
+        let generation = transcript_generation.get_untracked();
         set_value.set(next);
         set_pending.set(true);
         set_status.set("Сохранение…".into());
         spawn_local(async move {
             let result = post_json(
-                "/config/web",
+                &session_path("/config/web", &session_dir),
                 &serde_json::json!({"id":"web","tool_cards_collapsed":next}),
             )
             .await;
@@ -104,6 +124,11 @@ fn ChatSettings(
                 Ok(_) => Some("Неожиданный ответ сервера".into()),
                 Err(error) => Some(error),
             };
+            if active_session_dir.get_untracked().as_deref() != Some(session_dir.as_str())
+                || transcript_generation.get_untracked() != generation
+            {
+                return;
+            }
             if let Some(error) = error {
                 set_value.try_set(previous);
                 set_status.try_set(format!("Не сохранено: {error}"));
@@ -122,6 +147,6 @@ fn ChatSettings(
             <input type="checkbox" class="settings-toggle" prop:checked=move || value.get() disabled=move || pending.get() || !ready.get() on:change=toggle />
         </label>
         <p class="settings-status" role="status">{move || status.get()}</p>
-        <button type="button" class="secondary settings-retry" hidden=move || ready.get() disabled=move || pending.get() on:click=move |_| load()>"Повторить загрузку"</button>
+        <button type="button" class="secondary settings-retry" hidden=move || ready.get() disabled=move || pending.get() on:click=move |_| load.run(())>"Повторить загрузку"</button>
     }
 }
