@@ -1,7 +1,8 @@
 mod approval;
 mod chat_results;
 mod composer;
-mod composer_menu;
+mod composer_access_menu;
+mod composer_model_menu;
 mod context_map;
 mod controls;
 mod extensions;

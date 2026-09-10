@@ -26,6 +26,11 @@ pub(crate) fn StopIcon() -> impl IntoView {
 }
 
 #[component]
+pub(crate) fn ShieldIcon() -> impl IntoView {
+    view! { <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z" /><path d="m8.5 12 2.5 2.5 4.5-5" /></svg> }
+}
+
+#[component]
 pub(crate) fn ChevronDownIcon() -> impl IntoView {
     view! { <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg> }
 }

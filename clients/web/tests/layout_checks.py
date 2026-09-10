@@ -5,6 +5,12 @@ from pathlib import Path
 
 
 def run(command, js, wait_for):
+    # Separate controls share one popup at a time; outside clicks dismiss either.
+    for menu in ['access', 'model', 'access']:
+        js(f"document.querySelector('.composer-{menu}-menu summary').click()")
+        wait_for(lambda: js(f"return document.querySelectorAll('.composer-menu[open]').length===1 && document.querySelector('.composer-{menu}-menu').open"), 'Composer menus overlap')
+    js("document.querySelector('.composer textarea').click()")
+    assert js("return !document.querySelector('.composer-menu[open]')"), 'Input click did not dismiss composer menu'
     js("if (!document.querySelector('.info-panel.open'))[...document.querySelectorAll('[data-panel-toggle=info]')].find(b=>!b.closest('[inert]')).click(); window.perfFixture=document.createElement('div'); for(let i=0;i<240;i++){const p=document.createElement('article');p.className='task-card';p.textContent=('Representative transcript text with paths and code fragments. ').repeat(35);window.perfFixture.append(p)} document.querySelector('.results-panel').append(window.perfFixture)")
     for selector in ['.info-panel', '.sidebar']:
         for _ in range(2):
@@ -87,14 +93,20 @@ def run(command, js, wait_for):
         draft('длинный_путь_без_пробелов/' * 30)
         wait_for(lambda: js("return document.querySelector('.composer textarea').clientHeight > 100"), 'Mobile composer did not wrap long text')
         assert js("const area=document.querySelector('.composer textarea');return area.scrollWidth <= area.clientWidth && document.documentElement.scrollWidth <= innerWidth"), 'Long draft overflows horizontally'
-        js("document.querySelector('.composer-menu summary').click()")
-        wait_for(lambda: js("return !!document.querySelector('.composer-menu[open]')"), 'Request options did not open')
-        assert js("const r=document.querySelector('.composer-menu-panel').getBoundingClientRect();return r.left >= 0 && r.right <= innerWidth && r.top >= 0"), 'Request options leave mobile viewport'
-        if width == 390:
-            command('/execute/async', {'script': 'const done=arguments[arguments.length-1];Promise.all(document.getAnimations().filter(a=>a.effect.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{}))).then(()=>done(null))', 'args': []})
-            Path('/tmp/proteus-ui-composer-mobile.png').write_bytes(base64.b64decode(command('/screenshot', None)))
-        js("window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
-        wait_for(lambda: js("return !document.querySelector('.composer-menu[open]') && document.activeElement.matches('.composer-menu summary')"), 'Escape did not close options and restore focus')
+        # Exercise the toolbar with a long model label and visible reasoning level.
+        js("const label=document.querySelector('.composer-model-menu .composer-menu-model');window.originalModelLabel=label.textContent;label.textContent='Very long model name for testing';window.effortFixture=document.createElement('span');effortFixture.className='composer-menu-meta';effortFixture.textContent='Очень высокий';label.after(effortFixture)")
+        assert js("const access=document.querySelector('.composer-access-menu').getBoundingClientRect(), model=document.querySelector('.composer-model-menu').getBoundingClientRect(), send=document.querySelector('.composer-submit').getBoundingClientRect();return access.right <= model.left && model.right <= send.left && send.right <= innerWidth && document.documentElement.scrollWidth <= innerWidth"), 'Composer controls overlap with a long model name'
+        for menu in ['access', 'model']:
+            js(f"document.querySelector('.composer-{menu}-menu summary').click()")
+            wait_for(lambda: js(f"return document.querySelector('.composer-{menu}-menu').open"), 'Composer options did not open')
+            assert js("const r=document.querySelector('.composer-menu[open] .composer-menu-panel').getBoundingClientRect(), shell=document.querySelector('.composer-shell').getBoundingClientRect();return r.left >= shell.left && r.right <= shell.right && r.top >= 0"), 'Composer options leave the input bounds'
+            assert js("return [...document.querySelectorAll('.composer-menu[open] .menu-option-row')].every(button=>button.getBoundingClientRect().width > 150)"), 'Menu rows inherited the round send button style'
+            if width == 390 and menu == 'model':
+                command('/execute/async', {'script': 'const done=arguments[arguments.length-1];Promise.all(document.getAnimations().filter(a=>a.effect.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{}))).then(()=>done(null))', 'args': []})
+                Path('/tmp/proteus-ui-composer-mobile.png').write_bytes(base64.b64decode(command('/screenshot', None)))
+            js("window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
+            wait_for(lambda: js(f"return !document.querySelector('.composer-menu[open]') && document.activeElement.matches('.composer-{menu}-menu summary')"), 'Escape did not close options and restore focus')
+        js("document.querySelector('.composer-model-menu .composer-menu-model').textContent=window.originalModelLabel;window.effortFixture.remove()")
         draft('')
 
     command('/window/rect', {'width': 1440, 'height': 1000})

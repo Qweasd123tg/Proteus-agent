@@ -7,7 +7,11 @@ pub(super) fn close_menus_on_outside_click(ev: MouseEvent) {
     let target = ev
         .target()
         .and_then(|target| target.dyn_into::<web_sys::Node>().ok());
-    for selector in [".composer-menu[open]", ".topbar-menu[open]"] {
+    for selector in [
+        ".composer-access-menu[open]",
+        ".composer-model-menu[open]",
+        ".topbar-menu[open]",
+    ] {
         let Ok(Some(menu)) = document.query_selector(selector) else {
             continue;
         };

@@ -23,7 +23,7 @@
 .composer-input { position: relative; }
 .composer-measure,
 .composer textarea {
-    padding: 16px 18px 10px;
+    padding: 16px 18px 12px;
     font-family: var(--font-sans);
     font-size: 14px;
     line-height: 22px;
@@ -34,7 +34,7 @@
 }
 .composer-measure {
     visibility: hidden;
-    min-height: 56px;
+    min-height: 64px;
     max-height: min(240px, 30vh);
     overflow: hidden;
     pointer-events: none;
@@ -55,6 +55,7 @@
 }
 .composer textarea:focus-visible { outline: none; }
 .composer-toolbar {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -68,16 +69,9 @@
     gap: 6px;
     min-width: 0;
 }
-.composer-options { flex: 0 1 auto; }
-.composer-actions { flex: none; }
-.composer-mode {
-    overflow: hidden;
-    color: var(--text-muted);
-    font-size: 11px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.composer-actions button {
+.composer-options { flex: 0 1 auto; max-width: 45%; }
+.composer-actions { flex: 0 1 auto; margin-left: auto; }
+.composer-actions > button {
     flex: none;
     width: 32px;
     height: 32px;
@@ -126,5 +120,6 @@
 @media (max-width: 620px) {
     .composer { padding: 0 16px 12px; }
     .composer-toolbar { gap: 8px; }
-    .composer-mode { max-width: 100px; }
+    .composer-options { max-width: 38%; }
+    .composer-actions { max-width: 62%; }
 }

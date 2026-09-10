@@ -2,7 +2,8 @@ use leptos::{html, prelude::*};
 use web_sys::{KeyboardEvent, MouseEvent, SubmitEvent};
 
 use super::{
-    composer_menu::{ComposerMenu, mode_label},
+    composer_access_menu::ComposerAccessMenu,
+    composer_model_menu::ComposerModelMenu,
     icons::{ArrowUpIcon, StopIcon},
 };
 use crate::{actions::AppActions, types::*};
@@ -72,12 +73,10 @@ where
                 </div>
                 <div class="composer-toolbar">
                     <div class="composer-options">
-                        <ComposerMenu mode model_name model_options reasoning_enabled effort effort_options actions />
-                        <Show when=move || mode.get() != PermissionMode::Normal>
-                            <span class="composer-mode" title=move || mode.get().description()>{move || mode_label(mode.get())}</span>
-                        </Show>
+                        <ComposerAccessMenu mode actions />
                     </div>
                     <div class="composer-actions">
+                        <ComposerModelMenu model_name model_options reasoning_enabled effort effort_options actions />
                         {move || active_run_id.get().is_some().then(|| view! {
                             <button type="button" class="composer-stop" title="Остановить ход · Esc" aria-label="Остановить ход" on:click=on_cancel_turn><StopIcon /></button>
                         })}

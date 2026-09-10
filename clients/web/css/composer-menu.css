@@ -1,5 +1,4 @@
-.composer-menu { position: relative; min-width: 0; max-width: 320px; }
-.composer-menu[open] { z-index: 10; }
+.composer-menu { min-width: 0; max-width: 360px; }
 .composer-menu-trigger {
     display: flex;
     align-items: center;
@@ -16,10 +15,11 @@
 .composer-menu-trigger::-webkit-details-marker { display: none; }
 .composer-menu-trigger:hover,
 .composer-menu[open] .composer-menu-trigger { background: var(--bg-panel-hover); color: var(--text-main); }
-.composer-menu-trigger svg { flex: none; transition: transform 140ms; }
-.composer-menu[open] .composer-menu-trigger svg { transform: rotate(180deg); }
+.composer-menu-trigger svg { flex: none; }
+.composer-menu-trigger svg:last-child { transition: transform 140ms; }
+.composer-menu[open] .composer-menu-trigger svg:last-child { transform: rotate(180deg); }
 .composer-menu-model { min-width: 0; overflow: hidden; font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.composer-menu-meta { flex: none; color: var(--text-faint); font-size: 11px; }
+.composer-menu-meta { flex: 0 1 auto; overflow: hidden; color: var(--text-faint); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .composer-menu-meta::before { content: "· "; }
 .composer-menu-label { color: var(--text-faint); font-size: 11px; font-weight: 500; }
 
@@ -27,8 +27,9 @@
     position: absolute;
     bottom: calc(100% + var(--space-2));
     right: auto;
-    left: 0;
-    width: min(360px, calc(100vw - 32px));
+    left: 10px;
+    width: 360px;
+    max-width: calc(100% - 20px);
     max-height: min(480px, 65vh);
     overflow: auto;
     border: 1px solid var(--border-strong);
@@ -37,6 +38,7 @@
     box-shadow: var(--shadow-lg);
     z-index: 20;
 }
+.composer-model-menu .composer-menu-panel { left: auto; right: 10px; }
 
 .composer-menu-section {
     display: grid;
@@ -154,9 +156,4 @@
 
 .menu-option.active .menu-option-check {
     visibility: visible;
-}
-
-@media (max-width: 620px) {
-    .composer-menu { max-width: min(240px, 52vw); }
-    .composer-menu-panel { width: min(360px, calc(100vw - 56px)); }
 }

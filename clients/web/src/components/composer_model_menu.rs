@@ -1,17 +1,8 @@
 use crate::{actions::AppActions, types::*, ui_utils::compact_text};
 use leptos::prelude::*;
 
-pub(super) fn mode_label(mode: PermissionMode) -> &'static str {
-    match mode {
-        PermissionMode::Plan => "Планирование",
-        PermissionMode::Normal => "С подтверждениями",
-        PermissionMode::Auto => "Без подтверждений",
-    }
-}
-
 #[component]
-pub(super) fn ComposerMenu(
-    mode: ReadSignal<PermissionMode>,
+pub(super) fn ComposerModelMenu(
     model_name: ReadSignal<String>,
     model_options: ReadSignal<Vec<ModelOption>>,
     reasoning_enabled: ReadSignal<bool>,
@@ -24,12 +15,18 @@ pub(super) fn ComposerMenu(
         if model.trim().is_empty() {
             "Модель из профиля".to_owned()
         } else {
-            compact_text(&model, 32)
+            let label = model_options
+                .get()
+                .into_iter()
+                .find(|option| option.name == model)
+                .map(|option| option.label)
+                .unwrap_or(model);
+            compact_text(&label, 32)
         }
     };
     view! {
-    <details class="composer-menu">
-        <summary class="composer-menu-trigger" aria-label="Модель и параметры запроса" title=move || format!("{} · {}", model_name.get(), mode_label(mode.get()))>
+    <details class="composer-menu composer-model-menu">
+        <summary class="composer-menu-trigger" aria-label="Модель и рассуждение" title=move || model_name.get()>
             <span class="composer-menu-model">{trigger_model}</span>
             <Show when=move || reasoning_enabled.get()><span class="composer-menu-meta">{move || effort.get().label()}</span></Show>
             <super::icons::ChevronDownIcon />
@@ -78,48 +75,6 @@ pub(super) fn ComposerMenu(
                             }.into_any()
                         }
                     }}
-                </div>
-            </section>
-
-            <section class="composer-menu-section">
-                <span class="composer-menu-label">"Доступ"</span>
-                <div class="composer-menu-options stacked">
-                    <button
-                        type="button"
-                        class="menu-option menu-option-row"
-                        class:active=move || mode.get() == PermissionMode::Plan
-                        on:click=move |_| actions.set_permission_mode(PermissionMode::Plan)
-                    >
-                        <span class="menu-option-text">
-                            <span class="menu-option-title">{mode_label(PermissionMode::Plan)}</span>
-                            <span class="menu-option-desc">{PermissionMode::Plan.description()}</span>
-                        </span>
-                        <span class="menu-option-check" aria-hidden="true">"✓"</span>
-                    </button>
-                    <button
-                        type="button"
-                        class="menu-option menu-option-row"
-                        class:active=move || mode.get() == PermissionMode::Normal
-                        on:click=move |_| actions.set_permission_mode(PermissionMode::Normal)
-                    >
-                        <span class="menu-option-text">
-                            <span class="menu-option-title">{mode_label(PermissionMode::Normal)}</span>
-                            <span class="menu-option-desc">{PermissionMode::Normal.description()}</span>
-                        </span>
-                        <span class="menu-option-check" aria-hidden="true">"✓"</span>
-                    </button>
-                    <button
-                        type="button"
-                        class="menu-option menu-option-row"
-                        class:active=move || mode.get() == PermissionMode::Auto
-                        on:click=move |_| actions.set_permission_mode(PermissionMode::Auto)
-                    >
-                        <span class="menu-option-text">
-                            <span class="menu-option-title">{mode_label(PermissionMode::Auto)}</span>
-                            <span class="menu-option-desc">{PermissionMode::Auto.description()}</span>
-                        </span>
-                        <span class="menu-option-check" aria-hidden="true">"✓"</span>
-                    </button>
                 </div>
             </section>
 
