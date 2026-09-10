@@ -531,7 +531,7 @@ store; stdio остаётся привязанным к одной session пр�
   меняет; после удаления стартовой session `session_dir` становится `null`.
   Клиент сам сохраняет свой выбор и при необходимости создаёт новую session;
 - `GET /events` - SSE stream, где `data:` содержит JSON `StdioOutput::Event`.
-  Доставка идёт через tokio broadcast ring: если клиент читает медленнее, чем
+  Runtime-события доставляются через tokio broadcast ring: если клиент читает медленнее, чем
   runtime производит события, старые события выбрасываются, а клиент получает
   типизированный `AppServerEvent::EventStreamLagged { count }` (и по stdio
   transport тоже). Получив его, клиент обязан считать стрим-состояние
@@ -632,18 +632,54 @@ bounded runtime-очередь. Разные sessions по-прежнему ра
 явный `session_dir` в query.
 Pending approval/user-input живут в app-server до ответа UI, timeout, cancel,
 delete или shutdown. Если SSE connection оборвался до доставки
-`ApprovalRequested`/`UserInputRequested`, новый клиент перечитывает `/pending`
-и восстанавливает карточки без повторного запуска turn'а.
+`ApprovalRequested`/`UserInputRequested`, новый клиент восстанавливает карточки
+из начального `PendingRequestsUpdated` или версионного `/pending` без повторного
+запуска turn'а.
 После `/resume` web-клиент открывает новый SSE connection к выбранной session.
 Turns старой session продолжают работать в фоне в том же app-server process;
 sidebar получает `SessionActivityUpdated`, а pending approval/user-input старой
 session можно увидеть и закрыть после переключения обратно. Явная отмена
 остаётся через `/cancel`, а удаление session отменяет только работу этой
 session.
-При переключении web-клиент закрывает старый SSE connection, оптимистично
-читает `/history?session_dir=...`, а затем делает `/resume`. Это даёт быстрый
-первый paint сохранённого transcript и не позволяет поздним событиям старой
-session мутировать новый экран.
+При переключении web-клиент закрывает старый SSE connection, выполняет
+`/resume`, затем подключает stream и читает `/history?session_dir=...`.
+Поздние ответы и события старого выбора отбрасываются по generation окна.
+
+### Согласование Очереди И Подтверждений
+
+`AppPendingRequests` — полный snapshot `approvals`, `user_inputs` и
+`queued_user_messages` с обязательными `session_id`, `stream_id` и `seq`.
+`stream_id` создаётся заново при запуске live app session, включая cold resume
+того же `session_id`; `seq` монотонен только внутри этого stream.
+Это версия pending projection, а не history, config или состояния завершения turn.
+
+Общая для HTTP и stdio подписка `AppSubscription` сначала возвращает
+`PendingRequestsUpdated { snapshot }`, затем обновления той же формы.
+Подписка регистрируется до получения начального снимка. Для pending хранится
+одно последнее полное значение: медленный клиент может пропустить номера
+`seq`, но очередной snapshot содержит всё состояние. Runtime deltas сохраняют
+отдельный bounded broadcast и прежний `EventStreamLagged`/history resync.
+
+App-server присваивает pending revision и публикует snapshot под одним lock.
+Каналы ответа approval/user-input хранятся отдельно; удаление запроса отражается
+в projection до ответа HTTP-команды. Watcher закрытого requester-а тоже
+публикует удаление; отключение клиентского окна не считается решением человека.
+Runtime публикует состояние очереди под её mutation lock через `watch`, включая
+edit, delete, delivery, follow-up и очистку при отмене. `/pending` синхронизирует
+это последнее значение перед чтением. Проекция не восстанавливает очередь из
+потенциально запоздавших или потерянных `Steering*` events.
+
+В web начальный snapshot stream задаёт `(session_id, stream_id)`. После этого
+клиент применяет snapshot из SSE или `/pending`, только если его `seq` больше
+уже применённого. Каждый SSE open меняет локальное поколение чтений: ответы
+от предыдущего подключения отбрасываются даже при совпадающем session path.
+Ответ `/pending` не может самостоятельно сменить stream. Алгоритм находится
+в `proteus-client-common::pending::PendingCursor` и не зависит от Leptos/DOM.
+
+`ApprovalRequested`/`Resolved`, `UserInputRequested`/`Resolved` и `Steering*`
+сохраняют значение уведомлений о произошедших действиях. Web использует их для
+прочего отображения, но списки pending обновляет только из versioned snapshot;
+поздние ответы команд также не восстанавливают строки очереди.
 
 ## Session Store
 

@@ -78,6 +78,12 @@ fn connect_event_stream(
     };
 
     let alive = std::rc::Rc::new(std::cell::Cell::new(true));
+    let pending = super::control_plane::PendingControlPlane::new(
+        bindings,
+        alive.clone(),
+        session_dir.clone(),
+    );
+    let open_pending = pending.clone();
     let on_open = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |_| {
         if bindings.transcript_generation.get_untracked() != stream_generation {
             return;
@@ -90,14 +96,8 @@ fn connect_event_stream(
         bindings
             .set_transport_status
             .set(TransportStatus::Connected);
-        super::control_plane::refresh_pending_control_plane(
-            session_dir.clone(),
-            bindings.set_pending_approvals,
-            bindings.set_pending_user_inputs,
-            bindings.set_queued_prompts,
-            bindings.transcript_generation,
-            stream_generation,
-        );
+        open_pending.begin_connection();
+        open_pending.refresh();
         if was_disconnected {
             // События за время обрыва потеряны: стрим-состояние невалидно,
             // транскрипт перечитывается с сервера целиком.
@@ -127,9 +127,12 @@ fn connect_event_stream(
     let output_set_next_message_id = bindings.set_next_message_id;
     let output_transport_status = bindings.set_transport_status;
     let output_event_count = bindings.set_event_count;
+    let output_alive = alive.clone();
     let on_output =
         Closure::<dyn FnMut(MessageEvent)>::wrap(Box::new(move |event: MessageEvent| {
-            if bindings.transcript_generation.get_untracked() != stream_generation {
+            if !output_alive.get()
+                || bindings.transcript_generation.get_untracked() != stream_generation
+            {
                 return;
             }
             let Some(data) = event.data().as_string() else {
@@ -157,9 +160,7 @@ fn connect_event_stream(
                     bindings.set_tool_activities,
                     bindings.set_context_usage,
                     bindings.transcript_generation,
-                    bindings.set_pending_approvals,
-                    bindings.set_pending_user_inputs,
-                    bindings.set_queued_prompts,
+                    &pending,
                     bindings.set_sidebar_sessions,
                     bindings.set_sidebar_sessions_status,
                 ),

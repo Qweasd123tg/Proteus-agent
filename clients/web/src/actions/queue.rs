@@ -57,8 +57,6 @@ impl AppActions {
             return Ok(());
         }
         queue_command_result(output)?;
-        self.set_queued_prompts
-            .update(|items| items.retain(|item| item.message_id != message_id));
         Ok(())
     }
     /// Отправляет уточнение во время активного root turn-а. Сервер сразу

@@ -137,6 +137,15 @@ HTTP app-server владеет живыми sessions и выполнением, 
 В stdio session определяется при запуске процесса. Точный HTTP contract:
 [runtime-and-events.md](../guides/runtime-and-events.md).
 
+Очередь и интерактивные запросы имеют общую transport-neutral pending
+projection в app-server: snapshot и подписка разделяют `stream_id`/`seq`.
+Клиент хранит локальную копию и отбрасывает устаревшие snapshots. Состояние
+очереди поступает от runtime через `watch` под её mutation lock; app-server
+не выбирает момент доставки сообщения. Эта revision не покрывает transcript,
+config или terminal lifecycle. Точный порядок описан в
+[runtime-and-events.md](../guides/runtime-and-events.md#согласование-очереди-и-подтверждений).
+
+
 UI — сменный клиент и витрина возможностей агента. Его расширения принадлежат
 клиенту: отдельные ES modules с манифестами, своим lifecycle и необязательными
 интерфейсами данных. Правые панели web/desktop загружаются независимо от backend

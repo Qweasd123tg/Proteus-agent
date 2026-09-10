@@ -10,10 +10,7 @@ use serde_json::{Value, json};
 use tokio::sync::{Mutex, RwLock, broadcast};
 
 use crate::{
-    contracts::{
-        ApprovalCacheScope, ApprovalResponse, CancellationToken, EventSink, FilteredEventSink,
-        UserInputResponse, is_streaming_delta,
-    },
+    contracts::{CancellationToken, EventSink, FilteredEventSink, is_streaming_delta},
     core::{
         AgentRuntime, AppConfig, AssemblyPlan, BroadcastEventSink, ChannelApprovalTransport,
         ChannelUserInputTransport, FanoutEventSink, JsonlEventStore, ModuleCatalog,
@@ -23,7 +20,7 @@ use crate::{
         delete_workspace_session, list_session_summaries, list_workspace_session_summaries,
         normalize_session_dir_path,
     },
-    domain::{AgentOutput, EventEnvelope, PermissionMode, SessionId, new_thread_id},
+    domain::{AgentOutput, PermissionMode, SessionId, new_thread_id},
 };
 
 mod approval_preview;
@@ -31,6 +28,9 @@ mod approvals;
 mod config_builder;
 mod config_summary;
 mod context_map;
+mod control_plane;
+mod events;
+use events::{AppEventPublisher, spawn_runtime_event_forwarder};
 pub mod http;
 mod model_metadata;
 mod model_selection;
@@ -70,7 +70,7 @@ pub use proteus_contracts::app_protocol::{
 };
 
 use approvals::PendingApprovalResponders;
-use user_inputs::{PendingUserInputResponders, resolve_pending_user_inputs_empty};
+use user_inputs::PendingUserInputResponders;
 
 #[derive(Clone)]
 pub struct AppServerHandle {
@@ -78,7 +78,7 @@ pub struct AppServerHandle {
     config: Arc<RwLock<AppConfig>>,
     config_path: Option<PathBuf>,
     cwd: PathBuf,
-    events: broadcast::Sender<AppServerEvent>,
+    events: AppEventPublisher,
     pending_approvals: PendingApprovalResponders,
     pending_user_inputs: PendingUserInputResponders,
     turn_progress: Arc<Mutex<TurnProgress>>,
@@ -87,6 +87,10 @@ pub struct AppServerHandle {
 impl AppServerHandle {
     pub fn subscribe(&self) -> broadcast::Receiver<AppServerEvent> {
         self.events.subscribe()
+    }
+
+    pub(crate) fn subscribe_with_pending(&self) -> events::AppSubscription {
+        self.events.subscribe_with_pending()
     }
 
     pub fn cwd_path(&self) -> &Path {
@@ -477,49 +481,6 @@ impl AppServerHandle {
         Ok(transcript)
     }
 
-    pub async fn pending_requests(&self) -> AppPendingRequests {
-        let mut approvals = self
-            .pending_approvals
-            .lock()
-            .await
-            .values()
-            .map(|entry| entry.request.clone())
-            .collect::<Vec<_>>();
-        // Хронология очереди: seq присваивает forwarder; approval_id даёт
-        // детерминированный порядок при равных seq в тестовых fixtures.
-        approvals.sort_by(|left, right| {
-            left.seq
-                .cmp(&right.seq)
-                .then_with(|| left.approval_id.cmp(&right.approval_id))
-        });
-
-        let mut user_inputs = self
-            .pending_user_inputs
-            .lock()
-            .await
-            .values()
-            .map(|entry| entry.request.clone())
-            .collect::<Vec<_>>();
-        // Хронология очереди: seq присваивает forwarder; request_id даёт
-        // детерминированный порядок при равных seq в тестовых fixtures.
-        user_inputs.sort_by(|left, right| {
-            left.seq
-                .cmp(&right.seq)
-                .then_with(|| left.request_id.cmp(&right.request_id))
-        });
-
-        let queued_user_messages = self
-            .runtime
-            .queued_user_messages()
-            .await
-            .into_iter()
-            .map(|(message_id, text)| AppQueuedUserMessage::new(message_id, text))
-            .collect();
-
-        AppPendingRequests::new(approvals, user_inputs)
-            .with_queued_user_messages(queued_user_messages)
-    }
-
     pub async fn context_map_snapshot(
         &self,
         activity: Option<AppSessionActivity>,
@@ -564,64 +525,6 @@ impl AppServerHandle {
     async fn context_event_log_path(&self, cwd: &Path) -> PathBuf {
         let config = self.config.read().await;
         crate::core::event_log_path(&config.event_log.path, self.config_path.as_deref(), cwd)
-    }
-
-    pub async fn has_pending_approval(&self, approval_id: &str) -> bool {
-        self.pending_approvals
-            .lock()
-            .await
-            .contains_key(approval_id)
-    }
-
-    pub async fn has_pending_user_input(&self, request_id: &str) -> bool {
-        self.pending_user_inputs
-            .lock()
-            .await
-            .contains_key(request_id)
-    }
-
-    pub async fn session_activity(&self, running_run_ids: Vec<String>) -> AppSessionActivity {
-        let pending_approvals = self.pending_approvals.lock().await.len();
-        let pending_user_inputs = self.pending_user_inputs.lock().await.len();
-        AppSessionActivity::from_running_run_ids(
-            running_run_ids,
-            pending_approvals,
-            pending_user_inputs,
-        )
-    }
-
-    pub async fn respond_approval(
-        &self,
-        approval_id: &str,
-        approved: bool,
-        note: Option<String>,
-        cache: ApprovalCacheScope,
-    ) -> Result<()> {
-        approvals::resolve_pending_approval(
-            &self.pending_approvals,
-            approval_id,
-            ApprovalResponse::new(approved, note, cache),
-        )
-        .await
-    }
-
-    pub async fn respond_user_input(
-        &self,
-        request_id: &str,
-        response: UserInputResponse,
-    ) -> Result<()> {
-        user_inputs::resolve_pending_user_input(&self.pending_user_inputs, request_id, response)
-            .await
-    }
-
-    pub async fn shutdown(&self) {
-        approvals::deny_pending_approvals(
-            self.pending_approvals.clone(),
-            "app-server shutting down".to_owned(),
-        )
-        .await;
-        resolve_pending_user_inputs_empty(self.pending_user_inputs.clone()).await;
-        let _ = self.events.send(AppServerEvent::Shutdown);
     }
 
     pub async fn reload_tools(&self) -> Result<RuntimeReloadReport> {
@@ -737,7 +640,11 @@ impl AgentAppServer {
             builder = builder.with_module_catalog(module_catalog);
         }
         let runtime = Arc::new(builder.build_async().await?);
-        let (events, _) = broadcast::channel(1024);
+        let events = AppEventPublisher::new(
+            1024,
+            runtime.session_id(),
+            Some(runtime.subscribe_queued_user_messages()),
+        );
         let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
         let pending_user_inputs = Arc::new(Mutex::new(HashMap::new()));
         let turn_progress = Arc::new(Mutex::new(TurnProgress::default()));
@@ -806,45 +713,6 @@ async fn prepare_assembly(
     })
     .await
     .map_err(|error| anyhow!("assembly builder blocking task failed: {error}"))?
-}
-
-fn spawn_runtime_event_forwarder(
-    core_broadcast: Arc<BroadcastEventSink>,
-    events: broadcast::Sender<AppServerEvent>,
-    turn_progress: Arc<Mutex<TurnProgress>>,
-) {
-    let rx = core_broadcast.subscribe();
-    spawn_runtime_event_forwarder_with_receiver(rx, events, turn_progress);
-}
-
-/// Отделено от `spawn_runtime_event_forwarder`, чтобы lag-путь можно было
-/// детерминированно тестировать: receiver подписывается до переполнения.
-fn spawn_runtime_event_forwarder_with_receiver(
-    mut rx: broadcast::Receiver<EventEnvelope>,
-    events: broadcast::Sender<AppServerEvent>,
-    turn_progress: Arc<Mutex<TurnProgress>>,
-) {
-    tokio::spawn(async move {
-        loop {
-            match rx.recv().await {
-                Ok(envelope) => {
-                    turn_progress.lock().await.apply(&envelope);
-                    let _ = events.send(AppServerEvent::Runtime {
-                        envelope: Box::new(envelope),
-                    });
-                }
-                Err(broadcast::error::RecvError::Lagged(count)) => {
-                    // Часть runtime-событий потеряна (переполнение ring):
-                    // среди них могли быть ToolFinished/TurnFinished. Клиент
-                    // обязан пересинхронизироваться, а не жить со «вечно
-                    // бегущими» карточками — Error здесь не подходит, он
-                    // означает «ход упал».
-                    let _ = events.send(AppServerEvent::EventStreamLagged { count });
-                }
-                Err(broadcast::error::RecvError::Closed) => break,
-            }
-        }
-    });
 }
 
 #[cfg(test)]

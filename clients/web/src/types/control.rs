@@ -87,8 +87,12 @@ pub(crate) struct UserInputRequestInfo {
     pub(crate) seq: u64,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct PendingControlPlaneInfo {
+    pub(crate) session_id: String,
+    pub(crate) stream_id: String,
+    pub(crate) seq: u64,
     pub(crate) approvals: Vec<ApprovalRequestInfo>,
     pub(crate) user_inputs: Vec<UserInputRequestInfo>,
     pub(crate) queued_user_messages: Vec<QueuedPromptInfo>,

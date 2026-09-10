@@ -51,7 +51,6 @@ pub(crate) fn update_runtime_status_and_tools(
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     active_session_dir: ReadSignal<Option<String>>,
     set_context_usage: WriteSignal<Option<ContextUsage>>,
-    set_queued_prompts: WriteSignal<Vec<QueuedPromptInfo>>,
 ) {
     let Some(event) = envelope.get("event") else {
         return;
@@ -62,7 +61,6 @@ pub(crate) fn update_runtime_status_and_tools(
 
     if super::queue::apply(
         event,
-        set_queued_prompts,
         set_agent_status,
         set_messages,
         next_message_id,

@@ -23,6 +23,9 @@ def run(command, js, wait_for, server):
         wait_for(lambda: js("return document.querySelectorAll('.queued-prompt-row').length===1"), 'First queued message missing')
         send('Удаляемое ожидающее сообщение')
         wait_for(lambda: js("return document.querySelectorAll('.queued-prompt-row').length===2"), 'Second queued message missing')
+        # Capture /pending before edits, then deliver it after newer SSE snapshots.
+        js("window.pendingReadSettled=false;const original=window.fetch;window.fetch=async(input,init)=>{if(!String(input.url||input).split('?')[0].endsWith('/pending'))return original(input,init);window.fetch=original;const response=await original(input,init);return new Promise(resolve=>window.releasePendingRead=()=>{resolve(response);requestAnimationFrame(()=>requestAnimationFrame(()=>window.pendingReadSettled=true))})};document.querySelector('.connection-badge').click()")
+        wait_for(lambda: js("return typeof window.releasePendingRead==='function'"), 'Pending read was not captured on reconnect')
         assert js("const q=document.querySelector('.composer-queue').getBoundingClientRect(), shell=document.querySelector('.composer-shell').getBoundingClientRect();return q.top<shell.top && q.left>shell.left && q.right<shell.right && !document.querySelector('.results-panel .queued-prompt-row')"), 'Queue is not attached above the input'
         input_text('Основной черновик сохранён')
         js("document.querySelector('.queued-prompt-row [aria-label=\"Редактировать сообщение\"]').click()")
@@ -38,6 +41,9 @@ def run(command, js, wait_for, server):
         assert js("return document.querySelectorAll('.queued-prompt-row').length===2"), 'Rejected deletion removed the message locally'
         js("document.querySelector('.queue-error button').click();document.querySelectorAll('.queued-prompt-row .queue-delete')[1].click()")
         wait_for(lambda: js("return document.querySelectorAll('.queued-prompt-row').length===1"), 'Queued message was not removed')
+        js("window.releasePendingRead()")
+        wait_for(lambda: js("return window.pendingReadSettled"), 'Delayed pending response was not released')
+        assert js("return document.querySelectorAll('.queued-prompt-row').length===1 && document.querySelector('.queued-prompt-text').textContent==='Отредактированное уточнение'"), 'Delayed pending snapshot restored deleted or superseded queue state'
         Path('/tmp/proteus-ui-message-queue.png').write_bytes(base64.b64decode(command('/screenshot', None)))
         command('/refresh', {})
         wait_for(lambda: js("return document.querySelector('.queued-prompt-text')?.textContent==='Отредактированное уточнение'"), 'Pending snapshot did not preserve the edited queue after reload')
@@ -52,6 +58,6 @@ def run(command, js, wait_for, server):
         js("document.querySelector('.queue-editor-actions .secondary').click()")
         wait_for(lambda: js("return !document.querySelector('.composer-stop') && document.querySelector('.results-panel').textContent.includes('Отредактированное уточнение')"), 'Edited message did not settle into history')
         assert js("const r=document.querySelector('.results-panel').textContent;return !r.includes('Удаляемое ожидающее сообщение') && !r.includes('Первое ожидающее сообщение')"), 'Queue history contains a deleted or superseded message'
-        print('PASS: queued rows above input; edit/delete; rejected mutation; reload snapshot; edit/delivery race; final history', flush=True)
+        print('PASS: queued rows above input; edit/delete; rejected mutation; delayed snapshot; reload snapshot; edit/delivery race; final history', flush=True)
     finally:
         server.model_gate.set()

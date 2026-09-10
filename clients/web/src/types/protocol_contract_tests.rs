@@ -177,6 +177,12 @@ fn web_decodes_contract_stdio_output_events() {
             message: "boom".to_owned(),
         },
         contract_protocol::AppServerEvent::EventStreamLagged { count: 42 },
+        contract_protocol::AppServerEvent::PendingRequestsUpdated {
+            snapshot: Box::new(contract_protocol::AppPendingRequests::new(
+                contract_domain::new_session_id(),
+                "live-stream".to_owned(),
+            )),
+        },
         contract_protocol::AppServerEvent::Shutdown,
     ];
 
@@ -262,6 +268,9 @@ fn web_decodes_contract_stdio_output_events() {
             }
             AppServerEvent::Error { message } => assert_eq!(message, "boom"),
             AppServerEvent::EventStreamLagged { count } => assert_eq!(count, 42),
+            AppServerEvent::PendingRequestsUpdated { snapshot } => {
+                assert_eq!(snapshot.stream_id, "live-stream")
+            }
             AppServerEvent::Shutdown => {}
         }
     }
@@ -297,19 +306,25 @@ fn queued_message_commands_match_the_app_contract() {
 
 #[test]
 fn web_decodes_contract_pending_requests() {
-    let pending = contract_protocol::AppPendingRequests::new(
-        vec![contract_approval_request()],
-        vec![contract_user_input_request()],
-    )
-    .with_queued_user_messages(vec![contract_protocol::AppQueuedUserMessage::new(
+    let mut pending = contract_protocol::AppPendingRequests::new(
+        contract_domain::new_session_id(),
+        "live-stream".to_owned(),
+    );
+    pending.seq = 17;
+    pending.approvals = vec![contract_approval_request()];
+    pending.user_inputs = vec![contract_user_input_request()];
+    pending.queued_user_messages = vec![contract_protocol::AppQueuedUserMessage::new(
         contract_domain::new_message_id(),
         "steer this",
-    )]);
+    )];
 
     let value = serde_json::to_value(pending).expect("pending JSON");
     let decoded: PendingControlPlaneInfo =
         serde_json::from_value(value).expect("web pending requests");
 
+    assert_eq!(decoded.stream_id, "live-stream");
+    assert_eq!(decoded.seq, 17);
+    assert!(!decoded.session_id.is_empty());
     assert_eq!(decoded.approvals.len(), 1);
     assert_eq!(decoded.approvals[0].approval_id, "approval-1");
     assert_eq!(decoded.approvals[0].call.args["path"], "README.md");
@@ -484,4 +499,32 @@ fn web_http_only_session_request_shapes_stay_stable() {
             "session_dir": "/tmp/proteus-session"
         })
     );
+}
+
+#[test]
+fn pending_contract_requires_a_complete_revision() {
+    let snapshot = contract_protocol::AppPendingRequests::new(
+        contract_domain::new_session_id(),
+        "live-stream".to_owned(),
+    );
+    let value = serde_json::to_value(snapshot).unwrap();
+    for field in [
+        "session_id",
+        "stream_id",
+        "seq",
+        "approvals",
+        "user_inputs",
+        "queued_user_messages",
+    ] {
+        let mut incomplete = value.clone();
+        incomplete.as_object_mut().unwrap().remove(field);
+        assert!(
+            serde_json::from_value::<PendingControlPlaneInfo>(incomplete.clone()).is_err(),
+            "web requires {field}"
+        );
+        assert!(
+            serde_json::from_value::<contract_protocol::AppPendingRequests>(incomplete).is_err(),
+            "server requires {field}"
+        );
+    }
 }

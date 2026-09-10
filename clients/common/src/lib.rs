@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use url::{Host, Url};
 
 pub mod desktop;
+pub mod pending;
 
 /// Per-window session selection is scoped to one exact app-server origin.
 pub fn selected_session_storage_key(app_server_origin: &str) -> String {

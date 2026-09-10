@@ -30,12 +30,13 @@ use serde_json::Value;
 use crate::{
     contracts::{RequestOrigin, UserInputRequest},
     domain::{
-        AgentOutput, EventEnvelope, HistoryCompactionReport, MessageId, SessionId, ToolCall,
-        ToolSpec, TurnId,
+        AgentOutput, EventEnvelope, HistoryCompactionReport, SessionId, ToolCall, ToolSpec, TurnId,
     },
     model_standard::TokenUsage,
 };
 
+mod pending;
+pub use pending::{AppPendingRequests, AppQueuedUserMessage};
 mod requests;
 mod session;
 pub use requests::StdioRequest;
@@ -60,6 +61,10 @@ pub enum AppServerEvent {
 
     /// Финальный AgentOutput после завершения turn'а.
     TurnOutput { output: Box<AgentOutput> },
+
+    /// Полное состояние очереди и интерактивных запросов на одной версии.
+    /// Snapshot и HTTP `/pending` имеют одинаковую форму и порядок `seq`.
+    PendingRequestsUpdated { snapshot: Box<AppPendingRequests> },
 
     /// Запрос на approval от модели. Клиент должен показать пользователю
     /// и ответить через `StdioRequest::Approval`.
@@ -206,51 +211,6 @@ impl AppApprovalPreview {
     pub fn with_metadata(mut self, metadata: Value) -> Self {
         self.metadata = metadata;
         self
-    }
-}
-
-/// Snapshot текущих интерактивных запросов app-server'а. UI использует его
-/// после reconnect/initial load, чтобы восстановить approval и typed input
-/// карточки, если live SSE event был пропущен.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[non_exhaustive]
-pub struct AppPendingRequests {
-    pub approvals: Vec<AppApprovalRequest>,
-    pub user_inputs: Vec<UserInputRequest>,
-    pub queued_user_messages: Vec<AppQueuedUserMessage>,
-}
-
-impl AppPendingRequests {
-    pub fn new(approvals: Vec<AppApprovalRequest>, user_inputs: Vec<UserInputRequest>) -> Self {
-        Self {
-            approvals,
-            user_inputs,
-            queued_user_messages: Vec::new(),
-        }
-    }
-
-    pub fn with_queued_user_messages(mut self, messages: Vec<AppQueuedUserMessage>) -> Self {
-        self.queued_user_messages = messages;
-        self
-    }
-}
-
-/// User message, принятый сервером во время активного root turn-а, но ещё не
-/// доставленный модели. Снимок используется `/pending` после reconnect.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub struct AppQueuedUserMessage {
-    pub message_id: MessageId,
-    pub text: String,
-}
-
-impl AppQueuedUserMessage {
-    pub fn new(message_id: MessageId, text: impl Into<String>) -> Self {
-        Self {
-            message_id,
-            text: text.into(),
-        }
     }
 }
 

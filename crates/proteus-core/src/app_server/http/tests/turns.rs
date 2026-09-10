@@ -140,6 +140,8 @@ async fn route_send_async_queues_second_message_for_same_session() {
         StdioOutput::Response { ok: true, .. }
     ));
     let updated = server.pending_requests().await;
+    assert_eq!(updated.stream_id, pending.stream_id);
+    assert!(updated.seq > pending.seq);
     assert_eq!(updated.queued_user_messages[0].message_id, message_id);
     assert_eq!(updated.queued_user_messages[0].text, "updated hello");
     let delete = route_request(state.clone(), authed_json_request("/queue/delete", json!({
@@ -149,13 +151,9 @@ async fn route_send_async_queues_second_message_for_same_session() {
         response_output(delete).await,
         StdioOutput::Response { ok: true, .. }
     ));
-    assert!(
-        server
-            .pending_requests()
-            .await
-            .queued_user_messages
-            .is_empty()
-    );
+    let removed = server.pending_requests().await;
+    assert!(removed.queued_user_messages.is_empty());
+    assert!(removed.seq > updated.seq);
     let late = execute_app_request(
         &state,
         StdioRequest::EditQueuedMessage {

@@ -45,6 +45,7 @@ impl SessionSteering {
                 .store(state.queued.len(), Ordering::Release);
             queued.text
         };
+        self.publish_queue_snapshot(&state);
         Ok(SteeringQueueReceipt {
             message_id,
             text: result_text,

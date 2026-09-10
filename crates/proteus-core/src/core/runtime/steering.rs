@@ -18,7 +18,7 @@ use std::{
 use anyhow::{Result, ensure};
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use tokio::sync::{Mutex, OwnedMutexGuard};
+use tokio::sync::{Mutex, OwnedMutexGuard, watch};
 
 use crate::{
     contracts::{EventEmitter, Model, ModelEventStream},
@@ -33,6 +33,8 @@ use crate::{
 };
 
 mod commands;
+mod snapshot;
+pub(crate) use snapshot::QueuedMessagesSnapshot;
 mod weave;
 
 #[cfg(test)]
@@ -103,6 +105,7 @@ pub(crate) struct SessionSteering {
     state: StdMutex<SteeringQueueState>,
     queued_count: Arc<AtomicUsize>,
     finalization_gate: Arc<Mutex<()>>,
+    snapshots: watch::Sender<QueuedMessagesSnapshot>,
 }
 
 impl Default for SessionSteering {
@@ -111,6 +114,7 @@ impl Default for SessionSteering {
             state: StdMutex::new(SteeringQueueState::default()),
             queued_count: Arc::new(AtomicUsize::new(0)),
             finalization_gate: Arc::new(Mutex::new(())),
+            snapshots: watch::channel(QueuedMessagesSnapshot::default()).0,
         }
     }
 }
@@ -148,6 +152,7 @@ impl SessionSteering {
         });
         let queued_count = state.queued.len();
         self.queued_count.store(queued_count, Ordering::Release);
+        self.publish_queue_snapshot(&state);
         Ok(UserMessageReservation::Queued(SteeringQueueReceipt {
             message_id,
             text,
@@ -171,7 +176,9 @@ impl SessionSteering {
             state.active_turn_id == Some(turn_id),
             "steering delivery targeted a stale root turn"
         );
-        Ok(pop_front(&mut state, &self.queued_count))
+        let queued = pop_front(&mut state, &self.queued_count);
+        self.publish_queue_snapshot(&state);
+        Ok(queued)
     }
 
     pub(crate) async fn settle_and_take_followup(
@@ -191,6 +198,7 @@ impl SessionSteering {
                 _gate: finalization_guard,
             }));
         };
+        self.publish_queue_snapshot(&state);
         let next_turn_id = new_turn_id();
         state.active_turn_id = Some(next_turn_id);
         drop(state);
@@ -214,8 +222,10 @@ impl SessionSteering {
         state.queued.clear();
         state.queued_bytes = 0;
         self.queued_count.store(0, Ordering::Release);
+        self.publish_queue_snapshot(&state);
     }
 
+    #[cfg(test)]
     pub(crate) async fn queued_messages(&self) -> Vec<(MessageId, String)> {
         self.state
             .lock()

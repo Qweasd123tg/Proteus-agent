@@ -52,6 +52,9 @@ pub(crate) enum AppServerEvent {
     TurnOutput {
         output: Value,
     },
+    PendingRequestsUpdated {
+        snapshot: Box<super::PendingControlPlaneInfo>,
+    },
     ApprovalRequested {
         request: Box<ApprovalRequestInfo>,
     },

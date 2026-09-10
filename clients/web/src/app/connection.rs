@@ -199,7 +199,6 @@ pub(super) fn connect(state: AppState) -> ClientConnection {
         set_is_sending,
         active_run_id,
         set_active_run_id,
-        set_queued_prompts,
     };
 
     on_cleanup(move || crate::events::close_event_stream(event_source));

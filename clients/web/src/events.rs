@@ -1,7 +1,7 @@
 mod connection;
 mod control_plane;
 pub(crate) use connection::{EventConnection, close_event_stream, reconnect_event_stream};
-use control_plane::refresh_pending_control_plane;
+use control_plane::PendingControlPlane;
 mod queue;
 mod runtime;
 mod stream;
@@ -77,9 +77,7 @@ fn handle_app_output(
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     set_context_usage: WriteSignal<Option<ContextUsage>>,
     transcript_generation: ReadSignal<u64>,
-    set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
-    set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
-    set_queued_prompts: WriteSignal<Vec<QueuedPromptInfo>>,
+    pending: &PendingControlPlane,
     set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
     set_sidebar_sessions_status: WriteSignal<String>,
 ) {
@@ -108,9 +106,7 @@ fn handle_app_output(
                 set_tool_activities,
                 set_context_usage,
                 transcript_generation,
-                set_pending_approvals,
-                set_pending_user_inputs,
-                set_queued_prompts,
+                pending,
                 set_sidebar_sessions,
                 set_sidebar_sessions_status,
             );
@@ -146,9 +142,7 @@ fn handle_app_event(
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     set_context_usage: WriteSignal<Option<ContextUsage>>,
     transcript_generation: ReadSignal<u64>,
-    set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
-    set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
-    set_queued_prompts: WriteSignal<Vec<QueuedPromptInfo>>,
+    pending: &PendingControlPlane,
     set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
     set_sidebar_sessions_status: WriteSignal<String>,
 ) {
@@ -174,7 +168,6 @@ fn handle_app_event(
                 set_tool_activities,
                 active_session_dir,
                 set_context_usage,
-                set_queued_prompts,
             );
             update_session_labels(envelope, set_workspace_label, set_session_label);
         }
@@ -186,7 +179,6 @@ fn handle_app_event(
         }
         AppServerEvent::TurnOutput { output } => {
             flush_stream_delta_buffer(stream_bindings);
-            set_queued_prompts.set(Vec::new());
             set_is_sending.set(false);
             set_active_run_id.set(None);
             set_agent_status.set("ожидает".to_owned());
@@ -243,65 +235,23 @@ fn handle_app_event(
             }
             load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
         }
+        AppServerEvent::PendingRequestsUpdated { snapshot } => pending.apply_stream(*snapshot),
+        // These remain occurrence notifications. Only a versioned snapshot
+        // changes the local replica of pending state.
         AppServerEvent::ApprovalRequested { request } => {
-            let request = *request;
-            set_agent_status.set("ждёт доступ".to_owned());
-            set_pending_approvals.update(|items| {
-                if let Some(item) = items
-                    .iter_mut()
-                    .find(|item| item.approval_id == request.approval_id)
-                {
-                    *item = request;
-                } else {
-                    items.push(request);
-                }
-                // Хронология очереди по seq; approval_id даёт стабильный
-                // порядок при одинаковом значении.
-                items.sort_by(|left, right| {
-                    left.seq
-                        .cmp(&right.seq)
-                        .then_with(|| left.approval_id.cmp(&right.approval_id))
-                });
-            });
+            let _ = request;
         }
         AppServerEvent::ApprovalResolved {
             approval_id,
             approved,
         } => {
-            set_agent_status.set(if approved {
-                "доступ разрешён".to_owned()
-            } else {
-                "доступ отклонён".to_owned()
-            });
-            set_pending_approvals
-                .update(|items| items.retain(|item| item.approval_id != approval_id));
+            let _ = (approval_id, approved);
         }
         AppServerEvent::UserInputRequested { request } => {
-            let request = *request;
-            set_agent_status.set("ждёт ответ".to_owned());
-            set_pending_user_inputs.update(|items| {
-                if let Some(item) = items
-                    .iter_mut()
-                    .find(|item| item.request_id == request.request_id)
-                {
-                    *item = request;
-                } else {
-                    items.push(request);
-                }
-                // Хронология очереди по seq; request_id даёт стабильный
-                // порядок при одинаковом значении.
-                items.sort_by(|left, right| {
-                    left.seq
-                        .cmp(&right.seq)
-                        .then_with(|| left.request_id.cmp(&right.request_id))
-                });
-            });
+            let _ = request;
         }
         AppServerEvent::UserInputResolved { request_id } => {
-            set_agent_status.set("продолжает".to_owned());
-            set_pending_user_inputs.update(|items| {
-                items.retain(|item| item.request_id != request_id);
-            });
+            let _ = request_id;
         }
         AppServerEvent::ModulesReloaded {
             old_epoch,
@@ -341,7 +291,6 @@ fn handle_app_event(
         }
         AppServerEvent::Error { message } => {
             flush_stream_delta_buffer(stream_bindings);
-            set_queued_prompts.set(Vec::new());
             set_is_sending.set(false);
             set_active_run_id.set(None);
             set_agent_status.set("ошибка".to_owned());
@@ -380,18 +329,10 @@ fn handle_app_event(
                 set_streamed_this_turn,
                 set_transport_status,
             );
-            refresh_pending_control_plane(
-                session_dir,
-                set_pending_approvals,
-                set_pending_user_inputs,
-                set_queued_prompts,
-                transcript_generation,
-                expected_generation,
-            );
+            pending.refresh();
         }
         AppServerEvent::Shutdown => {
             flush_stream_delta_buffer(stream_bindings);
-            set_queued_prompts.set(Vec::new());
             set_is_sending.set(false);
             set_active_run_id.set(None);
             set_agent_status.set("остановлено".to_owned());

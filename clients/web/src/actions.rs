@@ -31,7 +31,6 @@ pub(crate) struct AppActions {
     pub(crate) set_is_sending: WriteSignal<bool>,
     pub(crate) active_run_id: ReadSignal<Option<String>>,
     pub(crate) set_active_run_id: WriteSignal<Option<String>>,
-    pub(crate) set_queued_prompts: WriteSignal<Vec<QueuedPromptInfo>>,
 }
 
 impl AppActions {

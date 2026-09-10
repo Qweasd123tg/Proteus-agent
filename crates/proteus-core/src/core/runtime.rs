@@ -37,7 +37,8 @@ pub use paths::{config_store_root, event_log_path};
 use execution::ExecutionAdmissionSnapshot;
 pub(crate) use history::{prepare_failed_history_update, prepare_history_update};
 pub(crate) use steering::{
-    ReservedUserMessage, SteeringQueueReceipt, UserMessageReservation, without_root_steering,
+    QueuedMessagesSnapshot, ReservedUserMessage, SteeringQueueReceipt, UserMessageReservation,
+    without_root_steering,
 };
 use steering::{SessionSteering, SteeringFinalizationGuard};
 
@@ -381,6 +382,13 @@ impl AgentRuntime {
             .transpose()
     }
 
+    pub(crate) fn subscribe_queued_user_messages(
+        &self,
+    ) -> tokio::sync::watch::Receiver<QueuedMessagesSnapshot> {
+        self.session.steering.subscribe_queue()
+    }
+
+    #[cfg(test)]
     pub(crate) async fn queued_user_messages(&self) -> Vec<(crate::domain::MessageId, String)> {
         self.session.steering.queued_messages().await
     }

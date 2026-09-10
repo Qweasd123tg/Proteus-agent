@@ -41,7 +41,7 @@ pub async fn run_stdio_app_server(
     };
     let (output_tx, mut output_rx) = mpsc::channel::<StdioOutput>(256);
 
-    let mut events = server.subscribe();
+    let mut events = server.subscribe_with_pending();
     let event_tx = output_tx.clone();
     tokio::spawn(async move {
         loop {

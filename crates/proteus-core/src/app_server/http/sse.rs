@@ -18,7 +18,7 @@ pub(super) async fn sse_response(
     state: HttpAppState,
     server: crate::app_server::AppServerHandle,
 ) -> HttpResponse {
-    let mut events = server.subscribe();
+    let mut events = server.subscribe_with_pending();
     let mut activity_events = state.subscribe_activity();
     let body = StreamBody::new(stream! {
         yield Ok::<Frame<Bytes>, Infallible>(Frame::data(Bytes::from_static(b": connected\n\n")));

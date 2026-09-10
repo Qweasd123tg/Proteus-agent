@@ -1,18 +1,16 @@
 //! Pending-approval control plane app-server-а.
 //!
-//! Каждый approval-запрос регистрируется в общей map + получает
-//! watcher-таску, которая владеет responder-ом оркестратора. Watcher — это
-//! единственное место, где запрос разрешается: и явный ответ клиента
-//! (`resolve_pending_approval`), и timeout, и массовый deny при shutdown
-//! проходят через resolve-канал записи. Если же сам запросивший умирает
-//! (отмена turn-а, timeout субагента) — watcher видит `responder.closed()`,
-//! убирает запись и сообщает клиентам `ApprovalResolved`. Благодаря этому
-//! отмена одного turn-а не деняет чужие pending approvals.
+//! Map хранит только каналы ответа. Публичный pending snapshot принадлежит
+//! общей projection в `events.rs`. Регистрация и удаление публикуются под
+//! lock map до передачи управления watcher-у, поэтому Requested не может
+//! прийти после Resolved. Watcher владеет runtime responder-ом и удаляет
+//! запрос при закрытии requester-а. Закрытие UI не закрывает requester.
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
+use super::events::AppEventPublisher;
 use anyhow::{Result, anyhow};
-use tokio::sync::{Mutex, broadcast, mpsc, oneshot};
+use tokio::sync::{Mutex, mpsc, oneshot};
 use uuid::Uuid;
 
 use crate::{contracts::ApprovalResponse, core::PendingApproval};
@@ -21,7 +19,6 @@ use super::approval_preview::approval_preview_for;
 use proteus_contracts::app_protocol::{AppApprovalId, AppApprovalRequest, AppServerEvent};
 
 pub(super) struct PendingApprovalEntry {
-    pub(super) request: AppApprovalRequest,
     /// Канал к watcher-таске; отправка ответа сюда разрешает запрос.
     resolve: oneshot::Sender<ApprovalResponse>,
 }
@@ -34,7 +31,7 @@ pub(super) type PendingApprovalResponders =
 /// и регистрирует запись с watcher-таской.
 pub(super) fn spawn_approval_forwarder(
     mut approval_rx: mpsc::Receiver<PendingApproval>,
-    events: broadcast::Sender<AppServerEvent>,
+    events: AppEventPublisher,
     pending_approvals: PendingApprovalResponders,
     approval_timeout: Duration,
 ) {
@@ -58,29 +55,38 @@ pub(super) fn spawn_approval_forwarder(
             register_pending_approval(&pending_approvals, &events, app_request, responder).await;
 
             if !approval_timeout.is_zero() {
-                spawn_approval_timeout(approval_id, pending_approvals.clone(), approval_timeout);
+                spawn_approval_timeout(
+                    approval_id,
+                    pending_approvals.clone(),
+                    events.clone(),
+                    approval_timeout,
+                );
             }
         }
     });
 }
 
-/// Кладёт запись в map, спавнит watcher и анонсирует запрос клиентам.
+/// Регистрирует и публикует запрос, затем запускает watcher.
 /// Используется forwarder-ом и тестами.
 pub(super) async fn register_pending_approval(
     pending_approvals: &PendingApprovalResponders,
-    events: &broadcast::Sender<AppServerEvent>,
+    events: &AppEventPublisher,
     app_request: AppApprovalRequest,
     responder: oneshot::Sender<ApprovalResponse>,
 ) {
     let approval_id = app_request.approval_id.clone();
     let (resolve_tx, resolve_rx) = oneshot::channel();
-    pending_approvals.lock().await.insert(
+    let mut pending = pending_approvals.lock().await;
+    pending.insert(
         approval_id.clone(),
         PendingApprovalEntry {
-            request: app_request.clone(),
             resolve: resolve_tx,
         },
     );
+    let _ = events.send(AppServerEvent::ApprovalRequested {
+        request: Box::new(app_request),
+    });
+    drop(pending);
     tokio::spawn(watch_pending_approval(
         approval_id,
         responder,
@@ -88,23 +94,25 @@ pub(super) async fn register_pending_approval(
         pending_approvals.clone(),
         events.clone(),
     ));
-    let _ = events.send(AppServerEvent::ApprovalRequested {
-        request: Box::new(app_request),
-    });
 }
 
 /// Разрешает pending approval ответом клиента. Возвращает ошибку для
 /// неизвестного id и для гонки «запросивший умер во время ответа».
 pub(super) async fn resolve_pending_approval(
     pending_approvals: &PendingApprovalResponders,
+    events: &AppEventPublisher,
     approval_id: &str,
     response: ApprovalResponse,
 ) -> Result<()> {
-    let entry = pending_approvals
-        .lock()
-        .await
+    let mut pending = pending_approvals.lock().await;
+    let entry = pending
         .remove(approval_id)
         .ok_or_else(|| anyhow!("unknown approval id: {approval_id}"))?;
+    let _ = events.send(AppServerEvent::ApprovalResolved {
+        approval_id: approval_id.to_owned(),
+        approved: response.approved,
+    });
+    drop(pending);
     entry
         .resolve
         .send(response)
@@ -115,10 +123,16 @@ pub(super) async fn resolve_pending_approval(
 /// Массовый deny всех pending approvals (shutdown app-server-а).
 pub(super) async fn deny_pending_approvals(
     pending_approvals: PendingApprovalResponders,
+    events: &AppEventPublisher,
     note: String,
 ) {
-    let pending = std::mem::take(&mut *pending_approvals.lock().await);
-    for (_, entry) in pending {
+    let mut guard = pending_approvals.lock().await;
+    let pending = std::mem::take(&mut *guard);
+    for (approval_id, entry) in pending {
+        let _ = events.send(AppServerEvent::ApprovalResolved {
+            approval_id,
+            approved: false,
+        });
         let _ = entry.resolve.send(ApprovalResponse::deny(note.clone()));
     }
 }
@@ -126,6 +140,7 @@ pub(super) async fn deny_pending_approvals(
 fn spawn_approval_timeout(
     approval_id: AppApprovalId,
     pending_approvals: PendingApprovalResponders,
+    events: AppEventPublisher,
     approval_timeout: Duration,
 ) {
     tokio::spawn(async move {
@@ -133,6 +148,7 @@ fn spawn_approval_timeout(
         let timeout_ms = approval_timeout.as_millis() as u64;
         let _ = resolve_pending_approval(
             &pending_approvals,
+            &events,
             &approval_id,
             ApprovalResponse::deny(format!("approval request timed out after {timeout_ms}ms")),
         )
@@ -140,15 +156,14 @@ fn spawn_approval_timeout(
     });
 }
 
-/// Владеет responder-ом оркестратора. Либо форвардит ответ из resolve-канала
-/// и эмитит `ApprovalResolved`, либо — если запросивший дропнул receiver —
-/// убирает осиротевшую запись из map и тоже эмитит `ApprovalResolved`.
+/// Владеет responder-ом оркестратора. Форвардит уже опубликованное решение
+/// либо удаляет осиротевший запрос и публикует отказ при закрытии requester-а.
 async fn watch_pending_approval(
     approval_id: AppApprovalId,
     mut responder: oneshot::Sender<ApprovalResponse>,
     resolve_rx: oneshot::Receiver<ApprovalResponse>,
     pending_approvals: PendingApprovalResponders,
-    events: broadcast::Sender<AppServerEvent>,
+    events: AppEventPublisher,
 ) {
     tokio::select! {
         biased;
@@ -156,16 +171,13 @@ async fn watch_pending_approval(
             // Err означает, что resolve_tx дропнули без ответа; записи в map
             // уже нет, событие эмитить не о чем.
             if let Ok(response) = resolved {
-                let approved = response.approved;
                 let _ = responder.send(response);
-                let _ = events.send(AppServerEvent::ApprovalResolved {
-                    approval_id,
-                    approved,
-                });
             }
         }
+
         _ = responder.closed() => {
-            let removed = pending_approvals.lock().await.remove(&approval_id).is_some();
+            let mut pending = pending_approvals.lock().await;
+            let removed = pending.remove(&approval_id).is_some();
             if removed {
                 let _ = events.send(AppServerEvent::ApprovalResolved {
                     approval_id,

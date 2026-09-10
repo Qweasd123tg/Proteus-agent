@@ -1,13 +1,19 @@
+use super::events::AppEventPublisher;
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
-use tokio::sync::{Mutex, broadcast, mpsc, oneshot};
+use tokio::sync::{Mutex, mpsc, oneshot};
 
 use super::*;
 use crate::{
     app_server::approval_preview::approval_preview_for,
-    contracts::{ApprovalRequest, UserInputQuestion, UserInputQuestionOption, UserInputRequest},
+    contracts::{
+        ApprovalRequest, ApprovalResponse, UserInputQuestion, UserInputQuestionOption,
+        UserInputRequest, UserInputResponse,
+    },
     core::{PendingApproval, PendingUserInput, SessionStore},
-    domain::{Event, PermissionMode, ToolCall, ToolResult, new_call_id, new_session_id},
+    domain::{
+        Event, EventEnvelope, PermissionMode, ToolCall, ToolResult, new_call_id, new_session_id,
+    },
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 
@@ -29,7 +35,7 @@ fn test_approval_request(approval_id: &str) -> AppApprovalRequest {
 /// запись в map + watcher, владеющий responder-ом.
 async fn register_test_approval(
     pending_approvals: &PendingApprovalResponders,
-    events: &broadcast::Sender<AppServerEvent>,
+    events: &AppEventPublisher,
     approval_id: &str,
     responder: oneshot::Sender<ApprovalResponse>,
 ) {
@@ -50,7 +56,7 @@ fn test_user_input_request(request_id: &str) -> UserInputRequest {
 /// запись в map + watcher, владеющий responder-ом.
 async fn register_test_user_input(
     pending_user_inputs: &user_inputs::PendingUserInputResponders,
-    events: &broadcast::Sender<AppServerEvent>,
+    events: &AppEventPublisher,
     request_id: &str,
     responder: oneshot::Sender<UserInputResponse>,
 ) {
@@ -214,11 +220,11 @@ async fn app_server_updates_permission_mode_without_restart() {
 #[tokio::test]
 async fn approval_forwarder_keeps_request_when_no_client_can_receive_event() {
     let (approval_tx, approval_rx) = mpsc::channel(1);
-    let (events, _) = broadcast::channel(1);
+    let (events, _) = super::events::test_event_channel(1);
     let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
     approvals::spawn_approval_forwarder(
         approval_rx,
-        events,
+        events.clone(),
         pending_approvals.clone(),
         Duration::from_secs(60),
     );
@@ -246,12 +252,12 @@ async fn approval_forwarder_keeps_request_when_no_client_can_receive_event() {
 #[tokio::test]
 async fn approval_forwarder_denies_when_client_does_not_answer_before_timeout() {
     let (approval_tx, approval_rx) = mpsc::channel(1);
-    let (events, _) = broadcast::channel(8);
+    let (events, _) = super::events::test_event_channel(8);
     let mut event_rx = events.subscribe();
     let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
     approvals::spawn_approval_forwarder(
         approval_rx,
-        events,
+        events.clone(),
         pending_approvals.clone(),
         Duration::from_millis(20),
     );
@@ -309,12 +315,12 @@ async fn approval_forwarder_denies_when_client_does_not_answer_before_timeout() 
 #[tokio::test]
 async fn approval_forwarder_waits_without_timeout_when_timeout_is_zero() {
     let (approval_tx, approval_rx) = mpsc::channel(1);
-    let (events, _) = broadcast::channel(8);
+    let (events, _) = super::events::test_event_channel(8);
     let mut event_rx = events.subscribe();
     let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
     approvals::spawn_approval_forwarder(
         approval_rx,
-        events,
+        events.clone(),
         pending_approvals.clone(),
         Duration::ZERO,
     );
@@ -351,12 +357,12 @@ async fn approval_forwarder_waits_without_timeout_when_timeout_is_zero() {
 #[tokio::test]
 async fn user_input_forwarder_waits_without_timeout_when_timeout_is_zero() {
     let (user_input_tx, user_input_rx) = mpsc::channel(1);
-    let (events, _) = broadcast::channel(8);
+    let (events, _) = super::events::test_event_channel(8);
     let mut event_rx = events.subscribe();
     let pending_user_inputs = Arc::new(Mutex::new(HashMap::new()));
     user_inputs::spawn_user_input_forwarder(
         user_input_rx,
-        events,
+        events.clone(),
         pending_user_inputs.clone(),
         Duration::ZERO,
     );
@@ -397,7 +403,7 @@ async fn user_input_forwarder_waits_without_timeout_when_timeout_is_zero() {
 
 #[tokio::test]
 async fn shutdown_denies_pending_approvals() {
-    let (events, _) = broadcast::channel(8);
+    let (events, _) = super::events::test_event_channel(8);
     let pending_approvals: PendingApprovalResponders = Arc::new(Mutex::new(HashMap::new()));
     let (responder, response_rx) = oneshot::channel();
     let approval_id = "approval-1".to_owned();
@@ -407,6 +413,7 @@ async fn shutdown_denies_pending_approvals() {
 
     approvals::deny_pending_approvals(
         pending_approvals.clone(),
+        &events,
         "app-server shutting down".to_owned(),
     )
     .await;
@@ -433,7 +440,7 @@ async fn shutdown_denies_pending_approvals() {
 
 #[tokio::test]
 async fn shutdown_resolves_pending_user_inputs() {
-    let (events, _) = broadcast::channel(8);
+    let (events, _) = super::events::test_event_channel(8);
     let pending_user_inputs: user_inputs::PendingUserInputResponders =
         Arc::new(Mutex::new(HashMap::new()));
     let (responder, response_rx) = oneshot::channel();
@@ -442,7 +449,7 @@ async fn shutdown_resolves_pending_user_inputs() {
     // Подписка после регистрации: первым событием интересует resolved.
     let mut event_rx = events.subscribe();
 
-    user_inputs::resolve_pending_user_inputs_empty(pending_user_inputs.clone()).await;
+    user_inputs::resolve_pending_user_inputs_empty(pending_user_inputs.clone(), &events).await;
 
     let response = response_rx
         .await
@@ -466,7 +473,7 @@ async fn shutdown_resolves_pending_user_inputs() {
 /// без blanket-deny остальных pending approvals.
 #[tokio::test]
 async fn dropped_requester_removes_pending_approval_and_resolves_it() {
-    let (events, _) = broadcast::channel(8);
+    let (events, _) = super::events::test_event_channel(8);
     let pending_approvals: PendingApprovalResponders = Arc::new(Mutex::new(HashMap::new()));
 
     let (cancelled_responder, cancelled_rx) = oneshot::channel();
@@ -510,10 +517,10 @@ async fn dropped_requester_removes_pending_approval_and_resolves_it() {
     assert!(survivor_rx.try_recv().is_err());
 }
 
-/// Ответ клиента резолвит именно свой запрос; событие эмитит watcher.
+/// Ответ клиента удаляет свой запрос и публикует новую pending revision до ack.
 #[tokio::test]
 async fn resolve_pending_approval_forwards_response_and_emits_event() {
-    let (events, _) = broadcast::channel(8);
+    let (events, _) = super::events::test_event_channel(8);
     let pending_approvals: PendingApprovalResponders = Arc::new(Mutex::new(HashMap::new()));
     let (responder, response_rx) = oneshot::channel();
     let approval_id = "approval-resolve".to_owned();
@@ -522,6 +529,7 @@ async fn resolve_pending_approval_forwards_response_and_emits_event() {
 
     approvals::resolve_pending_approval(
         &pending_approvals,
+        &events,
         &approval_id,
         ApprovalResponse::approve(),
     )
@@ -549,6 +557,7 @@ async fn resolve_pending_approval_forwards_response_and_emits_event() {
 
     let unknown = approvals::resolve_pending_approval(
         &pending_approvals,
+        &events,
         &approval_id,
         ApprovalResponse::approve(),
     )
@@ -562,7 +571,7 @@ async fn resolve_pending_approval_forwards_response_and_emits_event() {
 /// остальных pending user inputs.
 #[tokio::test]
 async fn dropped_requester_removes_pending_user_input_and_resolves_it() {
-    let (events, _) = broadcast::channel(8);
+    let (events, _) = super::events::test_event_channel(8);
     let pending_user_inputs: user_inputs::PendingUserInputResponders =
         Arc::new(Mutex::new(HashMap::new()));
 
@@ -604,10 +613,10 @@ async fn dropped_requester_removes_pending_user_input_and_resolves_it() {
     assert!(survivor_rx.try_recv().is_err());
 }
 
-/// Ответ клиента резолвит именно свой запрос; событие эмитит watcher.
+/// Ответ клиента удаляет свой запрос и публикует новую pending revision до ack.
 #[tokio::test]
 async fn resolve_pending_user_input_forwards_response_and_emits_event() {
-    let (events, _) = broadcast::channel(8);
+    let (events, _) = super::events::test_event_channel(8);
     let pending_user_inputs: user_inputs::PendingUserInputResponders =
         Arc::new(Mutex::new(HashMap::new()));
     let (responder, response_rx) = oneshot::channel();
@@ -617,6 +626,7 @@ async fn resolve_pending_user_input_forwards_response_and_emits_event() {
 
     user_inputs::resolve_pending_user_input(
         &pending_user_inputs,
+        &events,
         &request_id,
         UserInputResponse::empty(),
     )
@@ -641,6 +651,7 @@ async fn resolve_pending_user_input_forwards_response_and_emits_event() {
 
     let unknown = user_inputs::resolve_pending_user_input(
         &pending_user_inputs,
+        &events,
         &request_id,
         UserInputResponse::empty(),
     )
@@ -651,7 +662,7 @@ async fn resolve_pending_user_input_forwards_response_and_emits_event() {
 #[tokio::test]
 async fn zero_timeout_pending_user_input_resolves_on_shutdown() {
     let (user_input_tx, user_input_rx) = mpsc::channel(1);
-    let (events, _) = broadcast::channel(8);
+    let (events, _) = super::events::test_event_channel(8);
     let mut event_rx = events.subscribe();
     let pending_user_inputs = Arc::new(Mutex::new(HashMap::new()));
     user_inputs::spawn_user_input_forwarder(
@@ -689,7 +700,7 @@ async fn zero_timeout_pending_user_input_resolves_on_shutdown() {
         AppServerEvent::UserInputRequested { request } if request.request_id == request_id
     ));
 
-    user_inputs::resolve_pending_user_inputs_empty(pending_user_inputs.clone()).await;
+    user_inputs::resolve_pending_user_inputs_empty(pending_user_inputs.clone(), &events).await;
 
     let response = tokio::time::timeout(Duration::from_secs(1), response_rx)
         .await
@@ -1018,10 +1029,10 @@ async fn runtime_forwarder_lag_emits_typed_event_stream_lagged() {
             .expect("append to broadcast sink");
     }
 
-    let (events, mut events_rx) = broadcast::channel(16);
-    spawn_runtime_event_forwarder_with_receiver(
+    let (events, mut events_rx) = super::events::test_event_channel(16);
+    super::events::spawn_runtime_event_forwarder_with_receiver(
         lagging_rx,
-        events,
+        events.clone(),
         Arc::new(Mutex::new(TurnProgress::default())),
     );
 

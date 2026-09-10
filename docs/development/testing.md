@@ -443,6 +443,24 @@ failures; `codex_model_resume::patch_interception` проводит выбран
 missing result дополняется `aborted` только в следующем request, известный
 result не дублируется, cold transcript сохраняет действительный исход.
 
+### Pending Snapshot И Reconnect
+
+Для изменения синхронизации очереди/подтверждений проверяются разные границы:
+
+- `app_server::http::tests::pending`: одна revision у `/pending` и SSE,
+  закрытие approval/user-input, запоздавший snapshot, broadcast lag и reconnect;
+- `core::runtime::steering::commands::tests`: snapshot очереди обновляется при
+  mutation, delivery, follow-up и Drop/отмене, независимо от runtime events;
+- `proteus-client-common::pending`: порядок snapshots и граница подключения,
+  отказ старой revision и чужого stream/session;
+- web contract tests: обязательность revision fields у обеих wire-моделей;
+- `clients/web/tests/extensions_browser.py`: реальная очередь, задержанный
+  `/pending` после edit/delete, reload и гонка edit/delivery.
+
+Это pending projection. Эти проверки не доказывают общую атомарность
+history/config/terminal state. Runtime gate и `module_swap` продолжают
+проверять неизменность алгоритма доставки и модульных границ.
+
 ## Negative Protocol Evidence
 
 Strict draft protocol должен иметь tests минимум на:
