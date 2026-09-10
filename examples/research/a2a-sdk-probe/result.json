@@ -1,0 +1,92 @@
+{
+  "checks": [
+    {
+      "name": "task_result",
+      "observed": {
+        "output": "first",
+        "state": "TASK_STATE_COMPLETED"
+      },
+      "passed": true,
+      "requirement": "basic task delegation"
+    },
+    {
+      "limit": "context identity only; the SDK does not supply Proteus conversation history",
+      "name": "followup_in_same_context",
+      "observed": {
+        "new_task": true,
+        "same_context": true
+      },
+      "passed": true,
+      "requirement": "new task within existing context"
+    },
+    {
+      "limit": "the executor stream ends at InputRequired; live Proteus approvals are not bridged",
+      "name": "input_required_resume",
+      "observed": {
+        "after": "TASK_STATE_COMPLETED",
+        "before": "TASK_STATE_INPUT_REQUIRED"
+      },
+      "passed": true,
+      "requirement": "answer an interrupted task"
+    },
+    {
+      "classification": "SDK default handler limitation; not a claim that the A2A protocol forbids steering",
+      "name": "message_while_working",
+      "observed": {
+        "executor_received_message": false,
+        "response": {
+          "code": -32600,
+          "message": "task execution is already in progress: 01a08dc2-6b62-71be-b174-1ab166d7397d",
+          "ok": false
+        }
+      },
+      "passed": false,
+      "requirement": "existing Proteus send_message behavior"
+    },
+    {
+      "limit": "cooperative fixture cancellation; no process kill or cancel/delivery race proof",
+      "name": "targeted_cancel",
+      "observed": {
+        "sibling": "TASK_STATE_COMPLETED",
+        "target": "TASK_STATE_CANCELED"
+      },
+      "passed": true,
+      "requirement": "cancel task without changing another task"
+    },
+    {
+      "name": "terminal_task_rejects_message_before_executor",
+      "observed": {
+        "executor_processed_late_message": true,
+        "response": {
+          "ok": true,
+          "output": "first",
+          "state": "TASK_STATE_COMPLETED"
+        }
+      },
+      "passed": false,
+      "requirement": "A2A terminal task semantics"
+    },
+    {
+      "limit": "same live SDK server; not restart recovery or durable storage",
+      "name": "subscription_reconnect",
+      "observed": {
+        "completed": true,
+        "snapshot_matches_get": true,
+        "stream_closed": true
+      },
+      "passed": true,
+      "requirement": "task survives a dropped SSE subscriber"
+    }
+  ],
+  "executor": "synthetic deterministic fixture, not a Proteus runtime",
+  "passed": 5,
+  "sdk_packages": {
+    "a2a-client-lf": "0.2.3",
+    "a2a-lf": "0.3.0",
+    "a2a-server-lf": "0.4.3"
+  },
+  "sdk_repository": "https://github.com/a2aproject/a2a-rs",
+  "sdk_revision": "c7cefa0b4276805efbcfd2ddd3238c22e5f36b8f",
+  "total": 7,
+  "transport": "JSON-RPC over loopback HTTP; SDK SSE for subscription check"
+}

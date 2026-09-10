@@ -1,0 +1,20 @@
+[package]
+name = "proteus-a2a-sdk-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# A candidate evaluation, deliberately outside the production workspace.
+[workspace]
+
+[dependencies]
+a2a = { package = "a2a-lf", git = "https://github.com/a2aproject/a2a-rs.git", rev = "c7cefa0b4276805efbcfd2ddd3238c22e5f36b8f" }
+a2a-client = { package = "a2a-client-lf", git = "https://github.com/a2aproject/a2a-rs.git", rev = "c7cefa0b4276805efbcfd2ddd3238c22e5f36b8f", default-features = false }
+a2a-server = { package = "a2a-server-lf", git = "https://github.com/a2aproject/a2a-rs.git", rev = "c7cefa0b4276805efbcfd2ddd3238c22e5f36b8f", default-features = false }
+anyhow = "1"
+async-stream = "0.3"
+axum = "0.8"
+futures = "0.3"
+reqwest = { version = "0.13", default-features = false }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "net", "time"] }

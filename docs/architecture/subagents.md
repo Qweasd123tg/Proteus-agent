@@ -124,6 +124,38 @@ source/target отклоняются до enqueue. `AgentControlMessage` хра�
 в model-visible user message. Authority при доставке не объединяется: peer
 продолжает исполнять tools только через собственные registry, policy и safety.
 
+## Граница A2A
+
+Целевое направление межагентного обмена — стандарт A2A. Его выбор снимает с
+Proteus самостоятельное проектирование и развитие общего внешнего протокола:
+формата сообщений, задач, результатов, статусов и способов получения updates.
+Сокращение строк не является критерием выбора. A2A пока не подключён к
+production AgentControl; готовый SDK и адаптация runtime оцениваются отдельно.
+
+| Граница | Направление адаптации |
+|---|---|
+| Поручение и результат | `SendMessage`, `Task`, `Message`, artifacts |
+| Ожидание и наблюдение | `GetTask`, `SubscribeToTask`; terminal state принадлежит задаче |
+| Продолжение разговора | Новая задача в том же `contextId` после terminal; history/config остаются у peer |
+| Сообщение активной задаче | `SendMessage` с `taskId`; пригодность конкретного handler для живой доставки проверяется отдельно |
+| Отмена | `CancelTask`; локальный останов process остаётся обязанностью host |
+| Описание агента | Agent Card полного агента; не каталог Component Runtime exports |
+
+Process launch, profiles, session ownership и интеграция локальных
+approval/user-input запросов остаются обязанностями Proteus. Component Runtime
+v3 эта граница не заменяет. Совпадение `contextId` не доказывает сохранение
+истории, а reconnect подписки не доказывает восстановление process после
+restart. Собственные wire envelopes поверх A2A, дублирующие стандартные
+операции, не являются целью перехода.
+
+Несовпадение текущей mailbox semantics и выбранного SDK отделяется от дефекта
+реализации стандарта. Первое требует явного решения о сохранении или изменении
+поведения с учётом правил compatible profiles; второе — исправления либо
+выбора другой реализации. Дефект одного SDK не отменяет выбор A2A.
+Для проверки первого кандидата есть отдельный
+[исследовательский стенд](../../examples/research/a2a-sdk-probe/README.md),
+который не является новым runtime path или conformance gate Proteus.
+
 ## AssemblyPlan И Живая Карта
 
 `AssemblyPlan` фиксирует model-facing `agent_control.surface`, но AgentControl
