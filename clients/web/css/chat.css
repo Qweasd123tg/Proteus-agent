@@ -13,6 +13,11 @@
     padding: var(--space-6) var(--space-4) calc(var(--composer-inset, 0px) + 24px);
     scroll-padding-bottom: calc(var(--composer-inset, 0px) + 24px);
     scrollbar-width: thin;
+    /* Лента уходит за само поле; под ним и в нижнем зазоре текст уже скрыт.
+       Маска начинается у поля и не рисует отдельную подложку поверх чата. */
+    mask-image: linear-gradient(to bottom,
+        #000 calc(100% - var(--composer-inset, 0px)),
+        transparent calc(100% - var(--composer-inset, 0px) + 22px));
 }
 
 .results-panel.sticky-bottom {

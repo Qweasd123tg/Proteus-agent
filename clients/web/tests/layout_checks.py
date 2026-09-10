@@ -58,6 +58,7 @@ def run(command, js, wait_for):
     draft('')
     wait_for(lambda: js("return document.querySelector('.composer textarea').clientHeight < 80"), 'Cleared composer did not shrink')
     assert js("return Math.abs(document.querySelector('.results-panel').scrollTop-1000)<2"), 'Input resize pulled the reader away from older messages'
+    Path('/tmp/proteus-ui-dock-overlap.png').write_bytes(base64.b64decode(command('/screenshot', None)))
     # Persistence must run after drag, not on every movement.
     js("window.storageWrites=0;window.originalSetItem=Storage.prototype.setItem;Storage.prototype.setItem=function(...args){window.storageWrites++;return window.originalSetItem.apply(this,args)};const h=document.querySelector('.info-panel-resize-handle');window.dragX=h.getBoundingClientRect().left;h.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,clientX:window.dragX}))")
     for step in range(1, 9):
