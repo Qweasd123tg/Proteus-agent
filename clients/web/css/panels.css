@@ -4,25 +4,26 @@
    Ширина открытой панели тянется за левый край (--info-panel-width). */
 .info-panel {
     position: relative;
-    display: flex;
+    z-index: 10;
     width: 40px;
     min-height: 0;
-    flex-direction: column;
     flex-shrink: 0;
+}
+.info-panel.open { width: var(--info-panel-width, 300px); }
+.info-panel-surface {
+    position: absolute;
+    inset: 0 0 0 auto;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    width: var(--info-panel-width, 300px);
     overflow: hidden;
     border-left: 1px solid var(--border-subtle);
     background: var(--bg-panel);
 }
-
-/* Свёрнутой панели overflow не мешает, а поповеры рейки должны выезжать
-   за её левый край. */
-.info-panel:not(.open) {
-    overflow: visible;
-}
-
-.info-panel.open {
-    width: var(--info-panel-width, 300px);
-}
+.info-panel:not(.open) .info-panel-surface { transform: translateX(100%); visibility: hidden; pointer-events: none; }
+.info-panel-rail-surface { position: absolute; inset: 0; background: var(--bg-panel); border-left: 1px solid var(--border-subtle); }
+.info-panel.open .info-panel-rail-surface { visibility: hidden; opacity: 0; }
 
 .info-panel-resize-handle {
     position: absolute;
@@ -70,42 +71,8 @@
         visibility 0.12s ease;
 }
 
-.info-panel:not(.open) .info-panel-header {
-    justify-content: center;
-    padding: 0;
-}
-
-.info-panel:not(.open) .info-panel-header button {
-    padding: 0;
-    width: 28px;
-}
-
-.info-panel:not(.open) .info-panel-header h2 {
-    width: 0;
-    opacity: 0;
-    visibility: hidden;
-}
-
-/* Рейка свёрнутого состояния. В развёрнутом схлопывается в ноль, чтобы не
-   расталкивать контент. */
-.info-panel-rail {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-4);
-    padding: var(--space-2) 0;
-    transition:
-        opacity 0.12s ease,
-        visibility 0.12s ease;
-}
-
-.info-panel.open .info-panel-rail {
-    height: 0;
-    padding: 0;
-    opacity: 0;
-    overflow: hidden;
-    visibility: hidden;
-}
+.info-panel-rail-surface .info-panel-header { justify-content: center; padding: 0; }
+.info-panel-rail { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 8px 0; }
 
 .info-rail-plan {
     position: relative;
@@ -209,10 +176,6 @@
     transition:
         opacity 0.12s ease,
         visibility 0.12s ease;
-}
-
-.info-panel:not(.open) .info-panel-body {
-    display: none;
 }
 
 /* Тумблер панели в топбаре нужен только на узких экранах, где свёрнутая

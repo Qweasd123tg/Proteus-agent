@@ -93,7 +93,7 @@ where
     });
 
     view! {
-        <Show when=move || open.get()><button type="button" class="panel-backdrop" aria-label="Закрыть обзор" on:click=on_toggle></button></Show>
+        <button type="button" class="panel-backdrop" class:open=open inert=move || (!open.get()).then_some("") aria-label="Закрыть обзор" on:click=on_toggle></button>
         <aside
             class="info-panel"
             class:open=move || open.get()
@@ -107,93 +107,19 @@ where
                 aria-hidden="true"
                 on:mousedown=on_begin_resize
             ></div>
+            <div class="info-panel-surface" inert=move || (!open.get()).then_some("")>
             <div class="info-panel-header">
                 <h2>"Обзор"</h2>
                 <button
                     type="button"
                     aria-label=move || if open.get() { "Свернуть обзор" } else { "Открыть обзор" }
+                    data-panel-toggle="info"
                     aria-expanded=move || open.get().to_string()
                     title=move || if open.get() { "Свернуть панель" } else { "Развернуть панель" }
                     on:click=on_toggle
                 >
                     <super::icons::PanelIcon right=true />
                 </button>
-            </div>
-
-            // Рейка свёрнутого состояния: бублик контекста и мини-этапы
-            // плана точками; у обоих при наведении — поповер с деталями
-            // в едином стиле (.rail-popover).
-            <div class="info-panel-rail">
-                <div class="info-rail-ring rail-popover-host">
-                    <ContextRing usage=context_usage />
-                    {move || {
-                        let Some(usage) = context_usage.get() else {
-                            return ().into_any();
-                        };
-                        let percent = usage.percent();
-                        view! {
-                            <div class="rail-popover rail-popover-left">
-                                <div class="rail-popover-head">
-                                    <span class="panel-kicker">"Контекст"</span>
-                                    <code>{format!("{percent}%")}</code>
-                                </div>
-                                <div class="info-row">
-                                    <span>"Токены"</span>
-                                    <code>
-                                        {format!(
-                                            "{} / {}",
-                                            format_token_count(usage.used_tokens),
-                                            format_token_count(usage.max_tokens),
-                                        )}
-                                    </code>
-                                </div>
-                                {usage
-                                    .compaction_trigger_tokens
-                                    .map(|trigger| {
-                                        view! {
-                                            <div class="info-row">
-                                                <span>"Автокомпакт"</span>
-                                                <code>{format!("~{}", format_token_count(trigger))}</code>
-                                            </div>
-                                        }
-                                        .into_any()
-                                    })
-                                    .unwrap_or_else(|| ().into_any())}
-                            </div>
-                        }
-                        .into_any()
-                    }}
-                </div>
-                {move || {
-                    if plan_steps.with(|steps| steps.is_empty()) {
-                        return ().into_any();
-                    }
-                    view! {
-                        <div class="info-rail-plan rail-popover-host">
-                            <For
-                                each=move || plan_steps.get().into_iter().enumerate()
-                                key=|(index, step)| format!("{index}:{}", step.status)
-                                children=move |(_, step): (usize, PlanStepPreview)| {
-                                    let class = format!("info-rail-step {}", step.status);
-                                    view! { <span class=class></span> }
-                                }
-                            />
-                            <div class="rail-popover rail-popover-left">
-                                <div class="rail-popover-head">
-                                    <span class="panel-kicker">"План"</span>
-                                    {move || {
-                                        plan_progress
-                                            .get()
-                                            .map(|progress| view! { <code>{progress}</code> }.into_any())
-                                            .unwrap_or_else(|| ().into_any())
-                                    }}
-                                </div>
-                                <PlanStepList plan_steps />
-                            </div>
-                        </div>
-                    }
-                    .into_any()
-                }}
             </div>
 
             <div class="info-panel-body">
@@ -333,6 +259,98 @@ where
                     </div>
                     </div>
                 </details>
+            </div>
+            </div>
+            <div class="info-panel-rail-surface" inert=move || open.get().then_some("")>
+            <div class="info-panel-header">
+                <button
+                    type="button"
+                    aria-label=move || if open.get() { "Свернуть обзор" } else { "Открыть обзор" }
+                    data-panel-toggle="info"
+                    aria-expanded=move || open.get().to_string()
+                    title=move || if open.get() { "Свернуть панель" } else { "Развернуть панель" }
+                    on:click=on_toggle
+                >
+                    <super::icons::PanelIcon right=true />
+                </button>
+            </div>
+
+            // Рейка свёрнутого состояния: бублик контекста и мини-этапы
+            // плана точками; у обоих при наведении — поповер с деталями
+            // в едином стиле (.rail-popover).
+            <div class="info-panel-rail">
+                <div class="info-rail-ring rail-popover-host">
+                    <ContextRing usage=context_usage />
+                    {move || {
+                        let Some(usage) = context_usage.get() else {
+                            return ().into_any();
+                        };
+                        let percent = usage.percent();
+                        view! {
+                            <div class="rail-popover rail-popover-left">
+                                <div class="rail-popover-head">
+                                    <span class="panel-kicker">"Контекст"</span>
+                                    <code>{format!("{percent}%")}</code>
+                                </div>
+                                <div class="info-row">
+                                    <span>"Токены"</span>
+                                    <code>
+                                        {format!(
+                                            "{} / {}",
+                                            format_token_count(usage.used_tokens),
+                                            format_token_count(usage.max_tokens),
+                                        )}
+                                    </code>
+                                </div>
+                                {usage
+                                    .compaction_trigger_tokens
+                                    .map(|trigger| {
+                                        view! {
+                                            <div class="info-row">
+                                                <span>"Автокомпакт"</span>
+                                                <code>{format!("~{}", format_token_count(trigger))}</code>
+                                            </div>
+                                        }
+                                        .into_any()
+                                    })
+                                    .unwrap_or_else(|| ().into_any())}
+                            </div>
+                        }
+                        .into_any()
+                    }}
+                </div>
+                {move || {
+                    if plan_steps.with(|steps| steps.is_empty()) {
+                        return ().into_any();
+                    }
+                    view! {
+                        <div class="info-rail-plan rail-popover-host">
+                            <For
+                                each=move || plan_steps.get().into_iter().enumerate()
+                                key=|(index, step)| format!("{index}:{}", step.status)
+                                children=move |(_, step): (usize, PlanStepPreview)| {
+                                    let class = format!("info-rail-step {}", step.status);
+                                    view! { <span class=class></span> }
+                                }
+                            />
+                            <div class="rail-popover rail-popover-left">
+                                <div class="rail-popover-head">
+                                    <span class="panel-kicker">"План"</span>
+                                    {move || {
+                                        plan_progress
+                                            .get()
+                                            .map(|progress| view! { <code>{progress}</code> }.into_any())
+                                            .unwrap_or_else(|| ().into_any())
+                                    }}
+                                </div>
+                                <PlanStepList plan_steps />
+                            </div>
+                        </div>
+                    }
+                    .into_any()
+                }}
+            </div>
+
             </div>
         </aside>
     }

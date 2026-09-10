@@ -1,4 +1,6 @@
 .results-panel {
+    position: absolute;
+    inset: 0;
     min-height: 0;
     flex: 1;
     min-width: 0;
@@ -8,8 +10,8 @@
     overflow-anchor: auto;
     overscroll-behavior: contain;
     background: var(--bg-root);
-    padding: var(--space-6) var(--space-4);
-    scroll-padding-bottom: var(--space-6);
+    padding: var(--space-6) var(--space-4) calc(var(--composer-inset, 0px) + 24px);
+    scroll-padding-bottom: calc(var(--composer-inset, 0px) + 24px);
     scrollbar-width: thin;
 }
 

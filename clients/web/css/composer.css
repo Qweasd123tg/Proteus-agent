@@ -1,15 +1,19 @@
-/* Поле ввода растёт по содержимому и остаётся частью потока чата. */
+/* Плавающее поле над полной лентой; ResizeObserver резервирует его высоту. */
 .composer {
-    position: relative;
-    flex: none;
+    position: absolute;
+    inset: auto 0 0;
     z-index: 5;
     width: 100%;
-    max-width: calc(var(--chat-max-width) + 48px);
-    margin: 0 auto;
-    padding: 8px 24px 20px;
+    padding: 0 24px 20px;
+    isolation: isolate;
 }
+/* Подложка начинается на одной высоте с полем, без полосы над ним. */
+.composer::before { content: ""; position: absolute; inset: 0; z-index: -1; background: var(--bg-root); }
 
 .composer-shell {
+    width: 100%;
+    max-width: var(--chat-max-width);
+    margin: 0 auto;
     position: relative;
     border: 1px solid var(--border-strong);
     border-radius: 22px;
@@ -123,7 +127,7 @@
 }
 
 @media (max-width: 620px) {
-    .composer { padding: 6px 16px 12px; }
+    .composer { padding: 0 16px 12px; }
     .composer-toolbar { gap: 8px; }
     .composer-mode { max-width: 100px; }
 }

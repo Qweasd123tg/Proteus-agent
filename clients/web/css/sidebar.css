@@ -8,106 +8,47 @@
     user-select: none;
 }
 
-.app-layout.sidebar-collapsed .sidebar {
-    width: 40px !important;
-    min-width: 40px;
-    max-width: 40px;
-    /* Поповеры рейки сессий выезжают за правый край свёрнутой панели. */
-    overflow: visible;
-}
-
-/* Ручка остаётся и в свёрнутом виде: вытащить панель обратно можно тем же
-   жестом, каким свернули. */
-.app-layout.sidebar-collapsed .sidebar-resize-handle {
-    right: -7px;
-}
-
-/* Кнопка сворачивания — наверху колонки, как у правой панели. */
-.app-layout.sidebar-collapsed .sidebar-header-actions .sidebar-collapse-toggle {
-    order: -1;
-}
-
-/* Содержимое свёрнутой панели не участвует в layout и focus navigation. */
-.app-layout.sidebar-collapsed .sidebar-search,
-.app-layout.sidebar-collapsed .sessions-list,
-.app-layout.sidebar-collapsed .sidebar-header h2 {
-    display: none;
-}
-
-/* Невидимый h2 не должен занимать высоту: он сталкивал кнопки вниз, и
-   кнопка сворачивания оказывалась ниже, чем у правой панели. */
-.app-layout.sidebar-collapsed .sidebar-header h2 {
-    height: 0;
-    overflow: hidden;
-}
-
-/* Поиск в свёрнутом виде не только гасим, но и схлопываем — иначе рейка
-   сессий сползает вниз на его высоту. */
-.app-layout.sidebar-collapsed .sidebar-search {
-    height: 0;
-    padding: 0;
-    overflow: hidden;
-}
-
-/* Верхний отступ центрирует первую кнопку (30px) по высоте топбара — так
-   кнопка сворачивания стоит на одном уровне с кнопкой правой панели.
-   gap: 0, иначе схлопнутый h2 всё равно добавляет зазор; свой gap у
-   .sidebar-header-actions ниже. */
-.app-layout.sidebar-collapsed .sidebar-header {
-    height: auto;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0;
-    padding: calc((var(--topbar-height) - 30px) / 2) var(--space-2) var(--space-2);
-}
-
-.app-layout.sidebar-collapsed .sidebar-header-actions {
-    flex-direction: column;
-    align-items: stretch;
-    gap: var(--space-1);
-}
-
-.app-layout.sidebar-collapsed .sidebar-header button {
-    width: 100%;
-    padding: 0;
-}
-
-/* Рейка свёрнутого сайдбара: сессии workspace точками-индикаторами.
-   В развёрнутом состоянии схлопнута в ноль (зеркально .info-panel-rail). */
-.sidebar-rail {
+.sidebar {
+    --sidebar-surface-width: min(var(--sidebar-width), 30vw);
+    position: relative;
+    z-index: 10;
     display: flex;
-    height: 0;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-2);
-    padding: 0;
-    overflow: hidden;
-    opacity: 0;
-    visibility: hidden;
-    transition:
-        opacity 0.12s ease,
-        visibility 0.12s ease;
-}
-
-.app-layout.sidebar-collapsed .sidebar-rail {
-    height: auto;
-    flex: 1;
-    padding: var(--space-2) 0;
-    /* Не скроллим: поповеры при наведении обрезались бы. Лишние сессии
-       прячет кэп с индикатором «+N». */
-    overflow: visible;
-    opacity: 1;
-    visibility: visible;
-}
-
-/* В свёрнутом виде место отдаёт рейке. */
-.app-layout.sidebar-collapsed .sessions-list {
-    height: 0;
+    width: var(--sidebar-surface-width);
     min-height: 0;
-    flex: 0;
-    padding: 0;
-    overflow: hidden;
+    flex-direction: column;
+    flex-shrink: 0;
 }
+.app-layout.sidebar-collapsed .sidebar { width: 40px; }
+.sidebar-surface {
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    width: var(--sidebar-surface-width);
+    overflow: hidden;
+    border-right: 1px solid var(--border-subtle);
+    background: var(--bg-panel);
+}
+.app-layout.sidebar-collapsed .sidebar-surface { transform: translateX(-100%); visibility: hidden; pointer-events: none; }
+.sidebar-rail-surface {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 40px;
+    visibility: hidden;
+    opacity: 0;
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border-subtle);
+}
+.app-layout.sidebar-collapsed .sidebar-rail-surface { visibility: visible; opacity: 1; }
+
+.sidebar-rail-surface .sidebar-header {
+    height: auto;
+    padding: 9px 5px 8px;
+}
+.sidebar-rail-surface .sidebar-header-actions { flex-direction: column; gap: 4px; }
+.sidebar-rail-surface .sidebar-collapse-toggle { order: -1; }
+.sidebar-rail { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0; }
 
 .sidebar-rail-item {
     position: relative;
@@ -171,21 +112,6 @@
     border: 2px solid var(--accent-blue-border);
     border-top-color: var(--accent-blue);
     animation: spin 0.9s linear infinite;
-}
-
-.sidebar {
-    position: relative;
-    display: flex;
-    width: var(--sidebar-width);
-    min-width: 210px;
-    max-width: min(360px, 30vw);
-    min-height: 0;
-    flex-direction: column;
-    overflow: hidden;
-    border-right: 1px solid var(--border-subtle);
-    background: var(--bg-panel);
-    /* Width changes once: avoid reflowing the transcript on every animation frame. */
-    flex-shrink: 0;
 }
 
 .sidebar-resize-handle {

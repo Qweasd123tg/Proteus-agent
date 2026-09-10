@@ -13,6 +13,7 @@ mod messages;
 mod model_settings;
 mod tool_names;
 mod types;
+mod ui_layout;
 mod ui_utils;
 
 use leptos::mount::mount_to_body;

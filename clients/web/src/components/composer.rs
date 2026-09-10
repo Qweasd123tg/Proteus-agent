@@ -37,6 +37,9 @@ where
     DE: Fn() -> bool + Copy + Send + 'static,
     NB: Fn() -> usize + Copy + Send + Sync + 'static,
 {
+    let dock_ref = NodeRef::<html::Form>::new();
+    #[cfg(target_arch = "wasm32")]
+    crate::ui_layout::attach_composer(dock_ref);
     let submit_label = move || {
         if is_sending.get() {
             "Добавить в очередь"
@@ -47,7 +50,7 @@ where
         }
     };
     view! {
-        <form class="composer" on:submit=on_submit>
+        <form class="composer" node_ref=dock_ref on:submit=on_submit>
             <Show when=move || !stick_to_bottom.get()>
                 <button type="button"
                     class="jump-to-bottom" class:has-count=move || { new_below_count() > 0 }
