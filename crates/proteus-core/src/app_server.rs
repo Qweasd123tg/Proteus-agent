@@ -12,11 +12,10 @@ use tokio::sync::{Mutex, RwLock, broadcast};
 use crate::{
     contracts::{CancellationToken, EventSink, FilteredEventSink, is_streaming_delta},
     core::{
-        AgentRuntime, AppConfig, AssemblyPlan, BroadcastEventSink, ChannelApprovalTransport,
-        ChannelUserInputTransport, FanoutEventSink, JsonlEventStore, ModuleCatalog,
-        PreparedAssembly, ReservedRunCompletion, ReservedUserMessage, RuntimeReloadReport,
-        SessionConfigSnapshot, SessionStore, TopologyBuildInput, TopologySnapshot,
-        UserMessageReservation, build_topology_snapshot, config_store_root,
+        AgentRuntime, AppConfig, AssemblyPlan, ChannelApprovalTransport, ChannelUserInputTransport,
+        FanoutEventSink, JsonlEventStore, ModuleCatalog, PreparedAssembly, ReservedRunCompletion,
+        RuntimeReloadReport, SessionConfigSnapshot, SessionStore, TopologyBuildInput,
+        TopologySnapshot, UserMessageReservation, build_topology_snapshot, config_store_root,
         delete_workspace_session, list_session_summaries, list_workspace_session_summaries,
         normalize_session_dir_path,
     },
@@ -30,12 +29,13 @@ mod config_summary;
 mod context_map;
 mod control_plane;
 mod events;
-use events::{AppEventPublisher, spawn_runtime_event_forwarder};
+use events::{AppEventPublisher, RuntimeEventSink};
 pub mod http;
 mod model_metadata;
 mod model_selection;
 mod path_utils;
 mod queued_messages;
+mod runs;
 pub mod stdio;
 mod transcript;
 mod turn_progress;
@@ -81,7 +81,7 @@ pub struct AppServerHandle {
     events: AppEventPublisher,
     pending_approvals: PendingApprovalResponders,
     pending_user_inputs: PendingUserInputResponders,
-    turn_progress: Arc<Mutex<TurnProgress>>,
+    runs: Arc<Mutex<runs::RunRegistry>>,
 }
 
 impl AppServerHandle {
@@ -89,8 +89,8 @@ impl AppServerHandle {
         self.events.subscribe()
     }
 
-    pub(crate) fn subscribe_with_pending(&self) -> events::AppSubscription {
-        self.events.subscribe_with_pending()
+    pub(crate) fn subscribe_session(&self) -> events::AppSubscription {
+        self.events.subscribe_session()
     }
 
     pub fn cwd_path(&self) -> &Path {
@@ -119,16 +119,15 @@ impl AppServerHandle {
         text: String,
         cancellation: CancellationToken,
     ) -> Result<AgentOutput> {
-        let _ = self
-            .events
-            .send(AppServerEvent::UserMessageSubmitted { text: text.clone() });
-        let completion = self.runtime.run_completion(text, cancellation).await;
-        // Ход завершён: его сообщения уже в history (или потеряны при ошибке),
-        // прогресс очищаем до эмита TurnOutput — чтобы /history, вызванный по
-        // TurnOutput, не отдал текст хода дважды. Отмена и таймауты тоже
-        // проходят здесь, у форвардера событий такой гарантии нет.
-        self.turn_progress.lock().await.finish_parent_turn();
-        self.publish_turn_completion(completion)
+        match self
+            .admit_user_message(None, text, cancellation, false)
+            .await?
+        {
+            runs::SendDispatch::Started(rx) => {
+                rx.await.map_err(|_| anyhow!("run ended without result"))?
+            }
+            runs::SendDispatch::Queued(_) => Err(anyhow!("message queued behind active run")),
+        }
     }
 
     pub(crate) async fn reserve_user_message(
@@ -142,19 +141,6 @@ impl AppServerHandle {
                 .send(AppServerEvent::UserMessageSubmitted { text });
         }
         Ok(reservation)
-    }
-
-    pub(crate) async fn run_reserved_user_message(
-        &self,
-        reserved: ReservedUserMessage,
-        cancellation: CancellationToken,
-    ) -> Result<AgentOutput> {
-        let completion = self
-            .runtime
-            .run_reserved_completion(reserved, cancellation)
-            .await;
-        self.turn_progress.lock().await.finish_parent_turn();
-        self.publish_turn_completion(completion)
     }
 
     fn publish_turn_completion(
@@ -182,10 +168,6 @@ impl AppServerHandle {
                 Err(error)
             }
         }
-    }
-
-    pub async fn clear_history(&self) -> Result<()> {
-        self.runtime.clear_history().await
     }
 
     pub(crate) async fn history_summary(&self) -> AppHistorySummary {
@@ -466,19 +448,7 @@ impl AppServerHandle {
     }
 
     pub async fn transcript(&self) -> Result<Vec<AppTranscriptMessage>> {
-        let mut transcript = if let Some(projection) = self.runtime.session_projection()? {
-            let live_turn_id = self
-                .runtime
-                .active_turn_id()
-                .filter(|turn_id| projection.unsettled_turns.contains(turn_id));
-            journal_transcript_messages(&projection, live_turn_id)
-        } else {
-            transcript_messages(&self.runtime.history().await)
-        };
-        // Хвост незавершённого хода: history пополняется только при коммите
-        // хода, настриманный текст и tool-вызовы до тех пор живут в прогрессе.
-        transcript.extend(self.turn_progress.lock().await.snapshot());
-        Ok(transcript)
+        Ok(self.events.session_snapshot()?.transcript)
     }
 
     pub async fn context_map_snapshot(
@@ -609,7 +579,7 @@ impl AgentAppServer {
         let config_snapshot = Arc::new(RwLock::new(config.clone()));
         let config_path_snapshot = config_path.map(Path::to_path_buf);
         let cwd_snapshot = cwd.clone();
-        let core_broadcast = Arc::new(BroadcastEventSink::new(1024));
+        let runtime_events = Arc::new(RuntimeEventSink::default());
         let event_log_path = crate::core::event_log_path(&config.event_log.path, config_path, &cwd);
         let jsonl_raw: Arc<dyn EventSink> = Arc::new(JsonlEventStore::new(event_log_path));
         // Дельты по умолчанию не пишем в durable log — они нужны UI (broadcast)
@@ -623,7 +593,7 @@ impl AgentAppServer {
             }))
         };
         let event_sink: Arc<dyn EventSink> =
-            Arc::new(FanoutEventSink::new(vec![jsonl, core_broadcast.clone()]));
+            Arc::new(FanoutEventSink::new(vec![jsonl, runtime_events.clone()]));
 
         let approval_timeout = Duration::from_millis(config.app_server.approval_timeout_ms);
         let (approval_transport, approval_rx) = ChannelApprovalTransport::new(32);
@@ -647,9 +617,8 @@ impl AgentAppServer {
         );
         let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
         let pending_user_inputs = Arc::new(Mutex::new(HashMap::new()));
-        let turn_progress = Arc::new(Mutex::new(TurnProgress::default()));
-
-        spawn_runtime_event_forwarder(core_broadcast, events.clone(), turn_progress.clone());
+        events.attach_runtime(&runtime, transcript_messages(&runtime.history().await));
+        assert!(runtime_events.0.set(events.clone()).is_ok());
         approvals::spawn_approval_forwarder(
             approval_rx,
             events.clone(),
@@ -671,7 +640,7 @@ impl AgentAppServer {
             events,
             pending_approvals,
             pending_user_inputs,
-            turn_progress,
+            runs: Arc::new(Mutex::new(runs::RunRegistry::default())),
         })
     }
 }

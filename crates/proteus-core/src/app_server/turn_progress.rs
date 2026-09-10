@@ -15,6 +15,8 @@ const MAX_BACKGROUND_TOOL_JSON_BYTES: usize = 8_000;
 #[derive(Default)]
 pub(super) struct TurnProgress {
     messages: Vec<AppTranscriptMessage>,
+    turn_id: Option<crate::domain::TurnId>,
+    submitted: Option<String>,
     /// Collaboration-дети, запущенные через `spawn_agent`/`followup_task`,
     /// живут дольше родительского turn-а. Их карточки хранятся отдельно, чтобы
     /// TurnFinished/следующий TurnStarted не превращали поздние child events
@@ -27,13 +29,17 @@ pub(super) struct TurnProgress {
 }
 
 impl TurnProgress {
-    /// Обновляет прогресс по runtime-событию. Вызывается из форвардера,
-    /// который и так читает весь поток событий сессии.
+    /// Обновляет прогресс прямо из EventSink под lock сессионной проекции,
+    /// до публикации события подписчикам.
     pub(super) fn apply(&mut self, envelope: &EventEnvelope) {
         let event = &envelope.event;
         match event {
-            Event::TurnStarted { .. } => {
+            Event::TurnStarted { turn_id, .. } => {
                 self.messages.clear();
+                self.turn_id = Some(*turn_id);
+                if let Some(text) = self.submitted.take() {
+                    self.push_user(text);
+                }
                 self.turn_thread_id = Some(envelope.thread_id);
             }
             Event::AssistantTextDelta {
@@ -74,7 +80,13 @@ impl TurnProgress {
                     streaming: false,
                 });
             }
-            Event::SteeringDelivered { .. } => {}
+            Event::SteeringDelivered {
+                text,
+                kind: SteeringDeliveryKind::FollowUp,
+                ..
+            } => {
+                self.submit(text.clone());
+            }
             Event::ToolCallRequested { call } => {
                 self.append_tool_call(&envelope.thread_id.to_string(), call);
             }
@@ -142,21 +154,50 @@ impl TurnProgress {
                     );
                 }
             }
-            // Ход закончился (успехом или ошибкой): его сообщения теперь либо
-            // закоммичены в history, либо потеряны вместе с ходом — прогресс
-            // не должен пережить ход и стать фантомом в /history.
-            Event::TurnFinished { .. } | Event::Error { .. } => self.messages.clear(),
             _ => {}
         }
     }
 
     pub(super) fn finish_parent_turn(&mut self) {
         self.messages.clear();
+        self.turn_id = None;
+        self.submitted = None;
+    }
+
+    pub(super) fn thread_id(&self) -> Option<ThreadId> {
+        self.turn_thread_id
+    }
+
+    pub(super) fn turn_id(&self) -> Option<crate::domain::TurnId> {
+        self.turn_id
+    }
+
+    pub(super) fn submit(&mut self, text: String) {
+        self.submitted = Some(text);
+    }
+
+    fn push_user(&mut self, text: String) {
+        self.messages.push(Self::user_message(text));
+    }
+
+    fn user_message(text: String) -> AppTranscriptMessage {
+        AppTranscriptMessage {
+            message_id: None,
+            phase: None,
+            role: "user".to_owned(),
+            text,
+            tool: None,
+            subagent: None,
+            streaming: false,
+        }
     }
 
     /// Снимок прогресса для /history с теми же item ids и состоянием завершения.
     pub(super) fn snapshot(&self) -> Vec<AppTranscriptMessage> {
         let mut messages = self.messages.clone();
+        if let Some(text) = &self.submitted {
+            messages.push(Self::user_message(text.clone()));
+        }
         messages.extend(self.background_subagents.clone());
         messages
     }

@@ -183,6 +183,19 @@ fn web_decodes_contract_stdio_output_events() {
                 "live-stream".to_owned(),
             )),
         },
+        contract_protocol::AppServerEvent::SessionSnapshot {
+            snapshot: Box::new(contract_protocol::AppSessionSnapshot {
+                session_id: contract_domain::new_session_id(),
+                stream_id: "live".to_owned(),
+                seq: 19,
+                root_thread_id: None,
+                transcript: Vec::new(),
+                execution: contract_protocol::AppExecutionState::default(),
+            }),
+        },
+        contract_protocol::AppServerEvent::ExecutionUpdated {
+            execution: contract_protocol::AppExecutionState::default(),
+        },
         contract_protocol::AppServerEvent::Shutdown,
     ];
 
@@ -271,6 +284,8 @@ fn web_decodes_contract_stdio_output_events() {
             AppServerEvent::PendingRequestsUpdated { snapshot } => {
                 assert_eq!(snapshot.stream_id, "live-stream")
             }
+            AppServerEvent::SessionSnapshot { snapshot } => assert_eq!(snapshot.seq, 19),
+            AppServerEvent::ExecutionUpdated { execution } => assert!(execution.active.is_none()),
             AppServerEvent::Shutdown => {}
         }
     }

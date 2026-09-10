@@ -9,6 +9,7 @@ from extensions_checks import run as check_extensions
 from layout_checks import run as check_layout
 from session_checks import run as check_session, BOOTSTRAP
 from queue_checks import run as check_queue
+from live_checks import run as check_live
 from usage_checks import run as check_usage
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -88,8 +89,10 @@ class Assets(SimpleHTTPRequestHandler):
                 self.wfile.write(('event: '+name+'\ndata: '+json.dumps(data)+'\n\n').encode())
                 self.wfile.flush()
             emit('response.output_item.added', {"output_index":0,"item":{"id":output[0]['id'],"type":"message","role":"assistant","content":[]}})
-            for chunk in chunks:
+            for index, chunk in enumerate(chunks):
                 emit('response.output_text.delta', {"output_index":0,"item_id":output[0]['id'],"content_index":0,"delta":chunk})
+                if index == 3 and not self.server.stream_gate.wait(timeout=60):
+                    raise AssertionError('Streaming fixture held the response too long')
                 time.sleep(.1)
         self.wfile.write(('event: response.completed\ndata: '+json.dumps({"response":{"status":"completed","output":output,"usage":{"input_tokens":100,"output_tokens":40,"input_tokens_details":{"cached_tokens":60},"output_tokens_details":{"reasoning_tokens":10}}}})+'\n\n').encode())
 
@@ -166,6 +169,8 @@ def main():
         server = ThreadingHTTPServer(('127.0.0.1', 0), partial(Assets, directory=str(ROOT / 'clients/web/dist')))
         server.model_gate = threading.Event()
         server.model_gate.set()
+        server.stream_gate = threading.Event()
+        server.stream_gate.set()
         threading.Thread(target=server.serve_forever, daemon=True).start()
         web = f'http://127.0.0.1:{server.server_port}'
         auth = folder / 'fixture-auth.json'
@@ -240,6 +245,7 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                 Path('/tmp/proteus-ui-extensions.png').write_bytes(base64.b64decode(screenshot))
                 check_session(command, js, wait_for, web, origin, loaded)
                 check_queue(command, js, wait_for, server)
+                check_live(command, js, wait_for, server)
                 stop(backend)
                 js("document.querySelector('[data-extension-id=model-quota] .extension-panel-content').shadowRoot.querySelector('button').click()")
                 wait_for(lambda: js("const root=document.querySelector('[data-extension-id=model-quota] .extension-panel-content').shadowRoot; return root.textContent.includes('Не удалось получить лимиты') && root.querySelectorAll('progress').length === 0"), 'Quota error retained old balances')

@@ -7,16 +7,19 @@ use tokio::sync::{broadcast, watch};
 use uuid::Uuid;
 
 use super::{AppPendingRequests, AppQueuedUserMessage, AppServerEvent};
-use crate::{
-    core::{BroadcastEventSink, QueuedMessagesSnapshot},
-    domain::{EventEnvelope, SessionId},
-};
+
+mod session;
+use crate::{core::QueuedMessagesSnapshot, domain::SessionId};
+pub(super) use session::RuntimeEventSink;
+use session::{SequencedEvent, SessionView};
 
 #[derive(Clone)]
 pub(super) struct AppEventPublisher(Arc<Inner>);
 
 struct Inner {
     events: broadcast::Sender<AppServerEvent>,
+    sequenced: broadcast::Sender<SequencedEvent>,
+    view: Mutex<SessionView>,
     pending: Mutex<Pending>,
     updates: watch::Sender<AppPendingRequests>,
     queue: Option<watch::Receiver<QueuedMessagesSnapshot>>,
@@ -27,37 +30,60 @@ struct Pending {
     queue_revision: u64,
 }
 
-/// Both transports receive an initial snapshot and subsequent complete
-/// revisions through this subscription. Slow subscribers coalesce pending
-/// updates while ordinary runtime events retain their bounded broadcast ring.
+/// Both transports receive initial pending and session snapshots. Session
+/// events already included in a snapshot are discarded; overflow triggers a
+/// fresh baseline. Pending updates use an independent watch projection.
 pub(crate) struct AppSubscription {
-    events: broadcast::Receiver<AppServerEvent>,
+    publisher: AppEventPublisher,
+    events: broadcast::Receiver<SequencedEvent>,
     pending: watch::Receiver<AppPendingRequests>,
     initial: bool,
-    pending_open: bool,
+    resync: bool,
+    seq: u64,
 }
 
 impl AppSubscription {
-    pub(crate) async fn recv(&mut self) -> Result<AppServerEvent, broadcast::error::RecvError> {
+    pub(crate) fn request_snapshot(&mut self) {
+        self.resync = true;
+    }
+
+    pub(crate) async fn recv(&mut self) -> anyhow::Result<AppServerEvent> {
         if self.initial {
             self.initial = false;
-            return Ok(self.snapshot_event());
+            return Ok(self.pending_event());
         }
         loop {
+            if self.resync {
+                let snapshot = self.publisher.session_snapshot()?;
+                self.seq = snapshot.seq;
+                self.resync = false;
+                return Ok(AppServerEvent::SessionSnapshot {
+                    snapshot: Box::new(snapshot),
+                });
+            }
             tokio::select! {
                 biased;
-                changed = self.pending.changed(), if self.pending_open => {
-                    if changed.is_ok() {
-                        return Ok(self.snapshot_event());
-                    }
-                    self.pending_open = false;
+                changed = self.pending.changed() => {
+                    changed?;
+                    return Ok(self.pending_event());
                 }
-                event = self.events.recv() => return event,
+                event = self.events.recv() => match event {
+                    Ok(event) if event.seq > self.seq || matches!(event.event, AppServerEvent::Shutdown) => {
+                        self.seq = event.seq;
+                        return Ok(event.event);
+                    }
+                    Ok(_) => {}, // Already included in the snapshot.
+                    Err(broadcast::error::RecvError::Lagged(count)) => {
+                        self.resync = true;
+                        return Ok(AppServerEvent::EventStreamLagged { count });
+                    }
+                    Err(error) => return Err(error.into()),
+                }
             }
         }
     }
 
-    fn snapshot_event(&mut self) -> AppServerEvent {
+    fn pending_event(&mut self) -> AppServerEvent {
         AppServerEvent::PendingRequestsUpdated {
             snapshot: Box::new(self.pending.borrow_and_update().clone()),
         }
@@ -73,6 +99,8 @@ impl AppEventPublisher {
         let snapshot = AppPendingRequests::new(session_id, Uuid::new_v4().to_string());
         let publisher = Self(Arc::new(Inner {
             events: broadcast::channel(capacity).0,
+            sequenced: broadcast::channel(capacity).0,
+            view: Mutex::new(SessionView::new(session_id, snapshot.stream_id.clone())),
             pending: Mutex::new(Pending {
                 snapshot: snapshot.clone(),
                 queue_revision: 0,
@@ -97,15 +125,15 @@ impl AppEventPublisher {
         self.0.events.subscribe()
     }
 
-    pub(super) fn subscribe_with_pending(&self) -> AppSubscription {
-        // Subscribe first, then sample: events <= initial seq may still be
-        // observed, but no update after that baseline can be missed.
-        let events = self.subscribe();
+    pub(super) fn subscribe_session(&self) -> AppSubscription {
+        let events = self.0.sequenced.subscribe();
         AppSubscription {
+            publisher: self.clone(),
             events,
             pending: self.subscribe_pending(),
             initial: true,
-            pending_open: true,
+            resync: true,
+            seq: 0,
         }
     }
 
@@ -126,6 +154,19 @@ impl AppEventPublisher {
         &self,
         event: AppServerEvent,
     ) -> Result<usize, broadcast::error::SendError<AppServerEvent>> {
+        self.send_with_history(event, None)
+    }
+
+    fn send_with_history(
+        &self,
+        event: AppServerEvent,
+        history: Option<Vec<super::AppTranscriptMessage>>,
+    ) -> Result<usize, broadcast::error::SendError<AppServerEvent>> {
+        let mut view = self.0.view.lock().expect("session view lock");
+        if let Some(history) = history {
+            view.history = history;
+        }
+        view.apply(&event);
         let mut pending = self.0.pending.lock().expect("pending projection lock");
         let queue_changed = self.sync_queue(&mut pending);
         let changed = match &event {
@@ -157,6 +198,10 @@ impl AppEventPublisher {
             }
             _ => false,
         };
+        let _ = self.0.sequenced.send(SequencedEvent {
+            seq: view.seq,
+            event: event.clone(),
+        });
         let result = self.0.events.send(event);
         if changed || queue_changed {
             self.publish_pending(&mut pending);
@@ -202,41 +247,5 @@ pub(super) fn test_event_channel(
     (events, receiver)
 }
 
-pub(super) fn spawn_runtime_event_forwarder(
-    core_broadcast: Arc<BroadcastEventSink>,
-    events: AppEventPublisher,
-    turn_progress: Arc<tokio::sync::Mutex<super::TurnProgress>>,
-) {
-    let rx = core_broadcast.subscribe();
-    spawn_runtime_event_forwarder_with_receiver(rx, events, turn_progress);
-}
-
-/// Отделено от `spawn_runtime_event_forwarder`, чтобы lag-путь можно было
-/// детерминированно тестировать: receiver подписывается до переполнения.
-pub(super) fn spawn_runtime_event_forwarder_with_receiver(
-    mut rx: broadcast::Receiver<EventEnvelope>,
-    events: AppEventPublisher,
-    turn_progress: Arc<tokio::sync::Mutex<super::TurnProgress>>,
-) {
-    tokio::spawn(async move {
-        loop {
-            match rx.recv().await {
-                Ok(envelope) => {
-                    turn_progress.lock().await.apply(&envelope);
-                    let _ = events.send(AppServerEvent::Runtime {
-                        envelope: Box::new(envelope),
-                    });
-                }
-                Err(broadcast::error::RecvError::Lagged(count)) => {
-                    // Часть runtime-событий потеряна (переполнение ring):
-                    // среди них могли быть ToolFinished/TurnFinished. Клиент
-                    // обязан пересинхронизироваться, а не жить со «вечно
-                    // бегущими» карточками — Error здесь не подходит, он
-                    // означает «ход упал».
-                    let _ = events.send(AppServerEvent::EventStreamLagged { count });
-                }
-                Err(broadcast::error::RecvError::Closed) => break,
-            }
-        }
-    });
-}
+#[cfg(test)]
+mod tests;

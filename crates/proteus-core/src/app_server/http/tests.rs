@@ -268,6 +268,7 @@ mod addressing;
 mod commands;
 mod config;
 mod inspection;
+mod live;
 mod pending;
 mod security;
 mod session_reads;

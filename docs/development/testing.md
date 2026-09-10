@@ -457,9 +457,23 @@ result не дублируется, cold transcript сохраняет дейс�
 - `clients/web/tests/extensions_browser.py`: реальная очередь, задержанный
   `/pending` после edit/delete, reload и гонка edit/delivery.
 
-Это pending projection. Эти проверки не доказывают общую атомарность
-history/config/terminal state. Runtime gate и `module_swap` продолжают
-проверять неизменность алгоритма доставки и модульных границ.
+Это pending projection; её revision не является версией истории или config.
+Для истории и выполнения проверяются:
+
+- `app_server::events::tests`: inline projection переживает переполнение ring,
+  начальный/resync snapshot включает прежние deltas, а подписка отдаёт только новые;
+- `app_server::http::tests::turns`: cancel сигналит запрос, run остаётся активным
+  до завершения, чужие approvals не разрешаются отменой;
+- `app_server::turn_progress::tests`: runtime Error не очищает незавершённый
+  progress, подтверждённое завершение сохраняет фоновые child-карточки;
+- web contract tests: общий формат transcript/execution snapshot;
+- browser fixture `live_checks.py`: reconnect посреди стрима без повторного
+  model request и дублирования текста; задержанный ответ `/cancel` не снимает
+  занятость с нового run.
+
+Runtime gate, cold history/replay и `module_swap` продолжают проверять
+неизменность алгоритма исполнения и модульных границ. Config не входит
+в сессионный snapshot; его синхронизация проверяется отдельно.
 
 ## Negative Protocol Evidence
 

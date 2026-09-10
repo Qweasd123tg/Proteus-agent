@@ -29,7 +29,9 @@ mod sse;
 mod state;
 
 #[cfg(test)]
-use commands::{SendDispatch, spawn_send_run};
+use super::runs::SendDispatch;
+#[cfg(test)]
+use commands::spawn_send_run;
 use commands::{
     command_response, execute_app_request, execute_send, execute_send_async, execute_set_model,
     execute_set_permission_mode, execute_set_reasoning_effort, execute_set_reasoning_enabled,
@@ -56,8 +58,6 @@ use http_body_util::Full;
 use hyper::header::CONTENT_TYPE;
 #[cfg(test)]
 use sse::encode_sse_output;
-#[cfg(test)]
-use state::RunningRun;
 
 type HttpBody = UnsyncBoxBody<Bytes, Infallible>;
 type HttpResponse = Response<HttpBody>;

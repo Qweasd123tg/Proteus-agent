@@ -131,48 +131,6 @@ pub(crate) fn push_assistant_message_once(
     }
 }
 
-pub(crate) fn push_assistant_message_if_missing(
-    set_messages: crate::transcript::TranscriptWriter,
-    next_message_id: ReadSignal<u64>,
-    set_next_message_id: WriteSignal<u64>,
-    text: String,
-) {
-    if text.trim().is_empty() {
-        return;
-    }
-
-    let id = next_message_id.get();
-    let mut pushed = false;
-    set_messages.update(|items| {
-        if items
-            .iter()
-            .any(|message| message.role == MessageRole::Assistant && message.text == text)
-        {
-            return;
-        }
-        items.push(Message {
-            message_id: None,
-            phase: None,
-            id,
-            version: 0,
-            text_offset: 0,
-            role: MessageRole::Assistant,
-            text,
-            tool: None,
-            subagent: None,
-            streaming: false,
-        });
-        pushed = true;
-    });
-    if pushed {
-        set_next_message_id.set(id + 1);
-    }
-}
-
-/// Если в загруженном транскрипте есть незавершённое streaming-сообщение
-/// ассистента (сервер отдал прогресс бегущего хода), делаем последнее из них целью для
-/// последующих SSE-дельт: текст продолжит дописываться в него, а TurnOutput
-/// в конце перезапишет его финальным текстом.
 pub(crate) fn adopt_streaming_tail(
     transcript: &[Message],
     set_active_stream_message_id: WriteSignal<Option<u64>>,
@@ -187,127 +145,6 @@ pub(crate) fn adopt_streaming_tail(
     set_streamed_this_turn.set(true);
 }
 
-/// Подкладывает историю с сервера перед уже накопленными живыми сообщениями:
-/// при старте посреди активного хода SSE успевает доставить стрим-дельты
-/// раньше, чем приходит ответ /history, и историю нельзя ни выбросить, ни
-/// поставить после хвоста. Id истории выделяются поверх текущего счётчика,
-/// чтобы не столкнуться с id живых сообщений (порядок ленты задаёт Vec, не id).
-pub(crate) fn prepend_history_messages(
-    set_messages: crate::transcript::TranscriptWriter,
-    next_message_id: ReadSignal<u64>,
-    set_next_message_id: WriteSignal<u64>,
-    set_active_stream_message_id: WriteSignal<Option<u64>>,
-    set_streamed_this_turn: WriteSignal<bool>,
-    mut transcript: Vec<Message>,
-) {
-    let base = next_message_id.get();
-    for (index, message) in transcript.iter_mut().enumerate() {
-        message.id = base + index as u64;
-    }
-    set_next_message_id.set(base + transcript.len() as u64);
-    let streaming_tail_id = transcript
-        .iter()
-        .rev()
-        .find(|message| {
-            message.role == MessageRole::Assistant && message.streaming && message.tool.is_none()
-        })
-        .map(|message| message.id);
-    let history_has_streaming_tail = streaming_tail_id.is_some();
-    set_messages.update(|items| {
-        // Стрим-хвост из снапшота прогресса уже содержит текст, который SSE
-        // успел доставить живьём после подключения, — локальный стрим-дубль
-        // убираем, дальше дельты пойдут в усыновлённое сообщение истории.
-        if history_has_streaming_tail {
-            items.retain(|live| {
-                live.message_id.is_some()
-                    || !(live.role == MessageRole::Assistant
-                        && live.streaming
-                        && live.tool.is_none())
-            });
-        }
-        // Если /history пришёл после live SSE дочернего цикла, TurnProgress
-        // может отдать тот же child tool как плоскую карточку. Live-карточка
-        // субагента информативнее: сохраняем её и выкидываем плоский дубль.
-        let nested_live_call_ids = items
-            .iter()
-            .filter_map(|message| message.subagent.as_ref())
-            .flat_map(|subagent| subagent.tools.iter().map(|tool| tool.call_id.clone()))
-            .collect::<Vec<_>>();
-        if !nested_live_call_ids.is_empty() {
-            transcript.retain(|hist| {
-                !hist.tool.as_ref().is_some_and(|tool| {
-                    nested_live_call_ids
-                        .iter()
-                        .any(|call_id| call_id == &tool.call_id)
-                })
-            });
-        }
-        for hist in &mut transcript {
-            if let Some(live) = items.iter().find(|live| {
-                live.message_id.is_some()
-                    && live.message_id == hist.message_id
-                    && live.role == hist.role
-            }) {
-                if !live.streaming {
-                    hist.text = live.text.clone();
-                    hist.text_offset = live.text_offset;
-                    hist.phase = live.phase;
-                    hist.streaming = false;
-                } else {
-                    merge_text(
-                        &mut hist.text,
-                        &mut hist.text_offset,
-                        &live.text,
-                        live.text_offset,
-                    );
-                }
-            }
-        }
-        // Если ход успел завершиться, пока /history был в пути, живые
-        // сообщения могут дублировать хвост истории — локальный дубль убираем.
-        items.retain(|live| !history_duplicates_live(&transcript, live));
-        let live = std::mem::take(items);
-        *items = transcript;
-        items.extend(live);
-    });
-    if let Some(id) = streaming_tail_id {
-        set_active_stream_message_id.set(Some(id));
-        set_streamed_this_turn.set(true);
-    }
-}
-
-fn history_duplicates_live(transcript: &[Message], live: &Message) -> bool {
-    if let Some(id) = &live.message_id {
-        return transcript
-            .iter()
-            .any(|hist| hist.message_id.as_ref() == Some(id) && hist.role == live.role);
-    }
-    if let Some(live_tool) = &live.tool {
-        return transcript.iter().any(|hist| {
-            hist.tool
-                .as_ref()
-                .is_some_and(|tool| tool.call_id == live_tool.call_id)
-        });
-    }
-    if let Some(live_subagent) = &live.subagent {
-        return transcript.iter().any(|hist| {
-            hist.subagent
-                .as_ref()
-                .is_some_and(|subagent| subagent.child_thread_id == live_subagent.child_thread_id)
-        });
-    }
-    if live.text.trim().is_empty() || live.streaming {
-        return false;
-    }
-    transcript
-        .iter()
-        .rev()
-        .take(4)
-        .any(|hist| hist.tool.is_none() && hist.role == live.role && hist.text == live.text)
-}
-
-/// Завершить активный reasoning-блок (сворачивается в UI). Вызывается, когда
-/// начинается текст ответа, tool call или ход завершается.
 pub(crate) fn finish_streaming_reasoning(set_messages: crate::transcript::TranscriptWriter) {
     set_messages.update_where(
         |message| message.role == MessageRole::Reasoning && message.streaming,
@@ -356,18 +193,6 @@ pub(crate) fn finish_active_streaming_assistant_message(
         });
         set_active_stream_message_id.set(None);
     }
-}
-
-pub(crate) fn finish_all_streaming_assistant_messages(
-    set_messages: crate::transcript::TranscriptWriter,
-) {
-    set_messages.update_where(
-        |message| message.role == MessageRole::Assistant && message.streaming,
-        |message| {
-            message.streaming = false;
-            message.version += 1;
-        },
-    );
 }
 
 pub(crate) fn finish_streaming_assistant_message(

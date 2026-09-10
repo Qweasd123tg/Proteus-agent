@@ -18,7 +18,7 @@ pub(super) async fn sse_response(
     state: HttpAppState,
     server: crate::app_server::AppServerHandle,
 ) -> HttpResponse {
-    let mut events = server.subscribe_with_pending();
+    let mut events = server.subscribe_session();
     let mut activity_events = state.subscribe_activity();
     let body = StreamBody::new(stream! {
         yield Ok::<Frame<Bytes>, Infallible>(Frame::data(Bytes::from_static(b": connected\n\n")));
@@ -48,16 +48,7 @@ pub(super) async fn sse_response(
                                 break;
                             }
                         }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
-                            // Broadcast ring переполнился (клиент не успевал
-                            // читать): события потеряны безвозвратно. Клиент
-                            // должен пересинхронизировать transcript/pending.
-                            let output = StdioOutput::Event {
-                                event: Box::new(AppServerEvent::EventStreamLagged { count }),
-                            };
-                            yield Ok(Frame::data(encode_sse_output(&output)));
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                        Err(_) => break,
                     }
                 }
                 event = activity_events.recv() => {
@@ -69,6 +60,7 @@ pub(super) async fn sse_response(
                             yield Ok(Frame::data(encode_sse_output(&output)));
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
+                            events.request_snapshot();
                             let output = StdioOutput::Event {
                                 event: Box::new(AppServerEvent::EventStreamLagged { count }),
                             };

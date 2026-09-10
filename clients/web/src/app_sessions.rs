@@ -7,9 +7,6 @@ use web_sys::window;
 
 use crate::api::{clear_selected_session_dir, persist_selected_session_dir, post_json};
 use crate::events::{EventStreamBindings, close_event_stream, reconnect_event_stream};
-use crate::session::history::{
-    load_transcript, replace_transcript, replace_transcript_for_session,
-};
 use crate::session::settings::load_runtime_settings;
 use crate::session::summaries::{apply_active_session_activity, load_sidebar_sessions};
 use crate::types::*;
@@ -29,9 +26,6 @@ pub(crate) struct RuntimeSettingsBindings {
     pub(crate) set_active_session_dir: WriteSignal<Option<String>>,
     pub(crate) active_session_dir: ReadSignal<Option<String>>,
     pub(crate) transcript_generation: ReadSignal<u64>,
-    pub(crate) set_is_sending: WriteSignal<bool>,
-    pub(crate) set_active_run_id: WriteSignal<Option<String>>,
-    pub(crate) set_agent_status: WriteSignal<String>,
     pub(crate) set_messages: crate::transcript::TranscriptWriter,
     pub(crate) next_message_id: ReadSignal<u64>,
     pub(crate) set_next_message_id: WriteSignal<u64>,
@@ -52,9 +46,6 @@ impl RuntimeSettingsBindings {
             self.set_effort,
             self.set_effort_options,
             self.set_workspace_label,
-            self.set_is_sending,
-            self.set_active_run_id,
-            self.set_agent_status,
             self.set_messages,
             self.next_message_id,
             self.set_next_message_id,
@@ -67,56 +58,7 @@ impl RuntimeSettingsBindings {
 pub(crate) struct TranscriptBindings {
     pub(crate) set_messages: crate::transcript::TranscriptWriter,
     pub(crate) transcript_generation: ReadSignal<u64>,
-    pub(crate) next_message_id: ReadSignal<u64>,
     pub(crate) set_next_message_id: WriteSignal<u64>,
-    pub(crate) set_active_stream_message_id: WriteSignal<Option<u64>>,
-    pub(crate) set_streamed_this_turn: WriteSignal<bool>,
-    pub(crate) set_transport_status: WriteSignal<TransportStatus>,
-}
-
-impl TranscriptBindings {
-    pub(crate) fn load_initial(self, session_dir: String, messages: crate::transcript::Transcript) {
-        load_transcript(
-            session_dir,
-            messages,
-            self.set_messages,
-            self.transcript_generation,
-            self.transcript_generation.get_untracked(),
-            self.next_message_id,
-            self.set_next_message_id,
-            self.set_active_stream_message_id,
-            self.set_streamed_this_turn,
-            self.set_transport_status,
-        );
-    }
-
-    fn replace_current(self, session_dir: String, expected_generation: u64) {
-        replace_transcript(
-            session_dir,
-            self.set_messages,
-            self.transcript_generation,
-            expected_generation,
-            self.next_message_id,
-            self.set_next_message_id,
-            self.set_active_stream_message_id,
-            self.set_streamed_this_turn,
-            self.set_transport_status,
-        );
-    }
-
-    fn replace_for_session(self, session_dir: String, expected_generation: u64) {
-        replace_transcript_for_session(
-            session_dir,
-            self.set_messages,
-            self.transcript_generation,
-            expected_generation,
-            self.next_message_id,
-            self.set_next_message_id,
-            self.set_active_stream_message_id,
-            self.set_streamed_this_turn,
-            self.set_transport_status,
-        );
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -178,8 +120,6 @@ impl AppSessionActions {
                     reconnect_event_stream(self.event_source, self.event_stream);
                     self.runtime_settings
                         .load(session_dir.clone(), expected_generation);
-                    self.transcript
-                        .replace_current(session_dir, expected_generation);
                 }
                 Err(error) => {
                     self.set_sidebar_sessions_status
@@ -265,8 +205,6 @@ impl AppSessionActions {
                     reconnect_event_stream(self.event_source, self.event_stream);
                     self.runtime_settings
                         .load(session_dir.clone(), expected_generation);
-                    self.transcript
-                        .replace_for_session(session_dir.clone(), expected_generation);
                 }
                 Ok(StdioOutput::Response { error, .. }) => {
                     self.set_sidebar_sessions_status

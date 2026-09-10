@@ -126,13 +126,9 @@ async fn route_new_session_keeps_background_turn_registered() {
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
     let cancellation = CancellationToken::new();
-    state.running_runs.lock().await.insert(
-        "run-background".to_owned(),
-        RunningRun::new(
-            cancellation.clone(),
-            Some(PathBuf::from(&original_session_dir)),
-        ),
-    );
+    server
+        .register_test_run("run-background", cancellation.clone())
+        .await;
 
     let response = route_request(
         state.clone(),
@@ -143,11 +139,10 @@ async fn route_new_session_keeps_background_turn_registered() {
 
     assert_eq!(response.status(), StatusCode::OK);
     assert!(
-        state
-            .running_runs
-            .lock()
+        server
+            .running_run_ids()
             .await
-            .contains_key("run-background")
+            .contains(&"run-background".to_owned())
     );
     let original_session_path = PathBuf::from(&original_session_dir);
     assert!(
@@ -309,13 +304,9 @@ async fn route_resume_reuses_live_session_without_persisted_directory() {
     .expect("new session response");
     assert_eq!(response.status(), StatusCode::OK);
     let original_cancellation = CancellationToken::new();
-    state.running_runs.lock().await.insert(
-        "run-original".to_owned(),
-        RunningRun::new(
-            original_cancellation.clone(),
-            Some(PathBuf::from(&original_session_dir)),
-        ),
-    );
+    server
+        .register_test_run("run-original", original_cancellation.clone())
+        .await;
 
     let response = route_request(
         state.clone(),

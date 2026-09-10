@@ -61,3 +61,14 @@ pub(crate) struct TranscriptSubagent {
     pub(crate) iterations: Option<u32>,
     pub(crate) tools: Vec<TranscriptTool>,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SessionSnapshot {
+    pub(crate) session_id: String,
+    pub(crate) stream_id: String,
+    pub(crate) seq: u64,
+    pub(crate) root_thread_id: Option<String>,
+    pub(crate) transcript: Vec<TranscriptMessage>,
+    pub(crate) execution: proteus_client_common::execution::ExecutionState,
+}

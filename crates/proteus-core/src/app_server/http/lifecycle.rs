@@ -4,10 +4,7 @@ use anyhow::{Result, anyhow};
 use proteus_contracts::app_protocol::AppBootstrap;
 use serde_json::{Value, json};
 
-use super::{
-    commands::{cancel_work_for_server, command_response},
-    state::HttpAppState,
-};
+use super::{commands::command_response, state::HttpAppState};
 use crate::{
     app_server::{AgentAppServer, AppServerHandle, StdioOutput},
     core::{
@@ -102,7 +99,6 @@ pub(super) async fn execute_delete_session(
             ));
         }
         if let Some(server) = live_server {
-            cancel_work_for_server(state, &server).await;
             server.shutdown().await;
             state.remove_session_server(&session_dir).await;
         }

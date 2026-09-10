@@ -51,8 +51,16 @@ async fn next_message(body: &mut HttpBody) -> String {
                 };
                 let output: StdioOutput = serde_json::from_str(json).unwrap();
                 if let StdioOutput::Event { event } = output {
-                    if let AppServerEvent::UserMessageSubmitted { text } = *event {
-                        return text;
+                    match *event {
+                        AppServerEvent::UserMessageSubmitted { text } => return text,
+                        AppServerEvent::SessionSnapshot { snapshot } => {
+                            if let Some(message) =
+                                snapshot.transcript.iter().rev().find(|m| m.role == "user")
+                            {
+                                return message.text.clone();
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -202,14 +210,8 @@ async fn independent_connections_keep_config_pending_and_sse_bound_to_their_sess
 
     let cancel_a = CancellationToken::new();
     let cancel_b = CancellationToken::new();
-    state.running_runs.lock().await.insert(
-        "run-a".into(),
-        RunningRun::new(cancel_a.clone(), a.session_dir_path()),
-    );
-    state.running_runs.lock().await.insert(
-        "run-b".into(),
-        RunningRun::new(cancel_b.clone(), b.session_dir_path()),
-    );
+    a.register_test_run("run-a", cancel_a.clone()).await;
+    b.register_test_run("run-b", cancel_b.clone()).await;
     assert!(matches!(
         post_at(
             &state,
@@ -327,7 +329,7 @@ async fn session_routes_reject_missing_unknown_and_ambiguous_addresses() {
     }
     assert_eq!(server.permission_mode().await, PermissionMode::Normal);
     assert!(server.transcript().await.unwrap().is_empty());
-    assert!(state.running_runs.lock().await.is_empty());
+    assert!(server.running_run_ids().await.is_empty());
     server.shutdown().await;
 }
 

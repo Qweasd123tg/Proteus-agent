@@ -100,15 +100,6 @@ fn ru_count(value: u64, one: &str, few: &str, many: &str) -> String {
     format!("{value} {word}")
 }
 
-pub(crate) fn output_text(output: &Value) -> String {
-    output
-        .get("text")
-        .and_then(Value::as_str)
-        .filter(|text| !text.trim().is_empty())
-        .unwrap_or("(empty response)")
-        .to_owned()
-}
-
 pub(crate) fn format_json(value: &Value) -> String {
     serde_json::to_string_pretty(value).unwrap_or_else(|_| "<invalid json>".to_owned())
 }

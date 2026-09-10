@@ -43,6 +43,12 @@ pub(crate) enum StdioOutput {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum AppServerEvent {
+    SessionSnapshot {
+        snapshot: Box<super::SessionSnapshot>,
+    },
+    ExecutionUpdated {
+        execution: proteus_client_common::execution::ExecutionState,
+    },
     Runtime {
         envelope: Value,
     },
@@ -81,7 +87,7 @@ pub(crate) enum AppServerEvent {
         message: String,
     },
     /// Сервер потерял часть событий (переполнение broadcast ring): стрим-
-    /// состояние клиента невалидно, транскрипт и pending надо перечитать.
+    /// клиент отбрасывает buffered deltas и ждёт SessionSnapshot из подписки.
     EventStreamLagged {
         count: u64,
     },

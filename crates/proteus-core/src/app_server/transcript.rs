@@ -2,48 +2,16 @@ use serde_json::Value;
 
 use crate::{
     domain::{Citation, HostedToolActivity, HostedToolStatus, ToolCall, ToolResult},
-    model_standard::{CanonicalMessage, ContentPart, MessagePhase, MessageRole},
+    model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 
 mod journal;
 
 pub(crate) use journal::journal_transcript_messages;
 
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct AppTranscriptMessage {
-    pub message_id: Option<crate::domain::MessageId>,
-    pub phase: Option<MessagePhase>,
-    pub role: String,
-    pub text: String,
-    pub tool: Option<AppTranscriptTool>,
-    pub subagent: Option<AppTranscriptSubagent>,
-    /// Текст ещё стримится: сообщение — живой прогресс незавершённого хода
-    /// (см. turn_progress), клиент продолжает дописывать в него дельты.
-    pub streaming: bool,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct AppTranscriptTool {
-    pub call_id: String,
-    pub name: String,
-    pub args: Value,
-    pub status: String,
-    pub result: Option<String>,
-    /// Metadata результата как есть (`ToolResult.metadata`): core не знает
-    /// конкретных tools, а клиенты по ней строят спец-рендеры (например,
-    /// карточку субагента из результата `task`).
-    pub metadata: Value,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct AppTranscriptSubagent {
-    pub child_thread_id: String,
-    pub role: String,
-    pub description: Option<String>,
-    pub status: String,
-    pub iterations: Option<u32>,
-    pub tools: Vec<AppTranscriptTool>,
-}
+pub use proteus_contracts::app_protocol::{
+    AppTranscriptMessage, AppTranscriptSubagent, AppTranscriptTool,
+};
 
 pub(super) fn transcript_messages(messages: &[CanonicalMessage]) -> Vec<AppTranscriptMessage> {
     let mut transcript = Vec::new();

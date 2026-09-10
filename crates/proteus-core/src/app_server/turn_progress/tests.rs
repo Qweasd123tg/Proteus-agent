@@ -139,6 +139,12 @@ fn turn_boundaries_clear_progress() {
             message: "boom".to_owned(),
         },
     );
+    assert_eq!(
+        progress.snapshot()[0].text,
+        "новый ход",
+        "runtime error alone is not durable settlement"
+    );
+    progress.finish_parent_turn();
     assert!(progress.snapshot().is_empty());
 }
 
@@ -232,6 +238,7 @@ fn collaboration_subagent_survives_parent_turn_and_keeps_late_tools_nested() {
             output: crate::domain::AgentOutput::text("spawned"),
         },
     );
+    progress.finish_parent_turn();
 
     progress.apply(&envelope(
         child_thread_id,
@@ -328,6 +335,7 @@ fn collaboration_followup_owns_a_background_card() {
             output: crate::domain::AgentOutput::text("follow-up started"),
         },
     );
+    progress.finish_parent_turn();
     progress.apply(&envelope(
         child_thread_id,
         Event::ToolCallRequested {

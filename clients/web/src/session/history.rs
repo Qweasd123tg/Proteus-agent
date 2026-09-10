@@ -1,74 +1,29 @@
 use crate::{
-    api::{get_json, session_path},
-    messages::{adopt_streaming_tail, prepend_history_messages, report_error},
+    messages::adopt_streaming_tail,
     tool_names::{FOLLOWUP_TASK_TOOL, SPAWN_AGENT_TOOL, TASK_TOOL},
     types::*,
     ui_utils::{compact_text, format_json},
 };
-use leptos::{prelude::*, task::spawn_local};
+use leptos::prelude::*;
 use serde_json::Value;
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn load_transcript(
-    session_dir: String,
-    messages: crate::transcript::Transcript,
+pub(crate) fn apply_transcript(
+    items: Vec<TranscriptMessage>,
     set_messages: crate::transcript::TranscriptWriter,
-    transcript_generation: ReadSignal<u64>,
-    expected_generation: u64,
-    next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     set_active_stream_message_id: WriteSignal<Option<u64>>,
     set_streamed_this_turn: WriteSignal<bool>,
-    set_transport_status: WriteSignal<TransportStatus>,
 ) {
-    let expected_next_message_id = next_message_id.get_untracked();
-    spawn_local(async move {
-        let result =
-            get_json::<Vec<TranscriptMessage>>(&session_path("/history", &session_dir)).await;
-        if transcript_generation.get_untracked() != expected_generation {
-            return;
-        }
-        match result {
-            Ok(items) => {
-                let transcript = transcript_messages(items);
-                if transcript.is_empty() {
-                    return;
-                }
-                if messages.with_untracked(Vec::is_empty)
-                    && next_message_id.get_untracked() == expected_next_message_id
-                {
-                    set_next_message_id.set(next_message_id_after(&transcript));
-                    adopt_streaming_tail(
-                        &transcript,
-                        set_active_stream_message_id,
-                        set_streamed_this_turn,
-                    );
-                    set_messages.set(transcript);
-                } else {
-                    // Агент пишет: SSE доставил живые сообщения раньше, чем
-                    // пришёл /history. Историю не выбрасываем (иначе лента
-                    // теряет все прошлые ходы до конца текущего), а
-                    // подкладываем перед живым хвостом.
-                    prepend_history_messages(
-                        set_messages,
-                        next_message_id,
-                        set_next_message_id,
-                        set_active_stream_message_id,
-                        set_streamed_this_turn,
-                        transcript,
-                    );
-                }
-            }
-            Err(error) => report_error(
-                set_messages,
-                next_message_id,
-                set_next_message_id,
-                set_transport_status,
-                "History load failed",
-                error,
-            ),
-        }
-    });
+    let transcript = transcript_messages(items);
+    set_next_message_id.set(next_message_id_after(&transcript));
+    set_active_stream_message_id.set(None);
+    set_streamed_this_turn.set(false);
+    adopt_streaming_tail(
+        &transcript,
+        set_active_stream_message_id,
+        set_streamed_this_turn,
+    );
+    set_messages.set(transcript);
 }
 
 /// Транскрипт с сервера → сообщения ленты. Два subagent-шва повторяют
@@ -219,72 +174,6 @@ fn subagent_from_task_transcript_tool(tool: &TranscriptTool) -> Option<SubagentA
         finished_at_ms: None,
         tools: Vec::new(),
     })
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn replace_transcript(
-    session_dir: String,
-    set_messages: crate::transcript::TranscriptWriter,
-    transcript_generation: ReadSignal<u64>,
-    expected_generation: u64,
-    next_message_id: ReadSignal<u64>,
-    set_next_message_id: WriteSignal<u64>,
-    set_active_stream_message_id: WriteSignal<Option<u64>>,
-    set_streamed_this_turn: WriteSignal<bool>,
-    set_transport_status: WriteSignal<TransportStatus>,
-) {
-    replace_transcript_for_session(
-        session_dir,
-        set_messages,
-        transcript_generation,
-        expected_generation,
-        next_message_id,
-        set_next_message_id,
-        set_active_stream_message_id,
-        set_streamed_this_turn,
-        set_transport_status,
-    );
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn replace_transcript_for_session(
-    session_dir: String,
-    set_messages: crate::transcript::TranscriptWriter,
-    transcript_generation: ReadSignal<u64>,
-    expected_generation: u64,
-    next_message_id: ReadSignal<u64>,
-    set_next_message_id: WriteSignal<u64>,
-    set_active_stream_message_id: WriteSignal<Option<u64>>,
-    set_streamed_this_turn: WriteSignal<bool>,
-    set_transport_status: WriteSignal<TransportStatus>,
-) {
-    spawn_local(async move {
-        let result =
-            get_json::<Vec<TranscriptMessage>>(&session_path("/history", &session_dir)).await;
-        if transcript_generation.get_untracked() != expected_generation {
-            return;
-        }
-        match result {
-            Ok(items) => {
-                let transcript = transcript_messages(items);
-                set_next_message_id.set(next_message_id_after(&transcript));
-                adopt_streaming_tail(
-                    &transcript,
-                    set_active_stream_message_id,
-                    set_streamed_this_turn,
-                );
-                set_messages.set(transcript);
-            }
-            Err(error) => report_error(
-                set_messages,
-                next_message_id,
-                set_next_message_id,
-                set_transport_status,
-                "History load failed",
-                error,
-            ),
-        }
-    });
 }
 
 fn message_role_from_wire(role: &str) -> MessageRole {

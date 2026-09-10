@@ -39,7 +39,7 @@ async fn route_send_async_returns_run_id_while_domain_turn_keeps_running() {
 
     let approval = wait_for_approval_request(&mut event_rx).await;
     assert_eq!(approval.call.name, "apply_patch");
-    assert!(state.running_runs.lock().await.contains_key(&run_id));
+    assert!(server.running_run_ids().await.contains(&run_id));
 
     let response = route_request(
         state.clone(),
@@ -56,7 +56,12 @@ async fn route_send_async_returns_run_id_while_domain_turn_keeps_running() {
     assert_eq!(response.status(), StatusCode::OK);
     let output = response_output(response).await;
     assert!(matches!(output, StdioOutput::Response { ok: true, .. }));
-    assert!(state.running_runs.lock().await.is_empty());
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if matches!(event_rx.recv().await.unwrap(), AppServerEvent::ExecutionUpdated { execution } if execution.active.is_none()) { break; }
+        }
+    }).await.expect("confirmed settlement");
+    assert!(server.running_run_ids().await.is_empty());
 
     server.shutdown().await;
 }
@@ -118,7 +123,12 @@ async fn route_send_async_queues_second_message_for_same_session() {
         StdioOutput::Event { .. } => panic!("expected command response"),
         _ => panic!("unexpected output variant"),
     }
-    assert!(!state.running_runs.lock().await.contains_key("run-next"));
+    assert!(
+        !server
+            .running_run_ids()
+            .await
+            .contains(&"run-next".to_owned())
+    );
     let pending = server.pending_requests().await;
     assert_eq!(pending.queued_user_messages.len(), 1);
     assert_eq!(pending.queued_user_messages[0].text, "hello");
@@ -191,7 +201,7 @@ async fn send_run_cleanup_survives_dropped_waiter() {
     };
 
     let approval = wait_for_approval_request(&mut event_rx).await;
-    assert!(state.running_runs.lock().await.contains_key(&run_id));
+    assert!(server.running_run_ids().await.contains(&run_id));
     drop(receiver);
 
     let approval_response = route_request(
@@ -212,13 +222,13 @@ async fn send_run_cleanup_survives_dropped_waiter() {
     assert_eq!(approval_response.status(), StatusCode::OK);
 
     for _ in 0..20 {
-        if !state.running_runs.lock().await.contains_key(&run_id) {
+        if !server.running_run_ids().await.contains(&run_id) {
             break;
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     assert!(
-        !state.running_runs.lock().await.contains_key(&run_id),
+        !server.running_run_ids().await.contains(&run_id),
         "send run should unregister itself even when the HTTP waiter is dropped"
     );
 
@@ -455,10 +465,9 @@ async fn cancel_active_run_keeps_foreign_pending_requests_until_requester_drops(
     let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
     let run_id = "run-cancel".to_owned();
     let cancellation = CancellationToken::new();
-    state.running_runs.lock().await.insert(
-        run_id.clone(),
-        RunningRun::new(cancellation.clone(), server.session_dir_path()),
-    );
+    server
+        .register_test_run(&run_id, cancellation.clone())
+        .await;
 
     let (approval_tx, approval_rx) = tokio::sync::oneshot::channel();
     let approval_id = "approval-cancel".to_owned();
@@ -487,7 +496,17 @@ async fn cancel_active_run_keeps_foreign_pending_requests_until_requester_drops(
     }
 
     assert!(cancellation.is_cancelled());
-    assert!(state.running_runs.lock().await.is_empty());
+    assert_eq!(
+        server
+            .events
+            .session_snapshot()
+            .unwrap()
+            .execution
+            .active
+            .unwrap()
+            .status,
+        proteus_contracts::app_protocol::AppRunStatus::CancelRequested
+    );
     // Записи с живыми запросившими переживают cancel чужого turn-а.
     assert!(server.has_pending_approval(&approval_id).await);
     assert!(server.has_pending_user_input(&request_id).await);

@@ -6,24 +6,9 @@ use std::{
 
 use tokio::sync::{Mutex, broadcast};
 
-use crate::{contracts::CancellationToken, core::AppConfig};
+use crate::core::AppConfig;
 
 use super::{AppServerEvent, AppServerHandle, AppSessionActivity, security::HttpSecurity};
-
-#[derive(Clone)]
-pub(super) struct RunningRun {
-    pub(super) cancellation: CancellationToken,
-    pub(super) session_dir: Option<PathBuf>,
-}
-
-impl RunningRun {
-    pub(super) fn new(cancellation: CancellationToken, session_dir: Option<PathBuf>) -> Self {
-        Self {
-            cancellation,
-            session_dir: session_dir.map(session_key),
-        }
-    }
-}
 
 #[derive(Clone)]
 pub(super) struct HttpLaunchContext {
@@ -40,7 +25,6 @@ pub(super) struct HttpAppState {
     // two runtimes writing the same session journal.
     pub(super) session_lifecycle: Arc<Mutex<()>>,
     pub(super) session_servers: Arc<Mutex<HashMap<PathBuf, AppServerHandle>>>,
-    pub(super) running_runs: Arc<Mutex<HashMap<String, RunningRun>>>,
     activity_events: broadcast::Sender<AppServerEvent>,
     watched_sessions: Arc<StdMutex<HashSet<PathBuf>>>,
     pub(super) shutdown: broadcast::Sender<()>,
@@ -69,7 +53,6 @@ impl HttpAppState {
             launch: Arc::new(launch),
             session_lifecycle: Arc::new(Mutex::new(())),
             session_servers: Arc::new(Mutex::new(session_servers)),
-            running_runs: Arc::new(Mutex::new(HashMap::new())),
             activity_events,
             watched_sessions: Arc::new(StdMutex::new(HashSet::new())),
             shutdown,
@@ -124,30 +107,10 @@ impl HttpAppState {
             .collect()
     }
 
-    pub(super) async fn running_run_ids_for(&self, session_dir: Option<&Path>) -> Vec<String> {
-        let session_dir = session_dir.map(|path| session_key(path.to_path_buf()));
-        let mut run_ids = self
-            .running_runs
-            .lock()
-            .await
-            .iter()
-            .filter_map(|(run_id, run)| {
-                match (run.session_dir.as_deref(), session_dir.as_deref()) {
-                    (Some(left), Some(right)) if left == right => Some(run_id.clone()),
-                    (None, None) => Some(run_id.clone()),
-                    _ => None,
-                }
-            })
-            .collect::<Vec<_>>();
-        run_ids.sort();
-        run_ids
-    }
-
     pub(super) async fn activity_for_server(&self, server: &AppServerHandle) -> AppSessionActivity {
-        let running_run_ids = self
-            .running_run_ids_for(server.session_dir_path().as_deref())
-            .await;
-        server.session_activity(running_run_ids).await
+        server
+            .session_activity(server.running_run_ids().await)
+            .await
     }
 
     pub(super) async fn activity_by_session_dir(&self) -> HashMap<PathBuf, AppSessionActivity> {
@@ -226,6 +189,7 @@ fn app_event_affects_session_activity(event: &AppServerEvent) -> bool {
     matches!(
         event,
         AppServerEvent::UserMessageSubmitted { .. }
+            | AppServerEvent::ExecutionUpdated { .. }
             | AppServerEvent::TurnOutput { .. }
             | AppServerEvent::ApprovalRequested { .. }
             | AppServerEvent::ApprovalResolved { .. }

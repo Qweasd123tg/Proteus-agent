@@ -96,16 +96,17 @@ pub(crate) use assembly::catalog_module_source;
 pub(crate) use bound_tools::ToolExecutionObserver;
 pub(crate) use compaction_host::RuntimeCompactionHost;
 pub(crate) use context_provider::RepoAwareContextProvider;
-pub(crate) use event_store::{BroadcastEventSink, FanoutEventSink, JsonlEventStore};
+pub(crate) use event_store::{FanoutEventSink, JsonlEventStore};
 pub(crate) use model_service::ModelService;
 pub(crate) use module_catalog::{ModuleBuildContext, PolicyBuildContext};
 pub(crate) use permission_mode::ModeAwarePolicy;
 pub(crate) use runtime::{
-    QueuedMessagesSnapshot, ReservedRunCompletion, ReservedUserMessage, SteeringQueueReceipt,
-    UserMessageReservation, prepare_failed_history_update, prepare_history_update,
-    without_root_steering,
+    QueuedMessagesSnapshot, ReservedRunCompletion, SteeringQueueReceipt, UserMessageReservation,
+    prepare_failed_history_update, prepare_history_update, without_root_steering,
 };
 pub(crate) use tool_orchestrator::ToolOrchestrator;
 pub(crate) use user_input::{
     AttributedUserInputTransport, ChannelUserInputTransport, PendingUserInput,
 };
+
+pub(crate) use runtime::turn_settlement_status;

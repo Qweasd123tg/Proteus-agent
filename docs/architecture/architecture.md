@@ -142,7 +142,13 @@ projection в app-server: snapshot и подписка разделяют `strea
 Клиент хранит локальную копию и отбрасывает устаревшие snapshots. Состояние
 очереди поступает от runtime через `watch` под её mutation lock; app-server
 не выбирает момент доставки сообщения. Эта revision не покрывает transcript,
-config или terminal lifecycle. Точный порядок описан в
+config или terminal lifecycle. История и execution имеют отдельный
+`SessionSnapshot`: общая HTTP/stdio подписка выдаёт его перед последующими
+событиями и повторяет при отставании. App-server обновляет live transcript
+в EventSink до продвижения runtime; завершённая часть принадлежит journal.
+Admission, cancellation и terminal execution находятся в `app_server/runs.rs`,
+транспорты только принимают команды и доставляют ответы. `cancel_requested`
+сохраняет active run до фактического завершения. Точный порядок описан в
 [runtime-and-events.md](../guides/runtime-and-events.md#согласование-очереди-и-подтверждений).
 
 
@@ -178,13 +184,13 @@ client user input
   -> validate and commit history mutation
   -> journal TurnSettled(Success/Error/Canceled/Timeout)
   -> optional queued follow-up with a new domain TurnId
-  -> AppServer TurnOutput/Error -> client
+  -> AppServer ExecutionUpdated + SessionSnapshot -> client
 ```
 
 `SessionSteering::reserve` создаёт domain `TurnId`; для app-server это
 происходит до spawned runtime task и до захвата `run_lock`. Если
 `/send-async` запускает работу, он возвращает строковый transport `run_id`,
-которым `running_runs` адресует cancel. Это **не** domain `TurnId`, созданный
+которым session-owned `RunRegistry` адресует cancel. Это **не** domain `TurnId`, созданный
 `SessionSteering`. Queued receipt вместо нового run возвращает исходный
 `request_id` и отдельно может содержать настоящий `active_turn_id`.
 
@@ -231,7 +237,7 @@ cancel, invalid response или смерть process классифицирую�
 | Переход | File / type / method | Owner и lifetime |
 |---|---|---|
 | Web send | `clients/web/src/actions.rs`, `/send-async` action | Client request |
-| HTTP/stdio dispatch | `crates/proteus-core/src/app_server/http/commands.rs`, `execute_send[_async]`, `spawn_send_run` | AppServer transport run; `running_runs` до terminal task cleanup |
+| HTTP/stdio dispatch | `crates/proteus-core/src/app_server/runs.rs`, `dispatch_user_message` | Session-owned run; active до settlement, включая `cancel_requested` |
 | Reservation/queue | `crates/proteus-core/src/core/runtime/steering.rs`, `SessionSteering::reserve` | Session lifetime; создаёт domain `TurnId`/`MessageId` |
 | Serialized root chain | `crates/proteus-core/src/core/runtime/turn.rs`, `run_reserved_completion`, `run_reserved_chain` | `AgentRuntime`; один `run_lock`, один или несколько sequential Turns |
 | Durable Turn lifecycle | тот же файл, `run_one_turn`, `run_opened_turn`, `persist_current_user_message` | Один domain Turn: snapshot/open/history/workflow/settlement |

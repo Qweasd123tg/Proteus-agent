@@ -1,21 +1,17 @@
 use std::path::PathBuf;
 
+use crate::app_server::runs::SendDispatch;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
-use tokio::sync::oneshot;
 
 use crate::{
     app_server::{AppServerHandle, StdioOutput, StdioRequest},
     contracts::CancellationToken,
-    core::{SteeringQueueReceipt, UserMessageReservation},
+    core::SteeringQueueReceipt,
     domain::PermissionMode,
 };
 
-use super::{
-    config::new_request_id,
-    sessions::server_for_session,
-    state::{HttpAppState, RunningRun, session_key as canonical_session_key},
-};
+use super::{config::new_request_id, sessions::server_for_session, state::HttpAppState};
 
 pub(super) async fn execute_app_request(
     state: &HttpAppState,
@@ -158,11 +154,6 @@ pub(super) async fn execute_send(
     }
 }
 
-pub(super) enum SendDispatch {
-    Started(oneshot::Receiver<Result<crate::domain::AgentOutput>>),
-    Queued(SteeringQueueReceipt),
-}
-
 pub(super) async fn spawn_send_run(
     state: &HttpAppState,
     server: AppServerHandle,
@@ -170,46 +161,11 @@ pub(super) async fn spawn_send_run(
     text: String,
     cancellation: CancellationToken,
 ) -> Result<SendDispatch> {
-    let session_dir = server.session_dir_path();
-    let mut running_runs = state.running_runs.lock().await;
-    if let Some(run_id) = run_id.as_deref()
-        && running_runs.contains_key(run_id)
-    {
-        return Err(anyhow!("run id is already active: {run_id}"));
-    }
-    let reservation = server.reserve_user_message(text).await?;
-    let reserved = match reservation {
-        UserMessageReservation::Queued(receipt) => {
-            drop(running_runs);
-            state.emit_session_activity_for_server(&server).await;
-            return Ok(SendDispatch::Queued(receipt));
-        }
-        UserMessageReservation::Start(reserved) => reserved,
-    };
-    if let Some(run_id) = run_id.as_deref() {
-        running_runs.insert(
-            run_id.to_owned(),
-            RunningRun::new(cancellation.clone(), session_dir.clone()),
-        );
-    }
-    drop(running_runs);
+    let result = server
+        .dispatch_user_message(run_id, text, cancellation)
+        .await;
     state.emit_session_activity_for_server(&server).await;
-
-    let (result_tx, result_rx) = oneshot::channel();
-    let state_for_activity = state.clone();
-    tokio::spawn(async move {
-        let result = server
-            .run_reserved_user_message(reserved, cancellation)
-            .await;
-        if let Some(run_id) = run_id.as_deref() {
-            state_for_activity.running_runs.lock().await.remove(run_id);
-        }
-        state_for_activity
-            .emit_session_activity_for_server(&server)
-            .await;
-        let _ = result_tx.send(result);
-    });
-    Ok(SendDispatch::Started(result_rx))
+    result
 }
 
 pub(super) async fn execute_send_async(
@@ -336,48 +292,7 @@ pub(super) async fn execute_set_reasoning_enabled(
     command_response(id, result)
 }
 
-pub(super) async fn cancel_work_for_server(state: &HttpAppState, server: &AppServerHandle) {
-    let session_dir = server.session_dir_path().map(canonical_session_key);
-    let active_runs = {
-        let mut running_runs = state.running_runs.lock().await;
-        let run_ids = running_runs
-            .iter()
-            .filter_map(|(run_id, run)| {
-                if run.session_dir == session_dir {
-                    Some(run_id.clone())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-        run_ids
-            .into_iter()
-            .filter_map(|run_id| running_runs.remove(&run_id))
-            .map(|run| run.cancellation)
-            .collect::<Vec<_>>()
-    };
-    for cancellation in active_runs {
-        cancellation.cancel();
-    }
-
-    // Pending approvals и user inputs отменяемых turn-ов резолвятся
-    // watcher-ами app-server-а после того, как orchestrator дропнет свои
-    // futures.
-    state.emit_session_activity_for_server(server).await;
-}
-
 pub(super) async fn shutdown_all_servers(state: &HttpAppState) {
-    let cancellations = {
-        let mut running_runs = state.running_runs.lock().await;
-        running_runs
-            .drain()
-            .map(|(_, run)| run.cancellation)
-            .collect::<Vec<_>>()
-    };
-    for cancellation in cancellations {
-        cancellation.cancel();
-    }
-
     for server in state.all_servers().await {
         server.shutdown().await;
         state.emit_session_activity_for_server(&server).await;
@@ -389,19 +304,7 @@ async fn execute_cancel(
     server: &AppServerHandle,
     target_id: &str,
 ) -> Result<()> {
-    let session_dir = server.session_dir_path().map(canonical_session_key);
-    let run = {
-        let mut runs = state.running_runs.lock().await;
-        let run = runs
-            .get(target_id)
-            .filter(|run| run.session_dir == session_dir)
-            .ok_or_else(|| anyhow!("unknown or completed run id for session: {target_id}"))?;
-        let run = run.clone();
-        runs.remove(target_id);
-        run
-    };
-    run.cancellation.cancel();
-    // Completion semantics are unchanged; this acknowledges the cancellation request.
+    server.cancel_run(target_id).await?;
     state.emit_session_activity_for_server(server).await;
     Ok(())
 }

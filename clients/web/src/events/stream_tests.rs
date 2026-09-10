@@ -1,5 +1,5 @@
 use super::*;
-use crate::messages::{finish_streaming_assistant_message, prepend_history_messages};
+use crate::messages::finish_streaming_assistant_message;
 use crate::types::MessagePhase;
 
 fn bindings() -> (crate::transcript::Transcript, StreamFlushBindings) {
@@ -60,41 +60,49 @@ fn adjacent_items_keep_identity_late_phase_and_repeated_completion() {
 }
 
 #[test]
-fn history_prefix_merges_overlapping_sse_tail_by_id_and_utf8_offset() {
+fn snapshot_tail_accepts_only_new_text_and_completion_keeps_its_identity() {
     Owner::new().with(|| {
         let (messages, b) = bindings();
-        apply_assistant_update(
-            b,
-            update("a", Some(MessagePhase::Commentary), 0, "Проверяю"),
-            true,
-        );
-        apply_assistant_update(b, update("b", None, "Го".len(), "тово"), false);
-        let mut history = messages.get_untracked();
-        history[1].text = "Готов".into();
-        history[1].text_offset = 0;
-        prepend_history_messages(
+        set_stream_turn_thread(b, Some("root-thread"));
+        assert!(stream_delta_is_foreign(b, Some("child-thread")));
+        assert!(!stream_delta_is_foreign(b, Some("root-thread")));
+        let prefix = "Привет ";
+        crate::session::history::apply_transcript(
+            vec![crate::types::TranscriptMessage {
+                message_id: Some("live-item".into()),
+                phase: Some(MessagePhase::FinalAnswer),
+                role: "assistant".into(),
+                text: prefix.into(),
+                tool: None,
+                subagent: None,
+                streaming: true,
+            }],
             b.set_messages,
-            b.next_message_id,
             b.set_next_message_id,
             b.set_active_stream_message_id,
             b.set_streamed_this_turn,
-            history,
         );
-        apply_assistant_update(b, update("b", None, "Готово".len(), "."), false);
-        // Re-delivered prefix does not duplicate text.
-        apply_assistant_update(b, update("b", None, 0, "Готов"), false);
-        let items = messages.get_untracked();
-        assert_eq!(items.len(), 2);
-        assert_eq!(items[1].text, "Готово.");
-        assert_eq!(items[1].text_offset, 0);
-        assert_eq!(items[1].phase, None);
+        apply_assistant_update(
+            b,
+            update(
+                "live-item",
+                Some(MessagePhase::FinalAnswer),
+                prefix.len(),
+                "мир",
+            ),
+            false,
+        );
+        assert_eq!(messages.get_untracked()[0].text, "Привет мир");
         complete_assistant_message(
             b,
-            update("b", Some(MessagePhase::FinalAnswer), 0, "Готово."),
+            update(
+                "live-item",
+                Some(MessagePhase::FinalAnswer),
+                0,
+                "Привет мир",
+            ),
         );
-        assert_eq!(
-            messages.get_untracked()[1].phase,
-            Some(MessagePhase::FinalAnswer)
-        );
+        assert_eq!(messages.get_untracked().len(), 1);
+        assert!(!messages.get_untracked()[0].streaming);
     });
 }

@@ -293,7 +293,7 @@ impl AppActions {
                     if !self.is_active_run(&run_id) {
                         return;
                     }
-                    self.finish_run();
+                    // Admission may already have happened; reconcile through the subscription.
                     self.push_error("Send failed", error);
                 }
             }
@@ -397,8 +397,6 @@ pub(crate) fn cancel_active_run(
     active_run_id: ReadSignal<Option<String>>,
     next_request_id: ReadSignal<u64>,
     set_next_request_id: WriteSignal<u64>,
-    set_is_sending: WriteSignal<bool>,
-    set_active_run_id: WriteSignal<Option<String>>,
     set_messages: crate::transcript::TranscriptWriter,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
@@ -428,8 +426,6 @@ pub(crate) fn cancel_active_run(
                 {
                     return;
                 }
-                set_is_sending.set(false);
-                set_active_run_id.set(None);
                 handle_command_response(
                     output,
                     set_messages,

@@ -25,6 +25,10 @@ pub(crate) fn journal_transcript_messages(
     let mut state = TranscriptProjectionState::default();
 
     for record in &projection.records {
+        // The live turn is owned by the inline event projection until settlement.
+        if live_turn_id.is_some() && record.turn_id == live_turn_id {
+            continue;
+        }
         match &record.entry {
             JournalEntry::HistoryMutated(mutation) => {
                 if mutation.mutation == HistoryMutationKind::Replace
@@ -35,11 +39,7 @@ pub(crate) fn journal_transcript_messages(
                 let hide_compactor_parts = mutation.mutation != HistoryMutationKind::Append
                     && mutation.compaction.is_some();
                 for message in &mutation.messages {
-                    if record.turn_id == live_turn_id {
-                        state.append_live_user_message(message);
-                    } else {
-                        state.append_message(message, hide_compactor_parts);
-                    }
+                    state.append_message(message, hide_compactor_parts);
                 }
             }
             JournalEntry::ModelResponseRecorded(response)
@@ -207,17 +207,6 @@ impl TranscriptProjectionState {
         if !message.parts.is_empty() {
             append_transcript_message(&mut self.transcript, &message);
         }
-    }
-
-    fn append_live_user_message(&mut self, message: &CanonicalMessage) {
-        if message.role != crate::model_standard::MessageRole::User {
-            return;
-        }
-        let mut message = message.clone();
-        message
-            .parts
-            .retain(|part| part.provenance == PartProvenance::User);
-        self.append_message(&message, false);
     }
 
     fn append_tool_call(&mut self, call: &crate::domain::ToolCall) {
@@ -446,9 +435,10 @@ mod tests {
         let live_projection =
             JournalProjection::build(session_id, records[..7].to_vec()).expect("live projection");
         let live_transcript = journal_transcript_messages(&live_projection, Some(turn_id));
-        assert_eq!(live_transcript.len(), 1);
-        assert_eq!(live_transcript[0].role, "user");
-        assert_eq!(live_transcript[0].text, "inspect");
+        assert!(
+            live_transcript.is_empty(),
+            "live turn belongs entirely to the event projection until settlement"
+        );
 
         let projection = JournalProjection::build(session_id, records).expect("projection");
 

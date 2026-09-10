@@ -35,6 +35,11 @@ use crate::{
     model_standard::TokenUsage,
 };
 
+mod live;
+mod transcript;
+pub use live::{AppExecutionState, AppRun, AppRunStatus, AppSessionSnapshot};
+pub use transcript::{AppTranscriptMessage, AppTranscriptSubagent, AppTranscriptTool};
+
 mod pending;
 pub use pending::{AppPendingRequests, AppQueuedUserMessage};
 mod requests;
@@ -52,6 +57,11 @@ pub type AppUserInputRequestId = String;
 #[serde(tag = "type", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum AppServerEvent {
+    /// Initial or replacement state, followed only by events after its seq.
+    SessionSnapshot { snapshot: Box<AppSessionSnapshot> },
+    /// Authoritative execution lifecycle, including cancellation requested.
+    ExecutionUpdated { execution: AppExecutionState },
+
     /// Runtime-событие с полным envelope. UI использует его для
     /// прогресс-индикации, timeline/replay и correlation по event/turn ids.
     Runtime { envelope: Box<EventEnvelope> },
@@ -103,9 +113,8 @@ pub enum AppServerEvent {
 
     /// Поток событий отстал и часть событий потеряна (переполнение broadcast
     /// ring на стороне сервера, например при заторможенном клиенте). Клиент
-    /// обязан считать стрим-состояние невалидным и пересинхронизировать
-    /// transcript/pending с сервера (`/history`, `/pending`) — среди
-    /// потерянных событий могли быть `ToolFinished`/`TurnOutput`.
+    /// отбрасывает buffered deltas и ждёт следующего SessionSnapshot из той
+    /// же подписки. Pending имеет независимую полную watch projection.
     EventStreamLagged { count: u64 },
 
     /// Ядро завершило работу. Клиент должен выйти.

@@ -1,8 +1,7 @@
-use super::{BufferedStreamDeltas, EventStreamBindings, handle_app_output};
+use super::{EventStreamBindings, handle_app_output};
 use crate::{
     api::{event_stream_url, js_error},
     messages::push_message,
-    session::history::replace_transcript,
     types::*,
     ui_utils::set_timeout,
 };
@@ -37,12 +36,11 @@ pub(crate) fn reconnect_event_stream(
     bindings: EventStreamBindings,
 ) {
     event_source.update_value(|slot| {
-        let refresh_history = slot.is_some();
         bindings
             .set_transport_status
             .set(TransportStatus::Connecting);
         drop(slot.take());
-        *slot = connect_event_stream(bindings, refresh_history);
+        *slot = connect_event_stream(bindings);
     });
 }
 
@@ -52,10 +50,7 @@ pub(crate) fn close_event_stream(event_source: StoredValue<Option<EventConnectio
     });
 }
 
-fn connect_event_stream(
-    bindings: EventStreamBindings,
-    refresh_history: bool,
-) -> Option<EventConnection> {
+fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventConnection> {
     let session_dir = bindings.active_session_dir.get_untracked()?;
     let url = event_stream_url(&session_dir);
     let stream_generation = bindings.transcript_generation.get_untracked();
@@ -84,41 +79,17 @@ fn connect_event_stream(
         session_dir.clone(),
     );
     let open_pending = pending.clone();
+    let open_alive = alive.clone();
     let on_open = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |_| {
-        if bindings.transcript_generation.get_untracked() != stream_generation {
+        if !open_alive.get() || bindings.transcript_generation.get_untracked() != stream_generation
+        {
             return;
         }
-        let was_disconnected = refresh_history
-            || matches!(
-                bindings.transport_status.get_untracked(),
-                TransportStatus::Error(_) | TransportStatus::Reconnecting
-            );
         bindings
             .set_transport_status
             .set(TransportStatus::Connected);
         open_pending.begin_connection();
         open_pending.refresh();
-        if was_disconnected {
-            // События за время обрыва потеряны: стрим-состояние невалидно,
-            // транскрипт перечитывается с сервера целиком.
-            bindings
-                .stream_delta_buffer
-                .set_value(BufferedStreamDeltas::default());
-            bindings.set_active_stream_message_id.set(None);
-            bindings.set_streamed_this_turn.set(false);
-            let expected_generation = bindings.transcript_generation.get_untracked();
-            replace_transcript(
-                session_dir.clone(),
-                bindings.set_messages,
-                bindings.transcript_generation,
-                expected_generation,
-                bindings.next_message_id,
-                bindings.set_next_message_id,
-                bindings.set_active_stream_message_id,
-                bindings.set_streamed_this_turn,
-                bindings.set_transport_status,
-            );
-        }
     }));
     source.set_onopen(Some(on_open.as_ref().unchecked_ref()));
 
@@ -159,7 +130,6 @@ fn connect_event_stream(
                     bindings.set_agent_status,
                     bindings.set_tool_activities,
                     bindings.set_context_usage,
-                    bindings.transcript_generation,
                     &pending,
                     bindings.set_sidebar_sessions,
                     bindings.set_sidebar_sessions_status,
@@ -181,7 +151,7 @@ fn connect_event_stream(
     let error_source = source.clone();
     let error_alive = alive.clone();
     let on_error = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |_| {
-        if transcript_generation.get_untracked() != stream_generation {
+        if !error_alive.get() || transcript_generation.get_untracked() != stream_generation {
             return;
         }
         // Терминальный обрыв: браузер ретраить не будет (например, HTTP 4xx).

@@ -9,7 +9,7 @@ use crate::{
 };
 
 impl AppSessionActions {
-    pub(crate) fn initialize(self, messages: crate::transcript::Transcript) {
+    pub(crate) fn initialize(self) {
         let startup_generation = self.transcript.transcript_generation.get_untracked();
         spawn_local(async move {
             let bootstrap = match get_json::<BootstrapInfo>("/bootstrap").await {
@@ -45,7 +45,6 @@ impl AppSessionActions {
                     self.activate_session(session_dir.clone());
                     self.runtime_settings
                         .load(session_dir.clone(), startup_generation);
-                    self.transcript.load_initial(session_dir, messages);
                     reconnect_event_stream(self.event_source, self.event_stream);
                     self.load_sidebar_sessions();
                 }

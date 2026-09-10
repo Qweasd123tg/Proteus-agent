@@ -1,4 +1,4 @@
-/// Merge exact UTF-8 stream ranges. A delayed /history prefix and an SSE tail
+/// Merge exact UTF-8 stream ranges. Snapshot text and repeated SSE ranges
 /// may overlap; byte positions, not text equality, decide what was delivered.
 pub(crate) fn merge_text(
     text: &mut String,

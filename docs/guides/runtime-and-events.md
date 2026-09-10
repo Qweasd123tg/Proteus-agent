@@ -449,6 +449,9 @@ system-строку в transcript.
 
 События app-server:
 
+- `SessionSnapshot` — согласованные transcript и execution при подключении, resync и завершении;
+- `ExecutionUpdated` — принятая root-цепочка, запрос отмены или подтверждённое завершение;
+- `PendingRequestsUpdated` — полное версионное состояние очереди и интерактивных запросов;
 - `Runtime` - проброшенный runtime `EventEnvelope`;
 - `UserMessageSubmitted` - пользовательская команда принята;
 - `TurnOutput` - итоговый `AgentOutput`;
@@ -531,14 +534,12 @@ store; stdio остаётся привязанным к одной session пр�
   меняет; после удаления стартовой session `session_dir` становится `null`.
   Клиент сам сохраняет свой выбор и при необходимости создаёт новую session;
 - `GET /events` - SSE stream, где `data:` содержит JSON `StdioOutput::Event`.
-  Runtime-события доставляются через tokio broadcast ring: если клиент читает медленнее, чем
-  runtime производит события, старые события выбрасываются, а клиент получает
-  типизированный `AppServerEvent::EventStreamLagged { count }` (и по stdio
-  transport тоже). Получив его, клиент обязан считать стрим-состояние
-  невалидным и пересинхронизироваться: web-клиент перечитывает `/history` и
-  `/pending`, как после SSE reconnect — среди потерянных событий могли быть
-  `ToolFinished`/`TurnOutput`, без resync карточки остались бы «бегущими»
-  навсегда;
+  Подписка сначала получает `PendingRequestsUpdated` и `SessionSnapshot`, затем
+  события после сессионного снимка. Runtime-события доставляются через bounded
+  broadcast ring. При отставании сервер посылает `EventStreamLagged`, затем новый
+  `SessionSnapshot` и отбрасывает уже включённые в него события. Web заменяет
+  локальную историю по снимку в потоке; отдельный `/history` при reconnect
+  не выполняется. Pending обновляется своей версионной подпиской;
 - `GET /config` - config summary явно адресованной session, включая её `session_dir`;
 - `GET /model/quota` — provider-neutral `ModelQuotaSnapshot` текущего model
   export или JSON `null`, если чтение квоты не поддержано. Требует обычной
@@ -611,12 +612,10 @@ materialized live session строится через тот же DTO, поэт�
 
 Live `activity` в session summary и `SessionActivityUpdated` содержит
 `status`, `running_runs`, `running_run_ids` и pending counters. Эти ids являются
-transport cancel handles, а не domain `TurnId`. Snapshot является
-source of truth для sidebar и активного чата после `/resume` или SSE reconnect:
-клиент восстанавливает working status, блокировку composer и target для
-`/cancel` из activity, а не только из локального состояния текущего окна.
-`/resume` также возвращает свежий `activity` в response summary, чтобы клиент
-не ждал следующего SSE event для блокировки composer.
+адреса отмены root-цепочек app-server, а не domain `TurnId`. Activity нужна
+для sidebar и предварительного отображения выбранной session. Источником
+состояния активного чата служат `SessionSnapshot.execution` и `ExecutionUpdated`;
+запоздалый `/config`, `/resume` или sidebar event не завершает активный запуск.
 
 HTTP `send` держит request до завершения turn'а и параллельно публикует
 progress/final события через `/events`. `cancel.target_id` ссылается на `id`
@@ -625,7 +624,9 @@ progress/final события через `/events`. `cancel.target_id` ссыл�
 уже показывает другой чат.
 `send-async` возвращает acceptance/protocol response сразу после постановки
 root turn-а или сообщения в очередь; его завершение не возвращается вторым
-HTTP-ответом и наблюдается через SSE (`TurnOutput` или `Error`). В одной
+HTTP-ответом и наблюдается через SSE (`ExecutionUpdated` и `SessionSnapshot`).
+`TurnOutput`/`Error` остаются уведомлениями о результате, а не отдельным
+источником состояния ленты. В одной
 session выполняется одна root-цепочка, но последующие `Send` принимаются в её
 bounded runtime-очередь. Разные sessions по-прежнему работают параллельно.
 `POST /request` сохраняет stdio-compatible команды, но HTTP transport требует
@@ -642,8 +643,45 @@ session можно увидеть и закрыть после переключ�
 остаётся через `/cancel`, а удаление session отменяет только работу этой
 session.
 При переключении web-клиент закрывает старый SSE connection, выполняет
-`/resume`, затем подключает stream и читает `/history?session_dir=...`.
+`/resume`, затем подключает stream и получает историю в `SessionSnapshot`.
 Поздние ответы и события старого выбора отбрасываются по generation окна.
+
+### История И Выполнение В Подписке
+
+`AppSessionSnapshot` содержит `session_id`, `stream_id`, `seq`, `transcript` и
+`execution`, а также `root_thread_id` для фильтрации дочерних text events
+после reconnect. Его `seq` относится к сессионному потоку и независим от pending
+revision, хотя `stream_id` у этих двух представлений общий. HTTP/SSE и stdio
+используют одну подписку. Сервер берёт снимок под тем же lock, под которым
+обновляет live projection и нумерует события; после снимка отдаёт только события
+с большим номером. Клиенту не нужно склеивать ответ `/history` с параллельными
+deltas. `/history` остаётся самостоятельным чтением live/cold transcript.
+
+Runtime EventSink обновляет live progress непосредственно при публикации
+события, без промежуточной очереди с потерями. Пока root turn не подтверждён,
+его часть transcript целиком принадлежит live projection; завершённые ходы
+восстанавливаются из canonical journal. `TurnFinished` или runtime `Error`
+сами по себе не очищают progress: app-server заменяет его после завершения
+runtime и записи settlement. При переполнении клиентского ring подписка
+повторяет получение снимка, а не пытается восстановить потерянные deltas.
+
+`app_server/runs.rs` владеет admission, адресом запуска и его cancellation token
+для обоих транспортов. `execution.active` содержит `run_id` и статус `running`
+или `cancel_requested`; `execution.last` хранит последний завершённый запуск со
+статусом `success`, `error`, `canceled` или `timeout` и причиной ошибки.
+Запрос отмены только сигналит token и публикует `cancel_requested`. Он не
+удаляет run и не формирует фиктивный ответ на исходный `send`. Завершение
+публикуется после возвращения runtime под общим admission lock, поэтому
+следующая команда не может опередить финальное состояние предыдущей цепочки.
+Очистка истории принимается только без активного run под тем же admission lock;
+во время работы, включая `cancel_requested`, команда возвращает явную ошибку.
+Shutdown закрывает admission и ждёт завершения runtime; удаление session
+выполняется после этого, чтобы поздний settlement не восстановил удалённые файлы.
+
+Закрытие окна или потеря сети не отменяет работу. Web сохраняет занятость до
+состояния сервера; запоздалый HTTP-ответ `/cancel` не снимает её с нового run.
+При перезапуске backend live execution создаётся заново; durable transcript
+восстанавливается из journal, а незавершённый процесс не запускается повторно.
 
 ### Согласование Очереди И Подтверждений
 
@@ -658,7 +696,7 @@ session.
 Подписка регистрируется до получения начального снимка. Для pending хранится
 одно последнее полное значение: медленный клиент может пропустить номера
 `seq`, но очередной snapshot содержит всё состояние. Runtime deltas сохраняют
-отдельный bounded broadcast и прежний `EventStreamLagged`/history resync.
+отдельный bounded broadcast с `EventStreamLagged` и новым сессионным снимком.
 
 App-server присваивает pending revision и публикует snapshot под одним lock.
 Каналы ответа approval/user-input хранятся отдельно; удаление запроса отражается

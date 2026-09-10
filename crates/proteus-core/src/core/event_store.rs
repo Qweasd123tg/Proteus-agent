@@ -5,11 +5,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use tokio::{
-    fs::OpenOptions,
-    io::AsyncWriteExt,
-    sync::{Mutex, broadcast},
-};
+use tokio::{fs::OpenOptions, io::AsyncWriteExt, sync::Mutex};
 
 use crate::{
     contracts::EventSink,
@@ -114,33 +110,6 @@ impl EventSink for InMemoryEventStore {
 impl From<InMemoryEventStore> for Arc<dyn EventSink> {
     fn from(store: InMemoryEventStore) -> Self {
         Arc::new(store)
-    }
-}
-
-/// Broadcasts every event to any number of subscribers. Lagging receivers
-/// miss old events (tokio broadcast semantics) but the sink itself never
-/// blocks or errors because of a slow consumer — `append` always returns Ok.
-#[derive(Debug)]
-pub struct BroadcastEventSink {
-    tx: broadcast::Sender<EventEnvelope>,
-}
-
-impl BroadcastEventSink {
-    pub fn new(capacity: usize) -> Self {
-        let (tx, _) = broadcast::channel(capacity.max(1));
-        Self { tx }
-    }
-
-    pub fn subscribe(&self) -> broadcast::Receiver<EventEnvelope> {
-        self.tx.subscribe()
-    }
-}
-
-#[async_trait::async_trait]
-impl EventSink for BroadcastEventSink {
-    async fn append(&self, envelope: EventEnvelope) -> Result<()> {
-        let _ = self.tx.send(envelope);
-        Ok(())
     }
 }
 

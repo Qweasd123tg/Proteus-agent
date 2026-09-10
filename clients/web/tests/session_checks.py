@@ -2,28 +2,38 @@
 from urllib.parse import urlencode
 from message_nav_checks import run as check_message_nav
 
-# Runs before the compiled client. Only history is substituted; commands/SSE use the agent.
+# Runs before the compiled client. Only the transcript prefix is substituted; snapshots, commands and deltas use the agent.
 BOOTSTRAP = r'''<script>
 const historyFixture = Array.from({length: 240}, (_,i)=>({
   message_id:'history-'+i, phase:null, role:i%2?'assistant':'user',
   text:'Сохранённое сообщение '+i+'. '+('Текст истории для проверки прокрутки. ').repeat(8),
   tool:null, subagent:null, streaming:false
 }));
-const originalFetch=window.fetch;
 window.fixtureHistoryReads=0;
-window.fetch=(input,init)=>{
-  if(String(input.url||input).split('?')[0].endsWith('/history')) {
-    fixtureHistoryReads++;
-    return Promise.resolve(new Response(JSON.stringify(historyFixture),{headers:{'Content-Type':'application/json'}}));
-  }
-  return originalFetch(input,init);
-};
 const OriginalEventSource=window.EventSource;
 window.fixtureSources=[];
 window.EventSource=class extends OriginalEventSource {
-  constructor(...args){super(...args);this.outputHandlers=new Set();fixtureSources.push(this)}
-  addEventListener(type,handler,...rest){if(type==='output')this.outputHandlers.add(handler);return super.addEventListener(type,handler,...rest)}
-  removeEventListener(type,handler,...rest){if(type==='output')this.outputHandlers.delete(handler);return super.removeEventListener(type,handler,...rest)}
+  constructor(...args){super(...args);this.outputHandlers=new Map();fixtureSources.push(this)}
+  addEventListener(type,handler,...rest){
+    if(type!=='output')return super.addEventListener(type,handler,...rest);
+    const wrapped=event=>{
+      const output=JSON.parse(event.data);
+      if(output.type==='event' && output.event.type==='session_snapshot'){
+        fixtureHistoryReads++;
+        window.fixtureBaseItems ??= output.event.snapshot.transcript.length;
+        output.event.snapshot.transcript=[...historyFixture,...output.event.snapshot.transcript.slice(fixtureBaseItems)];
+        event=new MessageEvent('output',{data:JSON.stringify(output)});
+      }
+      handler(event);
+    };
+    this.outputHandlers.set(handler,wrapped);
+    return super.addEventListener(type,wrapped,...rest);
+  }
+  removeEventListener(type,handler,...rest){
+    const wrapped=this.outputHandlers.get(handler)||handler;
+    this.outputHandlers.delete(handler);
+    return super.removeEventListener(type,wrapped,...rest);
+  }
 };
 </script>'''
 

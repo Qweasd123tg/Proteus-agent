@@ -412,7 +412,7 @@ impl AgentRuntime {
     }
 }
 
-pub(super) fn turn_settlement_status(
+pub(crate) fn turn_settlement_status(
     error: &anyhow::Error,
     cancellation_is_set: bool,
 ) -> crate::core::TurnSettlementStatus {

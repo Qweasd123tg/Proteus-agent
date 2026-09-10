@@ -38,7 +38,6 @@ pub(super) fn connect(state: AppState) -> ClientConnection {
         set_transcript_generation,
         set_pending_approvals,
         set_pending_user_inputs,
-        messages,
         set_messages,
         stream_delta_buffer,
         ..
@@ -107,9 +106,6 @@ pub(super) fn connect(state: AppState) -> ClientConnection {
         set_active_session_dir,
         active_session_dir,
         transcript_generation,
-        set_is_sending,
-        set_active_run_id,
-        set_agent_status,
         set_messages,
         next_message_id,
         set_next_message_id,
@@ -118,11 +114,7 @@ pub(super) fn connect(state: AppState) -> ClientConnection {
     let transcript_bindings = TranscriptBindings {
         set_messages,
         transcript_generation,
-        next_message_id,
         set_next_message_id,
-        set_active_stream_message_id,
-        set_streamed_this_turn,
-        set_transport_status,
     };
 
     let event_source = StoredValue::new_local(None::<EventConnection>);
@@ -175,7 +167,7 @@ pub(super) fn connect(state: AppState) -> ClientConnection {
         sidebar_sessions: state.session.sidebar_sessions,
         set_sidebar_sessions_status,
     };
-    session_actions.initialize(messages);
+    session_actions.initialize();
     let actions = AppActions {
         set_messages,
         next_message_id,

@@ -37,8 +37,7 @@ pub use paths::{config_store_root, event_log_path};
 use execution::ExecutionAdmissionSnapshot;
 pub(crate) use history::{prepare_failed_history_update, prepare_history_update};
 pub(crate) use steering::{
-    QueuedMessagesSnapshot, ReservedUserMessage, SteeringQueueReceipt, UserMessageReservation,
-    without_root_steering,
+    QueuedMessagesSnapshot, SteeringQueueReceipt, UserMessageReservation, without_root_steering,
 };
 use steering::{SessionSteering, SteeringFinalizationGuard};
 
@@ -370,10 +369,6 @@ impl AgentRuntime {
         self.session.history.lock().await.clone()
     }
 
-    pub(crate) fn active_turn_id(&self) -> Option<crate::domain::TurnId> {
-        self.session.steering.active_turn_id()
-    }
-
     pub(crate) fn session_projection(&self) -> Result<Option<crate::core::JournalProjection>> {
         self.session
             .session_store
@@ -418,3 +413,5 @@ impl AgentRuntime {
 
 #[cfg(test)]
 mod tests;
+
+pub(crate) use turn::turn_settlement_status;

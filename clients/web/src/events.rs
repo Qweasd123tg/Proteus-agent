@@ -7,24 +7,18 @@ mod runtime;
 mod stream;
 
 use leptos::prelude::*;
-use serde_json::Value;
 use wasm_bindgen::JsValue;
 
 use self::runtime::{
     event_updates_visible_count, update_runtime_status_and_tools, update_session_labels,
 };
 pub(crate) use self::stream::BufferedStreamDeltas;
-use self::stream::{StreamFlushBindings, flush_stream_delta_buffer};
+use self::stream::{StreamFlushBindings, flush_stream_delta_buffer, set_stream_turn_thread};
 use crate::actions::handle_command_response;
-use crate::messages::{
-    finalize_running_activity, finish_active_streaming_assistant_message,
-    finish_all_streaming_assistant_messages, finish_streaming_assistant_message,
-    push_assistant_message_if_missing, push_message, push_user_message_once,
-};
-use crate::session::history::replace_transcript;
-use crate::session::summaries::{apply_active_session_activity, load_sidebar_sessions};
+use crate::messages::{finalize_running_activity, push_message, push_user_message_once};
+use crate::session::history::apply_transcript;
+use crate::session::summaries::load_sidebar_sessions;
 use crate::types::*;
-use crate::ui_utils::output_text;
 
 #[derive(Clone, Copy)]
 pub(crate) struct EventStreamBindings {
@@ -76,7 +70,6 @@ fn handle_app_output(
     set_agent_status: WriteSignal<String>,
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     set_context_usage: WriteSignal<Option<ContextUsage>>,
-    transcript_generation: ReadSignal<u64>,
     pending: &PendingControlPlane,
     set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
     set_sidebar_sessions_status: WriteSignal<String>,
@@ -105,7 +98,6 @@ fn handle_app_output(
                 set_agent_status,
                 set_tool_activities,
                 set_context_usage,
-                transcript_generation,
                 pending,
                 set_sidebar_sessions,
                 set_sidebar_sessions_status,
@@ -141,7 +133,6 @@ fn handle_app_event(
     set_agent_status: WriteSignal<String>,
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     set_context_usage: WriteSignal<Option<ContextUsage>>,
-    transcript_generation: ReadSignal<u64>,
     pending: &PendingControlPlane,
     set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
     set_sidebar_sessions_status: WriteSignal<String>,
@@ -177,62 +168,35 @@ fn handle_app_event(
             set_active_stream_message_id.set(None);
             push_user_message_once(set_messages, next_message_id, set_next_message_id, text);
         }
+        AppServerEvent::SessionSnapshot { snapshot } => {
+            let _identity = (&snapshot.session_id, &snapshot.stream_id, snapshot.seq);
+            stream_delta_buffer.set_value(BufferedStreamDeltas::default());
+            set_stream_turn_thread(stream_bindings, snapshot.root_thread_id.as_deref());
+            set_tool_activities.set(Vec::new());
+            apply_transcript(
+                snapshot.transcript,
+                set_messages,
+                set_next_message_id,
+                set_active_stream_message_id,
+                set_streamed_this_turn,
+            );
+            apply_execution(
+                snapshot.execution,
+                set_is_sending,
+                set_active_run_id,
+                set_agent_status,
+            );
+        }
+        AppServerEvent::ExecutionUpdated { execution } => {
+            apply_execution(
+                execution,
+                set_is_sending,
+                set_active_run_id,
+                set_agent_status,
+            );
+        }
         AppServerEvent::TurnOutput { output } => {
-            flush_stream_delta_buffer(stream_bindings);
-            set_is_sending.set(false);
-            set_active_run_id.set(None);
-            set_agent_status.set("ожидает".to_owned());
-            // Ход закончился: терминальных событий для ещё «бегущих» карточек
-            // больше не будет — закрываем их как прерванные.
-            finalize_running_activity(set_tool_activities, set_messages, crate::ui_utils::now_ms());
-            let final_text = non_empty_output_text(&output);
-            if streamed_this_turn.get() {
-                match (active_stream_message_id.get(), final_text) {
-                    // Финальный текст авторитетен: если страница открылась
-                    // посреди хода, стрим-сообщение содержит только хвост
-                    // ответа — перезаписываем целиком, а не доклеиваем полный
-                    // текст вторым сообщением. В обычном случае тексты равны.
-                    (Some(_), Some(final_text)) => {
-                        finish_streaming_assistant_message(
-                            set_messages,
-                            next_message_id,
-                            set_next_message_id,
-                            active_stream_message_id,
-                            set_active_stream_message_id,
-                            final_text,
-                        );
-                    }
-                    (Some(_), None) => {
-                        finish_active_streaming_assistant_message(
-                            set_messages,
-                            active_stream_message_id,
-                            set_active_stream_message_id,
-                        );
-                    }
-                    (None, final_text) => {
-                        finish_all_streaming_assistant_messages(set_messages);
-                        if let Some(final_text) = final_text {
-                            push_assistant_message_if_missing(
-                                set_messages,
-                                next_message_id,
-                                set_next_message_id,
-                                final_text,
-                            );
-                        }
-                    }
-                }
-                set_active_stream_message_id.set(None);
-                set_streamed_this_turn.set(false);
-            } else {
-                finish_streaming_assistant_message(
-                    set_messages,
-                    next_message_id,
-                    set_next_message_id,
-                    active_stream_message_id,
-                    set_active_stream_message_id,
-                    output_text(&output),
-                );
-            }
+            let _ = output;
             load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
         }
         AppServerEvent::PendingRequestsUpdated { snapshot } => pending.apply_stream(*snapshot),
@@ -267,14 +231,6 @@ fn handle_app_event(
             session_dir,
             activity,
         } => {
-            if active_session_dir.get_untracked().as_deref() == Some(session_dir.as_str()) {
-                apply_active_session_activity(
-                    Some(&activity),
-                    set_is_sending,
-                    set_active_run_id,
-                    set_agent_status,
-                );
-            }
             let mut found = false;
             set_sidebar_sessions.update(|items| {
                 if let Some(session) = items
@@ -290,45 +246,14 @@ fn handle_app_event(
             }
         }
         AppServerEvent::Error { message } => {
-            flush_stream_delta_buffer(stream_bindings);
-            set_is_sending.set(false);
-            set_active_run_id.set(None);
-            set_agent_status.set("ошибка".to_owned());
-            finalize_running_activity(set_tool_activities, set_messages, crate::ui_utils::now_ms());
-            push_message(
-                set_messages,
-                next_message_id,
-                set_next_message_id,
-                MessageRole::System,
-                format!("AppServer error: {message}"),
-            );
+            // Terminal transcript and execution arrive in the server snapshot.
+            web_sys::console::warn_1(&JsValue::from_str(&message));
         }
         AppServerEvent::EventStreamLagged { count } => {
-            // Сервер выкинул часть событий (broadcast ring переполнился, пока
-            // клиент тормозил): среди потерянных могли быть ToolFinished и
-            // TurnOutput. Локальное стрим-состояние невалидно — перечитываем
-            // транскрипт и pending целиком, как после SSE reconnect.
             web_sys::console::warn_1(&JsValue::from_str(&format!(
-                "event stream lagged by {count} events; resyncing transcript"
+                "event stream lagged by {count}; waiting for session snapshot"
             )));
             stream_delta_buffer.set_value(BufferedStreamDeltas::default());
-            set_active_stream_message_id.set(None);
-            set_streamed_this_turn.set(false);
-            let expected_generation = transcript_generation.get_untracked();
-            let Some(session_dir) = active_session_dir.get_untracked() else {
-                return;
-            };
-            replace_transcript(
-                session_dir.clone(),
-                set_messages,
-                transcript_generation,
-                expected_generation,
-                next_message_id,
-                set_next_message_id,
-                set_active_stream_message_id,
-                set_streamed_this_turn,
-                set_transport_status,
-            );
             pending.refresh();
         }
         AppServerEvent::Shutdown => {
@@ -349,10 +274,33 @@ fn handle_app_event(
     }
 }
 
-fn non_empty_output_text(output: &Value) -> Option<String> {
-    output
-        .get("text")
-        .and_then(Value::as_str)
-        .filter(|text| !text.trim().is_empty())
-        .map(ToOwned::to_owned)
+fn apply_execution(
+    execution: proteus_client_common::execution::ExecutionState,
+    set_is_sending: WriteSignal<bool>,
+    set_active_run_id: WriteSignal<Option<String>>,
+    set_agent_status: WriteSignal<String>,
+) {
+    use proteus_client_common::execution::RunStatus;
+    set_is_sending.set(execution.active.is_some());
+    set_active_run_id.set(execution.active.as_ref().map(|r| r.run_id.clone()));
+    let status = match execution
+        .active
+        .as_ref()
+        .or(execution.last.as_ref())
+        .map(|r| r.status)
+    {
+        Some(RunStatus::CancelRequested) => "отменяется",
+        Some(RunStatus::Running) => "работает",
+        Some(RunStatus::Canceled) => "отменено",
+        Some(RunStatus::Timeout) => "таймаут",
+        Some(RunStatus::Error) => "ошибка",
+        _ => "ожидает",
+    };
+    set_agent_status.update(|current| {
+        if status == "работает" && (current == "ждёт доступ" || current == "ждёт ответ")
+        {
+            return;
+        }
+        *current = status.to_owned();
+    });
 }

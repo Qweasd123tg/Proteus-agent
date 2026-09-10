@@ -114,7 +114,7 @@ pub(crate) fn complete_assistant_message(
     apply_assistant_update(bindings, update, true);
 }
 
-/// Both SSE and restored /history messages use the canonical message id.
+/// Both SSE deltas and restored session snapshots use the canonical message id.
 /// Equal text never merges different messages.
 pub(crate) fn apply_assistant_update(
     bindings: StreamFlushBindings,
