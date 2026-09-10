@@ -116,7 +116,7 @@ where
                     title=move || if open.get() { "Свернуть панель" } else { "Развернуть панель" }
                     on:click=on_toggle
                 >
-                    {move || if open.get() { "›" } else { "‹" }}
+                    <super::icons::PanelIcon right=true />
                 </button>
             </div>
 

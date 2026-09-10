@@ -613,7 +613,6 @@ pub(crate) fn App() -> impl IntoView {
     };
     let begin_sidebar_resize = move |ev: MouseEvent| resize.begin_sidebar_resize(ev);
     let begin_info_resize = move |ev: MouseEvent| resize.begin_info_resize(ev);
-    let begin_composer_resize = move |ev: MouseEvent| resize.begin_composer_resize(ev);
     let begin_chat_resize = move |ev: MouseEvent| resize.begin_chat_resize(ev);
     let resize_drag = move |ev: MouseEvent| resize.drag(ev);
     let stop_resize = move |_| resize.stop();
@@ -731,7 +730,6 @@ pub(crate) fn App() -> impl IntoView {
 
                             <ComposerView
                                 composer_ref
-                                composer_height=resize.composer_height
                                 draft
                                 set_draft
                                 mode
@@ -749,7 +747,6 @@ pub(crate) fn App() -> impl IntoView {
                                 new_below_count
                                 on_submit=submit
                                 on_keydown=submit_shortcut
-                                on_begin_resize=begin_composer_resize
                                 on_cancel_turn=cancel_turn
                             />
 

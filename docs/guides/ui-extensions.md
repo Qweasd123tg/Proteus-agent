@@ -166,6 +166,7 @@ trunk build --locked
 
 ```bash
 python3 clients/web/tests/extensions_browser.py
+PROTEUS_TEST_REDUCED_MOTION=1 python3 clients/web/tests/extensions_browser.py
 ```
 
 Нужны Firefox и geckodriver (`PATH`, `GECKODRIVER` или существующий Selenium
@@ -178,9 +179,12 @@ app-server с subscription adapter и loopback HTTP provider, без live акк
 к карточке настоящего fixture tool turn,
 сохранение заметок/порядка, подключение внешнего пакета без сборки, отмену и
 очистку при отключении/сворачивании, а также загрузку в другой странице без
-агента. Скриншоты: `/tmp/proteus-ui-extensions.png` и `/tmp/proteus-ui-settings.png`.
+агента. Скриншоты: `/tmp/proteus-ui-extensions.png`, `/tmp/proteus-ui-settings.png`
+и `/tmp/proteus-ui-composer-mobile.png`. Второй запуск включает системную
+настройку уменьшения движения в изолированном Firefox-профиле.
 Сценарии разделены на `extensions_checks.py` и `layout_checks.py`. Layout smoke
 использует длинную синтетическую ленту, проверяет однократное изменение ширины
-панелей, отсутствие localStorage writes во время drag, неперекрытие сообщений
-композером и мобильный drawer. Время кадров печатается как диагностическое
+панелей с анимацией содержимого, отсутствие localStorage writes во время drag,
+автоматический рост/сжатие поля ввода, перенос длинных строк, доступность меню
+на узком экране и мобильный drawer. Время кадров печатается как диагностическое
 измерение, а не как универсальный порог для любого оборудования.

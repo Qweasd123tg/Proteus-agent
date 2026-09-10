@@ -194,7 +194,8 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     except OSError:
                         return False
                 wait_for(driver_ready, 'geckodriver startup')
-                capabilities = {'capabilities': {'alwaysMatch': {'browserName': 'firefox', 'moz:firefoxOptions': {'args': ['-headless'], 'prefs': {'network.proxy.type': 0}}}}}
+                reduced_motion = int(os.environ.get('PROTEUS_TEST_REDUCED_MOTION', '0'))
+                capabilities = {'capabilities': {'alwaysMatch': {'browserName': 'firefox', 'moz:firefoxOptions': {'args': ['-headless'], 'prefs': {'network.proxy.type': 0, 'ui.prefersReducedMotion': reduced_motion}}}}}
                 session = request(endpoint + '/session', 'POST', capabilities)['value']['sessionId']
                 url = endpoint + '/session/' + session
                 def command(path, body):
@@ -204,6 +205,7 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                 def loaded():
                     return js("return document.querySelector('[data-extension-id=agent-info] .extension-panel-content')?.shadowRoot?.textContent.includes('extensions-smoke')")
                 command('/window/rect', {'width': 1440, 'height': 1000})
+                assert js("return matchMedia('(prefers-reduced-motion: reduce)').matches") == bool(reduced_motion), 'Browser did not apply motion preference'
                 check_extensions(command, js, wait_for, web, origin, loaded)
                 check_layout(command, js, wait_for)
                 screenshot = request(url + '/screenshot')['value']

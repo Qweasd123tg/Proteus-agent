@@ -62,10 +62,6 @@
         display: inline-flex;
     }
 
-    .composer-buttons {
-        justify-content: flex-end;
-    }
-
     .context-overview,
     .context-grid,
     .context-map-layout {
@@ -82,6 +78,16 @@
         width: 100%;
         max-width: none;
     }
+    .app-layout.sidebar-collapsed .sidebar { width: 100% !important; min-width: 0; max-width: none; flex-direction: row; }
+    .app-layout.sidebar-collapsed .sidebar-header { padding: 5px 10px; }
+    .app-layout.sidebar-collapsed .sidebar-header-actions { flex-direction: row; }
+    .app-layout.sidebar-collapsed .sidebar-header button { width: 30px; }
+    .app-layout.sidebar-collapsed .sidebar-rail { align-items: center; justify-content: flex-start; padding: 0 10px; }
+    .info-panel.open { width: min(var(--info-panel-width, 300px), calc(100vw - 40px)); }
+    .info-panel:not(.open) { visibility: hidden; }
+    .panel-backdrop { display: block; position: fixed; inset: 0; z-index: 14; width: 100%; height: 100%; border: 0; border-radius: 0; background: rgb(0 0 0 / 35%); }
+    .panel-backdrop:hover { background: rgb(0 0 0 / 35%); }
+
 }
 
 @media (max-width: 620px) {
@@ -93,29 +99,7 @@
     }
 
     .topbar-left,
-    .topnav,
-    .composer-buttons,
-    .composer-menu {
-        width: 100%;
-    }
-
-    .topbar-left {
-        justify-content: space-between;
-    }
-
-    .topnav,
-    .composer-buttons {
-        flex-wrap: wrap;
-        justify-content: flex-end;
-    }
-
-    .composer-actions {
-        flex-direction: row;
-        flex-wrap: wrap;
-        align-items: center;
-        justify-content: flex-end;
-        padding: 0 var(--space-2) var(--space-2);
-    }
+    .topnav { width: 100%; }
 
     .resume-list,
     .context-map-scroll,
@@ -193,45 +177,20 @@
         flex-wrap: wrap;
     }
 
-    .composer textarea {
-        padding-right: var(--space-3);
-        padding-left: var(--space-3);
-    }
-
-    .composer-menu {
-        min-width: 0;
-        max-width: none;
-    }
-
-    .composer-menu-panel {
-        right: 0;
-        left: 0;
-        width: auto;
-    }
-
     .toast-stack {
         top: var(--space-2);
         right: var(--space-2);
         width: calc(100vw - 16px);
     }
+    .topbar { gap: 6px; padding: 8px 12px; }
+    .topbar-left { justify-content: flex-start; }
+    .topbar-left .brand { max-width: calc(100% - 40px); }
+    .topnav { flex-wrap: nowrap; justify-content: flex-start; gap: 2px; }
+    .topnav-link { padding: 6px 8px; }
+
 }
 
 @media (max-width: 420px) {
-    .composer-menu-options {
-        display: grid;
-        grid-template-columns: 1fr;
-    }
-
-    .composer-buttons button,
-    .composer-actions > button {
-        flex: 1 1 calc(50% - var(--space-2));
-    }
-
-    .composer-buttons .btn-primary,
-    .composer-actions > .btn-primary {
-        flex-basis: 100%;
-    }
-
     .topnav button,
     .topnav-link {
         flex: 1 1 auto;
@@ -244,23 +203,4 @@
     .segmented button {
         flex: 1 0 auto;
     }
-}
-
-@media (max-width: 900px) {
-    .app-layout.sidebar-collapsed .sidebar { width: 100% !important; min-width: 0; max-width: none; flex-direction: row; }
-    .app-layout.sidebar-collapsed .sidebar-header { padding: 5px 10px; }
-    .app-layout.sidebar-collapsed .sidebar-header-actions { flex-direction: row; }
-    .app-layout.sidebar-collapsed .sidebar-header button { width: 30px; }
-    .app-layout.sidebar-collapsed .sidebar-rail { align-items: center; justify-content: flex-start; padding: 0 10px; }
-    .info-panel.open { width: min(var(--info-panel-width, 300px), calc(100vw - 40px)); }
-    .info-panel:not(.open) { visibility: hidden; }
-    .panel-backdrop { display: block; position: fixed; inset: 0; z-index: 14; width: 100%; height: 100%; border: 0; border-radius: 0; background: rgb(0 0 0 / 35%); }
-    .panel-backdrop:hover { background: rgb(0 0 0 / 35%); }
-}
-@media (max-width: 620px) {
-    .topbar { gap: 6px; padding: 8px 12px; }
-    .topbar-left { justify-content: flex-start; }
-    .topbar-left .brand { max-width: calc(100% - 40px); }
-    .topnav { flex-wrap: nowrap; justify-content: flex-start; gap: 2px; }
-    .topnav-link { padding: 6px 8px; }
 }

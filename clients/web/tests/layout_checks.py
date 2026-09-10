@@ -8,12 +8,22 @@ def run(command, js, wait_for):
     js("if (!document.querySelector('.info-panel.open'))document.querySelector('.info-panel-header button').click(); window.perfFixture=document.createElement('div'); for(let i=0;i<240;i++){const p=document.createElement('article');p.className='task-card';p.textContent=('Representative transcript text with paths and code fragments. ').repeat(35);window.perfFixture.append(p)} document.querySelector('.results-panel').append(window.perfFixture)")
     for selector in ['.info-panel', '.sidebar']:
         for _ in range(2):
-            result = command('/execute/async', {'script': '''const done=arguments[arguments.length-1],selector=arguments[0]; const panel=document.querySelector(selector); const widths=[],gaps=[];let last=performance.now();const start=last;panel.querySelector(selector==='.sidebar'?'.sidebar-collapse-toggle':'.info-panel-header button').click();function frame(now){gaps.push(now-last);last=now;widths.push(panel.getBoundingClientRect().width);if(now-start<320)requestAnimationFrame(frame);else done({widths:[...new Set(widths.map(Math.round))],maxFrameMs:Math.max(...gaps),frames:gaps.length})}requestAnimationFrame(frame);''', 'args': [selector]})
+            result = command('/execute/async', {'script': '''const done=arguments[arguments.length-1],selector=arguments[0]; const panel=document.querySelector(selector); const widths=[],gaps=[],motion=new Set();let last=performance.now();const start=last;panel.querySelector(selector==='.sidebar'?'.sidebar-collapse-toggle':'.info-panel-header button').click();function frame(now){for(const a of panel.getAnimations({subtree:true})){if(a.animationName==='panel-reveal')motion.add(a.animationName)}gaps.push(now-last);last=now;widths.push(panel.getBoundingClientRect().width);if(now-start<320)requestAnimationFrame(frame);else done({widths:[...new Set(widths.map(Math.round))],maxFrameMs:Math.max(...gaps),frames:gaps.length,motion:[...motion]})}requestAnimationFrame(frame);''', 'args': [selector]})
             print('PANEL_REFLOW', selector, json.dumps(result), flush=True)
             assert len(result['widths']) <= 2, 'Panel animates layout width across frames'
-    # A large composer must never cover the last visible part of the transcript.
-    js("const handle=document.querySelector('.composer-resize-handle');const y=handle.getBoundingClientRect().top;handle.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,clientY:y}));document.querySelector('.app-layout').dispatchEvent(new MouseEvent('mousemove',{bubbles:true,clientY:y-150}));document.querySelector('.app-layout').dispatchEvent(new MouseEvent('mouseup',{bubbles:true}))")
-    assert js("return document.querySelector('.results-panel').getBoundingClientRect().bottom <= document.querySelector('.composer-shell').getBoundingClientRect().top"), 'Composer covers transcript after resize'
+            if not js("return matchMedia('(prefers-reduced-motion: reduce)').matches"):
+                assert result['motion'], 'Panel toggled without visual motion'
+            else:
+                assert not result['motion'], 'Panel ignores reduced-motion preference'
+    # The input grows for multiline drafts, caps long pastes and shrinks when cleared.
+    def draft(value):
+        js("const area=document.querySelector('.composer textarea');area.value=" + json.dumps(value) + ";area.dispatchEvent(new Event('input',{bubbles:true}))")
+    draft('\n'.join(['Строка задачи'] * 30))
+    wait_for(lambda: js("return document.querySelector('.composer textarea').clientHeight > 150"), 'Multiline composer did not grow')
+    assert js("const area=document.querySelector('.composer textarea');return area.clientHeight <= 240 && area.scrollHeight > area.clientHeight"), 'Long paste was not capped and scrollable'
+    assert js("return document.querySelector('.results-panel').getBoundingClientRect().bottom <= document.querySelector('.composer-shell').getBoundingClientRect().top"), 'Composer covers transcript after growing'
+    draft('')
+    wait_for(lambda: js("return document.querySelector('.composer textarea').clientHeight < 80"), 'Cleared composer did not shrink')
     # Persistence must run after drag, not on every movement.
     js("window.storageWrites=0;window.originalSetItem=Storage.prototype.setItem;Storage.prototype.setItem=function(...args){window.storageWrites++;return window.originalSetItem.apply(this,args)};const h=document.querySelector('.info-panel-resize-handle');window.dragX=h.getBoundingClientRect().left;h.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,clientX:window.dragX}))")
     for step in range(1, 9):
@@ -22,8 +32,6 @@ def run(command, js, wait_for):
     js("document.querySelector('.app-layout').dispatchEvent(new MouseEvent('mouseup',{bubbles:true}))")
     wait_for(lambda: js('return window.storageWrites > 0'), 'Resize was not persisted after release')
     js('Storage.prototype.setItem=window.originalSetItem; window.perfFixture.remove()')
-    # Restore representative dimensions for screenshots.
-    js("const h=document.querySelector('.composer-resize-handle');const y=h.getBoundingClientRect().top;h.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,clientY:y}));document.querySelector('.app-layout').dispatchEvent(new MouseEvent('mousemove',{bubbles:true,clientY:y+150}));document.querySelector('.app-layout').dispatchEvent(new MouseEvent('mouseup',{bubbles:true}))")
     for width in [900, 640, 390]:
         command('/window/rect', {'width': width, 'height': 1000})
         if width == 900:
@@ -39,6 +47,19 @@ def run(command, js, wait_for):
         js("window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
         wait_for(lambda: js("return !document.querySelector('.info-panel.open')"), 'Escape did not dismiss drawer')
         assert js("return document.querySelector('.results-panel').getBoundingClientRect().bottom <= document.querySelector('.composer-shell').getBoundingClientRect().top"), 'Mobile composer overlaps transcript'
+        draft('длинный_путь_без_пробелов/' * 30)
+        wait_for(lambda: js("return document.querySelector('.composer textarea').clientHeight > 100"), 'Mobile composer did not wrap long text')
+        assert js("const area=document.querySelector('.composer textarea');return area.scrollWidth <= area.clientWidth && document.documentElement.scrollWidth <= innerWidth"), 'Long draft overflows horizontally'
+        js("document.querySelector('.composer-menu summary').click()")
+        wait_for(lambda: js("return !!document.querySelector('.composer-menu[open]')"), 'Request options did not open')
+        assert js("const r=document.querySelector('.composer-menu-panel').getBoundingClientRect();return r.left >= 0 && r.right <= innerWidth && r.top >= 0"), 'Request options leave mobile viewport'
+        if width == 390:
+            command('/execute/async', {'script': 'const done=arguments[arguments.length-1];Promise.all(document.getAnimations().filter(a=>a.effect.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{}))).then(()=>done(null))', 'args': []})
+            Path('/tmp/proteus-ui-composer-mobile.png').write_bytes(base64.b64decode(command('/screenshot', None)))
+        js("window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
+        wait_for(lambda: js("return !document.querySelector('.composer-menu[open]') && document.activeElement.matches('.composer-menu summary')"), 'Escape did not close options and restore focus')
+        draft('')
+
     command('/window/rect', {'width': 1440, 'height': 1000})
     js("if (document.querySelector('.app-layout.sidebar-collapsed'))document.querySelector('.sidebar-collapse-toggle').click();if (!document.querySelector('.info-panel.open'))document.querySelector('.info-panel-header button').click(); document.querySelector('.settings-link').click()")
     wait_for(lambda: js("return !!document.querySelector('[data-extension-choice=notes]')"), 'Settings failed after layout checks')

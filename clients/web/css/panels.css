@@ -12,11 +12,6 @@
     overflow: hidden;
     border-left: 1px solid var(--border-subtle);
     background: var(--bg-panel);
-
-}
-
-.app-layout.resizing .info-panel {
-    transition: none;
 }
 
 /* Свёрнутой панели overflow не мешает, а поповеры рейки должны выезжать
@@ -241,6 +236,8 @@
 }
 
 .info-panel-section {
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-subtle);
     display: grid;
     min-width: 0;
     gap: var(--space-2);
@@ -335,7 +332,6 @@
 }
 
 
-.info-panel-section { padding: 0 0 16px; border-bottom: 1px solid var(--border-subtle); }
 .info-session { padding-top: 0; }
 .info-session > summary { color: var(--text-muted); cursor: pointer; font-size: 12px; }
 .info-session-body { display: grid; gap: 8px; padding-top: 12px; }

@@ -46,6 +46,7 @@ where
                     <div class="topbar-left">
                         <a
                             class="brand"
+                            title=move || workspace_label.get()
                             href="/"
                             on:click=move |ev| on_navigate(ev, "/")
                         >
@@ -119,7 +120,7 @@ where
                                     aria-label="Инфо по чату"
                                     on:click=on_toggle_info
                                 >
-                                    "▤"
+                                    <super::icons::PanelIcon right=true />
                                 </button>
                             }.into_any()
                         } else {

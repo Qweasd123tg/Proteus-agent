@@ -1,0 +1,62 @@
+/* Движение поверх готовой геометрии: лента меняет ширину только один раз. */
+@keyframes panel-reveal {
+    from {
+        opacity: 0;
+        transform: translate3d(var(--entry-x, 0px), var(--entry-y, 0px), 0);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes drawer-reveal {
+    from { opacity: 0; transform: translateX(100%); }
+    to { opacity: 1; transform: none; }
+}
+
+@keyframes backdrop-reveal {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .app-layout:not(.sidebar-collapsed) :is(.sidebar-search, .sessions-list) {
+        --entry-x: -12px;
+        animation: panel-reveal 200ms cubic-bezier(.2, .8, .2, 1);
+    }
+
+    .info-panel.open .info-panel-body {
+        --entry-x: 12px;
+        animation: panel-reveal 200ms cubic-bezier(.2, .8, .2, 1);
+    }
+
+    .app-layout.sidebar-collapsed .sidebar-rail,
+    .info-panel:not(.open) .info-panel-rail {
+        --entry-y: -4px;
+        animation: panel-reveal 160ms ease-out;
+    }
+
+    .topbar-menu[open] .topbar-menu-panel,
+    .composer-menu[open] .composer-menu-panel {
+        --entry-y: 4px;
+        animation: panel-reveal 140ms ease-out;
+    }
+
+    .extension-panel-content:not([hidden]) {
+        --entry-x: 0px;
+        --entry-y: 4px;
+        animation: panel-reveal 160ms ease-out;
+    }
+
+    /* Перетаскивание должно следовать за курсором без задержки. */
+    .app-layout.resizing :is(.sidebar-search, .sessions-list, .sidebar-rail, .info-panel-body, .info-panel-rail) {
+        animation: none;
+    }
+
+    @media (max-width: 900px) {
+        .info-panel.open { animation: drawer-reveal 220ms cubic-bezier(.2, .8, .2, 1); }
+        .info-panel.open .info-panel-body { animation: none; }
+        .panel-backdrop { animation: backdrop-reveal 180ms ease-out; }
+    }
+}

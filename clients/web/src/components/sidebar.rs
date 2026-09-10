@@ -1,12 +1,13 @@
 use leptos::prelude::*;
 use web_sys::MouseEvent;
 
+use super::icons::{PanelIcon, PlusIcon, RefreshIcon};
 use crate::app_helpers::{
     sidebar_session_activity_dot_class, sidebar_session_activity_label, sidebar_session_preview,
     sidebar_session_render_key, sidebar_session_title,
 };
 use crate::types::*;
-use crate::ui_utils::{relative_time_from_now, short_id};
+use crate::ui_utils::relative_time_from_now;
 
 /// Сколько сессий помещается в рейку свёрнутого сайдбара.
 const SIDEBAR_RAIL_LIMIT: usize = 10;
@@ -85,8 +86,7 @@ where
 {
     let (query, set_query) = signal(String::new());
     view! {
-        // При схлопывании inline-width проигрывает !important-правилу коллапса,
-        // поэтому transition в CSS анимирует оба направления.
+        // Состояние рейки задаёт CSS; выбранная ширина сохраняется для раскрытия.
         <aside class="sidebar" style=move || format!("width: {}px", sidebar_width.get())>
             <div class="sidebar-header">
                 <h2>
@@ -94,15 +94,17 @@ where
                     <span>"web"</span>
                 </h2>
                 <div class="sidebar-header-actions">
-                    <button type="button" title="Обновить сессии" on:click=on_refresh>
-                        "↻"
+                    <button type="button" title="Обновить сессии" aria-label="Обновить сессии" on:click=on_refresh>
+                        <RefreshIcon />
                     </button>
-                    <button type="button" title="Новая сессия" on:click=on_new_session>
-                        "+"
+                    <button type="button" title="Новая сессия" aria-label="Новая сессия" on:click=on_new_session>
+                        <PlusIcon />
                     </button>
                     <button
                         type="button"
                         class="sidebar-collapse-toggle"
+                        aria-label="Панель сессий"
+                        aria-expanded=move || (!sidebar_collapsed.get()).to_string()
                         title=move || if sidebar_collapsed.get() {
                             "Развернуть меню"
                         } else {
@@ -110,7 +112,7 @@ where
                         }
                         on:click=on_toggle
                     >
-                        {move || if sidebar_collapsed.get() { "›" } else { "‹" }}
+                        <PanelIcon />
                     </button>
                 </div>
             </div>
@@ -199,20 +201,13 @@ where
             <div class="sidebar-search">
                 <input
                     type="text"
+                    aria-label="Найти чат"
                     placeholder=move || {
                         let workspace = workspace_label.get();
                         if workspace == "waiting for session" {
                             sidebar_sessions_status.get()
                         } else {
-                            let count = sidebar_sessions.with(|sessions| {
-                                sessions
-                                    .iter()
-                                    .filter(|session| {
-                                        session.workspace_path == workspace
-                                    })
-                                    .count()
-                            });
-                            format!("Поиск · {count} сессий в папке")
+                            "Найти чат".to_owned()
                         }
                     }
                     prop:value=move || query.get()
@@ -241,9 +236,9 @@ where
                         key=|session| sidebar_session_render_key(session)
                         children=move |session| {
                             let workspace = session.workspace_path.clone();
-                            let session_id = short_id(&session.session_id).to_owned();
                             let title = sidebar_session_title(&session);
-                            let preview = sidebar_session_preview(&session);
+                            let preview = sidebar_session_preview(&session)
+                                .filter(|preview| preview.trim() != title.trim());
                             let activity_label =
                                 sidebar_session_activity_label(session.activity.as_ref());
                             let activity_dot_class =
@@ -253,6 +248,7 @@ where
                             let active_session_dir_value = session.session_dir.clone();
                             let session_for_click = session.clone();
                             let session_for_delete = session.clone();
+                            let tooltip = format!("{title}\n{workspace}\n{message_count} сообщений");
                             view! {
                                 <li class="session-list-item">
                                     <div class="session-item-shell">
@@ -263,7 +259,7 @@ where
                                                 active_session_dir.get().as_deref()
                                                     == Some(active_session_dir_value.as_str())
                                             }
-                                            title=workspace.clone()
+                                            title=tooltip
                                             on:click=move |_| on_open_session(session_for_click.clone())
                                         >
                                             <div class="session-item-header">
@@ -271,7 +267,6 @@ where
                                                     <span class=activity_dot_class></span>
                                                     <span class="session-id">{title}</span>
                                                 </span>
-                                                <code class="session-code">{session_id}</code>
                                             </div>
                                             {match preview {
                                                 Some(preview) => view! {
@@ -286,7 +281,6 @@ where
                                                     }.into_any(),
                                                     None => ().into_any(),
                                                 }}
-                                                <span class="session-time">{format!("{message_count} сообщений")}</span>
                                                 <span class="session-time">{updated_at}</span>
                                             </div>
                                         </button>

@@ -28,14 +28,6 @@
 }
 
 /* Содержимое свёрнутой панели не участвует в layout и focus navigation. */
-.sidebar-search,
-.sessions-list,
-.sidebar-header h2 {
-    transition:
-        opacity 0.12s ease,
-        visibility 0.12s ease;
-}
-
 .app-layout.sidebar-collapsed .sidebar-search,
 .app-layout.sidebar-collapsed .sessions-list,
 .app-layout.sidebar-collapsed .sidebar-header h2 {
@@ -185,7 +177,7 @@
     position: relative;
     display: flex;
     width: var(--sidebar-width);
-    min-width: 220px;
+    min-width: 210px;
     max-width: min(360px, 30vw);
     min-height: 0;
     flex-direction: column;
@@ -194,12 +186,6 @@
     background: var(--bg-panel);
     /* Width changes once: avoid reflowing the transcript on every animation frame. */
     flex-shrink: 0;
-}
-
-/* Во время ручного ресайза анимация ширины мешает — курсор должен вести
-   панель без запаздывания. */
-.app-layout.resizing .sidebar {
-    transition: none;
 }
 
 .sidebar-resize-handle {
@@ -352,7 +338,7 @@ button.session-item.active {
     color: var(--text-faint);
     font-size: 17px;
     line-height: 1;
-    opacity: 0.55;
+    opacity: 0;
     padding: 0;
     transition: background 0.12s, color 0.12s, opacity 0.12s;
 }
@@ -379,10 +365,6 @@ button.session-item.active {
     justify-content: space-between;
     gap: var(--space-2);
     margin-bottom: 2px;
-}
-
-.session-code {
-    display: none;
 }
 
 .session-title-line {
