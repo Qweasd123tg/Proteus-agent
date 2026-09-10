@@ -225,6 +225,10 @@ where
             Ok(transcript) => json_response(StatusCode::OK, &transcript),
             Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("{error:#}")),
         },
+        (Method::GET, "/usage") => match sessions::usage_json(&state, query.as_deref()).await {
+            Ok(snapshot) => json_response(StatusCode::OK, &snapshot),
+            Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
+        },
         (Method::GET, "/context") => match context_map_json(&state, query.as_deref()).await {
             Ok(snapshot) => json_response(StatusCode::OK, &snapshot),
             Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("{error:#}")),

@@ -61,6 +61,7 @@ enum StoredPayload {
 #[derive(Debug, Default)]
 pub(crate) struct JournalWriterState {
     initialized: bool,
+    usage: super::UsageProjection,
     next_seq: u64,
     validation: JournalValidationState,
     committed_offset: u64,
@@ -193,6 +194,7 @@ pub(crate) async fn append_record(
     state.next_seq = state.next_seq.saturating_add(1);
     state.validation = next_validation;
     state.committed_offset = next_committed_offset;
+    state.usage.apply(&record);
     Ok(record)
 }
 
@@ -214,8 +216,10 @@ pub(crate) fn initialize_writer_state(
     let records = load_records(session_dir, session_id)?;
     let projection = JournalProjection::build(session_id, records.clone())?;
     let mut validation = JournalValidationState::default();
+    let mut usage = super::UsageProjection::default();
     for record in &records {
         validation.apply(record)?;
+        usage.apply(record);
     }
     state.next_seq = records
         .last()
@@ -223,6 +227,7 @@ pub(crate) fn initialize_writer_state(
         .unwrap_or(1);
     debug_assert_eq!(validation.history_revision(), projection.history_revision);
     state.validation = validation;
+    state.usage = usage;
     state.committed_offset = journal_len(&path)?;
     state._ownership = Some(ownership);
     state.initialized = true;
@@ -230,6 +235,13 @@ pub(crate) fn initialize_writer_state(
 }
 
 impl JournalWriterState {
+    pub(crate) fn usage_snapshot(
+        &self,
+        session_id: SessionId,
+    ) -> Option<crate::domain::SessionUsageSnapshot> {
+        self.initialized.then(|| self.usage.snapshot(session_id))
+    }
+
     pub(crate) fn history_revision(&self) -> u64 {
         self.validation.history_revision()
     }

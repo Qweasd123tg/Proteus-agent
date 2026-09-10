@@ -173,6 +173,13 @@ pub async fn run_stdio_app_server(
                 send_stdio_response(&output_tx, id, server.clear_history().await.map(|_| None))
                     .await;
             }
+            StdioRequest::UsageSummary { .. } => {
+                let result = match server.usage_snapshot().await {
+                    Ok(snapshot) => serde_json::to_value(snapshot).map(Some).map_err(Into::into),
+                    Err(error) => Err(error),
+                };
+                send_stdio_response(&output_tx, id, result).await;
+            }
             StdioRequest::HistorySummary { .. } => {
                 let result = serde_json::to_value(server.history_summary().await)
                     .map(Some)

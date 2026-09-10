@@ -102,6 +102,7 @@ pub(crate) fn ContextMapView(
                     }.into_any(),
                 }
             }}
+            <super::extensions::UsageDetailsView session_dir=selected_session_dir />
         </section>
     }
 }

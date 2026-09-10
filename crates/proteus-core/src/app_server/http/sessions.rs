@@ -162,6 +162,23 @@ pub(super) async fn context_map_json(
         .await
 }
 
+pub(super) async fn usage_json(
+    state: &HttpAppState,
+    query: Option<&str>,
+) -> Result<Option<crate::domain::SessionUsageSnapshot>> {
+    let Some(session_dir) = query_path_param(query, "session_dir")? else {
+        return state.current_server().await.usage_snapshot().await;
+    };
+    let session_dir = canonicalize_session_dir_path(session_dir)?;
+    if let Some(server) = state.server_for_session_dir(&session_dir).await {
+        return server.usage_snapshot().await;
+    }
+    SessionStore::open(session_dir)?
+        .usage_snapshot()
+        .await
+        .map(Some)
+}
+
 pub(super) async fn server_for_optional_session(
     state: &HttpAppState,
     session_dir: Option<PathBuf>,

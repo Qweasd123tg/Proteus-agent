@@ -404,12 +404,21 @@ fallback, если стабильного prefix breakpoint нет. Runtime ни
 кэш влияет только на provider-side стоимость/latency и отражается в usage
 полях вроде `cached_input_tokens` / `cache_creation_input_tokens`.
 
-UI-клиент может хранить последний `TokenUsageUpdated`, суммировать
-request-level usage по текущему turn/session и восстанавливать snapshot из
-durable event log при resume. При смене `turn_id` в `EventEnvelope` turn totals
-должны сбрасываться, session totals могут продолжать расти. Если event log
-недоступен, клиент может показать fallback-оценку по resume-history projection
-из session journal.
+Отчёт расхода `GET /usage` строится из canonical journal: каждый
+`ModelRequestRecorded` — отдельная строка, парный `ModelResponseRecorded`
+добавляет provider usage или ошибку. Повторы и compactor exchanges этой session
+включены в отчёт; внутренние HTTP-попытки provider adapter-а и отдельные peer
+sessions не выдаются за запросы текущего журнала. Отсутствующие сведения о
+токенах у ошибочного или незавершённого запроса означают неизвестный расход.
+Оценка размера history не подменяет эти данные. `TurnSettled` отмечает отмену
+или timeout незавершённых exchanges.
+
+Живой writer обновляет компактную проекцию только после успешной durable записи.
+Чтение cold session заново валидирует журнал, не захватывает write ownership,
+не исправляет хвост и не меняет файлы. Проекция не содержит prompts, ответов и
+аргументов tools. Цены и суммирование по выбранному периоду принадлежат клиенту:
+[расширение «Расход» и отчёт на странице «Контекст»](ui-extensions.md) используют
+один публичный snapshot. Тарифы не входят в Core или model contract.
 
 `GET /context?session_dir=<path>` возвращает diagnostic context map для
 выбранной session. Это debug/observability surface, а не отдельный источник
@@ -496,6 +505,16 @@ runtime-очереди, а не transport task. `cancel.target_id` ссылае�
 чего runtime закрывает root-цепочку и её ещё не доставленную очередь.
 
 HTTP/SSE transport:
+
+- `GET /usage` — расход по canonical model exchanges текущей session;
+  `GET /usage?session_dir=<path>` читает выбранную live или cold session.
+  `SessionUsageSnapshot` содержит session id, revision, последний turn id и
+  запросы в порядке начала: exchange/turn ids, model ref, direct/compactor
+  origin, время начала и окончания, статус, finish reason, provider TokenUsage,
+  количество сообщений и tools, reasoning effort и лимит выхода. Тексты
+  prompts, ответов и tool arguments в отчёт не входят. Та же surface доступна
+  через `AppServerHandle::usage_snapshot` и stdio/`POST /request` команду
+  `usage_summary`. `null` означает runtime без canonical journal.
 
 - `GET /health` - healthcheck;
 - `GET /events` - SSE stream, где `data:` содержит JSON `StdioOutput::Event`.

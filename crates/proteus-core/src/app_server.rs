@@ -39,6 +39,7 @@ mod queued_messages;
 pub mod stdio;
 mod transcript;
 mod turn_progress;
+mod usage;
 mod user_inputs;
 
 pub use config_builder::{

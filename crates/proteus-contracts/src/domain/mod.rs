@@ -18,6 +18,7 @@ pub mod output;
 pub mod patch;
 pub mod task;
 pub mod tool;
+pub mod usage;
 
 pub use compaction::*;
 pub use context::*;
@@ -32,3 +33,4 @@ pub use output::*;
 pub use patch::*;
 pub use task::*;
 pub use tool::*;
+pub use usage::*;

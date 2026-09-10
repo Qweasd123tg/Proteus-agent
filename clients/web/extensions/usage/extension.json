@@ -1,0 +1,9 @@
+{
+  "apiVersion": 1,
+  "id": "usage",
+  "name": "Расход",
+  "description": "Токены, запросы и оценка стоимости текущего чата",
+  "entry": "./panel.js",
+  "requires": ["agent.usage.read"],
+  "settings": { "entry": "./settings.js", "requires": [] }
+}

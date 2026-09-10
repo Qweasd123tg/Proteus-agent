@@ -9,6 +9,7 @@ from extensions_checks import run as check_extensions
 from layout_checks import run as check_layout
 from session_checks import run as check_session, BOOTSTRAP
 from queue_checks import run as check_queue
+from usage_checks import run as check_usage
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -90,9 +91,11 @@ class Assets(SimpleHTTPRequestHandler):
             for chunk in chunks:
                 emit('response.output_text.delta', {"output_index":0,"item_id":output[0]['id'],"content_index":0,"delta":chunk})
                 time.sleep(.1)
-        self.wfile.write(('event: response.completed\ndata: '+json.dumps({"response":{"status":"completed","output":output,"usage":{"input_tokens":100,"output_tokens":40}}})+'\n\n').encode())
+        self.wfile.write(('event: response.completed\ndata: '+json.dumps({"response":{"status":"completed","output":output,"usage":{"input_tokens":100,"output_tokens":40,"input_tokens_details":{"cached_tokens":60},"output_tokens_details":{"reasoning_tokens":10}}}})+'\n\n').encode())
 
     def do_GET(self):
+        if self.path.split('?', 1)[0] in ['/context', '/sessions', '/settings']:
+            self.path = '/index.html'
         if self.path.startswith('/foundation.html'):
             self.send_response(200)
             self.send_header('Content-Type', 'text/html')
@@ -231,6 +234,7 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                 command('/window/rect', {'width': 1440, 'height': 1000})
                 assert js("return matchMedia('(prefers-reduced-motion: reduce)').matches") == bool(reduced_motion), 'Browser did not apply motion preference'
                 check_extensions(command, js, wait_for, web, origin, loaded)
+                check_usage(command, js, wait_for)
                 check_layout(command, js, wait_for)
                 screenshot = request(url + '/screenshot')['value']
                 Path('/tmp/proteus-ui-extensions.png').write_bytes(base64.b64decode(screenshot))

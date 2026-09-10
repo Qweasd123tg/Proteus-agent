@@ -36,7 +36,17 @@ test('two extensions keep independent local data without an agent', () => {
   const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
   const a = extensionStorage(storage, 'a');
   const b = extensionStorage(storage, 'b');
+  let updates = 0;
+  const stop = extensionStorage(storage, 'a').subscribe(() => updates++);
   a.set('text', 'first'); b.set('text', 'second'); a.remove('text');
   assert.equal(a.get('text'), null);
   assert.equal(b.get('text'), 'second');
+  assert.equal(updates, 2);
+  stop(); a.set('text', 'after disposal'); assert.equal(updates, 2);
+});
+
+test('settings entry resolves independently and rejects malformed capability declarations', () => {
+  const parsed = parseManifest({ ...manifest, settings: { entry: './settings.js', requires: [] } }, base);
+  assert.equal(parsed.settings.entry, 'https://client.example/extensions/settings.js');
+  for (const settings of [null, { entry: './s.js' }, { entry: './s.js', requires: ['a', 'a'] }, { entry: './s.js', requires: [], extra: true }]) assert.throws(() => parseManifest({ ...manifest, settings }, base));
 });

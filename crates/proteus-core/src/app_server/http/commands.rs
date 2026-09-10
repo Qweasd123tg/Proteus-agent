@@ -24,6 +24,12 @@ pub(super) async fn execute_app_request(
     let id = request.id();
     let result = match request {
         StdioRequest::Send { id, text } => execute_send(state, id, text, None).await.map(Some),
+        StdioRequest::UsageSummary { .. } => {
+            match state.current_server().await.usage_snapshot().await {
+                Ok(snapshot) => serde_json::to_value(snapshot).map(Some).map_err(Into::into),
+                Err(error) => Err(error),
+            }
+        }
         StdioRequest::EditQueuedMessage {
             message_id, text, ..
         } => state

@@ -59,6 +59,7 @@ pub(crate) fn InfoPanelView<T, R>(
     pending_approvals: ReadSignal<Vec<ApprovalRequestInfo>>,
     pending_user_inputs: ReadSignal<Vec<UserInputRequestInfo>>,
     workspace_label: ReadSignal<String>,
+    active_session_dir: ReadSignal<Option<String>>,
 ) -> impl IntoView
 where
     T: Fn(MouseEvent) + Copy + Send + Sync + 'static,
@@ -198,7 +199,7 @@ where
                 </section>
 
                 </Show>
-                <ExtensionsView />
+                <ExtensionsView active_session_dir />
                 <details class="info-session">
                     <summary>"Сведения о сессии"</summary>
                     <div class="info-session-body">

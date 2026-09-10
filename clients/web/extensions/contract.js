@@ -21,14 +21,21 @@ export function resourceUrl(value, base) {
 }
 
 export function parseManifest(value, url) {
-  object(value, ['apiVersion', 'id', 'name', 'description', 'entry', 'requires'], 'Манифест');
+  object(value, ['apiVersion', 'id', 'name', 'description', 'entry', 'requires', 'settings'], 'Манифест');
   if (value.apiVersion !== API_VERSION) throw new Error(`Неподдерживаемая версия UI API: ${value.apiVersion}`);
   if (typeof value.id !== 'string' || !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(value.id)) throw new Error('Некорректный id расширения');
   if (typeof value.name !== 'string' || !value.name.trim()) throw new Error('Не указано название расширения');
   if (typeof value.description !== 'string') throw new Error('Не указано описание расширения');
   if (!Array.isArray(value.requires) || value.requires.some(item => typeof item !== 'string' || !item)) throw new Error('requires должен быть списком интерфейсов');
   if (new Set(value.requires).size !== value.requires.length) throw new Error('Повтор интерфейса в requires');
-  return Object.freeze({ ...value, requires: Object.freeze([...value.requires]), entry: resourceUrl(value.entry, url) });
+  let settings;
+  if (value.settings !== undefined) {
+    object(value.settings, ['entry', 'requires'], 'Настройки пакета');
+    const required = value.settings.requires;
+    if (!Array.isArray(required) || required.some(item => typeof item !== 'string' || !item) || new Set(required).size !== required.length) throw new Error('Некорректные интерфейсы настроек');
+    settings = Object.freeze({ entry: resourceUrl(value.settings.entry, url), requires: Object.freeze([...required]) });
+  }
+  return Object.freeze({ ...value, ...(settings ? { settings } : {}), requires: Object.freeze([...value.requires]), entry: resourceUrl(value.entry, url) });
 }
 
 export function parseSettings(value, base) {

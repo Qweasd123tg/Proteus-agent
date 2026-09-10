@@ -22,6 +22,7 @@ use crate::{
 
 mod checkpoint;
 mod identity;
+mod usage;
 mod workspace_dir;
 
 use identity::{

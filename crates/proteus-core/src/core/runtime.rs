@@ -389,6 +389,13 @@ impl AgentRuntime {
         self.session.session_id
     }
 
+    pub async fn usage_snapshot(&self) -> Result<Option<crate::domain::SessionUsageSnapshot>> {
+        match &self.session.session_store {
+            Some(store) => store.usage_snapshot().await.map(Some),
+            None => Ok(None),
+        }
+    }
+
     pub fn session_dir(&self) -> Option<&std::path::Path> {
         self.session
             .session_store

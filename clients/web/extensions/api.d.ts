@@ -6,12 +6,16 @@ export interface ExtensionManifest {
   description: string;
   entry: string;
   requires: string[];
+  /** Independent entry; loaded only by the explicit Configure action. */
+  settings?: { entry: string; requires: string[] };
 }
 
 export interface ExtensionStorage {
   get(key: string): string | null;
   set(key: string, value: string): void;
   remove(key: string): void;
+  /** Same-client changes for this extension; caller releases the subscription. */
+  subscribe(callback: () => void): () => void;
 }
 
 export interface ExtensionContext {
@@ -42,6 +46,42 @@ export interface AgentConfigReader {
  */
 export interface AgentModelQuotaReader {
   read(): Promise<ModelQuotaSnapshot | null>;
+}
+
+/** Public GET /usage?session_dir=…; null means no canonical journal.
+ * Usage fields are provider-reported totals per exchange, not streaming deltas.
+ * Cache categories belong to input; reasoning belongs to output.
+ * Other peer sessions have their own journals and reports.
+ */
+export interface AgentUsageReader {
+  read(): Promise<SessionUsageSnapshot | null>;
+}
+
+export interface SessionUsageSnapshot {
+  session_id: string;
+  revision: number;
+  latest_turn_id: string | null;
+  requests: Array<{
+    exchange_id: string;
+    turn_id: string | null;
+    model: { provider: string; model: string };
+    origin: 'direct' | 'compactor';
+    started_at_ms: number;
+    finished_at_ms: number | null;
+    status: 'unfinished' | 'completed' | 'error' | 'canceled' | 'timeout';
+    finish_reason: string | null;
+    usage: {
+      input_tokens: number;
+      output_tokens: number;
+      cached_input_tokens: number | null;
+      cache_creation_input_tokens: number | null;
+      reasoning_output_tokens: number | null;
+    } | null;
+    message_count: number;
+    tool_count: number;
+    reasoning_effort: string | null;
+    max_output_tokens: number | null;
+  }>;
 }
 
 export interface ModelQuotaSnapshot {

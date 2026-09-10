@@ -35,3 +35,7 @@ label.extension-description { cursor: pointer; }
 }
 
 .extension-panel:has([aria-expanded=false]) .extension-panel-header { margin-bottom: 0; }
+.extension-options { margin: 20px 0; padding: 16px; border: 1px solid var(--border-subtle); border-radius: 14px; }
+.extension-options[hidden] { display: none; }
+.context-usage-report { margin-top: 24px; padding: 20px; background: var(--bg-panel); border: 1px solid var(--border-subtle); border-radius: 16px; }
+.context-usage-report h2 { font-size: 18px; margin: 0 0 8px; }

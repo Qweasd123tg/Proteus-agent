@@ -28,6 +28,9 @@ pub enum StdioRequest {
     HistorySummary {
         id: Option<String>,
     },
+    UsageSummary {
+        id: Option<String>,
+    },
     Remember {
         id: Option<String>,
         kind: String,
@@ -84,6 +87,7 @@ impl StdioRequest {
             | Self::DeleteQueuedMessage { id, .. }
             | Self::ClearHistory { id }
             | Self::HistorySummary { id }
+            | Self::UsageSummary { id }
             | Self::Remember { id, .. }
             | Self::Approval { id, .. }
             | Self::UserInput { id, .. }

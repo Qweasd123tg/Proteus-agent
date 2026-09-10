@@ -237,6 +237,7 @@ pub(super) fn AppShell(
                         pending_approvals
                         pending_user_inputs
                         workspace_label
+                        active_session_dir
                     />
                 }.into_any()
             } else {

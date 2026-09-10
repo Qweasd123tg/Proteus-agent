@@ -3,6 +3,9 @@ mod projection;
 mod recorder;
 mod storage;
 mod types;
+mod usage;
+
+pub(crate) use usage::UsageProjection;
 
 pub use projection::JournalProjection;
 pub(crate) use projection::JournalValidationState;
