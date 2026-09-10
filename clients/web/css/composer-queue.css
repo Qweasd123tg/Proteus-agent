@@ -1,0 +1,24 @@
+.composer-queue {
+    width: calc(100% - 24px);
+    max-width: calc(var(--chat-max-width) - 24px);
+    margin: 0 auto -12px;
+    padding: 5px 6px 18px;
+    border: 1px solid var(--border-subtle);
+    border-bottom: 0;
+    border-radius: 18px 18px 0 0;
+    background: var(--bg-panel-soft);
+}
+.composer-queue-list { max-height: min(200px, 26vh); overflow-y: auto; }
+.queued-prompt-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 2px 5px; }
+.queued-prompt-row > svg { flex: none; color: var(--text-faint); }
+.queued-prompt-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--text-muted); }
+.queue-icon-button { display: grid; place-items: center; flex: none; width: 28px; min-height: 28px; border: 0; border-radius: 8px; padding: 0; background: transparent; color: var(--text-faint); }
+.queue-icon-button:hover { color: var(--text-main); background: var(--bg-panel-hover); }
+.queue-delete:hover { color: var(--accent-red); }
+.queued-prompt-editor { padding: 8px 6px 2px; }
+.queued-prompt-editor textarea { display: block; width: 100%; min-height: 80px; max-height: 160px; resize: vertical; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg-composer); color: var(--text-main); font: 13px/20px var(--font-sans); }
+.queue-editor-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.queue-editor-actions button { min-height: 28px; padding: 4px 10px; font-size: 12px; }
+.queue-error { display: flex; align-items: center; gap: 8px; padding: 4px 6px; color: var(--accent-red); font-size: 12px; }
+.queue-error span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.queue-notice { margin: 6px 0; font-size: 12px; color: var(--text-muted); }

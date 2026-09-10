@@ -29,7 +29,20 @@ def run(command, js, wait_for):
                     if(now-start<360) requestAnimationFrame(frame);
                     else done({widths:[...new Set(widths)],surfaces:[...new Set(surfaces)],positions:[...new Set(positions)],maxFrameMs:Math.max(...gaps)});
                 }
-                requestAnimationFrame(frame);
+                requestAnimationFrame(now => {
+                    // Software rendering may skip an entire short transition
+                    // between samples. Inspect a real intermediate animation
+                    // frame explicitly, then let normal playback finish.
+                    getComputedStyle(surface).transform;
+                    const slide=surface.getAnimations().find(a=>a.transitionProperty==='transform');
+                    if(slide) {
+                        positions.push(Math.round(surface.getBoundingClientRect().x));
+                        slide.pause(); slide.currentTime=slide.effect.getTiming().duration/2;
+                        positions.push(Math.round(surface.getBoundingClientRect().x));
+                        slide.play();
+                    }
+                    frame(now);
+                });
             """, 'args': [selector]})
             print('PANEL_REFLOW', selector, json.dumps(result), flush=True)
             assert len(result['widths']) <= 2, 'Panel animates layout width across frames'

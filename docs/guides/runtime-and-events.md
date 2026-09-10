@@ -436,7 +436,7 @@ system-строку в transcript.
 
 ## App Server Boundary
 
-`crates/proteus-core/src/app_server.rs` отделяет UI-клиенты от `AgentRuntime`. Клиент работает с `AppServerHandle`, подписывается на `AppServerEvent` и отправляет команды через transport. Сейчас реализованы локальный `stdio` transport в `crates/proteus-core/src/app_server/stdio.rs` и HTTP/SSE transport в `crates/proteus-core/src/app_server/http.rs`; DTO лежат в `proteus-contracts::app_protocol` и re-export'ятся через `crates/proteus-core/src/app_server/protocol.rs`. Будущие socket/ACP-клиенты должны использовать ту же app-server границу.
+`crates/proteus-core/src/app_server.rs` отделяет UI-клиенты от `AgentRuntime`. Клиент работает с `AppServerHandle`, подписывается на `AppServerEvent` и отправляет команды через transport. Сейчас реализованы локальный `stdio` transport в `crates/proteus-core/src/app_server/stdio.rs` и HTTP/SSE transport в `crates/proteus-core/src/app_server/http.rs`; DTO лежат в `proteus-contracts::app_protocol` и re-export'ятся через `crates/proteus-core/src/app_server.rs`. Будущие socket/ACP-клиенты должны использовать ту же app-server границу.
 
 События app-server:
 
@@ -546,6 +546,10 @@ HTTP/SSE transport:
   финального ответа; started response несёт transport `run_id`, queued receipt
   — `request_id` и domain `active_turn_id`, а progress, `TurnOutput` или
   `Error` приходят через `GET /events`;
+- `POST /queue/edit` - меняет `text` сообщения с указанным `message_id`, пока
+  оно находится в очереди; `POST /queue/delete` удаляет его. Оба принимают
+  optional `id` и `session_dir`. Через stdio или `POST /request` те же действия
+  доступны как `edit_queued_message` и `delete_queued_message` для текущей session;
 - `POST /cancel`, `/approval`, `/user-input`, `/mode`, `/model`, `/reasoning`,
   `/effort` - короткие endpoint'ы над соответствующими командами; mutating
   request bodies могут передать `session_dir`, чтобы команда ушла в конкретную
@@ -930,10 +934,20 @@ model call упал без ответа, уточнение остаётся п�
 Не доставленный хвост при cancel/error очищается вместе с root
 цепочкой.
 
+Ожидающее сообщение можно изменить или удалить через app-server. Редактирование
+сохраняет `MessageId` и FIFO-позицию, повторно проверяет лимиты текста и общих
+байтов очереди. Изменение и извлечение для доставки используют один mutex:
+если сообщение уже извлечено, команда завершается ошибкой и не создаёт его
+повторно. События `SteeringEdited { message_id, text, queued_count }` и
+`SteeringRemoved { message_id, queued_count }` отражают эти действия в event log.
+Модель и canonical history получают только окончательный доставленный текст;
+удалённое сообщение не становится user history.
+
 Terminal app event публикуется до снятия finalization gate session. Поэтому
 новый `Send` не может стартовать в узком окне между settlement старого turn-а
 и его `TurnOutput`/`Error` и затем быть ошибочно очищен старым событием. Web
-показывает server-owned queued cards, удаляет карточку по
+показывает server-owned очередь над композером, обновляет текст по
+`SteeringEdited`, удаляет строку по `SteeringRemoved` или
 `SteeringDelivered`, а после reconnect восстанавливает остаток через
 `/pending` и transcript через `/history`.
 

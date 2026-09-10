@@ -267,6 +267,34 @@ fn web_decodes_contract_stdio_output_events() {
 }
 
 #[test]
+fn queued_message_commands_match_the_app_contract() {
+    let id = contract_domain::new_message_id();
+    let mut edit = endpoint_body(EditQueuedMessageRequest {
+        id: Some("queue-edit".into()),
+        session_dir: None,
+        message_id: id.to_string(),
+        text: "updated text".into(),
+    });
+    edit.as_object_mut().unwrap().remove("session_dir");
+    edit["type"] = json!("edit_queued_message");
+    let decoded: contract_protocol::StdioRequest = serde_json::from_value(edit).unwrap();
+    assert!(
+        matches!(decoded, contract_protocol::StdioRequest::EditQueuedMessage { message_id, text, .. } if message_id == id && text == "updated text")
+    );
+    let mut delete = endpoint_body(DeleteQueuedMessageRequest {
+        id: None,
+        session_dir: None,
+        message_id: id.to_string(),
+    });
+    delete.as_object_mut().unwrap().remove("session_dir");
+    delete["type"] = json!("delete_queued_message");
+    let decoded: contract_protocol::StdioRequest = serde_json::from_value(delete).unwrap();
+    assert!(
+        matches!(decoded, contract_protocol::StdioRequest::DeleteQueuedMessage { message_id, .. } if message_id == id)
+    );
+}
+
+#[test]
 fn web_decodes_contract_pending_requests() {
     let pending = contract_protocol::AppPendingRequests::new(
         vec![contract_approval_request()],

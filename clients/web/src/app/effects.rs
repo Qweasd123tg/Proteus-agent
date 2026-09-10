@@ -41,7 +41,6 @@ pub(super) fn install(state: AppState, router: AppRouter) {
         scroll_frame_pending,
         set_scroll_frame_pending,
         set_last_results_scroll_top,
-        set_active_user_message,
         activity_now_ms,
         set_activity_now_ms,
         detach_baseline,
@@ -50,7 +49,6 @@ pub(super) fn install(state: AppState, router: AppRouter) {
         resize,
         ..
     } = state.view;
-    let user_messages = state.user_messages;
     let is_chat_route = move || router.is_chat();
     let last_math_typeset_signature = StoredValue::new_local(None::<(u64, u64)>);
     let activity_tick_pending = StoredValue::new_local(false);
@@ -122,15 +120,6 @@ pub(super) fn install(state: AppState, router: AppRouter) {
     });
 
     resize.install_persistence_effects();
-
-    // Пока лента прилипла к низу, активным считаем последнее моё сообщение —
-    // скролл-обработчик мид-скролла переопределит это при подъёме вверх.
-    Effect::new(move |_| {
-        if stick_to_bottom.get() {
-            set_active_user_message
-                .set(user_messages.with(|items| items.last().map(|(id, _)| *id)));
-        }
-    });
 
     // Черновик композера привязан к сессии: восстанавливается после
     // переключения сессий и перезагрузки страницы.

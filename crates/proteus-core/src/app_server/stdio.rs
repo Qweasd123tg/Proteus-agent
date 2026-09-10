@@ -145,6 +145,30 @@ pub async fn run_stdio_app_server(
                     Err(error) => send_stdio_response(&output_tx, id, Err(error)).await,
                 }
             }
+            StdioRequest::EditQueuedMessage {
+                message_id, text, ..
+            } => {
+                send_stdio_response(
+                    &output_tx,
+                    id,
+                    server
+                        .edit_queued_user_message(message_id, text)
+                        .await
+                        .map(|_| None),
+                )
+                .await;
+            }
+            StdioRequest::DeleteQueuedMessage { message_id, .. } => {
+                send_stdio_response(
+                    &output_tx,
+                    id,
+                    server
+                        .delete_queued_user_message(message_id)
+                        .await
+                        .map(|_| None),
+                )
+                .await;
+            }
             StdioRequest::ClearHistory { .. } => {
                 send_stdio_response(&output_tx, id, server.clear_history().await.map(|_| None))
                     .await;

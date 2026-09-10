@@ -1,0 +1,87 @@
+/* Короткая шкала в поле слева от диалога. Hit area шире самого штриха. */
+.msg-nav {
+    position: absolute;
+    inset: 0 8px var(--composer-inset, 0px) 8px;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    pointer-events: none;
+}
+.msg-nav[hidden] { display: none; }
+.msg-nav-track {
+    display: flex;
+    flex-direction: column;
+    width: 32px;
+    height: calc(var(--message-count) * 10px);
+    max-height: min(280px, calc(100% - 40px));
+    pointer-events: auto;
+}
+.msg-nav-tick {
+    position: relative;
+    width: 32px;
+    height: 10px;
+    min-height: 0;
+    flex: 1 1 10px;
+    border: 0;
+    padding: 0;
+    border-radius: 3px;
+    background: transparent;
+    appearance: none;
+}
+.msg-nav-tick::before {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: calc(50% - 1px);
+    width: 6px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--text-faint);
+    opacity: .4;
+    transform: scaleX(calc(var(--tick-base, 1) + var(--tick-wave, 0)));
+    transform-origin: left center;
+    transition: transform 150ms cubic-bezier(.22, 1, .36, 1), opacity 150ms, background 150ms;
+}
+.msg-nav-tick.is-visible { --tick-base: 1.6; }
+.msg-nav.dense .msg-nav-tick::before { height: 1px; top: calc(50% - .5px); }
+.msg-nav-tick.is-visible::before { background: var(--text-main); opacity: .85; }
+.msg-nav-tick.is-previewed::before,
+.msg-nav-tick:focus-visible::before { background: var(--text-main); opacity: 1; }
+.msg-nav-tick:hover { background: transparent; }
+.msg-nav-preview {
+    position: absolute;
+    left: 40px;
+    top: var(--preview-y, 50%);
+    width: 320px;
+    max-width: calc(100% - 52px);
+    padding: 10px 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 14px;
+    background: var(--bg-panel-soft);
+    color: var(--text-muted);
+    box-shadow: var(--shadow-md);
+    font-size: 13px;
+    line-height: 20px;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    opacity: 0;
+    visibility: hidden;
+    transform: translate(-4px, -50%);
+    transition: opacity 120ms, transform 120ms, visibility 120ms;
+}
+.msg-nav-preview p {
+    margin: 0;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+}
+.msg-nav.preview-open .msg-nav-preview {
+    opacity: 1;
+    visibility: visible;
+    transform: translate(0, -50%);
+}
+@media (max-width: 620px) {
+    .msg-nav { left: 0; }
+    .msg-nav-preview { left: 34px; }
+}

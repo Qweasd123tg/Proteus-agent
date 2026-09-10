@@ -26,6 +26,21 @@ pub(crate) fn StopIcon() -> impl IntoView {
 }
 
 #[component]
+pub(crate) fn QueueIcon() -> impl IntoView {
+    view! { <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4v10a4 4 0 0 0 4 4h10m-4-4 4 4-4 4M10 5h7M10 9h5" /></svg> }
+}
+
+#[component]
+pub(crate) fn EditIcon() -> impl IntoView {
+    view! { <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 5 4 4M4 20l5-1L20 8a2.8 2.8 0 0 0-4-4L5 15l-1 5Z" /></svg> }
+}
+
+#[component]
+pub(crate) fn TrashIcon() -> impl IntoView {
+    view! { <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5m4-5v5" /></svg> }
+}
+
+#[component]
 pub(crate) fn ShieldIcon() -> impl IntoView {
     view! { <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z" /><path d="m8.5 12 2.5 2.5 4.5-5" /></svg> }
 }

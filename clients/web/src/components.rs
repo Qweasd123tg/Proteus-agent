@@ -10,7 +10,9 @@ pub(crate) mod header;
 mod icons;
 mod info_panel;
 mod message;
+mod message_nav;
 pub(crate) mod panel;
+mod queued_prompts;
 mod resume;
 mod settings;
 mod sidebar;
@@ -21,11 +23,10 @@ pub(crate) use approval::{ApprovalCard, UserInputCard};
 pub(crate) use chat_results::ChatResultsView;
 pub(crate) use composer::ComposerView;
 pub(crate) use context_map::ContextMapView;
-pub(crate) use controls::{
-    MessageNav, PlanActionsCard, QueuedPromptCard, ToastStack, WorkingCard, format_token_count,
-};
+pub(crate) use controls::{PlanActionsCard, ToastStack, WorkingCard, format_token_count};
 pub(crate) use info_panel::InfoPanelView;
 pub(crate) use message::MessageView;
+pub(crate) use message_nav::MessageNav;
 pub(crate) use resume::ResumeView;
 pub(crate) use settings::SettingsView;
 pub(crate) use sidebar::SidebarView;

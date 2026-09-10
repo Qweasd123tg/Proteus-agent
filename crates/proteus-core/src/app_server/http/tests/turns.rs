@@ -120,6 +120,50 @@ async fn route_send_async_queues_second_message_for_same_session() {
     let pending = server.pending_requests().await;
     assert_eq!(pending.queued_user_messages.len(), 1);
     assert_eq!(pending.queued_user_messages[0].text, "hello");
+    let message_id = pending.queued_user_messages[0].message_id;
+    let edit = route_request(
+        state.clone(),
+        authed_json_request(
+            "/queue/edit",
+            json!({
+                "id": "edit-queued", "message_id": message_id, "text": "updated hello",
+                "session_dir": server.session_dir_path(),
+            }),
+        ),
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        response_output(edit).await,
+        StdioOutput::Response { ok: true, .. }
+    ));
+    let updated = server.pending_requests().await;
+    assert_eq!(updated.queued_user_messages[0].message_id, message_id);
+    assert_eq!(updated.queued_user_messages[0].text, "updated hello");
+    let delete = route_request(state.clone(), authed_json_request("/queue/delete", json!({
+        "id": "delete-queued", "message_id": message_id, "session_dir": server.session_dir_path(),
+    }))).await.unwrap();
+    assert!(matches!(
+        response_output(delete).await,
+        StdioOutput::Response { ok: true, .. }
+    ));
+    assert!(
+        server
+            .pending_requests()
+            .await
+            .queued_user_messages
+            .is_empty()
+    );
+    let late = execute_app_request(
+        &state,
+        StdioRequest::EditQueuedMessage {
+            id: None,
+            message_id,
+            text: "too late".into(),
+        },
+    )
+    .await;
+    assert!(matches!(late, StdioOutput::Response { ok: false, .. }));
 
     existing_cancellation.cancel();
     let _ = tokio::time::timeout(Duration::from_secs(2), existing_receiver).await;

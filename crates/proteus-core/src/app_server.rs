@@ -35,6 +35,7 @@ pub mod http;
 mod model_metadata;
 mod model_selection;
 mod path_utils;
+mod queued_messages;
 pub mod stdio;
 mod transcript;
 mod turn_progress;

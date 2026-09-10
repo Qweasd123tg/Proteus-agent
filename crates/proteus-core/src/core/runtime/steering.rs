@@ -32,6 +32,7 @@ use crate::{
     },
 };
 
+mod commands;
 mod weave;
 
 #[cfg(test)]

@@ -5,6 +5,7 @@ use super::{
     composer_access_menu::ComposerAccessMenu,
     composer_model_menu::ComposerModelMenu,
     icons::{ArrowUpIcon, StopIcon},
+    queued_prompts::QueuedPrompts,
 };
 use crate::{actions::AppActions, types::*};
 
@@ -22,6 +23,7 @@ pub(crate) fn ComposerView<S, K, T, DE, NB>(
     effort_options: ReadSignal<Vec<String>>,
     is_sending: ReadSignal<bool>,
     active_run_id: ReadSignal<Option<String>>,
+    queued_prompts: ReadSignal<Vec<QueuedPromptInfo>>,
     stick_to_bottom: ReadSignal<bool>,
     set_stick_to_bottom: WriteSignal<bool>,
     actions: AppActions,
@@ -52,6 +54,7 @@ where
     };
     view! {
         <form class="composer" node_ref=dock_ref on:submit=on_submit>
+            <QueuedPrompts items=queued_prompts actions />
             <Show when=move || !stick_to_bottom.get()>
                 <button type="button"
                     class="jump-to-bottom" class:has-count=move || { new_below_count() > 0 }

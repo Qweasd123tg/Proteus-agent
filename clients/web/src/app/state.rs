@@ -18,7 +18,7 @@ impl AppState {
                 items
                     .iter()
                     .filter(|m| m.role == MessageRole::User)
-                    .map(|m| (m.id, crate::ui_utils::compact_text(m.text.trim(), 80)))
+                    .map(|m| (m.id, crate::ui_utils::compact_text(m.text.trim(), 240)))
                     .collect()
             })
         });
@@ -220,8 +220,6 @@ pub(super) struct ViewState {
     pub set_scroll_frame_pending: WriteSignal<bool>,
     pub last_results_scroll_top: ReadSignal<i32>,
     pub set_last_results_scroll_top: WriteSignal<i32>,
-    pub active_user_message: ReadSignal<Option<u64>>,
-    pub set_active_user_message: WriteSignal<Option<u64>>,
     pub tool_cards_collapsed: ReadSignal<bool>,
     pub set_tool_cards_collapsed: WriteSignal<bool>,
     pub activity_now_ms: ReadSignal<u64>,
@@ -240,7 +238,6 @@ impl ViewState {
         let (stick_to_bottom, set_stick_to_bottom) = signal(true);
         let (scroll_frame_pending, set_scroll_frame_pending) = signal(false);
         let (last_results_scroll_top, set_last_results_scroll_top) = signal(0);
-        let (active_user_message, set_active_user_message) = signal(None);
         let (tool_cards_collapsed, set_tool_cards_collapsed) = signal(false);
         let (activity_now_ms, set_activity_now_ms) = signal(js_sys::Date::now().max(0.0) as u64);
         let (detach_baseline, set_detach_baseline) = signal(None);
@@ -260,8 +257,6 @@ impl ViewState {
             set_scroll_frame_pending,
             last_results_scroll_top,
             set_last_results_scroll_top,
-            active_user_message,
-            set_active_user_message,
             tool_cards_collapsed,
             set_tool_cards_collapsed,
             activity_now_ms,

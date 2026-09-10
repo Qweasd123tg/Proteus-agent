@@ -49,8 +49,6 @@ pub(super) fn AppShell(
         set_stick_to_bottom,
         last_results_scroll_top,
         set_last_results_scroll_top,
-        active_user_message,
-        set_active_user_message,
         tool_cards_collapsed,
         set_tool_cards_collapsed,
         activity_now_ms,
@@ -166,8 +164,6 @@ pub(super) fn AppShell(
                                 set_stick_to_bottom
                                 last_results_scroll_top
                                 set_last_results_scroll_top
-                                user_messages
-                                set_active_user_message
                                 messages
                                 activity_now_ms
                                 pending_approvals
@@ -184,6 +180,7 @@ pub(super) fn AppShell(
                             />
 
                             <ComposerView
+                                queued_prompts
                                 composer_ref
                                 draft
                                 set_draft
@@ -214,7 +211,6 @@ pub(super) fn AppShell(
 
                             <MessageNav
                                 items=user_messages
-                                active=active_user_message
                                 on_jump=move |value| commands.jump_to_message.run(value)
                             />
                         }.into_any()

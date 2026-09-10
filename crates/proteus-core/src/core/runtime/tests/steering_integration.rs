@@ -293,7 +293,7 @@ async fn queued_message_is_delivered_before_model_call_after_tool_boundary() {
     workflow.first_response_received.notified().await;
 
     let receipt = match runtime
-        .reserve_user_message("steer now".to_owned())
+        .reserve_user_message("before edit".to_owned())
         .await
         .expect("queue steering")
     {
@@ -302,6 +302,26 @@ async fn queued_message_is_delivered_before_model_call_after_tool_boundary() {
     };
     assert_eq!(receipt.active_turn_id, initial_turn_id);
     assert_eq!(receipt.queued_count, 1);
+    let removed = match runtime
+        .reserve_user_message("discard this".into())
+        .await
+        .unwrap()
+    {
+        UserMessageReservation::Queued(receipt) => receipt,
+        _ => panic!("active runtime must queue"),
+    };
+    runtime
+        .edit_queued_user_message(receipt.message_id, "steer now".into())
+        .await
+        .unwrap();
+    runtime
+        .delete_queued_user_message(removed.message_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        runtime.queued_user_messages().await,
+        vec![(receipt.message_id, "steer now".into())]
+    );
     workflow.continue_second_request.notify_one();
 
     let output = running.await.expect("join").expect("turn output");
@@ -332,6 +352,19 @@ async fn queued_message_is_delivered_before_model_call_after_tool_boundary() {
         ]
     );
     assert_eq!(message_text_for_test(&history[3]), "steer now");
+    assert_eq!(history[3].id, receipt.message_id);
+    assert!(
+        runtime
+            .edit_queued_user_message(receipt.message_id, "too late".into())
+            .await
+            .is_err()
+    );
+    assert!(
+        runtime
+            .delete_queued_user_message(receipt.message_id)
+            .await
+            .is_err()
+    );
 
     let events = event_sink.events.lock().await;
     let queued = events
@@ -353,6 +386,8 @@ async fn queued_message_is_delivered_before_model_call_after_tool_boundary() {
     assert_eq!(queued.turn_id, Some(initial_turn_id));
     assert_eq!(delivered.turn_id, Some(initial_turn_id));
     assert!(queued.seq < delivered.seq);
+    assert!(events.iter().any(|event| matches!(&event.event, Event::SteeringEdited { message_id, text, .. } if *message_id == receipt.message_id && text == "steer now")));
+    assert!(events.iter().any(|event| matches!(&event.event, Event::SteeringRemoved { message_id, .. } if *message_id == removed.message_id)));
 }
 
 #[tokio::test]
@@ -570,9 +605,14 @@ async fn terminal_completion_holds_next_reservation_until_transport_publishes() 
 #[tokio::test]
 async fn queued_message_without_tool_boundary_runs_as_followup_turn() {
     let cwd = tempfile::tempdir().expect("temp dir");
+    let config_root = tempfile::tempdir().expect("config root");
+    let config_path = config_root.path().join("configs/config.toml");
+    let mut config = crate::test_model::config();
+    crate::test_support::select_test_modules(&mut config, "coding.single_loop");
     let event_sink = Arc::new(RuntimeEventSink::default());
     let runtime = Arc::new(
-        AgentRuntime::builder(AppConfig::default(), cwd.path().to_path_buf())
+        AgentRuntime::builder(config.clone(), cwd.path().to_path_buf())
+            .with_config_path(Some(&config_path))
             .with_module_catalog(test_catalog())
             .with_event_sink(event_sink.clone())
             .build()
@@ -603,7 +643,7 @@ async fn queued_message_without_tool_boundary_runs_as_followup_turn() {
     });
     workflow.first_started.notified().await;
     let receipt = match runtime
-        .reserve_user_message("later".to_owned())
+        .reserve_user_message("before edit".to_owned())
         .await
         .expect("queue follow-up")
     {
@@ -612,6 +652,10 @@ async fn queued_message_without_tool_boundary_runs_as_followup_turn() {
     };
     assert_eq!(receipt.active_turn_id, first_turn_id);
     assert_eq!(runtime.queued_user_messages().await.len(), 1);
+    runtime
+        .edit_queued_user_message(receipt.message_id, "later".into())
+        .await
+        .unwrap();
     workflow.continue_first.notify_one();
 
     running.await.expect("join").expect("turn chain");
@@ -641,4 +685,20 @@ async fn queued_message_without_tool_boundary_runs_as_followup_turn() {
         .expect("follow-up delivery event");
     assert_ne!(delivered.turn_id, Some(first_turn_id));
     assert_eq!(delivered.thread_id, runtime.session.thread_id);
+    let replay_turn_id = delivered.turn_id;
+    drop(events);
+    let mut catalog = test_catalog();
+    catalog.register_test_workflow("coding.single_loop", workflow);
+    let replay = crate::core::replay_workflow(
+        runtime.session_dir().expect("recorded session"),
+        &config,
+        &catalog,
+        crate::core::WorkflowReplayOptions {
+            turn_id: replay_turn_id,
+        },
+    )
+    .await
+    .expect("edited follow-up replay");
+    assert!(replay.comparison.matched, "{:?}", replay.comparison.issues);
+    assert!(replay.source_journal_unchanged);
 }

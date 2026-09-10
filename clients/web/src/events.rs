@@ -2,6 +2,7 @@ mod connection;
 mod control_plane;
 pub(crate) use connection::{EventConnection, close_event_stream, reconnect_event_stream};
 use control_plane::refresh_pending_control_plane;
+mod queue;
 mod runtime;
 mod stream;
 

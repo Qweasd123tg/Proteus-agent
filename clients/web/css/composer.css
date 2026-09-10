@@ -22,7 +22,7 @@
 .composer-shell:focus-within { border-color: var(--text-faint); }
 .composer-input { position: relative; }
 .composer-measure,
-.composer textarea {
+.composer-input textarea {
     padding: 16px 18px 12px;
     font-family: var(--font-sans);
     font-size: 14px;
@@ -39,7 +39,7 @@
     overflow: hidden;
     pointer-events: none;
 }
-.composer textarea {
+.composer-input textarea {
     position: absolute;
     inset: 0;
     width: 100%;
@@ -53,7 +53,7 @@
     resize: none;
     box-shadow: none;
 }
-.composer textarea:focus-visible { outline: none; }
+.composer-input textarea:focus-visible { outline: none; }
 .composer-toolbar {
     position: relative;
     display: flex;

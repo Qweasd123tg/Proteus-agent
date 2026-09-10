@@ -13,6 +13,21 @@ pub(crate) struct SendRequest {
 }
 
 #[derive(Debug, Serialize)]
+pub(crate) struct EditQueuedMessageRequest {
+    pub(crate) id: Option<String>,
+    pub(crate) session_dir: Option<String>,
+    pub(crate) message_id: String,
+    pub(crate) text: String,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct DeleteQueuedMessageRequest {
+    pub(crate) id: Option<String>,
+    pub(crate) session_dir: Option<String>,
+    pub(crate) message_id: String,
+}
+
+#[derive(Debug, Serialize)]
 pub(crate) struct SetPermissionModeRequest {
     pub(crate) id: Option<String>,
     pub(crate) mode: PermissionMode,

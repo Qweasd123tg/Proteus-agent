@@ -190,6 +190,17 @@ pub enum Event {
         text: String,
         queued_count: usize,
     },
+    /// Изменён текст ещё не доставленного сообщения, id и порядок сохранены.
+    SteeringEdited {
+        message_id: MessageId,
+        text: String,
+        queued_count: usize,
+    },
+    /// Сообщение удалено из очереди до доставки модели.
+    SteeringRemoved {
+        message_id: MessageId,
+        queued_count: usize,
+    },
     /// Очередное сообщение доставлено модели как обычное user-attributed
     /// сообщение. `kind` фиксирует, попало ли оно в текущий turn или открыло
     /// следующий после settlement.

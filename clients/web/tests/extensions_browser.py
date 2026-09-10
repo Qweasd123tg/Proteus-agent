@@ -8,6 +8,7 @@ import base64
 from extensions_checks import run as check_extensions
 from layout_checks import run as check_layout
 from session_checks import run as check_session, BOOTSTRAP
+from queue_checks import run as check_queue
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -69,6 +70,8 @@ class Assets(SimpleHTTPRequestHandler):
         self.rfile.read(int(self.headers.get('Content-Length', 0)))
         count = getattr(self.server, 'model_requests', 0)
         self.server.model_requests = count + 1
+        if not self.server.model_gate.wait(timeout=60):
+            raise AssertionError('Queue fixture held the model request too long')
         if count == 0:
             output = [{"type":"function_call","call_id":"ui-plan","name":"update_plan","arguments":json.dumps({"plan":[{"step":"Проверить панели","status":"completed"},{"step":"Проверить настройки","status":"completed"}]})}]
         else:
@@ -158,6 +161,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix='proteus-ui-extensions-') as temporary:
         folder = Path(temporary)
         server = ThreadingHTTPServer(('127.0.0.1', 0), partial(Assets, directory=str(ROOT / 'clients/web/dist')))
+        server.model_gate = threading.Event()
+        server.model_gate.set()
         threading.Thread(target=server.serve_forever, daemon=True).start()
         web = f'http://127.0.0.1:{server.server_port}'
         auth = folder / 'fixture-auth.json'
@@ -230,6 +235,7 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                 screenshot = request(url + '/screenshot')['value']
                 Path('/tmp/proteus-ui-extensions.png').write_bytes(base64.b64decode(screenshot))
                 check_session(command, js, wait_for, web, origin, loaded)
+                check_queue(command, js, wait_for, server)
                 stop(backend)
                 js("document.querySelector('[data-extension-id=model-quota] .extension-panel-content').shadowRoot.querySelector('button').click()")
                 wait_for(lambda: js("const root=document.querySelector('[data-extension-id=model-quota] .extension-panel-content').shadowRoot; return root.textContent.includes('Не удалось получить лимиты') && root.querySelectorAll('progress').length === 0"), 'Quota error retained old balances')

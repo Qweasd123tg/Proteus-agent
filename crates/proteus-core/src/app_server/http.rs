@@ -20,6 +20,7 @@ use super::{AgentAppServer, AppServerEvent, AppServerHandle, AppSessionActivity,
 
 mod commands;
 mod config;
+mod queued_messages;
 mod requests;
 mod responses;
 mod security;
@@ -255,6 +256,24 @@ where
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
+        (Method::POST, "/queue/edit") => {
+            match read_json::<queued_messages::EditQueuedMessageRequest, _>(request).await {
+                Ok(command) => json_response(
+                    StatusCode::OK,
+                    &queued_messages::edit(&state, command).await,
+                ),
+                Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
+            }
+        }
+        (Method::POST, "/queue/delete") => {
+            match read_json::<queued_messages::DeleteQueuedMessageRequest, _>(request).await {
+                Ok(command) => json_response(
+                    StatusCode::OK,
+                    &queued_messages::delete(&state, command).await,
+                ),
+                Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
+            }
+        }
         (Method::POST, "/approval") => match read_json::<ApprovalRequest, _>(request).await {
             Ok(command) => {
                 let output = execute_app_request(

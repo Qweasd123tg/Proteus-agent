@@ -1,5 +1,6 @@
 """Client-owned state on real streaming, reconnect and a loaded transcript."""
 from urllib.parse import urlencode
+from message_nav_checks import run as check_message_nav
 
 # Runs before the compiled client. Only history is substituted; commands/SSE use the agent.
 BOOTSTRAP = r'''<script>
@@ -37,6 +38,7 @@ def run(command, js, wait_for, web, origin, loaded):
         wait_for(lambda: js("return document.querySelector('.connection-badge').classList.contains('completed')"), 'Reconnect failed')
         wait_for(lambda: js('return fixtureHistoryReads') > before_reads, 'Manual reconnect did not resync history')
     assert js("return fixtureSources.length===4 && fixtureSources.slice(0,-1).every(s=>s.readyState===2 && s.outputHandlers.size===0 && !s.onopen && !s.onerror) && fixtureSources.at(-1).outputHandlers.size===1"), 'Reconnect retained old event handlers'
+    check_message_nav(command, js, wait_for)
     js("window.oldCard=document.querySelector('.results-panel .task-card');window.oldMutations=0;window.oldObserver=new MutationObserver(records=>window.oldMutations+=records.length);oldObserver.observe(oldCard,{subtree:true,childList:true,characterData:true});const area=document.querySelector('.composer textarea');area.value='Проверь поток';area.dispatchEvent(new Event('input',{bubbles:true}))")
     wait_for(lambda: js("return !document.querySelector('.composer-submit').disabled"), 'Draft did not enable submit')
     js("document.querySelector('.composer-submit').click()")

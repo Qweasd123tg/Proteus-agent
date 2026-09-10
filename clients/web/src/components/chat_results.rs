@@ -3,10 +3,8 @@ use std::collections::HashMap;
 use leptos::{html, prelude::*};
 use web_sys::WheelEvent;
 
-use super::{
-    ApprovalCard, MessageView, PlanActionsCard, QueuedPromptCard, UserInputCard, WorkingCard,
-};
-use crate::chat_scroll::{CHAT_REATTACH_THRESHOLD_PX, active_user_message_id, is_at_bottom};
+use super::{ApprovalCard, MessageView, PlanActionsCard, UserInputCard, WorkingCard};
+use crate::chat_scroll::{CHAT_REATTACH_THRESHOLD_PX, is_at_bottom};
 use crate::types::*;
 
 #[component]
@@ -17,8 +15,6 @@ pub(crate) fn ChatResultsView<A, I, R, E, X>(
     set_stick_to_bottom: WriteSignal<bool>,
     last_results_scroll_top: ReadSignal<i32>,
     set_last_results_scroll_top: WriteSignal<i32>,
-    user_messages: Memo<Vec<(u64, String)>>,
-    set_active_user_message: WriteSignal<Option<u64>>,
     messages: crate::transcript::Transcript,
     activity_now_ms: ReadSignal<u64>,
     pending_approvals: ReadSignal<Vec<ApprovalRequestInfo>>,
@@ -64,11 +60,7 @@ where
                         set_stick_to_bottom.set(false);
                     }
                     set_last_results_scroll_top.set(scroll_top);
-                    let container_top = results.get_bounding_client_rect().top();
-                    set_active_user_message.set(active_user_message_id(
-                        &user_messages.get_untracked(),
-                        container_top,
-                    ));
+
                 }
             }
         >
@@ -136,13 +128,6 @@ where
                     ().into_any()
                 }
             }}
-            <For
-                each=move || queued_prompts.get()
-                key=|queued| queued.message_id.clone()
-                children=move |queued| {
-                    view! { <QueuedPromptCard text=queued.text /> }
-                }
-            />
 
             {move || {
                 if is_sending.get()

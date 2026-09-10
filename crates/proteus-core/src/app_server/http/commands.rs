@@ -24,6 +24,23 @@ pub(super) async fn execute_app_request(
     let id = request.id();
     let result = match request {
         StdioRequest::Send { id, text } => execute_send(state, id, text, None).await.map(Some),
+        StdioRequest::EditQueuedMessage {
+            message_id, text, ..
+        } => state
+            .current_server()
+            .await
+            .edit_queued_user_message(message_id, text)
+            .await
+            .map(|_| None),
+        StdioRequest::DeleteQueuedMessage { message_id, .. } => {
+            let server = state.current_server().await;
+            let result = server
+                .delete_queued_user_message(message_id)
+                .await
+                .map(|_| None);
+            state.emit_session_activity_for_server(&server).await;
+            result
+        }
         StdioRequest::ClearHistory { .. } => state
             .current_server()
             .await
