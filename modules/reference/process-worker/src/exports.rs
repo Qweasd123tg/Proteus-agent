@@ -151,7 +151,7 @@ impl ExportWorker {
     fn model(&self, method: &str, params: Value, bridge: &HostBridge) -> Result<Value> {
         use proteus_contracts::contracts::{
             PROCESS_MODEL_CATALOG_METHOD, PROCESS_MODEL_DESCRIBE_METHOD,
-            PROCESS_MODEL_STREAM_METHOD,
+            PROCESS_MODEL_QUOTA_METHOD, PROCESS_MODEL_STREAM_METHOD,
         };
         let model = self
             .modules
@@ -170,6 +170,12 @@ impl ExportWorker {
                     bail!("model catalog params must be null");
                 }
                 encode(model.catalog(&crate::hosts::ModelHostBridge(bridge.clone()))?)
+            }
+            PROCESS_MODEL_QUOTA_METHOD => {
+                if !params.is_null() {
+                    bail!("model quota params must be null");
+                }
+                encode(model.quota(&crate::hosts::ModelHostBridge(bridge.clone()))?)
             }
             PROCESS_MODEL_STREAM_METHOD => {
                 let input = decode(params)?;

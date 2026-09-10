@@ -25,6 +25,12 @@ pub trait Model: Send + Sync {
         Ok(None)
     }
 
+    /// Read account quota for the configured provider export. None means this
+    /// provider does not expose quota discovery; it never means unlimited use.
+    async fn quota(&self) -> Result<Option<super::ModelQuotaSnapshot>> {
+        Ok(None)
+    }
+
     /// Configured provider-hosted tool instances for this model. The default
     /// keeps providers without hosted execution unchanged.
     fn provider_hosted_tools(&self, _model: &ModelRef) -> Vec<ToolSpec> {

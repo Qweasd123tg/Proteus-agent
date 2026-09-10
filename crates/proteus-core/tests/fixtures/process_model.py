@@ -1,4 +1,4 @@
-"""Non-Rust model/v8 boundary fixture; all test behavior is export-configured."""
+"""Non-Rust model/v9 boundary fixture; all test behavior is export-configured."""
 import os
 import sys
 import threading
@@ -16,8 +16,8 @@ def initialize(params):
         raise ProtocolError("expected component v3")
     exports = []
     for export in params["exports"]:
-        if (export["slot"], export["contract_version"], export["composition"]) != ("model", "v8", "select_one"):
-            raise ProtocolError("expected model/v8 select_one")
+        if (export["slot"], export["contract_version"], export["composition"]) != ("model", "v9", "select_one"):
+            raise ProtocolError("expected model/v9 select_one")
         settings[export["module_id"]] = export["module_config"]
         if "pid_marker" in export["module_config"]:
             with Path(export["module_config"]["pid_marker"]).open("a") as file:
@@ -37,6 +37,17 @@ def invoke(context, method, params):
         if params is not None:
             raise ProtocolError("catalog expects null")
         return config.get("catalog")
+    if method == "quota":
+        if params is not None:
+            raise ProtocolError("quota expects null")
+        if config.get("quota_wait"):
+            marker = Path(config["quota_marker"])
+            marker.write_text("started")
+            context.on_cancel(lambda: marker.write_text("canceled"))
+            while not context.is_cancelled():
+                time.sleep(0.005)
+            context.ensure_active()
+        return config.get("quota")
     if method != "stream" or set(params) != {"request", "stream"}:
         raise ProtocolError("invalid model request")
     if "expected_input" in config and params != config["expected_input"]:

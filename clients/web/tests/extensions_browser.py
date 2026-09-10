@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real Firefox + built Leptos + isolated fake-model app-server. No live account.
+"""Real Firefox + built Leptos + isolated subscription app-server + loopback provider. No live account.
 
 Requires Firefox and geckodriver (PATH or GECKODRIVER). Only stdlib Python.
 Run after trunk build and cargo build -p proteus-core -p proteus-reference-worker.
@@ -60,7 +60,23 @@ class Assets(SimpleHTTPRequestHandler):
         pass
 
     def do_GET(self):
-        if self.path.startswith('/fixture/'):
+        if self.path.startswith('/models?') or self.path == '/wham/usage':
+            assert self.headers.get('Authorization') == 'Bearer fixture-access'
+            assert self.headers.get('ChatGPT-Account-Id') == 'fixture-account'
+            if self.path.startswith('/models?'):
+                data = {"models": [{"slug": "fixture-model", "display_name": "Fixture", "visibility": "list", "priority": 0, "supported_reasoning_levels": []}]}
+            else:
+                data = {"plan_type": "plus", "rate_limit": {"allowed": True, "limit_reached": False,
+                    "primary_window": {"used_percent": 27, "limit_window_seconds": 18000, "reset_at": int(time.time()) + 3600},
+                    "secondary_window": {"used_percent": 63, "limit_window_seconds": 604800, "reset_at": int(time.time()) + 86400}},
+                    "additional_rate_limits": [{"metered_feature": "review", "limit_name": "Code review", "rate_limit": {
+                        "allowed": False, "limit_reached": True, "primary_window": {"used_percent": 105, "limit_window_seconds": 900, "reset_at": int(time.time()) - 1}}}],
+                    "credits": {"has_credits": True, "unlimited": False, "balance": "12.50"}}
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(data).encode())
+        elif self.path.startswith('/fixture/'):
             self.send_response(200)
             if self.path.endswith('extension.json'):
                 slow = '/slow/' in self.path
@@ -104,23 +120,24 @@ def main():
     assert driver_binary, 'Set GECKODRIVER or install geckodriver on PATH'
     with tempfile.TemporaryDirectory(prefix='proteus-ui-extensions-') as temporary:
         folder = Path(temporary)
-        config = folder / 'fake.toml'
-        config.write_text('''active_provider = "fake"
-[profile]
-name = "extensions-smoke"
-[providers.fake]
-provider = "fake"
-model = "fake-model"
-[components.model]
-command = "proteus-reference-worker"
-[components.model.exports.model.fake]
-[module_config.model.fake]
-implementation = "fake"
-[event_log]
-path = ''' + json.dumps(str(folder / 'events.jsonl')) + '\n')
         server = ThreadingHTTPServer(('127.0.0.1', 0), partial(Assets, directory=str(ROOT / 'clients/web/dist')))
         threading.Thread(target=server.serve_forever, daemon=True).start()
         web = f'http://127.0.0.1:{server.server_port}'
+        auth = folder / 'fixture-auth.json'
+        auth.write_text(json.dumps({"access_token": "fixture-access", "refresh_token": "fixture-refresh", "account_id": "fixture-account", "expires_at": 9000000000}))
+        config = folder / 'subscription.toml'
+        config.write_text('''active_provider = "subscription"
+[profile]
+name = "extensions-smoke"
+[providers.subscription]
+provider = "custom-model"
+model = "fixture-model"
+[components.model]
+command = "proteus-reference-worker"
+[components.model.exports.model.custom-model]
+[module_config.model.custom-model]
+implementation = "openai_codex"
+base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/usage') + '\nauth_file = ' + json.dumps(str(auth)) + '\n[event_log]\npath = ' + json.dumps(str(folder / 'events.jsonl')) + '\n')
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0))
             driver_port = sock.getsockname()[1]
@@ -161,8 +178,20 @@ path = ''' + json.dumps(str(folder / 'events.jsonl')) + '\n')
                 def loaded():
                     return js("return document.querySelector('[data-extension-id=agent-info] .extension-panel-content')?.shadowRoot?.textContent.includes('extensions-smoke')")
                 command('/window/rect', {'width': 1440, 'height': 1000})
+                command('/url', {'url': web + '/standalone.html'})
+                # An existing customized list must gain access to new bundled packages
+                # without resetting order or silently installing them.
+                js("localStorage.setItem('proteus.ui.extensions', JSON.stringify({apiVersion:1,panels:[{id:'agent-info',url:location.origin+'/extensions/agent-info/extension.json',enabled:true,collapsed:false},{id:'notes',url:location.origin+'/extensions/notes/extension.json',enabled:false,collapsed:false}]}))")
                 command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
                 wait_for(loaded, 'Actual Leptos transport did not deliver authenticated /config to the extension')
+                wait_for(lambda: js("return !!document.querySelector('[data-extension-available=model-quota]')"), 'New bundled panel was not offered to existing settings')
+                assert js("return !document.querySelector('[data-extension-id=model-quota]')"), 'Customized settings were changed silently'
+                js("document.querySelector('.extension-manager').open = true; document.querySelector('[data-extension-available=model-quota]').click()")
+                def quota_loaded():
+                    return js("return document.querySelector('[data-extension-id=model-quota] .extension-panel-content')?.shadowRoot?.textContent.includes('73% осталось')")
+                wait_for(quota_loaded, 'Quota did not cross provider, worker, Core, authenticated HTTP and Leptos transport')
+                assert js("const root=document.querySelector('[data-extension-id=model-quota] .extension-panel-content').shadowRoot; return root.textContent.includes('37% осталось') && root.textContent.includes('0% осталось') && root.textContent.includes('15 мин') && root.textContent.includes('Лимит исчерпан') && root.textContent.includes('ожидаем новые данные') && root.textContent.includes('12.50') && !root.textContent.includes('fixture-account') && root.querySelectorAll('progress').length === 3")
+
                 js("if (!document.querySelector('.info-panel.open')) document.querySelector('.info-panel-header button').click(); document.querySelector('.extension-manager').open = true; document.querySelector('[data-extension-choice=notes] input').click()")
                 wait_for(lambda: js("return !!document.querySelector('[data-extension-id=notes] .extension-panel-content')?.shadowRoot?.querySelector('textarea')"), 'Notes did not mount')
                 js("const area = document.querySelector('[data-extension-id=notes] .extension-panel-content').shadowRoot.querySelector('textarea'); area.value = 'Моя заметка'; area.dispatchEvent(new Event('input')); document.querySelector('[aria-label=\"Выше: Заметки\"]').click()")
@@ -203,13 +232,18 @@ path = ''' + json.dumps(str(folder / 'events.jsonl')) + '\n')
                 assert js("return !!document.querySelector('[data-extension-id=notes] .extension-panel-content').shadowRoot.querySelector('textarea')")
                 command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
                 wait_for(loaded, 'Final client reload failed')
+                wait_for(quota_loaded, 'Quota panel did not survive reload')
+                js("document.querySelector('.extension-manager').open = false; for (const id of ['agent-info','notes']) { const title=document.querySelector(`[data-extension-id=${id}] .extension-panel-title`); if (title?.getAttribute('aria-expanded') === 'true') title.click(); }")
                 for width in [900, 640, 390]:
                     command('/window/rect', {'width': width, 'height': 1000})
                     assert js('return document.documentElement.scrollWidth <= window.innerWidth'), f'Horizontal overflow at {width}px'
                 command('/window/rect', {'width': 1440, 'height': 1000})
                 screenshot = request(url + '/screenshot')['value']
                 Path('/tmp/proteus-ui-extensions.png').write_bytes(base64.b64decode(screenshot))
-                print('PASS: real Leptos + authenticated agent API; local notes and order survive reload; external package install and lifecycle; independent host without agent')
+                stop(backend)
+                js("document.querySelector('[data-extension-id=model-quota] .extension-panel-content').shadowRoot.querySelector('button').click()")
+                wait_for(lambda: js("const root=document.querySelector('[data-extension-id=model-quota] .extension-panel-content').shadowRoot; return root.textContent.includes('Не удалось получить лимиты') && root.querySelectorAll('progress').length === 0"), 'Quota error retained old balances')
+                print('PASS: quota windows, exhausted/overage/reset states, API error without stale balance, existing settings discover new panels; real Leptos + authenticated agent API; local notes and order survive reload; external package install and lifecycle; independent host without agent')
             except Exception:
                 for log in [backend_log, browser_log]:
                     log.flush(); log.seek(0); print(log.read()[-5000:])

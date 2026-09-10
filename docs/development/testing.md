@@ -726,9 +726,20 @@ Checklist:
 
 Если применимая проверка не запускалась, это указывается в handoff с причиной.
 
-### Каталог Моделей И Effort
+### Метаданные Модели: Каталог, Effort И Квота
 
-`model/v8` отделяет immutable descriptor от живого `catalog(null)`. Provider
+`quota(null)` проверяется provider fixtures `model-pack codex_quota`: OAuth GET,
+все группы/окна/credits, coalescing, однократный 401 refresh, 429 без stale/body
+leak и malformed response. `model_process::quota` проверяет другой язык и
+произвольные module ids, `null`, strict shape/value validation и cancel после
+Drop lookup. `model_exports` проверяет реальный reference worker до Core.
+HTTP tests проверяют auth и `null`; browser smoke из
+[ui-extensions.md](../guides/ui-extensions.md#проверка) проводит fixture через
+HTTP/Leptos до панели и проверяет состояния/потерю соединения. Для изменения
+model contract обязателен полный workspace gate, включая `module_swap`;
+клиент также проходит Node tests, native web tests и `trunk build`.
+
+`model/v9` отделяет immutable descriptor от живого `catalog(null)`. Provider
 fixtures проверяют OAuth GET, полный список (включая hidden), новые строковые
 effort, cache/coalescing, 401 refresh и ошибку без stale fallback.
 `model_process` пропускает каталог внешнего Python worker через strict adapter

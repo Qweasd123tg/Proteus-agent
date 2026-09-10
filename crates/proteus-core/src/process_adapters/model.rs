@@ -162,6 +162,30 @@ impl Model for ProcessModel {
         Ok(result)
     }
 
+    async fn quota(&self) -> Result<Option<crate::contracts::ModelQuotaSnapshot>> {
+        let method = crate::contracts::PROCESS_MODEL_QUOTA_METHOD;
+        let mut handle = self
+            .client
+            .start(
+                method,
+                Value::Null,
+                Arc::new(proteus_module_protocol::v3::NoAsyncHostRequests),
+            )
+            .await?;
+        let mut guard = CancelOnDrop(Some(handle.cancel_handle()));
+        let terminal = handle.result().await?;
+        guard.disarm();
+        let result: Option<crate::contracts::ModelQuotaSnapshot> =
+            self.client.decode(method, terminal)?;
+        if let Some(quota) = &result {
+            if let Err(error) = quota.validate() {
+                self.client.reset();
+                bail!("invalid model quota: {error}");
+            }
+        }
+        Ok(result)
+    }
+
     async fn stream(
         &self,
         request: CanonicalModelRequest,

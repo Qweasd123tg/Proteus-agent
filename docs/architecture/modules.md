@@ -20,7 +20,7 @@ authority(module) = authority(slot, invocation_context)
 
 Все внешние modules являются exports process components: Component Runtime v2
 использует wire protocol v3; `workflow` использует strict contract v13,
-`compactor` — v9, `model` — v8; версии остальных slots приведены в authority table
+`compactor` — v9, `model` — v9; версии остальных slots приведены в authority table
 [process-module-architecture.md](process-module-architecture.md). Runtime допускает
 несколько одновременных и вложенных invocation одного component. Dylib ABI и
 native loader в проекте отсутствуют.
@@ -52,7 +52,7 @@ native loader в проекте отсутствуют.
 | `tool_exposure` | `select_one` | `modules.tool_exposure` | да | `codex_dynamic` |
 | `tool` | `ordered_many` | exports + `tools.enabled` | да | `reference.tools` и узкие selectors |
 | `context_provider` | `ordered_many` | exports + context config | да | `skills` |
-| `model` | `select_one` | active provider profile | да, `model/v8` | `fake`, `openai`, `openai_compatible`, `openai_codex`, `anthropic` |
+| `model` | `select_one` | active provider profile | да, `model/v9` | `fake`, `openai`, `openai_compatible`, `openai_codex`, `anthropic` |
 
 Все behavior implementations, включая `model`, используют process contract.
 Agent control в матрицу не входит, потому что это
@@ -322,7 +322,13 @@ host-owned `ExecutionAttribution`: обязательный `ExecutionId` и opt
 и ошибки. `openai_codex` получает его самостоятельно через ChatGPT OAuth;
 Core не обращается к provider HTTP и не знает имён моделей.
 
-Общий `model/v8` contract: `describe` возвращает неизменяемые adapter id,
+Метод `quota` этого же slot возвращает provider-neutral snapshot квоты или
+`null`, если implementation его не предоставляет. Он доступен через публичный
+`GET /model/quota` независимо от UI. `openai_codex` проецирует окна, группы и
+кредиты ChatGPT в этот DTO внутри своего адаптера; API-key implementations
+и fake возвращают `null`. Имена exports и происхождение worker не меняют contract.
+
+Общий `model/v9` contract: `describe` возвращает неизменяемые adapter id,
 capabilities и hosted tools; `stream` принимает canonical request и флаг
 provider streaming. Дельты доставляются через acknowledged `host.model.emit`,
 полный response/error — отдельным terminal result. Порядок, backpressure и

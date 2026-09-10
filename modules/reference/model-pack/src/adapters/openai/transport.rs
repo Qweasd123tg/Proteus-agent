@@ -39,6 +39,12 @@ impl OpenAiResponsesClient {
                 .context("openai_codex base_url must be a string")?,
         )?;
         let auth = CodexAuth::from_config(&config)?;
+        let quota_url = validate_endpoint(match config.get("quota_url") {
+            Some(value) => value
+                .as_str()
+                .context("openai_codex quota_url must be a string")?,
+            None => super::codex_quota::DEFAULT_QUOTA_URL,
+        })?;
         let mut client = Self::from_provider_config(config)?;
         let mut http = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none());
         if client.secret_config.get("http1_only") == Some(&json!(true)) {
@@ -47,6 +53,7 @@ impl OpenAiResponsesClient {
         client.http = http.build()?;
         client.base_url = base_url;
         client.codex_auth = Some(auth);
+        client.quota_url = Some(quota_url);
         Ok(client)
     }
 

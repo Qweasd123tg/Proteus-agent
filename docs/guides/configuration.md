@@ -239,6 +239,14 @@ Web показывает все возвращённые модели, вклю�
 остального `/config`; текущая модель остаётся видна. Доступность в каталоге не
 означает гарантию квоты на каждый последующий запрос.
 
+Остаток подписки доступен через `GET /model/quota` и самостоятельную панель
+«Лимиты модели». `openai_codex` читает `https://chatgpt.com/backend-api/wham/usage`
+с текущей авторизацией Proteus: основную группу, дополнительные группы, реальные
+длительности окон, время сброса и credits, если они предоставлены. Успешный
+snapshot кэшируется 30 секунд с объединением параллельных запросов; общий deadline
+30 секунд. После expiry ошибка не подменяется старым остатком. После 401 допускается
+один refresh; 429 возвращается без повторов. Чтение не запускает inference.
+
 Provider config:
 
 ```toml
@@ -261,7 +269,9 @@ env_allowlist = ["HOME"]
 По умолчанию используются `https://auth.openai.com` и
 `https://chatgpt.com/backend-api/codex`. Явные `oauth_issuer` и `base_url` нужны
 для тестовых/настроенных endpoints: допустимы HTTPS или loopback HTTP, без
-credentials, query и fragment. Provider не следует HTTP redirects.
+credentials, query и fragment. `quota_url` отдельно задаёт полный endpoint квоты
+с теми же ограничениями; по умолчанию это указанный выше `/wham/usage`, независимо
+от `base_url`. Для локальных fixtures его задают явно. Provider не следует HTTP redirects.
 
 Подписочный transport всегда SSE с `store=false`; `stream=false`, включая
 внутренний complete, собирает ответ из одного SSE request без промежуточных

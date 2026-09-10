@@ -32,6 +32,7 @@ mod config_builder;
 mod config_summary;
 mod context_map;
 pub mod http;
+mod model_metadata;
 mod model_selection;
 mod path_utils;
 pub mod stdio;

@@ -13,13 +13,20 @@ Codex или OpenCode.
 - Codex `0bbea86a6aae37b1f243676db4248000f04ad111`:
   [login](https://github.com/openai/codex/tree/0bbea86a6aae37b1f243676db4248000f04ad111/codex-rs/login/src),
   [Models endpoint](https://github.com/openai/codex/blob/0bbea86a6aae37b1f243676db4248000f04ad111/codex-rs/codex-api/src/endpoint/models.rs),
-  [Responses request](https://github.com/openai/codex/blob/0bbea86a6aae37b1f243676db4248000f04ad111/codex-rs/codex-api/src/common.rs).
+  [Responses request](https://github.com/openai/codex/blob/0bbea86a6aae37b1f243676db4248000f04ad111/codex-rs/codex-api/src/common.rs),
+  [quota endpoint](https://github.com/openai/codex/blob/0bbea86a6aae37b1f243676db4248000f04ad111/codex-rs/backend-client/src/client/rate_limit_resets.rs),
+  [quota mapping](https://github.com/openai/codex/blob/0bbea86a6aae37b1f243676db4248000f04ad111/codex-rs/backend-client/src/client.rs).
   Проверка auth/backend boundary и набора полей запроса. Общий Responses/SSE
   mapper Proteus сохраняет собственную ранее закреплённую provenance.
 - [Официальная авторизация Codex](https://learn.chatgpt.com/docs/auth):
   ChatGPT subscription access отличается от API-key billing.
 - [Модели Codex](https://learn.chatgpt.com/docs/models), проверено 2026-09-09:
   профиль выбирает `gpt-5.6-luna`; доступность зависит от аккаунта.
+
+- [Codex app-server: rate limits](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt),
+  проверено 2026-09-10: `account/rateLimits/read` предоставляет отдельное чтение
+  лимитов и несколько buckets через `rateLimitsByLimitId`. Proteus обращается
+  к provider HTTP напрямую, не запускает Codex и не копирует его клиентский RPC DTO.
 
 ## Граница Адаптации
 
@@ -55,6 +62,16 @@ Client id соответствует OAuth-приложению Codex, как в
   В отличие от полного Codex ModelsManager здесь только memory cache на
   5 минут и общий deadline 30 секунд: нет disk cache, embedded model list,
   ETag merge или stale fallback при ошибке.
+- Квота читается из `/backend-api/wham/usage`. Основная группа `codex` и все
+  `additional_rate_limits` сохраняют свои окна, `used_percent`, длительности в
+  секундах, абсолютные reset timestamps и признаки доступности; optional credits
+  передаются без денежной интерпретации. Поля будущих provider HTTP ответов,
+  не представленные в общем quota DTO, не публикуются в Core.
+  Собственная адаптация Proteus: memory cache 30 секунд с coalescing, deadline
+  30 секунд, без stale fallback. Cache hit сохраняет `observed_at`. HTTP 401
+  допускает один refresh; другие ошибки возвращаются без тела ответа и повторов.
+  Отдельный `quota_url` нужен для explicit endpoint override, а не выводится из
+  Responses `base_url`. Дополнительных действий со spend/reset endpoint нет.
 - `logout` удаляет только локальные credentials Proteus. `status` показывает
   наличие и срок access token, не проверяет доступность модели или остаток
   подписки по сети.

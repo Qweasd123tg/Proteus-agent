@@ -35,3 +35,29 @@ export type Mount = (context: ExtensionContext) => void | (() => void) | Promise
 export interface AgentConfigReader {
   read(): Promise<Record<string, unknown>>;
 }
+
+/** Optional agent.model.quota.read service; unmodified GET /model/quota.
+ * null means unsupported, never unlimited. Percentages may exceed 100.
+ * Timestamps use Unix seconds. observed_at is provider fetch time, including cache hits.
+ */
+export interface AgentModelQuotaReader {
+  read(): Promise<ModelQuotaSnapshot | null>;
+}
+
+export interface ModelQuotaSnapshot {
+  observed_at: number;
+  plan: string | null;
+  buckets: Array<{
+    id: string;
+    name: string | null;
+    allowed: boolean | null;
+    limit_reached: boolean | null;
+    windows: Array<{
+      id: string;
+      used_percent: number;
+      duration_seconds: number | null;
+      resets_at: number | null;
+    }>;
+  }>;
+  credits: { available: boolean; unlimited: boolean; balance: string | null } | null;
+}

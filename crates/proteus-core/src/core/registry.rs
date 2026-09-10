@@ -39,6 +39,10 @@ pub struct RuntimeRegistry {
 }
 
 impl RuntimeRegistry {
+    pub(crate) async fn model_quota(&self) -> Result<Option<crate::contracts::ModelQuotaSnapshot>> {
+        self.model_service.quota().await
+    }
+
     pub(crate) async fn model_catalog(&self) -> Result<Option<crate::contracts::ModelCatalog>> {
         self.model_service.catalog().await
     }

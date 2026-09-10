@@ -509,6 +509,14 @@ HTTP/SSE transport:
   навсегда;
 - `GET /config` - текущий config summary, включая активный `session_dir`, если
   runtime подключён к session store;
+- `GET /model/quota` — provider-neutral `ModelQuotaSnapshot` текущего model
+  export или JSON `null`, если чтение квоты не поддержано. Требует обычной
+  авторизации app-server. Ошибка lookup/validation возвращает HTTP 502 с
+  `error`; отсутствие данных не превращается в 100% или безлимит. Snapshot
+  содержит момент получения данных провайдером, группы и окна с процентом
+  использования, длительностью и временем сброса, optional plan/credits.
+  Это discovery без turn, tools и inference exchange; подробный DTO описан в
+  [model contract](../architecture/process-module-architecture.md#model-streaming).
 - `GET /config/builder` - snapshot selectable modules/tools/providers и
   текущих значений Config Builder;
 - `GET /inspect/plan` - безопасная JSON projection точного `AssemblyPlan`

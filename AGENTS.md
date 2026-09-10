@@ -207,7 +207,7 @@ Reference crates линкуются только внутрь `proteus-reference
 6. Добавить protocol и runtime swap evidence, затем обновить
    `docs/architecture/modules.md` и `docs/guides/configuration.md`.
 
-Model provider implementations проходят общий `model/v8` process contract.
+Model provider implementations проходят общий `model/v9` process contract.
 Core владеет canonical shaping/validation, execution binding и journal, но не HTTP provider adapters. `AgentControl` — отдельный root-owned service для полных Proteus
 peers, а не behavior slot или основание возвращать общий native loader.
 Marketplace, package manager, hot reload и sandbox не входят в текущий process

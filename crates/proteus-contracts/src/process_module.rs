@@ -298,6 +298,10 @@ pub trait ModelModule: Send + Sync + 'static {
         &self,
         host: &dyn ModelModuleHost,
     ) -> ProcessModuleResult<Option<crate::contracts::ModelCatalog>>;
+    fn quota(
+        &self,
+        host: &dyn ModelModuleHost,
+    ) -> ProcessModuleResult<Option<crate::contracts::ModelQuotaSnapshot>>;
     fn stream(
         &self,
         input: crate::contracts::ProcessModelInput,

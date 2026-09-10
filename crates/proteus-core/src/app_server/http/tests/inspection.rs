@@ -1,6 +1,35 @@
 use super::*;
 
 #[tokio::test]
+async fn quota_endpoint_requires_auth_and_distinguishes_unsupported() {
+    let cwd = tempfile::tempdir().unwrap();
+    let server = AgentAppServer::launch(crate::test_model::config(), cwd.path().to_owned(), None)
+        .await
+        .unwrap();
+    let (shutdown, _) = broadcast::channel(1);
+    let state = HttpAppState::new(server.clone(), shutdown, test_security());
+    let unauthorized = route_request(
+        state.clone(),
+        Request::builder()
+            .uri("/model/quota")
+            .body(empty_body())
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+    let response = route_request(state, authed_get_request("/model/quota"))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&response_bytes(response).await).unwrap(),
+        Value::Null
+    );
+    server.shutdown().await;
+}
+
+#[tokio::test]
 async fn route_inspect_topology_returns_json_and_mermaid() {
     let cwd = tempfile::tempdir().expect("cwd");
     let mut config = crate::test_model::config();

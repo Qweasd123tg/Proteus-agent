@@ -64,6 +64,10 @@ impl Model for ModelService {
         self.adapter.catalog().await
     }
 
+    async fn quota(&self) -> Result<Option<crate::contracts::ModelQuotaSnapshot>> {
+        self.adapter.quota().await
+    }
+
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
         let request = self.prepare_request(request)?;
         let validation_request = request.clone();

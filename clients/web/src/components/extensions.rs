@@ -19,24 +19,31 @@ mod browser {
         fn mount_extensions(
             root: &web_sys::Element,
             read_config: &js_sys::Function,
+            read_quota: &js_sys::Function,
         ) -> Result<js_sys::Function, JsValue>;
     }
 
+    fn reader(path: &'static str) -> Closure<dyn Fn(web_sys::AbortSignal) -> js_sys::Promise> {
+        Closure::<dyn Fn(web_sys::AbortSignal) -> js_sys::Promise>::new(move |signal| {
+            wasm_bindgen_futures::future_to_promise(async move {
+                crate::api::get_text_with_signal(path, Some(&signal))
+                    .await
+                    .map(JsValue::from)
+                    .map_err(|error| js_sys::Error::new(&error).into())
+            })
+        })
+    }
+
     pub(super) fn attach(root: NodeRef<leptos::html::Div>) {
-        let read_config =
-            Closure::<dyn Fn(web_sys::AbortSignal) -> js_sys::Promise>::new(move |signal| {
-                wasm_bindgen_futures::future_to_promise(async move {
-                    crate::api::get_text_with_signal("/config", Some(&signal))
-                        .await
-                        .map(JsValue::from)
-                        .map_err(|error| js_sys::Error::new(&error).into())
-                })
-            });
-        let read_config = StoredValue::new_local(read_config);
+        let readers = StoredValue::new_local((reader("/config"), reader("/model/quota")));
         Effect::new(move |_| {
             let Some(element) = root.get() else { return };
-            let mounted = read_config.with_value(|callback| {
-                mount_extensions(element.as_ref(), callback.as_ref().unchecked_ref())
+            let mounted = readers.with_value(|(config, quota)| {
+                mount_extensions(
+                    element.as_ref(),
+                    config.as_ref().unchecked_ref(),
+                    quota.as_ref().unchecked_ref(),
+                )
             });
             match mounted {
                 Ok(dispose) => {

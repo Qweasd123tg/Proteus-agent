@@ -12,6 +12,8 @@ use proteus_core::core::{
 };
 use serde_json::{Value, json};
 use std::{path::Path, sync::Arc, time::Duration};
+#[path = "model_process/quota.rs"]
+mod quota;
 
 fn request(id: &str) -> CanonicalModelRequest {
     CanonicalModelRequest::new(

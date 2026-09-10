@@ -28,6 +28,9 @@ mod codex_catalog;
 #[cfg(test)]
 mod codex_catalog_tests;
 mod codex_config;
+mod codex_quota;
+#[cfg(test)]
+mod codex_quota_tests;
 #[cfg(test)]
 mod codex_tests;
 mod errors;
@@ -64,6 +67,8 @@ pub struct OpenAiResponsesClient {
     secret_config: Value,
     codex_auth: Option<CodexAuth>,
     catalog_cache: Arc<codex_catalog::CatalogCache>,
+    quota_cache: Arc<codex_quota::QuotaCache>,
+    quota_url: Option<String>,
     base_url: String,
     /// Включает SSE-стрим на `/responses`. Управляется через поле
     /// `stream` в provider config. Provider profiles по умолчанию включают
@@ -143,6 +148,8 @@ impl OpenAiResponsesClient {
             secret_config: config,
             codex_auth: None,
             catalog_cache: Arc::default(),
+            quota_cache: Arc::default(),
+            quota_url: None,
             base_url,
             stream_enabled,
             stream_error_fallback,
@@ -189,6 +196,10 @@ fn non_empty_config_string(config: &Value, key: &str) -> Option<String> {
 
 #[async_trait]
 impl Model for OpenAiResponsesClient {
+    async fn quota(&self) -> Result<Option<proteus_contracts::contracts::ModelQuotaSnapshot>> {
+        self.codex_quota().await
+    }
+
     async fn catalog(&self) -> Result<Option<proteus_contracts::contracts::ModelCatalog>> {
         self.codex_catalog().await
     }

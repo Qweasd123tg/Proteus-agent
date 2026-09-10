@@ -107,6 +107,20 @@ impl ModelModule for ProviderModule {
         })
     }
 
+    fn quota(
+        &self,
+        host: &dyn ModelModuleHost,
+    ) -> ProcessModuleResult<Option<proteus_contracts::contracts::ModelQuotaSnapshot>> {
+        self.runtime.block_on(async {
+            tokio::select! {
+                result = self.streaming.quota() => result.map_err(error),
+                _ = async { while !host.is_cancelled() { tokio::time::sleep(Duration::from_millis(5)).await; } } => {
+                    Err(ProcessModuleError::new("model quota canceled"))
+                }
+            }
+        })
+    }
+
     fn stream(
         &self,
         input: ProcessModelInput,

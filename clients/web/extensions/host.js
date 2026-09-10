@@ -22,6 +22,7 @@ export function mountExtensions(root, services = {}, options = {}) {
   const store = settingsStore(storage);
   const cards = new Map();
   let records = [];
+  let bundled = [];
   let initialized = false;
   let busy = false;
   let listController = new AbortController();
@@ -32,6 +33,8 @@ export function mountExtensions(root, services = {}, options = {}) {
   summary.textContent = 'Расширения';
   const list = document.createElement('div');
   list.className = 'extension-list';
+  const available = document.createElement('div');
+  available.className = 'extension-available';
   const form = document.createElement('form');
   form.className = 'extension-install';
   const input = document.createElement('input');
@@ -48,7 +51,7 @@ export function mountExtensions(root, services = {}, options = {}) {
   const reset = button('Восстановить список поставляемых расширений', () => initialize(true), signal);
   reset.className = 'extension-reset';
   form.append(input, submit);
-  manager.append(summary, list, form, notice, reset);
+  manager.append(summary, list, available, form, notice, reset);
   const panels = document.createElement('div');
   panels.className = 'extension-panels';
   root.append(manager, panels);
@@ -108,6 +111,18 @@ export function mountExtensions(root, services = {}, options = {}) {
       row.append(remove);
       list.append(row);
     });
+    available.replaceChildren();
+    for (const record of bundled.filter(item => !records.some(current => current.id === item.id))) {
+      const add = button(`Добавить: ${record.manifest?.name ?? record.id}`, () => {
+        if (busy || !initialized) return;
+        records.push({ ...record, enabled: true, collapsed: false });
+        save(); reconcile();
+      }, listSignal);
+      add.dataset.extensionAvailable = record.id;
+      add.disabled = !!record.error;
+      if (record.error) add.title = record.error;
+      available.append(add);
+    }
   }
 
   async function resolveRecord(record) {
@@ -125,14 +140,23 @@ export function mountExtensions(root, services = {}, options = {}) {
     submit.disabled = true;
     try {
       const saved = defaults ? null : store.read();
-      const value = saved === null ? (await readJson(catalogUrl, signal)).value : JSON.parse(saved);
-      const next = await Promise.all(parseSettings(value, catalogUrl).map(resolveRecord));
+      let catalogError = '';
+      try {
+        const catalog = (await readJson(catalogUrl, signal)).value;
+        bundled = await Promise.all(parseSettings(catalog, catalogUrl).map(resolveRecord));
+      } catch (error) {
+        if (saved === null) throw error;
+        bundled = [];
+        catalogError = `Не удалось загрузить список поставляемых расширений: ${error.message}`;
+      }
+      const next = saved === null ? bundled.map(record => ({ ...record }))
+        : await Promise.all(parseSettings(JSON.parse(saved), catalogUrl).map(resolveRecord));
       if (signal.aborted) return;
       for (const card of cards.values()) card.stop();
       cards.clear();
       records = next;
       initialized = true;
-      notice.textContent = '';
+      notice.textContent = catalogError;
       if (defaults) save();
       reconcile();
     } catch (error) {

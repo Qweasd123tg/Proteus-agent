@@ -21,3 +21,7 @@
 .extension-error:empty { display: none; }
 .extension-host [hidden] { display: none; }
 .extension-host :focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
+
+.extension-available { display: grid; gap: 6px; margin-top: 10px; }
+.extension-available:empty { display: none; }
+.extension-available button { height: auto; white-space: normal; text-align: left; font-size: 12px; }

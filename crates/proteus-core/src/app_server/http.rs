@@ -177,6 +177,13 @@ where
             let snapshot = state.current_server().await.config_builder_snapshot().await;
             json_response(StatusCode::OK, &snapshot)
         }
+        (Method::GET, "/model/quota") => {
+            let server = state.current_server().await;
+            match server.model_quota().await {
+                Ok(quota) => json_response(StatusCode::OK, &quota),
+                Err(error) => error_response(StatusCode::BAD_GATEWAY, &format!("{error:#}")),
+            }
+        }
         (Method::GET, "/inspect/topology") => {
             let snapshot = state.current_server().await.topology_snapshot().await;
             json_response(StatusCode::OK, &snapshot)

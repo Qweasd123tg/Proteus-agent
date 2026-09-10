@@ -270,7 +270,7 @@ invalid DTO и превышение limits являются fail-closed protocol
 | context provider | v2 | `provide` | — |
 | tool | v3 | `list`, `invoke` | — |
 | context | v2 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
-| model | v8 | `describe`, `catalog`, `stream` | `host.model.emit` (acknowledged canonical events) |
+| model | v9 | `describe`, `catalog`, `quota`, `stream` | `host.model.emit` (acknowledged canonical events) |
 | compactor | v9 | `compact` | `host.model.complete` |
 | workflow | v13 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
 
@@ -539,9 +539,9 @@ handshake всего набора, даже если probe направлен т
 
 ## Model Streaming
 
-`model/v8` использует canonical DTO из `proteus-contracts::contracts::process_model`:
+`model/v9` использует canonical DTO из `proteus-contracts::contracts::process_model`:
 
-Descriptor, catalog, capabilities, stream events и terminal DTO отклоняют неизвестные поля.
+Descriptor, catalog, quota, capabilities, stream events и terminal DTO отклоняют неизвестные поля.
 
 - `describe(null) -> ProcessModelDescriptor`: стабильные adapter id,
   capabilities и hosted tools данного export; вызывается при сборке snapshot.
@@ -555,6 +555,22 @@ Descriptor, catalog, capabilities, stream events и terminal DTO отклоня�
   callbacks. Сетевые запросы, OAuth и cache принадлежат implementation.
   Catalog не меняет capabilities, instructions или authority snapshot и не
   является inference exchange в journal.
+- `quota(null) -> Option<ModelQuotaSnapshot>`: сведения о квоте текущего
+  provider export без inference. `null` означает отсутствие поддержки, а не
+  безлимит. Snapshot содержит `observed_at` (Unix seconds получения данных),
+  optional `plan`, `buckets` и optional `credits`. Bucket: непустой уникальный
+  `id`, optional `name`, `allowed`, `limit_reached` и `windows`. Window: непустой
+  уникальный в bucket `id`, конечный неотрицательный `used_percent`, optional
+  положительный `duration_seconds` и optional `resets_at` (Unix seconds).
+  Значение выше 100 сохраняется как перерасход; отсутствие окон/времени сброса
+  не заполняется догадками. Credits: `available`, `unlimited`, optional строка
+  `balance` в единицах провайдера. `observed_at` положительный, непустой `plan`,
+  если он передан. DTO из `contracts::model_quota` отклоняют неизвестные поля;
+  Core повторно валидирует snapshot на process boundary.
+  Метод использует общий deadline/cancellation path, не принимает host callbacks
+  и не создаёт model exchange в journal. Drop lookup отправляет cancel invocation.
+  App-server отклоняет результат, если runtime snapshot сменился во время чтения.
+  Кэш и HTTP принадлежат implementation; cache hit сохраняет исходный `observed_at`.
 - `stream(ProcessModelInput { request, stream }) -> ProcessModelOutput`:
   один canonical request; `stream` выбирает streaming или complete режим
   реализации. Если provider поддерживает только SSE, complete собирает один
@@ -602,7 +618,7 @@ event; это причина, а не команда Core повторить з�
 без завершения, сохраняя остальные
 ошибки данных и deadline отдельными. Codex workflow принимает решение о повторе
 с подтверждённой историей; compactor сохраняет свою политику повторов.
-Действуют `model/v8`, `workflow/v13`, `compactor/v9` и journal schema v13,
+Действуют `model/v9`, `workflow/v13`, `compactor/v9` и journal schema v13,
 без readers старых форм.
 Передача `ToolCall` в существующем `CanonicalMessage` не меняет wire/storage DTO.
 

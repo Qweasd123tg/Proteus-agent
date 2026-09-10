@@ -1,6 +1,16 @@
 use super::*;
 
 impl AgentRuntime {
+    pub async fn model_quota(&self) -> Result<Option<crate::contracts::ModelQuotaSnapshot>> {
+        let snapshot = self.snapshot().await;
+        let quota = snapshot.registry.model_quota().await?;
+        anyhow::ensure!(
+            self.snapshot().await.epoch == snapshot.epoch,
+            "model provider changed during quota lookup; retry lookup"
+        );
+        Ok(quota)
+    }
+
     pub async fn model_catalog(&self) -> Result<Option<crate::contracts::ModelCatalog>> {
         self.snapshot().await.registry.model_catalog().await
     }
