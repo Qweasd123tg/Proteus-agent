@@ -5,13 +5,13 @@ use super::stream::{
     StreamFlushBindings, complete_assistant_message, flush_stream_delta_buffer,
     queue_assistant_delta, set_stream_turn_thread, stream_delta_is_foreign,
 };
-use crate::app_helpers::save_context_usage;
 use crate::messages::{
     finish_active_streaming_assistant_message, finish_streaming_assistant_message,
     finish_streaming_reasoning, finish_subagent_message, push_message, push_subagent_message,
     push_subagent_tool, push_tool_message, push_user_message_once, update_tool_status,
 };
 use crate::types::*;
+use crate::ui_preferences::save_context_usage;
 use crate::ui_utils::{compact_text, format_json, short_id, short_path};
 
 pub(crate) fn event_updates_visible_count(event: &AppServerEvent) -> bool {
@@ -45,7 +45,7 @@ pub(crate) fn update_session_labels(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_runtime_status_and_tools(
     envelope: &Value,
-    set_messages: WriteSignal<Vec<Message>>,
+    set_messages: crate::transcript::TranscriptWriter,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     stream_bindings: StreamFlushBindings,

@@ -1,15 +1,18 @@
+use crate::events::EventConnection;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use serde_json::{Value, json};
-use web_sys::{EventSource, window};
+use web_sys::window;
 
 use crate::api::post_json;
-use crate::app_helpers::{
-    apply_active_session_activity, load_runtime_settings, load_sidebar_sessions, load_transcript,
-    remove_context_usage, remove_session_draft, replace_transcript, replace_transcript_for_session,
-};
 use crate::events::{EventStreamBindings, close_event_stream, reconnect_event_stream};
+use crate::session::history::{
+    load_transcript, replace_transcript, replace_transcript_for_session,
+};
+use crate::session::settings::load_runtime_settings;
+use crate::session::summaries::{apply_active_session_activity, load_sidebar_sessions};
 use crate::types::*;
+use crate::ui_preferences::{remove_context_usage, remove_session_draft};
 use crate::ui_utils::short_id;
 
 #[derive(Clone, Copy)]
@@ -25,7 +28,7 @@ pub(crate) struct RuntimeSettingsBindings {
     pub(crate) set_is_sending: WriteSignal<bool>,
     pub(crate) set_active_run_id: WriteSignal<Option<String>>,
     pub(crate) set_agent_status: WriteSignal<String>,
-    pub(crate) set_messages: WriteSignal<Vec<Message>>,
+    pub(crate) set_messages: crate::transcript::TranscriptWriter,
     pub(crate) next_message_id: ReadSignal<u64>,
     pub(crate) set_next_message_id: WriteSignal<u64>,
     pub(crate) set_transport_status: WriteSignal<TransportStatus>,
@@ -55,7 +58,7 @@ impl RuntimeSettingsBindings {
 
 #[derive(Clone, Copy)]
 pub(crate) struct TranscriptBindings {
-    pub(crate) set_messages: WriteSignal<Vec<Message>>,
+    pub(crate) set_messages: crate::transcript::TranscriptWriter,
     pub(crate) transcript_generation: ReadSignal<u64>,
     pub(crate) next_message_id: ReadSignal<u64>,
     pub(crate) set_next_message_id: WriteSignal<u64>,
@@ -65,7 +68,7 @@ pub(crate) struct TranscriptBindings {
 }
 
 impl TranscriptBindings {
-    pub(crate) fn load_initial(self, messages: ReadSignal<Vec<Message>>) {
+    pub(crate) fn load_initial(self, messages: crate::transcript::Transcript) {
         load_transcript(
             messages,
             self.set_messages,
@@ -109,7 +112,7 @@ impl TranscriptBindings {
 
 #[derive(Clone, Copy)]
 pub(crate) struct AppSessionActions {
-    pub(crate) event_source: StoredValue<Option<EventSource>, LocalStorage>,
+    pub(crate) event_source: StoredValue<Option<EventConnection>, LocalStorage>,
     pub(crate) event_stream: EventStreamBindings,
     pub(crate) runtime_settings: RuntimeSettingsBindings,
     pub(crate) transcript: TranscriptBindings,

@@ -1,13 +1,14 @@
 use leptos::prelude::*;
 use web_sys::MouseEvent;
 
-use super::icons::{PanelIcon, PlusIcon, RefreshIcon};
-use crate::app_helpers::{
+mod header;
+use crate::session::summaries::{
     sidebar_session_activity_dot_class, sidebar_session_activity_label, sidebar_session_preview,
     sidebar_session_render_key, sidebar_session_title,
 };
 use crate::types::*;
 use crate::ui_utils::relative_time_from_now;
+use header::SidebarHeader;
 
 /// Сколько сессий помещается в рейку свёрнутого сайдбара.
 const SIDEBAR_RAIL_LIMIT: usize = 10;
@@ -89,34 +90,7 @@ where
         // Состояние рейки задаёт CSS; выбранная ширина сохраняется для раскрытия.
         <aside class="sidebar" style=move || format!("--sidebar-width: {}px", sidebar_width.get())>
             <div class="sidebar-surface" inert=move || sidebar_collapsed.get().then_some("")>
-            <div class="sidebar-header">
-                <h2>
-                    "Proteus"
-                    <span>"web"</span>
-                </h2>
-                <div class="sidebar-header-actions">
-                    <button type="button" title="Обновить сессии" aria-label="Обновить сессии" on:click=on_refresh>
-                        <RefreshIcon />
-                    </button>
-                    <button type="button" title="Новая сессия" aria-label="Новая сессия" on:click=on_new_session>
-                        <PlusIcon />
-                    </button>
-                    <button
-                        type="button"
-                        class="sidebar-collapse-toggle" data-panel-toggle="sidebar"
-                        aria-label="Панель сессий"
-                        aria-expanded=move || (!sidebar_collapsed.get()).to_string()
-                        title=move || if sidebar_collapsed.get() {
-                            "Развернуть меню"
-                        } else {
-                            "Свернуть меню"
-                        }
-                        on:click=on_toggle
-                    >
-                        <PanelIcon />
-                    </button>
-                </div>
-            </div>
+            <SidebarHeader collapsed=sidebar_collapsed show_title=true on_toggle on_refresh on_new_session />
             <div class="sidebar-search">
                 <input
                     type="text"
@@ -222,30 +196,7 @@ where
 
             </div>
             <div class="sidebar-rail-surface" inert=move || (!sidebar_collapsed.get()).then_some("")>
-            <div class="sidebar-header">
-                <div class="sidebar-header-actions">
-                    <button type="button" title="Обновить сессии" aria-label="Обновить сессии" on:click=on_refresh>
-                        <RefreshIcon />
-                    </button>
-                    <button type="button" title="Новая сессия" aria-label="Новая сессия" on:click=on_new_session>
-                        <PlusIcon />
-                    </button>
-                    <button
-                        type="button"
-                        class="sidebar-collapse-toggle" data-panel-toggle="sidebar"
-                        aria-label="Панель сессий"
-                        aria-expanded=move || (!sidebar_collapsed.get()).to_string()
-                        title=move || if sidebar_collapsed.get() {
-                            "Развернуть меню"
-                        } else {
-                            "Свернуть меню"
-                        }
-                        on:click=on_toggle
-                    >
-                        <PanelIcon />
-                    </button>
-                </div>
-            </div>
+            <SidebarHeader collapsed=sidebar_collapsed on_toggle on_refresh on_new_session />
             // Рейка свёрнутого сайдбара: сессии workspace индикаторами —
             // спиннер у работающих, «?» у ждущих ответа, точка у остальных;
             // при наведении — поповер с деталями (единый стиль .rail-popover).

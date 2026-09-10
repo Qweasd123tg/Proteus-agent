@@ -47,7 +47,7 @@ pub(crate) fn InfoPanelView<T, R>(
     width: ReadSignal<i32>,
     on_toggle: T,
     on_begin_resize: R,
-    messages: ReadSignal<Vec<Message>>,
+    messages: crate::transcript::Transcript,
     model_name: ReadSignal<String>,
     mode: ReadSignal<PermissionMode>,
     reasoning_enabled: ReadSignal<bool>,
@@ -110,16 +110,7 @@ where
             <div class="info-panel-surface" inert=move || (!open.get()).then_some("")>
             <div class="info-panel-header">
                 <h2>"Обзор"</h2>
-                <button
-                    type="button"
-                    aria-label=move || if open.get() { "Свернуть обзор" } else { "Открыть обзор" }
-                    data-panel-toggle="info"
-                    aria-expanded=move || open.get().to_string()
-                    title=move || if open.get() { "Свернуть панель" } else { "Развернуть панель" }
-                    on:click=on_toggle
-                >
-                    <super::icons::PanelIcon right=true />
-                </button>
+                <super::panel::PanelToggle expanded=open.into() right=true on_toggle />
             </div>
 
             <div class="info-panel-body">
@@ -263,16 +254,7 @@ where
             </div>
             <div class="info-panel-rail-surface" inert=move || open.get().then_some("")>
             <div class="info-panel-header">
-                <button
-                    type="button"
-                    aria-label=move || if open.get() { "Свернуть обзор" } else { "Открыть обзор" }
-                    data-panel-toggle="info"
-                    aria-expanded=move || open.get().to_string()
-                    title=move || if open.get() { "Свернуть панель" } else { "Развернуть панель" }
-                    on:click=on_toggle
-                >
-                    <super::icons::PanelIcon right=true />
-                </button>
+                <super::panel::PanelToggle expanded=open.into() right=true on_toggle />
             </div>
 
             // Рейка свёрнутого состояния: бублик контекста и мини-этапы

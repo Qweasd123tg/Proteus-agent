@@ -7,7 +7,7 @@ use crate::types::*;
 
 #[derive(Clone, Copy)]
 pub(crate) struct AppActions {
-    pub(crate) set_messages: WriteSignal<Vec<Message>>,
+    pub(crate) set_messages: crate::transcript::TranscriptWriter,
     pub(crate) next_message_id: ReadSignal<u64>,
     pub(crate) set_next_message_id: WriteSignal<u64>,
     pub(crate) set_transport_status: WriteSignal<TransportStatus>,
@@ -398,7 +398,7 @@ fn handle_control_response(
 
 pub(crate) fn handle_command_response(
     output: StdioOutput,
-    set_messages: WriteSignal<Vec<Message>>,
+    set_messages: crate::transcript::TranscriptWriter,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     set_transport_status: WriteSignal<TransportStatus>,
@@ -438,7 +438,7 @@ pub(crate) fn cancel_active_run(
     set_next_request_id: WriteSignal<u64>,
     set_is_sending: WriteSignal<bool>,
     set_active_run_id: WriteSignal<Option<String>>,
-    set_messages: WriteSignal<Vec<Message>>,
+    set_messages: crate::transcript::TranscriptWriter,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     set_transport_status: WriteSignal<TransportStatus>,

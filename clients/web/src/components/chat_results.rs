@@ -6,7 +6,7 @@ use web_sys::WheelEvent;
 use super::{
     ApprovalCard, MessageView, PlanActionsCard, QueuedPromptCard, UserInputCard, WorkingCard,
 };
-use crate::app_helpers::{CHAT_REATTACH_THRESHOLD_PX, active_user_message_id, is_at_bottom};
+use crate::chat_scroll::{CHAT_REATTACH_THRESHOLD_PX, active_user_message_id, is_at_bottom};
 use crate::types::*;
 
 #[component]
@@ -19,7 +19,7 @@ pub(crate) fn ChatResultsView<A, I, R, E, X>(
     set_last_results_scroll_top: WriteSignal<i32>,
     user_messages: Memo<Vec<(u64, String)>>,
     set_active_user_message: WriteSignal<Option<u64>>,
-    messages: ReadSignal<Vec<Message>>,
+    messages: crate::transcript::Transcript,
     activity_now_ms: ReadSignal<u64>,
     pending_approvals: ReadSignal<Vec<ApprovalRequestInfo>>,
     pending_user_inputs: ReadSignal<Vec<UserInputRequestInfo>>,
@@ -76,7 +76,7 @@ where
                 let approvals_empty = pending_approvals.with(|items| items.is_empty());
                 let user_inputs_empty = pending_user_inputs.with(|items| items.is_empty());
                 let working = is_sending.get() && user_inputs_empty;
-                if messages.with(|items| items.is_empty())
+                if messages.len() == 0
                     && approvals_empty
                     && user_inputs_empty
                     && queued_prompts.with(|items| items.is_empty())
@@ -93,11 +93,7 @@ where
                 }
             }}
             <For
-                each=move || {
-                    messages.with(|items| {
-                        items.iter().map(|message| message.id).collect::<Vec<_>>()
-                    })
-                }
+                each=move || messages.ids()
                 key=|message_id| *message_id
                 children=move |message_id| view! {
                     <MessageView
@@ -123,10 +119,7 @@ where
             />
             {move || {
                 let user_inputs_empty = pending_user_inputs.with(|items| items.is_empty());
-                let latest_message_is_assistant = messages
-                    .get()
-                    .last()
-                    .is_some_and(|message| message.role == MessageRole::Assistant);
+                let latest_message_is_assistant = messages.with(|items| items.last().is_some_and(|message| message.role == MessageRole::Assistant));
                 if mode.get() == PermissionMode::Plan
                     && !is_sending.get()
                     && user_inputs_empty

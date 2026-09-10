@@ -18,7 +18,7 @@ use crate::ui_utils::compact_text;
 pub(crate) const NESTED_TOOL_PREVIEW_CHAR_LIMIT: usize = 10_000;
 
 pub(crate) fn report_error(
-    set_messages: WriteSignal<Vec<Message>>,
+    set_messages: crate::transcript::TranscriptWriter,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     set_transport_status: WriteSignal<TransportStatus>,
@@ -37,7 +37,7 @@ pub(crate) fn report_error(
 }
 
 pub(crate) fn push_message(
-    set_messages: WriteSignal<Vec<Message>>,
+    set_messages: crate::transcript::TranscriptWriter,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     role: MessageRole,
@@ -62,7 +62,7 @@ pub(crate) fn push_message(
 }
 
 pub(crate) fn push_user_message_once(
-    set_messages: WriteSignal<Vec<Message>>,
+    set_messages: crate::transcript::TranscriptWriter,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     text: impl Into<String>,
@@ -97,7 +97,7 @@ pub(crate) fn push_user_message_once(
 }
 
 pub(crate) fn push_assistant_message_once(
-    set_messages: WriteSignal<Vec<Message>>,
+    set_messages: crate::transcript::TranscriptWriter,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     text: impl Into<String>,
@@ -132,7 +132,7 @@ pub(crate) fn push_assistant_message_once(
 }
 
 pub(crate) fn push_assistant_message_if_missing(
-    set_messages: WriteSignal<Vec<Message>>,
+    set_messages: crate::transcript::TranscriptWriter,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     text: String,
@@ -193,7 +193,7 @@ pub(crate) fn adopt_streaming_tail(
 /// поставить после хвоста. Id истории выделяются поверх текущего счётчика,
 /// чтобы не столкнуться с id живых сообщений (порядок ленты задаёт Vec, не id).
 pub(crate) fn prepend_history_messages(
-    set_messages: WriteSignal<Vec<Message>>,
+    set_messages: crate::transcript::TranscriptWriter,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     set_active_stream_message_id: WriteSignal<Option<u64>>,
@@ -308,19 +308,18 @@ fn history_duplicates_live(transcript: &[Message], live: &Message) -> bool {
 
 /// Завершить активный reasoning-блок (сворачивается в UI). Вызывается, когда
 /// начинается текст ответа, tool call или ход завершается.
-pub(crate) fn finish_streaming_reasoning(set_messages: WriteSignal<Vec<Message>>) {
-    set_messages.update(|items| {
-        for message in items.iter_mut() {
-            if message.role == MessageRole::Reasoning && message.streaming {
-                message.streaming = false;
-                message.version += 1;
-            }
-        }
-    });
+pub(crate) fn finish_streaming_reasoning(set_messages: crate::transcript::TranscriptWriter) {
+    set_messages.update_where(
+        |message| message.role == MessageRole::Reasoning && message.streaming,
+        |message| {
+            message.streaming = false;
+            message.version += 1;
+        },
+    );
 }
 
 pub(crate) fn push_tool_message(
-    set_messages: WriteSignal<Vec<Message>>,
+    set_messages: crate::transcript::TranscriptWriter,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     tool: ToolActivity,
@@ -344,7 +343,7 @@ pub(crate) fn push_tool_message(
 }
 
 pub(crate) fn finish_active_streaming_assistant_message(
-    set_messages: WriteSignal<Vec<Message>>,
+    set_messages: crate::transcript::TranscriptWriter,
     active_stream_message_id: ReadSignal<Option<u64>>,
     set_active_stream_message_id: WriteSignal<Option<u64>>,
 ) {
@@ -359,19 +358,20 @@ pub(crate) fn finish_active_streaming_assistant_message(
     }
 }
 
-pub(crate) fn finish_all_streaming_assistant_messages(set_messages: WriteSignal<Vec<Message>>) {
-    set_messages.update(|items| {
-        for message in items {
-            if message.role == MessageRole::Assistant && message.streaming {
-                message.streaming = false;
-                message.version += 1;
-            }
-        }
-    });
+pub(crate) fn finish_all_streaming_assistant_messages(
+    set_messages: crate::transcript::TranscriptWriter,
+) {
+    set_messages.update_where(
+        |message| message.role == MessageRole::Assistant && message.streaming,
+        |message| {
+            message.streaming = false;
+            message.version += 1;
+        },
+    );
 }
 
 pub(crate) fn finish_streaming_assistant_message(
-    set_messages: WriteSignal<Vec<Message>>,
+    set_messages: crate::transcript::TranscriptWriter,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     active_stream_message_id: ReadSignal<Option<u64>>,
@@ -413,7 +413,7 @@ pub(crate) fn finish_streaming_assistant_message(
 /// родителе.
 pub(crate) fn update_tool_status(
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
-    set_messages: WriteSignal<Vec<Message>>,
+    set_messages: crate::transcript::TranscriptWriter,
     call_id: &str,
     status: ToolActivityStatus,
     result_preview: Option<String>,
@@ -478,7 +478,7 @@ pub(crate) fn update_tool_status(
 /// крутились бы вечно.
 pub(crate) fn finalize_running_activity(
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
-    set_messages: WriteSignal<Vec<Message>>,
+    set_messages: crate::transcript::TranscriptWriter,
     now_ms: u64,
 ) {
     set_tool_activities.update(|items| {
@@ -539,7 +539,7 @@ fn interrupt_tool(tool: &mut ToolActivity, now_ms: u64) -> bool {
 /// события для уже бегущего child_thread_id игнорируется; resume завершённой
 /// задачи (тот же thread, новый вызов task) — новая карточка.
 pub(crate) fn push_subagent_message(
-    set_messages: WriteSignal<Vec<Message>>,
+    set_messages: crate::transcript::TranscriptWriter,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     activity: SubagentActivity,
@@ -591,7 +591,7 @@ pub(crate) fn push_subagent_message(
 /// субагента), событие игнорируется — итог всё равно виден в summary
 /// tool-вызова `task` из истории.
 pub(crate) fn finish_subagent_message(
-    set_messages: WriteSignal<Vec<Message>>,
+    set_messages: crate::transcript::TranscriptWriter,
     child_thread_id: &str,
     status: SubagentActivityStatus,
     iterations: Option<u32>,
@@ -618,7 +618,7 @@ pub(crate) fn finish_subagent_message(
 /// же thread_id. Возвращает false, если подходящей карточки нет — вызывающий
 /// рисует обычную плоскую карточку.
 pub(crate) fn push_subagent_tool(
-    set_messages: WriteSignal<Vec<Message>>,
+    set_messages: crate::transcript::TranscriptWriter,
     thread_id: &str,
     tool: ToolActivity,
 ) -> bool {

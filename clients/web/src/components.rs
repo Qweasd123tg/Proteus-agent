@@ -9,6 +9,7 @@ pub(crate) mod header;
 mod icons;
 mod info_panel;
 mod message;
+pub(crate) mod panel;
 mod resume;
 mod settings;
 mod sidebar;

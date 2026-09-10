@@ -7,6 +7,7 @@ Run after trunk build and cargo build -p proteus-core -p proteus-reference-worke
 import base64
 from extensions_checks import run as check_extensions
 from layout_checks import run as check_layout
+from session_checks import run as check_session, BOOTSTRAP
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -72,12 +73,30 @@ class Assets(SimpleHTTPRequestHandler):
             output = [{"type":"function_call","call_id":"ui-plan","name":"update_plan","arguments":json.dumps({"plan":[{"step":"Проверить панели","status":"completed"},{"step":"Проверить настройки","status":"completed"}]})}]
         else:
             output = [{"id":"ui-answer","type":"message","role":"assistant","content":[{"type":"output_text","text":"Проверка интерфейса завершена.\n\n- Панели раскрываются одним изменением ширины.\n- Расширения настраиваются в отдельном разделе.\n- Поле ввода оставляет место для последних сообщений.\n\n```rust\nfn main() {\n    println!(\"Proteus UI fixture\");\n}\n```"}]}]
+        if count >= 2:
+            chunks = [f"Абзац {i}: " + "Продолжение ответа. " * 8 + "\n\n" for i in range(32)]
+            output = [{"id":f"ui-answer-{count}","type":"message","role":"assistant","content":[{"type":"output_text","text":''.join(chunks)}]}]
         self.send_response(200)
         self.send_header('Content-Type', 'text/event-stream')
         self.end_headers()
+        if count >= 2:
+            def emit(name, data):
+                self.wfile.write(('event: '+name+'\ndata: '+json.dumps(data)+'\n\n').encode())
+                self.wfile.flush()
+            emit('response.output_item.added', {"output_index":0,"item":{"id":output[0]['id'],"type":"message","role":"assistant","content":[]}})
+            for chunk in chunks:
+                emit('response.output_text.delta', {"output_index":0,"item_id":output[0]['id'],"content_index":0,"delta":chunk})
+                time.sleep(.1)
         self.wfile.write(('event: response.completed\ndata: '+json.dumps({"response":{"status":"completed","output":output,"usage":{"input_tokens":100,"output_tokens":40}}})+'\n\n').encode())
 
     def do_GET(self):
+        if self.path.startswith('/foundation.html'):
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html')
+            self.end_headers()
+            html = (ROOT / 'clients/web/dist/index.html').read_text().replace('<head>', '<head>'+BOOTSTRAP)
+            self.wfile.write(html.encode())
+            return
         if self.path.startswith('/models?') or self.path == '/wham/usage':
             assert self.headers.get('Authorization') == 'Bearer fixture-access'
             assert self.headers.get('ChatGPT-Account-Id') == 'fixture-account'
@@ -210,6 +229,7 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                 check_layout(command, js, wait_for)
                 screenshot = request(url + '/screenshot')['value']
                 Path('/tmp/proteus-ui-extensions.png').write_bytes(base64.b64decode(screenshot))
+                check_session(command, js, wait_for, web, origin, loaded)
                 stop(backend)
                 js("document.querySelector('[data-extension-id=model-quota] .extension-panel-content').shadowRoot.querySelector('button').click()")
                 wait_for(lambda: js("const root=document.querySelector('[data-extension-id=model-quota] .extension-panel-content').shadowRoot; return root.textContent.includes('Не удалось получить лимиты') && root.querySelectorAll('progress').length === 0"), 'Quota error retained old balances')

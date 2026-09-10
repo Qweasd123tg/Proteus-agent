@@ -1,3 +1,4 @@
+pub(crate) mod input;
 use serde_json::Value;
 use wasm_bindgen::{JsCast, closure::Closure};
 use web_sys::window;

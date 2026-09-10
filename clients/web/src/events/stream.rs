@@ -51,7 +51,7 @@ pub(crate) fn stream_delta_is_foreign(
 
 #[derive(Clone, Copy)]
 pub(crate) struct StreamFlushBindings {
-    pub(crate) set_messages: WriteSignal<Vec<Message>>,
+    pub(crate) set_messages: crate::transcript::TranscriptWriter,
     pub(crate) next_message_id: ReadSignal<u64>,
     pub(crate) set_next_message_id: WriteSignal<u64>,
     pub(crate) active_stream_message_id: ReadSignal<Option<u64>>,
@@ -123,11 +123,12 @@ pub(crate) fn apply_assistant_update(
 ) {
     let mut id = bindings.next_message_id.get_untracked();
     let mut created = false;
-    bindings.set_messages.update(|items| {
-        if let Some(message) = items.iter_mut().find(|message| {
+    let found = bindings.set_messages.update_matching(
+        |message| {
             message.message_id.as_deref() == Some(update.message_id.as_str())
                 && message.role == MessageRole::Assistant
-        }) {
+        },
+        |message| {
             id = message.id;
             if completed {
                 message.text = update.text.clone();
@@ -147,7 +148,10 @@ pub(crate) fn apply_assistant_update(
             };
             message.streaming = !completed;
             message.version += 1;
-        } else {
+        },
+    );
+    if !found {
+        bindings.set_messages.update(|items| {
             for message in items.iter_mut().filter(|message| message.streaming) {
                 message.streaming = false;
                 message.version += 1;
@@ -165,8 +169,8 @@ pub(crate) fn apply_assistant_update(
                 streaming: !completed,
             });
             created = true;
-        }
-    });
+        });
+    }
     if created {
         bindings.set_next_message_id.set(id + 1);
     }

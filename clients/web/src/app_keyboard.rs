@@ -3,7 +3,7 @@ use wasm_bindgen::{JsCast, closure::Closure};
 use web_sys::{KeyboardEvent, window};
 
 use crate::actions::cancel_active_run;
-use crate::types::{Message, TransportStatus};
+use crate::types::TransportStatus;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn install_global_keydown(
@@ -14,7 +14,7 @@ pub(crate) fn install_global_keydown(
     set_next_request_id: WriteSignal<u64>,
     set_is_sending: WriteSignal<bool>,
     set_active_run_id: WriteSignal<Option<String>>,
-    set_messages: WriteSignal<Vec<Message>>,
+    set_messages: crate::transcript::TranscriptWriter,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     set_transport_status: WriteSignal<TransportStatus>,
@@ -30,17 +30,8 @@ pub(crate) fn install_global_keydown(
                 // Сначала закрывается открытое меню композера; отмена хода —
                 // только когда закрывать нечего, иначе Escape по меню
                 // неожиданно стопит агента.
-                if let Some(document) = window().and_then(|window| window.document())
-                    && let Ok(Some(menu)) =
-                        document.query_selector(".composer-menu[open], .topbar-menu[open]")
-                {
+                if crate::app::menus::dismiss_top_menu() {
                     ev.prevent_default();
-                    let _ = menu.remove_attribute("open");
-                    if let Ok(Some(summary)) = menu.query_selector("summary") {
-                        if let Some(element) = summary.dyn_ref::<web_sys::HtmlElement>() {
-                            let _ = element.focus();
-                        }
-                    }
                     return;
                 }
                 if resize.info_open.get()
@@ -73,5 +64,15 @@ pub(crate) fn install_global_keydown(
         let _ = window
             .add_event_listener_with_callback("keydown", global_keydown.as_ref().unchecked_ref());
     }
-    global_keydown.forget();
+    let listener = StoredValue::new_local(global_keydown);
+    on_cleanup(move || {
+        listener.with_value(|listener| {
+            if let Some(window) = window() {
+                let _ = window.remove_event_listener_with_callback(
+                    "keydown",
+                    listener.as_ref().unchecked_ref(),
+                );
+            }
+        })
+    });
 }

@@ -7,7 +7,7 @@ use super::*;
 fn finish_active_streaming_assistant_message_marks_message_done() {
     let owner = Owner::new();
     owner.with(|| {
-        let (messages, set_messages) = signal(vec![Message {
+        let (messages, set_messages) = crate::transcript::transcript(vec![Message {
             message_id: None,
             phase: None,
             id: 1,
@@ -38,7 +38,7 @@ fn finish_active_streaming_assistant_message_marks_message_done() {
 fn push_assistant_message_if_missing_appends_new_final_output() {
     let owner = Owner::new();
     owner.with(|| {
-        let (messages, set_messages) = signal(vec![Message {
+        let (messages, set_messages) = crate::transcript::transcript(vec![Message {
             message_id: None,
             phase: None,
             id: 1,
@@ -128,7 +128,7 @@ fn prepend_history_messages_keeps_live_tail_after_history() {
     let owner = Owner::new();
     owner.with(|| {
         // Живой хвост: стрим-сообщение, прилетевшее по SSE раньше /history.
-        let (messages, set_messages) = signal(vec![Message {
+        let (messages, set_messages) = crate::transcript::transcript(vec![Message {
             message_id: None,
             phase: None,
             id: 1,
@@ -178,7 +178,7 @@ fn prepend_history_messages_keeps_live_tail_after_history() {
 fn push_subagent_tool_nests_by_thread_id_and_reports_miss() {
     let owner = Owner::new();
     owner.with(|| {
-        let (messages, set_messages) = signal(vec![subagent_message(
+        let (messages, set_messages) = crate::transcript::transcript(vec![subagent_message(
             1,
             subagent_activity("child-thread", SubagentActivityStatus::Running),
         )]);
@@ -215,7 +215,8 @@ fn update_tool_status_updates_nested_subagent_tool() {
             .push(tool_activity("call-1", ToolActivityStatus::Running));
         let (tool_activities, set_tool_activities) =
             signal(vec![tool_activity("call-1", ToolActivityStatus::Running)]);
-        let (messages, set_messages) = signal(vec![subagent_message(1, activity)]);
+        let (messages, set_messages) =
+            crate::transcript::transcript(vec![subagent_message(1, activity)]);
 
         let nested = update_tool_status(
             set_tool_activities,
@@ -245,7 +246,7 @@ fn update_tool_status_updates_nested_subagent_tool() {
 fn finish_subagent_message_closes_running_card() {
     let owner = Owner::new();
     owner.with(|| {
-        let (messages, set_messages) = signal(vec![subagent_message(
+        let (messages, set_messages) = crate::transcript::transcript(vec![subagent_message(
             1,
             subagent_activity("child-thread", SubagentActivityStatus::Running),
         )]);
@@ -279,7 +280,7 @@ fn push_subagent_message_attaches_to_running_task_tool_card() {
         task_tool.name = TASK_TOOL.to_owned();
         let mut task_message = history_message(1, MessageRole::System, "");
         task_message.tool = Some(task_tool);
-        let (messages, set_messages) = signal(vec![task_message]);
+        let (messages, set_messages) = crate::transcript::transcript(vec![task_message]);
         let (next_message_id, set_next_message_id) = signal(2);
 
         push_subagent_message(
@@ -308,7 +309,7 @@ fn push_subagent_message_attaches_to_running_spawn_agent_card() {
         spawn_tool.name = SPAWN_AGENT_TOOL.to_owned();
         let mut spawn_message = history_message(1, MessageRole::System, "");
         spawn_message.tool = Some(spawn_tool);
-        let (messages, set_messages) = signal(vec![spawn_message]);
+        let (messages, set_messages) = crate::transcript::transcript(vec![spawn_message]);
         let (next_message_id, set_next_message_id) = signal(2);
 
         push_subagent_message(
@@ -338,7 +339,7 @@ fn push_subagent_message_attaches_to_running_followup_card() {
         followup_tool.name = FOLLOWUP_TASK_TOOL.to_owned();
         let mut followup_message = history_message(1, MessageRole::System, "");
         followup_message.tool = Some(followup_tool);
-        let (messages, set_messages) = signal(vec![followup_message]);
+        let (messages, set_messages) = crate::transcript::transcript(vec![followup_message]);
         let (next_message_id, set_next_message_id) = signal(2);
 
         push_subagent_message(
@@ -374,7 +375,7 @@ fn push_subagent_message_skips_finished_task_card_and_falls_back_to_standalone()
         task_tool.name = TASK_TOOL.to_owned();
         let mut task_message = history_message(1, MessageRole::System, "");
         task_message.tool = Some(task_tool);
-        let (messages, set_messages) = signal(vec![task_message]);
+        let (messages, set_messages) = crate::transcript::transcript(vec![task_message]);
         let (next_message_id, set_next_message_id) = signal(2);
 
         push_subagent_message(
@@ -396,7 +397,7 @@ fn push_subagent_message_skips_finished_task_card_and_falls_back_to_standalone()
 fn push_subagent_message_dedups_running_child_thread_id() {
     let owner = Owner::new();
     owner.with(|| {
-        let (messages, set_messages) = signal(Vec::<Message>::new());
+        let (messages, set_messages) = crate::transcript::transcript(Vec::<Message>::new());
         let (next_message_id, set_next_message_id) = signal(1);
 
         push_subagent_message(
@@ -441,7 +442,7 @@ fn prepend_history_messages_adopts_history_streaming_tail() {
         // Живой хвост из SSE и стрим-хвост в снапшоте прогресса: снапшот
         // авторитетнее (содержит настриманное до перезагрузки), локальный
         // дубль выбрасывается, дельты переключаются на сообщение истории.
-        let (messages, set_messages) = signal(vec![Message {
+        let (messages, set_messages) = crate::transcript::transcript(vec![Message {
             message_id: None,
             phase: None,
             id: 1,
@@ -489,7 +490,7 @@ fn prepend_history_messages_drops_live_duplicates_of_history_tail() {
     owner.with(|| {
         // Ход успел завершиться, пока /history был в пути: финальный ответ
         // уже лежит в живых сообщениях и продублирован историей.
-        let (messages, set_messages) = signal(vec![history_message(
+        let (messages, set_messages) = crate::transcript::transcript(vec![history_message(
             1,
             MessageRole::Assistant,
             "финальный ответ",
@@ -532,7 +533,7 @@ fn prepend_history_messages_drops_live_tool_duplicated_by_call_id() {
             status: ToolActivityStatus::Done,
             result_preview: None,
         };
-        let (messages, set_messages) = signal(vec![Message {
+        let (messages, set_messages) = crate::transcript::transcript(vec![Message {
             message_id: None,
             phase: None,
             id: 1,
@@ -576,7 +577,8 @@ fn prepend_history_messages_drops_flat_history_tool_duplicated_by_nested_subagen
         let nested_tool = tool_activity("call-7", ToolActivityStatus::Running);
         let mut activity = subagent_activity("child-thread", SubagentActivityStatus::Running);
         activity.tools.push(nested_tool.clone());
-        let (messages, set_messages) = signal(vec![subagent_message(1, activity)]);
+        let (messages, set_messages) =
+            crate::transcript::transcript(vec![subagent_message(1, activity)]);
         let (next_message_id, set_next_message_id) = signal(2_u64);
         let (_, set_active_stream_message_id) = signal(None::<u64>);
         let (_, set_streamed_this_turn) = signal(false);
@@ -614,7 +616,7 @@ fn prepend_history_messages_drops_live_subagent_duplicated_by_history_snapshot()
             1,
             subagent_activity("child-thread", SubagentActivityStatus::Running),
         );
-        let (messages, set_messages) = signal(vec![live]);
+        let (messages, set_messages) = crate::transcript::transcript(vec![live]);
         let (next_message_id, set_next_message_id) = signal(2_u64);
         let (_, set_active_stream_message_id) = signal(None::<u64>);
         let (_, set_streamed_this_turn) = signal(false);
@@ -659,7 +661,7 @@ fn finalize_running_activity_interrupts_tools_and_subagents() {
         ));
         let mut done_tool_message = history_message(3, MessageRole::System, "");
         done_tool_message.tool = Some(tool_activity("call-done", ToolActivityStatus::Done));
-        let (messages, set_messages) = signal(vec![
+        let (messages, set_messages) = crate::transcript::transcript(vec![
             subagent_message(1, running_subagent),
             flat_tool_message,
             done_tool_message,
@@ -710,7 +712,7 @@ fn finalize_running_activity_preserves_spawned_background_subagent() {
         let mut spawn_tool = tool_activity("spawn", ToolActivityStatus::Done);
         spawn_tool.name = SPAWN_AGENT_TOOL.to_owned();
         message.tool = Some(spawn_tool);
-        let (messages, set_messages) = signal(vec![message]);
+        let (messages, set_messages) = crate::transcript::transcript(vec![message]);
         let (tool_activities, set_tool_activities) = signal(Vec::new());
 
         finalize_running_activity(set_tool_activities, set_messages, 99);
@@ -736,7 +738,7 @@ fn finalize_running_activity_preserves_followup_background_subagent() {
         let mut followup_tool = tool_activity("followup", ToolActivityStatus::Done);
         followup_tool.name = FOLLOWUP_TASK_TOOL.to_owned();
         message.tool = Some(followup_tool);
-        let (messages, set_messages) = signal(vec![message]);
+        let (messages, set_messages) = crate::transcript::transcript(vec![message]);
         let (_tool_activities, set_tool_activities) = signal(Vec::new());
 
         finalize_running_activity(set_tool_activities, set_messages, 99);
@@ -753,7 +755,7 @@ fn finalize_running_activity_preserves_followup_background_subagent() {
 fn push_assistant_message_if_missing_skips_existing_final_output() {
     let owner = Owner::new();
     owner.with(|| {
-        let (messages, set_messages) = signal(vec![Message {
+        let (messages, set_messages) = crate::transcript::transcript(vec![Message {
             message_id: None,
             phase: None,
             id: 1,

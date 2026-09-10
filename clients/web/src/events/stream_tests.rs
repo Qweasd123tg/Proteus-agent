@@ -2,8 +2,8 @@ use super::*;
 use crate::messages::{finish_streaming_assistant_message, prepend_history_messages};
 use crate::types::MessagePhase;
 
-fn bindings() -> (ReadSignal<Vec<Message>>, StreamFlushBindings) {
-    let (messages, set_messages) = signal(Vec::new());
+fn bindings() -> (crate::transcript::Transcript, StreamFlushBindings) {
+    let (messages, set_messages) = crate::transcript::transcript(Vec::new());
     let (next_message_id, set_next_message_id) = signal(1);
     let (active_stream_message_id, set_active_stream_message_id) = signal(None);
     let (streamed_this_turn, set_streamed_this_turn) = signal(false);

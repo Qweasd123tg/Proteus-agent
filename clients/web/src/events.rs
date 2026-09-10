@@ -1,10 +1,13 @@
+mod connection;
+mod control_plane;
+pub(crate) use connection::{EventConnection, close_event_stream, reconnect_event_stream};
+use control_plane::refresh_pending_control_plane;
 mod runtime;
 mod stream;
 
-use leptos::{prelude::*, task::spawn_local};
+use leptos::prelude::*;
 use serde_json::Value;
-use wasm_bindgen::{JsCast, JsValue, closure::Closure};
-use web_sys::{Event, EventSource, MessageEvent};
+use wasm_bindgen::JsValue;
 
 use self::runtime::{
     event_updates_visible_count, update_runtime_status_and_tools, update_session_labels,
@@ -12,24 +15,19 @@ use self::runtime::{
 pub(crate) use self::stream::BufferedStreamDeltas;
 use self::stream::{StreamFlushBindings, flush_stream_delta_buffer};
 use crate::actions::handle_command_response;
-use crate::api::{event_stream_url, get_json, js_error};
-use crate::app_helpers::{
-    apply_active_session_activity, load_sidebar_sessions, replace_transcript,
-};
 use crate::messages::{
     finalize_running_activity, finish_active_streaming_assistant_message,
     finish_all_streaming_assistant_messages, finish_streaming_assistant_message,
     push_assistant_message_if_missing, push_message, push_user_message_once,
 };
+use crate::session::history::replace_transcript;
+use crate::session::summaries::{apply_active_session_activity, load_sidebar_sessions};
 use crate::types::*;
-use crate::ui_utils::{output_text, set_timeout};
-
-/// Сколько ждём авто-реконнект EventSource, прежде чем показать ошибку.
-const RECONNECT_GRACE_MS: i32 = 5000;
+use crate::ui_utils::output_text;
 
 #[derive(Clone, Copy)]
 pub(crate) struct EventStreamBindings {
-    pub(crate) set_messages: WriteSignal<Vec<Message>>,
+    pub(crate) set_messages: crate::transcript::TranscriptWriter,
     pub(crate) next_message_id: ReadSignal<u64>,
     pub(crate) set_next_message_id: WriteSignal<u64>,
     pub(crate) transport_status: ReadSignal<TransportStatus>,
@@ -57,211 +55,10 @@ pub(crate) struct EventStreamBindings {
     pub(crate) set_sidebar_sessions_status: WriteSignal<String>,
 }
 
-pub(crate) fn reconnect_event_stream(
-    event_source: StoredValue<Option<EventSource>, LocalStorage>,
-    bindings: EventStreamBindings,
-) {
-    event_source.update_value(|slot| {
-        bindings
-            .set_transport_status
-            .set(TransportStatus::Connecting);
-        if let Some(source) = slot.take() {
-            source.close();
-        }
-        *slot = connect_event_stream(bindings);
-    });
-}
-
-pub(crate) fn close_event_stream(event_source: StoredValue<Option<EventSource>, LocalStorage>) {
-    event_source.update_value(|slot| {
-        if let Some(source) = slot.take() {
-            source.close();
-        }
-    });
-}
-
-fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventSource> {
-    let url = event_stream_url();
-    let stream_generation = bindings.transcript_generation.get_untracked();
-    let source = match EventSource::new(&url) {
-        Ok(source) => source,
-        Err(error) => {
-            let message = js_error(error);
-            bindings
-                .set_transport_status
-                .set(TransportStatus::Error(message.clone()));
-            push_message(
-                bindings.set_messages,
-                bindings.next_message_id,
-                bindings.set_next_message_id,
-                MessageRole::System,
-                format!("Event stream failed: {message}"),
-            );
-            return None;
-        }
-    };
-
-    let on_open = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |_| {
-        if bindings.transcript_generation.get_untracked() != stream_generation {
-            return;
-        }
-        let was_disconnected = matches!(
-            bindings.transport_status.get_untracked(),
-            TransportStatus::Error(_) | TransportStatus::Reconnecting
-        );
-        bindings
-            .set_transport_status
-            .set(TransportStatus::Connected);
-        refresh_pending_control_plane(
-            bindings.set_pending_approvals,
-            bindings.set_pending_user_inputs,
-            bindings.set_queued_prompts,
-        );
-        if was_disconnected {
-            // События за время обрыва потеряны: стрим-состояние невалидно,
-            // транскрипт перечитывается с сервера целиком.
-            bindings
-                .stream_delta_buffer
-                .set_value(BufferedStreamDeltas::default());
-            bindings.set_active_stream_message_id.set(None);
-            bindings.set_streamed_this_turn.set(false);
-            let expected_generation = bindings.transcript_generation.get_untracked();
-            replace_transcript(
-                bindings.set_messages,
-                bindings.transcript_generation,
-                expected_generation,
-                bindings.next_message_id,
-                bindings.set_next_message_id,
-                bindings.set_active_stream_message_id,
-                bindings.set_streamed_this_turn,
-                bindings.set_transport_status,
-            );
-        }
-    }));
-    source.set_onopen(Some(on_open.as_ref().unchecked_ref()));
-    on_open.forget();
-
-    let output_messages = bindings.set_messages;
-    let output_next_message_id = bindings.next_message_id;
-    let output_set_next_message_id = bindings.set_next_message_id;
-    let output_transport_status = bindings.set_transport_status;
-    let output_event_count = bindings.set_event_count;
-    let on_output =
-        Closure::<dyn FnMut(MessageEvent)>::wrap(Box::new(move |event: MessageEvent| {
-            if bindings.transcript_generation.get_untracked() != stream_generation {
-                return;
-            }
-            let Some(data) = event.data().as_string() else {
-                return;
-            };
-            match serde_json::from_str::<StdioOutput>(&data) {
-                Ok(output) => handle_app_output(
-                    output,
-                    output_messages,
-                    output_next_message_id,
-                    output_set_next_message_id,
-                    output_transport_status,
-                    output_event_count,
-                    bindings.set_workspace_label,
-                    bindings.set_session_label,
-                    bindings.active_session_dir,
-                    bindings.set_active_session_dir,
-                    bindings.set_is_sending,
-                    bindings.set_active_run_id,
-                    bindings.active_stream_message_id,
-                    bindings.set_active_stream_message_id,
-                    bindings.streamed_this_turn,
-                    bindings.set_streamed_this_turn,
-                    bindings.stream_delta_buffer,
-                    bindings.set_agent_status,
-                    bindings.set_tool_activities,
-                    bindings.set_context_usage,
-                    bindings.transcript_generation,
-                    bindings.set_pending_approvals,
-                    bindings.set_pending_user_inputs,
-                    bindings.set_queued_prompts,
-                    bindings.set_sidebar_sessions,
-                    bindings.set_sidebar_sessions_status,
-                ),
-                Err(error) => push_message(
-                    output_messages,
-                    output_next_message_id,
-                    output_set_next_message_id,
-                    MessageRole::System,
-                    format!("Invalid event payload: {error}"),
-                ),
-            }
-        }));
-    let _ = source.add_event_listener_with_callback("output", on_output.as_ref().unchecked_ref());
-    on_output.forget();
-
-    let set_transport_status = bindings.set_transport_status;
-    let transport_status = bindings.transport_status;
-    let transcript_generation = bindings.transcript_generation;
-    let error_source = source.clone();
-    let on_error = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |_| {
-        if transcript_generation.get_untracked() != stream_generation {
-            return;
-        }
-        // Терминальный обрыв: браузер ретраить не будет (например, HTTP 4xx).
-        if error_source.ready_state() == EventSource::CLOSED {
-            set_transport_status.set(TransportStatus::Error(
-                "event stream disconnected".to_owned(),
-            ));
-            return;
-        }
-        // EventSource сам переподключается, onerror приходит на каждый
-        // ретрай. Ошибку показываем только если реконнект не удался за
-        // грейс-период — иначе бейдж и тост мигают при каждом коротком
-        // обрыве (переключение сессий, перезапуск runtime).
-        if matches!(
-            transport_status.get_untracked(),
-            TransportStatus::Connected | TransportStatus::Connecting
-        ) {
-            set_transport_status.set(TransportStatus::Reconnecting);
-            set_timeout(RECONNECT_GRACE_MS, move || {
-                if transcript_generation.get_untracked() != stream_generation {
-                    return;
-                }
-                if transport_status.get_untracked() == TransportStatus::Reconnecting {
-                    set_transport_status.set(TransportStatus::Error(
-                        "event stream disconnected".to_owned(),
-                    ));
-                }
-            });
-        }
-    }));
-    source.set_onerror(Some(on_error.as_ref().unchecked_ref()));
-    on_error.forget();
-
-    Some(source)
-}
-
-fn refresh_pending_control_plane(
-    set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
-    set_pending_user_inputs: WriteSignal<Vec<UserInputRequestInfo>>,
-    set_queued_prompts: WriteSignal<Vec<QueuedPromptInfo>>,
-) {
-    spawn_local(async move {
-        match get_json::<PendingControlPlaneInfo>("/pending").await {
-            Ok(pending) => {
-                set_pending_approvals.set(pending.approvals);
-                set_pending_user_inputs.set(pending.user_inputs);
-                set_queued_prompts.set(pending.queued_user_messages);
-            }
-            Err(error) => {
-                web_sys::console::warn_1(&JsValue::from_str(&format!(
-                    "Pending control-plane refresh failed: {error}"
-                )));
-            }
-        }
-    });
-}
-
 #[allow(clippy::too_many_arguments)]
 fn handle_app_output(
     output: StdioOutput,
-    set_messages: WriteSignal<Vec<Message>>,
+    set_messages: crate::transcript::TranscriptWriter,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     set_transport_status: WriteSignal<TransportStatus>,
@@ -333,7 +130,7 @@ fn handle_app_output(
 #[allow(clippy::too_many_arguments)]
 fn handle_app_event(
     event: AppServerEvent,
-    set_messages: WriteSignal<Vec<Message>>,
+    set_messages: crate::transcript::TranscriptWriter,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     set_transport_status: WriteSignal<TransportStatus>,
@@ -591,6 +388,8 @@ fn handle_app_event(
                 set_pending_approvals,
                 set_pending_user_inputs,
                 set_queued_prompts,
+                transcript_generation,
+                expected_generation,
             );
         }
         AppServerEvent::Shutdown => {

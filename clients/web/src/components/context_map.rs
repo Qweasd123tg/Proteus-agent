@@ -2,7 +2,7 @@ use leptos::{prelude::*, task::spawn_local};
 
 use super::format_token_count;
 use crate::api::{encode_query_component, get_json};
-use crate::app_helpers::sidebar_session_title;
+use crate::session::summaries::sidebar_session_title;
 use crate::types::*;
 use crate::ui_utils::{set_timeout, short_id, short_path};
 

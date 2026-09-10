@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use web_sys::MouseEvent;
 
-use crate::app_helpers::{
+use crate::ui_preferences::{
     load_bool_setting, load_i32_setting, save_bool_setting, save_i32_setting,
 };
 

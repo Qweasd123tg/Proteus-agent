@@ -61,10 +61,10 @@ where
 #[component]
 pub(crate) fn MessageView(
     message_id: u64,
-    messages: ReadSignal<Vec<Message>>,
+    messages: crate::transcript::Transcript,
     activity_now_ms: ReadSignal<u64>,
 ) -> impl IntoView {
-    let message = message_memo(messages, message_id);
+    let message = messages.message(message_id);
     let kind = Memo::new(move |_| current_message_kind(message));
 
     view! {
@@ -83,39 +83,6 @@ pub(crate) fn MessageView(
             }
         }}
     }
-}
-
-/// Двухступенчатая подписка карточки на ленту. Каждое обновление ленты будит
-/// memos всех карточек; если бы карточка сразу клонировала своё сообщение,
-/// каждый event стоил бы клон+глубокое сравнение всего транскрипта (карточка
-/// субагента с вложенными выводами — сотни килобайт), что вешало браузер.
-/// Первая ступень — копеечный fingerprint (id найден, version, streaming,
-/// длина текста): O(scan) целочисленной работы на event. Вторая клонирует
-/// сообщение только когда fingerprint реально изменился.
-///
-/// Fingerprint обязательно ЧИТАЕТСЯ (`get`), а не только `track()`:
-/// подписка на никем не читаемый memo оставляет его невычисленным, и
-/// инвалидация от сигнала ленты через него не доходит до подписчиков —
-/// карточка навсегда застревала в «выполняется» при живом состоянии
-/// (см. two_stage_message_memo_pushes_version_bump_to_subscribers).
-fn message_memo(messages: ReadSignal<Vec<Message>>, message_id: u64) -> Memo<Option<Message>> {
-    let fingerprint = Memo::new(move |_| {
-        messages.with(|items| {
-            items
-                .iter()
-                .find(|message| message.id == message_id)
-                .map(|message| (message.version, message.streaming, message.text.len()))
-        })
-    });
-    Memo::new(move |_| {
-        let _ = fingerprint.get();
-        messages.with_untracked(|items| {
-            items
-                .iter()
-                .find(|message| message.id == message_id)
-                .cloned()
-        })
-    })
 }
 
 fn text_message_view(message: Memo<Option<Message>>, turn_class: &'static str) -> AnyView {
@@ -414,16 +381,16 @@ mod tests {
         }
     }
 
-    /// Регрессия на двухступенчатую подписку MessageView: version bump
-    /// (например, ToolFinished) обязан доехать до подписчиков memo сообщения,
-    /// иначе карточка навсегда остаётся «выполняется» при живом состоянии.
+    /// ToolFinished обязан доходить до подписки карточки: её статус не должен
+    /// оставаться «выполняется» после завершения вызова.
     #[tokio::test]
-    async fn two_stage_message_memo_pushes_version_bump_to_subscribers() {
+    async fn message_subscription_pushes_tool_completion_to_subscribers() {
         _ = any_spawner::Executor::init_tokio();
         let owner = Owner::new();
         let (set_messages, message, seen) = owner.with(|| {
-            let (messages, set_messages) = signal(vec![running_tool_message(1)]);
-            let message = message_memo(messages, 1);
+            let (messages, set_messages) =
+                crate::transcript::transcript(vec![running_tool_message(1)]);
+            let message = messages.message(1);
 
             let seen = Arc::new(Mutex::new(Vec::<ToolActivityStatus>::new()));
             let sink = seen.clone();
