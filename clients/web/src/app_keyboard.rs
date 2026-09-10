@@ -8,6 +8,7 @@ use crate::types::{Message, TransportStatus};
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn install_global_keydown(
     composer_ref: NodeRef<html::Textarea>,
+    resize: crate::app_resize::AppResizeState,
     active_run_id: ReadSignal<Option<String>>,
     next_request_id: ReadSignal<u64>,
     set_next_request_id: WriteSignal<u64>,
@@ -30,10 +31,26 @@ pub(crate) fn install_global_keydown(
                 // только когда закрывать нечего, иначе Escape по меню
                 // неожиданно стопит агента.
                 if let Some(document) = window().and_then(|window| window.document())
-                    && let Ok(Some(menu)) = document.query_selector(".composer-menu[open]")
+                    && let Ok(Some(menu)) =
+                        document.query_selector(".composer-menu[open], .topbar-menu[open]")
                 {
                     ev.prevent_default();
                     let _ = menu.remove_attribute("open");
+                    if let Ok(Some(summary)) = menu.query_selector("summary") {
+                        if let Some(element) = summary.dyn_ref::<web_sys::HtmlElement>() {
+                            let _ = element.focus();
+                        }
+                    }
+                    return;
+                }
+                if resize.info_open.get()
+                    && window()
+                        .and_then(|window| window.inner_width().ok())
+                        .and_then(|width| width.as_f64())
+                        .is_some_and(|width| width <= 900.0)
+                {
+                    ev.prevent_default();
+                    resize.toggle_info_panel();
                     return;
                 }
                 if active_run_id.get().is_some() {

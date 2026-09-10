@@ -1,0 +1,23 @@
+.settings-page { min-height: 0; width: 100%; max-width: 860px; margin: 0 auto; padding: 36px 40px 64px; overflow-y: auto; scroll-behavior: smooth; }
+.settings-toolbar { margin-bottom: 24px; }
+.settings-toolbar h1 { color: var(--text-main); font-size: 26px; font-weight: 550; letter-spacing: -.6px; }
+.settings-toolbar p { margin-top: 5px; color: var(--text-muted); font-size: 13px; }
+.settings-nav { display: flex; gap: 8px; padding-bottom: 22px; border-bottom: 1px solid var(--border-subtle); }
+.settings-nav a { padding: 5px 12px; border-radius: 8px; background: var(--bg-panel-soft); color: var(--text-main); text-decoration: none; font-size: 12px; }
+.settings-nav a:hover { background: var(--bg-panel-hover); }
+.settings-section { margin-top: 32px; scroll-margin-top: 24px; }
+.settings-section h2 { font-size: 16px; font-weight: 550; margin-bottom: 8px; }
+.settings-section-description { color: var(--text-muted); font-size: 13px; margin-bottom: 16px; }
+.settings-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 18px 0; border-bottom: 1px solid var(--border-subtle); cursor: pointer; }
+.settings-label { display: grid; gap: 4px; }
+.settings-label strong { font-size: 13px; font-weight: 500; }
+.settings-hint { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.settings-toggle { appearance: none; width: 32px; height: 19px; flex: 0 0 32px; padding: 2px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--bg-panel-soft); cursor: pointer; }
+.settings-toggle::before { content: ''; display: block; width: 13px; height: 13px; border-radius: 50%; background: var(--text-muted); transition: transform .12s; }
+.settings-toggle:checked { background: var(--text-main); border-color: var(--text-main); }
+.settings-toggle:checked::before { background: var(--bg-root); transform: translateX(13px); }
+.settings-toggle:disabled { opacity: .4; cursor: wait; }
+.settings-status { min-height: 18px; padding-top: 8px; color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
+@media (max-width: 620px) { .settings-page { padding: 24px 20px 48px; } }
+
+.settings-retry[hidden] { display: none; }

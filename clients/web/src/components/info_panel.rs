@@ -61,8 +61,8 @@ pub(crate) fn InfoPanelView<T, R>(
     workspace_label: ReadSignal<String>,
 ) -> impl IntoView
 where
-    T: Fn(MouseEvent) + Copy + 'static,
-    R: Fn(MouseEvent) + Copy + 'static,
+    T: Fn(MouseEvent) + Copy + Send + Sync + 'static,
+    R: Fn(MouseEvent) + Copy + Send + Sync + 'static,
 {
     // Последний update_plan в ленте — актуальное состояние плана задачи.
     let plan_steps = Memo::new(move |_| {
@@ -93,6 +93,7 @@ where
     });
 
     view! {
+        <Show when=move || open.get()><button type="button" class="panel-backdrop" aria-label="Закрыть обзор" on:click=on_toggle></button></Show>
         <aside
             class="info-panel"
             class:open=move || open.get()
@@ -107,9 +108,11 @@ where
                 on:mousedown=on_begin_resize
             ></div>
             <div class="info-panel-header">
-                <h2>"Инфо"</h2>
+                <h2>"Обзор"</h2>
                 <button
                     type="button"
+                    aria-label=move || if open.get() { "Свернуть обзор" } else { "Открыть обзор" }
+                    aria-expanded=move || open.get().to_string()
                     title=move || if open.get() { "Свернуть панель" } else { "Развернуть панель" }
                     on:click=on_toggle
                 >
@@ -194,7 +197,7 @@ where
             </div>
 
             <div class="info-panel-body">
-                <ExtensionsView />
+                <Show when=move || !plan_steps.with(|items| items.is_empty())>
                 <section class="info-panel-section">
                     <div class="info-panel-section-head">
                         <span class="panel-kicker">"План"</span>
@@ -215,6 +218,8 @@ where
                     }}
                 </section>
 
+                </Show>
+                <Show when=move || context_usage.get().is_some()>
                 <section class="info-panel-section">
                     <div class="info-panel-section-head">
                         <span class="panel-kicker">"Контекст"</span>
@@ -275,10 +280,11 @@ where
                     }}
                 </section>
 
-                <section class="info-panel-section">
-                    <div class="info-panel-section-head">
-                        <span class="panel-kicker">"Сессия"</span>
-                    </div>
+                </Show>
+                <ExtensionsView />
+                <details class="info-session">
+                    <summary>"Сведения о сессии"</summary>
+                    <div class="info-session-body">
                     <div class="info-row">
                         <span>"Статус"</span>
                         <code>{move || agent_status.get()}</code>
@@ -325,7 +331,8 @@ where
                         <span>"Ожидают"</span>
                         <code>{move || pending_total.get().to_string()}</code>
                     </div>
-                </section>
+                    </div>
+                </details>
             </div>
         </aside>
     }

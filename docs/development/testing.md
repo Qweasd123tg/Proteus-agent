@@ -40,7 +40,7 @@
 | Agent control/subagents | DTO/mailbox unit | минимум два real process peers | forged address/source, bounded FIFO, cancel handoff и sibling crash isolation |
 | HTTP/session | handler unit | reconnect/cold history | auth/SSE smoke |
 | Inspector/web | Rust unit | `trunk build` | browser smoke при UX change |
-| UI extensions | Node contract/lifecycle tests | `trunk build` + реальный browser/agent API | внешний пакет без пересборки, автономный host, отключение/сворачивание, сохранение настроек; [команды](../guides/ui-extensions.md#проверка) |
+| UI extensions | Node contract/lifecycle tests | `trunk build` + реальный browser/agent API | внешний пакет без пересборки, автономный host, отключение/сворачивание, управление из Settings без исполнения entry, сохранение/откат настроек, layout/resize smoke; [команды](../guides/ui-extensions.md#проверка) |
 | Desktop launch/package | desktop Rust unit | packaged backend readiness/auth/cold history/shutdown | release portable build + native window smoke; команды в [desktop.md](../guides/desktop.md) |
 | Docs only | link/config inspection | обычно не нужен | `cargo test --workspace` |
 

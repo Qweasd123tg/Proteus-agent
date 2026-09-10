@@ -21,21 +21,12 @@ use crate::components::{
 use crate::events::{BufferedStreamDeltas, EventStreamBindings, reconnect_event_stream};
 use crate::messages::report_error;
 use crate::types::*;
-use crate::ui_utils::{compact_text, set_timeout, short_path};
+use crate::ui_utils::{compact_text, set_timeout};
 
 #[wasm_bindgen]
 unsafe extern "C" {
     #[wasm_bindgen(js_namespace = window, js_name = proteusTypesetMath)]
     fn proteus_typeset_math();
-}
-
-/// Закрывает выпадающее меню-шестерёнку в топбаре (нативный <details>).
-fn close_topbar_menu() {
-    if let Some(document) = window().and_then(|window| window.document())
-        && let Ok(Some(menu)) = document.query_selector(".topbar-menu[open]")
-    {
-        let _ = menu.remove_attribute("open");
-    }
 }
 
 #[component]
@@ -558,11 +549,6 @@ pub(crate) fn App() -> impl IntoView {
         );
     };
 
-    let transport_badge_class = move || match transport_status.get() {
-        TransportStatus::Connecting | TransportStatus::Reconnecting => "status-badge disconnected",
-        TransportStatus::Connected => "status-badge completed",
-        TransportStatus::Error(_) | TransportStatus::Shutdown => "status-badge failed",
-    };
     let draft_is_empty = move || draft.get().trim().is_empty();
 
     let revise_plan = move |_| {
@@ -655,6 +641,7 @@ pub(crate) fn App() -> impl IntoView {
     };
     install_global_keydown(
         composer_ref,
+        resize,
         active_run_id,
         next_request_id,
         set_next_request_id,
@@ -693,140 +680,12 @@ pub(crate) fn App() -> impl IntoView {
             />
 
             <main class="workspace-main">
-                <header class="topbar">
-                    <div class="topbar-left">
-                        <a
-                            class="brand"
-                            href="/"
-                            on:click=move |ev| topnav_click(ev, "/")
-                        >
-                            "Proteus"
-                        </a>
-                        <button
-                            type="button"
-                            class=transport_badge_class
-                            title="Переподключить поток событий"
-                            on:click=reconnect_transport
-                        >
-                            <span class="dot"></span>
-                            {move || transport_status.get().label()}
-                        </button>
-                        // Путь workspace, в котором запущен агент; полный —
-                        // в подсказке.
-                        <code class="topbar-workspace" title=move || workspace_label.get()>
-                            {move || short_path(&workspace_label.get())}
-                        </code>
-                    </div>
-                    <nav class="topnav">
-                        {move || {
-                            let waiting = waiting_background_sessions.get();
-                            if waiting.is_empty() {
-                                ().into_any()
-                            } else {
-                                let count = waiting.len();
-                                let first = waiting[0].clone();
-                                view! {
-                                    <button
-                                        type="button"
-                                        class="status-badge attention"
-                                        title="Другие сессии ждут доступа или ответа — открыть"
-                                        on:click=move |_| session_actions
-                                            .open_sidebar_session(first.clone())
-                                    >
-                                        <span class="dot"></span>
-                                        {format!("ждёт: {count}")}
-                                    </button>
-                                }.into_any()
-                            }
-                        }}
-                        <a
-                            class="topnav-link"
-                            class:active=move || is_chat_route()
-                            href="/"
-                            on:click=move |ev| topnav_click(ev, "/")
-                        >
-                            "Чат"
-                        </a>
-                        <a
-                            class="topnav-link"
-                            class:active=move || route.get() == "/context"
-                            href="/context"
-                            on:click=move |ev| topnav_click(ev, "/context")
-                        >
-                            "Контекст"
-                        </a>
-                        <a
-                            class="topnav-link"
-                            class:active=move || route.get() == "/resume"
-                            href="/resume"
-                            on:click=move |ev| topnav_click(ev, "/resume")
-                        >
-                            "Сессии"
-                        </a>
-                        // Резервный тумблер инфо-панели для узких экранов:
-                        // там свёрнутая рейка спрятана целиком, и своей кнопки
-                        // у панели не видно. На десктопе скрыт (см. CSS).
-                        {move || if is_chat_route() {
-                            view! {
-                                <button
-                                    type="button"
-                                    class="sidebar-toggle info-panel-mobile-toggle"
-                                    class:active=move || info_panel_open.get()
-                                    title="Инфо по чату"
-                                    aria-label="Инфо по чату"
-                                    on:click=toggle_info_panel
-                                >
-                                    "▤"
-                                </button>
-                            }.into_any()
-                        } else {
-                            ().into_any()
-                        }}
-                        // Служебное — под шестерёнкой, чтобы не шуметь в
-                        // топбаре: настройки, Inspector, стоп, счётчики.
-                        <details class="topbar-menu">
-                            <summary title="Меню" aria-label="Меню">"⚙"</summary>
-                            <div class="topbar-menu-panel">
-                                <a
-                                    class="topbar-menu-item"
-                                    class:active=move || route.get() == "/settings"
-                                    href="/settings"
-                                    on:click=move |ev| {
-                                        close_topbar_menu();
-                                        topnav_click(ev, "/settings");
-                                    }
-                                >
-                                    "Настройки"
-                                </a>
-                                <a
-                                    class="topbar-menu-item"
-                                    href=crate::api::inspector_link_url()
-                                    on:click=move |_| close_topbar_menu()
-                                >
-                                    "Inspector"
-                                </a>
-                                <button
-                                    type="button"
-                                    class="topbar-menu-item danger"
-                                    disabled=move || active_run_id.get().is_none()
-                                    on:click=move |ev| {
-                                        close_topbar_menu();
-                                        cancel_turn(ev);
-                                    }
-                                >
-                                    "Остановить ход"
-                                </button>
-                                <div class="topbar-menu-footer">
-                                    {move || format!(
-                                        "{} events · {} tools",
-                                        event_count.get(),
-                                        tool_activities.with(|items| items.len()),
-                                    )}
-                                </div>
-                            </div>
-                        </details>
-                    </nav>
-                </header>
+                <super::components::header::HeaderView
+                    route workspace_label transport_status waiting_background_sessions active_run_id event_count tool_activities info_panel_open
+                    on_navigate=topnav_click on_reconnect=reconnect_transport
+                    on_open_session=move |session| session_actions.open_sidebar_session(session)
+                    on_cancel=cancel_turn on_toggle_info=toggle_info_panel
+                />
 
                 <section
                     class="session-workspace"
@@ -844,7 +703,7 @@ pub(crate) fn App() -> impl IntoView {
                             />
                         }.into_any()
                     } else if current == "/settings" {
-                        view! { <SettingsView /> }.into_any()
+                        view! { <SettingsView tool_cards_collapsed set_tool_cards_collapsed /> }.into_any()
                     } else {
                         view! {
                             <ChatResultsView

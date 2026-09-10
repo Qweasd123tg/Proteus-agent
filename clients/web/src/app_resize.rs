@@ -59,8 +59,10 @@ pub(crate) struct AppResizeState {
 
 impl AppResizeState {
     pub(crate) fn new() -> Self {
-        let (sidebar_width, set_sidebar_width) =
-            signal(load_i32_setting("proteus.sidebarWidth", 260));
+        let (sidebar_width, set_sidebar_width) = signal(
+            load_i32_setting("proteus.sidebarWidth", 260)
+                .clamp(MIN_SIDEBAR_WIDTH_PX, MAX_SIDEBAR_WIDTH_PX),
+        );
         let (sidebar_collapsed, set_sidebar_collapsed) =
             signal(load_bool_setting("proteus.sidebarCollapsed", false));
         let (info_width, set_info_width) = signal(
@@ -126,26 +128,44 @@ impl AppResizeState {
 
     pub(crate) fn install_persistence_effects(self) {
         Effect::new(move |_| {
+            if self.is_resizing() {
+                return;
+            }
             save_i32_setting("proteus.sidebarWidth", self.sidebar_width.get());
         });
 
         Effect::new(move |_| {
+            if self.is_resizing() {
+                return;
+            }
             save_bool_setting("proteus.sidebarCollapsed", self.sidebar_collapsed.get());
         });
 
         Effect::new(move |_| {
+            if self.is_resizing() {
+                return;
+            }
             save_i32_setting("proteus.infoPanelWidth", self.info_width.get());
         });
 
         Effect::new(move |_| {
+            if self.is_resizing() {
+                return;
+            }
             save_bool_setting("proteus.infoPanelOpen", self.info_open.get());
         });
 
         Effect::new(move |_| {
+            if self.is_resizing() {
+                return;
+            }
             save_i32_setting("proteus.composerHeight", self.composer_height.get());
         });
 
         Effect::new(move |_| {
+            if self.is_resizing() {
+                return;
+            }
             save_i32_setting("proteus.chatWidth", self.chat_width.get());
         });
     }

@@ -1,0 +1,399 @@
+/* Composer participates in layout: resizing cannot cover the last message. */
+.composer {
+    position: relative;
+    flex-shrink: 0;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: var(--chat-max-width);
+    margin: 0 auto;
+    background: transparent;
+    padding: var(--space-1) var(--space-4) var(--space-4);
+    pointer-events: none;
+}
+
+.composer-shell,
+.jump-to-bottom {
+    pointer-events: auto;
+}
+
+.composer-resize-handle {
+    position: absolute;
+    top: -5px;
+    left: 0;
+    z-index: 2;
+    width: 100%;
+    height: 10px;
+    cursor: ns-resize;
+}
+
+.composer-resize-handle::before {
+    position: absolute;
+    top: 4px;
+    left: 50%;
+    width: 48px;
+    height: 1px;
+    background: var(--border-strong);
+    content: "";
+    opacity: 0;
+    transform: translateX(-50%);
+    transition: opacity 0.15s;
+}
+
+.composer-resize-handle:hover::before {
+    opacity: 1;
+}
+
+/* Регулировка ширины чат-колонки: тонкая зона у правого края отцентрованной
+   ленты (50% + половина ширины). Тянем — меняется --chat-max-width, его делят
+   и лента, и композер. */
+.chat-resize-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: calc(50% + var(--chat-max-width) / 2);
+    z-index: 4;
+    width: 12px;
+    cursor: ew-resize;
+}
+
+.chat-resize-handle::before {
+    position: absolute;
+    top: var(--space-5);
+    bottom: var(--space-5);
+    left: 4px;
+    width: 1px;
+    background: var(--border-strong);
+    content: "";
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.chat-resize-handle:hover::before,
+.app-layout.resizing .chat-resize-handle::before {
+    opacity: 1;
+}
+
+.composer-shell {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border-subtle);
+    border-radius: 20px;
+    background: var(--bg-composer);
+    box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+    transition:
+        border-color 0.15s,
+        box-shadow 0.15s;
+}
+
+.composer-shell:focus-within {
+    border-color: var(--border-strong);
+    box-shadow: 0 0 0 1px var(--border-subtle);
+}
+
+.composer textarea {
+    min-height: var(--input-min-height);
+    max-height: 360px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-main);
+    padding: var(--space-3) var(--space-4);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.6;
+    resize: none;
+    scrollbar-width: thin;
+}
+
+.composer textarea:focus {
+    box-shadow: none;
+}
+
+.composer-actions {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    border-top: 0;
+    background: transparent;
+    padding: 0 var(--space-2) var(--space-2);
+}
+
+.composer-buttons {
+    display: flex;
+    min-width: 0;
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-2);
+}
+
+.composer-menu {
+    position: relative;
+    flex: 0 1 220px;
+    min-width: 150px;
+    max-width: 240px;
+}
+
+.composer-menu[open] {
+    z-index: 10;
+}
+
+.composer-menu-trigger {
+    display: flex;
+    width: 100%;
+    min-height: 32px;
+    max-width: 100%;
+    cursor: pointer;
+    list-style: none;
+    align-items: center;
+    gap: var(--space-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-chip);
+    background: var(--bg-panel-soft);
+    color: var(--text-muted);
+    padding: 0 var(--space-3);
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.composer-menu-trigger::-webkit-details-marker {
+    display: none;
+}
+
+.composer-menu-trigger::after {
+    width: 0;
+    height: 0;
+    flex: 0 0 auto;
+    border-top: 4px solid var(--text-faint);
+    border-right: 4px solid transparent;
+    border-left: 4px solid transparent;
+    content: "";
+    transition: transform 0.12s ease;
+}
+
+.composer-menu[open] .composer-menu-trigger::after {
+    transform: rotate(180deg);
+}
+
+.composer-menu-trigger:hover,
+.composer-menu-trigger:focus {
+    border-color: var(--border-strong);
+    background: var(--bg-panel-hover);
+    color: var(--text-main);
+    outline: none;
+}
+
+.composer-menu-kicker {
+    display: none;
+}
+
+.composer-menu-label {
+    color: var(--text-faint);
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+/* Чип настроек: модель — ярко, режим и effort — приглушённой сноской. */
+.composer-menu-model {
+    min-width: 0;
+    flex: 0 1 auto;
+    overflow: hidden;
+    color: var(--text-main);
+    font-size: 12px;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.composer-menu-meta {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    color: var(--text-faint);
+    font-size: 11px;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.composer-menu-panel {
+    position: absolute;
+    bottom: calc(100% + var(--space-2));
+    right: 0;
+    left: auto;
+    width: min(360px, calc(100vw - 32px));
+    max-height: min(520px, 72vh);
+    overflow: auto;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-card);
+    background: var(--bg-panel);
+    box-shadow: var(--shadow-lg);
+    z-index: 20;
+}
+
+.composer-menu-section {
+    display: grid;
+    gap: var(--space-2);
+    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-3);
+}
+
+.composer-menu-section:last-child {
+    border-bottom: 0;
+}
+
+.composer-menu-options {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+/* Секции-списки (модель, режим): пункты столбиком вплотную. */
+.composer-menu-options.stacked {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2px;
+}
+
+.menu-option {
+    display: flex;
+    min-width: 0;
+    min-height: 30px;
+    max-width: 100%;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-inner);
+    background: var(--bg-panel-soft);
+    color: var(--text-muted);
+    font-size: 12px;
+    padding: 0 var(--space-3);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.menu-option:hover,
+.menu-option:focus {
+    border-color: var(--border-strong);
+    color: var(--text-main);
+    outline: none;
+}
+
+.menu-option.active {
+    border-color: var(--accent-blue-border);
+    background: var(--bg-panel-hover);
+    color: var(--text-main);
+}
+
+.menu-option:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+/* Строчный пункт списка: без рамки, активный помечен галкой. */
+.menu-option-row {
+    width: 100%;
+    justify-content: space-between;
+    gap: var(--space-3);
+    border-color: transparent;
+    background: transparent;
+    padding: 5px var(--space-2);
+    text-align: left;
+    white-space: normal;
+}
+
+.menu-option-row:hover,
+.menu-option-row:focus {
+    border-color: transparent;
+    background: var(--bg-panel-soft);
+}
+
+.menu-option-row.active {
+    border-color: transparent;
+    background: var(--bg-panel-soft);
+}
+
+.menu-option-row:disabled {
+    opacity: 1;
+    color: var(--text-main);
+}
+
+.menu-option-text {
+    display: grid;
+    min-width: 0;
+    gap: 1px;
+}
+
+.menu-option-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.menu-option-desc {
+    color: var(--text-faint);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.menu-option-check {
+    flex: 0 0 auto;
+    color: var(--accent-blue);
+    font-size: 12px;
+    visibility: hidden;
+}
+
+.menu-option.active .menu-option-check {
+    visibility: visible;
+}
+
+.composer-buttons button,
+.composer-actions > button {
+    flex: 0 0 auto;
+    min-width: 78px;
+    min-height: 32px;
+    border-radius: var(--radius-chip);
+    padding: 0 var(--space-3);
+    white-space: nowrap;
+}
+
+.composer-buttons .danger:disabled {
+    display: none;
+}
+
+.composer-buttons .btn-primary {
+    min-width: 104px;
+    padding: 0 var(--space-4);
+}
+
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    color: var(--text-faint);
+    padding: var(--space-8);
+    text-align: center;
+}
+
+.empty-state-title {
+    color: var(--text-main);
+    letter-spacing: -0.6px;
+    font-size: clamp(22px, 3vw, 30px);
+    font-weight: 500;
+}
+
+
+.empty-state p { color: var(--text-muted); font-size: 14px; max-width: 360px; }

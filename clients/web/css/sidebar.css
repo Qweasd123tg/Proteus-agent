@@ -1,0 +1,430 @@
+.app-layout {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.app-layout.resizing {
+    user-select: none;
+}
+
+.app-layout.sidebar-collapsed .sidebar {
+    width: 40px !important;
+    min-width: 40px;
+    max-width: 40px;
+    /* Поповеры рейки сессий выезжают за правый край свёрнутой панели. */
+    overflow: visible;
+}
+
+/* Ручка остаётся и в свёрнутом виде: вытащить панель обратно можно тем же
+   жестом, каким свернули. */
+.app-layout.sidebar-collapsed .sidebar-resize-handle {
+    right: -7px;
+}
+
+/* Кнопка сворачивания — наверху колонки, как у правой панели. */
+.app-layout.sidebar-collapsed .sidebar-header-actions .sidebar-collapse-toggle {
+    order: -1;
+}
+
+/* Содержимое свёрнутой панели не участвует в layout и focus navigation. */
+.sidebar-search,
+.sessions-list,
+.sidebar-header h2 {
+    transition:
+        opacity 0.12s ease,
+        visibility 0.12s ease;
+}
+
+.app-layout.sidebar-collapsed .sidebar-search,
+.app-layout.sidebar-collapsed .sessions-list,
+.app-layout.sidebar-collapsed .sidebar-header h2 {
+    display: none;
+}
+
+/* Невидимый h2 не должен занимать высоту: он сталкивал кнопки вниз, и
+   кнопка сворачивания оказывалась ниже, чем у правой панели. */
+.app-layout.sidebar-collapsed .sidebar-header h2 {
+    height: 0;
+    overflow: hidden;
+}
+
+/* Поиск в свёрнутом виде не только гасим, но и схлопываем — иначе рейка
+   сессий сползает вниз на его высоту. */
+.app-layout.sidebar-collapsed .sidebar-search {
+    height: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+/* Верхний отступ центрирует первую кнопку (30px) по высоте топбара — так
+   кнопка сворачивания стоит на одном уровне с кнопкой правой панели.
+   gap: 0, иначе схлопнутый h2 всё равно добавляет зазор; свой gap у
+   .sidebar-header-actions ниже. */
+.app-layout.sidebar-collapsed .sidebar-header {
+    height: auto;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: calc((var(--topbar-height) - 30px) / 2) var(--space-2) var(--space-2);
+}
+
+.app-layout.sidebar-collapsed .sidebar-header-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-1);
+}
+
+.app-layout.sidebar-collapsed .sidebar-header button {
+    width: 100%;
+    padding: 0;
+}
+
+/* Рейка свёрнутого сайдбара: сессии workspace точками-индикаторами.
+   В развёрнутом состоянии схлопнута в ноль (зеркально .info-panel-rail). */
+.sidebar-rail {
+    display: flex;
+    height: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 0;
+    overflow: hidden;
+    opacity: 0;
+    visibility: hidden;
+    transition:
+        opacity 0.12s ease,
+        visibility 0.12s ease;
+}
+
+.app-layout.sidebar-collapsed .sidebar-rail {
+    height: auto;
+    flex: 1;
+    padding: var(--space-2) 0;
+    /* Не скроллим: поповеры при наведении обрезались бы. Лишние сессии
+       прячет кэп с индикатором «+N». */
+    overflow: visible;
+    opacity: 1;
+    visibility: visible;
+}
+
+/* В свёрнутом виде место отдаёт рейке. */
+.app-layout.sidebar-collapsed .sessions-list {
+    height: 0;
+    min-height: 0;
+    flex: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+.sidebar-rail-item {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.sidebar-rail-more {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+}
+
+.sidebar-rail-session {
+    position: relative;
+    display: flex;
+    width: 26px;
+    height: 26px;
+    min-height: 26px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 50%;
+    color: var(--accent-yellow);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    transition:
+        background 0.12s,
+        border-color 0.12s,
+        transform 0.12s;
+}
+
+.sidebar-rail-session:hover {
+    background: var(--bg-panel-hover);
+    border-color: var(--border-strong);
+    transform: scale(1.08);
+}
+
+.sidebar-rail-session.active {
+    border-color: var(--border-strong);
+    background: var(--bg-panel-soft);
+}
+
+/* Ожидающая сессия: точка. */
+.sidebar-rail-session:not(.waiting):not(.running)::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-faint);
+}
+
+/* Сессия работает: крутящийся бублик. */
+.sidebar-rail-session.running::before {
+    content: "";
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    border: 2px solid var(--accent-blue-border);
+    border-top-color: var(--accent-blue);
+    animation: spin 0.9s linear infinite;
+}
+
+.sidebar {
+    position: relative;
+    display: flex;
+    width: var(--sidebar-width);
+    min-width: 220px;
+    max-width: min(360px, 30vw);
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+    border-right: 1px solid var(--border-subtle);
+    background: var(--bg-panel);
+    /* Width changes once: avoid reflowing the transcript on every animation frame. */
+    flex-shrink: 0;
+}
+
+/* Во время ручного ресайза анимация ширины мешает — курсор должен вести
+   панель без запаздывания. */
+.app-layout.resizing .sidebar {
+    transition: none;
+}
+
+.sidebar-resize-handle {
+    position: absolute;
+    top: 0;
+    right: -5px;
+    z-index: 2;
+    width: 10px;
+    height: 100%;
+    cursor: ew-resize;
+}
+
+.sidebar-resize-handle::before {
+    position: absolute;
+    top: 50%;
+    right: 4px;
+    width: 1px;
+    height: 44px;
+    background: var(--border-strong);
+    content: "";
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.sidebar-resize-handle:hover::before {
+    opacity: 1;
+}
+
+.sidebar-header {
+    display: flex;
+    height: var(--topbar-height);
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 var(--space-4);
+}
+
+.sidebar-header h2 {
+    color: var(--text-main);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0;
+}
+
+.sidebar-header h2 span {
+    display: none;
+}
+
+.sidebar-header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+.sidebar-header button,
+.info-panel-header button {
+    width: 30px;
+    min-height: 30px;
+    flex: 0 0 auto;
+    border: 0;
+    border-radius: var(--radius-inner);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 15px;
+    padding: 0;
+}
+
+.sidebar-header button:hover,
+.info-panel-header button:hover {
+    background: var(--bg-panel-soft);
+    color: var(--text-main);
+}
+
+.sidebar-search {
+    flex-shrink: 0;
+    padding: var(--space-2) var(--space-4) var(--space-3);
+}
+
+.sidebar-search input {
+    height: 32px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-inner);
+    background: var(--bg-panel-soft);
+    color: var(--text-muted);
+    font-size: 12px;
+    padding: 0 var(--space-3);
+}
+
+.sessions-list {
+    min-height: 110px;
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-1) var(--space-2);
+}
+
+.session-list {
+    list-style: none;
+}
+
+.session-list-item {
+    position: relative;
+}
+
+.session-item-shell {
+    position: relative;
+}
+
+.session-item {
+    display: block;
+    border-radius: var(--radius-inner);
+    color: var(--text-main);
+    padding: var(--space-2) 34px var(--space-2) var(--space-3);
+    transition:
+        background 0.12s,
+        box-shadow 0.12s;
+}
+
+button.session-item {
+    width: 100%;
+    min-height: 0;
+    justify-content: stretch;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    white-space: normal;
+}
+
+button.session-item:hover {
+    background: var(--bg-panel-hover);
+    box-shadow: inset 0 0 0 1px var(--border-subtle);
+}
+
+.session-item.active,
+button.session-item.active {
+    background: var(--bg-panel-soft);
+    box-shadow: none;
+}
+
+.session-delete {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 2;
+    width: 24px;
+    height: 24px;
+    min-height: 24px;
+    border: 0;
+    border-radius: var(--radius-small);
+    background: transparent;
+    color: var(--text-faint);
+    font-size: 17px;
+    line-height: 1;
+    opacity: 0.55;
+    padding: 0;
+    transition: background 0.12s, color 0.12s, opacity 0.12s;
+}
+
+.session-list-item:hover .session-delete,
+.session-list-item:focus-within .session-delete {
+    opacity: 1;
+}
+
+.session-delete:hover,
+.session-delete:focus {
+    background: var(--accent-red-soft);
+    color: var(--accent-red);
+    outline: none;
+}
+
+.session-history-item:disabled {
+    cursor: not-allowed;
+}
+
+.session-item-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-bottom: 2px;
+}
+
+.session-code {
+    display: none;
+}
+
+.session-title-line {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 7px;
+}
+
+.session-id {
+    overflow: hidden;
+    color: var(--text-main);
+    font-size: 13px;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.session-preview {
+    overflow: hidden;
+    color: var(--text-faint);
+    font-size: 12px;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.session-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: 3px;
+    color: var(--text-faint);
+    font-size: 11px;
+}
+
+.session-time {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.session-activity {
+    color: var(--accent-yellow);
+}

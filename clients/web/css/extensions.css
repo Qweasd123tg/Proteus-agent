@@ -1,27 +1,37 @@
-.extension-host { border-bottom: 1px solid var(--border-subtle); }
-.extension-manager { padding: 0 0 var(--space-3); }
-.extension-manager summary { cursor: pointer; color: var(--text-muted); font-size: 12px; }
-.extension-list { display: grid; gap: 8px; margin-top: var(--space-3); }
-.extension-choice { display: flex; align-items: center; gap: 2px; }
-.extension-choice label { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; }
-.extension-choice label span { overflow-wrap: anywhere; }
-.extension-choice input { width: 14px; height: 14px; accent-color: var(--accent-blue); }
-.extension-choice button { min-width: 24px; padding: 0 5px; }
-.extension-install { display: grid; gap: 8px; margin: 12px 0; }
-.extension-install input { padding: 8px; font-size: 12px; }
-.extension-install button { border-color: var(--border-strong); }
-.extension-reset { height: auto; padding: 4px 0; white-space: normal; text-align: left; font-size: 11px; color: var(--text-muted); }
-.extension-panel { padding: 12px 0; border-top: 1px solid var(--border-subtle); }
+.extension-host { min-width: 0; }
+.extension-panel { padding: 12px 0; border-bottom: 1px solid var(--border-subtle); }
+.extension-panel:first-child { padding-top: 0; }
 .extension-panel-header { display: flex; margin-bottom: 8px; }
-.extension-panel-title { justify-content: flex-start; padding: 0; min-height: 24px; font-size: 12px; color: var(--text-muted); }
-.extension-panel-title::before { content: '⌄'; width: 12px; }
+.extension-panel-title { justify-content: flex-start; padding: 0; min-height: 24px; font-size: 12px; color: var(--text-main); }
+.extension-panel-title::before { content: '⌄'; width: 12px; color: var(--text-muted); }
 .extension-panel-title[aria-expanded=false]::before { content: '›'; }
 .extension-panel-content { min-width: 0; }
-.extension-error { color: var(--accent-red); font-size: 12px; overflow-wrap: anywhere; }
-.extension-error:empty { display: none; }
+.extension-error, .extension-surface-status { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.extension-error { color: var(--accent-red); }
+.extension-error:empty, .extension-surface-status:empty { display: none; }
 .extension-host [hidden] { display: none; }
-.extension-host :focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
-
-.extension-available { display: grid; gap: 6px; margin-top: 10px; }
+.extension-list, .extension-available { display: grid; }
+.extension-choice { display: flex; align-items: center; gap: 16px; padding: 18px 0; border-bottom: 1px solid var(--border-subtle); }
+.extension-description { display: flex; align-items: center; gap: 24px; flex: 1; min-width: 0; }
+label.extension-description { cursor: pointer; }
+.extension-description > span { display: grid; gap: 4px; flex: 1; overflow-wrap: anywhere; }
+.extension-description strong { font-size: 13px; font-weight: 500; }
+.extension-actions { display: flex; align-items: center; gap: 2px; }
+.extension-actions button { min-width: 28px; padding: 0 6px; color: var(--text-muted); font-size: 12px; }
+.extension-available { margin-top: 28px; }
 .extension-available:empty { display: none; }
-.extension-available button { height: auto; white-space: normal; text-align: left; font-size: 12px; }
+.extension-available h3 { font-size: 13px; font-weight: 500; color: var(--text-muted); }
+.extension-available button { font-size: 12px; border-color: var(--border-strong); }
+.extension-source, .extension-reset { padding-top: 20px; font-size: 12px; color: var(--text-muted); }
+.extension-source summary, .extension-reset summary { cursor: pointer; width: fit-content; }
+.extension-install { display: flex; align-items: center; gap: 8px; margin: 12px 0; }
+.extension-install input { flex: 1; font-size: 12px; background: var(--bg-panel); }
+.extension-install button, .extension-reset button { border-color: var(--border-strong); }
+.extension-reset p { margin: 12px 0; }
+@media (max-width: 620px) {
+    .extension-choice { flex-wrap: wrap; gap: 8px; }
+    .extension-description { flex-basis: 100%; }
+    .extension-actions { margin-left: auto; }
+}
+
+.extension-panel:has([aria-expanded=false]) .extension-panel-header { margin-bottom: 0; }

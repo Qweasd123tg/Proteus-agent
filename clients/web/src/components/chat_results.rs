@@ -84,7 +84,7 @@ where
                 {
                     view! {
                         <div class="empty-state">
-                            <div class="empty-state-title">"Нет активной задачи"</div>
+                            <h1 class="empty-state-title">"С чего начнём?"</h1><p>"Опишите задачу, задайте вопрос или предложите идею."</p>
                         </div>
                     }
                     .into_any()

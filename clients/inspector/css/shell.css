@@ -1,23 +1,4 @@
-/* Inspector owns its visual theme; the chat client keeps its existing tokens. */
-:root {
-    --bg-root: #111415;
-    --bg-panel: #191d1e;
-    --bg-panel-soft: #1e2324;
-    --bg-panel-hover: #272e2e;
-    --border-subtle: #2a3131;
-    --border-strong: #46514c;
-    --text-main: #edf0ed;
-    --text-muted: #a1aaa6;
-    --text-faint: #818d86;
-    --accent-blue: #c2eea3;
-    --accent-blue-soft: rgb(194 238 163 / 9%);
-    --accent-blue-border: rgb(194 238 163 / 28%);
-    --accent-green: #b4dda0;
-    --accent-green-soft: rgb(180 221 160 / 9%);
-    --accent-green-border: rgb(180 221 160 / 24%);
-    --radius-card: 14px;
-    --radius-inner: 8px;
-}
+/* Inspector shares the application theme; layouts remain client-owned. */
 
 body { line-height: 1.55; }
 a { color: inherit; }
@@ -31,13 +12,13 @@ input:focus, select:focus, textarea:focus {
     box-shadow: 0 0 0 3px var(--accent-blue-soft);
 }
 .btn-primary {
-    border-color: var(--accent-blue);
+    border-color: var(--text-main);
     border-radius: 8px;
-    background: var(--accent-blue);
-    color: #182010;
+    background: var(--text-main);
+    color: var(--bg-root);
     padding: 0 20px;
 }
-.btn-primary:hover:not(:disabled) { background: #d4f6bc; border-color: #d4f6bc; }
+.btn-primary:hover:not(:disabled) { background: var(--text-main); border-color: var(--text-main); }
 button:disabled { opacity: .45; }
 code { font-variant-ligatures: none; }
 
@@ -47,7 +28,7 @@ code { font-variant-ligatures: none; }
     flex-direction: column;
     min-height: 0;
     border-right: 1px solid var(--border-subtle);
-    background: #141819;
+    background: var(--bg-panel);
     padding: 32px 18px 22px;
 }
 .inspector-brand { display: flex; align-items: center; gap: 13px; padding: 0 10px; text-decoration: none; }
@@ -76,7 +57,7 @@ code { font-variant-ligatures: none; }
 }
 .inspector-nav-item svg { flex-shrink: 0; opacity: .75; }
 .inspector-nav-item:hover { color: var(--text-main); background: var(--bg-panel-soft); }
-.inspector-nav-item.active { background: var(--accent-blue-soft); border-color: rgb(194 238 163 / 10%); color: var(--accent-blue); }
+.inspector-nav-item.active { background: var(--bg-panel-soft); border-color: var(--border-subtle); color: var(--text-main); }
 .inspector-nav-item.active svg { opacity: 1; }
 .nav-indicator { width: 5px; height: 5px; border-radius: 50%; margin-left: auto; }
 .active > .nav-indicator { background: currentColor; }
@@ -114,7 +95,7 @@ code { font-variant-ligatures: none; }
 .config-list-main p { white-space: normal; overflow-wrap: anywhere; }
 .empty-state { padding: 48px 24px; }
 .empty-state-title { font-size: 18px; }
-.skip-link { position: absolute; z-index: 200; top: -70px; left: 16px; padding: 12px 20px; background: var(--accent-blue); color: #182010; border-radius: 8px; }
+.skip-link { position: absolute; z-index: 200; top: -70px; left: 16px; padding: 12px 20px; background: var(--accent-blue); color: var(--bg-root); border-radius: 8px; }
 .skip-link:focus { top: 12px; }
 
 @media (min-width: 1800px) {

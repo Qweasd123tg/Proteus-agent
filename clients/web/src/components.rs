@@ -4,6 +4,8 @@ mod composer;
 mod context_map;
 mod controls;
 mod extensions;
+pub(crate) mod header;
+mod icons;
 mod info_panel;
 mod message;
 mod resume;
