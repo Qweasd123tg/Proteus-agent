@@ -296,7 +296,10 @@
 
 
 .info-session { padding-top: 0; }
-.info-session > summary { color: var(--text-muted); cursor: pointer; font-size: 12px; }
+.info-session > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; list-style: none; color: var(--text-muted); cursor: pointer; font-size: 12px; }
+.info-session > summary::-webkit-details-marker { display: none; }
+.info-session > summary::after { content: '+'; }
+.info-session[open] > summary::after { content: '−'; }
 .info-session-body { display: grid; gap: 8px; padding-top: 12px; }
 
 .panel-backdrop { display: none; }

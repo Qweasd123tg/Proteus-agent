@@ -875,19 +875,19 @@ button.status-badge {
 .tool-card-caret {
     flex-shrink: 0;
     color: var(--text-faint);
-    font-size: 10px;
+    font-size: 15px;
     line-height: 1;
-    transition:
-        transform 0.15s ease,
-        color 0.15s ease;
+    transition: color 0.15s ease;
 }
+
+.tool-card-caret::before { content: '+'; }
+.tool-card.expanded .tool-card-caret::before { content: '−'; }
 
 .tool-card-summary:hover .tool-card-caret {
     color: var(--text-muted);
 }
 
 .tool-card.expanded .tool-card-caret {
-    transform: rotate(90deg);
     color: var(--text-muted);
 }
 

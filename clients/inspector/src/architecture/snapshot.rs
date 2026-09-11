@@ -1,24 +1,14 @@
 use leptos::prelude::*;
 use serde_json::Value;
-use web_sys::MouseEvent;
 
-use crate::architecture_map::{MapViewState, TopologyMapView};
-use crate::architecture_model::{
-    backend_views, module_source_label, non_empty, pipeline_steps, slot_views,
-};
+use crate::architecture_map::TopologyMapView;
+use crate::architecture_model::{module_source_label, non_empty, slot_views};
 use crate::types::*;
-use crate::ui_utils::{compact_json, copy_to_clipboard, shorten_home};
+use crate::ui_utils::compact_json;
 
 #[component]
-pub(super) fn TopologySnapshotView(
-    snapshot: TopologySnapshot,
-    mermaid: String,
-    map: MapViewState,
-) -> impl IntoView {
+pub(super) fn TopologySnapshotView(snapshot: TopologySnapshot, source: String) -> impl IntoView {
     let slots = slot_views(&snapshot);
-    let steps = pipeline_steps(&snapshot, &slots);
-    let last_step_index = steps.len().saturating_sub(1);
-    let backends = backend_views(&snapshot, &slots);
     let slot_cards = slots.clone();
 
     let model_label = snapshot
@@ -26,25 +16,6 @@ pub(super) fn TopologySnapshotView(
         .as_ref()
         .map(|model| format!("{}/{}", model.provider, model.name))
         .unwrap_or_else(|| "Модель не выбрана".to_owned());
-    let model_stream = snapshot
-        .model
-        .as_ref()
-        .map(|model| if model.stream { "on" } else { "off" })
-        .unwrap_or("-");
-    let model_source = slots
-        .iter()
-        .find(|view| view.slot.id == "model")
-        .and_then(|view| view.active_module.as_ref())
-        .map(|module| module_source_label(&module.source))
-        .unwrap_or_else(|| "-".to_owned());
-    let config_label_full = snapshot
-        .config_path
-        .as_deref()
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| "(default discovery / none)".to_owned());
-    let config_label = shorten_home(&config_label_full);
-    let cwd_full = snapshot.cwd.clone();
-    let cwd_label = shorten_home(&non_empty(&snapshot.cwd, "-"));
     let registered_tool_count = snapshot.tools.iter().filter(|tool| tool.registered).count();
     let provided_only_count = snapshot.tools.len() - registered_tool_count;
     let process_module_count = snapshot
@@ -55,14 +26,7 @@ pub(super) fn TopologySnapshotView(
 
     let tools = snapshot.tools.clone();
     let warnings = snapshot.warnings.clone();
-    let mermaid_preview = mermaid.clone();
-    let mermaid_copy_text = mermaid.clone();
-    let copy_mermaid_preview = move |event: MouseEvent| {
-        event.stop_propagation();
-        if !mermaid_copy_text.trim().is_empty() {
-            copy_to_clipboard(mermaid_copy_text.clone());
-        }
-    };
+    let (active_tab, set_active_tab) = signal("map");
     let (tool_filter, set_tool_filter) = signal("all".to_owned());
     let (tool_search, set_tool_search) = signal(String::new());
     let tools_for_filter = tools.clone();
@@ -86,136 +50,18 @@ pub(super) fn TopologySnapshotView(
 
     view! {
         <div class="configs-scroll architecture-scroll">
-            <section class="config-overview">
-                <article class="config-panel">
-                    <div class="config-panel-header">
-                        <span class="panel-kicker">"среда"</span>
-                        <strong>{non_empty(&snapshot.profile, "default")}</strong>
-                    </div>
-                    <div class="config-kv">
-                        <span>"Каталог"</span>
-                        <code title=cwd_full>{cwd_label}</code>
-                    </div>
-                    <div class="config-kv">
-                        <span>"Конфигурация"</span>
-                        <code title=config_label_full>{config_label}</code>
-                    </div>
-                    <div class="config-kv">
-                        <span>"Режим / ревизия"</span>
-                        <code>{format!("{} / {}", non_empty(&snapshot.permission_mode, "-"), snapshot.module_epoch)}</code>
-                    </div>
-                </article>
-                <article class="config-panel">
-                    <div class="config-panel-header">
-                        <span class="panel-kicker">"модель"</span>
-                        <strong>{model_label}</strong>
-                    </div>
-                    <div class="config-kv">
-                        <span>"Источник"</span>
-                        <code>{model_source}</code>
-                    </div>
-                    <div class="config-kv">
-                        <span>"Потоковый ответ"</span>
-                        <code>{model_stream}</code>
-                    </div>
-                </article>
-                <article class="config-panel">
-                    <div class="config-panel-header">
-                        <span class="panel-kicker">"состав"</span>
-                        <strong>{format!("{registered_tool_count} инструментов")}</strong>
-                    </div>
-                    <div class="config-kv">
-                        <span>"Процессных модулей"</span>
-                        <code>{process_module_count.to_string()}</code>
-                    </div>
-                    <div class="config-kv">
-                        <span>"Не зарегистрированы"</span>
-                        <code>{provided_only_count.to_string()}</code>
-                    </div>
-                    <div class="config-kv">
-                        <span>"Предупреждения"</span>
-                        <code>{snapshot.warnings.len().to_string()}</code>
-                    </div>
-                </article>
+            <section class="architecture-summary" aria-label="Текущая сборка">
+                <div><span>"Профиль"</span><strong>{non_empty(&snapshot.profile, "default")}</strong></div>
+                <div><span>"Модель"</span><strong>{model_label}</strong></div>
+                <div><span>"Состав"</span><strong>{format!("{process_module_count} модулей · {registered_tool_count} инструментов")}</strong></div>
             </section>
-
-            <TopologyMapView map />
-
-            <section class="config-section">
-                <div class="config-section-header">
-                    <h3>"Путь запроса"</h3>
-                    <span>"путь одного запроса"</span>
-                </div>
-                <div class="pipeline-flow">
-                    {steps
-                        .into_iter()
-                        .enumerate()
-                        .map(|(index, step)| {
-                            let card_class = if step.missing {
-                                "pipeline-step missing"
-                            } else if step.id == "workflow" || step.id == "config" {
-                                "pipeline-step anchor"
-                            } else {
-                                "pipeline-step"
-                            };
-                            view! {
-                                <>
-                                    <article class=card_class>
-                                        <span class="panel-kicker">{step.label}</span>
-                                        <code>{step.detail}</code>
-                                        <span class="pipeline-source">{step.source}</span>
-                                    </article>
-                                    {if index < last_step_index {
-                                        view! { <span class="pipeline-arrow" aria-hidden="true">"→"</span> }.into_any()
-                                    } else {
-                                        ().into_any()
-                                    }}
-                                </>
-                            }
-                        })
-                        .collect_view()}
-                </div>
-                <div class="backend-row">
-                    <For
-                        each=move || backends.clone()
-                        key=|backend| backend.slot_id.clone()
-                        children=move |backend| {
-                            let card_class = if backend.missing {
-                                "backend-card missing"
-                            } else {
-                                "backend-card"
-                            };
-                            let used_by = backend.used_by.clone();
-                            view! {
-                                <article class=card_class>
-                                    <div class="backend-card-head">
-                                        <span class="panel-kicker">{backend.slot_id}</span>
-                                        <span class="topology-muted">{backend.role}</span>
-                                    </div>
-                                    <code>{backend.active_label}</code>
-                                    <span class="pipeline-source">{backend.source}</span>
-                                    {if used_by.is_empty() {
-                                        ().into_any()
-                                    } else {
-                                        view! {
-                                            <div class="config-chip-row">
-                                                <For
-                                                    each=move || used_by.clone()
-                                                    key=|tool| tool.clone()
-                                                    children=move |tool| {
-                                                        view! { <span class="config-chip">{format!("← {tool}")}</span> }
-                                                    }
-                                                />
-                                            </div>
-                                        }.into_any()
-                                    }}
-                                </article>
-                            }
-                        }
-                    />
-                </div>
-            </section>
-
+            <div class="architecture-tabs" role="group" aria-label="Представление архитектуры">
+                <button type="button" aria-pressed=move || (active_tab.get() == "map").to_string() on:click=move |_| set_active_tab.set("map")>"Карта связей"</button>
+                <button type="button" aria-pressed=move || (active_tab.get() == "catalog").to_string() on:click=move |_| set_active_tab.set("catalog")>"Каталог сборки"</button>
+                <span>{format!("{} предупреждений · {provided_only_count} незарегистрированных инструментов", snapshot.warnings.len())}</span>
+            </div>
+            <div hidden=move || active_tab.get() != "map"><TopologyMapView source /></div>
+            <div class="architecture-catalog" hidden=move || active_tab.get() != "catalog">
             <section class="config-section">
                 <div class="config-section-header">
                     <h3>"Слоты сборки"</h3>
@@ -334,13 +180,13 @@ pub(super) fn TopologySnapshotView(
                             } else {
                                 "status-badge disconnected"
                             };
-                            let registration_label = if tool.registered { "registered" } else { "provided" };
+                            let registration_label = if tool.registered { "Зарегистрирован" } else { "Предоставлен" };
                             let enabled_class = if tool.enabled {
                                 "status-badge completed"
                             } else {
                                 "status-badge failed"
                             };
-                            let enabled_label = if tool.enabled { "enabled" } else { "disabled" };
+                            let enabled_label = if tool.enabled { "Включён" } else { "Отключён" };
                             let source = tool.source.clone();
                             view! {
                                 <article class="config-list-item topology-tool-item">
@@ -367,6 +213,7 @@ pub(super) fn TopologySnapshotView(
                 </div>
             </section>
 
+            </div>
             {(!warnings.is_empty())
                 .then(|| {
                     let warnings = warnings.clone();
@@ -405,22 +252,7 @@ pub(super) fn TopologySnapshotView(
                     }
                 })}
 
-            <details class="config-section mermaid-details">
-                <summary class="config-section-header">
-                    <h3>"Mermaid"</h3>
-                    <div class="mermaid-summary-actions">
-                        <span>{format!("{} bytes", mermaid_preview.len())}</span>
-                        <button
-                            type="button"
-                            class="secondary mermaid-copy-button"
-                            on:click=copy_mermaid_preview
-                        >
-                            "copy"
-                        </button>
-                    </div>
-                </summary>
-                <pre class="mermaid-preview">{mermaid_preview}</pre>
-            </details>
+
         </div>
     }
 }

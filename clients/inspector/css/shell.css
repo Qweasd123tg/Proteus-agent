@@ -141,9 +141,3 @@ code { font-variant-ligatures: none; }
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
-
-@media (max-width: 760px) {
-    .mermaid-map-section .config-section-header { flex-wrap: wrap; gap: 12px; }
-    .mermaid-map-section .config-section-header > h3 { flex-basis: 100%; }
-    .mermaid-map-section .mermaid-summary-actions { justify-content: flex-start; }
-}

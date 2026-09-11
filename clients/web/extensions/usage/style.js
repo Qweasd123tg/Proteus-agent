@@ -35,8 +35,6 @@ export const style = `
   summary { cursor: pointer; }
   .usage-request { border-bottom: 1px solid var(--border-subtle); }
   .usage-request > summary { display: flex; align-items: center; gap: 10px; list-style: none; padding: 9px 0; }
-  .usage-request > summary::before { content: '›'; color: var(--text-faint); }
-  .usage-request[open] > summary::before { transform: rotate(90deg); }
   .request-identity { flex: 1; min-width: 0; }
   .request-identity strong { display: block; font-size: 12px; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .request-identity .muted { font-size: 11px; }

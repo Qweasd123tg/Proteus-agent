@@ -23,8 +23,16 @@ export function createPanel(record, { services, storage, changed }) {
     changed();
   }, signal);
   title.className = 'extension-panel-title';
+  const name = document.createElement('span');
+  name.textContent = title.textContent;
+  const toggle = document.createElement('span');
+  toggle.className = 'extension-panel-toggle';
+  toggle.setAttribute('aria-hidden', 'true');
+  title.replaceChildren(name, toggle);
   const body = document.createElement('div');
   body.className = 'extension-panel-body';
+  body.id = `extension-body-${record.id}`;
+  title.setAttribute('aria-controls', body.id);
   const error = document.createElement('p');
   error.className = 'extension-error';
   error.setAttribute('role', 'status');
@@ -65,6 +73,8 @@ export function createPanel(record, { services, storage, changed }) {
   let expanded;
   function update() {
     title.setAttribute('aria-expanded', String(!record.collapsed));
+    title.title = record.collapsed ? 'Развернуть панель' : 'Свернуть панель';
+    toggle.textContent = record.collapsed ? '+' : '−';
     body.hidden = record.collapsed;
     error.hidden = record.collapsed;
     if (expanded === !record.collapsed) return;

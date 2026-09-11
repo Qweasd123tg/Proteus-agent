@@ -12,6 +12,7 @@ from queue_checks import run as check_queue
 from live_checks import run as check_live
 from planning_checks import run as check_planning
 from usage_checks import run as check_usage
+from architecture_checks import run as check_architecture
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -22,6 +23,7 @@ import shutil
 import signal
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -98,6 +100,18 @@ class Assets(SimpleHTTPRequestHandler):
         self.wfile.write(('event: response.completed\ndata: '+json.dumps({"response":{"status":"completed","output":output,"usage":{"input_tokens":100,"output_tokens":40,"input_tokens_details":{"cached_tokens":60},"output_tokens_details":{"reasoning_tokens":10}}}})+'\n\n').encode())
 
     def do_GET(self):
+        path = self.path.split('?', 1)[0]
+        inspector = ROOT / 'clients/inspector/dist'
+        if path == '/architecture' or (not (Path(self.directory) / path.lstrip('/')).exists() and (inspector / path.lstrip('/')).is_file()):
+            original = self.directory
+            self.directory = str(inspector)
+            if path == '/architecture':
+                self.path = '/index.html'
+            try:
+                super().do_GET()
+            finally:
+                self.directory = original
+            return
         if self.path.split('?', 1)[0] in ['/context', '/sessions', '/settings']:
             self.path = '/index.html'
         if self.path.startswith('/foundation.html'):
@@ -240,11 +254,15 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return js("return document.querySelector('[data-extension-id=agent-info] .extension-panel-content')?.shadowRoot?.textContent.includes('extensions-smoke')")
                 command('/window/rect', {'width': 1440, 'height': 1000})
                 assert js("return matchMedia('(prefers-reduced-motion: reduce)').matches") == bool(reduced_motion), 'Browser did not apply motion preference'
+                if '--inspector-only' in sys.argv:
+                    check_architecture(command, js, wait_for, web, origin)
+                    return
                 check_extensions(command, js, wait_for, web, origin, loaded)
                 check_usage(command, js, wait_for)
                 check_layout(command, js, wait_for)
                 screenshot = request(url + '/screenshot')['value']
                 Path('/tmp/proteus-ui-extensions.png').write_bytes(base64.b64decode(screenshot))
+                check_architecture(command, js, wait_for, web, origin)
                 check_session(command, js, wait_for, web, origin, loaded)
                 check_queue(command, js, wait_for, server)
                 check_live(command, js, wait_for, server)

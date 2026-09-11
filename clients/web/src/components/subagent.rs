@@ -147,7 +147,7 @@ pub(crate) fn SubagentCard(
                             .unwrap_or_default()
                     })
                 }}</code>
-                <span class="tool-card-caret" aria-hidden="true">"▸"</span>
+                <span class="tool-card-caret" aria-hidden="true"></span>
             </button>
             {move || {
                 if expanded.get() {

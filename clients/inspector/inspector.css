@@ -1,130 +1,44 @@
-.mermaid-map-viewport {
-    height: clamp(320px, 45vh, 520px);
-}
-
-.map-fullscreen-button {
-    min-width: 30px;
-    font-size: 15px;
-    line-height: 1;
-}
-
-.architecture-page .config-overview {
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-}
-
-.architecture-page,
-.architecture-scroll,
-.architecture-scroll > * {
-    width: 100%;
-    min-width: 0;
-    max-width: 100%;
-}
-
-.architecture-scroll {
-    overflow-x: hidden;
-}
-
-.architecture-card-grid {
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
-    align-items: start;
-    gap: var(--space-2);
-    padding: var(--space-3) var(--space-4);
-}
-
-.architecture-card-grid .config-list-item {
-    display: grid;
-    width: 100%;
-    min-width: 0;
-    max-width: 100%;
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-3);
-    overflow: hidden;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-inner);
-    background: var(--bg-panel-soft);
-}
-
-.architecture-card-grid .config-list-item:last-child {
-    border-bottom: 1px solid var(--border-subtle);
-}
-
-.architecture-card-grid .config-list-title {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    align-items: start;
-    gap: 2px;
-}
-
-.architecture-card-grid .config-list-main {
-    gap: var(--space-2);
-}
-
-.architecture-card-grid .config-list-main p {
-    display: -webkit-box;
-    overflow: hidden;
-    white-space: normal;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-}
-
-.architecture-card-grid .config-chip-row {
-    padding: 0;
-    padding-top: var(--space-2);
-}
-
-.architecture-card-grid .tool-badges {
-    justify-content: flex-start;
-}
-
-.topology-alternatives summary {
-    cursor: pointer;
-    color: var(--text-faint);
-    font-family: var(--font-mono);
-    font-size: 11px;
-}
-
-.architecture-page .topology-filter-row,
-.architecture-page .mermaid-summary-actions {
-    flex-wrap: wrap;
-}
-
-.architecture-page .topology-filter-row {
-    overflow-x: visible;
-}
-
-.mermaid-map-section.fullscreen {
-    position: fixed;
-    z-index: 100;
-    inset: var(--space-3);
-    display: flex;
-    min-width: 0;
-    flex-direction: column;
-    overflow: hidden;
-    border-color: var(--border-strong);
-    box-shadow:
-        0 0 0 100vmax rgb(0 0 0 / 72%),
-        0 20px 60px rgb(0 0 0 / 45%);
-}
-
-.mermaid-map-section.fullscreen .mermaid-map-viewport {
-    height: auto;
-    min-height: 0;
-    flex: 1;
-}
-
+.architecture-page, .architecture-scroll, .architecture-scroll > * { width: 100%; min-width: 0; max-width: 100%; }
+.architecture-scroll { overflow-x: hidden; gap: 18px; }
+.architecture-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px 28px; padding: 16px 20px; background: var(--bg-panel); border: 1px solid var(--border-subtle); border-radius: 14px; }
+.architecture-summary > div { display: grid; gap: 5px; min-width: 0; }
+.architecture-summary span { color: var(--text-faint); font-size: 11px; }
+.architecture-summary strong { font-weight: 500; font-size: 13px; overflow-wrap: anywhere; }
+.architecture-summary code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 11px; }
+.architecture-tabs { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.architecture-tabs button { padding: 0 16px; color: var(--text-muted); border-radius: 9px; }
+.architecture-tabs button[aria-pressed=true] { background: var(--bg-panel-soft); color: var(--text-main); }
+.architecture-tabs > span { margin-left: auto; color: var(--text-faint); font-size: 11px; }
+.architecture-catalog { display: grid; gap: 20px; }
+.architecture-scroll [hidden] { display: none; }
+.architecture-card-grid { display: grid; grid-template-columns: minmax(0, 1fr); padding: 0 20px; gap: 0; }
+.architecture-card-grid .config-list-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding: 18px 0; gap: 16px; align-items: start; border: 0; border-bottom: 1px solid var(--border-subtle); border-radius: 0; background: transparent; }
+.architecture-card-grid .config-list-item:last-child { border-bottom: 0; }
+.architecture-card-grid .config-list-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 14px; }
+.architecture-card-grid .config-list-title strong { font-family: var(--font-sans); font-size: 13px; }
+.architecture-card-grid .config-list-title code { color: var(--text-muted); }
+.architecture-card-grid .config-list-main p { white-space: normal; line-height: 1.65; max-width: 85ch; font-size: 12px; }
+.architecture-card-grid .config-list-main { gap: 6px; }
+.architecture-card-grid .config-chip-row { padding: 8px 0 0; }
+.architecture-card-grid .tool-badges { gap: 5px; max-width: 220px; }
+.architecture-card-grid .status-badge { font-family: var(--font-sans); font-size: 10px; text-transform: none; font-weight: 400; border-radius: 6px; background: var(--bg-panel-soft); border-color: transparent; }
+.architecture-page .topology-filter-row { flex-wrap: wrap; overflow-x: visible; padding: 0 20px 16px; gap: 5px; }
+.architecture-page .topology-filter-row button { min-height: 32px; font-size: 12px; }
+.architecture-page .config-section { border-radius: 14px; }
+.architecture-page .toolbar-actions { flex-wrap: nowrap; }
+/* Explicit disclosure affordance instead of browser-specific triangles. */
+.inspector-content summary { display: flex; align-items: center; gap: 12px; list-style: none; cursor: pointer; }
+.inspector-content summary::-webkit-details-marker { display: none; }
+.inspector-content summary::after { content: '+'; margin-left: auto; flex: 0 0 auto; color: var(--text-muted); font: 15px var(--font-sans); }
+.inspector-content details[open] > summary::after { content: '−'; }
+.topology-alternatives summary, .topology-schema summary { width: fit-content; color: var(--text-muted); font-size: 11px; padding: 6px 0; }
+.topology-alternatives summary::after, .topology-schema summary::after { margin-left: 4px; }
+@media (max-width: 1100px) { .architecture-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .architecture-tabs > span { flex-basis: 100%; margin: 5px 0 0; } }
 @media (max-width: 620px) {
-    .mermaid-map-viewport {
-        height: clamp(280px, 42vh, 420px);
-    }
-
-    .mermaid-map-section.fullscreen {
-        inset: 0;
-        border: 0;
-        border-radius: 0;
-    }
-
-    .architecture-card-grid {
-        grid-template-columns: 1fr;
-        padding: var(--space-3);
-    }
+    .architecture-summary { grid-template-columns: minmax(0, 1fr); padding: 18px; gap: 14px; }
+    .architecture-card-grid { padding: 0 16px; }
+    .architecture-card-grid .config-list-item { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+    .architecture-card-grid .tool-badges { justify-content: flex-start; max-width: none; }
 }
+
+.architecture-page > .resume-toolbar { padding-top: 24px; padding-bottom: 20px; }

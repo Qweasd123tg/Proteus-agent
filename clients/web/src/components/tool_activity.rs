@@ -170,7 +170,7 @@ pub(crate) fn ToolActivityCard(
                         })
                         .unwrap_or_default()
                 }}</code>
-                <span class="tool-card-caret" aria-hidden="true">"▸"</span>
+                <span class="tool-card-caret" aria-hidden="true"></span>
             </button>
             {move || {
                 if expanded.get() {
@@ -676,7 +676,7 @@ pub(crate) fn ToolPreview(
             } else {
                 2
             };
-            let label = format!("▾ {}", hidden_tool_lines_label(hidden));
+            let label = format!("+ {}", hidden_tool_lines_label(hidden));
             view! {
                 <button
                     type="button"
