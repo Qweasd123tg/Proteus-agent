@@ -102,6 +102,9 @@ pub(super) fn configured_reasoning_effort_options(
     let mut options = Vec::new();
     for profile in matching_provider_profiles(config, active_model) {
         push_unique_strings(&mut options, &profile.reasoning_efforts);
+        if let Some(effort) = profile.reasoning.effort.as_deref() {
+            push_unique(&mut options, effort);
+        }
     }
 
     if let Some(effort) = reasoning.effort.as_deref() {

@@ -1,5 +1,7 @@
 #[path = "acp_server/fixture.rs"]
 mod fixture;
+#[path = "acp_server/settings.rs"]
+mod settings;
 #[path = "support/model.rs"]
 mod test_model;
 

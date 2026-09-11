@@ -1,4 +1,30 @@
 use super::*;
+
+#[test]
+fn successful_plan_metadata_becomes_an_acp_plan_without_invented_progress() {
+    let mut result = crate::domain::ToolResult::ok("plan-call".into(), "Plan updated")
+        .with_metadata(serde_json::json!({"plan":[
+            {"step":"Inspect","status":"completed"},
+            {"step":"Implement","status":"in_progress"},
+            {"step":"Verify","status":"pending"}
+        ]}));
+    let update = serde_json::to_value(tool_updates::plan(&result).unwrap()).unwrap();
+    assert_eq!(update["sessionUpdate"], "plan");
+    assert_eq!(update["entries"][0]["content"], "Inspect");
+    assert_eq!(update["entries"][1]["status"], "in_progress");
+    assert_eq!(update["entries"][2]["status"], "pending");
+    result.ok = false;
+    assert!(tool_updates::plan(&result).is_none());
+    result.ok = true;
+    result.metadata["plan"][1]["status"] = serde_json::json!("unknown");
+    assert!(tool_updates::plan(&result).is_none());
+    result.metadata["plan"] = serde_json::json!([]);
+    assert_eq!(
+        serde_json::to_value(tool_updates::plan(&result).unwrap()).unwrap()["entries"],
+        serde_json::json!([]),
+        "empty plan clears the previous plan"
+    );
+}
 use crate::domain::{
     Event, EventContext, EventEnvelope, new_message_id, new_session_id, new_thread_id,
 };

@@ -144,7 +144,33 @@ model settings настраиваются в Proteus до запуска, отд
 | `session/request_permission` | `allow_once` / `reject_once` через действующий ApprovalTransport; отменённый/неверный ответ не разрешает исполнение |
 | `session/cancel` | Отмена текущего run; после settlement и последних updates исходный prompt получает `stopReason: cancelled` |
 | `session/set_mode` | `normal`, `plan`, `auto` — permission modes Proteus; смена во время активного prompt отклоняется |
+| `session/set_config_option` | Селекторы `model`, `reasoning_effort`, `mode`; полный обновлённый список возвращается в response и `config_option_update` |
+| `session/update: plan` | Успешный tool result с metadata `plan: [{step, status}]` отображается как план; статусы `pending`, `in_progress`, `completed`, пустой список очищает план |
 | EOF/ошибка transport | Все sessions отменяют активные runs и дожидаются записи terminal state |
+
+`session/new` возвращает стандартные [ACP config options](https://agentclientprotocol.com/protocol/v1/session-config-options):
+режим прав, модель и доступные уровни рассуждений. Выбор использует тот же
+provider-owned catalog и runtime settings, что HTTP/stdio. Скрытые модели не
+предлагаются, кроме уже выбранной. Смена модели сразу обновляет доступные efforts
+и их выбранное значение; `Default` (`_default`) убирает явный effort, `none`
+отключает рассуждения вместе с summary/budget. Если модель не предоставляет
+efforts, отдельный селектор рассуждений не публикуется.
+Wire values конкретных уровней имеют вид `effort:<provider value>`, чтобы
+произвольный provider effort не конфликтовал с `Default`.
+
+Без model discovery список моделей берётся из профилей того же provider в
+config, уровни — из `reasoning_efforts`, настроенного default и текущего значения.
+Это не полный список моделей удалённого proxy; одну настроенную модель меню
+покажет одним вариантом. При ошибке live catalog модельные селекторы не
+подменяются конфигом, причина выводится в stderr. Все изменения относятся к
+текущей сессии, не переписывают config и отклоняются до завершения активного
+ACP prompt. Неизвестные ids/values и неверный тип значения возвращают ошибку
+до изменения настроек. `mode` и `session/set_mode` синхронизированы.
+
+План проецируется только из metadata успешного результата tool, после обычного
+policy/tool execution path. Он не зависит от имени tool или module id;
+невалидная presentation metadata не превращает успешный tool в ошибку.
+ACP priority для всех шагов — `medium`: исходный plan не задаёт приоритетов.
 
 Resource link передаётся модели как имя и URI, без скрытого чтения файла или
 загрузки URL. Editor stdio MCP проходит тот же discovery, `ToolRegistry`,
@@ -154,7 +180,7 @@ Agent не вызывает client `fs/*` и `terminal/*`: используют�
 сборки и её рабочий каталог, несохранённые буферы редактора отдельно не читаются.
 
 Не заявлены `session/load`, list/resume/fork, images/audio/embedded resources,
-HTTP/SSE MCP, ACP model/config selection и authentication methods. Неподдержанный
+HTTP/SSE MCP и authentication methods. Неподдержанный
 метод возвращает JSON-RPC error; неподдержанный prompt block отклоняется до
 admission. Structured `request_user_input` выводит явное сообщение о недоступной
 форме и получает пустой ответ через существующий transport, чтобы не ждать

@@ -93,11 +93,12 @@ impl Projection {
             }
             Event::ToolFinished { result } => {
                 self.tools.remove(&result.call_id.to_string());
+                let plan = super::tool_updates::plan(&result);
                 let text = result
                     .error
                     .clone()
                     .unwrap_or_else(|| result.output.clone());
-                Some(SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                let update = SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
                     result.call_id.to_string(),
                     ToolCallUpdateFields::new()
                         .status(if result.ok {
@@ -109,7 +110,8 @@ impl Projection {
                             ContentBlock::Text(TextContent::new(text)),
                         ))])
                         .raw_output(serde_json::to_value(result).map_err(super::internal)?),
-                )))
+                ));
+                return Ok(std::iter::once(update).chain(plan).collect());
             }
             _ => None,
         };

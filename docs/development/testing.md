@@ -57,6 +57,13 @@ allow/deny/неверный permission option, отмену без ответа 
 busy session, EOF с `TurnSettled(Canceled)`, отдельный `Timeout` и cold history. Успешные turns,
 включая tools/approval, проходят matched workflow replay. Для неподдержанного
 structured input проверяется завершение без ожидания бесконечного timeout.
+ACP config selectors проверяются с независимым Python model export: каталог
+и скрытые модели, смена модели с зависимыми efforts, отклонение неизвестных
+значений и изменений во время prompt, синхронизация modes/config options,
+изоляция сессий. Выбранные model/effort подтверждаются canonical journal и
+matched replay. Отдельно проверяется сохранение default effort без discovery
+после `none`. Projection unit проверяет статусы плана, очистку пустым списком
+и игнорирование failed/invalid plan metadata.
 Focused gate: `cargo test -p proteus-core --lib app_server::acp` и
 `cargo test -p proteus-core --test acp_server --test cli_dispatch`;
 полный gate — `cargo test --workspace --no-fail-fast` (включает `module_swap`).

@@ -344,7 +344,9 @@ proxy variables) явно перечисляются в `env_allowlist` componen
 и не соединение с API. Не храните secret literal в tracked config.
 
 Для implementations без discovery варианты reasoning задаются
-`providers.<name>.reasoning_efforts` явно. Если model export поддерживает
+`providers.<name>.reasoning_efforts` явно. Настроенный default effort остаётся
+доступен в меню после отключения reasoning или выбора другого уровня.
+Если model export поддерживает
 `catalog`, меню использует его модели и effort выбранной модели; список
 конфига не дополняет live catalog. Core не выводит effort из имени модели
 или endpoint. `/model` и stdio `set_model` возвращают выбранную модель вместе

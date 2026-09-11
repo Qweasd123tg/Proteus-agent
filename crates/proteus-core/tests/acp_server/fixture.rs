@@ -21,6 +21,14 @@ impl Client {
     }
 
     pub async fn launch_with_timeout(delay: u64, timeout_ms: u64) -> Self {
+        Self::launch_config(delay, timeout_ms, |_| {}).await
+    }
+
+    pub async fn launch_config(
+        delay: u64,
+        timeout_ms: u64,
+        configure: impl FnOnce(&mut AppConfig),
+    ) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let cwd = dir.path().join("workspace");
         std::fs::create_dir(&cwd).unwrap();
@@ -48,6 +56,7 @@ impl Client {
         config.event_log.path = dir.path().join("events.jsonl");
         config.app_server.approval_timeout_ms = 0;
         config.runtime.workflow_timeout_ms = timeout_ms;
+        configure(&mut config);
         let path = dir.path().join("config.json");
         std::fs::write(&path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
         let mut child = Command::new(env!("CARGO_BIN_EXE_proteus"))

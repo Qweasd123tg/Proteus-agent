@@ -15,6 +15,8 @@ use crate::{contracts::CancellationToken, core::AppConfig};
 mod input;
 mod projection;
 mod prompt;
+mod settings;
+mod tool_updates;
 
 struct State {
     config: AppConfig,
@@ -79,6 +81,7 @@ async fn serve(
     let prompt = state.clone();
     let cancel = state.clone();
     let mode = state.clone();
+    let config_option = state.clone();
     let close = state.clone();
     let result = Agent
         .builder()
@@ -150,16 +153,30 @@ async fn serve(
             async move |request: SetSessionModeRequest, responder, cx| {
                 let result = async {
                     let session = mode.session(&request.session_id).await?;
-                    if session.active.lock().unwrap().is_some() {
-                        return Err(invalid("cannot change mode during an active prompt"));
-                    }
+                    let _lease = session.reserve()?;
                     let permission = input::permission_mode(&request.mode_id)?;
                     session.server.set_permission_mode(permission).await;
                     cx.send_notification(SessionNotification::new(
-                        request.session_id,
+                        request.session_id.clone(),
                         SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new(request.mode_id)),
                     ))?;
+                    settings::notify(
+                        &cx,
+                        request.session_id,
+                        settings::options(&session.server).await?,
+                    )?;
                     Ok(SetSessionModeResponse::new())
+                }
+                .await;
+                responder.respond_with_result(result)
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: SetSessionConfigOptionRequest, responder, cx| {
+                let result = async {
+                    let session = config_option.session(&request.session_id).await?;
+                    settings::set(session, request, cx).await
                 }
                 .await;
                 responder.respond_with_result(result)
@@ -209,6 +226,7 @@ impl State {
             return Err(internal(error));
         }
         let modes = input::modes(server.permission_mode().await)?;
+        let config_options = settings::options(&server).await?;
         let id = SessionId::new(server.session_id().to_string());
         self.sessions.lock().await.insert(
             id.clone(),
@@ -217,7 +235,9 @@ impl State {
                 active: Arc::new(StdMutex::new(None)),
             },
         );
-        Ok(NewSessionResponse::new(id).modes(modes))
+        Ok(NewSessionResponse::new(id)
+            .modes(modes)
+            .config_options(config_options))
     }
 
     async fn shutdown(&self) {
