@@ -1,0 +1,44 @@
+.analysis-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    gap: 24px;
+    padding: 24px 28px 18px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+.analysis-title { min-width: 0; }
+.analysis-title h1 { font-size: 20px; font-weight: 550; line-height: 1.4; margin: 6px 0; overflow-wrap: anywhere; }
+.analysis-title p { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.analysis-identity { margin-top: 10px; color: var(--text-faint); font-size: 11px; }
+.analysis-identity summary { cursor: pointer; }
+.analysis-identity code { display: block; margin-top: 6px; white-space: normal; overflow-wrap: anywhere; user-select: text; }
+.analysis-session-actions { display: grid; flex: 0 1 340px; min-width: 220px; gap: 8px; }
+.analysis-session-actions label { color: var(--text-muted); font-size: 11px; }
+.analysis-session-actions select { width: 100%; max-width: 100%; }
+.analysis-open-chat { justify-self: end; }
+.analysis-tabs { display: flex; flex-shrink: 0; gap: 6px; padding: 12px 28px; border-bottom: 1px solid var(--border-subtle); }
+.analysis-tabs button { padding: 8px 14px; border: 1px solid transparent; border-radius: 8px; color: var(--text-muted); background: transparent; font-size: 13px; }
+.analysis-tabs button:hover { color: var(--text-main); background: var(--bg-panel-hover); }
+.analysis-tabs button.active { color: var(--text-main); border-color: var(--border-subtle); background: var(--bg-panel-soft); }
+.analysis-scroll { overflow: auto; min-height: 0; flex: 1; padding: 24px 28px; scrollbar-gutter: stable; }
+.analysis-scroll > [hidden] { display: none; }
+.analysis-page .context-usage-report { margin: 0; padding: 0; border: 0; border-radius: 0; background: none; }
+.analysis-page .context-usage-report > h2 { display: none; }
+.analysis-page .context-usage-report > p { margin-bottom: 18px; }
+.analysis-section-heading { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
+.analysis-section-heading h2 { font-size: 17px; font-weight: 550; }
+.analysis-section-heading p, .analysis-status { color: var(--text-muted); font-size: 12px; line-height: 1.6; margin: 6px 0 16px; }
+.analysis-section-heading button { flex-shrink: 0; }
+.analysis-context .context-map-scroll { padding: 0; overflow: visible; }
+@media (max-width: 900px) {
+    .analysis-heading { flex-direction: column; gap: 16px; padding: 18px; }
+    .analysis-session-actions { flex: initial; width: 100%; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; }
+    .analysis-session-actions label { grid-column: 1 / -1; }
+    .analysis-tabs { padding: 10px 18px; }
+    .analysis-scroll { padding: 18px; }
+}
+@media (max-width: 480px) {
+    .analysis-tabs { gap: 4px; }
+    .analysis-tabs button { padding: 8px; font-size: 12px; }
+    .analysis-title h1 { font-size: 17px; }
+}

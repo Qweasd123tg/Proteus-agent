@@ -73,6 +73,12 @@ core `ModeAwarePolicy`. `Ask Plan` отправляет topic как planning in
 `request_user_input`/`AskUserQuestion`, а UI показывает пошаговую карточку в
 transcript с question tabs, choices и свободным `Other`.
 
+Страница «Анализ» (`/context`) разбирает выбранную сессию: запросы и расход
+с фильтрами, поиском и JSON-выгрузкой, а также отдельный последний снимок
+контекста и инструментов. Выбор сессии для анализа сохраняется в URL и не
+переключает активный диалог. Подробности — в
+[описании отчёта расхода](../../docs/guides/ui-extensions.md).
+
 Config/architecture UI вынесен в отдельный web-клиент
 [`../inspector`](../inspector), который по умолчанию запускается на порту
 `1421`. Wrapper после `./install.sh` поднимает его вместе с chat-клиентом
@@ -151,5 +157,6 @@ Credential хранится вместе с точным нормализова�
 Trunk. Проверяйте web-клиент отдельной командой:
 
 ```bash
-cargo check --manifest-path clients/web/Cargo.toml --target wasm32-unknown-unknown
+cd clients/web
+NO_COLOR=true trunk build
 ```

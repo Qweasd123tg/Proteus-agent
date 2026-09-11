@@ -1,6 +1,7 @@
 """Real journal → authenticated usage API → sidebar, settings and context report."""
 import base64
 from pathlib import Path
+from analysis_checks import run as check_analysis, check_selection
 
 
 def run(command, js, wait_for):
@@ -34,13 +35,15 @@ def run(command, js, wait_for):
     Path('/tmp/proteus-usage-context.png').write_bytes(base64.b64decode(command('/screenshot', None)))
     command('/refresh', {})
     wait_for(lambda: js("return document.querySelector('.usage-details-host > div')?.shadowRoot?.querySelector('.cost-total')?.textContent.includes('$0.000252')"), 'Reload lost usage or custom pricing')
+    check_analysis(command, js, wait_for)
+    check_selection(command, js, wait_for)
     # Real HTTP failure must clear old totals, then recover from the journal.
     js("window.usageFetch=window.fetch;window.fetch=(input,init)=>String(input.url||input).includes('/usage')?Promise.resolve(new Response('offline',{status:503})):window.usageFetch(input,init);document.querySelector('.usage-details-host > div').shadowRoot.querySelector('.usage-footer button').click()")
     wait_for(lambda: js("const root=document.querySelector('.usage-details-host > div').shadowRoot;return root.textContent.includes('Не удалось получить расход') && !root.querySelector('.cost-total')"), 'Usage failure retained a stale total')
     js("window.fetch=window.usageFetch;document.querySelector('.usage-details-host > div').shadowRoot.querySelector('.usage-footer button').click()")
     wait_for(lambda: js("return document.querySelector('.usage-details-host > div').shadowRoot.querySelectorAll('.usage-request').length===2"), 'Usage recovery failed')
-    js("document.querySelector('.topnav a[href=\"/\"]').click()")
-    wait_for(chat_loaded, 'Chat did not restore after context report')
+    js("document.querySelector('.analysis-open-chat').click()")
+    wait_for(chat_loaded, 'Selected chat did not restore after analysis')
     # Keep the layout regression focused on the original visible panels.
     wait_for(lambda: js("return !!document.querySelector('[data-extension-id=usage] .extension-panel-title')"), 'Usage panel not restored')
     js("document.querySelector('[data-extension-id=usage] .extension-panel-title').click()")

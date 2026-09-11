@@ -20,7 +20,7 @@ pub(crate) fn UsageDetailsView(session_dir: ReadSignal<Option<String>>) -> impl 
     view! {
         <section class="context-usage-report">
             <h2>"Запросы и расход"</h2>
-            <p class="settings-hint">"Расход за всю историю чата, включая повторы и сжатие контекста. Размер текущего контекста показан отдельно выше."</p>
+            <p class="settings-hint">"Расход за всю историю чата, включая повторы и сжатие контекста. Текущий размер контекста — в соседнем разделе."</p>
             <div node_ref=root class="usage-details-host"></div>
         </section>
     }

@@ -46,3 +46,42 @@ test('explicit provider rates override model-wide rates and invalid tables fail'
   assert.throws(() => validateRates([{ ...rate, output: Infinity }]));
   assert.throws(() => validateRates([{ ...rate, wrong: 1 }]));
 });
+
+const { scopedRequests, selectRequests, requestExport } = await import('../../extensions/usage/selection.js');
+const exchange = (id, extra = {}) => ({ ...request(), exchange_id: id, turn_id: 'turn-a', started_at_ms: 1000, finished_at_ms: 1100, ...extra });
+
+test('diagnostic filters preserve scope totals and keep compaction and unassigned requests addressable', () => {
+  const items = [exchange('ok'), exchange('failed', { status: 'error', usage: null }),
+    exchange('summary', { origin: 'compactor', turn_id: 'turn-b' }), exchange('outside', { turn_id: null, status: 'unfinished', finished_at_ms: null })];
+  const snapshot = { latest_turn_id: 'turn-b', requests: items };
+  const scoped = scopedRequests(snapshot, 'all', 'all');
+  assert.deepEqual(selectRequests(scoped, { status: 'problems' }, []).map(item => item.exchange_id), ['failed', 'outside']);
+  assert.deepEqual(selectRequests(scoped, { status: 'missing_usage' }, []).map(item => item.exchange_id), ['failed']);
+  assert.deepEqual(selectRequests(scoped, { query: 'SUMMARY turn-B', origin: 'compactor' }, []).map(item => item.exchange_id), ['summary']);
+  assert.deepEqual(scopedRequests(snapshot, 'latest', 'all').map(item => item.exchange_id), ['summary']);
+  assert.equal(summarize(scoped, []).requests, 4, 'list filters must not change the scope summary');
+  assert.equal(scopedRequests({ ...snapshot, latest_turn_id: null }, 'latest', 'all').length, 0);
+});
+
+test('diagnostic sorting is stable and missing duration, usage and pricing sort last', () => {
+  const a = exchange('a'), b = exchange('b');
+  const unknown = exchange('unknown', { usage: null, finished_at_ms: null });
+  const long = exchange('long', { finished_at_ms: 9100, usage: { input_tokens: 5000, output_tokens: 20 } });
+  for (const sort of ['duration', 'tokens', 'cost']) {
+    assert.deepEqual(selectRequests([unknown, a, b, long], { sort }, []).map(item => item.exchange_id), ['long', 'a', 'b', 'unknown']);
+  }
+  const later = exchange('later', { started_at_ms: 2000 });
+  assert.deepEqual(selectRequests([a, later, b], { sort: 'oldest' }, []).map(item => item.exchange_id), ['a', 'b', 'later']);
+  assert.deepEqual(selectRequests([a, later, b], { sort: 'newest' }, []).map(item => item.exchange_id), ['later', 'a', 'b']);
+});
+
+test('JSON export includes the entire filtered selection and exact source identifiers', () => {
+  const snapshot = { session_id: 'session-1', revision: 7, requests: Array.from({ length: 27 }, (_, i) => exchange(`id-${i}`)) };
+  const selected = selectRequests(snapshot.requests, { sort: 'newest' }, []);
+  const exported = JSON.parse(requestExport(snapshot, selected, { sort: 'newest' }));
+  assert.equal(exported.session_id, 'session-1');
+  assert.equal(exported.revision, 7);
+  assert.equal(exported.requests.length, 27, 'export must not be limited to the visible page');
+  assert.deepEqual(exported.requests, selected);
+  assert.deepEqual(exported.filters, { sort: 'newest' });
+});

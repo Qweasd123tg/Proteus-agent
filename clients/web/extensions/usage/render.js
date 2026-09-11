@@ -1,3 +1,4 @@
+import { turnIds } from './selection.js';
 import { requestCost, PRICE_DATE, PRICE_SOURCE } from './pricing.js';
 import { summarize, tokens, money, statusLabel, duration } from './summary.js';
 
@@ -68,7 +69,7 @@ function requestDetails(request, cost) {
     details.append(row('Стоимость входа', money(cost.input)), row('Стоимость выхода', money(cost.output)), row('Тариф', cost.custom ? 'Пользовательский' : `Standard API · ${PRICE_DATE}`));
     if (cost.long) details.append(node('p', 'Применён тариф длинного контекста.', 'muted'));
   } else details.append(node('p', cost.reason, 'muted'));
-  details.append(row('ID запроса', request.exchange_id), row('ID хода', request.turn_id ?? 'Вне хода'));
+  details.append(row('ID запроса', request.exchange_id, 'request-id'), row('ID хода', request.turn_id ?? 'Вне хода', 'request-id'));
   return details;
 }
 
@@ -77,17 +78,30 @@ export function renderRequests(requests, all, rates, wide, page, opened) {
   const size = wide ? 20 : 5;
   const last = Math.max(0, Math.ceil(requests.length / size) - 1);
   const current = Math.min(page, last);
-  const selected = [...requests].reverse().slice(current * size, (current + 1) * size);
-  if (!selected.length) box.append(node('p', 'Запросов пока нет.', 'muted'));
+  const selected = (wide ? requests : [...requests].reverse()).slice(current * size, (current + 1) * size);
+  const turns = turnIds(all);
+  const numbers = new Map(all.map((item, index) => [item.exchange_id, index + 1]));
+  if (!selected.length) box.append(node('p', all.length ? 'По этим фильтрам запросов нет.' : 'В этой сессии ещё нет записанных запросов.', 'muted'));
   for (const request of selected) {
     const cost = requestCost(request, rates), usage = request.usage;
     const item = node('details', null, 'usage-request');
     item.dataset.exchangeId = request.exchange_id;
+    item.dataset.status = request.status;
     item.open = opened.has(request.exchange_id);
     const summary = node('summary');
-    const number = all.indexOf(request) + 1;
+    const number = numbers.get(request.exchange_id);
     const identity = node('span', null, 'request-identity');
-    identity.append(node('strong', `#${number} · ${request.model.model}`), node('span', `${statusLabel(request.status)} · ${duration(request)}`, 'muted'));
+    identity.append(node('strong', `#${number} · ${request.model.model}`));
+    const state = node('span', null, 'request-state');
+    const badge = node('span', statusLabel(request.status), 'request-status');
+    badge.dataset.status = request.status;
+    state.append(badge, node('span', duration(request), 'muted'));
+    identity.append(state);
+    if (wide) {
+      const turn = request.turn_id == null ? 'Вне хода' : `Ход ${turns.indexOf(request.turn_id) + 1}`;
+      const origin = request.origin === 'compactor' ? ' · Сжатие контекста' : '';
+      identity.append(node('small', `${turn}${origin} · ${new Date(request.started_at_ms).toLocaleTimeString('ru-RU')}`, 'muted'));
+    }
     summary.append(identity);
     if (wide) {
       for (const [label, value] of [['Вход', usage?.input_tokens], ['Кэш', usage?.cached_input_tokens], ['Запись', usage?.cache_creation_input_tokens], ['Выход', usage?.output_tokens], ['Мысли', usage?.reasoning_output_tokens]]) {

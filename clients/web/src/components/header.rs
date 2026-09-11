@@ -98,7 +98,7 @@ where
                             href="/context"
                             on:click=move |ev| on_navigate(ev, "/context")
                         >
-                            "Контекст"
+                            "Анализ"
                         </a>
                         <a
                             class="topnav-link"

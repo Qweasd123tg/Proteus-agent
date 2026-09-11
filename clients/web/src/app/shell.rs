@@ -151,9 +151,10 @@ pub(super) fn AppShell(
                             view! { <ResumeView on_open=resume_open /> }.into_any()
                         } else if current == "/context" {
                         view! {
-                            <ContextMapView
+                            <SessionAnalysisView
                                 sessions=sidebar_sessions
                                 active_session_dir=active_session_dir
+                                on_open=resume_open
                             />
                         }.into_any()
                     } else if current == "/settings" {

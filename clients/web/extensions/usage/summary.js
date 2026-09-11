@@ -24,7 +24,11 @@ export function summarize(requests, rates) {
 export const tokens = value => value == null ? '—' : new Intl.NumberFormat('ru-RU').format(value);
 export const money = value => value == null ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 6 }).format(value);
 export const statusLabel = status => ({ completed: 'Готово', error: 'Ошибка', canceled: 'Отменён', timeout: 'Таймаут', unfinished: 'Нет результата' })[status] ?? status;
+export function durationMs(request) {
+  if (request.finished_at_ms == null) return null;
+  return Math.max(0, request.finished_at_ms - request.started_at_ms);
+}
 export function duration(request) {
-  if (request.finished_at_ms == null) return '—';
-  return `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(Math.max(0, request.finished_at_ms - request.started_at_ms) / 1000)} с`;
+  const value = durationMs(request);
+  return value == null ? '—' : `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(value / 1000)} с`;
 }
