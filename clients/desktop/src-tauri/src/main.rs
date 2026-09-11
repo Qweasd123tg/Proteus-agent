@@ -1,4 +1,5 @@
 mod backend;
+mod graphics;
 mod preferences;
 mod windows;
 
@@ -124,6 +125,7 @@ async fn open_client(
     label: String,
     session_dir: Option<String>,
 ) -> Result<(), String> {
+    eprintln!("Proteus: opening client window {label}");
     let connection = app
         .state::<DesktopState>()
         .backend
@@ -196,6 +198,8 @@ fn setup(app: &mut tauri::App) -> Result<()> {
 }
 
 fn main() {
+    // SAFETY: no GTK objects or application threads exist at this point.
+    unsafe { graphics::configure_before_threads() };
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             let label = if app.get_webview_window("main").is_some() {
@@ -224,7 +228,9 @@ fn main() {
             "inspector" => {
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
-                    let _ = open_client(app, "inspector".to_owned(), None).await;
+                    if let Err(error) = open_client(app, "inspector".to_owned(), None).await {
+                        eprintln!("Не удалось открыть Inspector: {error}");
+                    }
                 });
             }
             _ => {}
@@ -233,8 +239,8 @@ fn main() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 match window.label() {
                     "inspector" => {
-                        api.prevent_close();
-                        let _ = window.hide();
+                        // Recreate the auxiliary webview next time. Reusing a
+                        // hidden GTK window can leave it unmapped after resize.
                     }
                     "launcher"
                         if window

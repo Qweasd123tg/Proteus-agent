@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Cold-start a relocated release in Xvfb; observe its real native→WASM→SSE path.
+"""Cold-start a relocated release; observe its real native→WASM→SSE path.
 
-Uses no UI automation: the remembered project opens through normal launcher JS.
-Personal preferences, provider credentials and the owner's running app are untouched.
+Default: headless Xvfb startup. --niri also exercises Inspector on the current GPU.
+Personal preferences and provider credentials remain isolated in either mode.
 """
+import argparse
 import json
 import os
 from pathlib import Path
@@ -15,16 +16,21 @@ import time
 
 
 def descendants(pid):
-    result = []
+    result = set()
     pending = [pid]
     while pending:
         parent = pending.pop()
         try:
-            children = Path(f"/proc/{parent}/task/{parent}/children").read_text().split()
+            children = set()
+            for task in Path(f"/proc/{parent}/task").iterdir():
+                try:
+                    children.update(map(int, (task / "children").read_text().split()))
+                except FileNotFoundError:
+                    pass
         except FileNotFoundError:
             continue
-        for child in map(int, children):
-            result.append(child)
+        for child in children - result:
+            result.add(child)
             pending.append(child)
     return result
 
@@ -57,6 +63,13 @@ def stop(process):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--niri", action="store_true", help="Use current niri/Wayland with ydotool; open, resize and close Inspector")
+    options = parser.parse_args()
+    if options.niri:
+        assert os.environ.get("WAYLAND_DISPLAY"), "--niri requires the current Wayland session"
+        assert all(shutil.which(tool) for tool in ["niri", "ydotool", "ydotoold"]), "--niri requires niri, ydotool and ydotoold"
+        assert os.access("/dev/uinput", os.W_OK), "--niri requires access to /dev/uinput"
     desktop = Path(__file__).resolve().parents[1]
     with tempfile.TemporaryDirectory(prefix="proteus-native-smoke-") as temporary:
         root = Path(temporary)
@@ -83,14 +96,18 @@ path = ''' + json.dumps(str(events)) + "\n")
         display = application = None
         with (root / "native.log").open("w+") as log:
             try:
-                display = subprocess.Popen(["Xvfb", "-displayfd", "1", "-screen", "0", "1440x1000x24", "-nolisten", "tcp"], stdout=subprocess.PIPE, stderr=log, text=True, start_new_session=True)
-                display_number = display.stdout.readline().strip()
-                assert display_number.isdecimal(), "Xvfb did not start"
                 env = os.environ.copy()
-                env.pop("WAYLAND_DISPLAY", None)
                 env.pop("PROTEUS_CONFIG_PATH", None)
-                # Xvfb has no GPU/compositor; the real desktop keeps normal rendering.
-                env.update(DISPLAY=":" + display_number, GDK_BACKEND="x11", WEBKIT_DISABLE_COMPOSITING_MODE="1", NO_AT_BRIDGE="1", XDG_CONFIG_HOME=str(root / "settings"), XDG_DATA_HOME=str(root / "data"), XDG_CACHE_HOME=str(root / "cache"), PROTEUS_CONFIG_HOME=str(root / "proteus"))
+                env.update(NO_AT_BRIDGE="1", XDG_CONFIG_HOME=str(root / "settings"), XDG_DATA_HOME=str(root / "data"), XDG_CACHE_HOME=str(root / "cache"), PROTEUS_CONFIG_HOME=str(root / "proteus"))
+                if options.niri:
+                    env["GDK_BACKEND"] = "wayland"
+                else:
+                    display = subprocess.Popen(["Xvfb", "-displayfd", "1", "-screen", "0", "1440x1000x24", "-nolisten", "tcp"], stdout=subprocess.PIPE, stderr=log, text=True, start_new_session=True)
+                    display_number = display.stdout.readline().strip()
+                    assert display_number.isdecimal(), "Xvfb did not start"
+                    env.pop("WAYLAND_DISPLAY", None)
+                    # Xvfb has no GPU/compositor; --niri keeps the real rendering path.
+                    env.update(DISPLAY=":" + display_number, GDK_BACKEND="x11", WEBKIT_DISABLE_COMPOSITING_MODE="1")
                 application = subprocess.Popen(["dbus-run-session", "--", str(app / "proteus-desktop")], cwd=project, env=env, stdout=log, stderr=log, start_new_session=True)
                 deadline = time.monotonic() + 60
                 while time.monotonic() < deadline:
@@ -98,6 +115,12 @@ path = ''' + json.dumps(str(events)) + "\n")
                         raise AssertionError("Native application exited during startup")
                     if events.exists() and any("SessionStarted" in json.loads(line).get("event", {}) for line in events.read_text().splitlines()):
                         print("PASS: relocated native app → saved project → packaged backend → Leptos SSE SessionStarted")
+                        if options.niri:
+                            from native_smoke_niri import exercise
+                            exercise(application, project)
+                            log.flush()
+                            log.seek(0)
+                            assert "eglMakeCurrent failed" not in log.read(), "Native renderer reported EGL failures"
                         return
                     time.sleep(0.1)
                 raise AssertionError("Native client did not start its authenticated SSE session")
