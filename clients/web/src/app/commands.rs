@@ -193,14 +193,18 @@ pub(super) fn commands(state: AppState, connection: ClientConnection) -> ChatCom
         }
         set_draft.set(String::new());
         set_stick_to_bottom.set(true);
-        actions.send_prompt(revise_plan_prompt(&text), Some(PermissionMode::Plan));
+        actions.send_prompt(text, Some("planning.revise"), Some(PermissionMode::Plan));
     };
     let execute_plan = move |_| {
         if is_sending.get() {
             return;
         }
         set_stick_to_bottom.set(true);
-        actions.send_prompt(execute_plan_prompt(), Some(PermissionMode::Normal));
+        actions.send_prompt(
+            "Выполнить согласованный план".to_owned(),
+            Some("planning.execute"),
+            Some(PermissionMode::Normal),
+        );
     };
     let exit_plan = move |_| {
         actions.set_permission_mode(PermissionMode::Normal);

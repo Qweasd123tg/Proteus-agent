@@ -343,6 +343,7 @@ mod tests {
                 turn_id,
                 1,
                 JournalEntry::TurnOpened(TurnOpened {
+                    intent: None,
                     task: AgentTask::new("inspect", "/tmp/workspace".into()),
                     base_history_revision: 0,
                     module_epoch: 0,
@@ -484,6 +485,7 @@ mod tests {
                 turn_id,
                 1,
                 JournalEntry::TurnOpened(TurnOpened {
+                    intent: None,
                     task: AgentTask::new("cancel", "/tmp/workspace".into()),
                     base_history_revision: 0,
                     module_epoch: 0,

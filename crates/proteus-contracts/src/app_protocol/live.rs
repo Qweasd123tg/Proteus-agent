@@ -26,6 +26,7 @@ pub struct AppExecutionState {
 #[serde(deny_unknown_fields)]
 pub struct AppRun {
     pub run_id: String,
+    pub options: crate::domain::RunOptions,
     pub status: AppRunStatus,
     pub error: Option<String>,
 }

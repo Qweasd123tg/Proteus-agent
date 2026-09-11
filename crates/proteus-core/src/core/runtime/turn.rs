@@ -73,7 +73,34 @@ impl AgentRuntime {
         &self,
         text: String,
     ) -> Result<UserMessageReservation> {
-        let reservation = self.session.steering.reserve(text).await?;
+        self.reserve_user_message_with_options(text, crate::domain::RunOptions::default())
+            .await
+    }
+
+    pub(crate) async fn reserve_user_message_with_options(
+        &self,
+        text: String,
+        options: crate::domain::RunOptions,
+    ) -> Result<UserMessageReservation> {
+        if let Some(intent) = &options.intent {
+            anyhow::ensure!(
+                !intent.is_empty()
+                    && intent.len() <= 128
+                    && intent
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || b"._/-".contains(&c)),
+                "invalid workflow intent name"
+            );
+        }
+        let snapshot = self.capture_run_snapshot(options.permission_mode).await;
+        let mut reservation = self
+            .session
+            .steering
+            .reserve_with_options(text, options)
+            .await?;
+        if let UserMessageReservation::Start(reserved) = &mut reservation {
+            reserved.snapshot = Some(snapshot);
+        }
         if let UserMessageReservation::Queued(receipt) = &reservation {
             self.services
                 .events
@@ -127,6 +154,8 @@ impl AgentRuntime {
         let settled = async {
             loop {
                 let turn_id = reserved.turn_id;
+                let snapshot = reserved.snapshot.clone();
+                let intent = reserved.intent.clone();
                 let output = self.run_one_turn(reserved, cancellation.clone()).await?;
                 if cancellation.is_cancelled() {
                     anyhow::bail!("turn canceled by client");
@@ -137,7 +166,11 @@ impl AgentRuntime {
                     .settle_and_take_followup(turn_id)
                     .await?
                 {
-                    RootTurnSettlement::FollowUp(followup) => reserved = followup,
+                    RootTurnSettlement::FollowUp(mut followup) => {
+                        followup.snapshot = snapshot;
+                        followup.intent = intent;
+                        reserved = followup;
+                    }
                     RootTurnSettlement::Complete(finalization) => {
                         return Ok((output, finalization));
                     }
@@ -162,12 +195,14 @@ impl AgentRuntime {
 
     async fn run_one_turn(
         &self,
-        reserved: ReservedUserMessage,
+        mut reserved: ReservedUserMessage,
         cancellation: CancellationToken,
     ) -> Result<AgentOutput> {
-        let admission = self.admit_execution(cancellation.clone()).await;
-        let snapshot = admission.snapshot;
-        let execution_scope = admission.scope;
+        let snapshot = match reserved.snapshot.take() {
+            Some(snapshot) => snapshot,
+            None => self.capture_execution_snapshot().await,
+        };
+        let execution_scope = ExecutionScope::fresh(cancellation.clone());
         self.ensure_session_started_with_snapshot(&snapshot).await?;
         let turn_id = reserved.turn_id;
         let execution_attribution = ExecutionAttribution::for_turn(
@@ -187,6 +222,7 @@ impl AgentRuntime {
                 .append_execution_journal_entry(
                     execution_attribution,
                     crate::core::JournalEntry::TurnOpened(crate::core::TurnOpened {
+                        intent: reserved.intent.clone(),
                         task: task.clone(),
                         base_history_revision,
                         module_epoch: snapshot.runtime.epoch.as_u64(),
@@ -289,6 +325,8 @@ impl AgentRuntime {
         let mut workflow_context =
             self.bind_agent_workflow_context(execution_scope, &snapshot, turn_id);
         workflow_context.queued_user_messages = self.session.steering.queued_count_handle();
+        workflow_context.intent = reserved.intent;
+        workflow_context.permission_mode = snapshot.permission_mode;
         let steering_model = SteeringModel::new(
             workflow_context.execution.model.clone(),
             self.session.steering.clone(),

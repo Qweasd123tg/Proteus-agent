@@ -388,11 +388,19 @@ fn web_decodes_contract_session_summary() {
 fn web_endpoint_request_bodies_match_contract_stdio_requests_without_transport_tag() {
     assert_endpoint_body_matches_contract(
         SendRequest {
+            options: proteus_client_common::run_options::RunOptions {
+                intent: Some("planning.start".into()),
+                permission_mode: Some("plan".into()),
+            },
             id: Some("send-1".to_owned()),
             text: "hello".to_owned(),
             session_dir: "/tmp/session".to_owned(),
         },
         contract_protocol::StdioRequest::Send {
+            options: proteus_contracts::domain::RunOptions {
+                intent: Some("planning.start".into()),
+                permission_mode: Some(proteus_contracts::domain::PermissionMode::Plan),
+            },
             id: Some("send-1".to_owned()),
             text: "hello".to_owned(),
         },

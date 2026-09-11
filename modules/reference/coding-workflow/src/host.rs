@@ -94,6 +94,9 @@ fn request_from_state_with_instruction_blocks_and_options(
     phase: &str,
     options: RequestOptions<'_>,
 ) -> Result<PreparedRequest, ProcessModuleError> {
+    if let Some(text) = super::intents::instructions(input)? {
+        instructions.push(InstructionBlock::new(InstructionKind::Developer, text, 95));
+    }
     let selected = if options.expose_tools {
         visible_tools(host, input, phase)?
     } else {

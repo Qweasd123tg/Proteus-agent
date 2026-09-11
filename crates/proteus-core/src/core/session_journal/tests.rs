@@ -37,6 +37,7 @@ fn record(
 
 fn opened(base_history_revision: u64) -> JournalEntry {
     JournalEntry::TurnOpened(TurnOpened {
+        intent: None,
         task: AgentTask::new("test", std::path::PathBuf::from("/tmp/workspace")),
         base_history_revision,
         module_epoch: 0,

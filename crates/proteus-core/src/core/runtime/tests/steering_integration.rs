@@ -38,6 +38,7 @@ struct BlockingFollowupWorkflow {
     continue_first: Arc<tokio::sync::Notify>,
     tasks: Arc<tokio::sync::Mutex<Vec<String>>>,
     execution_ids: Arc<tokio::sync::Mutex<Vec<ExecutionId>>>,
+    options: Arc<tokio::sync::Mutex<Vec<crate::domain::RunOptions>>>,
 }
 
 struct ScriptedModel {
@@ -225,6 +226,10 @@ impl Workflow for BlockingFollowupWorkflow {
         ctx: AgentWorkflowContext,
     ) -> Result<WorkflowOutput> {
         self.tasks.lock().await.push(task.text.clone());
+        self.options.lock().await.push(crate::domain::RunOptions {
+            intent: ctx.intent.clone(),
+            permission_mode: Some(ctx.permission_mode),
+        });
         self.execution_ids
             .lock()
             .await
@@ -623,11 +628,18 @@ async fn queued_message_without_tool_boundary_runs_as_followup_turn() {
         continue_first: Arc::new(tokio::sync::Notify::new()),
         tasks: Arc::new(tokio::sync::Mutex::new(Vec::new())),
         execution_ids: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+        options: Default::default(),
     });
     replace_workflow_for_test(&runtime, workflow.clone()).await;
 
     let reserved = match runtime
-        .reserve_user_message("initial".to_owned())
+        .reserve_user_message_with_options(
+            "initial".to_owned(),
+            crate::domain::RunOptions {
+                intent: Some("custom.plan".into()),
+                permission_mode: Some(crate::domain::PermissionMode::Plan),
+            },
+        )
         .await
         .expect("reserve initial")
     {
@@ -656,10 +668,21 @@ async fn queued_message_without_tool_boundary_runs_as_followup_turn() {
         .edit_queued_user_message(receipt.message_id, "later".into())
         .await
         .unwrap();
+    runtime
+        .set_permission_mode(crate::domain::PermissionMode::Auto)
+        .await;
     workflow.continue_first.notify_one();
 
     running.await.expect("join").expect("turn chain");
     assert_eq!(workflow.tasks.lock().await.as_slice(), ["initial", "later"]);
+    let options = workflow.options.lock().await.clone();
+    assert_eq!(options.len(), 2);
+    assert_eq!(options[0], options[1]);
+    assert_eq!(options[1].intent.as_deref(), Some("custom.plan"));
+    assert_eq!(
+        options[1].permission_mode,
+        Some(crate::domain::PermissionMode::Plan)
+    );
     let execution_ids = workflow.execution_ids.lock().await;
     assert_eq!(execution_ids.len(), 2);
     assert_ne!(execution_ids[0], execution_ids[1]);

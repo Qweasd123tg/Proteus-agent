@@ -159,6 +159,8 @@ pub async fn replay_workflow(
     .with_tool_recorder(state.clone())
     .with_instructions(replay_config.instruction_blocks());
     workflow_context.history_recorder = checkpoint_recorder.clone();
+    workflow_context.intent = fixture.opened.intent.clone();
+    workflow_context.permission_mode = fixture.snapshot.permission_mode_default;
 
     let replay_result = workflow
         .run(

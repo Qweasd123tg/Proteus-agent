@@ -33,6 +33,7 @@ pub(crate) struct EventStreamBindings {
     pub(crate) active_session_dir: ReadSignal<Option<String>>,
     pub(crate) set_is_sending: WriteSignal<bool>,
     pub(crate) set_active_run_id: WriteSignal<Option<String>>,
+    pub(crate) set_plan_run_id: WriteSignal<Option<String>>,
     pub(crate) active_stream_message_id: ReadSignal<Option<u64>>,
     pub(crate) set_active_stream_message_id: WriteSignal<Option<u64>>,
     pub(crate) streamed_this_turn: ReadSignal<bool>,
@@ -62,6 +63,7 @@ fn handle_app_output(
     active_session_dir: ReadSignal<Option<String>>,
     set_is_sending: WriteSignal<bool>,
     set_active_run_id: WriteSignal<Option<String>>,
+    set_plan_run_id: WriteSignal<Option<String>>,
     active_stream_message_id: ReadSignal<Option<u64>>,
     set_active_stream_message_id: WriteSignal<Option<u64>>,
     streamed_this_turn: ReadSignal<bool>,
@@ -90,6 +92,7 @@ fn handle_app_output(
                 active_session_dir,
                 set_is_sending,
                 set_active_run_id,
+                set_plan_run_id,
                 active_stream_message_id,
                 set_active_stream_message_id,
                 streamed_this_turn,
@@ -125,6 +128,7 @@ fn handle_app_event(
     active_session_dir: ReadSignal<Option<String>>,
     set_is_sending: WriteSignal<bool>,
     set_active_run_id: WriteSignal<Option<String>>,
+    set_plan_run_id: WriteSignal<Option<String>>,
     active_stream_message_id: ReadSignal<Option<u64>>,
     set_active_stream_message_id: WriteSignal<Option<u64>>,
     streamed_this_turn: ReadSignal<bool>,
@@ -184,6 +188,7 @@ fn handle_app_event(
                 snapshot.execution,
                 set_is_sending,
                 set_active_run_id,
+                set_plan_run_id,
                 set_agent_status,
             );
         }
@@ -192,6 +197,7 @@ fn handle_app_event(
                 execution,
                 set_is_sending,
                 set_active_run_id,
+                set_plan_run_id,
                 set_agent_status,
             );
         }
@@ -278,9 +284,23 @@ fn apply_execution(
     execution: proteus_client_common::execution::ExecutionState,
     set_is_sending: WriteSignal<bool>,
     set_active_run_id: WriteSignal<Option<String>>,
+    set_plan_run_id: WriteSignal<Option<String>>,
     set_agent_status: WriteSignal<String>,
 ) {
     use proteus_client_common::execution::RunStatus;
+    set_plan_run_id.set(
+        execution
+            .last
+            .as_ref()
+            .filter(|r| {
+                r.status == RunStatus::Success
+                    && matches!(
+                        r.options.intent.as_deref(),
+                        Some("planning.start" | "planning.revise")
+                    )
+            })
+            .map(|r| r.run_id.clone()),
+    );
     set_is_sending.set(execution.active.is_some());
     set_active_run_id.set(execution.active.as_ref().map(|r| r.run_id.clone()));
     let status = match execution

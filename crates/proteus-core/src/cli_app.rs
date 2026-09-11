@@ -87,7 +87,11 @@ impl CliAppClient {
     pub(crate) async fn send(&mut self, text: String) -> Result<AgentOutput> {
         let id = self.request_id("send");
         let value = self
-            .request(StdioRequest::Send { id: Some(id), text })
+            .request(StdioRequest::Send {
+                id: Some(id),
+                text,
+                options: Default::default(),
+            })
             .await?
             .ok_or_else(|| anyhow!("app-server send response has no output"))?;
         serde_json::from_value(value).context("decode app-server AgentOutput")

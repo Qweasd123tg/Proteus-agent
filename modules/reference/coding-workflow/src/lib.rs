@@ -12,6 +12,7 @@ mod codex_tools;
 mod dynamic_tools;
 mod history;
 mod host;
+mod intents;
 mod metadata;
 mod output_text;
 mod project_check;
@@ -101,6 +102,7 @@ pub(crate) fn run_single_loop(
     host: &mut WorkflowModuleHostMut<'_>,
     max_tool_rounds: usize,
 ) -> Result<WorkflowModuleOutput, ProcessModuleError> {
+    intents::instructions(&input)?;
     let mut turn = TurnScaffold::begin(host, &input)?;
     let mut last_usage: Option<LastModelUsage> = None;
 
@@ -228,6 +230,7 @@ pub(crate) fn run_plan_execute_review(
     input: WorkflowModuleInput,
     host: &mut WorkflowModuleHostMut<'_>,
 ) -> Result<WorkflowModuleOutput, ProcessModuleError> {
+    intents::reject(&input)?;
     let mut turn = TurnScaffold::begin(host, &input)?;
 
     let mut plan_tool_rounds_used = 0usize;

@@ -20,7 +20,7 @@ pub(crate) fn ChatResultsView<A, I, R, E, X>(
     pending_approvals: ReadSignal<Vec<ApprovalRequestInfo>>,
     pending_user_inputs: ReadSignal<Vec<UserInputRequestInfo>>,
     queued_prompts: ReadSignal<Vec<QueuedPromptInfo>>,
-    mode: ReadSignal<PermissionMode>,
+    plan_run_id: ReadSignal<Option<String>>,
     is_sending: ReadSignal<bool>,
     agent_status: ReadSignal<String>,
     on_resolve_approval: A,
@@ -36,6 +36,7 @@ where
     E: Fn(web_sys::MouseEvent) + Copy + Send + 'static,
     X: Fn(web_sys::MouseEvent) + Copy + Send + 'static,
 {
+    let (dismissed_plan, set_dismissed_plan) = signal(None::<String>);
     view! {
         <section
             class="results-panel"
@@ -112,7 +113,8 @@ where
             {move || {
                 let user_inputs_empty = pending_user_inputs.with(|items| items.is_empty());
                 let latest_message_is_assistant = messages.with(|items| items.last().is_some_and(|message| message.role == MessageRole::Assistant));
-                if mode.get() == PermissionMode::Plan
+                let plan = plan_run_id.get();
+                if plan.is_some() && plan != dismissed_plan.get()
                     && !is_sending.get()
                     && user_inputs_empty
                     && latest_message_is_assistant
@@ -121,7 +123,10 @@ where
                         <PlanActionsCard
                             on_revise=on_revise_plan
                             on_execute=on_execute_plan
-                            on_exit=on_exit_plan
+                            on_exit=move |event| {
+                                set_dismissed_plan.set(plan_run_id.get_untracked());
+                                on_exit_plan(event);
+                            }
                         />
                     }.into_any()
                 } else {

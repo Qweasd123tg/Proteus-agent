@@ -10,12 +10,13 @@ use proteus_contracts::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const JOURNAL_SCHEMA_VERSION: u32 = 13;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 14;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct TurnOpened {
     pub task: AgentTask,
+    pub intent: Option<String>,
     pub base_history_revision: u64,
     pub module_epoch: u64,
     pub config_snapshot: serde_json::Value,

@@ -24,6 +24,7 @@ async fn checkpoint_captures_only_declared_root_results_in_binding_order() {
         .append_execution_journal_entry(
             attribution,
             JournalEntry::TurnOpened(TurnOpened {
+                intent: None,
                 task: AgentTask::new("capture", workspace),
                 base_history_revision: 0,
                 module_epoch: 0,

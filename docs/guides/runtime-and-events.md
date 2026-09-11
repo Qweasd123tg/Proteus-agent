@@ -211,7 +211,7 @@ history сохраняют раздельные commentary/final items. Клие
 Если runtime запущен с config path, рядом с config root создаётся дерево
 `sessions/<workspace>/<session>/` (подробно про layout, resume и lifecycle —
 раздел «Session Store» ниже). Source of truth — `journal.jsonl`, где одна
-строка является строгим record schema v13 с `record_id`, монотонным
+строка является строгим record schema v14 с `record_id`, монотонным
 `session_seq`, timestamp, mandatory session id, optional execution/thread/turn
 ids, `kind` и payload. `TurnOpened`, model и tool facts требуют
 `ExecutionId`; history/settlement остаются chat facts без execution owner.
@@ -762,12 +762,12 @@ journal. ОС освобождает владение при закрытии pr
 находится в parent directory, а время создания/изменения берётся из metadata
 файловой системы. Новая session получает 10-значный numeric basename,
 детерминированный из внутреннего UUID; полный `SessionId` сохраняется в
-`session.json` schema v4 вместе с `journal_schema_version = 13`. Перед записью runtime
+`session.json` schema v4 вместе с `journal_schema_version = 14`. Перед записью runtime
 проверяет metadata, поэтому коллизия коротких имён завершается ошибкой и не
 смешивает histories.
 
 Reader принимает только basename из 10 ASCII-цифр с обязательным
-`session.json` schema v4 и journal schema v13. UUID-basename directories,
+`session.json` schema v4 и journal schema v14. UUID-basename directories,
 прежние session/journal schemas и неизвестные wire/storage формы
 отвергаются явно: pre-release cutover не содержит legacy decoder или dual-read.
 Старые локальные dogfood sessions следует вручную переместить целиком за
@@ -820,7 +820,7 @@ compactions должна завершаться сохранённым conversat
 resume используют сокращённое представление. Runtime атомарно заменяет историю
 этим snapshot-ом и затем дописывает `new_messages`.
 
-`workflow/v13` также позволяет вернуть `WorkflowFailure` с накопленным history
+`workflow/v14` также позволяет вернуть `WorkflowFailure` с накопленным history
 update. Core проверяет и сохраняет его до settlement со статусом `Error`.
 `coding.codex_loop` использует этот путь: если tool завершился, а следующий
 model call упал, новый turn получает прежний call/result и после перезапуска
@@ -1178,23 +1178,48 @@ state: interrupt/cancel, approval queue с подсказочным preview,
 tools/model/doctor/events и export views. Эти команды должны оставаться
 клиентским слоем поверх runtime/app-server boundary, а не переносить business
 logic в visual layer.
-Режимы `plan`, `normal` и `auto` должны работать как control-plane команды:
-enforcement остаётся в core `ModeAwarePolicy`, а UI отправляет app-server
-request с новым permission override. В plan mode UI может дополнительно
-оборачивать следующий user request как read-only planning prompt. Prompt
-следует interview-first модели: для широких или недоопределённых задач модель
-должна сначала запросить существенные решения через typed question tool, а
-финальный staged plan писать только после ответов или явного skip.
-Web-клиент реализует минимальные plan controls так: русская кнопка
-`Спросить план` в composer отправляет planning prompt в `PermissionMode::Plan`,
-а `Уточнить`, `Выполнить` и `Выйти` показываются отдельной карточкой в
-transcript после ответа плана. `Уточнить` уточняет последний план, `Выполнить`
-переключает следующую команду в `PermissionMode::Normal`, а `Выйти` возвращает
-обычный режим без запуска turn.
-`Ask Plan` трактует composer text как topic для общего planning interview:
-модель должна сама вызвать `request_user_input`/`AskUserQuestion` с 1-3
-существенными вопросами и вариантами выбора, а UI показывает choices и
-свободный `Other`.
+Режимы прав `plan`, `normal` и `auto` исполняются Core `ModeAwarePolicy`.
+`/mode` меняет default сессии для следующих запусков. Отдельный запуск можно
+отправить через `/send`, `/send-async` или stdio `send` вместе с `options`:
+
+```json
+{"type":"send","id":"plan-1","text":"Спланируй изменение","options":{"intent":"planning.start","permission_mode":"plan"}}
+```
+
+Для HTTP `/send` и `/send-async` вместо `type` передаётся `session_dir`.
+`options` без параметров означает обычное сообщение. `permission_mode` — override
+только этого запуска; он не записывается в default сессии. Admission фиксирует
+весь эффективный runtime snapshot до фонового старта: registry, model, reasoning
+и права. Follow-up из очереди в рамках того же запуска наследует этот snapshot
+и намерение, хотя получает собственные TurnId/ExecutionId. Обычное сообщение
+может стать steering; непустые параметры запуска при занятой сессии явно
+отклоняются, чтобы не потерять их при доставке как текста.
+
+`intent` — непрозрачное для Core имя действия выбранного workflow. Core не
+составляет инструкции планирования и не выбирает алгоритм по этому имени.
+`coding.single_loop` и `coding.codex_loop` обрабатывают:
+
+| Intent | Права запуска | Поведение coding-workflow |
+|---|---|---|
+| `planning.start` | `plan` | Интервью по исходному тексту, чтение контекста и поэтапный план |
+| `planning.revise` | `plan` | Исходный текст используется как замечание к последнему плану |
+| `planning.execute` | `normal` или `auto` | Выполнение согласованного плана; при неактуальном или недостаточном плане — объяснение проблемы |
+
+Инструкции принадлежат coding-workflow и добавляются как developer instructions;
+каноническое user message сохраняет исходный текст. Это явные действия приложения,
+а не заявление о совпадении planning UX с upstream Codex. Вызов без intent
+сохраняет обычный алгоритм выбранного loop. Неверное имя или несовместимые права
+дают ошибку до context/model/tools. `coding.project_check`,
+`coding.plan_execute_review` и Python example не поддерживают эти действия и
+явно их отклоняют; другой workflow может реализовать собственные намерения.
+
+Web отправляет каждое действие одним запросом, без предварительного `/mode`.
+`Уточнить`, `Выполнить` и `Выйти` показываются после подтверждённого успешного
+planning-запуска. Live `AppRun.options` содержит намерение и эффективные права;
+snapshot восстанавливает карточку после переподключения независимо от default
+режима сессии. `Выйти` скрывает карточку в данном окне и возвращает обычный
+режим без запуска turn. Journal `TurnOpened.intent` вместе с эффективным
+config snapshot позволяет workflow replay восстановить те же входы.
 Если модель вызывает tool `request_user_input` или alias `AskUserQuestion`,
 app-server публикует `AppServerEvent::UserInputRequested`, UI показывает
 пошаговую карточку в transcript с question tabs для

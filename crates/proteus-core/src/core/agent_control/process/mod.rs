@@ -265,6 +265,7 @@ impl RunnerInner {
         leased
             .child
             .send(&StdioRequest::Send {
+                options: Default::default(),
                 id: Some(send_id.clone()),
                 text,
             })

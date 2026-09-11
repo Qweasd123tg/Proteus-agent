@@ -30,6 +30,7 @@ pub(super) async fn terminal_journal(
         .append_execution_journal_entry(
             attribution,
             JournalEntry::TurnOpened(TurnOpened {
+                intent: None,
                 task,
                 base_history_revision: 0,
                 module_epoch: 4,

@@ -196,7 +196,12 @@ impl AppActions {
         });
     }
 
-    pub(crate) fn send_prompt(self, text: String, forced_mode: Option<PermissionMode>) {
+    pub(crate) fn send_prompt(
+        self,
+        text: String,
+        intent: Option<&'static str>,
+        forced_mode: Option<PermissionMode>,
+    ) {
         let text = text.trim().to_owned();
         if text.is_empty() || self.is_sending.get() {
             return;
@@ -216,57 +221,21 @@ impl AppActions {
             self.set_next_message_id,
             text.clone(),
         );
-        let mode_request_id = forced_mode
-            .map(|_| take_request_id(self.next_request_id, self.set_next_request_id, "mode"));
         let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "send");
         let run_id = request_id.clone();
         self.set_active_run_id.set(Some(run_id.clone()));
 
+        let permission_mode = forced_mode.unwrap_or(self.mode.get_untracked());
         spawn_local(async move {
-            if let Some(new_mode) = forced_mode {
-                match post_json(
-                    "/mode",
-                    &SetPermissionModeRequest {
-                        id: mode_request_id,
-                        mode: new_mode,
-                        session_dir: session_dir.clone(),
-                    },
-                )
-                .await
-                {
-                    Ok(output) => {
-                        if !self.is_active_run(&run_id) {
-                            return;
-                        }
-                        let ok = command_succeeded(&output);
-                        handle_command_response(
-                            output,
-                            self.set_messages,
-                            self.next_message_id,
-                            self.set_next_message_id,
-                            self.set_transport_status,
-                        );
-                        if !ok {
-                            self.finish_run();
-                            return;
-                        }
-                    }
-                    Err(error) => {
-                        if !self.is_active_run(&run_id) {
-                            return;
-                        }
-                        self.finish_run();
-                        self.push_error("Mode update failed", error);
-                        return;
-                    }
-                }
-            }
-
             match post_json(
                 "/send-async",
                 &SendRequest {
                     id: Some(request_id),
                     text,
+                    options: proteus_client_common::run_options::RunOptions {
+                        intent: intent.map(str::to_owned),
+                        permission_mode: Some(permission_mode.label().to_owned()),
+                    },
                     session_dir,
                 },
             )
@@ -457,23 +426,12 @@ pub(crate) fn send_prompt_for_mode(actions: AppActions, mode: PermissionMode, te
     if mode == PermissionMode::Plan {
         send_planning_request(actions, text);
     } else {
-        actions.send_prompt(text, None);
+        actions.send_prompt(text, None, None);
     }
 }
 
 pub(crate) fn send_planning_request(actions: AppActions, text: String) {
-    let prompt = planning_prompt(&text);
-    actions.send_prompt(prompt, Some(PermissionMode::Plan));
-}
-
-pub(crate) fn revise_plan_prompt(feedback: &str) -> String {
-    format!(
-        "Revise the latest plan using this feedback:\n\n{feedback}\n\nStay in read-only planning mode and return the updated staged plan."
-    )
-}
-
-pub(crate) fn execute_plan_prompt() -> String {
-    "Execute the latest approved plan from this transcript. If the plan is stale, unsafe, or underspecified, stop and explain what needs to change before execution.".to_owned()
+    actions.send_prompt(text, Some("planning.start"), Some(PermissionMode::Plan));
 }
 
 /// Суффикс поколения загрузки страницы. Id send-запросов служат transport
@@ -508,10 +466,4 @@ pub(crate) fn take_request_id(
 
 fn command_succeeded(output: &StdioOutput) -> bool {
     matches!(output, StdioOutput::Response { ok: true, .. })
-}
-
-fn planning_prompt(topic: &str) -> String {
-    format!(
-        "Plan mode topic:\n\n{topic}\n\nRun a planning interview before implementation. Stay read-only. First inspect only if useful, then ask the user 1-3 concise typed questions with 2-4 concrete options via request_user_input/AskUserQuestion whenever product, scope, UX, architecture, risk, or priority choices are missing. Put the recommended option first. Do not include an Other option because the client adds free-form Other automatically. Do not write files. After the user answers, return a staged implementation plan with assumptions, target files, verification, and unresolved risks."
-    )
 }

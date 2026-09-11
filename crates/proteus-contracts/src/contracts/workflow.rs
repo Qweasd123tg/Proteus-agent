@@ -21,7 +21,7 @@ use crate::{
     model_standard::{CanonicalMessage, CanonicalModelRequest, InstructionBlock},
 };
 
-pub const PROCESS_WORKFLOW_CONTRACT_VERSION: &str = "v13";
+pub const PROCESS_WORKFLOW_CONTRACT_VERSION: &str = "v14";
 pub const PROCESS_WORKFLOW_METHOD: &str = "run";
 
 pub const WORKFLOW_HOST_RUNTIME_STATUS_METHOD: &str = "host.runtime.status";
@@ -34,7 +34,7 @@ pub const WORKFLOW_HOST_EXECUTE_TOOL_METHOD: &str = "host.tools.execute";
 pub const WORKFLOW_HOST_EXECUTE_TOOLS_METHOD: &str = "host.tools.execute_batch";
 pub const WORKFLOW_HOST_EMIT_EVENT_METHOD: &str = "host.events.emit";
 
-/// Strict invocation payload for process Workflow contract v13.
+/// Strict invocation payload for process Workflow contract v14.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessWorkflowInput {
@@ -44,7 +44,7 @@ pub struct ProcessWorkflowInput {
     pub runtime: ProcessWorkflowRuntimeInfo,
 }
 
-/// Provider-neutral invocation context visible to every Workflow v13 module.
+/// Provider-neutral invocation context visible to every Workflow v14 module.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessWorkflowRuntimeInfo {
@@ -53,6 +53,9 @@ pub struct ProcessWorkflowRuntimeInfo {
     pub turn_id: TurnId,
     pub model_ref: ModelRef,
     pub instructions: Vec<InstructionBlock>,
+    /// Opaque action name interpreted by the selected workflow.
+    pub intent: Option<String>,
+    pub permission_mode: crate::domain::PermissionMode,
     pub reasoning: ReasoningConfig,
     pub max_input_tokens: Option<u32>,
     pub model_timeout_ms: u64,
@@ -61,7 +64,7 @@ pub struct ProcessWorkflowRuntimeInfo {
     pub workflow_timeout_ms: u64,
 }
 
-/// Strict terminal result envelope for process Workflow contract v13.
+/// Strict terminal result envelope for process Workflow contract v14.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProcessWorkflowResponse {
@@ -155,6 +158,9 @@ pub struct AgentWorkflowContext {
     pub turn_id: TurnId,
     pub model_ref: ModelRef,
     pub instructions: Vec<InstructionBlock>,
+    /// Opaque action name interpreted by the selected workflow.
+    pub intent: Option<String>,
+    pub permission_mode: crate::domain::PermissionMode,
     pub reasoning: ReasoningConfig,
     pub context_timeout_ms: u64,
     pub events: Arc<EventEmitter>,
@@ -199,6 +205,8 @@ impl AgentWorkflowContext {
             turn_id,
             model_ref,
             instructions: Vec::new(),
+            intent: None,
+            permission_mode: crate::domain::PermissionMode::Normal,
             reasoning,
             context_timeout_ms,
             events,
@@ -322,6 +330,8 @@ mod process_contract_tests {
             task: AgentTask::new("hello", PathBuf::from(".")),
             history: vec![CanonicalMessage::text(MessageRole::User, "hello")],
             runtime: ProcessWorkflowRuntimeInfo {
+                intent: None,
+                permission_mode: crate::domain::PermissionMode::Normal,
                 session_id: new_session_id(),
                 thread_id: new_thread_id(),
                 turn_id: new_turn_id(),

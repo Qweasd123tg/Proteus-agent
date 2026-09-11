@@ -9,11 +9,34 @@ async fn delete_waits_for_settlement_and_closes_admission_on_existing_handles() 
         &state,
         Some("delete-run".into()),
         "apply_patch".into(),
+        Default::default(),
         server.session_dir_path().unwrap(),
     )
     .await;
     assert!(matches!(output, StdioOutput::Response { ok: true, .. }));
     wait_for_approval_request(&mut events).await;
+    let before_mode = server.permission_mode().await;
+    let rejected = execute_send_async(
+        &state,
+        Some("queued-options".into()),
+        "planning must not become steering".into(),
+        crate::domain::RunOptions {
+            intent: Some("planning.start".into()),
+            permission_mode: Some(PermissionMode::Plan),
+        },
+        server.session_dir_path().unwrap(),
+    )
+    .await;
+    assert!(matches!(rejected, StdioOutput::Response { ok: false, .. }));
+    assert!(
+        server
+            .pending_requests()
+            .await
+            .queued_user_messages
+            .is_empty()
+    );
+    assert_eq!(server.permission_mode().await, before_mode);
+
     server
         .clear_history()
         .await
@@ -54,6 +77,7 @@ async fn delete_waits_for_settlement_and_closes_admission_on_existing_handles() 
             .dispatch_user_message(
                 Some("late".into()),
                 "must not run".into(),
+                Default::default(),
                 CancellationToken::new()
             )
             .await

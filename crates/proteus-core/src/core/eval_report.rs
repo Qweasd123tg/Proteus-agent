@@ -296,6 +296,7 @@ mod tests {
             .append_execution_journal_entry(
                 attribution,
                 JournalEntry::TurnOpened(TurnOpened {
+                    intent: None,
                     task: AgentTask::new("edit", workspace.path().to_path_buf()),
                     base_history_revision: 0,
                     module_epoch: 0,
@@ -418,6 +419,7 @@ mod tests {
             .append_execution_journal_entry(
                 attribution,
                 JournalEntry::TurnOpened(TurnOpened {
+                    intent: None,
                     task: AgentTask::new("crash", workspace.path().to_path_buf()),
                     base_history_revision: 0,
                     module_epoch: 0,

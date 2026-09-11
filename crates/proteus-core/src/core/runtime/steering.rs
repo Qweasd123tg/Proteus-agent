@@ -71,6 +71,17 @@ pub(crate) struct ReservedUserMessage {
     pub(crate) message: CanonicalMessage,
     pub(crate) text: String,
     pub(crate) delivery: Option<SteeringDeliveryKind>,
+    pub(crate) intent: Option<String>,
+    pub(super) snapshot: Option<super::ExecutionAdmissionSnapshot>,
+}
+
+impl ReservedUserMessage {
+    pub(crate) fn options(&self) -> crate::domain::RunOptions {
+        crate::domain::RunOptions {
+            intent: self.intent.clone(),
+            permission_mode: self.snapshot.as_ref().map(|s| s.permission_mode),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -120,7 +131,17 @@ impl Default for SessionSteering {
 }
 
 impl SessionSteering {
+    #[cfg(test)]
     pub(crate) async fn reserve(&self, text: String) -> Result<UserMessageReservation> {
+        self.reserve_with_options(text, crate::domain::RunOptions::default())
+            .await
+    }
+
+    pub(crate) async fn reserve_with_options(
+        &self,
+        text: String,
+        options: crate::domain::RunOptions,
+    ) -> Result<UserMessageReservation> {
         validate_message(&text)?;
         let message = CanonicalMessage::text(MessageRole::User, text.clone());
         let _finalization_guard = self.finalization_gate.lock().await;
@@ -133,9 +154,15 @@ impl SessionSteering {
                 message,
                 text,
                 delivery: None,
+                intent: options.intent,
+                snapshot: None,
             }));
         };
 
+        ensure!(
+            options == crate::domain::RunOptions::default(),
+            "execution options require an idle session; they cannot be queued as steering"
+        );
         ensure!(
             state.queued.len() < MAX_QUEUED_MESSAGES,
             "root steering queue is full (max {MAX_QUEUED_MESSAGES} messages)"
@@ -208,6 +235,8 @@ impl SessionSteering {
             message: queued.message,
             text: queued.text,
             delivery: Some(SteeringDeliveryKind::FollowUp),
+            intent: None,
+            snapshot: None,
         }))
     }
 

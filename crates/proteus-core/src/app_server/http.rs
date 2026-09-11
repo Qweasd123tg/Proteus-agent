@@ -181,9 +181,15 @@ where
                 let id = command.id;
                 let output = command_response(
                     id.clone(),
-                    execute_send(&state, id, command.text, command.session_dir)
-                        .await
-                        .map(Some),
+                    execute_send(
+                        &state,
+                        id,
+                        command.text,
+                        command.options,
+                        command.session_dir,
+                    )
+                    .await
+                    .map(Some),
                 );
                 json_response(StatusCode::OK, &output)
             }
@@ -191,8 +197,14 @@ where
         },
         (Method::POST, "/send-async") => match read_json::<SendRequest, _>(request).await {
             Ok(command) => {
-                let output =
-                    execute_send_async(&state, command.id, command.text, command.session_dir).await;
+                let output = execute_send_async(
+                    &state,
+                    command.id,
+                    command.text,
+                    command.options,
+                    command.session_dir,
+                )
+                .await;
                 json_response(StatusCode::OK, &output)
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),

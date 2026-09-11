@@ -95,9 +95,9 @@ pub async fn run_stdio_app_server(
         let id = request.id();
 
         match request {
-            StdioRequest::Send { id, text } => {
+            StdioRequest::Send { id, text, options } => {
                 match server
-                    .dispatch_user_message(id.clone(), text, CancellationToken::new())
+                    .dispatch_user_message(id.clone(), text, options, CancellationToken::new())
                     .await
                 {
                     Ok(SendDispatch::Queued(receipt)) => {

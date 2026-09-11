@@ -16,6 +16,8 @@ pub mod model;
 pub mod module_manifest;
 pub mod output;
 pub mod patch;
+pub mod run_options;
+pub use run_options::RunOptions;
 pub mod task;
 pub mod tool;
 pub mod usage;

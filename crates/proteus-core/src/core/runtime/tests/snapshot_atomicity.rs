@@ -97,6 +97,8 @@ impl Model for LabeledModel {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ExecutionObservation {
+    intent: Option<String>,
+    permission_mode: PermissionMode,
     provider_id: String,
     provider_response: String,
     model_ref: ModelRef,
@@ -139,6 +141,8 @@ impl Workflow for AtomicityProbeWorkflow {
             &PolicyContext::new(task.cwd.clone(), Some(write_spec)),
         );
         self.observations.lock().await.push(ExecutionObservation {
+            intent: ctx.intent.clone(),
+            permission_mode: ctx.permission_mode,
             provider_id,
             provider_response: message_text_for_test(&response.messages[0]),
             model_ref,
@@ -185,8 +189,30 @@ async fn admitted_turn_freezes_registry_and_effective_settings_until_settlement(
         .unwrap();
     runtime.set_permission_mode(PermissionMode::Normal).await;
 
+    let reserved = match runtime
+        .reserve_user_message_with_options(
+            "first".to_owned(),
+            crate::domain::RunOptions {
+                intent: Some("custom.inspect".to_owned()),
+                permission_mode: Some(PermissionMode::Normal),
+            },
+        )
+        .await
+        .unwrap()
+    {
+        UserMessageReservation::Start(reserved) => reserved,
+        _ => panic!("idle session"),
+    };
+    runtime.set_permission_mode(PermissionMode::Auto).await;
+    runtime
+        .set_model_ref(ModelRef::new("provider-a", "changed-before-spawn"))
+        .await;
     let running_runtime = runtime.clone();
-    let first = tokio::spawn(async move { running_runtime.run("first".to_owned()).await });
+    let first = tokio::spawn(async move {
+        running_runtime
+            .run_reserved_with_cancellation(reserved, crate::contracts::CancellationToken::new())
+            .await
+    });
     gate.entered
         .acquire()
         .await
@@ -247,6 +273,10 @@ async fn admitted_turn_freezes_registry_and_effective_settings_until_settlement(
 
     let observations = observations.lock().await.clone();
     assert_eq!(observations.len(), 2);
+    assert_eq!(observations[0].intent.as_deref(), Some("custom.inspect"));
+    assert_eq!(observations[0].permission_mode, PermissionMode::Normal);
+    assert_eq!(observations[1].intent, None);
+    assert_eq!(observations[1].permission_mode, PermissionMode::Plan);
     assert_eq!(observations[0].provider_id, "provider-a");
     assert_eq!(observations[0].provider_response, "provider-a");
     assert_eq!(observations[0].model_ref, model_a);
@@ -281,6 +311,8 @@ async fn admitted_turn_freezes_registry_and_effective_settings_until_settlement(
         })
         .collect::<Vec<_>>();
     assert_eq!(opened.len(), 2);
+    assert_eq!(opened[0].intent, observations[0].intent);
+    assert_eq!(opened[1].intent, None);
     assert_eq!(opened[0].module_epoch, 0);
     assert_eq!(opened[1].module_epoch, 1);
     let recorded_a: SessionConfigSnapshot =

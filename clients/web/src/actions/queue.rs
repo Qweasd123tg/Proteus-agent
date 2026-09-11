@@ -79,6 +79,7 @@ impl AppActions {
                 &SendRequest {
                     id: Some(request_id.clone()),
                     text,
+                    options: Default::default(),
                     session_dir: session_dir.clone(),
                 },
             )

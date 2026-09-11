@@ -14,6 +14,7 @@ pub(super) fn AppShell(
     let super::state::ChatState {
         is_sending,
         active_run_id,
+        plan_run_id,
         agent_status,
         tool_activities,
         pending_approvals,
@@ -170,7 +171,7 @@ pub(super) fn AppShell(
                                 pending_approvals
                                 pending_user_inputs
                                 queued_prompts
-                                mode
+                                plan_run_id
                                 is_sending
                                 agent_status
                                 on_resolve_approval=move |id, approved, cache| commands.resolve_approval.run((id, approved, cache))

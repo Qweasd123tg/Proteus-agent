@@ -24,6 +24,7 @@ pub(crate) fn run_codex_loop(
     host: &mut WorkflowModuleHostMut<'_>,
     module_id: &str,
 ) -> Result<WorkflowModuleOutput, WorkflowFailure> {
+    super::intents::instructions(&input).map_err(WorkflowFailure::from)?;
     let stream_retry = StreamRetryConfig::from_config(&input.config)?;
     let mut turn = TurnScaffold::begin(host, &input).map_err(WorkflowFailure::from)?;
     super::codex_recovery::normalize_missing_tool_outputs(&mut turn.model_messages);

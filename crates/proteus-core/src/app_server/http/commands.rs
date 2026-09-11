@@ -36,10 +36,11 @@ async fn execute_session_request(
 ) -> StdioOutput {
     let id = request.id();
     let result = match request {
-        StdioRequest::Send { id, text } => execute_send(
+        StdioRequest::Send { id, text, options } => execute_send(
             state,
             id,
             text,
+            options,
             server.session_dir_path().expect("addressed session"),
         )
         .await
@@ -139,11 +140,12 @@ pub(super) async fn execute_send(
     state: &HttpAppState,
     id: Option<String>,
     text: String,
+    options: crate::domain::RunOptions,
     session_dir: PathBuf,
 ) -> Result<Value> {
     let cancellation = CancellationToken::new();
     let server = server_for_session(state, session_dir).await?;
-    match spawn_send_run(state, server, id, text, cancellation).await? {
+    match spawn_send_run(state, server, id, text, options, cancellation).await? {
         SendDispatch::Started(receiver) => {
             let output = receiver
                 .await
@@ -159,10 +161,11 @@ pub(super) async fn spawn_send_run(
     server: AppServerHandle,
     run_id: Option<String>,
     text: String,
+    options: crate::domain::RunOptions,
     cancellation: CancellationToken,
 ) -> Result<SendDispatch> {
     let result = server
-        .dispatch_user_message(run_id, text, cancellation)
+        .dispatch_user_message(run_id, text, options, cancellation)
         .await;
     state.emit_session_activity_for_server(&server).await;
     result
@@ -172,6 +175,7 @@ pub(super) async fn execute_send_async(
     state: &HttpAppState,
     id: Option<String>,
     text: String,
+    options: crate::domain::RunOptions,
     session_dir: PathBuf,
 ) -> StdioOutput {
     let run_id = id.unwrap_or_else(new_request_id);
@@ -180,7 +184,16 @@ pub(super) async fn execute_send_async(
         Ok(server) => server,
         Err(error) => return command_response(Some(run_id), Err(error)),
     };
-    match spawn_send_run(state, server, Some(run_id.clone()), text, cancellation).await {
+    match spawn_send_run(
+        state,
+        server,
+        Some(run_id.clone()),
+        text,
+        options,
+        cancellation,
+    )
+    .await
+    {
         Ok(SendDispatch::Started(_)) => command_response(
             Some(run_id.clone()),
             Ok(Some(json!({

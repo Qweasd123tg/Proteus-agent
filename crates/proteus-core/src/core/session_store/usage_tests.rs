@@ -32,6 +32,7 @@ async fn usage_tracks_exchanges_and_matches_read_only_cold_journal() {
         .append_execution_journal_entry(
             attribution,
             JournalEntry::TurnOpened(TurnOpened {
+                intent: None,
                 task: AgentTask::new("usage", workspace.path().into()),
                 base_history_revision: 0,
                 module_epoch: 0,

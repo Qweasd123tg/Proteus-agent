@@ -60,6 +60,7 @@ pub(crate) fn run_project_check(
     input: WorkflowModuleInput,
     host: &mut WorkflowModuleHostMut<'_>,
 ) -> Result<WorkflowModuleOutput, ProcessModuleError> {
+    super::intents::reject(&input)?;
     emit_event(
         host,
         &Event::TaskReceived {

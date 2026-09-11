@@ -6,6 +6,7 @@ mod codex_loop;
 mod codex_stream_recovery;
 mod codex_tool_dispatch;
 mod dynamic_tool_surface;
+mod intents;
 mod output_helpers;
 mod plan_execute_review;
 mod project_check_workflow;
@@ -275,6 +276,8 @@ fn workflow_input(text: &str) -> WorkflowModuleInput {
         history,
         config: json!({}),
         runtime: WorkflowModuleRuntimeInfo {
+            intent: None,
+            permission_mode: proteus_contracts::domain::PermissionMode::Normal,
             session_id: new_session_id(),
             thread_id: new_thread_id(),
             turn_id: new_turn_id(),

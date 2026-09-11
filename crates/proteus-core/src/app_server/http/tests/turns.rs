@@ -76,6 +76,7 @@ async fn route_send_async_queues_second_message_for_same_session() {
         server.clone(),
         Some("run-existing".to_owned()),
         "apply_patch".to_owned(),
+        Default::default(),
         existing_cancellation.clone(),
     )
     .await
@@ -191,6 +192,7 @@ async fn send_run_cleanup_survives_dropped_waiter() {
         server.clone(),
         Some(run_id.clone()),
         "apply_patch".to_owned(),
+        Default::default(),
         CancellationToken::new(),
     )
     .await

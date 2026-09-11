@@ -60,9 +60,10 @@ impl AppServerHandle {
         &self,
         run_id: Option<String>,
         text: String,
+        options: crate::domain::RunOptions,
         cancellation: CancellationToken,
     ) -> Result<SendDispatch> {
-        self.admit_user_message(run_id, text, cancellation, true)
+        self.admit_user_message(run_id, text, options, cancellation, true)
             .await
     }
 
@@ -70,6 +71,7 @@ impl AppServerHandle {
         &self,
         run_id: Option<String>,
         text: String,
+        options: crate::domain::RunOptions,
         cancellation: CancellationToken,
         allow_queue: bool,
     ) -> Result<SendDispatch> {
@@ -88,14 +90,16 @@ impl AppServerHandle {
         {
             return Err(anyhow!("run id is already active: {run_id}"));
         }
-        let reserved = match self.reserve_user_message(text).await? {
+        let reserved = match self.reserve_user_message(text, options).await? {
             UserMessageReservation::Queued(receipt) => return Ok(SendDispatch::Queued(receipt)),
             UserMessageReservation::Start(reserved) => reserved,
         };
+        let options = reserved.options();
         let (settled_tx, settled) = watch::channel(false);
         runs.active = Some(RunningRun {
             info: AppRun {
                 run_id: run_id.clone(),
+                options: options.clone(),
                 status: AppRunStatus::Running,
                 error: None,
             },
@@ -134,6 +138,7 @@ impl AppServerHandle {
             runs.active = None;
             runs.last = Some(AppRun {
                 run_id,
+                options,
                 status,
                 error,
             });
@@ -196,6 +201,7 @@ impl AppServerHandle {
         runs.active = Some(RunningRun {
             info: AppRun {
                 run_id: id.to_owned(),
+                options: Default::default(),
                 status: AppRunStatus::Running,
                 error: None,
             },

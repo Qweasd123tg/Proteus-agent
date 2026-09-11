@@ -122,6 +122,7 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventConnection
                     bindings.active_session_dir,
                     bindings.set_is_sending,
                     bindings.set_active_run_id,
+                    bindings.set_plan_run_id,
                     bindings.active_stream_message_id,
                     bindings.set_active_stream_message_id,
                     bindings.streamed_this_turn,

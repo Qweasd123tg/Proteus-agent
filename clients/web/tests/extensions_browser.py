@@ -10,6 +10,7 @@ from layout_checks import run as check_layout
 from session_checks import run as check_session, BOOTSTRAP
 from queue_checks import run as check_queue
 from live_checks import run as check_live
+from planning_checks import run as check_planning
 from usage_checks import run as check_usage
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -69,7 +70,7 @@ class Assets(SimpleHTTPRequestHandler):
         if self.path != '/responses':
             self.send_error(404); return
         assert self.headers.get('Authorization') == 'Bearer fixture-access'
-        self.rfile.read(int(self.headers.get('Content-Length', 0)))
+        self.server.model_inputs.append(json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0)))))
         count = getattr(self.server, 'model_requests', 0)
         self.server.model_requests = count + 1
         if not self.server.model_gate.wait(timeout=60):
@@ -167,6 +168,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='proteus-ui-extensions-') as temporary:
         folder = Path(temporary)
         server = ThreadingHTTPServer(('127.0.0.1', 0), partial(Assets, directory=str(ROOT / 'clients/web/dist')))
+        server.model_inputs = []
         server.model_gate = threading.Event()
         server.model_gate.set()
         server.stream_gate = threading.Event()
@@ -246,6 +248,7 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                 check_session(command, js, wait_for, web, origin, loaded)
                 check_queue(command, js, wait_for, server)
                 check_live(command, js, wait_for, server)
+                check_planning(command, js, wait_for, server, request, origin, ROOT, config, folder, env, stop)
                 stop(backend)
                 js("document.querySelector('[data-extension-id=model-quota] .extension-panel-content').shadowRoot.querySelector('button').click()")
                 wait_for(lambda: js("const root=document.querySelector('[data-extension-id=model-quota] .extension-panel-content').shadowRoot; return root.textContent.includes('Не удалось получить лимиты') && root.querySelectorAll('progress').length === 0"), 'Quota error retained old balances')

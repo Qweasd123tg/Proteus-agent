@@ -260,6 +260,7 @@ mod tests {
             .append_execution_journal_entry(
                 ExecutionAttribution::for_turn(execution_id, session_id, root_thread_id, turn_id),
                 JournalEntry::TurnOpened(crate::core::TurnOpened {
+                    intent: None,
                     task: AgentTask::new("record tools", workspace.path().to_path_buf()),
                     base_history_revision: 0,
                     module_epoch: 0,

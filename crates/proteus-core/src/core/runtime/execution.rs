@@ -70,16 +70,24 @@ impl AgentRuntime {
     }
 
     pub(super) async fn capture_execution_snapshot(&self) -> ExecutionAdmissionSnapshot {
+        self.capture_run_snapshot(None).await
+    }
+
+    pub(super) async fn capture_run_snapshot(
+        &self,
+        permission_mode: Option<PermissionMode>,
+    ) -> ExecutionAdmissionSnapshot {
         let state = self.services.execution_state.read().await;
+        let permission_mode = permission_mode.unwrap_or(state.permission_mode);
         let mut config_snapshot = state.runtime.config_snapshot.clone();
         if let Some(config) = &mut config_snapshot {
             config.model = state.model_ref.clone();
             config.reasoning = state.reasoning.clone();
-            config.permission_mode_default = state.permission_mode;
+            config.permission_mode_default = permission_mode;
         }
         ExecutionAdmissionSnapshot {
             runtime: state.runtime.clone(),
-            permission_mode: state.permission_mode,
+            permission_mode,
             model_ref: state.model_ref.clone(),
             reasoning: state.reasoning.clone(),
             config_snapshot,
@@ -111,5 +119,15 @@ impl AgentRuntime {
             admission.snapshot.runtime.registry.memory.clone(),
             admission.scope.clone(),
         )
+    }
+}
+
+impl std::fmt::Debug for ExecutionAdmissionSnapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExecutionAdmissionSnapshot")
+            .field("epoch", &self.runtime.epoch.as_u64())
+            .field("permission_mode", &self.permission_mode)
+            .field("model_ref", &self.model_ref)
+            .finish_non_exhaustive()
     }
 }

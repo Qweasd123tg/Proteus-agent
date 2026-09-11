@@ -47,7 +47,7 @@ lifecycle projection. `doctor --all-sessions` явно проверяет все
 Выбранная область печатается в findings; повреждённая или устаревшая сессия
 внутри неё остаётся ошибкой. Актуальный
 write/read-format использует 10-значное имя каталога, полный UUID в
-`session.json` schema v4 и `journal_schema_version = 13`. UUID-basename/schema
+`session.json` schema v4 и `journal_schema_version = 14`. UUID-basename/schema
 v3 sessions намеренно не читаются; нужные старые dogfood каталоги архивируются
 вручную вне active `sessions/`.
 

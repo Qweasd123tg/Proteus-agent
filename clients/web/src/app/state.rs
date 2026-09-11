@@ -39,6 +39,8 @@ pub(super) struct ChatState {
     pub is_sending: ReadSignal<bool>,
     pub set_is_sending: WriteSignal<bool>,
     pub active_run_id: ReadSignal<Option<String>>,
+    pub plan_run_id: ReadSignal<Option<String>>,
+    pub set_plan_run_id: WriteSignal<Option<String>>,
     pub set_active_run_id: WriteSignal<Option<String>>,
     pub active_stream_message_id: ReadSignal<Option<u64>>,
     pub set_active_stream_message_id: WriteSignal<Option<u64>>,
@@ -63,6 +65,7 @@ impl ChatState {
         let (messages, set_messages) = crate::transcript::transcript(Vec::new());
         let (next_message_id, set_next_message_id) = signal(1_u64);
         let (is_sending, set_is_sending) = signal(false);
+        let (plan_run_id, set_plan_run_id) = signal(None);
         let (active_run_id, set_active_run_id) = signal(None);
         let (active_stream_message_id, set_active_stream_message_id) = signal(None);
         let (streamed_this_turn, set_streamed_this_turn) = signal(false);
@@ -78,6 +81,8 @@ impl ChatState {
             is_sending,
             set_is_sending,
             active_run_id,
+            plan_run_id,
+            set_plan_run_id,
             set_active_run_id,
             active_stream_message_id,
             set_active_stream_message_id,

@@ -341,6 +341,7 @@ async fn concurrent_bound_models_keep_metadata_events_and_journal_attribution_is
             .append_execution_journal_entry(
                 ExecutionAttribution::for_turn(execution_id, session_id, thread_id, turn_id),
                 JournalEntry::TurnOpened(TurnOpened {
+                    intent: None,
                     task: AgentTask::new(case, workspace.path().to_path_buf()),
                     base_history_revision: 0,
                     module_epoch: 0,

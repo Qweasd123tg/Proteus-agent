@@ -122,6 +122,7 @@ impl TestJournal {
             .append_execution_journal_entry(
                 attribution,
                 JournalEntry::TurnOpened(TurnOpened {
+                    intent: None,
                     task: task.clone(),
                     base_history_revision: 0,
                     module_epoch: 3,
@@ -285,6 +286,7 @@ impl TestJournal {
             .append_execution_journal_entry(
                 attribution,
                 JournalEntry::TurnOpened(TurnOpened {
+                    intent: None,
                     task,
                     base_history_revision: revision,
                     module_epoch: 3,

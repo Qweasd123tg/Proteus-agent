@@ -146,6 +146,7 @@ async fn compacted_journal_with_metadata(metadata: serde_json::Value) -> TestJou
         .append_execution_journal_entry(
             ExecutionAttribution::for_turn(execution_id, session_id, thread_id, turn_id),
             JournalEntry::TurnOpened(TurnOpened {
+                intent: None,
                 task: task.clone(),
                 base_history_revision: 0,
                 module_epoch: 5,

@@ -37,6 +37,7 @@ impl PeerMessageDelivery {
             let request_id = new_call_id();
             child
                 .send(&StdioRequest::Send {
+                    options: Default::default(),
                     id: Some(request_id.clone()),
                     text: message.model_text(),
                 })
@@ -62,6 +63,7 @@ impl PeerMessageDelivery {
         let request_id = new_call_id();
         child
             .send(&StdioRequest::Send {
+                options: Default::default(),
                 id: Some(request_id.clone()),
                 text: first.model_text(),
             })

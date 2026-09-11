@@ -8,6 +8,7 @@ use super::{ApprovalCacheScope, PermissionMode};
 pub(crate) struct SendRequest {
     pub(crate) id: Option<String>,
     pub(crate) text: String,
+    pub(crate) options: proteus_client_common::run_options::RunOptions,
     pub(crate) session_dir: String,
 }
 

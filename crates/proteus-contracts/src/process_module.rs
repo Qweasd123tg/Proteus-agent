@@ -229,6 +229,9 @@ pub struct WorkflowModuleRuntimeInfo {
     pub model_ref: ModelRef,
     #[serde(default)]
     pub instructions: Vec<InstructionBlock>,
+    /// Opaque action name interpreted by the selected workflow.
+    pub intent: Option<String>,
+    pub permission_mode: crate::domain::PermissionMode,
     #[serde(default)]
     pub reasoning: ReasoningConfig,
     #[serde(default)]

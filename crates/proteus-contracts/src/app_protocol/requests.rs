@@ -1,17 +1,19 @@
 use crate::{
     contracts::{ApprovalCacheScope, UserInputResponse},
-    domain::{MessageId, PermissionMode},
+    domain::{MessageId, PermissionMode, RunOptions},
 };
 use serde::{Deserialize, Serialize};
 
 /// Команды от клиента к ядру через stdin.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 #[non_exhaustive]
 pub enum StdioRequest {
     Send {
         id: Option<String>,
         text: String,
+        #[serde(default)]
+        options: RunOptions,
     },
     EditQueuedMessage {
         id: Option<String>,

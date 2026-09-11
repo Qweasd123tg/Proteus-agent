@@ -16,8 +16,12 @@ impl Workflow for NoWorkflow {
         &self,
         _task: AgentTask,
         _history: Vec<CanonicalMessage>,
-        _ctx: AgentWorkflowContext,
+        ctx: AgentWorkflowContext,
     ) -> Result<WorkflowOutput> {
+        anyhow::ensure!(
+            ctx.intent.is_none(),
+            "no workflow is selected to handle the requested intent"
+        );
         let output = AgentOutput::text(
             "no workflow module is selected; set modules.workflow and add its process descriptor",
         );

@@ -11,6 +11,7 @@ pub struct ExecutionState {
 #[serde(deny_unknown_fields)]
 pub struct Run {
     pub run_id: String,
+    pub options: crate::run_options::RunOptions,
     pub status: RunStatus,
     pub error: Option<String>,
 }

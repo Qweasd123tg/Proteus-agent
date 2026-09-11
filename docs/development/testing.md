@@ -81,7 +81,7 @@ cargo test --workspace --no-fail-fast
 
 Breaking canonical response change одновременно обновляет все tracked
 producers/consumers и версии затронутых contracts/storage. Действующие версии:
-`workflow/v13`, `compactor/v9`, durable journal schema v13 и config snapshot v4. Изменение process DTO
+`workflow/v14`, `compactor/v9`, durable journal schema v14 и config snapshot v4. Изменение process DTO
 само по себе не требует новой journal schema, если сохранённая форма не меняется.
 Старые формы не получают compatibility readers.
 
@@ -135,6 +135,22 @@ completed shell call из оборванного SSE с approval/deny целев
 сначала классифицируется как required parity change, unsupported capability
 или намеренная documented divergence. Fake model call, metadata heuristic и
 Codex-only обход общей validation boundary не считаются evidence.
+
+### Намерения Запуска
+
+`coding-workflow::tests::intents` проверяет инструкции в обоих loops,
+неизменный пользовательский текст и отказ до context/model/tools для неверного
+намерения или режима прав. `snapshot_atomicity` меняет defaults после reservation,
+до фонового старта, затем меняет assembly во время turn: workflow и journal
+видят принятый snapshot. Steering regression сохраняет намерение и права для
+follow-up после изменения defaults, включая его replay. HTTP lifecycle regression отклоняет параметры запуска
+при занятой сессии без изменения defaults и очереди.
+
+`clients/web/tests/planning_checks.py` входит в общий Firefox fixture:
+одна отправка с options, восстановление plan controls, revise/execute,
+совпадение инструкций через web/HTTP/stdio и cold replay Success/Error без новых
+model requests. Process-граница проверяется полным `module_swap` и reference
+conformance вместе с workspace gate.
 
 ### Execution И Top-Level Operations
 
@@ -428,7 +444,7 @@ cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --co
 Workflow handshake:
 
 ```bash
-cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-agent --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v13","module_config":{}}' -- python3 examples/modules/agent-worker/agent.py
+cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-agent --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v14","module_config":{}}' -- python3 examples/modules/agent-worker/agent.py
 ```
 
 Conformance CLI без probe доказывает identity/authority, но не поведение slot.

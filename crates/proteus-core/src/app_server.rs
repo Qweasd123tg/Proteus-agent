@@ -120,7 +120,7 @@ impl AppServerHandle {
         cancellation: CancellationToken,
     ) -> Result<AgentOutput> {
         match self
-            .admit_user_message(None, text, cancellation, false)
+            .admit_user_message(None, text, Default::default(), cancellation, false)
             .await?
         {
             runs::SendDispatch::Started(rx) => {
@@ -133,8 +133,12 @@ impl AppServerHandle {
     pub(crate) async fn reserve_user_message(
         &self,
         text: String,
+        options: crate::domain::RunOptions,
     ) -> Result<UserMessageReservation> {
-        let reservation = self.runtime.reserve_user_message(text.clone()).await?;
+        let reservation = self
+            .runtime
+            .reserve_user_message_with_options(text.clone(), options)
+            .await?;
         if matches!(reservation, UserMessageReservation::Start(_)) {
             let _ = self
                 .events

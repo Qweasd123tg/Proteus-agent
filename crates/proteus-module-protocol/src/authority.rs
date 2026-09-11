@@ -284,7 +284,7 @@ mod tests {
             ("context_provider", "v1", "v2"),
             ("model", "v8", "v9"),
             ("compactor", "v8", "v9"),
-            ("workflow", "v12", "v13"),
+            ("workflow", "v13", "v14"),
             ("tool", "v2", "v3"),
             ("policy", "v1", "v2"),
             ("tool_exposure", "v1", "v2"),

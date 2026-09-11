@@ -10,6 +10,8 @@ use crate::domain::PermissionMode;
 pub(super) struct SendRequest {
     pub(super) id: Option<String>,
     pub(super) text: String,
+    #[serde(default)]
+    pub(super) options: crate::domain::RunOptions,
     pub(super) session_dir: PathBuf,
 }
 

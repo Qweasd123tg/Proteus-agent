@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dependency-free out-of-tree Workflow v13 component for Proteus.
+"""Dependency-free out-of-tree Workflow v14 component for Proteus.
 
 The worker owns a small model/tool loop. Models, tools, policy, approvals,
 safety, events, and cancellation remain host capabilities reached only through
@@ -27,7 +27,7 @@ from component_runtime import (  # noqa: E402
 
 SLOT = "workflow"
 MODULE_ID = "python_agent_loop"
-CONTRACT_VERSION = "v13"
+CONTRACT_VERSION = "v14"
 
 INITIALIZE_FIELDS = {
     "protocol_version",
@@ -49,6 +49,8 @@ RUNTIME_FIELDS = {
     "turn_id",
     "model_ref",
     "instructions",
+    "intent",
+    "permission_mode",
     "reasoning",
     "max_input_tokens",
     "model_timeout_ms",
@@ -323,6 +325,8 @@ def run_workflow(
         raise ProtocolError("workflow history must be a non-empty array")
     if history[-1].get("role") != "User":
         raise ProtocolError("workflow history must end with the current user message")
+    if runtime["intent"] is not None:
+        raise ProtocolError(f"unsupported workflow intent: {runtime['intent']}")
     del runtime
 
     runtime_status(peer)
@@ -430,7 +434,7 @@ def initialize(raw: Any) -> dict[str, Any]:
     if actual != expected:
         raise ProtocolError(f"unsupported initialize identity: {actual!r}")
     if require_string_list(export["host_features"], "host_features"):
-        raise ProtocolError("workflow v13 has no negotiated optional features")
+        raise ProtocolError("workflow v14 has no negotiated optional features")
     component_config = parse_config(export["module_config"])
     return {
         "protocol_version": PROTOCOL_VERSION,
@@ -451,7 +455,7 @@ def invoke(context: InvocationContext, method: str, params: Any) -> dict[str, An
     if context.export != {"slot": SLOT, "module_id": MODULE_ID}:
         raise ProtocolError(f"unknown component export: {context.export!r}")
     if method != "run":
-        raise ProtocolError(f"workflow v13 does not support method {method!r}")
+        raise ProtocolError(f"workflow v14 does not support method {method!r}")
     return run_workflow(Peer(context), params, component_config)
 
 

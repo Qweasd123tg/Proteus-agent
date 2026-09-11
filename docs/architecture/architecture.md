@@ -152,6 +152,11 @@ Admission, cancellation и terminal execution находятся в `app_server/
 [runtime-and-events.md](../guides/runtime-and-events.md#согласование-очереди-и-подтверждений).
 
 
+Намерение запуска принадлежит публичному контракту (`RunOptions.intent`),
+а его алгоритм и инструкции — выбранному workflow. Override прав фиксируется
+при admission и не меняет default сессии. Web не дописывает скрытую стратегию
+планирования в пользовательское сообщение.
+
 UI — сменный клиент и витрина возможностей агента. Его расширения принадлежат
 клиенту: отдельные ES modules с манифестами, своим lifecycle и необязательными
 интерфейсами данных. Правые панели web/desktop загружаются независимо от backend
@@ -318,7 +323,7 @@ approval и ошибку инструмента; исходные tools и model
 Probe одновременно локализует оставшийся coupling, не разрешая новую Core
 migration автоматически:
 
-- `workflow/v13` input и tool callback всё ещё требуют agent-shaped
+- `workflow/v14` input и tool callback всё ещё требуют agent-shaped
   `AgentTask`, а invocation несёт history и session/thread/turn ids;
 - `AppConfig` всё ещё требует active model даже для model-free success path.
 
@@ -331,7 +336,7 @@ implementations отсутствуют в replay-каталоге, итог и h
 | Owner | Поля |
 |---|---|
 | `ExecutionContext` | `scope`, `model_timeout_ms`, `model`, `search`, `memory`, `tools`, `policy`, `approval`, `permission_grants` |
-| `AgentWorkflowContext` | `tool_recorder`, `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `reasoning`, `context_timeout_ms`, `events`, `context`, `user_input`, `compactor`, `tool_exposure`, `agent_control`, queued messages, `thread_label` |
+| `AgentWorkflowContext` | `tool_recorder`, `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `intent`, `permission_mode`, `reasoning`, `context_timeout_ms`, `events`, `context`, `user_input`, `compactor`, `tool_exposure`, `agent_control`, queued messages, `thread_label` |
 
 `ExecutionScope` содержит identity и cancellation без chat types.
 `ExecutionContext` связывает generic handles с coherent runtime snapshot.
