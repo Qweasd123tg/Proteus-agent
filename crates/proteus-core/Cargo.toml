@@ -8,6 +8,7 @@ name = "proteus"
 path = "src/main.rs"
 
 [dependencies]
+agent-client-protocol = "=2.1.0"
 proteus-contracts = { path = "../proteus-contracts" }
 proteus-module-protocol = { path = "../proteus-module-protocol" }
 proteus-process-host = { path = "../proteus-process-host" }

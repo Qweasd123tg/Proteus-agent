@@ -173,6 +173,14 @@ async fn main() -> Result<()> {
         println!("{}", render_tool_list(&registry));
         return Ok(());
     }
+    if matches!(command, CliCommand::ServerAcp) {
+        if cli.resume_session.is_some() || cli.new_session || cli.interactive {
+            bail!(
+                "ACP sessions are managed by the client; omit --resume-session, --new-session and --interactive"
+            );
+        }
+        return proteus_core::app_server::acp::run_acp_server(config, config_path).await;
+    }
     if matches!(command, CliCommand::ServerStdio) {
         return run_stdio_app_server(
             config,

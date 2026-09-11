@@ -22,6 +22,7 @@ use crate::{
     domain::{AgentOutput, PermissionMode, SessionId, new_thread_id},
 };
 
+pub mod acp;
 mod approval_preview;
 mod approvals;
 mod config_builder;

@@ -5,7 +5,7 @@ module_id=${1:-execution-boundary-tools}
 component_id=${2:-execution-boundary-tool-component}
 
 rpc_id() {
-    printf '%s\n' "$1" | sed -n 's/^[[:space:]]*{"id":[[:space:]]*\([^,}]*\),.*/\1/p'
+    printf '%s\n' "$1" | python3 -c 'import json, sys; print(json.dumps(json.load(sys.stdin)["id"]))'
 }
 
 IFS= read -r initialize_request

@@ -97,6 +97,78 @@ Supervisor передаёт `--token` и нужные `--allow-origin` явно,
 и завершает сервер через authenticated `POST /shutdown`. Эту границу использует
 [desktop-клиент](desktop.md).
 
+## ACP Для Редакторов
+
+```bash
+proteus --config codex server acp
+# из checkout после cargo build -p proteus-core -p proteus-reference-worker:
+target/debug/proteus --config /absolute/path/to/config.json server acp
+```
+
+`server acp` реализует стабильный **Agent Client Protocol v1** через официальный
+Rust SDK `agent-client-protocol = 2.1.0`. Версия SDK отличается от wire
+`protocolVersion = 1`; draft v2 и unstable features не включены. Transport —
+UTF-8 JSON-RPC 2.0, один JSON на строку stdin/stdout. stdout содержит только
+протокол, диагностика идёт в stderr. Реализация находится в `app_server/acp/`
+поверх `AgentAppServer`; modules, tools, policy и model выбираются обычным config.
+
+Пример [custom agent в Zed](https://zed.dev/docs/ai/external-agents#custom-agents)
+для установленного Proteus в `settings.json`:
+
+```json
+{
+  "agent_servers": {
+    "proteus": {
+      "type": "custom",
+      "command": "/absolute/path/to/proteus",
+      "args": ["--config", "codex", "server", "acp"],
+      "env": {}
+    }
+  }
+}
+```
+
+Укажите абсолютный путь к исполняемому файлу; для собственной сборки вместо
+`codex` можно передать абсолютный путь к config. Provider credentials/OAuth и
+model settings настраиваются в Proteus до запуска, отдельного ACP login нет.
+После добавления выберите Proteus в меню нового agent thread. Внешний UI Zed
+не входит в automated gate; wire integration проверяется настоящим stdio
+процессом с локальными process modules.
+
+| Surface | Поведение |
+|---|---|
+| `initialize` | Handshake v1, описание агента и capabilities; до него session methods отклоняются |
+| `session/new` | Свежая независимая Proteus session; `cwd` — существующий абсолютный каталог из запроса, `mcpServers` добавляются только в config этой сессии |
+| `session/prompt` | Text и resource links, один активный prompt на session; независимые sessions могут выполняться одновременно |
+| `session/update` | Текст и reasoning, начало/результат tool calls; completed message дополняет streamed prefix, не дублирует его |
+| `session/request_permission` | `allow_once` / `reject_once` через действующий ApprovalTransport; отменённый/неверный ответ не разрешает исполнение |
+| `session/cancel` | Отмена текущего run; после settlement и последних updates исходный prompt получает `stopReason: cancelled` |
+| `session/set_mode` | `normal`, `plan`, `auto` — permission modes Proteus; смена во время активного prompt отклоняется |
+| EOF/ошибка transport | Все sessions отменяют активные runs и дожидаются записи terminal state |
+
+Resource link передаётся модели как имя и URI, без скрытого чтения файла или
+загрузки URL. Editor stdio MCP проходит тот же discovery, `ToolRegistry`,
+`ToolSafety` и policy, что `tools.mcp_servers`; env берётся из переданного
+descriptor, имена серверов не могут повторять config или друг друга.
+Agent не вызывает client `fs/*` и `terminal/*`: используются tools выбранной
+сборки и её рабочий каталог, несохранённые буферы редактора отдельно не читаются.
+
+Не заявлены `session/load`, list/resume/fork, images/audio/embedded resources,
+HTTP/SSE MCP, ACP model/config selection и authentication methods. Неподдержанный
+метод возвращает JSON-RPC error; неподдержанный prompt block отклоняется до
+admission. Structured `request_user_input` выводит явное сообщение о недоступной
+форме и получает пустой ответ через существующий transport, чтобы не ждать
+таймаута. Это не полноценный question UI; ответы на формы через ACP не реализованы.
+История выполненных turns сохраняется обычным journal и доступна другим
+Proteus clients. Пустая сессия без turn не материализует journal на диске.
+`--new-session`, `--resume-session`, `--interactive` для ACP запрещены: lifecycle
+задаёт клиент. CLI `--cwd` не заменяет обязательный `session/new.cwd`.
+
+При потере runtime events адаптер отменяет run и возвращает ошибку: append-only
+ACP stream не восстанавливается слепым повторением app-server snapshots.
+Правила протокола: [session setup](https://agentclientprotocol.com/protocol/v1/session-setup),
+[prompt/cancel](https://agentclientprotocol.com/protocol/v1/prompt-turn).
+
 ## REPL Commands
 
 ```text

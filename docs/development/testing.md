@@ -39,6 +39,7 @@
 | Workflow/runtime | workflow unit | canonical journal/replay | terminal/cancel/recovery evidence при behavior change |
 | Agent control/subagents | DTO/mailbox unit | минимум два real process peers | forged address/source, bounded FIFO, cancel handoff и sibling crash isolation |
 | HTTP/session | handler unit | reconnect/cold history | auth/SSE smoke |
+| ACP/editor transport | input/projection unit | реальный stdio prompt/approval/cancel/EOF + cold history | workflow replay Success, `module_swap`, workspace gate |
 | Inspector/web | Rust unit | `trunk build` | browser smoke при UX change |
 | UI extensions | Node contract/lifecycle tests | `trunk build` + реальный browser/agent API | внешний пакет без пересборки, автономный host, отключение/сворачивание, управление из Settings без исполнения entry, сохранение/откат настроек, layout/resize smoke; [команды](../guides/ui-extensions.md#проверка) |
 | Desktop launch/package | desktop Rust unit | packaged backend readiness/auth/cold history/shutdown | release portable build + native window smoke; команды в [desktop.md](../guides/desktop.md) |
@@ -50,6 +51,17 @@ Protocol или architecture change без automated boundary evidence всё р
 
 `cli_dispatch` запускает CLI с неверными командами и сломанным config:
 ошибка команды должна предшествовать config loading и любому model request.
+`acp_server` проверяет настоящий `proteus server acp`: handshake, изоляцию
+sessions, поток без дублирования completion, editor stdio MCP discovery,
+allow/deny/неверный permission option, отмену без ответа на permission request,
+busy session, EOF с `TurnSettled(Canceled)`, отдельный `Timeout` и cold history. Успешные turns,
+включая tools/approval, проходят matched workflow replay. Для неподдержанного
+structured input проверяется завершение без ожидания бесконечного timeout.
+Focused gate: `cargo test -p proteus-core --lib app_server::acp` и
+`cargo test -p proteus-core --test acp_server --test cli_dispatch`;
+полный gate — `cargo test --workspace --no-fail-fast` (включает `module_swap`).
+Shell process fixtures разбирают JSON-RPC `id` JSON-парсером, независимо от
+порядка полей: ACP SDK включает `serde_json/preserve_order` для workspace graph.
 Doctor regression отдельно проверяет workspace scope и explicit full audit,
 сохраняя строгий отказ на старой session schema без изменения её файлов.
 

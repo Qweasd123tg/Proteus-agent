@@ -13,6 +13,7 @@ pub(crate) enum CliCommand<'a> {
     InspectTopology(InspectTopologyFormat),
     Doctor(SessionScope),
     ServerStdio,
+    ServerAcp,
     ServerHttp(HttpServerConfig),
     Task,
 }
@@ -47,12 +48,13 @@ pub(crate) fn parse_cli_command(task: &[String]) -> Result<CliCommand<'_>> {
             _ => bail!("usage: proteus [options] doctor [--all-sessions]"),
         },
         Some("server") if is_app_server_stdio_command(task) => Some(CliCommand::ServerStdio),
+        Some("server") if task == ["server", "acp"] => Some(CliCommand::ServerAcp),
         Some("server") => {
             let command = parse_app_server_http_command(task)?;
             match command {
                 Some(config) => Some(CliCommand::ServerHttp(config)),
                 None => bail!(
-                    "usage: proteus [options] server stdio | server http [http-options]\n\
+                    "usage: proteus [options] server stdio | server acp | server http [http-options]\n\
                      Global options must precede the command, for example: proteus --new-session server stdio"
                 ),
             }

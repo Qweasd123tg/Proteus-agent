@@ -9,6 +9,7 @@ fn malformed_commands_fail_before_config_loading_or_inference() {
         vec!["server", "stdio", "--new-session"],
         vec!["server"],
         vec!["server", "web"],
+        vec!["server", "acp", "extra"],
         vec!["server", "http", "--new-session"],
         vec!["modules"],
         vec!["modules", "list", "extra"],

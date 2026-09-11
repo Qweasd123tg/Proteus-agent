@@ -9,7 +9,7 @@ component_id=${3:-search-fixture}
 # deliberately avoids a JSON parser: strict envelope shaping is covered by the
 # protocol crate, while this script only supplies slot-level swap evidence.
 rpc_id() {
-    printf '%s\n' "$1" | sed -n 's/^[[:space:]]*{"id":[[:space:]]*\([^,}]*\),.*/\1/p'
+    printf '%s\n' "$1" | python3 -c 'import json, sys; print(json.dumps(json.load(sys.stdin)["id"]))'
 }
 
 IFS= read -r initialize_request

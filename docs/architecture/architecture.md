@@ -80,6 +80,11 @@ external component processes
   `StdioRequest`/`StdioOutput`; прямого product entrypoint в `AgentRuntime`
   больше нет. Operational/diagnostic команды не исполняют пользовательский
   turn и остаются отдельной CLI-поверхностью.
+- `server acp` — editor transport поверх `AgentAppServer` с официальным ACP
+  SDK и отдельным handle на session. Adapter переводит prompt/events/approval,
+  переиспользует admission/cancellation/journal, не вводит slot и не исполняет
+  tools самостоятельно. Внутренний app-server JSONL и Component wire v3 не
+  становятся ACP; [поддержанная граница](../guides/runtime-and-events.md#acp-для-редакторов).
 - `AssemblyPlan` один раз разворачивает config в точные slot selections,
   components, export authority и preflight checks; workers при этом не
   запускаются.

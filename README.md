@@ -226,6 +226,9 @@ Prompt/workflow replay и journal semantics описаны в
 [runtime-and-events.md](docs/guides/runtime-and-events.md).
 
 Глобальные flags ставятся перед командой: `proteus --new-session server stdio`.
+Для редактора с Agent Client Protocol: `proteus --config codex server acp`.
+Сессиями и рабочим каталогом в этом режиме управляет редактор; настройка Zed и
+поддержанные возможности — в [ACP](docs/guides/runtime-and-events.md#acp-для-редакторов).
 Namespaces `init`, `modules`, `tools`, `doctor`, `server`, `inspect`, `eval`,
 `replay` зарезервированы: неверная форма завершается ошибкой до загрузки config
 и не отправляется модели. Обычный prompt с такими словами передавайте одной

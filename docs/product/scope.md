@@ -21,6 +21,9 @@
 - AgentControl для полных local Proteus peers: lifecycle, bounded mailbox,
   messaging, follow-up и адресная отмена.
 - CLI/REPL, HTTP/SSE/stdio app-server, web chat и Inspector.
+- ACP v1 stdio agent для редакторов: независимые sessions, streamed responses,
+  tools/approval, отмена и editor stdio MCP через существующий runtime;
+  [возможности и ограничения](../guides/runtime-and-events.md#acp-для-редакторов).
 - Desktop-оболочка Tauri под Fedora: готовые клиенты и backend в переносимой папке,
   автоматическое подключение, выбор проекта/профиля и отдельное окно Inspector.
 - Независимые UI-расширения правой панели web/desktop: установка ES module по
