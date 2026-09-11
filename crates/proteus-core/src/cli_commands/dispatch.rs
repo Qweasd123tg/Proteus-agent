@@ -14,6 +14,7 @@ pub(crate) enum CliCommand<'a> {
     Doctor(SessionScope),
     ServerStdio,
     ServerHttp(HttpServerConfig),
+    ServerA2a(proteus_core::app_server::a2a::A2aServerConfig),
     Task,
 }
 
@@ -48,11 +49,14 @@ pub(crate) fn parse_cli_command(task: &[String]) -> Result<CliCommand<'_>> {
         },
         Some("server") if is_app_server_stdio_command(task) => Some(CliCommand::ServerStdio),
         Some("server") => {
+            if let Some(config) = a2a::parse(task)? {
+                return Ok(CliCommand::ServerA2a(config));
+            }
             let command = parse_app_server_http_command(task)?;
             match command {
                 Some(config) => Some(CliCommand::ServerHttp(config)),
                 None => bail!(
-                    "usage: proteus [options] server stdio | server http [http-options]\n\
+                    "usage: proteus [options] server stdio | server http [http-options] | server a2a [a2a-options]\n\
                      Global options must precede the command, for example: proteus --new-session server stdio"
                 ),
             }

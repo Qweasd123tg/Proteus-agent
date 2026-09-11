@@ -97,6 +97,66 @@ Supervisor передаёт `--token` и нужные `--allow-origin` явно,
 и завершает сервер через authenticated `POST /shutdown`. Эту границу использует
 [desktop-клиент](desktop.md).
 
+## A2A Для Полного Агента
+
+```bash
+proteus --config configs/config.toml --cwd /path/to/workspace server a2a --port 8788 --ready-stdout
+```
+
+Endpoint слушает `127.0.0.1`; port по умолчанию `0` (назначается ОС).
+`--ready-stdout` печатает `{"type":"a2a_ready","url":"http://127.0.0.1:<port>/"}`
+после bind. Это готовность транспорта: configured runtime каждого context
+создаётся лениво при первой задаче; ошибка сборки возвращается как failed task.
+Agent Card доступна по `/.well-known/agent-card.json`, JSON-RPC — `POST /`.
+Общий JSON-RPC/SSE wire принадлежит A2A 1.0 и official Rust SDK.
+
+Поддержаны `SendMessage`, `SendStreamingMessage`, `GetTask`,
+`SubscribeToTask`, `CancelTask`. Вход новой задачи — user message с text parts,
+до 16 000 байт текста. Результат находится в `Task.status.message`; artifacts
+и token deltas пока не публикуются. `returnImmediately` возвращает snapshot
+принятой задачи; обычный send ждёт terminal либо `input-required`.
+SSE сначала возвращает Task snapshot, затем status updates. Разрыв подписки
+не отменяет исполнение; reconnect получает актуальное состояние. Cancel ждёт
+settlement runtime: в A2A не публикуется фиктивный canceled до остановки turn.
+Новая подписка на terminal task отклоняется; её результат читается `GetTask`.
+Если клиент передал `A2A-Version`, поддерживается только значение `1.0`.
+
+Первый send без `contextId` создаёт отдельную Proteus session. Новый send с
+известным `contextId`, без `taskId`, продолжает её историю новой задачей.
+Один context имеет не более одной активной задачи. Unknown IDs, несовпадение
+task/context и send в terminal task дают явную ошибку до нового inference.
+Live steering активной задачи пока не поддержан. Endpoint хранит до 32 contexts
+и 1024 tasks; при заполнении отказывает в admission без тихого eviction.
+Живые A2A IDs хранятся в памяти до завершения процесса; canonical sessions
+остаются на диске, но `--resume-session` для этого транспорта пока отклоняется.
+Ctrl-C отменяет задачи, ждёт settlement и закрывает sessions.
+
+Интерактивные tools используют объявленное в Agent Card необязательное
+расширение `urn:proteus:a2a:interaction:v1`. В `input-required` status message
+для клиента с HTTP header `A2A-Extensions: urn:proteus:a2a:interaction:v1`
+содержит text part и data part с массивами `approvals` и `user_inputs` в
+canonical Proteus форме. Подписка закрывается, исполнение ждёт решения.
+Клиент сохраняет этот HTTP header и посылает user message с теми же `taskId`/`contextId`, указанным URI
+в `message.extensions` и одним data part:
+
+```json
+{"kind":"approval","approval_id":"<id>","approved":true,"note":"одобрено владельцем"}
+```
+
+или для typed input:
+
+```json
+{"kind":"user_input","request_id":"<id>","response":{"answers":{"<question-id>":{"answers":["выбранный ответ"]}}}}
+```
+
+Ответ адресуется только pending request этой сессии. Approval не кешируется,
+policy и tool safety исполняются обычным путём. Расширение не добавляет новые
+tool capabilities; клиент без его поддержки может прочитать status или отменить
+задачу; без HTTP opt-in возвращается только текстовая projection, data parts
+расширения не выдаются. Push notifications, tenants, `ListTasks` и extended
+Agent Card пока явно отклоняются. Это первый рабочий срез A2A, не полный
+conformance claim и не переключение внутреннего AgentControl.
+
 ## REPL Commands
 
 ```text
@@ -445,7 +505,7 @@ system-строку в transcript.
 
 ## App Server Boundary
 
-`crates/proteus-core/src/app_server.rs` отделяет UI-клиенты от `AgentRuntime`. Клиент работает с `AppServerHandle`, подписывается на `AppServerEvent` и отправляет команды через transport. Сейчас реализованы локальный `stdio` transport в `crates/proteus-core/src/app_server/stdio.rs` и HTTP/SSE transport в `crates/proteus-core/src/app_server/http.rs`; DTO лежат в `proteus-contracts::app_protocol` и re-export'ятся через `crates/proteus-core/src/app_server.rs`. Будущие socket/ACP-клиенты должны использовать ту же app-server границу.
+`crates/proteus-core/src/app_server.rs` отделяет UI-клиенты от `AgentRuntime`. Клиент работает с `AppServerHandle`, подписывается на `AppServerEvent` и отправляет команды через transport. Реализованы локальный `stdio` transport в `crates/proteus-core/src/app_server/stdio.rs` и HTTP/SSE transport в `crates/proteus-core/src/app_server/http.rs`; их DTO лежат в `proteus-contracts::app_protocol` и re-export'ятся через `crates/proteus-core/src/app_server.rs`. Межагентный endpoint `app_server/a2a` использует ту же session boundary с wire types official A2A SDK. Будущие socket/ACP-клиенты должны использовать ту же app-server границу.
 
 События app-server:
 

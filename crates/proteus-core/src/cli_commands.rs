@@ -4,6 +4,7 @@ use anyhow::{Result, bail};
 use proteus_contracts::domain::{ExchangeId, TurnId};
 use proteus_core::app_server::http::HttpServerConfig;
 
+mod a2a;
 mod dispatch;
 pub(crate) use dispatch::{CliCommand, parse_cli_command};
 

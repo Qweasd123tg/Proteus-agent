@@ -187,6 +187,19 @@ async fn main() -> Result<()> {
         return run_http_app_server(config, cwd, config_path, cli.resume_session, http_config)
             .await;
     }
+    if let CliCommand::ServerA2a(options) = command {
+        anyhow::ensure!(
+            cli.resume_session.is_none(),
+            "A2A context resume after process restart is not yet supported"
+        );
+        return proteus_core::app_server::a2a::run_a2a_app_server(
+            config,
+            cwd,
+            config_path,
+            options,
+        )
+        .await;
+    }
     if cli.interactive || cli.task.is_empty() {
         let mut client = CliAppClient::launch(
             config_path.as_deref(),

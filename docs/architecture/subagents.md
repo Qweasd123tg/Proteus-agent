@@ -129,8 +129,10 @@ source/target отклоняются до enqueue. `AgentControlMessage` хра�
 Целевое направление межагентного обмена — стандарт A2A. Его выбор снимает с
 Proteus самостоятельное проектирование и развитие общего внешнего протокола:
 формата сообщений, задач, результатов, статусов и способов получения updates.
-Сокращение строк не является критерием выбора. A2A пока не подключён к
-production AgentControl; готовый SDK и адаптация runtime оцениваются отдельно.
+Сокращение строк не является критерием выбора. `server a2a` уже запускает
+полные configured Proteus sessions через A2A 1.0 JSON-RPC/SSE. Внутренний
+AgentControl пока использует local stdio/mailbox; переключение его process
+backend — следующая часть перехода.
 
 | Граница | Направление адаптации |
 |---|---|
@@ -155,6 +157,37 @@ restart. Собственные wire envelopes поверх A2A, дублиру�
 Для проверки первого кандидата есть отдельный
 [исследовательский стенд](../../examples/research/a2a-sdk-probe/README.md),
 который не является новым runtime path или conformance gate Proteus.
+
+Рабочий endpoint использует official `a2aproject/a2a-rs`, закреплённый на
+`c7cefa0b4276805efbcfd2ddd3238c22e5f36b8f`. SDK владеет A2A DTO, JSON-RPC
+dispatch/serialization и SSE. Proteus реализует его `RequestHandler`
+в `app_server/a2a`: admission, связь context с отдельной `AppServerHandle`,
+tool interaction и подтверждённое завершение принадлежат runtime. Готовый
+`DefaultRequestHandler` не используется: candidate probe обнаружил повторный
+вход в executor для terminal task. Fork SDK и собственный wire envelope
+не добавлены.
+`ListTasks` пока отклоняется: store этого SDK использует offset pagination и
+сортировку по ID, тогда как [спецификация A2A](https://a2a-protocol.org/latest/specification/#314-list-tasks)
+задаёт cursor и сортировку по времени статуса. Этот алгоритм не дублируется
+в Proteus в первом срезе.
+
+Endpoint допускает одну активную задачу на context. Сообщение завершённой
+задаче отклоняется до inference; продолжение создаёт новый `taskId` с прежним
+`contextId` и историей той же Proteus session. Текстовое steering активной
+задачи пока явно отклоняется. Это ограничение нового endpoint, а не изменение
+текущей collaboration/Codex mailbox semantics. Переключать AgentControl до
+реализации и проверки этой границы нельзя.
+
+`a2a_server` проверяет официальный client против настоящих Proteus processes:
+context isolation/history, terminal rejection без нового turn, холодный
+journal/replay, SSE reconnect, cancel и sibling process isolation, approval
+deny/allow и typed input. Это boundary evidence реализации, не заявление о
+полной conformance всей спецификации A2A.
+
+Запуск и interaction extension описаны в
+[runtime-and-events.md](../guides/runtime-and-events.md#a2a-для-полного-агента).
+Исходная реализация mail сохранена целиком через
+[архивный Git tag](../archive/agent-mail-before-a2a.md).
 
 ## AssemblyPlan И Живая Карта
 

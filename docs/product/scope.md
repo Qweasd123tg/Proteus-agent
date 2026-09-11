@@ -20,6 +20,8 @@
   выдумывается. Используется Codex workflow и Python example.
 - AgentControl для полных local Proteus peers: lifecycle, bounded mailbox,
   messaging, follow-up и адресная отмена.
+- Отдельный `server a2a`: A2A 1.0 JSON-RPC/SSE, задачи и contexts с собственной
+  историей, cancel и approval/input. AgentControl ещё не переключён на него.
 - CLI/REPL, HTTP/SSE/stdio app-server, web chat и Inspector.
 - Desktop-оболочка Tauri под Fedora: готовые клиенты и backend в переносимой папке,
   автоматическое подключение, выбор проекта/профиля и отдельное окно Inspector.
@@ -42,6 +44,7 @@ Reference modules и profiles — поставляемые примеры без
 | Replay | Model-free Turn поддержан; context/tool exposure/compaction требуют записанного model request. Прямые model calls workflow отделены от summary exchanges; replay хода с внутренним summary требует записанного changed-compaction checkpoint и следующего direct model request; внутренний алгоритм и typed error branches compactor не воспроизводятся. Root steering и внешние Canceled/Timeout не эмулируются |
 | Collaboration | Spawn принимает только parallel_safe роли с isolation=none; настроенный coder с worktree в эту surface не входит |
 | Peer recovery | Resume зависит от живого process; durable tree, attach и reconnect отсутствуют |
+| A2A endpoint | Live steering и подключение AgentControl ещё не реализованы; reconnect SSE сохраняет живую задачу, но task/context IDs не восстанавливаются после restart |
 | Worker trust | Собственные workers доверенные и работают с OS-правами владельца; принятый локальный режим, sandbox не является задачей этапа |
 | Форматы | Config/API/DTO/wire/storage пока не стабилизированы |
 

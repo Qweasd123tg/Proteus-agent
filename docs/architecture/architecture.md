@@ -33,8 +33,9 @@ Application / Client
    |
    | web/Inspector: HTTP/SSE
    | product CLI/REPL and AgentControl peers: stdio JSONL
+   | external agent clients: A2A JSON-RPC/SSE
    v
-AppServer HTTP/stdio
+AppServer HTTP/stdio/A2A
    |
    v
 AgentRuntime

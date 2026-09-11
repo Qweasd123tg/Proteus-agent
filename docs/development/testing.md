@@ -53,6 +53,15 @@ Protocol или architecture change без automated boundary evidence всё р
 Doctor regression отдельно проверяет workspace scope и explicit full audit,
 сохраняя строгий отказ на старой session schema без изменения её файлов.
 
+`a2a_server` запускает настоящий CLI endpoint и official A2A client: проверяет
+context/history isolation, отказ terminal task без нового inference, холодный
+journal и workflow replay, отключение/reconnect SSE, targeted cancel, sibling
+process isolation и approval deny/allow с реальным patch. Typed input
+продолжается в том же `taskId`. Unit в `app_server::a2a` проверяет settlement
+ошибки сборки, bounded admission без eviction и отказ после shutdown.
+Эти проверки относятся к новому endpoint; существующие `process_agent_control`
+и `process_agent_pool` остаются gates действующего mailbox backend.
+
 `config_profiles` проверяет, что экспериментальный `context-search-chatgpt`
 меняет только context boundary. `context_profile_swap` проводит оба профиля
 через real workflow/context/search components с локальным Responses fixture: найденный код

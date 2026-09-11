@@ -213,6 +213,9 @@ cargo run -p proteus-core -- --config configs/config.toml doctor --all-sessions
 cargo run -p proteus-core -- --config configs/config.toml modules list
 cargo run -p proteus-core -- --config configs/config.toml tools list
 
+# A2A endpoint полного агента (отдельно от текущего AgentControl backend)
+cargo run -p proteus-core -- --config configs/config.toml server a2a --port 8788 --ready-stdout
+
 # точный план до запуска и runtime topology
 cargo run -p proteus-core -- --config configs/config.toml inspect plan
 cargo run -p proteus-core -- --config configs/config.toml inspect topology --format runtime

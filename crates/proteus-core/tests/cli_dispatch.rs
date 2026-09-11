@@ -10,6 +10,8 @@ fn malformed_commands_fail_before_config_loading_or_inference() {
         vec!["server"],
         vec!["server", "web"],
         vec!["server", "http", "--new-session"],
+        vec!["server", "a2a", "--host", "0.0.0.0"],
+        vec!["server", "a2a", "--port", "1", "--port", "2"],
         vec!["modules"],
         vec!["modules", "list", "extra"],
         vec!["tools", "ls"],
