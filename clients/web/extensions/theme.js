@@ -1,4 +1,5 @@
 export const theme = `
+@import url("${new URL('../ui/select.css', import.meta.url).href}");
 :host { display: block; color: var(--text-main, #ececec); font: 13px/1.5 var(--font-sans, system-ui); }
 * { box-sizing: border-box; }
 p { margin: 0 0 10px; }

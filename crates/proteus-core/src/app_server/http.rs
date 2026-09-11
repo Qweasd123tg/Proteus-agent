@@ -27,6 +27,7 @@ mod security;
 mod sessions;
 mod sse;
 mod state;
+mod workspace;
 
 #[cfg(test)]
 use super::runs::SendDispatch;

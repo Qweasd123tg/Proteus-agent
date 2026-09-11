@@ -1,0 +1,29 @@
+.sidebar { --sidebar-footer-height: 224px; }
+.sidebar-footer { position: absolute; z-index: 2; inset: auto 0 0; height: var(--sidebar-footer-height); display: grid; align-content: end; gap: 4px; padding: 10px 12px; border-top: 1px solid var(--border-subtle); border-right: 1px solid var(--border-subtle); background: var(--bg-panel); }
+.sidebar-footer > a { display: flex; align-items: center; justify-content: flex-start; width: auto; min-width: 0; min-height: 36px; padding: 8px 10px; gap: 12px; border-radius: 8px; color: var(--text-muted); font-size: 12px; text-decoration: none; }
+.sidebar-footer > a:hover, .sidebar-footer > a.active { color: var(--text-main); background: var(--bg-panel-soft); }
+.sidebar-footer > a svg { flex: 0 0 18px; }
+.sidebar-footer-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-footer-status { display: flex; align-items: center; justify-content: space-between; gap: 4px; padding-top: 4px; }
+.sidebar-footer-status .connection-text { display: inline; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar-footer-status .connection-badge { min-width: 0; max-width: calc(100% - 34px); }
+.sidebar-footer .utility-menu { position: static; }
+.sidebar-footer .utility-menu-panel { top: auto; bottom: 48px; left: 8px; right: auto; width: 240px; max-width: calc(100vw - 16px); }
+.app-layout.sidebar-collapsed .sidebar { --sidebar-footer-height: 240px; }
+.app-layout.sidebar-collapsed .sidebar-footer { padding: 6px 4px; }
+.app-layout.sidebar-collapsed .sidebar-footer > a { width: 32px; min-height: 32px; padding: 7px; justify-content: center; }
+.app-layout.sidebar-collapsed .sidebar-footer-label, .app-layout.sidebar-collapsed .sidebar-footer .connection-text { display: none; }
+.app-layout.sidebar-collapsed .sidebar-footer-status { flex-direction: column; }
+.app-layout.sidebar-collapsed .sidebar-footer-status .connection-badge { max-width: none; min-width: 30px; }
+@media (max-width: 900px) {
+    .app-layout { padding-bottom: 60px; }
+    .sidebar .sidebar-surface, .sidebar .sidebar-rail-surface { inset: auto; }
+    .sidebar .sidebar-footer { position: fixed; inset: auto 0 0; height: 60px; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 3px; align-items: center; align-content: center; padding: 5px 8px; border-right: 0; }
+    .sidebar .sidebar-footer > a, .app-layout.sidebar-collapsed .sidebar-footer > a { width: auto; flex-direction: column; gap: 2px; padding: 4px; min-height: 46px; justify-content: center; }
+    .sidebar .sidebar-footer .sidebar-footer-label { display: block; font-size: 9px; }
+    .sidebar .sidebar-footer .sidebar-footer-status { flex-direction: row; padding: 0; }
+    .sidebar .sidebar-footer .connection-badge { display: none; }
+    .sidebar .sidebar-footer .connection-text { display: none; }
+    .sidebar .sidebar-footer .utility-menu-panel { bottom: 64px; }
+    .sidebar-rail-surface .sidebar-header { flex-direction: row; }
+}

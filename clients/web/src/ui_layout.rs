@@ -6,18 +6,14 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(raw_module = "/ui/layout.js")]
 extern "C" {
-    #[wasm_bindgen(js_name = preparePanelMotion)]
-    pub(crate) fn prepare_panel_motion(selector: &str);
-    #[wasm_bindgen(js_name = cancelLayoutMotion)]
-    pub(crate) fn cancel_layout_motion();
+    #[wasm_bindgen(js_name = preparePanelFocus)]
+    pub(crate) fn prepare_panel_focus(selector: &str);
     #[wasm_bindgen(js_name = mountComposerDock)]
     fn mount_composer_dock(root: &web_sys::Element) -> js_sys::Function;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn prepare_panel_motion(_selector: &str) {}
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn cancel_layout_motion() {}
+pub(crate) fn prepare_panel_focus(_selector: &str) {}
 
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn attach_composer(root: NodeRef<leptos::html::Form>) {

@@ -40,7 +40,6 @@ pub(super) fn AppShell(
         event_count,
         workspace_label,
         active_session_dir,
-        context_usage,
         sidebar_sessions,
         sidebar_sessions_status,
         ..
@@ -65,7 +64,6 @@ pub(super) fn AppShell(
     let actions = connection.actions;
     let session_actions = connection.session_actions;
     let info_panel_open = resize.info_open;
-    let is_chat_route = move || router.is_chat();
     let topnav_click = move |event, path| router.click(event, path);
     let reconnect_transport = move |_| connection.reconnect();
     let resume_open = move |session| {
@@ -107,9 +105,12 @@ pub(super) fn AppShell(
         })
     });
 
+    super::extension_state::publish(state);
+
     view! {
         <div
             class="app-layout"
+            class:chat-route=move || router.is_chat()
             class:resizing=is_resizing
             class:sidebar-collapsed=resize.sidebar_collapsed
             on:mousemove=resize_drag
@@ -131,16 +132,21 @@ pub(super) fn AppShell(
                 on_begin_resize=begin_sidebar_resize
                 on_open_session=open_sidebar_session
                 on_delete_session=delete_sidebar_session
-            />
+            >
+                <SidebarFooter route transport_status active_session_dir active_run_id event_count tool_activities
+                    on_navigate=topnav_click on_reconnect=reconnect_transport
+                    on_cancel=move |value| commands.cancel_turn.run(value) />
+            </SidebarView>
 
             <main class="workspace-main">
                 <crate::components::header::HeaderView
-                    route workspace_label transport_status waiting_background_sessions active_session_dir active_run_id event_count tool_activities info_panel_open
-                    on_navigate=topnav_click on_reconnect=reconnect_transport
+                    route workspace_label waiting_background_sessions info_panel_open
+                    on_navigate=topnav_click
                     on_open_session=move |session| session_actions.open_sidebar_session(session)
-                    on_cancel=move |value| commands.cancel_turn.run(value) on_toggle_info=toggle_info_panel
+                    on_toggle_info=toggle_info_panel
                 />
 
+                <div class="extension-host extension-dock-main" data-extension-location="main"></div>
                 <section
                     class="session-workspace"
                     style=move || format!("--chat-max-width: {}px", resize.chat_width.get())
@@ -221,31 +227,10 @@ pub(super) fn AppShell(
                 </section>
             </main>
 
-            {move || if is_chat_route() {
-                view! {
-                    <InfoPanelView
-                        open=info_panel_open
-                        width=resize.info_width
-                        on_toggle=toggle_info_panel
-                        on_begin_resize=begin_info_resize
-                        messages
-                        model_name
-                        mode
-                        reasoning_enabled
-                        effort
-                        context_usage
-                        agent_status
-                        event_count
-                        tool_activities
-                        pending_approvals
-                        pending_user_inputs
-                        workspace_label
-                        active_session_dir
-                    />
-                }.into_any()
-            } else {
-                ().into_any()
-            }}
+            <InfoPanelView open=info_panel_open width=resize.info_width
+                on_toggle=toggle_info_panel on_begin_resize=begin_info_resize />
+            <crate::components::extensions::ExtensionsView active_session_dir />
+
         </div>
     }
 }

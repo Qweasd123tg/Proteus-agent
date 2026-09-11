@@ -21,10 +21,14 @@ export interface ExtensionStorage {
 export interface ExtensionContext {
   /** Panel-owned root; inherited design tokens, no Leptos or Tauri dependency. */
   root: ShadowRoot;
+  /** Compact content inside the host's interactive button; absent for a settings entry. */
+  compact?: ShadowRoot;
+  /** Host actions, independent of a particular extension id; absent in settings. */
+  panel?: { open(): void; move(location: 'left' | 'right' | 'main'): void };
   /** Only declared interfaces; each interface defines its own data contract. */
   services: Readonly<Record<string, unknown>>;
   storage: ExtensionStorage;
-  /** Aborts on disable, collapse, removal, mount failure or client unmount. */
+  /** Aborts on disable, removal, mount failure, session change or client unmount. Collapse, moving and SPA navigation preserve the instance. */
   signal: AbortSignal;
 }
 
@@ -100,4 +104,32 @@ export interface ModelQuotaSnapshot {
     }>;
   }>;
   credits: { available: boolean; unlimited: boolean; balance: string | null } | null;
+}
+
+/** agent.session.read: client projection, not a second HTTP poller. */
+export interface AgentSessionReader {
+  read(): SessionView;
+  subscribe(callback: (snapshot: SessionView) => void): () => void;
+}
+export interface SessionView {
+  session_dir: string | null;
+  workspace: string;
+  model: string;
+  mode: string;
+  reasoning: string;
+  status: string;
+  events: number;
+  tools: number;
+  pending: number;
+  plan: Array<{ step: string; status: string }>;
+  context: { used: number; max: number; trigger: number | null } | null;
+}
+/** agent.workspace.read: explicit session-scoped, read-only public HTTP surface. */
+export interface AgentWorkspaceReader {
+  list(path: string): Promise<{
+    path: string;
+    entries: Array<{ name: string; path: string; kind: 'directory' | 'file' | 'symlink' | 'special' }>;
+    truncated: boolean;
+  }>;
+  read(path: string): Promise<{ path: string; size: number; kind: 'text' | 'binary' | 'too_large'; text: string | null }>;
 }

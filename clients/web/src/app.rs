@@ -1,6 +1,7 @@
 mod commands;
 mod connection;
 mod effects;
+mod extension_state;
 pub(crate) mod menus;
 mod navigation;
 mod shell;

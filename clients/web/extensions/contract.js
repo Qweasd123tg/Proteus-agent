@@ -43,11 +43,12 @@ export function parseSettings(value, base) {
   if (value.apiVersion !== API_VERSION || !Array.isArray(value.panels)) throw new Error('Неподдерживаемый формат настроек расширений');
   const ids = new Set();
   return value.panels.map(panel => {
-    object(panel, ['id', 'url', 'enabled', 'collapsed'], 'Панель');
+    object(panel, ['id', 'url', 'enabled', 'collapsed', 'location'], 'Панель');
     if (typeof panel.id !== 'string' || !panel.id || ids.has(panel.id)) throw new Error('Пустой или повторяющийся id панели');
     if (typeof panel.enabled !== 'boolean' || typeof panel.collapsed !== 'boolean') throw new Error('Некорректное состояние панели');
+    if (panel.location !== undefined && !['left', 'right', 'main'].includes(panel.location)) throw new Error('Некорректная область панели');
     ids.add(panel.id);
-    return { ...panel, url: resourceUrl(panel.url, base) };
+    return { ...panel, location: panel.location ?? 'right', url: resourceUrl(panel.url, base) };
   });
 }
 

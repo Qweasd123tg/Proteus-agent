@@ -19,14 +19,22 @@ export function mountExtensions(root, services = {}, options = {}) {
         card.stop(); cards.delete(id);
       }
     }
+    const positions = new Map();
     for (const record of state.records.filter(record => record.enabled)) {
       if (!cards.has(record.id)) {
         const card = createPanel(record, { services, storage: registry.storage,
-          changed: () => registry.update(record.id, { collapsed: record.collapsed }) });
+          changed: change => registry.update(record.id, change), onOpen: options.onOpen });
         cards.set(record.id, { ...card, record });
       }
       const card = cards.get(record.id);
-      card.update(); panels.append(card.element);
+      card.update();
+      const target = options.locations?.[record.location] ?? panels;
+      card.element.dataset.location = record.location;
+      // Keep unchanged cards attached: append() on every update loses focus and repaints shadows.
+      const index = positions.get(target) ?? 0;
+      positions.set(target, index + 1);
+      const before = target.children[index];
+      if (before !== card.element) target.insertBefore(card.element, before ?? null);
     }
   });
   void registry.start();

@@ -31,7 +31,9 @@ test('shared registry loads once, preserves customization and never reads execut
   registry.addBundled('one'); registry.move('one',-1);
   assert.deepEqual(registry.state().records.map(x=>x.id),['one','two']);
   assert.equal(registry.state().records[1].collapsed,true);
-  registry.update('two',{enabled:true});
+  registry.update('two',{enabled:true,location:'main'});
+  assert.equal(registry.state().records[1].location,'main');
+  assert.equal(JSON.parse(data.get('proteus.ui.extensions')).panels[1].location,'main');
   assert.equal(JSON.parse(data.get('proteus.ui.extensions')).panels[1].enabled,true);
   stop();const previous=updates;registry.remove('one');assert.equal(updates,previous);
   await registry.start();assert.equal(calls.length,3);

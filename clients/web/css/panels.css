@@ -72,30 +72,6 @@
 }
 
 .info-panel-rail-surface .info-panel-header { justify-content: center; padding: 0; }
-.info-panel-rail { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 8px 0; }
-
-.info-rail-plan {
-    position: relative;
-    display: grid;
-    justify-items: center;
-    gap: 5px;
-    padding: 6px 8px;
-    border-radius: var(--radius-inner);
-    transition: background 0.12s;
-}
-
-.info-rail-ring {
-    position: relative;
-    padding: 4px;
-    border-radius: var(--radius-inner);
-    transition: background 0.12s;
-}
-
-.info-rail-plan:hover,
-.info-rail-ring:hover {
-    background: var(--bg-panel-hover);
-}
-
 /* Поповеры свёрнутых реек: единый стиль для плана, бублика контекста и
    сессий в левом сайдбаре. Направление задаёт модификатор -left/-right. */
 .rail-popover {
@@ -148,80 +124,10 @@
     overflow-wrap: anywhere;
 }
 
-.info-rail-step {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--border-strong);
-}
-
-.info-rail-step.completed {
-    background: var(--accent-green);
-}
-
-.info-rail-step.in_progress {
-    animation: pulse 2s infinite;
-    background: var(--accent-blue);
-}
-
-.info-panel-body {
-    display: grid;
-    width: 100%;
-    min-height: 0;
-    flex: 1;
-    align-content: start;
-    gap: var(--space-5);
-    overflow-y: auto;
-    padding: var(--space-4);
-    transition:
-        opacity 0.12s ease,
-        visibility 0.12s ease;
-}
-
 /* Тумблер панели в топбаре нужен только на узких экранах, где свёрнутая
    рейка спрятана; на десктопе у панели своя кнопка в шапке. */
 .info-panel-mobile-toggle {
     display: none;
-}
-
-/* Отметка порога автокомпакта на полосе контекста — как штрих на кружке. */
-.info-usage-bar {
-    position: relative;
-}
-
-.info-usage-bar .info-usage-mark {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 2px;
-    border-radius: 1px;
-    background: var(--text-main);
-}
-
-.info-panel-section {
-    padding-bottom: 16px;
-    border-bottom: 1px solid var(--border-subtle);
-    display: grid;
-    min-width: 0;
-    gap: var(--space-2);
-}
-
-.info-panel-section-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: var(--space-2);
-}
-
-.info-panel-section-head code {
-    color: var(--text-faint);
-    font-family: var(--font-mono);
-    font-size: 11px;
-}
-
-.info-panel-empty {
-    color: var(--text-faint);
-    font-size: 12px;
 }
 
 .info-row {
@@ -247,59 +153,5 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-
-.plan-step-list {
-    display: grid;
-    min-width: 0;
-    gap: 2px;
-}
-
-.plan-step-row {
-    display: flex;
-    min-width: 0;
-    align-items: baseline;
-    gap: var(--space-2);
-    font-size: 12px;
-    line-height: 1.5;
-}
-
-.plan-step-marker {
-    flex: none;
-    width: 14px;
-    color: var(--text-faint);
-    font-family: var(--font-mono);
-    text-align: center;
-}
-
-.plan-step-row.completed .plan-step-marker {
-    color: var(--accent-green);
-}
-
-.plan-step-row.completed .plan-step-text {
-    color: var(--text-muted);
-    text-decoration: line-through;
-    text-decoration-color: var(--border-strong);
-}
-
-.plan-step-row.in_progress .plan-step-marker {
-    color: var(--accent-blue);
-}
-
-.plan-step-row.in_progress .plan-step-text {
-    color: var(--text-main);
-    font-weight: 600;
-}
-
-.plan-step-row.pending .plan-step-text {
-    color: var(--text-muted);
-}
-
-
-.info-session { padding-top: 0; }
-.info-session > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; list-style: none; color: var(--text-muted); cursor: pointer; font-size: 12px; }
-.info-session > summary::-webkit-details-marker { display: none; }
-.info-session > summary::after { content: '+'; }
-.info-session[open] > summary::after { content: '−'; }
-.info-session-body { display: grid; gap: 8px; padding-top: 12px; }
 
 .panel-backdrop { display: none; }

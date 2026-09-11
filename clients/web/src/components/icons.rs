@@ -53,7 +53,19 @@ pub(crate) fn ChevronDownIcon() -> impl IntoView {
 #[component]
 pub(crate) fn SettingsIcon() -> impl IntoView {
     view! { <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M3 6h4m4 0h10M3 12h10m4 0h4M3 18h2m4 0h12" />
-        <circle cx="9" cy="6" r="2" /><circle cx="15" cy="12" r="2" /><circle cx="7" cy="18" r="2" />
+        <path d="M9.81,5.25 L9.98,2.51 L14.02,2.51 L14.19,5.25 L15.22,5.67 L17.28,3.86 L20.14,6.72 L18.33,8.78 L18.75,9.81 L21.49,9.98 L21.49,14.02 L18.75,14.19 L18.33,15.22 L20.14,17.28 L17.28,20.14 L15.22,18.33 L14.19,18.75 L14.02,21.49 L9.98,21.49 L9.81,18.75 L8.78,18.33 L6.72,20.14 L3.86,17.28 L5.67,15.22 L5.25,14.19 L2.51,14.02 L2.51,9.98 L5.25,9.81 L5.67,8.78 L3.86,6.72 L6.72,3.86 L8.78,5.67 Z" /><circle cx="12" cy="12" r="3.1" />
     </svg> }
+}
+
+#[component]
+pub(crate) fn AnalysisIcon() -> impl IntoView {
+    view! { <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 4v16h16M8 15v-4M12 15V7M16 15v-6" /></svg> }
+}
+#[component]
+pub(crate) fn HistoryIcon() -> impl IntoView {
+    view! { <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5v5h5M3 10a9 9 0 1 1 2 8M12 7v5l3 2" /></svg> }
+}
+#[component]
+pub(crate) fn InspectorIcon() -> impl IntoView {
+    view! { <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="5" rx="1"/><rect x="3" y="16" width="6" height="5" rx="1"/><rect x="15" y="16" width="6" height="5" rx="1"/><path d="M12 8v4M6 16v-4h12v4"/></svg> }
 }

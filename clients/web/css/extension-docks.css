@@ -1,0 +1,49 @@
+/* A panel keeps the same DOM and runtime in all three locations. */
+.extension-panel-content { container-type: inline-size; }
+.extension-panel-header { align-items: center; gap: 3px; padding: 5px 7px; flex-wrap: nowrap; }
+.extension-panel-title { flex: 1; width: auto; padding: 5px; min-height: 34px; gap: 8px; font-size: 12px; }
+.extension-panel-title > span:first-child { flex: 1; }
+.extension-panel-toggle { flex-basis: 18px; height: 18px; background: none; font-size: 14px; }
+.extension-compact { flex: 0 0 30px; height: 32px; padding: 0; display: grid; place-items: center; border: 0; }
+.extension-panel-header .extension-placement:not([multiple]):not([size]) { width: 28px; flex: 0 0 28px; min-height: 28px; padding: 3px; font-size: 0; color: transparent; background-position: right 8px center; background-size: 10px; }
+.extension-placement { display: block; }
+.extension-placement option { font-size: 12px; color: var(--text-main); }
+.extension-dock-right, .extension-dock-left { position: absolute; z-index: 1; display: grid; align-content: start; gap: 10px; padding: 12px; overflow-y: auto; }
+.extension-dock-right { inset: var(--topbar-height) 0 0; }
+.info-panel:not(.open) .extension-dock-right { padding: 8px 4px; }
+.info-panel:not(.open) .extension-dock-right .extension-panel { border: 0; background: none; overflow: visible; }
+.info-panel:not(.open) .extension-dock-right .extension-panel-header { padding: 0; }
+.info-panel:not(.open) .extension-dock-right :is(.extension-panel-title,.extension-placement,.extension-panel-body,.extension-error,.extension-panel>button) { display: none; }
+.sidebar-view-tabs { position: absolute; z-index: 2; top: var(--topbar-height); left: 10px; right: 10px; height: 34px; display: flex; gap: 4px; }
+.sidebar-view-tabs button { flex: 1; padding: 4px 8px; font-size: 12px; border-radius: 7px; }
+.sidebar-view-tabs .active { background: var(--bg-hover); color: var(--text-main); }
+.sidebar-search { margin-top: 38px; }
+.sidebar.extensions-open :is(.sidebar-search,.sessions-list) { visibility: hidden; }
+.extension-dock-left { inset: calc(var(--topbar-height) + 38px) 0 var(--sidebar-footer-height); }
+.sidebar:not(.extensions-open) .extension-dock-left { display: none; }
+.app-layout.sidebar-collapsed .sidebar-view-tabs { display: none; }
+.app-layout.sidebar-collapsed .extension-dock-left { display: grid; top: 116px; padding: 8px 4px; }
+.app-layout.sidebar-collapsed .sidebar-rail { display: none; }
+.app-layout.sidebar-collapsed .extension-dock-left .extension-panel { border: 0; background: none; }
+.app-layout.sidebar-collapsed .extension-dock-left .extension-panel-header { padding: 0; }
+.app-layout.sidebar-collapsed .extension-dock-left :is(.extension-panel-title,.extension-placement,.extension-panel-body,.extension-error,.extension-panel>button) { display: none; }
+.extension-dock-main { display: grid; gap: 10px; padding: 12px 20px; overflow: auto; min-height: 0; }
+.extension-dock-main:empty { display: none; }
+.extension-dock-main:has(.expanded) { flex: 1; }
+.app-layout.chat-route .workspace-main:has(.extension-dock-main .expanded) .session-workspace { display: none; }
+.extension-dock-main .extension-panel-header .extension-placement:not([multiple]):not([size]) { display: block; width: 110px; flex-basis: 110px; color: var(--text-main); font-size: 12px; padding-left: 8px; }
+.extension-dock-main .extension-panel-body { padding: 10px 18px 18px; }
+.extension-actions select:not([multiple]):not([size]) { min-height: 30px; padding: 4px 25px 4px 8px; font-size: 12px; }
+@media(max-width:900px) {
+    .info-panel:not(.open) .extension-dock-right { display: none; }
+    .sidebar-view-tabs { position: relative; top: auto; left: auto; right: auto; margin: 0 10px 6px; flex-shrink: 0; }
+    .sidebar-search { margin-top: 0; }
+    .sidebar.extensions-open .sidebar-surface .sessions-list, .sidebar.extensions-open .sidebar-search { display: none; }
+    .sidebar.extensions-open .extension-dock-left { display: grid; position: relative; inset: auto; max-height: 180px; }
+    .app-layout.sidebar-collapsed .extension-dock-left { display: none; }
+    .extension-dock-main { padding: 8px; }
+}
+
+.app-layout:not(.chat-route) .extension-dock-main { display: none; }
+
+.extension-workspace-status { position: fixed; bottom: 12px; right: 52px; z-index: 20; max-width: min(320px, 80vw); pointer-events: none; }

@@ -275,3 +275,5 @@ mod session_reads;
 mod sessions;
 mod sse;
 mod turns;
+
+mod workspace;

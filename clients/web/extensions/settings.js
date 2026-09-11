@@ -58,6 +58,14 @@ export function mountExtensionSettings(root, registry, services = {}) {
       checkbox.addEventListener('change', () => registry.update(record.id, { enabled: checkbox.checked }), { signal: rowSignal });
       label.append(text, checkbox); row.append(label);
       const actions = node('div', '', 'extension-actions');
+      const placement = node('select'); placement.setAttribute('aria-label', `Область: ${name}`);
+      placement.dataset.controlKey = `${record.id}:location`;
+      for (const [value, label] of [['left','Слева'],['right','Справа'],['main','В центре']]) {
+        const option = node('option', label); option.value = value; placement.append(option);
+      }
+      placement.value = record.location; placement.disabled = busy;
+      placement.addEventListener('change', () => registry.update(record.id, { location: placement.value }), { signal: rowSignal });
+      actions.append(placement);
       if (record.manifest?.settings) {
         const configure = button('Настроить', () => {
           close(); optionsId = record.id; options.hidden = false; optionsTitle.textContent = name;

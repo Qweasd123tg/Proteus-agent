@@ -10,7 +10,7 @@ pub(super) fn close_menus_on_outside_click(ev: MouseEvent) {
     for selector in [
         ".composer-access-menu[open]",
         ".composer-model-menu[open]",
-        ".topbar-menu[open]",
+        ".utility-menu[open]",
     ] {
         let Ok(Some(menu)) = document.query_selector(selector) else {
             continue;
@@ -29,7 +29,8 @@ pub(crate) fn dismiss_top_menu() -> bool {
     let Some(document) = window().and_then(|window| window.document()) else {
         return false;
     };
-    let Ok(Some(menu)) = document.query_selector(".composer-menu[open], .topbar-menu[open]") else {
+    let Ok(Some(menu)) = document.query_selector(".composer-menu[open], .utility-menu[open]")
+    else {
         return false;
     };
     let _ = menu.remove_attribute("open");

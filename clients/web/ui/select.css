@@ -1,0 +1,49 @@
+/* Shared by both clients and the extension Shadow DOM theme. */
+select:not([multiple]):not([size]) {
+    appearance: none;
+    -webkit-appearance: none;
+    min-height: 40px;
+    max-width: 100%;
+    padding: 9px 38px 9px 13px;
+    border: 1px solid var(--border-subtle, #333);
+    border-radius: 10px;
+    background-color: var(--bg-panel-soft, #252525);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='m4.5 6.5 3.5 3.5 3.5-3.5' fill='none' stroke='%23a3a3a3' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-position: right 12px center;
+    background-repeat: no-repeat;
+    background-size: 16px;
+    color: var(--text-main, #ededed);
+    font: 500 13px/1.4 var(--font-sans, system-ui);
+    text-overflow: ellipsis;
+    cursor: pointer;
+    transition: background-color .12s, border-color .12s, box-shadow .12s;
+}
+select:not([multiple]):not([size]):hover:not(:disabled) {
+    background-color: var(--bg-panel-hover, #2d2d2d);
+    border-color: var(--border-strong, #454545);
+}
+select:not([multiple]):not([size]):focus {
+    outline: none;
+    border-color: var(--text-muted, #a3a3a3);
+    box-shadow: 0 0 0 3px rgb(255 255 255 / 5%);
+}
+select:not([multiple]):not([size]):focus-visible {
+    outline: 2px solid var(--text-muted, #a3a3a3);
+    outline-offset: 2px;
+}
+select:not([multiple]):not([size]):disabled {
+    opacity: .45;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+select option, select optgroup {
+    background: var(--bg-panel-soft, #252525);
+    color: var(--text-main, #ededed);
+    font: inherit;
+}
+@media (prefers-reduced-motion: reduce) {
+    select:not([multiple]):not([size]) { transition: none; }
+}
+@media (forced-colors: active) {
+    select:not([multiple]):not([size]) { appearance: auto; background-image: none; }
+}

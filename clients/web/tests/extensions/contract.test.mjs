@@ -24,6 +24,8 @@ test('settings preserve explicit order and reject malformed or duplicate panels'
   const panel = { id: 'test', url: './test/extension.json', enabled: false, collapsed: true };
   const settings = { apiVersion: 1, panels: [panel, { ...panel, id: 'next', enabled: true }] };
   const parsed = parseSettings(settings, base);
+  assert.equal(parsed[0].location, 'right');
+  assert.throws(() => parseSettings({...settings, panels:[{...panel, location:'floating'}]}, base));
   assert.deepEqual(parsed.map(({ id, enabled }) => [id, enabled]), [['test', false], ['next', true]]);
   assert.equal(parsed[0].url, 'https://client.example/extensions/test/extension.json');
   for (const invalid of [{ ...settings, panels: [panel, panel] }, { ...settings, apiVersion: 0 }, { ...settings, panels: [{ ...panel, enabled: 'yes' }] }]) {

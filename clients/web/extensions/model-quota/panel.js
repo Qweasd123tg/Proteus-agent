@@ -1,3 +1,4 @@
+import { ring } from '../ring.js';
 import { duration, percent, remaining, resetLabel, timestamp } from './format.js';
 
 function element(tag, text, className) {
@@ -42,7 +43,9 @@ function render(snapshot, content) {
   }
 }
 
-export function mount({ root, services, signal }) {
+export function mount({ root, compact, services, signal }) {
+  const updateRing = ring(compact);
+  updateRing(null, 'Недельный лимит: нет данных');
   const style = element('style', `
     h3 { font-size: 13px; font-weight: 500; margin: 0 0 8px; overflow-wrap: anywhere; }
     .bucket + .bucket { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border-subtle, #333); }
@@ -76,10 +79,16 @@ export function mount({ root, services, signal }) {
       if (signal.aborted) return;
       content.replaceChildren();
       render(snapshot, content);
+      const weekly = snapshot?.buckets.flatMap(bucket => bucket.windows.map(window => ({bucket, window})))
+        .filter(({window}) => window.duration_seconds === 604800)
+        .sort((a,b) => b.window.used_percent - a.window.used_percent)[0];
+      const left = weekly ? remaining(weekly.window.used_percent) : null;
+      updateRing(left, weekly ? `Неделя: ${percent(left)} осталось · ${weekly.bucket.name || weekly.bucket.id} · ${resetLabel(weekly.window.resets_at)}` : 'Недельный лимит: нет данных');
       status.textContent = snapshot === null ? '' : `Данные на ${timestamp(snapshot.observed_at)}`;
     } catch (error) {
       if (signal.aborted) return;
       content.replaceChildren();
+      updateRing(null, 'Недельный лимит: ошибка обновления');
       status.className = 'error';
       status.textContent = `Не удалось получить лимиты: ${error.message}`;
     } finally {

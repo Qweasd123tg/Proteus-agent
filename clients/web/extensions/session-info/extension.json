@@ -1,0 +1,10 @@
+{
+  "apiVersion": 1,
+  "id": "session-info",
+  "name": "Сведения о сессии",
+  "description": "Модель, режим, проект и активность сессии",
+  "entry": "./panel.js",
+  "requires": [
+    "agent.session.read"
+  ]
+}

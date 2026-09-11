@@ -6,6 +6,7 @@ Run after trunk build and cargo build -p proteus-core -p proteus-reference-worke
 """
 import base64
 from extensions_checks import run as check_extensions
+from panel_checks import run as check_panels
 from layout_checks import run as check_layout
 from session_checks import run as check_session, BOOTSTRAP
 from queue_checks import run as check_queue
@@ -223,6 +224,8 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                 env = os.environ.copy()
                 env.pop('PROTEUS_CONFIG_PATH', None)
                 env.update(PATH=str(ROOT / 'target/debug') + ':' + env['PATH'], PROTEUS_CONFIG_HOME=str(folder / 'config'), XDG_CONFIG_HOME=str(folder / 'settings'), XDG_DATA_HOME=str(folder / 'data'))
+                (folder / 'preview-fixture').mkdir()
+                (folder / 'preview-fixture' / 'hello world.txt').write_text('<b>Привет</b>\nФайл только для чтения\n')
                 backend = subprocess.Popen([str(ROOT / 'target/debug/proteus'), '--config', str(config), '--cwd', str(folder), 'server', 'http', '--port', '0', '--token', 'extension-smoke', '--ready-stdout', '--allow-origin', web], env=env, stdout=subprocess.PIPE, stderr=backend_log, text=True, start_new_session=True)
                 origin = None
                 deadline = time.monotonic() + 40
@@ -258,6 +261,7 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     check_architecture(command, js, wait_for, web, origin)
                     return
                 check_extensions(command, js, wait_for, web, origin, loaded)
+                check_panels(command, js, wait_for)
                 check_usage(command, js, wait_for)
                 check_layout(command, js, wait_for)
                 screenshot = request(url + '/screenshot')['value']

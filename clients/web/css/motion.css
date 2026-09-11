@@ -1,27 +1,3 @@
-:root {
-    --panel-duration: 240ms;
-    --panel-easing: cubic-bezier(.22, 1, .36, 1);
-}
-
-@keyframes menu-reveal {
-    from { opacity: 0; transform: translateY(3px); }
-    to { opacity: 1; transform: none; }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-    /* Полная поверхность сохраняет ширину и выезжает вместе с содержимым.
-       Закрытая поверхность сразу inert; visibility скрывает её после движения. */
-    .sidebar-surface, .info-panel-surface {
-        transition: transform var(--panel-duration) var(--panel-easing), visibility 0s;
-    }
-    .app-layout.sidebar-collapsed .sidebar-surface,
-    .info-panel:not(.open) .info-panel-surface {
-        transition-delay: 0s, var(--panel-duration);
-    }
-    .sidebar-rail-surface, .info-panel-rail-surface { transition: opacity 140ms ease; }
-    .panel-backdrop { transition: opacity var(--panel-duration) ease, visibility 0s var(--panel-duration); }
-    .panel-backdrop.open { transition-delay: 0s; }
-    .topbar-menu[open] .topbar-menu-panel,
-    .composer-menu[open] .composer-menu-panel { animation: menu-reveal 140ms ease-out; }
-    .app-layout.resizing :is(.sidebar-surface, .info-panel-surface, .sidebar-rail-surface, .info-panel-rail-surface) { transition: none; }
-}
+/* Dock switching is immediate: existing content stays mounted. */
+.sidebar-surface, .info-panel-surface, .sidebar-rail-surface, .info-panel-rail-surface,
+.info-panel-body, .panel-backdrop { transition: none; }

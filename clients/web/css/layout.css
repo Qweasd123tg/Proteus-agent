@@ -85,11 +85,11 @@
 }
 
 /* Меню дополнительных действий. */
-.topbar-menu {
+.utility-menu {
     position: relative;
 }
 
-.topbar-menu summary {
+.utility-menu summary {
     display: flex;
     width: 30px;
     height: 30px;
@@ -105,17 +105,17 @@
         color 0.12s;
 }
 
-.topbar-menu summary::-webkit-details-marker {
+.utility-menu summary::-webkit-details-marker {
     display: none;
 }
 
-.topbar-menu summary:hover,
-.topbar-menu[open] summary {
+.utility-menu summary:hover,
+.utility-menu[open] summary {
     background: var(--bg-panel-soft);
     color: var(--text-main);
 }
 
-.topbar-menu-panel {
+.utility-menu-panel {
     position: absolute;
     top: calc(100% + 6px);
     right: 0;
@@ -130,7 +130,7 @@
     box-shadow: var(--shadow-md);
 }
 
-.topbar-menu-item {
+.utility-menu-item {
     display: flex;
     min-height: 0;
     justify-content: flex-start;
@@ -148,24 +148,24 @@
         color 0.12s;
 }
 
-.topbar-menu-item:hover {
+.utility-menu-item:hover {
     background: var(--bg-panel-soft);
     color: var(--text-main);
 }
 
-.topbar-menu-item.active {
+.utility-menu-item.active {
     color: var(--text-main);
 }
 
-button.topbar-menu-item.danger:not(:disabled) {
+button.utility-menu-item.danger:not(:disabled) {
     color: var(--accent-red);
 }
 
-button.topbar-menu-item.danger:not(:disabled):hover {
+button.utility-menu-item.danger:not(:disabled):hover {
     background: var(--accent-red-soft);
 }
 
-.topbar-menu-footer {
+.utility-menu-footer {
     margin-top: 4px;
     padding: 6px 10px 2px;
     border-top: 1px solid var(--border-subtle);

@@ -28,7 +28,7 @@ def run(command, js, wait_for):
     assert js("const root=" + shadow() + ";return root.querySelectorAll('.usage-request').length===2 && root.textContent.includes('Рассуждения') && root.textContent.includes('Пользовательский')"), 'Per-request details missing'
     js("document.querySelector('[data-extension-id=usage]').scrollIntoView({block:'start'})")
     Path('/tmp/proteus-usage-panel.png').write_bytes(base64.b64decode(command('/screenshot', None)))
-    js("document.querySelector('.topnav a[href=\"/context\"]').click()")
+    js("document.querySelector('.sidebar-footer a[href=\"/context\"]').click()")
     wait_for(lambda: js("return document.querySelector('.usage-details-host > div')?.shadowRoot?.querySelectorAll('.usage-request').length===2"), 'Context report did not load real journal')
     assert js("const root=document.querySelector('.usage-details-host > div').shadowRoot;return root.querySelector('.cost-total').textContent.includes('$0.000252') && root.querySelectorAll('.request-cell').length===10"), 'Context and sidebar reports disagree'
     js("const root=document.querySelector('.usage-details-host > div').shadowRoot;root.querySelector('.usage-request').open=true;document.querySelector('.context-usage-report').scrollIntoView({block:'start'})")

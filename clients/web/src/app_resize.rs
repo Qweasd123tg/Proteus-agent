@@ -138,7 +138,6 @@ impl AppResizeState {
     }
 
     pub(crate) fn begin_sidebar_resize(self, ev: MouseEvent) {
-        crate::ui_layout::cancel_layout_motion();
         ev.prevent_default();
         self.set_dragging_sidebar.set(true);
         self.set_resize_start_x.set(ev.client_x());
@@ -151,7 +150,6 @@ impl AppResizeState {
     }
 
     pub(crate) fn begin_info_resize(self, ev: MouseEvent) {
-        crate::ui_layout::cancel_layout_motion();
         ev.prevent_default();
         self.set_dragging_info.set(true);
         self.set_resize_start_x.set(ev.client_x());
@@ -163,7 +161,6 @@ impl AppResizeState {
     }
 
     pub(crate) fn begin_chat_resize(self, ev: MouseEvent) {
-        crate::ui_layout::cancel_layout_motion();
         ev.prevent_default();
         self.set_dragging_chat.set(true);
         self.set_resize_start_x.set(ev.client_x());
@@ -217,12 +214,12 @@ impl AppResizeState {
     }
 
     pub(crate) fn toggle_sidebar(self) {
-        crate::ui_layout::prepare_panel_motion(".sidebar");
+        crate::ui_layout::prepare_panel_focus(".sidebar");
         self.set_sidebar_collapsed.update(|value| *value = !*value);
     }
 
     pub(crate) fn toggle_info_panel(self) {
-        crate::ui_layout::prepare_panel_motion(".info-panel");
+        crate::ui_layout::prepare_panel_focus(".info-panel");
         self.set_info_open.update(|value| *value = !*value);
     }
 }

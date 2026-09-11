@@ -639,6 +639,16 @@ store; stdio остаётся привязанным к одной session пр�
   локальную историю по снимку в потоке; отдельный `/history` при reconnect
   не выполняется. Pending обновляется своей версионной подпиской;
 - `GET /config` - config summary явно адресованной session, включая её `session_dir`;
+- `GET /workspace/list?session_dir=<path>&path=<relative>` — каталог проекта
+  адресованной live-сессии: `path`, `entries` (`name`, `path`, `kind`) и `truncated`.
+  Максимум 1000 элементов, каталоги идут первыми. `kind` различает `directory`,
+  `file`, `symlink`, `special`.
+- `GET /workspace/file?session_dir=<path>&path=<relative>` — предпросмотр:
+  `path`, размер `size` в байтах, `kind: text | binary | too_large`, `text` либо
+  `null`. Текст — UTF-8 без NUL, максимум 512 КиБ. Оба чтения требуют обычной
+  HTTP-аутентификации и явного `session_dir`; абсолютные пути, `..`, неизвестные
+  query fields и выход через ссылку за пределы проекта отклоняются. Это
+  read-only API клиента; запись и запуск agent tools здесь отсутствуют.
 - `GET /model/quota` — provider-neutral `ModelQuotaSnapshot` текущего model
   export или JSON `null`, если чтение квоты не поддержано. Требует обычной
   авторизации app-server. Ошибка lookup/validation возвращает HTTP 502 с

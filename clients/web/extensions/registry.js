@@ -23,7 +23,7 @@ export function createExtensionRegistry(options = {}) {
   const emit = () => { if (!controller.signal.aborted) for (const listener of listeners) listener(); };
   function save() {
     try {
-      store.write(records.map(({ id, url, enabled, collapsed }) => ({ id, url, enabled, collapsed })));
+      store.write(records.map(({ id, url, enabled, collapsed, location }) => ({ id, url, enabled, collapsed, location })));
       notice = '';
     } catch { notice = 'Изменения действуют до закрытия: не удалось сохранить настройки.'; }
     emit();
@@ -72,6 +72,7 @@ export function createExtensionRegistry(options = {}) {
       if (!record) return;
       if (typeof change.enabled === 'boolean') record.enabled = change.enabled;
       if (typeof change.collapsed === 'boolean') record.collapsed = change.collapsed;
+      if (['left', 'right', 'main'].includes(change.location)) record.location = change.location;
       save();
     },
     move(id, step) {
@@ -96,7 +97,7 @@ export function createExtensionRegistry(options = {}) {
         const manifest = parseManifest(response.value, response.url);
         if (controller.signal.aborted) return false;
         if (records.some(record => record.id === manifest.id)) throw new Error(`Расширение ${manifest.id} уже добавлено`);
-        records.push({ id: manifest.id, url, manifest, enabled: true, collapsed: false });
+        records.push({ id: manifest.id, url, manifest, enabled: true, collapsed: false, location: 'right' });
         save(); return true;
       } catch (error) { notice = `Не удалось добавить расширение: ${error.message}`; return false; }
       finally { busy = false; emit(); }

@@ -49,6 +49,7 @@ pub(crate) fn ModuleConfigEditor(
     view! {
         <details class="config-builder-field config-editor">
             <summary class="config-editor-head">
+                <svg class="config-editor-gear" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M9.81,5.25 L9.98,2.51 L14.02,2.51 L14.19,5.25 L15.22,5.67 L17.28,3.86 L20.14,6.72 L18.33,8.78 L18.75,9.81 L21.49,9.98 L21.49,14.02 L18.75,14.19 L18.33,15.22 L20.14,17.28 L17.28,20.14 L15.22,18.33 L14.19,18.75 L14.02,21.49 L9.98,21.49 L9.81,18.75 L8.78,18.33 L6.72,20.14 L3.86,17.28 L5.67,15.22 L5.25,14.19 L2.51,14.02 L2.51,9.98 L5.25,9.81 L5.67,8.78 L3.86,6.72 L6.72,3.86 L8.78,5.67 Z"/><circle cx="12" cy="12" r="3.1"/></svg>
                 <span>"Параметры" {move || parsed.get().ok().filter(|v| !v.is_empty()).map(|v| format!(" · {}", v.len())).unwrap_or_default()}</span>
                 <button
                     type="button"

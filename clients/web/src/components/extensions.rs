@@ -7,7 +7,7 @@ pub(crate) fn ExtensionsView(active_session_dir: ReadSignal<Option<String>>) -> 
     let root = NodeRef::<leptos::html::Div>::new();
     #[cfg(target_arch = "wasm32")]
     browser::attach(root, active_session_dir, false);
-    view! { <div class="extension-host" node_ref=root aria-label="Панели расширений"></div> }
+    view! { <div class="extension-host extension-workspace-status" node_ref=root aria-label="Панели расширений"></div> }
 }
 
 #[component]
@@ -49,6 +49,7 @@ mod browser {
             read_config: &js_sys::Function,
             read_quota: &js_sys::Function,
             read_usage: &js_sys::Function,
+            read_workspace: &js_sys::Function,
         ) -> Result<js_sys::Function, JsValue>;
         #[wasm_bindgen(js_name = mountUsageDetails, catch)]
         fn mount_usage(
@@ -88,14 +89,35 @@ mod browser {
         })
     }
 
+    fn workspace_reader(
+        session: String,
+    ) -> Closure<dyn Fn(String, web_sys::AbortSignal) -> js_sys::Promise> {
+        Closure::<dyn Fn(String, web_sys::AbortSignal) -> js_sys::Promise>::new(
+            move |path: String, signal| {
+                let path = format!(
+                    "{}&session_dir={}",
+                    path,
+                    js_sys::encode_uri_component(&session)
+                );
+                wasm_bindgen_futures::future_to_promise(async move {
+                    crate::api::get_text_with_signal(&path, Some(&signal))
+                        .await
+                        .map(JsValue::from)
+                        .map_err(|error| js_sys::Error::new(&error).into())
+                })
+            },
+        )
+    }
+
     pub(super) fn attach(
         root: NodeRef<leptos::html::Div>,
         session_dir: ReadSignal<Option<String>>,
         details: bool,
     ) {
+        let session_key = Memo::new(move |_| session_dir.get());
         Effect::new(move |_| {
             let Some(element) = root.get() else { return };
-            let Some(session_dir) = session_dir.get() else {
+            let Some(session_dir) = session_key.get() else {
                 return;
             };
             let path = crate::api::session_path("/usage", &session_dir);
@@ -103,8 +125,9 @@ mod browser {
                 reader(crate::api::session_path("/config", &session_dir)),
                 reader(crate::api::session_path("/model/quota", &session_dir)),
                 reader(path),
+                workspace_reader(session_dir),
             ));
-            let mounted = readers.with_value(|(config, quota, usage)| {
+            let mounted = readers.with_value(|(config, quota, usage, workspace)| {
                 if details {
                     return mount_usage(element.as_ref(), usage.as_ref().unchecked_ref());
                 }
@@ -113,6 +136,7 @@ mod browser {
                     config.as_ref().unchecked_ref(),
                     quota.as_ref().unchecked_ref(),
                     usage.as_ref().unchecked_ref(),
+                    workspace.as_ref().unchecked_ref(),
                 )
             });
             match mounted {

@@ -82,7 +82,7 @@ def check_selection(command, js, wait_for):
     wait_for(lambda: js("return !document.querySelector('.composer-submit').disabled"), 'Second session draft not ready')
     js("document.querySelector('.composer-submit').click()")
     wait_for(lambda: js("return document.querySelector('.results-panel').textContent.includes('Абзац 31:') && !document.querySelector('.composer-stop')"), 'Second session did not finish')
-    js("document.querySelector('.topnav a[href=\"/context\"]').click()")
+    js("document.querySelector('.sidebar-footer a[href=\"/context\"]').click()")
     root = "document.querySelector('.usage-details-host > div')?.shadowRoot"
     wait_for(lambda: js(f"return {root}?.querySelectorAll('.usage-request').length===1"), 'Second session report not shown')
     wait_for(lambda: js("return [...document.querySelector('#analysis-session').options].some(item=>item.value===" + json.dumps(original) + ")"), 'Original session missing from selector')
@@ -94,6 +94,6 @@ def check_selection(command, js, wait_for):
     assert js("return document.querySelector('#analysis-session').value===" + json.dumps(original) + " && new URL(location.href).searchParams.get('session_dir')===" + json.dumps(second)), 'Reload conflated active and inspected session'
     js("document.querySelector('.analysis-open-chat').click()")
     wait_for(lambda: js("return !!document.querySelector('.composer textarea') && new URL(location.href).searchParams.get('session_dir')===" + json.dumps(original)), 'Open dialogue did not resume the inspected session')
-    js("document.querySelector('.topnav a[href=\"/context\"]').click()")
+    js("document.querySelector('.sidebar-footer a[href=\"/context\"]').click()")
     wait_for(lambda: js(f"return {root}?.querySelectorAll('.usage-request').length===2"), 'Original analysis did not reopen')
     print('PASS: independent analysis of two real sessions; reload retains inspected session; open dialogue resumes the inspected chat', flush=True)

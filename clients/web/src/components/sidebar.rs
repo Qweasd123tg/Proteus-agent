@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 use web_sys::MouseEvent;
 
+mod footer;
 mod header;
 use crate::session::summaries::{
     sidebar_session_activity_dot_class, sidebar_session_activity_label, sidebar_session_preview,
@@ -8,6 +9,7 @@ use crate::session::summaries::{
 };
 use crate::types::*;
 use crate::ui_utils::relative_time_from_now;
+pub(crate) use footer::SidebarFooter;
 use header::SidebarHeader;
 
 /// Сколько сессий помещается в рейку свёрнутого сайдбара.
@@ -76,6 +78,7 @@ pub(crate) fn SidebarView<R, N, T, B, O, D>(
     on_begin_resize: B,
     on_open_session: O,
     on_delete_session: D,
+    children: Children,
 ) -> impl IntoView
 where
     R: Fn(MouseEvent) + Copy + 'static,
@@ -85,12 +88,13 @@ where
     O: Fn(SessionSummary) + Copy + Send + 'static,
     D: Fn(SessionSummary) + Copy + Send + 'static,
 {
+    let (extensions_open, set_extensions_open) = signal(false);
     let (query, set_query) = signal(String::new());
     view! {
         // Состояние рейки задаёт CSS; выбранная ширина сохраняется для раскрытия.
-        <aside class="sidebar" style=move || format!("--sidebar-width: {}px", sidebar_width.get())>
+        <aside class="sidebar" class:extensions-open=extensions_open style=move || format!("--sidebar-width: {}px", sidebar_width.get())>
             <div class="sidebar-surface" inert=move || sidebar_collapsed.get().then_some("")>
-            <SidebarHeader collapsed=sidebar_collapsed show_title=true on_toggle on_refresh on_new_session />
+            <SidebarHeader collapsed=sidebar_collapsed on_toggle on_refresh on_new_session />
             <div class="sidebar-search">
                 <input
                     type="text"
@@ -274,6 +278,12 @@ where
             </div>
 
             </div>
+            <nav class="sidebar-view-tabs" aria-label="Представление слева">
+                <button class:active=move || !extensions_open.get() on:click=move |_| set_extensions_open.set(false)>"Чаты"</button>
+                <button class:active=extensions_open on:click=move |_| set_extensions_open.set(true)>"Панели"</button>
+            </nav>
+            <div class="extension-host extension-dock-left" data-extension-location="left"></div>
+            {children()}
             <div
                 class="sidebar-resize-handle"
                 aria-hidden="true"

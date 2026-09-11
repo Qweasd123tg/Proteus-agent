@@ -3,9 +3,6 @@ use web_sys::MouseEvent;
 
 use crate::types::*;
 
-/// Пороги (в процентах) для смены цвета дуги: норма → внимание → критично.
-const CONTEXT_RING_CRIT_PERCENT: u8 = 90;
-
 #[component]
 pub(crate) fn ToastStack<F>(toasts: ReadSignal<Vec<ToastMessage>>, on_dismiss: F) -> impl IntoView
 where
@@ -93,56 +90,6 @@ pub(crate) fn WorkingCard(status: ReadSignal<String>) -> impl IntoView {
                 </span>
             </div>
         </article>
-    }
-}
-
-/// Бублик заполнения контекстного окна (рейка инфо-панели): дуга открывает
-/// круговой градиент зелёный → жёлтый → красный по мере наполнения, метка
-/// порога автокомпакта — приглушённый штрих на дуге; процент и токены — в
-/// title при наведении, в красной зоне дуга подсвечивается.
-/// На старте использует последний сохранённый снимок, если текущая сессия
-/// ещё не прислала свежий `TokenUsageUpdated`.
-#[component]
-pub(crate) fn ContextRing(usage: ReadSignal<Option<ContextUsage>>) -> impl IntoView {
-    move || {
-        let Some(context) = usage.get() else {
-            return ().into_any();
-        };
-        let percent = context.percent();
-        let degrees = f64::from(percent) / 100.0 * 360.0;
-        // Метку автокомпакта рисуем только когда сервер прислал порог.
-        let compaction_percent = context.compaction_percent();
-        let mut style = format!("--context-ring-deg: {degrees:.1}deg");
-        let mut title = format!(
-            "Контекст: {percent}% · {} / {} токенов",
-            format_token_count(context.used_tokens),
-            format_token_count(context.max_tokens),
-        );
-        if let (Some(mark_percent), Some(trigger_tokens)) =
-            (compaction_percent, context.compaction_trigger_tokens)
-        {
-            let mark_degrees = f64::from(mark_percent) / 100.0 * 360.0;
-            style.push_str(&format!("; --context-ring-mark-deg: {mark_degrees:.1}deg"));
-            title.push_str(&format!(
-                " · автокомпакт при {mark_percent}% (~{})",
-                format_token_count(trigger_tokens),
-            ));
-        }
-        let mut class = "context-ring".to_owned();
-        if compaction_percent.is_some() {
-            class.push_str(" context-ring-has-mark");
-        }
-        if percent >= CONTEXT_RING_CRIT_PERCENT {
-            class.push_str(" context-ring-crit");
-        }
-        view! {
-            <div
-                class=class
-                style=style
-                aria-label=title
-            ></div>
-        }
-        .into_any()
     }
 }
 

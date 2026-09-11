@@ -41,7 +41,7 @@
 | HTTP/session | handler unit | reconnect/cold history | auth/SSE smoke |
 | ACP/editor transport | input/projection unit | реальный stdio prompt/approval/cancel/EOF + cold history | workflow replay Success, `module_swap`, workspace gate |
 | Inspector/web | Rust unit | `trunk build` | browser smoke при UX change |
-| UI extensions | Node contract/lifecycle tests | `trunk build` + реальный browser/agent API | внешний пакет без пересборки, автономный host, отключение/сворачивание, управление из Settings без исполнения entry, сохранение/откат настроек, layout/resize smoke; [команды](../guides/ui-extensions.md#проверка) |
+| UI extensions | Node contract/lifecycle tests | `trunk build` + реальный browser/agent API | внешний пакет без пересборки, автономный host, отключение/сворачивание, открытие Settings без перезапуска панелей, отдельный settings entry по действию, сохранение/откат настроек, перенос по областям с сохранением DOM, компактные индикаторы, layout/resize smoke; [команды](../guides/ui-extensions.md#проверка) |
 | Desktop launch/package | desktop Rust unit | packaged backend readiness/auth/cold history/shutdown | release portable build + native window smoke; команды в [desktop.md](../guides/desktop.md) |
 | Docs only | link/config inspection | обычно не нужен | `cargo test --workspace` |
 

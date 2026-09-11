@@ -226,7 +226,7 @@ pub(super) async fn server_for_query(
     server_for_session(state, required_session_query(query)?).await
 }
 
-fn percent_decode_query_value(value: &str) -> Result<String> {
+pub(super) fn percent_decode_query_value(value: &str) -> Result<String> {
     let bytes = value.as_bytes();
     let mut decoded = Vec::with_capacity(bytes.len());
     let mut index = 0;

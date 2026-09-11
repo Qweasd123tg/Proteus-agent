@@ -1,9 +1,57 @@
 {
   "apiVersion": 1,
   "panels": [
-    { "id": "agent-info", "url": "./agent-info/extension.json", "enabled": true, "collapsed": false },
-    { "id": "notes", "url": "./notes/extension.json", "enabled": false, "collapsed": false },
-    { "id": "model-quota", "url": "./model-quota/extension.json", "enabled": true, "collapsed": false },
-    { "id": "usage", "url": "./usage/extension.json", "enabled": true, "collapsed": false }
+    {
+      "id": "files",
+      "url": "./files/extension.json",
+      "enabled": true,
+      "collapsed": false,
+      "location": "left"
+    },
+    {
+      "id": "plan",
+      "url": "./plan/extension.json",
+      "enabled": true,
+      "collapsed": false,
+      "location": "right"
+    },
+    {
+      "id": "context",
+      "url": "./context/extension.json",
+      "enabled": true,
+      "collapsed": true,
+      "location": "right"
+    },
+    {
+      "id": "session-info",
+      "url": "./session-info/extension.json",
+      "enabled": true,
+      "collapsed": true,
+      "location": "right"
+    },
+    {
+      "id": "agent-info",
+      "url": "./agent-info/extension.json",
+      "enabled": true,
+      "collapsed": false
+    },
+    {
+      "id": "notes",
+      "url": "./notes/extension.json",
+      "enabled": false,
+      "collapsed": false
+    },
+    {
+      "id": "model-quota",
+      "url": "./model-quota/extension.json",
+      "enabled": true,
+      "collapsed": false
+    },
+    {
+      "id": "usage",
+      "url": "./usage/extension.json",
+      "enabled": true,
+      "collapsed": false
+    }
   ]
 }

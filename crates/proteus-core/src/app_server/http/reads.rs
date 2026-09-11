@@ -34,6 +34,25 @@ async fn read(state: &HttpAppState, path: &str, query: Option<&str>) -> Result<H
         "/history" => json_response(StatusCode::OK, &history_json(state, query).await?),
         "/context" => json_response(StatusCode::OK, &context_map_json(state, query).await?),
         "/usage" => json_response(StatusCode::OK, &usage_json(state, query).await?),
+        "/workspace/list" | "/workspace/file" => {
+            let server = server_for_query(state, query).await?;
+            let root = server.cwd_path().to_path_buf();
+            let relative = super::workspace::query_path(query)?;
+            let listing = path == "/workspace/list";
+            let value = tokio::task::spawn_blocking(move || -> Result<serde_json::Value> {
+                if listing {
+                    Ok(serde_json::to_value(super::workspace::list(
+                        &root, relative,
+                    )?)?)
+                } else {
+                    Ok(serde_json::to_value(super::workspace::read(
+                        &root, relative,
+                    )?)?)
+                }
+            })
+            .await??;
+            json_response(StatusCode::OK, &value)
+        }
         "/events"
         | "/config"
         | "/config/builder"

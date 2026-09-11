@@ -1,0 +1,10 @@
+{
+  "apiVersion": 1,
+  "id": "context",
+  "name": "Контекст",
+  "description": "Заполнение контекста и порог автокомпакта",
+  "entry": "./panel.js",
+  "requires": [
+    "agent.session.read"
+  ]
+}

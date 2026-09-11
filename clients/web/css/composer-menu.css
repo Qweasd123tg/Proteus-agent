@@ -2,11 +2,13 @@
 .composer-menu-trigger {
     display: flex;
     align-items: center;
-    gap: 6px;
-    min-height: 32px;
+    gap: 8px;
+    min-height: 34px;
     min-width: 0;
-    padding: 4px 8px;
-    border-radius: 8px;
+    padding: 5px 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 9px;
+    background: var(--bg-panel-soft);
     color: var(--text-muted);
     cursor: pointer;
     list-style: none;
@@ -14,7 +16,7 @@
 }
 .composer-menu-trigger::-webkit-details-marker { display: none; }
 .composer-menu-trigger:hover,
-.composer-menu[open] .composer-menu-trigger { background: var(--bg-panel-hover); color: var(--text-main); }
+.composer-menu[open] .composer-menu-trigger { background: var(--bg-panel-hover); border-color: var(--border-strong); color: var(--text-main); }
 .composer-menu-trigger svg { flex: none; }
 .composer-menu-trigger svg:last-child { transition: transform 140ms; }
 .composer-menu[open] .composer-menu-trigger svg:last-child { transform: rotate(180deg); }
@@ -34,8 +36,9 @@
     overflow: auto;
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-card);
-    background: var(--bg-panel);
-    box-shadow: var(--shadow-lg);
+    background: var(--bg-root);
+    box-shadow: var(--shadow-md);
+    padding: 5px;
     z-index: 20;
 }
 .composer-model-menu .composer-menu-panel { left: auto; right: 10px; }
@@ -44,7 +47,7 @@
     display: grid;
     gap: var(--space-2);
     border-bottom: 1px solid var(--border-subtle);
-    padding: var(--space-3);
+    padding: 10px;
 }
 
 .composer-menu-section:last-child {
@@ -104,11 +107,12 @@
 /* Строчный пункт списка: без рамки, активный помечен галкой. */
 .menu-option-row {
     width: 100%;
+    min-height: 42px;
     justify-content: space-between;
     gap: var(--space-3);
     border-color: transparent;
     background: transparent;
-    padding: 5px var(--space-2);
+    padding: 9px 10px;
     text-align: left;
     white-space: normal;
 }
@@ -121,7 +125,7 @@
 
 .menu-option-row.active {
     border-color: transparent;
-    background: var(--bg-panel-soft);
+    background: var(--bg-panel-hover);
 }
 
 .menu-option-row:disabled {

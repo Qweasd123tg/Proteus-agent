@@ -1,0 +1,10 @@
+{
+  "apiVersion": 1,
+  "id": "files",
+  "name": "Файлы",
+  "description": "Дерево проекта и просмотр текстовых файлов",
+  "entry": "./panel.js",
+  "requires": [
+    "agent.workspace.read"
+  ]
+}

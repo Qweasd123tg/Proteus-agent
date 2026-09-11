@@ -29,30 +29,14 @@ def run(command, js, wait_for):
                     if(now-start<360) requestAnimationFrame(frame);
                     else done({widths:[...new Set(widths)],surfaces:[...new Set(surfaces)],positions:[...new Set(positions)],maxFrameMs:Math.max(...gaps)});
                 }
-                requestAnimationFrame(now => {
-                    // Software rendering may skip an entire short transition
-                    // between samples. Inspect a real intermediate animation
-                    // frame explicitly, then let normal playback finish.
-                    getComputedStyle(surface).transform;
-                    const slide=surface.getAnimations().find(a=>a.transitionProperty==='transform');
-                    if(slide) {
-                        positions.push(Math.round(surface.getBoundingClientRect().x));
-                        slide.pause(); slide.currentTime=slide.effect.getTiming().duration/2;
-                        positions.push(Math.round(surface.getBoundingClientRect().x));
-                        slide.play();
-                    }
-                    frame(now);
-                });
+                requestAnimationFrame(frame);
             """, 'args': [selector]})
             print('PANEL_REFLOW', selector, json.dumps(result), flush=True)
             assert len(result['widths']) <= 2, 'Panel animates layout width across frames'
-            assert len(result['surfaces']) == 1, 'Panel content changes width during slide'
-            if not js("return matchMedia('(prefers-reduced-motion: reduce)').matches"):
-                assert len(result['positions']) > 2, 'Panel surface did not slide'
-            else:
-                assert len(result['positions']) <= 2, 'Panel ignores reduced-motion preference'
+            assert len(result['surfaces']) == 1, 'Panel content changes width during toggle'
+            assert len(result['positions']) <= 2, 'Panel switch must be immediate'
             assert js("return document.activeElement.matches('[data-panel-toggle]') && !document.activeElement.closest('[inert]')"), 'Focus was lost inside the hidden panel'
-    # Reverse the transition before it finishes; no stale transforms may remain.
+    # Rapid reversals must not leave transforms or stale focus.
     command('/execute/async', {'script': r"""
         const done=arguments[arguments.length-1];
         const toggle=()=>[...document.querySelectorAll('.info-panel [data-panel-toggle]')].find(b=>!b.closest('[inert]')).click();
