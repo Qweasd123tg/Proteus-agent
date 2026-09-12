@@ -635,7 +635,7 @@ fn default_tool_input_schema() -> serde_json::Value {
 }
 
 fn default_mcp_protocol_version() -> String {
-    "2025-06-18".to_owned()
+    rmcp::model::ProtocolVersion::default().to_string()
 }
 
 fn default_mcp_discovered_tool_safety() -> crate::domain::ToolSafety {
