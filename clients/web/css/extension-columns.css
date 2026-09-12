@@ -7,7 +7,7 @@
 .extension-column .extension-panel-toggle { width: 24px; flex-basis: 24px; }
 .extension-column.collapsed { width: 40px; min-width: 40px; flex: 0 0 40px; }
 .extension-column.collapsed .extension-panel-header { padding: 5px 4px; }
-.extension-column.collapsed :is(.extension-panel-title,.extension-placement,.extension-panel-reveal,.extension-column-resize) { display: none; }
+.extension-column.collapsed :is(.extension-panel-title,.extension-panel-reveal,.extension-column-resize) { display: none; }
 .extension-column-resize { position: absolute; top: 0; bottom: 0; right: 0; width: 5px; cursor: col-resize; touch-action: none; z-index: 3; }
 .extension-column[data-location=right] > .extension-column-resize { right: auto; left: 0; }
 .extension-column-resize:hover, .extension-column-resize:focus-visible, .extension-column.resizing > .extension-column-resize { background: var(--accent-blue); outline: none; }

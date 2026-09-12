@@ -14,6 +14,22 @@ def run(command, js, wait_for):
     def column(id):
         return f"document.querySelector('aside.extension-column[data-column-id=\"{id}\"]')"
 
+    def pointer(expression, button=0):
+        x, y = js(f"const r=({expression}).getBoundingClientRect();return [Math.round(r.x+r.width/2),Math.round(r.y+r.height/2)]")
+        command('/actions', {'actions': [{'type': 'pointer', 'id': 'panel-menu-pointer', 'parameters': {'pointerType': 'mouse'}, 'actions': [
+            {'type': 'pointerMove', 'duration': 0, 'origin': 'viewport', 'x': x, 'y': y},
+            {'type': 'pointerDown', 'button': button}, {'type': 'pointerUp', 'button': button}]}]})
+
+    def keys(*values):
+        command('/actions', {'actions': [{'type': 'key', 'id': 'panel-menu-keyboard', 'actions': [
+            action for value in values for action in ({'type': 'keyDown', 'value': value}, {'type': 'keyUp', 'value': value})]}]})
+
+    menu = "document.querySelector('.extension-context-menu')"
+    def open_menu(expression):
+        pointer(expression, 2)
+        wait_for(lambda: js(f"return !!{menu} && {menu}.matches(':popover-open') && document.activeElement==={menu}"), 'Right click did not open and focus panel menu')
+        assert js(f"const r={menu}.getBoundingClientRect();return r.left>=0 && r.top>=0 && r.right<=innerWidth && r.bottom<=innerHeight"), 'Context menu is clipped by the viewport'
+
     command('/window/rect', {'width': 1920, 'height': 1000})
     files, preview = shadow('files'), shadow('files:preview')
     wait_for(lambda: js(f"return !!{files}?.querySelector('.file')"), 'File tree did not load')
@@ -61,18 +77,37 @@ def run(command, js, wait_for):
     js(f"window.keptFiles={card('files')};window.keptPreview={card('files:preview')};window.keptQuota={card('model-quota')};window.extensionMutations=0;window.extensionObserver=new MutationObserver(records=>window.extensionMutations+=records.filter(r=>[...r.removedNodes].includes(window.keptQuota)).length);window.extensionObserver.observe(document.querySelector('[data-extension-location=right]'),{{childList:true,subtree:true}})")
 
     def move(location):
-        js(f"const select=window.keptFiles.querySelector('.extension-placement');select.value={json.dumps(location)};select.dispatchEvent(new Event('change'))")
+        open_menu("window.keptFiles.querySelector('.extension-panel-title')")
+        pointer(f"{menu}.querySelector('[data-location={location}]')")
         wait_for(lambda: js(f"return document.querySelector('[data-extension-columns={location}] aside[data-column-id=\"files\"] [data-extension-id=\"files\"]')===window.keptFiles"), 'Moving panel replaced the instance')
         assert js(f"return {card('files:preview')}===window.keptPreview && {preview}.querySelector('pre').textContent.includes('<b>Привет</b>')"), 'Moving tree remounted its preview'
+        assert js(f"return !{menu} && JSON.parse(localStorage.getItem('proteus.ui.extensions')).panels.find(p=>p.id==='files').location==={json.dumps(location)}"), 'Context menu did not close or persist placement'
 
+    assert js("return !document.querySelector('.extension-panel-header select')"), 'Panel still has a separate placement button'
     assert js("return getComputedStyle(window.keptChat).display!=='none'"), 'File column replaced chat'
     js("window.keptFiles.querySelector('.extension-panel-title').click()")
     assert js("return document.getAnimations().some(a=>a.id==='extension-column')") != js("return matchMedia('(prefers-reduced-motion: reduce)').matches"), 'Column animation does not match motion preference'
     assert js(f"return {column('files')}.classList.contains('collapsed') && {column('files')}.getBoundingClientRect().width<=48"), 'Column did not collapse to a compact rail'
+    open_menu("window.keptFiles.querySelector('.extension-compact')")
+    assert js(f"return {column('files')}.classList.contains('collapsed') && {menu}.querySelector('[data-location=left]').getAttribute('aria-checked')==='true'"), 'Right click expanded the panel or lost current placement'
+    Path('/tmp/proteus-panel-context-menu.png').write_bytes(base64.b64decode(command('/screenshot', None)))
+    keys('\ue00c')  # Escape returns focus without changing state.
+    assert js(f"return !{menu} && document.activeElement===window.keptFiles.querySelector('.extension-compact')"), 'Escape did not return focus to the compact icon'
     assert js("return getComputedStyle(window.keptChat).display!=='none'"), 'Collapsing column hid chat'
     js("window.keptFiles.querySelector('.extension-compact').click()")
     assert js(f"return !{column('files')}.classList.contains('collapsed') && {column('files')}.getBoundingClientRect().width>=200"), 'Compact control did not restore column'
     move('right'); move('left')
+    js("window.keptFiles.querySelector('.extension-panel-title').focus()")
+    command('/actions', {'actions': [{'type': 'key', 'id': 'panel-menu-keyboard', 'actions': [
+        {'type': 'keyDown', 'value': '\ue008'}, {'type': 'keyDown', 'value': '\ue03a'},
+        {'type': 'keyUp', 'value': '\ue03a'}, {'type': 'keyUp', 'value': '\ue008'}]}]})  # Shift+F10.
+    wait_for(lambda: js(f"return !!{menu}"), 'Shift+F10 did not open the panel menu')
+    keys('\ue015', '\ue007')  # ArrowDown, Enter.
+    assert js(f"return !{menu} && {column('files')}.dataset.location==='right'"), 'Keyboard placement failed'
+    move('left')
+    open_menu("window.keptFiles.querySelector('.extension-panel-title')")
+    pointer("document.querySelector('.composer textarea')")
+    assert js(f"return !{menu}"), 'Outside click left an orphan panel menu'
     js(f"window.columnBefore={column('files')}.getBoundingClientRect().width;window.previewBefore={column('files:preview')}.getBoundingClientRect().width")
     point = js(f"const r={column('files')}.querySelector('.extension-column-resize').getBoundingClientRect();return {{x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}}")
     command('/actions', {'actions': [{'type': 'pointer', 'id': 'column-mouse', 'parameters': {'pointerType': 'mouse'}, 'actions': [
@@ -107,6 +142,9 @@ def run(command, js, wait_for):
     assert js("return document.querySelector('[data-extension-id=model-quota] .extension-compact').getBoundingClientRect().width>0"), 'Compact extension hidden in rail'
     js("document.querySelector('[data-extension-id=model-quota] .extension-compact').click()")
     wait_for(lambda: js("return !!document.querySelector('.info-panel.open')"), 'Compact view did not open its dock')
+    open_menu("window.keptQuota.querySelector('.extension-compact')")
+    assert js(f"return {menu}.querySelector('[data-location=right]').getAttribute('aria-checked')==='true'"), 'Widget context menu lost placement'
+    keys('\ue00c')
     js(f"{preview}.querySelector('.close').click()")
     assert js(f"return {preview}.querySelectorAll('[role=tab]').length===0"), 'Last preview tab did not close'
     js(f"[...{files}.querySelectorAll('.file')].find(row=>row.querySelector('.label').textContent==='hello world.txt').click()")
@@ -114,8 +152,11 @@ def run(command, js, wait_for):
     assert js(f"return {card('files:preview')}===window.keptPreview"), 'Reopening preview remounted pane'
     js("document.querySelector('.settings-link').click()")
     wait_for(lambda: js("return !!document.querySelector('[data-extension-choice=files] input')"), 'File extension settings missing')
+    js("window.keptPreview.querySelector('.extension-panel-header').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2}))")
+    assert js(f"return !!{menu}"), 'Owned preview has no context menu'
     js("document.querySelector('[data-extension-choice=files] input').click()")
     wait_for(lambda: js("return !window.keptFiles.isConnected && !window.keptPreview.isConnected"), 'Disabling Files did not detach owner and preview')
+    assert js(f"return !{menu}"), 'Disabled owner left its preview context menu mounted'
     assert js(f"return !{card('files')} && !{card('files:preview')}"), 'Disabled file panes remained mounted'
     js("document.querySelector('[data-extension-choice=files] input').click()")
     wait_for(lambda: js(f"return !!{files}?.querySelector('.file') && {card('files')}!==window.keptFiles"), 'Re-enabling Files did not mount a fresh tree')

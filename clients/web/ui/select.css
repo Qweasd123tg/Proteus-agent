@@ -8,7 +8,7 @@
 }
 .select-picker-option { position: relative; padding: 7px 30px 7px 10px; border-radius: 6px; cursor: pointer; overflow-wrap: anywhere; }
 .select-picker-option.focused { background: var(--bg-hover, #383838); }
-.select-picker-option[aria-selected=true]::after { content: '✓'; position: absolute; right: 10px; color: var(--text-main, #ededed); }
+.select-picker-option:is([aria-selected=true], [aria-checked=true])::after { content: '✓'; position: absolute; right: 10px; color: var(--text-main, #ededed); }
 .select-picker-option[aria-disabled=true] { opacity: .4; cursor: default; }
 .select-picker-option[hidden] { display: none; }
 .select-picker-group { padding: 6px 10px 3px; color: var(--text-muted, #aaa); font-size: 11px; }

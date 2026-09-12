@@ -5,15 +5,12 @@
 .extension-panel-title > span:first-child { flex: 1; }
 .extension-panel-toggle { flex-basis: 18px; height: 18px; background: none; font-size: 14px; }
 .extension-compact { flex: 0 0 30px; height: 32px; padding: 0; display: grid; place-items: center; border: 0; }
-.extension-panel-header .extension-placement:not([multiple]):not([size]) { width: 28px; flex: 0 0 28px; min-height: 28px; padding: 3px; font-size: 0; color: transparent; background-position: right 8px center; background-size: 10px; }
-.extension-placement { display: block; }
-.extension-placement option { font-size: 12px; color: var(--text-main); }
 .extension-dock-right, .extension-dock-left { position: absolute; z-index: 1; display: grid; align-content: start; gap: 10px; padding: 12px; overflow-y: auto; }
 .extension-dock-right { inset: var(--topbar-height) 0 0; }
 .info-panel:not(.open) .extension-dock-right { padding: 8px 4px; }
 .info-panel:not(.open) .extension-dock-right .extension-panel { border: 0; background: none; overflow: visible; }
 .info-panel:not(.open) .extension-dock-right .extension-panel-header { padding: 0; }
-.info-panel:not(.open) .extension-dock-right :is(.extension-panel-title,.extension-placement,.extension-panel-reveal) { display: none; }
+.info-panel:not(.open) .extension-dock-right :is(.extension-panel-title,.extension-panel-reveal) { display: none; }
 .sidebar-view-tabs { position: absolute; z-index: 2; top: var(--topbar-height); left: 10px; right: 10px; height: 34px; display: flex; gap: 4px; }
 .sidebar-view-tabs button { flex: 1; padding: 4px 8px; font-size: 12px; border-radius: 7px; }
 .sidebar-view-tabs .active { background: var(--bg-hover); color: var(--text-main); }
@@ -26,7 +23,7 @@
 .app-layout.sidebar-collapsed .sidebar-rail { display: none; }
 .app-layout.sidebar-collapsed .extension-dock-left .extension-panel { border: 0; background: none; }
 .app-layout.sidebar-collapsed .extension-dock-left .extension-panel-header { padding: 0; }
-.app-layout.sidebar-collapsed .extension-dock-left :is(.extension-panel-title,.extension-placement,.extension-panel-reveal) { display: none; }
+.app-layout.sidebar-collapsed .extension-dock-left :is(.extension-panel-title,.extension-panel-reveal) { display: none; }
 .extension-actions select:not([multiple]):not([size]) { min-height: 30px; padding: 4px 25px 4px 8px; font-size: 12px; }
 @media(max-width:900px) {
     .info-panel:not(.open) .extension-dock-right { display: none; }

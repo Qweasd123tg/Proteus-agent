@@ -2,6 +2,7 @@ import { createPanelRuntime } from './runtime.js';
 import { extensionStorage } from './storage.js';
 import { theme } from './theme.js';
 import { icon } from './icons.js';
+import { attachPanelMenu } from './panel-menu.js';
 import '../ui/select.js';
 
 export function button(label, action, signal) {
@@ -53,14 +54,11 @@ export function createPanel(record, { services, storage, changed, onOpen, surfac
   compactStyle.textContent = ':host{display:grid;place-items:center;color:inherit;font:inherit}svg{width:28px;height:28px}.extension-host-icon{width:20px;height:20px}';
   const compactIcon = icon('panel'); compactIcon.classList.add('extension-host-icon');
   compact.append(compactStyle, compactIcon);
-  const placement = document.createElement('select');
-  placement.className = 'extension-placement';
-  placement.setAttribute('aria-label', `Область: ${record.manifest?.name ?? record.id}`);
-  for (const [value, label] of [['left', 'Слева'], ['right', 'Справа']]) {
-    const option = document.createElement('option'); option.value = value; option.textContent = label; placement.append(option);
+  const placementMenu = attachPanelMenu(header, record, changed, signal);
+  for (const control of [title, compactButton]) {
+    control.setAttribute('aria-description', 'ПКМ или Shift+F10 — расположение панели');
   }
-  placement.addEventListener('change', () => changed({ location: placement.value, collapsed: false }), { signal });
-  header.append(compactButton, title, placement);
+  header.append(compactButton, title);
   const reveal = document.createElement('div'); reveal.className = 'extension-panel-reveal';
   const inner = document.createElement('div'); inner.className = 'extension-panel-inner';
   inner.append(body, error, retry); reveal.append(inner);
@@ -105,6 +103,7 @@ export function createPanel(record, { services, storage, changed, onOpen, surfac
   }
 
   function update() {
+    placementMenu.close();
     title.setAttribute('aria-expanded', String(!record.collapsed));
     title.title = record.collapsed ? 'Развернуть панель' : 'Свернуть панель';
     toggle.replaceChildren(icon(record.collapsed ? 'chevron-right' : 'chevron-down'));
@@ -112,8 +111,6 @@ export function createPanel(record, { services, storage, changed, onOpen, surfac
     inner.inert = record.collapsed;
     inner.setAttribute('aria-hidden', String(record.collapsed));
     element.classList.toggle('expanded', !record.collapsed);
-    placement.value = record.location;
-    placement.title = 'Расположение панели';
     error.hidden = record.collapsed;
     retry.hidden = record.collapsed || !failed;
   }

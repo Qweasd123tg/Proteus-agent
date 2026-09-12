@@ -92,6 +92,8 @@ def check_selection(command, js, wait_for):
     command('/refresh', {})
     wait_for(lambda: js(f"return {root}?.querySelectorAll('.usage-request').length===2"), 'Reload lost the independently selected analysis session')
     assert js("return document.querySelector('#analysis-session').value===" + json.dumps(original) + " && new URL(location.href).searchParams.get('session_dir')===" + json.dumps(second)), 'Reload conflated active and inspected session'
+    # The report and session summaries load independently after a cold reload.
+    wait_for(lambda: js("const button=document.querySelector('.analysis-open-chat');return button && !button.disabled"), 'Selected session summary did not become available')
     js("document.querySelector('.analysis-open-chat').click()")
     wait_for(lambda: js("return !!document.querySelector('.composer textarea') && new URL(location.href).searchParams.get('session_dir')===" + json.dumps(original)), 'Open dialogue did not resume the inspected session')
     js("document.querySelector('.sidebar-footer a[href=\"/context\"]').click()")
