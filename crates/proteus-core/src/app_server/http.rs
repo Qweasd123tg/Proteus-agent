@@ -36,14 +36,13 @@ use commands::spawn_send_run;
 use commands::{
     command_response, execute_app_request, execute_send, execute_send_async, execute_set_model,
     execute_set_permission_mode, execute_set_reasoning_effort, execute_set_reasoning_enabled,
-    execute_set_web_config,
 };
 pub use config::HttpServerConfig;
 use lifecycle::{execute_delete_session, execute_new_session, execute_resume};
 use requests::{
     ApprovalRequest, CancelRequest, DeleteSessionRequest, NewSessionRequest, ResumeSessionRequest,
     SendRequest, SetConfigBuilderRequest, SetModelRequest, SetPermissionModeRequest,
-    SetReasoningEffortRequest, SetReasoningEnabledRequest, SetWebConfigRequest, UserInputRequest,
+    SetReasoningEffortRequest, SetReasoningEnabledRequest, UserInputRequest,
 };
 use responses::{add_cors_headers, error_response, json_response, options_response};
 use security::{
@@ -344,26 +343,6 @@ where
             .await;
             match result {
                 Ok(snapshot) => json_response(StatusCode::OK, &snapshot),
-                Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
-            }
-        }
-        (Method::POST, "/config/web") => {
-            let result = async {
-                let session_dir = sessions::required_session_query(query.as_deref())?;
-                let command = read_json::<SetWebConfigRequest, _>(request).await?;
-                Ok::<_, anyhow::Error>(
-                    execute_set_web_config(
-                        &state,
-                        command.id,
-                        command.tool_cards_collapsed,
-                        session_dir,
-                    )
-                    .await,
-                )
-            }
-            .await;
-            match result {
-                Ok(output) => json_response(StatusCode::OK, &output),
                 Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
             }
         }

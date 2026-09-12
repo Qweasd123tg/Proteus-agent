@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use proteus_contracts::domain::{Event, EventEnvelope};
 use serde_json::Value;
 
 use super::stream::{
@@ -18,31 +19,35 @@ pub(crate) fn event_updates_visible_count(event: &AppServerEvent) -> bool {
     !matches!(
         event,
         AppServerEvent::Runtime { envelope }
-            if runtime_event_is_stream_delta(envelope)
+            if matches!(envelope.event, proteus_contracts::domain::Event::AssistantTextDelta { .. } | proteus_contracts::domain::Event::AssistantReasoningDelta { .. })
     )
 }
 
 pub(crate) fn update_session_labels(
-    envelope: Value,
+    envelope: &EventEnvelope,
     set_workspace_label: WriteSignal<String>,
     set_session_label: WriteSignal<String>,
 ) {
-    let Some(started) = envelope.pointer("/event/SessionStarted") else {
-        return;
-    };
-    if let Some(cwd) = started.get("cwd").and_then(Value::as_str) {
-        set_workspace_label.set(cwd.to_owned());
-    }
-    if let Some(session_dir) = started.get("session_dir").and_then(Value::as_str) {
-        set_session_label.set(short_path(session_dir));
-    } else if let Some(session_id) = started.get("session_id").and_then(Value::as_str) {
-        set_session_label.set(short_id(session_id).to_owned());
+    if let Event::SessionStarted {
+        cwd,
+        session_id,
+        session_dir,
+        ..
+    } = &envelope.event
+    {
+        set_workspace_label.set(cwd.to_string_lossy().into_owned());
+        set_session_label.set(
+            session_dir
+                .as_ref()
+                .map(short_path)
+                .unwrap_or_else(|| short_id(session_id)),
+        );
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_runtime_status_and_tools(
-    envelope: &Value,
+    envelope: &EventEnvelope,
     set_messages: crate::transcript::TranscriptWriter,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
@@ -52,6 +57,8 @@ pub(crate) fn update_runtime_status_and_tools(
     active_session_dir: ReadSignal<Option<String>>,
     set_context_usage: WriteSignal<Option<ContextUsage>>,
 ) {
+    let canonical = &envelope.event;
+    let envelope = serde_json::to_value(envelope).expect("canonical runtime event JSON");
     let Some(event) = envelope.get("event") else {
         return;
     };
@@ -128,7 +135,13 @@ pub(crate) fn update_runtime_status_and_tools(
         set_agent_status.set("собирает контекст".to_owned());
     } else if event.get("ModelRequestPrepared").is_some() {
         set_agent_status.set("думает".to_owned());
-    } else if let Some(delta_event) = event.get("AssistantTextDelta") {
+    } else if let Event::AssistantTextDelta {
+        message_id,
+        phase,
+        text,
+        offset,
+    } = canonical
+    {
         // Дельты чужих threads (стрим дочернего цикла субагента из стороннего
         // runner-а) в основной транскрипт не попадают: их «срезала» бы
         // перезапись финальным текстом родительского хода.
@@ -138,18 +151,33 @@ pub(crate) fn update_runtime_status_and_tools(
         if !stream_bindings.streamed_this_turn.get_untracked() {
             set_agent_status.set("пишет".to_owned());
         }
-        if let Ok(update) = serde_json::from_value::<AssistantTextUpdate>(delta_event.clone()) {
-            queue_assistant_delta(stream_bindings, update);
-        }
-    } else if let Some(completed) = event.get("AssistantMessageCompleted") {
+        queue_assistant_delta(
+            stream_bindings,
+            AssistantTextUpdate {
+                message_id: message_id.to_string(),
+                phase: *phase,
+                text: text.clone(),
+                offset: *offset,
+            },
+        );
+    } else if let Event::AssistantMessageCompleted {
+        message_id,
+        phase,
+        text,
+    } = canonical
+    {
         if stream_delta_is_foreign(stream_bindings, envelope_thread_id) {
             return;
         }
-        let mut completed = completed.clone();
-        completed["offset"] = serde_json::json!(0);
-        if let Ok(update) = serde_json::from_value::<AssistantTextUpdate>(completed) {
-            complete_assistant_message(stream_bindings, update);
-        }
+        complete_assistant_message(
+            stream_bindings,
+            AssistantTextUpdate {
+                message_id: message_id.to_string(),
+                phase: *phase,
+                text: text.clone(),
+                offset: 0,
+            },
+        );
     } else if event.get("AssistantReasoningDelta").is_some() {
         // Reasoning streams can be very chatty. The working indicator already
         // says "думает"; storing every chunk in the transcript makes Firefox
@@ -333,13 +361,6 @@ pub(crate) fn update_runtime_status_and_tools(
     } else if event.get("Error").is_some() {
         set_agent_status.set("ошибка".to_owned());
     }
-}
-
-fn runtime_event_is_stream_delta(envelope: &Value) -> bool {
-    let Some(event) = envelope.get("event") else {
-        return false;
-    };
-    event.get("AssistantTextDelta").is_some() || event.get("AssistantReasoningDelta").is_some()
 }
 
 /// Карточка субагента из payload `SubagentStarted`. Без child_thread_id

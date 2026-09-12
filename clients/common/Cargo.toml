@@ -3,9 +3,10 @@ name = "proteus-client-common"
 version = "0.0.0-dev"
 edition = "2024"
 publish = false
-description = "Shared browser-client origin and credential rules for Proteus"
+description = "Shared client connection, response and session synchronization rules for Proteus"
 
 [dependencies]
+proteus-contracts = { path = "../../crates/proteus-contracts" }
 serde = { version = "1", features = ["derive"] }
 url = "2"
 serde_json = "1"

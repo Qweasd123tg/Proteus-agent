@@ -64,7 +64,6 @@ fn tool_safety_label(safety: &ToolSafety) -> &'static str {
         ToolSafety::RunsCommands => "RunsCommands",
         ToolSafety::Network => "Network",
         ToolSafety::Dangerous => "Dangerous",
-        _ => "Unknown",
     }
 }
 

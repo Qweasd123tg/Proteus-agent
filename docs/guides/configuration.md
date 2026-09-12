@@ -794,14 +794,16 @@ approval_timeout_ms = 0
 [event_log]
 path = ".proteus/events.jsonl"
 persist_deltas = false
-
-[web]
-tool_cards_collapsed = false
 ```
 
 Zero `approval_timeout_ms` означает отсутствие server-side deadline для
 ожидания ответа пользователя. Export timeouts задаются в component config
 и не заменяют общие runtime limits.
+
+Настройки отображения не входят в agent config. Компактные карточки
+инструментов включаются в разделе «Настройки → Чат» и сохраняются в клиенте
+для всех его чатов. Секция `[web]` не принимается; автоматического переноса
+старой настройки из config нет.
 
 ## Config Builder
 

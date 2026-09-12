@@ -44,7 +44,6 @@ async fn request_dispatch_sets_permission_mode() {
             assert!(error.is_none());
         }
         StdioOutput::Event { .. } => panic!("expected command response"),
-        _ => panic!("unexpected output variant"),
     }
     assert_eq!(server.permission_mode().await, PermissionMode::Auto);
     server.shutdown().await;
@@ -94,7 +93,6 @@ async fn request_dispatch_sets_reasoning_effort() {
             assert!(error.is_none());
         }
         StdioOutput::Event { .. } => panic!("expected command response"),
-        _ => panic!("unexpected output variant"),
     }
     let summary = server.config_summary().await;
     assert_eq!(

@@ -111,10 +111,12 @@ pub(crate) fn copy_to_clipboard(text: String) {
     }
 }
 
-pub(crate) fn short_path(path: &str) -> String {
-    path.rsplit('/').next().unwrap_or(path).to_owned()
+pub(crate) fn short_path(path: impl AsRef<std::path::Path>) -> String {
+    let path = path.as_ref().to_string_lossy();
+    path.rsplit('/').next().unwrap_or(&path).to_owned()
 }
 
-pub(crate) fn short_id(id: &str) -> &str {
-    id.get(..8).unwrap_or(id)
+pub(crate) fn short_id(id: impl ToString) -> String {
+    let id = id.to_string();
+    id.get(..8).unwrap_or(&id).to_owned()
 }

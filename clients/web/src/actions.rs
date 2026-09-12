@@ -48,7 +48,7 @@ impl AppActions {
                 &SetPermissionModeRequest {
                     id: Some(request_id),
                     mode: new_mode,
-                    session_dir: session_dir.clone(),
+                    session_dir: session_dir.clone().into(),
                 },
             )
             .await
@@ -96,7 +96,7 @@ impl AppActions {
                 &SetModelRequest {
                     id: Some(request_id),
                     model: requested_model,
-                    session_dir: session_dir.clone(),
+                    session_dir: session_dir.clone().into(),
                 },
             )
             .await
@@ -117,6 +117,19 @@ impl AppActions {
                         "Model update failed",
                     ) {
                         if let Some(config) = config {
+                            let config = match serde_json::from_value::<
+                                proteus_contracts::app_protocol::config::ConfigSummary,
+                            >(config)
+                            {
+                                Ok(config) => config,
+                                Err(error) => {
+                                    self.set_control_error(
+                                        "Model update failed",
+                                        format!("invalid config: {error}"),
+                                    );
+                                    return;
+                                }
+                            };
                             crate::model_settings::ModelSettings {
                                 model: self.set_model_name,
                                 models: self.set_model_options,
@@ -166,7 +179,7 @@ impl AppActions {
                 &SetReasoningEffortRequest {
                     id: Some(request_id),
                     effort: effort_value,
-                    session_dir: session_dir.clone(),
+                    session_dir: session_dir.clone().into(),
                 },
             )
             .await
@@ -234,9 +247,9 @@ impl AppActions {
                     text,
                     options: proteus_client_common::run_options::RunOptions {
                         intent: intent.map(str::to_owned),
-                        permission_mode: Some(permission_mode.label().to_owned()),
+                        permission_mode: Some(permission_mode),
                     },
-                    session_dir,
+                    session_dir: session_dir.into(),
                 },
             )
             .await

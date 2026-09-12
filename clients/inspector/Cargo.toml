@@ -6,6 +6,7 @@ publish = false
 description = "Separate Leptos inspector client for Proteus config and architecture views"
 
 [dependencies]
+proteus-contracts = { path = "../../crates/proteus-contracts" }
 console_error_panic_hook = "0.1"
 leptos = { version = "0.8.19", features = ["csr"] }
 proteus-client-common = { path = "../common" }

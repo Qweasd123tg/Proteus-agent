@@ -1,4 +1,6 @@
 use super::state::AppState;
+#[cfg(target_arch = "wasm32")]
+use crate::types::PermissionModeLabel;
 
 pub(super) fn publish(state: AppState) {
     #[cfg(not(target_arch = "wasm32"))]

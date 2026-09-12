@@ -24,11 +24,20 @@ async fn serve(listener: TcpListener, effect: std::path::PathBuf, ending: Ending
         .await
         .unwrap();
     tokio::time::timeout(Duration::from_secs(4), async {
+        let mut progress = tokio::time::interval(Duration::from_millis(100));
         loop {
             if std::fs::read_to_string(&effect).ok().as_deref() == Some(EFFECT) {
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(5)).await;
+            // Shell startup is not the idle interval under test. Keep parsed
+            // SSE events flowing until the effect and later commentary exist;
+            // only then withhold events to trigger the intended idle timeout.
+            // Comments alone do not reset the provider's parsed-event timer.
+            progress.tick().await;
+            socket
+                .write_all(b"event: response.in_progress\ndata: {}\n\n")
+                .await
+                .unwrap();
         }
     })
     .await

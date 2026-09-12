@@ -164,7 +164,7 @@ fn handle_app_event(
                 active_session_dir,
                 set_context_usage,
             );
-            update_session_labels(envelope, set_workspace_label, set_session_label);
+            update_session_labels(&envelope, set_workspace_label, set_session_label);
         }
         AppServerEvent::UserMessageSubmitted { text } => {
             flush_stream_delta_buffer(stream_bindings);
@@ -175,7 +175,10 @@ fn handle_app_event(
         AppServerEvent::SessionSnapshot { snapshot } => {
             let _identity = (&snapshot.session_id, &snapshot.stream_id, snapshot.seq);
             stream_delta_buffer.set_value(BufferedStreamDeltas::default());
-            set_stream_turn_thread(stream_bindings, snapshot.root_thread_id.as_deref());
+            set_stream_turn_thread(
+                stream_bindings,
+                snapshot.root_thread_id.map(|id| id.to_string()).as_deref(),
+            );
             set_tool_activities.set(Vec::new());
             apply_transcript(
                 snapshot.transcript,

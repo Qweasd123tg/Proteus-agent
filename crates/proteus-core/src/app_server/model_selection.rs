@@ -1,4 +1,4 @@
-use serde::Serialize;
+pub(super) use proteus_contracts::app_protocol::config::ModelOption;
 
 use super::config_summary::{configured_model_options, configured_reasoning_effort_options};
 use crate::{
@@ -11,17 +11,6 @@ pub(super) struct SelectionSummary {
     pub models: Vec<ModelOption>,
     pub efforts: Vec<String>,
     pub error: Option<String>,
-}
-
-#[derive(Serialize)]
-pub(super) struct ModelOption {
-    pub provider: String,
-    pub name: String,
-    pub label: String,
-    pub description: Option<String>,
-    pub hidden: bool,
-    pub reasoning_efforts: Vec<String>,
-    pub default_reasoning_effort: Option<String>,
 }
 
 pub(super) struct ModelSelection {

@@ -18,7 +18,6 @@ pub struct AppBootstrap {
 /// поля, а control-plane при необходимости добавляет текущую activity.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub struct AppSessionSummary {
     pub session_dir: PathBuf,
     pub session_id: SessionId,
@@ -57,7 +56,6 @@ impl AppSessionSummary {
 
 /// Короткий UI/control-plane snapshot работы одной session.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct AppSessionActivity {
     pub status: AppSessionActivityStatus,
     pub running_runs: usize,
@@ -68,7 +66,6 @@ pub struct AppSessionActivity {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-#[non_exhaustive]
 pub enum AppSessionActivityStatus {
     Idle,
     Running,

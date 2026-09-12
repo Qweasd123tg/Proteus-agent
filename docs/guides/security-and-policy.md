@@ -418,8 +418,8 @@ Main thread стабилен на всю сессию, поэтому для о�
 
 Core санитайзит слишком широкие scopes: shell/command/network/dangerous tools
 не получают broad cache, а неподходящий `workspace_write` понижается до
-`exact_call`. Неизвестный wire scope понижается до `none`, чтобы будущие клиенты
-не ломали текущий server. Cache хранится только в памяти текущего
+`exact_call`. Неизвестный wire scope отклоняется с явной decode-ошибкой
+общего `ApprovalCacheScope`. Cache хранится только в памяти текущего
 runtime/session и не переживает restart или `resume_from_session_dir`.
 `ToolSpec.metadata.approval.cache.disabled = true` полностью выключает cache
 для конкретного tool-а. `request_permissions` выставляет этот generic opt-out:

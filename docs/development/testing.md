@@ -501,7 +501,7 @@ result не дублируется, cold transcript сохраняет дейс�
   mutation, delivery, follow-up и Drop/отмене, независимо от runtime events;
 - `proteus-client-common::pending`: порядок snapshots и граница подключения,
   отказ старой revision и чужого stream/session;
-- web contract tests: обязательность revision fields у обеих wire-моделей;
+- `proteus-contracts::app_protocol`: обязательность revision fields у общих wire DTO;
 - `clients/web/tests/extensions_browser.py`: реальная очередь, задержанный
   `/pending` после edit/delete, reload и гонка edit/delivery.
 
@@ -514,14 +514,22 @@ result не дублируется, cold transcript сохраняет дейс�
   до завершения, чужие approvals не разрешаются отменой;
 - `app_server::turn_progress::tests`: runtime Error не очищает незавершённый
   progress, подтверждённое завершение сохраняет фоновые child-карточки;
-- web contract tests: общий формат transcript/execution snapshot;
+- `proteus-client-common::sync`: snapshot baseline после reconnect/lag, отказ
+  устаревших snapshots и deltas до baseline; неизменённая revision остаётся
+  допустимым baseline после lag фоновых activity events;
+- web использует canonical transcript/execution DTO из contracts напрямую;
 - browser fixture `live_checks.py`: reconnect посреди стрима без повторного
   model request и дублирования текста; задержанный ответ `/cancel` не снимает
   занятость с нового run.
 
 Runtime gate, cold history/replay и `module_swap` продолжают проверять
 неизменность алгоритма исполнения и модульных границ. Config не входит
-в сессионный snapshot; его синхронизация проверяется отдельно.
+в сессионный snapshot; его чтение проверяется отдельно. После изменения
+публичных DTO также запускаются native tests `clients/common`, `clients/web`
+и `clients/inspector`, затем Trunk для обоих клиентов. Browser settings fixture
+проверяет локальное сохранение при недоступном `/config`, восстановление после
+reload и откат переключателя при ошибке localStorage. Удалённый `/config/web`
+не вызывается, секция `[web]` отклоняется строгим AppConfig reader.
 
 ## Negative Protocol Evidence
 

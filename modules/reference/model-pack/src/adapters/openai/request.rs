@@ -445,11 +445,6 @@ fn openai_text_message(message: &CanonicalMessage, text: &str) -> Result<Value> 
         let phase = match phase {
             MessagePhase::Commentary => "commentary",
             MessagePhase::FinalAnswer => "final_answer",
-            _ => {
-                return Err(anyhow!(
-                    "OpenAI does not support this canonical message phase"
-                ));
-            }
         };
         value["phase"] = Value::String(phase.to_owned());
     }

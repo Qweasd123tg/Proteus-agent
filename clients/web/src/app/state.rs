@@ -243,7 +243,11 @@ impl ViewState {
         let (stick_to_bottom, set_stick_to_bottom) = signal(true);
         let (scroll_frame_pending, set_scroll_frame_pending) = signal(false);
         let (last_results_scroll_top, set_last_results_scroll_top) = signal(0);
-        let (tool_cards_collapsed, set_tool_cards_collapsed) = signal(false);
+        let (tool_cards_collapsed, set_tool_cards_collapsed) =
+            signal(crate::ui_preferences::load_bool_setting(
+                crate::ui_preferences::TOOL_CARDS_COLLAPSED_KEY,
+                false,
+            ));
         let (activity_now_ms, set_activity_now_ms) = signal(js_sys::Date::now().max(0.0) as u64);
         let (detach_baseline, set_detach_baseline) = signal(None);
         let results_ref = NodeRef::new();

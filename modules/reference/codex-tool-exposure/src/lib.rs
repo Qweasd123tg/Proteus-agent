@@ -334,7 +334,6 @@ fn safety_adjustment(safety: &ToolSafety) -> f32 {
         ToolSafety::RunsCommands => -0.5,
         ToolSafety::Network => -1.0,
         ToolSafety::Dangerous => -2.0,
-        _ => -1.0,
     }
 }
 

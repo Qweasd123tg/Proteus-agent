@@ -109,7 +109,7 @@ pub(crate) fn sidebar_session_render_key(session: &SessionSummary) -> String {
     let activity = session.activity.as_ref();
     format!(
         "{}|{}|{}|{}|{}|{}|{}|{}",
-        session.session_dir,
+        session.session_dir.display(),
         session.message_count,
         session.updated_at_ms.unwrap_or_default(),
         session.preview.as_deref().unwrap_or_default(),

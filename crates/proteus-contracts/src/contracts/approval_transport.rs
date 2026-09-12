@@ -156,7 +156,6 @@ impl ApprovalResponse {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-#[non_exhaustive]
 pub enum ApprovalCacheScope {
     #[default]
     None,

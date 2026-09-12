@@ -2686,10 +2686,26 @@ name = "proteus-client-common"
 version = "0.0.0-dev"
 dependencies = [
  "js-sys",
+ "proteus-contracts",
  "serde",
  "serde_json",
  "url",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "proteus-contracts"
+version = "0.0.0-dev"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "futures-core",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

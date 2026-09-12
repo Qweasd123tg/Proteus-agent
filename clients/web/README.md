@@ -148,9 +148,9 @@ Credential хранится вместе с точным нормализова�
 
 - `proteus-core` остаётся UI-agnostic runtime;
 - `proteus-contracts::app_protocol` остаётся shared DTO/wire contract;
-- web-клиент подключается к app-server transport поверх HTTP/SSE/WebSocket
-  адаптера, не импортируя runtime internals. Сейчас DTO продублированы в
-  client-local serde types, чтобы не тащить `proteus-core` в wasm target.
+- web-клиент подключается к app-server через HTTP/SSE и импортирует DTO
+  напрямую из `proteus-contracts`, который поддерживает wasm target;
+- локальные UI-модели описывают представление, без runtime internals Core.
 
 `clients/web` намеренно исключён из root Cargo workspace: обычные
 `cargo test --workspace` для core/plugins не должны требовать wasm target или
@@ -160,3 +160,16 @@ Trunk. Проверяйте web-клиент отдельной командой
 cd clients/web
 NO_COLOR=true trunk build
 ```
+
+## Клиентские Настройки И Контракт
+
+«Компактные карточки инструментов» сохраняются в localStorage текущего клиента
+(`proteus.toolCardsCollapsed`) и действуют для всех чатов. Переключатель работает
+без backend; ошибка записи видна рядом с ним и не меняет действующее значение.
+Изменение применяется к новым карточкам; вручную раскрытые карточки сохраняют
+своё состояние. Config агента и session journal при этом не записываются.
+
+Rust wire DTO импортируются из `proteus-contracts::app_protocol`; локальные
+типы описывают только представление. `clients/common` проверяет порядок
+pending/session snapshots и декодирует командные ответы без Leptos или Tauri.
+После reconnect/lag текстовые deltas принимаются только после нового baseline.

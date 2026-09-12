@@ -228,7 +228,6 @@ fn effective_configured_tool_safety(configured: &ConfiguredToolConfig) -> ToolSa
             ToolSafety::ReadOnly | ToolSafety::WritesFiles | ToolSafety::RunsCommands => {
                 ToolSafety::RunsCommands
             }
-            _ => ToolSafety::Dangerous,
         },
     }
 }
@@ -273,7 +272,6 @@ fn tool_safety_rank(safety: &ToolSafety) -> u8 {
         ToolSafety::RunsCommands => 2,
         ToolSafety::Network => 3,
         ToolSafety::Dangerous => 4,
-        _ => 5,
     }
 }
 

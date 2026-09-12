@@ -22,7 +22,7 @@ where
         sessions.with(|items| {
             items
                 .iter()
-                .find(|item| Some(&item.session_dir) == selected.as_ref())
+                .find(|item| item.session_dir.to_str() == selected.as_deref())
                 .cloned()
         })
     });
@@ -40,7 +40,7 @@ where
                 <div class="analysis-title">
                     <span class="panel-kicker">"Анализ сессии"</span>
                     <h1>{move || summary.get().map(|item| sidebar_session_title(&item)).unwrap_or_else(|| if selected.get().is_some() { "Сохранённая сессия" } else { "Выберите сессию" }.to_owned())}</h1>
-                    <p>{move || summary.get().map(|item| format!("{} · {} сообщений", item.workspace_path, item.message_count))}</p>
+                    <p>{move || summary.get().map(|item| format!("{} · {} сообщений", item.workspace_path.display(), item.message_count))}</p>
                     <details class="analysis-identity">
                         <summary>"Идентификаторы сессии"</summary>
                         <code>{move || summary.get().map(|item| format!("ID: {}", item.session_id))}</code>
@@ -60,12 +60,12 @@ where
                             let label = if value.is_empty() { "Выберите сессию" } else { "Выбранная сессия" };
                             Some(view! { <option value=value>{label}</option> })
                         } else { None }}
-                        <For each=move || sessions.get() key=|item| item.session_dir.clone()
+                        <For each=move || sessions.get() key=|item| item.session_dir.to_string_lossy().into_owned()
                             children=move |item| {
                                 let label = format!("{} · {}", sidebar_session_title(&item), short_id(&item.session_id));
-                                let option_session = item.session_dir.clone();
+                                let option_session = item.session_dir.to_string_lossy().into_owned();
                                 view! {
-                                    <option value=item.session_dir
+                                    <option value=item.session_dir.to_string_lossy().into_owned()
                                         prop:selected=move || selected.get().as_deref() == Some(option_session.as_str())>
                                         {label}
                                     </option>

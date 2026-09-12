@@ -1,15 +1,11 @@
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum PermissionMode {
-    Plan,
-    Normal,
-    Auto,
+pub(crate) use proteus_contracts::domain::PermissionMode;
+pub(crate) trait PermissionModeLabel {
+    fn label(self) -> &'static str;
+    fn description(self) -> &'static str;
+    fn from_value(value: &str) -> Self;
 }
-
-impl PermissionMode {
-    pub(crate) fn label(self) -> &'static str {
+impl PermissionModeLabel for PermissionMode {
+    fn label(self) -> &'static str {
         match self {
             Self::Plan => "plan",
             Self::Normal => "normal",
@@ -17,7 +13,7 @@ impl PermissionMode {
         }
     }
 
-    pub(crate) fn description(self) -> &'static str {
+    fn description(self) -> &'static str {
         match self {
             Self::Plan => "только чтение",
             Self::Normal => "спрашивать перед записью",
@@ -25,7 +21,7 @@ impl PermissionMode {
         }
     }
 
-    pub(crate) fn from_value(value: &str) -> Self {
+    fn from_value(value: &str) -> Self {
         match value.to_ascii_lowercase().as_str() {
             "plan" => Self::Plan,
             "auto" => Self::Auto,

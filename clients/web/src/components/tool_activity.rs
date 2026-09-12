@@ -10,7 +10,7 @@ use crate::ui_utils::{compact_text, format_json, short_id};
 const TOOL_PREVIEW_COMPACT_LINES: usize = 5;
 const TOOL_PREVIEW_EXPANDED_LINES: usize = 20;
 
-/// Контекст с дефолтом сворачивания карточек тулов ([web].tool_cards_collapsed).
+/// Контекст с дефолтом сворачивания карточек тулов (client preferences).
 #[derive(Clone, Copy)]
 pub(crate) struct ToolCardsCollapsed(pub(crate) ReadSignal<bool>);
 
@@ -77,7 +77,7 @@ pub(crate) fn ToolActivityCard(
     message: Memo<Option<Message>>,
     activity_now_ms: ReadSignal<u64>,
 ) -> impl IntoView {
-    // Стартовое состояние из [web].tool_cards_collapsed; дальше — локально.
+    // Стартовое состояние из client preferences; дальше — локально.
     let collapsed_default =
         use_context::<ToolCardsCollapsed>().is_some_and(|cards| cards.0.get_untracked());
     let (expanded, set_expanded) = signal(!collapsed_default);

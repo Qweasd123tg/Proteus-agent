@@ -99,12 +99,11 @@ fn context_cache_view_model_formats_provider_usage() {
         max_input_tokens: Some(1000),
         compaction_trigger_tokens: None,
         categories: Vec::new(),
-        actual: Some(ContextActualUsage {
-            input_tokens: 2000,
-            output_tokens: 10,
-            cached_input_tokens: Some(1500),
-            cache_creation_input_tokens: Some(0),
-            reasoning_output_tokens: None,
+        actual: Some({
+            let mut actual = ContextActualUsage::new(2000, 10);
+            actual.cached_input_tokens = Some(1500);
+            actual.cache_creation_input_tokens = Some(0);
+            actual
         }),
         source: "mixed".to_owned(),
         turn_id: None,

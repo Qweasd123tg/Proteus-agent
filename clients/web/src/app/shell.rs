@@ -19,7 +19,6 @@ pub(super) fn AppShell(
         tool_activities,
         pending_approvals,
         pending_user_inputs,
-        transcript_generation,
         messages,
         ..
     } = state.chat;
@@ -95,7 +94,7 @@ pub(super) fn AppShell(
             sessions
                 .iter()
                 .filter(|session| {
-                    Some(session.session_dir.as_str()) != active.as_deref()
+                    session.session_dir.to_str() != active.as_deref()
                         && session.activity.as_ref().is_some_and(|activity| {
                             activity.pending_approvals > 0 || activity.pending_user_inputs > 0
                         })
@@ -164,7 +163,7 @@ pub(super) fn AppShell(
                             />
                         }.into_any()
                     } else if current == "/settings" {
-                        view! { <SettingsView active_session_dir transcript_generation tool_cards_collapsed set_tool_cards_collapsed /> }.into_any()
+                        view! { <SettingsView tool_cards_collapsed set_tool_cards_collapsed /> }.into_any()
                     } else {
                         view! {
                             <ChatResultsView

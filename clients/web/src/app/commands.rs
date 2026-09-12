@@ -116,12 +116,12 @@ pub(super) fn commands(state: AppState, connection: ClientConnection) -> ChatCom
             let generation = transcript_generation.get_untracked();
             set_stick_to_bottom.set(true);
             let request_id = take_request_id(next_request_id, set_next_request_id, "input");
-            let response = UserInputResponseBody {
-                answers: answers
+            let response = UserInputResponseBody::new(
+                answers
                     .into_iter()
-                    .map(|(question_id, answers)| (question_id, UserInputAnswerBody { answers }))
+                    .map(|(question_id, answers)| (question_id, UserInputAnswerBody::new(answers)))
                     .collect(),
-            };
+            );
             spawn_local(async move {
                 match post_json(
                     &session_path("/user-input", &session_dir),

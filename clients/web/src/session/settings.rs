@@ -4,35 +4,7 @@ use crate::{
     types::*,
 };
 use leptos::{prelude::*, task::spawn_local};
-use serde_json::Value;
-
-#[allow(clippy::too_many_arguments)]
-/// Разовая загрузка веб-настроек из секции [web] конфига (config_summary.web).
-/// Отдельно от load_runtime_settings, чтобы не тащить параметр через её 4
-/// вызова (они делят хвостовые аргументы с другими функциями).
-pub(crate) fn load_web_settings(
-    active_session_dir: ReadSignal<Option<String>>,
-    transcript_generation: ReadSignal<u64>,
-    set_tool_cards_collapsed: WriteSignal<bool>,
-) {
-    Effect::new(move |_| {
-        let Some(session_dir) = active_session_dir.get() else {
-            return;
-        };
-        let generation = transcript_generation.get_untracked();
-        spawn_local(async move {
-            if let Ok(config) = get_json::<Value>(&session_path("/config", &session_dir)).await
-                && active_session_dir.get_untracked().as_deref() == Some(session_dir.as_str())
-                && transcript_generation.get_untracked() == generation
-                && let Some(collapsed) = config
-                    .pointer("/web/tool_cards_collapsed")
-                    .and_then(Value::as_bool)
-            {
-                set_tool_cards_collapsed.set(collapsed);
-            }
-        });
-    });
-}
+use proteus_contracts::app_protocol::config::ConfigSummary;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn load_runtime_settings(
@@ -53,7 +25,7 @@ pub(crate) fn load_runtime_settings(
     set_transport_status: WriteSignal<TransportStatus>,
 ) {
     spawn_local(async move {
-        let result = get_json::<Value>(&session_path("/config", &session_dir)).await;
+        let result = get_json::<ConfigSummary>(&session_path("/config", &session_dir)).await;
         if transcript_generation.get_untracked() != expected_generation
             || active_session_dir.get_untracked().as_deref() != Some(session_dir.as_str())
         {
@@ -61,18 +33,8 @@ pub(crate) fn load_runtime_settings(
         }
         match result {
             Ok(config) => {
-                if let Some(cwd) = config.get("cwd").and_then(Value::as_str) {
-                    set_workspace_label.set(cwd.to_owned());
-                }
-                // Сервер кладёт в /config activity текущей сессии. Если ход ещё
-                // выполняется (страница открылась посреди хода), сразу помечаем
-                // занятость: composer уводит новые сообщения в очередь, а не в
-                // /send-async, и «Стоп» знает id бегущего хода. Idle нарочно не
-                // применяем — не затирать оптимистичный is_sending уже начатой
-                // отправки.
-                if let Some(mode) = config.get("permission_mode").and_then(Value::as_str) {
-                    set_mode.set(PermissionMode::from_value(mode));
-                }
+                set_workspace_label.set(config.cwd.clone());
+                set_mode.set(PermissionMode::from_value(&config.permission_mode));
                 crate::model_settings::ModelSettings {
                     model: set_model_name,
                     models: set_model_options,

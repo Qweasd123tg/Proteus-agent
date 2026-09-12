@@ -183,7 +183,6 @@ impl CliAppClient {
                     }
                     decode_response(ok, output, error)?;
                 }
-                _ => bail!("app-server returned an unsupported output variant"),
             }
         }
     }
@@ -281,7 +280,6 @@ fn permission_mode_arg(mode: PermissionMode) -> Result<&'static str> {
         PermissionMode::Plan => Ok("plan"),
         PermissionMode::Normal => Ok("normal"),
         PermissionMode::Auto => Ok("auto"),
-        _ => bail!("unsupported permission mode for product CLI"),
     }
 }
 

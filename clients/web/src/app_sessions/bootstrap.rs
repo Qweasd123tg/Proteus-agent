@@ -29,10 +29,14 @@ impl AppSessionActions {
             if self.transcript.transcript_generation.get_untracked() != startup_generation {
                 return;
             }
-            self.runtime_settings.set_workspace_label.set(bootstrap.cwd);
+            self.runtime_settings
+                .set_workspace_label
+                .set(bootstrap.cwd.to_string_lossy().into_owned());
             let selected = requested_session_dir()
                 .or_else(|| load_selected_session_dir().ok().flatten())
-                .or(bootstrap.session_dir);
+                .or(bootstrap
+                    .session_dir
+                    .map(|p| p.to_string_lossy().into_owned()));
             let result = match selected {
                 Some(session_dir) => resume_session(session_dir).await,
                 None => create_session(None).await,
@@ -65,7 +69,7 @@ async fn resume_session(session_dir: String) -> Result<String, String> {
         "/resume",
         &ResumeSessionRequest {
             id: Some("startup-resume".to_owned()),
-            session_dir: session_dir.clone(),
+            session_dir: session_dir.clone().into(),
         },
     )
     .await

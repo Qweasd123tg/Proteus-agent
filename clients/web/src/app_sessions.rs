@@ -135,7 +135,9 @@ impl AppSessionActions {
     }
 
     pub(crate) fn open_sidebar_session(self, session: SessionSummary) {
-        if self.active_session_dir.get().as_deref() == Some(session.session_dir.as_str()) {
+        if self.active_session_dir.get().as_deref()
+            == Some(session.session_dir.to_str().expect("session path"))
+        {
             return;
         }
 
@@ -144,11 +146,11 @@ impl AppSessionActions {
         self.set_transcript_generation.set(expected_generation);
         self.runtime_settings
             .set_active_session_dir
-            .set(Some(session.session_dir.clone()));
-        let _ = persist_selected_session_dir(&session.session_dir);
+            .set(Some(session.session_dir.to_string_lossy().into_owned()));
+        let _ = persist_selected_session_dir(&session.session_dir.to_string_lossy());
         self.runtime_settings
             .set_workspace_label
-            .set(session.workspace_path.clone());
+            .set(session.workspace_path.to_string_lossy().into_owned());
         self.set_session_label
             .set(short_id(&session.session_id).to_owned());
         self.transcript.set_messages.set(Vec::new());
@@ -166,7 +168,7 @@ impl AppSessionActions {
         self.set_pending_approvals.set(Vec::new());
         self.set_pending_user_inputs.set(Vec::new());
 
-        let session_dir = session.session_dir.clone();
+        let session_dir = session.session_dir.to_string_lossy().into_owned();
         self.set_sidebar_sessions_status
             .set("открываю сессию".to_owned());
         spawn_local(async move {
@@ -174,7 +176,7 @@ impl AppSessionActions {
                 "/resume",
                 &ResumeSessionRequest {
                     id: Some("sidebar-resume".to_owned()),
-                    session_dir: session_dir.clone(),
+                    session_dir: session_dir.clone().into(),
                 },
             )
             .await;
@@ -244,7 +246,7 @@ impl AppSessionActions {
             return;
         }
 
-        let session_dir = session.session_dir.clone();
+        let session_dir = session.session_dir.to_string_lossy().into_owned();
         let deleting_active =
             self.active_session_dir.get().as_deref() == Some(session_dir.as_str());
         let delete_request_generation = self.transcript.transcript_generation.get_untracked();
@@ -258,7 +260,7 @@ impl AppSessionActions {
                 "/delete-session",
                 &DeleteSessionRequest {
                     id: Some("sidebar-delete".to_owned()),
-                    session_dir: session_dir.clone(),
+                    session_dir: session_dir.clone().into(),
                 },
             )
             .await
@@ -280,7 +282,7 @@ impl AppSessionActions {
                         return;
                     }
                     self.set_sidebar_sessions.update(|items| {
-                        items.retain(|item| item.session_dir != session_dir);
+                        items.retain(|item| item.session_dir != std::path::Path::new(&session_dir));
                     });
                     remove_session_draft(&session_dir);
                     remove_context_usage(&session_dir);

@@ -46,14 +46,8 @@ impl ModeAwarePolicy {
                         ),
                     }
                 }
-                _ => PolicyDecision::Deny {
-                    reason: format!(
-                        "permission mode auto denies unknown tool safety for {tool_name}"
-                    ),
-                },
             },
             PermissionMode::Normal => inner_decision,
-            _ => inner_decision,
         }
     }
 }

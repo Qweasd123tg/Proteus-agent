@@ -7,7 +7,7 @@ pub(super) fn QueuedPrompts(
     items: ReadSignal<Vec<QueuedPromptInfo>>,
     actions: AppActions,
 ) -> impl IntoView {
-    let editing = RwSignal::new(None::<String>);
+    let editing = RwSignal::new(None::<proteus_contracts::domain::MessageId>);
     let draft = RwSignal::new(String::new());
     let busy = RwSignal::new(false);
     let error = RwSignal::new(None::<String>);
@@ -61,7 +61,7 @@ pub(super) fn QueuedPrompts(
                         let edit_id = id.clone();
                         let delete_id = id.clone();
                         view! {
-                            <div class="queued-prompt-row" data-queued-id=id>
+                            <div class="queued-prompt-row" data-queued-id=id.to_string()>
                                 <QueueIcon />
                                 <span class="queued-prompt-text" title=move || text.get()>{move || text.get()}</span>
                                 <button type="button" class="queue-icon-button" aria-label="Редактировать сообщение" title="Редактировать сообщение"

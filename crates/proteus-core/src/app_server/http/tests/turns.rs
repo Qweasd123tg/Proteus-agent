@@ -122,7 +122,6 @@ async fn route_send_async_queues_second_message_for_same_session() {
             assert!(output["active_turn_id"].is_string());
         }
         StdioOutput::Event { .. } => panic!("expected command response"),
-        _ => panic!("unexpected output variant"),
     }
     assert!(
         !server
@@ -443,7 +442,6 @@ async fn cancel_unknown_turn_returns_protocol_error() {
             );
         }
         StdioOutput::Event { .. } => panic!("expected command response"),
-        _ => panic!("unexpected output variant"),
     }
     server.shutdown().await;
 }
@@ -494,7 +492,6 @@ async fn cancel_active_run_keeps_foreign_pending_requests_until_requester_drops(
             assert!(ok, "cancel should succeed: {error:?}");
         }
         StdioOutput::Event { .. } => panic!("expected command response"),
-        _ => panic!("unexpected output variant"),
     }
 
     assert!(cancellation.is_cancelled());

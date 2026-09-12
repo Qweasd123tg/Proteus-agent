@@ -162,6 +162,17 @@ Admission, cancellation и terminal execution находятся в `app_server/
 при admission и не меняет default сессии. Web не дописывает скрытую стратегию
 планирования в пользовательское сообщение.
 
+Публичные Rust DTO HTTP/stdio, событий, pending/session snapshots,
+конфигурации, Config Builder и topology определены в
+`proteus-contracts::app_protocol`. Core формирует эти типы, web и Inspector
+используют их напрямую, включая typed IDs, права и статусы. Browser target
+поддержан самим contracts crate; клиенты не зависят от Core. UI оставляет
+собственные модели представления, подписи и форматирование.
+`clients/common` содержит независимые от UI-фреймворка правила подключения,
+декодирование ответов, `PendingCursor` и `SessionCursor`: новый stream и lag
+требуют полного baseline; устаревшие snapshots и чужая session отклоняются.
+Настройки отображения принадлежат клиенту и не входят в AppConfig или journal.
+
 UI — сменный клиент и витрина возможностей агента. Его расширения принадлежат
 клиенту: отдельные ES modules с манифестами, своим lifecycle и необязательными
 интерфейсами данных. Правые панели web/desktop загружаются независимо от backend

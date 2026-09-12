@@ -310,7 +310,6 @@ async fn session_routes_reject_missing_unknown_and_ambiguous_addresses() {
         ("/model", json!({"model":"wrong"})),
         ("/effort", json!({"effort":"high"})),
         ("/reasoning", json!({"enabled":false})),
-        ("/config/web", json!({"tool_cards_collapsed":false})),
         ("/config/builder", json!({"modules":{}})),
     ] {
         let response = route_request(state.clone(), authed_json_request(path, body))

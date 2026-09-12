@@ -697,10 +697,10 @@ store; stdio остаётся привязанным к одной session пр�
 - `POST /send`, `/send-async`, `/mode`, `/model`, `/reasoning`, `/effort`
   требуют `session_dir` в JSON body;
 - `POST /cancel`, `/approval`, `/user-input`, `/clear`, `/reload-tools`,
-  `/config/builder`, `/config/web` требуют query `?session_dir=<path>`.
+  `/config/builder` требуют query `?session_dir=<path>`.
   Cancel и ответы на pending запросы действуют только внутри этой session;
-- `POST /config/builder` - сохраняет выбор Config Builder; `POST /config/web`
-  обновляет поддержанные web preferences;
+- `POST /config/builder` - сохраняет выбор Config Builder; настройки отображения
+  хранятся в клиенте и не имеют backend endpoint;
 - `POST /resume` - обеспечивает наличие live runtime указанного в body
   `session_dir`, возвращая его summary. Не меняет выбор других клиентов и
   не отменяет running turns;

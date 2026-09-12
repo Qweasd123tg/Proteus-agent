@@ -5,6 +5,8 @@ use url::{Host, Url};
 
 pub mod desktop;
 pub mod pending;
+pub mod response;
+pub mod sync;
 
 /// Per-window session selection is scoped to one exact app-server origin.
 pub fn selected_session_storage_key(app_server_origin: &str) -> String {

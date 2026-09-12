@@ -31,7 +31,7 @@ fn rail_sessions(workspace: &str, sessions: &[SessionSummary]) -> Vec<SessionSum
     }
     sessions
         .iter()
-        .filter(|session| session.workspace_path == workspace)
+        .filter(|session| session.workspace_path == std::path::Path::new(&workspace))
         .take(SIDEBAR_RAIL_LIMIT)
         .cloned()
         .collect()
@@ -43,7 +43,7 @@ fn rail_sessions_total(workspace: &str, sessions: &[SessionSummary]) -> usize {
     }
     sessions
         .iter()
-        .filter(|session| session.workspace_path == workspace)
+        .filter(|session| session.workspace_path == std::path::Path::new(&workspace))
         .count()
 }
 
@@ -60,7 +60,11 @@ fn session_matches_query(session: &SessionSummary, query: &str) -> bool {
             .unwrap_or_default()
             .to_lowercase()
             .contains(&query)
-        || session.session_dir.to_lowercase().contains(&query)
+        || session
+            .session_dir
+            .to_string_lossy()
+            .to_lowercase()
+            .contains(&query)
 }
 
 #[component]
@@ -123,7 +127,7 @@ where
                                     .iter()
                                     .filter(|session| {
                                         workspace != "waiting for session"
-                                            && session.workspace_path == workspace
+                                            && session.workspace_path == std::path::Path::new(&workspace)
                                             && session_matches_query(session, &query)
                                     })
                                     .cloned()
@@ -132,7 +136,7 @@ where
                         }
                         key=|session| sidebar_session_render_key(session)
                         children=move |session| {
-                            let workspace = session.workspace_path.clone();
+                            let workspace = session.workspace_path.to_string_lossy().into_owned();
                             let title = sidebar_session_title(&session);
                             let preview = sidebar_session_preview(&session)
                                 .filter(|preview| preview.trim() != title.trim());
@@ -142,7 +146,7 @@ where
                                 sidebar_session_activity_dot_class(session.activity.as_ref());
                             let message_count = session.message_count;
                             let updated_at = relative_time_from_now(session.updated_at_ms);
-                            let active_session_dir_value = session.session_dir.clone();
+                            let active_session_dir_value = session.session_dir.to_string_lossy().into_owned();
                             let session_for_click = session.clone();
                             let session_for_delete = session.clone();
                             let tooltip = format!("{title}\n{workspace}\n{message_count} сообщений");
@@ -225,7 +229,7 @@ where
                         let aria = format!("{title} · {status_label}");
                         let message_count = session.message_count;
                         let updated_at = relative_time_from_now(session.updated_at_ms);
-                        let session_dir = session.session_dir.clone();
+                        let session_dir = session.session_dir.to_string_lossy().into_owned();
                         let session_for_click = session.clone();
                         view! {
                             <div class="sidebar-rail-item rail-popover-host">

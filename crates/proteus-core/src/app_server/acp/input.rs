@@ -71,7 +71,6 @@ pub(super) fn modes(mode: PermissionMode) -> Result<SessionModeState> {
         PermissionMode::Normal => "normal",
         PermissionMode::Plan => "plan",
         PermissionMode::Auto => "auto",
-        _ => return Err(invalid("unsupported configured permission mode")),
     };
     Ok(SessionModeState::new(
         current,

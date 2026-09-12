@@ -1,6 +1,16 @@
 use crate::types::ContextUsage;
 use web_sys::window;
 const CONTEXT_USAGE_STORAGE_PREFIX: &str = "proteus.contextUsage:";
+pub(crate) const TOOL_CARDS_COLLAPSED_KEY: &str = "proteus.toolCardsCollapsed";
+
+pub(crate) fn try_save_bool_setting(key: &str, value: bool) -> Result<(), String> {
+    let storage = window()
+        .and_then(|window| window.local_storage().ok().flatten())
+        .ok_or_else(|| "локальное хранилище недоступно".to_owned())?;
+    storage
+        .set_item(key, if value { "true" } else { "false" })
+        .map_err(|_| "локальное хранилище недоступно".to_owned())
+}
 
 pub(crate) fn load_i32_setting(key: &str, fallback: i32) -> i32 {
     window()

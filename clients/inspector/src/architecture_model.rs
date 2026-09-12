@@ -43,7 +43,7 @@ pub(crate) fn slot_views(snapshot: &TopologySnapshot) -> Vec<SlotView> {
 }
 
 pub(crate) fn module_source_label(source: &TopologyModuleSource) -> String {
-    match source.kind.as_str() {
+    match source.kind() {
         "process" => "process".to_owned(),
         "builtin" => "builtin".to_owned(),
         "config" => "config".to_owned(),

@@ -1,14 +1,6 @@
-use serde::{Deserialize, Serialize};
+pub(crate) use proteus_contracts::model_standard::MessagePhase;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum MessagePhase {
-    Commentary,
-    FinalAnswer,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub(crate) struct AssistantTextUpdate {
     pub(crate) offset: usize,
     pub(crate) message_id: String,

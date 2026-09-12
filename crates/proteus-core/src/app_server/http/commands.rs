@@ -258,23 +258,6 @@ pub(super) async fn execute_set_model(
     command_response(id, result)
 }
 
-pub(super) async fn execute_set_web_config(
-    state: &HttpAppState,
-    id: Option<String>,
-    tool_cards_collapsed: Option<bool>,
-    session_dir: PathBuf,
-) -> StdioOutput {
-    let result = async {
-        let server = server_for_session(state, session_dir).await?;
-        server.set_web_config(tool_cards_collapsed).await?;
-        Ok(Some(json!({
-            "web": { "tool_cards_collapsed": tool_cards_collapsed },
-        })))
-    }
-    .await;
-    command_response(id, result)
-}
-
 pub(super) async fn execute_set_reasoning_effort(
     state: &HttpAppState,
     id: Option<String>,

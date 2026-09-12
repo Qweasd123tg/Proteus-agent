@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 /// карточки, если live SSE event был пропущен.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub struct AppPendingRequests {
     pub session_id: SessionId,
     /// Новая идентичность при каждом запуске live app session. Seq сравнивается
@@ -44,7 +43,6 @@ impl AppPendingRequests {
 /// доставленный модели. Снимок используется `/pending` после reconnect.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub struct AppQueuedUserMessage {
     pub message_id: MessageId,
     pub text: String,

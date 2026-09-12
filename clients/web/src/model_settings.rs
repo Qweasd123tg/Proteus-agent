@@ -1,6 +1,6 @@
 //! Apply server-owned model selection and its matching reasoning options together.
 use leptos::prelude::*;
-use serde_json::Value;
+use proteus_contracts::app_protocol::config::ConfigSummary;
 
 use crate::types::{ModelOption, ReasoningEffort, TransportStatus};
 
@@ -15,53 +15,34 @@ pub(crate) struct ModelSettings {
 }
 
 impl ModelSettings {
-    pub fn apply(self, config: &Value) {
-        if let Some(model) = config.pointer("/model/name").and_then(Value::as_str) {
-            self.model.set(model.to_owned());
-        }
-        let options = config
-            .get("model_options")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|value| {
-                Some(ModelOption {
-                    name: value.get("name")?.as_str()?.to_owned(),
-                    label: value.get("label")?.as_str()?.to_owned(),
-                    hidden: value
-                        .get("hidden")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false),
-                })
-            })
-            .collect();
-        self.models.set(options);
-        let enabled = config
-            .pointer("/reasoning/enabled")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        self.enabled.set(enabled);
-        let effort = config
-            .pointer("/reasoning/effort")
-            .and_then(Value::as_str)
-            .map(ReasoningEffort::from_value)
-            .unwrap_or(if enabled {
-                ReasoningEffort::Config
-            } else {
-                ReasoningEffort::None
-            });
-        self.effort.set(effort);
-        self.efforts.set(
+    pub fn apply(self, config: &ConfigSummary) {
+        self.model.set(config.model.name.clone());
+        self.models.set(
             config
-                .pointer("/reasoning/effort_options")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .map(str::to_owned)
+                .model_options
+                .iter()
+                .map(|model| ModelOption {
+                    name: model.name.clone(),
+                    label: model.label.clone(),
+                    hidden: model.hidden,
+                })
                 .collect(),
         );
-        if let Some(error) = config.get("model_catalog_error").and_then(Value::as_str) {
+        self.enabled.set(config.reasoning.enabled);
+        self.effort.set(
+            config
+                .reasoning
+                .effort
+                .as_deref()
+                .map(ReasoningEffort::from_value)
+                .unwrap_or(if config.reasoning.enabled {
+                    ReasoningEffort::Config
+                } else {
+                    ReasoningEffort::None
+                }),
+        );
+        self.efforts.set(config.reasoning.effort_options.clone());
+        if let Some(error) = &config.model_catalog_error {
             self.status.set(TransportStatus::Error(format!(
                 "Не удалось загрузить каталог моделей: {error}"
             )));

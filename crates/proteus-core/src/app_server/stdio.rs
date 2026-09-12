@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use serde_json::Value;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt},
@@ -259,14 +259,6 @@ pub async fn run_stdio_app_server(
                 server.shutdown().await;
                 send_stdio_response(&output_tx, id, Ok(None)).await;
                 break;
-            }
-            _ => {
-                send_stdio_response(
-                    &output_tx,
-                    id,
-                    Err(anyhow!("unsupported StdioRequest variant")),
-                )
-                .await;
             }
         }
     }

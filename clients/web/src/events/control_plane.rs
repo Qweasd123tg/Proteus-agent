@@ -56,7 +56,7 @@ impl PendingControlPlane {
     pub(super) fn apply_stream(&self, snapshot: PendingControlPlaneInfo) {
         if self.is_current()
             && self.cursor.borrow_mut().accept_stream(
-                &snapshot.session_id,
+                &snapshot.session_id.to_string(),
                 &snapshot.stream_id,
                 snapshot.seq,
             )
@@ -79,7 +79,7 @@ impl PendingControlPlane {
                 Ok(snapshot) => {
                     if this.cursor.borrow_mut().accept_read(
                         ticket,
-                        &snapshot.session_id,
+                        &snapshot.session_id.to_string(),
                         &snapshot.stream_id,
                         snapshot.seq,
                     ) {

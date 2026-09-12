@@ -109,7 +109,6 @@ impl ApprovalCacheKey {
                 cwd: request.cwd.clone(),
                 args: None,
             }),
-            _ => None,
         }
     }
 }

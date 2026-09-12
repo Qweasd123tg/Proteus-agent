@@ -25,7 +25,8 @@ pub(super) fn context_snapshot_view(snapshot: ContextMapSnapshot) -> impl IntoVi
         .unwrap_or_else(|| "current".to_owned());
     let workspace = snapshot
         .workspace_path
-        .clone()
+        .as_ref()
+        .map(|path| path.to_string_lossy().into_owned())
         .unwrap_or_else(|| "workspace unknown".to_owned());
     let activity = snapshot
         .activity
@@ -152,7 +153,7 @@ pub(super) fn context_snapshot_view(snapshot: ContextMapSnapshot) -> impl IntoVi
                     <dl class="context-kv">
                         <div><dt>"чанков"</dt><dd>{latest_context.as_ref().map(|context| context.chunks.to_string()).unwrap_or_else(|| "n/a".to_owned())}</dd></div>
                         <div><dt>"токенов"</dt><dd>{latest_context.as_ref().and_then(|context| context.token_estimate).map(format_token_count).unwrap_or_else(|| "n/a".to_owned())}</dd></div>
-                        <div><dt>"ход"</dt><dd>{latest_context.as_ref().and_then(|context| context.turn_id.as_deref()).map(short_id).unwrap_or("n/a").to_owned()}</dd></div>
+                        <div><dt>"ход"</dt><dd>{latest_context.as_ref().and_then(|context| context.turn_id.as_ref()).map(short_id).unwrap_or_else(|| "n/a".into()).to_owned()}</dd></div>
                     </dl>
                 </article>
 
@@ -249,13 +250,17 @@ fn context_source_label(usage: Option<&ContextUsageSnapshot>) -> String {
 
 fn context_activity_label(activity: &SessionActivityInfo) -> String {
     if activity.running_runs > 0 {
-        format!("{} · {} runs", activity.status, activity.running_runs)
+        format!(
+            "{} · {} runs",
+            activity.status.as_str(),
+            activity.running_runs
+        )
     } else if activity.pending_approvals > 0 {
-        format!("{} · approvals", activity.status)
+        format!("{} · approvals", activity.status.as_str())
     } else if activity.pending_user_inputs > 0 {
-        format!("{} · input", activity.status)
+        format!("{} · input", activity.status.as_str())
     } else {
-        activity.status.clone()
+        activity.status.as_str().to_owned()
     }
 }
 

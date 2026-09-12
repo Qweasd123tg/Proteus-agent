@@ -3,7 +3,7 @@ use super::*;
 impl AppActions {
     pub(crate) async fn edit_queued_prompt(
         self,
-        message_id: String,
+        message_id: proteus_contracts::domain::MessageId,
         text: String,
     ) -> Result<(), String> {
         let session_dir = self
@@ -19,7 +19,7 @@ impl AppActions {
                     self.set_next_request_id,
                     "queue-edit",
                 )),
-                session_dir: session_dir.clone(),
+                session_dir: session_dir.clone().into(),
                 message_id: message_id.clone(),
                 text: text.clone(),
             },
@@ -34,7 +34,10 @@ impl AppActions {
         Ok(())
     }
 
-    pub(crate) async fn delete_queued_prompt(self, message_id: String) -> Result<(), String> {
+    pub(crate) async fn delete_queued_prompt(
+        self,
+        message_id: proteus_contracts::domain::MessageId,
+    ) -> Result<(), String> {
         let session_dir = self
             .active_session_dir
             .get_untracked()
@@ -48,7 +51,7 @@ impl AppActions {
                     self.set_next_request_id,
                     "queue-delete",
                 )),
-                session_dir: session_dir.clone(),
+                session_dir: session_dir.clone().into(),
                 message_id: message_id.clone(),
             },
         )
@@ -80,7 +83,7 @@ impl AppActions {
                     id: Some(request_id.clone()),
                     text,
                     options: Default::default(),
-                    session_dir: session_dir.clone(),
+                    session_dir: session_dir.clone().into(),
                 },
             )
             .await

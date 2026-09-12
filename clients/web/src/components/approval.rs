@@ -25,8 +25,7 @@ where
     let spec_hint = request
         .tool_spec
         .as_ref()
-        .and_then(|spec| spec.get("description"))
-        .and_then(Value::as_str)
+        .map(|spec| spec.description.as_str())
         .unwrap_or(&request.reason)
         .to_owned();
     let origin_label = request
@@ -203,10 +202,7 @@ fn approval_allows_workspace_write_cache(request: &ApprovalRequestInfo) -> bool 
         return false;
     }
     request.tool_spec.as_ref().is_some_and(|spec| {
-        let Some(approval) = spec
-            .get("metadata")
-            .and_then(|metadata| metadata.get("approval"))
-        else {
+        let Some(approval) = spec.metadata.get("approval") else {
             return false;
         };
         if approval
@@ -231,11 +227,14 @@ fn approval_allows_workspace_write_cache(request: &ApprovalRequestInfo) -> bool 
 }
 
 fn tool_safety(request: &ApprovalRequestInfo) -> Option<&str> {
-    request
-        .tool_spec
-        .as_ref()
-        .and_then(|spec| spec.get("safety"))
-        .and_then(Value::as_str)
+    use proteus_contracts::domain::ToolSafety;
+    request.tool_spec.as_ref().map(|spec| match spec.safety {
+        ToolSafety::ReadOnly => "ReadOnly",
+        ToolSafety::WritesFiles => "WritesFiles",
+        ToolSafety::RunsCommands => "RunsCommands",
+        ToolSafety::Network => "Network",
+        ToolSafety::Dangerous => "Dangerous",
+    })
 }
 
 #[component]

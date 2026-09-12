@@ -87,7 +87,12 @@ pub(super) fn ConfigBuilderView(
             module_config,
             tools_enabled: Some(draft_tools.get_untracked().into_iter().collect()),
             active_provider: Some(draft_provider.get_untracked()),
-            permission_mode: Some(draft_mode.get_untracked()).filter(|mode| !mode.is_empty()),
+            permission_mode: Some(draft_mode.get_untracked())
+                .filter(|mode| !mode.is_empty())
+                .map(|mode| {
+                    serde_json::from_value(serde_json::Value::String(mode))
+                        .expect("selected permission mode")
+                }),
         };
         saving.set(true);
         set_status.set("Сохраняю сборку…".to_owned());

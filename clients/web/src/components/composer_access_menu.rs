@@ -1,3 +1,4 @@
+use crate::types::PermissionModeLabel;
 use crate::{actions::AppActions, types::PermissionMode};
 use leptos::prelude::*;
 

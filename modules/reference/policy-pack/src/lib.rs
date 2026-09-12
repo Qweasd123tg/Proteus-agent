@@ -253,9 +253,6 @@ fn evaluate_call(
                 reason: format!("tool '{tool_name}' is not read-only"),
             }
         }
-        Some(_) => PolicyDecision::Deny {
-            reason: format!("unsupported tool safety level for '{tool_name}'"),
-        },
         None => PolicyDecision::Deny {
             reason: format!("unknown tool '{tool_name}'"),
         },
@@ -295,9 +292,6 @@ fn evaluate_codex_call(
         },
         Some(ToolSafety::Dangerous) => PolicyDecision::Deny {
             reason: "dangerous tool denied by codex policy".to_owned(),
-        },
-        Some(_) => PolicyDecision::Deny {
-            reason: format!("unsupported tool safety level for '{tool_name}'"),
         },
         None => PolicyDecision::Deny {
             reason: format!("unknown tool '{tool_name}'"),

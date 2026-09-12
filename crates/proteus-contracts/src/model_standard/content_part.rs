@@ -19,7 +19,6 @@ pub enum MessageRole {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-#[non_exhaustive]
 pub enum MessagePhase {
     Commentary,
     FinalAnswer,

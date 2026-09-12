@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::{contracts::ToolSource, core::AppConfig, domain::PermissionMode};
 
@@ -68,14 +68,6 @@ pub(super) fn render_config_summary(
     }
 
     lines.join("\n")
-}
-
-pub(super) fn module_summary(config: &AppConfig) -> Vec<Value> {
-    config
-        .modules
-        .iter()
-        .map(|(kind, id)| json!({ "slot": kind.as_str(), "id": id }))
-        .collect()
 }
 
 pub(super) fn configured_model_options(config: &AppConfig) -> Vec<crate::domain::ModelRef> {
@@ -169,4 +161,91 @@ pub(super) fn config_files(config_path: Option<&Path>) -> Vec<PathBuf> {
     }
     files.sort();
     files
+}
+
+impl super::AppServerHandle {
+    pub async fn config_summary(&self) -> Value {
+        use proteus_contracts::app_protocol::config::*;
+        let mode = self.permission_mode().await;
+        let model_ref = self.runtime.model_ref().await;
+        let reasoning = self.runtime.reasoning().await;
+        let module_epoch = self.runtime.module_epoch().await;
+        let config = self.config.read().await.clone();
+        let selection = super::model_selection::selection_summary(
+            &config,
+            &model_ref,
+            &reasoning,
+            self.runtime.model_catalog().await,
+        );
+        let tools = self.runtime.tool_entries().await;
+        let summary = ConfigSummary {
+            display_text: render_config_summary(
+                &config,
+                self.config_path.as_deref(),
+                &self.cwd,
+                mode,
+                &tools,
+                module_epoch,
+            ),
+            config_path: self.config_path.as_ref().map(|p| p.display().to_string()),
+            config_files: config_files(self.config_path.as_deref())
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect(),
+            cwd: self.cwd.display().to_string(),
+            session_dir: self.runtime.session_dir().map(|p| p.display().to_string()),
+            profile: config.profile.name.clone(),
+            model: ConfigModel {
+                provider: model_ref.provider.clone(),
+                name: model_ref.model.clone(),
+                label: format!("{}/{}", model_ref.provider, model_ref.model),
+            },
+            model_options: selection.models,
+            model_catalog_error: selection.error,
+            reasoning: ConfigReasoning {
+                enabled: reasoning.is_enabled(),
+                effort: reasoning.effort,
+                effort_options: selection.efforts,
+                summary: reasoning.summary,
+                budget_tokens: reasoning.budget_tokens,
+            },
+            permission_mode: format!("{mode:?}"),
+            module_epoch: module_epoch.as_u64(),
+            modules: config
+                .modules
+                .iter()
+                .map(|(slot, id)| ConfigModule {
+                    slot: slot.as_str().into(),
+                    id: id.into(),
+                })
+                .collect(),
+            tools_enabled: config.tools.enabled.clone(),
+            registered_tools: tools
+                .iter()
+                .map(|(source, spec)| ConfigTool {
+                    name: spec.name.clone(),
+                    source: source.label(),
+                    safety: format!("{:?}", spec.safety),
+                    supports_parallel_tool_calls: spec.supports_parallel_tool_calls,
+                    description: spec.description.clone(),
+                })
+                .collect(),
+            components: config
+                .components
+                .iter()
+                .map(|(id, component)| ConfigComponent {
+                    id: id.clone(),
+                    exports: component
+                        .exports()
+                        .map(|(slot, module_id, _)| ConfigComponentExport {
+                            slot: slot.to_string(),
+                            module_id: module_id.to_owned(),
+                        })
+                        .collect(),
+                })
+                .collect(),
+            activity: None,
+        };
+        serde_json::to_value(summary).expect("config summary JSON")
+    }
 }

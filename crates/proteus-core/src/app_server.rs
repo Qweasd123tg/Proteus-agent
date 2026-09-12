@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use serde_json::{Value, json};
+use serde_json::Value;
 use tokio::sync::{Mutex, RwLock, broadcast};
 
 use crate::{
@@ -49,10 +49,9 @@ pub use config_builder::{
 };
 use config_builder::{
     config_builder_snapshot_from_topology, config_builder_target_path, persist_config_builder,
-    read_toml_document_or_empty, set_module_slot, validate_config_builder_modules,
-    validate_config_builder_provider, validate_module_config_toml,
+    set_module_slot, validate_config_builder_modules, validate_config_builder_provider,
+    validate_module_config_toml,
 };
-use config_summary::{config_files, module_summary, render_config_summary};
 use context_map::{ContextMapInput, build_context_map_snapshot};
 use path_utils::paths_equal;
 pub(crate) use transcript::journal_transcript_messages;
@@ -210,119 +209,6 @@ impl AppServerHandle {
 
     pub async fn set_reasoning_effort(&self, effort: Option<String>) -> Result<()> {
         self.runtime.set_reasoning_effort(effort).await
-    }
-
-    /// Обновляет секцию `[web]` конфига (in-memory + запись в файл). Переданные
-    /// `None`-поля не трогаем — патчим только то, что прислали.
-    pub async fn set_web_config(&self, tool_cards_collapsed: Option<bool>) -> Result<()> {
-        {
-            let mut config = self.config.write().await;
-            if let Some(value) = tool_cards_collapsed {
-                config.web.tool_cards_collapsed = value;
-            }
-        }
-        self.persist_web_config().await
-    }
-
-    /// Пишет [web] обратно в файл конфига, сохраняя комментарии и форматирование
-    /// (toml_edit). Если config_path не задан или это директория — только память.
-    async fn persist_web_config(&self) -> Result<()> {
-        let Some(path) = self.config_path.clone() else {
-            return Ok(());
-        };
-        if tokio::fs::metadata(&path)
-            .await
-            .map(|meta| meta.is_dir())
-            .unwrap_or(false)
-        {
-            return Ok(());
-        }
-        let web = self.config.read().await.web.clone();
-        let mut doc = read_toml_document_or_empty(&path).await?;
-        if !doc.contains_key("web") {
-            doc["web"] = toml_edit::table();
-        }
-        doc["web"]["tool_cards_collapsed"] = toml_edit::value(web.tool_cards_collapsed);
-        tokio::fs::write(&path, doc.to_string()).await?;
-        Ok(())
-    }
-
-    pub async fn config_summary(&self) -> Value {
-        let mode = self.permission_mode().await;
-        let model_ref = self.runtime.model_ref().await;
-        let reasoning = self.runtime.reasoning().await;
-        let module_epoch = self.runtime.module_epoch().await;
-        let config = self.config.read().await.clone();
-        let selection = model_selection::selection_summary(
-            &config,
-            &model_ref,
-            &reasoning,
-            self.runtime.model_catalog().await,
-        );
-        let tools = self.runtime.tool_entries().await;
-        let config_files = config_files(self.config_path.as_deref());
-        json!({
-            "display_text": render_config_summary(
-                &config,
-                self.config_path.as_deref(),
-                &self.cwd,
-                mode,
-                &tools,
-                module_epoch,
-            ),
-            "config_path": self
-                .config_path
-                .as_deref()
-                .map(|path| path.display().to_string()),
-            "config_files": config_files
-                .iter()
-                .map(|path| path.display().to_string())
-                .collect::<Vec<_>>(),
-            "cwd": self.cwd.display().to_string(),
-            "session_dir": self
-                .runtime
-                .session_dir()
-                .map(|path| path.display().to_string()),
-            "profile": config.profile.name,
-            "model": {
-                "provider": model_ref.provider.clone(),
-                "name": model_ref.model.clone(),
-                "label": format!("{}/{}", model_ref.provider, model_ref.model),
-            },
-            "model_options": selection.models,
-            "model_catalog_error": selection.error,
-            "reasoning": {
-                "enabled": reasoning.is_enabled(),
-                "effort": reasoning.effort,
-                "effort_options": selection.efforts,
-                "summary": reasoning.summary,
-                "budget_tokens": reasoning.budget_tokens,
-            },
-            "permission_mode": format!("{mode:?}"),
-            "web": {
-                "tool_cards_collapsed": config.web.tool_cards_collapsed,
-            },
-            "module_epoch": module_epoch.as_u64(),
-            "modules": module_summary(&config),
-            "tools_enabled": config.tools.enabled,
-            "registered_tools": tools
-                .iter()
-                .map(|(source, spec)| json!({
-                    "name": spec.name,
-                    "source": source.label(),
-                    "safety": format!("{:?}", spec.safety),
-                    "supports_parallel_tool_calls": spec.supports_parallel_tool_calls,
-                    "description": spec.description,
-                }))
-                .collect::<Vec<_>>(),
-            "components": config.components.iter().map(|(component_id, component)| json!({
-                "id": component_id,
-                "exports": component.exports().map(|(slot, module_id, _)| json!({
-                    "slot": slot,
-                    "module_id": module_id,
-                })).collect::<Vec<_>>(),
-            })).collect::<Vec<_>>(),
-        })
     }
 
     pub async fn config_builder_snapshot(&self) -> ConfigBuilderSnapshot {

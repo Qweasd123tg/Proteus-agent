@@ -41,7 +41,7 @@ where
                                 key=|session| session.session_dir.clone()
                                 children=move |session| {
                                     let session_for_open = session.clone();
-                                    let workspace = session.workspace_path.clone();
+                                    let workspace = session.workspace_path.to_string_lossy().into_owned();
                                     let session_id = short_id(&session.session_id).to_owned();
                                     view! {
                                         <article class="resume-item">

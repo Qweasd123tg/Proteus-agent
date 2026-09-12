@@ -1,4 +1,3 @@
-use serde::Deserialize;
 use serde_json::Value;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -81,11 +80,4 @@ impl ToolActivityStatus {
             Self::Interrupted => "status-badge idle",
         }
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub(crate) struct ToolCallInfo {
-    pub(crate) id: String,
-    pub(crate) name: String,
-    pub(crate) args: Value,
 }

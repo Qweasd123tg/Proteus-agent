@@ -21,7 +21,7 @@ pub(super) fn TopologySnapshotView(snapshot: TopologySnapshot, source: String) -
     let process_module_count = snapshot
         .modules
         .iter()
-        .filter(|module| module.source.kind == "process")
+        .filter(|module| module.source.kind() == "process")
         .count();
 
     let tools = snapshot.tools.clone();

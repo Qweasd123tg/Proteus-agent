@@ -69,7 +69,7 @@ fn snapshot_tail_accepts_only_new_text_and_completion_keeps_its_identity() {
         let prefix = "Привет ";
         crate::session::history::apply_transcript(
             vec![crate::types::TranscriptMessage {
-                message_id: Some("live-item".into()),
+                message_id: Some("00000000-0000-0000-0000-000000000001".parse().unwrap()),
                 phase: Some(MessagePhase::FinalAnswer),
                 role: "assistant".into(),
                 text: prefix.into(),
@@ -85,7 +85,7 @@ fn snapshot_tail_accepts_only_new_text_and_completion_keeps_its_identity() {
         apply_assistant_update(
             b,
             update(
-                "live-item",
+                "00000000-0000-0000-0000-000000000001",
                 Some(MessagePhase::FinalAnswer),
                 prefix.len(),
                 "мир",
@@ -96,7 +96,7 @@ fn snapshot_tail_accepts_only_new_text_and_completion_keeps_its_identity() {
         complete_assistant_message(
             b,
             update(
-                "live-item",
+                "00000000-0000-0000-0000-000000000001",
                 Some(MessagePhase::FinalAnswer),
                 0,
                 "Привет мир",

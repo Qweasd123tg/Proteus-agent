@@ -78,7 +78,7 @@ fn load_topology_snapshot(
                 let process_count = snapshot
                     .modules
                     .iter()
-                    .filter(|module| module.source.kind == "process")
+                    .filter(|module| module.source.kind() == "process")
                     .count();
                 let warning_count = snapshot.warnings.len();
                 set_source.set(text);

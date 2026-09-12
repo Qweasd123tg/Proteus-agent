@@ -390,7 +390,6 @@ async fn handle_output(
             );
         }
         StdioOutput::Response { .. } => Ok(OutputVerdict::Continue),
-        _ => Ok(OutputVerdict::Continue),
     }
 }
 

@@ -44,7 +44,7 @@ pub use config::{
     ConfiguredMcpServerConfig, ConfiguredToolConfig, ConfiguredToolExecutorConfig, EventLogConfig,
     InstructionSourceConfig, ModelConfig, ModulesConfig, PermissionsConfig,
     ProcessEnvironmentConfig, ProfileConfig, ProviderProfileConfig, RuntimeConfig, ToolsConfig,
-    WebConfig, expand_user_path,
+    expand_user_path,
 };
 pub use config_snapshot::{
     CONFIG_SNAPSHOT_FILE, SessionConfigModules, SessionConfigSnapshot, SessionConfigTool,

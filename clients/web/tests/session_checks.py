@@ -5,7 +5,7 @@ from message_nav_checks import run as check_message_nav
 # Runs before the compiled client. Only the transcript prefix is substituted; snapshots, commands and deltas use the agent.
 BOOTSTRAP = r'''<script>
 const historyFixture = Array.from({length: 240}, (_,i)=>({
-  message_id:'history-'+i, phase:null, role:i%2?'assistant':'user',
+  message_id:'00000000-0000-0000-0000-'+i.toString(16).padStart(12,'0'), phase:null, role:i%2?'assistant':'user',
   text:'Сохранённое сообщение '+i+'. '+('Текст истории для проверки прокрутки. ').repeat(8),
   tool:null, subagent:null, streaming:false
 }));

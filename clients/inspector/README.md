@@ -95,8 +95,8 @@ query, fragment и userinfo. Credential хранится вместе с точ�
 - `clients/inspector` владеет config/architecture views и может развиваться
   отдельно от ежедневного chat loop;
 - `clients/web` остаётся чатовым клиентом;
-- оба клиента используют HTTP app-server boundary и локальные serde DTO, не
-  импортируя runtime internals из `proteus-core`;
+- оба клиента используют HTTP app-server boundary и общие DTO из
+  `proteus-contracts::app_protocol`, не импортируя runtime internals Core;
 - Config builder пишет `active_provider`, `[permissions] mode`, `[modules]`,
   `[module_config]` и `[tools].enabled` через `POST /config/builder`; provider
   profiles (`[providers.*]`) и secrets он не редактирует — только выбирает

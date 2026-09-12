@@ -1,9 +1,9 @@
 use super::*;
 fn session_summary(preview: Option<&str>, message_count: usize) -> SessionSummary {
     SessionSummary {
-        session_dir: "/tmp/session".to_owned(),
-        session_id: "1234567890".to_owned(),
-        workspace_path: "/tmp/workspace".to_owned(),
+        session_dir: "/tmp/session".into(),
+        session_id: "12345678-0000-0000-0000-000000000000".parse().unwrap(),
+        workspace_path: "/tmp/workspace".into(),
         message_count,
         updated_at_ms: None,
         preview: preview.map(ToOwned::to_owned),
@@ -25,7 +25,7 @@ fn sidebar_session_render_key_changes_when_activity_changes() {
     let idle_key = sidebar_session_render_key(&session);
 
     session.activity = Some(SessionActivityInfo {
-        status: "running".to_owned(),
+        status: proteus_contracts::app_protocol::AppSessionActivityStatus::Running,
         running_runs: 1,
         running_run_ids: vec!["run-1".to_owned()],
         pending_approvals: 0,
@@ -38,7 +38,7 @@ fn sidebar_session_render_key_changes_when_activity_changes() {
 #[test]
 fn active_session_activity_restores_running_run_state() {
     let activity = SessionActivityInfo {
-        status: "running".to_owned(),
+        status: proteus_contracts::app_protocol::AppSessionActivityStatus::Running,
         running_runs: 1,
         running_run_ids: vec!["run-1".to_owned()],
         pending_approvals: 0,
@@ -58,7 +58,7 @@ fn active_session_activity_restores_running_run_state() {
 #[test]
 fn active_session_activity_idle_clears_run_state() {
     let activity = SessionActivityInfo {
-        status: "idle".to_owned(),
+        status: proteus_contracts::app_protocol::AppSessionActivityStatus::Idle,
         running_runs: 0,
         running_run_ids: Vec::new(),
         pending_approvals: 0,

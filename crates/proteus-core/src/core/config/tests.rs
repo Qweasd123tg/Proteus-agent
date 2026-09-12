@@ -187,6 +187,17 @@ fn app_config_rejects_the_removed_one_export_process_modules_shape() {
 }
 
 #[test]
+fn display_preferences_are_not_agent_config() {
+    let mut value = serde_json::to_value(AppConfig::default()).unwrap();
+    assert!(value.get("web").is_none());
+    value["web"] = serde_json::json!({"tool_cards_collapsed": true});
+    let error = serde_json::from_value::<AppConfig>(value).unwrap_err();
+    assert!(error.to_string().contains("unknown field `web`"), "{error}");
+    let error = toml::from_str::<AppConfig>("active_provider = 'fake'\n[providers.fake]\nprovider = 'fake'\nmodel = 'fake'\n[web]\ntool_cards_collapsed = true").unwrap_err();
+    assert!(error.to_string().contains("unknown field `web`"), "{error}");
+}
+
+#[test]
 fn configured_tool_default_schema_allows_additional_properties() {
     let tool: ConfiguredToolConfig = serde_json::from_value(serde_json::json!({
         "name": "echo_args",

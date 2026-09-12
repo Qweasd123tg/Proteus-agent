@@ -1,24 +1,9 @@
 use super::{commands::command_response, sessions::server_for_session, state::HttpAppState};
-use crate::{app_server::StdioOutput, domain::MessageId};
-use serde::Deserialize;
-use std::path::PathBuf;
+use crate::app_server::StdioOutput;
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct EditQueuedMessageRequest {
-    pub id: Option<String>,
-    pub session_dir: PathBuf,
-    pub message_id: MessageId,
-    pub text: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct DeleteQueuedMessageRequest {
-    pub id: Option<String>,
-    pub session_dir: PathBuf,
-    pub message_id: MessageId,
-}
+pub(super) use proteus_contracts::app_protocol::http::{
+    DeleteQueuedMessageRequest, EditQueuedMessageRequest,
+};
 
 pub(super) async fn edit(state: &HttpAppState, request: EditQueuedMessageRequest) -> StdioOutput {
     let result = async {

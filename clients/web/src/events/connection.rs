@@ -78,6 +78,10 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventConnection
         alive.clone(),
         session_dir.clone(),
     );
+    let cursor = std::rc::Rc::new(std::cell::RefCell::new(
+        proteus_client_common::sync::SessionCursor::default(),
+    ));
+    let open_cursor = cursor.clone();
     let open_pending = pending.clone();
     let open_alive = alive.clone();
     let on_open = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |_| {
@@ -88,6 +92,7 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventConnection
         bindings
             .set_transport_status
             .set(TransportStatus::Connected);
+        open_cursor.borrow_mut().begin_connection();
         open_pending.begin_connection();
         open_pending.refresh();
     }));
@@ -110,31 +115,38 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventConnection
                 return;
             };
             match serde_json::from_str::<StdioOutput>(&data) {
-                Ok(output) => handle_app_output(
-                    output,
-                    output_messages,
-                    output_next_message_id,
-                    output_set_next_message_id,
-                    output_transport_status,
-                    output_event_count,
-                    bindings.set_workspace_label,
-                    bindings.set_session_label,
-                    bindings.active_session_dir,
-                    bindings.set_is_sending,
-                    bindings.set_active_run_id,
-                    bindings.set_plan_run_id,
-                    bindings.active_stream_message_id,
-                    bindings.set_active_stream_message_id,
-                    bindings.streamed_this_turn,
-                    bindings.set_streamed_this_turn,
-                    bindings.stream_delta_buffer,
-                    bindings.set_agent_status,
-                    bindings.set_tool_activities,
-                    bindings.set_context_usage,
-                    &pending,
-                    bindings.set_sidebar_sessions,
-                    bindings.set_sidebar_sessions_status,
-                ),
+                Ok(output) => {
+                    if let StdioOutput::Event { event } = &output
+                        && !cursor.borrow_mut().accept(event)
+                    {
+                        return;
+                    }
+                    handle_app_output(
+                        output,
+                        output_messages,
+                        output_next_message_id,
+                        output_set_next_message_id,
+                        output_transport_status,
+                        output_event_count,
+                        bindings.set_workspace_label,
+                        bindings.set_session_label,
+                        bindings.active_session_dir,
+                        bindings.set_is_sending,
+                        bindings.set_active_run_id,
+                        bindings.set_plan_run_id,
+                        bindings.active_stream_message_id,
+                        bindings.set_active_stream_message_id,
+                        bindings.streamed_this_turn,
+                        bindings.set_streamed_this_turn,
+                        bindings.stream_delta_buffer,
+                        bindings.set_agent_status,
+                        bindings.set_tool_activities,
+                        bindings.set_context_usage,
+                        &pending,
+                        bindings.set_sidebar_sessions,
+                        bindings.set_sidebar_sessions_status,
+                    )
+                }
                 Err(error) => push_message(
                     output_messages,
                     output_next_message_id,

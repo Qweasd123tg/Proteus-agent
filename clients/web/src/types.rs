@@ -17,6 +17,3 @@ pub(crate) use session::*;
 pub(crate) use settings::*;
 pub(crate) use subagent::*;
 pub(crate) use tool::*;
-
-#[cfg(test)]
-mod protocol_contract_tests;
