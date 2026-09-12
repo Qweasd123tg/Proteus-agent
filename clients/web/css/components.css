@@ -485,6 +485,7 @@ button.status-badge {
 
 /* Со счётчиком новых сообщений кнопка растягивается в пилюлю. */
 .jump-to-bottom.has-count {
+    gap: 5px;
     width: auto;
     min-width: 34px;
     padding: 0 12px;

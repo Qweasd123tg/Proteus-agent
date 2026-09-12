@@ -22,9 +22,10 @@ where
                                 type="button"
                                 class="secondary"
                                 title="Закрыть"
+                                aria-label="Закрыть"
                                 on:click=move |_| on_dismiss(toast_id)
                             >
-                                "×"
+                                <super::icons::CloseIcon/>
                             </button>
                         </div>
                     }

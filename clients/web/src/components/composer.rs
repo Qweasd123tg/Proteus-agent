@@ -60,7 +60,7 @@ where
                     class="jump-to-bottom" class:has-count=move || { new_below_count() > 0 }
                     title="К последнему сообщению" aria-label="К последнему сообщению"
                     on:click=move |_| set_stick_to_bottom.set(true)>
-                    {move || if new_below_count() > 0 { format!("↓ {}", new_below_count()) } else { "↓".to_owned() }}
+                    <super::icons::ArrowDownIcon/>{move || (new_below_count() > 0).then(|| new_below_count().to_string())}
                 </button>
             </Show>
             <div class="composer-shell">

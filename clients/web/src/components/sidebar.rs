@@ -192,7 +192,7 @@ where
                                             aria-label="Удалить чат"
                                             on:click=move |_| on_delete_session(session_for_delete.clone())
                                         >
-                                            "×"
+                                            <super::icons::TrashIcon/>
                                         </button>
                                     </div>
                                 </li>

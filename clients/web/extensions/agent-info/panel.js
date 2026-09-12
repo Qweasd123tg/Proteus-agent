@@ -1,6 +1,6 @@
 import { icon } from '../dom.js';
 export function mount({ root, compact, services, signal }) {
-  icon(compact, 'M4 4h6v6H4ZM14 4h6v6h-6ZM4 14h6v6H4ZM14 14h6v6h-6Z');
+  icon(compact, 'modules');
   const content = document.createElement('div');
   const status = document.createElement('p');
   status.className = 'muted';

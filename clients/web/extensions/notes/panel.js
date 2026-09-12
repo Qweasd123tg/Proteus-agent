@@ -1,6 +1,6 @@
 import { icon } from '../dom.js';
 export function mount({ root, compact, storage, signal }) {
-  icon(compact, 'M4 4h10M4 4v16h16V10M10 14l1-4 8-8 3 3-8 8Z');
+  icon(compact, 'notes');
   const textarea = document.createElement('textarea');
   textarea.setAttribute('aria-label', 'Личные заметки');
   textarea.placeholder = 'Идеи, ссылки, что проверить…';

@@ -19,9 +19,9 @@ input:focus-visible, button:focus-visible { outline: 2px solid #aaa; outline-off
 .hint { color: #929497; line-height: 1.6; font-size: 12px; margin: 12px 0 0; }
 .actions { margin-top: 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 #status { color: #a6a7a9; font-size: 12px; }
-.primary { color: #202124; background: #e9e9e5; border-color: #e9e9e5; font-weight: 550; }
+.primary { display: inline-flex; align-items: center; gap: 12px; color: #202124; background: #e9e9e5; border-color: #e9e9e5; font-weight: 550; }
 .primary:hover { background: #fff; }
-.primary span { margin-left: 12px; }
+.primary svg { display: block; flex: none; }
 #error-box { background: #292222; border: 1px solid #684444; border-radius: 8px; padding: 13px; margin-top: 22px; color: #e7b7b7; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5; max-height: 230px; overflow: auto; margin-bottom: 0; }
 [hidden] { display: none !important; }

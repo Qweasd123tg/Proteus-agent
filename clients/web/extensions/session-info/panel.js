@@ -1,6 +1,6 @@
-import { node } from '../dom.js';
+import { node, icon } from '../dom.js';
 export function mount({ root, compact, services }) {
-  compact.textContent = 'ⓘ';
+  icon(compact, 'info');
   const fields = [['status','Статус'],['model','Модель'],['mode','Режим'],['reasoning','Reasoning'],['workspace','Проект'],['events','Событий'],['tools','Инструментов'],['pending','Ожидают']];
   const values = new Map();
   for (const [key, label] of fields) {

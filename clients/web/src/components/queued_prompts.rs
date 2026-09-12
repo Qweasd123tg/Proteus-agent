@@ -100,7 +100,7 @@ pub(super) fn QueuedPrompts(
                     </div>
                 </Show>
                 <Show when=move || error.get().is_some()>
-                    <div class="queue-error" role="alert"><span>{move || error.get()}</span><button type="button" class="queue-icon-button" aria-label="Закрыть ошибку" on:click=move |_| error.set(None)>"×"</button></div>
+                    <div class="queue-error" role="alert"><span>{move || error.get()}</span><button type="button" class="queue-icon-button" aria-label="Закрыть ошибку" on:click=move |_| error.set(None)><super::icons::CloseIcon/></button></div>
                 </Show>
             </section>
         </Show>

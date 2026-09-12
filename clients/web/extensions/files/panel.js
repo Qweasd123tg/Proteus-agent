@@ -2,7 +2,7 @@ import { node, icon } from '../dom.js';
 import { createPreview } from './preview.js';
 
 export function mount({ root, compact, panels, services, signal }) {
-  icon(compact, 'M3 7V5h6l2 2h10v13H3Z');
+  icon(compact, 'folder');
   root.append(node('style', `
     :host{display:flex!important;flex-direction:column;height:100%;min-height:0;overflow:hidden}
     .toolbar{display:flex;align-items:center;justify-content:flex-end;flex:none;padding:4px 8px;border-bottom:1px solid var(--border-subtle,#333);font-size:11px;color:var(--text-muted,#aaa)}
@@ -16,15 +16,15 @@ export function mount({ root, compact, panels, services, signal }) {
     .label{overflow:hidden;text-overflow:ellipsis}.spacer{width:10px;flex:none}.status{margin:6px 10px;font-size:12px;overflow-wrap:anywhere;color:var(--text-muted,#aaa)}
   `));
   const toolbar=node('div',null,'toolbar'), refresh=node('button');
-  refresh.append(shape('M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 17.9 17'));
+  refresh.append(shape('refresh'));
   refresh.type='button'; refresh.title='Обновить дерево'; refresh.setAttribute('aria-label','Обновить дерево');
   toolbar.append(refresh);
   const tree=node('div',null,'tree'); tree.setAttribute('role','tree'); tree.setAttribute('aria-label','Файлы проекта');
   root.append(toolbar,tree);
   const workspace=services['agent.workspace.read'], expanded=new Set(), listings=new Map(), pending=new Set();
   let generation=0, selected='', focused='', preview, changes=new Map(), gitError='', gitTruncated=false;
-  function shape(path,className) {
-    const holder=node('span'); icon(holder,path); const svg=holder.firstChild;
+  function shape(name,className) {
+    const holder=node('span'); icon(holder,name); const svg=holder.firstChild;
     svg.removeAttribute('style'); svg.setAttribute('stroke-linecap','round'); svg.setAttribute('stroke-linejoin','round'); if(className) svg.setAttribute('class',className); svg.setAttribute('aria-hidden','true'); return svg;
   }
   function visibleRows() { return [...tree.querySelectorAll('.row:not(:disabled)')]; }
@@ -43,10 +43,10 @@ export function mount({ root, compact, panels, services, signal }) {
         row.type='button'; row.dataset.path=entry.path; row.dataset.parent=path; row.title=entry.path;
         row.style.paddingLeft=`${8+depth*14}px`; row.setAttribute('role','treeitem'); row.setAttribute('aria-level',String(depth+1));
         row.setAttribute('aria-selected',String(selected===entry.path)); row.tabIndex=focused===entry.path?0:-1;
-        if(folder) { row.setAttribute('aria-expanded',String(expanded.has(entry.path))); row.append(shape('m9 5 7 7-7 7','chevron')); }
+        if(folder) { row.setAttribute('aria-expanded',String(expanded.has(entry.path))); row.append(shape('chevron-right','chevron')); }
         else row.append(node('span',null,'spacer'));
         const type=({rs:'rust',js:'js',jsx:'js',mjs:'js',ts:'js',tsx:'js',json:'json',md:'md',mdx:'md'})[entry.name.split('.').pop().toLowerCase()];
-        row.append(shape(folder?'M3 7V5h6l2 2h10v13H3Z':'M5 3h9l5 5v13H5ZM14 3v6h5',!folder&&type?`file-type-${type}`:undefined),node('span',entry.name,'label'));
+        row.append(shape(folder?'folder':'file',!folder&&type?`file-type-${type}`:undefined),node('span',entry.name,'label'));
         if(!folder) decorate(row,entry.path);
         row.disabled=!folder&&entry.kind!=='file';
         if(row.disabled) row.title+=' · Просмотр недоступен';
@@ -62,7 +62,7 @@ export function mount({ root, compact, panels, services, signal }) {
     for(const [path] of deleted) {
       const row=node('button',null,`row file${selected===path?' active':''}`); row.type='button'; row.dataset.path=path; row.dataset.parent=''; row.title=path;
       row.setAttribute('role','treeitem'); row.setAttribute('aria-level','1'); row.setAttribute('aria-selected',String(selected===path)); row.tabIndex=focused===path?0:-1;
-      row.append(node('span',null,'spacer'),shape('M5 3h9l5 5v13H5ZM14 3v6h5'),node('span',path,'label')); decorate(row,path); fragment.append(row);
+      row.append(node('span',null,'spacer'),shape('file'),node('span',path,'label')); decorate(row,path); fragment.append(row);
     }
     if(gitError) fragment.append(node('p',gitError,'status'));
     if(gitTruncated) fragment.append(node('p','Список изменений Git показан не полностью.','status'));

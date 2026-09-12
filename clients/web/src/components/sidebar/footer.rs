@@ -46,7 +46,7 @@ where
                     <span class="dot"></span><span class="connection-text">{move || transport_status.get().label()}</span>
                 </button>
                 <details class="utility-menu">
-                    <summary title="Диагностика" aria-label="Диагностика">"···"</summary>
+                    <summary title="Диагностика" aria-label="Диагностика"><MoreIcon/></summary>
                     <div class="utility-menu-panel">
                         <button type="button" class="utility-menu-item danger" disabled=move || active_run_id.get().is_none()
                             on:click=move |ev| {

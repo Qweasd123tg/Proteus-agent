@@ -1,3 +1,4 @@
+import { icon } from '../icons.js';
 import { node } from '../dom.js';
 
 let nextPreviewId=0;
@@ -9,7 +10,7 @@ export function createPreview({ panels, workspace, signal }) {
     :host{display:flex!important;flex-direction:column;height:100%;min-height:0;overflow:hidden}
     .tabs{display:flex;flex:none;overflow:auto;border-bottom:1px solid var(--border-subtle,#333);min-height:32px}
     .tab{display:flex;align-items:center;flex:none;border-right:1px solid var(--border-subtle,#333);max-width:230px}.tab.active{background:var(--bg-hover,#333);box-shadow:inset 0 2px var(--accent,#8aaaff)}
-    button{border:0;border-radius:0;background:transparent;color:inherit;font-size:12px;cursor:pointer}.tab-name{padding:8px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tab.transient .tab-name{font-style:italic}.tab-parent{margin-left:7px;font-size:11px;color:var(--text-muted,#aaa)}.close{padding:5px 8px}.close:hover{background:var(--bg-hover,#444)}
+    button{border:0;border-radius:0;background:transparent;color:inherit;font-size:12px;cursor:pointer}.tab-name{padding:8px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tab.transient .tab-name{font-style:italic}.tab-parent{margin-left:7px;font-size:11px;color:var(--text-muted,#aaa)}.close{display:grid;place-items:center;padding:5px 7px}.close svg{width:14px;height:14px}.close:hover{background:var(--bg-hover,#444)}
     .filename{flex:1;min-width:0;margin:0;padding:7px 12px;color:var(--text-muted,#aaa);font:11px var(--font-mono,monospace);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .toolbar{display:flex;align-items:center;flex-wrap:wrap;flex:none;border-bottom:1px solid var(--border-subtle,#333)}.modes{display:flex;flex:none;padding:2px 6px}.modes button{padding:5px 7px}.modes [aria-pressed=true]{background:var(--bg-hover,#333);border-radius:4px}.modes button:disabled{opacity:.4;cursor:default}
     .status{margin:8px 12px;font-size:12px;overflow-wrap:anywhere}.status:empty{display:none}
@@ -41,7 +42,7 @@ export function createPreview({ panels, workspace, signal }) {
     if(signature!==tabSignature) {
       tabSignature=signature; const fragment=document.createDocumentFragment();
       for(const [path,file] of files) {
-        const tab=node('div',null,`tab${file.pinned?'':' transient'}`), name=node('button',path.split('/').pop(),'tab-name'), close=node('button','×','close');
+        const tab=node('div',null,`tab${file.pinned?'':' transient'}`), name=node('button',path.split('/').pop(),'tab-name'), close=node('button',null,'close');
         tab.dataset.path=path; name.type=close.type='button'; name.title=path; name.id=`${viewId}-tab-${file.id}`; name.setAttribute('role','tab');name.setAttribute('aria-controls',code.id);
         const parent=parentLabel(path);if(parent)name.append(node('span',parent,'tab-parent'));
         name.addEventListener('click',()=>select(path)); name.addEventListener('dblclick',()=>pin(path));
@@ -54,7 +55,7 @@ export function createPreview({ panels, workspace, signal }) {
           else if(event.key==='Delete') {event.preventDefault();remove(path);tabs.querySelector('[aria-selected=true]')?.focus();return;} else return;
           event.preventDefault();select(target);tabs.querySelector('[aria-selected=true]')?.focus();
         });
-        close.title=`Закрыть ${path}`;close.setAttribute('aria-label',close.title);close.addEventListener('click',()=>remove(path));
+        close.append(icon('close')); close.title=`Закрыть ${path}`;close.setAttribute('aria-label',close.title);close.addEventListener('click',()=>remove(path));
         tab.append(name,close);fragment.append(tab);
       }
       tabs.replaceChildren(fragment);

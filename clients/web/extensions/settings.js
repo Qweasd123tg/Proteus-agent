@@ -1,4 +1,5 @@
 import { button } from './panel.js';
+import { icon } from './icons.js';
 import { mountSettingsEntry } from './settings-entry.js';
 
 function node(tag, text, className) {
@@ -75,8 +76,9 @@ export function mountExtensionSettings(root, registry, services = {}) {
         configure.disabled = busy; configure.setAttribute('aria-label', `Настроить: ${name}`);
         actions.append(configure);
       }
-      for (const [step, glyph, action] of [[-1, '↑', 'Выше'], [1, '↓', 'Ниже']]) {
-        const move = button(glyph, () => registry.move(record.id, step), rowSignal);
+      for (const [step, glyph, action] of [[-1, 'arrow-up', 'Выше'], [1, 'arrow-down', 'Ниже']]) {
+        const move = button('', () => registry.move(record.id, step), rowSignal);
+        move.append(icon(glyph));
         move.disabled = busy || index + step < 0 || index + step >= records.length;
         move.setAttribute('aria-label', `${action}: ${name}`); move.title = `${action}: ${name}`;
         move.dataset.controlKey = `${record.id}:${step}`; actions.append(move);

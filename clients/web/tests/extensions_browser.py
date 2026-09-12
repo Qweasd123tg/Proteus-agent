@@ -273,11 +273,11 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                 check_panels(command, js, wait_for)
                 check_usage(command, js, wait_for)
                 check_layout(command, js, wait_for)
+                screenshot = request(url + '/screenshot')['value']
+                Path('/tmp/proteus-ui-extensions.png').write_bytes(base64.b64decode(screenshot))
                 if '--panels-only' in sys.argv:
                     print('PASS: extensions, custom selectors, owned file panels, motion and layout', flush=True)
                     return
-                screenshot = request(url + '/screenshot')['value']
-                Path('/tmp/proteus-ui-extensions.png').write_bytes(base64.b64decode(screenshot))
                 check_architecture(command, js, wait_for, web, origin)
                 check_session(command, js, wait_for, web, origin, loaded)
                 check_queue(command, js, wait_for, server)

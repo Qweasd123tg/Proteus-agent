@@ -64,20 +64,20 @@ pub(crate) fn App() -> impl IntoView {
                     <a class="inspector-nav-item" class:active=!is_architecture
                         aria-current=if !is_architecture { Some("page") } else { None }
                         href=desktop::inspector_route(false)>
-                        <NavIcon kind="assembly"/>
+                        <crate::icons::Icon name="modules"/>
                         <span>"Сборка агента"</span>
                         <span class="nav-indicator" aria-hidden="true"></span>
                     </a>
                     <a class="inspector-nav-item" class:active=is_architecture
                         aria-current=if is_architecture { Some("page") } else { None }
                         href=desktop::inspector_route(true)>
-                        <NavIcon kind="architecture"/>
+                        <crate::icons::Icon name="inspector"/>
                         <span>"Архитектура"</span>
                         <span class="nav-indicator" aria-hidden="true"></span>
                     </a>
                 </nav>
                 <div class="sidebar-note">
-                    <span class="sidebar-note-glyph" aria-hidden="true">"◈"</span>
+                    <span class="sidebar-note-glyph" aria-hidden="true"><crate::icons::Icon name="modules" size=24/></span>
                     <strong>"Агент из ваших модулей"</strong>
                     <p>"Выберите поведение. Настройте инструменты. Посмотрите, как всё связано."</p>
                 </div>
@@ -89,7 +89,7 @@ pub(crate) fn App() -> impl IntoView {
             <main class="inspector-main">
                 <header class="inspector-topbar">
                     <div class="inspector-breadcrumb"><span>"Рабочее пространство"</span><span aria-hidden="true">"/"</span><strong>"Inspector"</strong></div>
-                    <a class="inspector-chat-link" href=move || chat_url.get()>"Открыть чат"<span aria-hidden="true">"↗"</span></a>
+                    <a class="inspector-chat-link" href=move || chat_url.get()>"Открыть чат"<crate::icons::Icon name="external-link" size=16/></a>
                 </header>
                 <div class="inspector-content" id="inspector-content" tabindex="-1">
                     {move || match selected_session.get() {
@@ -115,18 +115,6 @@ pub(crate) fn App() -> impl IntoView {
 
 fn is_architecture_route(path: Option<&str>, view: Option<&str>, is_desktop: bool) -> bool {
     path == Some("/architecture") || (is_desktop && view == Some("architecture"))
-}
-
-#[component]
-fn NavIcon(kind: &'static str) -> impl IntoView {
-    let path = if kind == "assembly" {
-        "M4 4h6v6H4z M14 4h6v6h-6z M4 14h6v6H4z M17 14v6 M14 17h6"
-    } else {
-        "M9 3h6v5H9z M3 16h6v5H3z M15 16h6v5h-6z M12 8v4 M6 16v-4h12v4"
-    };
-    view! {
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d=path/></svg>
-    }
 }
 
 #[cfg(test)]

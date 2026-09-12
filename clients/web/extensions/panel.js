@@ -52,7 +52,7 @@ export function createPanel(record, { services, storage, changed, onOpen, surfac
   const compact = compactSurface.attachShadow({ mode: 'open' });
   const compactStyle = document.createElement('style');
   compactStyle.textContent = ':host{display:grid;place-items:center;color:inherit;font:inherit}svg{width:28px;height:28px}.extension-host-icon{width:20px;height:20px}';
-  const compactIcon = icon('panel'); compactIcon.classList.add('extension-host-icon');
+  const compactIcon = icon('panel-left'); compactIcon.classList.add('extension-host-icon');
   compact.append(compactStyle, compactIcon);
   const placementMenu = attachPanelMenu(header, record, changed, signal);
   for (const control of [title, compactButton]) {

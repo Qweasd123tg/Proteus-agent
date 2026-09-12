@@ -4,6 +4,7 @@ mod architecture;
 mod architecture_map;
 mod architecture_model;
 mod configs;
+mod icons;
 mod types;
 mod ui_utils;
 
