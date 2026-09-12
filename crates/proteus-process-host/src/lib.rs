@@ -4,7 +4,8 @@
 //! `proteus-contracts`: it is shared plumbing for workers and core code that need
 //! a process lifecycle plus a protocol-neutral duplex transport. The existing
 //! [`ProcessSession`] / [`ProcessHost`] API remains a sequential JSON-RPC-style
-//! facade for MCP and LSP. Child stderr is piped and drained
+//! facade for LSP. MCP uses its SDK over [`ProcessTransport`] directly.
+//! Child stderr is piped and drained
 //! into `std::io::sink()` by a background thread.
 
 mod framing;

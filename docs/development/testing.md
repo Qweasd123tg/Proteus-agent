@@ -36,6 +36,7 @@
 | Slot adapter | adapter unit | real worker invocation | `module_swap` |
 | Module implementation | module unit | reference conformance | runtime smoke при side effects |
 | Tool/policy | tool unit | full safety path | approval deny/allow |
+| MCP client | typed discovery/result mapping | `mcp_client`: real stdio peer, pagination, multiplexing, cancel/timeout/restart | ACP editor MCP regression, `module_swap`, workspace gate |
 | Workflow/runtime | workflow unit | canonical journal/replay | terminal/cancel/recovery evidence при behavior change |
 | Agent control/subagents | DTO/mailbox unit | минимум два real process peers | forged address/source, bounded FIFO, cancel handoff и sibling crash isolation |
 | HTTP/session | handler unit | reconnect/cold history | auth/SSE smoke |
@@ -69,6 +70,17 @@ Focused gate: `cargo test -p proteus-core --lib app_server::acp` и
 полный gate — `cargo test --workspace --no-fail-fast` (включает `module_swap`).
 Shell process fixtures разбирают JSON-RPC `id` JSON-парсером, независимо от
 порядка полей: ACP SDK включает `serde_json/preserve_order` для workspace graph.
+
+Для MCP client focused gate — `cargo test -p proteus-core --test mcp_client`.
+Граница включает handshake через `rmcp`, pagination discovery, сопоставление
+typed tool results, concurrent requests, отмену/timeout с завершением общей
+server generation и явный следующий вызов с новым handshake. Отдельно нужно
+проверять drop invocation future, отсутствие автоматического повтора failed
+call и отсутствие restart при обычной tool/RPC error на здоровом соединении.
+Интеграция editor-provided stdio MCP проверяется в `acp_server`; общий
+`ProcessTransport` — в `proteus-process-host`. Дополнительные gates —
+`module_swap` и полный `cargo test --workspace --no-fail-fast`.
+
 Doctor regression отдельно проверяет workspace scope и explicit full audit,
 сохраняя строгий отказ на старой session schema без изменения её файлов.
 
@@ -385,7 +397,8 @@ cargo test -p proteus-module-protocol
 - newline framing и receive limits;
 - bounded priority data/control writer, persistent child lifecycle и
   independent exit signal;
-- sequential MCP/LSP facade поверх общего transport;
+- sequential JSON-RPC facade для LSP поверх общего transport; MCP использует
+  `rmcp` напрямую поверх `ProcessTransport` и проверяется в `mcp_client`;
 - действующий async multiplexed component-v3 broker с bounded pending state;
 - strict JSON-RPC envelopes;
 - exact initialize/manifest;

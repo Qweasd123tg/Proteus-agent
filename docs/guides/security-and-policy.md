@@ -254,12 +254,25 @@ truncation перед событием `ToolFinished` и передачей ре
 remote tool name; это сохраняет связь между `ToolSpec`, policy decision и
 фактическим downstream вызовом.
 
-Persistent stdio host дополнительно ограничивает receive backlog: reader queue
-и ещё не drained JSON-RPC notifications делят один budget по числу кадров и
-суммарному compact-JSON размеру (по умолчанию 256 кадров / 32 MiB), а framing
-отдельно ограничивает размер одного wire frame. При исчерпании budget reader
-останавливается с явной ошибкой; он не продолжает накапливать валидные, но
-невостребованные сообщения.
+MCP handshake и multiplexed request routing выполняет `rmcp`; запуск процесса,
+framing и receive limits остаются в protocol-neutral `ProcessTransport`.
+При отмене, timeout или drop invocation future текущая generation configured
+MCP server завершается целиком, включая остальные незавершённые запросы к ней.
+Перед завершением client ограниченно по времени пытается отправить
+`notifications/cancelled`; доставка не гарантируется. Новый процесс с новым
+handshake создаётся только при следующем явном вызове, без автоматического
+повтора failed invocation. `isError` от tool и обычная JSON-RPC error при
+здоровом соединении не считаются transport failure и сами по себе не
+перезапускают процесс.
+
+Persistent stdio transport дополнительно ограничивает receive backlog reader
+queue по числу кадров и суммарному compact-JSON размеру (по умолчанию
+256 кадров / 32 MiB), а framing отдельно ограничивает размер одного wire
+frame. Sequential `ProcessHost` facade включает ещё не drained JSON-RPC
+notifications в тот же budget; MCP dispatch notifications выполняет `rmcp`,
+без этой дополнительной очереди facade. При исчерпании transport budget reader
+останавливается с явной ошибкой; он не продолжает накапливать невостребованные
+кадры.
 
 Process modules, inline/discovered MCP и configured executor `kind = "process"`
 используют одну fail-closed environment policy из `ProcessSpec`. На Unix по

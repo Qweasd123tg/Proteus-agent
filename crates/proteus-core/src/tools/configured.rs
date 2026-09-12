@@ -170,7 +170,7 @@ pub fn register_configured_tools(
                     cwd,
                     configured.timeout_ms.unwrap_or(30_000),
                     *max_response_bytes,
-                );
+                )?;
                 registry.register_with_source(
                     source,
                     ConfiguredMcpTool::new(spec, tool.clone(), host),

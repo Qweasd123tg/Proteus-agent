@@ -651,17 +651,37 @@ args = ["examples/mcp/echo_server.sh"]
 safety = "RunsCommands"
 supports_parallel_tool_calls = false
 timeout_ms = 30000
-protocol_version = "2025-06-18"
+protocol_version = "2025-11-25"
 max_response_bytes = 20000
 metadata = { scope = "local-smoke-test" }
 ```
 
-Текущий MCP scope — stdio tool discovery/invocation. Resources, prompts,
-subscriptions и remote transports не входят в реализованную границу.
+MCP client использует официальный Rust SDK `rmcp` 3.3.0 поверх общего
+`ProcessTransport`: SDK отвечает за handshake, typed tool discovery/invocation
+и pagination `tools/list`; host сохраняет framing, receive limits и lifecycle
+дочернего процесса. `protocol_version` задаёт предпочитаемую версию в
+`initialize`; по умолчанию используется `2025-11-25`. Неизвестная SDK версия
+в config или ответе сервера отклоняется. Сервер обязан объявить capability
+`tools`.
+
+Текущий MCP scope — stdio tool discovery/invocation. HTTP, OAuth, resources,
+prompts, subscriptions, sampling и elicitation не включаются автоматически
+вместе с SDK и не входят в реализованную границу.
+Один допущенный вызов tool отправляет один `tools/call` и ожидает завершённый
+`CallToolResult`. Автоматические дополнительные раунды SDK (MRTR) и task
+continuations не выполняются; иной вид результата завершает generation
+с ошибкой.
 Для discovered tool параллельный запуск разрешён, если у сервера задано
 `supports_parallel_tool_calls = true` или tool объявил MCP
 `annotations.readOnlyHint = true`. Без обоих признаков вызов последовательный.
 Это правило scheduling не понижает `ToolSafety` и не отменяет approval.
+Поддержка multiplexing в SDK сама по себе также не разрешает parallel calls.
+
+Отмена или timeout вызова завершает текущий процесс configured MCP server;
+остальные concurrent calls этого сервера получают ошибку. Следующий явный
+вызов запускает новый процесс и повторяет handshake, но завершившийся ошибкой
+вызов автоматически не переигрывается. Обычный tool result с `isError = true`
+становится failed `ToolResult` и не требует restart сервера.
 
 ## Policy И Permissions
 
