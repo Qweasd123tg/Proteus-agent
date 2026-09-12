@@ -138,6 +138,7 @@ pub(super) fn AppShell(
                     on_cancel=move |value| commands.cancel_turn.run(value) />
             </SidebarView>
 
+            <div class="extension-columns" data-extension-columns="left"></div>
             <main class="workspace-main">
                 <crate::components::header::HeaderView
                     route workspace_label waiting_background_sessions info_panel_open
@@ -146,7 +147,6 @@ pub(super) fn AppShell(
                     on_toggle_info=toggle_info_panel
                 />
 
-                <div class="extension-host extension-dock-main" data-extension-location="main"></div>
                 <section
                     class="session-workspace"
                     style=move || format!("--chat-max-width: {}px", resize.chat_width.get())
@@ -227,6 +227,7 @@ pub(super) fn AppShell(
                 </section>
             </main>
 
+            <div class="extension-columns" data-extension-columns="right"></div>
             <InfoPanelView open=info_panel_open width=resize.info_width
                 on_toggle=toggle_info_panel on_begin_resize=begin_info_resize />
             <crate::components::extensions::ExtensionsView active_session_dir />

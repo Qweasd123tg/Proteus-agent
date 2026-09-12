@@ -1,0 +1,23 @@
+.extension-columns { display: contents; }
+.extension-column { position: relative; display: flex; flex-direction: column; flex: 0 1 var(--column-width, 280px); width: var(--column-width, 280px); min-width: 160px; min-height: 0; overflow: hidden; border-right: 1px solid var(--border-subtle); background: var(--bg-panel); }
+.extension-column[data-location=right] { border-right: 0; border-left: 1px solid var(--border-subtle); }
+.extension-column > .extension-panel { flex: 1; min-height: 0; }
+.extension-column .extension-panel-header { height: var(--topbar-height); flex-shrink: 0; padding: 5px 9px; border-bottom: 1px solid var(--border-subtle); }
+.extension-column .extension-panel-title { font-size: 13px; }
+.extension-column .extension-panel-toggle { width: 24px; flex-basis: 24px; }
+.extension-column.collapsed { width: 40px; min-width: 40px; flex: 0 0 40px; }
+.extension-column.collapsed .extension-panel-header { padding: 5px 4px; }
+.extension-column.collapsed :is(.extension-panel-title,.extension-placement,.extension-panel-reveal,.extension-column-resize) { display: none; }
+.extension-column-resize { position: absolute; top: 0; bottom: 0; right: 0; width: 5px; cursor: col-resize; touch-action: none; z-index: 3; }
+.extension-column[data-location=right] > .extension-column-resize { right: auto; left: 0; }
+.extension-column-resize:hover, .extension-column-resize:focus-visible, .extension-column.resizing > .extension-column-resize { background: var(--accent-blue); outline: none; }
+.app-layout:has(.extension-column.resizing) { cursor: col-resize; user-select: none; }
+@media (min-width: 901px) { .app-layout:has(.extension-column:not(.collapsed)) > .workspace-main { min-width: min(300px, 25vw); } }
+@media (max-width: 900px) {
+    .extension-columns { display: flex; flex-wrap: wrap; flex: none; gap: 2px; }
+    .extension-column.collapsed { height: 36px; border: 0; }
+    .extension-column.collapsed .extension-panel-header { height: 36px; padding: 2px 4px; }
+    .extension-column.mobile-open { position: fixed; z-index: 25; inset: 0 40px 0 0; width: auto; min-width: 0; max-width: none; box-shadow: 0 0 0 100vmax #0006; }
+    .extension-column[data-location=right].mobile-open { inset: 0 0 0 40px; }
+    .extension-column-resize { display: none; }
+}

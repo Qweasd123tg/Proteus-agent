@@ -7,6 +7,7 @@ Run after trunk build and cargo build -p proteus-core -p proteus-reference-worke
 import base64
 from extensions_checks import run as check_extensions
 from panel_checks import run as check_panels
+from select_checks import run as check_selects
 from layout_checks import run as check_layout
 from session_checks import run as check_session, BOOTSTRAP
 from queue_checks import run as check_queue
@@ -225,7 +226,14 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                 env.pop('PROTEUS_CONFIG_PATH', None)
                 env.update(PATH=str(ROOT / 'target/debug') + ':' + env['PATH'], PROTEUS_CONFIG_HOME=str(folder / 'config'), XDG_CONFIG_HOME=str(folder / 'settings'), XDG_DATA_HOME=str(folder / 'data'))
                 (folder / 'preview-fixture').mkdir()
-                (folder / 'preview-fixture' / 'hello world.txt').write_text('<b>Привет</b>\nФайл только для чтения\n')
+                tracked = folder / 'preview-fixture' / 'hello world.txt'
+                tracked.write_text('<b>Старое</b>\nФайл только для чтения\n')
+                deleted = folder / 'preview-fixture' / 'deleted.txt'
+                deleted.write_text('Удалённая строка\n')
+                for args in [['init', '--quiet'], ['add', 'preview-fixture'], ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'Fixture baseline']]:
+                    subprocess.run(['git', '-C', str(folder), *args], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                tracked.write_text('<b>Привет</b>\nФайл только для чтения\n')
+                deleted.unlink()
                 backend = subprocess.Popen([str(ROOT / 'target/debug/proteus'), '--config', str(config), '--cwd', str(folder), 'server', 'http', '--port', '0', '--token', 'extension-smoke', '--ready-stdout', '--allow-origin', web], env=env, stdout=subprocess.PIPE, stderr=backend_log, text=True, start_new_session=True)
                 origin = None
                 deadline = time.monotonic() + 40
@@ -261,9 +269,13 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     check_architecture(command, js, wait_for, web, origin)
                     return
                 check_extensions(command, js, wait_for, web, origin, loaded)
+                check_selects(command, js, wait_for)
                 check_panels(command, js, wait_for)
                 check_usage(command, js, wait_for)
                 check_layout(command, js, wait_for)
+                if '--panels-only' in sys.argv:
+                    print('PASS: extensions, custom selectors, owned file panels, motion and layout', flush=True)
+                    return
                 screenshot = request(url + '/screenshot')['value']
                 Path('/tmp/proteus-ui-extensions.png').write_bytes(base64.b64decode(screenshot))
                 check_architecture(command, js, wait_for, web, origin)

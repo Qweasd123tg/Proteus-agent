@@ -21,13 +21,14 @@ export function resourceUrl(value, base) {
 }
 
 export function parseManifest(value, url) {
-  object(value, ['apiVersion', 'id', 'name', 'description', 'entry', 'requires', 'settings'], 'Манифест');
+  object(value, ['apiVersion', 'id', 'name', 'description', 'entry', 'requires', 'settings', 'presentation'], 'Манифест');
   if (value.apiVersion !== API_VERSION) throw new Error(`Неподдерживаемая версия UI API: ${value.apiVersion}`);
   if (typeof value.id !== 'string' || !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(value.id)) throw new Error('Некорректный id расширения');
   if (typeof value.name !== 'string' || !value.name.trim()) throw new Error('Не указано название расширения');
   if (typeof value.description !== 'string') throw new Error('Не указано описание расширения');
   if (!Array.isArray(value.requires) || value.requires.some(item => typeof item !== 'string' || !item)) throw new Error('requires должен быть списком интерфейсов');
   if (new Set(value.requires).size !== value.requires.length) throw new Error('Повтор интерфейса в requires');
+  if (value.presentation !== undefined && !['widget', 'panel'].includes(value.presentation)) throw new Error('Неизвестное представление расширения');
   let settings;
   if (value.settings !== undefined) {
     object(value.settings, ['entry', 'requires'], 'Настройки пакета');
@@ -46,7 +47,7 @@ export function parseSettings(value, base) {
     object(panel, ['id', 'url', 'enabled', 'collapsed', 'location'], 'Панель');
     if (typeof panel.id !== 'string' || !panel.id || ids.has(panel.id)) throw new Error('Пустой или повторяющийся id панели');
     if (typeof panel.enabled !== 'boolean' || typeof panel.collapsed !== 'boolean') throw new Error('Некорректное состояние панели');
-    if (panel.location !== undefined && !['left', 'right', 'main'].includes(panel.location)) throw new Error('Некорректная область панели');
+    if (panel.location !== undefined && !['left', 'right'].includes(panel.location)) throw new Error('Некорректная область панели');
     ids.add(panel.id);
     return { ...panel, location: panel.location ?? 'right', url: resourceUrl(panel.url, base) };
   });

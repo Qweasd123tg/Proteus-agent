@@ -1,5 +1,20 @@
 /* Shared by both clients and the extension Shadow DOM theme. */
-select:not([multiple]):not([size]) {
+.select-picker {
+    position: fixed; inset: auto; margin: 0; padding: 5px; box-sizing: border-box;
+    overflow: auto; z-index: 10000; border: 1px solid var(--border-strong, #444);
+    border-radius: 11px; background: var(--bg-panel, #222); color: var(--text-main, #ededed);
+    box-shadow: 0 12px 36px #0006; font: 12px/1.5 var(--font-sans, system-ui);
+    outline: none; animation: select-reveal 100ms ease-out;
+}
+.select-picker-option { position: relative; padding: 7px 30px 7px 10px; border-radius: 6px; cursor: pointer; overflow-wrap: anywhere; }
+.select-picker-option.focused { background: var(--bg-hover, #383838); }
+.select-picker-option[aria-selected=true]::after { content: '✓'; position: absolute; right: 10px; color: var(--text-main, #ededed); }
+.select-picker-option[aria-disabled=true] { opacity: .4; cursor: default; }
+.select-picker-option[hidden] { display: none; }
+.select-picker-group { padding: 6px 10px 3px; color: var(--text-muted, #aaa); font-size: 11px; }
+@keyframes select-reveal { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .select-picker { animation: none; } }
+select:not([multiple]):is(:not([size]), [size="0"], [size="1"]) {
     appearance: none;
     -webkit-appearance: none;
     min-height: 40px;
@@ -18,20 +33,20 @@ select:not([multiple]):not([size]) {
     cursor: pointer;
     transition: background-color .12s, border-color .12s, box-shadow .12s;
 }
-select:not([multiple]):not([size]):hover:not(:disabled) {
+select:not([multiple]):is(:not([size]), [size="0"], [size="1"]):hover:not(:disabled) {
     background-color: var(--bg-panel-hover, #2d2d2d);
     border-color: var(--border-strong, #454545);
 }
-select:not([multiple]):not([size]):focus {
+select:not([multiple]):is(:not([size]), [size="0"], [size="1"]):focus {
     outline: none;
     border-color: var(--text-muted, #a3a3a3);
     box-shadow: 0 0 0 3px rgb(255 255 255 / 5%);
 }
-select:not([multiple]):not([size]):focus-visible {
+select:not([multiple]):is(:not([size]), [size="0"], [size="1"]):focus-visible {
     outline: 2px solid var(--text-muted, #a3a3a3);
     outline-offset: 2px;
 }
-select:not([multiple]):not([size]):disabled {
+select:not([multiple]):is(:not([size]), [size="0"], [size="1"]):disabled {
     opacity: .45;
     cursor: not-allowed;
     box-shadow: none;
@@ -42,8 +57,10 @@ select option, select optgroup {
     font: inherit;
 }
 @media (prefers-reduced-motion: reduce) {
-    select:not([multiple]):not([size]) { transition: none; }
+    select:not([multiple]):is(:not([size]), [size="0"], [size="1"]) { transition: none; }
 }
 @media (forced-colors: active) {
-    select:not([multiple]):not([size]) { appearance: auto; background-image: none; }
+    .select-picker { background: Canvas; color: CanvasText; border-color: ButtonText; }
+    .select-picker-option.focused { background: Highlight; color: HighlightText; forced-color-adjust: none; }
+    .select-picker-option[aria-disabled=true] { color: GrayText; opacity: 1; }
 }

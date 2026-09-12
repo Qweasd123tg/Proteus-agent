@@ -11,10 +11,14 @@ test('independent package resolves its entry relative to its manifest', () => {
   assert.equal(parsed.entry, 'http://localhost:9090/package/panel.js');
   assert.ok(Object.isFrozen(parsed));
   assert.deepEqual(parsed.requires, []);
+  assert.equal(parsed.presentation, undefined);
+  for (const presentation of ['widget', 'panel']) {
+    assert.equal(parseManifest({ ...manifest, presentation }, base).presentation, presentation);
+  }
 });
 
 test('draft contract rejects unsupported versions, shapes and duplicate interfaces', () => {
-  for (const invalid of [null, { ...manifest, apiVersion: 2 }, { ...manifest, backend: {} }, { ...manifest, id: '../a' }, { ...manifest, requires: ['a', 'a'] }, { ...manifest, entry: 'javascript:alert(1)' }]) {
+  for (const invalid of [null, { ...manifest, apiVersion: 2 }, { ...manifest, backend: {} }, { ...manifest, id: '../a' }, { ...manifest, requires: ['a', 'a'] }, { ...manifest, entry: 'javascript:alert(1)' }, ...[null, '', 'sidebar', 'Panel', false, 1, [], {}].map(presentation => ({ ...manifest, presentation }))]) {
     assert.throws(() => parseManifest(invalid, base));
   }
   assert.throws(() => resourceUrl('https://user:password@example.com/plugin.json', base));
@@ -25,7 +29,12 @@ test('settings preserve explicit order and reject malformed or duplicate panels'
   const settings = { apiVersion: 1, panels: [panel, { ...panel, id: 'next', enabled: true }] };
   const parsed = parseSettings(settings, base);
   assert.equal(parsed[0].location, 'right');
-  assert.throws(() => parseSettings({...settings, panels:[{...panel, location:'floating'}]}, base));
+  for (const location of ['left', 'right']) {
+    assert.equal(parseSettings({ ...settings, panels: [{ ...panel, location }] }, base)[0].location, location);
+  }
+  for (const location of ['main', 'floating']) {
+    assert.throws(() => parseSettings({ ...settings, panels: [{ ...panel, location }] }, base));
+  }
   assert.deepEqual(parsed.map(({ id, enabled }) => [id, enabled]), [['test', false], ['next', true]]);
   assert.equal(parsed[0].url, 'https://client.example/extensions/test/extension.json');
   for (const invalid of [{ ...settings, panels: [panel, panel] }, { ...settings, apiVersion: 0 }, { ...settings, panels: [{ ...panel, enabled: 'yes' }] }]) {

@@ -94,11 +94,7 @@ mod browser {
     ) -> Closure<dyn Fn(String, web_sys::AbortSignal) -> js_sys::Promise> {
         Closure::<dyn Fn(String, web_sys::AbortSignal) -> js_sys::Promise>::new(
             move |path: String, signal| {
-                let path = format!(
-                    "{}&session_dir={}",
-                    path,
-                    js_sys::encode_uri_component(&session)
-                );
+                let path = crate::api::session_path(&path, &session);
                 wasm_bindgen_futures::future_to_promise(async move {
                     crate::api::get_text_with_signal(&path, Some(&signal))
                         .await

@@ -2,11 +2,13 @@
 import base64
 from pathlib import Path
 from urllib.parse import urlencode
+from select_checks import run as check_selects
 
 
 def run(command, js, wait_for, web, origin):
     command('/url', {'url': web + '/architecture?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
     wait_for(lambda: js("return !!document.querySelector('[data-node-id=\"slot:workflow\"]')"), 'Inspector graph did not mount from the real topology API')
+    check_selects(command, js, wait_for)
     assert js("return !document.querySelector('script[src*=mermaid], .mermaid-map')"), 'Interactive graph still depends on Mermaid rendering'
     # Real pointer click must select a node without moving it before click lands.
     node = command('/element', {'using': 'css selector', 'value': '[data-node-id="slot:workflow"]'})

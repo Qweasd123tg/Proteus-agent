@@ -6,6 +6,8 @@ export interface ExtensionManifest {
   description: string;
   entry: string;
   requires: string[];
+  /** A panel adds an independent resizable, collapsible column; widgets share the overview. */
+  presentation?: 'widget' | 'panel';
   /** Independent entry; loaded only by the explicit Configure action. */
   settings?: { entry: string; requires: string[] };
 }
@@ -18,17 +20,29 @@ export interface ExtensionStorage {
   subscribe(callback: () => void): () => void;
 }
 
+export interface ExtensionPane {
+  root: ShadowRoot;
+  show(): void;
+  hide(): void;
+}
+
 export interface ExtensionContext {
   /** Panel-owned root; inherited design tokens, no Leptos or Tauri dependency. */
   root: ShadowRoot;
   /** Compact content inside the host's interactive button; absent for a settings entry. */
   compact?: ShadowRoot;
   /** Host actions, independent of a particular extension id; absent in settings. */
-  panel?: { open(): void; move(location: 'left' | 'right' | 'main'): void };
+  panel?: { open(): void; move(location: 'left' | 'right'): void };
+  /** Transient independent columns owned by this mount; absent in settings. No additional services or authority.
+   * Columns may be open together. Location inserts left/right of chat without replacing it.
+   * Width is client-stored by pane id; other owned state lasts for the session.
+   * Collapse and moving preserve roots; owner disposal releases every pane.
+   */
+  panels?: { create(id: string, options: { title: string; location: 'left' | 'right' }): ExtensionPane };
   /** Only declared interfaces; each interface defines its own data contract. */
   services: Readonly<Record<string, unknown>>;
   storage: ExtensionStorage;
-  /** Aborts on disable, removal, mount failure, session change or client unmount. Collapse, moving and SPA navigation preserve the instance. */
+  /** Aborts on disable, removal, retry, mount failure, session change or client unmount. Collapse, moving and SPA navigation preserve the instance. */
   signal: AbortSignal;
 }
 
@@ -132,4 +146,11 @@ export interface AgentWorkspaceReader {
     truncated: boolean;
   }>;
   read(path: string): Promise<{ path: string; size: number; kind: 'text' | 'binary' | 'too_large'; text: string | null }>;
+  /** Read-only Git changes relative to HEAD, within the addressed workspace. */
+  changes(): Promise<{
+    repository: boolean;
+    entries: Array<{ path: string; status: 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked' | 'conflict' }>;
+    truncated: boolean;
+  }>;
+  diff(path: string): Promise<{ path: string; kind: 'text' | 'binary' | 'too_large' | 'unavailable'; patch: string | null }>;
 }

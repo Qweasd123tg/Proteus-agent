@@ -13,7 +13,7 @@
 .info-panel:not(.open) .extension-dock-right { padding: 8px 4px; }
 .info-panel:not(.open) .extension-dock-right .extension-panel { border: 0; background: none; overflow: visible; }
 .info-panel:not(.open) .extension-dock-right .extension-panel-header { padding: 0; }
-.info-panel:not(.open) .extension-dock-right :is(.extension-panel-title,.extension-placement,.extension-panel-body,.extension-error,.extension-panel>button) { display: none; }
+.info-panel:not(.open) .extension-dock-right :is(.extension-panel-title,.extension-placement,.extension-panel-reveal) { display: none; }
 .sidebar-view-tabs { position: absolute; z-index: 2; top: var(--topbar-height); left: 10px; right: 10px; height: 34px; display: flex; gap: 4px; }
 .sidebar-view-tabs button { flex: 1; padding: 4px 8px; font-size: 12px; border-radius: 7px; }
 .sidebar-view-tabs .active { background: var(--bg-hover); color: var(--text-main); }
@@ -26,13 +26,7 @@
 .app-layout.sidebar-collapsed .sidebar-rail { display: none; }
 .app-layout.sidebar-collapsed .extension-dock-left .extension-panel { border: 0; background: none; }
 .app-layout.sidebar-collapsed .extension-dock-left .extension-panel-header { padding: 0; }
-.app-layout.sidebar-collapsed .extension-dock-left :is(.extension-panel-title,.extension-placement,.extension-panel-body,.extension-error,.extension-panel>button) { display: none; }
-.extension-dock-main { display: grid; gap: 10px; padding: 12px 20px; overflow: auto; min-height: 0; }
-.extension-dock-main:empty { display: none; }
-.extension-dock-main:has(.expanded) { flex: 1; }
-.app-layout.chat-route .workspace-main:has(.extension-dock-main .expanded) .session-workspace { display: none; }
-.extension-dock-main .extension-panel-header .extension-placement:not([multiple]):not([size]) { display: block; width: 110px; flex-basis: 110px; color: var(--text-main); font-size: 12px; padding-left: 8px; }
-.extension-dock-main .extension-panel-body { padding: 10px 18px 18px; }
+.app-layout.sidebar-collapsed .extension-dock-left :is(.extension-panel-title,.extension-placement,.extension-panel-reveal) { display: none; }
 .extension-actions select:not([multiple]):not([size]) { min-height: 30px; padding: 4px 25px 4px 8px; font-size: 12px; }
 @media(max-width:900px) {
     .info-panel:not(.open) .extension-dock-right { display: none; }
@@ -41,9 +35,21 @@
     .sidebar.extensions-open .sidebar-surface .sessions-list, .sidebar.extensions-open .sidebar-search { display: none; }
     .sidebar.extensions-open .extension-dock-left { display: grid; position: relative; inset: auto; max-height: 180px; }
     .app-layout.sidebar-collapsed .extension-dock-left { display: none; }
-    .extension-dock-main { padding: 8px; }
 }
 
-.app-layout:not(.chat-route) .extension-dock-main { display: none; }
 
 .extension-workspace-status { position: fixed; bottom: 12px; right: 52px; z-index: 20; max-width: min(320px, 80vw); pointer-events: none; }
+
+.extension-panel[data-presentation=panel] { border: 0; border-radius: 0; background: transparent; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.extension-panel[data-presentation=panel].dock-hidden { display: none; }
+.extension-panel[data-presentation=panel] > .extension-panel-reveal { flex: 1; min-height: 0; display: flex; opacity: 1; }
+.extension-panel[data-presentation=panel] .extension-panel-inner { display: flex; flex-direction: column; width: 100%; }
+.extension-panel[data-presentation=panel] .extension-panel-body { padding: 0; flex: 1; min-height: 0; }
+.extension-panel[data-presentation=panel] .extension-panel-content { height: 100%; }
+.app-layout.sidebar-collapsed .extension-dock-left, .info-panel:not(.open) .extension-dock-right { display: block; }
+.app-layout.sidebar-collapsed .extension-dock-left .extension-panel, .info-panel:not(.open) .extension-dock-right .extension-panel { display: block; }
+.app-layout.sidebar-collapsed .extension-dock-left .extension-panel-reveal, .info-panel:not(.open) .extension-dock-right .extension-panel-reveal { display: none; }
+@media (max-width: 900px) {
+    .app-layout.sidebar-collapsed .extension-dock-left, .info-panel:not(.open) .extension-dock-right { display: none; }
+    .sidebar.extensions-open .extension-dock-left.has-own-panel { height: 45vh; max-height: 420px; }
+}

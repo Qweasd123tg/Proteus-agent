@@ -18,23 +18,26 @@ def run(command, js, wait_for):
                 const done=arguments[arguments.length-1], panel=document.querySelector(arguments[0]);
                 const surface=panel.querySelector('.info-panel-surface, .sidebar-surface');
                 const button=[...panel.querySelectorAll('[data-panel-toggle]')].find(b=>!b.closest('[inert]'));
-                const widths=[], surfaces=[], positions=[], gaps=[];
+                const widths=[], surfaces=[], positions=[], gaps=[]; let animated=false, chatAnimated=false;
                 let last=performance.now(); const start=last;
                 button.focus(); button.click();
                 function frame(now) {
                     gaps.push(now-last); last=now;
+                    animated ||= document.getAnimations().some(a=>a.id==='panel-surface');
+                    chatAnimated ||= document.getAnimations().some(a=>a.effect?.target?.matches('.results-panel,.composer-shell,.topbar'));
                     widths.push(Math.round(panel.getBoundingClientRect().width));
                     surfaces.push(Math.round(surface.getBoundingClientRect().width));
                     positions.push(Math.round(surface.getBoundingClientRect().x));
                     if(now-start<360) requestAnimationFrame(frame);
-                    else done({widths:[...new Set(widths)],surfaces:[...new Set(surfaces)],positions:[...new Set(positions)],maxFrameMs:Math.max(...gaps)});
+                    else done({animated,chatAnimated,widths:[...new Set(widths)],surfaces:[...new Set(surfaces)],positions:[...new Set(positions)],maxFrameMs:Math.max(...gaps)});
                 }
                 requestAnimationFrame(frame);
             """, 'args': [selector]})
             print('PANEL_REFLOW', selector, json.dumps(result), flush=True)
             assert len(result['widths']) <= 2, 'Panel animates layout width across frames'
             assert len(result['surfaces']) == 1, 'Panel content changes width during toggle'
-            assert len(result['positions']) <= 2, 'Panel switch must be immediate'
+            assert not result['chatAnimated'], 'Toggle animates chat content'
+            assert result['animated'] != js("return matchMedia('(prefers-reduced-motion: reduce)').matches"), 'Local motion does not match preference'
             assert js("return document.activeElement.matches('[data-panel-toggle]') && !document.activeElement.closest('[inert]')"), 'Focus was lost inside the hidden panel'
     # Rapid reversals must not leave transforms or stale focus.
     command('/execute/async', {'script': r"""
@@ -42,7 +45,7 @@ def run(command, js, wait_for):
         const toggle=()=>[...document.querySelectorAll('.info-panel [data-panel-toggle]')].find(b=>!b.closest('[inert]')).click();
         toggle(); setTimeout(()=>{toggle();setTimeout(done,360)},60);
     """, 'args': []})
-    assert js("return document.querySelector('.info-panel').classList.contains('open') && !document.getAnimations().some(a=>a.id==='panel-layout')"), 'Rapid reversal left stale layout motion'
+    assert js("return document.querySelector('.info-panel').classList.contains('open') && !document.getAnimations().some(a=>a.id==='panel-surface')"), 'Rapid reversal left stale layout motion'
 
     def dock_clear():
         return js("const r=document.querySelector('.results-panel'), dock=document.querySelector('.composer'), shell=document.querySelector('.composer-shell'), last=r.lastElementChild;return Math.abs(r.getBoundingClientRect().bottom-dock.getBoundingClientRect().bottom)<1 && Math.abs(dock.getBoundingClientRect().top-shell.getBoundingClientRect().top)<1 && last.getBoundingClientRect().bottom <= shell.getBoundingClientRect().top")

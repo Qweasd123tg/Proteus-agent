@@ -545,6 +545,12 @@ system-строку в transcript.
 
 `crates/proteus-core/src/app_server.rs` отделяет UI-клиенты от `AgentRuntime`. Клиент работает с `AppServerHandle`, подписывается на `AppServerEvent` и отправляет команды через transport. Сейчас реализованы локальный `stdio` transport в `crates/proteus-core/src/app_server/stdio.rs` и HTTP/SSE transport в `crates/proteus-core/src/app_server/http.rs`; DTO лежат в `proteus-contracts::app_protocol` и re-export'ятся через `crates/proteus-core/src/app_server.rs`. Будущие socket/ACP-клиенты должны использовать ту же app-server границу.
 
+Выпадающие списки web-клиента и Inspector используют общий popup с цветами
+текущей темы. Локальные переходы интерфейса занимают 160 мс; ширина областей и
+чат не анимируются, `prefers-reduced-motion: reduce` отключает движение.
+Размещение виджетов и независимых колонок расширений с сохранением доступа
+к чату и списку чатов описано в [контракте UI](ui-extensions.md#контракт-ui-api-v1).
+
 События app-server:
 
 - `SessionSnapshot` — согласованные transcript и execution при подключении, resync и завершении;

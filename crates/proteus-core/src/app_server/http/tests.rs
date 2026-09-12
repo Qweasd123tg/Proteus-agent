@@ -277,3 +277,5 @@ mod sse;
 mod turns;
 
 mod workspace;
+
+mod workspace_git;

@@ -1,0 +1,7 @@
+.extension-panel-toggle svg { display: block; width: 16px; height: 16px; }
+:is(.extension-dock-left, .extension-dock-right, .extension-column) .extension-panel-header .extension-placement:not([multiple]):not([size]) {
+  background-image: radial-gradient(circle, var(--text-muted) 1.25px, transparent 1.5px), radial-gradient(circle, var(--text-muted) 1.25px, transparent 1.5px), radial-gradient(circle, var(--text-muted) 1.25px, transparent 1.5px);
+  background-size: 3px 3px;
+  background-position: calc(50% - 5px) center, center, calc(50% + 5px) center;
+  background-repeat: no-repeat;
+}

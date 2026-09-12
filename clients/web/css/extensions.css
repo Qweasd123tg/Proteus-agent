@@ -7,8 +7,8 @@
 .extension-panel-title:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: -3px; }
 .extension-panel-toggle { display: grid; place-items: center; flex: 0 0 24px; height: 24px; border-radius: 7px; color: var(--text-muted); background: var(--bg-panel-soft); font-size: 16px; font-weight: 400; }
 .extension-panel-body { padding: 2px 14px 14px; }
-.extension-panel > .extension-error { margin: 0 14px 12px; }
-.extension-panel > button { margin: 0 14px 14px; }
+.extension-panel-inner > .extension-error { margin: 0 14px 12px; }
+.extension-panel-inner > button { margin: 0 14px 14px; }
 .extension-panel-content { min-width: 0; }
 .extension-error, .extension-surface-status { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
 .extension-error { color: var(--accent-red); }

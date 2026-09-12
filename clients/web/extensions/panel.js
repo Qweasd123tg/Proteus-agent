@@ -1,6 +1,8 @@
 import { createPanelRuntime } from './runtime.js';
 import { extensionStorage } from './storage.js';
 import { theme } from './theme.js';
+import { icon } from './icons.js';
+import '../ui/select.js';
 
 export function button(label, action, signal) {
   const element = document.createElement('button');
@@ -10,17 +12,17 @@ export function button(label, action, signal) {
   return element;
 }
 
-export function createPanel(record, { services, storage, changed, onOpen }) {
+export function createPanel(record, { services, storage, changed, onOpen, surfaceOnly = false, createOwned, releaseOwned }) {
   const controller = new AbortController();
   const { signal } = controller;
   const element = document.createElement('section');
   element.className = 'extension-panel';
   element.dataset.extensionId = record.id;
+  element.dataset.presentation = record.manifest?.presentation ?? 'widget';
   const header = document.createElement('div');
   header.className = 'extension-panel-header';
   const title = button(record.manifest?.name ?? record.id, () => {
-    record.collapsed = !record.collapsed;
-    changed({ collapsed: record.collapsed });
+    changed({ collapsed: !record.collapsed });
   }, signal);
   title.className = 'extension-panel-title';
   const name = document.createElement('span');
@@ -48,21 +50,26 @@ export function createPanel(record, { services, storage, changed, onOpen }) {
   const compactSurface = document.createElement('span'); compactButton.append(compactSurface);
   const compact = compactSurface.attachShadow({ mode: 'open' });
   const compactStyle = document.createElement('style');
-  compactStyle.textContent = ':host{display:grid;place-items:center;color:inherit;font:inherit}svg{width:28px;height:28px}';
-  compact.append(compactStyle, document.createTextNode((record.manifest?.name ?? record.id).slice(0, 1)));
+  compactStyle.textContent = ':host{display:grid;place-items:center;color:inherit;font:inherit}svg{width:28px;height:28px}.extension-host-icon{width:20px;height:20px}';
+  const compactIcon = icon('panel'); compactIcon.classList.add('extension-host-icon');
+  compact.append(compactStyle, compactIcon);
   const placement = document.createElement('select');
   placement.className = 'extension-placement';
   placement.setAttribute('aria-label', `Область: ${record.manifest?.name ?? record.id}`);
-  for (const [value, label] of [['left', 'Слева'], ['right', 'Справа'], ['main', 'В центре']]) {
+  for (const [value, label] of [['left', 'Слева'], ['right', 'Справа']]) {
     const option = document.createElement('option'); option.value = value; option.textContent = label; placement.append(option);
   }
   placement.addEventListener('change', () => changed({ location: placement.value, collapsed: false }), { signal });
   header.append(compactButton, title, placement);
-  element.append(header, body, error, retry);
-  let runtime;
+  const reveal = document.createElement('div'); reveal.className = 'extension-panel-reveal';
+  const inner = document.createElement('div'); inner.className = 'extension-panel-inner';
+  inner.append(body, error, retry); reveal.append(inner);
+  element.append(header, reveal);
+  let runtime, panelRoot;
   let failed = false;
 
   function mount() {
+    releaseOwned?.();
     runtime?.stop();
     // Новый root для каждого mount: поздняя очистка отменённой async-панели
     // может затронуть только отсоединённое дерево, а не следующую инстанцию.
@@ -70,6 +77,7 @@ export function createPanel(record, { services, storage, changed, onOpen }) {
     surface.className = 'extension-panel-content';
     body.replaceChildren(surface);
     const shadow = surface.attachShadow({ mode: 'open' });
+    panelRoot = shadow;
     failed = false;
     error.textContent = '';
     retry.hidden = true;
@@ -80,11 +88,14 @@ export function createPanel(record, { services, storage, changed, onOpen }) {
     const style = document.createElement('style');
     style.textContent = theme;
     shadow.append(style);
+    if (surfaceOnly) return;
     runtime = createPanelRuntime({
+      panels: Object.freeze({ create: createOwned }),
       manifest: record.manifest, root: shadow, compact,
       panel: Object.freeze({ open: () => compactButton.click(), move: location => changed({ location, collapsed: false }) }), services,
       storage: extensionStorage(storage, record.id),
       onError(failure) {
+        releaseOwned?.();
         shadow.replaceChildren();
         error.textContent = `Не удалось открыть панель: ${failure.message}`;
         failed = true;
@@ -96,16 +107,18 @@ export function createPanel(record, { services, storage, changed, onOpen }) {
   function update() {
     title.setAttribute('aria-expanded', String(!record.collapsed));
     title.title = record.collapsed ? 'Развернуть панель' : 'Свернуть панель';
-    toggle.textContent = record.collapsed ? '+' : '−';
-    body.hidden = record.collapsed;
+    toggle.replaceChildren(icon(record.collapsed ? 'chevron-right' : 'chevron-down'));
+    if (record.collapsed && inner.contains(document.activeElement)) title.focus({ preventScroll: true });
+    inner.inert = record.collapsed;
+    inner.setAttribute('aria-hidden', String(record.collapsed));
     element.classList.toggle('expanded', !record.collapsed);
     placement.value = record.location;
-    placement.title = 'Переместить панель';
+    placement.title = 'Расположение панели';
     error.hidden = record.collapsed;
     retry.hidden = record.collapsed || !failed;
   }
   // The compact surface needs the same live instance even when initially collapsed.
   mount();
   update();
-  return { element, update, stop() { controller.abort(); runtime?.stop(); element.remove(); } };
+  return { element, root: panelRoot, update, stop() { controller.abort(); releaseOwned?.(); runtime?.stop(); element.remove(); } };
 }

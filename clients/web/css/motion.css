@@ -1,3 +1,12 @@
-/* Dock switching is immediate: existing content stays mounted. */
+/* Width changes once. JS animates only local surfaces; roots stay mounted. */
 .sidebar-surface, .info-panel-surface, .sidebar-rail-surface, .info-panel-rail-surface,
 .info-panel-body, .panel-backdrop { transition: none; }
+.extension-panel-reveal { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 160ms ease, opacity 120ms ease; }
+.extension-panel.expanded > .extension-panel-reveal { grid-template-rows: 1fr; opacity: 1; }
+.extension-panel-inner { min-height: 0; overflow: hidden; }
+.composer-menu[open] .composer-menu-panel { animation: menu-reveal 120ms ease-out; }
+@keyframes menu-reveal { from { opacity: 0; translate: 0 4px; } to { opacity: 1; translate: 0 0; } }
+@media (prefers-reduced-motion: reduce) {
+    .extension-panel-reveal { transition: none; }
+    .composer-menu[open] .composer-menu-panel { animation: none; }
+}

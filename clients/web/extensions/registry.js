@@ -72,7 +72,7 @@ export function createExtensionRegistry(options = {}) {
       if (!record) return;
       if (typeof change.enabled === 'boolean') record.enabled = change.enabled;
       if (typeof change.collapsed === 'boolean') record.collapsed = change.collapsed;
-      if (['left', 'right', 'main'].includes(change.location)) record.location = change.location;
+      if (['left', 'right'].includes(change.location)) record.location = change.location;
       save();
     },
     move(id, step) {

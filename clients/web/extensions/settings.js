@@ -60,7 +60,7 @@ export function mountExtensionSettings(root, registry, services = {}) {
       const actions = node('div', '', 'extension-actions');
       const placement = node('select'); placement.setAttribute('aria-label', `Область: ${name}`);
       placement.dataset.controlKey = `${record.id}:location`;
-      for (const [value, label] of [['left','Слева'],['right','Справа'],['main','В центре']]) {
+      for (const [value, label] of [['left','Слева'],['right','Справа']]) {
         const option = node('option', label); option.value = value; placement.append(option);
       }
       placement.value = record.location; placement.disabled = busy;

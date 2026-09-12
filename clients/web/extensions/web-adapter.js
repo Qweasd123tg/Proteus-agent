@@ -30,21 +30,18 @@ export function mountWebExtensions(root, readConfig, readQuota, readUsage, readW
     'agent.workspace.read': signal => Object.freeze({
       list: path => readWorkspace('/workspace/list?path=' + encodeURIComponent(path), signal).then(JSON.parse),
       read: path => readWorkspace('/workspace/file?path=' + encodeURIComponent(path), signal).then(JSON.parse),
+      changes: () => readWorkspace('/workspace/changes', signal).then(JSON.parse),
+      diff: path => readWorkspace('/workspace/diff?path=' + encodeURIComponent(path), signal).then(JSON.parse),
     }),
   };
-  const locations = Object.fromEntries(['left','right','main'].map(side => [side, document.querySelector(`[data-extension-location=${side}]`)]));
-  const stop = mountExtensions(root, services, { registry, locations, onOpen(location) {
+  const locations = Object.fromEntries(['left','right'].map(side => [side, document.querySelector(`[data-extension-location=${side}]`)]));
+  const columns = Object.fromEntries(['left','right'].map(side => [side, document.querySelector(`[data-extension-columns=${side}]`)]));
+  const stop = mountExtensions(root, services, { registry, locations, columns, onOpen(location) {
     const dock = document.querySelector(location === 'right' ? '.info-panel:not(.open)' : location === 'left' ? '.app-layout.sidebar-collapsed .sidebar' : ':not(*)');
     [...(dock?.querySelectorAll('[data-panel-toggle]') ?? [])].find(button => !button.closest('[inert]'))?.click();
     if (location === 'left') document.querySelector('.sidebar-view-tabs button:last-child')?.click();
   } });
-  function returnToChat(event) {
-    if (event.target.closest?.('a[href="/"]')) {
-      for (const record of registry.state().records.filter(record => record.location === 'main' && !record.collapsed)) registry.update(record.id, { collapsed: true });
-    }
-  }
-  document.addEventListener('click', returnToChat);
-  return () => { document.removeEventListener('click', returnToChat); stop(); };
+  return stop;
 }
 
 export function mountUsageDetails(root, readUsage) {
