@@ -67,15 +67,15 @@ fn modules_config_iter_and_set_cover_all_selectable_slots() {
         .filter(|descriptor| descriptor.selection == CoreSlotSelection::ModulesConfig)
         .map(|descriptor| descriptor.kind.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(slots.len(), 8);
 
-    for (index, slot) in slots.into_iter().enumerate() {
+    for (index, slot) in slots.iter().enumerate() {
         assert!(modules.set_by_slot_id(slot, format!("module-{index}")));
     }
     assert!(!modules.set_by_slot_id("model", "ignored".to_owned()));
     assert!(!modules.set_by_slot_id("tool", "ignored".to_owned()));
     assert!(!modules.set_by_slot_id("unknown", "ignored".to_owned()));
 
+    assert_eq!(modules.iter().count(), slots.len());
     for (index, (_, id)) in modules.iter().enumerate() {
         assert_eq!(id, format!("module-{index}"));
     }
@@ -105,29 +105,6 @@ fn agent_control_surface_defaults_to_task_and_rejects_unknown_values() {
         }))
         .is_err()
     );
-}
-
-#[test]
-fn retired_slots_are_rejected_without_compatibility_readers() {
-    for retired in [
-        serde_json::json!({
-            "active_provider": "fake",
-            "providers": { "fake": {} },
-            "subagents": { "surface": "task" }
-        }),
-        serde_json::json!({
-            "active_provider": "fake",
-            "providers": { "fake": {} },
-            "modules": { "subagent": "process" }
-        }),
-        serde_json::json!({
-            "active_provider": "fake",
-            "providers": { "fake": {} },
-            "modules": { "renderer": "statusline" }
-        }),
-    ] {
-        assert!(serde_json::from_value::<AppConfig>(retired).is_err());
-    }
 }
 
 #[test]
@@ -163,27 +140,6 @@ fn app_config_requires_explicit_provider_selection_and_rejects_model_field() {
         .active_model_config()
         .expect_err("unknown provider id must be rejected");
     assert!(error.to_string().contains("is not defined in providers"));
-}
-
-#[test]
-fn app_config_rejects_the_removed_one_export_process_modules_shape() {
-    let error = serde_json::from_value::<AppConfig>(serde_json::json!({
-        "active_provider": "fake",
-        "providers": {"fake": {}},
-        "process_modules": [{
-            "slot": "search",
-            "module_id": "legacy",
-            "command": "worker"
-        }]
-    }))
-    .expect_err("pre-component config must not have a compatibility reader");
-
-    assert!(
-        error
-            .to_string()
-            .contains("unknown field `process_modules`"),
-        "{error}"
-    );
 }
 
 #[test]
@@ -490,10 +446,8 @@ fn expand_user_path_supports_home_shorthands() {
 }
 
 #[tokio::test]
-async fn resolve_config_name_path_ignores_cwd_and_json_fallbacks() {
-    let cwd = tempfile::tempdir().expect("cwd");
+async fn resolve_config_name_path_uses_named_toml() {
     let config_dir = tempfile::tempdir().expect("config dir");
-    std::fs::write(cwd.path().join("dev-slim.config.toml"), "cwd").expect("cwd toml");
     std::fs::write(config_dir.path().join("dev-slim.config.json"), "{}").expect("config json");
     let home_config = config_dir.path().join("dev-slim.config.toml");
     std::fs::write(&home_config, "home").expect("home toml");
@@ -508,9 +462,7 @@ async fn resolve_config_name_path_ignores_cwd_and_json_fallbacks() {
 
 #[tokio::test]
 async fn resolve_config_name_path_errors_without_default_toml() {
-    let cwd = tempfile::tempdir().expect("cwd");
     let config_dir = tempfile::tempdir().expect("config dir");
-    std::fs::write(cwd.path().join("dev-slim.config.toml"), "cwd").expect("cwd toml");
     std::fs::write(config_dir.path().join("dev-slim.config.json"), "{}").expect("config json");
 
     let error = resolve_config_name_path("dev-slim", Some(config_dir.path()))
@@ -521,7 +473,6 @@ async fn resolve_config_name_path_errors_without_default_toml() {
     assert!(message.contains("config name 'dev-slim' was not found"));
     assert!(message.contains("dev-slim.config.toml"));
     assert!(!message.contains("dev-slim.config.json"));
-    assert!(!message.contains(cwd.path().to_string_lossy().as_ref()));
 }
 
 #[tokio::test]

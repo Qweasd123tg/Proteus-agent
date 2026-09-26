@@ -31,7 +31,6 @@ use cli_app::CliAppClient;
 use cli_commands::{CliCommand, InspectPlanFormat, InspectTopologyFormat, parse_cli_command};
 #[cfg(test)]
 use cli_commands::{
-    is_app_server_stdio_command, is_modules_list_command, is_tools_list_command,
     parse_app_server_http_command, parse_eval_report_command, parse_inspect_plan_command,
     parse_inspect_topology_command, parse_prompt_replay_command, parse_workflow_replay_command,
 };

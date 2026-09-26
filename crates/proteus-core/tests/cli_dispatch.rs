@@ -14,6 +14,8 @@ fn malformed_commands_fail_before_config_loading_or_inference() {
         vec!["modules"],
         vec!["modules", "list", "extra"],
         vec!["tools", "ls"],
+        vec!["tools"],
+        vec!["tools", "list", "extra"],
         vec!["doctor", "extra"],
         vec!["inspect", "plan", "--unknown"],
         vec!["replay", "unknown"],

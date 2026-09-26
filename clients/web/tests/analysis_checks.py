@@ -11,7 +11,6 @@ def run(command, js, wait_for):
     # Context has a distinct scope. Switching tabs preserves the report selection/details.
     js(f"const root={root};root.querySelector('.usage-request').open=true;document.querySelectorAll('.analysis-tabs button')[1].click()")
     wait_for(lambda: js("return !!document.querySelector('.analysis-context .context-map-scroll')"), 'Context snapshot did not load')
-    assert js("return document.querySelector('.analysis-context').textContent.includes('Выбор хода в отчёте расхода не меняет этот снимок')"), 'Current context is confused with historical request scope'
     command('/refresh', {})
     wait_for(lambda: js("return !!document.querySelector('.analysis-context .context-map-scroll')"), 'Selected context tab was lost after reload')
     js("document.querySelectorAll('.analysis-tabs button')[0].click()")

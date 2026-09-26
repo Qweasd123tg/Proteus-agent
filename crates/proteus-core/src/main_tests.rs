@@ -13,31 +13,15 @@ fn cli_identity_matches_the_installed_release_binary() {
 }
 
 #[test]
-fn modules_list_command_is_exact() {
-    assert!(is_modules_list_command(&[
-        "modules".to_owned(),
-        "list".to_owned()
-    ]));
-    assert!(!is_modules_list_command(&["modules".to_owned()]));
-    assert!(!is_modules_list_command(&[
-        "modules".to_owned(),
-        "list".to_owned(),
-        "extra".to_owned()
-    ]));
-}
-
-#[test]
-fn tools_list_command_is_exact() {
-    assert!(is_tools_list_command(&[
-        "tools".to_owned(),
-        "list".to_owned()
-    ]));
-    assert!(!is_tools_list_command(&["tools".to_owned()]));
-    assert!(!is_tools_list_command(&[
-        "tools".to_owned(),
-        "list".to_owned(),
-        "extra".to_owned()
-    ]));
+fn list_commands_dispatch_to_their_handlers() {
+    assert!(matches!(
+        parse_cli_command(&["modules".to_owned(), "list".to_owned()]).unwrap(),
+        CliCommand::ModulesList
+    ));
+    assert!(matches!(
+        parse_cli_command(&["tools".to_owned(), "list".to_owned()]).unwrap(),
+        CliCommand::ToolsList
+    ));
 }
 
 #[test]
@@ -260,16 +244,6 @@ fn app_server_stdio_command_is_exact() {
         parse_cli_command(&prompt.task).unwrap(),
         CliCommand::Task
     ));
-    assert!(is_app_server_stdio_command(&[
-        "server".to_owned(),
-        "stdio".to_owned()
-    ]));
-    assert!(!is_app_server_stdio_command(&["server".to_owned()]));
-    assert!(!is_app_server_stdio_command(&[
-        "server".to_owned(),
-        "stdio".to_owned(),
-        "extra".to_owned()
-    ]));
 }
 
 #[test]

@@ -267,19 +267,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn approval_cache_scope_accepts_canonical_wire_names() {
-        assert_eq!(
-            serde_json::from_str::<ApprovalCacheScope>("\"exact_call\"").unwrap(),
-            ApprovalCacheScope::ExactCall
-        );
-        assert_eq!(
-            serde_json::from_str::<ApprovalCacheScope>("\"exact_command\"").unwrap(),
-            ApprovalCacheScope::ExactCommand
-        );
-        assert_eq!(
-            serde_json::from_str::<ApprovalCacheScope>("\"workspace_write\"").unwrap(),
-            ApprovalCacheScope::WorkspaceWrite
-        );
+    fn approval_cache_scope_uses_canonical_wire_names() {
+        for (scope, wire) in [
+            (ApprovalCacheScope::ExactCall, "exact_call"),
+            (ApprovalCacheScope::ExactCommand, "exact_command"),
+            (ApprovalCacheScope::WorkspaceWrite, "workspace_write"),
+        ] {
+            let value = serde_json::json!(wire);
+            assert_eq!(serde_json::to_value(scope).unwrap(), value);
+            assert_eq!(
+                serde_json::from_value::<ApprovalCacheScope>(value).unwrap(),
+                scope
+            );
+        }
     }
 
     #[test]
@@ -295,17 +295,5 @@ mod tests {
                 .expect_err("non-canonical cache scope must fail");
             assert!(error.to_string().contains("unknown approval cache scope"));
         }
-    }
-
-    #[test]
-    fn approval_cache_scope_serializes_canonical_names() {
-        assert_eq!(
-            serde_json::to_string(&ApprovalCacheScope::ExactCommand).unwrap(),
-            "\"exact_command\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ApprovalCacheScope::WorkspaceWrite).unwrap(),
-            "\"workspace_write\""
-        );
     }
 }
