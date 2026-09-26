@@ -34,6 +34,7 @@ async fn read(state: &HttpAppState, path: &str, query: Option<&str>) -> Result<H
         "/history" => json_response(StatusCode::OK, &history_json(state, query).await?),
         "/context" => json_response(StatusCode::OK, &context_map_json(state, query).await?),
         "/usage" => json_response(StatusCode::OK, &usage_json(state, query).await?),
+        "/analysis" => json_response(StatusCode::OK, &super::analysis::read(query).await?),
         "/workspace/list" | "/workspace/file" | "/workspace/changes" | "/workspace/diff" => {
             let server = server_for_query(state, query).await?;
             let root = server.cwd_path().to_path_buf();

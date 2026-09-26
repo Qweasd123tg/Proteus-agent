@@ -148,6 +148,18 @@ where
 }
 
 pub(crate) async fn get_text(path: &str) -> Result<String, String> {
+    get_text_at(&selected_session_path(path)).await
+}
+
+/// Explicit read scope for historical analysis; never resumes or selects a runtime.
+pub(crate) async fn get_analysis_json<T: for<'de> Deserialize<'de>>(
+    path: &str,
+) -> Result<T, String> {
+    let text = get_text_at(path).await?;
+    serde_json::from_str(&text).map_err(|error| format!("invalid response JSON: {error}"))
+}
+
+async fn get_text_at(path: &str) -> Result<String, String> {
     let token = current_session_token();
     let init = RequestInit::new();
     init.set_method("GET");
@@ -155,9 +167,7 @@ pub(crate) async fn get_text(path: &str) -> Result<String, String> {
     let headers = Headers::new().map_err(js_error)?;
     set_authorization_header(&headers, &token)?;
     init.set_headers(headers.as_ref());
-    let path = selected_session_path(path);
-    let request =
-        Request::new_with_str_and_init(&app_server_url(&path), &init).map_err(js_error)?;
+    let request = Request::new_with_str_and_init(&app_server_url(path), &init).map_err(js_error)?;
     let response_value = JsFuture::from(
         window()
             .ok_or_else(|| "window is unavailable".to_owned())?

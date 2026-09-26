@@ -16,6 +16,7 @@ use crate::core::AppConfig;
 
 use super::{AgentAppServer, AppServerEvent, AppServerHandle, AppSessionActivity, StdioRequest};
 
+mod analysis;
 mod commands;
 mod config;
 mod lifecycle;

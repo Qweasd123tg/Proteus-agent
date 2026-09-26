@@ -1,3 +1,4 @@
+mod analysis;
 mod api;
 mod app;
 mod architecture;

@@ -52,6 +52,21 @@ async fn route_history_can_read_requested_cold_session_without_changing_live_reg
         transcript[0].get("text").and_then(Value::as_str),
         Some("saved cold history")
     );
+    let analysis = route_request(
+        state.clone(),
+        authed_get_request(&format!(
+            "/analysis?session_dir={}",
+            saved_store.session_dir().display()
+        )),
+    )
+    .await
+    .unwrap();
+    assert_eq!(analysis.status(), StatusCode::OK);
+    let analysis: proteus_contracts::app_protocol::analysis::AppSessionAnalysis =
+        serde_json::from_slice(&response_bytes(analysis).await).unwrap();
+    assert_eq!(analysis.session_id, saved_session_id);
+    assert!(analysis.turns.is_empty());
+    assert!(analysis.selected.is_none());
     assert!(
         state
             .server_for_session_dir(saved_store.session_dir())

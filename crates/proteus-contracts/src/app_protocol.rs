@@ -32,6 +32,7 @@ use crate::{
     domain::{AgentOutput, EventEnvelope},
 };
 
+pub mod analysis;
 pub mod config;
 pub mod config_builder;
 pub mod http;

@@ -15,6 +15,8 @@ use crate::{
 #[component]
 pub(crate) fn App() -> impl IntoView {
     let path = window().and_then(|window| window.location().pathname().ok());
+    let is_analysis = path.as_deref() == Some("/analysis")
+        || (desktop::is_desktop() && query_value("view").as_deref() == Some("analysis"));
     let is_architecture = is_architecture_route(
         path.as_deref(),
         query_value("view").as_deref(),
@@ -41,6 +43,8 @@ pub(crate) fn App() -> impl IntoView {
     let chat_url = RwSignal::new(chat_link_url());
     if let Some(error) = token_error {
         selected_session.set(Some(Err(error)));
+    } else if is_analysis {
+        selected_session.set(Some(Ok(String::new())));
     } else {
         spawn_local(async move {
             let result = initialize_selected_session().await;
@@ -61,8 +65,14 @@ pub(crate) fn App() -> impl IntoView {
                 </a>
                 <div class="sidebar-section-label">"РАБОЧЕЕ ПРОСТРАНСТВО"</div>
                 <nav class="inspector-nav" aria-label="Разделы Inspector">
-                    <a class="inspector-nav-item" class:active=!is_architecture
-                        aria-current=if !is_architecture { Some("page") } else { None }
+                    <a class="inspector-nav-item" class:active=is_analysis
+                        aria-current=if is_analysis { Some("page") } else { None }
+                        href=if desktop::is_desktop() { "/inspector.html?view=analysis" } else { "/analysis" }>
+                        <crate::icons::Icon name="inspector"/>
+                        <span>"Анализ ходов"</span>
+                    </a>
+                    <a class="inspector-nav-item" class:active=(!is_architecture && !is_analysis)
+                        aria-current=if !is_architecture && !is_analysis { Some("page") } else { None }
                         href=desktop::inspector_route(false)>
                         <crate::icons::Icon name="modules"/>
                         <span>"Сборка агента"</span>
@@ -93,6 +103,7 @@ pub(crate) fn App() -> impl IntoView {
                 </header>
                 <div class="inspector-content" id="inspector-content" tabindex="-1">
                     {move || match selected_session.get() {
+                        Some(Ok(_)) if is_analysis => view! { <crate::analysis::AnalysisView/> }.into_any(),
                         Some(Ok(_)) if is_architecture => view! { <ArchitectureView/> }.into_any(),
                         Some(Ok(_)) => view! { <ConfigsView/> }.into_any(),
                         Some(Err(error)) => view! {
