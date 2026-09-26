@@ -588,6 +588,31 @@ Entry задаёт ровно одно из `file` и `text`. Relative file path
 от config file. Runtime превращает entries в ordered canonical
 `InstructionBlock` list.
 
+Packaged `codex-default.md` и `opencode-default.md` — настраиваемые prompts
+Proteus, не точные копии upstream. Они задают цель, завершение работы и
+особенности доступных tools. Runtime parity проверяется отдельно; при
+сравнении сборок фиксируйте также instructions и project context.
+
+Общие правила держите в prompt, локальные соглашения — в `AGENTS.md`,
+инструкции отдельного workflow — в skill. Описывайте результат и условия
+применения; не требуйте читать все справочники или повторять уже успешные
+проверки независимо от задачи. Этот подход соответствует рекомендациям
+[OpenAI по prompts и skills](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra).
+Сокращение текста само по себе не доказывает улучшения качества модели.
+
+### Skills
+
+`skill-pack` ищет `SKILL.md` в подкаталогах `.proteus/skills` корня проекта
+и `${PROTEUS_HOME}/skills` (по умолчанию `~/.proteus/skills`). Project skill
+заменяет user skill с тем же именем. Frontmatter содержит `name` и
+`description`; имя совпадает с именем каталога.
+
+Context provider `skills` передаёт модели только имя, описание и путь.
+Тело загружается tool `skill` по имени. Пишите короткое описание конкретного
+сценария: например, «создание и проверка миграции БД», а не «любая работа
+с данными». Для нескольких workflows оставляйте в `SKILL.md` условия выбора
+и ссылки на нужные справочники, чтобы модель читала их по необходимости.
+
 ## Tools
 
 ```toml

@@ -684,20 +684,18 @@ async fn init_codex_writes_loadable_config_with_runtime_fragment() {
             .exists()
     );
     assert!(dir.path().join("fragments/codex-coder-peer.toml").exists());
+    let packaged_prompt = include_str!("../../../configs/prompts/codex-default.md");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("prompts/codex-default.md"))
+            .expect("installed prompt"),
+        packaged_prompt
+    );
     assert!(
         config
             .instruction_blocks()
             .iter()
-            .any(|block| block.text.contains("coding agent"))
+            .any(|block| block.text == packaged_prompt)
     );
-    let instructions = config
-        .instruction_blocks()
-        .iter()
-        .map(|block| block.text.as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(instructions.contains("Before running a command"));
-    assert!(instructions.contains("High-quality plans"));
 
     let explore = AppConfig::load(Some(&dir.path().join("codex-explore.config.toml")))
         .await

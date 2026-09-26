@@ -4,9 +4,9 @@
 
 ## Актуальный Контекст
 
-Замысел, текущее состояние и ожидаемый результат находятся в
-`docs/product/spec.md`, `docs/product/scope.md` и `docs/product/roadmap.md`.
-Остальные действующие документы читаются по затронутой границе.
+Для выбора следующей работы используйте `docs/product/spec.md`,
+`docs/product/scope.md` и `docs/product/roadmap.md`. Для конкретной правки
+читайте документы по затронутой границе; индекс — `docs/README.md`.
 `docs/archive/` и `examples/research/` исключайте из обычного поиска
 контекста; они нужны только по явному запросу истории конкретного решения.
 
@@ -92,44 +92,18 @@ rendering, UI state, tests и provider/module-specific детали.
 
 ## Workspace Layout
 
-```text
-crates/
-    proteus-contracts/     - публичный crate: traits, DTO, canonical model и process-module helpers
-    proteus-core/          - ядро: runtime, wiring, process adapters, model service и app-server
-    proteus-module-protocol/ - strict component-v3 broker, authority table и conformance runner
-    proteus-process-host/  - protocol-neutral lifecycle persistent stdio child-процессов
-clients/
-    web/                 - основной Leptos chat-клиент
-    inspector/           - отдельный Leptos config/architecture-клиент
-    desktop/             - Tauri-оболочка, supervisor app-server и portable packaging
-modules/
-    reference/           - reference/dogfood implementations; не default и не привилегированный pack
-        model-pack/          - process model implementations: fake, OpenAI Responses, Anthropic Messages
-        process-worker/      - executable, публикующий exact reference exports по component v3
-        file-tools/          - полноразмерные tools read/write/edit/list/grep
-        git-tools/           - read-only git_status/git_diff tools
-        shell-tool/          - tools shell / exec_command / write_stdin (sh -lc, PTY-сессии)
-        plan-tool/           - tool update_plan (пошаговый план в transcript)
-        rg-search/           - SearchBackend на ripgrep под id "rg"
-        direct-patch/        - PatchApplier internal patch format под id "direct"
-        codex-patch/         - PatchApplier pinned Codex algorithm под id "codex"
-        sqlite-memory/       - MemoryStore на SQLite FTS5
-        codex-compactor/     - HistoryCompactor под id "codex"
-        codex-tool-exposure/ - ToolExposure под id "codex_dynamic"
-        coding-workflow/     - Workflow modules "coding.single_loop", "coding.codex_loop", "coding.plan_execute_review", "coding.project_check"
-        context-pack/        - ContextBuilder modules под ids "simple", "repo_aware" и "codex_context"
-        skill-pack/          - docs-on-disk skills: context provider "skills" + tool "skill"
-        rust-lsp/             - tool lsp_diagnostics: Rust/rust-analyzer через persistent stdio LSP
-        memory-pack/         - MemoryStore "jsonl"
-        policy-pack/         - ApprovalPolicy modules "allow_all", "ask_write", "codex_policy", "opencode_policy" + tool request_permissions
-    research/            - нестабилизированные module experiments вне production path
-configs/                 - packaged named configs и prompts (источник install.sh)
-examples/
-    configs/             - example-профили (proteus.*.example.toml, config.example.json)
-    modules/             - runnable process-component protocol examples
-    mcp/                 - локальный smoke-test MCP server
-    research/            - tracked заметки по upstream агентам
-```
+- `crates/proteus-contracts` — публичные traits, DTO и canonical model;
+  `proteus-core` — runtime, wiring, process adapters и app-server;
+  `proteus-module-protocol` — component-v3 broker и conformance;
+  `proteus-process-host` — lifecycle stdio workers.
+- `clients/web`, `clients/inspector`, `clients/desktop` — Leptos-клиенты и
+  Tauri-оболочка.
+- `modules/reference` — reference implementations; каталог slots и exports
+  описан в `docs/architecture/modules.md`. `modules/research` — эксперименты
+  вне production path.
+- `configs` — поставляемые profiles и prompts, источник для `install.sh`.
+- `examples/configs`, `examples/modules`, `examples/mcp` — примеры config,
+  внешних components и локального MCP server.
 
 Reference crates линкуются только внутрь `proteus-reference-worker` и не
 являются отдельным runtime ABI. Installer публикует `proteus` и этот worker в

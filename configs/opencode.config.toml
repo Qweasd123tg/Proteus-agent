@@ -5,14 +5,10 @@ kind = "System"
 file = "prompts/direct-patch.md"
 priority = 90
 
-# Base prompt: адаптированный upstream OpenCode GPT prompt
-# (packages/opencode/src/session/prompt/gpt.txt). Divergence от upstream:
-# identity без "OpenCode", tool-имена наши (grep/find_files/read_file/
-# edit_file/write_file/update_plan вместо Grep/Glob/Read/edit/write/todowrite),
-# guidance по edit_file/write_file вместо apply_patch (upstream для GPT-моделей
-# выдаёт apply_patch — этот codex-shape уже покрыт codex-паком; здесь
-# сознательно тестируем edit/write-поверхность), каналы commentary/final
-# переписаны как нейтральные progress updates / final answers.
+# Настраиваемый Proteus prompt, сокращённый из адаптации OpenCode GPT prompt
+# (packages/opencode/src/session/prompt/gpt.txt), не pinned upstream копия.
+# Сохраняет экспериментальную edit_file/write_file поверхность, Proteus
+# tool names и нейтральные progress updates / final answers.
 [[instructions]]
 kind = "System"
 file = "prompts/opencode-default.md"
