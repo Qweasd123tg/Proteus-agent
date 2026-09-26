@@ -4,6 +4,10 @@
 #[path = "support/model.rs"]
 mod test_model;
 
+#[cfg(unix)]
+#[path = "process_agent_control/output_limits.rs"]
+mod output_limits;
+
 use std::{path::PathBuf, sync::Arc};
 
 use proteus_contracts::{

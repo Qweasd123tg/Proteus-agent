@@ -23,6 +23,7 @@ mod child;
 mod config;
 mod messaging;
 mod outcome;
+mod output;
 mod pool;
 #[cfg(test)]
 mod tests;
@@ -252,7 +253,7 @@ impl RunnerInner {
         mailbox: &ChildMailbox,
         is_resume: bool,
     ) -> Result<TurnEnd> {
-        leased.child.drain_stale_outputs();
+        leased.child.drain_stale_outputs()?;
         if !is_resume && leased.used {
             clear_child_history(&mut leased.child).await?;
             // История процесса очищена — прежние task_id-ы этого процесса

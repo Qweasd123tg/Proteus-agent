@@ -236,7 +236,7 @@ pub(super) async fn drive_turn(
             }
             _ = mailbox.notified() => continue,
         };
-        let Some(output) = output else {
+        let Some(output) = output? else {
             bail!("subagent child process exited unexpectedly");
         };
 
@@ -330,7 +330,13 @@ async fn handle_output(
                 Ok(OutputVerdict::Continue)
             }
             AppServerEvent::ApprovalRequested { request } => {
-                match forwarder.forward_approval(*request).await {
+                let health = child.output_health();
+                let reply = tokio::select! {
+                    biased;
+                    error = health.stopped() => return Err(error),
+                    reply = forwarder.forward_approval(*request) => reply,
+                };
+                match reply {
                     Some(reply) => {
                         child.send(&reply).await?;
                         Ok(OutputVerdict::Continue)
@@ -339,7 +345,13 @@ async fn handle_output(
                 }
             }
             AppServerEvent::UserInputRequested { request } => {
-                match forwarder.forward_user_input(*request).await {
+                let health = child.output_health();
+                let reply = tokio::select! {
+                    biased;
+                    error = health.stopped() => return Err(error),
+                    reply = forwarder.forward_user_input(*request) => reply,
+                };
+                match reply {
                     Some(reply) => {
                         child.send(&reply).await?;
                         Ok(OutputVerdict::Continue)
@@ -414,8 +426,8 @@ pub(super) async fn cancel_child_turn(
     let deadline = Instant::now() + cancel_grace;
     loop {
         let output = match timeout_at(deadline, child.next_output()).await {
-            Ok(Some(output)) => output,
-            Ok(None) | Err(_) => return false,
+            Ok(Ok(Some(output))) => output,
+            Ok(Ok(None) | Err(_)) | Err(_) => return false,
         };
         match output {
             StdioOutput::Response { id, .. } if id.as_deref() == Some(send_id) => return true,
@@ -440,7 +452,7 @@ pub(super) async fn clear_child_history(child: &mut ChildProcess) -> Result<()> 
     let deadline = Instant::now() + CONTROL_RESPONSE_TIMEOUT;
     loop {
         match timeout_at(deadline, child.next_output()).await {
-            Ok(Some(StdioOutput::Response { id, ok, error, .. }))
+            Ok(Ok(Some(StdioOutput::Response { id, ok, error, .. })))
                 if id.as_deref() == Some(request_id.as_str()) =>
             {
                 if !ok {
@@ -451,8 +463,9 @@ pub(super) async fn clear_child_history(child: &mut ChildProcess) -> Result<()> 
                 }
                 return Ok(());
             }
-            Ok(Some(_)) => {}
-            Ok(None) => bail!("subagent child process exited while clearing history"),
+            Ok(Ok(Some(_))) => {}
+            Ok(Ok(None)) => bail!("subagent child process exited while clearing history"),
+            Ok(Err(error)) => return Err(error),
             Err(_) => bail!("subagent child did not confirm history clear in time"),
         }
     }

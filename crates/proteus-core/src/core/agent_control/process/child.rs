@@ -1,9 +1,9 @@
 //! Lifecycle дочернего процесса `proteus server stdio`: spawn с piped
-//! stdio, фоновый reader stdout → unbounded channel, запись JSONL-запросов
+//! stdio, ограниченный reader stdout, запись JSONL-запросов
 //! в stdin, kill по требованию.
 //!
 //! Reader-таск декаплит чтение от turn-логики: пока родитель ждёт approval
-//! у пользователя, события ребёнка не забивают OS pipe. stderr ребёнка
+//! у пользователя, события ребёнка буферизуются до явного лимита. stderr ребёнка
 //! уходит в null — диагностика ребёнка живёт в его собственном event log.
 
 use std::{path::Path, process::Stdio};
@@ -11,15 +11,16 @@ use std::{path::Path, process::Stdio};
 use anyhow::{Context, Result, anyhow};
 use proteus_contracts::app_protocol::{StdioOutput, StdioRequest};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::AsyncWriteExt,
     process::{Child, ChildStdin, Command},
-    sync::mpsc,
 };
+
+use super::output::{ChildOutputs, OutputHealth};
 
 pub(super) struct ChildProcess {
     child: Child,
     stdin: ChildStdin,
-    outputs: mpsc::UnboundedReceiver<StdioOutput>,
+    outputs: ChildOutputs,
 }
 
 impl ChildProcess {
@@ -58,23 +59,7 @@ impl ChildProcess {
             .take()
             .ok_or_else(|| anyhow!("subagent child stdout is not piped"))?;
 
-        let (output_tx, outputs) = mpsc::unbounded_channel();
-        tokio::spawn(async move {
-            let mut lines = BufReader::new(stdout).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                if line.trim().is_empty() {
-                    continue;
-                }
-                // Непарсящиеся строки пропускаем: ребёнок мог напечатать
-                // диагностику в stdout до/между JSONL-выводами.
-                let Ok(output) = serde_json::from_str::<StdioOutput>(&line) else {
-                    continue;
-                };
-                if output_tx.send(output).is_err() {
-                    break;
-                }
-            }
-        });
+        let outputs = ChildOutputs::spawn(stdout);
 
         Ok(Self {
             child,
@@ -84,31 +69,36 @@ impl ChildProcess {
     }
 
     pub async fn send(&mut self, request: &StdioRequest) -> Result<()> {
+        self.outputs.health().check()?;
         let mut line = serde_json::to_string(request).context("serialize child stdio request")?;
         line.push('\n');
-        self.stdin
-            .write_all(line.as_bytes())
-            .await
-            .context("write to subagent child stdin")?;
-        self.stdin
-            .flush()
-            .await
-            .context("flush subagent child stdin")?;
-        Ok(())
+        let health = self.outputs.health();
+        tokio::select! {
+            biased;
+            error = health.stopped() => Err(error),
+            result = async {
+                self.stdin.write_all(line.as_bytes()).await.context("write to subagent child stdin")?;
+                self.stdin.flush().await.context("flush subagent child stdin")
+            } => result,
+        }
     }
 
     /// Следующий output ребёнка. `None` — stdout закрыт (ребёнок умер).
-    pub async fn next_output(&mut self) -> Option<StdioOutput> {
-        self.outputs.recv().await
+    pub async fn next_output(&mut self) -> Result<Option<StdioOutput>> {
+        self.outputs.next().await
+    }
+
+    pub fn output_health(&self) -> OutputHealth {
+        self.outputs.health()
     }
 
     /// Выгребает накопившиеся с прошлого turn-а outputs, не блокируясь.
-    pub fn drain_stale_outputs(&mut self) {
-        while self.outputs.try_recv().is_ok() {}
+    pub fn drain_stale_outputs(&mut self) -> Result<()> {
+        self.outputs.drain()
     }
 
     pub fn is_alive(&mut self) -> bool {
-        matches!(self.child.try_wait(), Ok(None))
+        self.outputs.health().is_running() && matches!(self.child.try_wait(), Ok(None))
     }
 
     pub async fn kill(&mut self) {
@@ -121,13 +111,13 @@ impl ChildProcess {
             .arg("-c")
             .arg("while read -r _line; do :; done")
             .stdin(Stdio::piped())
-            .stdout(Stdio::null())
+            .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .kill_on_drop(true)
             .spawn()
             .expect("spawn child fixture");
         let stdin = child.stdin.take().expect("fixture stdin");
-        let (_output_tx, outputs) = mpsc::unbounded_channel();
+        let outputs = ChildOutputs::spawn(child.stdout.take().expect("fixture stdout"));
         Self {
             child,
             stdin,
