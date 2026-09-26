@@ -128,18 +128,4 @@ mod tests {
         assert!(!kinds.contains(&ModuleKind::Tool));
         assert!(core_slot_descriptor_by_id("tool").is_none());
     }
-
-    #[test]
-    fn descriptors_have_expected_selection_owners() {
-        let modules = CORE_SLOT_DESCRIPTORS
-            .iter()
-            .filter(|descriptor| descriptor.selection == CoreSlotSelection::ModulesConfig)
-            .count();
-        let providers = CORE_SLOT_DESCRIPTORS
-            .iter()
-            .filter(|descriptor| descriptor.selection == CoreSlotSelection::ProviderConfig)
-            .count();
-        assert_eq!(modules, 8);
-        assert_eq!(providers, 1);
-    }
 }

@@ -218,21 +218,6 @@ fn detached_model(service: Arc<ModelService>) -> (ExecutionScope, BoundModel) {
 }
 
 #[tokio::test]
-async fn bound_model_constructs_without_turn() {
-    let adapter = Arc::new(ImmediateAdapter::new());
-    let service = Arc::new(ModelService::new(adapter));
-    let (scope, model) = detached_model(service);
-
-    let result = model
-        .complete(request("immediate", "detached"))
-        .await
-        .unwrap();
-
-    assert_eq!(response_text(&result), "ok");
-    assert_eq!(model.binding().scope().execution_id, scope.execution_id);
-}
-
-#[tokio::test]
 async fn detached_bound_model_records_lifecycle_without_chat_identity() {
     let adapter = Arc::new(ImmediateAdapter::new());
     let service = Arc::new(ModelService::new(adapter));

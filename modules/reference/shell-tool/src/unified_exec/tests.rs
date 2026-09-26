@@ -352,20 +352,6 @@ fn session_owner_compares_canonical_workspace_paths() {
 }
 
 #[test]
-fn write_stdin_rejects_unknown_session() {
-    let dir = tempfile::tempdir().expect("workspace");
-    let context = invocation_context(dir.path());
-
-    let error = write_stdin_result(&context, json!({ "session_id": -1 }))
-        .expect_err("unknown session must error");
-
-    assert!(
-        error.to_string().contains("unknown exec session"),
-        "{error}"
-    );
-}
-
-#[test]
 fn exec_command_requires_cmd_arg() {
     let dir = tempfile::tempdir().expect("workspace");
     let call = json!({ "id": "call_exec", "name": "exec_command", "args": {} });

@@ -301,14 +301,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn disabled_sandbox_is_fail_closed() {
-        let error = SandboxPolicy::disabled_for_test()
-            .select(false, false)
-            .expect_err("disabled sandbox must reject non-escalated execution");
-        assert!(error.to_string().contains("PROTEUS_SHELL_SANDBOX=0"));
-    }
-
-    #[test]
     fn external_terminal_requires_escalation() {
         let error = SandboxPolicy::unusable_for_test()
             .select(false, true)

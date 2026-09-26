@@ -53,10 +53,10 @@ fn long_empty_poll_returns_final_stdout_and_stderr_once() {
     let context = invocation_context(root.path());
     let first = exec_command_with_context(
         &context,
-        json!({"cmd": "printf first; sleep 0.8; printf last-out; printf last-err >&2; exit 7", "yield_time_ms": 250}),
+        json!({"cmd": "printf first; while [ ! -e finish ]; do sleep 0.01; done; printf last-out; printf last-err >&2; exit 7", "yield_time_ms": 250}),
     );
-    assert!(first["output"].as_str().unwrap().contains("first"));
     let id = first["metadata"]["session_id"].as_i64().unwrap();
+    std::fs::write(root.path().join("finish"), "").unwrap();
     let started = Instant::now();
     let last = write_stdin(&context, json!({"session_id": id, "yield_time_ms": 300000}));
     assert!(started.elapsed() < Duration::from_secs(3));
@@ -64,7 +64,8 @@ fn long_empty_poll_returns_final_stdout_and_stderr_once() {
     assert_eq!(last["metadata"]["exit_code"], 7);
     assert_eq!(last["ok"], true);
     let text = last["output"].as_str().unwrap();
-    assert!(!text.contains("first"));
+    let combined = format!("{}{text}", first["output"].as_str().unwrap());
+    assert_eq!(combined.matches("first").count(), 1, "{combined}");
     assert!(
         text.contains("last-out") && text.contains("last-err"),
         "{text}"

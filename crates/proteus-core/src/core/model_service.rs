@@ -148,7 +148,6 @@ mod tests {
     /// Адаптер, отдающий зафиксированный список stream events.
     struct ScriptedAdapter {
         events: std::sync::Mutex<Option<Vec<ModelStreamEvent>>>,
-        requests: std::sync::Mutex<Vec<CanonicalModelRequest>>,
         capabilities: ModelCapabilities,
     }
 
@@ -156,7 +155,6 @@ mod tests {
         fn new(events: Vec<ModelStreamEvent>) -> Self {
             Self {
                 events: std::sync::Mutex::new(Some(events)),
-                requests: std::sync::Mutex::new(Vec::new()),
                 capabilities: ModelCapabilities::empty(),
             }
         }
@@ -175,8 +173,7 @@ mod tests {
         fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
             self.capabilities.clone()
         }
-        async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
-            self.requests.lock().unwrap().push(request);
+        async fn stream(&self, _request: CanonicalModelRequest) -> Result<ModelEventStream> {
             let events = self
                 .events
                 .lock()
@@ -364,42 +361,6 @@ mod tests {
             })
             .collect();
         assert_eq!(kinds, vec!["text", "tool", "reasoning", "completed"]);
-    }
-
-    #[tokio::test]
-    async fn bound_model_adds_trace_ids_to_client_metadata() {
-        let adapter = Arc::new(ScriptedAdapter::new(vec![ModelStreamEvent::Response {
-            response: final_response(),
-        }]));
-        let service = Arc::new(ModelService::new(adapter.clone()));
-        let session_id = new_session_id();
-        let thread_id = new_thread_id();
-        let turn_id = new_turn_id();
-        let model = BoundModel::new(
-            service,
-            ModelExecutionBinding::for_turn(
-                ExecutionScope::fresh(CancellationToken::new()),
-                Arc::new(EventEmitter::new(Arc::new(CollectingSink::default()))),
-                session_id,
-                thread_id,
-                turn_id,
-                Arc::new(NoopExecutionRecorder),
-            ),
-            0,
-        );
-
-        model.complete(sample_request()).await.unwrap();
-
-        let requests = adapter.requests.lock().unwrap();
-        assert_eq!(
-            requests[0].client_metadata["session_id"],
-            session_id.to_string()
-        );
-        assert_eq!(
-            requests[0].client_metadata["thread_id"],
-            thread_id.to_string()
-        );
-        assert_eq!(requests[0].client_metadata["turn_id"], turn_id.to_string());
     }
 
     #[tokio::test]

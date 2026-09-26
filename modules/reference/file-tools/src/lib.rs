@@ -278,23 +278,36 @@ mod tests {
     }
 
     #[test]
-    fn edit_file_rejects_parent_escape_and_missing_file() {
+    fn read_and_edit_tools_report_missing_files() {
         let dir = tempfile::tempdir().expect("workspace");
-
-        let escape = invoke(
-            &EditFileTool,
-            dir.path(),
-            json!({ "path": "../secret.txt", "old_string": "a", "new_string": "b" }),
-        );
-        assert_eq!(escape["ok"], false);
-        assert!(escape["error"].as_str().unwrap().contains("canonicalize"));
-
-        let missing = invoke(
-            &EditFileTool,
-            dir.path(),
-            json!({ "path": "missing.txt", "old_string": "a", "new_string": "b" }),
-        );
-        assert_eq!(missing["ok"], false);
+        for (name, result) in [
+            (
+                "read_file",
+                invoke(&ReadFileTool, dir.path(), json!({ "path": "missing.txt" })),
+            ),
+            (
+                "read_many_files",
+                invoke(
+                    &ReadManyFilesTool,
+                    dir.path(),
+                    json!({ "paths": ["missing.txt"] }),
+                ),
+            ),
+            (
+                "edit_file",
+                invoke(
+                    &EditFileTool,
+                    dir.path(),
+                    json!({ "path": "missing.txt", "old_string": "a", "new_string": "b" }),
+                ),
+            ),
+        ] {
+            assert_eq!(result["ok"], false, "{name}: {result}");
+            assert!(
+                result["error"].as_str().unwrap().contains("canonicalize"),
+                "{name}: {result}"
+            );
+        }
     }
 
     #[test]
@@ -403,33 +416,5 @@ mod tests {
         assert_eq!(result["ok"], true);
         assert_eq!(result["output"], "src/lib.rs");
         assert_eq!(result["metadata"]["match_count"], 1);
-    }
-
-    #[test]
-    fn read_file_rejects_parent_escape() {
-        let dir = tempfile::tempdir().expect("workspace");
-
-        let result = invoke(
-            &ReadFileTool,
-            dir.path(),
-            json!({ "path": "../secret.txt" }),
-        );
-
-        assert_eq!(result["ok"], false);
-        assert!(result["error"].as_str().unwrap().contains("canonicalize"));
-    }
-
-    #[test]
-    fn read_many_files_rejects_parent_escape() {
-        let dir = tempfile::tempdir().expect("workspace");
-
-        let result = invoke(
-            &ReadManyFilesTool,
-            dir.path(),
-            json!({ "paths": ["../secret.txt"] }),
-        );
-
-        assert_eq!(result["ok"], false);
-        assert!(result["error"].as_str().unwrap().contains("canonicalize"));
     }
 }

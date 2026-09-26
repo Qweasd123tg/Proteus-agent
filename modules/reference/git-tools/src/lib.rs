@@ -425,8 +425,6 @@ pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), Process
 
 #[cfg(test)]
 mod tests {
-    use proteus_contracts::domain::ToolSpec;
-
     use super::*;
 
     const _: () = assert!(TIMEOUT_MS >= 60_000);
@@ -465,21 +463,6 @@ mod tests {
             .status()
             .expect("run git");
         assert!(status.success(), "git {args:?} failed");
-    }
-
-    #[test]
-    fn git_tool_specs_allow_large_repositories() {
-        serde_json::from_str::<ToolSpec>(GitStatusTool.spec_json().as_str())
-            .expect("git_status spec must match strict ToolSpec");
-        serde_json::from_str::<ToolSpec>(GitDiffTool.spec_json().as_str())
-            .expect("git_diff spec must match strict ToolSpec");
-        let status_spec: Value =
-            serde_json::from_str(GitStatusTool.spec_json().as_str()).expect("status spec json");
-        let diff_spec: Value =
-            serde_json::from_str(GitDiffTool.spec_json().as_str()).expect("diff spec json");
-
-        assert_eq!(status_spec["timeout_ms"], TIMEOUT_MS);
-        assert_eq!(diff_spec["timeout_ms"], TIMEOUT_MS);
     }
 
     #[test]

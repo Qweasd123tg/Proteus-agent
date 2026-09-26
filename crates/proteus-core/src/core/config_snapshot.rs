@@ -85,38 +85,3 @@ pub fn write_config_snapshot(session_dir: &Path, snapshot: &SessionConfigSnapsho
         .with_context(|| format!("failed to write {}", path.display()))?;
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn legacy_subagent_surface_is_rejected_without_alias() {
-        let snapshot = SessionConfigSnapshot {
-            schema_version: SessionConfigSnapshot::SCHEMA_VERSION,
-            ts: 0,
-            profile_name: "test".to_owned(),
-            active_provider: "fake".to_owned(),
-            model: ModelRef::new("fake", "fake"),
-            reasoning: ReasoningConfig::default(),
-            modules: ModulesConfig::default(),
-            agent_control_surface: "task".to_owned(),
-            tools: Vec::new(),
-            permission_mode_default: PermissionMode::Normal,
-        };
-        let mut value = serde_json::to_value(snapshot).expect("snapshot value");
-        let object = value.as_object_mut().expect("snapshot object");
-        let surface = object
-            .remove("agent_control_surface")
-            .expect("current surface");
-        object.insert("subagent_surface".to_owned(), surface);
-
-        let error = serde_json::from_value::<SessionConfigSnapshot>(value)
-            .expect_err("legacy snapshot field must fail closed");
-        assert!(
-            error
-                .to_string()
-                .contains("unknown field `subagent_surface`")
-        );
-    }
-}

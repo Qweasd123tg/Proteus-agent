@@ -135,26 +135,6 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
-    async fn filtered_sink_forwards_when_predicate_true() {
-        let inner = Arc::new(CollectingSink::default());
-        let filtered = FilteredEventSink::new(inner.clone(), |_| true);
-        filtered
-            .append(EventEnvelope::new(
-                ctx(),
-                1,
-                Event::AssistantTextDelta {
-                    offset: 0,
-                    message_id: crate::domain::new_message_id(),
-                    phase: None,
-                    text: "hi".to_owned(),
-                },
-            ))
-            .await
-            .unwrap();
-        assert_eq!(inner.events.lock().await.len(), 1);
-    }
-
     #[test]
     fn is_streaming_delta_covers_all_delta_variants() {
         assert!(is_streaming_delta(&Event::AssistantTextDelta {

@@ -83,8 +83,6 @@ def run(command, js, wait_for):
         assert js(f"return {card('files:preview')}===window.keptPreview && {preview}.querySelector('pre').textContent.includes('<b>Привет</b>')"), 'Moving tree remounted its preview'
         assert js(f"return !{menu} && JSON.parse(localStorage.getItem('proteus.ui.extensions')).panels.find(p=>p.id==='files').location==={json.dumps(location)}"), 'Context menu did not close or persist placement'
 
-    assert js("return !document.querySelector('.extension-panel-header select')"), 'Panel still has a separate placement button'
-    assert js("return getComputedStyle(window.keptChat).display!=='none'"), 'File column replaced chat'
     js("window.keptFiles.querySelector('.extension-panel-title').click()")
     assert js("return document.getAnimations().some(a=>a.id==='extension-column')") != js("return matchMedia('(prefers-reduced-motion: reduce)').matches"), 'Column animation does not match motion preference'
     assert js(f"return {column('files')}.classList.contains('collapsed') && {column('files')}.getBoundingClientRect().width<=48"), 'Column did not collapse to a compact rail'

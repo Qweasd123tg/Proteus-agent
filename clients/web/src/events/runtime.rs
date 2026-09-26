@@ -580,28 +580,6 @@ mod tests {
     }
 
     #[test]
-    fn subagent_started_activity_parses_payload() {
-        let event = json!({
-            "role": "reviewer",
-            "description": "check the implementation",
-            "child_thread_id": "child-thread",
-        });
-
-        let activity = subagent_started_activity(&event, 42).expect("subagent activity");
-
-        assert_eq!(activity.child_thread_id, "child-thread");
-        assert_eq!(activity.role, "reviewer");
-        assert_eq!(
-            activity.description.as_deref(),
-            Some("check the implementation")
-        );
-        assert_eq!(activity.status, SubagentActivityStatus::Running);
-        assert_eq!(activity.iterations, None);
-        assert_eq!(activity.started_at_ms, 42);
-        assert!(activity.tools.is_empty());
-    }
-
-    #[test]
     fn subagent_started_activity_requires_child_thread_id() {
         let event = json!({
             "role": "reviewer",
@@ -678,5 +656,9 @@ mod tests {
             activity.description.as_deref(),
             Some("check the implementation")
         );
+        assert_eq!(activity.status, SubagentActivityStatus::Running);
+        assert_eq!(activity.iterations, None);
+        assert_eq!(activity.started_at_ms, 42);
+        assert!(activity.tools.is_empty());
     }
 }

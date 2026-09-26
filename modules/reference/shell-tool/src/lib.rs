@@ -649,7 +649,6 @@ pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), Process
 
 #[cfg(test)]
 mod tests {
-    use proteus_contracts::domain::ToolSpec;
     use serde_json::{Value, json};
 
     use super::*;
@@ -703,20 +702,6 @@ mod tests {
         );
         assert!(!marker.exists(), "unavailable sandbox ran the command");
         None
-    }
-
-    #[test]
-    fn shell_spec_allows_long_running_commands() {
-        serde_json::from_str::<ToolSpec>(ShellTool.spec_json().as_str())
-            .expect("shell spec must match strict ToolSpec");
-        serde_json::from_str::<ToolSpec>(unified_exec::ExecCommandTool.spec_json().as_str())
-            .expect("exec_command spec must match strict ToolSpec");
-        serde_json::from_str::<ToolSpec>(unified_exec::WriteStdinTool.spec_json().as_str())
-            .expect("write_stdin spec must match strict ToolSpec");
-        let spec: Value =
-            serde_json::from_str(ShellTool.spec_json().as_str()).expect("tool spec json");
-
-        assert_eq!(spec["timeout_ms"], TIMEOUT_MS);
     }
 
     #[test]

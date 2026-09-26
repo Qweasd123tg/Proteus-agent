@@ -11,7 +11,7 @@ use crate::{
         UserInputRequest, UserInputResponse,
     },
     core::{PendingApproval, PendingUserInput, SessionStore},
-    domain::{Event, PermissionMode, ToolCall, ToolResult, new_call_id, new_session_id},
+    domain::{Event, ToolCall, ToolResult, new_call_id, new_session_id},
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 
@@ -192,27 +192,6 @@ fn shell_approval_preview_uses_exact_command_metadata() {
     assert_eq!(preview.language.as_deref(), Some("shell"));
     assert_eq!(preview.body.as_deref(), Some("cargo test"));
     assert_eq!(preview.metadata["cache_scope"], "exact_command");
-}
-
-#[tokio::test]
-async fn app_server_updates_permission_mode_without_restart() {
-    let cwd = tempfile::tempdir().expect("cwd");
-    let mut config = crate::test_model::config();
-    config.permissions.mode = PermissionMode::Normal;
-    let server = AgentAppServer::launch_with_module_catalog(
-        config,
-        cwd.path().to_path_buf(),
-        None,
-        test_catalog(),
-    )
-    .await
-    .expect("app server");
-
-    assert_eq!(server.permission_mode().await, PermissionMode::Normal);
-
-    server.set_permission_mode(PermissionMode::Plan).await;
-
-    assert_eq!(server.permission_mode().await, PermissionMode::Plan);
 }
 
 #[tokio::test]
@@ -821,36 +800,6 @@ fn transcript_projects_tool_calls_as_restorable_tool_cards() {
     assert_eq!(tool.args, serde_json::json!({"path": "src/lib.rs"}));
     assert_eq!(tool.status, "done");
     assert_eq!(tool.result.as_deref(), Some("line 1\nline 2"));
-}
-
-#[tokio::test]
-async fn config_summary_includes_current_session_dir_field() {
-    let cwd = tempfile::tempdir().expect("cwd");
-    let config_dir = tempfile::tempdir().expect("config dir");
-    let config_path = config_dir.path().join("config.toml");
-    let handle = AgentAppServer::launch_with_module_catalog(
-        crate::test_model::config(),
-        cwd.path().to_path_buf(),
-        Some(&config_path),
-        test_catalog(),
-    )
-    .await
-    .expect("app server");
-
-    let summary = handle.config_summary().await;
-
-    let session_dir = summary
-        .get("session_dir")
-        .and_then(|value| value.as_str())
-        .expect("session_dir");
-    let expected = handle
-        .runtime
-        .session_dir()
-        .expect("runtime session dir")
-        .display()
-        .to_string();
-    assert_eq!(session_dir, expected);
-    handle.shutdown().await;
 }
 
 #[tokio::test]

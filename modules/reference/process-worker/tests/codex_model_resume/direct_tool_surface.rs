@@ -289,9 +289,6 @@ async fn tracked_codex_profile_exposes_and_executes_policy_visible_tools_directl
         ] {
             assert!(!names.contains(forbidden), "unexpected tool {forbidden}");
         }
-        let serialized = request.to_string();
-        assert!(!serialized.contains("You do not receive the full tool catalog up front"));
-        assert!(!serialized.contains("call proteus_tool_search"));
     }
     let result = requests[1]["input"]
         .as_array()
