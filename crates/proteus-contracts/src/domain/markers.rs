@@ -2,7 +2,7 @@
 //!
 //! Пары producer/consumer перечислены в `docs/architecture/pack-contracts.md`. Константы
 //! убирают дрейф написания между modules, которые общаются этими маркерами
-//! через ABI/JSON границу без compile-time проверки.
+//! через process/JSON границу без compile-time проверки.
 
 /// `CanonicalMessage::name` сообщений, порождённых context builder-ом, а не
 /// пользователем. Producer: workflow packs; consumers: compactor packs,

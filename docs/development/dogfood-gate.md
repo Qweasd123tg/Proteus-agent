@@ -9,10 +9,10 @@
 `core`, `workflow`, `context`, `tools`, `policy`, `patch`, provider adapter,
 app-server или текущий внешний UI-клиент.
 
-Это live-слой общего
-[стандарта изменения](testing.md#стандарт-изменения):
-focused/boundary/full проверки выполняются до dogfood, а journal/replay/cold
-readback сохраняют доказательство после него.
+Объём автоматических проверок выбирается по
+[стандарту изменения](testing.md#стандарт-изменения).
+Diagnostic можно использовать для воспроизведения проблемы до правки;
+journal/replay/cold readback помогают локализовать её после прогона.
 
 ## Цель
 
@@ -33,11 +33,9 @@ readback сохраняют доказательство после него.
 Core diagnostic проверяется отдельно от UI. Если он красный, внешний клиент не является
 приоритетным местом для правок.
 
-Минимальные команды:
+Проверка выбранного профиля без model request:
 
 ```bash
-cargo test -p proteus-contracts
-cargo test -p proteus-core --test module_swap
 cargo run --bin proteus -- doctor
 ```
 
@@ -57,15 +55,15 @@ v3 sessions намеренно не читаются; нужные старые 
 cargo run --bin proteus -- eval report "/path/to/session-dir"
 ```
 
-Зелёный core diagnostic означает только то, что module boundaries, config loading,
-doctor и базовый отчёт не сломаны. Он не доказывает quality agent-а.
+Успешный `doctor` и читаемый отчёт подтверждают проверенные config/session
+данные. Module boundaries проверяются отдельными targets из
+[testing.md](testing.md); качество агента требует задач и оценки результата.
 
 ## Manual Client Diagnostic
 
-Первичный dogfood-клиент теперь должен быть внешним UI поверх app-server
-boundary. Активное направление — Leptos chat client в `clients/web`, который
-подключается к `proteus server http` через HTTP/SSE. Редкие config/architecture
-проверки вынесены в отдельный Leptos client `clients/inspector`.
+Для проверки web-сценария используется Leptos chat client в `clients/web`,
+подключённый к `proteus server http` через HTTP/SSE. Config/architecture
+экраны находятся в отдельном клиенте `clients/inspector`.
 
 App-server запускается только на loopback (`127.0.0.1`) для local dogfood.
 Wrapper `proteus` включает ephemeral session token по умолчанию
@@ -161,7 +159,7 @@ Diagnostic успешен, если сценарий можно пройти б�
     `/history`. Этот отказ фиксирует известную границу replay, а не потерю
     durable данных.
 
-Gate считается зелёным только если шаги 4-12 прошли без потери контроля над
+UI-сценарий проверен, если шаги 4-12 прошли без потери контроля над
 turn-ом. Если задача сама провалилась, но UI сохранил transcript/journal и
 ясно показал причину, фиксируйте это как `failed` или `inconclusive` в
 postmortem, а не как блокер web/app-server boundary.

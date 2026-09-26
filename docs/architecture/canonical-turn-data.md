@@ -75,7 +75,7 @@ provider-side execution и сохраняются в journal/transcript/eval pro
 `CanonicalPart` явно закрепляет их provenance/scope; угадывать hosted execution
 по provider metadata или тексту ответа нельзя.
 
-## Journal v13
+## Формат Journal
 
 Одна JSONL-строка — один строгий record с общим envelope:
 

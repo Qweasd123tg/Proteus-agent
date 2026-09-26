@@ -1,9 +1,8 @@
 //! Draft artifact-backed tool result processor.
 //!
-//! This crate is deliberately not loadable by the current dylib plugin loader:
-//! there is no `ToolResultProcessor` / `ToolOutputStore` ABI slot yet. It keeps
-//! the artifact strategy as a compiled draft so the behavior can be promoted to
-//! a real plugin once the slot contract exists.
+//! This research crate is excluded from the production workspace and reference
+//! worker. It explores artifact storage as a plain library. Runtime integration
+//! requires a separately approved process contract; no loader consumes it.
 
 use std::path::{Component, Path, PathBuf};
 

@@ -1,7 +1,7 @@
 //! Ripgrep `SearchBackend` reference process module.
 //!
 //! The implementation is linked into the reference worker; the host only
-//! sees the process-v1 contract.
+//! sees the shared `search` process contract.
 
 use std::{
     io::{BufRead, BufReader},

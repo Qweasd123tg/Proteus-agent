@@ -668,25 +668,10 @@ Component Runtime export-ом. Это не скрытый extension mechanism и
 
 ## Evidence Gates
 
-```bash
-# protocol, exact exports, request-scoped authority, cancel/reset/restart
-cargo test -p proteus-module-protocol
-
-# one PID/session for multiple exports, slot swap и failure semantics
-cargo test -p proteus-core --test module_swap
-
-# real reference exports, callbacks и multi-export routing
-cargo test -p proteus-reference-worker --test conformance
-
-# полный Rust graph
-cargo test --workspace
-```
-
-Static audit удалённого native path:
-
-```bash
-rg 'abi_stable|libloading|cdylib|plugin\.toml' Cargo.toml Cargo.lock crates modules/reference
-```
+Protocol tests, runtime swap и real-worker conformance перечислены в
+[каталоге проверок](../development/testing.md#process-и-modules).
+Выбор focused или полного workspace gate определяется затронутой границей
+по [матрице изменений](../development/testing.md#evidence-matrix).
 
 ## Не-Цели Component Runtime v2
 

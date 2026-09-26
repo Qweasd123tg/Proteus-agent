@@ -1,33 +1,17 @@
-# tool-output-artifacts
+# Tool Output Artifacts
 
-Draft plugin pack for future tool-result post-processing.
+Исследовательская библиотека для сохранения больших результатов tools в файлы.
+Она исключена из root workspace, не экспортируется `proteus-reference-worker`
+и не подключается через config. Это пример алгоритма, а не готовый runtime module.
 
-This crate intentionally does not export a dylib `PluginRoot` yet. The current
-plugin ABI has no `ToolResultProcessor` / `ToolOutputStore` slot, so wiring this
-into core would make one storage strategy a runtime default. Keep it as an
-`rlib` draft until the contract exists.
+Реализованный эксперимент:
 
-Intended behavior:
+- принимает `ToolResult` и рабочий каталог;
+- сохраняет большие `output` / `error` в artifacts;
+- возвращает сокращённый preview и пути в metadata;
+- ограничивает пути рабочим каталогом, включая symlink directory escapes.
 
-- receive a `ToolResult` after tool execution and before model feedback;
-- save oversized `output` / `error` text into workspace artifacts;
-- return a shortened preview with artifact paths in metadata;
-- keep paths inside the workspace and reject symlink directory escapes.
-
-Future slot sketch:
-
-```text
-ToolResultProcessor::process(input) -> ToolResult
-
-input:
-  cwd
-  tool_name
-  tool_result
-  max_preview_bytes
-
-module ids:
-  none
-  artifact_files
-  session_artifacts
-  compressed_artifacts
-```
+Process contract для такой обработки результатов пока не определён.
+Интеграция требует отдельного решения по
+[slot governance](../../../docs/architecture/slot-governance.md).
+Наличие прототипа не назначает добавление нового slot следующей задачей.

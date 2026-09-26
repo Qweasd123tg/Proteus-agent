@@ -108,6 +108,7 @@ dogfood, не для публикации в интернет.
 Smoke без внешнего API:
 
 ```bash
+cargo build -p proteus-core -p proteus-reference-worker
 PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config examples/configs/proteus.example.toml doctor
 
 PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config examples/configs/proteus.process-agent.example.toml "explain this profile"
@@ -190,15 +191,16 @@ Process boundary пока не sandbox: worker получает очищенно
 - topology/journal gate: один PID выполняет callback-связанный workflow,
   переживает адресную отмену и даёт совпадающий canonical workflow replay.
 
-Model implementations (`fake`, `openai`, `openai_compatible`, `anthropic`)
-живут в reference worker и заменяются внешними `model/v8` exports. Root-owned
+Model implementations (`fake`, `openai`, `openai_compatible`, `openai_codex`, `anthropic`)
+живут в reference worker и заменяются внешними `model` exports по
+[общему process contract](docs/architecture/process-module-architecture.md#model-streaming). Root-owned
 `AgentControl` не является slot: он запускает полные peer-экземпляры Proteus
 из top-level `agent_control` config и обслуживает обе model-facing facade.
 Это не dylib-путь и не исключение для reference modules. Подробнее:
 [docs/architecture/subagents.md](docs/architecture/subagents.md).
 
 Marketplace, package manager, live module replacement, WASM runtime и OS
-sandbox в текущий cutover не входят.
+sandbox в текущий runtime не входят.
 
 ## Полезные Команды
 
@@ -259,11 +261,11 @@ docs/                           reference, testing rules и roadmap
 - [architecture.md](docs/architecture/architecture.md) — границы core и turn flow;
 - [modules.md](docs/architecture/modules.md) — slots, composition и reference inventory;
 - [process-module-architecture.md](docs/architecture/process-module-architecture.md) —
-  protocol, authority и результат cutover;
+  protocol, authority и lifecycle компонентов;
 - [configuration.md](docs/guides/configuration.md) — schema, components и exports;
 - [security-and-policy.md](docs/guides/security-and-policy.md) — tools и approvals;
 - [SECURITY.md](SECURITY.md) — reporting и текущая trust boundary;
-- [testing.md](docs/development/testing.md) — обязательные evidence gates;
+- [testing.md](docs/development/testing.md) — выбор проверок по затронутой границе;
 - [scope.md](docs/product/scope.md) — что существует сейчас;
 - [spec.md](docs/product/spec.md) — идея и долговечные границы платформы;
 - [roadmap.md](docs/product/roadmap.md) — ожидаемый результат и условия завершения.
@@ -273,14 +275,18 @@ docs/                           reference, testing rules и roadmap
 
 ## Проверка
 
+Выберите набор по [матрице изменений](docs/development/testing.md#evidence-matrix).
+Для общей интеграции Rust:
+
 ```bash
 cargo fmt --all --check
-cargo test --workspace
-(cd clients/web && env -u NO_COLOR trunk build --locked)
-(cd clients/inspector && env -u NO_COLOR trunk build --locked)
-./scripts/install-smoke.sh
+cargo test --workspace --no-fail-fast
 git diff --check
 ```
+
+Клиенты собираются отдельно через Trunk при изменениях в них.
+`./scripts/install-smoke.sh` нужен для проверки установки; он сам выполняет сборку.
+Правка документации требует проверки содержания, ссылок и `git diff --check`.
 
 Ключевые gates process boundary:
 

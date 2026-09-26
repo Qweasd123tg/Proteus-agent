@@ -42,18 +42,14 @@ export function prepareFrontend(release) {
       if (item !== 'index.html') cpSync(path.join(source, item), path.join(output, item), { recursive: true });
     }
     let html = readFileSync(path.join(source, 'index.html'), 'utf8')
-      .replace('https://cdn.jsdelivr.net/npm/mathjax@3/es5/', '/vendor/mathjax/')
-      .replace('https://cdn.jsdelivr.net/npm/mermaid@11/dist/', '/vendor/mermaid/');
+      .replace('https://cdn.jsdelivr.net/npm/mathjax@3/es5/', '/vendor/mathjax/');
     if (!release) html = html.replace('</body>', '<script>new EventSource("/__reload").onmessage = () => location.reload();</script></body>');
     writeFileSync(path.join(output, client === 'web' ? 'index.html' : 'inspector.html'), html);
   }
   cpSync(path.join(desktop, 'launcher'), output, { recursive: true });
   const vendorOptions = { recursive: true, filter: source => !source.endsWith('.map') && !source.endsWith('.d.ts') };
   cpSync(path.join(desktop, 'node_modules/mathjax/es5'), path.join(output, 'vendor/mathjax'), vendorOptions);
-  cpSync(path.join(desktop, 'node_modules/mermaid/dist'), path.join(output, 'vendor/mermaid'), vendorOptions);
-  for (const library of ['mathjax', 'mermaid']) {
-    cpSync(path.join(desktop, 'node_modules', library, 'LICENSE'), path.join(output, 'vendor', library, 'LICENSE'));
-  }
+  cpSync(path.join(desktop, 'node_modules/mathjax/LICENSE'), path.join(output, 'vendor/mathjax/LICENSE'));
   rmSync(dist + '.previous', { recursive: true, force: true });
   if (existsSync(dist)) renameSync(dist, dist + '.previous');
   renameSync(output, dist);

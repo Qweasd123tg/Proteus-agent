@@ -27,10 +27,10 @@ runtime-control state.
   «Сбросить» возвращает сохранённые значения; обновление недоступно при
   несохранённых изменениях. Во время сохранения редактирование и повторная
   отправка заблокированы. Запись выполняется через `POST /config/builder`.
-- `/architecture` читает `/inspect/topology` и `/inspect/topology.mmd`,
-  показывает карту связей, путь запроса, слоты, модули, инструменты и
-  предупреждения. Карта поддерживает pan/zoom, автоматический `fit` и
-  полноэкранный режим с выходом по `Escape`.
+- `/architecture` строит интерактивную SVG-карту из `/inspect/topology`:
+  выбор узлов, связи, поиск, слоты, модули, инструменты и предупреждения.
+  Карта поддерживает pan/zoom, автоматический `fit` и полноэкранный режим с
+  выходом по `Escape`. `/inspect/topology.mmd` читается по кнопке экспорта Mermaid.
 - До загрузки страниц Inspector выбирает одну сессию окна: сначала из
   `session_dir` в URL, затем из `sessionStorage` для точного app-server origin,
   затем из `/bootstrap`. Выбор подтверждается через `/resume`; если сессий ещё
@@ -101,8 +101,7 @@ query, fragment и userinfo. Credential хранится вместе с точ�
   `[module_config]` и `[tools].enabled` через `POST /config/builder`; provider
   profiles (`[providers.*]`) и secrets он не редактирует — только выбирает
   активный;
-- Mermaid грузится только здесь, чтобы chat bundle не тянул architecture
-  dependencies.
+- renderer карты находится в `graph/` и не требует Mermaid или CDN.
 
 Проверяйте inspector отдельной Trunk-сборкой:
 

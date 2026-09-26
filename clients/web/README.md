@@ -153,7 +153,7 @@ Credential хранится вместе с точным нормализова�
 - локальные UI-модели описывают представление, без runtime internals Core.
 
 `clients/web` намеренно исключён из root Cargo workspace: обычные
-`cargo test --workspace` для core/plugins не должны требовать wasm target или
+`cargo test --workspace` для core/modules не должны требовать wasm target или
 Trunk. Проверяйте web-клиент отдельной командой:
 
 ```bash

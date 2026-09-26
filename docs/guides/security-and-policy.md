@@ -742,26 +742,6 @@ durable process isolation boundary. Внешний `workdir` допустим т
 Целевая Proteus-to-Proteus граница описана в
 [subagents.md](../architecture/subagents.md).
 
-## Planned Rights Model
-
-Table-driven права tools/modules пока не реализованы. Целевая форма должна
-оставить пользовательскую модель простой:
-
-```text
-config -> роль агента -> режим прав -> подключённые модули -> права tools/modules
-```
-
-Для tools планируется config с решениями `hide`, `deny`, `ask`, `allow`,
-`priority`, `timeout_ms` и per-tool output limits. `hide` влияет на model
-request, `deny` остаётся execution guard, `ask` требует approval, `allow`
-разрешает исполнение без approval. `ToolSafety` остаётся нижним safety floor:
-config не должен тихо превращать command/network/dangerous tool в безопасный.
-
-Для modules та же идея может появиться позже, но первый шаг должен быть по
-tools, потому что они уже имеют `ToolSafety`, `ToolRegistry`, approval и
-execution path. Package manager, marketplace, WASM и OS sandbox в этот шаг не
-входят; единый внешний process-module protocol уже реализован.
-
 ## Правила Для Новых Tools
 
 - Всегда задавать корректный `ToolSafety`.

@@ -1,7 +1,6 @@
 //! Component Runtime v2 / strict wire v3 broker.
 //!
-//! This is the sole configured process-component runtime. The sequential
-//! component wire and callback-cycle workaround were removed by the P3 cutover.
+//! This is the sole configured process-component runtime.
 
 mod broker;
 mod callback_ids;

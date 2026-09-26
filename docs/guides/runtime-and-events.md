@@ -580,7 +580,7 @@ system-строку в transcript.
 Facade-tool `task` следует тому же пути; отказ approval завершается error
 `ToolResult` до запуска ребёнка или создания worktree.
 
-Текущий WIP app-server генерирует `preview` для трёх approval UX:
+App-server генерирует `preview` для трёх approval UX:
 
 - `apply_patch` - `kind = "patch"`, affected files из internal patch format и
   body с patch/diff;
@@ -588,9 +588,9 @@ Facade-tool `task` следует тому же пути; отказ approval з
   content или простым overwrite diff, если файл уже существует;
 - `shell` - `kind = "command"`, command body и cwd/cache metadata.
 
-Поле optional: старые клиенты должны игнорировать отсутствие `preview`, а новые
-клиенты не должны трактовать его как источник разрешений или как замену
-server-side проверкам.
+Поле optional: при отсутствии `preview` клиент показывает исходный call и
+reason. Preview не является источником разрешений или заменой server-side
+проверок.
 
 Команды `server stdio`:
 

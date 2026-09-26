@@ -7,15 +7,15 @@
 ```bash
 git clone <repo> Agent
 cd Agent
-./scripts/install-smoke.sh
 ./install.sh
 proteus init coding
 ```
 
-`install-smoke.sh` использует временные install/config/runtime каталоги и не
-трогает уже существующие пользовательские настройки. Для собственной
-постоянной раскладки `install.sh` принимает `PROTEUS_BIN_DIR`, `PROTEUS_HOME`
-и `PROTEUS_CONFIG_HOME`.
+Для собственной раскладки `install.sh` принимает `PROTEUS_BIN_DIR`,
+`PROTEUS_HOME` и `PROTEUS_CONFIG_HOME`.
+Если нужно диагностировать сам installer, отдельно запустите
+`./scripts/install-smoke.sh`: он повторит установку во временные каталоги.
+Для обычного переноса на другой ПК этот дополнительный прогон не нужен.
 
 После `proteus init coding` проверь provider/key config:
 

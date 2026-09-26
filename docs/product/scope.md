@@ -1,7 +1,5 @@
 # Текущее Состояние
 
-Модельная граница обновлена 2026-09-08.
-
 Замысел — в [spec.md](spec.md), ожидаемый результат — в
 [roadmap.md](roadmap.md). Здесь описана реализация.
 
@@ -27,9 +25,10 @@
   [возможности и ограничения](../guides/runtime-and-events.md#acp-для-редакторов).
 - Desktop-оболочка Tauri под Fedora: готовые клиенты и backend в переносимой папке,
   автоматическое подключение, выбор проекта/профиля и отдельное окно Inspector.
-- Независимые UI-расширения правой панели web/desktop: установка ES module по
-  URL манифеста, включение, порядок и lifecycle; примеры чтения публичного API
-  агента, квоты текущей модели и автономных заметок. [Контракт и границы](../guides/ui-extensions.md).
+- Независимые UI-расширения web/desktop: виджеты и отдельные колонки слева и
+  справа, установка ES module по URL манифеста, порядок и lifecycle;
+  публичные API агента, квота/расход, файлы и автономные заметки.
+  [Контракт и границы](../guides/ui-extensions.md).
 - OpenAI, OpenAI-compatible, ChatGPT subscription OAuth (`openai_codex`),
   Anthropic и fake implementations в reference
   `model-pack`; Core использует общий `model/v9` process adapter.
@@ -64,11 +63,6 @@ Codex profile существует. Ordered commentary/final messages сохра
 и расходу нет. Экзамен ещё не пройден. Process conformance и module swap
 подтверждают техническую заменяемость; они не доказывают удобство любых
 комбинаций модулей или качество live агента.
-
-При обзоре на `8757ab9` прошёл
-`cargo test --workspace --no-fail-fast --quiet`.
-Это локальный automated gate, а не benchmark или проверка установленной
-сборки в пользовательской работе.
 
 ## Разработка
 
