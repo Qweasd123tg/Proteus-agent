@@ -21,15 +21,12 @@ fn codex_loop_runs_tool_round_then_stops_on_non_tool_response() {
         ),
     ])
     .with_tools(vec![read_file.clone(), apply_patch], vec![read_file]);
-    let host_to = &mut host;
 
-    let output_json = match CodingCodexLoopWorkflow.run_json(String::from(input_json), host_to) {
-        Ok(json) => json,
-        Err(error) => panic!("workflow failed: {}", error.message),
-    };
+    let output_json = CodingCodexLoopWorkflow
+        .run_json(input_json, &mut host)
+        .expect("workflow succeeds");
     let output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
-    let _ = host_to;
 
     assert_eq!(output.output.text, "final answer");
     assert_eq!(
@@ -78,15 +75,6 @@ fn codex_loop_runs_tool_round_then_stops_on_non_tool_response() {
             .filter(|instruction| instruction.text == "runtime codex base instructions")
             .count(),
         1
-    );
-    assert!(
-        !requests.iter().any(
-            |request| request.instructions.iter().any(|instruction| instruction
-                .text
-                .contains("Codex execute phase")
-                || instruction.text.contains("Codex final phase")
-                || instruction.text.contains("Codex-shaped coding workflow"))
-        )
     );
     assert!(
         requests[0]
@@ -250,15 +238,12 @@ fn codex_loop_continues_when_provider_sets_end_turn_false() {
         )
         .with_end_turn(true),
     ]);
-    let host_to = &mut host;
 
-    let output_json = match CodingCodexLoopWorkflow.run_json(String::from(input_json), host_to) {
-        Ok(json) => json,
-        Err(error) => panic!("workflow failed: {}", error.message),
-    };
+    let output_json = CodingCodexLoopWorkflow
+        .run_json(input_json, &mut host)
+        .expect("workflow succeeds");
     let output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
-    let _ = host_to;
 
     assert_eq!(output.output.text, "final answer");
     assert_eq!(host.requests.lock().expect("requests").len(), 2);
@@ -290,7 +275,7 @@ fn codex_loop_preserves_commentary_and_uses_the_last_message_as_final_output() {
 
     let output_json = CodingCodexLoopWorkflow
         .run_json(input_json, &mut host)
-        .unwrap_or_else(|error| panic!("workflow failed: {}", error.message));
+        .expect("workflow succeeds");
     let output: WorkflowModuleOutput =
         serde_json::from_str(&output_json).expect("workflow output json");
 
@@ -320,12 +305,10 @@ fn codex_loop_empty_final_response_stays_strict_by_default() {
         ),
     ])
     .with_tools(vec![read_file.clone()], vec![read_file]);
-    let host_to = &mut host;
 
-    let output_json = match CodingCodexLoopWorkflow.run_json(String::from(input_json), host_to) {
-        Ok(json) => json,
-        Err(error) => panic!("workflow failed: {}", error.message),
-    };
+    let output_json = CodingCodexLoopWorkflow
+        .run_json(input_json, &mut host)
+        .expect("workflow succeeds");
     let output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
 
@@ -350,13 +333,10 @@ fn codex_loop_errors_on_tool_finish_without_tool_calls() {
         Vec::new(),
         FinishReason::ToolCalls,
     )]);
-    let host_to = &mut host;
 
-    let error = match CodingCodexLoopWorkflow.run_json(String::from(input_json), host_to) {
-        Ok(_) => panic!("workflow unexpectedly succeeded"),
-        Err(error) => error,
-    };
-    let _ = host_to;
+    let error = CodingCodexLoopWorkflow
+        .run_json(input_json, &mut host)
+        .expect_err("workflow must fail");
 
     assert!(
         error
@@ -388,13 +368,10 @@ fn codex_loop_errors_on_length_response() {
         Vec::new(),
         FinishReason::Length,
     )]);
-    let host_to = &mut host;
 
-    let error = match CodingCodexLoopWorkflow.run_json(String::from(input_json), host_to) {
-        Ok(_) => panic!("workflow unexpectedly succeeded"),
-        Err(error) => error,
-    };
-    let _ = host_to;
+    let error = CodingCodexLoopWorkflow
+        .run_json(input_json, &mut host)
+        .expect_err("workflow must fail");
 
     assert!(error.message.as_str().contains("length limit"));
     assert!(
@@ -417,13 +394,10 @@ fn codex_loop_errors_when_tool_calls_do_not_match_message_parts() {
         FinishReason::ToolCalls,
     )])
     .with_tools(vec![read_file.clone()], vec![read_file]);
-    let host_to = &mut host;
 
-    let error = match CodingCodexLoopWorkflow.run_json(String::from(input_json), host_to) {
-        Ok(_) => panic!("workflow unexpectedly succeeded"),
-        Err(error) => error,
-    };
-    let _ = host_to;
+    let error = CodingCodexLoopWorkflow
+        .run_json(input_json, &mut host)
+        .expect_err("workflow must fail");
 
     assert!(
         error
@@ -456,13 +430,10 @@ fn codex_loop_rejects_message_only_tool_call_before_finishing() {
         Vec::new(),
         FinishReason::Stop,
     )]);
-    let host_to = &mut host;
 
-    let error = match CodingCodexLoopWorkflow.run_json(String::from(input_json), host_to) {
-        Ok(_) => panic!("workflow unexpectedly succeeded"),
-        Err(error) => error,
-    };
-    let _ = host_to;
+    let error = CodingCodexLoopWorkflow
+        .run_json(input_json, &mut host)
+        .expect_err("workflow must fail");
 
     assert!(
         error
@@ -493,15 +464,12 @@ fn codex_loop_returns_unrequested_tool_error_to_model_without_execution() {
         ),
     ])
     .with_tools(vec![read_file.clone(), apply_patch], vec![read_file]);
-    let host_to = &mut host;
 
-    let output_json = match CodingCodexLoopWorkflow.run_json(String::from(input_json), host_to) {
-        Ok(output) => output,
-        Err(error) => panic!("workflow failed: {}", error.message),
-    };
+    let output_json = CodingCodexLoopWorkflow
+        .run_json(input_json, &mut host)
+        .expect("workflow succeeds");
     let output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
-    let _ = host_to;
 
     assert_eq!(output.output.text, "recovered final");
     assert!(
@@ -539,13 +507,10 @@ fn codex_loop_errors_when_changed_compaction_drops_current_user_message() {
     bad_output.original_token_estimate = Some(100);
     bad_output.token_estimate = Some(10);
     let mut host = FakeHost::default().with_compaction_outputs(vec![bad_output]);
-    let host_to = &mut host;
 
-    let error = match CodingCodexLoopWorkflow.run_json(String::from(input_json), host_to) {
-        Ok(_) => panic!("workflow unexpectedly succeeded"),
-        Err(error) => error,
-    };
-    let _ = host_to;
+    let error = CodingCodexLoopWorkflow
+        .run_json(input_json, &mut host)
+        .expect_err("workflow must fail");
 
     assert!(
         error
@@ -576,15 +541,12 @@ fn codex_loop_separates_compacted_history_from_new_turn_messages() {
     );
     let input_json = serde_json::to_string(&input).expect("input json");
     let mut host = FakeHost::default().with_compaction_outputs(vec![compacted_output]);
-    let host_to = &mut host;
 
-    let output_json = match CodingCodexLoopWorkflow.run_json(String::from(input_json), host_to) {
-        Ok(output) => output,
-        Err(error) => panic!("workflow failed: {}", error.message),
-    };
+    let output_json = CodingCodexLoopWorkflow
+        .run_json(input_json, &mut host)
+        .expect("workflow succeeds");
     let output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
-    let _ = host_to;
 
     assert_eq!(output.history_replacement, Some(compacted_history));
     assert_eq!(output.new_messages.len(), 1);

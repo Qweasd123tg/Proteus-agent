@@ -5,16 +5,12 @@ fn single_loop_calls_host_and_returns_new_messages() {
     let input = workflow_input("hello");
     let input_json = serde_json::to_string(&input).expect("input json");
     let mut host = FakeHost::default();
-    let host_to = &mut host;
 
-    let output_json =
-        match CodingSingleLoopWorkflow::default().run_json(String::from(input_json), host_to) {
-            Ok(json) => json,
-            Err(error) => panic!("workflow failed: {}", error.message),
-        };
+    let output_json = CodingSingleLoopWorkflow::default()
+        .run_json(input_json, &mut host)
+        .expect("workflow succeeds");
     let output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
-    let _ = host_to;
 
     assert_eq!(output.output.text, "done");
     assert_eq!(
@@ -31,12 +27,6 @@ fn single_loop_calls_host_and_returns_new_messages() {
     assert_eq!(requests[0].limits.max_input_tokens, Some(16_000));
     assert_eq!(requests[0].messages[0].name.as_deref(), Some("context"));
     assert_eq!(requests[0].messages[1].role, MessageRole::User);
-    assert!(
-        requests[0]
-            .messages
-            .iter()
-            .any(|message| message.name.as_deref() == Some("context"))
-    );
 
     let events = host.events.lock().expect("events");
     assert!(
@@ -81,16 +71,12 @@ fn single_loop_adds_dynamic_meta_tools_when_tool_exposure_hides_candidates() {
     let git_log = test_tool("git_log", "Show commit history", ToolSafety::ReadOnly);
     let mut host =
         FakeHost::default().with_tools(vec![read_file.clone(), git_log], vec![read_file]);
-    let host_to = &mut host;
 
-    let output_json =
-        match CodingSingleLoopWorkflow::default().run_json(String::from(input_json), host_to) {
-            Ok(json) => json,
-            Err(error) => panic!("workflow failed: {}", error.message),
-        };
+    let output_json = CodingSingleLoopWorkflow::default()
+        .run_json(input_json, &mut host)
+        .expect("workflow succeeds");
     let _output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
-    let _ = host_to;
 
     let requests = host.requests.lock().expect("requests");
     let tool_names = requests[0]
@@ -128,14 +114,10 @@ fn single_loop_errors_when_model_calls_unrequested_tool() {
     );
     let mut host = FakeHost::with_responses(vec![tool_call_response(call)])
         .with_tools(vec![read_file.clone(), apply_patch], vec![read_file]);
-    let host_to = &mut host;
 
-    let error =
-        match CodingSingleLoopWorkflow::default().run_json(String::from(input_json), host_to) {
-            Ok(_) => panic!("workflow unexpectedly succeeded"),
-            Err(error) => error,
-        };
-    let _ = host_to;
+    let error = CodingSingleLoopWorkflow::default()
+        .run_json(input_json, &mut host)
+        .expect_err("workflow must fail");
 
     assert!(
         error
@@ -153,13 +135,8 @@ fn single_loop_final_errors_when_model_calls_tool() {
     let call = ToolCall::new(new_call_id(), "read_file", json!({ "path": "src/lib.rs" }));
     let mut host = FakeHost::with_responses(vec![tool_call_response(call)])
         .with_tools(vec![read_file.clone()], vec![read_file]);
-    let host_to = &mut host;
 
-    let error = match run_single_loop(input, host_to, 0) {
-        Ok(_) => panic!("workflow unexpectedly succeeded"),
-        Err(error) => error,
-    };
-    let _ = host_to;
+    let error = run_single_loop(input, &mut host, 0).expect_err("workflow must fail");
 
     assert!(
         error

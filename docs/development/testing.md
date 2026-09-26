@@ -470,8 +470,8 @@ cargo test -p proteus-reference-worker --test patch_transaction -- --nocapture
 
 Suite подтверждает:
 
-- strict component-v3 handshake 26 behavior selectors и четырёх model implementations;
-- multi-export routing по одному persistent broker;
+- strict component-v3 handshake всех reference exports в одном component;
+- model descriptors и multi-export routing по одному persistent broker;
 - aggregate tool `list` и реальный `read_file`;
 - real `rg`, patch и обе memory implementations;
 - policy, tool exposure, skills provider и compactor;

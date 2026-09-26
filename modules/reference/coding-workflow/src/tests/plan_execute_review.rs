@@ -22,16 +22,12 @@ fn plan_execute_review_runs_plan_execute_and_review_requests() {
             FinishReason::Stop,
         ),
     ]);
-    let host_to = &mut host;
 
-    let output_json =
-        match CodingPlanExecuteReviewWorkflow.run_json(String::from(input_json), host_to) {
-            Ok(json) => json,
-            Err(error) => panic!("workflow failed: {}", error.message),
-        };
+    let output_json = CodingPlanExecuteReviewWorkflow
+        .run_json(input_json, &mut host)
+        .expect("workflow succeeds");
     let output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
-    let _ = host_to;
 
     assert_eq!(output.output.text, "final");
     assert_eq!(
@@ -112,16 +108,12 @@ fn plan_execute_review_executes_read_only_plan_tool_calls_before_execute() {
         ),
     ])
     .with_tools(vec![read_file.clone()], vec![read_file]);
-    let host_to = &mut host;
 
-    let output_json =
-        match CodingPlanExecuteReviewWorkflow.run_json(String::from(input_json), host_to) {
-            Ok(json) => json,
-            Err(error) => panic!("workflow failed: {}", error.message),
-        };
+    let output_json = CodingPlanExecuteReviewWorkflow
+        .run_json(input_json, &mut host)
+        .expect("workflow succeeds");
     let output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
-    let _ = host_to;
 
     let executed = host.executed_calls.lock().expect("executed calls");
     assert_eq!(executed.len(), 1);
@@ -169,13 +161,10 @@ fn plan_execute_review_errors_when_plan_calls_non_readonly_tool() {
     );
     let mut host = FakeHost::with_responses(vec![tool_call_response(call)])
         .with_tools(vec![read_file, apply_patch.clone()], vec![apply_patch]);
-    let host_to = &mut host;
 
-    let error = match CodingPlanExecuteReviewWorkflow.run_json(String::from(input_json), host_to) {
-        Ok(_) => panic!("workflow unexpectedly succeeded"),
-        Err(error) => error,
-    };
-    let _ = host_to;
+    let error = CodingPlanExecuteReviewWorkflow
+        .run_json(input_json, &mut host)
+        .expect_err("workflow must fail");
 
     assert!(
         error
@@ -206,13 +195,10 @@ fn plan_execute_review_errors_when_execute_calls_unrequested_tool() {
         tool_call_response(call),
     ])
     .with_tools(vec![read_file.clone(), apply_patch], vec![read_file]);
-    let host_to = &mut host;
 
-    let error = match CodingPlanExecuteReviewWorkflow.run_json(String::from(input_json), host_to) {
-        Ok(_) => panic!("workflow unexpectedly succeeded"),
-        Err(error) => error,
-    };
-    let _ = host_to;
+    let error = CodingPlanExecuteReviewWorkflow
+        .run_json(input_json, &mut host)
+        .expect_err("workflow must fail");
 
     assert!(
         error
@@ -243,13 +229,10 @@ fn plan_execute_review_errors_when_review_calls_tool() {
         tool_call_response(call),
     ])
     .with_tools(vec![read_file.clone()], vec![read_file]);
-    let host_to = &mut host;
 
-    let error = match CodingPlanExecuteReviewWorkflow.run_json(String::from(input_json), host_to) {
-        Ok(_) => panic!("workflow unexpectedly succeeded"),
-        Err(error) => error,
-    };
-    let _ = host_to;
+    let error = CodingPlanExecuteReviewWorkflow
+        .run_json(input_json, &mut host)
+        .expect_err("workflow must fail");
 
     assert!(
         error
@@ -290,16 +273,12 @@ fn plan_execute_review_stops_plan_tool_loop_at_round_limit() {
     ));
     let mut host =
         FakeHost::with_responses(responses).with_tools(vec![read_file.clone()], vec![read_file]);
-    let host_to = &mut host;
 
-    let output_json =
-        match CodingPlanExecuteReviewWorkflow.run_json(String::from(input_json), host_to) {
-            Ok(json) => json,
-            Err(error) => panic!("workflow failed: {}", error.message),
-        };
+    let output_json = CodingPlanExecuteReviewWorkflow
+        .run_json(input_json, &mut host)
+        .expect("workflow succeeds");
     let output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
-    let _ = host_to;
 
     // Максимум 3 tool-раунда в plan-фазе; последний plan-запрос идёт без tools.
     let executed = host.executed_calls.lock().expect("executed calls");

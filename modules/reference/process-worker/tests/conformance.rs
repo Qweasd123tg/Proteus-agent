@@ -5,8 +5,7 @@ use proteus_contracts::{
         CONTEXT_HOST_RECALL_MEMORY_METHOD, CONTEXT_HOST_SEARCH_METHOD, ExecutionAttribution,
         PROCESS_COMPACTOR_METHOD, PROCESS_CONTEXT_BUILD_METHOD, PROCESS_CONTEXT_PROVIDER_METHOD,
         PROCESS_MEMORY_RECALL_METHOD, PROCESS_MEMORY_REMEMBER_METHOD, PROCESS_PATCH_APPLY_METHOD,
-        PROCESS_POLICY_CONTRACT_VERSION, PROCESS_POLICY_EVALUATE_METHOD, PROCESS_SEARCH_METHOD,
-        PROCESS_TOOL_EXPOSURE_CONTRACT_VERSION, PROCESS_TOOL_EXPOSURE_SELECT_METHOD,
+        PROCESS_POLICY_EVALUATE_METHOD, PROCESS_SEARCH_METHOD, PROCESS_TOOL_EXPOSURE_SELECT_METHOD,
         PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD, PROCESS_WORKFLOW_METHOD,
         ProcessCompactionResponse, ProcessContextChunksResponse, ProcessContextInput,
         ProcessContextProviderInput, ProcessContextRecallInput, ProcessContextResponse,
@@ -133,7 +132,7 @@ fn encode_callback<T: Serialize>(value: T) -> Result<Value, ProcessModuleRpcErro
 }
 
 #[test]
-fn every_reference_export_completes_the_same_strict_v3_component_handshake() {
+fn all_reference_exports_share_a_component_and_route_over_one_broker() {
     let workspace = tempfile::tempdir().expect("workspace");
     let modules = [
         ("model", "fake"),
@@ -170,51 +169,52 @@ fn every_reference_export_completes_the_same_strict_v3_component_handshake() {
         ("workflow", "coding.project_check"),
     ];
 
-    for (slot, module_id) in modules {
+    let exports = modules.map(|(slot, module_id)| {
         let config = if slot == "model" {
             json!({"implementation": module_id, "auth_file": workspace.path().join("chatgpt.json")})
         } else {
             json!({})
         };
-        let session = connect(workspace.path(), slot, module_id, config);
-        assert_eq!(session.target.slot, slot);
-        assert_eq!(session.target.module_id, module_id);
-        if slot == "model" {
-            let description: proteus_contracts::contracts::ProcessModelDescriptor =
-                invoke(&session, "describe", Value::Null);
-            assert!(!description.adapter_id.is_empty());
-        }
-        session.inner.reset().expect("terminate worker generation");
-    }
-}
-
-#[test]
-fn one_reference_component_routes_multiple_exports_over_one_broker() {
-    let workspace = tempfile::tempdir().expect("workspace");
-    let policy = ProcessExportBinding::new(
-        "policy",
-        "allow_all",
-        PROCESS_POLICY_CONTRACT_VERSION,
-        json!({}),
-    )
-    .expect("policy binding");
-    let policy_target = policy.export_ref();
-    let exposure = ProcessExportBinding::new(
-        "tool_exposure",
-        "codex_dynamic",
-        PROCESS_TOOL_EXPOSURE_CONTRACT_VERSION,
-        json!({}),
-    )
-    .expect("tool exposure binding");
-    let exposure_target = exposure.export_ref();
-    let binding = ProcessComponentBinding::new("reference-multi-export", [policy, exposure])
-        .expect("component binding");
+        ProcessExportBinding::new(
+            slot,
+            module_id,
+            current_process_contract_authority(slot)
+                .expect("slot authority")
+                .contract_version,
+            config,
+        )
+        .expect("export binding")
+    });
+    let targets = exports
+        .iter()
+        .map(ProcessExportBinding::export_ref)
+        .collect::<Vec<_>>();
+    let binding =
+        ProcessComponentBinding::new("reference-all-exports", exports).expect("component binding");
     let session = ComponentBroker::connect(
         worker_spec(workspace.path()),
         binding,
         ComponentBrokerOptions::default(),
     )
-    .expect("multi-export component");
+    .expect("all reference exports admitted in one handshake");
+
+    for target in targets.iter().filter(|target| target.slot == "model") {
+        let export = TestExportSession {
+            inner: session.clone(),
+            target: target.clone(),
+        };
+        let description: proteus_contracts::contracts::ProcessModelDescriptor =
+            invoke(&export, "describe", Value::Null);
+        assert!(!description.adapter_id.is_empty(), "{}", target.module_id);
+    }
+    let policy_target = targets
+        .iter()
+        .find(|target| target.slot == "policy" && target.module_id == "allow_all")
+        .unwrap();
+    let exposure_target = targets
+        .iter()
+        .find(|target| target.slot == "tool_exposure" && target.module_id == "codex_dynamic")
+        .unwrap();
 
     let policy_input = ProcessPolicyEvaluateInput {
         call: ToolCall::new(new_call_id(), "read_file", json!({"path": "x"})),
@@ -229,7 +229,7 @@ fn one_reference_component_routes_multiple_exports_over_one_broker() {
     };
     let policy_result = session
         .invoke_blocking(
-            &policy_target,
+            policy_target,
             PROCESS_POLICY_EVALUATE_METHOD,
             serde_json::to_value(policy_input).expect("policy input"),
             TIMEOUT,
@@ -244,7 +244,7 @@ fn one_reference_component_routes_multiple_exports_over_one_broker() {
 
     let exposure_result = session
         .invoke_blocking(
-            &exposure_target,
+            exposure_target,
             PROCESS_TOOL_EXPOSURE_SELECT_METHOD,
             serde_json::to_value(ProcessToolExposureInput {
                 input: ToolExposureInput::new(

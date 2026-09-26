@@ -5,15 +5,13 @@ fn proteus_tool_describe_returns_policy_visible_hidden_schema() {
     let input = workflow_input("describe hidden tool");
     let git_log = test_tool("git_log", "Show commit history", ToolSafety::ReadOnly);
     let mut host = FakeHost::default().with_tools(vec![git_log], Vec::new());
-    let host_to = &mut host;
     let call = ToolCall::new(
         new_call_id(),
         dynamic_tools::TOOL_DESCRIBE,
         json!({ "name": "git_log" }),
     );
 
-    let result = dynamic_tools::handle_meta_tool_call(host_to, &input, &call, "execute").unwrap();
-    let _ = host_to;
+    let result = dynamic_tools::handle_meta_tool_call(&mut host, &input, &call, "execute").unwrap();
     let output: Value = serde_json::from_str(&result.output).expect("describe output json");
 
     assert!(result.ok);
@@ -29,15 +27,13 @@ fn proteus_tool_search_returns_compact_policy_visible_matches() {
     let git_log = test_tool("git_log", "Show commit history", ToolSafety::ReadOnly);
     let shell = test_tool("shell", "Run terminal commands", ToolSafety::RunsCommands);
     let mut host = FakeHost::default().with_tools(vec![git_log, shell], Vec::new());
-    let host_to = &mut host;
     let call = ToolCall::new(
         new_call_id(),
         dynamic_tools::TOOL_SEARCH,
         json!({ "query": "commit history", "limit": 3 }),
     );
 
-    let result = dynamic_tools::handle_meta_tool_call(host_to, &input, &call, "execute").unwrap();
-    let _ = host_to;
+    let result = dynamic_tools::handle_meta_tool_call(&mut host, &input, &call, "execute").unwrap();
     let output: Value = serde_json::from_str(&result.output).expect("search output json");
 
     assert!(result.ok);
@@ -69,16 +65,12 @@ fn proteus_tool_call_executes_hidden_tool_and_remaps_result_to_outer_call_id() {
         ),
     ])
     .with_tools(vec![hidden_echo], Vec::new());
-    let host_to = &mut host;
 
-    let output_json =
-        match CodingSingleLoopWorkflow::default().run_json(String::from(input_json), host_to) {
-            Ok(json) => json,
-            Err(error) => panic!("workflow failed: {}", error.message),
-        };
+    let output_json = CodingSingleLoopWorkflow::default()
+        .run_json(input_json, &mut host)
+        .expect("workflow succeeds");
     let output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
-    let _ = host_to;
 
     let executed_calls = host.executed_calls.lock().expect("executed calls");
     assert_eq!(executed_calls.len(), 1);
@@ -110,7 +102,6 @@ fn proteus_tool_call_executes_hidden_tool_and_remaps_result_to_outer_call_id() {
 fn proteus_tool_call_rejects_meta_tool_recursion_without_execution() {
     let input = workflow_input("bad recursive call");
     let mut host = FakeHost::default();
-    let host_to = &mut host;
     let call = ToolCall::new(
         new_call_id(),
         dynamic_tools::TOOL_CALL,
@@ -120,8 +111,7 @@ fn proteus_tool_call_rejects_meta_tool_recursion_without_execution() {
         }),
     );
 
-    let result = dynamic_tools::handle_meta_tool_call(host_to, &input, &call, "execute").unwrap();
-    let _ = host_to;
+    let result = dynamic_tools::handle_meta_tool_call(&mut host, &input, &call, "execute").unwrap();
 
     assert!(!result.ok);
     assert_eq!(result.call_id, call.id);
@@ -149,15 +139,13 @@ fn proteus_tool_call_rejects_provider_hosted_tool_without_execution() {
         }),
     );
     let mut host = FakeHost::default().with_tools(vec![web_search], Vec::new());
-    let host_to = &mut host;
     let call = ToolCall::new(
         new_call_id(),
         dynamic_tools::TOOL_CALL,
         json!({ "name": "web_search", "args": {} }),
     );
 
-    let result = dynamic_tools::handle_meta_tool_call(host_to, &input, &call, "execute").unwrap();
-    let _ = host_to;
+    let result = dynamic_tools::handle_meta_tool_call(&mut host, &input, &call, "execute").unwrap();
 
     assert!(!result.ok);
     assert_eq!(result.call_id, call.id);
@@ -181,7 +169,6 @@ fn proteus_tool_call_rejects_non_readonly_hidden_tool_in_plan_phase() {
     let input = workflow_input("plan write");
     let write_file = test_tool("write_file", "Write a file", ToolSafety::WritesFiles);
     let mut host = FakeHost::default().with_tools(vec![write_file], Vec::new());
-    let host_to = &mut host;
     let call = ToolCall::new(
         new_call_id(),
         dynamic_tools::TOOL_CALL,
@@ -191,8 +178,7 @@ fn proteus_tool_call_rejects_non_readonly_hidden_tool_in_plan_phase() {
         }),
     );
 
-    let result = dynamic_tools::handle_meta_tool_call(host_to, &input, &call, "plan").unwrap();
-    let _ = host_to;
+    let result = dynamic_tools::handle_meta_tool_call(&mut host, &input, &call, "plan").unwrap();
 
     assert!(!result.ok);
     assert_eq!(result.call_id, call.id);
