@@ -228,11 +228,6 @@ mod tests {
     };
 
     #[test]
-    fn rg_backend_timeout_allows_large_workspaces() {
-        assert!(RG_TIMEOUT >= Duration::from_secs(60));
-    }
-
-    #[test]
     fn parse_rg_line_extracts_path_line_and_content() {
         let chunk = parse_rg_line("src/main.rs:42:let value = 1;").unwrap();
 

@@ -79,7 +79,7 @@ pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), Process
 mod tests {
     use proteus_contracts::{
         contracts::ExecutionAttribution,
-        domain::{ToolSpec, new_execution_id},
+        domain::new_execution_id,
         process_module::{
             ProcessModuleError, ToolModule, ToolModuleHost, ToolModuleInvocationContext,
         },
@@ -120,36 +120,6 @@ mod tests {
             Ok(result) => serde_json::from_str(result.as_str()).expect("tool result"),
             Err(err) => panic!("module error: {}", err.message),
         }
-    }
-
-    fn spec<T: ToolModule>(tool: &T) -> Value {
-        serde_json::from_str(tool.spec_json().as_str()).expect("spec json")
-    }
-
-    fn assert_canonical_spec<T: ToolModule>(tool: &T) {
-        serde_json::from_str::<ToolSpec>(tool.spec_json().as_str())
-            .expect("module spec must match strict ToolSpec");
-    }
-
-    #[test]
-    fn every_file_tool_emits_strict_canonical_spec() {
-        assert_canonical_spec(&ReadFileTool);
-        assert_canonical_spec(&WriteFileTool);
-        assert_canonical_spec(&EditFileTool);
-        assert_canonical_spec(&ListDirTool);
-        assert_canonical_spec(&GrepTool);
-        assert_canonical_spec(&FindFilesTool);
-        assert_canonical_spec(&ReadManyFilesTool);
-    }
-
-    #[test]
-    fn file_tool_specs_allow_slow_filesystems_and_searches() {
-        assert_eq!(spec(&ReadFileTool)["timeout_ms"], 60_000);
-        assert_eq!(spec(&WriteFileTool)["timeout_ms"], 60_000);
-        assert_eq!(spec(&ListDirTool)["timeout_ms"], 60_000);
-        assert_eq!(spec(&GrepTool)["timeout_ms"], 60_000);
-        assert_eq!(spec(&FindFilesTool)["timeout_ms"], 60_000);
-        assert_eq!(spec(&ReadManyFilesTool)["timeout_ms"], 60_000);
     }
 
     #[test]

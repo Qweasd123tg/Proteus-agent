@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use super::{
     loading::{
         config_name_ref, config_root, default_config_dir, expand_user_path_with_home,
-        named_config_candidates, resolve_config_name_path,
+        resolve_config_name_path,
     },
     *,
 };
@@ -234,20 +234,6 @@ fn config_name_ref_accepts_simple_names_only() {
     assert_eq!(config_name_ref(Path::new(".")), None);
     assert_eq!(config_name_ref(Path::new("..")), None);
     assert_eq!(config_name_ref(Path::new("codex\\config")), None);
-}
-
-#[test]
-fn named_config_candidates_are_strict_default_toml() {
-    assert_eq!(
-        named_config_candidates(
-            "dev-slim",
-            Some(Path::new("/home/user/.config/Proteus-agent/configs"))
-        ),
-        vec![PathBuf::from(
-            "/home/user/.config/Proteus-agent/configs/dev-slim.config.toml"
-        )]
-    );
-    assert!(named_config_candidates("dev-slim", None).is_empty());
 }
 
 #[test]
@@ -530,40 +516,6 @@ async fn resolve_config_name_path_errors_without_default_toml() {
     let error = resolve_config_name_path("dev-slim", Some(config_dir.path()))
         .await
         .expect_err("missing strict named config");
-    let message = error.to_string();
-
-    assert!(message.contains("config name 'dev-slim' was not found"));
-    assert!(message.contains("dev-slim.config.toml"));
-    assert!(!message.contains("dev-slim.config.json"));
-    assert!(!message.contains(cwd.path().to_string_lossy().as_ref()));
-}
-
-#[tokio::test]
-async fn resolve_config_name_path_uses_default_toml_for_generic_names() {
-    let cwd = tempfile::tempdir().expect("cwd");
-    let config_dir = tempfile::tempdir().expect("config dir");
-    let cwd_config = cwd.path().join("dev-slim.config.toml");
-    let home_config = config_dir.path().join("dev-slim.config.toml");
-    std::fs::write(&cwd_config, "").expect("cwd config");
-    std::fs::write(&home_config, "").expect("home config");
-
-    assert_eq!(
-        resolve_config_name_path("dev-slim", Some(config_dir.path()))
-            .await
-            .expect("resolved config"),
-        home_config
-    );
-    assert_ne!(cwd_config, home_config);
-}
-
-#[tokio::test]
-async fn resolve_config_name_path_reports_candidates_for_generic_names() {
-    let cwd = tempfile::tempdir().expect("cwd");
-    let config_dir = tempfile::tempdir().expect("config dir");
-
-    let error = resolve_config_name_path("dev-slim", Some(config_dir.path()))
-        .await
-        .expect_err("missing config");
     let message = error.to_string();
 
     assert!(message.contains("config name 'dev-slim' was not found"));

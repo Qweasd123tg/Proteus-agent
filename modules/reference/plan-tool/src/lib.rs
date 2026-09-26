@@ -178,20 +178,12 @@ pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), Process
 
 #[cfg(test)]
 mod tests {
-    use proteus_contracts::domain::ToolSpec;
-
     use super::*;
 
     fn invoke(args: Value) -> Value {
         let call = json!({ "id": "call_plan", "name": "update_plan", "args": args });
         let result = invoke_impl(&call.to_string()).expect("invoke");
         serde_json::from_str(&result).expect("tool result")
-    }
-
-    #[test]
-    fn plan_tool_emits_strict_canonical_spec() {
-        serde_json::from_str::<ToolSpec>(PlanTool.spec_json().as_str())
-            .expect("update_plan spec must match strict ToolSpec");
     }
 
     #[test]

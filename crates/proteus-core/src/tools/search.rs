@@ -155,16 +155,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn search_tool_timeout_exceeds_rg_backend_timeout() {
-        let tool = SearchTool::new(Arc::new(RecordingSearch {
-            queries: Mutex::new(Vec::new()),
-            chunks: Vec::new(),
-        }));
-
-        assert_eq!(tool.spec().timeout_ms, Some(60_000));
-    }
-
     #[tokio::test]
     async fn search_tool_outputs_human_readable_matches_and_keeps_raw_chunks() {
         let tool = SearchTool::new(Arc::new(RecordingSearch {

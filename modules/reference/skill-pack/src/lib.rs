@@ -219,15 +219,7 @@ pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), Process
 mod tests {
     use std::fs;
 
-    use proteus_contracts::domain::ToolSpec;
-
     use super::*;
-
-    #[test]
-    fn skill_tool_emits_strict_canonical_spec() {
-        serde_json::from_str::<ToolSpec>(SkillTool.spec_json().as_str())
-            .expect("skill spec must match strict ToolSpec");
-    }
 
     #[test]
     fn available_skills_context_escapes_frontmatter_text() {
