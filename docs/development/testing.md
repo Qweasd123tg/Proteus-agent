@@ -8,6 +8,12 @@
 а не создавать соседний сценарий с тем же местом возможного дефекта. Одинаковый
 инвариант на нескольких слоях оправдан только разными failure boundaries.
 
+Не закрепляйте тестами расположение кода, наличие слов в исходниках, точные
+фразы настраиваемого prompt или число компонентов в примере. Проверяйте
+загрузку config и наблюдаемый результат через соответствующую границу.
+При удалении теста определите, был ли у него отдельный проверяемый дефект:
+полезный сценарий сохраняйте, дублирование и проверки implementation удаляйте.
+
 ## Стандарт Изменения
 
 Для существенной работы до кода сформулируйте:
@@ -15,22 +21,28 @@
 1. измеримую проблему;
 2. ожидаемый наблюдаемый результат;
 3. затронутую boundary;
-4. минимальный regression;
+4. существующий test target или недостающий regression;
 5. дополнительный evidence, нужный по риску.
 
 После реализации:
 
-1. focused test;
-2. boundary/swap/protocol test;
-3. полный применимый gate;
+1. затронутый test target;
+2. boundary/swap/protocol test, если менялась эта граница;
+3. полный gate, если затронуты общие contracts, wiring или зависимости;
 4. ближайшая русская документация;
 5. отдельный commit.
 
 ## Evidence Matrix
 
+Матрица помогает выбрать проверки по изменённому поведению. Перечни сценариев
+ниже — справочник покрытия; запускать весь перечень при каждой локальной
+правке не нужно. Если один выбранный target уже проверяет нужную границу,
+отдельный повтор того же сценария не требуется.
+
 | Изменение | Focused | Boundary | Дополнительно |
 |---|---|---|---|
-| Pure helper/DTO | unit | serde/contract test | `cargo test --workspace` |
+| Локальный helper | затронутый test target | при изменении внешнего поведения | полный workspace не нужен |
+| Общий DTO/contract | serde/contract test | затронутые producers/consumers | `cargo test --workspace` |
 | Assembly/config wiring | plan unit | plan -> registry/topology + atomic reload | `module_swap` + `doctor` |
 | Process protocol | protocol unit | conformance + malformed peer | swap/failure/restart |
 | Slot adapter | adapter unit | real worker invocation | `module_swap` |
@@ -44,7 +56,9 @@
 | Inspector/web | Rust unit | `trunk build` | browser smoke при UX change |
 | UI extensions | Node contract/lifecycle tests | `trunk build` + реальный browser/agent API | внешний пакет без пересборки, автономный host, отключение/сворачивание, открытие Settings без перезапуска панелей, отдельный settings entry по действию, сохранение/откат настроек, перенос по областям с сохранением DOM, widget/panel presentation, одновременные независимые колонки рядом с чатом и списком чатов, сохранение ширины, lifecycle дополнительных колонок владельца, компактные индикаторы, themed popup, layout/resize и reduced-motion smoke; [команды](../guides/ui-extensions.md#проверка) |
 | Desktop launch/package | desktop Rust unit | packaged backend readiness/auth/cold history/shutdown | release portable build + native window smoke; команды в [desktop.md](../guides/desktop.md) |
-| Docs only | link/config inspection | обычно не нужен | `cargo test --workspace` |
+| Docs only | содержание и ссылки | не нужен | `git diff --check` |
+| Prompt/config без schema change | загрузка затронутого профиля | init/install test при изменении упаковки | live eval только для вывода о качестве модели |
+| Чистка tests | изменённые test targets | сохранённые behavior checks | полный workspace не нужен |
 
 Manual dogfood не является обязательным gate или sequencing prerequisite.
 Protocol или architecture change без automated boundary evidence всё равно
@@ -379,9 +393,16 @@ cargo test --workspace
 git diff --check
 ```
 
-`cargo test` из workspace root является обязательным минимумом перед commit.
-`cargo check` полезен во время работы, но не заменяет tests.
-CI отключён по решению владельца; эти gates выполняются локально.
+Полный gate нужен при изменении общих contracts, runtime wiring, зависимостей
+или нескольких взаимодействующих crates, а также для интеграции и release.
+Для локальной правки достаточно затронутых test targets; после чистки тестов
+проверьте оставшиеся сценарии этих targets. Документация не требует Rust build.
+`cargo check` не заменяет выбранные поведенческие tests.
+
+Не запускайте последовательно focused, package и workspace suites, если
+достаточно одного из них. После исправления провалившегося теста повторите
+затронутый target; остальные успешные результаты остаются действительными,
+пока новые изменения их не затрагивают. CI отключён; проверки локальные.
 
 ## Process Module Gates
 
@@ -803,9 +824,8 @@ rg -n 'abi_stable|libloading|cdylib|plugin\.toml' Cargo.toml Cargo.lock crates m
 
 Checklist:
 
-- focused regression зелёный;
-- применимый boundary gate зелёный;
-- `cargo test --workspace` зелёный;
+- выбранные по изменению test targets зелёные;
+- boundary или workspace gate зелёный, если нужен по затронутой границе;
 - client `trunk build` зелёный, если клиент менялся;
 - docs и examples отражают новый contract;
 - `git diff --check` чист;

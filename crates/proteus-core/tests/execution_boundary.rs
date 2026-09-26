@@ -135,36 +135,6 @@ async fn process_search_runs_through_execution_context_without_chat_identity() {
     assert!(!execution.is_cancelled());
 }
 
-#[test]
-fn bound_tools_source_does_not_import_chat_domain_types() {
-    for (path, source) in [
-        (
-            "bound_memory.rs",
-            include_str!("../src/core/bound_memory.rs"),
-        ),
-        ("bound_tools.rs", include_str!("../src/core/bound_tools.rs")),
-        (
-            "bound_tools/support.rs",
-            include_str!("../src/core/bound_tools/support.rs"),
-        ),
-    ] {
-        for forbidden in [
-            "AgentWorkflowContext",
-            "SessionId",
-            "ThreadId",
-            "TurnId",
-            "AgentTask",
-            "AgentOutput",
-            "CanonicalMessage",
-        ] {
-            assert!(
-                !source.contains(forbidden),
-                "generic execution binding source {path} imports chat-specific type {forbidden}"
-            );
-        }
-    }
-}
-
 fn process_tool_config() -> AppConfig {
     let component: ProcessComponentConfig = serde_json::from_value(json!({
         "command": "sh",
@@ -748,26 +718,4 @@ async fn agent_runtime_timeout_reaches_the_process_invocation() {
     assert_eq!(result.metadata["timeout_ms"], 750);
     wait_for_file(&started).await;
     wait_for_file(&cancel_marker).await;
-}
-
-#[test]
-fn phase8_runtime_source_exposes_no_ambient_execution_bag_or_chat_types() {
-    let source = include_str!("../src/core/runtime/execution.rs");
-    for forbidden in [
-        "ExecutionContext",
-        "RuntimeRegistry",
-        "ToolRegistry",
-        "AgentWorkflowContext",
-        "SessionId",
-        "ThreadId",
-        "TurnId",
-        "AgentTask",
-        "AgentOutput",
-        "CanonicalMessage",
-    ] {
-        assert!(
-            !source.contains(forbidden),
-            "Phase 8 top-level execution source exposes forbidden type {forbidden}"
-        );
-    }
 }

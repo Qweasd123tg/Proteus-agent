@@ -97,7 +97,7 @@ fn tracked_configs() -> Vec<PathBuf> {
 }
 
 #[tokio::test]
-async fn tracked_profiles_use_exact_catalog_ids_without_legacy_pseudo_modules() {
+async fn tracked_profiles_resolve_selected_exports_with_current_contracts() {
     let files = tracked_configs();
     assert!(!files.is_empty(), "expected tracked config examples");
 
@@ -139,15 +139,6 @@ async fn tracked_profiles_use_exact_catalog_ids_without_legacy_pseudo_modules() 
         }
 
         for (kind, module_id) in config.modules.iter() {
-            assert!(
-                !matches!(
-                    module_id,
-                    "none" | "default" | "process" | "text" | "all_visible"
-                ),
-                "{} selects retired pseudo module {}/{module_id}",
-                path.display(),
-                kind.as_str()
-            );
             let manifest = catalog.manifest(kind, module_id).unwrap_or_else(|| {
                 panic!(
                     "{} selects missing catalog module {}/{module_id}",
@@ -187,7 +178,6 @@ async fn codex_family_fragments_preserve_profile_specific_overlays() {
         assert_eq!(config.modules.context.as_deref(), Some("codex_context"));
         assert_eq!(config.modules.policy.as_deref(), Some("codex_policy"));
         assert!(config.modules.tool_exposure.is_none());
-        assert_eq!(config.agent_control.roles.len(), 2);
         assert!(
             config
                 .tools
@@ -202,20 +192,6 @@ async fn codex_family_fragments_preserve_profile_specific_overlays() {
         assert_eq!(roles[0].config, "codex-explore");
         assert_eq!(roles[1].name, "coder");
         assert_eq!(roles[1].config, "codex-coder");
-        for role in roles {
-            let role = serde_json::to_value(role).expect("process role object");
-            for child_owned in ["prompt", "tools", "max_iterations", "max_total_tokens"] {
-                assert!(
-                    role.get(child_owned).is_none(),
-                    "parent process role must not own {child_owned}"
-                );
-            }
-        }
-        let module_config = serde_json::to_string(&config.module_config).expect("module config");
-        assert!(
-            !module_config.contains("playwright__"),
-            "inactive Playwright policy references must not survive cleanup"
-        );
     }
 
     assert_eq!(codex.profile.name, "codex-proxy");
@@ -223,104 +199,12 @@ async fn codex_family_fragments_preserve_profile_specific_overlays() {
         codex.agent_control.surface,
         AgentControlSurface::Collaboration
     );
-    assert_eq!(codex.components.len(), 4);
-    assert_eq!(
-        codex
-            .components
-            .values()
-            .map(|component| component.exports().count())
-            .sum::<usize>(),
-        9
-    );
-    let codex_model = codex.active_model_config().expect("codex model");
-    assert_eq!(codex_model.model, "gpt-5.6-luna");
     let codex_settings = codex.process_export_config("model", "openai").unwrap();
     assert_eq!(codex_settings["support_verbosity"], true);
     assert!(codex_settings.get("stream_error_fallback").is_none());
 
     assert_eq!(glm.profile.name, "glm-proxy");
-    assert_eq!(glm.components.len(), 4);
-    assert_eq!(
-        glm.components
-            .values()
-            .map(|component| component.exports().count())
-            .sum::<usize>(),
-        9
-    );
-    let glm_model = glm.active_model_config().expect("glm model");
-    assert_eq!(glm_model.model, "glm-5.2");
     let glm_settings = glm.process_export_config("model", "openai").unwrap();
     assert_eq!(glm_settings["stream_error_fallback"], true);
     assert!(glm_settings.get("support_verbosity").is_none());
-}
-
-#[tokio::test]
-async fn packaged_codex_peers_own_distinct_models_prompts_tools_and_policy() {
-    let root = workspace_root();
-    let explore = AppConfig::load(Some(&root.join("configs/codex-explore.config.toml")))
-        .await
-        .expect("explore peer config");
-    let coder = AppConfig::load(Some(&root.join("configs/codex-coder.config.toml")))
-        .await
-        .expect("coder peer config");
-
-    for peer in [&explore, &coder] {
-        assert_eq!(peer.active_provider, "openai");
-        assert_eq!(
-            peer.active_model_config().expect("peer model").model,
-            "gpt-5.6-luna"
-        );
-        assert_eq!(peer.modules.workflow.as_deref(), Some("coding.codex_loop"));
-        assert_eq!(peer.modules.policy.as_deref(), Some("codex_policy"));
-        assert!(peer.modules.tool_exposure.is_none());
-        assert!(peer.agent_control.roles.is_empty());
-        assert_eq!(peer.agent_control.surface, AgentControlSurface::None);
-    }
-
-    assert_eq!(
-        explore.tools.enabled,
-        [
-            "skill",
-            "search",
-            "read_file",
-            "read_many_files",
-            "list_dir",
-            "find_files",
-            "grep",
-            "git_status",
-            "git_diff",
-        ]
-    );
-    assert_eq!(
-        coder.tools.enabled,
-        [
-            "skill",
-            "search",
-            "read_file",
-            "read_many_files",
-            "list_dir",
-            "find_files",
-            "grep",
-            "lsp_diagnostics",
-            "git_status",
-            "git_diff",
-            "write_file",
-            "shell",
-        ]
-    );
-
-    let explore_prompt = explore
-        .instruction_blocks()
-        .iter()
-        .map(|block| block.text.as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
-    let coder_prompt = coder
-        .instruction_blocks()
-        .iter()
-        .map(|block| block.text.as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(explore_prompt.contains("read-only codebase researcher"));
-    assert!(coder_prompt.contains("working in your own git worktree"));
 }

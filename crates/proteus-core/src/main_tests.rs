@@ -1112,17 +1112,3 @@ fn workflow_replay_human_and_json_reports_contain_key_fields() {
     assert_eq!(value["tool_calls"]["replayed"], 1);
     assert_eq!(value["duration_ms"], 9);
 }
-
-#[test]
-fn product_cli_turn_path_is_app_server_protocol_only() {
-    let main_source = include_str!("main.rs");
-    let client_source = include_str!("cli_app.rs");
-
-    assert!(!main_source.contains("AgentRuntime"));
-    assert!(!main_source.contains("build_cli_runtime"));
-    assert!(!main_source.contains("runtime.render"));
-    assert!(main_source.contains("CliAppClient::launch"));
-    assert!(client_source.contains("StdioRequest::Send"));
-    assert!(client_source.contains(".arg(\"server\")"));
-    assert!(client_source.contains(".arg(\"stdio\")"));
-}
