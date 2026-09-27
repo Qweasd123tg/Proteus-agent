@@ -249,6 +249,17 @@ model items и tool calls, `core/src/session/turn.rs` — завершённые
 этот путь для явно возвращённого terminal failure. Дополнительно checkpoints
 сохраняют completed model items до tools, также при открытом stream.
 
+Для обычного sampling `ContextWindowExceeded` завершает текущий запрос без
+повтора и в [закреплённом Codex](https://github.com/openai/codex/blob/67cc3c318dc8b5532db6ade4182b1dc6f3870889/codex-rs/core/src/session/turn.rs#L1425-L1429),
+и в [Proteus](../../modules/reference/coding-workflow/src/codex_sampling.rs).
+Codex при этом помечает окно заполненным: [preflight следующего turn](https://github.com/openai/codex/blob/67cc3c318dc8b5532db6ade4182b1dc6f3870889/codex-rs/core/src/session/turn.rs#L1032-L1061)
+использует этот сигнал для compaction. Proteus его между turns пока не переносит:
+[workflow](../../modules/reference/coding-workflow/src/codex_loop.rs) начинает с
+`last_usage = None`, а [compactor](../../modules/reference/codex-compactor/src/compaction.rs)
+решает по локальной оценке и может пропустить сжатие при значении ниже порога.
+Это статическое сравнение исходников, без live или differential проверки этого
+сценария; сохранение tool history при таком overflow отдельно не проверялось.
+
 [SSE regression](../../modules/reference/process-worker/tests/codex_model_resume/partial_sse_recovery.rs)
 проверяет завершённые assistant message items, за которыми следует обрыв до
 `response.completed`. Model failure несёт их в `completed_messages`; Codex
