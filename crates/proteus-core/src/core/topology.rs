@@ -110,6 +110,7 @@ mod tests {
             safety: "ReadOnly".to_owned(),
             source: "dynamic/process-module".to_owned(),
             enabled: true,
+            runtime_managed: false,
             registered: true,
             input_schema: json!({ "type": "object" }),
         }];

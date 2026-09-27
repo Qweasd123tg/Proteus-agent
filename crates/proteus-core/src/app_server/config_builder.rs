@@ -76,6 +76,7 @@ pub(super) fn config_builder_snapshot_from_topology(
                 safety: tool.safety.clone(),
                 description: tool.description.clone(),
                 enabled: tool.enabled,
+                runtime_managed: tool.runtime_managed,
                 registered: tool.registered,
             })
             .collect(),

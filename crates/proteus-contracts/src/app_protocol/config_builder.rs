@@ -79,5 +79,7 @@ pub struct ConfigBuilderTool {
     pub safety: String,
     pub description: String,
     pub enabled: bool,
+    /// `tools_enabled` cannot toggle this tool; preserve any existing entry on save.
+    pub runtime_managed: bool,
     pub registered: bool,
 }

@@ -30,6 +30,7 @@ pub(super) fn build_tools(
                 safety: tool_safety_label(&spec.safety).to_owned(),
                 source: source.label(),
                 enabled: tool_enabled(config, source, &spec.name),
+                runtime_managed: runtime_managed(source, &spec.name),
                 registered: true,
                 input_schema: spec.input_schema.clone(),
             }
@@ -49,8 +50,11 @@ pub(super) fn build_tools(
 }
 
 fn tool_enabled(config: &AppConfig, source: &ToolSource, name: &str) -> bool {
-    config.tools.enabled.iter().any(|enabled| enabled == name)
-        || name == TASK_TOOL
+    config.tools.enabled.iter().any(|enabled| enabled == name) || runtime_managed(source, name)
+}
+
+fn runtime_managed(source: &ToolSource, name: &str) -> bool {
+    name == TASK_TOOL
         || matches!(
             source,
             ToolSource::ProviderHosted { .. } | ToolSource::Config { .. } | ToolSource::Mcp { .. }
@@ -72,12 +76,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn provider_hosted_tool_is_enabled_without_tools_enabled_entry() {
-        let config = AppConfig::default();
-        let source = ToolSource::ProviderHosted {
+    fn runtime_managed_tool_stays_managed_with_explicit_enabled_entry() {
+        let mut config = AppConfig::default();
+        let hosted = ToolSource::ProviderHosted {
             provider: "openai.responses".to_owned(),
         };
+        let builtin = ToolSource::builtin("core");
 
-        assert!(tool_enabled(&config, &source, "web_search"));
+        assert!(runtime_managed(&hosted, "web_search"));
+        assert!(tool_enabled(&config, &hosted, "web_search"));
+        config.tools.enabled.push("web_search".to_owned());
+        assert!(runtime_managed(&hosted, "web_search"));
+        assert!(tool_enabled(&config, &hosted, "web_search"));
+
+        assert!(!runtime_managed(&builtin, "read_file"));
+        assert!(!tool_enabled(&config, &builtin, "read_file"));
+        config.tools.enabled.push("read_file".to_owned());
+        assert!(tool_enabled(&config, &builtin, "read_file"));
+        assert!(!runtime_managed(&builtin, "read_file"));
+        assert!(runtime_managed(&builtin, TASK_TOOL));
+        assert!(runtime_managed(
+            &ToolSource::Config {
+                origin: "config".into()
+            },
+            "configured"
+        ));
+        assert!(runtime_managed(
+            &ToolSource::Mcp {
+                server: "local".into()
+            },
+            "remote"
+        ));
     }
 }

@@ -15,6 +15,7 @@ from live_checks import run as check_live
 from planning_checks import run as check_planning
 from usage_checks import run as check_usage
 from architecture_checks import run as check_architecture
+from tools_picker_checks import run as check_tools_picker
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -104,10 +105,10 @@ class Assets(SimpleHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split('?', 1)[0]
         inspector = ROOT / 'clients/inspector/dist'
-        if path == '/architecture' or (not (Path(self.directory) / path.lstrip('/')).exists() and (inspector / path.lstrip('/')).is_file()):
+        if path in ('/architecture', '/configs') or (not (Path(self.directory) / path.lstrip('/')).exists() and (inspector / path.lstrip('/')).is_file()):
             original = self.directory
             self.directory = str(inspector)
-            if path == '/architecture':
+            if path in ('/architecture', '/configs'):
                 self.path = '/index.html'
             try:
                 super().do_GET()
@@ -211,6 +212,13 @@ workflow = "coding.single_loop"
 policy = "allow_all"
 [tools]
 enabled = ["update_plan"]
+[[tools.configured]]
+name = "fixture_managed"
+description = "Runtime-managed tool absent from tools.enabled"
+safety = "ReadOnly"
+[tools.configured.executor]
+kind = "process"
+command = "/bin/true"
 [module_config.model.custom-model]
 implementation = "openai_codex"
 base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/usage') + '\nauth_file = ' + json.dumps(str(auth)) + '\n[event_log]\npath = ' + json.dumps(str(folder / 'events.jsonl')) + '\n')
@@ -267,6 +275,7 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                 assert js("return matchMedia('(prefers-reduced-motion: reduce)').matches") == bool(reduced_motion), 'Browser did not apply motion preference'
                 if '--inspector-only' in sys.argv:
                     check_architecture(command, js, wait_for, web, origin)
+                    check_tools_picker(command, js, wait_for, web, origin, config, request)
                     return
                 check_extensions(command, js, wait_for, web, origin, loaded)
                 check_selects(command, js, wait_for)
@@ -283,6 +292,7 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                 check_queue(command, js, wait_for, server)
                 check_live(command, js, wait_for, server)
                 check_planning(command, js, wait_for, server, request, origin, ROOT, config, folder, env, stop)
+                check_tools_picker(command, js, wait_for, web, origin, config, request)
                 stop(backend)
                 js("document.querySelector('[data-extension-id=model-quota] .extension-panel-content').shadowRoot.querySelector('button').click()")
                 wait_for(lambda: js("const root=document.querySelector('[data-extension-id=model-quota] .extension-panel-content').shadowRoot; return root.textContent.includes('Не удалось получить лимиты') && root.querySelectorAll('progress').length === 0"), 'Quota error retained old balances')

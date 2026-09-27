@@ -72,6 +72,8 @@ pub struct ToolTopology {
     pub safety: String,
     pub source: String,
     pub enabled: bool,
+    /// Runtime decides this tool's enabled state independently of `tools.enabled`.
+    pub runtime_managed: bool,
     pub registered: bool,
     pub input_schema: serde_json::Value,
 }
