@@ -54,6 +54,30 @@ merge-ится рекурсивно: например, profile может доб
 
 `~`, `$HOME` и `${HOME}` раскрываются в path fields.
 
+## Личные Настройки В Checkout
+
+`configs/` — поставляемые profiles, fragments и prompts для installer и
+проверок. Рабочие копии с личными настройками можно хранить в игнорируемом
+`.local/configs/`:
+
+```bash
+mkdir -p .local
+cp -a configs .local/configs
+PROTEUS_CONFIG_HOME="$PWD/.local" proteus --config codex-chatgpt
+```
+
+Копирование выполняется один раз в отсутствующий `.local/configs/`; затем
+редактируются рабочие копии. `PROTEUS_CONFIG_HOME` сохраняет named resolution
+и для child profiles. Для постоянного использования того же каталога из CLI
+и desktop можно направить `~/.config/Proteus-agent/configs` на абсолютный путь
+к `.local/configs/`. Прямая ссылка на tracked `configs/` превращает личные
+правки в изменения исходников.
+
+Installer сохраняет существующие named configs, но обновляет managed
+`fragments/` и `prompts/`. Личные overrides задаются в named config или его
+собственном include. Настройка сворачивания карточек tools хранится клиентом;
+устаревшая секция `[web]` не принимается agent config.
+
 ## Минимальная Форма
 
 ```toml

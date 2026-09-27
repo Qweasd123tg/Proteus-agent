@@ -13,6 +13,8 @@ target/
 /.proteus/
 /.playwright-mcp/
 /.agent/
+/.local/
+/docs/research/Proteus-audit/
 /sessions/
 /examples/source/
 /deferred/
