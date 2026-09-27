@@ -2,6 +2,7 @@ use anyhow::{Result, anyhow};
 use serde_json::Value;
 
 use super::sanitize::sanitize_provider_text;
+use super::usage::AnthropicUsage;
 use crate::{
     domain::ToolCall,
     model_standard::{
@@ -20,7 +21,7 @@ pub(super) fn from_anthropic_response(response: Value) -> Result<CanonicalModelR
     let finish_reason = match response.get("stop_reason").and_then(Value::as_str) {
         Some("tool_use") => FinishReason::ToolCalls,
         Some("end_turn") | Some("stop_sequence") => FinishReason::Stop,
-        Some("max_tokens") => FinishReason::Length,
+        Some("max_tokens") | Some("model_context_window_exceeded") => FinishReason::Length,
         Some(_) => FinishReason::Unknown,
         None => FinishReason::Unknown,
     };
@@ -86,20 +87,7 @@ pub(super) fn from_anthropic_response(response: Value) -> Result<CanonicalModelR
 }
 
 fn parse_usage(response: &Value) -> Option<TokenUsage> {
-    let usage = response.get("usage")?;
-    let input_tokens = usage.get("input_tokens")?.as_u64()? as u32;
-    let output_tokens = usage.get("output_tokens")?.as_u64()? as u32;
-    let cache_creation = usage
-        .get("cache_creation_input_tokens")
-        .and_then(Value::as_u64)
-        .map(|tokens| tokens as u32);
-    let cache_read = usage
-        .get("cache_read_input_tokens")
-        .and_then(Value::as_u64)
-        .map(|tokens| tokens as u32);
-    Some(
-        TokenUsage::new(input_tokens, output_tokens)
-            .with_cache_creation_input_tokens(cache_creation)
-            .with_cached_input_tokens(cache_read),
-    )
+    let mut usage = AnthropicUsage::default();
+    usage.merge(response.get("usage")?);
+    usage.into_token_usage()
 }

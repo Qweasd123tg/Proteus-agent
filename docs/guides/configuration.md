@@ -419,6 +419,12 @@ tool_exposure = "codex_dynamic"
 
 ### Настройки Codex Context И Compactor
 
+Reference context implementations `simple`, `repo_aware` и `codex_context`
+отвергают неизвестные поля в своём `module_config.context.<id>` при
+инициализации worker. В `repo_aware` и `codex_context` нулевой `memory_limit`
+исключает результаты памяти, а `max_search_results = 0` отключает
+предварительный поиск.
+
 `module_config.context.codex_context.project_doc_max_bytes` по умолчанию равен
 `32768`: это общий бюджет исходных байтов проектных инструкций от корня до cwd.
 В каждом каталоге выбирается первый непустой `AGENTS.override.md` или `AGENTS.md`;

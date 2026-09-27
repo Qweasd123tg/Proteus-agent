@@ -201,6 +201,10 @@ authority: direct process execution внутри него отсутствует
 ### Search
 
 `SearchQuery -> Vec<ContextChunk>`. Reference `rg` использует ripgrep.
+`starts_with` может указывать на отдельный файл; имя файла, включая двоеточия,
+сохраняется в результате. Отсутствие совпадений возвращает пустой список,
+ошибка regex или запуска поиска — ошибку invocation. Лимит результатов
+ограничивает найденные совпадения, а не служебные записи ripgrep.
 External example: `examples/modules/search-process/search.py`.
 
 ### Memory
@@ -209,7 +213,8 @@ External example: `examples/modules/search-process/search.py`.
 обязательной `ExecutionAttribution`. Cancellation остаётся host-owned и
 доставляется активной invocation через protocol cancel.
 `jsonl` и `sqlite` имеют одинаковую protocol authority; различается только
-storage implementation.
+storage implementation. `recall` с `limit = 0` возвращает пустой список у обеих
+реализаций.
 
 ### Context И Context Provider
 

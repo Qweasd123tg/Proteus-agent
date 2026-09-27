@@ -88,7 +88,7 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
-    use crate::{find::FindFilesTool, read_many::ReadManyFilesTool};
+    use crate::{find::FindFilesTool, read_many::ReadManyFilesTool, search::GrepTool};
 
     struct TestToolHost;
 
@@ -417,5 +417,25 @@ mod tests {
         assert_eq!(result["ok"], true);
         assert_eq!(result["output"], "src/lib.rs");
         assert_eq!(result["metadata"]["match_count"], 1);
+    }
+
+    #[test]
+    fn grep_distinguishes_no_matches_from_invalid_regex() {
+        let dir = tempfile::tempdir().expect("workspace");
+        std::fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+
+        let absent = invoke(&GrepTool, dir.path(), json!({ "pattern": "absent" }));
+        assert_eq!(absent["ok"], true);
+        assert_eq!(absent["metadata"]["match_count"], 0);
+
+        let invalid = invoke(&GrepTool, dir.path(), json!({ "pattern": "[" }));
+        assert_eq!(invalid["ok"], false);
+        assert!(
+            invalid["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("regex parse error"),
+            "{invalid}"
+        );
     }
 }

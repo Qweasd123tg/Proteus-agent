@@ -410,10 +410,70 @@ fn response_usage_includes_cache_details() {
     let canonical = from_anthropic_response(response).unwrap();
     let usage = canonical.usage.expect("usage");
 
-    assert_eq!(usage.input_tokens, 100);
+    assert_eq!(usage.input_tokens, 146);
     assert_eq!(usage.output_tokens, 20);
     assert_eq!(usage.cache_creation_input_tokens, Some(12));
     assert_eq!(usage.cached_input_tokens, Some(34));
+}
+
+#[test]
+fn stream_usage_merges_start_and_output_delta_like_json_response() {
+    let start_usage = json!({
+        "input_tokens": 100,
+        "output_tokens": 1,
+        "cache_creation_input_tokens": 12,
+        "cache_read_input_tokens": 34
+    });
+    let events = run_trace(&[
+        (
+            "message_start",
+            json!({ "message": { "usage": start_usage } }),
+        ),
+        ("message_delta", json!({ "usage": { "output_tokens": 10 } })),
+        (
+            "message_delta",
+            json!({ "delta": { "stop_reason": "end_turn" }, "usage": { "output_tokens": 20 } }),
+        ),
+        ("message_stop", json!({})),
+    ]);
+    let ModelStreamEvent::Response { response: streamed } = events.last().unwrap() else {
+        panic!("expected final response");
+    };
+    let json_response = from_anthropic_response(json!({
+        "stop_reason": "end_turn",
+        "content": [],
+        "usage": {
+            "input_tokens": 100,
+            "output_tokens": 20,
+            "cache_creation_input_tokens": 12,
+            "cache_read_input_tokens": 34
+        }
+    }))
+    .unwrap();
+    assert_eq!(streamed.usage, json_response.usage);
+    assert_eq!(streamed.usage.as_ref().unwrap().input_tokens, 146);
+    assert_eq!(streamed.usage.as_ref().unwrap().output_tokens, 20);
+}
+
+#[test]
+fn context_window_stop_is_length_in_json_and_stream() {
+    let json_response = from_anthropic_response(json!({
+        "stop_reason": "model_context_window_exceeded",
+        "content": [{ "type": "text", "text": "partial" }]
+    }))
+    .unwrap();
+    let events = run_trace(&[
+        (
+            "message_delta",
+            json!({ "delta": { "stop_reason": "model_context_window_exceeded" } }),
+        ),
+        ("message_stop", json!({})),
+    ]);
+    let ModelStreamEvent::Response { response: streamed } = events.last().unwrap() else {
+        panic!("expected final response");
+    };
+    assert_eq!(json_response.finish_reason, FinishReason::Length);
+    assert_eq!(streamed.finish_reason, FinishReason::Length);
 }
 
 #[test]

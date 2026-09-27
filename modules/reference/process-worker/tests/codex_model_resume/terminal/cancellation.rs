@@ -121,3 +121,97 @@ async fn cancel_long_poll_stops_process_and_preserves_completed_launch_in_cold_h
             .any(|tool| tool.call_id == "call_poll" && tool.status == "done")
     );
 }
+
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancel_one_shot_shell_kills_descendants_and_records_canceled_turn() {
+    let root = tempfile::tempdir().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut config = terminal_config(&format!("http://{}", listener.local_addr().unwrap()));
+    config.tools.enabled = vec!["shell".into()];
+    let config_path = root.path().join("config.json");
+    std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
+    let runtime = std::sync::Arc::new(
+        AgentRuntime::builder(config.clone(), root.path().to_owned())
+            .with_config_path(Some(&config_path))
+            .build_async()
+            .await
+            .unwrap(),
+    );
+    let session = runtime.session_dir().unwrap().to_owned();
+    let cancel = CancellationToken::new();
+    let run = tokio::spawn({
+        let runtime = runtime.clone();
+        let cancel = cancel.clone();
+        async move {
+            runtime
+                .run_with_cancellation("Run shell.".into(), cancel)
+                .await
+        }
+    });
+    let (mut socket, request) = accept(&listener).await;
+    assert!(
+        request["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool["name"] == "shell")
+    );
+    respond(
+        &mut socket,
+        json!([call(
+            "call_shell",
+            "shell",
+            json!({
+                "command": "printf started > started; sleep 1; printf late > late-marker",
+                "with_escalated_permissions": true
+            })
+        )]),
+    )
+    .await;
+    wait_for_file(&root.path().join("started")).await;
+    cancel.cancel();
+    assert!(
+        tokio::time::timeout(Duration::from_secs(5), run)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err()
+    );
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    assert!(
+        !root.path().join("late-marker").exists(),
+        "canceled descendant survived"
+    );
+    let projection = SessionStore::open(session.clone())
+        .unwrap()
+        .load_projection()
+        .unwrap();
+    assert!(projection.records.iter().any(|record| matches!(
+        &record.entry,
+        JournalEntry::TurnSettled(settled) if settled.status == TurnSettlementStatus::Canceled
+    )));
+    assert!(
+        !history_results(&projection.history)
+            .iter()
+            .any(|result| result.call_id == "call_shell")
+    );
+    drop(runtime);
+    let cold = proteus_core::app_server::AgentAppServer::launch_resumed(
+        config,
+        root.path().to_owned(),
+        Some(&config_path),
+        session,
+    )
+    .await
+    .unwrap();
+    assert!(
+        !cold
+            .transcript()
+            .await
+            .unwrap()
+            .iter()
+            .filter_map(|item| item.tool.as_ref())
+            .any(|tool| tool.call_id == "call_shell" && tool.status == "done")
+    );
+}

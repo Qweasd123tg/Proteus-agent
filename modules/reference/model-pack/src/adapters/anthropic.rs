@@ -30,6 +30,7 @@ mod request;
 mod response;
 mod sanitize;
 mod stream;
+mod usage;
 
 #[cfg(test)]
 use request::to_anthropic_request;

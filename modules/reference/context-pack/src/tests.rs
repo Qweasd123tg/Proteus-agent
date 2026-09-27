@@ -1,6 +1,87 @@
 use super::*;
 
 #[test]
+fn context_configs_reject_unknown_keys_and_keep_known_limits() {
+    for invalid in [
+        serde_json::from_value::<SimpleContextConfig>(json!({"max_search_results": 0, "typo": 1}))
+            .is_err(),
+        serde_json::from_value::<RepoAwareContextConfig>(
+            json!({"max_search_results": 0, "typo": 1}),
+        )
+        .is_err(),
+        serde_json::from_value::<CodexContextConfig>(json!({"max_search_results": 0, "typo": 1}))
+            .is_err(),
+    ] {
+        assert!(invalid);
+    }
+    assert_eq!(
+        serde_json::from_value::<SimpleContextConfig>(json!({"max_search_results": 0}))
+            .unwrap()
+            .max_search_results,
+        0
+    );
+    assert_eq!(
+        serde_json::from_value::<RepoAwareContextConfig>(json!({"max_search_results": 0}))
+            .unwrap()
+            .max_search_results,
+        0
+    );
+    assert_eq!(
+        serde_json::from_value::<CodexContextConfig>(json!({"max_search_results": 0}))
+            .unwrap()
+            .max_search_results,
+        0
+    );
+}
+
+#[test]
+fn zero_search_limit_skips_host_search_in_simple_and_repo_aware() {
+    use proteus_contracts::process_module::{
+        ContextBuilderModuleHost, ProcessModuleError, ProcessModuleResult,
+    };
+
+    struct NoSearchHost;
+    impl ContextBuilderModuleHost for NoSearchHost {
+        fn search_json(&self, _: String) -> ProcessModuleResult<String> {
+            panic!("zero search limit must not call host search")
+        }
+        fn recall_memory_json(&self, _: String) -> ProcessModuleResult<String> {
+            Ok("[]".into())
+        }
+        fn context_provider_json(&self, _: String, _: String) -> ProcessModuleResult<String> {
+            Err(ProcessModuleError::new("unused provider"))
+        }
+    }
+    let input = ContextBuilderModuleInput {
+        task: proteus_contracts::domain::AgentTask::new(
+            "Find approval policy",
+            PathBuf::from("/ws"),
+        ),
+        config: Value::Null,
+    };
+    let mut host = NoSearchHost;
+    let simple = build_simple_context(
+        input.clone(),
+        &mut host,
+        SimpleContextConfig {
+            max_search_results: 0,
+        },
+    )
+    .unwrap();
+    assert_eq!(simple.chunks.len(), 1);
+    let repo = search_chunks(
+        &input,
+        &mut host,
+        &RepoAwareContextConfig {
+            max_search_results: 0,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(repo.is_empty());
+}
+
+#[test]
 fn byte_budget_prefers_higher_score_and_restores_original_order() {
     let chunks = vec![
         ContextChunk::new("low", "11111").with_score(0.1),

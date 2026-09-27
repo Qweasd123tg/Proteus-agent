@@ -1,11 +1,12 @@
 use serde_json::Value;
 
 use super::sanitize::{DsmlStreamFilter, sanitize_provider_text};
+use super::usage::AnthropicUsage;
 use crate::{
     domain::ToolCall,
     model_standard::{
         CanonicalMessage, CanonicalModelResponse, ContentPart, FinishReason, MessageRole,
-        ModelFailure, ModelStreamEvent, TokenUsage,
+        ModelFailure, ModelStreamEvent,
     },
 };
 
@@ -15,7 +16,7 @@ use crate::{
 pub(super) struct AnthropicStreamState {
     message_id: crate::domain::MessageId,
     blocks: Vec<AnthropicBlock>,
-    usage: Option<TokenUsage>,
+    usage: AnthropicUsage,
     stop_reason: Option<String>,
     dsml_filter: DsmlStreamFilter,
     // Anthropic SSE референсит блоки по index, так что нужен index → block mapping.
@@ -26,7 +27,7 @@ impl Default for AnthropicStreamState {
         Self {
             message_id: crate::domain::new_message_id(),
             blocks: Vec::new(),
-            usage: None,
+            usage: AnthropicUsage::default(),
             stop_reason: None,
             dsml_filter: DsmlStreamFilter::default(),
         }
@@ -55,6 +56,15 @@ impl AnthropicStreamState {
             return Vec::new();
         };
         match event_type {
+            "message_start" => {
+                if let Some(usage) = parsed
+                    .get("message")
+                    .and_then(|message| message.get("usage"))
+                {
+                    self.usage.merge(usage);
+                }
+                Vec::new()
+            }
             "content_block_start" => {
                 let index = parsed.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
                 let block = parsed.get("content_block");
@@ -209,27 +219,7 @@ impl AnthropicStreamState {
                     self.stop_reason = Some(stop.to_owned());
                 }
                 if let Some(usage) = parsed.get("usage") {
-                    let input = usage
-                        .get("input_tokens")
-                        .and_then(Value::as_u64)
-                        .unwrap_or(0);
-                    let output = usage
-                        .get("output_tokens")
-                        .and_then(Value::as_u64)
-                        .unwrap_or(0);
-                    let cache_creation = usage
-                        .get("cache_creation_input_tokens")
-                        .and_then(Value::as_u64)
-                        .map(|tokens| tokens as u32);
-                    let cache_read = usage
-                        .get("cache_read_input_tokens")
-                        .and_then(Value::as_u64)
-                        .map(|tokens| tokens as u32);
-                    self.usage = Some(
-                        TokenUsage::new(input as u32, output as u32)
-                            .with_cache_creation_input_tokens(cache_creation)
-                            .with_cached_input_tokens(cache_read),
-                    );
+                    self.usage.merge(usage);
                 }
                 Vec::new()
             }
@@ -297,7 +287,7 @@ impl AnthropicStreamState {
 
         let finish_reason = match self.stop_reason.as_deref() {
             Some("end_turn") | Some("stop_sequence") => FinishReason::Stop,
-            Some("max_tokens") => FinishReason::Length,
+            Some("max_tokens") | Some("model_context_window_exceeded") => FinishReason::Length,
             Some("tool_use") if !tool_calls.is_empty() => FinishReason::ToolCalls,
             _ if !tool_calls.is_empty() => FinishReason::ToolCalls,
             _ => FinishReason::Stop,
@@ -305,7 +295,7 @@ impl AnthropicStreamState {
         let mut message = CanonicalMessage::new(MessageRole::Assistant, parts);
         message.id = self.message_id;
         let mut resp = CanonicalModelResponse::new(message, tool_calls, finish_reason);
-        if let Some(u) = self.usage.take() {
+        if let Some(u) = std::mem::take(&mut self.usage).into_token_usage() {
             resp = resp.with_usage(u);
         }
         ModelStreamEvent::Response { response: resp }

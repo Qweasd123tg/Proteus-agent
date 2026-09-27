@@ -115,6 +115,9 @@ fn remember_impl(path: &PathBuf, lock: &Mutex<()>, item_json: &str) -> Result<()
 fn recall_impl(path: &PathBuf, query_json: &str) -> Result<Vec<MemoryItem>> {
     let query: MemoryQuery =
         serde_json::from_str(query_json).with_context(|| "invalid MemoryQuery JSON")?;
+    if query.limit == 0 {
+        return Ok(Vec::new());
+    }
     let file = match OpenOptions::new().read(true).open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -172,5 +175,27 @@ mod tests {
         let error = recall_impl(&path, r#"{"text":"keep","limit":10}"#)
             .expect_err("malformed memory line must fail");
         assert!(error.to_string().contains("line 2"), "{error:#}");
+    }
+
+    #[test]
+    fn jsonl_recall_limit_zero_returns_no_items() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("memory.jsonl");
+        let item = MemoryItem::new("fact", "remembered", Value::Null);
+        fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&item).unwrap()),
+        )
+        .unwrap();
+        assert!(
+            recall_impl(&path, r#"{"text":"","limit":0}"#)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            recall_impl(&path, r#"{"text":"remembered","limit":0}"#)
+                .unwrap()
+                .is_empty()
+        );
     }
 }

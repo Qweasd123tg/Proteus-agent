@@ -481,6 +481,22 @@ tokens и может включать детали вроде cache read/write �
 Category breakdown остаётся оценкой для UI и исследования context budget; он не
 является provider billing source of truth.
 
+Canonical `TokenUsage.input_tokens` включает весь вход модели; cache read/write
+поля описывают его части и повторно к `total_tokens` не прибавляются.
+Для Anthropic adapter складывает provider `input_tokens`, `cache_read_input_tokens`
+и `cache_creation_input_tokens`, согласно
+[формату usage](https://platform.claude.com/docs/en/build-with-claude/prompt-caching#tracking-cache-performance).
+При SSE начальные значения берутся из `message_start`, а `message_delta`
+обновляет только присутствующие счётчики: cumulative output заменяет прежнее
+значение, не суммируется с ним. JSON и SSE возвращают одинаковые totals.
+
+Anthropic `stop_reason = "model_context_window_exceeded"` обозначает
+[ответ, ограниченный контекстным окном](https://platform.claude.com/docs/en/build-with-claude/handling-stop-reasons#model_context_window_exceeded).
+В JSON и SSE он преобразуется в `FinishReason::Length`. Текущий canonical
+validator отвергает такой незавершённый ответ; это не отказ входного запроса
+`ModelFailureKind::ContextWindowExceeded` и не основание для его автоматического
+повтора или compaction.
+
 Provider prompt cache не является локальным response-cache. Workflow выставляет
 `CanonicalModelRequest.cache`, `RequestShaper` оставляет hints только если
 активный adapter заявил `supports_cache_hints`, а provider adapter переводит их

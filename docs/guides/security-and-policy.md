@@ -204,6 +204,11 @@ File I/O (`read_file`, `write_file`, `list_dir`, `grep`, `find_files`,
 каждого process tool декларируется в его `ToolSpec` и проверяется тем же
 механизмом, что и core facade tools.
 
+`grep` и `find_files` различают пустой результат ripgrep (exit code 1) и
+ошибку поиска (например, неверный regex/glob, exit code 2). Ошибка передаётся
+в tool result с диагностикой; `(no matches)` означает успешный поиск без
+совпадений. Достижение заданного лимита результатов штатно обрывает поиск.
+
 REPL `/remember` не является alias для `remember_fact`: это явная
 direct-user operation с authority выбранного memory slot-а. Она проходит
 top-level execution admission и `memory/v2` cancellation/attribution, но не
@@ -653,7 +658,8 @@ permission engine из OpenCode (`permission/index.ts` + `util/wildcard.ts`).
    `edit_file`/`write_file`); без группы permission = имя tool-а;
 2. из аргументов вызова извлекаются patterns по `pattern_args` группы
    (`command` для bash-группы, `path` для file-групп); при
-   `split_commands = true` составная команда разбивается по `&& || ; |`;
+   `split_commands = true` составная команда разбивается по `&& || ; |`
+   и переводам строк (`\n`, `\r`);
    если извлечь нечего — pattern `*`;
 3. для каждого pattern берётся **последнее** правило из `rules`, совпавшее
    wildcard-ом и по permission, и по pattern (last match wins); без
@@ -693,6 +699,12 @@ split_commands = true
 ставьте ниже общих.
 
 ## Terminal Exec Lifecycle
+
+One-shot `shell` учитывает отмену invocation и во время выполнения, и при
+ожидании оставшегося вывода фоновых потомков. В обычном режиме с pipes на Unix
+отмена и timeout останавливают process group команды; module дожидается
+дочернего shell и закрытия stdout/stderr перед завершением вызова. Путь Ptyxis
+также передаёт отмену группе команды через сохранённый process id.
 
 `exec_command` по умолчанию запускает `sh -lc` с закрытым stdin и pipes для
 stdout/stderr. Для интерактивной команды передавайте `tty: true`: тогда

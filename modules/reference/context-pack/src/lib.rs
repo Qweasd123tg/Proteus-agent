@@ -125,16 +125,18 @@ fn build_simple_context(
         );
     }
 
-    chunks.extend(search_best_effort(
-        host,
-        SearchQuery::new(
-            input.task.text.clone(),
-            input.task.cwd.clone(),
-            config.max_search_results,
-        )
-        .with_use_case("simple_context"),
-        "simple_context",
-    )?);
+    if config.max_search_results > 0 {
+        chunks.extend(search_best_effort(
+            host,
+            SearchQuery::new(
+                input.task.text.clone(),
+                input.task.cwd.clone(),
+                config.max_search_results,
+            )
+            .with_use_case("simple_context"),
+            "simple_context",
+        )?);
+    }
 
     let token_estimate = token_estimate(&chunks);
     Ok(ContextBundle::new(chunks).with_token_estimate(token_estimate))
@@ -435,6 +437,9 @@ fn search_chunks(
     host: &mut ContextBuilderModuleHostMut<'_>,
     config: &RepoAwareContextConfig,
 ) -> anyhow::Result<Vec<ContextChunk>> {
+    if config.max_search_results == 0 {
+        return Ok(Vec::new());
+    }
     let queries = extract_search_queries(&input.task.text);
     if queries.is_empty() {
         return Ok(Vec::new());

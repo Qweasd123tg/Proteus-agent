@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct SimpleContextConfig {
     #[serde(default = "default_max_context_search_results")]
     pub(crate) max_search_results: usize,
@@ -15,6 +16,7 @@ impl Default for SimpleContextConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct RepoAwareContextConfig {
     #[serde(default = "default_repo_aware_providers")]
     pub(crate) providers: Vec<String>,
@@ -56,6 +58,7 @@ impl Default for RepoAwareContextConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct CodexContextConfig {
     #[serde(default = "default_codex_context_providers")]
     pub(crate) providers: Vec<String>,

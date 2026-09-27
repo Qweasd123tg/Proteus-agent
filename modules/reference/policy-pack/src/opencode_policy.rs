@@ -20,7 +20,7 @@ use serde_json::Value;
 use crate::{PolicyContextDto, PolicyVisibilityContextDto, decision, policy_error};
 
 const DEFAULT_ACTION: RuleAction = RuleAction::Ask;
-const COMMAND_SEPARATORS: [&str; 4] = ["&&", "||", ";", "|"];
+const COMMAND_SEPARATORS: [&str; 6] = ["&&", "||", ";", "|", "\n", "\r"];
 
 #[derive(Default)]
 pub struct OpencodePolicyModule;
@@ -86,7 +86,7 @@ struct GroupConfig {
     #[serde(default)]
     pattern_args: Vec<String>,
     /// bash-семантика: составная команда разбивается на подкоманды по
-    /// `&& || ; |`, каждая матчится отдельно.
+    /// `&& || ; | LF CR`, каждая матчится отдельно.
     #[serde(default)]
     split_commands: bool,
 }
@@ -386,6 +386,27 @@ mod tests {
             ),
             PolicyDecision::Deny { reason } if reason.contains("git push")
         ));
+    }
+
+    #[test]
+    fn newline_separated_command_checks_each_subcommand() {
+        let config_value = json!({
+            "groups": groups(),
+            "rules": [
+                { "permission": "*", "action": "allow" },
+                { "permission": "bash", "pattern": "git push*", "action": "ask" },
+            ],
+        });
+        for separator in ["\n", "\r", "\r\n"] {
+            assert!(matches!(
+                evaluate(
+                    config_value.clone(),
+                    "shell",
+                    json!({ "command": format!("cargo test{separator}git push origin") })
+                ),
+                PolicyDecision::Ask { .. }
+            ));
+        }
     }
 
     #[test]

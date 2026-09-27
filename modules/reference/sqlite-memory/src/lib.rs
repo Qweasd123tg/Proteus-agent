@@ -141,7 +141,10 @@ fn remember_impl(conn: &Mutex<Connection>, payload: &str) -> Result<()> {
 fn recall_impl(conn: &Mutex<Connection>, payload: &str) -> Result<String> {
     let query: QueryWire =
         serde_json::from_str(payload).with_context(|| "failed to deserialize MemoryQuery JSON")?;
-    let limit = query.limit.max(1) as i64;
+    if query.limit == 0 {
+        return Ok("[]".to_owned());
+    }
+    let limit = i64::try_from(query.limit).unwrap_or(i64::MAX);
     let c = conn.lock().map_err(|_| anyhow!("sqlite mutex poisoned"))?;
 
     let match_expr = fts_match_expression(&query.text);
@@ -270,6 +273,25 @@ mod tests {
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].content, "second");
         assert_eq!(items[1].content, "first");
+    }
+
+    #[test]
+    fn recall_limit_zero_returns_no_items_for_recent_and_fts() {
+        let conn = fresh_conn();
+        remember_impl(
+            &conn,
+            r#"{"kind":"fact","content":"remembered","metadata":null}"#,
+        )
+        .unwrap();
+        for text in ["", "remembered"] {
+            let payload = recall_impl(
+                &conn,
+                &serde_json::json!({ "text": text, "limit": 0 }).to_string(),
+            )
+            .unwrap();
+            let items: Vec<ItemWire> = serde_json::from_str(&payload).unwrap();
+            assert!(items.is_empty());
+        }
     }
 
     #[test]

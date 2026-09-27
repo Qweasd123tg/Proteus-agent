@@ -13,10 +13,8 @@
 
 use std::{
     fs,
-    io::Read,
     path::{Path, PathBuf},
     process::{Child, Command, ExitStatus, Stdio},
-    thread::JoinHandle,
     time::{Duration, Instant},
 };
 
@@ -34,9 +32,13 @@ use proteus_contracts::{
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
+mod execution;
 mod sandbox;
 mod unified_exec;
 
+#[cfg(test)]
+use execution::wait_with_timeout;
+use execution::{BoundedBuffer, ShellOutput, omitted_marker, wait_with_timeout_and_cancel};
 use sandbox::{EXEC_COMMAND_ENV, SandboxKind, SandboxPolicy, bwrap_args, resolve_workdir};
 
 /// Максимум stdout/stderr. Reader продолжает дренировать pipe после лимита,
@@ -100,7 +102,7 @@ impl ToolModule for ShellTool {
         &self,
         call_json: String,
         context_json: String,
-        _host: &mut ToolModuleHostMut<'_>,
+        host: &mut ToolModuleHostMut<'_>,
     ) -> Result<String, ProcessModuleError> {
         let context: ToolModuleInvocationContext = match serde_json::from_str(context_json.as_str())
         {
@@ -111,14 +113,31 @@ impl ToolModule for ShellTool {
                 )));
             }
         };
-        match invoke_impl(call_json.as_str(), &context.cwd.to_string_lossy()) {
+        let mut is_cancelled = || {
+            host.is_cancelled()
+                .map_err(|error| std::io::Error::other(error.message))
+        };
+        match invoke_impl_with_cancel(
+            call_json.as_str(),
+            &context.cwd.to_string_lossy(),
+            &mut is_cancelled,
+        ) {
             Ok(result_json) => Ok(result_json),
             Err(error) => Err(ProcessModuleError::new(format!("{error:#}"))),
         }
     }
 }
 
+#[cfg(test)]
 fn invoke_impl(call_json: &str, cwd: &str) -> Result<String> {
+    invoke_impl_with_cancel(call_json, cwd, &mut || Ok(false))
+}
+
+fn invoke_impl_with_cancel(
+    call_json: &str,
+    cwd: &str,
+    is_cancelled: &mut dyn FnMut() -> std::io::Result<bool>,
+) -> Result<String> {
     let call: Value =
         serde_json::from_str(call_json).with_context(|| "failed to parse ToolCall JSON")?;
     let call_id = call
@@ -140,7 +159,7 @@ fn invoke_impl(call_json: &str, cwd: &str) -> Result<String> {
     } else {
         SandboxPolicy::detect(cwd)
     };
-    invoke_command(
+    invoke_command_with_cancel(
         call_id,
         args,
         command,
@@ -148,9 +167,11 @@ fn invoke_impl(call_json: &str, cwd: &str) -> Result<String> {
         escalated,
         sandbox_policy,
         should_use_ptyxis(),
+        is_cancelled,
     )
 }
 
+#[cfg(test)]
 fn invoke_command(
     call_id: String,
     args: Option<&Value>,
@@ -159,6 +180,28 @@ fn invoke_command(
     escalated: bool,
     sandbox_policy: SandboxPolicy,
     external_terminal_requested: bool,
+) -> Result<String> {
+    invoke_command_with_cancel(
+        call_id,
+        args,
+        command,
+        cwd,
+        escalated,
+        sandbox_policy,
+        external_terminal_requested,
+        &mut || Ok(false),
+    )
+}
+
+fn invoke_command_with_cancel(
+    call_id: String,
+    args: Option<&Value>,
+    command: &str,
+    cwd: &str,
+    escalated: bool,
+    sandbox_policy: SandboxPolicy,
+    external_terminal_requested: bool,
+    is_cancelled: &mut dyn FnMut() -> std::io::Result<bool>,
 ) -> Result<String> {
     let resolved = resolve_workdir(cwd, args.and_then(|args| args.get("workdir")), escalated)?;
     let timeout_ms = args
@@ -172,6 +215,7 @@ fn invoke_command(
             command,
             &resolved.workdir,
             Duration::from_millis(timeout_ms),
+            is_cancelled,
         )
         .with_context(|| "failed to run shell in Ptyxis")?;
         (output, timed_out, Some(PTYXIS_TERMINAL))
@@ -183,8 +227,9 @@ fn invoke_command(
             sandbox.as_ref(),
         )
         .with_context(|| "failed to spawn shell")?;
-        let (output, timed_out) = wait_with_timeout(child, Duration::from_millis(timeout_ms))
-            .with_context(|| "failed to wait for shell")?;
+        let (output, timed_out) =
+            wait_with_timeout_and_cancel(child, Duration::from_millis(timeout_ms), is_cancelled)
+                .with_context(|| "failed to wait for shell")?;
         (output, timed_out, None)
     };
 
@@ -243,7 +288,12 @@ fn should_use_ptyxis() -> bool {
         .is_some_and(|value| value.eq_ignore_ascii_case(PTYXIS_TERMINAL))
 }
 
-fn run_in_ptyxis(command: &str, cwd: &str, timeout: Duration) -> Result<(ShellOutput, bool)> {
+fn run_in_ptyxis(
+    command: &str,
+    cwd: &str,
+    timeout: Duration,
+    is_cancelled: &mut dyn FnMut() -> std::io::Result<bool>,
+) -> Result<(ShellOutput, bool)> {
     let capture_dir = tempfile::Builder::new()
         .prefix("agent-shell-ptyxis-")
         .tempdir()
@@ -253,7 +303,7 @@ fn run_in_ptyxis(command: &str, cwd: &str, timeout: Duration) -> Result<(ShellOu
         .with_context(|| format!("failed to write {}", paths.wrapper.display()))?;
 
     spawn_ptyxis(command, cwd, &paths)?;
-    wait_for_ptyxis_result(capture_dir, paths, timeout)
+    wait_for_ptyxis_result(capture_dir, paths, timeout, is_cancelled)
 }
 
 struct PtyxisCapturePaths {
@@ -262,6 +312,7 @@ struct PtyxisCapturePaths {
     stderr: PathBuf,
     status: PathBuf,
     pid: PathBuf,
+    cancel: PathBuf,
 }
 
 impl PtyxisCapturePaths {
@@ -272,6 +323,7 @@ impl PtyxisCapturePaths {
             stderr: dir.join("stderr.log"),
             status: dir.join("status"),
             pid: dir.join("pid"),
+            cancel: dir.join("cancel"),
         }
     }
 }
@@ -284,6 +336,7 @@ stdout_path="$2"
 stderr_path="$3"
 status_path="$4"
 pid_path="$5"
+cancel_path="$6"
 command_pid=""
 finish() {
     local status="$1"
@@ -297,6 +350,10 @@ finish() {
 trap 'finish 130' HUP INT TERM
 printf '[agent] command:\n'
 printf '%s\n\n' "$command_text"
+if [ -e "$cancel_path" ]; then
+    printf '130\n' > "$status_path"
+    exit 130
+fi
 setsid sh -lc "$command_text" > >(tee "$stdout_path") 2> >(tee "$stderr_path" >&2) &
 command_pid=$!
 printf '%s\n' "$command_pid" > "$pid_path"
@@ -353,6 +410,7 @@ fn ptyxis_execute_command(
         paths.stderr.display().to_string(),
         paths.status.display().to_string(),
         paths.pid.display().to_string(),
+        paths.cancel.display().to_string(),
     ];
     for argument in &arguments {
         execute.push_str(&shell_quote(argument));
@@ -381,9 +439,18 @@ fn wait_for_ptyxis_result(
     _capture_dir: TempDir,
     paths: PtyxisCapturePaths,
     timeout: Duration,
+    is_cancelled: &mut dyn FnMut() -> std::io::Result<bool>,
 ) -> Result<(ShellOutput, bool)> {
     let started = Instant::now();
     loop {
+        match is_cancelled() {
+            Ok(false) => {}
+            result => {
+                stop_ptyxis_command(&paths);
+                result.context("failed to check shell cancellation")?;
+                anyhow::bail!("shell invocation canceled");
+            }
+        }
         if let Ok(status_text) = fs::read_to_string(&paths.status) {
             let code = status_text.trim().parse::<i32>().with_context(|| {
                 format!("failed to parse Ptyxis command status: {status_text:?}")
@@ -391,11 +458,22 @@ fn wait_for_ptyxis_result(
             return Ok((read_ptyxis_output(&paths, code)?, false));
         }
         if started.elapsed() >= timeout {
-            kill_ptyxis_command(&paths.pid);
+            stop_ptyxis_command(&paths);
             return Ok((read_ptyxis_output(&paths, 124)?, true));
         }
         std::thread::sleep(Duration::from_millis(25));
     }
+}
+
+fn stop_ptyxis_command(paths: &PtyxisCapturePaths) {
+    let _ = fs::write(&paths.cancel, "");
+    for _ in 0..40 {
+        if paths.pid.exists() || paths.status.exists() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    kill_ptyxis_command(&paths.pid);
 }
 
 fn read_ptyxis_output(paths: &PtyxisCapturePaths, code: i32) -> Result<ShellOutput> {
@@ -483,157 +561,6 @@ fn spawn_shell(
     }
 
     command_builder.spawn()
-}
-
-/// Head+tail буфер с жёстким потолком памяти: первые `HEAD_LIMIT_BYTES` и
-/// последние `TAIL_LIMIT_BYTES` байта, середина дропается.
-struct BoundedBuffer {
-    head: Vec<u8>,
-    tail: std::collections::VecDeque<u8>,
-    original_len: usize,
-}
-
-impl BoundedBuffer {
-    fn new() -> Self {
-        Self {
-            head: Vec::new(),
-            tail: std::collections::VecDeque::new(),
-            original_len: 0,
-        }
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Self {
-        let mut buffer = Self::new();
-        buffer.push(bytes);
-        buffer
-    }
-
-    fn push(&mut self, data: &[u8]) {
-        self.original_len += data.len();
-        let mut rest = data;
-        if self.head.len() < HEAD_LIMIT_BYTES {
-            let take = (HEAD_LIMIT_BYTES - self.head.len()).min(rest.len());
-            self.head.extend_from_slice(&rest[..take]);
-            rest = &rest[take..];
-        }
-        if rest.is_empty() {
-            return;
-        }
-        self.tail.extend(rest.iter().copied());
-        if self.tail.len() > TAIL_LIMIT_BYTES {
-            let excess = self.tail.len() - TAIL_LIMIT_BYTES;
-            self.tail.drain(..excess);
-        }
-    }
-
-    fn truncated(&self) -> bool {
-        self.original_len > self.head.len() + self.tail.len()
-    }
-
-    fn to_text(&self) -> String {
-        let head = String::from_utf8_lossy(&self.head);
-        if self.tail.is_empty() {
-            return head.into_owned();
-        }
-        let tail_bytes: Vec<u8> = self.tail.iter().copied().collect();
-        let tail = String::from_utf8_lossy(&tail_bytes);
-        if !self.truncated() {
-            return format!("{head}{tail}");
-        }
-        let omitted = self.original_len - self.head.len() - self.tail.len();
-        format!(
-            "{head}\n{}\n{tail}",
-            omitted_marker(omitted, self.original_len)
-        )
-    }
-}
-
-/// Единый формат маркера усечения для терминальных tools (`shell`,
-/// `exec_command`/`write_stdin`).
-fn omitted_marker(omitted: usize, total: usize) -> String {
-    format!("[... omitted {omitted} of {total} bytes ...]")
-}
-
-struct ShellOutput {
-    status: ExitStatus,
-    stdout: BoundedBuffer,
-    stderr: BoundedBuffer,
-}
-
-fn wait_with_timeout(
-    mut child: std::process::Child,
-    timeout: Duration,
-) -> std::io::Result<(ShellOutput, bool)> {
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
-    let stdout_reader = spawn_bounded_reader(stdout);
-    let stderr_reader = spawn_bounded_reader(stderr);
-    let started = Instant::now();
-
-    let (status, timed_out) = loop {
-        if child.try_wait()?.is_some() {
-            break (child.wait()?, false);
-        }
-        if started.elapsed() >= timeout {
-            kill_child_tree(&mut child);
-            break (child.wait()?, true);
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    };
-
-    let stdout = join_reader(stdout_reader)?;
-    let stderr = join_reader(stderr_reader)?;
-    Ok((
-        ShellOutput {
-            status,
-            stdout,
-            stderr,
-        },
-        timed_out,
-    ))
-}
-
-fn spawn_bounded_reader<R>(reader: Option<R>) -> JoinHandle<std::io::Result<BoundedBuffer>>
-where
-    R: Read + Send + 'static,
-{
-    std::thread::spawn(move || {
-        let mut buffer = BoundedBuffer::new();
-        let Some(mut reader) = reader else {
-            return Ok(buffer);
-        };
-        let mut buf = [0u8; 8192];
-        loop {
-            let read = reader.read(&mut buf)?;
-            if read == 0 {
-                break;
-            }
-            buffer.push(&buf[..read]);
-        }
-        Ok(buffer)
-    })
-}
-
-fn join_reader(
-    handle: JoinHandle<std::io::Result<BoundedBuffer>>,
-) -> std::io::Result<BoundedBuffer> {
-    handle
-        .join()
-        .map_err(|_| std::io::Error::other("shell output reader thread panicked"))?
-}
-
-#[cfg(unix)]
-fn kill_child_tree(child: &mut Child) {
-    let pgid = child.id() as i32;
-    unsafe {
-        let _ = libc::kill(-pgid, libc::SIGKILL);
-    }
-    let _ = child.kill();
-}
-
-#[cfg(not(unix))]
-fn kill_child_tree(child: &mut Child) {
-    let _ = child.kill();
 }
 
 pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), ProcessModuleError> {
@@ -826,6 +753,35 @@ mod tests {
         assert_eq!(result["metadata"]["timed_out"], true);
         assert_eq!(result["metadata"]["timeout_ms"], 100);
         assert_eq!(result["error"], "process timed out after 100ms");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cancellation_during_output_drain_kills_background_descendant() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_str().unwrap();
+        let mut child = spawn_shell(
+            "sh -c 'sleep 1; touch late-marker' & printf parent-done",
+            cwd,
+            cwd,
+            None,
+        )
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while child.try_wait().unwrap().is_none() {
+            assert!(Instant::now() < deadline, "parent shell did not exit");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let started = Instant::now();
+        let error = match wait_with_timeout_and_cancel(child, Duration::from_secs(3), &mut || {
+            Ok(started.elapsed() >= Duration::from_millis(100))
+        }) {
+            Ok(_) => panic!("cancel during inherited pipe drain must fail"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::Interrupted);
+        std::thread::sleep(Duration::from_millis(1100));
+        assert!(!dir.path().join("late-marker").exists());
     }
 
     #[test]

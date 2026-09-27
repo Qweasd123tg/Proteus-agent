@@ -4,7 +4,7 @@
 //! sees the shared `search` process contract.
 
 use std::{
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Read},
     path::{Component, Path, PathBuf},
     process::{Command, Stdio},
     sync::mpsc::{self, TryRecvError},
@@ -16,7 +16,7 @@ use proteus_contracts::{
     domain::ContextChunk,
     process_module::{ModuleRegistry, ProcessModuleError, SearchModule, SearchModuleObject},
 };
-use serde_json::json;
+use serde_json::{Value, json};
 
 struct RgSearchModule;
 const RG_TIMEOUT: Duration = Duration::from_secs(60);
@@ -61,7 +61,7 @@ fn run_rg(query: SearchQuery) -> Result<Vec<ContextChunk>, String> {
     Ok(lines
         .iter()
         .map(String::as_str)
-        .filter_map(parse_rg_line)
+        .filter_map(parse_rg_match)
         .filter(|chunk| {
             chunk
                 .path
@@ -75,14 +75,7 @@ fn run_rg(query: SearchQuery) -> Result<Vec<ContextChunk>, String> {
 
 fn build_rg_command(query: &SearchQuery) -> Command {
     let mut command = Command::new("rg");
-    command
-        .arg("--line-number")
-        .arg("--no-heading")
-        .arg("--color=never")
-        .arg("--max-columns")
-        .arg("2000")
-        .arg("--max-filesize")
-        .arg("1M");
+    command.arg("--json").arg("--max-filesize").arg("1M");
     for suffix in &query.ends_with {
         if let Some(glob) = suffix_glob(suffix) {
             command.arg("--glob").arg(glob);
@@ -142,67 +135,138 @@ fn run_rg_limited(
     max_results: usize,
     timeout: Duration,
 ) -> std::io::Result<Vec<String>> {
+    if max_results == 0 {
+        return Ok(Vec::new());
+    }
     let mut child = command
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()?;
     let stdout = child
         .stdout
         .take()
         .ok_or_else(|| std::io::Error::other("failed to open rg stdout"))?;
     let (tx, rx) = mpsc::channel();
+    let stderr = child.stderr.take().expect("piped stderr");
+    let stderr_reader = std::thread::spawn(move || {
+        let mut reader = stderr;
+        let mut captured = Vec::new();
+        let mut buffer = [0u8; 4096];
+        loop {
+            let count = reader.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            if captured.len() < 8192 {
+                captured.extend_from_slice(&buffer[..count.min(8192 - captured.len())]);
+            }
+        }
+        Ok::<_, std::io::Error>(captured)
+    });
     std::thread::spawn(move || {
         let reader = BufReader::new(stdout);
         let mut lines = Vec::new();
         for line in reader.lines() {
-            let line = line?;
-            lines.push(line);
-            if lines.len() >= max_results {
-                break;
+            let line = match line {
+                Ok(line) => line,
+                Err(error) => {
+                    let _ = tx.send(Err(error));
+                    return;
+                }
+            };
+            if parse_rg_match(&line).is_some() {
+                lines.push(line);
+                if lines.len() >= max_results {
+                    let _ = tx.send(Ok((lines, true)));
+                    return;
+                }
             }
         }
-        let _ = tx.send(std::io::Result::Ok(lines));
-        std::io::Result::Ok(())
+        let _ = tx.send(Ok((lines, false)));
     });
 
     let started = Instant::now();
-    loop {
+    let mut pending_lines = None;
+    let result = loop {
         match rx.try_recv() {
-            Ok(lines) => {
+            Ok(Ok((lines, true))) => match child.try_wait()? {
+                Some(status) if !status.success() && status.code() != Some(1) => {
+                    break Err(std::io::Error::other(format!("rg exited with {status}")));
+                }
+                Some(_) => break Ok(lines),
+                None => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break Ok(lines);
+                }
+            },
+            Ok(Ok((lines, false))) => {
+                pending_lines = Some(lines);
+            }
+            Ok(Err(error)) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return lines;
+                break Err(error);
             }
-            Err(TryRecvError::Disconnected) => {
+            Err(TryRecvError::Disconnected) if pending_lines.is_none() => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(std::io::Error::other("rg stdout reader stopped"));
+                break Err(std::io::Error::other("rg stdout reader stopped"));
             }
-            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected | TryRecvError::Empty) => {}
         }
 
-        if let Some(_status) = child.try_wait()? {
-            return rx
-                .recv_timeout(Duration::from_secs(1))
-                .unwrap_or_else(|_| Ok(Vec::new()));
+        if let Some(status) = child.try_wait()?
+            && let Some(lines) = pending_lines.take()
+        {
+            if status.success() || status.code() == Some(1) {
+                break Ok(lines);
+            }
+            break Err(std::io::Error::other(format!("rg exited with {status}")));
         }
         if started.elapsed() >= timeout {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(std::io::Error::new(
+            break Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
                 "rg timed out",
             ));
         }
         std::thread::sleep(Duration::from_millis(10));
-    }
+    };
+    let stderr = stderr_reader
+        .join()
+        .map_err(|_| std::io::Error::other("rg stderr reader panicked"))??;
+    result.map_err(|error| {
+        if stderr.is_empty() {
+            error
+        } else {
+            std::io::Error::new(
+                error.kind(),
+                format!("{error}: {}", String::from_utf8_lossy(&stderr).trim()),
+            )
+        }
+    })
 }
 
-fn parse_rg_line(line: &str) -> Option<ContextChunk> {
-    let mut parts = line.splitn(3, ':');
-    let path = normalize_rg_path(parts.next()?);
-    let line_number = parts.next()?.parse::<usize>().ok()?;
-    let content = parts.next()?.to_owned();
+fn parse_rg_match(line: &str) -> Option<ContextChunk> {
+    let event: Value = serde_json::from_str(line).ok()?;
+    if event.get("type")?.as_str()? != "match" {
+        return None;
+    }
+    let data = event.get("data")?;
+    let path = normalize_rg_path(data.get("path")?.get("text")?.as_str()?);
+    let line_number = data.get("line_number")?.as_u64()?;
+    let line = data
+        .get("lines")?
+        .get("text")?
+        .as_str()?
+        .trim_end_matches(['\n', '\r']);
+    let content = if line.chars().count() > 2000 {
+        "[Omitted long matching line]".to_owned()
+    } else {
+        line.to_owned()
+    };
     Some(
         ContextChunk::new("rg", content)
             .with_path(path.into())
@@ -228,8 +292,8 @@ mod tests {
     };
 
     #[test]
-    fn parse_rg_line_extracts_path_line_and_content() {
-        let chunk = parse_rg_line("src/main.rs:42:let value = 1;").unwrap();
+    fn parse_rg_match_extracts_path_line_and_content() {
+        let chunk = parse_rg_match(r#"{"type":"match","data":{"path":{"text":"src/main.rs"},"lines":{"text":"let value = 1;\n"},"line_number":42}}"#).unwrap();
 
         assert_eq!(chunk.source, "rg");
         assert_eq!(chunk.path.unwrap().display().to_string(), "src/main.rs");
@@ -238,8 +302,8 @@ mod tests {
     }
 
     #[test]
-    fn parse_rg_line_normalizes_current_dir_prefix() {
-        let chunk = parse_rg_line("./src/main.rs:42:let value = 1;").unwrap();
+    fn parse_rg_match_normalizes_current_dir_prefix() {
+        let chunk = parse_rg_match(r#"{"type":"match","data":{"path":{"text":"./src/main.rs"},"lines":{"text":"let value = 1;\n"},"line_number":42}}"#).unwrap();
 
         assert_eq!(chunk.path.unwrap().display().to_string(), "src/main.rs");
     }
@@ -317,6 +381,51 @@ mod tests {
         assert_eq!(paths, ["src/a.txt"]);
 
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn run_rg_preserves_single_file_and_colon_paths() {
+        let dir = temp_workspace();
+        fs::write(dir.join("part:one.txt"), "needle here\n").unwrap();
+        let chunks = run_rg(
+            SearchQuery::new("needle", dir.clone(), 10)
+                .with_path_filters(["part:one.txt"], [] as [&str; 0]),
+        )
+        .unwrap();
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].path.as_ref().unwrap(), Path::new("part:one.txt"));
+        assert_eq!(chunks[0].metadata["line"], 1);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn run_rg_reports_invalid_pattern_but_not_no_matches() {
+        let dir = temp_workspace();
+        fs::write(dir.join("a.txt"), "hello\n").unwrap();
+        assert!(
+            run_rg(SearchQuery::new("absent", dir.clone(), 10))
+                .unwrap()
+                .is_empty()
+        );
+        let error = run_rg(SearchQuery::new("[", dir.clone(), 10)).unwrap_err();
+        assert!(error.contains("regex parse error"), "{error}");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn run_rg_keeps_bounded_location_for_long_matching_line() {
+        let dir = temp_workspace();
+        fs::write(
+            dir.join("long.txt"),
+            format!("needle{}\n", "x".repeat(4000)),
+        )
+        .unwrap();
+        let chunks = run_rg(SearchQuery::new("needle", dir.clone(), 10)).unwrap();
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].path.as_ref().unwrap(), Path::new("long.txt"));
+        assert_eq!(chunks[0].metadata["line"], 1);
+        assert_eq!(chunks[0].content, "[Omitted long matching line]");
+        fs::remove_dir_all(dir).unwrap();
     }
 
     fn temp_workspace() -> std::path::PathBuf {
