@@ -322,8 +322,9 @@ impl AgentRuntime {
                 )
                 .await?;
         }
-        let mut workflow_context =
-            self.bind_agent_workflow_context(execution_scope, &snapshot, turn_id);
+        let mut workflow_context = self
+            .bind_agent_workflow_context(execution_scope, &snapshot, turn_id)
+            .await?;
         workflow_context.queued_user_messages = self.session.steering.queued_count_handle();
         workflow_context.intent = reserved.intent;
         workflow_context.permission_mode = snapshot.permission_mode;
@@ -345,6 +346,7 @@ impl AgentRuntime {
             ),
             store: self.session.session_store.clone(),
             history: self.session.history.clone(),
+            model_context: self.session.model_context.clone(),
             initial_history: history.clone(),
             current_user: user_message.clone(),
             steering: steering_model.clone(),

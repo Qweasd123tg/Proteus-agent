@@ -367,6 +367,7 @@ impl ExportWorker {
                 thread_id: input.runtime.thread_id,
                 turn_id: input.runtime.turn_id,
                 model_ref: input.runtime.model_ref,
+                model_context: input.runtime.model_context,
                 instructions: input.runtime.instructions,
                 reasoning: input.runtime.reasoning,
                 max_input_tokens: input.runtime.max_input_tokens,

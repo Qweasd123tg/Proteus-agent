@@ -12,6 +12,7 @@ pub(crate) mod core_slots;
 mod eval_report;
 mod event_store;
 mod model_call_scope;
+mod model_context;
 mod model_service;
 mod module_catalog;
 mod permission_mode;

@@ -18,7 +18,7 @@ Baseline: `openai/codex` commit
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v14`, `compactor/v9`, journal schema v14 и config snapshot v4.
+Действующие версии: `workflow/v15`, `compactor/v9`, journal schema v14 и config snapshot v4.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,
@@ -239,7 +239,7 @@ parser, все формы команд и event lifecycle этим срезом 
 
 ### Продолжение После Модельной Ошибки
 
-`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v14`
+`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v15`
 failure envelope. Core сохраняет их до `TurnSettled(Error)`: следующий turn
 получает завершённые assistant items и tool results с исходными call ids.
 
@@ -252,13 +252,27 @@ model items и tool calls, `core/src/session/turn.rs` — завершённые
 Для обычного sampling `ContextWindowExceeded` завершает текущий запрос без
 повтора и в [закреплённом Codex](https://github.com/openai/codex/blob/67cc3c318dc8b5532db6ade4182b1dc6f3870889/codex-rs/core/src/session/turn.rs#L1425-L1429),
 и в [Proteus](../../modules/reference/coding-workflow/src/codex_sampling.rs).
-Codex при этом помечает окно заполненным: [preflight следующего turn](https://github.com/openai/codex/blob/67cc3c318dc8b5532db6ade4182b1dc6f3870889/codex-rs/core/src/session/turn.rs#L1032-L1061)
-использует этот сигнал для compaction. Proteus его между turns пока не переносит:
-[workflow](../../modules/reference/coding-workflow/src/codex_loop.rs) начинает с
-`last_usage = None`, а [compactor](../../modules/reference/codex-compactor/src/compaction.rs)
-решает по локальной оценке и может пропустить сжатие при значении ниже порога.
-Это статическое сравнение исходников, без live или differential проверки этого
-сценария; сохранение tool history при таком overflow отдельно не проверялось.
+Codex при этом обновляет context accounting: [preflight следующего turn](https://github.com/openai/codex/blob/67cc3c318dc8b5532db6ade4182b1dc6f3870889/codex-rs/core/src/session/turn.rs#L1032-L1061)
+проверяет сохранённую оценку. Proteus передаёт факты предыдущих запросов через
+`runtime.model_context` общего `workflow/v15`. [Расчёт в модуле](../../modules/reference/coding-workflow/src/model_context.rs)
+повторяет `fill_to_context_window`: при известном raw window usable равен 95%,
+новая last-оценка — `max(usable - cumulative, 0)`, cumulative становится usable.
+Повторное переполнение того же окна может дать нулевую last-оценку: это не
+безусловная команда сжать историю. При неизвестном окне новое наблюдение не
+создаётся. Ответ с реальным usage или принятая compaction снимают overflow hint;
+ответ без usage сохраняет его. После смены модели compactor применяет текущие
+лимиты к сохранённой оценке. Синтетические токены не попадают в usage/cost.
+
+[Process regression](../../modules/reference/process-worker/tests/codex_model_resume/context_overflow.rs)
+проверяет `write_file → overflow → Error → новый turn → summary → Success`:
+ровно четыре HTTP-запроса, единственное исполнение tool, реальный usage,
+продолжение с session store и без него, отдельный cold process, journal/replay
+обоих turns и cold history. При window 100000, trigger 90000 и usage 110
+сохранённая оценка вызывает summary, хотя локальная оценка ниже порога.
+Это fixture с локальным HTTP-сервером, не live provider или полный differential
+gate Codex. Текущий оценщик Proteus использует максимум локальной оценки и
+overflow hint; полная upstream-семантика оценки reasoning/items, model
+`comp_hash` и финального overflow внутри summary этим сценарием не покрывается.
 
 [SSE regression](../../modules/reference/process-worker/tests/codex_model_resume/partial_sse_recovery.rs)
 проверяет завершённые assistant message items, за которыми следует обрыв до

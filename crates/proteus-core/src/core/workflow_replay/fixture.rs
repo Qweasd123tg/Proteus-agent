@@ -22,6 +22,7 @@ use model_exchanges::select_exchanges;
 
 #[derive(Debug, Clone)]
 pub(super) struct WorkflowReplayFixture {
+    pub model_context: Vec<crate::contracts::ModelContextObservation>,
     pub checkpoints: Vec<super::replay_runtime::RecordedCheckpoint>,
     pub journal_path: std::path::PathBuf,
     pub session_id: SessionId,
@@ -92,6 +93,12 @@ pub(super) fn load_fixture(
         .map(|exchange| recorded_context(&exchange.request, &settlement));
 
     Ok(WorkflowReplayFixture {
+        model_context: crate::core::model_context::ModelContextState::from_records(
+            &projection.records,
+            thread_id,
+            Some(turn_id),
+        )
+        .snapshot(),
         checkpoints: super::replay_runtime::recorded_checkpoints(
             &projection.records,
             thread_id,

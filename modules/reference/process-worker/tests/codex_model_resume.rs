@@ -20,6 +20,8 @@ use tokio::{
     process::Command,
 };
 
+#[path = "codex_model_resume/context_overflow.rs"]
+mod context_overflow;
 #[path = "codex_model_resume/crash_recovery.rs"]
 #[cfg(unix)]
 mod crash_recovery;

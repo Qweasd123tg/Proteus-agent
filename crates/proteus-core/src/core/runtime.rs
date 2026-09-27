@@ -137,6 +137,7 @@ struct SessionState {
     run_lock: Mutex<()>,
     session_started: Mutex<bool>,
     history: Arc<Mutex<Vec<CanonicalMessage>>>,
+    model_context: Arc<Mutex<super::model_context::ModelContextState>>,
     session_store: Option<SessionStore>,
     steering: Arc<SessionSteering>,
 }
@@ -155,6 +156,7 @@ impl SessionState {
             run_lock: Mutex::new(()),
             session_started: Mutex::new(session_started),
             history: Arc::new(Mutex::new(history)),
+            model_context: Default::default(),
             session_store,
             steering: Arc::new(SessionSteering::default()),
         }
@@ -358,6 +360,7 @@ impl AgentRuntime {
         if let Some(session_store) = &self.session.session_store {
             session_store.clear_history(self.session.thread_id).await?;
         }
+        *self.session.model_context.lock().await = Default::default();
         Ok(())
     }
 

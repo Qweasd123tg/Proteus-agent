@@ -934,7 +934,7 @@ compactions должна завершаться сохранённым conversat
 resume используют сокращённое представление. Runtime атомарно заменяет историю
 этим snapshot-ом и затем дописывает `new_messages`.
 
-`workflow/v14` также позволяет вернуть `WorkflowFailure` с накопленным history
+`workflow/v15` также позволяет вернуть `WorkflowFailure` с накопленным history
 update. Core проверяет и сохраняет его до settlement со статусом `Error`.
 `coding.codex_loop` использует этот путь: если tool завершился, а следующий
 model call упал, новый turn получает прежний call/result и после перезапуска
@@ -944,6 +944,14 @@ runtime. Если до ошибки пришли завершённые assistan
 после compaction можно сохранить без нового
 ответа. Автоматического повтора tool или продолжения workflow с места падения
 этот механизм не выполняет.
+
+При обычном `ContextWindowExceeded` текущий turn остаётся `Error`.
+`coding.codex_loop` учитывает сохранённое заполнение известного окна при
+preflight следующего turn, в том числе после cold resume. Если оценка достигает
+текущего порога compactor, summary выполняется перед обычным model request.
+Неизвестное окно само по себе не включает принудительное сжатие. Это отдельная
+оценка контекста: provider usage и стоимость не увеличиваются из-за ошибки.
+Подробности и граница parity — в [Codex baseline](../development/codex-baseline.md).
 
 Workflow может раньше подтвердить progress через `host.history.checkpoint`.
 В `coding.codex_loop` это происходит для каждого completed model item, включая

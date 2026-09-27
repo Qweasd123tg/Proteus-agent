@@ -19,7 +19,7 @@ authority(module) = authority(slot, invocation_context)
 ```
 
 Все внешние modules являются exports process components: Component Runtime v2
-использует wire protocol v3; `workflow` использует strict contract v14,
+использует wire protocol v3; `workflow` использует strict contract v15,
 `compactor` — v9, `model` — v9; версии остальных slots приведены в authority table
 [process-module-architecture.md](process-module-architecture.md). Runtime допускает
 несколько одновременных и вложенных invocation одного component. Dylib ABI и
@@ -143,7 +143,7 @@ journal остаются host-owned.
 `runtime.permission_mode`; Core не знает их инструкций. Подробности и команды —
 в [runtime-and-events.md](../guides/runtime-and-events.md).
 
-`workflow/v14` возвращает success с `WorkflowOutput` либо error с
+`workflow/v15` возвращает success с `WorkflowOutput` либо error с
 `WorkflowFailure`. Ошибка может явно вернуть выполненную часть истории через
 `WorkflowHistoryUpdate`; Core проверяет её и сохраняет до terminal `Error`.
 `coding.codex_loop` использует этот путь после сбоя model call, включая
@@ -191,7 +191,7 @@ Checkpoint связывает исходный call в history с явно об�
 исполнение без преобразования. Подмена module не требует имени Codex в host.
 
 `coding.project_check` — reference code-heavy controller на том же
-`workflow/v14`. Он детерминированно вызывает `git_status`, определяет project по
+`workflow/v15`. Он детерминированно вызывает `git_status`, определяет project по
 root marker, запускает фиксированную test command и обращается к model только
 один раз для объяснения failed test. Success path не вызывает model, context
 или compactor. Это architecture probe, не default workflow и не special
@@ -282,7 +282,7 @@ model history. При `changed = false` сообщения должны совп
 input/output. `metadata` — непрозрачные данные module, не источник этих полей.
 
 Тот же DTO возвращает workflow callback `host.history.compact`; актуальные
-границы — `compactor/v9` и `workflow/v14`, прежние slot versions не принимаются.
+границы — `compactor/v9` и `workflow/v15`, прежние slot versions не принимаются.
 Wire protocol остаётся v3, журнал использует schema v14.
 Workflow replay сохраняет typed поля `HistoryCompactionReport` и весь `metadata`, не подмешивая и не
 удаляя ключи с известными именами. Core помечает внутренний model callback

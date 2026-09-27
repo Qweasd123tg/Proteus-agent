@@ -13,6 +13,7 @@ use crate::{
     codex_tools::CodexToolRun,
     host::{emit_event, request_from_state_with_instruction_blocks},
     metadata::output_metadata_with_extra,
+    model_context::ModelContextAccounting,
     output_text::message_text,
     scaffold::{PersistentRepair, TurnScaffold},
     token_accounting::LastModelUsage,
@@ -60,6 +61,8 @@ fn run_loop(
 ) -> Result<(String, Value), ProcessModuleError> {
     let mut tools = CodexToolRun::default();
     let mut last_usage: Option<LastModelUsage> = None;
+    let mut context_hint = ModelContextAccounting::from_observations(&input.runtime.model_context)
+        .overflow_estimate_hint();
 
     loop {
         let prepared = request_from_state_with_instruction_blocks(
@@ -70,6 +73,7 @@ fn run_loop(
             None,
             "codex_loop",
             last_usage.as_ref(),
+            context_hint,
         )?;
         if turn.apply_compaction_report(
             prepared.compaction.as_ref(),
@@ -77,6 +81,7 @@ fn run_loop(
             PersistentRepair::ReplaceAfter,
         )? {
             last_usage = None;
+            context_hint = None;
             turn.checkpoint(host, &[])?;
         }
         let mut request = prepared.request;
@@ -95,6 +100,7 @@ fn run_loop(
         let model_requests_follow_up = response.end_turn == Some(false);
         let assistant_message = response_output_message("codex_loop", &response)?.clone();
         if let Some(usage) = response.usage.clone() {
+            context_hint = None;
             last_usage = Some(LastModelUsage {
                 usage,
                 message_count: turn

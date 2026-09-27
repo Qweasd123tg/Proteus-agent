@@ -31,6 +31,7 @@ struct RequestOptions<'a> {
     expose_tools: bool,
     include_dynamic_meta_tools: bool,
     last_usage: Option<&'a LastModelUsage>,
+    context_hint: Option<u32>,
 }
 
 pub(super) fn request_from_state(
@@ -57,6 +58,7 @@ pub(super) fn request_from_state(
             expose_tools: true,
             include_dynamic_meta_tools: phase != "review",
             last_usage,
+            context_hint: None,
         },
     )
 }
@@ -69,6 +71,7 @@ pub(super) fn request_from_state_with_instruction_blocks(
     developer_instructions: Option<&str>,
     phase: &str,
     last_usage: Option<&LastModelUsage>,
+    context_hint: Option<u32>,
 ) -> Result<PreparedRequest, ProcessModuleError> {
     request_from_state_with_instruction_blocks_and_options(
         input,
@@ -81,6 +84,7 @@ pub(super) fn request_from_state_with_instruction_blocks(
             expose_tools: true,
             include_dynamic_meta_tools: phase != "review",
             last_usage,
+            context_hint,
         },
     )
 }
@@ -137,7 +141,14 @@ fn request_from_state_with_instruction_blocks_and_options(
     // TokenUsageUpdated нёс max_input_tokens (хост-шейпер правит свою копию
     // уже после того, как module собрал снимок, поэтому делаем это здесь).
     request.limits.max_input_tokens = input.runtime.max_input_tokens;
-    let compacted = compact_messages(input, host, &request, phase, options.last_usage)?;
+    let compacted = compact_messages(
+        input,
+        host,
+        &request,
+        phase,
+        options.last_usage,
+        options.context_hint,
+    )?;
     request.messages = compacted.messages;
     // Порог автокомпакта считает компактор (он владеет конфигом), а возвращает
     // его в отчёте. Кладём в metadata запроса, чтобы снимок взял именно его —
@@ -180,11 +191,19 @@ fn compact_messages(
     request: &CanonicalModelRequest,
     reason: &str,
     last_usage: Option<&LastModelUsage>,
+    context_hint: Option<u32>,
 ) -> Result<CompactedMessages, ProcessModuleError> {
     ensure_not_cancelled(host)?;
+    let token_estimate = [
+        effective_token_estimate(&request.messages, last_usage),
+        context_hint,
+    ]
+    .into_iter()
+    .flatten()
+    .max();
     let compaction_input = CompactionInput::new(input.task.clone(), request.clone())
         .with_reason(reason)
-        .with_token_estimate(effective_token_estimate(&request.messages, last_usage))
+        .with_token_estimate(token_estimate)
         .with_window_tokens(input.runtime.max_input_tokens);
     let input_json = to_json_string(&compaction_input)?;
     let output_json = match host.compact_history_json(String::from(input_json)) {

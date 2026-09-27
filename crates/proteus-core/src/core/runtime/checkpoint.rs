@@ -25,6 +25,7 @@ pub(super) struct TurnHistoryRecorder {
     pub(super) attribution: ExecutionAttribution,
     pub(super) store: Option<SessionStore>,
     pub(super) history: Arc<Mutex<Vec<CanonicalMessage>>>,
+    pub(super) model_context: Arc<Mutex<crate::core::model_context::ModelContextState>>,
     pub(super) initial_history: Vec<CanonicalMessage>,
     pub(super) current_user: CanonicalMessage,
     pub(super) steering: SteeringModel,
@@ -74,10 +75,13 @@ impl WorkflowHistoryRecorder for TurnHistoryRecorder {
                     agent.thread_id,
                     agent.turn_id,
                     &prepared.final_messages,
-                    compaction,
+                    compaction.clone(),
                     checkpoint.tool_results,
                 )
                 .await?;
+        }
+        if compaction.is_some() {
+            self.model_context.lock().await.compacted();
         }
         *history = next_history;
         *capture = next_capture;

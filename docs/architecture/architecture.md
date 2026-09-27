@@ -339,7 +339,7 @@ approval и ошибку инструмента; исходные tools и model
 Probe одновременно локализует оставшийся coupling, не разрешая новую Core
 migration автоматически:
 
-- `workflow/v14` input и tool callback всё ещё требуют agent-shaped
+- `workflow/v15` input и tool callback всё ещё требуют agent-shaped
   `AgentTask`, а invocation несёт history и session/thread/turn ids;
 - `AppConfig` всё ещё требует active model даже для model-free success path.
 

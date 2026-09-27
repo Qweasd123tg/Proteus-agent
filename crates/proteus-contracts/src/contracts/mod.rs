@@ -28,6 +28,7 @@ pub mod tool_provider;
 pub mod user_input;
 pub mod workflow;
 pub mod workflow_checkpoint;
+pub mod workflow_context;
 pub mod workflow_failure;
 pub mod workflow_stream;
 
@@ -56,5 +57,6 @@ pub use tool_provider::*;
 pub use user_input::*;
 pub use workflow::*;
 pub use workflow_checkpoint::*;
+pub use workflow_context::*;
 pub use workflow_failure::*;
 pub use workflow_stream::*;

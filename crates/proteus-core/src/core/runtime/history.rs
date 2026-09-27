@@ -168,6 +168,9 @@ impl super::AgentRuntime {
                     .await?;
             }
         }
+        if suffix.is_none() {
+            self.session.model_context.lock().await.compacted();
+        }
         *history = update.final_messages;
         Ok(())
     }

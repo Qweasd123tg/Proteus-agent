@@ -14,6 +14,7 @@ mod history;
 mod host;
 mod intents;
 mod metadata;
+mod model_context;
 mod output_text;
 mod project_check;
 mod scaffold;

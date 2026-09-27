@@ -615,6 +615,7 @@ fn workflow_worker_runs_a_complete_callback_driven_turn() {
             thread_id: new_thread_id(),
             turn_id: new_turn_id(),
             model_ref: ModelRef::new("fake", "fake-model"),
+            model_context: Vec::new(),
             instructions: Vec::new(),
             reasoning: ReasoningConfig::default(),
             max_input_tokens: Some(8_192),
@@ -834,6 +835,7 @@ fn workflow_input(workspace: &Path) -> Value {
             thread_id: new_thread_id(),
             turn_id: new_turn_id(),
             model_ref: ModelRef::new("fake", "fake-model"),
+            model_context: Vec::new(),
             instructions: Vec::new(),
             reasoning: ReasoningConfig::default(),
             max_input_tokens: Some(8_192),
@@ -848,7 +850,7 @@ fn workflow_input(workspace: &Path) -> Value {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn targeted_cancel_keeps_concurrent_sibling_and_generation_alive() {
     let workspace = tempfile::tempdir().expect("workspace");
-    let workflow = ProcessExportBinding::new("workflow", "coding.single_loop", "v14", json!({}))
+    let workflow = ProcessExportBinding::new("workflow", "coding.single_loop", "v15", json!({}))
         .expect("workflow binding");
     let workflow_target = workflow.export_ref();
     let policy =

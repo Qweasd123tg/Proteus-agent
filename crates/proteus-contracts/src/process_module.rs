@@ -227,6 +227,7 @@ pub struct WorkflowModuleRuntimeInfo {
     pub thread_id: ThreadId,
     pub turn_id: TurnId,
     pub model_ref: ModelRef,
+    pub model_context: Vec<crate::contracts::ModelContextObservation>,
     #[serde(default)]
     pub instructions: Vec<InstructionBlock>,
     /// Opaque action name interpreted by the selected workflow.

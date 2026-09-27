@@ -272,7 +272,7 @@ invalid DTO и превышение limits являются fail-closed protocol
 | context | v2 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
 | model | v9 | `describe`, `catalog`, `quota`, `stream` | `host.model.emit` (acknowledged canonical events) |
 | compactor | v9 | `compact` | `host.model.complete` |
-| workflow | v14 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
+| workflow | v15 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
 
 Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
@@ -287,14 +287,28 @@ constructor задаёт `false`, worker JSON обязан передать по
 версии этих contracts и ToolSpec без поля не принимаются. Wire остаётся v3;
 параллельность вызовов не меняет composition slot-а и его host authority.
 
-`workflow/v14` передаёт в `runtime` непрозрачный `intent: string | null` и
+`workflow/v15` передаёт в `runtime` непрозрачный `intent: string | null` и
 эффективный `permission_mode` запуска. Семантику имени определяет выбранный
 workflow; неподдерживаемое намерение должно давать явную ошибку, а не обычный
 запуск с проигнорированными параметрами. Поле не расширяет authority: host
 связывает policy с тем же immutable admission snapshot. `TurnOpened.intent`
 записывается в journal v14 и восстанавливается при replay.
 
-`workflow/v14` возвращает strict terminal envelope: `status = "success"` с
+Обязательное `runtime.model_context` содержит упорядоченные типизированные
+факты предыдущих root turns этого thread: `usage { total_tokens, last_tokens }`,
+`context_window_exceeded { max_input_tokens }` и `history_compacted`.
+Соседние usage объединяются: `total_tokens` — сумма реальных input+output
+этой группы, `last_tokens` — последний ответ. Успешный summary также даёт
+реальный usage; overflow учитывается только для обычного model request с
+известным окном. Ошибки compactor не становятся обычным overflow.
+Core восстанавливает факты из существующих model/history records, исключая
+другие threads и detached/nested executions; replay берёт префикс до выбранного
+`TurnOpened`. Без session store те же факты хранятся в памяти. Очистка истории
+сбрасывает их. Смена модели сама по себе не удаляет предыдущие наблюдения.
+Расчёт оценок и выбор compaction принадлежат workflow/compactor, а не Core.
+Эта поверхность не записывает синтетические значения в provider `TokenUsage`.
+
+`workflow/v15` возвращает strict terminal envelope: `status = "success"` с
 `result: WorkflowOutput` либо `status = "error"` с `failure: WorkflowFailure`.
 Ошибка алгоритма может содержать `history: WorkflowHistoryUpdate` — завершённые
 `new_messages`, optional `history_replacement` и `compactions`; `model_failure`
@@ -341,7 +355,7 @@ tools. Запрос без результата остаётся неизвес�
 
 ## Model Stream В Workflow
 
-`workflow/v14` предоставляет всем exports два callbacks:
+`workflow/v15` предоставляет всем exports два callbacks:
 
 - `host.model.stream.start(WorkflowCompleteModelRequest) -> { stream_id }`;
 - `host.model.stream.next({ stream_id }) -> WorkflowModelStreamItem` с
@@ -625,7 +639,7 @@ event; это причина, а не команда Core повторить з�
 без завершения, сохраняя остальные
 ошибки данных и deadline отдельными. Codex workflow принимает решение о повторе
 с подтверждённой историей; compactor сохраняет свою политику повторов.
-Действуют `model/v9`, `workflow/v14`, `compactor/v9` и journal schema v14,
+Действуют `model/v9`, `workflow/v15`, `compactor/v9` и journal schema v14,
 без readers старых форм.
 Передача `ToolCall` в существующем `CanonicalMessage` не меняет wire/storage DTO.
 

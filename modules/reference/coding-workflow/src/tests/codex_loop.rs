@@ -1,4 +1,77 @@
 use super::*;
+use proteus_contracts::contracts::ModelContextObservation;
+
+#[test]
+fn codex_loop_carries_overflow_estimate_until_provider_reports_usage() {
+    let mut input = workflow_input("continue");
+    input.runtime.model_context = vec![
+        ModelContextObservation::Usage {
+            total_tokens: 400,
+            last_tokens: 150,
+        },
+        ModelContextObservation::ContextWindowExceeded {
+            max_input_tokens: 1_000,
+        },
+    ];
+    // The next model may have a different window; it must not clear the old
+    // observation, while the compactor sees the current model's limit.
+    input.runtime.max_input_tokens = Some(16_000);
+    let responses = vec![
+        CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "continue without usage"),
+            Vec::new(),
+            FinishReason::Stop,
+        )
+        .with_end_turn(false),
+        CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "usage arrived"),
+            Vec::new(),
+            FinishReason::Stop,
+        )
+        .with_usage(TokenUsage::new(20, 5))
+        .with_end_turn(false),
+        CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "done"),
+            Vec::new(),
+            FinishReason::Stop,
+        ),
+    ];
+    let mut host = FakeHost::with_responses(responses);
+    CodingCodexLoopWorkflow
+        .run_json(serde_json::to_string(&input).unwrap(), &mut host)
+        .expect("workflow succeeds");
+
+    let compactions = host.compactions.lock().expect("compactions");
+    assert_eq!(compactions.len(), 3);
+    assert_eq!(compactions[0].window_tokens, Some(16_000));
+    assert_eq!(compactions[0].token_estimate, Some(550));
+    assert_eq!(compactions[1].token_estimate, Some(550));
+    assert!(compactions[2].token_estimate.unwrap() < 550);
+}
+
+#[test]
+fn repeated_overflow_does_not_force_compaction_estimate() {
+    let mut input = workflow_input("continue");
+    input.runtime.model_context = vec![
+        ModelContextObservation::ContextWindowExceeded {
+            max_input_tokens: 1_000,
+        },
+        ModelContextObservation::ContextWindowExceeded {
+            max_input_tokens: 1_000,
+        },
+    ];
+    let mut host = FakeHost::default();
+    CodingCodexLoopWorkflow
+        .run_json(serde_json::to_string(&input).unwrap(), &mut host)
+        .expect("workflow succeeds");
+
+    let compactions = host.compactions.lock().expect("compactions");
+    let prepared = &compactions[0];
+    assert_eq!(
+        prepared.token_estimate,
+        estimate_message_tokens(&prepared.request.messages)
+    );
+}
 
 #[test]
 fn codex_loop_runs_tool_round_then_stops_on_non_tool_response() {
