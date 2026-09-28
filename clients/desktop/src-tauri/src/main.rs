@@ -14,10 +14,7 @@ use std::{
     },
     time::Duration,
 };
-use tauri::{
-    AppHandle, Manager,
-    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
-};
+use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 struct DesktopState {
@@ -137,6 +134,24 @@ async fn open_client(
     windows::client(&app, &label, &connection, session_dir.as_deref()).map_err(display_error)
 }
 
+#[tauri::command]
+fn open_project(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("launcher") {
+        window
+            .eval("location.reload()")
+            .map_err(|error| error.to_string())?;
+    }
+    windows::launcher(&app).map_err(display_error)
+}
+
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    app.state::<DesktopState>()
+        .stopping
+        .store(true, Ordering::Relaxed);
+    app.exit(0);
+}
+
 fn display_error(error: anyhow::Error) -> String {
     format!("{error:#}")
 }
@@ -154,23 +169,6 @@ fn setup(app: &mut tauri::App) -> Result<()> {
         error: Mutex::new(install_error),
         stopping: AtomicBool::new(false),
     });
-    let project = MenuItem::with_id(
-        app,
-        "project",
-        "Открыть проект…",
-        true,
-        Some("CmdOrCtrl+Shift+O"),
-    )?;
-    let inspector = MenuItem::with_id(
-        app,
-        "inspector",
-        "Inspector",
-        true,
-        Some("CmdOrCtrl+Shift+I"),
-    )?;
-    let quit = PredefinedMenuItem::quit(app, Some("Выйти из Proteus"))?;
-    let submenu = Submenu::with_items(app, "Proteus", true, &[&project, &inspector, &quit])?;
-    app.set_menu(Menu::with_items(app, &[&submenu])?)?;
     windows::launcher(app.handle())?;
     let handle = app.handle().clone();
     std::thread::spawn(move || {
@@ -215,26 +213,11 @@ fn main() {
             launcher_state,
             choose_workspace,
             start_agent,
-            open_client
+            open_client,
+            open_project,
+            quit_app
         ])
         .setup(|app| setup(app).map_err(Into::into))
-        .on_menu_event(|app, event| match event.id().as_ref() {
-            "project" => {
-                if let Some(window) = app.get_webview_window("launcher") {
-                    let _ = window.eval("location.reload()");
-                }
-                let _ = windows::launcher(app);
-            }
-            "inspector" => {
-                let app = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    if let Err(error) = open_client(app, "inspector".to_owned(), None).await {
-                        eprintln!("Не удалось открыть Inspector: {error}");
-                    }
-                });
-            }
-            _ => {}
-        })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 match window.label() {

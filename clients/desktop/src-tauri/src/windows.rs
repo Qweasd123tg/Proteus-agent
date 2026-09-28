@@ -3,6 +3,14 @@ use proteus_client_common::{desktop::DesktopConnection, selected_session_storage
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_opener::OpenerExt;
 
+const CHROME_BOOTSTRAP: &str = r#"
+document.addEventListener('DOMContentLoaded', () => {
+    const script = document.createElement('script');
+    script.type = 'module'; script.src = '/window-chrome.js';
+    document.head.append(script);
+}, { once: true });
+"#;
+
 pub fn focus(app: &AppHandle, label: &str) -> Result<()> {
     let window = app
         .get_webview_window(label)
@@ -19,6 +27,8 @@ pub fn launcher(app: &AppHandle) -> Result<()> {
     }
     WebviewWindowBuilder::new(app, "launcher", WebviewUrl::App("launcher.html".into()))
         .title("Proteus — открыть проект")
+        .decorations(false)
+        .initialization_script(CHROME_BOOTSTRAP)
         .inner_size(640.0, 560.0)
         .min_inner_size(520.0, 440.0)
         .build()?;
@@ -63,7 +73,9 @@ pub fn client(
         .title(format!("{title} — {}", connection.workspace))
         .inner_size(1440.0, 940.0)
         .min_inner_size(860.0, 600.0)
+        .decorations(false)
         .initialization_script(bootstrap)
+        .initialization_script(CHROME_BOOTSTRAP)
         .on_new_window(move |url, _| {
             if matches!(url.scheme(), "http" | "https" | "mailto") {
                 let _ = new_window_opener

@@ -1,0 +1,38 @@
+html[data-desktop-chrome] { --desktop-chrome-height: 40px; }
+html[data-desktop-chrome] body { padding-top: var(--desktop-chrome-height); }
+html[data-desktop-chrome] :is(.app-layout, .inspector-shell) { height: calc(100dvh - var(--desktop-chrome-height)); }
+.desktop-titlebar { position: fixed; inset: 0 0 auto; z-index: 100; height: var(--desktop-chrome-height); display: flex; align-items: center; gap: 10px; padding: 0 4px 0 8px; background: var(--bg-panel, #181825); color: var(--text-main, #cdd6f4); font: 13px system-ui, sans-serif; user-select: none; }
+.desktop-titlebar button, .desktop-titlebar summary { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 28px; height: 28px; padding: 0 9px; border: 0; border-radius: 7px; background: transparent; color: inherit; font: inherit; cursor: pointer; box-shadow: none; transform: none; }
+.desktop-titlebar :is(button, summary):hover { background: var(--bg-hover, #2b2b3d); }
+.desktop-titlebar :is(button, summary):focus-visible { outline: 2px solid var(--accent-blue, #b4befe); outline-offset: -2px; }
+.desktop-app-menu { position: relative; flex: none; }
+.desktop-app-menu summary { list-style: none; font-weight: 600; }
+.desktop-app-menu summary::-webkit-details-marker { display: none; }
+.desktop-app-menu-panel { position: absolute; z-index: 3; top: 34px; left: 0; min-width: 280px; padding: 6px; border: 1px solid var(--border-subtle, #36364b); border-radius: 12px; background: var(--bg-popover, #29293c); box-shadow: 0 12px 30px #0005; }
+.desktop-app-menu-panel button { width: 100%; justify-content: space-between; height: 36px; }
+.desktop-app-menu-panel kbd { color: var(--text-muted, #a6adc8); font: 11px system-ui, sans-serif; }
+.desktop-window-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted, #a6adc8); padding-left: 10px; }
+.desktop-window-controls { margin-left: auto; display: flex; gap: 3px; flex: none; }
+.desktop-window-controls button { width: 36px; padding: 0; }
+.desktop-window-controls svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.2; }
+.desktop-window-controls [data-action=close]:hover { background: #b7354c; color: white; }
+.desktop-titlebar .restore-icon, .desktop-titlebar.maximized .maximize-icon { display: none; }
+.desktop-titlebar.maximized .restore-icon { display: initial; }
+.desktop-window-error { position: absolute; top: 42px; right: 8px; max-width: min(480px, 90vw); padding: 10px; border-radius: 8px; color: #f38ba8; background: #29293c; user-select: text; }
+/* The existing client header occupies the middle of the native titlebar.
+   It is removed from normal flow, so this is one row, not two stacked bars. */
+html[data-desktop-chrome] :is(.topbar, .inspector-topbar) { position: fixed; z-index: 101; top: 0; left: 112px; right: 126px; height: var(--desktop-chrome-height); min-height: 0; margin: 0; padding: 0 12px; background: transparent; border: 0; }
+html[data-desktop-chrome]:has(.topbar, .inspector-topbar) .desktop-window-title { visibility: hidden; }
+html[data-desktop-chrome] .topbar .brand { font-size: 13px; }
+.desktop-resize-edges > div { position: fixed; z-index: 200; }
+.desktop-resize-edges [data-direction=North] { top: 0; left: 7px; right: 7px; height: 4px; cursor: n-resize; }
+.desktop-resize-edges [data-direction=South] { bottom: 0; left: 7px; right: 7px; height: 4px; cursor: s-resize; }
+.desktop-resize-edges [data-direction=East] { right: 0; top: 7px; bottom: 7px; width: 4px; cursor: e-resize; }
+.desktop-resize-edges [data-direction=West] { left: 0; top: 7px; bottom: 7px; width: 4px; cursor: w-resize; }
+.desktop-resize-edges [data-direction=NorthEast] { right: 0; top: 0; width: 7px; height: 7px; cursor: ne-resize; }
+.desktop-resize-edges [data-direction=NorthWest] { left: 0; top: 0; width: 7px; height: 7px; cursor: nw-resize; }
+.desktop-resize-edges [data-direction=SouthEast] { right: 0; bottom: 0; width: 7px; height: 7px; cursor: se-resize; }
+.desktop-resize-edges [data-direction=SouthWest] { left: 0; bottom: 0; width: 7px; height: 7px; cursor: sw-resize; }
+.desktop-maximized .desktop-resize-edges { display: none; }
+.desktop-fullscreen { --desktop-chrome-height: 0px !important; }
+.desktop-fullscreen :is(.desktop-titlebar, .topbar, .inspector-topbar) { display: none; }

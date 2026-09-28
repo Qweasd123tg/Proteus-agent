@@ -65,7 +65,12 @@ def stop(process):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--niri", action="store_true", help="Use current niri/Wayland with ydotool; open, resize and close Inspector")
+    parser.add_argument("--chrome", action="store_true", help="Click the native titlebar in isolated Xvfb")
+    parser.add_argument("--package", type=Path, help="Portable package directory (including debug packages)")
     options = parser.parse_args()
+    if options.chrome:
+        assert not options.niri, "--chrome uses isolated Xvfb"
+        assert shutil.which("xdotool"), "--chrome requires xdotool"
     if options.niri:
         assert os.environ.get("WAYLAND_DISPLAY"), "--niri requires the current Wayland session"
         assert all(shutil.which(tool) for tool in ["niri", "ydotool", "ydotoold"]), "--niri requires niri, ydotool and ydotoold"
@@ -74,7 +79,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="proteus-native-smoke-") as temporary:
         root = Path(temporary)
         app = root / "relocated"
-        shutil.copytree(desktop / "build/Proteus", app, symlinks=True)
+        shutil.copytree(options.package or desktop / "build/Proteus", app, symlinks=True)
         project = root / "project"
         project.mkdir()
         events = root / "events.jsonl"
@@ -115,6 +120,9 @@ path = ''' + json.dumps(str(events)) + "\n")
                         raise AssertionError("Native application exited during startup")
                     if events.exists() and any("SessionStarted" in json.loads(line).get("event", {}) for line in events.read_text().splitlines()):
                         print("PASS: relocated native app → saved project → packaged backend → Leptos SSE SessionStarted")
+                        if options.chrome:
+                            from native_smoke_chrome import exercise
+                            exercise(application, env)
                         if options.niri:
                             from native_smoke_niri import exercise
                             exercise(application, project)

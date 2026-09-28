@@ -1,6 +1,17 @@
 {
   "identifier": "desktop",
   "description": "Local Proteus windows",
-  "windows": ["launcher", "main", "inspector"],
-  "permissions": ["core:default"]
+  "windows": [
+    "launcher",
+    "main",
+    "inspector"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "core:window:allow-start-resize-dragging"
+  ]
 }

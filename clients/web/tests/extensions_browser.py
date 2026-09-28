@@ -12,6 +12,7 @@ from layout_checks import run as check_layout
 from session_checks import run as check_session, check_inspector_startup, BOOTSTRAP
 from queue_checks import run as check_queue
 from live_checks import run as check_live
+from chrome_checks import run as check_chrome
 from planning_checks import run as check_planning
 from usage_checks import run as check_usage
 from architecture_checks import run as check_architecture
@@ -118,6 +119,12 @@ class Assets(SimpleHTTPRequestHandler):
             return
         if self.path.split('?', 1)[0] in ['/context', '/sessions', '/settings']:
             self.path = '/index.html'
+        if path in ('/window-chrome.js', '/window-chrome.css'):
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/javascript' if path.endswith('.js') else 'text/css')
+            self.end_headers()
+            self.wfile.write((ROOT / 'clients/desktop/launcher' / path.lstrip('/')).read_bytes())
+            return
         if path in ('/foundation.html', '/inspector-foundation.html'):
             self.send_response(200)
             self.send_header('Content-Type', 'text/html')
@@ -264,7 +271,7 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                         return False
                 wait_for(driver_ready, 'geckodriver startup')
                 reduced_motion = int(os.environ.get('PROTEUS_TEST_REDUCED_MOTION', '0'))
-                capabilities = {'capabilities': {'alwaysMatch': {'browserName': 'firefox', 'moz:firefoxOptions': {'args': ['-headless'], 'prefs': {'network.proxy.type': 0, 'ui.prefersReducedMotion': reduced_motion}}}}}
+                capabilities = {'capabilities': {'alwaysMatch': {'browserName': 'firefox', 'pageLoadStrategy': 'eager', 'moz:firefoxOptions': {'args': ['-headless'], 'prefs': {'network.proxy.type': 0, 'ui.prefersReducedMotion': reduced_motion}}}}}
                 session = request(endpoint + '/session', 'POST', capabilities)['value']['sessionId']
                 url = endpoint + '/session/' + session
                 def command(path, body):
@@ -275,6 +282,9 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return js("return document.querySelector('[data-extension-id=agent-info] .extension-panel-content')?.shadowRoot?.textContent.includes('extensions-smoke')")
                 command('/window/rect', {'width': 1440, 'height': 1000})
                 assert js("return matchMedia('(prefers-reduced-motion: reduce)').matches") == bool(reduced_motion), 'Browser did not apply motion preference'
+                if '--chrome-only' in sys.argv:
+                    check_chrome(command, js, wait_for, web, origin)
+                    return
                 if '--inspector-only' in sys.argv:
                     check_architecture(command, js, wait_for, web, origin)
                     check_tools_picker(command, js, wait_for, web, origin, config, request)

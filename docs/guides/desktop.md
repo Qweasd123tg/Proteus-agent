@@ -30,6 +30,16 @@ resume/replay для старого формата по-прежнему даю�
 Несохранённые правки формы при закрытии Inspector сбрасываются.
 Закрытие чата завершает приложение.
 
+Верхняя системная рамка заменена общей строкой Proteus: меню приложения,
+существующая шапка чата/Inspector и кнопки свернуть, развернуть и закрыть окно
+занимают один ряд. Свободная часть строки перетаскивает окно, двойной клик
+переключает развёрнутое состояние; края и углы позволяют менять размер.
+В полноэкранном режиме строка скрывается. В обычном браузере native-оформление
+не подключается. Семантика закрытия чата, Inspector и формы проекта сохранена.
+Меню шапки также обрабатывает `Ctrl+Shift+O` (проект), `Ctrl+Shift+I`
+(Inspector) и `Ctrl+Q` (выход); на macOS вместо Ctrl используется Cmd.
+Отдельное системное меню к окнам не прикрепляется.
+
 Backend сам выбирает свободный loopback-порт. Оболочка передаёт сессионный
 credential непосредственно в память клиентов до запуска Leptos. Порт, токен,
 Trunk и URL подключения вводить не нужно. HTTP/SSE сохраняют существующую
@@ -164,6 +174,12 @@ MathJax и SVG-renderer карты Inspector включены локально.
 Они используют тот же загрузчик и контракт, что browser-клиент; desktop не
 добавляет связь с runtime modules.
 
+После сборки web-клиента `python3 clients/web/tests/extensions_browser.py
+--chrome-only` проверяет общую шапку на двух ширинах, меню, fullscreen и
+освобождение подписок. В этом browser-тесте оконный API заменён явным адаптером;
+он не заменяет native smoke. Изменение только `launcher/window-chrome.*`
+не требует повторной компиляции неизменённого WASM, но требует обновить desktop assets.
+
 После `npm run prepare:assets` в `clients/desktop`:
 
 ```bash
@@ -180,7 +196,14 @@ tests web/Inspector и `trunk build`. После release-сборки
 `SessionStarted` в event log подтверждает весь путь native launcher → WASM →
 authenticated SSE. Нужны `Xvfb` и `dbus-run-session`; личные настройки и открытый
 Proteus не затрагиваются. Xvfb отключает accelerated compositing и поэтому
-не подтверждает работу реального GPU. В текущем сеансе niri/Wayland запускайте:
+не подтверждает работу реального GPU. Флаг `--chrome` дополнительно проверяет
+кликами через `xdotool` меню общей шапки и закрытие окон. Для готового debug-пакета:
+
+```bash
+python3 clients/desktop/scripts/native-smoke.py --chrome --package clients/desktop/build/Proteus-debug
+```
+
+В текущем сеансе niri/Wayland запускайте:
 
 ```bash
 python3 clients/desktop/scripts/native-smoke.py --niri
@@ -197,4 +220,4 @@ python3 clients/desktop/scripts/native-smoke.py --niri
 Бинарники собираются под текущую Fedora и её WebKit/GLib. На другой Fedora
 нужны runtime-пакеты `webkit2gtk4.1`, `gtk3`, `libxdo`, `openssl-libs`, `ripgrep`
 и `git`. Перенос на другие системы,
-автообновление и новый дизайн интерфейса не входят в эту реализацию.
+автообновление не входят в эту реализацию.
