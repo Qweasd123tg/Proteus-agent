@@ -6,6 +6,7 @@
 //! per-invocation binding and model-facing tool facades remain private here.
 
 mod collaboration;
+mod history;
 mod mailbox;
 mod pending;
 mod process;
@@ -27,6 +28,7 @@ use crate::{
 };
 
 use super::{AgentControlConfig, AgentControlSurface};
+use history::HistoryNotifier;
 use process::ProcessAgentControl;
 
 pub(crate) use task::{TASK_TOOL, calls_are_parallel_eligible};
@@ -45,8 +47,11 @@ impl AgentControlRuntime {
         let service = if config.roles.is_empty() {
             None
         } else {
-            Some(Arc::new(ProcessAgentControl::from_config(config.clone())?)
-                as Arc<dyn AgentControl>)
+            let history_notifier = HistoryNotifier::new(collaboration::bind_history);
+            Some(Arc::new(ProcessAgentControl::from_config(
+                config.clone(),
+                history_notifier,
+            )?) as Arc<dyn AgentControl>)
         };
         Ok(Self {
             service,

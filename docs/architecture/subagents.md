@@ -85,7 +85,13 @@ Peer Proteus сам является host/runtime и может иметь со�
 - доставляет bounded адресные сообщения через stdio на ближайшую model/tool
   boundary, сохраняя FIFO одного mailbox;
 - пересылает события, approvals и user input между двумя Proteus;
-- сохраняет resume, пока жив соответствующий child process.
+- сохраняет resume, пока соответствующий child process удерживает эту историю.
+
+Переиспользование idle process для новой задачи очищает прежнюю history.
+Runtime инвалидирует общий признак её удержания; collaboration больше не
+показывает прежний child id как доступный для resume и отклоняет follow-up
+до запуска. Поздний completion не возвращает уже утраченную возможность
+продолжения. Это не durable восстановление истории после очистки или restart.
 
 Real-process boundary test одновременно запускает два полных Proteus,
 передаёт им разные payload, проверяет отсутствие cross-delivery, адресный

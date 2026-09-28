@@ -366,44 +366,78 @@ fn followup_reservation_is_atomic_and_stale_completion_cannot_overwrite_it() {
 
 #[test]
 fn non_resumable_completion_does_not_advertise_followup_target() {
-    let control = CollaborationControl::default();
-    let session_id = new_session_id();
-    let host = Arc::new(TestHost::new(session_id));
-    let reservation = control
-        .reserve(session_id, "scan", "explore")
-        .expect("reserve");
-    let child_thread_id = new_thread_id();
-    control
-        .attach(
+    use super::super::history::HistoryRetention;
+
+    // The result may already be non-resumable, arrive after expiry, or be
+    // queued before expiry but consumed afterwards. None can revive the id.
+    for (resumable_result, expire_before_completion) in
+        [(false, false), (true, true), (true, false)]
+    {
+        let control = CollaborationControl::default();
+        let session_id = new_session_id();
+        let host = Arc::new(TestHost::new(session_id));
+        let reservation = control
+            .reserve(session_id, "scan", "explore")
+            .expect("reserve");
+        let child_thread_id = new_thread_id();
+        let history = HistoryRetention::new();
+        control.bind_history(session_id, &reservation.path, history.clone());
+        control
+            .attach(
+                session_id,
+                &reservation.path,
+                reservation.generation,
+                AgentControlHandle::new(new_call_id(), "explore", child_thread_id),
+                host,
+            )
+            .expect("attach");
+        if expire_before_completion {
+            history.expire();
+        }
+        control.complete(
             session_id,
             &reservation.path,
             reservation.generation,
-            AgentControlHandle::new(new_call_id(), "explore", child_thread_id),
-            host,
-        )
-        .expect("attach");
-    control.complete(
-        session_id,
-        &reservation.path,
-        reservation.generation,
-        Ok(
-            AgentControlResult::new("done", AgentLifecycleStatus::Completed)
-                .with_child_thread_id(child_thread_id)
-                .with_metadata(json!({ "resumable": false })),
-        ),
-    );
+            Ok(
+                AgentControlResult::new("done", AgentLifecycleStatus::Completed)
+                    .with_child_thread_id(child_thread_id)
+                    .with_metadata(json!({"resumable":resumable_result})),
+            ),
+        );
+        if resumable_result && !expire_before_completion {
+            assert_eq!(
+                control
+                    .list(session_id, Some("scan"))
+                    .expect("before expiry")[0]
+                    .child_thread_id,
+                Some(child_thread_id)
+            );
+            history.expire();
+        }
 
-    let view = control
-        .list(session_id, Some("scan"))
-        .expect("list")
-        .pop()
-        .expect("agent");
-    assert_eq!(view.child_thread_id, None);
-    let error = match control.begin_followup(session_id, "scan") {
-        Ok(_) => panic!("non-resumable result must reject follow-up"),
-        Err(error) => error,
-    };
-    assert!(error.to_string().contains("no resumable task id"));
+        let view = control
+            .list(session_id, Some("scan"))
+            .expect("list")
+            .pop()
+            .expect("agent");
+        assert_eq!(view.status, AgentLifecycleStatus::Completed);
+        assert_eq!(view.child_thread_id, None);
+        let completion = control
+            .drain_completions(session_id)
+            .expect("drain")
+            .pop()
+            .expect("completion");
+        assert_eq!(completion.child_thread_id, None);
+        assert_eq!(completion.summary.as_deref(), Some("done"));
+        let error = match control.begin_followup(session_id, "scan") {
+            Ok(_) => panic!("non-resumable result must reject follow-up"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error.to_string(),
+            "collaboration agent '/root/scan' has no resumable task id"
+        );
+    }
 }
 
 #[test]

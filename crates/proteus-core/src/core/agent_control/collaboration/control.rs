@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, OnceLock},
 };
 
+use super::super::history::HistoryRetention;
 use anyhow::{Result, anyhow, bail};
 use serde_json::Value;
 use tokio::sync::Notify;
@@ -37,7 +38,7 @@ struct SessionState {
     seq: u64,
     notify: Arc<Notify>,
     agents: BTreeMap<String, AgentRecord>,
-    completions: VecDeque<AgentRecordSnapshot>,
+    completions: VecDeque<QueuedCompletion>,
 }
 
 struct AgentRecord {
@@ -50,6 +51,25 @@ struct AgentRecord {
     generation: u64,
     reserved_generation: Option<u64>,
     outcome: Option<AgentOutcome>,
+    history: Option<HistoryRetention>,
+}
+
+struct QueuedCompletion {
+    snapshot: AgentRecordSnapshot,
+    history: Option<HistoryRetention>,
+}
+
+impl QueuedCompletion {
+    fn into_snapshot(mut self) -> AgentRecordSnapshot {
+        if self
+            .history
+            .as_ref()
+            .is_some_and(|history| !history.is_retained())
+        {
+            self.snapshot.child_thread_id = None;
+        }
+        self.snapshot
+    }
 }
 
 #[derive(Clone)]
@@ -130,12 +150,41 @@ impl CollaborationControl {
                 generation: 1,
                 reserved_generation: None,
                 outcome: None,
+                history: None,
             },
         );
         Ok(AgentReservation {
             path,
             generation: 1,
         })
+    }
+
+    /// Bound by the runtime lifecycle notifier before the detached child runs.
+    /// The shared token also expires completions that arrive after eviction.
+    pub(super) fn bind_history(
+        &self,
+        session_id: SessionId,
+        path: &str,
+        history: HistoryRetention,
+    ) {
+        if let Ok(mut state) = self.lock()
+            && let Some(record) = state
+                .sessions
+                .get_mut(&session_id)
+                .and_then(|session| session.agents.get_mut(path))
+        {
+            record.history = Some(history);
+        }
+    }
+
+    pub(super) fn history_expired(&self, session_id: SessionId, path: &str) -> Result<bool> {
+        let state = self.lock()?;
+        Ok(state
+            .sessions
+            .get(&session_id)
+            .and_then(|session| session.agents.get(path))
+            .and_then(|record| record.history.as_ref())
+            .is_some_and(|history| !history.is_retained()))
     }
 
     pub(super) fn release_reservation(&self, session_id: SessionId, path: &str) {
@@ -204,7 +253,10 @@ impl CollaborationControl {
             record.owner = None;
             record.handle = None;
             record.interrupt_requested = false;
-            let completion = view(path, record, true);
+            let completion = QueuedCompletion {
+                snapshot: view(path, record, true),
+                history: record.history.clone(),
+            };
             session.completions.push_back(completion);
             session.notify.clone()
         };
@@ -249,7 +301,11 @@ impl CollaborationControl {
             return Ok(Vec::new());
         };
         let count = session.completions.len().min(MAX_COMPLETIONS_PER_WAIT);
-        Ok(session.completions.drain(..count).collect())
+        Ok(session
+            .completions
+            .drain(..count)
+            .map(QueuedCompletion::into_snapshot)
+            .collect())
     }
 
     pub(super) fn session_notify(&self, session_id: SessionId) -> Result<Arc<Notify>> {
@@ -320,6 +376,13 @@ impl CollaborationControl {
             .ok_or_else(|| anyhow!("unknown collaboration agent '{path}' in this session"))?;
         if record.reserved_generation.is_some() {
             bail!("collaboration agent '{path}' already has a follow-up starting");
+        }
+        if record
+            .history
+            .as_ref()
+            .is_some_and(|history| !history.is_retained())
+        {
+            bail!("collaboration agent '{path}' has no resumable task id");
         }
         let task_id = match &record.outcome {
             Some(AgentOutcome::Result {
@@ -475,7 +538,7 @@ impl SessionState {
                 Some(path) => {
                     self.agents.remove(&path);
                     self.completions
-                        .retain(|queued| queued.path.as_str() != path);
+                        .retain(|queued| queued.snapshot.path.as_str() != path);
                 }
                 None => bail!(
                     "collaboration agent capacity reached ({MAX_AGENTS_PER_SESSION}); active agents are not evicted"
@@ -523,6 +586,15 @@ fn view(path: &str, record: &AgentRecord, include_payload: bool) -> AgentRecordS
         ),
         None if record.handle.is_some() => (AgentLifecycleStatus::Running, None, None, None),
         None => (AgentLifecycleStatus::Starting, None, None, None),
+    };
+    let child_thread_id = if record
+        .history
+        .as_ref()
+        .is_some_and(|history| !history.is_retained())
+    {
+        None
+    } else {
+        child_thread_id
     };
     AgentRecordSnapshot {
         path: AgentAddress::parse(path).expect("control stores canonical agent paths"),

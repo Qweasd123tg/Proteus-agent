@@ -6,6 +6,9 @@
 #[path = "support/model.rs"]
 mod test_model;
 
+#[path = "process_agent_pool/collaboration.rs"]
+mod collaboration;
+
 use std::{path::PathBuf, sync::Arc};
 
 use proteus_contracts::{
@@ -429,40 +432,7 @@ async fn process_agent_pool_fresh_task_invalidates_prior_task_ids_of_reused_proc
     let config_home = tempfile::tempdir().expect("config home");
     let workspace = tempfile::tempdir().expect("workspace");
     let config_path = write_child_config(config_home.path());
-    let runner = process_runner(&config_path);
-
-    let events = Arc::new(InMemoryEventStore::new());
-    let ctx = test_runtime_context(events);
-    let task = AgentTask::new("delegate", workspace.path().to_path_buf());
-
-    let first = runner
-        .run(
-            AgentControlRequest::new("helper", "first task", task.clone()),
-            ctx.clone(),
-        )
-        .await
-        .expect("first child turn");
-    let first_task_id = first.child_thread_id.expect("child thread id");
-
-    // Свежая задача на той же роли (max_processes = 1 → тот же процесс):
-    // ClearHistory стирает session-историю первого task-а.
-    runner
-        .run(
-            AgentControlRequest::new("helper", "fresh task", task.clone()),
-            ctx.clone(),
-        )
-        .await
-        .expect("fresh child turn");
-
-    let stale = runner
-        .run(
-            AgentControlRequest::new("helper", "continue first", task)
-                .with_metadata(json!({ "task_id": first_task_id.to_string() })),
-            ctx,
-        )
-        .await
-        .expect_err("stale task_id must be rejected after history clear");
-    assert!(stale.to_string().contains("unknown task_id"), "{stale:#}");
+    collaboration::fresh_task_expires_facade_history(&config_path, workspace.path()).await;
 }
 
 /// Fresh-задача с другим cwd не реюзает idle-процесс (его `--cwd`

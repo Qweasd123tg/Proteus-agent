@@ -93,7 +93,13 @@ async fn reserved_and_leased_children_are_never_idle_eviction_victims() {
         role: "helper".to_owned(),
         used: true,
     };
-    let first_release = pool.release(first, true, session_id, first_task_id.clone());
+    let first_release = pool.release(
+        first,
+        true,
+        session_id,
+        first_task_id.clone(),
+        HistoryRetention::new(),
+    );
     assert!(first_release.retained);
     assert!(first_release.evicted.is_empty());
 
@@ -112,6 +118,7 @@ async fn reserved_and_leased_children_are_never_idle_eviction_victims() {
         true,
         session_id,
         crate::domain::new_thread_id().to_string(),
+        HistoryRetention::new(),
     );
     assert!(second_release.retained);
     assert!(
@@ -135,6 +142,7 @@ async fn reserved_and_leased_children_are_never_idle_eviction_victims() {
         true,
         session_id,
         crate::domain::new_thread_id().to_string(),
+        HistoryRetention::new(),
     );
     assert_eq!(third_release.evicted.len(), 1);
     assert_eq!(third_release.evicted[0].id, 2);

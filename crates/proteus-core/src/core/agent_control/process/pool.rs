@@ -13,6 +13,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow, bail};
 
+use super::super::history::HistoryRetention;
 use super::{child::ChildProcess, config::ProcessRoleConfig};
 use crate::domain::SessionId;
 
@@ -50,12 +51,14 @@ struct ResumableProcessTask {
     role: String,
     process_id: u64,
     cwd: PathBuf,
+    history: HistoryRetention,
 }
 
 #[derive(Debug, Clone)]
 pub(super) struct ResumeReservation {
     process_id: u64,
     task_id: String,
+    pub history: HistoryRetention,
 }
 
 pub(super) struct ReleaseOutcome {
@@ -125,6 +128,7 @@ impl ProcessPool {
             return Ok(ResumeReservation {
                 process_id: task.process_id,
                 task_id: task_id.to_owned(),
+                history: task.history,
             });
         }
         if self.reserved.contains_key(&task.process_id) {
@@ -201,6 +205,9 @@ impl ProcessPool {
             }
             if self.idle[index].child.role == role_name && self.idle[index].child.cwd == cwd_key {
                 let child = self.idle.swap_remove(index).child;
+                // Fresh leasing forfeits the previous history before ClearHistory
+                // or a concurrent follow-up can observe its old resume binding.
+                self.purge_process(child.id);
                 self.leased.insert(child.id);
                 return Ok(child);
             }
@@ -221,12 +228,6 @@ impl ProcessPool {
         })
     }
 
-    /// A successful fresh `ClearHistory` invalidates every older task bound
-    /// to that process before the new turn is sent.
-    pub(super) fn invalidate_history(&mut self, process_id: u64) {
-        self.purge_process(process_id);
-    }
-
     /// Returns a terminal child to the bounded idle pool and installs exactly
     /// one resumable task binding for its current history. The returned flag is
     /// authoritative: cap pressure may immediately evict this same child.
@@ -236,10 +237,20 @@ impl ProcessPool {
         alive: bool,
         session_id: SessionId,
         task_id: String,
+        history: HistoryRetention,
     ) -> ReleaseOutcome {
         self.leased.remove(&child.id);
+        // A resumed turn keeps the same live history across generations.
+        if self
+            .resumable
+            .get(&task_id)
+            .is_some_and(|task| task.history.same_history(&history))
+        {
+            self.resumable.remove(&task_id);
+        }
         self.purge_process(child.id);
         if !alive {
+            history.expire();
             return ReleaseOutcome {
                 retained: false,
                 evicted: vec![child],
@@ -254,6 +265,7 @@ impl ProcessPool {
                 role: child.role.clone(),
                 process_id,
                 cwd: child.cwd.clone(),
+                history,
             },
         );
         let mut evicted = Vec::new();
@@ -292,8 +304,22 @@ impl ProcessPool {
     }
 
     fn purge_process(&mut self, process_id: u64) {
-        self.resumable
-            .retain(|_, task| task.process_id != process_id);
+        self.resumable.retain(|_, task| {
+            if task.process_id == process_id {
+                task.history.expire();
+                false
+            } else {
+                true
+            }
+        });
+    }
+}
+
+impl Drop for ProcessPool {
+    fn drop(&mut self) {
+        for task in self.resumable.values() {
+            task.history.expire();
+        }
     }
 }
 

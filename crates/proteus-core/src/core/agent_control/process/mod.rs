@@ -52,7 +52,11 @@ use crate::{
 };
 
 use super::{
-    child_context, mailbox::ChildMailbox, pending::PendingChildren, requested_agent_target,
+    child_context,
+    history::{HistoryNotifier, HistoryRetention},
+    mailbox::ChildMailbox,
+    pending::PendingChildren,
+    requested_agent_target,
 };
 use config::{ProcessRoleConfig, build_agent_profiles};
 use outcome::{status_label, truncate_summary};
@@ -76,6 +80,7 @@ struct RunnerInner {
     cancel_grace: Duration,
     pool: StdMutex<ProcessPool>,
     pending: StdMutex<PendingChildren>,
+    history_notifier: HistoryNotifier,
 }
 
 struct RoleState {
@@ -91,10 +96,14 @@ struct PreparedProcess {
     profile: AgentProfile,
     child_thread_id: ThreadId,
     resume: Option<ResumeReservation>,
+    history: HistoryRetention,
 }
 
 impl ProcessAgentControl {
-    pub(super) fn from_config(parsed: AgentControlConfig) -> Result<Self> {
+    pub(super) fn from_config(
+        parsed: AgentControlConfig,
+        history_notifier: HistoryNotifier,
+    ) -> Result<Self> {
         let profiles = build_agent_profiles(&parsed.roles)?;
         let binary = match parsed.binary {
             Some(binary) => binary,
@@ -126,6 +135,7 @@ impl ProcessAgentControl {
                 cancel_grace: Duration::from_millis(parsed.cancel_grace_ms),
                 pool: StdMutex::new(ProcessPool::new(parsed.max_idle_processes)),
                 pending: StdMutex::new(PendingChildren::default()),
+                history_notifier,
             }),
         })
     }
@@ -192,10 +202,15 @@ impl RunnerInner {
                 None => (new_thread_id(), None),
             };
 
+        let history = resume
+            .as_ref()
+            .map(|reservation| reservation.history.clone())
+            .unwrap_or_else(HistoryRetention::new);
         Ok(PreparedProcess {
             profile,
             child_thread_id,
             resume,
+            history,
         })
     }
 
@@ -228,10 +243,11 @@ impl RunnerInner {
         alive: bool,
         session_id: crate::domain::SessionId,
         task_id: String,
+        history: HistoryRetention,
     ) -> Result<bool> {
         let ReleaseOutcome { retained, evicted } = self
             .lock_pool()?
-            .release(leased, alive, session_id, task_id);
+            .release(leased, alive, session_id, task_id, history);
         terminate_evicted(evicted).await;
         Ok(retained)
     }
@@ -256,9 +272,6 @@ impl RunnerInner {
         leased.child.drain_stale_outputs()?;
         if !is_resume && leased.used {
             clear_child_history(&mut leased.child).await?;
-            // История процесса очищена — прежние task_id-ы этого процесса
-            // мертвы, resume по ним продолжил бы пустую session.
-            self.lock_pool()?.invalidate_history(leased.id);
         }
 
         let text = request.prompt.clone();
@@ -361,6 +374,7 @@ impl RunnerInner {
         child_ctx: AgentWorkflowContext,
         child_thread_id: ThreadId,
         resume: Option<ResumeReservation>,
+        history: HistoryRetention,
         mailbox: Arc<ChildMailbox>,
     ) -> Result<AgentControlResult> {
         let role = self
@@ -379,6 +393,9 @@ impl RunnerInner {
                     Some(reservation) => self.rollback_resume(reservation).await?,
                     None => false,
                 };
+                if !resumable {
+                    history.expire();
+                }
                 return self
                     .finish_interrupted(
                         &profile,
@@ -402,6 +419,7 @@ impl RunnerInner {
             match self.lease_process(&profile.name, role, resume.as_ref(), &request.task.cwd) {
                 Ok(leased) => leased,
                 Err(error) => {
+                    history.expire();
                     let _ = mailbox.close_and_discard();
                     drop(permit);
                     let _ = ctx
@@ -455,6 +473,7 @@ impl RunnerInner {
                         child_alive,
                         ctx.session_id,
                         child_thread_id.to_string(),
+                        history,
                     )
                     .await?;
                 drop(permit);
@@ -476,6 +495,7 @@ impl RunnerInner {
                 Ok(result)
             }
             Err(error) => {
+                history.expire();
                 // Fatal-путь (EOF, ошибка child turn-а): процесс считается
                 // невалидным — убиваем и хороним вместе с его task_id-ами.
                 leased.child.kill().await;
@@ -528,7 +548,7 @@ impl AgentControl for ProcessAgentControl {
             &spawn_id,
             child_ctx.execution.scope.cancellation.clone(),
             mailbox.clone(),
-            agent_target,
+            agent_target.clone(),
             self.inner.max_parallel,
             !request
                 .metadata
@@ -563,6 +583,11 @@ impl AgentControl for ProcessAgentControl {
             prepared.profile.name.clone(),
             prepared.child_thread_id,
         );
+        if let Some(target) = agent_target.as_ref() {
+            self.inner
+                .history_notifier
+                .bind(ctx.session_id, target, prepared.history.clone());
+        }
         let join = tokio::spawn(self.inner.clone().execute(
             prepared.profile,
             request,
@@ -570,6 +595,7 @@ impl AgentControl for ProcessAgentControl {
             child_ctx,
             prepared.child_thread_id,
             prepared.resume,
+            prepared.history,
             mailbox,
         ));
         self.inner.lock_pending()?.attach(&spawn_id, join);

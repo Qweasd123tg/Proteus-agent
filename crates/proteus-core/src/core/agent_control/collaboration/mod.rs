@@ -28,6 +28,14 @@ use control::CollaborationControl;
 use message::{FollowupTaskTool, SendMessageTool};
 use spec::{interrupt_spec, list_spec, spawn_spec, wait_spec};
 
+pub(super) fn bind_history(
+    session_id: SessionId,
+    target: &AgentAddress,
+    history: super::history::HistoryRetention,
+) {
+    CollaborationControl::shared().bind_history(session_id, target.as_str(), history);
+}
+
 #[cfg(test)]
 pub(super) const COLLABORATION_TOOL_NAMES: &[&str] = &[
     "spawn_agent",

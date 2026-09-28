@@ -165,6 +165,19 @@ impl Tool for FollowupTaskTool {
                     Err(error) => {
                         self.control
                             .abort_followup(session_id, &idle.path, idle.generation);
+                        // Expiry may race the facade reservation, but the backend
+                        // still rejects before dispatch. Report the current lifecycle
+                        // state instead of exposing an obsolete unknown-task error.
+                        if self.control.history_expired(session_id, &idle.path)? {
+                            return Ok(tool_error(
+                                call,
+                                "followup_task",
+                                format!(
+                                    "collaboration agent '{}' has no resumable task id",
+                                    idle.path
+                                ),
+                            ));
+                        }
                         return Ok(tool_error(call, "followup_task", format!("{error:#}")));
                     }
                 };
