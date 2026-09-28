@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use serde_json::json;
 
@@ -32,6 +32,10 @@ impl Tool for ApplyPatchTool {
                     "patch": {
                         "type": "string",
                         "description": "Patch text in the configured patch module's format."
+                    },
+                    "workdir": {
+                        "type": "string",
+                        "description": "Existing working directory inside the workspace; relative paths are resolved from the workspace. Defaults to the workspace."
                     }
                 },
                 "required": ["patch"]
@@ -50,9 +54,18 @@ impl Tool for ApplyPatchTool {
         }))
     }
 
-    async fn invoke(&self, call: &ToolCall, _ctx: ToolContext) -> Result<ToolResult> {
+    async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult> {
         let patch = patch_text_from_call(call)?;
-        let result = self.patch.apply(Patch::new(patch)).await?;
+        let workspace = ctx.cwd.canonicalize().context("resolve patch workspace")?;
+        let cwd = match call.args.get("workdir") {
+            Some(value) => workspace.join(
+                value
+                    .as_str()
+                    .ok_or_else(|| anyhow!("apply_patch requires string arg 'workdir'"))?,
+            ),
+            None => workspace,
+        };
+        let result = self.patch.apply(Patch::new(patch), &cwd).await?;
         Ok(ToolResult::new(
             call.id.clone(),
             result.ok,

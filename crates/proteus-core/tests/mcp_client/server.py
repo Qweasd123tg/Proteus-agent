@@ -72,7 +72,8 @@ def call_tool(request_id, params):
         delay_ms = arguments.get("delay_ms", 0)
         time.sleep(delay_ms / 1000)
         label = arguments.get("label", "")
-        result(request_id, {
+        mode = arguments.get("mode", os.environ.get("MCP_FIXTURE_CONTENT_MODE", "mixed"))
+        payload = {
             "content": [{"type": "text", "text": f"echo:{label}:generation:{GENERATION}"}],
             "structuredContent": {
                 "label": label,
@@ -82,7 +83,16 @@ def call_tool(request_id, params):
                 "literal_env": os.environ.get("MCP_LITERAL_ENV"),
             },
             "isError": False,
-        })
+        }
+        if mode == "structured_only":
+            payload["content"] = []
+        elif mode == "null_structured":
+            payload["structuredContent"] = None
+        elif mode == "text_only":
+            del payload["structuredContent"]
+        elif mode == "empty_structured":
+            payload["structuredContent"] = {}
+        result(request_id, payload)
     elif name == "fail":
         result(request_id, {
             "content": [{"type": "text", "text": "fixture failure"}],

@@ -2,7 +2,7 @@
 use std::{
     io::{self, Read, Write},
     process::{Child, Command, ExitStatus, Stdio},
-    sync::{Arc, Mutex, atomic::Ordering},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -11,8 +11,8 @@ use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_s
 use proteus_contracts::domain::EXEC_SHELL;
 
 use super::session::{
-    ExecSession, ExecSessionOwner, NEXT_SESSION_ID, ProcessControl, ensure_session_janitor, lock,
-    prune_session_if_needed, sessions,
+    ExecSession, ExecSessionOwner, ProcessControl, ensure_session_janitor, lock, register_session,
+    sessions,
 };
 use crate::sandbox::{EXEC_COMMAND_ENV, SandboxKind, bwrap_args};
 
@@ -32,21 +32,21 @@ pub(super) fn spawn_session(
         ),
         None => (EXEC_SHELL.to_owned(), vec!["-lc".into(), command.into()]),
     };
-    let session = if tty {
-        spawn_pty(&program, args, workdir, sandbox, owner)?
-    } else {
-        spawn_pipes(&program, args, workdir, sandbox, owner)?
-    };
-    let session_id = NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed);
     let mut sessions = lock(sessions());
-    prune_session_if_needed(&mut sessions);
-    sessions.insert(session_id, Arc::clone(&session));
-    Ok((session_id, session))
+    register_session(&mut sessions, || {
+        if tty {
+            spawn_pty(&program, args, workdir, sandbox, owner)
+        } else {
+            spawn_pipes(&program, args, workdir, sandbox, owner)
+        }
+    })
 }
 
 struct PtyControl {
     writer: Mutex<Box<dyn Write + Send>>,
-    killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
+    killer: Mutex<Option<Box<dyn ChildKiller + Send + Sync>>>,
+    #[cfg(unix)]
+    process_group_id: Option<libc::pid_t>,
     // Keep the controlling terminal alive until the session is released.
     _master: Mutex<Box<dyn MasterPty + Send>>,
 }
@@ -63,7 +63,20 @@ impl ProcessControl for PtyControl {
     }
 
     fn kill(&self) {
-        let _ = lock(&self.killer).kill();
+        let Some(mut killer) = lock(&self.killer).take() else {
+            return;
+        };
+        #[cfg(unix)]
+        if let Some(pgid) = self.process_group_id {
+            // portable-pty creates a new session/group with setsid(). Its cloned
+            // killer only sends SIGHUP to the leader, which a shell may ignore.
+            // Match pinned Codex: hard-kill the whole group, then also try the
+            // child killer. Taking it above makes termination idempotent.
+            unsafe {
+                let _ = libc::kill(-pgid, libc::SIGKILL);
+            }
+        }
+        let _ = killer.kill();
     }
 }
 
@@ -103,7 +116,9 @@ fn spawn_pty(
         .map_err(|error| anyhow!("failed to spawn command in PTY: {error}"))?;
     let control = PtyControl {
         writer: Mutex::new(writer),
-        killer: Mutex::new(child.clone_killer()),
+        killer: Mutex::new(Some(child.clone_killer())),
+        #[cfg(unix)]
+        process_group_id: child.process_id().map(|pid| pid as libc::pid_t),
         _master: Mutex::new(pair.master),
     };
     drop(pair.slave);

@@ -117,6 +117,14 @@ fn execute_command(
         sandbox,
         ExecSessionOwner::from_context(context, &resolved.workspace),
     )?;
+    let _interaction = match session.lock_interaction(host) {
+        Ok(guard) => guard,
+        Err(error) => {
+            terminate_session(session_id, &session);
+            return Err(error);
+        }
+    };
+    recheck_owned_session(session_id, &session, context)?;
     let collected = match wait_and_collect(&session, Duration::from_millis(yield_time_ms), host) {
         Ok(collected) => collected,
         Err(error) => {
@@ -173,19 +181,11 @@ fn write_stdin_impl(
     let yield_time_ms = resolve_write_yield_time_ms(args, chars);
     let max_output_bytes = resolve_max_output_bytes(args);
 
-    let session = {
-        let sessions = lock(sessions());
-        let session = sessions.get(&session_id).cloned().ok_or_else(|| {
-            anyhow!("unknown exec session {session_id}; the process may have already exited")
-        })?;
-        if !session.owner.matches(&context) {
-            anyhow::bail!(
-                "exec session {session_id} is not owned by the current execution context/workspace"
-            );
-        }
-        session.touch();
-        session
-    };
+    let session = owned_session(session_id, &context)?;
+    let _interaction = session.lock_interaction(host)?;
+    // A queued interaction may outlive the previous interaction's terminal
+    // result. Never write to or drain its stale Arc after store removal.
+    recheck_owned_session(session_id, &session, &context)?;
 
     if !chars.is_empty() {
         if !session.tty {

@@ -1,18 +1,18 @@
 //! Session ownership, storage and lifetime.
 use super::{
-    EXIT_DRAIN_GRACE, MAX_SESSIONS, SESSION_BUFFER_LIMIT, SESSION_JANITOR_INTERVAL,
-    SESSION_MAX_IDLE,
+    CANCELLATION_POLL_INTERVAL, EXIT_DRAIN_GRACE, MAX_SESSIONS, SESSION_BUFFER_LIMIT,
+    SESSION_JANITOR_INTERVAL, SESSION_MAX_IDLE, ensure_not_cancelled,
 };
 use crate::sandbox::SandboxKind;
 use anyhow::{Result, anyhow};
 use proteus_contracts::{
     domain::{ExecutionId, SessionId, ThreadId},
-    process_module::ToolModuleInvocationContext,
+    process_module::{ToolModuleHostMut, ToolModuleInvocationContext},
 };
 use std::{
     collections::HashMap,
     path::PathBuf,
-    sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, atomic::AtomicI64},
+    sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, TryLockError, atomic::AtomicI64},
     time::{Duration, Instant},
 };
 
@@ -29,6 +29,8 @@ pub(super) struct SessionOutput {
 }
 
 pub(super) struct ExecSession {
+    /// Serializes input, output collection and terminal removal for this handle.
+    pub(super) interaction: Mutex<()>,
     pub(super) output: Mutex<SessionOutput>,
     pub(super) output_cond: Condvar,
     pub(super) control: Box<dyn ProcessControl>,
@@ -100,6 +102,7 @@ impl ExecSession {
         owner: ExecSessionOwner,
     ) -> Self {
         Self {
+            interaction: Mutex::new(()),
             output: Mutex::new(SessionOutput {
                 buffer: Vec::new(),
                 dropped_bytes: 0,
@@ -120,6 +123,29 @@ impl ExecSession {
 
     pub(super) fn touch(&self) {
         *lock(&self.last_used) = Instant::now();
+    }
+
+    pub(super) fn lock_interaction(
+        &self,
+        host: &mut ToolModuleHostMut<'_>,
+    ) -> Result<MutexGuard<'_, ()>> {
+        loop {
+            // Queued cancellation must settle without blocking behind a long
+            // poll or terminating the session held by a different invocation.
+            ensure_not_cancelled(host)?;
+            if let Some(guard) = self.try_lock_interaction() {
+                return Ok(guard);
+            }
+            std::thread::sleep(CANCELLATION_POLL_INTERVAL);
+        }
+    }
+
+    fn try_lock_interaction(&self) -> Option<MutexGuard<'_, ()>> {
+        match self.interaction.try_lock() {
+            Ok(guard) => Some(guard),
+            Err(TryLockError::Poisoned(error)) => Some(error.into_inner()),
+            Err(TryLockError::WouldBlock) => None,
+        }
     }
 
     pub(super) fn push_output(&self, chunk: &[u8]) {
@@ -170,6 +196,50 @@ pub(super) fn sessions() -> &'static Mutex<SessionMap> {
     SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+pub(super) fn owned_session(
+    session_id: i64,
+    context: &ToolModuleInvocationContext,
+) -> Result<Arc<ExecSession>> {
+    let sessions = lock(sessions());
+    let session = sessions
+        .get(&session_id)
+        .ok_or_else(|| unknown_session(session_id))?;
+    check_owner(session_id, session, context)?;
+    Ok(session.clone())
+}
+
+pub(super) fn recheck_owned_session(
+    session_id: i64,
+    session: &Arc<ExecSession>,
+    context: &ToolModuleInvocationContext,
+) -> Result<()> {
+    let sessions = lock(sessions());
+    let current = sessions
+        .get(&session_id)
+        .filter(|current| Arc::ptr_eq(current, session))
+        .ok_or_else(|| unknown_session(session_id))?;
+    check_owner(session_id, current, context)?;
+    current.touch();
+    Ok(())
+}
+
+fn unknown_session(session_id: i64) -> anyhow::Error {
+    anyhow!("unknown exec session {session_id}; the process may have already exited")
+}
+
+fn check_owner(
+    session_id: i64,
+    session: &ExecSession,
+    context: &ToolModuleInvocationContext,
+) -> Result<()> {
+    if !session.owner.matches(context) {
+        anyhow::bail!(
+            "exec session {session_id} is not owned by the current execution context/workspace"
+        );
+    }
+    Ok(())
+}
+
 pub(super) fn ensure_session_janitor() -> Result<()> {
     static JANITOR: OnceLock<std::result::Result<(), String>> = OnceLock::new();
     match JANITOR.get_or_init(|| {
@@ -204,20 +274,37 @@ pub(super) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 /// завершённые сессии, затем самая давно не использованная (её процесс
 /// убивается). Модель при обращении к вытесненной сессии получает
 /// "unknown exec session".
-pub(super) fn prune_session_if_needed(sessions: &mut SessionMap) {
+pub(super) fn prune_session_if_needed(sessions: &mut SessionMap) -> Result<()> {
     if sessions.len() < MAX_SESSIONS {
-        return;
+        return Ok(());
     }
-    let meta: Vec<(i64, Instant, bool)> = sessions
+    let mut meta: Vec<(i64, Instant, bool)> = sessions
         .iter()
         .map(|(id, session)| (*id, *lock(&session.last_used), lock(&session.output).exited))
         .collect();
-    let Some(victim_id) = session_to_prune(&meta) else {
-        return;
-    };
-    if let Some(victim) = sessions.remove(&victim_id) {
-        victim.kill();
+    while let Some(victim_id) = session_to_prune(&meta) {
+        let victim = sessions[&victim_id].clone();
+        if let Some(_interaction) = victim.try_lock_interaction() {
+            sessions.remove(&victim_id);
+            victim.kill();
+            return Ok(());
+        }
+        meta.retain(|(id, _, _)| *id != victim_id);
     }
+    anyhow::bail!("exec session limit ({MAX_SESSIONS}) reached; all sessions are busy")
+}
+
+/// Admission and spawn share the store lock: concurrent launches cannot exceed
+/// the cap, and rejected launches never execute their command.
+pub(super) fn register_session(
+    sessions: &mut SessionMap,
+    spawn: impl FnOnce() -> Result<Arc<ExecSession>>,
+) -> Result<(i64, Arc<ExecSession>)> {
+    prune_session_if_needed(sessions)?;
+    let session = spawn()?;
+    let session_id = NEXT_SESSION_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    sessions.insert(session_id, Arc::clone(&session));
+    Ok((session_id, session))
 }
 
 pub(super) fn prune_expired_sessions(now: Instant, max_idle: Duration) {
@@ -227,10 +314,14 @@ pub(super) fn prune_expired_sessions(now: Instant, max_idle: Duration) {
             .iter()
             .map(|(id, session)| (*id, *lock(&session.last_used), lock(&session.output).exited))
             .collect::<Vec<_>>();
-        expired_session_ids(&meta, now, max_idle)
-            .into_iter()
-            .filter_map(|id| sessions.remove(&id))
-            .collect::<Vec<_>>()
+        let mut victims = Vec::new();
+        for id in expired_session_ids(&meta, now, max_idle) {
+            let candidate = sessions[&id].clone();
+            if let Some(_interaction) = candidate.try_lock_interaction() {
+                victims.push(sessions.remove(&id).expect("selected session"));
+            }
+        }
+        victims
     };
     for victim in victims {
         victim.kill();

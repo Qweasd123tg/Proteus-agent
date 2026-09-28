@@ -250,8 +250,8 @@ Process-based built-in tools читают stdout/stderr через bounded reade
 сохраняет только первые bytes лимита и дочитывает остаток без накопления в
 памяти. После этого `ToolOrchestrator` всё равно применяет общий output
 truncation перед событием `ToolFinished` и передачей результата модели. Дефолтный
-лимит orchestrator-а — `200_000` bytes; при обрезке в `output`/`error`
-добавляется явный marker, а metadata получает `output_truncated` /
+лимит orchestrator-а — `200_000` bytes; при обрезке `output`/`error` сохраняются
+начало и конец с явным marker вместо середины. Metadata получает `output_truncated` /
 `error_truncated`, original byte count и `max_output_bytes`.
 
 Для `mcp` один host tool всегда мапится на один фиксированный remote MCP tool
@@ -316,6 +316,10 @@ duplicate-name и visibility checks, но выполняются OpenAI внут
 
 `apply_patch` остаётся core tool-ом, но сам алгоритм применения patch живёт в
 выбранном `PatchApplier`. Reference modules `direct-patch` и `codex-patch`
+получают рабочий каталог вызова. Необязательный `workdir` у `apply_patch`
+задаёт существующий каталог внутри workspace; относительный путь разрешается
+от workspace, отсутствие параметра выбирает workspace. Общий process adapter
+отклоняет каталог вне этой границы, независимо от реализации patch. Модули
 канонизируют `cwd`, проверяют target path и отклоняют absolute paths,
 parent traversal и
 symlink-escape; конечный symlink запрещён для Add/Update/Delete и обеих сторон
@@ -350,6 +354,8 @@ Reference `codex-patch` выбран в Codex-family profiles. Он приним
 присутствовать в model request; преобразование не делает скрытый исходный tool доступным.
 Целевой `apply_patch` проходит собственные registry/policy/approval/safety
 проверки. Его запрет, отсутствие или ошибка не приводят к повтору через shell.
+Рабочий каталог исходного вызова сохраняется в аргументах целевого tool;
+ошибочный `workdir` не заменяется корнем workspace.
 Связь исходного вызова с операцией сохраняется в checkpoint, исходный model call
 не меняется. Другие workflows такого преобразования автоматически не получают.
 
@@ -719,6 +725,11 @@ exit code. После получения terminal result handle удаляетс
 code остаётся данными успешного tool result. Внешние runtime/export deadlines
 могут закончить вызов раньше запрошенного ожидания.
 
+Вызовы `write_stdin` одной session сериализуют всю операцию ввода и чтения.
+После ожидания повторно проверяется существование handle; если предыдущий
+вызов уже забрал terminal result, следующий получает ошибку неизвестной session.
+Вызовы разных sessions могут выполняться параллельно.
+
 `max_output_tokens` по умолчанию равен 10 000 approximate tokens, `0` скрывает
 текст вывода; отдельного потолка 25 000 нет. Буфер ограничен 1 МиБ и сохраняет
 начало и конец, отмечая пропущенную середину. Сам результат также сокращается
@@ -731,9 +742,12 @@ runtime session/thread/workspace: тот же thread может продолжи
 turn'ами, а другой session, thread или workspace получает явную ошибку.
 Sessions с idle age от 30 минут удаляет минутный janitor; свежая завершённая
 session сохраняется до получения её вывода. Общий cap 16 сохраняет
-LRU-eviction с приоритетом завершённых sessions. Cancellation активного вызова
-убивает процесс и удаляет handle; для pipes в Unix завершается вся группа
-команды. Граница сравнения с Codex описана в
+LRU-eviction с приоритетом завершённых sessions. Sessions с выполняющимся
+вызовом не вытесняются; если заняты все 16, новый запуск возвращает ошибку
+без создания процесса. Cancellation активного вызова
+убивает процесс и удаляет handle; для pipes и PTY в Unix завершается вся группа
+команды через SIGKILL, включая потомков и процессы, игнорирующие SIGHUP.
+Граница сравнения с Codex описана в
 [codex-baseline.md](../development/codex-baseline.md).
 
 ## Известные Ограничения Текущей Реализации

@@ -11,7 +11,7 @@ pub struct NullPatchApplier;
 
 #[async_trait]
 impl PatchApplier for NullPatchApplier {
-    async fn apply(&self, _patch: Patch) -> Result<PatchResult> {
+    async fn apply(&self, _patch: Patch, _cwd: &std::path::Path) -> Result<PatchResult> {
         Ok(PatchResult::new(false, "patch applier is disabled"))
     }
 }

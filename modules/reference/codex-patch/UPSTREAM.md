@@ -18,7 +18,7 @@ Reference export `patch/codex` адаптирован из OpenAI Codex commit
 рядом. Перенесённые файлы помечены как адаптированные.
 
 Выбран локальный режим и default `ApplyPatchPreserveLineEndings = false`.
-Путь исполнения — общий `patch/v1`: opaque `Patch.content`, workspace cwd,
+Путь исполнения — общий `patch/v1`: opaque `Patch.content`, cwd вызова внутри workspace,
 `PatchResult` или module error. Remote Environment ID отклоняется явно.
 Workspace path validation сохраняет существующее ограничение Proteus:
 относительные пути без parent traversal и без symlink-компонентов. Это

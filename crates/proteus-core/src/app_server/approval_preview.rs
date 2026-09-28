@@ -13,20 +13,36 @@ const APPROVAL_PREVIEW_BODY_LIMIT: usize = 20_000;
 
 pub(super) fn approval_preview_for(call: &ToolCall, cwd: &Path) -> Option<AppApprovalPreview> {
     match call.name.as_str() {
-        "apply_patch" => approval_preview_for_apply_patch(call),
+        "apply_patch" => approval_preview_for_apply_patch(call, cwd),
         "write_file" => approval_preview_for_write_file(call, cwd),
         "shell" => approval_preview_for_shell(call, cwd),
         _ => None,
     }
 }
 
-fn approval_preview_for_apply_patch(call: &ToolCall) -> Option<AppApprovalPreview> {
+fn approval_preview_for_apply_patch(call: &ToolCall, cwd: &Path) -> Option<AppApprovalPreview> {
     let patch = call
         .args
         .get("patch")
         .and_then(Value::as_str)
         .or_else(|| call.args.get("input").and_then(Value::as_str))?;
-    let affected_files = affected_files_from_internal_patch(patch);
+    let workdir = match call.args.get("workdir") {
+        Some(value) => cwd.join(value.as_str()?),
+        None => cwd.to_path_buf(),
+    };
+    // Resolve display paths without reading files or interpreting patch operations.
+    // Invocation validates the directory; preview retains its requested spelling.
+    let affected_files = affected_files_from_internal_patch(patch)
+        .into_iter()
+        .map(|path| {
+            let target = workdir.join(path);
+            target
+                .strip_prefix(cwd)
+                .unwrap_or(&target)
+                .display()
+                .to_string()
+        })
+        .collect::<Vec<_>>();
     let summary = if affected_files.is_empty() {
         "Apply workspace patch".to_owned()
     } else if affected_files.len() == 1 {
@@ -39,7 +55,10 @@ fn approval_preview_for_apply_patch(call: &ToolCall) -> Option<AppApprovalPrevie
         AppApprovalPreview::new("patch", "Patch preview", summary)
             .with_affected_files(affected_files)
             .with_body(truncate_preview_body(patch), "diff")
-            .with_metadata(json!({ "format": "proteus_internal_patch" })),
+            .with_metadata(json!({
+                "format": "proteus_internal_patch",
+                "cwd": workdir.display().to_string(),
+            })),
     )
 }
 

@@ -3,9 +3,13 @@
 use std::{path::Path, time::Duration};
 
 use proteus_contracts::{
-    contracts::{PROCESS_PATCH_APPLY_METHOD, ProcessPatchInput, ProcessPatchResponse},
-    domain::Patch,
+    contracts::{
+        ExecutionAttribution, PROCESS_PATCH_APPLY_METHOD, ProcessPatchInput, ProcessPatchResponse,
+        ToolContext,
+    },
+    domain::{Patch, ToolCall, new_call_id, new_execution_id},
 };
+use proteus_core::core::{AgentControlSurface, AppConfig, RuntimeRegistry};
 use proteus_module_protocol::{
     ProcessComponentBinding, ProcessExportBinding, current_process_contract_authority,
     v3::{ComponentBroker, ComponentBrokerOptions, InvocationTerminal},
@@ -165,5 +169,122 @@ async fn patch_slot_substitution_keeps_contract_and_selects_module_semantics() {
             "{recovered:?}"
         );
         assert!(!target.exists());
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn patch_tool_workdir_is_invocation_scoped_across_process_modules() {
+    for module_id in ["direct", "codex"] {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = root.path().join("workspace");
+        let subdir = workspace.join("subdir");
+        let outside = root.path().join("outside");
+        std::fs::create_dir_all(&subdir).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        std::fs::write(workspace.join("proof.txt"), "root sentinel\n").unwrap();
+        let mut config = AppConfig::default();
+        config.agent_control.surface = AgentControlSurface::None;
+        config.modules.patch = Some(module_id.to_owned());
+        config.tools.enabled = vec!["apply_patch".to_owned()];
+        config.components.insert(
+            "patch-fixture".into(),
+            serde_json::from_value(json!({
+                "command": env!("CARGO_BIN_EXE_proteus-reference-worker"),
+                "exports": {"model": {"fake": {}}, "patch": {(module_id): {}}}
+            }))
+            .unwrap(),
+        );
+        config
+            .module_config
+            .entry("model".into())
+            .or_default()
+            .insert("fake".into(), json!({"implementation": "fake"}));
+        let registry = RuntimeRegistry::from_config(&config, workspace.clone()).unwrap();
+        let tool = registry.tools.get("apply_patch").unwrap();
+        let context = || {
+            ToolContext::new(
+                workspace.clone(),
+                ExecutionAttribution::detached(new_execution_id()),
+            )
+        };
+        let patch = "*** Begin Patch\n*** Add File: proof.txt\n+subdir content\n*** End Patch";
+        for workdir in [json!("subdir"), json!(subdir)] {
+            let result = tool
+                .invoke(
+                    &ToolCall::new(
+                        new_call_id(),
+                        "apply_patch",
+                        json!({"patch": patch, "workdir": workdir}),
+                    ),
+                    context(),
+                )
+                .await
+                .unwrap();
+            assert!(result.ok, "{module_id}: {result:?}");
+            assert_eq!(
+                std::fs::read_to_string(subdir.join("proof.txt")).unwrap(),
+                "subdir content\n"
+            );
+            assert_eq!(
+                std::fs::read_to_string(workspace.join("proof.txt")).unwrap(),
+                "root sentinel\n"
+            );
+            std::fs::remove_file(subdir.join("proof.txt")).unwrap();
+        }
+
+        // The slot contract also resolves relative cwd independently of host process cwd.
+        let result = registry.patch.apply(
+            Patch::new("*** Begin Patch\n*** Add File: contract.txt\n+relative slot cwd\n*** End Patch"),
+            Path::new("subdir"),
+        ).await.unwrap();
+        assert!(result.ok);
+        assert!(subdir.join("contract.txt").exists());
+        assert!(!workspace.join("contract.txt").exists());
+
+        let default = tool.invoke(
+            &ToolCall::new(new_call_id(), "apply_patch", json!({
+                "patch": "*** Begin Patch\n*** Add File: default.txt\n+workspace default\n*** End Patch"
+            })),
+            context(),
+        ).await.unwrap();
+        assert!(default.ok);
+        assert!(workspace.join("default.txt").exists());
+        assert!(!subdir.join("default.txt").exists());
+
+        let mut invalid = vec![
+            (json!("missing"), "resolve patch workdir"),
+            (json!("proof.txt"), "patch workdir must be a directory"),
+            (json!("../outside"), "patch workdir escapes workspace"),
+            (json!(outside), "patch workdir escapes workspace"),
+            (json!(42), "requires string arg 'workdir'"),
+        ];
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&outside, workspace.join("outside-link")).unwrap();
+            invalid.push((json!("outside-link"), "patch workdir escapes workspace"));
+        }
+        for (workdir, message) in invalid {
+            let error = tool
+                .invoke(
+                    &ToolCall::new(
+                        new_call_id(),
+                        "apply_patch",
+                        json!({"patch": patch, "workdir": workdir}),
+                    ),
+                    context(),
+                )
+                .await
+                .expect_err("invalid workdir must fail before patch invocation");
+            assert!(
+                error.to_string().contains(message),
+                "{module_id}: {error:#}"
+            );
+        }
+        assert!(!outside.join("proof.txt").exists());
+        assert!(!subdir.join("proof.txt").exists());
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("proof.txt")).unwrap(),
+            "root sentinel\n"
+        );
     }
 }

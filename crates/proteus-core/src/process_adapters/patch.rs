@@ -10,7 +10,7 @@ use crate::{
     },
     domain::{Patch, PatchResult},
 };
-use anyhow::Result;
+use anyhow::{Context, Result, ensure};
 use async_trait::async_trait;
 
 use super::{ProcessExportClient, ProcessExportConfig};
@@ -39,15 +39,22 @@ impl ProcessPatchApplier {
 
 #[async_trait]
 impl PatchApplier for ProcessPatchApplier {
-    async fn apply(&self, patch: Patch) -> Result<PatchResult> {
+    async fn apply(&self, patch: Patch, cwd: &Path) -> Result<PatchResult> {
+        let workspace = self.cwd.canonicalize().context("resolve patch workspace")?;
+        let cwd = workspace
+            .join(cwd)
+            .canonicalize()
+            .context("resolve patch workdir")?;
+        ensure!(cwd.is_dir(), "patch workdir must be a directory");
+        ensure!(
+            cwd.starts_with(&workspace),
+            "patch workdir escapes workspace"
+        );
         let response: ProcessPatchResponse = self
             .client
             .invoke(
                 PROCESS_PATCH_APPLY_METHOD,
-                &ProcessPatchInput {
-                    patch,
-                    cwd: self.cwd.clone(),
-                },
+                &ProcessPatchInput { patch, cwd },
             )
             .await?;
         Ok(response.result)

@@ -7,7 +7,7 @@ use std::{
 
 use proteus_contracts::{
     contracts::{CancellationToken, ExecutionAttribution, Tool, ToolContext},
-    domain::{ToolCall, ToolSafety, new_call_id, new_execution_id},
+    domain::{ToolCall, ToolResult, ToolSafety, new_call_id, new_execution_id},
 };
 use proteus_core::core::{
     AppConfig, ConfiguredMcpServerConfig, ModuleCatalog, ProcessEnvironmentConfig,
@@ -116,6 +116,14 @@ fn call(name: &str, args: Value) -> ToolCall {
     ToolCall::new(new_call_id(), format!("fixture__{name}"), args)
 }
 
+fn assert_echo_output(result: &ToolResult, label: &str, generation: u64) {
+    let output: Value =
+        serde_json::from_str(&result.text_or_status()).expect("model-visible structured echo");
+    assert_eq!(output["label"], label);
+    assert_eq!(output["generation"], generation);
+    assert_eq!(output, result.metadata["structured_content"]);
+}
+
 #[tokio::test]
 async fn discovery_paginates_and_persistent_calls_preserve_content_error_and_environment() {
     let fixture = Fixture::new(2_000, None);
@@ -143,7 +151,7 @@ async fn discovery_paginates_and_persistent_calls_preserve_content_error_and_env
         .await
         .expect("echo call");
     assert!(result.ok);
-    assert_eq!(result.output, "echo:Привет:generation:1");
+    assert_echo_output(&result, "Привет", 1);
     assert_eq!(result.metadata["structured_content"]["label"], "Привет");
     assert_eq!(result.metadata["structured_content"]["generation"], 1);
     assert_eq!(result.metadata["structured_content"]["path_present"], true);
@@ -152,6 +160,34 @@ async fn discovery_paginates_and_persistent_calls_preserve_content_error_and_env
         result.metadata["structured_content"]["literal_env"],
         "literal-value"
     );
+
+    for mode in [
+        "structured_only",
+        "null_structured",
+        "text_only",
+        "empty_structured",
+    ] {
+        let result = echo
+            .invoke(
+                &call("echo", json!({"label": mode, "mode": mode})),
+                context(CancellationToken::new(), fixture.dir.path()),
+            )
+            .await
+            .expect("MCP content variant");
+        assert!(result.ok);
+        assert!(result.error.is_none());
+        match mode {
+            "structured_only" => assert_echo_output(&result, mode, 1),
+            "empty_structured" => {
+                assert_eq!(result.text_or_status(), "{}");
+                assert_eq!(result.metadata["structured_content"], json!({}));
+            }
+            _ => {
+                assert_eq!(result.text_or_status(), format!("echo:{mode}:generation:1"));
+                assert!(result.metadata["structured_content"].is_null());
+            }
+        }
+    }
 
     let rpc_error = echo
         .invoke(
@@ -168,7 +204,7 @@ async fn discovery_paginates_and_persistent_calls_preserve_content_error_and_env
         )
         .await
         .expect("ordinary RPC error must preserve the connection");
-    assert_eq!(after_rpc_error.output, "echo:after-rpc-error:generation:1");
+    assert_echo_output(&after_rpc_error, "after-rpc-error", 1);
 
     let failure = fixture
         .tool(&registry, "fail")
@@ -179,8 +215,8 @@ async fn discovery_paginates_and_persistent_calls_preserve_content_error_and_env
         .await
         .expect("isError remains a canonical tool result");
     assert!(!failure.ok);
-    assert_eq!(failure.output, "fixture failure");
-    assert_eq!(failure.error.as_deref(), Some("fixture failure"));
+    assert_eq!(failure.output, r#"{"kind":"expected"}"#);
+    assert_eq!(failure.error.as_deref(), Some(failure.output.as_str()));
     assert_eq!(failure.metadata["structured_content"]["kind"], "expected");
     assert_eq!(
         fixture.generation_count(),
@@ -212,14 +248,8 @@ async fn concurrent_calls_are_correlated_to_their_own_responses() {
         context(CancellationToken::new(), fixture.dir.path()),
     );
     let (slow, fast) = tokio::join!(slow, fast);
-    assert_eq!(
-        slow.expect("slow response").output,
-        "echo:slow:generation:1"
-    );
-    assert_eq!(
-        fast.expect("fast response").output,
-        "echo:fast:generation:1"
-    );
+    assert_echo_output(&slow.expect("slow response"), "slow", 1);
+    assert_echo_output(&fast.expect("fast response"), "fast", 1);
     assert_eq!(fixture.generation_count(), 1);
 }
 
@@ -257,7 +287,7 @@ async fn cancellation_prevents_late_side_effect_and_next_use_starts_a_new_genera
         )
         .await
         .expect("next explicit invocation restarts MCP generation");
-    assert_eq!(restarted.output, "echo:restart:generation:2");
+    assert_echo_output(&restarted, "restart", 2);
     assert_eq!(fixture.generation_count(), 2);
     assert!(
         fixture
@@ -299,7 +329,7 @@ async fn dropping_an_in_flight_call_stops_its_generation_without_a_late_side_eff
         )
         .await
         .expect("drop invalidates the old generation");
-    assert_eq!(restarted.output, "echo:after-drop:generation:2");
+    assert_echo_output(&restarted, "after-drop", 2);
 }
 
 #[tokio::test]
@@ -345,8 +375,12 @@ async fn timeout_and_bounded_response_invalidate_the_generation_without_replay()
         )
         .await
         .expect("next explicit call restarts after transport errors");
-    assert!(recovered.output.contains("after-errors:generation:"));
     assert!(fixture.generation_count() >= 3);
+    assert_echo_output(
+        &recovered,
+        "after-errors",
+        fixture.generation_count() as u64,
+    );
     assert_eq!(
         fixture
             .event_lines()
@@ -424,7 +458,8 @@ async fn inline_mcp_tool_uses_runtime_approval_journal_and_replay_path() {
                 "env": {
                     "MCP_FIXTURE_EVENT_LOG": fixture.events,
                     "MCP_FIXTURE_GENERATION_FILE": fixture.generations,
-                    "MCP_LITERAL_ENV":"runtime"
+                    "MCP_LITERAL_ENV":"runtime",
+                    "MCP_FIXTURE_CONTENT_MODE":"structured_only"
                 },
                 "tool":"echo",
                 "protocol_version":"2025-11-25"
@@ -469,7 +504,15 @@ async fn inline_mcp_tool_uses_runtime_approval_journal_and_replay_path() {
         .await
         .expect("approve MCP call");
     let output = turn.await.expect("turn task").expect("runtime MCP turn");
-    assert!(output.text.contains("generation:1"), "{}", output.text);
+    let expected = json!({
+        "label": "",
+        "generation": 1,
+        "path_present": true,
+        "home_present": false,
+        "literal_env": "runtime"
+    });
+    let expected_output = serde_json::to_string(&expected).unwrap();
+    assert!(output.text.ends_with(&expected_output), "{}", output.text);
 
     let store = proteus_core::core::SessionStore::open(
         server
@@ -484,8 +527,39 @@ async fn inline_mcp_tool_uses_runtime_approval_journal_and_replay_path() {
     )));
     assert!(records.iter().any(|record| matches!(
         &record.entry,
-        JournalEntry::ToolResultRecorded(result) if result.result.ok
+        JournalEntry::ToolResultRecorded(result)
+            if result.result.ok && result.result.output == expected_output
+                && result.result.metadata["structured_content"] == expected
     )));
+    assert!(
+        records.iter().any(|record| match &record.entry {
+            JournalEntry::ModelRequestRecorded(model) =>
+                model.request.messages.iter().any(|message| {
+                    message.parts.iter().any(|part| {
+                        matches!(
+                            &part.payload,
+                            proteus_contracts::model_standard::ContentPart::ToolResult { result }
+                                if result.ok && result.text_or_status() == expected_output
+                                    && result.metadata["structured_content"] == expected
+                        )
+                    })
+                }),
+            _ => false,
+        }),
+        "structured-only result must reach the next canonical model request"
+    );
+    assert!(
+        store.load_messages().unwrap().iter().any(|message| {
+            message.parts.iter().any(|part| {
+                matches!(
+                    &part.payload,
+                    proteus_contracts::model_standard::ContentPart::ToolResult { result }
+                        if result.ok && result.output == expected_output
+                )
+            })
+        }),
+        "structured-only result must survive cold history readback"
+    );
     server.shutdown().await;
 
     let replay = replay_workflow(

@@ -118,11 +118,11 @@ fn intercept_apply_patch_call(call: &ToolCall) -> Option<ToolCall> {
     let patch = extract_apply_patch_body(command)?;
     // The host decides whether this target exists and may execute. Never fall
     // back to OS shell execution after a patch target denial or failure.
-    Some(ToolCall::new(
-        call.id.clone(),
-        "apply_patch",
-        json!({"patch": patch}),
-    ))
+    let mut patch_args = json!({"patch": patch});
+    if let Some(workdir) = args.get("workdir") {
+        patch_args["workdir"] = workdir.clone();
+    }
+    Some(ToolCall::new(call.id.clone(), "apply_patch", patch_args))
 }
 
 fn extract_apply_patch_body(command: &str) -> Option<String> {

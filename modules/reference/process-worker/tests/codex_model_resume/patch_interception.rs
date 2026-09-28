@@ -44,12 +44,12 @@ impl Surface {
             Self::Shell => ToolCall::new(
                 CALL_ID,
                 "shell",
-                json!({"command": format!("apply_patch <<'PATCH'\n{patch}\nPATCH")}),
+                json!({"command": format!("apply_patch <<'PATCH'\n{patch}\nPATCH"), "workdir": "subdir"}),
             ),
             Self::ExecCommand => ToolCall::new(
                 CALL_ID,
                 "exec_command",
-                json!({"cmd": format!("apply_patch <<'PATCH'\n{patch}\nPATCH")}),
+                json!({"cmd": format!("apply_patch <<'PATCH'\n{patch}\nPATCH"), "workdir": "subdir"}),
             ),
             Self::Direct => ToolCall::new(CALL_ID, "apply_patch", json!({"patch": patch})),
         }
@@ -65,8 +65,7 @@ fn response(output: Value, round: usize) -> Value {
     })
 }
 
-fn responses(surface: Surface) -> [Value; 2] {
-    let call = surface.model_call();
+fn responses(call: ToolCall) -> [Value; 2] {
     [
         response(
             json!([{
@@ -97,15 +96,15 @@ fn responses(surface: Surface) -> [Value; 2] {
     ]
 }
 
-async fn serve(listener: TcpListener, surface: Surface, broken_stream: bool) -> Vec<Value> {
+async fn serve(listener: TcpListener, call: ToolCall, broken_stream: bool) -> Vec<Value> {
     let mut requests = Vec::new();
-    for fixture in responses(surface) {
+    for fixture in responses(call) {
         let (mut socket, _) = listener.accept().await.unwrap();
         requests.push(super::read_json_request(&mut socket).await);
         if broken_stream && requests.len() == 1 {
             let body = format!(
                 "event: response.output_item.done\ndata: {}\n\n",
-                json!({"output_index": 0, "item": fixture["output"][0]})
+                json!({"type": "response.output_item.done", "output_index": 0, "item": fixture["output"][0]})
             );
             super::stream_recovery::write_truncated_sse(&mut socket, &body).await;
             continue;
@@ -176,6 +175,14 @@ async fn check_surface(surface: Surface, policy_mode: PolicyMode, broken_stream:
     let root = tempfile::tempdir().unwrap();
     let workspace = root.path().join("workspace");
     std::fs::create_dir(&workspace).unwrap();
+    std::fs::create_dir(workspace.join("subdir")).unwrap();
+    if !matches!(surface, Surface::Direct) {
+        std::fs::write(workspace.join(TARGET), "root must remain untouched\n").unwrap();
+    }
+    let mut expected_original = surface.model_call();
+    if matches!(surface, Surface::ExecCommand) {
+        expected_original.args["workdir"] = json!(workspace.join("subdir"));
+    }
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let mut config = fixture_config(&format!("http://{}", listener.local_addr().unwrap())).await;
     config
@@ -186,7 +193,7 @@ async fn check_surface(surface: Surface, policy_mode: PolicyMode, broken_stream:
     configure_policy(&mut config, policy_mode);
     let config_path = root.path().join("config.json");
     std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
-    let server = tokio::spawn(serve(listener, surface, broken_stream));
+    let server = tokio::spawn(serve(listener, expected_original.clone(), broken_stream));
 
     let runtime = AgentRuntime::builder(config.clone(), workspace.clone())
         .with_config_path(Some(&config_path))
@@ -203,7 +210,15 @@ async fn check_surface(surface: Surface, policy_mode: PolicyMode, broken_stream:
         .unwrap()
         .unwrap();
     assert_eq!(requests.len(), 2);
-    let target = workspace.join(TARGET);
+    let target = if matches!(surface, Surface::Direct) {
+        workspace.join(TARGET)
+    } else {
+        assert_eq!(
+            std::fs::read_to_string(workspace.join(TARGET)).unwrap(),
+            "root must remain untouched\n"
+        );
+        workspace.join("subdir").join(TARGET)
+    };
     if matches!(policy_mode, PolicyMode::Deny | PolicyMode::Unavailable) {
         assert!(
             !target.exists(),
@@ -242,7 +257,6 @@ async fn check_surface(surface: Surface, policy_mode: PolicyMode, broken_stream:
         })
         .expect("tool checkpoint");
     let original = history_call(&checkpoint.messages);
-    let expected_original = surface.model_call();
     assert_eq!(original.id, expected_original.id);
     assert_eq!(original.name, expected_original.name);
     assert_eq!(original.args, expected_original.args);
@@ -257,6 +271,12 @@ async fn check_surface(surface: Surface, policy_mode: PolicyMode, broken_stream:
     assert_eq!(binding.execution_call.id, CALL_ID);
     assert_eq!(binding.execution_call.name, "apply_patch");
     assert_eq!(binding.execution_call.surface, ToolCallSurface::Function);
+    if !matches!(surface, Surface::Direct) {
+        assert_eq!(
+            binding.execution_call.args["workdir"],
+            expected_original.args["workdir"]
+        );
+    }
 
     let requested = projection
         .records

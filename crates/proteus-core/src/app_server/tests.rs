@@ -69,7 +69,7 @@ async fn register_test_user_input(
 
 #[test]
 fn apply_patch_approval_preview_extracts_affected_files() {
-    let call = ToolCall::new(
+    let mut call = ToolCall::new(
         new_call_id(),
         "apply_patch",
         serde_json::json!({
@@ -82,12 +82,38 @@ fn apply_patch_approval_preview_extracts_affected_files() {
 
     assert_eq!(preview.kind, "patch");
     assert_eq!(preview.affected_files, vec!["notes.txt", "src/main.rs"]);
+    assert_eq!(preview.metadata["cwd"], "/workspace");
     assert!(preview.summary.contains("2 files"));
     assert!(
         preview
             .body
             .unwrap()
             .contains("*** Update File: src/main.rs")
+    );
+
+    for workdir in ["subdir", "/workspace/subdir"] {
+        call.args["workdir"] = serde_json::json!(workdir);
+        let preview = approval_preview_for(&call, Path::new("/workspace"))
+            .expect("patch preview in invocation workdir");
+        assert_eq!(preview.metadata["cwd"], "/workspace/subdir");
+        assert_eq!(preview.metadata["format"], "proteus_internal_patch");
+        assert_eq!(
+            preview.affected_files,
+            vec!["subdir/notes.txt", "subdir/src/main.rs"]
+        );
+    }
+
+    call.args["patch"] = serde_json::json!(
+        "*** Begin Patch\n*** Update File: proof.txt\n@@\n-old\n+new\n*** End Patch\n"
+    );
+    let preview = approval_preview_for(&call, Path::new("/workspace")).unwrap();
+    assert_eq!(preview.summary, "Patch subdir/proof.txt");
+    assert_eq!(preview.affected_files, vec!["subdir/proof.txt"]);
+
+    call.args["workdir"] = serde_json::json!(42);
+    assert!(
+        approval_preview_for(&call, Path::new("/workspace")).is_none(),
+        "invalid workdir must not produce a misleading workspace-root preview"
     );
 }
 

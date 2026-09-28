@@ -5,6 +5,13 @@ use proteus_core::core::ToolCallRecordPhase;
 #[cfg(target_os = "linux")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancel_long_poll_stops_process_and_preserves_completed_launch_in_cold_history() {
+    for tty in [false, true] {
+        cancel_long_poll_and_check_cold_history(tty).await;
+    }
+}
+
+#[cfg(target_os = "linux")]
+async fn cancel_long_poll_and_check_cold_history(tty: bool) {
     let root = tempfile::tempdir().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let config = terminal_config(&format!("http://{}", listener.local_addr().unwrap()));
@@ -29,9 +36,18 @@ async fn cancel_long_poll_stops_process_and_preserves_completed_launch_in_cold_h
         }
     });
     let (mut socket, _) = accept(&listener).await;
-    respond(&mut socket, json!([call("call_exec", "exec_command", json!({
-        "cmd": "sleep 20 & echo $! > child.pid; wait", "yield_time_ms": 250, "with_escalated_permissions": true
-    }))])).await;
+    respond(
+        &mut socket,
+        json!([call(
+            "call_exec",
+            "exec_command",
+            json!({
+                "cmd": "trap '' HUP; sleep 20 & echo $! > child.pid; wait", "tty": tty,
+                "yield_time_ms": 250, "with_escalated_permissions": true
+            })
+        )]),
+    )
+    .await;
     let (mut socket, request) = accept(&listener).await;
     let id = session_id(&request);
     wait_for_file(&root.path().join("child.pid")).await;

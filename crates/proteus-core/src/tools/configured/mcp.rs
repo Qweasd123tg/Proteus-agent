@@ -62,7 +62,16 @@ impl Tool for ConfiguredMcpTool {
             .call_tool(remote_tool, args, timeout, ctx.cancellation)
             .await?;
         let is_error = result.is_error.unwrap_or(false);
-        let content_text = render_mcp_content(&result.content)?;
+        let content_text = match result
+            .structured_content
+            .as_ref()
+            .filter(|content| !content.is_null())
+        {
+            // Pinned Codex serializes non-null structured content for the model,
+            // even when the server also supplies textual content.
+            Some(content) => serde_json::to_string(content)?,
+            None => render_mcp_content(&result.content)?,
+        };
         let error = is_error.then(|| content_text.clone());
         let metadata = json!({
             "tool": call.name,
