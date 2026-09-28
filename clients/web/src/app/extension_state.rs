@@ -16,7 +16,7 @@ pub(super) fn publish(state: AppState) {
             fn publish_snapshot(value: &str);
         }
         let plan = Memo::new(move |_| {
-            state.chat.messages.with(|items| {
+            state.chat.messages.with_tool_messages(|items| {
                 items
                     .iter()
                     .rev()

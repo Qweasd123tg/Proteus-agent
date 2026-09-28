@@ -9,6 +9,8 @@ pub(crate) struct Transcript {
     data: StoredValue<TranscriptData>,
     changed: RwSignal<()>,
     order: RwSignal<Vec<u64>>,
+    user_changed: RwSignal<()>,
+    tools_changed: RwSignal<()>,
 }
 
 #[derive(Clone, Copy)]
@@ -18,6 +20,34 @@ struct Entry {
     position: usize,
     changed: ArcRwSignal<()>,
     stamp: Stamp,
+    scopes: Scopes,
+}
+
+// Independent projections must not rescan the transcript for assistant text deltas.
+#[derive(Clone, Copy, Default)]
+struct Scopes {
+    user: bool,
+    tools: bool,
+}
+impl Scopes {
+    fn of(message: &Message) -> Self {
+        Self {
+            user: message.role == MessageRole::User,
+            tools: message.tool.is_some(),
+        }
+    }
+    fn include(&mut self, other: Self) {
+        self.user |= other.user;
+        self.tools |= other.tools;
+    }
+    fn notify(self, transcript: Transcript) {
+        if self.user {
+            transcript.user_changed.notify();
+        }
+        if self.tools {
+            transcript.tools_changed.notify();
+        }
+    }
 }
 
 #[derive(PartialEq, Eq)]
@@ -48,6 +78,8 @@ pub(crate) fn transcript(items: Vec<Message>) -> (Transcript, TranscriptWriter) 
         data: StoredValue::new(TranscriptData::default()),
         changed: RwSignal::new(()),
         order: RwSignal::new(Vec::new()),
+        user_changed: RwSignal::new(()),
+        tools_changed: RwSignal::new(()),
     };
     let write = TranscriptWriter(read);
     write.set(items);
@@ -63,6 +95,14 @@ impl Transcript {
     }
     pub(crate) fn with<T>(self, f: impl FnOnce(&Vec<Message>) -> T) -> T {
         self.changed.track();
+        self.with_untracked(f)
+    }
+    pub(crate) fn with_user_messages<T>(self, f: impl FnOnce(&Vec<Message>) -> T) -> T {
+        self.user_changed.track();
+        self.with_untracked(f)
+    }
+    pub(crate) fn with_tool_messages<T>(self, f: impl FnOnce(&Vec<Message>) -> T) -> T {
+        self.tools_changed.track();
         self.with_untracked(f)
     }
     pub(crate) fn with_untracked<T>(self, f: impl FnOnce(&Vec<Message>) -> T) -> T {
@@ -105,15 +145,16 @@ impl TranscriptWriter {
     pub(crate) fn update(self, f: impl FnOnce(&mut Vec<Message>)) {
         self.reconcile(false, f);
     }
-    /// Горячий путь: после поиска обновляется и уведомляется только найденная запись.
+    /// Горячий путь: ищем с конца (активный ответ обычно последний), уведомляем одну запись.
     pub(crate) fn update_matching(
         self,
         predicate: impl Fn(&Message) -> bool,
         update: impl FnOnce(&mut Message),
     ) -> bool {
         let mut changed = None;
+        let mut scopes = Scopes::default();
         self.0.data.update_value(|data| {
-            let Some(position) = data.items.iter().position(predicate) else {
+            let Some(position) = data.items.iter().rposition(predicate) else {
                 return;
             };
             let message = &mut data.items[position];
@@ -124,12 +165,16 @@ impl TranscriptWriter {
                 "point update cannot change message identity"
             );
             let entry = data.entries.get_mut(&id).expect("indexed message");
+            scopes.include(entry.scopes);
+            entry.scopes = Scopes::of(message);
+            scopes.include(entry.scopes);
             entry.stamp = Stamp::of(message);
             changed = Some(entry.changed.clone());
         });
         if let Some(changed) = changed {
             changed.notify();
             self.0.changed.notify();
+            scopes.notify(self.0);
             true
         } else {
             false
@@ -143,6 +188,7 @@ impl TranscriptWriter {
         mut update: impl FnMut(&mut Message),
     ) {
         let mut notifications = Vec::new();
+        let mut scopes = Scopes::default();
         self.0.data.update_value(|data| {
             for message in data.items.iter_mut().filter(|message| predicate(message)) {
                 let id = message.id;
@@ -152,6 +198,9 @@ impl TranscriptWriter {
                     "point update cannot change message identity"
                 );
                 let entry = data.entries.get_mut(&id).expect("indexed message");
+                scopes.include(entry.scopes);
+                entry.scopes = Scopes::of(message);
+                scopes.include(entry.scopes);
                 entry.stamp = Stamp::of(message);
                 notifications.push(entry.changed.clone());
             }
@@ -161,11 +210,13 @@ impl TranscriptWriter {
                 notification.notify();
             }
             self.0.changed.notify();
+            scopes.notify(self.0);
         }
     }
 
     fn reconcile(self, replace: bool, f: impl FnOnce(&mut Vec<Message>)) {
         let mut notifications = Vec::new();
+        let mut scopes = Scopes::default();
         let mut ids = Vec::new();
         self.0.data.update_value(|data| {
             f(&mut data.items);
@@ -177,10 +228,14 @@ impl TranscriptWriter {
                     position,
                     changed: ArcRwSignal::new(()),
                     stamp: Stamp::of(message),
+                    scopes: Scopes::of(message),
                 });
                 if replace || entry.stamp != stamp {
+                    scopes.include(entry.scopes);
+                    scopes.include(Scopes::of(message));
                     notifications.push(entry.changed.clone());
                 }
+                entry.scopes = Scopes::of(message);
                 entry.position = position;
                 entry.stamp = stamp;
                 assert!(
@@ -192,6 +247,11 @@ impl TranscriptWriter {
         });
         let reordered = self.0.order.with_untracked(|order| *order != ids);
         if reordered {
+            // Insertions/removals/reorders can change either projection.
+            scopes = Scopes {
+                user: true,
+                tools: true,
+            };
             self.0.order.set(ids);
         }
         let changed = reordered || !notifications.is_empty();
@@ -201,6 +261,7 @@ impl TranscriptWriter {
         }
         if changed {
             self.0.changed.notify();
+            scopes.notify(self.0);
         }
     }
 }

@@ -14,7 +14,7 @@ impl AppState {
         let chat = ChatState::new();
         let messages = chat.messages;
         let user_messages = Memo::new(move |_| {
-            messages.with(|items| {
+            messages.with_user_messages(|items| {
                 items
                     .iter()
                     .filter(|m| m.role == MessageRole::User)

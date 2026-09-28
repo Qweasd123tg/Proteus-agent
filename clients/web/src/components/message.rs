@@ -1,8 +1,3 @@
-use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-};
-
 use leptos::prelude::*;
 
 use super::{SubagentCard, ToolActivityCard, subagent_turn_card_class, tool_turn_card_class};
@@ -13,14 +8,6 @@ use crate::ui_utils::{compact_text, copy_to_clipboard, set_timeout};
 const REASONING_RENDER_LIMIT: usize = 8000;
 
 const COPY_FEEDBACK_MS: i32 = 1200;
-
-#[derive(Clone)]
-struct RenderedMessageCache {
-    id: u64,
-    version: u64,
-    text_fingerprint: u64,
-    html: String,
-}
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum MessageViewKind {
@@ -269,40 +256,16 @@ fn current_message_text(message: Memo<Option<Message>>) -> String {
 }
 
 fn cached_message_html(message: Memo<Option<Message>>) -> Memo<String> {
-    let cache = StoredValue::new_local(None::<RenderedMessageCache>);
+    // The per-message memo already owns the cache and invalidates on snapshots too.
+    // Borrow its text: do not clone/hash the entire streamed answer a second time.
     Memo::new(move |_| {
-        let Some(message) = message.get() else {
-            return String::new();
-        };
-        let text_fingerprint = rendered_text_fingerprint(&message.text);
-        let mut cached = None;
-        cache.with_value(|slot| {
-            if let Some(slot) = slot.as_ref()
-                && slot.id == message.id
-                && slot.version == message.version
-                && slot.text_fingerprint == text_fingerprint
-            {
-                cached = Some(slot.html.clone());
-            }
-        });
-        if let Some(html) = cached {
-            return html;
-        }
-        let html = render_message_html(&message);
-        cache.set_value(Some(RenderedMessageCache {
-            id: message.id,
-            version: message.version,
-            text_fingerprint,
-            html: html.clone(),
-        }));
-        html
+        message.with(|message| {
+            message
+                .as_ref()
+                .map(render_message_html)
+                .unwrap_or_default()
+        })
     })
-}
-
-fn rendered_text_fingerprint(text: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    text.hash(&mut hasher);
-    hasher.finish()
 }
 
 fn render_message_html(message: &Message) -> String {

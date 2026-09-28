@@ -284,6 +284,11 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     check_session(command, js, wait_for, web, origin, loaded)
                     check_inspector_startup(command, js, wait_for, web, origin)
                     return
+                if '--stability-only' in sys.argv:
+                    check_session(command, js, wait_for, web, origin, loaded)
+                    check_live(command, js, wait_for, server)
+                    print('PASS: client stability, long history, streaming, reconnect and timer lifecycle', flush=True)
+                    return
                 check_selects(command, js, wait_for)
                 check_panels(command, js, wait_for)
                 if '--shell-only' in sys.argv:

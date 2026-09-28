@@ -1,7 +1,6 @@
 use super::{navigation::AppRouter, state::AppState};
 use crate::{
     app_toasts::install_transport_toast_effect, chat_scroll::*, types::*, ui_preferences::*,
-    ui_utils::set_timeout,
 };
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -41,7 +40,6 @@ pub(super) fn install(state: AppState, router: AppRouter) {
         scroll_frame_pending,
         set_scroll_frame_pending,
         set_last_results_scroll_top,
-        activity_now_ms,
         set_activity_now_ms,
         detach_baseline,
         set_detach_baseline,
@@ -51,7 +49,6 @@ pub(super) fn install(state: AppState, router: AppRouter) {
     } = state.view;
     let is_chat_route = move || router.is_chat();
     let last_math_typeset_signature = StoredValue::new_local(None::<(u64, u64)>);
-    let activity_tick_pending = StoredValue::new_local(false);
     Effect::new(move |_| {
         let _ = (
             messages.with(|_| ()),
@@ -97,26 +94,23 @@ pub(super) fn install(state: AppState, router: AppRouter) {
         }
     });
 
+    // One owned timer per active chat, independent of individual tool events.
+    let activity_clock_active = Memo::new(move |_| {
+        is_chat_route()
+            && (is_sending.get()
+                || tool_activities.with(|items| items.iter().any(tool_activity_is_active)))
+    });
     Effect::new(move |_| {
-        let _ = activity_now_ms.get();
-        let active = is_sending.get()
-            || tool_activities.with(|items| items.iter().any(tool_activity_is_active));
-        if !active {
-            activity_tick_pending.set_value(false);
+        if !activity_clock_active.get() {
             return;
         }
-        let mut pending = false;
-        activity_tick_pending.with_value(|value| {
-            pending = *value;
-        });
-        if pending {
-            return;
+        set_activity_now_ms.set(js_sys::Date::now().max(0.0) as u64);
+        if let Ok(timer) = set_interval_with_handle(
+            move || set_activity_now_ms.set(js_sys::Date::now().max(0.0) as u64),
+            std::time::Duration::from_secs(1),
+        ) {
+            on_cleanup(move || timer.clear());
         }
-        activity_tick_pending.set_value(true);
-        set_timeout(1000, move || {
-            activity_tick_pending.set_value(false);
-            set_activity_now_ms.set(js_sys::Date::now().max(0.0) as u64);
-        });
     });
 
     resize.install_persistence_effects();
