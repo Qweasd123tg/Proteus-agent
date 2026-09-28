@@ -21,3 +21,5 @@ target/
 .env
 secrets.json
 config.local.json
+/clients/web/rendering/node_modules/
+/clients/web/vendor/

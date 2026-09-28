@@ -3,16 +3,9 @@ use crate::{
     app_toasts::install_transport_toast_effect, chat_scroll::*, types::*, ui_preferences::*,
 };
 use leptos::prelude::*;
-use wasm_bindgen::prelude::*;
-#[wasm_bindgen]
-unsafe extern "C" {
-    #[wasm_bindgen(js_namespace = window, js_name = proteusTypesetMath)]
-    fn proteus_typeset_math();
-}
 pub(super) fn install(state: AppState, router: AppRouter) {
     let super::state::ChatState {
         is_sending,
-        active_stream_message_id,
         tool_activities,
         pending_user_inputs,
         messages,
@@ -48,7 +41,6 @@ pub(super) fn install(state: AppState, router: AppRouter) {
         ..
     } = state.view;
     let is_chat_route = move || router.is_chat();
-    let last_math_typeset_signature = StoredValue::new_local(None::<(u64, u64)>);
     Effect::new(move |_| {
         let _ = (
             messages.with(|_| ()),
@@ -67,30 +59,6 @@ pub(super) fn install(state: AppState, router: AppRouter) {
                 set_scroll_frame_pending,
                 set_last_results_scroll_top,
             );
-        }
-    });
-
-    Effect::new(move |_| {
-        // SPA-переход пересобирает DOM чата: вне чата сбрасываем подпись,
-        // чтобы по возвращении MathJax переверстал формулы заново.
-        if !is_chat_route() {
-            last_math_typeset_signature.set_value(None);
-            return;
-        }
-        if active_stream_message_id.get().is_some() {
-            return;
-        }
-        let signature = messages.with(|items| latest_math_signature(items));
-        let mut unchanged = false;
-        last_math_typeset_signature.with_value(|last| {
-            unchanged = *last == signature;
-        });
-        if unchanged {
-            return;
-        }
-        last_math_typeset_signature.set_value(signature);
-        if signature.is_some() {
-            proteus_typeset_math();
         }
     });
 
@@ -179,20 +147,6 @@ pub(super) fn install(state: AppState, router: AppRouter) {
         set_next_toast_id,
         set_toasts,
     );
-}
-
-pub(crate) fn latest_math_signature(messages: &[Message]) -> Option<(u64, u64)> {
-    messages
-        .iter()
-        .rev()
-        .find(|message| {
-            !message.streaming && message.tool.is_none() && message_may_contain_math(&message.text)
-        })
-        .map(|message| (message.id, message.version))
-}
-
-fn message_may_contain_math(text: &str) -> bool {
-    text.contains('$') || text.contains("\\(") || text.contains("\\[")
 }
 
 pub(crate) fn tool_activity_is_active(tool: &ToolActivity) -> bool {

@@ -52,6 +52,7 @@ Inspector, автоматический запуск backend и запомина
 ```bash
 rustup target add wasm32-unknown-unknown
 cargo install trunk --locked
+npm ci --prefix clients/web/rendering --ignore-scripts
 ```
 
 Установка:

@@ -3,8 +3,13 @@ target = "index.html"
 dist = "dist"
 
 [watch]
-ignore = ["dist"]
+ignore = ["dist", "vendor", "rendering/node_modules"]
 
 [serve]
 port = 1420
 open = false
+
+[[hooks]]
+stage = "pre_build"
+command = "node"
+command_arguments = ["rendering/build.mjs"]

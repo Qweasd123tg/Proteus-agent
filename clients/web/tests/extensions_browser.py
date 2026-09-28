@@ -5,6 +5,7 @@ Requires Firefox and geckodriver (PATH or GECKODRIVER). Only stdlib Python.
 Run after trunk build and cargo build -p proteus-core -p proteus-reference-worker.
 """
 import base64
+from markdown_checks import run as check_markdown, FIXTURE as MARKDOWN_FIXTURE
 from simplify_checks import run as check_simplify
 from settings_checks import run as check_settings
 from extensions_checks import run as check_extensions
@@ -90,6 +91,8 @@ class Assets(SimpleHTTPRequestHandler):
             output = [{"type":"function_call","call_id":"ui-plan","name":"update_plan","arguments":json.dumps({"plan":[{"step":"Проверить панели","status":"completed"},{"step":"Проверить настройки","status":"completed"}]})}]
         else:
             output = [{"id":"ui-answer","type":"message","role":"assistant","content":[{"type":"output_text","text":"Проверка интерфейса завершена.\n\n- Панели раскрываются одним изменением ширины.\n- Расширения настраиваются в отдельном разделе.\n- Поле ввода оставляет место для последних сообщений.\n\n```rust\nfn main() {\n    println!(\"Proteus UI fixture\");\n}\n```"}]}]
+        if count == 1 and '--markdown-only' in sys.argv:
+            output[0]['content'][0]['text'] += MARKDOWN_FIXTURE
         if count >= 2:
             chunks = [f"Абзац {i}: " + "Продолжение ответа. " * 8 + "\n\n" for i in range(32)]
             output = [{"id":f"ui-answer-{count}","type":"message","role":"assistant","content":[{"type":"output_text","text":''.join(chunks)}]}]
@@ -324,6 +327,9 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     check_placement(command,js,wait_for)
                     check_settings(command,js,wait_for)
                     check_chrome(command,js,wait_for,web,origin)
+                    return
+                if '--markdown-only' in sys.argv:
+                    check_markdown(command,js,wait_for)
                     return
                 if '--tool-chain-only' in sys.argv:
                     check_tool_chain(command, js, wait_for)

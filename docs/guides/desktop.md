@@ -201,7 +201,8 @@ backend или process workers перезапустите dev-команду, ч
 
 В папку `clients/desktop/build/Proteus` входят оболочка, готовый backend,
 reference worker той же сборки, tracked configs и статические интерфейсы.
-MathJax и SVG-renderer карты Inspector включены локально.
+MathJax, highlight.js, Mermaid для сообщений и SVG-renderer карты Inspector
+включены локально; при просмотре Markdown CDN не используется.
 На машине пользователя не нужны исходники, Cargo, Trunk или Node.js. Обновление
 приложения — замена этой папки новой сборкой при закрытом приложении;
 запуск ничего не компилирует.
@@ -209,6 +210,24 @@ MathJax и SVG-renderer карты Inspector включены локально.
 Поставляемый reference worker не получает особых прав. Его каталог добавляется
 в `PATH` дочернего backend, как в CLI installer; любой другой component command
 из пользовательского профиля проходит прежний process contract.
+
+## Markdown
+
+Сообщения поддерживают таблицы, списки, подсветку fenced-блоков с указанным
+языком, LaTeX (`$…$`, `$$…$$`, `\(…\)`, `\[…\]`), HTML-блоки
+`<details>/<summary>` и диаграммы в fenced-блоках `mermaid`. HTML проходит
+санитизацию; исполняемые обработчики и скрипты не разрешены. У диаграммы есть
+кнопка «Код», copy сохраняет исходный Mermaid. Некорректная диаграмма сохраняет
+исходник и показывает ошибку вместо исчезновения содержимого.
+
+Рендереры загружаются из локальных assets по необходимости. Обогащение Markdown
+выполняется после завершения сообщения; во время потока остаётся базовый Markdown.
+Возврат из настроек и загрузка истории обрабатываются тем же механизмом.
+
+Зависимости рендеринга находятся в `clients/web/rendering`; перед отдельным
+`trunk build` выполните `npm ci --prefix clients/web/rendering --ignore-scripts`
+из корня репозитория. Trunk hook собирает локальный `vendor`, desktop-копирование
+переносит его вместе с Web UI. `scripts/desktop.sh` устанавливает зависимости сам.
 
 ## Проверка
 
@@ -225,6 +244,10 @@ MathJax и SVG-renderer карты Inspector включены локально.
 `python3 clients/web/tests/extensions_browser.py --polish-only` проверяет
 живые виджеты, переключатели, сохранение анимаций и настроек модели, меню чатов,
 геометрию настроек и действия native-шапки через тестовый адаптер.
+
+`python3 -B clients/web/tests/extensions_browser.py --markdown-only` проверяет
+формулы после блоков кода, подсветку, Mermaid/исходник, details, локальные ресурсы,
+возврат из настроек, reload истории и завершение потокового сообщения.
 
 После `npm run prepare:assets` в `clients/desktop`:
 

@@ -180,6 +180,7 @@ Core на reference crates. Shell fixtures разбирают JSON-RPC id JSON-�
 Web и Inspector исключены из root workspace. Их production-сборка:
 
 ```bash
+npm ci --prefix clients/web/rendering --ignore-scripts
 (cd clients/web && env -u NO_COLOR trunk build --locked)
 (cd clients/inspector && env -u NO_COLOR trunk build --locked)
 ```

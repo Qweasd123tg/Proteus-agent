@@ -9,7 +9,6 @@
     "prepare:assets": "node scripts/prepare.mjs"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.10.0",
-    "mathjax": "3.2.2"
+    "@tauri-apps/cli": "^2.10.0"
   }
 }

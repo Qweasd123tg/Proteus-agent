@@ -1,0 +1,15 @@
+import { cpSync, mkdirSync, rmSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+const local = path => fileURLToPath(new URL(path, import.meta.url));
+const output = local('../vendor');
+rmSync(output, {recursive:true,force:true});
+mkdirSync(output,{recursive:true});
+const copy = (source,target) => cpSync(local('node_modules/'+source),output+'/'+target,{recursive:true,filter:path=>!path.endsWith('.map')&&!path.endsWith('.d.ts')});
+copy('mathjax/es5','mathjax');
+copy('mathjax/LICENSE','mathjax/LICENSE');
+copy('@highlightjs/cdn-assets/highlight.min.js','highlight/highlight.min.js');
+copy('@highlightjs/cdn-assets/styles/github-dark-dimmed.min.css','highlight/theme.css');
+copy('@highlightjs/cdn-assets/LICENSE','highlight/LICENSE');
+copy('mermaid/dist/mermaid.esm.min.mjs','mermaid/mermaid.esm.min.mjs');
+copy('mermaid/dist/chunks/mermaid.esm.min','mermaid/chunks/mermaid.esm.min');
+copy('mermaid/LICENSE','mermaid/LICENSE');

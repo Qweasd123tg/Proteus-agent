@@ -9,4 +9,8 @@ esac
 if [[ "$1" == build || ! -x node_modules/.bin/tauri || package-lock.json -nt node_modules/.package-lock.json ]]; then
   npm ci --no-audit --no-fund
 fi
+render_dir="$project_dir/clients/web/rendering"
+if [[ "$1" == build || ! -f "$render_dir/node_modules/.package-lock.json" || "$render_dir/package-lock.json" -nt "$render_dir/node_modules/.package-lock.json" ]]; then
+  npm ci --prefix "$render_dir" --ignore-scripts --no-audit --no-fund
+fi
 npm run "$1"

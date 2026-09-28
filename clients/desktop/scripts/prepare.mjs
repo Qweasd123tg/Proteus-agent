@@ -41,15 +41,11 @@ export function prepareFrontend(release) {
     for (const item of readdirSync(source)) {
       if (item !== 'index.html') cpSync(path.join(source, item), path.join(output, item), { recursive: true });
     }
-    let html = readFileSync(path.join(source, 'index.html'), 'utf8')
-      .replace('https://cdn.jsdelivr.net/npm/mathjax@3/es5/', '/vendor/mathjax/');
+    let html = readFileSync(path.join(source, 'index.html'), 'utf8');
     if (!release) html = html.replace('</body>', '<script>new EventSource("/__reload").onmessage = () => location.reload();</script></body>');
     writeFileSync(path.join(output, client === 'web' ? 'index.html' : 'inspector.html'), html);
   }
   cpSync(path.join(desktop, 'launcher'), output, { recursive: true });
-  const vendorOptions = { recursive: true, filter: source => !source.endsWith('.map') && !source.endsWith('.d.ts') };
-  cpSync(path.join(desktop, 'node_modules/mathjax/es5'), path.join(output, 'vendor/mathjax'), vendorOptions);
-  cpSync(path.join(desktop, 'node_modules/mathjax/LICENSE'), path.join(output, 'vendor/mathjax/LICENSE'));
   rmSync(dist + '.previous', { recursive: true, force: true });
   if (existsSync(dist)) renameSync(dist, dist + '.previous');
   renameSync(output, dist);
