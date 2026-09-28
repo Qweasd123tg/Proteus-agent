@@ -1,175 +1,76 @@
-"""Independent resizable columns, compact widgets and tabbed file preview."""
-import json
+"""One workspace: documents and extension tabs, preserving each live root."""
 import base64
 from pathlib import Path
 
 
 def run(command, js, wait_for):
-    def card(id):
-        return f"document.querySelector('[data-extension-id=\"{id}\"]')"
-
     def shadow(id):
-        return f"{card(id)}?.querySelector('.extension-panel-content')?.shadowRoot"
+        return f"document.querySelector('[data-extension-id=\"{id}\"] .extension-panel-content')?.shadowRoot"
 
-    def column(id):
-        return f"document.querySelector('aside.extension-column[data-column-id=\"{id}\"]')"
+    def choose(id):
+        js("if(document.querySelector('.tab-workspace').hidden)document.querySelector('[data-workspace-toggle]').click();document.querySelector('.workspace-add').click()")
+        wait_for(lambda: js("return document.querySelector('.workspace-picker').matches(':popover-open')"), 'Tab picker did not open')
+        js(f"document.querySelector('.workspace-picker [data-open-tab=\"{id}\"]').click()")
+        wait_for(lambda: js(f"return document.querySelector('.workspace-tab.active').dataset.tabId==='{id}'"), 'Tab did not activate: '+id)
 
-    def pointer(expression, button=0):
-        x, y = js(f"const r=({expression}).getBoundingClientRect();return [Math.round(r.x+r.width/2),Math.round(r.y+r.height/2)]")
-        command('/actions', {'actions': [{'type': 'pointer', 'id': 'panel-menu-pointer', 'parameters': {'pointerType': 'mouse'}, 'actions': [
-            {'type': 'pointerMove', 'duration': 0, 'origin': 'viewport', 'x': x, 'y': y},
-            {'type': 'pointerDown', 'button': button}, {'type': 'pointerUp', 'button': button}]}]})
+    def active():
+        return "document.querySelector('.workspace-tab-content > .extension-panel:not([hidden]) .extension-panel-content').shadowRoot"
 
-    def keys(*values):
-        command('/actions', {'actions': [{'type': 'key', 'id': 'panel-menu-keyboard', 'actions': [
-            action for value in values for action in ({'type': 'keyDown', 'value': value}, {'type': 'keyUp', 'value': value})]}]})
-
-    menu = "document.querySelector('.extension-context-menu')"
-    def open_menu(expression):
-        pointer(expression, 2)
-        wait_for(lambda: js(f"return !!{menu} && {menu}.matches(':popover-open') && document.activeElement==={menu}"), 'Right click did not open and focus panel menu')
-        assert js(f"const r={menu}.getBoundingClientRect();return r.left>=0 && r.top>=0 && r.right<=innerWidth && r.bottom<=innerHeight"), 'Context menu is clipped by the viewport'
-
-    command('/window/rect', {'width': 1920, 'height': 1000})
-    files, preview = shadow('files'), shadow('files:preview')
-    wait_for(lambda: js(f"return !!{files}?.querySelector('.file')"), 'File tree did not load')
-    js(f"if({column('files')}.classList.contains('collapsed')){card('files')}.querySelector('.extension-compact').click()")
-    js(f"[...{files}.querySelectorAll('.folder')].find(node=>node.querySelector('.label').textContent==='preview-fixture').click()")
-    wait_for(lambda: js(f"return [...{files}.querySelectorAll('.file')].some(node=>node.querySelector('.label').textContent==='hello world.txt')"), 'Directory did not expand')
-    js(f"[...{files}.querySelectorAll('.file')].find(node=>node.querySelector('.label').textContent==='hello world.txt').click()")
-    wait_for(lambda: js(f"return !!{preview}?.querySelector('pre')?.textContent.includes('<b>Привет</b>')"), 'Separate file preview missing')
-    assert js(f"return !{preview}.querySelector('pre b')"), 'File content interpreted as HTML'
-    assert js(f"return !!{preview}.querySelector('.tab.transient')"), 'Single click did not open a transient preview tab'
-    js(f"{files}.querySelector('.file.active').dispatchEvent(new MouseEvent('dblclick',{{bubbles:true}}))")
-    assert js(f"return !{preview}.querySelector('.tab.transient')"), 'Double click did not pin file preview'
-    wait_for(lambda: js(f"return !!{files}.querySelector('.file.active.git-modified .git-mark')"), 'Modified Git status did not reach file tree')
-    assert js(f"return {files}.querySelector('.file.active .git-mark').textContent==='M'"), 'Modified file status marker missing'
-    js(f"{preview}.querySelector('[data-mode=diff]').click()")
-    wait_for(lambda: js(f"return [...{preview}.querySelectorAll('.diff-add')].some(line=>line.textContent.includes('<b>Привет</b>')) && [...{preview}.querySelectorAll('.diff-remove')].some(line=>line.textContent.includes('<b>Старое</b>'))"), 'Git preview did not render added and removed lines')
-    assert js(f"return !{preview}.querySelector('pre b')"), 'Diff content interpreted as HTML'
-    Path('/tmp/proteus-ui-columns.png').write_bytes(base64.b64decode(command('/screenshot', None)))
-    js(f"{preview}.querySelector('[data-mode=file]').click()")
-    assert js(f"return {preview}.querySelector('pre').textContent.includes('<b>Привет</b>') && !{preview}.querySelector('.diff-line')"), 'File view did not restore after diff'
-    wait_for(lambda: js(f"return !!{files}.querySelector('.git-deleted[data-path=\"preview-fixture/deleted.txt\"]')"), 'Deleted file missing from tree changes')
-    js("window.deletedFileReads=0;window.beforeDeletedFetch=window.fetch;window.fetch=(input,...args)=>{const url=new URL(typeof input==='string'?input:input.url,location.href);if(url.pathname.endsWith('/workspace/file')&&url.searchParams.get('path')==='preview-fixture/deleted.txt')window.deletedFileReads++;return window.beforeDeletedFetch(input,...args)}")
-    js(f"{files}.querySelector('.git-deleted[data-path=\"preview-fixture/deleted.txt\"]').click()")
-    wait_for(lambda: js(f"return [...{preview}.querySelectorAll('.diff-remove')].some(line=>line.textContent.includes('Удалённая строка'))"), 'Deleted file did not open its removal diff')
-    assert js(f"return {preview}.querySelector('[data-mode=file]').disabled && window.deletedFileReads===0"), 'Deleted preview attempted to read a missing file'
-    js("window.fetch=window.beforeDeletedFetch")
-    js(f"[...{files}.querySelectorAll('.file')].find(row=>row.querySelector('.label').textContent==='hello world.txt').click()")
-    assert js(f"return {preview}.querySelector('pre').textContent.includes('<b>Привет</b>')"), 'Original file tab did not restore after deleted diff'
-    assert js(f"return !{files}.querySelector('pre') && !!document.querySelector('[data-extension-columns=right] aside[data-column-id=\"files:preview\"]')"), 'Preview is not an independent right column'
-    assert js("return getComputedStyle(document.querySelector('.session-workspace')).display!=='none' && getComputedStyle(document.querySelector('.sidebar')).display!=='none'"), 'File columns replaced chat or sidebar'
-    js("window.keptChat=document.querySelector('.session-workspace');window.keptSidebar=document.querySelector('.sidebar')")
-    assert js(f"return {column('files')}!=={column('files:preview')} && !document.querySelector('[data-extension-location] [data-extension-id=\"files\"]')"), 'Own panels share a widget dock'
-    assert js(f"return [...{files}.querySelectorAll('.row')].every(row=>getComputedStyle(row).whiteSpace==='nowrap' && row.getBoundingClientRect().height<=28)"), 'File rows are not compact single lines'
-    js(f"{files}.querySelector('.toolbar button').click()")
-    wait_for(lambda: js(f"return !!{files}.querySelector('.file.active')"), 'Refresh lost expansion or selection')
-    assert js(f"return {files}.querySelector('.file.active .label').textContent==='hello world.txt'"), 'Refresh changed selection'
-    js(f"const row={files}.querySelector('.file.active');row.focus();row.dispatchEvent(new KeyboardEvent('keydown',{{key:'ArrowLeft',bubbles:true}}))")
-    assert js(f"return {files}.activeElement.classList.contains('folder') && {files}.activeElement.querySelector('.label').textContent==='preview-fixture'"), 'Tree keyboard parent navigation failed'
-    js(f"window.secondFile=[...{files}.querySelectorAll('.file:not(:disabled)')].find(node=>node.querySelector('.label').textContent!=='hello world.txt');if(window.secondFile)window.secondFile.click()")
-    wait_for(lambda: js(f"return {preview}.querySelectorAll('[role=tab]').length===2"), 'Second preview tab missing')
-    js(f"[...{preview}.querySelectorAll('[role=tab]')].find(tab=>tab.textContent==='hello world.txt').click()")
-    assert js(f"return {preview}.querySelector('pre').textContent.includes('<b>Привет</b>')"), 'Switching tabs lost loaded text'
-    js(f"{preview}.querySelector('.tab:not(.active) .close').click()")
-    assert js(f"return {preview}.querySelectorAll('[role=tab]').length===1 && {preview}.querySelector('pre').textContent.includes('<b>Привет</b>')"), 'Closing inactive tab changed selection'
-    js(f"window.keptFiles={card('files')};window.keptPreview={card('files:preview')};window.keptQuota={card('model-quota')};window.extensionMutations=0;window.extensionObserver=new MutationObserver(records=>window.extensionMutations+=records.filter(r=>[...r.removedNodes].includes(window.keptQuota)).length);window.extensionObserver.observe(document.querySelector('[data-extension-location=right]'),{{childList:true,subtree:true}})")
-
-    def move(location):
-        open_menu("window.keptFiles.querySelector('.extension-panel-title')")
-        pointer(f"{menu}.querySelector('[data-location={location}]')")
-        wait_for(lambda: js(f"return document.querySelector('[data-extension-columns={location}] aside[data-column-id=\"files\"] [data-extension-id=\"files\"]')===window.keptFiles"), 'Moving panel replaced the instance')
-        assert js(f"return {card('files:preview')}===window.keptPreview && {preview}.querySelector('pre').textContent.includes('<b>Привет</b>')"), 'Moving tree remounted its preview'
-        assert js(f"return !{menu} && JSON.parse(localStorage.getItem('proteus.ui.extensions')).panels.find(p=>p.id==='files').location==={json.dumps(location)}"), 'Context menu did not close or persist placement'
-
-    js("window.keptFiles.querySelector('.extension-panel-title').click()")
-    assert not js("return document.getAnimations().some(a=>a.id==='extension-column')"), 'Column slides after changing the chat layout'
-    assert js(f"return {column('files')}.classList.contains('collapsed') && {column('files')}.getBoundingClientRect().width<=48"), 'Column did not collapse to a compact rail'
-    open_menu("window.keptFiles.querySelector('.extension-compact')")
-    assert js(f"return {column('files')}.classList.contains('collapsed') && {menu}.querySelector('[data-location=left]').getAttribute('aria-checked')==='true'"), 'Right click expanded the panel or lost current placement'
-    Path('/tmp/proteus-panel-context-menu.png').write_bytes(base64.b64decode(command('/screenshot', None)))
-    keys('\ue00c')  # Escape returns focus without changing state.
-    assert js(f"return !{menu} && document.activeElement===window.keptFiles.querySelector('.extension-compact')"), 'Escape did not return focus to the compact icon'
-    assert js("return getComputedStyle(window.keptChat).display!=='none'"), 'Collapsing column hid chat'
-    js("window.keptFiles.querySelector('.extension-compact').click()")
-    assert js(f"return !{column('files')}.classList.contains('collapsed') && {column('files')}.getBoundingClientRect().width>=200"), 'Compact control did not restore column'
-    move('right'); move('left')
-    js("window.keptFiles.querySelector('.extension-panel-title').focus()")
-    command('/actions', {'actions': [{'type': 'key', 'id': 'panel-menu-keyboard', 'actions': [
-        {'type': 'keyDown', 'value': '\ue008'}, {'type': 'keyDown', 'value': '\ue03a'},
-        {'type': 'keyUp', 'value': '\ue03a'}, {'type': 'keyUp', 'value': '\ue008'}]}]})  # Shift+F10.
-    wait_for(lambda: js(f"return !!{menu}"), 'Shift+F10 did not open the panel menu')
-    keys('\ue015', '\ue007')  # ArrowDown, Enter.
-    assert js(f"return !{menu} && {column('files')}.dataset.location==='right'"), 'Keyboard placement failed'
-    move('left')
-    open_menu("window.keptFiles.querySelector('.extension-panel-title')")
-    pointer("document.querySelector('.composer textarea')")
-    assert js(f"return !{menu}"), 'Outside click left an orphan panel menu'
-    js(f"window.columnBefore={column('files')}.getBoundingClientRect().width;window.previewBefore={column('files:preview')}.getBoundingClientRect().width")
-    point = js(f"const r={column('files')}.querySelector('.extension-column-resize').getBoundingClientRect();return {{x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}}")
-    command('/actions', {'actions': [{'type': 'pointer', 'id': 'column-mouse', 'parameters': {'pointerType': 'mouse'}, 'actions': [
-        {'type': 'pointerMove', 'duration': 0, 'x': point['x'], 'y': point['y']},
-        {'type': 'pointerDown', 'button': 0},
-        {'type': 'pointerMove', 'duration': 150, 'x': point['x'] + 80, 'y': point['y']},
-        {'type': 'pointerUp', 'button': 0},
-    ]}]})
-    wait_for(lambda: js(f"return Math.abs({column('files')}.getBoundingClientRect().width-window.columnBefore)>20"), 'Dragging Files resize handle did not change width')
-    assert js(f"return Math.abs({column('files:preview')}.getBoundingClientRect().width-window.previewBefore)<2 && document.querySelector('.session-workspace')===window.keptChat && document.querySelector('.sidebar')===window.keptSidebar"), 'Column resize changed preview width or remounted chat/sidebar'
-    result = command('/execute/async', {'script': '''
-      const done=arguments[arguments.length-1], card=window.keptQuota;
-      const root=card.querySelector('.extension-panel-content'), title=card.querySelector('.extension-panel-title');
-      let fetches=0;const original=window.fetch;window.fetch=(...args)=>{fetches++;return original(...args)};
-      const start=performance.now();for(let i=0;i<20;i++)title.click();
-      requestAnimationFrame(()=>{window.fetch=original;done({ms:performance.now()-start,fetches,same:root===card.querySelector('.extension-panel-content'),mutations:window.extensionMutations})});
-    ''', 'args': []})
-    print('EXTENSION_TOGGLE', json.dumps(result), flush=True)
-    assert result['same'] and result['fetches'] == 0 and result['mutations'] == 0, 'Toggle remounted, fetched or detached another panel'
-    animated = command('/execute/async', {'script': '''
-      const done=arguments[arguments.length-1], title=window.keptQuota.querySelector('.extension-panel-title');
-      const reveal=window.keptQuota.querySelector('.extension-panel-reveal');
-      requestAnimationFrame(()=>{title.click();requestAnimationFrame(()=>{
-        const running=reveal.getAnimations().length>0;
-        title.click();done(running);
-      })});
-    ''', 'args': []})
-    assert not animated, 'Widget expansion animates layout across frames'
-    js('window.extensionObserver.disconnect()')
-    # Empty left docks should not offer an empty tab; removing the last widget
-    # must restore chats even when the user had selected the panels view.
-    assert js("return getComputedStyle(document.querySelector('.sidebar-view-tabs')).display==='none'"), 'Empty panels tab remains visible'
-    open_menu("window.keptQuota.querySelector('.extension-compact')")
-    pointer(f"{menu}.querySelector('[data-location=left]')")
-    js("document.querySelector('.sidebar-view-tabs button:last-child').click()")
-    assert js("return getComputedStyle(document.querySelector('.sidebar-view-tabs')).display!=='none' && getComputedStyle(document.querySelector('.sidebar-search')).visibility==='hidden'"), 'Left widget did not get a usable panels view'
-    open_menu("window.keptQuota.querySelector('.extension-panel-title')")
-    pointer(f"{menu}.querySelector('[data-location=right]')")
-    assert js("return getComputedStyle(document.querySelector('.sidebar-view-tabs')).display==='none' && getComputedStyle(document.querySelector('.sidebar-search')).visibility==='visible'"), 'Moving the last widget left an empty sidebar'
-    assert js("return document.querySelector('[data-extension-id=model-quota] .extension-compact').getAttribute('aria-label').includes('37%')"), 'Weekly compact ring missing'
-    js("if(document.querySelector('.info-panel.open'))[...document.querySelectorAll('[data-panel-toggle=info]')].find(b=>!b.closest('[inert]')).click()")
-    assert js("return document.querySelector('[data-extension-id=model-quota] .extension-compact').getBoundingClientRect().width>0"), 'Compact extension hidden in rail'
-    js("document.querySelector('[data-extension-id=model-quota] .extension-compact').click()")
-    wait_for(lambda: js("return !!document.querySelector('.info-panel.open')"), 'Compact view did not open its dock')
-    open_menu("window.keptQuota.querySelector('.extension-compact')")
-    assert js(f"return {menu}.querySelector('[data-location=right]').getAttribute('aria-checked')==='true'"), 'Widget context menu lost placement'
-    keys('\ue00c')
-    js(f"{preview}.querySelector('.close').click()")
-    assert js(f"return {preview}.querySelectorAll('[role=tab]').length===0"), 'Last preview tab did not close'
-    js(f"[...{files}.querySelectorAll('.file')].find(row=>row.querySelector('.label').textContent==='hello world.txt').click()")
-    wait_for(lambda: js(f"return {preview}.querySelector('pre').textContent.includes('<b>Привет</b>')"), 'Closed preview did not reopen')
-    assert js(f"return {card('files:preview')}===window.keptPreview"), 'Reopening preview remounted pane'
-    js("document.querySelector('.settings-link').click()")
-    wait_for(lambda: js("return !!document.querySelector('[data-extension-choice=files] input')"), 'File extension settings missing')
-    js("window.keptPreview.querySelector('.extension-panel-header').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2}))")
-    assert js(f"return !!{menu}"), 'Owned preview has no context menu'
-    js("document.querySelector('[data-extension-choice=files] input').click()")
-    wait_for(lambda: js("return !window.keptFiles.isConnected && !window.keptPreview.isConnected"), 'Disabling Files did not detach owner and preview')
-    assert js(f"return !{menu}"), 'Disabled owner left its preview context menu mounted'
-    assert js(f"return !{card('files')} && !{card('files:preview')}"), 'Disabled file panes remained mounted'
-    js("document.querySelector('[data-extension-choice=files] input').click()")
-    wait_for(lambda: js(f"return !!{files}?.querySelector('.file') && {card('files')}!==window.keptFiles"), 'Re-enabling Files did not mount a fresh tree')
-    assert js(f"return !{card('files:preview')}"), 'Preview eagerly remounted after enabling Files'
-    js("document.querySelector('.topnav a[href=\"/\"]').click()")
-    wait_for(lambda: js("return getComputedStyle(document.querySelector('.session-workspace')).display!=='none'"), 'Owner lifecycle check did not restore chat')
-    js("document.querySelector('.sidebar-view-tabs button:first-child').click()")
     command('/window/rect', {'width': 1440, 'height': 1000})
+    assert js("return document.querySelectorAll('.topbar [data-panel-toggle=sidebar]').length===1 && !document.querySelector('.sidebar [data-panel-toggle]')"), 'Sidebar toggle is duplicated or outside header'
+    js("document.querySelector('.sidebar-search input').focus();document.querySelector('[data-panel-toggle=sidebar]').click()")
+    wait_for(lambda: js("return document.querySelector('.app-layout').classList.contains('sidebar-collapsed') && document.activeElement.matches('.topbar [data-panel-toggle=sidebar]')"), 'Header sidebar toggle/focus failed')
+    js("document.querySelector('[data-panel-toggle=sidebar]').click()")
+    assert js("const rgb=getComputedStyle(document.body).backgroundColor.match(/\\d+/g);return rgb[0]===rgb[1]&&rgb[1]===rgb[2]"), 'Main palette is not neutral gray'
+    choose('model-quota')
+    wait_for(lambda: js(f"return {shadow('model-quota')}?.textContent.includes('73% осталось')"), 'Quota data missing')
+    js("window.keptQuota=document.querySelector('[data-extension-id=model-quota]');window.keptChat=document.querySelector('.session-workspace')")
+    choose('usage')
+    choose('model-quota')
+    assert js("return document.querySelector('[data-extension-id=model-quota]')===window.keptQuota"), 'Switching tabs remounted quota'
+    choose('files')
+    files=shadow('files')
+    wait_for(lambda: js(f"return !!{files}?.querySelector('.file')"), 'File tree did not load')
+    js(f"[...{files}.querySelectorAll('.folder')].find(row=>row.querySelector('.label').textContent==='preview-fixture').click()")
+    wait_for(lambda: js(f"return [...{files}.querySelectorAll('.file')].some(row=>row.querySelector('.label').textContent==='hello world.txt')"), 'Directory did not expand')
+    js(f"[...{files}.querySelectorAll('.file')].find(row=>row.querySelector('.label').textContent==='hello world.txt').click()")
+    wait_for(lambda: js(f"return {active()}?.querySelector('pre')?.textContent.includes('<b>Привет</b>')"), 'Document did not open')
+    assert js(f"return !{active()}.querySelector('pre b')"), 'Document interpreted HTML'
+    assert js("return document.querySelectorAll('.tab-workspace').length===1 && !document.querySelector('.extension-column')"), 'Documents added another column'
+    js(f"window.docRoot={active()};window.docTab=document.querySelector('.workspace-tab.active').dataset.tabId;{active()}.querySelector('[data-mode=diff]').click()")
+    wait_for(lambda: js(f"return [...{active()}.querySelectorAll('.diff-add')].some(line=>line.textContent.includes('<b>Привет</b>'))"), 'File diff missing')
+    js(f"{active()}.querySelector('[data-mode=file]').click()")
+    assert js(f"return {active()}.querySelector('pre').textContent.includes('<b>Привет</b>')"), 'File view did not restore'
+    choose('files')
+    wait_for(lambda: js(f"return !!{files}.querySelector('.git-deleted')"), 'Deleted file not listed')
+    js(f"{files}.querySelector('.git-deleted').click()")
+    wait_for(lambda: js(f"return !!{active()}.querySelector('.diff-remove')"), 'Deleted file diff missing')
+    assert js(f"return {active()}.querySelector('[data-mode=file]').disabled"), 'Deleted file offered an invalid file view'
+    js("window.deletedRoot=document.querySelector('.workspace-tab-content > .extension-panel:not([hidden])');document.querySelector('.workspace-tab.active .workspace-tab-close').click()")
+    assert js("return !window.deletedRoot.isConnected"), 'Deleted document was not disposed'
+    js("document.querySelector(`[data-tab-id=\"${window.docTab}\"] [role=tab]`).click()")
+    assert js(f"return {active()}===window.docRoot"), 'Switching extensions discarded document root'
+    js("window.tabCount=document.querySelectorAll('.workspace-tab').length;window.savedFetch=window.fetch;window.toggleFetches=0;window.fetch=(...args)=>{window.toggleFetches++;return window.savedFetch(...args)};for(let i=0;i<20;i++)document.querySelector('[data-workspace-toggle]').click();window.fetch=window.savedFetch")
+    assert js(f"return window.toggleFetches===0 && {active()}===window.docRoot && document.querySelector('.session-workspace')===window.keptChat"), 'Hide/reveal caused requests or remounted content'
+    js("document.querySelector('.workspace-tabbar [aria-label=\"Развернуть панель\"]').click()")
+    assert js("return document.querySelector('.tab-workspace').classList.contains('expanded')"), 'Expand failed'
+    js("document.querySelector('.workspace-tabbar [aria-label=\"Развернуть панель\"]').click()")
+    # Close a document completely and reopen from its owner, without duplicating tabs.
+    js("document.querySelector('.workspace-tab.active .workspace-tab-close').click()")
+    assert js("return !window.docRoot.host.isConnected"), 'Closing document leaked its DOM'
+    choose('files')
+    js(f"[...{files}.querySelectorAll('.file')].find(row=>row.querySelector('.label').textContent==='hello world.txt').click()")
+    wait_for(lambda: js(f"return {active()}?.querySelector('pre')?.textContent.includes('<b>Привет</b>')"), 'Closed document could not reopen')
+    choose('model-quota')
+    js("document.querySelector('.workspace-tab.active .workspace-tab-close').click()")
+    choose('model-quota')
+    assert js("return document.querySelector('[data-extension-id=model-quota]')===window.keptQuota"), 'Closing/reopening extension reset its runtime'
+    Path('/tmp/proteus-tab-workspace.png').write_bytes(base64.b64decode(command('/screenshot', None)))
+    command('/window/rect', {'width': 760, 'height': 900})
+    assert js("const r=document.querySelector('.tab-workspace').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&document.documentElement.scrollWidth<=innerWidth"), 'Narrow workspace overflows'
+    js("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
+    assert js("return document.querySelector('.tab-workspace').hidden"), 'Escape did not close mobile panel'
+    command('/window/rect', {'width': 1440, 'height': 1000})
+    js("document.querySelector('[data-workspace-toggle]').click();for(const b of [...document.querySelectorAll('.workspace-tab-close')])b.click()")
+    assert js("return !document.querySelector('.workspace-empty').hidden && document.querySelector('.workspace-empty [data-open-tab=usage]')"), 'Closing final tab lost the chooser'
+    print('PASS: gray palette; header sidebar control; unified file/quota/usage tabs; diff; close/reopen; no refetch on toggle; mobile Escape', flush=True)

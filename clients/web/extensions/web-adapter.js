@@ -34,13 +34,7 @@ export function mountWebExtensions(root, readConfig, readQuota, readUsage, readW
       diff: path => readWorkspace('/workspace/diff?path=' + encodeURIComponent(path), signal).then(JSON.parse),
     }),
   };
-  const locations = Object.fromEntries(['left','right'].map(side => [side, document.querySelector(`[data-extension-location=${side}]`)]));
-  const columns = Object.fromEntries(['left','right'].map(side => [side, document.querySelector(`[data-extension-columns=${side}]`)]));
-  const stop = mountExtensions(root, services, { registry, locations, columns, onOpen(location) {
-    const dock = document.querySelector(location === 'right' ? '.info-panel:not(.open)' : location === 'left' ? '.app-layout.sidebar-collapsed .sidebar' : ':not(*)');
-    [...(dock?.querySelectorAll('[data-panel-toggle]') ?? [])].find(button => !button.closest('[inert]'))?.click();
-    if (location === 'left') document.querySelector('.sidebar-view-tabs button:last-child')?.click();
-  } });
+  const stop = mountExtensions(root, services, { registry, target: document.querySelector('[data-extension-columns=right]') });
   return stop;
 }
 

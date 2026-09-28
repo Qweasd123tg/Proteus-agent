@@ -60,7 +60,6 @@ pub(super) fn AppShell(
     let route = router.route;
     let actions = connection.actions;
     let session_actions = connection.session_actions;
-    let info_panel_open = resize.info_open;
     let topnav_click = move |event, path| router.click(event, path);
     let reconnect_transport = move |_| connection.reconnect();
     let resume_open = move |session| {
@@ -72,9 +71,7 @@ pub(super) fn AppShell(
     let open_sidebar_session = move |session| session_actions.open_sidebar_session(session);
     let delete_sidebar_session = move |session| session_actions.delete_sidebar_session(session);
     let toggle_sidebar = move |_| resize.toggle_sidebar();
-    let toggle_info_panel = move |_| resize.toggle_info_panel();
     let begin_sidebar_resize = move |event| resize.begin_sidebar_resize(event);
-    let begin_info_resize = move |event| resize.begin_info_resize(event);
     let begin_chat_resize = move |event| resize.begin_chat_resize(event);
     let resize_drag = move |event| resize.drag(event);
     let stop_resize = move |_| resize.stop();
@@ -135,7 +132,6 @@ pub(super) fn AppShell(
                 active_session_dir
                 on_refresh=refresh_sidebar_sessions
                 on_new_session=start_new_session
-                on_toggle=toggle_sidebar
                 on_begin_resize=begin_sidebar_resize
                 on_open_session=open_sidebar_session
                 on_delete_session=delete_sidebar_session
@@ -144,13 +140,12 @@ pub(super) fn AppShell(
                     on_navigate=topnav_click on_reconnect=reconnect_transport />
             </SidebarView>
 
-            <div class="extension-columns" data-extension-columns="left"></div>
             <main class="workspace-main">
                 <crate::components::header::HeaderView
-                    route workspace_label session_title waiting_background_sessions info_panel_open
+                    route workspace_label session_title waiting_background_sessions
+                    sidebar_collapsed=resize.sidebar_collapsed on_toggle_sidebar=toggle_sidebar
                     on_navigate=topnav_click
                     on_open_session=move |session| session_actions.open_sidebar_session(session)
-                    on_toggle_info=toggle_info_panel
                 />
 
                 <section
@@ -234,8 +229,6 @@ pub(super) fn AppShell(
             </main>
 
             <div class="extension-columns" data-extension-columns="right"></div>
-            <InfoPanelView open=info_panel_open width=resize.info_width
-                on_toggle=toggle_info_panel on_begin_resize=begin_info_resize />
             <crate::components::extensions::ExtensionsView active_session_dir />
 
         </div>

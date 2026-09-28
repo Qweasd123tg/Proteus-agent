@@ -7,7 +7,7 @@ export function mount({ root, compact, panels, services, signal }) {
     :host{display:flex!important;flex-direction:column;height:100%;min-height:0;overflow:hidden}
     .toolbar{display:flex;align-items:center;justify-content:flex-end;flex:none;padding:4px 8px;border-bottom:1px solid var(--border-subtle,#333);font-size:11px;color:var(--text-muted,#aaa)}
     .toolbar button{display:flex;align-items:center;padding:3px 6px;font-size:12px}.toolbar svg{width:16px;height:16px}.tree{flex:1;min-height:0;overflow:auto;padding:4px 0;outline:none}
-    .row{display:flex;align-items:center;justify-content:flex-start;gap:5px;width:100%;height:25px;min-height:25px;box-sizing:border-box;border:0;border-radius:0;padding:0 8px;text-align:left;background:transparent;color:inherit;font:12px var(--font-mono,monospace);white-space:nowrap;cursor:pointer}
+    .row{display:flex;align-items:center;justify-content:flex-start;gap:5px;width:100%;height:25px;min-height:25px;box-sizing:border-box;border:0;border-radius:7px;padding:0 8px;text-align:left;background:transparent;color:inherit;font:12px var(--font-mono,monospace);white-space:nowrap;cursor:pointer}
     .row:hover{background:var(--bg-hover,#333)}.row.active{background:var(--bg-active,var(--bg-hover,#333))}.row:focus-visible{outline:1px solid var(--accent,#8aaaff);outline-offset:-1px}.row:disabled{opacity:.45;cursor:default}
     .row svg{width:14px;height:14px;flex:none}.row .chevron{width:10px;height:10px;transition:transform .1s}.row[aria-expanded=true] .chevron{transform:rotate(90deg)}
     @media(prefers-reduced-motion:reduce){.row .chevron{transition:none}}
@@ -18,9 +18,11 @@ export function mount({ root, compact, panels, services, signal }) {
   const toolbar=node('div',null,'toolbar'), refresh=node('button');
   refresh.append(shape('refresh'));
   refresh.type='button'; refresh.title='Обновить дерево'; refresh.setAttribute('aria-label','Обновить дерево');
-  toolbar.append(refresh);
+  const filter=node('input'); filter.type='search'; filter.placeholder='Фильтрация файлов…'; filter.setAttribute('aria-label','Фильтрация файлов'); toolbar.append(filter,refresh);
+  filter.addEventListener('input',()=>{ for(const row of tree.querySelectorAll('.row')) row.hidden=!row.textContent.toLowerCase().includes(filter.value.toLowerCase()); },{signal});
   const tree=node('div',null,'tree'); tree.setAttribute('role','tree'); tree.setAttribute('aria-label','Файлы проекта');
-  root.append(toolbar,tree);
+  const browser=node('div',null,'file-browser'), empty=node('div',null,'file-picker-empty'); empty.append(node('strong','Открыть файл'),node('p','Выберите файл из каталога рабочей области')); browser.append(toolbar,tree);root.append(empty,browser);
+  root.append(node('style',`:host{flex-direction:row!important;container-type:inline-size}.file-browser{display:flex;flex:1;min-width:0;flex-direction:column;border-left:1px solid var(--border-subtle)}.file-picker-empty{display:flex;flex:1;min-width:0;flex-direction:column;justify-content:center;align-items:center;gap:12px;padding:20px;text-align:center;color:var(--text-muted)}.file-picker-empty strong{font-size:20px;color:var(--text-main)}.toolbar{padding:12px;gap:6px}.toolbar input{width:100%;min-width:0;padding:8px 10px;border-radius:10px;border:1px solid var(--border-subtle);background:var(--bg-panel-soft);color:inherit;font:inherit}.row{height:30px;min-height:30px;font:13px var(--font-sans)}.tree{padding:8px}.tree [hidden]{display:none}@container(max-width:440px){.file-picker-empty{display:none}}`));
   const workspace=services['agent.workspace.read'], expanded=new Set(), listings=new Map(), pending=new Set();
   let generation=0, selected='', focused='', preview, changes=new Map(), gitError='', gitTruncated=false;
   function shape(name,className) {
@@ -66,7 +68,7 @@ export function mount({ root, compact, panels, services, signal }) {
     }
     if(gitError) fragment.append(node('p',gitError,'status'));
     if(gitTruncated) fragment.append(node('p','Список изменений Git показан не полностью.','status'));
-    tree.replaceChildren(fragment); tree.scrollTop=scroll;
+    tree.replaceChildren(fragment); tree.scrollTop=scroll; for(const row of tree.querySelectorAll('.row')) row.hidden=!row.textContent.toLowerCase().includes(filter.value.toLowerCase());
     const rows=visibleRows();
     if(!rows.some(row=>row.tabIndex===0)&&rows.length) { rows[0].tabIndex=0; focused=rows[0].dataset.path; }
     if(hadFocus) focusPath(focused);

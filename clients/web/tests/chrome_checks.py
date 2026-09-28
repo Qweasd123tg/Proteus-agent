@@ -24,6 +24,10 @@ def run(command, js, wait_for, web, origin):
     for width in (1440, 860):
         command('/window/rect', {'width': width, 'height': 1000})
         wait_for(lambda: js("const h=document.querySelector('.topbar').getBoundingClientRect(), b=document.querySelector('.desktop-titlebar').getBoundingClientRect(), controls=document.querySelector('.desktop-window-controls').getBoundingClientRect(), menu=document.querySelector('.desktop-app-menu').getBoundingClientRect(), app=document.querySelector('.app-layout').getBoundingClientRect();return h.top===0 && h.height===b.height && h.right<=controls.left && h.left>=menu.right && app.top===b.bottom && app.bottom<=innerHeight+1 && document.documentElement.scrollWidth<=innerWidth"), 'Window controls and chat header did not share one row')
+    assert js("const b=document.querySelector('.topbar [data-panel-toggle=sidebar]').getBoundingClientRect(),menu=document.querySelector('.desktop-app-menu').getBoundingClientRect();return b.top>=0&&b.bottom<=40&&b.right<=menu.left"), 'Sidebar toggle did not join the native header'
+    js("document.querySelector('.sidebar-search input').focus();document.querySelector('[data-panel-toggle=sidebar]').click()")
+    wait_for(lambda: js("return document.activeElement.matches('.topbar [data-panel-toggle=sidebar]')"), 'Sidebar focus did not move to header')
+    js("document.querySelector('[data-panel-toggle=sidebar]').click()")
     js("document.querySelector('[data-action=minimize]').click();document.querySelector('[data-action=maximize]').click()")
     wait_for(lambda: js("return chromeCalls.includes('minimize') && document.querySelector('[data-action=maximize]').title==='Восстановить окно'"), 'Native minimize/maximize action failed')
     assert js("return getComputedStyle(document.querySelector('.desktop-resize-edges')).display==='none'"), 'Maximized window kept resize edges'

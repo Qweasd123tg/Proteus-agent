@@ -44,15 +44,13 @@ def run(command, js, wait_for, web, origin, loaded):
     chat()
     wait_for(quota_loaded, 'Quota did not reach panel')
     wait_for(lambda: js('return window.externalMounted === 1'), 'External panel did not mount')
-    js("if (!document.querySelector('.info-panel.open')) [...document.querySelectorAll('[data-panel-toggle=info]')].find(b=>!b.closest('[inert]')).click()")
-    assert js("return [...document.querySelectorAll('.extension-panel')].every(card=>(card.dataset.presentation==='panel' || parseInt(getComputedStyle(card).borderRadius)>=12) && !!card.querySelector('.extension-panel-toggle') && card.querySelector('.extension-panel-title').getAttribute('aria-controls') === card.querySelector('.extension-panel-body').id)"), 'Extensions lack distinct containers or an accessible collapse control'
     assert js("const root=document.querySelector('[data-extension-id=model-quota] .extension-panel-content').shadowRoot; return root.textContent.includes('37% осталось') && root.textContent.includes('0% осталось') && root.textContent.includes('15 мин') && root.textContent.includes('Лимит исчерпан') && root.textContent.includes('ожидаем новые данные') && root.textContent.includes('12.50') && root.querySelectorAll('progress').length === 3")
     wait_for(lambda: js("return !!document.querySelector('[data-extension-id=notes] .extension-panel-content')?.shadowRoot?.querySelector('textarea')"), 'Notes absent')
     js("const area=document.querySelector('[data-extension-id=notes] .extension-panel-content').shadowRoot.querySelector('textarea');area.value='Моя заметка';area.dispatchEvent(new Event('input'))")
-    assert js("return document.querySelector('[data-extension-location=right]').firstElementChild.dataset.extensionId") == 'notes'
-    js("document.querySelector('[data-extension-id=external-test] .extension-panel-title').click()")
+    assert js("return document.querySelector('.workspace-tabs').firstElementChild.dataset.tabId") == 'notes'
+    js("document.querySelector('[data-tab-id=external-test] .workspace-tab-close').click()")
     assert js('return !window.externalAborted && !window.externalDisposed')
-    js("document.querySelector('[data-extension-id=external-test] .extension-panel-title').click()")
+    js("document.querySelector('.workspace-picker [data-open-tab=external-test]').click()")
     assert js('return window.externalMounted === 1'), 'Expand remounted a live panel'
     settings()
     assert js('return !window.externalAborted && !window.externalDisposed'), 'Navigation disposed a live dock'
@@ -71,7 +69,7 @@ def run(command, js, wait_for, web, origin, loaded):
     chat()
     wait_for(lambda: js('return window.externalMounted === 2 && window.slowMounts === 1'), 'Return did not mount new panels')
     # Collapse while async mount is pending keeps that same instance.
-    js("document.querySelector('[data-extension-id=slow-test] .extension-panel-title').click();document.querySelector('[data-extension-id=slow-test] .extension-panel-title').click()")
+    js("document.querySelector('[data-tab-id=slow-test] .workspace-tab-close').click();document.querySelector('.workspace-picker [data-open-tab=slow-test]').click()")
     assert js('return window.slowMounts === 1 && !window.slowDisposals'), 'Collapse restarted pending mount'
     js('window.finishSlowMount()')
     assert js('return !window.slowDisposals'), 'Live async instance was disposed'
@@ -83,16 +81,16 @@ def run(command, js, wait_for, web, origin, loaded):
     command('/refresh', {})
     wait_for(loaded, 'Reload failed')
     wait_for(lambda: js("return document.querySelector('[data-extension-id=notes] .extension-panel-content')?.shadowRoot?.querySelector('textarea')?.value === 'Моя заметка'"), 'Notes lost on reload')
-    assert js("return document.querySelector('[data-extension-location=right]').firstElementChild.dataset.extensionId") == 'notes'
+    assert js("return document.querySelector('.workspace-tabs').firstElementChild.dataset.tabId") == 'notes'
     command('/url', {'url': web + '/standalone.html'})
     wait_for(lambda: js("return document.querySelector('[data-extension-id=notes] .extension-panel-content')?.shadowRoot?.querySelector('textarea')?.value === 'Моя заметка'"), 'Independent host needs agent')
     wait_for(lambda: js("return document.querySelector('[data-extension-id=agent-info] .extension-error')?.textContent.includes('agent.config.read')"), 'Missing interface not isolated')
     command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
     wait_for(loaded, 'Final client load failed')
     wait_for(quota_loaded, 'Quota missing after reload')
-    js("for(const id of ['agent-info','notes']){ const title=document.querySelector(`[data-extension-id=${id}] .extension-panel-title`); if(title?.getAttribute('aria-expanded')==='true')title.click() }")
+    js("for(const id of ['agent-info','notes']){ document.querySelector(`[data-tab-id=${id}] .workspace-tab-close`)?.click() }")
     settings()
-    for panel in ['plan','session-info','context','files']:
+    for panel in ['plan','session-info','context','files','usage']:
         js(f"document.querySelector('[data-extension-available={panel}]')?.click()")
     chat()
     # Exercise the real composer / turn / tool card, after a setting changed via SPA.

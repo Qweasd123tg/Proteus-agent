@@ -69,7 +69,7 @@ fn session_matches_query(session: &SessionSummary, query: &str) -> bool {
 
 #[component]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn SidebarView<R, N, T, B, O, D>(
+pub(crate) fn SidebarView<R, N, B, O, D>(
     sidebar_width: ReadSignal<i32>,
     sidebar_collapsed: ReadSignal<bool>,
     workspace_label: ReadSignal<String>,
@@ -78,7 +78,6 @@ pub(crate) fn SidebarView<R, N, T, B, O, D>(
     active_session_dir: ReadSignal<Option<String>>,
     on_refresh: R,
     on_new_session: N,
-    on_toggle: T,
     on_begin_resize: B,
     on_open_session: O,
     on_delete_session: D,
@@ -87,22 +86,16 @@ pub(crate) fn SidebarView<R, N, T, B, O, D>(
 where
     R: Fn(MouseEvent) + Copy + 'static,
     N: Fn(MouseEvent) + Copy + 'static,
-    T: Fn(MouseEvent) + Copy + 'static,
     B: Fn(MouseEvent) + Copy + 'static,
     O: Fn(SessionSummary) + Copy + Send + 'static,
     D: Fn(SessionSummary) + Copy + Send + 'static,
 {
-    let (extensions_open, set_extensions_open) = signal(false);
     let (query, set_query) = signal(String::new());
     view! {
         // Состояние рейки задаёт CSS; выбранная ширина сохраняется для раскрытия.
-        <aside class="sidebar" class:extensions-open=extensions_open style=move || format!("--sidebar-width: {}px", sidebar_width.get())>
+        <aside class="sidebar" style=move || format!("--sidebar-width: {}px", sidebar_width.get())>
             <div class="sidebar-surface" inert=move || sidebar_collapsed.get().then_some("")>
-            <SidebarHeader collapsed=sidebar_collapsed on_toggle on_refresh on_new_session />
-            <nav class="sidebar-view-tabs" aria-label="Представление слева">
-                <button aria-pressed=move || (!extensions_open.get()).to_string() class:active=move || !extensions_open.get() on:click=move |_| set_extensions_open.set(false)>"Чаты"</button>
-                <button aria-pressed=move || extensions_open.get().to_string() class:active=extensions_open on:click=move |_| set_extensions_open.set(true)>"Панели"</button>
-            </nav>
+            <SidebarHeader on_refresh on_new_session />
             <div class="sidebar-search">
                 <input
                     type="text"
@@ -199,7 +192,7 @@ where
 
             </div>
             <div class="sidebar-rail-surface" inert=move || (!sidebar_collapsed.get()).then_some("")>
-            <SidebarHeader collapsed=sidebar_collapsed on_toggle on_refresh on_new_session />
+            <SidebarHeader on_refresh on_new_session />
             // Рейка свёрнутого сайдбара: сессии workspace индикаторами —
             // спиннер у работающих, «?» у ждущих ответа, точка у остальных;
             // при наведении — поповер с деталями (единый стиль .rail-popover).
@@ -277,7 +270,6 @@ where
             </div>
 
             </div>
-            <div class="extension-host extension-dock-left" data-extension-location="left"></div>
             {children()}
             <div
                 class="sidebar-resize-handle"

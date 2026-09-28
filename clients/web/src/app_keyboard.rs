@@ -8,7 +8,7 @@ use crate::types::TransportStatus;
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn install_global_keydown(
     composer_ref: NodeRef<html::Textarea>,
-    resize: crate::app_resize::AppResizeState,
+    _resize: crate::app_resize::AppResizeState,
     active_session_dir: ReadSignal<Option<String>>,
     transcript_generation: ReadSignal<u64>,
     active_run_id: ReadSignal<Option<String>>,
@@ -32,16 +32,6 @@ pub(crate) fn install_global_keydown(
                 // неожиданно стопит агента.
                 if crate::app::menus::dismiss_top_menu() {
                     ev.prevent_default();
-                    return;
-                }
-                if resize.info_open.get()
-                    && window()
-                        .and_then(|window| window.inner_width().ok())
-                        .and_then(|width| width.as_f64())
-                        .is_some_and(|width| width <= 900.0)
-                {
-                    ev.prevent_default();
-                    resize.toggle_info_panel();
                     return;
                 }
                 if active_run_id.get().is_some() {

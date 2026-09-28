@@ -26,4 +26,7 @@
   <symbol id="close" viewBox="0 0 20 20"><path d="m5.5 5.5 9 9m0-9-9 9"/></symbol>
   <symbol id="more" viewBox="0 0 20 20"><g fill="currentColor" stroke="none"><circle cx="4.5" cy="10" r="1"/><circle cx="10" cy="10" r="1"/><circle cx="15.5" cy="10" r="1"/></g></symbol>
   <symbol id="external-link" viewBox="0 0 20 20"><path d="M11 3.5h5.5V9M16.5 3.5l-8 8M7.5 4.5h-4v12h12v-4"/></symbol>
+  <symbol id="arrow-left" viewBox="0 0 20 20"><path d="M16 10H4m6-6-6 6 6 6"/></symbol>
+  <symbol id="arrow-right" viewBox="0 0 20 20"><path d="M4 10h12m-6-6 6 6-6 6"/></symbol>
+  <symbol id="expand" viewBox="0 0 20 20"><path d="M12 3h5v5m0-5-6 6M8 17H3v-5m0 5 6-6"/></symbol>
 </svg>

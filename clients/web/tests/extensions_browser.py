@@ -285,11 +285,20 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                 if '--chrome-only' in sys.argv:
                     check_chrome(command, js, wait_for, web, origin)
                     return
+                if '--workspace-only' in sys.argv:
+                    command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
+                    wait_for(loaded, 'Client did not load for workspace checks')
+                    check_panels(command, js, wait_for)
+                    return
                 if '--inspector-only' in sys.argv:
                     check_architecture(command, js, wait_for, web, origin)
                     check_tools_picker(command, js, wait_for, web, origin, config, request)
                     return
                 check_extensions(command, js, wait_for, web, origin, loaded)
+                if '--usage-shell-only' in sys.argv:
+                    check_usage(command, js, wait_for)
+                    check_layout(command, js, wait_for)
+                    return
                 if '--sessions-only' in sys.argv:
                     check_session(command, js, wait_for, web, origin, loaded)
                     check_inspector_startup(command, js, wait_for, web, origin)

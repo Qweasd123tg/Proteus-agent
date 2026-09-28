@@ -1,27 +1,27 @@
 :root {
     color-scheme: dark;
-    --bg-root: #1e1e2e;
-    --bg-panel: #181825;
-    --bg-composer: #2b2b3d;
-    --bg-panel-soft: #262637;
-    --bg-panel-hover: #313145;
+    --bg-root: #202020;
+    --bg-panel: #181818;
+    --bg-composer: #2c2c2c;
+    --bg-panel-soft: #282828;
+    --bg-panel-hover: #343434;
     --bg-hover: var(--bg-panel-hover);
-    --bg-popover: #2b2b3d;
-    --accent: #b4befe;
-    --bg-bubble-user: #282839;
-    --border-subtle: #303043;
-    --border-strong: #45455e;
-    --text-main: #cdd6f4;
-    --text-muted: #a6adc8;
-    --text-faint: #858aa5;
-    --accent-blue: #6b9eff;
+    --bg-popover: #2c2c2c;
+    --accent: #d0d0d0;
+    --bg-bubble-user: #2b2b2b;
+    --border-subtle: #333333;
+    --border-strong: #484848;
+    --text-main: #e6e6e6;
+    --text-muted: #aaaaaa;
+    --text-faint: #808080;
+    --accent-blue: #c0c0c0;
     --accent-green: #5cc784;
     --accent-yellow: #d8a21e;
     --accent-red: #ef6b6b;
     /* Полупрозрачные производные акцентов: soft — заливка, border — обводка.
        Цветные подложки и рамки берутся отсюда, а не из локальных rgb(). */
-    --accent-blue-soft: rgb(107 158 255 / 12%);
-    --accent-blue-border: rgb(107 158 255 / 35%);
+    --accent-blue-soft: rgb(192 192 192 / 12%);
+    --accent-blue-border: rgb(192 192 192 / 35%);
     --accent-green-soft: rgb(92 199 132 / 13%);
     --accent-green-border: rgb(92 199 132 / 32%);
     --accent-yellow-soft: rgb(216 162 30 / 12%);
@@ -54,7 +54,7 @@
        lg — поповеры/меню. */
     --shadow-sm: 0 2px 8px rgb(0 0 0 / 35%);
     --shadow-md: 0 8px 24px rgb(0 0 0 / 40%);
-    --shadow-lg: 0 16px 40px rgb(10 10 20 / 28%);
+    --shadow-lg: 0 16px 40px rgb(0 0 0 / 28%);
     font-family: var(--font-sans);
     font-size: 14px;
     line-height: 1.6;

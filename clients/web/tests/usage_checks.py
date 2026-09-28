@@ -12,8 +12,8 @@ def run(command, js, wait_for):
         return js("return !!document.querySelector('.composer textarea')")
 
     js("document.querySelector('.settings-link').click()")
-    wait_for(lambda: js("return !!document.querySelector('[data-extension-available=usage]')"), 'Usage package unavailable in saved settings')
-    js("document.querySelector('[data-extension-available=usage]').click()")
+    wait_for(lambda: js("return !!document.querySelector('[data-extension-available=usage], [data-extension-choice=usage]')"), 'Usage package unavailable in saved settings')
+    js("document.querySelector('[data-extension-available=usage]')?.click()")
     wait_for(lambda: js("return !!document.querySelector('[aria-label=\"Настроить: Расход\"]')"), 'Usage settings action missing')
     assert js("return !document.querySelector('.extension-options-content')"), 'Settings entry executed before opening'
     js("document.querySelector('[aria-label=\"Настроить: Расход\"]').click()")
@@ -22,6 +22,7 @@ def run(command, js, wait_for):
     wait_for(lambda: js("return document.querySelector('.extension-options-content').shadowRoot.textContent.includes('Тариф сохранён')"), 'Custom rate failed to persist')
     js("document.querySelector('.topnav a[href=\"/\"]').click()")
     wait_for(chat_loaded, 'Chat did not return')
+    js("document.querySelector('.workspace-picker [data-open-tab=usage]').click()")
     wait_for(lambda: js("const root=" + shadow() + ";return root?.querySelector('.usage-headline > strong')?.textContent==='280'"), 'Usage totals do not match two real provider requests')
     assert js("const root=" + shadow() + ";return root.querySelector('.cost-total').textContent.includes('$0.000252')"), 'Cost double-counted cache or reasoning'
     js("const root=" + shadow() + ";root.querySelector('.usage-recent').open=true;root.querySelector('.usage-request').open=true")
@@ -45,6 +46,6 @@ def run(command, js, wait_for):
     js("document.querySelector('.analysis-open-chat').click()")
     wait_for(chat_loaded, 'Selected chat did not restore after analysis')
     # Keep the layout regression focused on the original visible panels.
-    wait_for(lambda: js("return !!document.querySelector('[data-extension-id=usage] .extension-panel-title')"), 'Usage panel not restored')
-    js("document.querySelector('[data-extension-id=usage] .extension-panel-title').click()")
+    wait_for(lambda: js("return !!document.querySelector('[data-extension-id=usage] .extension-panel-content')"), 'Usage panel not restored')
+    js("document.querySelector('.workspace-picker [data-open-tab=usage]').click()")
     print('PASS: durable per-request usage; cache/reasoning pricing; independent rate settings; sidebar/context agreement; reload and API error recovery', flush=True)

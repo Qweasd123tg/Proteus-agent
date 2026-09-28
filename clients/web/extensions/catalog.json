@@ -5,8 +5,8 @@
       "id": "files",
       "url": "./files/extension.json",
       "enabled": true,
-      "collapsed": false,
-      "location": "left"
+      "collapsed": true,
+      "location": "right"
     },
     {
       "id": "plan",

@@ -7,9 +7,7 @@ export function preparePanelFocus(selector) {
   pendingFocus = requestAnimationFrame(() => {
     pendingFocus = 0;
     if (!panel?.isConnected || !restore) return;
-    const mobileClosed = selector === '.info-panel' && innerWidth <= 900 && !panel.classList.contains('open');
-    const button = mobileClosed ? document.querySelector('.info-panel-mobile-toggle')
-      : [...panel.querySelectorAll('[data-panel-toggle]')].find(button => !button.closest('[inert]'));
+    const button = document.querySelector('.topbar [data-panel-toggle=sidebar]');
     button?.focus({ preventScroll: true });
   });
 }

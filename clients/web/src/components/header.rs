@@ -3,26 +3,29 @@ use leptos::prelude::*;
 use web_sys::MouseEvent;
 #[component]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn HeaderView<N, O, T>(
+pub(crate) fn HeaderView<N, O, S>(
+    sidebar_collapsed: ReadSignal<bool>,
+    on_toggle_sidebar: S,
     route: ReadSignal<String>,
     workspace_label: ReadSignal<String>,
     session_title: Memo<String>,
     waiting_background_sessions: Memo<Vec<SessionSummary>>,
-    info_panel_open: ReadSignal<bool>,
     on_navigate: N,
     on_open_session: O,
-    on_toggle_info: T,
 ) -> impl IntoView
 where
+    S: Fn(MouseEvent) + Copy + Send + Sync + 'static,
     N: Fn(MouseEvent, &'static str) + Copy + Send + Sync + 'static,
     O: Fn(SessionSummary) + Copy + Send + Sync + 'static,
-    T: Fn(MouseEvent) + Copy + Send + Sync + 'static,
 {
     let is_chat_route =
         move || !matches!(route.get().as_str(), "/resume" | "/context" | "/settings");
     view! {
                 <header class="topbar">
                     <div class="topbar-left">
+                        <super::panel::PanelToggle expanded=Signal::derive(move || !sidebar_collapsed.get()) on_toggle=on_toggle_sidebar />
+                        <button class="sidebar-toggle" title="Назад" aria-label="Назад" on:click=move |_| { if let Some(w)=web_sys::window() { if let Ok(h)=w.history() { let _=h.back(); } } }><super::icons::BackIcon /></button>
+                        <button class="sidebar-toggle" title="Вперёд" aria-label="Вперёд" on:click=move |_| { if let Some(w)=web_sys::window() { if let Ok(h)=w.history() { let _=h.forward(); } } }><super::icons::ForwardIcon /></button>
                         <a
                             class="brand"
                             title=move || workspace_label.get()
@@ -39,6 +42,7 @@ where
                         </a>
                     </div>
                     <nav class="topnav" aria-label="Действия чата">
+                        <button type="button" class="sidebar-toggle" data-workspace-toggle="" title="Боковая панель" aria-label="Боковая панель" aria-expanded="false"><super::icons::PanelIcon right=true /></button>
                         {move || {
                             let waiting = waiting_background_sessions.get();
                             if waiting.is_empty() {
@@ -68,24 +72,6 @@ where
                         >
                             "Чат"
                         </a>
-                        // На узком экране рейка справа скрыта: переключатель остаётся в шапке.
-                        {move || if is_chat_route() {
-                            view! {
-                                <button
-                                    type="button"
-                                    class="sidebar-toggle info-panel-mobile-toggle"
-                                    class:active=move || info_panel_open.get()
-                                    title="Инфо по чату"
-                                    aria-label="Инфо по чату"
-                                    aria-expanded=move || info_panel_open.get().to_string()
-                                    on:click=on_toggle_info
-                                >
-                                    <super::icons::PanelIcon right=true />
-                                </button>
-                            }.into_any()
-                        } else {
-                            ().into_any()
-                        }}
                     </nav>
                 </header>
     }

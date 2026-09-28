@@ -20,6 +20,8 @@ macro_rules! icon {
     };
 }
 
+icon!(BackIcon, "arrow-left", 18);
+icon!(ForwardIcon, "arrow-right", 18);
 icon!(FolderIcon, "folder", 18);
 icon!(RefreshIcon, "refresh", 16);
 icon!(ArrowUpIcon, "arrow-up", 20);

@@ -6,7 +6,7 @@ export interface ExtensionManifest {
   description: string;
   entry: string;
   requires: string[];
-  /** A panel adds an independent resizable, collapsible column; widgets share the overview. */
+  /** Panels fill their tab; widgets scroll inside the same tab workspace. */
   presentation?: 'widget' | 'panel';
   /** Independent entry; loaded only by the explicit Configure action. */
   settings?: { entry: string; requires: string[] };
@@ -22,8 +22,12 @@ export interface ExtensionStorage {
 
 export interface ExtensionPane {
   root: ShadowRoot;
+  /** Aborts when this tab is closed or its owner is disposed. */
+  signal: AbortSignal;
   show(): void;
   hide(): void;
+  /** Close and release an owned tab. Idempotent after disposal. */
+  close(): void;
 }
 
 export interface ExtensionContext {
@@ -33,12 +37,11 @@ export interface ExtensionContext {
   compact?: ShadowRoot;
   /** Host actions, independent of a particular extension id; absent in settings. */
   panel?: { open(): void; move(location: 'left' | 'right'): void };
-  /** Transient independent columns owned by this mount; absent in settings. No additional services or authority.
-   * Columns may be open together. Location inserts left/right of chat without replacing it.
-   * Width is client-stored by pane id; other owned state lasts for the session.
-   * Collapse and moving preserve roots; owner disposal releases every pane.
+  /** Tabs owned by this mount; no additional services or authority. Switching and hiding preserve roots.
+   * Closing releases the tab and calls onClose; owner disposal releases every tab.
+   * Location is a host placement hint; the Proteus tab workspace groups both sides together.
    */
-  panels?: { create(id: string, options: { title: string; location: 'left' | 'right' }): ExtensionPane };
+  panels?: { create(id: string, options: { title: string; location?: 'left' | 'right'; onClose?: () => void }): ExtensionPane };
   /** Only declared interfaces; each interface defines its own data contract. */
   services: Readonly<Record<string, unknown>>;
   storage: ExtensionStorage;
