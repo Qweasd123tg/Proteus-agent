@@ -86,6 +86,7 @@ impl PendingInvocation {
 
 pub(super) struct PendingCallback {
     pub parent_id: String,
+    pub root_id: String,
     pub abort: AbortHandle,
 }
 
@@ -106,7 +107,7 @@ pub(super) struct LoopState {
     pub queued_roots: VecDeque<String>,
     pub callbacks: HashMap<String, PendingCallback>,
     pub used_callback_ids: super::callback_ids::CallbackIds,
-    pub callback_counts: HashMap<String, usize>,
+    pub pending_callback_counts: HashMap<String, usize>,
     pub active_roots: usize,
     pub active_nested: usize,
     pub runtime_started: bool,
@@ -133,12 +134,27 @@ impl LoopState {
             queued_roots: VecDeque::new(),
             callbacks: HashMap::new(),
             used_callback_ids: Default::default(),
-            callback_counts: HashMap::new(),
+            pending_callback_counts: HashMap::new(),
             active_roots: 0,
             active_nested: 0,
             runtime_started: false,
             last_failure: None,
             last_failure_reason: None,
         }
+    }
+
+    /// All individual completion/abort paths release the same root budget.
+    /// Generation reset drains callbacks and clears the entire budget at once.
+    pub(super) fn remove_callback(&mut self, id: &str) -> Option<PendingCallback> {
+        let callback = self.callbacks.remove(id)?;
+        let count = self
+            .pending_callback_counts
+            .get_mut(&callback.root_id)
+            .expect("pending callback must own a root budget entry");
+        *count -= 1;
+        if *count == 0 {
+            self.pending_callback_counts.remove(&callback.root_id);
+        }
+        Some(callback)
     }
 }

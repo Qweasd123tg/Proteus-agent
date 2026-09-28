@@ -170,14 +170,17 @@ impl LoopState {
         }
 
         let root_id = parent.invocation.root_id.clone();
-        let callback_count = self.callback_counts.entry(root_id.clone()).or_default();
-        let stream_delivery = parent.authority.is_stream_delivery(&method);
-        if !stream_delivery && *callback_count >= self.options.max_callbacks_per_root {
+        let callback_count = self
+            .pending_callback_counts
+            .get(&root_id)
+            .copied()
+            .unwrap_or(0);
+        if callback_count >= self.options.max_pending_callbacks_per_root {
             let error = ProcessModuleRpcError::new(
                 -32012,
                 format!(
-                    "root invocation {root_id} exceeded callback limit {}",
-                    self.options.max_callbacks_per_root
+                    "root invocation {root_id} exceeded pending callback limit {}",
+                    self.options.max_pending_callbacks_per_root
                 ),
             );
             self.queue_callback_response(&id, Err(error));
@@ -194,10 +197,6 @@ impl LoopState {
             self.queue_callback_response(&id, Err(error));
             return;
         }
-        if !stream_delivery {
-            *callback_count += 1;
-        }
-
         let Some(executor) = parent.executor.clone() else {
             let error = ProcessModuleRpcError::new(
                 -32601,
@@ -234,10 +233,15 @@ impl LoopState {
         });
         let abort = task.abort_handle();
         drop(task);
+        *self
+            .pending_callback_counts
+            .entry(root_id.clone())
+            .or_default() += 1;
         self.callbacks.insert(
             id.clone(),
             PendingCallback {
                 parent_id: callback_params.invocation_id.clone(),
+                root_id,
                 abort,
             },
         );
@@ -257,7 +261,7 @@ impl LoopState {
         if generation != self.generation {
             return;
         }
-        let Some(callback) = self.callbacks.remove(callback_id) else {
+        let Some(callback) = self.remove_callback(callback_id) else {
             return;
         };
         let Some(parent) = self.pending.get_mut(&callback.parent_id) else {

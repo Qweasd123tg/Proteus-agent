@@ -454,7 +454,7 @@ Exports с callback-связями разрешено объединять; comp
 
 - callback authority берётся из host-owned parent record, а dispatcher живёт
   только до terminal этой invocation;
-- root admission, nested reserve, callback depth/count/id retention,
+- root admission, nested reserve, callback depth/pending count/id retention,
   notifications и writer queues ограничены;
 - cooperative cancel адресен, а crash, corruption, resource failure или
   истёкший cancel grace завершают всё поколение с causal terminal causes;
@@ -664,9 +664,14 @@ HTTP status и Retry-After в этот минимальный DTO пока не 
 Canonical события не используют lossy `module.progress`. Host держит очередь
 из одного события: медленный consumer замедляет worker, события не теряются.
 Emit разрешён только model export и только во время `stream`; он не вызывает
-host work, не получает tool/model authority и не расходует cumulative
-`max_callbacks_per_root`. Общие pending-callback, frame и deadline limits
-продолжают действовать. Callback ids сохраняются точными объединяемыми
+host work и не получает tool/model authority. `max_pending_callbacks_per_root`
+ограничивает одновременно выполняемые callbacks всей root lineage, включая
+stream delivery; `max_pending_callbacks` — callbacks всего component.
+Completion, отмена или завершение parent освобождают занятое место. Число
+последовательных callbacks за весь ход не ограничено этим бюджетом: длинный
+workflow с tools, checkpoints и subagents не исчерпывает его уже завершённой
+работой. Callback depth, frame и deadline limits продолжают действовать.
+Callback ids сохраняются точными объединяемыми
 диапазонами: `max_callback_id_ranges` ограничивает разреженность, а не длину
 обычного потока; duplicate ids не забываются до смены generation.
 

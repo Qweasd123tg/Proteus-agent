@@ -26,17 +26,9 @@ impl LoopState {
             }
         }
         for callback_id in pending.outstanding_callbacks.drain() {
-            if let Some(callback) = self.callbacks.remove(&callback_id) {
+            if let Some(callback) = self.remove_callback(&callback_id) {
                 callback.abort.abort();
             }
-        }
-        let root_id = pending.invocation.root_id.clone();
-        if !self
-            .pending
-            .values()
-            .any(|other| other.invocation.root_id == root_id)
-        {
-            self.callback_counts.remove(&root_id);
         }
         if let Some(sender) = pending.terminal.take() {
             sender.send(terminal);
@@ -200,7 +192,7 @@ impl LoopState {
             .map(|(id, _)| id.clone())
             .collect::<Vec<_>>();
         for callback_id in callback_ids {
-            let Some(callback) = self.callbacks.remove(&callback_id) else {
+            let Some(callback) = self.remove_callback(&callback_id) else {
                 continue;
             };
             callback.abort.abort();
@@ -266,7 +258,7 @@ impl LoopState {
         }
         let pending = std::mem::take(&mut self.pending);
         self.queued_roots.clear();
-        self.callback_counts.clear();
+        self.pending_callback_counts.clear();
         self.used_callback_ids.clear();
         self.active_roots = 0;
         self.active_nested = 0;

@@ -68,12 +68,6 @@ pub struct ProcessContractAuthority {
 }
 
 impl ProcessContractAuthority {
-    /// Delivery only: no nested execution or additional authority. It consumes
-    /// the pending callback/frame budget, but not the cumulative host-work budget.
-    pub fn is_stream_delivery(self, method: &str) -> bool {
-        (self.slot == "model" && method == MODEL_HOST_EMIT_METHOD)
-            || (self.slot == "workflow" && method == WORKFLOW_HOST_NEXT_MODEL_STREAM_METHOD)
-    }
     pub fn allows_host_method(self, method: &str) -> bool {
         self.host_methods.contains(&method)
     }
@@ -265,8 +259,6 @@ mod tests {
         assert_eq!(authority.composition, ProcessModuleComposition::SelectOne);
         assert_eq!(authority.module_methods, [PROCESS_WORKFLOW_METHOD]);
         assert_eq!(authority.host_methods, WORKFLOW_HOST_METHODS);
-        assert!(authority.is_stream_delivery(WORKFLOW_HOST_NEXT_MODEL_STREAM_METHOD));
-        assert!(!authority.is_stream_delivery(WORKFLOW_HOST_START_MODEL_STREAM_METHOD));
         for other in PROCESS_CONTRACT_AUTHORITIES
             .iter()
             .filter(|item| item.slot != "workflow")

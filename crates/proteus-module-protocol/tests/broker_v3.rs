@@ -10,6 +10,8 @@ use proteus_contracts::contracts::{
     CONTEXT_HOST_SEARCH_METHOD, PROCESS_CONTEXT_BUILD_METHOD, PROCESS_CONTEXT_CONTRACT_VERSION,
     PROCESS_SEARCH_CONTRACT_VERSION, PROCESS_SEARCH_METHOD, PROCESS_WORKFLOW_CONTRACT_VERSION,
     PROCESS_WORKFLOW_METHOD, ProcessComponentExportRef, WORKFLOW_HOST_BUILD_CONTEXT_METHOD,
+    WORKFLOW_HOST_EMIT_EVENT_METHOD, WORKFLOW_HOST_EXECUTE_TOOL_METHOD,
+    WORKFLOW_HOST_NEXT_MODEL_STREAM_METHOD,
 };
 use proteus_module_protocol::v3::{
     AsyncHostRequestDispatcher, CancelCause, ComponentBroker, ComponentBrokerErrorKind,
@@ -339,7 +341,11 @@ async fn queued_admission_is_bounded_and_cancellable() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn parent_cancel_cascades_during_callback() -> Result<()> {
-    let broker = broker(ComponentBrokerOptions::default())?;
+    let broker = broker(ComponentBrokerOptions {
+        max_pending_callbacks_per_root: 1,
+        max_pending_callbacks: 1,
+        ..ComponentBrokerOptions::default()
+    })?;
     let mut root = broker
         .start_invocation_with_dispatcher(
             &export("workflow", "fixture.workflow"),
@@ -356,6 +362,21 @@ async fn parent_cancel_cascades_during_callback() -> Result<()> {
     root.cancel(CancelCause::User)?;
     ensure!(root.result().await? == InvocationTerminal::Canceled);
     wait_for_pending(&broker, 0)?;
+    ensure!(broker.snapshot()?.pending_callbacks == 0);
+    let mut next = broker
+        .start_invocation_with_dispatcher(
+            &export("workflow", "fixture.workflow"),
+            PROCESS_WORKFLOW_METHOD,
+            json!({"op":"callback", "callback_input":{"op":"echo", "value":"after-cancel"}}),
+            INVOCATION_TIMEOUT,
+            Arc::new(NestedDispatcher::new(broker.downgrade())),
+        )
+        .await?;
+    ensure!(matches!(
+        next.result().await?,
+        InvocationTerminal::Success(_)
+    ));
+    ensure!(next.generation() == root.generation());
     Ok(())
 }
 
@@ -568,7 +589,7 @@ async fn nested_reserve_survives_saturated_roots() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn callback_depth_and_count_are_bounded() -> Result<()> {
+async fn callback_depth_and_pending_count_are_bounded() -> Result<()> {
     let depth_options = ComponentBrokerOptions {
         max_active_roots: 2,
         max_active_total: 3,
@@ -587,17 +608,33 @@ async fn callback_depth_and_count_are_bounded() -> Result<()> {
     ensure!(depth_broker.snapshot()?.generation == depth_generation);
 
     let count_options = ComponentBrokerOptions {
-        max_callbacks_per_root: 1,
+        max_pending_callbacks_per_root: 1,
         ..ComponentBrokerOptions::default()
     };
     let count_broker = broker(count_options)?;
     let count_generation = count_broker.snapshot()?.generation;
     let mut count = recursive_callback(&count_broker).await?;
-    ensure!(matches!(
-        count.result().await?,
-        InvocationTerminal::ModuleError(_)
-    ));
+    let InvocationTerminal::ModuleError(error) = count.result().await? else {
+        anyhow::bail!("nested callback must exceed pending root budget");
+    };
+    ensure!(error.data.as_ref().unwrap()["data"]["code"] == json!(-32012));
+    ensure!(count_broker.snapshot()?.pending_callbacks == 0);
     ensure!(count_broker.snapshot()?.generation == count_generation);
+
+    let pending_options = ComponentBrokerOptions {
+        max_pending_callbacks_per_root: 2,
+        max_pending_callbacks: 1,
+        ..ComponentBrokerOptions::default()
+    };
+    let pending_broker = broker(pending_options)?;
+    let pending_generation = pending_broker.snapshot()?.generation;
+    let mut pending = recursive_callback(&pending_broker).await?;
+    let InvocationTerminal::ModuleError(error) = pending.result().await? else {
+        anyhow::bail!("nested callback must exceed component pending budget");
+    };
+    ensure!(error.data.as_ref().unwrap()["data"]["code"] == json!(-32013));
+    ensure!(pending_broker.snapshot()?.pending_callbacks == 0);
+    ensure!(pending_broker.snapshot()?.generation == pending_generation);
 
     let id_options = ComponentBrokerOptions {
         max_callback_id_ranges: 1,
@@ -611,6 +648,57 @@ async fn callback_depth_and_count_are_bounded() -> Result<()> {
         InvocationTerminal::Success(_)
     ));
     ensure!(id_broker.snapshot()?.generation == id_generation);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn long_workflow_releases_each_completed_callback_budget() -> Result<()> {
+    let broker = broker(ComponentBrokerOptions {
+        max_pending_callbacks_per_root: 1,
+        max_pending_callbacks: 1,
+        ..ComponentBrokerOptions::default()
+    })?;
+    // Each root exceeds the old lifetime limit, while never owning more than
+    // one unfinished callback. Ordinary host work and stream delivery use the
+    // same pending accounting; a nested invocation shares its root's budget.
+    for method in [
+        WORKFLOW_HOST_BUILD_CONTEXT_METHOD,
+        WORKFLOW_HOST_EMIT_EVENT_METHOD,
+        WORKFLOW_HOST_EXECUTE_TOOL_METHOD,
+        WORKFLOW_HOST_NEXT_MODEL_STREAM_METHOD,
+    ] {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let dispatcher: Arc<dyn AsyncHostRequestDispatcher> =
+            if method == WORKFLOW_HOST_BUILD_CONTEXT_METHOD {
+                Arc::new(NestedDispatcher::new(broker.downgrade()))
+            } else {
+                Arc::new(RecordingDispatcher::new("long-workflow", Arc::clone(&seen)))
+            };
+        let mut root = broker
+            .start_invocation_with_dispatcher(
+                &export("workflow", "fixture.workflow"),
+                PROCESS_WORKFLOW_METHOD,
+                json!({
+                    "op":"sequential_callbacks", "count":300,
+                    "callback_method":method,
+                    "callback_input":{"op":"echo", "value":"nested"}
+                }),
+                // Hundreds of real nested process invocations must fit in one
+                // root deadline, independently of libtest scheduling load.
+                Duration::from_secs(30),
+                dispatcher,
+            )
+            .await?;
+        ensure!(value(root.result().await?)?["completed_callbacks"] == json!(300));
+        if method != WORKFLOW_HOST_BUILD_CONTEXT_METHOD {
+            let recorded = seen.lock().expect("recorded callbacks");
+            ensure!(recorded.len() == 300);
+            ensure!(recorded.iter().all(|actual| actual == method));
+        }
+        let snapshot = broker.snapshot()?;
+        ensure!(snapshot.pending_callbacks == 0);
+        ensure!(snapshot.generation == root.generation());
+    }
     Ok(())
 }
 

@@ -174,6 +174,9 @@ class Worker:
         return input_value if isinstance(input_value, dict) else {}
 
     def _callback_method(self, invocation: Invocation) -> str:
+        method = self._input(invocation.request).get("callback_method")
+        if isinstance(method, str):
+            return method
         params = invocation.request.get("params")
         export = params.get("export") if isinstance(params, dict) else None
         slot = export.get("slot") if isinstance(export, dict) else None
@@ -295,6 +298,15 @@ class Worker:
             if operation == "callback":
                 response = self._callback(invocation, input_value)
                 self._finish_callback(invocation, response)
+                return
+            if operation == "sequential_callbacks":
+                count = input_value.get("count", 1)
+                for _ in range(count):
+                    response = self._callback(invocation, input_value)
+                    if response is None or "error" in response or invocation.cancel.is_set():
+                        self._finish_callback(invocation, response)
+                        return
+                self.send_result(invocation.invocation_id, {"completed_callbacks": count})
                 return
             if operation == "lineage":
                 params = invocation.request.get("params")
