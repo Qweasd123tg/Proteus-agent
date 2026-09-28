@@ -3,6 +3,14 @@ import base64
 from pathlib import Path
 
 
+def open_report(js, wait_for):
+    js("document.querySelector('.settings-link').click()")
+    wait_for(lambda: js("return !!document.querySelector('[data-settings-section=diagnostics]')"), 'Settings did not mount')
+    js("document.querySelector('[data-settings-section=diagnostics]').click()")
+    wait_for(lambda: js("return document.querySelector('[data-settings-section=diagnostics]').getAttribute('aria-pressed')==='true'"), 'Diagnostics did not open')
+    js("document.querySelector('.settings-content a[href=\"/context\"]').click()")
+
+
 def run(command, js, wait_for):
     root = "document.querySelector('.usage-details-host > div')?.shadowRoot"
     assert js("return document.querySelector('.analysis-title h1').textContent.length > 0"), 'Session title missing'
@@ -81,7 +89,7 @@ def check_selection(command, js, wait_for):
     wait_for(lambda: js("return !document.querySelector('.composer-submit').disabled"), 'Second session draft not ready')
     js("document.querySelector('.composer-submit').click()")
     wait_for(lambda: js("return document.querySelector('.results-panel').textContent.includes('Абзац 31:') && !document.querySelector('.composer-stop')"), 'Second session did not finish')
-    js("document.querySelector('.sidebar-footer a[href=\"/context\"]').click()")
+    open_report(js, wait_for)
     root = "document.querySelector('.usage-details-host > div')?.shadowRoot"
     wait_for(lambda: js(f"return {root}?.querySelectorAll('.usage-request').length===1"), 'Second session report not shown')
     wait_for(lambda: js("return [...document.querySelector('#analysis-session').options].some(item=>item.value===" + json.dumps(original) + ")"), 'Original session missing from selector')
@@ -95,6 +103,6 @@ def check_selection(command, js, wait_for):
     wait_for(lambda: js("const button=document.querySelector('.analysis-open-chat');return button && !button.disabled"), 'Selected session summary did not become available')
     js("document.querySelector('.analysis-open-chat').click()")
     wait_for(lambda: js("return !!document.querySelector('.composer textarea') && new URL(location.href).searchParams.get('session_dir')===" + json.dumps(original)), 'Open dialogue did not resume the inspected session')
-    js("document.querySelector('.sidebar-footer a[href=\"/context\"]').click()")
+    open_report(js, wait_for)
     wait_for(lambda: js(f"return {root}?.querySelectorAll('.usage-request').length===2"), 'Original analysis did not reopen')
     print('PASS: independent analysis of two real sessions; reload retains inspected session; open dialogue resumes the inspected chat', flush=True)

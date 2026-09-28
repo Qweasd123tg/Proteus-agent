@@ -66,9 +66,12 @@ pub(super) fn AppShell(
         session_actions.open_sidebar_session(session);
         router.navigate("/");
     };
-    let start_new_session = move |_| session_actions.start_new_session();
+    let start_new_session = move |_| {
+        session_actions.start_new_session();
+        router.navigate("/");
+    };
     let refresh_sidebar_sessions = move |_| session_actions.load_sidebar_sessions();
-    let open_sidebar_session = move |session| session_actions.open_sidebar_session(session);
+    let open_sidebar_session = resume_open;
     let delete_sidebar_session = move |session| session_actions.delete_sidebar_session(session);
     let toggle_sidebar = move |_| resize.toggle_sidebar();
     let begin_sidebar_resize = move |event| resize.begin_sidebar_resize(event);
@@ -115,6 +118,7 @@ pub(super) fn AppShell(
         <div
             class="app-layout"
             class:chat-route=move || router.is_chat()
+            class:settings-route=move || route.get() == "/settings"
             class:resizing=is_resizing
             class:sidebar-collapsed=resize.sidebar_collapsed
             on:mousemove=resize_drag
@@ -136,7 +140,7 @@ pub(super) fn AppShell(
                 on_open_session=open_sidebar_session
                 on_delete_session=delete_sidebar_session
             >
-                <SidebarFooter route transport_status active_session_dir
+                <SidebarFooter route transport_status
                     on_navigate=topnav_click on_reconnect=reconnect_transport />
             </SidebarView>
 
@@ -165,7 +169,7 @@ pub(super) fn AppShell(
                             />
                         }.into_any()
                     } else if current == "/settings" {
-                        view! { <SettingsView tool_cards_collapsed set_tool_cards_collapsed /> }.into_any()
+                        view! { <SettingsView tool_cards_collapsed set_tool_cards_collapsed active_session_dir on_navigate=topnav_click /> }.into_any()
                     } else {
                         view! {
                             <ChatResultsView

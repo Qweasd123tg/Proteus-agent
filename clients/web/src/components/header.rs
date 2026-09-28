@@ -70,7 +70,7 @@ where
                             href="/"
                             on:click=move |ev| on_navigate(ev, "/")
                         >
-                            "Чат"
+                            "Вернуться в чат"
                         </a>
                     </nav>
                 </header>

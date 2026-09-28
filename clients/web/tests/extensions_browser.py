@@ -5,6 +5,7 @@ Requires Firefox and geckodriver (PATH or GECKODRIVER). Only stdlib Python.
 Run after trunk build and cargo build -p proteus-core -p proteus-reference-worker.
 """
 import base64
+from simplify_checks import run as check_simplify
 from extensions_checks import run as check_extensions
 from panel_checks import run as check_panels
 from select_checks import run as check_selects
@@ -289,6 +290,11 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
                     wait_for(loaded, 'Client did not load for workspace checks')
                     check_panels(command, js, wait_for)
+                    return
+                if '--simplify-only' in sys.argv:
+                    command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
+                    wait_for(loaded, 'Client did not load')
+                    check_simplify(command, js, wait_for, web, origin)
                     return
                 if '--inspector-only' in sys.argv:
                     check_architecture(command, js, wait_for, web, origin)

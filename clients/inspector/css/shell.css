@@ -141,3 +141,14 @@ code { font-variant-ligatures: none; }
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+.inspector-view { display:flex; flex:1; min-width:0; min-height:0; }
+.inspector-view[hidden] { display:none; }
+.inspector-sidebar { padding: 20px 12px 16px; }
+.inspector-brand strong { font-size:20px; letter-spacing:-.3px; }
+.inspector-brand small { font-size:10px; letter-spacing:1px; }
+.sidebar-section-label { margin-top:28px; }
+.inspector-nav-item { min-height:38px; padding:8px 12px; }
+.sidebar-connection { margin-top:auto; }
+.inspector-topbar { flex-basis:var(--topbar-height); padding-inline:24px; }
+@media(max-width:760px) { .inspector-brand { display:none; } .inspector-nav { margin-left:0; flex-wrap:wrap; } }
