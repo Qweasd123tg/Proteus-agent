@@ -19,7 +19,8 @@ def run(command, js, wait_for):
     js("window.savedWidget=document.querySelector('[data-widget-id=model-quota]');window.savedPanel=document.querySelector('[data-extension-id=model-quota]');savedWidget.click()")
     assert js("return document.querySelector('[data-tab-id=model-quota] [role=tab]').getAttribute('aria-selected')==='true'"), 'Widget did not open its tab'
     settings('extensions')
-    js("const s=document.querySelector('[aria-label=\"Расположение виджетов\"]');s.value='header';s.dispatchEvent(new Event('change',{bubbles:true}))")
+    click('[data-settings-id=model-quota]')
+    js("const s=document.querySelector('[data-widget-placement=model-quota]');s.value='header';s.dispatchEvent(new Event('change',{bubbles:true}))")
     click('.settings-back')
     wait_for(lambda: js("return document.querySelector('[data-widget-slot=header] [data-widget-id=model-quota]')===savedWidget"), 'Widget not moved to header')
     assert js("return document.querySelector('[data-extension-id=model-quota]')===savedPanel"), 'Moving widget remounted panel'

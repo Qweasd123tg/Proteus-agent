@@ -15,6 +15,7 @@ from session_checks import run as check_session, check_inspector_startup, BOOTST
 from queue_checks import run as check_queue
 from live_checks import run as check_live
 from chrome_checks import run as check_chrome
+from placement_checks import run as check_placement
 from polish_checks import run as check_polish, check_restore_failure
 from tool_chain_checks import run as check_tool_chain
 from planning_checks import run as check_planning
@@ -319,6 +320,11 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     check_tools_picker(command, js, wait_for, web, origin, config, request)
                     return
                 check_extensions(command, js, wait_for, web, origin, loaded)
+                if '--placement-only' in sys.argv:
+                    check_placement(command,js,wait_for)
+                    check_settings(command,js,wait_for)
+                    check_chrome(command,js,wait_for,web,origin)
+                    return
                 if '--tool-chain-only' in sys.argv:
                     check_tool_chain(command, js, wait_for)
                     return

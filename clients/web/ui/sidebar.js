@@ -5,6 +5,7 @@ const node=(tag,text)=>{const el=document.createElement(tag);el.textContent=text
 export function mountSidebar(root, update) {
   const controller=new AbortController(),{signal}=controller;
   const menu=popup('sidebar-menu','Действия'),card=popup('sidebar-hover','Сведения'),rename=popup('sidebar-rename-popup','Переименовать чат');
+  card.element.setAttribute('role','tooltip');
   menu.element.setAttribute('role','menu');
   let timer,hideTimer,hover;
   const desktop=()=>document.documentElement.hasAttribute('data-desktop-chrome');
@@ -49,16 +50,16 @@ export function mountSidebar(root, update) {
   },{signal});
   root.addEventListener('keydown',event=>{if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){const row=event.target.closest('[data-session-dir],[data-workspace]');if(row){event.preventDefault();openMenu(row);}}},{signal});
   root.addEventListener('pointerover',event=>{
-    const row=event.target.closest('[data-hover-title]');if(!row||row===hover||menu.element.matches(':popover-open'))return;
+    const row=event.target.closest('[data-hover-title]');if(!row||row===hover||document.querySelector(':popover-open:not(.sidebar-hover)'))return;
     clearHover();hover=row;timer=setTimeout(()=>{
       if(!row.isConnected||!row.matches(':hover'))return;
-      const content=[node('strong',row.dataset.hoverTitle),node('p',row.dataset.hoverDetail??'')];
-      if(row.dataset.workspace&&desktop())content.push(card.action('Настройки проекта…','settings',()=>native('project')));
+      const lines=(row.dataset.hoverDetail??'').split('\n').filter(Boolean);
+      const content=[node('strong',row.dataset.hoverTitle),...lines.slice(0,row.dataset.workspace?2:1).map(text=>node('p',text))];
       card.show(content,row,undefined,false);
     },450);
   },{signal});
-  root.addEventListener('pointerout',event=>{if(hover&&!hover.contains(event.relatedTarget)){clearTimeout(timer);hideTimer=setTimeout(clearHover,180);}},{signal});
-  card.element.addEventListener('pointerenter',()=>clearTimeout(hideTimer),{signal});card.element.addEventListener('pointerleave',()=>{hideTimer=setTimeout(clearHover,180);},{signal});
+  root.addEventListener('pointerout',event=>{if(hover&&!hover.contains(event.relatedTarget)){clearTimeout(timer);clearTimeout(hideTimer);hideTimer=setTimeout(clearHover,180);}},{signal});
+  card.element.addEventListener('pointerenter',()=>clearTimeout(hideTimer),{signal});card.element.addEventListener('pointerleave',()=>{clearTimeout(hideTimer);hideTimer=setTimeout(clearHover,180);},{signal});
   root.addEventListener('scroll',clearHover,{signal,capture:true});
   root.addEventListener('click',()=>card.hide(),{signal});
   return ()=>{controller.abort();clearHover();menu.dispose();card.dispose();rename.dispose();};

@@ -26,7 +26,14 @@ export function mountExtensionSettings(root, registry, services = {}) {
   function updateSelection(){for(const row of list.children){const selected=row.dataset.extensionChoice===optionsId&&!options.hidden;row.classList.toggle('active',selected);row.querySelector('[data-settings-id]')?.setAttribute('aria-pressed',String(selected));}}
   function close(){closeOptions?.();closeOptions=undefined;optionsId=undefined;options.hidden=true;updateSelection();}
   function choose(record){
-    if(optionsId!==record.id){close();optionsId=record.id;closeOptions=mountSettingsEntry(optionsBody,record,registry.storage,services);}
+    if(optionsId!==record.id){
+      close();optionsId=record.id;
+      const settingsController=new AbortController();
+      const specific=node('div','','extension-specific-settings');
+      optionsBody.replaceChildren(widgetPlacement(registry.storage,settingsController.signal,record.id),specific);
+      const stop=record.manifest?.settings?mountSettingsEntry(specific,record,registry.storage,services):undefined;
+      closeOptions=()=>{settingsController.abort();stop?.();optionsBody.replaceChildren();};
+    }
     pane.show(record.manifest?.name??record.id);updateSelection();
   }
   const list = node('div', '', 'extension-list');
@@ -48,7 +55,7 @@ export function mountExtensionSettings(root, registry, services = {}) {
   reset.append(node('p', 'Состав и порядок панелей заменятся поставляемым списком. Заметки сохранятся.', 'settings-hint'));
   const restore = button('Восстановить', () => { reset.open = false; void registry.reset(); }, signal);
   reset.append(restore);
-  root.append(widgetPlacement(registry.storage,signal),list, available, source, notice, announcement, reset);
+  root.append(list, available, source, notice, announcement, reset);
   enableReorder(list,registry,signal,announcement);
   const unsubscribe = registry.subscribe(() => {
     const { records, bundled, notice: message, busy, ready } = registry.state();
@@ -75,9 +82,7 @@ export function mountExtensionSettings(root, registry, services = {}) {
       checkbox.className = 'settings-toggle'; checkbox.disabled = busy; checkbox.dataset.controlKey = record.id;
       checkbox.addEventListener('change', () => registry.update(record.id, { enabled: checkbox.checked }), { signal: rowSignal });
       checkbox.setAttribute('aria-label',`Включить: ${name}`);
-      if(record.manifest?.settings){
-        const select=button('',()=>choose(record),rowSignal);select.className='extension-select';select.dataset.settingsId=record.id;select.setAttribute('aria-label',`Настроить: ${name}`);select.disabled=busy;select.append(text,icon('chevron-right'));label.append(select,checkbox);
-      }else{label.append(text,checkbox);}
+      const select=button('',()=>choose(record),rowSignal);select.className='extension-select';select.dataset.settingsId=record.id;select.setAttribute('aria-label',`Настроить: ${name}`);select.disabled=busy;select.append(text,icon('chevron-right'));label.append(select,checkbox);
       const grip=button('',()=>{},rowSignal);grip.className='extension-drag-handle';grip.dataset.reorder=record.id;grip.disabled=busy;grip.setAttribute('aria-label',`Переместить: ${name}`);grip.title='Перетащите для изменения порядка · ↑/↓ с клавиатуры';grip.append(icon('grip'));
       row.append(grip,label);
       const actions = node('div', '', 'extension-actions');
