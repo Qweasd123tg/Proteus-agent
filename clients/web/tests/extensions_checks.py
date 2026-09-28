@@ -36,7 +36,7 @@ def run(command, js, wait_for, web, origin, loaded):
     js("document.querySelector('#general input').click()")
     wait_for(lambda: js("return localStorage.getItem('proteus.toolCardsCollapsed') === 'false'"), 'Client preference did not reset')
     wait_for(lambda: js("return !!document.querySelector('[data-extension-available=model-quota]')"), 'New bundled package unavailable in existing settings')
-    js("document.querySelector('[data-extension-available=model-quota]').click(); document.querySelector('[data-extension-choice=notes] input').click(); document.querySelector('[aria-label=\"Выше: Заметки\"]').click()")
+    js("document.querySelector('[data-extension-available=model-quota]').click(); document.querySelector('[data-extension-choice=notes] input').click(); document.querySelector('[data-reorder=notes]').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true}))")
     # The live workspace mounts newly enabled extensions; opening Settings itself does not remount them.
     install('/fixture/extension.json')
     wait_for(lambda: js("return !!document.querySelector('[data-extension-choice=external-test]')"), 'External manifest not installed')

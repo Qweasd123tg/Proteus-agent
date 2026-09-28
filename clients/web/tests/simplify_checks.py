@@ -21,7 +21,7 @@ def run(command, js, wait_for, web, origin):
         assert js("return document.documentElement.scrollWidth<=innerWidth"), 'Settings horizontal overflow'
     command('/window/rect', {'width':1440,'height':1000})
     js("document.querySelector('[data-settings-section=diagnostics]').click()")
-    assert js("return !!document.querySelector('.settings-content a[href=\"/context\"]')"), 'Report was lost'
+    assert js("return !document.querySelector('a[href=\"/context\"], a[href=\"/resume\"]') && document.querySelector('.settings-content a').textContent.includes('Inspector') && document.querySelectorAll('.settings-nav button svg').length===3"), 'Diagnostics, history or settings icons are wrong'
     js("document.querySelector('.settings-back').click()")
     wait_for(lambda: js("return !!document.querySelector('.composer textarea')"), 'Return to chat failed')
     assert js("return document.querySelector('.composer textarea').value==='Сохранённый черновик' && new URL(location.href).searchParams.get('session_dir')===sessionBefore && document.querySelector('.tab-workspace')===workspaceBefore"), 'Settings lost chat, draft or tool tabs'

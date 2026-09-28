@@ -3,6 +3,8 @@ export const theme = `
 :host { display: block; color: var(--text-main, #ececec); font: 13px/1.5 var(--font-sans, system-ui); }
 * { box-sizing: border-box; }
 p { margin: 0 0 10px; }
+a { color: var(--text-main, #ececec); text-underline-offset: 3px; }
+a:hover { color: var(--text-muted, #a0a0a0); }
 button, textarea { font: inherit; color: inherit; border: 1px solid var(--border-strong, #444); border-radius: var(--radius-inner, 8px); }
 button { padding: 5px 10px; background: var(--bg-panel-soft, #2a2a2a); cursor: pointer; }
 button:disabled { opacity: .5; cursor: default; }

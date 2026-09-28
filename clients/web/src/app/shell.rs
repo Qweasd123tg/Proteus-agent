@@ -117,6 +117,7 @@ pub(super) fn AppShell(
     view! {
         <div
             class="app-layout"
+            style=move || format!("--sidebar-width: {}px", resize.sidebar_width.get())
             class:chat-route=move || router.is_chat()
             class:settings-route=move || route.get() == "/settings"
             class:resizing=is_resizing
@@ -158,17 +159,7 @@ pub(super) fn AppShell(
                 >
                     {move || {
                         let current = route.get();
-                        if current == "/resume" {
-                            view! { <ResumeView on_open=resume_open /> }.into_any()
-                        } else if current == "/context" {
-                        view! {
-                            <SessionAnalysisView
-                                sessions=sidebar_sessions
-                                active_session_dir=active_session_dir
-                                on_open=resume_open
-                            />
-                        }.into_any()
-                    } else if current == "/settings" {
+                        if current == "/settings" {
                         view! { <SettingsView tool_cards_collapsed set_tool_cards_collapsed active_session_dir on_navigate=topnav_click /> }.into_any()
                     } else {
                         view! {

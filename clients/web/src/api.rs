@@ -277,6 +277,9 @@ fn load_inspector_origin() -> Result<(), String> {
 /// Ссылка на Inspector с пробросом session token и app-server origin:
 /// hardcoded href терял бы token при включённом token-режиме.
 pub(crate) fn inspector_link_url(session_dir: Option<&str>) -> String {
+    // The requested chat is already addressed before bootstrap finishes.
+    let requested = requested_session_dir();
+    let session_dir = session_dir.or(requested.as_deref());
     if proteus_client_common::desktop::is_desktop() {
         return session_dir
             .map(|session_dir| {

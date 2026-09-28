@@ -36,3 +36,17 @@ pub(crate) fn shorten_home(path: &str) -> String {
     }
     path.to_owned()
 }
+
+pub(crate) fn short_id(id: impl ToString) -> String {
+    let id = id.to_string();
+    id.get(..8).unwrap_or(&id).to_owned()
+}
+pub(crate) fn format_token_count(tokens: u32) -> String {
+    if tokens < 1000 {
+        return tokens.to_string();
+    }
+    format!(
+        "{}k",
+        format!("{:.1}", f64::from(tokens) / 1000.0).trim_end_matches(".0")
+    )
+}

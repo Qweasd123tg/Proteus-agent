@@ -18,8 +18,7 @@ where
     N: Fn(MouseEvent, &'static str) + Copy + Send + Sync + 'static,
     O: Fn(SessionSummary) + Copy + Send + Sync + 'static,
 {
-    let is_chat_route =
-        move || !matches!(route.get().as_str(), "/resume" | "/context" | "/settings");
+    let is_chat_route = move || !matches!(route.get().as_str(), "/settings");
     view! {
                 <header class="topbar">
                     <div class="topbar-left">
@@ -35,8 +34,6 @@ where
                             <super::icons::FolderIcon />
                             <span>{move || match route.get().as_str() {
                                 "/settings" => "Настройки".to_owned(),
-                                "/resume" => "История сессий".to_owned(),
-                                "/context" => "Анализ сессии".to_owned(),
                                 _ => session_title.get(),
                             }}</span>
                         </a>

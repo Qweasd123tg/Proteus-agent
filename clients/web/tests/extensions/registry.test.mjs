@@ -52,3 +52,15 @@ test('invalid settings fail explicitly and are replaced only by reset', async ()
   assert.equal(JSON.parse(data.get('proteus.ui.extensions')).apiVersion,1);
   registry.dispose();
 });
+
+// A pointer drop may cross several rows; their relative order must survive.
+test('moving across several positions inserts without swapping other rows', async () => {
+  const {registry,data}=fixture();await registry.start();
+  await registry.install('https://client.test/three/extension.json');
+  registry.move('three',-2);
+  assert.deepEqual(registry.state().records.map(x=>x.id),['three','one','two']);
+  assert.deepEqual(JSON.parse(data.get('proteus.ui.extensions')).panels.map(x=>x.id),['three','one','two']);
+  registry.move('three',2);
+  assert.deepEqual(registry.state().records.map(x=>x.id),['one','two','three']);
+  registry.dispose();
+});

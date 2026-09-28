@@ -61,6 +61,7 @@ impl Navigation {
 fn current() -> &'static str {
     match crate::api::query_value("view").as_deref() {
         Some("analysis") => "analysis",
+        Some("usage") => "usage",
         Some("architecture") => "architecture",
         Some("configs") => "configs",
         _ => match window()

@@ -79,7 +79,7 @@ export function createExtensionRegistry(options = {}) {
       if (busy) return;
       const index = records.findIndex(item => item.id === id), next = index + step;
       if (index < 0 || next < 0 || next >= records.length) return;
-      [records[index], records[next]] = [records[next], records[index]]; save();
+      const [record] = records.splice(index, 1); records.splice(next, 0, record); save();
     },
     remove(id) { if (!busy) { records = records.filter(item => item.id !== id); save(); } },
     addBundled(id) {

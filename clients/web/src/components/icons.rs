@@ -33,8 +33,7 @@ icon!(TrashIcon, "trash", 16);
 icon!(ShieldIcon, "shield", 16);
 icon!(ChevronDownIcon, "chevron-down", 14);
 icon!(SettingsIcon, "settings", 18);
-icon!(AnalysisIcon, "analysis", 18);
-icon!(HistoryIcon, "history", 18);
+icon!(ExtensionsIcon, "modules", 18);
 icon!(InspectorIcon, "inspector", 18);
 icon!(CloseIcon, "close", 16);
 

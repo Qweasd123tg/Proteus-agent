@@ -6,6 +6,7 @@ Run after trunk build and cargo build -p proteus-core -p proteus-reference-worke
 """
 import base64
 from simplify_checks import run as check_simplify
+from settings_checks import run as check_settings
 from extensions_checks import run as check_extensions
 from panel_checks import run as check_panels
 from select_checks import run as check_selects
@@ -125,6 +126,14 @@ class Assets(SimpleHTTPRequestHandler):
             self.send_header('Content-Type', 'text/javascript' if path.endswith('.js') else 'text/css')
             self.end_headers()
             self.wfile.write((ROOT / 'clients/desktop/launcher' / path.lstrip('/')).read_bytes())
+            return
+        if path == '/pending-bootstrap.html':
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html')
+            self.end_headers()
+            script = "<script>const fetchLive=window.fetch;window.fetch=(input,...args)=>new URL(input.url||input,location.href).pathname==='/bootstrap'?(window.bootstrapBlocked=true,new Promise(()=>{})):fetchLive(input,...args);</script>"
+            html = (ROOT / 'clients/web/dist/index.html').read_text().replace('<head>', '<head>'+script)
+            self.wfile.write(html.encode())
             return
         if path in ('/foundation.html', '/inspector-foundation.html'):
             self.send_response(200)
@@ -252,6 +261,7 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     subprocess.run(['git', '-C', str(folder), *args], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
                 tracked.write_text('<b>Привет</b>\nФайл только для чтения\n')
                 deleted.unlink()
+                (folder / 'preview-fixture' / 'delayed.txt').write_text('Delayed file fixture')
                 backend = subprocess.Popen([str(ROOT / 'target/debug/proteus'), '--config', str(config), '--cwd', str(folder), 'server', 'http', '--port', '0', '--token', 'extension-smoke', '--ready-stdout', '--allow-origin', web], env=env, stdout=subprocess.PIPE, stderr=backend_log, text=True, start_new_session=True)
                 origin = None
                 deadline = time.monotonic() + 40
@@ -301,6 +311,9 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     check_tools_picker(command, js, wait_for, web, origin, config, request)
                     return
                 check_extensions(command, js, wait_for, web, origin, loaded)
+                if '--settings-only' in sys.argv:
+                    check_settings(command, js, wait_for)
+                    return
                 if '--usage-shell-only' in sys.argv:
                     check_usage(command, js, wait_for)
                     check_layout(command, js, wait_for)

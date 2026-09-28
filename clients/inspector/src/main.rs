@@ -5,9 +5,12 @@ mod architecture;
 mod architecture_map;
 mod architecture_model;
 mod configs;
+mod context_map;
 mod icons;
+mod session_report;
 mod types;
 mod ui_utils;
+mod usage_details;
 
 use leptos::mount::mount_to_body;
 

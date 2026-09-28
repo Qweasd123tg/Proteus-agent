@@ -1,9 +1,9 @@
 use leptos::{prelude::*, task::spawn_local};
 use std::time::Duration;
 
-use super::format_token_count;
-use crate::api::{get_json, session_path};
+use crate::api::{get_analysis_json as get_json, session_path};
 use crate::types::*;
+use crate::ui_utils::format_token_count;
 use crate::ui_utils::short_path;
 
 mod cache;

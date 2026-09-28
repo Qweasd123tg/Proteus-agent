@@ -21,7 +21,7 @@ pub(super) fn context_snapshot_view(snapshot: ContextMapSnapshot) -> impl IntoVi
     let session_path = snapshot
         .session_dir
         .as_deref()
-        .map(short_path)
+        .map(|path| short_path(&path.to_string_lossy()))
         .unwrap_or_else(|| "current".to_owned());
     let workspace = snapshot
         .workspace_path

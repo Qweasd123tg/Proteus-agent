@@ -1,7 +1,7 @@
 import { node, icon } from '../dom.js';
 import { createPreview } from './preview.js';
 
-export function mount({ root, compact, panels, services, signal }) {
+export function mount({ root, compact, services, signal }) {
   icon(compact, 'folder');
   root.append(node('style', `
     :host{display:flex!important;flex-direction:column;height:100%;min-height:0;overflow:hidden}
@@ -21,15 +21,23 @@ export function mount({ root, compact, panels, services, signal }) {
   const filter=node('input'); filter.type='search'; filter.placeholder='Фильтрация файлов…'; filter.setAttribute('aria-label','Фильтрация файлов'); toolbar.append(filter,refresh);
   filter.addEventListener('input',()=>{ for(const row of tree.querySelectorAll('.row')) row.hidden=!row.textContent.toLowerCase().includes(filter.value.toLowerCase()); },{signal});
   const tree=node('div',null,'tree'); tree.setAttribute('role','tree'); tree.setAttribute('aria-label','Файлы проекта');
-  const browser=node('div',null,'file-browser'), empty=node('div',null,'file-picker-empty'); empty.append(node('strong','Открыть файл'),node('p','Выберите файл из каталога рабочей области')); browser.append(toolbar,tree);root.append(empty,browser);
-  root.append(node('style',`:host{flex-direction:row!important;container-type:inline-size}.file-browser{display:flex;flex:1;min-width:0;flex-direction:column;border-left:1px solid var(--border-subtle)}.file-picker-empty{display:flex;flex:1;min-width:0;flex-direction:column;justify-content:center;align-items:center;gap:12px;padding:20px;text-align:center;color:var(--text-muted)}.file-picker-empty strong{font-size:20px;color:var(--text-main)}.toolbar{padding:12px;gap:6px}.toolbar input{width:100%;min-width:0;padding:8px 10px;border-radius:10px;border:1px solid var(--border-subtle);background:var(--bg-panel-soft);color:inherit;font:inherit}.row{height:30px;min-height:30px;font:13px var(--font-sans)}.tree{padding:8px}.tree [hidden]{display:none}@container(max-width:440px){.file-picker-empty{display:none}}`));
+  const browser=node('div',null,'file-browser'), viewer=node('div',null,'file-preview');
+  const split=node('div',null,'file-split');split.tabIndex=0;split.setAttribute('role','separator');split.setAttribute('aria-label','Ширина дерева файлов');split.setAttribute('aria-orientation','vertical');
+  browser.append(toolbar,tree);root.append(viewer,split,browser);
+  root.append(node('style',`:host{flex-direction:row!important;container-type:inline-size}.file-browser{display:flex;flex:0 0 var(--tree-width,42%);min-width:120px;max-width:65%;flex-direction:column}.toolbar{padding:8px;gap:6px}.toolbar input{width:100%;min-width:0;padding:8px;border-radius:10px;border:1px solid var(--border-subtle);background:var(--bg-panel-soft);color:inherit;font:inherit}.row{height:30px;min-height:30px;font:13px var(--font-sans)}.tree{padding:6px}.tree [hidden]{display:none}.file-split{width:5px;flex:none;border-left:1px solid var(--border-subtle);cursor:col-resize;touch-action:none}.file-split:hover,.file-split:focus-visible{background:var(--border-strong)}:host(.tree-hidden) .file-browser,:host(.tree-hidden) .file-split{display:none}`));
+  let drag;
+  function treeWidth(width){const hostWidth=root.host.getBoundingClientRect().width;browser.style.setProperty('--tree-width',`${Math.max(120,Math.min(hostWidth*.65,width))}px`);split.setAttribute('aria-valuenow',String(Math.round(browser.getBoundingClientRect().width)));}
+  split.addEventListener('pointerdown',event=>{if(event.button!==0)return;event.preventDefault();drag={id:event.pointerId,x:event.clientX,width:browser.getBoundingClientRect().width};split.setPointerCapture(event.pointerId);},{signal});
+  split.addEventListener('pointermove',event=>{if(drag?.id===event.pointerId)treeWidth(drag.width+drag.x-event.clientX);},{signal});
+  for(const name of ['pointerup','pointercancel','lostpointercapture'])split.addEventListener(name,()=>{drag=null;},{signal});
+  split.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight'].includes(event.key))return;event.preventDefault();treeWidth(browser.getBoundingClientRect().width+(event.key==='ArrowLeft'?20:-20));},{signal});
   const workspace=services['agent.workspace.read'], expanded=new Set(), listings=new Map(), pending=new Set();
   let generation=0, selected='', focused='', preview, changes=new Map(), gitError='', gitTruncated=false;
   function shape(name,className) {
     const holder=node('span'); icon(holder,name); const svg=holder.firstChild;
     svg.removeAttribute('style'); svg.setAttribute('stroke-linecap','round'); svg.setAttribute('stroke-linejoin','round'); if(className) svg.setAttribute('class',className); svg.setAttribute('aria-hidden','true'); return svg;
   }
-  function visibleRows() { return [...tree.querySelectorAll('.row:not(:disabled)')]; }
+  function visibleRows() { return [...tree.querySelectorAll('.row:not(:disabled):not([hidden])')]; }
   function focusPath(path) {
     focused=path;
     for(const row of visibleRows()) { row.tabIndex=row.dataset.path===path?0:-1; if(row.tabIndex===0) row.focus(); }
@@ -109,10 +117,10 @@ export function mount({ root, compact, panels, services, signal }) {
     else expanded.delete(path);
     focused=path; render();
   }
-  function openFile(path,pinned=false) {
+  function openFile(path) {
     selected=path; focused=path;
     for(const row of visibleRows()) { const active=row.dataset.path===path; row.classList.toggle('active',active); row.setAttribute('aria-selected',String(active)); row.tabIndex=active?0:-1; }
-    preview??=createPreview({panels,workspace,signal}); void preview.open(path,{pinned,mode:changes.get(path)==='deleted'?'diff':'file',deleted:changes.get(path)==='deleted'});
+    void preview.open(path,{mode:changes.get(path)==='deleted'?'diff':'file',deleted:changes.get(path)==='deleted'});
   }
   tree.addEventListener('click',event=>{
     const row=event.target.closest('.row'); if(!row||row.disabled) return;
@@ -121,7 +129,7 @@ export function mount({ root, compact, panels, services, signal }) {
     else openFile(row.dataset.path);
   },{signal});
   tree.addEventListener('dblclick',event=>{
-    const row=event.target.closest('.file'); if(row&&!row.disabled) openFile(row.dataset.path,true);
+    const row=event.target.closest('.file'); if(row&&!row.disabled) openFile(row.dataset.path);
   },{signal});
   tree.addEventListener('focusin',event=>{ if(event.target.matches('.row')) focused=event.target.dataset.path; },{signal});
   tree.addEventListener('keydown',event=>{
@@ -129,7 +137,7 @@ export function mount({ root, compact, panels, services, signal }) {
     const rows=visibleRows(), index=rows.indexOf(row), folder=row.classList.contains('folder');
     let target;
     switch(event.key) {
-      case 'Enter': if(folder) toggle(row); else openFile(row.dataset.path,true); break;
+      case 'Enter': if(folder) toggle(row); else openFile(row.dataset.path); break;
       case 'ArrowDown': target=rows[Math.min(index+1,rows.length-1)]; break;
       case 'ArrowUp': target=rows[Math.max(index-1,0)]; break;
       case 'Home': target=rows[0]; break;
@@ -146,5 +154,6 @@ export function mount({ root, compact, panels, services, signal }) {
     for(const path of listings.keys()) if(path&&!expanded.has(path)) listings.delete(path);
     void load(''); void loadChanges(generation);
   }
+  preview=createPreview({root:viewer,workspace,signal,onToggleTree:()=>{root.host.classList.toggle('tree-hidden');return !root.host.classList.contains('tree-hidden');}});
   refresh.addEventListener('click',reload,{signal}); render(); reload();
 }

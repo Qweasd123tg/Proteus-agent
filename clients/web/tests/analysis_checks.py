@@ -4,11 +4,15 @@ from pathlib import Path
 
 
 def open_report(js, wait_for):
-    js("document.querySelector('.settings-link').click()")
+    js("window.reportChatBefore=new URL(location.href).searchParams.get('session_dir');document.querySelector('.settings-link').click()")
     wait_for(lambda: js("return !!document.querySelector('[data-settings-section=diagnostics]')"), 'Settings did not mount')
     js("document.querySelector('[data-settings-section=diagnostics]').click()")
-    wait_for(lambda: js("return document.querySelector('[data-settings-section=diagnostics]').getAttribute('aria-pressed')==='true'"), 'Diagnostics did not open')
-    js("document.querySelector('.settings-content a[href=\"/context\"]').click()")
+    assert js("return !reportChatBefore || (new URL(location.href).searchParams.get('session_dir')===reportChatBefore && new URL(document.querySelector('.settings-content a').href).searchParams.get('session_dir')===reportChatBefore)"), 'Inspector link dropped the selected chat while connecting'
+    # The fixture serves both compiled clients on one origin. Production uses a
+    # separate Inspector origin/window, carrying the same explicit session scope.
+    js("const link=document.querySelector('.settings-content a');const url=new URL(link.href);url.host=location.host;url.pathname='/configs';url.searchParams.set('view','usage');url.searchParams.set('chat',location.origin);location.assign(url.href)")
+    wait_for(lambda: js("return !!document.querySelector('.inspector-shell .analysis-page')"), 'Report did not open inside Inspector')
+
 
 
 def run(command, js, wait_for):
@@ -103,6 +107,10 @@ def check_selection(command, js, wait_for):
     wait_for(lambda: js("const button=document.querySelector('.analysis-open-chat');return button && !button.disabled"), 'Selected session summary did not become available')
     js("document.querySelector('.analysis-open-chat').click()")
     wait_for(lambda: js("return !!document.querySelector('.composer textarea') && new URL(location.href).searchParams.get('session_dir')===" + json.dumps(original)), 'Open dialogue did not resume the inspected session')
+    # Hold bootstrap on a fresh page: navigation must retain the requested session
+    # before active_session_dir is populated, instead of analyzing the server default.
+    js("const url=new URL(location.href);url.pathname='/pending-bootstrap.html';location.assign(url.href)")
+    wait_for(lambda: js("return !!window.bootstrapBlocked && !!document.querySelector('.composer textarea')"), 'Cold chat fixture did not hold bootstrap')
     open_report(js, wait_for)
-    wait_for(lambda: js(f"return {root}?.querySelectorAll('.usage-request').length===2"), 'Original analysis did not reopen')
+    wait_for(lambda: js(f"return {root}?.querySelectorAll('.usage-request').length===2"), 'Original analysis did not reopen before bootstrap')
     print('PASS: independent analysis of two real sessions; reload retains inspected session; open dialogue resumes the inspected chat', flush=True)

@@ -117,9 +117,23 @@ pub(crate) async fn get_analysis_json<T: for<'de> Deserialize<'de>>(
 }
 
 async fn get_text_at(path: &str) -> Result<String, String> {
+    get_text_with_signal(path, None).await
+}
+pub(crate) fn session_path(path: &str, session: &str) -> String {
+    format!(
+        "{path}{}session_dir={}",
+        if path.contains('?') { '&' } else { '?' },
+        encode_uri_component(session)
+    )
+}
+pub(crate) async fn get_text_with_signal(
+    path: &str,
+    signal: Option<&web_sys::AbortSignal>,
+) -> Result<String, String> {
     let token = current_session_token();
     let init = RequestInit::new();
     init.set_method("GET");
+    init.set_signal(signal);
     init.set_mode(RequestMode::Cors);
     let headers = Headers::new().map_err(js_error)?;
     set_authorization_header(&headers, &token)?;
@@ -205,14 +219,21 @@ fn load_chat_origin() -> Result<(), String> {
 /// зеркально `inspector_link_url()` в `clients/web`: hardcoded href терял бы
 /// token при включённом token-режиме и нестандартных портах.
 pub(crate) fn chat_link_url() -> String {
+    let session = SELECTED_SESSION_DIR
+        .with(|stored| stored.borrow().clone())
+        .or_else(|| query_value("session_dir"));
+    chat_link_for(session.as_deref())
+}
+
+pub(crate) fn chat_link_for(session: Option<&str>) -> String {
     if proteus_client_common::desktop::is_desktop() {
-        return SELECTED_SESSION_DIR.with(|stored| match stored.borrow().as_deref() {
+        return match session {
             Some(session_dir) => format!(
                 "proteus-desktop:chat?session_dir={}",
                 encode_uri_component(session_dir)
             ),
             None => "proteus-desktop:chat".to_owned(),
-        });
+        };
     }
     let origin = CHAT_ORIGIN.with(|stored| stored.borrow().clone());
     let mut params = Vec::new();
@@ -226,11 +247,9 @@ pub(crate) fn chat_link_url() -> String {
         "server={}",
         encode_uri_component(&app_server_origin())
     ));
-    SELECTED_SESSION_DIR.with(|stored| {
-        if let Some(session_dir) = stored.borrow().as_deref() {
-            params.push(format!("session_dir={}", encode_uri_component(session_dir)));
-        }
-    });
+    if let Some(session_dir) = session {
+        params.push(format!("session_dir={}", encode_uri_component(session_dir)));
+    }
     format!("{origin}/?{}", params.join("&"))
 }
 

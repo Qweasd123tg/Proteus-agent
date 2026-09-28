@@ -29,4 +29,5 @@
   <symbol id="arrow-left" viewBox="0 0 20 20"><path d="M16 10H4m6-6-6 6 6 6"/></symbol>
   <symbol id="arrow-right" viewBox="0 0 20 20"><path d="M4 10h12m-6-6 6 6-6 6"/></symbol>
   <symbol id="expand" viewBox="0 0 20 20"><path d="M12 3h5v5m0-5-6 6M8 17H3v-5m0 5 6-6"/></symbol>
+  <symbol id="grip" viewBox="0 0 20 20"><path d="M7 5h.01M13 5h.01M7 10h.01M13 10h.01M7 15h.01M13 15h.01" stroke-width="3" stroke-linecap="round"/></symbol>
 </svg>

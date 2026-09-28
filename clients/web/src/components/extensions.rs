@@ -6,24 +6,8 @@ pub(crate) fn ExtensionsView(active_session_dir: ReadSignal<Option<String>>) -> 
     let _ = active_session_dir;
     let root = NodeRef::<leptos::html::Div>::new();
     #[cfg(target_arch = "wasm32")]
-    browser::attach(root, active_session_dir, false);
+    browser::attach(root, active_session_dir);
     view! { <div class="extension-host extension-workspace-status" node_ref=root aria-label="Панели расширений"></div> }
-}
-
-#[component]
-pub(crate) fn UsageDetailsView(session_dir: ReadSignal<Option<String>>) -> impl IntoView {
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = session_dir;
-    let root = NodeRef::<leptos::html::Div>::new();
-    #[cfg(target_arch = "wasm32")]
-    browser::attach(root, session_dir, true);
-    view! {
-        <section class="context-usage-report">
-            <h2>"Запросы и расход"</h2>
-            <p class="settings-hint">"Расход за всю историю чата, включая повторы и сжатие контекста. Текущий размер контекста — в соседнем разделе."</p>
-            <div node_ref=root class="usage-details-host"></div>
-        </section>
-    }
 }
 
 #[component]
@@ -51,11 +35,7 @@ mod browser {
             read_usage: &js_sys::Function,
             read_workspace: &js_sys::Function,
         ) -> Result<js_sys::Function, JsValue>;
-        #[wasm_bindgen(js_name = mountUsageDetails, catch)]
-        fn mount_usage(
-            root: &web_sys::Element,
-            read_usage: &js_sys::Function,
-        ) -> Result<js_sys::Function, JsValue>;
+
     }
 
     pub(super) fn attach_settings(root: NodeRef<leptos::html::Div>) {
@@ -108,7 +88,6 @@ mod browser {
     pub(super) fn attach(
         root: NodeRef<leptos::html::Div>,
         session_dir: ReadSignal<Option<String>>,
-        details: bool,
     ) {
         let session_key = Memo::new(move |_| session_dir.get());
         Effect::new(move |_| {
@@ -124,9 +103,6 @@ mod browser {
                 workspace_reader(session_dir),
             ));
             let mounted = readers.with_value(|(config, quota, usage, workspace)| {
-                if details {
-                    return mount_usage(element.as_ref(), usage.as_ref().unchecked_ref());
-                }
                 mount_extensions(
                     element.as_ref(),
                     config.as_ref().unchecked_ref(),

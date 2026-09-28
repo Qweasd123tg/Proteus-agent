@@ -11,12 +11,3 @@ pub(crate) struct ContextUsage {
     /// автокомпакт не настроен — тогда метка на бублике не рисуется.
     pub(crate) compaction_trigger_tokens: Option<u32>,
 }
-
-pub(crate) use proteus_contracts::app_protocol::{
-    AppContextCompactionSnapshot as ContextCompactionSnapshot,
-    AppContextMapSnapshot as ContextMapSnapshot, AppContextUsageCategory as ContextUsageCategory,
-    AppContextUsageSnapshot as ContextUsageSnapshot,
-};
-pub(crate) use proteus_contracts::domain::HistoryCompactionReport as ContextCompactionReport;
-#[cfg(test)]
-pub(crate) use proteus_contracts::model_standard::TokenUsage as ContextActualUsage;

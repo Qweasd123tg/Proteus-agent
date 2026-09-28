@@ -1,19 +1,46 @@
 use leptos::prelude::*;
 
-use super::{context_map::ContextMapView, extensions::UsageDetailsView};
-use crate::{session::summaries::sidebar_session_title, types::SessionSummary, ui_utils::short_id};
-
+use crate::{context_map::ContextMapView, ui_utils::short_id, usage_details::UsageDetailsView};
+use leptos::task::spawn_local;
+use proteus_contracts::app_protocol::{AppBootstrap, AppSessionSummary as SessionSummary};
 mod location;
 
+fn sidebar_session_title(item: &SessionSummary) -> String {
+    item.preview
+        .as_deref()
+        .filter(|text| !text.trim().is_empty())
+        .unwrap_or("Новый чат")
+        .chars()
+        .take(100)
+        .collect()
+}
+
 #[component]
-pub(crate) fn SessionAnalysisView<O>(
-    sessions: ReadSignal<Vec<SessionSummary>>,
-    active_session_dir: ReadSignal<Option<String>>,
-    on_open: O,
-) -> impl IntoView
-where
-    O: Fn(SessionSummary) + Copy + Send + Sync + 'static,
-{
+pub(crate) fn SessionReportView() -> impl IntoView {
+    let (sessions, set_sessions) = signal(Vec::<SessionSummary>::new());
+    let active_session_dir = RwSignal::new(crate::api::query_value("session_dir"));
+    let error = RwSignal::new(String::new());
+    let load = move || {
+        spawn_local(async move {
+            match crate::api::get_analysis_json::<Vec<SessionSummary>>("/sessions").await {
+                Ok(items) => {
+                    if active_session_dir.get_untracked().is_none() {
+                        let preferred = crate::api::get_analysis_json::<AppBootstrap>("/bootstrap")
+                            .await
+                            .ok()
+                            .and_then(|b| b.session_dir)
+                            .filter(|p| items.iter().any(|item| &item.session_dir == p))
+                            .or_else(|| items.first().map(|item| item.session_dir.clone()));
+                        active_session_dir.set(preferred.map(|p| p.to_string_lossy().into_owned()));
+                    }
+                    set_sessions.set(items);
+                    error.set(String::new());
+                }
+                Err(message) => error.set(message),
+            }
+        })
+    };
+    load();
     let (requested, context) = location::read();
     let (selected, set_selected) = signal(requested.or_else(|| active_session_dir.get_untracked()));
     let (context_tab, set_context_tab) = signal(context);
@@ -38,7 +65,7 @@ where
         <section class="context-page analysis-page">
             <div class="analysis-heading">
                 <div class="analysis-title">
-                    <span class="panel-kicker">"Анализ сессии"</span>
+                    <span class="panel-kicker">"Расход и контекст"</span>
                     <h1>{move || summary.get().map(|item| sidebar_session_title(&item)).unwrap_or_else(|| if selected.get().is_some() { "Сохранённая сессия" } else { "Выберите сессию" }.to_owned())}</h1>
                     <p>{move || summary.get().map(|item| format!("{} · {} сообщений", item.workspace_path.display(), item.message_count))}</p>
                     <details class="analysis-identity">
@@ -72,13 +99,10 @@ where
                                 }
                             } />
                     </select>
-                    <button type="button" class="secondary analysis-open-chat"
-                        disabled=move || summary.get().is_none()
-                        on:click=move |_| { if let Some(item) = summary.get_untracked() { on_open(item); } }>
-                        "Открыть диалог"
-                    </button>
+                    <a class="secondary analysis-open-chat" href=move || crate::api::chat_link_for(selected.get().as_deref())>"Открыть диалог"</a>
                 </div>
             </div>
+            <Show when=move || !error.get().is_empty()><p class="analysis-status" role="alert">{move || error.get()}<button on:click=move |_| load()>"Повторить"</button></p></Show>
             <nav class="analysis-tabs" aria-label="Раздел анализа">
                 <button type="button" aria-pressed=move || (!context_tab.get()).to_string()
                     class:active=move || !context_tab.get() on:click=move |_| set_context_tab.set(false)>

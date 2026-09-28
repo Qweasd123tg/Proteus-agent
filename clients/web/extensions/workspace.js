@@ -29,7 +29,7 @@ export function createWorkspace(target, { select, close, storage }) {
     open=value; element.hidden=!open; if(!open) { element.classList.remove('expanded'); expand.setAttribute('aria-pressed','false'); }
     for(const b of document.querySelectorAll('[data-workspace-toggle]')) b.setAttribute('aria-expanded',String(open));
   }
-  function reveal(id) { active=id; setOpen(true); update(records); }
+  function reveal(id) { active=id; setOpen(true); update(records); tabNodes.get(id)?.scrollIntoView({block:'nearest',inline:'nearest'}); }
   function choose(id) { picker.hidePopover(); select(id); reveal(id); }
   function choices(container) {
     container.replaceChildren();

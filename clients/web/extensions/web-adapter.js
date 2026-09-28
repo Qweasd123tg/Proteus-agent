@@ -1,9 +1,6 @@
 import { mountExtensions } from './host.js';
 import { createExtensionRegistry } from './registry.js';
 import { mountExtensionSettings } from './settings.js';
-import { mountReport } from './usage/report.js';
-import { extensionStorage } from './storage.js';
-import { theme } from './theme.js';
 
 import { sessionStateService } from './session-state.js';
 export { publishSessionState } from './session-state.js';
@@ -36,16 +33,4 @@ export function mountWebExtensions(root, readConfig, readQuota, readUsage, readW
   };
   const stop = mountExtensions(root, services, { registry, target: document.querySelector('[data-extension-columns=right]') });
   return stop;
-}
-
-export function mountUsageDetails(root, readUsage) {
-  const controller = new AbortController();
-  const surface = document.createElement('div'); root.replaceChildren(surface);
-  const shadow = surface.attachShadow({ mode: 'open' });
-  const style = document.createElement('style'); style.textContent = theme; shadow.append(style);
-  const { signal } = controller;
-  const stop = mountReport({ root: shadow, signal, storage: extensionStorage(localStorage, 'usage'), services: {
-    'agent.usage.read': { async read() { signal.throwIfAborted(); const value = await readUsage(signal); signal.throwIfAborted(); return JSON.parse(value); } },
-  } }, true);
-  return () => { controller.abort(); stop(); root.replaceChildren(); };
 }

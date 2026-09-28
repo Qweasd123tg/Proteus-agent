@@ -35,3 +35,14 @@ impl SessionToken {
 pub(crate) use proteus_contracts::app_protocol::topology::{
     ModelTopology as TopologyModel, ToolTopology as TopologyTool, TopologyEdge, TopologyWarning,
 };
+
+pub(crate) use proteus_contracts::app_protocol::{
+    AppContextCompactionSnapshot as ContextCompactionSnapshot,
+    AppContextMapSnapshot as ContextMapSnapshot, AppContextUsageCategory as ContextUsageCategory,
+    AppContextUsageSnapshot as ContextUsageSnapshot,
+};
+pub(crate) use proteus_contracts::domain::HistoryCompactionReport as ContextCompactionReport;
+#[cfg(test)]
+pub(crate) use proteus_contracts::model_standard::TokenUsage as ContextActualUsage;
+
+pub(crate) use proteus_contracts::app_protocol::AppSessionActivity as SessionActivityInfo;

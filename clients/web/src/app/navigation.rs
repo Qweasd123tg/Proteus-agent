@@ -38,10 +38,7 @@ impl AppRouter {
         }
     }
     pub fn is_chat(self) -> bool {
-        !matches!(
-            self.route.get().as_str(),
-            "/resume" | "/context" | "/settings"
-        )
+        !matches!(self.route.get().as_str(), "/settings")
     }
     pub fn navigate(self, path: &str) {
         if self.route.get_untracked() == path {
@@ -53,6 +50,7 @@ impl AppRouter {
             let path = self
                 .active_session_dir
                 .get_untracked()
+                .or_else(crate::api::requested_session_dir)
                 .map(|session_dir| crate::api::session_path(path, &session_dir))
                 .unwrap_or_else(|| path.to_owned());
             let _ = history.push_state_with_url(&JsValue::NULL, "", Some(&path));

@@ -1,4 +1,4 @@
-"""One workspace: documents and extension tabs, preserving each live root."""
+"""File content and tree share a tab; other extensions keep their live roots."""
 import base64
 from pathlib import Path
 
@@ -37,6 +37,8 @@ def run(command, js, wait_for):
     wait_for(lambda: js(f"return {active()}?.querySelector('pre')?.textContent.includes('<b>Привет</b>')"), 'Document did not open')
     assert js(f"return !{active()}.querySelector('pre b')"), 'Document interpreted HTML'
     assert js("return document.querySelectorAll('.tab-workspace').length===1 && !document.querySelector('.extension-column')"), 'Documents added another column'
+    assert js("return document.querySelector('.workspace-tab.active').dataset.tabId==='files' && !document.querySelector('[data-tab-id^=\"files:document-\"]')"), 'File escaped its browser tab'
+    assert js(f"const r={files};return r.querySelector('.file-browser').getBoundingClientRect().width>100 && r.querySelector('.file-preview').getBoundingClientRect().width>100"), 'Tree or preview is symbolic'
     js(f"window.docRoot={active()};window.docTab=document.querySelector('.workspace-tab.active').dataset.tabId;{active()}.querySelector('[data-mode=diff]').click()")
     wait_for(lambda: js(f"return [...{active()}.querySelectorAll('.diff-add')].some(line=>line.textContent.includes('<b>Привет</b>'))"), 'File diff missing')
     js(f"{active()}.querySelector('[data-mode=file]').click()")
@@ -46,21 +48,26 @@ def run(command, js, wait_for):
     js(f"{files}.querySelector('.git-deleted').click()")
     wait_for(lambda: js(f"return !!{active()}.querySelector('.diff-remove')"), 'Deleted file diff missing')
     assert js(f"return {active()}.querySelector('[data-mode=file]').disabled"), 'Deleted file offered an invalid file view'
-    js("window.deletedRoot=document.querySelector('.workspace-tab-content > .extension-panel:not([hidden])');document.querySelector('.workspace-tab.active .workspace-tab-close').click()")
-    assert js("return !window.deletedRoot.isConnected"), 'Deleted document was not disposed'
-    js("document.querySelector(`[data-tab-id=\"${window.docTab}\"] [role=tab]`).click()")
-    assert js(f"return {active()}===window.docRoot"), 'Switching extensions discarded document root'
+    js(f"[...{files}.querySelectorAll('.file')].find(row=>row.querySelector('.label').textContent==='hello world.txt').click()")
+    assert js(f"return {active()}===window.docRoot && {active()}.querySelector('pre').textContent.includes('<b>Привет</b>')"), 'Returning to file lost cached content'
+    js(f"window.treeWidth={files}.querySelector('.file-browser').getBoundingClientRect().width;{files}.querySelector('.file-split').dispatchEvent(new KeyboardEvent('keydown',{{key:'ArrowLeft',bubbles:true}}))")
+    assert js(f"return {files}.querySelector('.file-browser').getBoundingClientRect().width>window.treeWidth"), 'Internal split is not resizable'
+    # A late read from an earlier click must not replace the current document.
+    js(f"window.fileFetch=window.fetch;window.heldFile=null;window.fetch=async(input,...args)=>{{const u=new URL(input.url||input,location.href);if(u.pathname==='/workspace/file'&&u.searchParams.get('path').endsWith('delayed.txt'))return new Promise(resolve=>window.heldFile=()=>resolve(new Response(JSON.stringify({{kind:'text',text:'STALE FILE'}}),{{headers:{{'Content-Type':'application/json'}}}})));return fileFetch(input,...args)}};[...{files}.querySelectorAll('.file')].find(row=>row.querySelector('.label').textContent==='delayed.txt').click()")
+    wait_for(lambda: js("return !!window.heldFile"), 'Deferred file read did not start')
+    js(f"[...{files}.querySelectorAll('.file')].find(row=>row.querySelector('.label').textContent==='hello world.txt').click();window.heldFile()")
+    wait_for(lambda: js(f"return {active()}.querySelector('pre').textContent.includes('<b>Привет</b>')"), 'Late read replaced current file')
+    js("window.fetch=window.fileFetch")
     js("window.tabCount=document.querySelectorAll('.workspace-tab').length;window.savedFetch=window.fetch;window.toggleFetches=0;window.fetch=(...args)=>{window.toggleFetches++;return window.savedFetch(...args)};for(let i=0;i<20;i++)document.querySelector('[data-workspace-toggle]').click();window.fetch=window.savedFetch")
     assert js(f"return window.toggleFetches===0 && {active()}===window.docRoot && document.querySelector('.session-workspace')===window.keptChat"), 'Hide/reveal caused requests or remounted content'
     js("document.querySelector('.workspace-tabbar [aria-label=\"Развернуть панель\"]').click()")
     assert js("return document.querySelector('.tab-workspace').classList.contains('expanded')"), 'Expand failed'
     js("document.querySelector('.workspace-tabbar [aria-label=\"Развернуть панель\"]').click()")
-    # Close a document completely and reopen from its owner, without duplicating tabs.
+    # Closing the Files tab hides its workspace; reopening keeps tree and content.
     js("document.querySelector('.workspace-tab.active .workspace-tab-close').click()")
-    assert js("return !window.docRoot.host.isConnected"), 'Closing document leaked its DOM'
     choose('files')
-    js(f"[...{files}.querySelectorAll('.file')].find(row=>row.querySelector('.label').textContent==='hello world.txt').click()")
-    wait_for(lambda: js(f"return {active()}?.querySelector('pre')?.textContent.includes('<b>Привет</b>')"), 'Closed document could not reopen')
+    assert js(f"return {active()}===window.docRoot && {active()}.querySelector('pre').textContent.includes('<b>Привет</b>')"), 'Closing Files discarded its browser state'
+    Path('/tmp/proteus-inline-files.png').write_bytes(base64.b64decode(command('/screenshot', None)))
     choose('model-quota')
     js("document.querySelector('.workspace-tab.active .workspace-tab-close').click()")
     choose('model-quota')
@@ -73,4 +80,4 @@ def run(command, js, wait_for):
     command('/window/rect', {'width': 1440, 'height': 1000})
     js("document.querySelector('[data-workspace-toggle]').click();for(const b of [...document.querySelectorAll('.workspace-tab-close')])b.click()")
     assert js("return !document.querySelector('.workspace-empty').hidden && document.querySelector('.workspace-empty [data-open-tab=usage]')"), 'Closing final tab lost the chooser'
-    print('PASS: gray palette; header sidebar control; unified file/quota/usage tabs; diff; close/reopen; no refetch on toggle; mobile Escape', flush=True)
+    print('PASS: gray palette; header sidebar control; inline file/tree split; diff; cached switching and reopening; no refetch on toggle; mobile Escape', flush=True)

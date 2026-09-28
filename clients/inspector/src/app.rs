@@ -17,12 +17,15 @@ use crate::{
 pub(crate) fn App() -> impl IntoView {
     let nav = Navigation::new();
     let is_analysis = move || nav.section.get() == "analysis";
+    let is_report = move || nav.section.get() == "usage";
+    let report_seen = RwSignal::new(false);
     let is_architecture = move || nav.section.get() == "architecture";
     let analysis_seen = RwSignal::new(false);
     let configs_seen = RwSignal::new(false);
     let architecture_seen = RwSignal::new(false);
     Effect::new(move |_| match nav.section.get() {
         "analysis" => analysis_seen.set(true),
+        "usage" => report_seen.set(true),
         "architecture" => architecture_seen.set(true),
         _ => configs_seen.set(true),
     });
@@ -50,7 +53,7 @@ pub(crate) fn App() -> impl IntoView {
         selected_session.set(Some(Err(error)));
     }
     Effect::new(move |_| {
-        if is_analysis()
+        if (is_analysis() || is_report())
             || selected_session.get_untracked().is_some()
             || initializing.get_untracked()
         {
@@ -76,14 +79,19 @@ pub(crate) fn App() -> impl IntoView {
                 </a>
                 <div class="sidebar-section-label">"РАБОЧЕЕ ПРОСТРАНСТВО"</div>
                 <nav class="inspector-nav" aria-label="Разделы Inspector">
+                    <a class="inspector-nav-item" class:active=is_report
+                        aria-current=move || if is_report() { Some("page") } else { None }
+                        href=move || nav.href("usage") on:click=move |ev| nav.click(ev,"usage")>
+                        <crate::icons::Icon name="analysis"/><span>"Расход и контекст"</span>
+                    </a>
                     <a class="inspector-nav-item" class:active=is_analysis
                         aria-current=move || if is_analysis() { Some("page") } else { None }
                         href=move || nav.href("analysis") on:click=move |ev| nav.click(ev,"analysis")>
                         <crate::icons::Icon name="inspector"/>
                         <span>"Анализ ходов"</span>
                     </a>
-                    <a class="inspector-nav-item" class:active=move || !is_architecture() && !is_analysis()
-                        aria-current=move || if !is_architecture() && !is_analysis() { Some("page") } else { None }
+                    <a class="inspector-nav-item" class:active=move || !is_architecture() && !is_analysis() && !is_report()
+                        aria-current=move || if !is_architecture() && !is_analysis() && !is_report() { Some("page") } else { None }
                         href=move || nav.href("configs") on:click=move |ev| nav.click(ev,"configs")>
                         <crate::icons::Icon name="modules"/>
                         <span>"Сборка агента"</span>
@@ -108,6 +116,9 @@ pub(crate) fn App() -> impl IntoView {
                     <a class="inspector-chat-link" href=move || chat_url.get()>"Вернуться в чат"<crate::icons::Icon name="external-link" size=16/></a>
                 </header>
                 <div class="inspector-content" id="inspector-content" tabindex="-1">
+                    <Show when=move || report_seen.get()>
+                        <div class="inspector-view" hidden=move || !is_report()><crate::session_report::SessionReportView/></div>
+                    </Show>
                     <Show when=move || analysis_seen.get()>
                         <div class="inspector-view" hidden=move || !is_analysis()><crate::analysis::AnalysisView/></div>
                     </Show>
@@ -119,7 +130,7 @@ pub(crate) fn App() -> impl IntoView {
                             <div class="inspector-view" hidden=move || !is_architecture()><ArchitectureView/></div>
                         </Show>
                     </Show>
-                    {move || if is_analysis() { None } else { match selected_session.get() {
+                    {move || if is_analysis() || is_report() { None } else { match selected_session.get() {
                         Some(Err(error)) => Some(view! { <div class="empty-state"><div class="empty-state-title">"Не удалось выбрать сессию"</div><p>{error}</p></div> }.into_any()),
                         None => Some(view! { <div class="empty-state"><div class="empty-state-title">"Подключаю сессию…"</div></div> }.into_any()),
                         _ => None,

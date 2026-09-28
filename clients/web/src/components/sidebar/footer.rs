@@ -20,9 +20,6 @@ where
     };
     view! {
         <nav class="sidebar-footer" aria-label="Инструменты и настройки">
-            <a href="/resume" class:active=move || route.get() == "/resume" title="История сессий" aria-label="История сессий" on:click=move |ev| on_navigate(ev, "/resume")>
-                <HistoryIcon/><span class="sidebar-footer-label">"История"</span>
-            </a>
             <a href="/settings" class="settings-link" class:active=move || route.get() == "/settings" title="Настройки" aria-label="Настройки" on:click=move |ev| on_navigate(ev, "/settings")>
                 <SettingsIcon/><span class="sidebar-footer-label">"Настройки"</span>
             </a>

@@ -93,13 +93,3 @@ pub(crate) fn WorkingCard(status: ReadSignal<String>) -> impl IntoView {
         </article>
     }
 }
-
-/// Компактная запись числа токенов: «90.5k», «200k», «512».
-pub(crate) fn format_token_count(tokens: u32) -> String {
-    if tokens < 1000 {
-        return tokens.to_string();
-    }
-    let thousands = f64::from(tokens) / 1000.0;
-    let formatted = format!("{thousands:.1}");
-    format!("{}k", formatted.trim_end_matches(".0"))
-}
