@@ -7,9 +7,12 @@ function position(storage,id){
 }
 
 // Move the existing compact roots, keeping each extension runtime alive.
-export function createWidgets(storage) {
+export function createWidgets(storage, reorder) {
+  const controller=new AbortController(),{signal}=controller;
+  const cancelDrags=[];
   const strips=new Map(positions.filter(p=>p!=='hidden').map(p=>{
     const strip=document.createElement('div');strip.className='extension-widgets';strip.setAttribute('aria-label','Виджеты расширений');
+    cancelDrags.push(enableHorizontalReorder(strip,{itemSelector:'.extension-widget',handleSelector:'.extension-widget',id:button=>button.dataset.widgetId,commit:reorder,signal}));
     return [p,{strip,target:null}];
   }));
   let disposed=false,buttons=[];
@@ -23,6 +26,7 @@ export function createWidgets(storage) {
   }
   function read(){
     if(disposed)return;
+    for(const cancel of cancelDrags)cancel();
     const wanted=new Set(buttons);
     for(const {strip} of strips.values())for(const child of [...strip.children])if(!wanted.has(child))child.remove();
     const offsets=new Map();
@@ -40,7 +44,7 @@ export function createWidgets(storage) {
   window.addEventListener('proteus-widgets-position',read);window.addEventListener('storage',storageChanged);
   return {
     update(next){buttons=next;read();},
-    stop(){disposed=true;observer.disconnect();window.removeEventListener('proteus-widgets-position',read);window.removeEventListener('storage',storageChanged);for(const {strip} of strips.values())strip.remove();},
+    stop(){disposed=true;controller.abort();observer.disconnect();window.removeEventListener('proteus-widgets-position',read);window.removeEventListener('storage',storageChanged);for(const {strip} of strips.values())strip.remove();},
   };
 }
 
@@ -58,3 +62,4 @@ export function widgetPlacement(storage,signal,id) {
   },{signal});
   label.append(select,status);return label;
 }
+import { enableHorizontalReorder } from './horizontal-reorder.js';

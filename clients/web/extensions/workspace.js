@@ -1,8 +1,9 @@
 import { icon } from './icons.js';
 import { node } from './dom.js';
+import { enableHorizontalReorder } from './horizontal-reorder.js';
 
 // One tab strip owns selection and geometry; extension roots stay mounted.
-export function createWorkspace(target, { select, close, storage }) {
+export function createWorkspace(target, { select, close, storage, reorder }) {
   const controller = new AbortController(), { signal } = controller;
   const element = node('aside', null, 'tab-workspace'); element.setAttribute('aria-label', 'Боковая панель');
   const header = node('div', null, 'workspace-tabbar'), tabs = node('div', null, 'workspace-tabs');
@@ -14,10 +15,10 @@ export function createWorkspace(target, { select, close, storage }) {
   const picker=node('div',null,'workspace-picker'); picker.setAttribute('popover','auto'); picker.setAttribute('aria-label','Открыть вкладку');
   const add=button('Открыть вкладку','plus',()=>showPicker()); add.className='workspace-add';
   const expand=button('Развернуть панель','expand',()=>{ element.classList.toggle('expanded'); expand.setAttribute('aria-pressed',String(element.classList.contains('expanded'))); });
-  const hide=button('Свернуть боковую панель','panel-right',()=>setOpen(false));
   const content=node('div',null,'workspace-tab-content'), empty=node('div',null,'workspace-empty');
   const handle=node('div',null,'workspace-resize'); handle.setAttribute('role','separator'); handle.setAttribute('aria-label','Ширина боковой панели'); handle.setAttribute('aria-orientation','vertical'); handle.tabIndex=0;
-  header.append(tabs,add,expand,hide); element.append(header,content,empty,handle,picker); target.append(element);
+  header.append(tabs,add,expand); element.append(header,content,empty,handle,picker); target.append(element);
+  const cancelReorder=enableHorizontalReorder(tabs,{itemSelector:'.workspace-tab[data-owned=false]',handleSelector:'.workspace-tab[data-owned=false] .workspace-tab-name',id:tab=>tab.dataset.tabId,commit:reorder,signal});
   let active='', open=false, records=[], signature='', width=560, drag;
   const tabNodes=new Map();
   try { width=Number(storage?.getItem('proteus.ui.workspace.width'))||560; } catch {}
@@ -39,6 +40,7 @@ export function createWorkspace(target, { select, close, storage }) {
     }
   }
   function update(next) {
+    cancelReorder();
     records=next;
     const visible=records.filter(r=>!r.collapsed);
     if(!visible.some(r=>r.id===active)) active=visible.at(-1)?.id??'';
@@ -48,6 +50,7 @@ export function createWorkspace(target, { select, close, storage }) {
       let tab=tabNodes.get(record.id);
       if(!tab) {
         tab=node('div',null,'workspace-tab'); tab.dataset.tabId=record.id;
+        tab.dataset.owned=String(!!record.owned);
         const label=record.manifest?.name??record.id;
         const name=node('button',label,'workspace-tab-name'); name.type='button'; name.title=label; name.setAttribute('role','tab');
         name.id=`workspace-tab-${record.id}`; name.setAttribute('aria-controls',`workspace-view-${record.id}`);

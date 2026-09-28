@@ -3,7 +3,8 @@
 .tab-workspace[hidden], .tab-workspace [hidden] { display: none !important; }
 .workspace-tabbar { display:flex; flex:none; align-items:center; gap:4px; height:52px; padding:6px 10px; border-bottom:1px solid var(--border-subtle); }
 .workspace-tabbar > button { width:30px; min-height:30px; padding:0; flex:none; color:var(--text-muted); }
-.workspace-tabs { display:flex; flex:1; min-width:0; overflow:auto; gap:4px; scrollbar-width:thin; }
+.workspace-tabs { display:flex; flex:1; min-width:0; overflow-x:auto; overflow-y:hidden; gap:4px; scrollbar-width:none; }
+.workspace-tabs::-webkit-scrollbar { display:none; }
 .workspace-tab { display:flex; align-items:center; flex:none; max-width:230px; border-radius:10px; color:var(--text-muted); }
 .workspace-tab.active { background:var(--bg-panel-soft); color:var(--text-main); }
 .workspace-tab-name { padding:0 10px; min-height:32px; overflow:hidden; text-overflow:ellipsis; display:block; border:0; font-size:12px; }

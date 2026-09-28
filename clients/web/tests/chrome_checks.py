@@ -29,10 +29,10 @@ def run(command, js, wait_for, web, origin):
     wait_for(lambda: js("return document.activeElement.matches('.topbar [data-panel-toggle=sidebar]')"), 'Sidebar focus did not move to header')
     js("document.querySelector('[data-panel-toggle=sidebar]').click()")
     js("document.querySelector('[data-action=minimize]').click();document.querySelector('[data-action=maximize]').click()")
-    wait_for(lambda: js("return chromeCalls.includes('minimize') && document.querySelector('[data-action=maximize]').title==='Восстановить окно'"), 'Native minimize/maximize action failed')
+    wait_for(lambda: js("return chromeCalls.includes('minimize') && document.querySelector('[data-action=maximize]').dataset.uiTooltip==='Восстановить окно'"), 'Native minimize/maximize action failed')
     assert js("return getComputedStyle(document.querySelector('.desktop-resize-edges')).display==='none'"), 'Maximized window kept resize edges'
     js("document.querySelector('.topbar').dispatchEvent(new MouseEvent('dblclick',{bubbles:true,button:0,detail:2}))")
-    wait_for(lambda: js("return document.querySelector('[data-action=maximize]').title==='Развернуть окно'"), 'Double click did not restore the window')
+    wait_for(lambda: js("return document.querySelector('[data-action=maximize]').dataset.uiTooltip==='Развернуть окно'"), 'Double click did not restore the window')
     js("document.querySelector('.topbar').dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,detail:1}));document.querySelector('[data-direction=SouthEast]').dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0}))")
     wait_for(lambda: js("return chromeCalls.includes('drag') && chromeCalls.includes('SouthEast')"), 'Drag/resize did not reach the native API')
     js("document.querySelector('.sidebar-surface [data-app-menu]').click()")

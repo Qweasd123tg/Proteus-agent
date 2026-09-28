@@ -5,11 +5,18 @@ import { createWorkspace } from './workspace.js';
 
 export function mountExtensions(root, services = {}, options = {}) {
   const registry=options.registry??createExtensionRegistry(options), cards=new Map(), owned=new Map();
-  const widgets=createWidgets(registry.storage);
+  const widgets=createWidgets(registry.storage,reorder);
   let stopped=false;
   const all=()=>[...registry.state().records.filter(r=>r.enabled),...[...owned.values()].map(item=>item.record)];
-  const workspace=createWorkspace(options.target??root,{storage:registry.storage,select:id=>update(id,{collapsed:false}),close});
+  const workspace=createWorkspace(options.target??root,{storage:registry.storage,select:id=>update(id,{collapsed:false}),close,reorder});
   const notice=document.createElement('p');notice.className='extension-surface-status';notice.setAttribute('role','status');root.append(notice);
+  function reorder(id,before) {
+    const records=registry.state().records,current=records.findIndex(record=>record.id===id);
+    if(current<0)return;
+    const target=before===null?records.length:records.findIndex(record=>record.id===before);
+    if(target<0)return;
+    registry.move(id,target-current-(current<target?1:0));
+  }
   function update(id,change) {
     const item=owned.get(id); if(item)Object.assign(item.record,change);else registry.update(id,change);
     render();if(change.collapsed===false)workspace.reveal(id);

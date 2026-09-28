@@ -1,0 +1,20 @@
+.ui-tooltip {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    width: max-content;
+    height: auto;
+    max-width: min(280px, calc(100vw - 16px));
+    max-height: calc(100dvh - 16px);
+    overflow: hidden;
+    padding: 6px 9px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-small);
+    background: var(--bg-popover);
+    color: var(--text-main);
+    box-shadow: var(--shadow-sm);
+    font: 12px/1.4 var(--font-sans);
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+    pointer-events: none;
+}

@@ -80,11 +80,11 @@
     top: -6px;
     z-index: 30;
     width: 220px;
-    padding: 10px 12px;
+    padding: 8px 10px;
     border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-card);
+    border-radius: var(--radius-small);
     background: var(--bg-popover);
-    box-shadow: var(--shadow-md);
+    box-shadow: var(--shadow-sm);
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
@@ -104,7 +104,8 @@
     transform: translateX(-4px);
 }
 
-.rail-popover-host:hover .rail-popover {
+.rail-popover-host:hover .rail-popover,
+.rail-popover-host:focus-within .rail-popover {
     opacity: 1;
     visibility: visible;
     transform: none;

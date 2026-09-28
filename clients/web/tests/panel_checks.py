@@ -1,6 +1,7 @@
 """File content and tree share a tab; other extensions keep their live roots."""
 import base64
 from pathlib import Path
+from extension_bar_checks import run as check_extension_bars
 
 
 def run(command, js, wait_for):
@@ -80,4 +81,5 @@ def run(command, js, wait_for):
     command('/window/rect', {'width': 1440, 'height': 1000})
     js("for(const b of [...document.querySelectorAll('.workspace-tab-close')])b.click()")
     assert js("return !document.querySelector('.workspace-empty').hidden && document.querySelector('.workspace-empty [data-open-tab=usage]')"), 'Closing final tab lost the chooser'
+    check_extension_bars(command, js, wait_for)
     print('PASS: gray palette; header sidebar control; inline file/tree split; diff; cached switching and reopening; no refetch on toggle; desktop panels at narrow width', flush=True)

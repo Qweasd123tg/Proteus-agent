@@ -11,6 +11,11 @@ export function mountSidebar(root, update) {
   const desktop=()=>document.documentElement.hasAttribute('data-desktop-chrome');
   const native=action=>document.dispatchEvent(new CustomEvent('proteus-desktop-action',{detail:action}));
   function clearHover(){clearTimeout(timer);clearTimeout(hideTimer);card.hide();hover=null;}
+  function showHover(row){
+    const lines=(row.dataset.hoverDetail??'').split('\n').filter(Boolean);
+    const content=[node('strong',row.dataset.hoverTitle),...lines.slice(0,row.dataset.workspace?2:1).map(text=>node('p',text))];
+    card.show(content,row,undefined,false);
+  }
   function copy(value){navigator.clipboard.writeText(value).catch(()=>update('error','','Не удалось скопировать путь'));}
   function renameChat(row){
     const form=node('form','');form.className='sidebar-rename';
@@ -50,17 +55,24 @@ export function mountSidebar(root, update) {
   },{signal});
   root.addEventListener('keydown',event=>{if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){const row=event.target.closest('[data-session-dir],[data-workspace]');if(row){event.preventDefault();openMenu(row);}}},{signal});
   root.addEventListener('pointerover',event=>{
+    if(event.target.closest('[title],[data-ui-tooltip]')){clearHover();return;}
     const row=event.target.closest('[data-hover-title]');if(!row||row===hover||document.querySelector(':popover-open:not(.sidebar-hover)'))return;
     clearHover();hover=row;timer=setTimeout(()=>{
       if(!row.isConnected||!row.matches(':hover'))return;
-      const lines=(row.dataset.hoverDetail??'').split('\n').filter(Boolean);
-      const content=[node('strong',row.dataset.hoverTitle),...lines.slice(0,row.dataset.workspace?2:1).map(text=>node('p',text))];
-      card.show(content,row,undefined,false);
+      showHover(row);
     },450);
   },{signal});
+  root.addEventListener('focusin',event=>{
+    if(event.target.closest('[title],[data-ui-tooltip]')){clearHover();return;}
+    const row=event.target.closest('[data-hover-title]');if(!row||document.querySelector(':popover-open:not(.sidebar-hover)'))return;
+    clearHover();hover=row;timer=setTimeout(()=>{if(row.isConnected&&row.contains(document.activeElement))showHover(row);},150);
+  },{signal});
+  root.addEventListener('focusout',clearHover,{signal});
+  root.addEventListener('keydown',event=>{if(event.key==='Escape'&&card.element.matches(':popover-open')){event.preventDefault();event.stopPropagation();clearHover();}},{signal});
   root.addEventListener('pointerout',event=>{if(hover&&!hover.contains(event.relatedTarget)){clearTimeout(timer);clearTimeout(hideTimer);hideTimer=setTimeout(clearHover,180);}},{signal});
   card.element.addEventListener('pointerenter',()=>clearTimeout(hideTimer),{signal});card.element.addEventListener('pointerleave',()=>{clearTimeout(hideTimer);hideTimer=setTimeout(clearHover,180);},{signal});
   root.addEventListener('scroll',clearHover,{signal,capture:true});
-  root.addEventListener('click',()=>card.hide(),{signal});
+  root.addEventListener('pointerdown',clearHover,{signal});
+  root.addEventListener('click',clearHover,{signal});
   return ()=>{controller.abort();clearHover();menu.dispose();card.dispose();rename.dispose();};
 }
