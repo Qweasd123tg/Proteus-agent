@@ -5,7 +5,19 @@
 .tool-chain-toggle > svg:last-child { width:14px;height:14px;transition:transform var(--motion-fast,120ms);transform:rotate(-90deg); }
 .tool-chain.expanded > .tool-chain-toggle > svg:last-child { transform:rotate(0); }
 .tool-chain-toggle.attention { color:var(--accent-yellow); }
-.tool-chain-items { max-height:480px; overflow:auto; overscroll-behavior:contain; padding:4px 8px 4px 12px; border-left:1px solid var(--border-subtle); }
+.tool-chain-items { max-height:480px; overflow:auto; overscroll-behavior:contain; padding:4px 8px 4px 0; }
 .tool-chain-items[hidden] { display:none; }
 .tool-chain-items:not([hidden]) { animation:menu-open var(--motion-fast,120ms) ease-out; }
-.tool-chain-items .tool-turn-item { margin:0; }
+/* Each segment ends at the next status dot, even when a call grows.
+   The generic message rail overshoots compact rows and leaves a dangling tail. */
+.tool-chain-items > .tool-turn-item { margin:0; padding-bottom:6px; }
+.tool-chain-items > .tool-turn-item::after {
+    top:calc(var(--rail-node-top) + 4px);
+    bottom:calc(-1 * (var(--rail-node-top) + 4px));
+    width:2px;
+    border:0;
+    border-radius:1px;
+    background:var(--border-subtle);
+}
+.tool-chain-items > .tool-turn-item:last-child { padding-bottom:0; }
+.tool-chain-items > .tool-turn-item:last-child::after { content:none; }
