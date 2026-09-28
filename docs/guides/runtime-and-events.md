@@ -896,7 +896,7 @@ journal. ОС освобождает владение при закрытии pr
 находится в parent directory, а время создания/изменения берётся из metadata
 файловой системы. Новая session получает 10-значный numeric basename,
 детерминированный из внутреннего UUID; полный `SessionId` сохраняется в
-`session.json` schema v4 вместе с `journal_schema_version = 14`. Перед записью runtime
+`session.json` schema v4 вместе с `journal_schema_version = 15`. Перед записью runtime
 проверяет metadata, поэтому коллизия коротких имён завершается ошибкой и не
 смешивает histories.
 
@@ -904,8 +904,14 @@ Reader принимает только basename из 10 ASCII-цифр с обя
 `session.json` schema v4 и journal schema v15. UUID-basename directories,
 прежние session/journal schemas и неизвестные wire/storage формы
 отвергаются явно: pre-release cutover не содержит legacy decoder или dual-read.
-Старые локальные dogfood sessions следует вручную переместить целиком за
-пределы active `sessions/`, если их нужно сохранить как архив.
+Обычный каталог и автоматический выбор последней session пропускают
+несовместимые или нечитаемые отдельные сессии, записывая причину в диагностический
+лог. Ошибки доступа к самому каталогу остаются явными. Такие session directories
+не показываются в обычном
+списке, остаются на диске без изменений и не блокируют создание новой session.
+Удалять или вручную перемещать историю при смене схемы не требуется.
+Явное открытие, resume и replay по пути сохраняют строгую проверку формата;
+каталог не конвертирует records и не переписывает номера версий.
 
 Workspace задаётся именем внешней `<encoded-workspace>` directory. Resume
 декодирует этот parent до создания runtime services, event log sink и tool

@@ -45,9 +45,9 @@ lifecycle projection. `doctor --all-sessions` явно проверяет все
 Выбранная область печатается в findings; повреждённая или устаревшая сессия
 внутри неё остаётся ошибкой. Актуальный
 write/read-format использует 10-значное имя каталога, полный UUID в
-`session.json` schema v4 и `journal_schema_version = 14`. UUID-basename/schema
-v3 sessions намеренно не читаются; нужные старые dogfood каталоги архивируются
-вручную вне active `sessions/`.
+`session.json` schema v4 и `journal_schema_version = 15`. UUID-basename/schema
+v3 sessions намеренно не читаются. Этот явный аудит сообщает о несовместимости;
+обычный запуск и каталог пропускают такие сессии, сохраняя файлы на месте.
 
 Если есть session journal после manual run:
 

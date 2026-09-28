@@ -829,62 +829,6 @@ fn transcript_projects_tool_calls_as_restorable_tool_cards() {
 }
 
 #[tokio::test]
-async fn launch_or_resume_latest_uses_last_non_empty_workspace_session() {
-    let cwd = tempfile::tempdir().expect("cwd");
-    let config_dir = tempfile::tempdir().expect("config dir");
-    let config_path = config_dir.path().join("config.toml");
-    let saved_session_id = new_session_id();
-    let saved_store =
-        SessionStore::new(config_dir.path(), cwd.path(), saved_session_id).expect("session store");
-    saved_store
-        .append_history(
-            crate::domain::new_thread_id(),
-            None,
-            &[CanonicalMessage::text(
-                MessageRole::User,
-                "restore saved chat",
-            )],
-        )
-        .await
-        .expect("append saved messages");
-
-    let empty_store = SessionStore::new(config_dir.path(), cwd.path(), new_session_id())
-        .expect("empty session store");
-    let empty_thread = crate::domain::new_thread_id();
-    empty_store
-        .append_history(
-            empty_thread,
-            None,
-            &[CanonicalMessage::text(MessageRole::User, "temporary")],
-        )
-        .await
-        .expect("materialize empty session");
-    empty_store
-        .clear_history(empty_thread)
-        .await
-        .expect("clear empty session");
-
-    let handle = AgentAppServer::launch_or_resume_latest(
-        crate::test_model::config(),
-        cwd.path().to_path_buf(),
-        Some(&config_path),
-    )
-    .await
-    .expect("app server");
-
-    assert_eq!(
-        handle.runtime.session_dir(),
-        Some(saved_store.session_dir())
-    );
-    assert_eq!(handle.runtime.history().await.len(), 1);
-    assert_eq!(
-        handle.transcript().await.expect("transcript")[0].text,
-        "restore saved chat".to_owned()
-    );
-    handle.shutdown().await;
-}
-
-#[tokio::test]
 async fn reload_tools_rebuilds_registry_from_config_path_and_emits_event() {
     let cwd = tempfile::tempdir().expect("cwd");
     let config_dir = tempfile::tempdir().expect("config dir");
@@ -1034,3 +978,5 @@ async fn app_server_remember_uses_memory_v2_without_a_turn_or_tool() {
 
     handle.shutdown().await;
 }
+
+mod startup;

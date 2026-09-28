@@ -6,6 +6,7 @@ use url::{Host, Url};
 pub mod desktop;
 pub mod pending;
 pub mod response;
+pub mod session_selection;
 pub mod sync;
 
 /// Per-window session selection is scoped to one exact app-server origin.

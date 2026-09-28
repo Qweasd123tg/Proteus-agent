@@ -29,10 +29,10 @@ thread_local! {
 }
 
 use proteus_client_common::response::command_output;
-use proteus_contracts::app_protocol::{
-    AppBootstrap as BootstrapResponse, StdioOutput,
-    http::{NewSessionRequest, ResumeSessionRequest},
-};
+use proteus_contracts::app_protocol::StdioOutput;
+
+mod session;
+pub(crate) use session::initialize_selected_session;
 
 pub(crate) fn load_session_token() -> Result<SessionToken, String> {
     if let Some(connection) = proteus_client_common::desktop::connection()? {
@@ -58,49 +58,6 @@ pub(crate) fn load_session_token() -> Result<SessionToken, String> {
 pub(crate) async fn get_json<T: for<'de> Deserialize<'de>>(path: &str) -> Result<T, String> {
     let text = get_text(path).await?;
     serde_json::from_str(&text).map_err(|error| format!("invalid response JSON: {error}"))
-}
-
-pub(crate) async fn initialize_selected_session() -> Result<String, String> {
-    let bootstrap_text = get_text("/bootstrap").await?;
-    let bootstrap: BootstrapResponse = serde_json::from_str(&bootstrap_text)
-        .map_err(|error| format!("invalid response JSON: {error}"))?;
-    let _workspace = &bootstrap.cwd;
-    let requested = query_value(SELECTED_SESSION_QUERY_KEY)
-        .or(load_stored_selected_session()?)
-        .or(bootstrap
-            .session_dir
-            .map(|path| path.to_string_lossy().into_owned()));
-    let id = format!("inspector-{}", js_sys::Date::now() as u64);
-    let summary: crate::types::ConfigSummary = match requested {
-        Some(session_dir) => {
-            let response = post_json::<_, StdioOutput>(
-                "/resume",
-                &ResumeSessionRequest {
-                    id: Some(id),
-                    session_dir: session_dir.into(),
-                },
-            )
-            .await?;
-            command_output(response)?
-        }
-        None => {
-            let response = post_json::<_, StdioOutput>(
-                "/new-session",
-                &NewSessionRequest {
-                    id: Some(id),
-                    source_session_dir: None,
-                },
-            )
-            .await?;
-            command_output(response)?
-        }
-    };
-    let session_dir = summary
-        .session_dir
-        .ok_or_else(|| "server did not return the selected session_dir".to_owned())?;
-    persist_selected_session(&session_dir)?;
-    SELECTED_SESSION_DIR.with(|stored| *stored.borrow_mut() = Some(session_dir.clone()));
-    Ok(session_dir)
 }
 
 pub(crate) async fn post_json<T, R>(path: &str, body: &T) -> Result<R, String>
@@ -311,27 +268,6 @@ pub(crate) fn query_value(expected_key: &str) -> Option<String> {
     None
 }
 
-fn load_stored_selected_session() -> Result<Option<String>, String> {
-    let Some(storage) = session_storage()? else {
-        return Ok(None);
-    };
-    storage
-        .get_item(&selected_session_storage_key(&app_server_origin()))
-        .map_err(js_error)
-}
-
-fn persist_selected_session(session_dir: &str) -> Result<(), String> {
-    let Some(storage) = session_storage()? else {
-        return Ok(());
-    };
-    storage
-        .set_item(
-            &selected_session_storage_key(&app_server_origin()),
-            session_dir,
-        )
-        .map_err(js_error)
-}
-
 fn selected_session_path(path: &str) -> String {
     // Bootstrap/session lifecycle endpoints establish the target and are global.
     if matches!(path, "/bootstrap" | "/resume" | "/new-session") {
@@ -428,51 +364,4 @@ pub(crate) fn js_error(value: JsValue) -> String {
     value
         .as_string()
         .unwrap_or_else(|| format!("JavaScript error: {value:?}"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn session_lifecycle_response_unwraps_config_payload() {
-        let bootstrap: BootstrapResponse = serde_json::from_value(serde_json::json!({
-            "session_dir": "/tmp/session-a",
-            "cwd": "/tmp/workspace"
-        }))
-        .unwrap();
-        assert_eq!(
-            bootstrap.session_dir.as_deref(),
-            Some(std::path::Path::new("/tmp/session-a"))
-        );
-        assert_eq!(bootstrap.cwd, std::path::Path::new("/tmp/workspace"));
-        let response: StdioOutput = serde_json::from_value(serde_json::json!({
-            "type": "response",
-            "id": "inspector-1",
-            "ok": true,
-            "output": { "session_dir": "/tmp/session-a" },
-            "error": null
-        }))
-        .unwrap();
-        assert_eq!(
-            command_output::<serde_json::Value>(response).unwrap()["session_dir"],
-            "/tmp/session-a"
-        );
-    }
-
-    #[test]
-    fn session_lifecycle_response_preserves_protocol_error() {
-        let response: StdioOutput = serde_json::from_value(serde_json::json!({
-            "type": "response",
-            "id": "inspector-2",
-            "ok": false,
-            "output": null,
-            "error": "session is unavailable"
-        }))
-        .unwrap();
-        assert_eq!(
-            command_output::<serde_json::Value>(response).unwrap_err(),
-            "session is unavailable"
-        );
-    }
 }

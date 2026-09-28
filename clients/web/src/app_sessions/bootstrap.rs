@@ -1,11 +1,12 @@
 use leptos::{prelude::*, task::spawn_local};
+use proteus_client_common::session_selection::select_startup_session;
 use serde_json::json;
 
 use super::AppSessionActions;
 use crate::{
     api::{get_json, load_selected_session_dir, post_json, requested_session_dir},
     events::reconnect_event_stream,
-    types::{BootstrapInfo, ResumeSessionRequest, StdioOutput, TransportStatus},
+    types::{BootstrapInfo, ResumeSessionRequest, SessionSummary, StdioOutput, TransportStatus},
 };
 
 impl AppSessionActions {
@@ -32,11 +33,29 @@ impl AppSessionActions {
             self.runtime_settings
                 .set_workspace_label
                 .set(bootstrap.cwd.to_string_lossy().into_owned());
-            let selected = requested_session_dir()
-                .or_else(|| load_selected_session_dir().ok().flatten())
-                .or(bootstrap
-                    .session_dir
-                    .map(|p| p.to_string_lossy().into_owned()));
+            let catalog = match get_json::<Vec<SessionSummary>>("/sessions").await {
+                Ok(catalog) => catalog,
+                Err(error) => {
+                    if self.transcript.transcript_generation.get_untracked() != startup_generation {
+                        return;
+                    }
+                    self.set_sidebar_sessions_status
+                        .set(format!("сессии недоступны: {error}"));
+                    self.runtime_settings
+                        .set_transport_status
+                        .set(TransportStatus::Error(error));
+                    return;
+                }
+            };
+            if self.transcript.transcript_generation.get_untracked() != startup_generation {
+                return;
+            }
+            let selected = select_startup_session(
+                requested_session_dir().or_else(|| load_selected_session_dir().ok().flatten()),
+                bootstrap.session_dir,
+                &catalog,
+            );
+            self.set_sidebar_sessions.set(catalog);
             let result = match selected {
                 Some(session_dir) => resume_session(session_dir).await,
                 None => create_session(None).await,

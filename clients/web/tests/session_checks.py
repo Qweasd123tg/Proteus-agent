@@ -1,9 +1,38 @@
 """Client-owned state on real streaming, reconnect and a loaded transcript."""
+import json
 from urllib.parse import urlencode
 from message_nav_checks import run as check_message_nav
 
-# Runs before the compiled client. Only the transcript prefix is substituted; snapshots, commands and deltas use the agent.
+# Runs before the compiled client. Startup cases substitute selection/error responses;
+# normal snapshots, commands and deltas use the agent with a fixture transcript prefix.
 BOOTSTRAP = r'''<script>
+const startupParams=new URL(location.href).searchParams;
+const startupFixture=startupParams.get('startup_fixture');
+window.startupCommands=[];
+if(startupFixture){
+  const stale='/tmp/proteus-unavailable-session-fixture';
+  sessionStorage.setItem('proteus.selectedSessionDir:'+startupParams.get('server'),stale);
+  const originalFetch=window.fetch;
+  window.fetch=async(input,...args)=>{
+    const path=new URL(input instanceof Request?input.url:input,location.href).pathname;
+    if(path==='/resume'||path==='/new-session'){
+      startupCommands.push({path,body:JSON.parse(await input.clone().text())});
+      if(startupFixture==='resume-error')return new Response('startup-resume-fixture-error',{status:500});
+    }
+    if(path==='/sessions'&&startupFixture==='catalog-error')return new Response('startup-catalog-fixture-error',{status:500});
+    const response=await originalFetch(input,...args);
+    if(path==='/sessions'&&startupFixture==='live-bootstrap'){
+      const catalog=await response.json();
+      return new Response(JSON.stringify(catalog.filter(item=>item.session_dir!==startupParams.get('startup_bootstrap'))),{status:200,headers:{'content-type':'application/json'}});
+    }
+    if(path==='/bootstrap'){
+      const bootstrap=await response.json();
+      bootstrap.session_dir=startupFixture==='fresh'?null:startupParams.get('startup_bootstrap');
+      return new Response(JSON.stringify(bootstrap),{status:200,headers:{'content-type':'application/json'}});
+    }
+    return response;
+  };
+}
 const historyFixture = Array.from({length: 240}, (_,i)=>({
   message_id:'00000000-0000-0000-0000-'+i.toString(16).padStart(12,'0'), phase:null, role:i%2?'assistant':'user',
   text:'Сохранённое сообщение '+i+'. '+('Текст истории для проверки прокрутки. ').repeat(8),
@@ -38,7 +67,60 @@ window.EventSource=class extends OriginalEventSource {
 </script>'''
 
 
+def check_inspector_startup(command, js, wait_for, web, origin):
+    key = json.dumps('proteus.selectedSessionDir:' + origin)
+    valid = js('return sessionStorage.getItem(' + key + ')')
+    assert valid, 'Inspector startup fixture has no valid bootstrap target'
+    for mode in ['stored', 'url', 'live-bootstrap', 'fresh', 'catalog-error', 'resume-error']:
+        params = {'server': origin, 'token': 'extension-smoke', 'startup_fixture': mode, 'startup_bootstrap': valid}
+        if mode == 'url':
+            params['session_dir'] = '/tmp/proteus-unavailable-session-fixture'
+        command('/url', {'url': web + '/inspector-foundation.html?' + urlencode(params)})
+        if mode in ['catalog-error', 'resume-error']:
+            wait_for(lambda: js("return document.querySelector('.empty-state-title')?.textContent.includes('Не удалось выбрать сессию')"), 'Inspector startup error did not surface')
+            expected = 0 if mode == 'catalog-error' else 1
+            assert js('return startupCommands.length') == expected, 'Inspector startup error opened a different session'
+            assert js("return startupCommands.every(item=>item.path==='/resume')"), 'Inspector startup error created a new session'
+            continue
+        wait_for(lambda: js("return !!document.querySelector('.cfg-tabs button')"), 'Stale selection blocked Inspector startup')
+        selected = js("return new URL(location.href).searchParams.get('session_dir')")
+        assert selected and selected != '/tmp/proteus-unavailable-session-fixture', 'Inspector retained stale URL selection'
+        assert js('return sessionStorage.getItem(' + key + ')') == selected, 'Inspector retained stale stored selection'
+        if mode == 'fresh':
+            assert selected != valid and js("return startupCommands.length===1 && startupCommands[0].path==='/new-session' && !startupCommands[0].body.source_session_dir"), 'Inspector did not create a fresh session'
+        else:
+            assert selected == valid and js('return startupCommands.length===1 && startupCommands[0].body.session_dir===' + json.dumps(valid)), 'Inspector stale selection overrode bootstrap'
+        assert js("return new URL(document.querySelector('.inspector-chat-link').href).searchParams.get('session_dir')") == selected, 'Inspector chat link retained stale selection'
+    js('sessionStorage.setItem(' + key + ',' + json.dumps(valid) + ')')
+    print('PASS: Inspector stale stored/URL startup; live bootstrap; fresh session; strict catalog/resume errors', flush=True)
+
+
 def run(command, js, wait_for, web, origin, loaded):
+    # Exercise startup before the compiled client sees a stale tab selection.
+    valid = js('return sessionStorage.getItem(' + json.dumps('proteus.selectedSessionDir:' + origin) + ')')
+    assert valid, 'Session fixture has no valid bootstrap target'
+    for mode in ['stored', 'url', 'live-bootstrap', 'fresh', 'catalog-error', 'resume-error']:
+        params = {'server': origin, 'token': 'extension-smoke', 'startup_fixture': mode, 'startup_bootstrap': valid}
+        if mode == 'url':
+            params['session_dir'] = '/tmp/proteus-unavailable-session-fixture'
+        command('/url', {'url': web + '/foundation.html?' + urlencode(params)})
+        if mode in ['catalog-error', 'resume-error']:
+            wait_for(lambda: js("return document.querySelector('.connection-badge')?.classList.contains('failed')"), 'Startup error did not surface')
+            expected = 0 if mode == 'catalog-error' else 1
+            assert js('return startupCommands.length') == expected, 'Startup error silently opened a different session'
+            assert js("return startupCommands.every(item=>item.path==='/resume')"), 'Startup error created a new session'
+            continue
+        wait_for(lambda: js("return document.querySelector('.connection-badge')?.classList.contains('completed')"), 'Stale selection blocked startup')
+        selected = js("return new URL(location.href).searchParams.get('session_dir')")
+        assert selected and selected != '/tmp/proteus-unavailable-session-fixture', 'Stale selection remained in URL'
+        assert js('return sessionStorage.getItem(' + json.dumps('proteus.selectedSessionDir:' + origin) + ')') == selected, 'Stale selection remained in storage'
+        if mode == 'fresh':
+            assert selected != valid and js("return startupCommands.length===1 && startupCommands[0].path==='/new-session' && !startupCommands[0].body.source_session_dir"), 'Unavailable selection did not create a fresh session'
+        else:
+            assert selected == valid and js('return startupCommands.length===1 && startupCommands[0].body.session_dir===' + json.dumps(valid)), 'Stale selection overrode server bootstrap'
+    # Retain the original fixture session for streaming checks below.
+    js('sessionStorage.setItem(' + json.dumps('proteus.selectedSessionDir:' + origin) + ',' + json.dumps(valid) + ')')
+    print('PASS: stale stored/URL selection reconciled; fresh startup; catalog/resume errors stay strict', flush=True)
     command('/url', {'url': web + '/foundation.html?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
     wait_for(lambda: js("return document.querySelector('.results-panel')?.textContent.includes('Сохранённое сообщение 239')"), 'Loaded transcript missing')
     wait_for(lambda: js("return document.querySelector('.connection-badge').classList.contains('completed')"), 'Foundation fixture did not connect')

@@ -74,8 +74,8 @@ pub use session_journal::{
 };
 pub use session_store::{
     SessionStore, canonicalize_session_dir_path, decode_workspace_path, delete_workspace_session,
-    encode_workspace_path, list_session_summaries, list_workspace_session_summaries,
-    normalize_session_dir_path,
+    encode_workspace_path, list_session_summaries, list_session_summaries_for_audit,
+    list_workspace_session_summaries, normalize_session_dir_path,
 };
 pub use topology::{
     ModelTopology, ModuleSourceTopology, ModuleTopology, SlotTopology, ToolTopology,

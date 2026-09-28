@@ -9,7 +9,7 @@ from extensions_checks import run as check_extensions
 from panel_checks import run as check_panels
 from select_checks import run as check_selects
 from layout_checks import run as check_layout
-from session_checks import run as check_session, BOOTSTRAP
+from session_checks import run as check_session, check_inspector_startup, BOOTSTRAP
 from queue_checks import run as check_queue
 from live_checks import run as check_live
 from planning_checks import run as check_planning
@@ -92,6 +92,7 @@ class Assets(SimpleHTTPRequestHandler):
         self.end_headers()
         if count >= 2:
             def emit(name, data):
+                data['type'] = name
                 self.wfile.write(('event: '+name+'\ndata: '+json.dumps(data)+'\n\n').encode())
                 self.wfile.flush()
             emit('response.output_item.added', {"output_index":0,"item":{"id":output[0]['id'],"type":"message","role":"assistant","content":[]}})
@@ -100,7 +101,7 @@ class Assets(SimpleHTTPRequestHandler):
                 if index == 3 and not self.server.stream_gate.wait(timeout=60):
                     raise AssertionError('Streaming fixture held the response too long')
                 time.sleep(.1)
-        self.wfile.write(('event: response.completed\ndata: '+json.dumps({"response":{"status":"completed","output":output,"usage":{"input_tokens":100,"output_tokens":40,"input_tokens_details":{"cached_tokens":60},"output_tokens_details":{"reasoning_tokens":10}}}})+'\n\n').encode())
+        self.wfile.write(('event: response.completed\ndata: '+json.dumps({"type":"response.completed","response":{"status":"completed","output":output,"usage":{"input_tokens":100,"output_tokens":40,"input_tokens_details":{"cached_tokens":60},"output_tokens_details":{"reasoning_tokens":10}}}})+'\n\n').encode())
 
     def do_GET(self):
         path = self.path.split('?', 1)[0]
@@ -117,11 +118,12 @@ class Assets(SimpleHTTPRequestHandler):
             return
         if self.path.split('?', 1)[0] in ['/context', '/sessions', '/settings']:
             self.path = '/index.html'
-        if self.path.startswith('/foundation.html'):
+        if path in ('/foundation.html', '/inspector-foundation.html'):
             self.send_response(200)
             self.send_header('Content-Type', 'text/html')
             self.end_headers()
-            html = (ROOT / 'clients/web/dist/index.html').read_text().replace('<head>', '<head>'+BOOTSTRAP)
+            client = inspector if path == '/inspector-foundation.html' else ROOT / 'clients/web/dist'
+            html = (client / 'index.html').read_text().replace('<head>', '<head>'+BOOTSTRAP)
             self.wfile.write(html.encode())
             return
         if self.path.startswith('/models?') or self.path == '/wham/usage':
@@ -278,6 +280,10 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     check_tools_picker(command, js, wait_for, web, origin, config, request)
                     return
                 check_extensions(command, js, wait_for, web, origin, loaded)
+                if '--sessions-only' in sys.argv:
+                    check_session(command, js, wait_for, web, origin, loaded)
+                    check_inspector_startup(command, js, wait_for, web, origin)
+                    return
                 check_selects(command, js, wait_for)
                 check_panels(command, js, wait_for)
                 check_usage(command, js, wait_for)

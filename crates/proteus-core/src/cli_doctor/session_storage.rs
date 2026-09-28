@@ -5,9 +5,7 @@ use proteus_contracts::{
     domain::{new_session_id, new_thread_id},
     model_standard::{CanonicalMessage, MessageRole},
 };
-use proteus_core::core::{
-    SessionStore, config_store_root, list_session_summaries, list_workspace_session_summaries,
-};
+use proteus_core::core::{SessionStore, config_store_root, list_session_summaries_for_audit};
 
 use super::DoctorFindings;
 
@@ -32,11 +30,11 @@ pub(super) fn check_session_storage(
     let (label, summaries) = match scope {
         SessionScope::Workspace => (
             format!("workspace {}", cwd.display()),
-            list_workspace_session_summaries(&config_root, cwd),
+            list_session_summaries_for_audit(&config_root, Some(cwd)),
         ),
         SessionScope::All => (
             "all workspaces".to_owned(),
-            list_session_summaries(&config_root),
+            list_session_summaries_for_audit(&config_root, None),
         ),
     };
     if matches!(scope, SessionScope::Workspace) {
@@ -72,7 +70,9 @@ pub(super) fn check_session_storage(
 
 #[cfg(test)]
 mod tests {
-    use proteus_core::core::encode_workspace_path;
+    use proteus_core::core::{
+        encode_workspace_path, list_session_summaries, list_workspace_session_summaries,
+    };
 
     use super::*;
 
@@ -98,6 +98,16 @@ mod tests {
         value["schema_version"] = serde_json::json!(3);
         let old_bytes = serde_json::to_vec(&value).unwrap();
         std::fs::write(&metadata, &old_bytes).unwrap();
+        assert!(
+            list_session_summaries(config_root.path())
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            list_workspace_session_summaries(config_root.path(), other_workspace.path())
+                .unwrap()
+                .is_empty()
+        );
 
         let mut current = DoctorFindings::default();
         check_session_storage(
