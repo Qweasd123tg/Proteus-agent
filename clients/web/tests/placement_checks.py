@@ -2,9 +2,12 @@
 import base64
 import json
 from pathlib import Path
+from sidebar_title_checks import run as check_sidebar_titles
 
 
 def run(command, js, wait_for):
+    check_sidebar_titles(command, js, wait_for)
+
     def click(selector):
         js(f"document.querySelector({json.dumps(selector)}).click()")
 
@@ -100,7 +103,7 @@ def run(command, js, wait_for):
     Path('/tmp/proteus-compact-chat-hover.png').write_bytes(base64.b64decode(command('/screenshot',None)))
     hover('.sidebar-project')
     Path('/tmp/proteus-compact-project-hover.png').write_bytes(base64.b64decode(command('/screenshot',None)))
-    js("document.querySelector('.session-item-shell').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:130,clientY:230}))")
+    click('.session-item-shell .session-more')
     assert js("return document.querySelector('.sidebar-menu').getBoundingClientRect().height<360"), 'Context menu stretched to bottom'
     js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
     js("if(document.querySelector('.tab-workspace').hidden)document.querySelector('[data-workspace-toggle]').click()")

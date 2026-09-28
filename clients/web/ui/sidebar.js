@@ -4,7 +4,7 @@ const node=(tag,text)=>{const el=document.createElement(tag);el.textContent=text
 // DOM data comes from Leptos; mutations go back through its state callback.
 export function mountSidebar(root, update) {
   const controller=new AbortController(),{signal}=controller;
-  const menu=popup('sidebar-menu','Действия'),card=popup('sidebar-hover','Сведения'),rename=popup('sidebar-rename-popup','Переименовать чат');
+  const menu=popup('sidebar-menu','Действия',{manual:true}),card=popup('sidebar-hover','Сведения'),rename=popup('sidebar-rename-popup','Переименовать чат');
   card.element.setAttribute('role','tooltip');
   menu.element.setAttribute('role','menu');
   let timer,hideTimer,hover;
@@ -46,14 +46,18 @@ export function mountSidebar(root, update) {
     ];
     menu.show(entries,row.querySelector('[data-sidebar-menu]')??row,event?{x:event.clientX,y:event.clientY}:undefined);
   }
-  root.addEventListener('contextmenu',event=>{const row=event.target.closest('[data-session-dir],[data-workspace]');if(!row)return;event.preventDefault();openMenu(row,event);},{signal});
+  root.addEventListener('contextmenu',event=>{
+    const row=event.target.closest('[data-session-dir],[data-workspace]');if(!row)return;
+    event.preventDefault();clearHover();
+    if(row.dataset.workspace!==undefined)openMenu(row,event);
+  },{signal});
   root.addEventListener('click',event=>{
     const more=event.target.closest('[data-sidebar-menu]');if(more){event.preventDefault();openMenu(more.closest('[data-session-dir],[data-workspace]'));return;}
     if(event.target.closest('[data-app-menu]')&&!desktop()){
       menu.show([menu.action('Настройки','settings',()=>root.querySelector('.settings-link').click())],event.target.closest('[data-app-menu]'));
     }
   },{signal});
-  root.addEventListener('keydown',event=>{if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){const row=event.target.closest('[data-session-dir],[data-workspace]');if(row){event.preventDefault();openMenu(row);}}},{signal});
+  root.addEventListener('keydown',event=>{if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){const row=event.target.closest('[data-workspace]');if(row){event.preventDefault();openMenu(row);}}},{signal});
   root.addEventListener('pointerover',event=>{
     if(event.target.closest('[title],[data-ui-tooltip]')){clearHover();return;}
     const row=event.target.closest('[data-hover-title]');if(!row||row===hover||document.querySelector(':popover-open:not(.sidebar-hover)'))return;

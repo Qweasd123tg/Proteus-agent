@@ -198,23 +198,29 @@
 
 .sessions-list {
     min-height: 0;
+    min-width: 0;
     flex: 1;
+    overflow-x: hidden;
     overflow-y: auto;
     padding: 2px var(--nav-list-inset) 12px;
 }
 
 .session-list {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
     gap: var(--nav-row-gap);
     list-style: none;
 }
 
 .session-list-item {
     position: relative;
+    min-width: 0;
 }
 
 .session-item-shell {
     position: relative;
+    min-width: 0;
 }
 
 .session-item {
@@ -231,6 +237,8 @@
 
 button.session-item {
     width: 100%;
+    min-width: 0;
+    overflow: hidden;
     min-height: var(--nav-row-height);
     justify-content: stretch;
     border: 0;
@@ -287,6 +295,7 @@ button.session-item.active {
 
 .session-item-header {
     display: flex;
+    min-width: 0;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-2);
@@ -295,12 +304,15 @@ button.session-item.active {
 
 .session-title-line {
     display: flex;
+    width: 100%;
     min-width: 0;
     align-items: center;
     gap: 7px;
 }
 
 .session-id {
+    flex: 1;
+    min-width: 0;
     line-height: var(--nav-row-line);
     overflow: hidden;
     color: var(--text-main);
@@ -315,7 +327,6 @@ button.session-item.active {
 .sidebar-header-actions button:last-child { order: -1; flex: 1; justify-content: flex-start; gap: 12px; width: auto; padding: 0 8px; font-size: 14px; font-weight: 400; }
 .sidebar-project { display: flex; align-items: center; gap: 10px; min-height: 36px; flex-shrink: 0; padding: 4px 22px; color: var(--text-muted); font-size: 13px; }
 .sidebar-project span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.session-title-line { width: 100%; }
 .sidebar-rail-surface .sidebar-brand, .sidebar-rail-surface .new-session-label { display: none; }
 .sidebar-rail-surface .sidebar-header-actions button:last-child { flex: none; width: 30px; padding: 0; justify-content: center; }
 
