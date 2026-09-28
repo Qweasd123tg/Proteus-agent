@@ -1,1 +1,15 @@
 .extension-panel-toggle svg { display: block; width: 16px; height: 16px; }
+
+.widget-slot { display:flex;min-width:0;max-width:180px; }
+.widget-slot:empty { display:none; }
+.extension-widgets { display:flex;align-items:center;gap:3px;min-width:0;overflow-x:auto;scrollbar-width:none; }
+.extension-widgets[hidden] { display:none; }
+.extension-widget { width:28px;height:30px;min-height:30px;padding:0;flex:none;border-radius:8px;color:var(--text-muted); }
+.extension-widget:hover { background:var(--bg-panel-hover);color:var(--text-main); }
+.extension-widget > span { display:grid;place-items:center;pointer-events:none; }
+.composer-options:has(.extension-widgets:not([hidden])) .composer-access-menu { flex-shrink:2; }
+.composer-options:has(.extension-widgets:not([hidden])) .composer-menu-trigger { gap:4px; }
+.composer-options:has(.extension-widgets:not([hidden])) .composer-menu-trigger span { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.extension-widget-placement { display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:20px;font-size:13px;color:var(--text-muted); }
+.extension-widget-placement select { margin-left:auto;max-width:230px; }
+.extension-widget-placement [role=status]:empty { display:none; }

@@ -1,7 +1,7 @@
 .workspace-main {
     display: flex;
     flex: 1;
-    min-width: 0;
+    min-width: 320px;
     flex-direction: column;
     overflow: hidden;
     background: var(--bg-root);

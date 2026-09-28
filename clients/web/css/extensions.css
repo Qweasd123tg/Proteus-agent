@@ -36,11 +36,6 @@ label.extension-description { cursor: pointer; }
 .extension-install input { flex: 1; font-size: 12px; background: var(--bg-panel); }
 .extension-install button, .extension-reset button { border-color: var(--border-strong); }
 .extension-reset p { margin: 12px 0; }
-@media (max-width: 620px) {
-    .extension-choice { flex-wrap: wrap; gap: 8px; }
-    .extension-description { flex-basis: 100%; }
-    .extension-actions { margin-left: auto; }
-}
 
 .extension-panel:has([aria-expanded=false]) .extension-panel-header { margin-bottom: 0; }
 .extension-options { margin: 20px 0; padding: 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-card); }

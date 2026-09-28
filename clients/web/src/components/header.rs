@@ -39,6 +39,7 @@ where
                         </a>
                     </div>
                     <nav class="topnav" aria-label="Действия чата">
+                        <div class="widget-slot" data-widget-slot="header"></div>
                         <button type="button" class="sidebar-toggle" data-workspace-toggle="" title="Боковая панель" aria-label="Боковая панель" aria-expanded="false"><super::icons::PanelIcon right=true /></button>
                         {move || {
                             let waiting = waiting_background_sessions.get();

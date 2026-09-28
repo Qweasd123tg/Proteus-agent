@@ -83,7 +83,6 @@ export function createWorkspace(target, { select, close, storage }) {
   document.addEventListener('keydown',event=>{
     if(event.key!=='Escape') return;
     if(picker.matches(':popover-open')) { event.preventDefault(); event.stopImmediatePropagation(); picker.hidePopover(); add.focus(); }
-    else if(open&&matchMedia('(max-width:900px)').matches) { event.preventDefault(); event.stopImmediatePropagation(); setOpen(false); document.querySelector('[data-workspace-toggle]')?.focus(); }
   },{signal,capture:true});
   handle.addEventListener('pointerdown',event=>{if(event.button!==0)return;event.preventDefault();drag={x:event.clientX,width:element.getBoundingClientRect().width,id:event.pointerId};},{signal});
   document.addEventListener('pointermove',event=>{if(drag&&event.pointerId===drag.id)setWidth(Math.min(innerWidth-320,drag.width+drag.x-event.clientX));},{signal});

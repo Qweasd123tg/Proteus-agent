@@ -83,7 +83,7 @@ body {
 }
 
 body {
-    min-width: 280px;
+    min-width: 860px;
     margin: 0;
 }
 
@@ -271,3 +271,6 @@ textarea {
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .01ms !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+html[data-animations=off] { --motion-fast:0s; }
+html[data-animations=off] *,html[data-animations=off] *::before,html[data-animations=off] *::after { animation:none!important;transition:none!important;scroll-behavior:auto!important; }

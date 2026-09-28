@@ -109,35 +109,7 @@ code { font-variant-ligatures: none; }
     .cfg-page-head, .architecture-page > .resume-toolbar { padding: 28px 24px 22px; }
     .configs-scroll { padding: 0 24px 24px; }
 }
-@media (max-width: 760px) {
-    .inspector-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-    .inspector-sidebar { display: flex; flex-direction: row; align-items: center; gap: 14px; padding: 14px 16px; border-right: 0; border-bottom: 1px solid var(--border-subtle); }
-    .inspector-brand { padding: 0; }
-    .inspector-brand strong { font-size: 22px; }
-    .inspector-brand small { font-size: 7px; letter-spacing: 2.2px; }
-    .brand-mark { display: none; }
-    .sidebar-section-label, .sidebar-note, .sidebar-connection { display: none; }
-    .inspector-nav { display: flex; gap: 3px; margin-left: auto; }
-    .inspector-nav-item { padding: 8px 10px; min-height: 40px; gap: 7px; font-size: 12px; }
-    .nav-indicator { display: none; }
-    .inspector-nav-item svg { width: 16px; }
-    .inspector-topbar { flex-basis: 48px; padding-inline: 18px; }
-    .inspector-breadcrumb { font-size: 10px; gap: 8px; }
-    .inspector-chat-link { font-size: 11px; gap: 6px; }
-    .cfg-page-head, .architecture-page > .resume-toolbar { padding: 24px 18px 20px; }
-    .configs-scroll { padding: 0 18px 18px; gap: 18px; }
-    .cfg-page-head h2, .architecture-page > .resume-toolbar h2 { font-size: 25px; }
-    .cfg-page-head p, .architecture-page > .resume-toolbar p { font-size: 11px; }
-    .config-overview { grid-template-columns: 1fr; }
-}
-@media (max-width: 420px) {
-    .inspector-nav-item { font-size: 11px; padding-inline: 8px; }
-    .inspector-nav-item svg { display: none; }
-    .inspector-breadcrumb > span:first-child { display: none; }
-    .inspector-breadcrumb > span:nth-child(2) { display: none; }
-    .cfg-page-head, .architecture-page > .resume-toolbar { align-items: flex-start; gap: 10px; }
-    .cfg-page-head > button { padding-inline: 10px; font-size: 11px; }
-}
+
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
@@ -151,4 +123,3 @@ code { font-variant-ligatures: none; }
 .inspector-nav-item { min-height:38px; padding:8px 12px; }
 .sidebar-connection { margin-top:auto; }
 .inspector-topbar { flex-basis:var(--topbar-height); padding-inline:24px; }
-@media(max-width:760px) { .inspector-brand { display:none; } .inspector-nav { margin-left:0; flex-wrap:wrap; } }

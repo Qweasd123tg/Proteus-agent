@@ -145,6 +145,22 @@ fn open_project(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn open_workspace_folder(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let workspace = app
+        .state::<DesktopState>()
+        .backend
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|backend| backend.connection.workspace.clone())
+        .ok_or("Backend не запущен")?;
+    app.opener()
+        .open_path(workspace, None::<&str>)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn quit_app(app: AppHandle) {
     app.state::<DesktopState>()
         .stopping
@@ -215,6 +231,7 @@ fn main() {
             start_agent,
             open_client,
             open_project,
+            open_workspace_folder,
             quit_app
         ])
         .setup(|app| setup(app).map_err(Into::into))

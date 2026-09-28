@@ -1,3 +1,4 @@
+import { motionAllowed } from './motion.js';
 // Visibility belongs to the viewport, including the assistant's reply to each prompt.
 // IntersectionObserver tracks cards without reading the whole history on scroll.
 export function mountMessageNav(root) {
@@ -97,7 +98,7 @@ export function mountMessageNav(root) {
     }
     root.classList.add('preview-open');
     const nextWave = new Set();
-    if (!motion.matches) {
+    if (motionAllowed()) {
       for (let i = Math.max(0, index - 4); i <= Math.min(ticks.length - 1, index + 4); i++) {
         const amount = 3 * Math.exp(-((i - position) ** 2) / 3);
         ticks[i].style.setProperty('--tick-wave', amount.toFixed(3));
@@ -160,6 +161,7 @@ export function mountMessageNav(root) {
   track.addEventListener('focusout', focusOut);
   track.addEventListener('keydown', keyDown);
   motion.addEventListener('change', hide);
+  window.addEventListener('proteus-motion-change',hide);
   scheduleSync();
   return () => {
     cancelAnimationFrame(syncFrame);
@@ -176,5 +178,6 @@ export function mountMessageNav(root) {
     track.removeEventListener('focusout', focusOut);
     track.removeEventListener('keydown', keyDown);
     motion.removeEventListener('change', hide);
+    window.removeEventListener('proteus-motion-change',hide);
   };
 }

@@ -1,3 +1,4 @@
+import { widgetPlacement } from './widgets.js';
 import { button } from './panel.js';
 import { icon } from './icons.js';
 import { createSettingsPane } from './settings-pane.js';
@@ -15,6 +16,7 @@ export function mountExtensionSettings(root, registry, services = {}) {
   const controller = new AbortController();
   const { signal } = controller;
   let rowsController;
+  const rowCache=new Map();
   let closeOptions, optionsId;
   const pane=createSettingsPane(root,signal,()=>{
     list.querySelector(`[data-settings-id="${CSS.escape(optionsId??'')}"]`)?.focus();
@@ -46,7 +48,7 @@ export function mountExtensionSettings(root, registry, services = {}) {
   reset.append(node('p', 'Состав и порядок панелей заменятся поставляемым списком. Заметки сохранятся.', 'settings-hint'));
   const restore = button('Восстановить', () => { reset.open = false; void registry.reset(); }, signal);
   reset.append(restore);
-  root.append(list, available, source, notice, announcement, reset);
+  root.append(widgetPlacement(registry.storage,signal),list, available, source, notice, announcement, reset);
   enableReorder(list,registry,signal,announcement);
   const unsubscribe = registry.subscribe(() => {
     const { records, bundled, notice: message, busy, ready } = registry.state();
@@ -56,9 +58,14 @@ export function mountExtensionSettings(root, registry, services = {}) {
     const rowSignal = rowsController.signal;
     notice.textContent = message || (!ready && busy ? 'Загрузка расширений…' : '');
     submit.disabled = busy || !ready; restore.disabled = busy;
-    list.replaceChildren(); available.replaceChildren();
+    available.replaceChildren();
+    list.querySelector('.settings-hint')?.parentElement===list&&list.querySelector('.settings-hint').remove();
+    for(const [id,item] of rowCache)if(!records.includes(item.record)){item.controller.abort();item.row.remove();rowCache.delete(id);}
     if (ready && !records.length) list.append(node('p', 'Панелей пока нет. Добавьте одну из доступных ниже.', 'settings-hint'));
-    records.forEach(record => {
+    records.forEach((record,index) => {
+      let cached=rowCache.get(record.id);
+      if(!cached){
+      const controller=new AbortController(),rowSignal=controller.signal;
       const row = node('div', '', 'extension-choice'); row.dataset.extensionChoice = record.id;
       const label = node('div', '', 'extension-description');
       const text = node('span');
@@ -77,7 +84,12 @@ export function mountExtensionSettings(root, registry, services = {}) {
       const remove = button('', () => registry.remove(record.id), rowSignal);
       remove.append(icon('close')); remove.title=`Убрать: ${name}`;
       remove.disabled = busy; remove.setAttribute('aria-label', `Убрать: ${name}`);
-      actions.append(remove); row.append(actions); list.append(row);
+      actions.append(remove); row.append(actions);
+      cached={row,record,controller,checkbox};rowCache.set(record.id,cached);
+      }
+      cached.checkbox.checked=record.enabled;
+      for(const control of cached.row.querySelectorAll('button,input'))control.disabled=busy;
+      if(list.children[index]!==cached.row)list.insertBefore(cached.row,list.children[index]??null);
     });
     const choices = bundled.filter(item => !records.some(record => record.id === item.id));
     if (choices.length) available.append(node('h3', 'Доступные панели'));
@@ -100,5 +112,5 @@ export function mountExtensionSettings(root, registry, services = {}) {
     if (await registry.install(input.value)) input.value = '';
   }, { signal });
   void registry.start();
-  return () => { close(); controller.abort(); rowsController?.abort(); unsubscribe(); pane.remove(); root.replaceChildren(); };
+  return () => { close(); controller.abort(); rowsController?.abort(); for(const item of rowCache.values())item.controller.abort();rowCache.clear(); unsubscribe(); pane.remove(); root.replaceChildren(); };
 }

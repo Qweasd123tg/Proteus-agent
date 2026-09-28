@@ -4,7 +4,7 @@
     overflow: auto; z-index: 10000; border: 1px solid var(--border-strong, #444);
     border-radius: 11px; background: var(--bg-panel, #222); color: var(--text-main, #ededed);
     box-shadow: 0 12px 36px #0006; font: 12px/1.5 var(--font-sans, system-ui);
-    outline: none; animation: select-reveal 100ms ease-out;
+    outline: none; animation: select-reveal var(--motion-fast,100ms) ease-out;
 }
 .select-picker-option { position: relative; padding: 7px 30px 7px 10px; border-radius: 6px; cursor: pointer; overflow-wrap: anywhere; }
 .select-picker-option.focused { background: var(--bg-hover, #383838); }

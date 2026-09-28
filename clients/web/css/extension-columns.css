@@ -25,4 +25,3 @@
 .workspace-resize:hover { background:var(--border-strong); }
 .tab-workspace.expanded { position:fixed; z-index:35; inset:var(--desktop-chrome-height,0px) 0 0; width:auto; }
 .tab-workspace.expanded .workspace-resize { display:none; }
-@media(max-width:900px) { .tab-workspace { position:fixed; z-index:35; inset:var(--desktop-chrome-height,0px) 0 0 40px; width:auto; min-width:0; box-shadow:0 0 0 100vmax #0007; } .workspace-resize{display:none} }

@@ -16,6 +16,7 @@ use bootstrap::create_session;
 
 #[derive(Clone, Copy)]
 pub(crate) struct RuntimeSettingsBindings {
+    pub(crate) on_selection_error: Callback<String>,
     pub(crate) set_mode: WriteSignal<PermissionMode>,
     pub(crate) set_model_name: WriteSignal<String>,
     pub(crate) set_model_options: WriteSignal<Vec<ModelOption>>,
@@ -33,6 +34,19 @@ pub(crate) struct RuntimeSettingsBindings {
 }
 
 impl RuntimeSettingsBindings {
+    pub(super) async fn restore_selection(self, session: &str, generation: u64) {
+        let result = crate::model_preference::restore(session).await;
+        if self.transcript_generation.get_untracked() != generation
+            || self.active_session_dir.get_untracked().as_deref() != Some(session)
+        {
+            return;
+        }
+        if let Err(error) = result {
+            self.on_selection_error
+                .run(format!("Сохранённая модель или effort недоступны: {error}"));
+        }
+    }
+
     pub(crate) fn load(self, session_dir: String, expected_generation: u64) {
         load_runtime_settings(
             session_dir,
@@ -117,6 +131,13 @@ impl AppSessionActions {
                     self.set_sidebar_sessions_status
                         .set("новая сессия открыта".to_owned());
                     self.activate_session(session_dir.clone());
+                    self.runtime_settings
+                        .restore_selection(&session_dir, expected_generation)
+                        .await;
+                    if self.transcript.transcript_generation.get_untracked() != expected_generation
+                    {
+                        return;
+                    }
                     reconnect_event_stream(self.event_source, self.event_stream);
                     self.runtime_settings
                         .load(session_dir.clone(), expected_generation);

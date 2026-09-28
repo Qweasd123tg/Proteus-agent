@@ -13,6 +13,10 @@ where
     N: Fn(web_sys::MouseEvent, &'static str) + Copy + Send + Sync + 'static,
 {
     let section = RwSignal::new("general");
+    let animations = RwSignal::new(crate::ui_preferences::load_bool_setting(
+        "proteus.animations",
+        true,
+    ));
     let (status, set_status) = signal(String::new());
     let toggle = move |_| {
         let next = !tool_cards_collapsed.get_untracked();
@@ -44,10 +48,16 @@ where
             <section class="settings-section" id="general" hidden=move || section.get()!="general">
                 <h2>"Чат"</h2>
                 <label class="settings-row">
-                    <span class="settings-label"><strong>"Компактные карточки инструментов"</strong>
-                        <span class="settings-hint">"Показывать подробности выполнения только при раскрытии карточки. Настройка действует для всех чатов на этом устройстве."</span>
+                    <span class="settings-label"><strong>"Компактные цепочки инструментов"</strong>
+                        <span class="settings-hint">"Сворачивать последовательные вызовы в одну строку. Клик открывает список вызовов, следующий — подробности. Применяется к новым цепочкам."</span>
                     </span>
                     <input type="checkbox" class="settings-toggle" prop:checked=move || tool_cards_collapsed.get() on:change=toggle />
+                </label>
+                <label class="settings-row animation-setting">
+                    <span class="settings-label"><strong>"Анимации"</strong><span class="settings-hint">"Плавное раскрытие панелей, переключатели и меню. Системное уменьшение движения также учитывается."</span></span>
+                    <input type="checkbox" class="settings-toggle" data-animation-toggle="" aria-label="Анимации" prop:checked=move || animations.get() on:change=move |_| {
+                        let next=!animations.get_untracked();match try_save_bool_setting("proteus.animations",next) {Ok(())=>{animations.set(next);set_status.set(String::new());},Err(error)=>{animations.set(animations.get_untracked());set_status.set(format!("Не сохранено: {error}"));}}
+                    }/>
                 </label>
                 <p class="settings-status" role="status">{move || status.get()}</p>
             </section>

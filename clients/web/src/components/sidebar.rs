@@ -1,11 +1,15 @@
 use leptos::prelude::*;
 use web_sys::MouseEvent;
 
+#[cfg(target_arch = "wasm32")]
+mod browser;
 mod footer;
 mod header;
+mod preferences;
+mod row;
 use crate::session::summaries::{
-    sidebar_session_activity_dot_class, sidebar_session_activity_label, sidebar_session_preview,
-    sidebar_session_render_key, sidebar_session_title,
+    sidebar_session_activity_label, sidebar_session_preview, sidebar_session_render_key,
+    sidebar_session_title,
 };
 use crate::types::*;
 use crate::ui_utils::relative_time_from_now;
@@ -91,9 +95,40 @@ where
     D: Fn(SessionSummary) + Copy + Send + 'static,
 {
     let (query, set_query) = signal(String::new());
+    let preferences = preferences::Preferences::new();
+    let root = NodeRef::<leptos::html::Aside>::new();
+    #[cfg(target_arch = "wasm32")]
+    browser::attach(root, preferences);
+    let visible_sessions = move || {
+        let workspace = workspace_label.get();
+        let query = query.get();
+        let archived = preferences.archived.get();
+        let mut sessions = sidebar_sessions.with(|items| {
+            items
+                .iter()
+                .filter(|session| {
+                    let entry = preferences.entry(&session.session_dir.to_string_lossy());
+                    workspace != "waiting for session"
+                        && session.workspace_path == std::path::Path::new(&workspace)
+                        && entry.archived == archived
+                        && (session_matches_query(session, &query)
+                            || entry.title.is_some_and(|title| {
+                                title.to_lowercase().contains(&query.trim().to_lowercase())
+                            }))
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+        });
+        sessions.sort_by_key(|session| {
+            !preferences
+                .entry(&session.session_dir.to_string_lossy())
+                .pinned
+        });
+        sessions
+    };
     view! {
         // Состояние рейки задаёт CSS; выбранная ширина сохраняется для раскрытия.
-        <aside class="sidebar" style=move || format!("--sidebar-width: {}px", sidebar_width.get())>
+        <aside class="sidebar" node_ref=root data-show-archived=move || preferences.archived.get().to_string() style=move || format!("--sidebar-width: {}px", sidebar_width.get())>
             <div class="sidebar-surface" inert=move || sidebar_collapsed.get().then_some("")>
             <SidebarHeader on_refresh on_new_session />
             <div class="sidebar-search">
@@ -113,79 +148,21 @@ where
                 />
             </div>
 
-            <div class="sidebar-project" title=move || workspace_label.get()>
+            <div class="sidebar-project" data-workspace=move || workspace_label.get() data-hover-title=move || crate::ui_utils::short_path(&workspace_label.get())
+                data-hover-detail=move || format!("{} чатов\n{}",rail_sessions_total(&workspace_label.get(),&sidebar_sessions.get()),workspace_label.get())>
                 <super::icons::FolderIcon />
                 <span>{move || crate::ui_utils::short_path(&workspace_label.get())}</span>
+                <button type="button" class="project-more" data-sidebar-menu="" aria-label="Действия с проектом"><super::icons::MoreIcon/></button>
+                <button type="button" class="project-new" title="Новый чат в проекте" aria-label="Новый чат в проекте" on:click=on_new_session><super::icons::EditIcon/></button>
             </div>
+            <Show when=move || preferences.archived.get()><button class="sidebar-archive-back" on:click=move |_|preferences.archived.set(false)>"← Архив · вернуться к чатам"</button></Show>
+            <p class="sidebar-preferences-error" role="status">{move || preferences.error.get()}</p>
             <div class="sessions-list">
                 <ul class="session-list">
                     <For
-                        each=move || {
-                            let workspace = workspace_label.get();
-                            let query = query.get();
-                            sidebar_sessions.with(|sessions| {
-                                sessions
-                                    .iter()
-                                    .filter(|session| {
-                                        workspace != "waiting for session"
-                                            && session.workspace_path == std::path::Path::new(&workspace)
-                                            && session_matches_query(session, &query)
-                                    })
-                                    .cloned()
-                                    .collect::<Vec<_>>()
-                            })
-                        }
+                        each=visible_sessions
                         key=|session| sidebar_session_render_key(session)
-                        children=move |session| {
-                            let workspace = session.workspace_path.to_string_lossy().into_owned();
-                            let title = sidebar_session_title(&session);
-                            let preview = sidebar_session_preview(&session)
-                                .filter(|preview| preview.trim() != title.trim());
-                            let activity_label =
-                                sidebar_session_activity_label(session.activity.as_ref());
-                            let activity_dot_class =
-                                sidebar_session_activity_dot_class(session.activity.as_ref());
-                            let message_count = session.message_count;
-                            let updated_at = relative_time_from_now(session.updated_at_ms);
-                            let active_session_dir_value = session.session_dir.to_string_lossy().into_owned();
-                            let session_for_click = session.clone();
-                            let session_for_delete = session.clone();
-                            let detail = [activity_label.as_deref(), preview.as_deref()]
-                                .into_iter().flatten().collect::<Vec<_>>().join(" · ");
-                            let tooltip = format!("{title}\n{workspace}\n{message_count} сообщений · {updated_at}\n{detail}");
-                            view! {
-                                <li class="session-list-item">
-                                    <div class="session-item-shell">
-                                        <button
-                                            type="button"
-                                            class="session-item session-history-item"
-                                            class:active=move || {
-                                                active_session_dir.get().as_deref()
-                                                    == Some(active_session_dir_value.as_str())
-                                            }
-                                            title=tooltip
-                                            on:click=move |_| on_open_session(session_for_click.clone())
-                                        >
-                                            <div class="session-item-header">
-                                                <span class="session-title-line">
-                                                    <span class=activity_dot_class></span>
-                                                    <span class="session-id">{title}</span>
-                                                </span>
-                                            </div>
-                                        </button>
-                                        <button
-                                            type="button"
-                                            class="session-delete"
-                                            title="Удалить чат"
-                                            aria-label="Удалить чат"
-                                            on:click=move |_| on_delete_session(session_for_delete.clone())
-                                        >
-                                            <super::icons::TrashIcon/>
-                                        </button>
-                                    </div>
-                                </li>
-                            }
-                        }
+                        children=move |session| view! { <row::SessionRow session preferences active_session_dir on_open=on_open_session on_delete=on_delete_session/> }
                     />
                 </ul>
             </div>
@@ -203,18 +180,21 @@ where
                     each=move || {
                         rail_sessions(
                             &workspace_label.get(),
-                            &sidebar_sessions.get(),
+                            &visible_sessions(),
                         )
                     }
                     key=|session| sidebar_session_render_key(session)
                     children=move |session| {
                         let class = rail_session_class(&session);
                         let waiting = class.ends_with("waiting");
-                        let title = sidebar_session_title(&session);
+                        let original_title = StoredValue::new(sidebar_session_title(&session));
+                        let title_id = StoredValue::new(session.session_dir.to_string_lossy().into_owned());
+                        let title = move || preferences.entry(&title_id.get_value()).title.unwrap_or_else(|| original_title.get_value());
                         let status_label =
                             sidebar_session_activity_label(session.activity.as_ref())
                                 .unwrap_or_else(|| "ожидает".to_owned());
-                        let aria = format!("{title} · {status_label}");
+                        let aria_status = StoredValue::new(status_label.clone());
+                        let aria = move || format!("{} · {}", title(), aria_status.get_value());
                         let message_count = session.message_count;
                         let updated_at = relative_time_from_now(session.updated_at_ms);
                         let session_dir = session.session_dir.to_string_lossy().into_owned();
@@ -255,7 +235,7 @@ where
                 {move || {
                     let total = rail_sessions_total(
                         &workspace_label.get(),
-                        &sidebar_sessions.get(),
+                        &visible_sessions(),
                     );
                     if total > SIDEBAR_RAIL_LIMIT {
                         view! {

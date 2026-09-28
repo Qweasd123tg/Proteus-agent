@@ -15,6 +15,7 @@ mod settings;
 mod sidebar;
 mod subagent;
 pub(crate) mod tool_activity;
+mod tool_chain;
 
 pub(crate) use approval::{ApprovalCard, UserInputCard};
 pub(crate) use chat_results::ChatResultsView;

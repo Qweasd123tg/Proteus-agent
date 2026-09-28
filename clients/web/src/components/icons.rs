@@ -30,10 +30,13 @@ icon!(StopIcon, "stop", 20);
 icon!(QueueIcon, "queue", 16);
 icon!(EditIcon, "edit", 16);
 icon!(TrashIcon, "trash", 16);
+icon!(MoreIcon, "more", 16);
+icon!(PinIcon, "pin", 13);
 icon!(ShieldIcon, "shield", 16);
 icon!(ChevronDownIcon, "chevron-down", 14);
 icon!(SettingsIcon, "settings", 18);
 icon!(ExtensionsIcon, "modules", 18);
+icon!(TerminalIcon, "terminal", 18);
 icon!(InspectorIcon, "inspector", 18);
 icon!(CloseIcon, "close", 16);
 

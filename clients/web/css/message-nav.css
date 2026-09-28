@@ -81,7 +81,3 @@
     visibility: visible;
     transform: translate(0, -50%);
 }
-@media (max-width: 620px) {
-    .msg-nav { left: 0; }
-    .msg-nav-preview { left: 34px; }
-}

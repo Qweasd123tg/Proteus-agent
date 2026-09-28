@@ -13,17 +13,6 @@
 .app-layout.sidebar-collapsed .sidebar-footer-label, .app-layout.sidebar-collapsed .sidebar-footer .connection-text { display: none; }
 .app-layout.sidebar-collapsed .sidebar-footer-status { flex-direction: column; }
 .app-layout.sidebar-collapsed .sidebar-footer-status .connection-badge { max-width: none; min-width: 30px; }
-@media (max-width: 900px) {
-    .app-layout { padding-bottom: 60px; }
-    .sidebar .sidebar-surface, .sidebar .sidebar-rail-surface { inset: auto; }
-    .sidebar .sidebar-footer { position: fixed; inset: auto 0 0; height: 60px; grid-template-columns: repeat(1, minmax(0, 1fr)) 32px; gap: 3px; align-items: center; align-content: center; padding: 5px 8px; border-right: 0; }
-    .sidebar .sidebar-footer > a, .app-layout.sidebar-collapsed .sidebar-footer > a { width: auto; flex-direction: column; gap: 2px; padding: 4px; min-height: 46px; justify-content: center; }
-    .sidebar .sidebar-footer .sidebar-footer-label { display: block; font-size: 9px; }
-    .sidebar .sidebar-footer .sidebar-footer-status { flex-direction: row; padding: 0; }
-    .sidebar .sidebar-footer .connection-badge { display: inline-flex; padding: 6px; }
-    .sidebar .sidebar-footer .connection-text { display: none; }
-    .sidebar-rail-surface .sidebar-header { flex-direction: row; }
-}
 
 /* Connection status occupies a fixed slot, including during session switches. */
 .sidebar-footer-status { position: absolute; right: 18px; bottom: 15px; padding: 0; }
@@ -31,4 +20,3 @@
 .sidebar-footer .settings-link { padding-right: 38px; }
 .app-layout.sidebar-collapsed .sidebar-footer-status { right: 2px; bottom: 4px; pointer-events: none; }
 .app-layout.sidebar-collapsed .sidebar-footer-status .connection-badge { min-width: 16px; width: 16px; height: 16px; min-height: 16px; pointer-events: auto; }
-@media (max-width:900px) { .sidebar .sidebar-footer-status { position: static; } }

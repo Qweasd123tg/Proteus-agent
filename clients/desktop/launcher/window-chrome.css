@@ -5,12 +5,6 @@ html[data-desktop-chrome] :is(.app-layout, .inspector-shell) { height: calc(100d
 .desktop-titlebar button, .desktop-titlebar summary { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 28px; height: 28px; padding: 0 9px; border: 0; border-radius: 7px; background: transparent; color: inherit; font: inherit; cursor: pointer; box-shadow: none; transform: none; }
 .desktop-titlebar :is(button, summary):hover { background: var(--bg-hover, #303030); }
 .desktop-titlebar :is(button, summary):focus-visible { outline: 2px solid var(--accent-blue, #cccccc); outline-offset: -2px; }
-.desktop-app-menu { position: relative; flex: none; }
-.desktop-app-menu summary { list-style: none; font-weight: 600; }
-.desktop-app-menu summary::-webkit-details-marker { display: none; }
-.desktop-app-menu-panel { position: absolute; z-index: 3; top: 34px; left: 0; min-width: 280px; padding: 6px; border: 1px solid var(--border-subtle, #3a3a3a); border-radius: 12px; background: var(--bg-popover, #292929); box-shadow: 0 12px 30px #0005; }
-.desktop-app-menu-panel button { width: 100%; justify-content: space-between; height: 36px; }
-.desktop-app-menu-panel kbd { color: var(--text-muted, #aaaaaa); font: 11px system-ui, sans-serif; }
 .desktop-window-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted, #aaaaaa); padding-left: 10px; }
 .desktop-window-controls { margin-left: auto; display: flex; gap: 3px; flex: none; }
 .desktop-window-controls button { width: 36px; padding: 0; }
@@ -21,7 +15,7 @@ html[data-desktop-chrome] :is(.app-layout, .inspector-shell) { height: calc(100d
 .desktop-window-error { position: absolute; top: 42px; right: 8px; max-width: min(480px, 90vw); padding: 10px; border-radius: 8px; color: #f38ba8; background: #292929; user-select: text; }
 /* The existing client header occupies the middle of the native titlebar.
    It is removed from normal flow, so this is one row, not two stacked bars. */
-html[data-desktop-chrome] :is(.topbar, .inspector-topbar) { position: fixed; z-index: 101; top: 0; left: 144px; right: 126px; height: var(--desktop-chrome-height); min-height: 0; margin: 0; padding: 0 12px; background: transparent; border: 0; }
+html[data-desktop-chrome] :is(.topbar, .inspector-topbar) { position: fixed; z-index: 101; top: 0; left: 44px; right: 126px; height: var(--desktop-chrome-height); min-height: 0; margin: 0; padding: 0 12px; background: transparent; border: 0; }
 html[data-desktop-chrome]:has(.topbar, .inspector-topbar) .desktop-window-title { visibility: hidden; }
 html[data-desktop-chrome] .topbar .brand { font-size: 13px; }
 .desktop-resize-edges > div { position: fixed; z-index: 200; }

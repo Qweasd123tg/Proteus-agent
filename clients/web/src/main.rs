@@ -10,6 +10,7 @@ mod components;
 mod events;
 mod markdown;
 mod messages;
+mod model_preference;
 mod model_settings;
 mod session;
 mod tool_names;

@@ -36,7 +36,8 @@ def run(command, js, wait_for, web, origin):
     js("document.querySelector('.architecture-tabs button').click()")
     for width in [900, 390]:
         command('/window/rect', {'width': width, 'height': 950})
-        wait_for(lambda: js("return document.documentElement.scrollWidth <= innerWidth + 1"), 'Inspector overflows the narrow viewport')
+        wait_for(lambda: js("return document.documentElement.scrollWidth <= Math.max(innerWidth,860) + 1"), 'Inspector overflows the narrow viewport')
+        assert js("const side=document.querySelector('.inspector-sidebar').getBoundingClientRect(),main=document.querySelector('.inspector-main').getBoundingClientRect(),graph=document.querySelector('.graph-viewport').getBoundingClientRect(),details=document.querySelector('.graph-details').getBoundingClientRect();return side.right<=main.left && side.top===main.top && getComputedStyle(document.querySelector('.inspector-sidebar')).flexDirection==='column' && (document.querySelector('.graph-details').hidden || details.left>=graph.right)"), 'Inspector switched to vertical panes'
         js("document.querySelector('.graph-controls button:last-child').click()")
         wait_for(lambda: js("return document.querySelector('.topology-explorer.fullscreen').getBoundingClientRect().width <= innerWidth"), 'Fullscreen graph is outside the window')
         js("window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))")

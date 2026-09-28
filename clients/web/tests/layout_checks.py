@@ -15,7 +15,7 @@ def run(command, js, wait_for):
           const done=arguments[arguments.length-1],button=document.querySelector(arguments[0]);
           const chat=document.querySelector('.session-workspace'), widths=[];
           button.focus();button.click();let frames=0;
-          function frame(){widths.push(Math.round(chat.getBoundingClientRect().width));if(++frames<12)requestAnimationFrame(frame);else done({widths:[...new Set(widths)],animated:document.getAnimations().some(a=>a.effect?.target?.matches('.workspace-main,.tab-workspace,.sidebar'))});}
+          function frame(){widths.push(Math.round(chat.getBoundingClientRect().width));if(++frames<12)requestAnimationFrame(frame);else done({widths:[...new Set(widths)],animated:document.getAnimations().some(a=>a.effect?.target?.matches('.workspace-main,.tab-workspace,.sidebar')&&a.effect.getKeyframes().some(k=>'width' in k||'height' in k))});}
           requestAnimationFrame(frame);
         ''', 'args':[selector]})
         assert len(result['widths'])==1 and not result['animated'], 'Toggle animates chat geometry'
@@ -33,7 +33,7 @@ def run(command, js, wait_for):
     wait_for(lambda: js("return !!document.querySelector('.composer textarea')"), 'Chat did not restore')
     for width in [1440, 900, 620]:
         command('/window/rect',{'width':width,'height':1000})
-        assert js("return document.documentElement.scrollWidth<=innerWidth"), 'Horizontal overflow'
+        assert js("return document.documentElement.scrollWidth<=Math.max(innerWidth,860)"), 'Horizontal overflow'
     command('/window/rect',{'width':1440,'height':1000})
     Path('/tmp/proteus-tab-layout.png').write_bytes(base64.b64decode(command('/screenshot',None)))
-    print('PASS: immediate panel geometry; width persistence; Back/Forward; responsive shell',flush=True)
+    print('PASS: immediate panel geometry; width persistence; Back/Forward; desktop shell',flush=True)

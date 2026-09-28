@@ -15,6 +15,8 @@ from session_checks import run as check_session, check_inspector_startup, BOOTST
 from queue_checks import run as check_queue
 from live_checks import run as check_live
 from chrome_checks import run as check_chrome
+from polish_checks import run as check_polish, check_restore_failure
+from tool_chain_checks import run as check_tool_chain
 from planning_checks import run as check_planning
 from usage_checks import run as check_usage
 from architecture_checks import run as check_architecture
@@ -147,7 +149,7 @@ class Assets(SimpleHTTPRequestHandler):
             assert self.headers.get('Authorization') == 'Bearer fixture-access'
             assert self.headers.get('ChatGPT-Account-Id') == 'fixture-account'
             if self.path.startswith('/models?'):
-                data = {"models": [{"slug": "fixture-model", "display_name": "Fixture", "visibility": "list", "priority": 0, "supported_reasoning_levels": []}]}
+                data = {"models": [{"slug": "fixture-model", "display_name": "Fixture", "visibility": "list", "priority": 0, "supported_reasoning_levels": []}, {"slug":"fixture-model-2","display_name":"Fixture 2","visibility":"list","priority":1,"supported_reasoning_levels":[{"effort":"low","description":"Low"},{"effort":"high","description":"High"}]}]}
             else:
                 data = {"plan_type": "plus", "rate_limit": {"allowed": True, "limit_reached": False,
                     "primary_window": {"used_percent": 27, "limit_window_seconds": 18000, "reset_at": int(time.time()) + 3600},
@@ -293,6 +295,12 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return js("return document.querySelector('[data-extension-id=agent-info] .extension-panel-content')?.shadowRoot?.textContent.includes('extensions-smoke')")
                 command('/window/rect', {'width': 1440, 'height': 1000})
                 assert js("return matchMedia('(prefers-reduced-motion: reduce)').matches") == bool(reduced_motion), 'Browser did not apply motion preference'
+                if '--preference-error-only' in sys.argv:
+                    command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
+                    wait_for(loaded,'Client missing')
+                    js("localStorage.setItem('proteus.model.last-selection',JSON.stringify({model:'fixture-model',effort:'none'}))")
+                    check_restore_failure(command,js,wait_for)
+                    return
                 if '--chrome-only' in sys.argv:
                     check_chrome(command, js, wait_for, web, origin)
                     return
@@ -311,6 +319,21 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     check_tools_picker(command, js, wait_for, web, origin, config, request)
                     return
                 check_extensions(command, js, wait_for, web, origin, loaded)
+                if '--tool-chain-only' in sys.argv:
+                    check_tool_chain(command, js, wait_for)
+                    return
+                if '--polish-only' in sys.argv:
+                    check_tool_chain(command, js, wait_for)
+                    check_polish(command, js, wait_for)
+                    check_settings(command, js, wait_for)
+                    check_chrome(command, js, wait_for, web, origin)
+                    return
+                if '--desktop-layout-only' in sys.argv:
+                    check_settings(command, js, wait_for)
+                    check_panels(command, js, wait_for)
+                    check_layout(command, js, wait_for)
+                    check_architecture(command, js, wait_for, web, origin)
+                    return
                 if '--settings-only' in sys.argv:
                     check_settings(command, js, wait_for)
                     return

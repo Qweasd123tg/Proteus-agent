@@ -1,5 +1,6 @@
 import { createPanelRuntime } from './runtime.js';
 import { extensionStorage } from './storage.js';
+import { icon } from './icons.js';
 import { theme } from './theme.js';
 
 export function button(label, action, signal) {
@@ -13,18 +14,21 @@ export function createPanel(record,{services,storage,changed,surfaceOnly=false,c
   const body=document.createElement('div');body.className='extension-panel-body';
   const error=document.createElement('p');error.className='extension-error';error.setAttribute('role','status');
   const retry=button('Повторить',()=>mount(),signal);retry.hidden=true;element.append(body,error,retry);
+  const compact=button('',()=>changed({collapsed:false}),signal);compact.className='extension-widget';compact.dataset.widgetId=record.id;compact.title=record.manifest?.name??record.id;compact.setAttribute('aria-label',compact.title);
+  const compactSurface=document.createElement('span');compact.append(compactSurface);const compactRoot=compactSurface.attachShadow({mode:'open'});
   let runtime,panelRoot;
   function mount(){
     releaseOwned?.();runtime?.stop();
     const surface=document.createElement('div');surface.className='extension-panel-content';body.replaceChildren(surface);
     panelRoot=surface.attachShadow({mode:'open'});const style=document.createElement('style');style.textContent=theme;panelRoot.append(style);
-    error.textContent=record.error??'';retry.hidden=true;if(record.error||surfaceOnly)return;
-    const compact=document.createElement('span').attachShadow({mode:'open'});
-    runtime=createPanelRuntime({manifest:record.manifest,root:panelRoot,compact,services,storage:extensionStorage(storage,record.id),
+    error.textContent=record.error??'';retry.hidden=true;
+    compactRoot.replaceChildren(icon('modules'));
+    if(record.error||surfaceOnly)return;
+    runtime=createPanelRuntime({manifest:record.manifest,root:panelRoot,compact:compactRoot,services,storage:extensionStorage(storage,record.id),
       panel:Object.freeze({open:()=>changed({collapsed:false}),move:location=>changed({location,collapsed:false})}),panels:Object.freeze({create:createOwned}),
       onError(failure){releaseOwned?.();panelRoot.replaceChildren();error.textContent=`Не удалось открыть вкладку: ${failure.message}`;retry.hidden=false;},
     });
   }
   mount();
-  return {element,root:panelRoot,signal,update(){},stop(){controller.abort();releaseOwned?.();runtime?.stop();element.remove();}};
+  return {element,compact,root:panelRoot,signal,update(){},stop(){controller.abort();releaseOwned?.();runtime?.stop();compact.remove();element.remove();}};
 }

@@ -46,6 +46,7 @@ def run(command, js, wait_for):
     assert order() == expected and js("return !document.querySelector('.extension-drag-ghost') && escapedToApp===0 && localStorage.getItem('proteus.ui.extensions')===orderSaved"), 'Escape did not cancel drag cleanly'
     click('[data-settings-id=usage]')
     wait_for(lambda: js("return !!document.querySelector('.extension-options-content')?.shadowRoot?.querySelector('form')"), 'Settings form not mounted')
+    wait_for(lambda: js("return !document.querySelector('.extension-options').getAnimations().length"), 'Options animation did not settle')
     assert js("const n=document.querySelector('.settings-nav').getBoundingClientRect(),l=document.querySelector('.settings-content').getBoundingClientRect(),r=document.querySelector('.extension-options').getBoundingClientRect();return n.right<=l.left && l.right<=r.left && r.width>=300 && r.right<=innerWidth"), 'Settings are not three independent panes'
     js("window.keptOptions=document.querySelector('.extension-options-content');keptOptions.shadowRoot.querySelector('[name=model]').value='draft-model'")
     # A dropdown consumes Escape first, then the pane consumes the next one.
@@ -66,7 +67,7 @@ def run(command, js, wait_for):
     Path('/tmp/proteus-settings-three-panes.png').write_bytes(base64.b64decode(command('/screenshot', None)))
     for width in [900, 620, 390]:
         command('/window/rect', {'width': width, 'height': 1000})
-        assert js("return document.documentElement.scrollWidth<=innerWidth && document.querySelector('.extension-options').getBoundingClientRect().right<=innerWidth"), 'Settings overflow on narrow screen'
+        assert js("const n=document.querySelector('.settings-nav').getBoundingClientRect(),l=document.querySelector('.settings-content').getBoundingClientRect(),r=document.querySelector('.extension-options').getBoundingClientRect();return n.right<=l.left && l.right<=r.left && l.width>=320 && r.right<=document.querySelector('.settings-page').getBoundingClientRect().left+document.querySelector('.settings-page').scrollWidth && getComputedStyle(document.querySelector('.settings-nav')).flexDirection==='column' && getComputedStyle(document.querySelector('.extension-options')).position==='relative'"), 'Settings switched to mobile layout'
     command('/window/rect', {'width': 1440, 'height': 1000})
     click('.settings-back')
     wait_for(lambda: js("return !!document.querySelector('.settings-link') && !document.querySelector('.settings-page')"), 'Settings cleanup failed')
@@ -77,4 +78,4 @@ def run(command, js, wait_for):
     wait_for(lambda: js("return document.querySelectorAll('.extension-list [data-extension-choice]').length>2"), 'Extensions missing after reload')
     assert order() == expected, 'Reload lost drag order'
     click('.settings-back')
-    print('PASS: shared chat/settings geometry; pointer insertion and cancel; persisted order; three panes; dropdown/pane Escape isolation; drafts and width; narrow screens', flush=True)
+    print('PASS: shared chat/settings geometry; pointer insertion and cancel; persisted order; three panes; dropdown/pane Escape isolation; drafts and width; desktop panes at every window width', flush=True)

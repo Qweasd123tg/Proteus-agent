@@ -74,10 +74,10 @@ def run(command, js, wait_for):
     assert js("return document.querySelector('[data-extension-id=model-quota]')===window.keptQuota"), 'Closing/reopening extension reset its runtime'
     Path('/tmp/proteus-tab-workspace.png').write_bytes(base64.b64decode(command('/screenshot', None)))
     command('/window/rect', {'width': 760, 'height': 900})
-    assert js("const r=document.querySelector('.tab-workspace').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&document.documentElement.scrollWidth<=innerWidth"), 'Narrow workspace overflows'
+    assert js("const r=document.querySelector('.tab-workspace').getBoundingClientRect();const chat=document.querySelector('.workspace-main').getBoundingClientRect(),side=document.querySelector('.sidebar').getBoundingClientRect();return r.left>=chat.right && chat.left>=side.right && r.top===chat.top && getComputedStyle(document.querySelector('.tab-workspace')).position==='relative' && getComputedStyle(document.querySelector('.app-layout')).flexDirection==='row'"), 'Workspace switched to mobile layout'
     js("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
-    assert js("return document.querySelector('.tab-workspace').hidden"), 'Escape did not close mobile panel'
+    assert js("return !document.querySelector('.tab-workspace').hidden"), 'Narrow viewport still enables mobile Escape handling'
     command('/window/rect', {'width': 1440, 'height': 1000})
-    js("document.querySelector('[data-workspace-toggle]').click();for(const b of [...document.querySelectorAll('.workspace-tab-close')])b.click()")
+    js("for(const b of [...document.querySelectorAll('.workspace-tab-close')])b.click()")
     assert js("return !document.querySelector('.workspace-empty').hidden && document.querySelector('.workspace-empty [data-open-tab=usage]')"), 'Closing final tab lost the chooser'
-    print('PASS: gray palette; header sidebar control; inline file/tree split; diff; cached switching and reopening; no refetch on toggle; mobile Escape', flush=True)
+    print('PASS: gray palette; header sidebar control; inline file/tree split; diff; cached switching and reopening; no refetch on toggle; desktop panels at narrow width', flush=True)

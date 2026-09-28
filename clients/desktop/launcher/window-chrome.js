@@ -1,3 +1,4 @@
+import { popup } from '/ui/popup.js';
 // Native chrome belongs to the desktop shell; browser clients keep their own frame.
 const api = window.__TAURI__;
 if (api) mountWindowChrome(api);
@@ -15,14 +16,7 @@ export function mountWindowChrome(api) {
   const bar = document.createElement('header');
   bar.className = 'desktop-titlebar';
   bar.setAttribute('aria-label', 'Окно Proteus');
-  bar.innerHTML = `<details class="desktop-app-menu">
-    <summary>Proteus <span aria-hidden="true">⌄</span></summary>
-    <div class="desktop-app-menu-panel">
-      <button type="button" data-action="project">Открыть проект… <kbd>Ctrl+Shift+O</kbd></button>
-      <button type="button" data-action="inspector">Inspector <kbd>Ctrl+Shift+I</kbd></button>
-      <button type="button" data-action="quit">Выйти из Proteus <kbd>Ctrl+Q</kbd></button>
-    </div>
-  </details>
+  bar.innerHTML = `
   <span class="desktop-window-title"></span>
   <span class="desktop-window-error" role="status" hidden></span>
   <div class="desktop-window-controls">
@@ -32,7 +26,7 @@ export function mountWindowChrome(api) {
   </div>`;
   bar.querySelector('.desktop-window-title').textContent = win.label === 'launcher' ? 'Открыть проект' : (window.__PROTEUS_DESKTOP__?.workspace || document.title);
   document.body.prepend(bar);
-  const menu = bar.querySelector('details');
+  const menu = popup('desktop-app-menu-panel','Proteus');menu.element.setAttribute('role','menu');
   const maximize = bar.querySelector('[data-action=maximize]');
   const error = bar.querySelector('.desktop-window-error');
   const report = reason => { error.hidden = false; error.textContent = String(reason); };
@@ -49,7 +43,8 @@ export function mountWindowChrome(api) {
   };
   const actions = {
     project: () => api.core.invoke('open_project'),
-    inspector: () => api.core.invoke('open_client', { label: 'inspector', sessionDir: null }),
+    folder: () => api.core.invoke('open_workspace_folder'),
+    inspector: () => api.core.invoke('open_client', { label: 'inspector', sessionDir: new URL(location.href).searchParams.get('session_dir') }),
     minimize: () => win.minimize(),
     maximize: async () => { await win.toggleMaximize(); await refresh(); },
     close: () => win.close(),
@@ -58,7 +53,7 @@ export function mountWindowChrome(api) {
   bar.addEventListener('click', event => {
     const action = event.target.closest('[data-action]')?.dataset.action;
     if (!actions[action]) return;
-    menu.open = false;
+    menu.hide();
     perform(actions[action]);
   }, options);
   const dragTarget = event => event.target.closest('.desktop-titlebar, .topbar, .inspector-topbar')
@@ -72,20 +67,24 @@ export function mountWindowChrome(api) {
     if (event.button === 0 && dragTarget(event)) perform(actions.maximize);
   }, options);
   document.addEventListener('click', event => {
-    if (!menu.contains(event.target)) menu.open = false;
+    const anchor=event.target.closest('[data-app-menu]');if(!anchor)return;
+    menu.show([
+      menu.action('Открыть проект…','folder',()=>perform(actions.project)),
+      menu.action('Inspector','inspector',()=>perform(actions.inspector)),
+      menu.action('Выйти из Proteus','close',()=>perform(actions.quit)),
+    ],anchor,{x:anchor.getBoundingClientRect().left,y:anchor.getBoundingClientRect().bottom+6});
   }, options);
+  document.addEventListener('proteus-desktop-action',event=>{
+    if(['project','folder','inspector'].includes(event.detail))perform(actions[event.detail]);
+  },options);
   document.addEventListener('keydown', event => {
     if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.repeat) {
       const action = event.shiftKey ? { KeyO: 'project', KeyI: 'inspector' }[event.code]
         : event.code === 'KeyQ' ? 'quit' : null;
       if (action) {
-        event.preventDefault(); event.stopImmediatePropagation(); menu.open = false;
+        event.preventDefault(); event.stopImmediatePropagation(); menu.hide();
         perform(actions[action]); return;
       }
-    }
-    if (event.key === 'Escape' && menu.open) {
-      event.preventDefault(); event.stopImmediatePropagation();
-      menu.open = false; menu.querySelector('summary').focus();
     }
   }, { ...options, capture: true });
   const edges = document.createElement('div');
@@ -107,7 +106,7 @@ export function mountWindowChrome(api) {
   const dispose = () => {
     if (disposed) return;
     disposed = true; controller.abort(); releaseResize?.();
-    bar.remove(); edges.remove(); style.remove();
+    menu.dispose(); bar.remove(); edges.remove(); style.remove();
     delete document.documentElement.dataset.desktopChrome;
     document.documentElement.classList.remove('desktop-maximized', 'desktop-fullscreen');
   };

@@ -17,7 +17,7 @@ def run(command, js, wait_for, web, origin, loaded):
         return js("return document.querySelector('[data-extension-id=model-quota] .extension-panel-content')?.shadowRoot?.textContent.includes('73% осталось')")
 
     command('/url', {'url': web + '/standalone.html'})
-    js("localStorage.setItem('proteus.ui.extensions', JSON.stringify({apiVersion:1,panels:[{id:'agent-info',url:location.origin+'/extensions/agent-info/extension.json',enabled:true,collapsed:false},{id:'notes',url:location.origin+'/extensions/notes/extension.json',enabled:false,collapsed:false}]}))")
+    js("localStorage.setItem('proteus.toolCardsCollapsed','false');localStorage.setItem('proteus.ui.extensions', JSON.stringify({apiVersion:1,panels:[{id:'agent-info',url:location.origin+'/extensions/agent-info/extension.json',enabled:true,collapsed:false},{id:'notes',url:location.origin+'/extensions/notes/extension.json',enabled:false,collapsed:false}]}))")
     command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
     wait_for(loaded, 'Leptos transport did not deliver authenticated config')
     assert js("return !document.querySelector('.extension-manager') && !document.querySelector('.extension-install') && !document.querySelector('[data-extension-id=model-quota]')")

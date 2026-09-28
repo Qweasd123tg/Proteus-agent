@@ -18,7 +18,7 @@ def run(command, js, wait_for, web, origin):
     Path('/tmp/proteus-settings-simplified.png').write_bytes(base64.b64decode(command('/screenshot', None)))
     for width in [900,620,390]:
         command('/window/rect', {'width':width,'height':1000})
-        assert js("return document.documentElement.scrollWidth<=innerWidth"), 'Settings horizontal overflow'
+        assert js("return document.documentElement.scrollWidth<=Math.max(innerWidth,860)"), 'Settings horizontal overflow'
     command('/window/rect', {'width':1440,'height':1000})
     js("document.querySelector('[data-settings-section=diagnostics]').click()")
     assert js("return !document.querySelector('a[href=\"/context\"], a[href=\"/resume\"]') && document.querySelector('.settings-content a').textContent.includes('Inspector') && document.querySelectorAll('.settings-nav button svg').length===3"), 'Diagnostics, history or settings icons are wrong'

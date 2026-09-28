@@ -1,3 +1,4 @@
+mod preferences;
 mod queue;
 
 use leptos::prelude::*;
@@ -139,6 +140,7 @@ impl AppActions {
                                 status: self.set_transport_status,
                             }
                             .apply(&config);
+                            self.remember_selection(&session_dir, generation).await;
                         } else {
                             self.set_control_error(
                                 "Model update failed",
@@ -195,6 +197,8 @@ impl AppActions {
                     ) {
                         self.set_effort.set(previous_effort);
                         self.set_reasoning_enabled.set(previous_enabled);
+                    } else {
+                        self.remember_selection(&session_dir, generation).await;
                     }
                 }
                 Err(error) => {

@@ -246,7 +246,7 @@ impl ViewState {
         let (tool_cards_collapsed, set_tool_cards_collapsed) =
             signal(crate::ui_preferences::load_bool_setting(
                 crate::ui_preferences::TOOL_CARDS_COLLAPSED_KEY,
-                false,
+                true,
             ));
         let (activity_now_ms, set_activity_now_ms) = signal(js_sys::Date::now().max(0.0) as u64);
         let (detach_baseline, set_detach_baseline) = signal(None);

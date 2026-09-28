@@ -9,7 +9,7 @@ export function mount({ root, compact, services, signal }) {
     .toolbar button{display:flex;align-items:center;padding:3px 6px;font-size:12px}.toolbar svg{width:16px;height:16px}.tree{flex:1;min-height:0;overflow:auto;padding:4px 0;outline:none}
     .row{display:flex;align-items:center;justify-content:flex-start;gap:5px;width:100%;height:25px;min-height:25px;box-sizing:border-box;border:0;border-radius:7px;padding:0 8px;text-align:left;background:transparent;color:inherit;font:12px var(--font-mono,monospace);white-space:nowrap;cursor:pointer}
     .row:hover{background:var(--bg-hover,#333)}.row.active{background:var(--bg-active,var(--bg-hover,#333))}.row:focus-visible{outline:1px solid var(--accent,#8aaaff);outline-offset:-1px}.row:disabled{opacity:.45;cursor:default}
-    .row svg{width:14px;height:14px;flex:none}.row .chevron{width:10px;height:10px;transition:transform .1s}.row[aria-expanded=true] .chevron{transform:rotate(90deg)}
+    .row svg{width:14px;height:14px;flex:none}.row .chevron{width:10px;height:10px;transition:transform var(--motion-fast,100ms)}.row[aria-expanded=true] .chevron{transform:rotate(90deg)}
     @media(prefers-reduced-motion:reduce){.row .chevron{transition:none}}
     .file-type-rust{color:#d9a18b}.file-type-js{color:#d8c979}.file-type-json{color:#c7bd84}.file-type-md{color:#86b4d4}
     .git-added .label,.git-untracked .label{color:#8fc99b}.git-modified .label,.git-renamed .label{color:#d8bc79}.git-deleted .label,.git-conflict .label{color:#df9292}.git-deleted .label{text-decoration:line-through}.git-mark{margin-left:auto;flex:none;font-size:10px;color:var(--text-muted,#aaa)}

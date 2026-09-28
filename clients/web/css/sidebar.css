@@ -2,7 +2,8 @@
     display: flex;
     height: 100vh;
     height: 100dvh;
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
 }
 
 .app-layout.resizing {
@@ -11,7 +12,7 @@
 
 .sidebar {
     --sidebar-header-height: 104px;
-    --sidebar-surface-width: min(var(--sidebar-width), 30vw);
+    --sidebar-surface-width: var(--sidebar-width);
     position: relative;
     z-index: 10;
     display: flex;
@@ -249,7 +250,7 @@ button.session-item.active {
     box-shadow: none;
 }
 
-.session-delete {
+.session-more {
     position: absolute;
     top: 6px;
     right: 6px;
@@ -268,15 +269,15 @@ button.session-item.active {
     transition: background 0.12s, color 0.12s, opacity 0.12s;
 }
 
-.session-list-item:hover .session-delete,
-.session-list-item:focus-within .session-delete {
+.session-list-item:hover .session-more,
+.session-list-item:focus-within .session-more {
     opacity: 1;
 }
 
-.session-delete:hover,
-.session-delete:focus {
-    background: var(--accent-red-soft);
-    color: var(--accent-red);
+.session-more:hover,
+.session-more:focus {
+    background: var(--bg-panel-hover);
+    color: var(--text-main);
     outline: none;
 }
 
@@ -317,3 +318,14 @@ button.session-item.active {
 .session-title-line { width: 100%; }
 .sidebar-rail-surface .sidebar-brand, .sidebar-rail-surface .new-session-label { display: none; }
 .sidebar-rail-surface .sidebar-header-actions button:last-child { flex: none; width: 30px; padding: 0; justify-content: center; }
+
+.sidebar-header .sidebar-brand { width:auto; display:flex; align-items:center; gap:6px; justify-content:flex-start; padding:0 8px; border:0; }
+.sidebar-project { position:relative; }
+.sidebar-project > span { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.project-more,.project-new { width:26px;min-height:26px;padding:0;flex:none;opacity:0;color:var(--text-muted); }
+.sidebar-project:hover .project-more,.sidebar-project:hover .project-new,.sidebar-project:focus-within button { opacity:1; }
+.sidebar-archive-back { margin:0 10px 8px;font-size:12px;justify-content:flex-start; }
+.sidebar-preferences-error { color:var(--accent-red);padding:0 12px;font-size:12px;overflow-wrap:anywhere; }
+.sidebar-preferences-error:empty { display:none; }
+.session-title-line > svg { margin-left:auto;color:var(--text-muted); }
+button[data-delete-session] { display:none; }

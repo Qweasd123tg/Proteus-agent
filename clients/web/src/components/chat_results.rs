@@ -37,6 +37,10 @@ where
     X: Fn(web_sys::MouseEvent) + Copy + Send + 'static,
 {
     let (dismissed_plan, set_dismissed_plan) = signal(None::<String>);
+    let groups = Memo::new(move |_| {
+        messages.ids();
+        messages.with_tool_messages(|items| super::tool_chain::groups(items))
+    });
     view! {
         <section
             class="results-panel"
@@ -87,14 +91,14 @@ where
                 }
             }}
             <For
-                each=move || messages.ids()
-                key=|message_id| *message_id
-                children=move |message_id| view! {
-                    <MessageView
-                        message_id
-                        messages
-                        activity_now_ms
-                    />
+                each=move || groups.get()
+                key=|group| (group.id,group.tools)
+                children=move |group| {
+                    if group.tools {
+                        view!{<super::tool_chain::ToolChain id=group.id groups messages activity_now_ms/>}.into_any()
+                    } else {
+                        view!{<MessageView message_id=group.id messages activity_now_ms/>}.into_any()
+                    }
                 }
             />
             <For

@@ -92,33 +92,6 @@
     .cfg-panel .config-builder-slot { padding: 18px; }
     .cfg-save-strip { padding: 14px 16px; }
 }
-@media (max-width: 900px) {
-    .cfg-panel .config-builder-grid, .tools-picker-list { grid-template-columns: minmax(0, 1fr); }
-    .cfg-runtime-settings { grid-template-columns: minmax(0, 1fr); }
-    .cfg-save-strip code { max-width: 260px; }
-}
-@media (max-width: 760px) {
-    .cfg-overview { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-    .cfg-overview > article { padding: 14px 12px; }
-    .cfg-overview strong { font-size: 13px; }
-    .cfg-overview .panel-kicker { font-size: 8px; margin-bottom: 8px; }
-    .cfg-overview p { font-size: 10px; }
-    .cfg-tabs { gap: 22px; }
-    .cfg-tab { font-size: 12px; }
-    .cfg-search input, input.cfg-search { max-width: none; }
-    .cfg-save-strip { flex-wrap: wrap; gap: 12px; padding: 14px; }
-    .cfg-save-strip > div:first-child { flex: 1 1 100%; }
-    .cfg-save-strip > div:last-child:has(button) { width: 100%; justify-content: flex-end; }
-    .cfg-save-strip code { max-width: 100%; }
-    .cfg-save-strip .btn-primary { flex: 1; }
-    .tools-picker-head input { max-width: none; }
-}
-@media (max-width: 420px) {
-    .cfg-overview { grid-template-columns: 1fr; }
-    .cfg-overview > article { display: grid; grid-template-columns: 85px minmax(0, 1fr); align-items: center; gap: 4px 10px; }
-    .cfg-overview .panel-kicker { margin: 0; }
-    .cfg-overview p, .cfg-overview small { grid-column: 2; margin: 0; }
-}
 
 .cfg-page-actions { display: flex; align-items: center; gap: 14px; max-width: 43%; }
 .cfg-page-actions .topology-muted { max-width: 240px; font: 11px var(--font-sans); line-height: 1.5; text-transform: none; white-space: normal; overflow-wrap: anywhere; color: var(--text-faint); }
@@ -137,13 +110,6 @@
 .cfg-details-group > summary { cursor: pointer; padding: 18px 20px; font-size: 13px; }
 .cfg-details-group[open] > summary { border-bottom: 1px solid var(--border-subtle); }
 .cfg-details-panel .config-builder-target { position: static; border: 1px solid var(--border-subtle); border-radius: 10px; grid-template-columns: auto minmax(0, 1fr) auto; }
-@media (max-width: 760px) {
-    .cfg-page-head { flex-wrap: wrap; gap: 16px; }
-    .cfg-page-actions { max-width: none; width: 100%; justify-content: space-between; }
-    .cfg-page-actions .topology-muted { max-width: none; font-size: 11px; }
-    .cfg-panel-head { align-items: stretch; flex-direction: column; gap: 12px; }
-    .cfg-details-panel .config-builder-target { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-}
 
 .config-editor-gear { flex: 0 0 auto; color: var(--text-muted); }
 .inspector-content .config-editor-head::after { content: none; }

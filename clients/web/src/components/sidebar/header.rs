@@ -11,7 +11,7 @@ where
     view! {
         <div class="sidebar-header">
             <div class="sidebar-brand-row">
-                <span class="sidebar-brand">"Proteus"</span>
+                <button type="button" class="sidebar-brand" data-app-menu="" aria-label="Меню Proteus" aria-haspopup="menu">"Proteus"<super::super::icons::ChevronDownIcon/></button>
             </div>
             <div class="sidebar-header-actions">
                 <button type="button" title="Обновить сессии" aria-label="Обновить сессии" on:click=on_refresh><RefreshIcon /></button>

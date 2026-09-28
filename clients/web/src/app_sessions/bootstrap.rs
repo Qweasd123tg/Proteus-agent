@@ -56,6 +56,7 @@ impl AppSessionActions {
                 &catalog,
             );
             self.set_sidebar_sessions.set(catalog);
+            let is_new = selected.is_none();
             let result = match selected {
                 Some(session_dir) => resume_session(session_dir).await,
                 None => create_session(None).await,
@@ -66,6 +67,14 @@ impl AppSessionActions {
             match result {
                 Ok(session_dir) => {
                     self.activate_session(session_dir.clone());
+                    if is_new {
+                        self.runtime_settings
+                            .restore_selection(&session_dir, startup_generation)
+                            .await;
+                    }
+                    if self.transcript.transcript_generation.get_untracked() != startup_generation {
+                        return;
+                    }
                     self.runtime_settings
                         .load(session_dir.clone(), startup_generation);
                     reconnect_event_stream(self.event_source, self.event_stream);

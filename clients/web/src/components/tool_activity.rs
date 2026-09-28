@@ -99,6 +99,7 @@ pub(crate) fn ToolActivityCard(
             <button
                 type="button"
                 class="tool-card-summary"
+                aria-expanded=move || expanded.get().to_string()
                 title=move || if expanded.get() { "Скрыть детали tool" } else { "Показать детали tool" }
                 on:click=move |_| set_expanded.update(|value| *value = !*value)
             >

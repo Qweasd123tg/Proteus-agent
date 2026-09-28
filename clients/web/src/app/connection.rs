@@ -97,6 +97,14 @@ pub(super) fn connect(state: AppState) -> ClientConnection {
         }
     };
     let runtime_settings = RuntimeSettingsBindings {
+        on_selection_error: Callback::new(move |text| {
+            let id = state.view.next_toast_id.get_untracked();
+            state.view.set_next_toast_id.set(id + 1);
+            state
+                .view
+                .set_toasts
+                .update(|items| items.push(ToastMessage { id, text }));
+        }),
         set_mode,
         set_model_name,
         set_model_options,

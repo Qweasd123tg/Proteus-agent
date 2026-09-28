@@ -81,16 +81,3 @@
     font-size: 15px;
     line-height: 1.55;
 }
-
-@media (max-width: 620px) {
-    .results-panel {
-        padding: var(--space-6) var(--space-4) calc(var(--composer-inset, 0px) + 24px);
-        scroll-padding-bottom: calc(var(--composer-inset, 0px) + 24px);
-    }
-
-    .results-panel > .chat-empty-state {
-        min-height: calc(100% - var(--composer-inset, 0px) - 48px);
-        padding-right: var(--space-4);
-        padding-left: var(--space-4);
-    }
-}

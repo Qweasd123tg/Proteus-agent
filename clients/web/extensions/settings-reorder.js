@@ -1,3 +1,4 @@
+import { motionAllowed } from '../ui/motion.js';
 // Pointer drag previews the insertion position; only dropping writes the order.
 export function enableReorder(list, registry, signal, status) {
   let drag;
@@ -32,7 +33,7 @@ export function enableReorder(list, registry, signal, status) {
     if((before??null)!==drag.row.nextElementSibling){
       const positions=new Map(rows().map(row=>[row,row.getBoundingClientRect().top]));
       list.insertBefore(drag.row,before??null);
-      if(!matchMedia('(prefers-reduced-motion: reduce)').matches)for(const row of rows()){
+      if(motionAllowed())for(const row of rows()){
         if(row===drag.row)continue;const delta=positions.get(row)-row.getBoundingClientRect().top;
         if(delta){for(const animation of row.getAnimations())animation.cancel();row.animate([{transform:`translateY(${delta}px)`},{transform:'translateY(0)'}],{duration:160,easing:'ease-out'});}
       }

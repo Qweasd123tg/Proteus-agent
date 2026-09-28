@@ -1,9 +1,11 @@
 import { createExtensionRegistry } from './registry.js';
 import { createPanel } from './panel.js';
+import { createWidgets } from './widgets.js';
 import { createWorkspace } from './workspace.js';
 
 export function mountExtensions(root, services = {}, options = {}) {
   const registry=options.registry??createExtensionRegistry(options), cards=new Map(), owned=new Map();
+  const widgets=createWidgets(registry.storage);
   let stopped=false;
   const all=()=>[...registry.state().records.filter(r=>r.enabled),...[...owned.values()].map(item=>item.record)];
   const workspace=createWorkspace(options.target??root,{storage:registry.storage,select:id=>update(id,{collapsed:false}),close});
@@ -44,7 +46,8 @@ export function mountExtensions(root, services = {}, options = {}) {
       if(card.element.parentNode!==workspace.content)workspace.content.append(card.element);
     }
     workspace.update(all());
+    widgets.update(state.records.filter(r=>r.enabled).map(r=>cards.get(r.id).compact));
   }
   const unsubscribe=registry.subscribe(render);void registry.start();
-  return()=>{stopped=true;unsubscribe();for(const card of cards.values()){release(card.record);card.stop();}workspace.stop();if(!options.registry)registry.dispose();root.replaceChildren();};
+  return()=>{stopped=true;unsubscribe();for(const card of cards.values()){release(card.record);card.stop();}widgets.stop();workspace.stop();if(!options.registry)registry.dispose();root.replaceChildren();};
 }

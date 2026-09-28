@@ -77,6 +77,7 @@ where
                 <div class="composer-toolbar">
                     <div class="composer-options">
                         <ComposerAccessMenu mode actions />
+                        <div class="widget-slot" data-widget-slot="composer"></div>
                     </div>
                     <div class="composer-actions">
                         <ComposerModelMenu model_name model_options reasoning_enabled effort effort_options actions />

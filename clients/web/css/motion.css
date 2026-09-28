@@ -1,7 +1,22 @@
 /* Geometry settles immediately: expanding a panel must not reflow the chat
-   over several animation frames. Feedback is limited to colors and opacity. */
+   over several animation frames. Feedback uses colors, opacity and surface transforms. */
 .sidebar-surface, .info-panel-surface, .sidebar-rail-surface, .info-panel-rail-surface,
 .info-panel-body, .panel-backdrop { transition: none; }
 .extension-panel-reveal { display: grid; grid-template-rows: 0fr; }
 .extension-panel.expanded > .extension-panel-reveal { grid-template-rows: 1fr; }
 .extension-panel-inner { min-height: 0; overflow: hidden; }
+
+/* Reveal the surface without animating the surrounding chat's width. */
+.app-layout:not(.sidebar-collapsed) .sidebar-surface { animation:panel-open-left .18s ease-out; }
+.tab-workspace:not([hidden]),.extension-options:not([hidden]) { animation:panel-open-right .18s ease-out; }
+@keyframes panel-open-left { from { opacity:0;transform:translateX(-12px) } to { opacity:1;transform:translateX(0) } }
+@keyframes panel-open-right { from { opacity:0;transform:translateX(12px) } to { opacity:1;transform:translateX(0) } }
+@media(prefers-reduced-motion:reduce) { .sidebar-surface,.tab-workspace,.extension-options { animation:none!important; } }
+
+.settings-toggle { transition:background var(--motion-fast,120ms),border-color var(--motion-fast,120ms); }
+.settings-toggle::before { transition:transform var(--motion-fast,120ms) ease-out,background var(--motion-fast,120ms); }
+.settings-nav :is(button,a),.workspace-tab,.menu-option,.extension-choice,.extension-widget { transition:background var(--motion-fast,120ms),color var(--motion-fast,120ms),opacity var(--motion-fast,120ms); }
+.animation-setting { margin-top:12px; }
+
+.composer-menu[open] > .composer-menu-panel,.workspace-picker:popover-open { animation:menu-open var(--motion-fast,120ms) ease-out; }
+@keyframes menu-open { from { opacity:0; transform:translateY(4px) } to { opacity:1;transform:translateY(0) } }
