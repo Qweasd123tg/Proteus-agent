@@ -15,6 +15,9 @@ use super::{
     encode_workspace_path, identity::resolve_session_identity, workspace_path_from_session_dir,
 };
 
+#[cfg(unix)]
+mod cache;
+
 #[derive(Clone, Copy)]
 enum CatalogMode {
     Compatible,
@@ -125,7 +128,11 @@ fn catalog_summary(session_dir: PathBuf, mode: CatalogMode) -> Result<Option<App
         return Ok((summary.message_count > 0).then_some(summary));
     }
     // The catalog isolates unusable entries, never accepts or rewrites them.
-    match session_summary_from_dir(session_dir.clone()) {
+    #[cfg(unix)]
+    let result = cache::summary(session_dir.clone());
+    #[cfg(not(unix))]
+    let result = session_summary_from_dir(session_dir.clone());
+    match result {
         Ok(summary) => Ok((summary.message_count > 0).then_some(summary)),
         Err(error) => {
             eprintln!(

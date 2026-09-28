@@ -22,13 +22,16 @@ pub(super) async fn session_summaries(
     state: &HttpAppState,
     workspace: Option<PathBuf>,
 ) -> Result<Vec<AppSessionSummary>> {
-    let stored_summaries = match state.launch.config_path.as_deref() {
-        Some(path) => match workspace.as_deref() {
-            Some(cwd) => list_workspace_session_summaries(&config_store_root(path), cwd)?,
-            None => list_session_summaries(&config_store_root(path))?,
+    let config_root = state.launch.config_path.as_deref().map(config_store_root);
+    let stored_workspace = workspace.clone();
+    let stored_summaries = tokio::task::spawn_blocking(move || match config_root {
+        Some(root) => match stored_workspace.as_deref() {
+            Some(cwd) => list_workspace_session_summaries(&root, cwd),
+            None => list_session_summaries(&root),
         },
-        None => Vec::new(),
-    };
+        None => Ok(Vec::new()),
+    })
+    .await??;
     let activity_by_dir = state.activity_by_session_dir().await;
     let mut seen = HashSet::new();
     let mut summaries = Vec::new();
