@@ -1,0 +1,26 @@
+/* Catalog views share the chat palette; no page-level layout or global selectors. */
+.markdown-interactive { padding:18px; color:var(--text-main); font:14px/1.5 var(--font-sans); }
+.markdown-interactive [hidden] { display:none; }
+.markdown-interactive .jr-stack,.markdown-interactive .jr-card { display:flex; flex-direction:column; gap:16px; min-width:0; }
+.markdown-interactive .jr-card { padding:18px; border:1px solid var(--border-subtle); border-radius:16px; background:var(--bg-panel-soft); }
+.markdown-interactive .jr-title { font-weight:600; }
+.markdown-interactive .jr-text { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.markdown-interactive .jr-muted { color:var(--text-muted); }
+.markdown-interactive .jr-metric { display:flex; flex-direction:column; gap:3px; }
+.markdown-interactive .jr-metric-value { font-size:28px; font-weight:600; overflow-wrap:anywhere; }
+.markdown-interactive .jr-search { width:100%; min-height:36px; margin-bottom:10px; padding:7px 12px; border:1px solid var(--border-subtle); border-radius:10px; background:var(--bg-root); color:inherit; font:inherit; }
+.markdown-interactive .jr-table-scroll { max-height:420px; overflow:auto; border:1px solid var(--border-subtle); border-radius:12px; }
+.markdown-interactive table { margin:0; width:100%; border-collapse:collapse; font:inherit; }
+.markdown-interactive th,.markdown-interactive td { padding:9px 12px; text-align:left; border:0; border-bottom:1px solid var(--border-subtle); max-width:360px; overflow-wrap:anywhere; }
+.markdown-interactive th { position:sticky; top:0; background:var(--bg-composer); font-weight:500; }
+.markdown-interactive tr:last-child td { border-bottom:0; }
+.markdown-interactive .jr-chart { margin:0; display:flex; flex-direction:column; gap:12px; }
+.markdown-interactive .jr-bar-row { display:grid; grid-template-columns:minmax(80px,1fr) minmax(100px,3fr) minmax(48px,auto); gap:12px; align-items:center; }
+.markdown-interactive .jr-bar-label { overflow-wrap:anywhere; }
+.markdown-interactive .jr-bar-track { height:12px; border-radius:6px; overflow:hidden; background:var(--bg-root); }
+.markdown-interactive .jr-bar { height:100%; border-radius:inherit; background:var(--text-muted); }
+.markdown-interactive .jr-bar-value { font-variant-numeric:tabular-nums; text-align:right; }
+.markdown-interactive .jr-tab-list { display:flex; gap:4px; padding:4px; margin-bottom:16px; border-radius:12px; background:var(--bg-root); overflow:auto; }
+.markdown-interactive .jr-tab { flex:0 0 auto; padding:7px 12px; border:0; border-radius:9px; background:transparent; color:var(--text-muted); font:inherit; cursor:pointer; transition:background var(--motion-fast,120ms),color var(--motion-fast,120ms); }
+.markdown-interactive .jr-tab[aria-selected=true] { background:var(--bg-composer); color:var(--text-main); }
+.markdown-interactive :is(button,input):focus-visible { outline:2px solid var(--text-muted); outline-offset:2px; }

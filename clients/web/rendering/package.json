@@ -1,1 +1,1 @@
-{"name":"proteus-markdown-assets","private":true,"type":"module","scripts":{"build":"node build.mjs"},"dependencies":{"@highlightjs/cdn-assets":"11.11.1","mathjax":"3.2.2","mermaid":"11.12.0"}}
+{"name":"proteus-markdown-assets","private":true,"type":"module","scripts":{"build":"node build.mjs"},"dependencies":{"@highlightjs/cdn-assets":"11.11.1","@json-render/core":"0.21.0","esbuild":"0.28.2","mathjax":"3.2.2","mermaid":"11.12.0","zod":"4.6.5"}}

@@ -211,6 +211,35 @@ MathJax, highlight.js, Mermaid для сообщений и SVG-renderer кар�
 в `PATH` дочернего backend, как в CLI installer; любой другой component command
 из пользовательского профиля проходит прежний process contract.
 
+## Интерактивные ответы
+
+Блок Markdown с языком `json-render` отображает JSON-дерево непосредственно
+в сообщении. Адаптер клиента использует каталог `@json-render/core`; runtime,
+протокол и формат истории не меняются. Доступны `Stack`, `Card`, `Text`,
+`Metric`, `Table`, `BarChart`, `Tabs`. Табличный фильтр и вкладки работают
+локально, их состояние не сохраняется после перезагрузки. Произвольные actions,
+HTML, bindings и вызовы tools этим каталогом не поддерживаются.
+
+Формат и пример описаны в поставляемом скилле
+[interactive-response](../../configs/skills/interactive-response/SKILL.md).
+Installer копирует его в `${PROTEUS_HOME:-~/.proteus}/skills`, если skill с таким
+именем ещё не установлен; свою версию можно положить в `.proteus/skills` проекта.
+Существующий user skill installer не перезаписывает. Для отдельной установки:
+
+```bash
+mkdir -p "${PROTEUS_HOME:-$HOME/.proteus}/skills"
+cp -R configs/skills/interactive-response "${PROTEUS_HOME:-$HOME/.proteus}/skills/"
+```
+
+Клиент загружает локальный JS bundle по необходимости, после завершения
+сообщения. Кнопка «Код» раскрывает исходник; copy копирует JSON. Невалидный
+блок остаётся кодом с возможностью повторить отображение. Ошибка отдельного
+блока не останавливает остальные сообщения и Markdown. Каталог и DOM renderer
+находятся в `clients/web/rendering/interactive`, lifecycle-адаптер —
+`clients/web/ui/interactive.js`. Node-проверка каталога также валидирует пример
+поставляемого скилла; browser-сценарий `--markdown-only` проверяет интерактивность,
+stream completion, ошибочные блоки и перезагрузку истории.
+
 ## Markdown
 
 Сообщения поддерживают таблицы, списки, подсветку fenced-блоков с указанным
@@ -246,7 +275,8 @@ MathJax, highlight.js, Mermaid для сообщений и SVG-renderer кар�
 геометрию настроек и действия native-шапки через тестовый адаптер.
 
 `python3 -B clients/web/tests/extensions_browser.py --markdown-only` проверяет
-формулы после блоков кода, подсветку, Mermaid/исходник, details, локальные ресурсы,
+формулы после блоков кода, подсветку, Mermaid/исходник, details, json-render,
+сохранение отступа под композером после изменения ширины чата, локальные ресурсы,
 возврат из настроек, reload истории и завершение потокового сообщения.
 
 После `npm run prepare:assets` в `clients/desktop`:

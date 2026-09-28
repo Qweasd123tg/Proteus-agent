@@ -1,4 +1,5 @@
 import {highlight, math, diagrams} from './markdown-loaders.js';
+import {renderInteractive} from './interactive.js';
 
 const finished=new WeakSet(), queued=new Set();
 let running=false, frame=0, diagramId=0;
@@ -23,6 +24,7 @@ async function renderCode(code) {
   if(finished.has(code)||!code.isConnected)return;
   const language=[...code.classList].find(name=>name.startsWith('language-'))?.slice(9);
   if(!language){finished.add(code);return;}
+  if(language==='json-render'){await renderInteractive(code);if(code.isConnected)finished.add(code);return;}
   if(language!=='mermaid'){
     const hljs=await highlight();
     if(!code.isConnected)return;

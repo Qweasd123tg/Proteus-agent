@@ -1,5 +1,6 @@
 import { cpSync, mkdirSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import {build} from 'esbuild';
 const local = path => fileURLToPath(new URL(path, import.meta.url));
 const output = local('../vendor');
 rmSync(output, {recursive:true,force:true});
@@ -13,3 +14,7 @@ copy('@highlightjs/cdn-assets/LICENSE','highlight/LICENSE');
 copy('mermaid/dist/mermaid.esm.min.mjs','mermaid/mermaid.esm.min.mjs');
 copy('mermaid/dist/chunks/mermaid.esm.min','mermaid/chunks/mermaid.esm.min');
 copy('mermaid/LICENSE','mermaid/LICENSE');
+
+await build({entryPoints:[local('interactive/render.mjs')],outfile:output+'/json-render/renderer.js',bundle:true,format:'esm',minify:true,target:['es2022'],legalComments:'linked'});
+copy('@json-render/core/LICENSE','json-render/LICENSE');
+copy('zod/LICENSE','json-render/ZOD-LICENSE');

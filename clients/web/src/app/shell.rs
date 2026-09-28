@@ -155,7 +155,7 @@ pub(super) fn AppShell(
 
                 <section
                     class="session-workspace"
-                    style=move || format!("--chat-max-width: {}px", resize.chat_width.get())
+                    style=("--chat-max-width", move || format!("{}px", resize.chat_width.get()))
                 >
                     {move || {
                         let current = route.get();

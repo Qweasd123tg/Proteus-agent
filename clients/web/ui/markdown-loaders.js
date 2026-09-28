@@ -32,3 +32,5 @@ export const diagrams = () => once('mermaid',async()=>{
     themeVariables:{background:'#202020',primaryColor:'#303030',primaryTextColor:'#dedede',primaryBorderColor:'#666',lineColor:'#999',secondaryColor:'#383838',tertiaryColor:'#292929'}});
   return mermaid;
 });
+
+export const interactive = () => once('json-render',()=>import(local('json-render/renderer.js')));

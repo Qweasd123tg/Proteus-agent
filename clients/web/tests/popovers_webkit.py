@@ -69,7 +69,7 @@ class Assets(SimpleHTTPRequestHandler):
         self.wfile.write(PAGE.encode())
 
 
-def main():
+def main(label='WebKitGTK content-sized project/session menus, bottom-edge positioning and hover'):
     server = ThreadingHTTPServer(('127.0.0.1', 0), partial(Assets, directory=str(ROOT)))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     with tempfile.TemporaryFile(mode='w+') as log:
@@ -118,7 +118,7 @@ def main():
                 window.destroy()
             assert not errors, '\n'.join(errors)
             assert len(results) == 4, results
-            print('PASS: WebKitGTK content-sized project/session menus, bottom-edge positioning and hover:', json.dumps(results))
+            print('PASS: '+label+':', json.dumps(results))
         finally:
             display.terminate()
             display.wait(timeout=5)

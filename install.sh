@@ -429,6 +429,12 @@ install_managed_config_asset "prompts/codex-coder.md"
 install_managed_config_asset "prompts/opencode-default.md"
 install_managed_config_asset "prompts/direct-patch.md"
 
+# Optional presentation skill; preserve a user's own version with the same name.
+mkdir -p "${proteus_home}/skills"
+if [ ! -e "${proteus_home}/skills/interactive-response" ]; then
+  cp -R "${project_dir}/configs/skills/interactive-response" "${proteus_home}/skills/"
+fi
+
 echo "Installed: ${bin_path}"
 echo "Snapshot:  ${release_dir}"
 echo "Worker:    ${current_release}/proteus-reference-worker"

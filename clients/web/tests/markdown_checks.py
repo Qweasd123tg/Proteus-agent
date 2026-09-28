@@ -1,5 +1,7 @@
 """Actual markdown response, local renderer assets and SPA/stream lifecycle."""
 import base64
+from composer_scroll_checks import run as check_scroll
+from interactive_checks import run as check_interactive, FIXTURE as INTERACTIVE_FIXTURE
 from pathlib import Path
 
 FIXTURE = r'''
@@ -32,6 +34,7 @@ flowchart LR
 
 `$literal$` остаётся кодом.
 '''
+FIXTURE += INTERACTIVE_FIXTURE
 
 
 def run(command, js, wait_for):
@@ -61,5 +64,8 @@ def run(command, js, wait_for):
     wait_for(lambda: js("return !!invalidDiagram.querySelector('.markdown-render-error')"), 'Invalid diagram failed silently')
     assert js("return !invalidDiagram.querySelector('pre').hidden && invalidDiagram.querySelector('code').textContent==='not a diagram !!!' && !invalidDiagram.querySelector('svg')"), 'Invalid diagram lost its source'
     js("invalidDiagram.remove()")
+    check_interactive(command, js, wait_for)
+    wait_for(ready, 'Math / Markdown did not finish after interactive history reload')
+    check_scroll(command, js, wait_for)
     Path('/tmp/proteus-markdown-fixed.png').write_bytes(base64.b64decode(command('/screenshot', None)))
     print('PASS: local math, code highlight, Mermaid/source, details; SPA, reload and completed stream', flush=True)
