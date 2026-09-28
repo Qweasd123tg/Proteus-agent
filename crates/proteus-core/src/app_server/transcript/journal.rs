@@ -321,6 +321,13 @@ mod tests {
         let response_message = CanonicalMessage::new(
             MessageRole::Assistant,
             vec![
+                ContentPart::ReasoningSummary {
+                    text: "private summary".to_owned(),
+                },
+                ContentPart::Reasoning {
+                    text: "private reasoning".to_owned(),
+                    signature: Some("opaque signature".to_owned()),
+                },
                 ContentPart::Text {
                     text: "checking".to_owned(),
                 },
@@ -454,6 +461,11 @@ mod tests {
             transcript
                 .iter()
                 .any(|message| message.role == "assistant" && message.text == "checking")
+        );
+        assert!(
+            transcript
+                .iter()
+                .all(|message| !message.text.contains("private"))
         );
         let tool = transcript
             .iter()

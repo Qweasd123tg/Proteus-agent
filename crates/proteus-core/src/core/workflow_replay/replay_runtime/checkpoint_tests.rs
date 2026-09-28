@@ -28,6 +28,7 @@ async fn checkpoint_compares_execution_before_any_tool_is_requested() {
             None,
             Default::default(),
             &ReasoningConfig::default(),
+            user.id,
         ));
         let recorder = ReplayCheckpointRecorder::new(
             state.clone(),
@@ -94,6 +95,7 @@ async fn only_declared_in_flight_lifecycles_may_cross_a_checkpoint() {
                 result: ToolResult::ok(call.id.clone(), &call.id),
             })
             .collect();
+        let user = CanonicalMessage::text(MessageRole::User, "read concurrently");
         let state = Arc::new(ReplayState::new(
             vec![],
             tools,
@@ -101,8 +103,8 @@ async fn only_declared_in_flight_lifecycles_may_cross_a_checkpoint() {
             None,
             Default::default(),
             &ReasoningConfig::default(),
+            user.id,
         ));
-        let user = CanonicalMessage::text(MessageRole::User, "read concurrently");
         let message = |calls: &[ToolCall]| {
             CanonicalMessage::new(
                 MessageRole::Assistant,

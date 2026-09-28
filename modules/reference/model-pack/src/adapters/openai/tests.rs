@@ -429,16 +429,16 @@ fn empty_completed_output_recovers_streamed_text_in_adapter() {
     .to_string();
 
     let mut stream = super::stream_state::OpenAiStreamState::default();
-    stream.translate("response.output_item.added", &json!({"output_index": 0, "item": {
+    stream.translate(&json!({"type": "response.output_item.added","output_index": 0, "item": {
         "id": "real-provider-id", "type": "message", "role": "assistant", "phase": "commentary", "content": []
     }}).to_string());
-    let deltas = stream.translate("response.output_text.delta", &json!({
+    let deltas = stream.translate(&json!({"type": "response.output_text.delta",
         "output_index": 0, "item_id": "real-provider-id", "content_index": 0, "delta": "streamed answer"
     }).to_string());
     let ModelStreamEvent::TextDelta { message_id, .. } = deltas[0] else {
         panic!("delta")
     };
-    let events = stream.translate("response.completed", &completed);
+    let events = stream.translate(&completed);
     let [ModelStreamEvent::Response { response }] = events.as_slice() else {
         panic!("expected single Response event");
     };
@@ -945,8 +945,7 @@ fn response_preserves_hosted_activity_results_and_citations() {
 #[test]
 fn translate_sse_text_delta() {
     let events = translate_sse_event(
-        "response.output_text.delta",
-        &json!({ "delta": "hello" }).to_string(),
+        &json!({"type": "response.output_text.delta", "delta": "hello" }).to_string(),
     );
     assert_eq!(events.len(), 1);
     match &events[0] {
@@ -961,7 +960,7 @@ fn translate_sse_reasoning_delta_both_variants() {
         "response.reasoning_summary_text.delta",
         "response.reasoning_summary.delta",
     ] {
-        let events = translate_sse_event(name, &json!({ "delta": "thinking" }).to_string());
+        let events = translate_sse_event(&json!({"type": name, "delta": "thinking" }).to_string());
         assert_eq!(events.len(), 1, "{name}");
         assert!(matches!(
             &events[0],
@@ -972,9 +971,7 @@ fn translate_sse_reasoning_delta_both_variants() {
 
 #[test]
 fn translate_sse_function_call_delta() {
-    let events = translate_sse_event(
-        "response.function_call_arguments.delta",
-        &json!({ "item_id": "call_1", "delta": "{\"a\"" }).to_string(),
+    let events = translate_sse_event(&json!({"type": "response.function_call_arguments.delta", "item_id": "call_1", "delta": "{\"a\"" }).to_string(),
     );
     match events.as_slice() {
         [
@@ -994,9 +991,7 @@ fn translate_sse_function_call_delta() {
 
 #[test]
 fn translate_sse_custom_tool_input_delta() {
-    let events = translate_sse_event(
-        "response.custom_tool_call_input.delta",
-        &json!({ "item_id": "item_1", "call_id": "call_1", "delta": "*** Begin" }).to_string(),
+    let events = translate_sse_event(&json!({"type": "response.custom_tool_call_input.delta", "item_id": "item_1", "call_id": "call_1", "delta": "*** Begin" }).to_string(),
     );
     match events.as_slice() {
         [
@@ -1016,7 +1011,7 @@ fn translate_sse_custom_tool_input_delta() {
 
 #[test]
 fn translate_sse_completed_emits_final_response() {
-    let data = json!({
+    let data = json!({"type": "response.completed",
         "response": {
             "id": "resp_1",
             "object": "response",
@@ -1032,7 +1027,7 @@ fn translate_sse_completed_emits_final_response() {
             "usage": { "input_tokens": 5, "output_tokens": 1 }
         }
     });
-    let events = translate_sse_event("response.completed", &data.to_string());
+    let events = translate_sse_event(&data.to_string());
     match events.as_slice() {
         [ModelStreamEvent::Response { response }] => {
             assert_eq!(response.finish_reason, FinishReason::Stop);
@@ -1056,8 +1051,7 @@ fn translate_sse_completed_emits_final_response() {
 #[test]
 fn translate_sse_error_event() {
     let events = translate_sse_event(
-        "response.error",
-        &json!({ "error": { "message": "boom" } }).to_string(),
+        &json!({"type": "response.error", "error": { "message": "boom" } }).to_string(),
     );
     match events.as_slice() {
         [ModelStreamEvent::Error { failure }] => {
@@ -1081,8 +1075,8 @@ fn translate_sse_context_window_error_is_actionable_but_other_codes_are_not() {
         ),
     ] {
         let events = translate_sse_event(
-            "response.error",
-            &json!({"error": {"code": code, "message": "provider error"}}).to_string(),
+            &json!({"type": "response.error","error": {"code": code, "message": "provider error"}})
+                .to_string(),
         );
         match events.as_slice() {
             [ModelStreamEvent::Error { failure }] => assert_eq!(failure.kind, expected),
@@ -1146,10 +1140,9 @@ async fn http_400_classifies_only_openai_context_length_exceeded() {
 }
 
 #[test]
-fn translate_sse_failed_event_is_terminal_error() {
+fn translate_sse_failed_event_has_a_retryable_cause() {
     let events = translate_sse_event(
-        "response.failed",
-        &json!({
+        &json!({"type": "response.failed",
             "response": {
                 "status": "failed",
                 "error": { "message": "upstream failed" }
@@ -1159,7 +1152,12 @@ fn translate_sse_failed_event_is_terminal_error() {
     );
     match events.as_slice() {
         [ModelStreamEvent::Error { failure }] => {
-            assert_eq!(failure.kind, crate::model_standard::ModelFailureKind::Other);
+            assert_eq!(
+                failure.kind,
+                crate::model_standard::ModelFailureKind::Retryable {
+                    retry_delay_ms: None
+                }
+            );
             assert_eq!(failure.message, "upstream failed");
         }
         other => panic!("expected Error, got {other:?}"),
@@ -1169,8 +1167,7 @@ fn translate_sse_failed_event_is_terminal_error() {
 #[test]
 fn translate_sse_incomplete_event_is_terminal_error() {
     let events = translate_sse_event(
-        "response.incomplete",
-        &json!({
+        &json!({"type": "response.incomplete",
             "response": {
                 "status": "incomplete",
                 "incomplete_details": { "reason": "max_output_tokens" },
@@ -1196,12 +1193,12 @@ fn translate_sse_incomplete_event_is_terminal_error() {
 
 #[test]
 fn translate_sse_unknown_event_is_ignored() {
-    let events = translate_sse_event("response.weird.thing", "{}");
+    let events = translate_sse_event(&json!({"type": "response.weird.thing"}).to_string());
     assert!(events.is_empty());
 }
 
 #[test]
 fn translate_sse_done_sentinel_ignored() {
-    let events = translate_sse_event("message", "[DONE]");
+    let events = translate_sse_event("[DONE]");
     assert!(events.is_empty());
 }

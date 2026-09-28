@@ -129,7 +129,7 @@ async fn open_response(
                 .write_all(
                     format!(
                         "event: response.output_item.done\ndata: {}\n\n",
-                        json!({"output_index": index, "item": item})
+                        json!({"type": "response.output_item.done", "output_index": index, "item": item})
                     )
                     .as_bytes(),
                 )

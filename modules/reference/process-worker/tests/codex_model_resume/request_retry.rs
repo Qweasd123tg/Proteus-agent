@@ -1,7 +1,7 @@
 //! Retry a model HTTP request through real workers without replaying the tool.
 use std::{
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use proteus_contracts::{
@@ -34,20 +34,32 @@ enum Mode {
     ModelTimeout,
     PartialSse,
     SubscriptionQuota,
+    ExhaustedHttpRetry,
+    TransientSseFailure,
+    SseQuota,
 }
 
 impl Mode {
     fn streaming(self) -> bool {
-        matches!(self, Self::Sse | Self::PartialSse | Self::SubscriptionQuota)
+        matches!(
+            self,
+            Self::Sse
+                | Self::PartialSse
+                | Self::SubscriptionQuota
+                | Self::TransientSseFailure
+                | Self::SseQuota
+        )
     }
     fn interrupted(self) -> bool {
         matches!(self, Self::Cancel | Self::ModelTimeout)
     }
     fn status(self) -> TurnSettlementStatus {
         match self {
-            Self::Json | Self::Sse => TurnSettlementStatus::Success,
+            Self::Json | Self::Sse | Self::ExhaustedHttpRetry | Self::TransientSseFailure => {
+                TurnSettlementStatus::Success
+            }
             Self::Cancel => TurnSettlementStatus::Canceled,
-            Self::ModelTimeout | Self::PartialSse | Self::SubscriptionQuota => {
+            Self::ModelTimeout | Self::PartialSse | Self::SubscriptionQuota | Self::SseQuota => {
                 TurnSettlementStatus::Error
             }
         }
@@ -70,12 +82,37 @@ async fn serve(
     requests: Arc<Mutex<Vec<Value>>>,
     failed: Arc<Notify>,
 ) {
+    let mut failed_at: Option<Instant> = None;
     for index in 0.. {
         let (mut socket, _) = listener.accept().await.unwrap();
         let request = super::read_json_request(&mut socket).await;
         requests.lock().unwrap().push(request);
-        let (status, content_type, body) = if index >= 1 && matches!(mode, Mode::SubscriptionQuota)
+        if index == 2 && matches!(mode, Mode::TransientSseFailure) {
+            assert!(
+                failed_at.unwrap().elapsed() >= Duration::from_millis(500),
+                "workflow must honor provider advice rather than the 200ms default backoff"
+            );
+        }
+        let (status, content_type, body) = if index == 1
+            && matches!(mode, Mode::TransientSseFailure | Mode::SseQuota)
         {
+            failed_at = Some(Instant::now());
+            let (code, message) = if matches!(mode, Mode::SseQuota) {
+                ("insufficient_quota", "subscription allowance exhausted")
+            } else {
+                ("rate_limit_exceeded", "Please try again in 0.5s.")
+            };
+            (
+                "200 OK",
+                "text/event-stream",
+                format!(
+                    "data: {}\n\n",
+                    json!({
+                        "type": "response.failed", "response": {"status": "failed", "error": {"code": code, "message": message}}
+                    })
+                ),
+            )
+        } else if index >= 1 && matches!(mode, Mode::SubscriptionQuota) {
             (
                 "429 Too Many Requests",
                 "application/json",
@@ -84,7 +121,10 @@ async fn serve(
                 }})
                 .to_string(),
             )
-        } else if index == 1 || (index > 1 && matches!(mode, Mode::ModelTimeout)) {
+        } else if index == 1
+            || (index > 1 && matches!(mode, Mode::ModelTimeout))
+            || ((1..=5).contains(&index) && matches!(mode, Mode::ExhaustedHttpRetry))
+        {
             (
                 "500 Internal Server Error",
                 "application/json",
@@ -98,7 +138,7 @@ async fn serve(
                 "text/event-stream",
                 format!(
                     "event: response.output_item.done\ndata: {}\n\n",
-                    json!({"output_index": 0, "item": response(false)["output"][0]})
+                    json!({"type": "response.output_item.done", "output_index": 0, "item": response(false)["output"][0]})
                 ),
             )
         } else {
@@ -124,7 +164,10 @@ async fn check(mode: Mode) {
     std::fs::create_dir(&workspace).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let mut config = fixture_config(&format!("http://{}", listener.local_addr().unwrap())).await;
-    if matches!(mode, Mode::SubscriptionQuota) {
+    if matches!(
+        mode,
+        Mode::SubscriptionQuota | Mode::TransientSseFailure | Mode::SseQuota
+    ) {
         super::use_subscription(&mut config, root.path());
     }
     config
@@ -189,7 +232,7 @@ async fn check(mode: Mode) {
         assert_eq!(result.unwrap().text, FINAL);
     } else {
         let error = format!("{:#}", result.unwrap_err());
-        if matches!(mode, Mode::SubscriptionQuota) {
+        if matches!(mode, Mode::SubscriptionQuota | Mode::SseQuota) {
             assert!(
                 error.contains("subscription allowance exhausted"),
                 "{error}"
@@ -218,7 +261,8 @@ async fn check(mode: Mode) {
     server.abort();
     let requests = requests.lock().unwrap().clone();
     match mode {
-        Mode::Cancel | Mode::SubscriptionQuota => assert_eq!(requests.len(), 2),
+        Mode::Cancel | Mode::SubscriptionQuota | Mode::SseQuota => assert_eq!(requests.len(), 2),
+        Mode::ExhaustedHttpRetry => assert_eq!(requests.len(), 7),
         Mode::ModelTimeout => assert!(
             (3..=4).contains(&requests.len()),
             "{} requests",
@@ -297,6 +341,34 @@ async fn check(mode: Mode) {
             1
         );
     }
+    if matches!(
+        mode,
+        Mode::ExhaustedHttpRetry | Mode::TransientSseFailure | Mode::SseQuota
+    ) {
+        let failures: Vec<_> = projection
+            .records
+            .iter()
+            .filter_map(|record| match &record.entry {
+                JournalEntry::ModelResponseRecorded(response) => match &response.outcome {
+                    ModelResponseOutcome::Error { failure } => Some(failure),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+        assert_eq!(failures.len(), 1);
+        let expected = match mode {
+            Mode::TransientSseFailure => ModelFailureKind::Retryable {
+                retry_delay_ms: Some(500),
+            },
+            Mode::ExhaustedHttpRetry => ModelFailureKind::Retryable {
+                retry_delay_ms: None,
+            },
+            Mode::SseQuota => ModelFailureKind::Other,
+            _ => unreachable!(),
+        };
+        assert_eq!(failures[0].kind, expected);
+    }
     assert_eq!(
         projection
             .records
@@ -312,7 +384,11 @@ async fn check(mode: Mode) {
             .iter()
             .filter(|record| matches!(&record.entry, JournalEntry::ModelRequestRecorded(_)))
             .count(),
-        2,
+        if matches!(mode, Mode::ExhaustedHttpRetry | Mode::TransientSseFailure) {
+            3
+        } else {
+            2
+        },
         "HTTP attempts belong to one model exchange"
     );
     let settlements: Vec<_> = projection
@@ -389,4 +465,19 @@ async fn model_deadline_bounds_all_process_http_attempts() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn accepted_partial_sse_is_not_resubmitted_by_http_retry() {
     check(Mode::PartialSse).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn exhausted_http_500_retries_continue_sampling_without_repeating_the_tool() {
+    check(Mode::ExhaustedHttpRetry).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn transient_failed_response_honors_advice_and_preserves_replay() {
+    check(Mode::TransientSseFailure).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn quota_failed_response_is_terminal_and_preserves_replay() {
+    check(Mode::SseQuota).await;
 }

@@ -10,13 +10,15 @@ fn completed_tool_items_preserve_call_surface_and_terminal_message_identity() {
             "name": "apply_patch", "input": "*** Begin Patch\n*** End Patch"}),
     ] {
         let mut state = OpenAiStreamState::default();
-        let payload = json!({"output_index": 2, "item": item}).to_string();
         assert!(
-            state
-                .translate("response.output_item.added", &payload)
-                .is_empty()
+            state.translate("{}").is_empty(),
+            "missing JSON type is not a Responses envelope"
         );
-        let events = state.translate("response.output_item.done", &payload);
+        let mut payload =
+            json!({"type": "response.output_item.added", "output_index": 2, "item": item});
+        assert!(state.translate(&payload.to_string()).is_empty());
+        payload["type"] = json!("response.output_item.done");
+        let events = state.translate(&payload.to_string());
         let [ModelStreamEvent::MessageCompleted { message }] = events.as_slice() else {
             panic!("expected a complete tool item: {events:?}");
         };
@@ -36,8 +38,7 @@ fn completed_tool_items_preserve_call_surface_and_terminal_message_identity() {
         }
         // Empty terminal output is reconstructed only by the provider adapter.
         let terminal = state.translate(
-            "response.completed",
-            &json!({"response": {"output": []}}).to_string(),
+            &json!({"type": "response.completed", "response": {"output": []}}).to_string(),
         );
         let [ModelStreamEvent::Response { response }] = terminal.as_slice() else {
             panic!("terminal response")

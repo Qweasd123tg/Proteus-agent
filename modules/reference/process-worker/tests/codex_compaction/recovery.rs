@@ -147,7 +147,9 @@ async fn check(failure: Failure) {
         let kind = if matches!(failure, Failure::MinimalPrompt) {
             ModelFailureKind::ContextWindowExceeded
         } else {
-            ModelFailureKind::Other
+            ModelFailureKind::Retryable {
+                retry_delay_ms: None,
+            }
         };
         assert!(projection.records.iter().any(|record| matches!(&record.entry,
             JournalEntry::ModelResponseRecorded(outcome) if matches!(&outcome.outcome, ModelResponseOutcome::Error { failure } if failure.kind == kind))));

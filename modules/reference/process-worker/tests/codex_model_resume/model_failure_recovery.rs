@@ -72,7 +72,7 @@ async fn serve(listener: TcpListener) -> Vec<Value> {
             0 => ("200 OK", tool_response().to_string()),
             1..=5 => (
                 "500 Internal Server Error",
-                json!({"error": {"message": "fixture model failure", "type": "server_error", "code": "typedOther"}}).to_string(),
+                json!({"error": {"message": "fixture model failure", "type": "server_error", "code": "server_error"}}).to_string(),
             ),
             6 => ("200 OK", success_response().to_string()),
             _ => unreachable!(),
@@ -259,7 +259,13 @@ async fn configure(root: &Path, endpoint: &str) -> AppConfig {
         "Use the configured tools.\n",
     )
     .unwrap();
-    let config = fixture_config(endpoint).await;
+    let mut config = fixture_config(endpoint).await;
+    // Exhausted HTTP retries must terminate this turn to exercise cold recovery.
+    config
+        .module_config
+        .entry("workflow".into())
+        .or_default()
+        .insert("coding.codex_loop".into(), json!({"stream_max_retries": 0}));
     std::fs::write(
         root.join("config.json"),
         serde_json::to_vec(&config).unwrap(),

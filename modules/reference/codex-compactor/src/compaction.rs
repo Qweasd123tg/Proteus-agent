@@ -16,10 +16,6 @@ pub(crate) fn compact(
     input: CompactionInput,
     host: &mut CompactorModuleHostMut<'_>,
 ) -> Result<CompactionOutput, ProcessModuleError> {
-    if input.request.messages.is_empty() {
-        return Ok(CompactionOutput::unchanged(input.request.messages));
-    }
-
     let token_estimate = input
         .token_estimate
         .unwrap_or_else(|| estimate_messages_tokens(&input.request.messages));
@@ -30,6 +26,14 @@ pub(crate) fn compact(
             token_estimate,
         ));
     };
+    if input.request.messages.is_empty() {
+        return Ok(unchanged_with_diagnostics(
+            input.request.messages,
+            token_estimate,
+            trigger_tokens,
+            "no_persistent_history_to_compact",
+        ));
+    }
     if token_estimate < trigger_tokens {
         return Ok(unchanged_with_diagnostics(
             input.request.messages,

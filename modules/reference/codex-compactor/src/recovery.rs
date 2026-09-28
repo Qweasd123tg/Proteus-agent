@@ -31,7 +31,14 @@ pub(crate) fn complete_summary_with_recovery(
                     remove_first_message_and_counterpart(&mut history);
                     retries = 0;
                 }
-                Some(ModelFailureKind::Other | ModelFailureKind::StreamDisconnected) | None
+                // Pinned local compaction retries all remaining failures with
+                // its own backoff; provider advice belongs to ordinary sampling.
+                Some(
+                    ModelFailureKind::Other
+                    | ModelFailureKind::StreamDisconnected
+                    | ModelFailureKind::Retryable { .. },
+                )
+                | None
                     if retries < max_retries =>
                 {
                     retries += 1;

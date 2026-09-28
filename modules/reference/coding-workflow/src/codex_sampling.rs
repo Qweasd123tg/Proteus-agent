@@ -62,11 +62,12 @@ pub(crate) fn complete_sampling_request(
             Ok(response) => return Ok(response),
             Err(error) => error,
         };
-        let disconnected = error
-            .model_failure
-            .as_ref()
-            .is_some_and(|failure| failure.kind == ModelFailureKind::StreamDisconnected);
-        if !disconnected || retries >= config.stream_max_retries {
+        let advice = match error.model_failure.as_ref().map(|failure| failure.kind) {
+            Some(ModelFailureKind::StreamDisconnected) => None,
+            Some(ModelFailureKind::Retryable { retry_delay_ms }) => retry_delay_ms,
+            _ => return Err(error),
+        };
+        if retries >= config.stream_max_retries {
             return Err(error);
         }
         // Persist accepted progress before waiting: a canceled reconnect must
@@ -74,7 +75,10 @@ pub(crate) fn complete_sampling_request(
         turn.checkpoint(host, &[])?;
         request.messages.clone_from(&turn.model_messages);
         retries += 1;
-        wait_for_retry(host, retry_delay(retries))?;
+        let delay = advice
+            .map(Duration::from_millis)
+            .unwrap_or_else(|| retry_delay(retries));
+        wait_for_retry(host, delay)?;
     }
 }
 

@@ -18,7 +18,7 @@ Baseline: `openai/codex` commit
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v15`, `compactor/v9`, journal schema v14 и config snapshot v4.
+Действующие версии: `workflow/v16`, `compactor/v10`, journal schema v15 и config snapshot v4.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,
@@ -84,6 +84,10 @@ context/EOF semantics выбирается реализацией, module error 
 [workflow fixture](../../modules/reference/process-worker/tests/codex_model_resume/patch_interception.rs)
 использует tracked Codex profile: function patch и shell interception проходят
 policy, approval, journal, cold history и replay с выбранным `codex` export.
+Перехваченные `shell`/`exec_command` сохраняют `workdir`: одноимённый файл в
+корне остаётся неизменным, patch применяется в указанном подкаталоге.
+Оба patch exports проверяются с относительным/абсолютным рабочим каталогом
+внутри workspace и отказом для недопустимого каталога.
 
 Этот срез сохраняет локальную workspace path boundary Proteus и function
 surface proxy-профилей. Optional PreserveLineEndings, remote environments,
@@ -119,12 +123,21 @@ workflow replay воспроизводит записанный исход бе�
 
 ### Повтор Оборванного SSE
 
-`coding.codex_loop` повторяет запрос после `StreamDisconnected` в том же root
-turn. OpenAI adapter возвращает эту причину при ошибке установленного SSE и
+`coding.codex_loop` повторяет запрос после `StreamDisconnected` или
+`Retryable` в том же root turn. OpenAI adapter возвращает эту причину при ошибке установленного SSE и
 EOF до terminal event. Бюджет — пять повторов после первой попытки, максимум
 100; module config `stream_max_retries = 0` отключает этот путь. Backoff —
 200 мс × 2ⁿ со случайным множителем 0,9–1,1 и проверкой отмены. Бюджет
 сбрасывается после успешного model response, но не после completed item.
+Типизированный `Retryable` покрывает transient `response.failed` и HTTP 500
+после исчерпания внутренних HTTP retries. Advice из pinned SSE rate-limit
+message заменяет backoff обычного sampling loop; quota и permanent errors
+терминальны. [Retry regression](../../modules/reference/process-worker/tests/codex_model_resume/request_retry.rs)
+проверяет эти ветки, journal, cold history и replay.
+
+SSE dispatcher использует исключительно JSON `data.type`: отсутствие SSE
+`event:` и несовпадающий header не меняют классификацию. Header не заменяет
+отсутствующий JSON type. Process fixtures передают data-only events.
 
 Upstream anchors закреплённого `67cc3c3`:
 [`run_sampling_request`](https://github.com/openai/codex/blob/67cc3c318dc8b5532db6ade4182b1dc6f3870889/codex-rs/core/src/session/turn.rs#L1361-L1460)
@@ -239,7 +252,7 @@ parser, все формы команд и event lifecycle этим срезом 
 
 ### Продолжение После Модельной Ошибки
 
-`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v15`
+`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v16`
 failure envelope. Core сохраняет их до `TurnSettled(Error)`: следующий turn
 получает завершённые assistant items и tool results с исходными call ids.
 
@@ -254,7 +267,7 @@ model items и tool calls, `core/src/session/turn.rs` — завершённые
 и в [Proteus](../../modules/reference/coding-workflow/src/codex_sampling.rs).
 Codex при этом обновляет context accounting: [preflight следующего turn](https://github.com/openai/codex/blob/67cc3c318dc8b5532db6ade4182b1dc6f3870889/codex-rs/core/src/session/turn.rs#L1032-L1061)
 проверяет сохранённую оценку. Proteus передаёт факты предыдущих запросов через
-`runtime.model_context` общего `workflow/v15`. [Расчёт в модуле](../../modules/reference/coding-workflow/src/model_context.rs)
+`runtime.model_context` общего `workflow/v16`. [Расчёт в модуле](../../modules/reference/coding-workflow/src/model_context.rs)
 повторяет `fill_to_context_window`: при известном raw window usable равен 95%,
 новая last-оценка — `max(usable - cumulative, 0)`, cumulative становится usable.
 Повторное переполнение того же окна может дать нулевую last-оценку: это не
@@ -412,14 +425,22 @@ replay внутренних типизированных веток ошибки
 
 Проверки [совместимости compactor](../../modules/reference/process-worker/tests/codex_compaction/compatibility.rs)
 проводят summary дольше 30 секунд при достаточном общем бюджете workflow и
-текущий пользовательский ввод больше 20 000 приблизительных токенов. Первый
-сценарий проверяет вложенный process/model deadline, второй — точное middle
-truncation выбранного Codex, checkpoint, сохранение и следующий HTTP request
-после cold resume, а также matched replay со сжатием до первого прямого запроса
-workflow. Upstream anchor: `compact.rs::build_compacted_history_with_limit`.
-Сокращённое сообщение получает новый canonical id и typed связь с исходным;
-полный принятый ввод остаётся в journal. Это сохраняет ограничение модельной
-истории без скрытой подмены исходного сообщения.
+pre-turn compaction после успешного ответа с большим provider usage.
+Последний usage предыдущего хода учитывается и в памяти, и после cold resume.
+До первого прямого запроса сжимается только предыдущая история; текущий
+пользовательский ввод добавляется после summary с исходными content и id.
+Большой текущий ввод сам по себе не отправляется в этот summary и не
+обрезается им. Старое пользовательское сообщение проходит middle truncation
+выбранного Codex (`compact.rs::build_compacted_history_with_limit`), получает
+новый canonical id и typed связь с исходным. Полный принятый ввод остаётся
+в journal. Сценарии проверяют checkpoint, cold history, следующий HTTP request
+и matched replay pre-turn compaction.
+
+Локальный compactor сохраняет отдельную retry policy выбранного baseline:
+после специальных веток interruption, context overflow и session budget он
+повторяет остальные model errors в пределах своего бюджета. Для ожидания
+используется собственный backoff; SSE retry advice здесь не применяется.
+Это отличается от terminal quota/permanent errors обычного sampling loop.
 
 `codex_context.project_doc_max_bytes` соответствует общему лимиту 32 768 байт
 для цепочки проектных инструкций. [Тесты](../../modules/reference/context-pack/src/codex.rs)
@@ -448,7 +469,7 @@ cargo test -p proteus-core --test module_swap
 stream retry, полного compaction lifecycle, filesystem/network permissions,
 deferred tool discovery и AgentControl semantics.
 
-Item identity и typed phase проходят через `model/v9`, live events и app
+Item identity и typed phase проходят через `model/v10`, live events и app
 transcript. Responses fixture отдаёт added/delta/done/completed, включая
 позднюю фазу и multipart текст; regression сверяет live ids/text/offsets
 с journal и cold app transcript. Web regression проверяет соседние items

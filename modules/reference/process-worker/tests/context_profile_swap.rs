@@ -184,7 +184,7 @@ async fn respond_once(listener: TcpListener) {
     let response = json!({"id":"fixture", "output":[{"id":"answer", "type":"message", "role":"assistant", "phase":"final_answer", "content":[{"type":"output_text", "text":"Проверено."}]}], "usage":{"input_tokens":10, "output_tokens":2, "total_tokens":12}});
     let body = format!(
         "event: response.completed\ndata: {}\n\n",
-        json!({"response": response})
+        json!({"type": "response.completed", "response": response})
     );
     socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
 }

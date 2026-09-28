@@ -49,19 +49,19 @@ fn partial_sse_body() -> String {
     [
         format!(
             "event: response.output_item.done\ndata: {}\n\n",
-            json!({"output_index": 0, "item": commentary})
+            json!({"type": "response.output_item.done", "output_index": 0, "item": commentary})
         ),
         format!(
             "event: response.output_item.done\ndata: {}\n\n",
-            json!({"output_index": 1, "item": early_final})
+            json!({"type": "response.output_item.done", "output_index": 1, "item": early_final})
         ),
         format!(
             "event: response.output_item.added\ndata: {}\n\n",
-            json!({"output_index": 2, "item": unfinished})
+            json!({"type": "response.output_item.added", "output_index": 2, "item": unfinished})
         ),
         format!(
             "event: response.output_text.delta\ndata: {}\n\n",
-            json!({
+            json!({"type": "response.output_text.delta",
                 "output_index": 2, "item_id": "partial_unfinished", "content_index": 0,
                 "delta": UNFINISHED,
             })

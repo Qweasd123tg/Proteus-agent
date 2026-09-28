@@ -283,6 +283,7 @@ fn workflow_input(text: &str) -> WorkflowModuleInput {
             turn_id: new_turn_id(),
             model_ref: ModelRef::new("fake", "model"),
             model_context: Vec::new(),
+            interrupted_turns: Vec::new(),
             instructions: Vec::new(),
             reasoning: ReasoningConfig::default(),
             max_input_tokens: Some(16_000),

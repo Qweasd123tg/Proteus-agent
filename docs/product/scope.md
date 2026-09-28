@@ -31,7 +31,7 @@
   [Контракт и границы](../guides/ui-extensions.md).
 - OpenAI, OpenAI-compatible, ChatGPT subscription OAuth (`openai_codex`),
   Anthropic и fake implementations в reference
-  `model-pack`; Core использует общий `model/v9` process adapter.
+  `model-pack`; Core использует общий `model/v10` process adapter.
 - Doctor, inspect/topology, eval report и атомарная локальная установка.
 
 Reference modules и profiles — поставляемые примеры без особых прав.

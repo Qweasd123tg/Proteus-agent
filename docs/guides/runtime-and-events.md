@@ -272,8 +272,12 @@ non-contiguous `seq`. `seq` относится к полному runtime event s
 UI-клиенты сами решают, показывать ли `AssistantReasoningDelta`. Reasoning
 summary приходит только если provider вернул reasoning/thinking delta и/или
 config запросил такой режим через provider profile `reasoning`. Это не raw
-chain-of-thought и без `event_log.persist_deltas = true` не восстанавливается
-после restart/resume.
+chain-of-thought. Без `event_log.persist_deltas = true` сами дельты не
+восстанавливаются после restart/resume; завершённые reasoning parts остаются
+в canonical history и сохраняют свой тип при следующем запросе модели.
+Обычный app transcript строит текст сообщения только из `ContentPart::Text`:
+reasoning не превращается в дополнительный assistant-ответ после settlement
+или чтения cold `/history`.
 
 Terminal OpenAI Responses сохраняет ordered assistant items и typed
 `MessagePhase` (`commentary`/`final_answer`) в canonical response, history и
@@ -309,7 +313,7 @@ history сохраняют раздельные commentary/final items. Клие
 Если runtime запущен с config path, рядом с config root создаётся дерево
 `sessions/<workspace>/<session>/` (подробно про layout, resume и lifecycle —
 раздел «Session Store» ниже). Source of truth — `journal.jsonl`, где одна
-строка является строгим record schema v14 с `record_id`, монотонным
+строка является строгим record schema v15 с `record_id`, монотонным
 `session_seq`, timestamp, mandatory session id, optional execution/thread/turn
 ids, `kind` и payload. `TurnOpened`, model и tool facts требуют
 `ExecutionId`; history/settlement остаются chat facts без execution owner.
@@ -897,7 +901,7 @@ journal. ОС освобождает владение при закрытии pr
 смешивает histories.
 
 Reader принимает только basename из 10 ASCII-цифр с обязательным
-`session.json` schema v4 и journal schema v14. UUID-basename directories,
+`session.json` schema v4 и journal schema v15. UUID-basename directories,
 прежние session/journal schemas и неизвестные wire/storage формы
 отвергаются явно: pre-release cutover не содержит legacy decoder или dual-read.
 Старые локальные dogfood sessions следует вручную переместить целиком за
@@ -950,7 +954,7 @@ compactions должна завершаться сохранённым conversat
 resume используют сокращённое представление. Runtime атомарно заменяет историю
 этим snapshot-ом и затем дописывает `new_messages`.
 
-`workflow/v15` также позволяет вернуть `WorkflowFailure` с накопленным history
+`workflow/v16` также позволяет вернуть `WorkflowFailure` с накопленным history
 update. Core проверяет и сохраняет его до settlement со статусом `Error`.
 `coding.codex_loop` использует этот путь: если tool завершился, а следующий
 model call упал, новый turn получает прежний call/result и после перезапуска
@@ -963,8 +967,11 @@ runtime. Если до ошибки пришли завершённые assistan
 
 При обычном `ContextWindowExceeded` текущий turn остаётся `Error`.
 `coding.codex_loop` учитывает сохранённое заполнение известного окна при
-preflight следующего turn, в том числе после cold resume. Если оценка достигает
+preflight следующего turn, в том числе после cold resume. Последний реальный
+usage успешного предыдущего ответа также участвует в этой оценке. Если оценка достигает
 текущего порога compactor, summary выполняется перед обычным model request.
+Pre-turn summary получает только старую историю; текущий принятый ввод
+добавляется после сжатия без изменения текста и id.
 Неизвестное окно само по себе не включает принудительное сжатие. Это отдельная
 оценка контекста: provider usage и стоимость не увеличиваются из-за ошибки.
 Подробности и граница parity — в [Codex baseline](../development/codex-baseline.md).
@@ -983,6 +990,15 @@ workflow timeout или инфраструктурной ошибке следу
 остаётся `Canceled`, `Timeout` или `Error`. Resume сохраняет эти данные при
 аварийном завершении процесса, даже если `TurnSettled` не был записан.
 Неподтверждённые model/tool facts не используются для угадывания workflow history.
+
+Завершённая отмена с сохранённой историей также даёт нейтральный workflow-факт
+`interrupted_turns { turn_id, after_message_id }`. Core восстанавливает его из
+settlement/history records и не создаёт текст от имени пользователя.
+`coding.codex_loop` добавляет в модельный request upstream `<turn_aborted>`;
+маркер имеет стабильную identity и не попадает в обычную durable conversation.
+Changed compaction удаляет прежние interruption facts, даже если anchor message
+сохранился. Warm turn, cold resume и replay следующего поддержанного terminal
+используют одинаковую проекцию.
 
 Если workflow преобразует вызов модели, checkpoint явно связывает исходный
 call с `execution_call` с тем же id. Например, Codex-loop проводит shell-команду

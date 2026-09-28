@@ -228,6 +228,7 @@ pub struct WorkflowModuleRuntimeInfo {
     pub turn_id: TurnId,
     pub model_ref: ModelRef,
     pub model_context: Vec<crate::contracts::ModelContextObservation>,
+    pub interrupted_turns: Vec<crate::contracts::WorkflowHistoryInterruption>,
     #[serde(default)]
     pub instructions: Vec<InstructionBlock>,
     /// Opaque action name interpreted by the selected workflow.

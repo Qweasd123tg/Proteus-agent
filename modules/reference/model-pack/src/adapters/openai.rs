@@ -273,7 +273,7 @@ impl OpenAiResponsesClient {
                 };
                 match chunk {
                     Ok(event) => {
-                        let mapped = state.translate(&event.event, &event.data);
+                        let mapped = state.translate(&event.data);
                         for mapped in mapped {
                             if matches!(
                                 mapped,

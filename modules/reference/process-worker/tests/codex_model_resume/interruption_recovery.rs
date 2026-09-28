@@ -25,6 +25,7 @@ const PENDING_CALL: &str = "call_pending_write";
 const APPROVAL_FAILURE: &str = "fixture approval transport disconnected";
 const CONTINUE: &str = "Продолжай после прерывания.";
 const FINAL: &str = "Выполненный шаг сохранён.";
+const REASONING: &str = "private interrupted reasoning summary";
 
 #[derive(Clone, Copy, Debug)]
 enum Interruption {
@@ -74,6 +75,9 @@ impl ApprovalTransport for BrokenApproval {
     }
 
     async fn request_approval(&self, request: ApprovalRequest) -> anyhow::Result<ApprovalResponse> {
+        if request.call.id == COMPLETED_CALL {
+            return Ok(ApprovalResponse::approve());
+        }
         assert_eq!(request.call.id, PENDING_CALL);
         // Infrastructure Err, not an ordinary denied/failed ToolResult.
         anyhow::bail!(APPROVAL_FAILURE)
@@ -84,7 +88,11 @@ fn calls() -> Value {
     json!([
         {"type": "function_call", "call_id": COMPLETED_CALL, "name": "shell",
          "arguments": serde_json::to_string(&json!({
-             "command": "printf x >> effects.log; printf done > completed.txt; printf 'effect committed\\n'"
+             "command": "printf x >> effects.log; printf done > completed.txt; printf 'effect committed\\n'",
+             // This fixture verifies committed effects, not host sandbox availability.
+             // Explicit escalation still passes through production policy/approval.
+             "with_escalated_permissions": true,
+             "justification": "Run the local interruption fixture mutation"
          })).unwrap()},
         {"type": "function_call", "call_id": PENDING_CALL, "name": "write_file",
          "arguments": serde_json::to_string(&json!({"path": "pending.txt", "content": "second effect"})).unwrap()},
@@ -103,7 +111,10 @@ async fn serve(listener: TcpListener) -> Value {
             resumed = request;
         }
         let output = if round == 0 {
-            calls()
+            let mut output = vec![json!({"type": "reasoning", "id": "rs_interrupted",
+                "summary": [{"type": "summary_text", "text": REASONING}]})];
+            output.extend(calls().as_array().unwrap().iter().cloned());
+            Value::Array(output)
         } else {
             json!([{"type": "message", "role": "assistant", "phase": "final_answer",
                 "content": [{"type": "output_text", "text": FINAL}]}])
@@ -307,6 +318,47 @@ async fn check_interruption(mode: Interruption) {
         .unwrap()
         .unwrap();
     let items = request["input"].as_array().unwrap();
+    let markers: Vec<_> = items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| {
+            item["role"] == "user"
+                && item["content"].as_array().is_some_and(|parts| {
+                    parts.iter().any(|part| {
+                        part["text"]
+                            .as_str()
+                            .is_some_and(|text| text.starts_with("<turn_aborted>"))
+                    })
+                })
+        })
+        .collect();
+    assert_eq!(
+        markers.len(),
+        usize::from(matches!(mode, Interruption::Cancel))
+    );
+    if let Some((marker_index, marker)) = markers.first() {
+        assert_eq!(
+            marker["content"][0]["text"],
+            "<turn_aborted>\nThe user interrupted the previous turn on purpose. Any running unified exec processes may still be running in the background. If any tools/commands were aborted, they may have partially executed.\n</turn_aborted>"
+        );
+        assert!(
+            *marker_index
+                > items
+                    .iter()
+                    .position(|item| item["call_id"] == COMPLETED_CALL
+                        && item["type"] == "function_call_output")
+                    .unwrap()
+        );
+        assert!(
+            *marker_index
+                < items
+                    .iter()
+                    .position(|item| item["content"]
+                        .as_array()
+                        .is_some_and(|parts| parts.iter().any(|part| part["text"] == CONTINUE)))
+                    .unwrap()
+        );
+    }
     for (index, call_id) in [COMPLETED_CALL, PENDING_CALL].into_iter().enumerate() {
         let calls_in_request: Vec<_> = items
             .iter()
@@ -341,6 +393,35 @@ async fn check_interruption(mode: Interruption) {
     );
     assert!(!workspace.join("pending.txt").exists());
     let after = store.load_projection().unwrap();
+    assert!(
+        after.history.iter().all(|message| {
+            !message.parts.iter().any(|part| {
+        matches!(&part.payload, ContentPart::Text { text } if text.contains("<turn_aborted>"))
+    })
+        }),
+        "Codex marker is request-only; durable interruption remains a neutral settlement"
+    );
+    let marker_messages: Vec<_> = after
+        .records
+        .iter()
+        .filter_map(|record| match &record.entry {
+            JournalEntry::ModelRequestRecorded(model) => Some(&model.request.messages),
+            _ => None,
+        })
+        .flatten()
+        .filter(|message| message.id == interrupted_turn)
+        .collect();
+    assert_eq!(
+        marker_messages.len(),
+        usize::from(matches!(mode, Interruption::Cancel))
+    );
+    if let Some(marker) = marker_messages.first() {
+        assert_eq!(
+            marker.parts[0].scope,
+            proteus_contracts::model_standard::PartScope::Request
+        );
+        assert_eq!(marker.parts[0].part_id, interrupted_turn);
+    }
     let settlements: Vec<_> = after
         .records
         .iter()
@@ -380,6 +461,16 @@ async fn check_interruption(mode: Interruption) {
     .await
     .unwrap();
     let transcript = app.transcript().await.unwrap();
+    assert!(
+        transcript
+            .iter()
+            .all(|message| !message.text.contains(REASONING))
+    );
+    assert!(
+        transcript
+            .iter()
+            .all(|message| !message.text.contains("<turn_aborted>"))
+    );
     for (call_id, status) in [(COMPLETED_CALL, "done"), (PENDING_CALL, "interrupted")] {
         let cards: Vec<_> = transcript
             .iter()

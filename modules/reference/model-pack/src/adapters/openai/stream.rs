@@ -8,15 +8,10 @@ use crate::model_standard::{ModelFailure, ModelStreamEvent};
 /// `ModelStreamEvent`. Вариантов много; всё что не распознали —
 /// игнорируем (возвращаем пустой вектор), это безопасно потому что
 /// финальный `Response` приходит на `response.completed`.
-pub(super) fn translate_non_message_event(event_type: &str, data: &str) -> Vec<ModelStreamEvent> {
-    // [DONE] sentinel у OpenAI не используется в Responses API, но на
-    // всякий случай — безопасный фаст-path.
-    if data == "[DONE]" {
-        return Vec::new();
-    }
-    let Ok(parsed) = serde_json::from_str::<Value>(data) else {
-        return Vec::new();
-    };
+pub(super) fn translate_non_message_event(
+    event_type: &str,
+    parsed: &Value,
+) -> Vec<ModelStreamEvent> {
     match event_type {
         "response.reasoning_summary_text.delta" | "response.reasoning_summary.delta" => {
             if let Some(delta) = parsed.get("delta").and_then(Value::as_str) {
@@ -71,7 +66,10 @@ pub(super) fn translate_non_message_event(event_type: &str, data: &str) -> Vec<M
             // В payload-е объект полного `response`, парсим через
             // существующий `from_openai_response`. Если парсинг упал —
             // эмитим Error, чтобы drain-loop не ждал вечно.
-            let response_value = parsed.get("response").cloned().unwrap_or(parsed);
+            let response_value = parsed
+                .get("response")
+                .cloned()
+                .unwrap_or_else(|| parsed.clone());
             match from_openai_response(response_value) {
                 Ok(response) => vec![ModelStreamEvent::Response { response }],
                 Err(error) => vec![ModelStreamEvent::Error {
@@ -82,7 +80,7 @@ pub(super) fn translate_non_message_event(event_type: &str, data: &str) -> Vec<M
             }
         }
         "response.incomplete" => {
-            let response = parsed.get("response").unwrap_or(&parsed);
+            let response = parsed.get("response").unwrap_or(parsed);
             let reason = response
                 .get("incomplete_details")
                 .and_then(|details| details.get("reason"))
@@ -96,12 +94,12 @@ pub(super) fn translate_non_message_event(event_type: &str, data: &str) -> Vec<M
         }
         "response.error" | "error" => {
             vec![ModelStreamEvent::Error {
-                failure: failure_from_sse_error(&parsed, "unknown openai error"),
+                failure: failure_from_sse_error(parsed, "unknown openai error"),
             }]
         }
         "response.failed" => {
             vec![ModelStreamEvent::Error {
-                failure: failure_from_sse_failed(&parsed, "openai response failed"),
+                failure: failure_from_sse_failed(parsed, "response.failed event received"),
             }]
         }
         _ => Vec::new(),

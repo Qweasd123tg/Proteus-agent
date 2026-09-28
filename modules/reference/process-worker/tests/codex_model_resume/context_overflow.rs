@@ -177,6 +177,10 @@ fn assert_requests(requests: &[Value]) {
     assert_eq!(summary["tool_choice"], "none");
     assert!(summary.get("tools").is_none());
     let summary_items = request_items(summary);
+    assert!(
+        !contains_text(summary_items, NEXT_TASK),
+        "incoming user is excluded from pre-turn summary"
+    );
     assert!(summary_items.iter().any(|item| {
         item["type"] == "function_call_output" && item["call_id"] == "call_write_before_overflow"
     }));
@@ -194,6 +198,10 @@ fn assert_requests(requests: &[Value]) {
     );
     let resumed_items = request_items(resumed);
     assert!(contains_text(resumed_items, NEXT_TASK));
+    assert_eq!(
+        resumed_items.last().unwrap()["content"][0]["text"],
+        NEXT_TASK
+    );
     assert!(contains_text(resumed_items, SUMMARY_TEXT));
     assert!(
         resumed_items

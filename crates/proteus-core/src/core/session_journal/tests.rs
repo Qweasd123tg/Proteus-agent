@@ -652,10 +652,9 @@ fn canceled_and_timeout_turns_keep_model_request_interrupted_without_synthetic_r
         let turn_id = new_turn_id();
         let execution_id = new_execution_id();
         let exchange_id = new_exchange_id();
-        let request = CanonicalModelRequest::new(
-            ModelRef::new("fake", "model"),
-            vec![CanonicalMessage::text(MessageRole::User, "interrupt")],
-        );
+        let user = CanonicalMessage::text(MessageRole::User, "interrupt");
+        let request =
+            CanonicalModelRequest::new(ModelRef::new("fake", "model"), vec![user.clone()]);
         let records = vec![
             record(
                 session_id,
@@ -667,10 +666,25 @@ fn canceled_and_timeout_turns_keep_model_request_interrupted_without_synthetic_r
             ),
             record(
                 session_id,
-                Some(execution_id),
+                None,
                 Some(thread_id),
                 Some(turn_id),
                 2,
+                JournalEntry::HistoryMutated(HistoryMutated {
+                    previous_revision: 0,
+                    new_revision: 1,
+                    mutation: HistoryMutationKind::Append,
+                    messages: vec![user.clone()],
+                    compaction: None,
+                    tool_results: Vec::new(),
+                }),
+            ),
+            record(
+                session_id,
+                Some(execution_id),
+                Some(thread_id),
+                Some(turn_id),
+                3,
                 JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                     exchange_id,
                     origin: ModelCallOrigin::Direct,
@@ -682,7 +696,7 @@ fn canceled_and_timeout_turns_keep_model_request_interrupted_without_synthetic_r
                 None,
                 Some(thread_id),
                 Some(turn_id),
-                3,
+                4,
                 JournalEntry::TurnSettled(TurnSettled {
                     status,
                     output: None,
@@ -691,10 +705,51 @@ fn canceled_and_timeout_turns_keep_model_request_interrupted_without_synthetic_r
             ),
         ];
 
-        let projection = JournalProjection::build(session_id, records).expect("projection");
+        let projection = JournalProjection::build(session_id, records.clone()).expect("projection");
 
         assert_eq!(projection.interrupted_model_exchanges, vec![exchange_id]);
         assert!(projection.unsettled_turns.is_empty());
+        assert_eq!(
+            projection.interrupted_turns.len(),
+            usize::from(status == TurnSettlementStatus::Canceled)
+        );
+        if let Some(fact) = projection.interrupted_turns.first() {
+            assert_eq!(fact.turn_id, turn_id);
+            assert_eq!(fact.after_message_id, user.id);
+        }
+
+        let mut compacted_records = records;
+        let mut report = crate::domain::HistoryCompactionReport::unchanged(
+            1,
+            Some("test_compaction".to_owned()),
+        );
+        report.changed = true;
+        compacted_records.push(record(
+            session_id,
+            None,
+            Some(thread_id),
+            None,
+            5,
+            JournalEntry::HistoryMutated(HistoryMutated {
+                previous_revision: 1,
+                new_revision: 2,
+                mutation: HistoryMutationKind::Replace,
+                messages: vec![user.clone()],
+                compaction: Some(report),
+                tool_results: Vec::new(),
+            }),
+        ));
+        let compacted =
+            JournalProjection::build(session_id, compacted_records).expect("compacted projection");
+        assert_eq!(
+            compacted.history,
+            vec![user],
+            "compaction retained the anchor identity"
+        );
+        assert!(
+            compacted.interrupted_turns.is_empty(),
+            "compaction retires model-only interruption context even when its anchor survives"
+        );
     }
 }
 

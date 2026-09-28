@@ -35,7 +35,9 @@ async fn serve(listener: TcpListener, effect: std::path::PathBuf, ending: Ending
             // Comments alone do not reset the provider's parsed-event timer.
             progress.tick().await;
             socket
-                .write_all(b"event: response.in_progress\ndata: {}\n\n")
+                .write_all(
+                    b"event: response.in_progress\ndata: {\"type\":\"response.in_progress\"}\n\n",
+                )
                 .await
                 .unwrap();
         }
@@ -52,7 +54,7 @@ async fn serve(listener: TcpListener, effect: std::path::PathBuf, ending: Ending
         .write_all(
             format!(
                 "event: response.output_item.done\ndata: {}\n\n",
-                json!({"output_index":2, "item":commentary})
+                json!({"type": "response.output_item.done", "output_index":2, "item":commentary})
             )
             .as_bytes(),
         )

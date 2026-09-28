@@ -339,7 +339,7 @@ approval и ошибку инструмента; исходные tools и model
 Probe одновременно локализует оставшийся coupling, не разрешая новую Core
 migration автоматически:
 
-- `workflow/v15` input и tool callback всё ещё требуют agent-shaped
+- `workflow/v16` input и tool callback всё ещё требуют agent-shaped
   `AgentTask`, а invocation несёт history и session/thread/turn ids;
 - `AppConfig` всё ещё требует active model даже для model-free success path.
 
@@ -608,7 +608,7 @@ sandbox policy.
 Core владеет provider-neutral `ModelService` и execution-bound `BoundModel`:
 canonical shaping/validation, deadline, attribution и journal. Provider
 HTTP adapters и secrets находятся в `modules/reference/model-pack`; runtime
-вызывает их через тот же `model/v9` contract, что и внешний worker.
+вызывает их через тот же `model/v10` contract, что и внешний worker.
 `describe` фиксирует capabilities/hosted tools export при сборке snapshot.
 
 Subagents обслуживает отдельный

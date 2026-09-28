@@ -170,7 +170,7 @@ fn codex_loop_runs_tool_round_then_stops_on_non_tool_response() {
 
     let compactions = host.compactions.lock().expect("compactions");
     assert_eq!(compactions.len(), 2);
-    assert_eq!(compactions[0].reason.as_deref(), Some("codex_loop"));
+    assert_eq!(compactions[0].reason.as_deref(), Some("codex_pre_turn"));
     assert_eq!(compactions[1].reason.as_deref(), Some("codex_loop"));
 }
 
@@ -268,13 +268,16 @@ fn codex_loop_does_not_preserve_summary_output_from_a_failed_compactor() {
 
 #[test]
 fn codex_loop_returns_applied_compaction_when_model_call_fails() {
-    let input = workflow_input("change code");
+    let mut input = workflow_input("change code");
+    input
+        .history
+        .insert(0, CanonicalMessage::text(MessageRole::User, "prior task"));
     let current_user = input.history.last().expect("current user").clone();
     let generated_summary = CanonicalMessage::text(MessageRole::User, "compacted summary")
         .with_metadata(json!({ "generated": true, "summary": true }));
-    let compacted_history = vec![current_user, generated_summary];
+    let compacted_history = vec![generated_summary.clone(), current_user];
     let compacted_output = proteus_contracts::contracts::CompactionOutput::changed(
-        compacted_history.clone(),
+        vec![generated_summary],
         Some("compacted summary".to_owned()),
     );
     let input_json = serde_json::to_string(&input).expect("input json");
@@ -579,7 +582,18 @@ fn codex_loop_errors_when_changed_compaction_drops_current_user_message() {
     );
     bad_output.original_token_estimate = Some(100);
     bad_output.token_estimate = Some(10);
-    let mut host = FakeHost::default().with_compaction_outputs(vec![bad_output]);
+    let mut host = FakeHost::with_responses(vec![
+        CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "continue"),
+            Vec::new(),
+            FinishReason::Stop,
+        )
+        .with_end_turn(false),
+    ])
+    .with_compaction_outputs(vec![
+        proteus_contracts::contracts::CompactionOutput::unchanged(Vec::new()),
+        bad_output,
+    ]);
 
     let error = CodingCodexLoopWorkflow
         .run_json(input_json, &mut host)
@@ -591,7 +605,7 @@ fn codex_loop_errors_when_changed_compaction_drops_current_user_message() {
             .as_str()
             .contains("dropped the current user message")
     );
-    assert!(host.requests.lock().expect("requests").is_empty());
+    assert_eq!(host.requests.lock().expect("requests").len(), 1);
     assert!(
         host.events
             .lock()
@@ -603,13 +617,20 @@ fn codex_loop_errors_when_changed_compaction_drops_current_user_message() {
 
 #[test]
 fn codex_loop_separates_compacted_history_from_new_turn_messages() {
-    let input = workflow_input("change code");
+    let mut input = workflow_input(&"incoming large task ".repeat(6_000));
+    input.runtime.model_context = vec![ModelContextObservation::Usage {
+        total_tokens: 300_000,
+        last_tokens: 93_000,
+    }];
+    input
+        .history
+        .insert(0, CanonicalMessage::text(MessageRole::User, "prior task"));
     let current_user = input.history.last().expect("current user").clone();
     let generated_summary = CanonicalMessage::text(MessageRole::User, "compacted summary")
         .with_metadata(json!({ "generated": true, "summary": true }));
-    let compacted_history = vec![current_user.clone(), generated_summary.clone()];
+    let compacted_history = vec![generated_summary.clone(), current_user.clone()];
     let compacted_output = proteus_contracts::contracts::CompactionOutput::changed(
-        compacted_history.clone(),
+        vec![generated_summary],
         Some("compacted summary".to_owned()),
     );
     let input_json = serde_json::to_string(&input).expect("input json");
@@ -621,6 +642,39 @@ fn codex_loop_separates_compacted_history_from_new_turn_messages() {
     let output: WorkflowModuleOutput =
         serde_json::from_str(output_json.as_str()).expect("output json");
 
+    let compactions = host.compactions.lock().unwrap();
+    assert_eq!(
+        compactions.len(),
+        1,
+        "no second compaction before first sampling"
+    );
+    assert_eq!(
+        compactions[0].request.messages,
+        input.history[..input.history.len() - 1]
+    );
+    assert_eq!(
+        compactions[0].token_estimate,
+        Some(93_000),
+        "latest usage, not session total"
+    );
+    let requests = host.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].messages.last(), Some(&current_user));
+    assert_eq!(
+        requests[0]
+            .messages
+            .iter()
+            .filter(|message| message.id == current_user.id)
+            .count(),
+        1
+    );
+    assert_eq!(requests[0].messages[0].display_text(), "compacted summary");
+    assert!(
+        requests[0].messages[1]
+            .parts
+            .iter()
+            .all(|part| part.scope == proteus_contracts::model_standard::PartScope::Request)
+    );
     assert_eq!(output.history_replacement, Some(compacted_history));
     assert_eq!(output.new_messages.len(), 1);
     assert_eq!(output.new_messages[0].role, MessageRole::Assistant);

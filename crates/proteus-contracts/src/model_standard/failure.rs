@@ -4,13 +4,18 @@ use super::CanonicalMessage;
 
 /// Provider-neutral causes that an algorithm can act on without parsing text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 #[non_exhaustive]
 pub enum ModelFailureKind {
     ContextWindowExceeded,
     /// An established response stream disconnected before its terminal event.
     /// The calling algorithm decides whether and how to request continuation.
     StreamDisconnected,
+    /// A transient provider failure. The calling algorithm owns the retry budget.
+    /// Advice is a delay from receipt, as distinct from a transport/header deadline.
+    Retryable {
+        retry_delay_ms: Option<u64>,
+    },
     Interrupted,
     SessionBudgetExceeded,
     Other,
@@ -87,5 +92,41 @@ mod tests {
             .unwrap()
             .remove("completed_messages");
         assert!(serde_json::from_value::<ModelFailure>(missing_progress).is_err());
+        let retryable = ModelFailure::new(
+            ModelFailureKind::Retryable {
+                retry_delay_ms: Some(11054),
+            },
+            "temporary provider limit",
+        );
+        let value = serde_json::to_value(&retryable).unwrap();
+        assert_eq!(value["kind"]["retryable"]["retry_delay_ms"], 11054);
+        assert_eq!(
+            serde_json::from_value::<ModelFailure>(value.clone()).unwrap(),
+            retryable
+        );
+        for advice in [
+            serde_json::json!(-1),
+            serde_json::json!(1.5),
+            serde_json::json!("100"),
+        ] {
+            let mut malformed = value.clone();
+            malformed["kind"]["retryable"]["retry_delay_ms"] = advice;
+            assert!(serde_json::from_value::<ModelFailure>(malformed).is_err());
+        }
+        let mut unknown = value;
+        unknown["kind"]["retryable"]["provider_advice"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<ModelFailure>(unknown).is_err());
+        let no_advice = ModelFailure::new(
+            ModelFailureKind::Retryable {
+                retry_delay_ms: None,
+            },
+            "transient",
+        );
+        let value = serde_json::to_value(&no_advice).unwrap();
+        assert!(value["kind"]["retryable"]["retry_delay_ms"].is_null());
+        assert_eq!(
+            serde_json::from_value::<ModelFailure>(value).unwrap(),
+            no_advice
+        );
     }
 }

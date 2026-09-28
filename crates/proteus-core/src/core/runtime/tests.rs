@@ -17,6 +17,7 @@ use crate::{
 };
 
 mod execution;
+mod interruption;
 mod snapshot_atomicity;
 mod steering_integration;
 

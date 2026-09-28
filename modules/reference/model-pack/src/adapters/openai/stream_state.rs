@@ -24,9 +24,14 @@ pub(super) struct OpenAiStreamState {
 }
 
 impl OpenAiStreamState {
-    pub(super) fn translate(&mut self, event_type: &str, data: &str) -> Vec<ModelStreamEvent> {
+    pub(super) fn translate(&mut self, data: &str) -> Vec<ModelStreamEvent> {
         let Ok(parsed) = serde_json::from_str::<Value>(data) else {
-            return translate_non_message_event(event_type, data);
+            return Vec::new();
+        };
+        // Responses dispatches on the JSON envelope. The SSE event-name field
+        // may be absent or unrelated; it is never a second protocol reader.
+        let Some(event_type) = parsed.get("type").and_then(Value::as_str) else {
+            return Vec::new();
         };
         let index = parsed
             .get("output_index")
@@ -126,12 +131,12 @@ impl OpenAiStreamState {
                 })).collect::<Vec<_>>();
                 finalize_completed_event(data, &self.completed_items, &streamed_items, &self.ids)
             }
-            _ => translate_non_message_event(event_type, data),
+            _ => translate_non_message_event(event_type, &parsed),
         }
     }
 }
 
 #[cfg(test)]
-pub(super) fn translate_sse_event(event_type: &str, data: &str) -> Vec<ModelStreamEvent> {
-    OpenAiStreamState::default().translate(event_type, data)
+pub(super) fn translate_sse_event(data: &str) -> Vec<ModelStreamEvent> {
+    OpenAiStreamState::default().translate(data)
 }

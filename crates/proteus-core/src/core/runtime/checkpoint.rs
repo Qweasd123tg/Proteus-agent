@@ -26,6 +26,7 @@ pub(super) struct TurnHistoryRecorder {
     pub(super) store: Option<SessionStore>,
     pub(super) history: Arc<Mutex<Vec<CanonicalMessage>>>,
     pub(super) model_context: Arc<Mutex<crate::core::model_context::ModelContextState>>,
+    pub(super) interrupted_turns: Arc<Mutex<Vec<crate::contracts::WorkflowHistoryInterruption>>>,
     pub(super) initial_history: Vec<CanonicalMessage>,
     pub(super) current_user: CanonicalMessage,
     pub(super) steering: SteeringModel,
@@ -82,6 +83,7 @@ impl WorkflowHistoryRecorder for TurnHistoryRecorder {
         }
         if compaction.is_some() {
             self.model_context.lock().await.compacted();
+            self.interrupted_turns.lock().await.clear();
         }
         *history = next_history;
         *capture = next_capture;

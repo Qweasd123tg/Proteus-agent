@@ -250,6 +250,26 @@ impl AgentRuntime {
                 }
             }
         };
+        if self.session.session_store.is_none()
+            && settlement.status == crate::core::TurnSettlementStatus::Canceled
+        {
+            let history_belongs_to_turn = *self.session.history_turn.lock().await == Some(turn_id);
+            let anchor = self
+                .session
+                .history
+                .lock()
+                .await
+                .last()
+                .map(|message| message.id);
+            if history_belongs_to_turn && let Some(after_message_id) = anchor {
+                self.session.interrupted_turns.lock().await.push(
+                    crate::contracts::WorkflowHistoryInterruption {
+                        turn_id,
+                        after_message_id,
+                    },
+                );
+            }
+        }
         if let Some(session_store) = &self.session.session_store
             && let Err(settlement_error) = session_store
                 .append_journal_entry(
@@ -328,6 +348,10 @@ impl AgentRuntime {
         workflow_context.queued_user_messages = self.session.steering.queued_count_handle();
         workflow_context.intent = reserved.intent;
         workflow_context.permission_mode = snapshot.permission_mode;
+        workflow_context.interrupted_turns = match &self.session.session_store {
+            Some(store) => store.load_projection()?.interrupted_turns,
+            None => self.session.interrupted_turns.lock().await.clone(),
+        };
         let steering_model = SteeringModel::new(
             workflow_context.execution.model.clone(),
             self.session.steering.clone(),
@@ -347,6 +371,7 @@ impl AgentRuntime {
             store: self.session.session_store.clone(),
             history: self.session.history.clone(),
             model_context: self.session.model_context.clone(),
+            interrupted_turns: self.session.interrupted_turns.clone(),
             initial_history: history.clone(),
             current_user: user_message.clone(),
             steering: steering_model.clone(),
@@ -448,6 +473,7 @@ impl AgentRuntime {
             self.persist_config_snapshot_for_session(config_snapshot);
         }
         history.push(user_message.clone());
+        *self.session.history_turn.lock().await = Some(turn_id);
         Ok(history.clone())
     }
 }

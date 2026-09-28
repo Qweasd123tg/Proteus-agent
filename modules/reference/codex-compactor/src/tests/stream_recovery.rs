@@ -140,3 +140,25 @@ fn stream_disconnection_keeps_summary_retry_policy_without_inserting_partial_sum
     );
     assert_eq!(requests[0].messages.len(), requests[1].messages.len());
 }
+
+#[test]
+fn retry_advice_does_not_override_pinned_local_compactor_backoff() {
+    let minimum_backoff = std::time::Duration::from_millis(180);
+    let mut host = TestHost::with_results(vec![
+        failure(
+            ModelFailureKind::Retryable {
+                retry_delay_ms: Some(0),
+            },
+            "wait before retry",
+        ),
+        Ok(CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "complete summary"),
+            Vec::new(),
+            FinishReason::Stop,
+        )),
+    ]);
+    let started = std::time::Instant::now();
+    compact(recovery_input(1), &mut host).unwrap();
+    assert!(started.elapsed() >= minimum_backoff);
+    assert_eq!(host.requests.lock().unwrap().len(), 2);
+}

@@ -7,7 +7,7 @@ use proteus_contracts::contracts::ModelContextObservation;
 pub(crate) struct ModelContextAccounting {
     total_accounted_tokens: u64,
     last_accounted_tokens: u32,
-    pending_overflow: bool,
+    estimate_valid: bool,
 }
 
 impl ModelContextAccounting {
@@ -23,7 +23,7 @@ impl ModelContextAccounting {
                         .total_accounted_tokens
                         .saturating_add(total_tokens);
                     accounting.last_accounted_tokens = last_tokens;
-                    accounting.pending_overflow = false;
+                    accounting.estimate_valid = true;
                 }
                 ModelContextObservation::ContextWindowExceeded { max_input_tokens } => {
                     let usable = u64::from(max_input_tokens) * 95 / 100;
@@ -32,18 +32,18 @@ impl ModelContextAccounting {
                         .try_into()
                         .unwrap_or(u32::MAX);
                     accounting.total_accounted_tokens = usable;
-                    accounting.pending_overflow = true;
+                    accounting.estimate_valid = true;
                 }
                 ModelContextObservation::HistoryCompacted => {
-                    accounting.pending_overflow = false;
+                    accounting.estimate_valid = false;
                 }
             }
         }
         accounting
     }
 
-    pub(crate) fn overflow_estimate_hint(&self) -> Option<u32> {
-        self.pending_overflow.then_some(self.last_accounted_tokens)
+    pub(crate) fn preflight_estimate_hint(&self) -> Option<u32> {
+        self.estimate_valid.then_some(self.last_accounted_tokens)
     }
 }
 
@@ -64,7 +64,7 @@ mod tests {
             },
         ]);
         assert_eq!(accounting.total_accounted_tokens, 950);
-        assert_eq!(accounting.overflow_estimate_hint(), Some(550));
+        assert_eq!(accounting.preflight_estimate_hint(), Some(550));
     }
 
     #[test]
@@ -78,11 +78,11 @@ mod tests {
             },
         ]);
         assert_eq!(accounting.total_accounted_tokens, 950);
-        assert_eq!(accounting.overflow_estimate_hint(), Some(0));
+        assert_eq!(accounting.preflight_estimate_hint(), Some(0));
     }
 
     #[test]
-    fn usage_and_compaction_clear_hint_without_resetting_cumulative_accounting() {
+    fn usage_replaces_hint_and_compaction_clears_it_without_resetting_cumulative_accounting() {
         let prior = [
             ContextWindowExceeded {
                 max_input_tokens: 1_000,
@@ -94,7 +94,7 @@ mod tests {
         ];
         let accounting = ModelContextAccounting::from_observations(&prior);
         assert_eq!(accounting.total_accounted_tokens, 970);
-        assert_eq!(accounting.overflow_estimate_hint(), None);
+        assert_eq!(accounting.preflight_estimate_hint(), Some(20));
 
         let accounting = ModelContextAccounting::from_observations(&[
             ContextWindowExceeded {
@@ -103,15 +103,15 @@ mod tests {
             HistoryCompacted,
         ]);
         assert_eq!(accounting.total_accounted_tokens, 950);
-        assert_eq!(accounting.overflow_estimate_hint(), None);
+        assert_eq!(accounting.preflight_estimate_hint(), None);
     }
 
     #[test]
-    fn no_known_overflow_window_means_no_hint() {
+    fn successful_usage_informs_preflight_without_an_overflow() {
         let accounting = ModelContextAccounting::from_observations(&[Usage {
             total_tokens: 400,
             last_tokens: 150,
         }]);
-        assert_eq!(accounting.overflow_estimate_hint(), None);
+        assert_eq!(accounting.preflight_estimate_hint(), Some(150));
     }
 }

@@ -128,15 +128,49 @@ impl super::AgentRuntime {
         preserve_completed_suffix: bool,
     ) -> Result<()> {
         let mut history = self.session.history.lock().await;
+        let mut pending_compaction = compactions
+            .iter()
+            .rev()
+            .find(|report| report.changed)
+            .cloned();
         if let Some(store) = &self.session.session_store {
             // A callback can lose its acknowledgement after its journal append.
-            refresh_committed_history(&mut history, store.load_messages()?)?;
+            let projection = store.load_projection()?;
+            let recorded_compactions = projection.records.iter().filter(|record| {
+                record.turn_id == Some(turn_id)
+                    && record.thread_id == Some(self.session.thread_id)
+                    && matches!(&record.entry, crate::core::JournalEntry::HistoryMutated(mutation)
+                        if mutation.compaction.as_ref().is_some_and(|report| report.changed))
+            }).count();
+            pending_compaction = compactions
+                .iter()
+                .filter(|report| report.changed)
+                .skip(recorded_compactions)
+                .last()
+                .cloned();
+            refresh_committed_history(&mut history, projection.history)?;
         }
         if history.starts_with(&update.final_messages) {
             ensure!(
                 preserve_completed_suffix || *history == update.final_messages,
                 "successful workflow omitted committed checkpoint progress"
             );
+            if let Some(store) = &self.session.session_store
+                && pending_compaction.is_some()
+            {
+                store
+                    .replace_history(
+                        self.session.thread_id,
+                        Some(turn_id),
+                        &history,
+                        pending_compaction,
+                    )
+                    .await?;
+                self.session.model_context.lock().await.compacted();
+            }
+            if compactions.iter().any(|report| report.changed) {
+                self.session.interrupted_turns.lock().await.clear();
+            }
             return Ok(());
         }
         let suffix = update.final_messages.strip_prefix(history.as_slice());
@@ -145,17 +179,13 @@ impl super::AgentRuntime {
             "workflow terminal history disagrees with committed checkpoints"
         );
         if let Some(store) = &self.session.session_store {
-            if suffix.is_none() {
+            if suffix.is_none() || pending_compaction.is_some() {
                 store
                     .replace_history(
                         self.session.thread_id,
                         Some(turn_id),
                         &update.final_messages,
-                        compactions
-                            .iter()
-                            .rev()
-                            .find(|report| report.changed)
-                            .cloned(),
+                        pending_compaction.clone(),
                     )
                     .await?;
             } else {
@@ -168,8 +198,11 @@ impl super::AgentRuntime {
                     .await?;
             }
         }
-        if suffix.is_none() {
+        if suffix.is_none() || pending_compaction.is_some() {
             self.session.model_context.lock().await.compacted();
+        }
+        if compactions.iter().any(|report| report.changed) {
+            self.session.interrupted_turns.lock().await.clear();
         }
         *history = update.final_messages;
         Ok(())

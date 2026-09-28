@@ -77,6 +77,7 @@ impl Workflow for ProcessWorkflowAdapter {
             history,
             runtime: crate::contracts::ProcessWorkflowRuntimeInfo {
                 model_context: ctx.model_context.clone(),
+                interrupted_turns: ctx.interrupted_turns.clone(),
                 intent: ctx.intent.clone(),
                 permission_mode: ctx.permission_mode,
                 session_id: ctx.session_id,

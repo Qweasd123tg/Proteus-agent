@@ -33,7 +33,7 @@ pub(crate) struct TurnScaffold {
 }
 
 impl TurnScaffold {
-    pub(crate) fn begin(
+    pub(crate) fn begin_without_context(
         host: &mut WorkflowModuleHostMut<'_>,
         input: &WorkflowModuleInput,
     ) -> Result<Self, ProcessModuleError> {
@@ -44,17 +44,6 @@ impl TurnScaffold {
             },
         )?;
 
-        let bundle = build_context(host, input)?;
-        emit_event(
-            host,
-            &Event::ContextBuilt {
-                chunks: bundle.chunks.len(),
-                token_estimate: bundle.token_estimate,
-            },
-        )?;
-
-        let context_chunks = bundle.chunks.len();
-        let context_token_estimate = bundle.token_estimate;
         let persistent_messages = input.history.clone();
         let current_user_message = persistent_messages.last().ok_or_else(|| {
             ProcessModuleError::new(
@@ -70,19 +59,7 @@ impl TurnScaffold {
         }
         let current_user_message_id = current_user_message.id;
 
-        // Provider prompt caches reuse an unchanged request prefix. Keep the
-        // ephemeral workspace context before durable conversation history so
-        // the next turn can extend `context + history` instead of inserting
-        // new conversation messages in front of the context.
-        let mut model_messages =
-            Vec::with_capacity(bundle.chunks.len() + persistent_messages.len());
-        for chunk in bundle.chunks {
-            model_messages.push(
-                CanonicalMessage::new(MessageRole::User, vec![ContentPart::Context { chunk }])
-                    .with_name(CONTEXT_MESSAGE_NAME),
-            );
-        }
-        model_messages.extend(persistent_messages.iter().cloned());
+        let model_messages = persistent_messages.clone();
         let current_turn_messages_start = model_messages.len();
 
         Ok(Self {
@@ -90,12 +67,51 @@ impl TurnScaffold {
             persistent_messages,
             current_user_message_id,
             current_turn_messages_start,
-            context_chunks,
-            context_token_estimate,
+            context_chunks: 0,
+            context_token_estimate: None,
             compactions: Vec::new(),
             history_replacement_len: None,
             result_bindings: Default::default(),
         })
+    }
+
+    pub(crate) fn begin(
+        host: &mut WorkflowModuleHostMut<'_>,
+        input: &WorkflowModuleInput,
+    ) -> Result<Self, ProcessModuleError> {
+        let mut turn = Self::begin_without_context(host, input)?;
+        turn.inject_context(host, input, 0)?;
+        Ok(turn)
+    }
+
+    /// Fresh context is built only after a pre-turn compaction has completed.
+    /// On ordinary turns it remains the cacheable prefix; after compaction it
+    /// follows the handoff history and precedes the newly admitted user.
+    pub(crate) fn inject_context(
+        &mut self,
+        host: &mut WorkflowModuleHostMut<'_>,
+        input: &WorkflowModuleInput,
+        position: usize,
+    ) -> Result<(), ProcessModuleError> {
+        let bundle = build_context(host, input)?;
+        emit_event(
+            host,
+            &Event::ContextBuilt {
+                chunks: bundle.chunks.len(),
+                token_estimate: bundle.token_estimate,
+            },
+        )?;
+        self.context_chunks = bundle.chunks.len();
+        self.context_token_estimate = bundle.token_estimate;
+        self.model_messages.splice(
+            position..position,
+            bundle.chunks.into_iter().map(|chunk| {
+                CanonicalMessage::new(MessageRole::User, vec![ContentPart::Context { chunk }])
+                    .with_name(CONTEXT_MESSAGE_NAME)
+            }),
+        );
+        self.current_turn_messages_start = self.model_messages.len();
+        Ok(())
     }
 
     pub(crate) fn append_tool_results(&mut self, results: impl IntoIterator<Item = ToolResult>) {

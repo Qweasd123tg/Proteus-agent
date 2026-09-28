@@ -85,8 +85,8 @@ pub(super) fn sse(response: Value) -> (u16, &'static str, String) {
         200,
         "text/event-stream",
         format!(
-            "event: response.completed\ndata: {}\n\n",
-            serde_json::json!({"response": response})
+            "data: {}\n\n",
+            serde_json::json!({"type": "response.completed", "response": response})
         ),
     )
 }

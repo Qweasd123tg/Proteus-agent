@@ -50,7 +50,7 @@ async fn complete_events_reset_idle_even_when_the_adapter_ignores_them() {
     let start = Instant::now();
     for _ in 0..3 {
         let event = timeout.next(&mut sse).await.unwrap().unwrap().unwrap();
-        assert!(state.translate(&event.event, &event.data).is_empty());
+        assert!(state.translate(&event.data).is_empty());
     }
     assert!(start.elapsed() >= Duration::from_millis(240));
     let failure = timeout.next(&mut sse).await.unwrap_err();

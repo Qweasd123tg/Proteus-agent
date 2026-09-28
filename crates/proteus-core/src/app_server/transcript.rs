@@ -30,11 +30,7 @@ fn append_transcript_message(
     let mut text_parts = Vec::new();
     for part in &message.parts {
         match &part.payload {
-            ContentPart::Text { text }
-            | ContentPart::ReasoningSummary { text }
-            | ContentPart::Reasoning { text, signature: _ }
-                if !text.trim().is_empty() =>
-            {
+            ContentPart::Text { text } if !text.trim().is_empty() => {
                 text_parts.push(text.clone());
             }
             ContentPart::ToolCall { call } => {
@@ -265,6 +261,34 @@ mod tests {
 
     use super::*;
     use crate::domain::{FileSearchResult, ToolCall, WebSearchAction, WebSearchSource};
+
+    #[test]
+    fn reasoning_is_not_ordinary_assistant_text() {
+        let reasoning = CanonicalMessage::new(
+            MessageRole::Assistant,
+            vec![
+                ContentPart::ReasoningSummary {
+                    text: "summary".to_owned(),
+                },
+                ContentPart::Reasoning {
+                    text: "reasoning".to_owned(),
+                    signature: None,
+                },
+            ],
+        );
+        let mut mixed = reasoning.clone();
+        mixed.phase = Some(crate::model_standard::MessagePhase::FinalAnswer);
+        mixed
+            .parts
+            .extend(CanonicalMessage::text(MessageRole::Assistant, "answer").parts);
+
+        assert!(transcript_messages(&[reasoning]).is_empty());
+        let transcript = transcript_messages(&[mixed.clone()]);
+        assert_eq!(transcript.len(), 1);
+        assert_eq!(transcript[0].text, "answer");
+        assert_eq!(transcript[0].message_id, Some(mixed.id));
+        assert_eq!(transcript[0].phase, mixed.phase);
+    }
 
     #[test]
     fn committed_tool_call_without_result_becomes_interrupted() {

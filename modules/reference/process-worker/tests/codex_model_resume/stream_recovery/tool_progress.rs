@@ -28,24 +28,24 @@ pub(super) fn completed_tool_sse() -> String {
     [
         format!(
             "event: response.output_item.done\ndata: {}\n\n",
-            json!({"output_index": 0, "item": reasoning})
+            json!({"type": "response.output_item.done", "output_index": 0, "item": reasoning})
         ),
         format!(
             "event: response.output_item.done\ndata: {}\n\n",
-            json!({"output_index": 1, "item": tool})
+            json!({"type": "response.output_item.done", "output_index": 1, "item": tool})
         ),
         // Repeated delivery of the same item must not duplicate execution.
         format!(
             "event: response.output_item.done\ndata: {}\n\n",
-            json!({"output_index": 1, "item": tool})
+            json!({"type": "response.output_item.done", "output_index": 1, "item": tool})
         ),
         format!(
             "event: response.output_item.added\ndata: {}\n\n",
-            json!({"output_index": 2, "item": partial})
+            json!({"type": "response.output_item.added", "output_index": 2, "item": partial})
         ),
         format!(
             "event: response.function_call_arguments.delta\ndata: {}\n\n",
-            json!({
+            json!({"type": "response.function_call_arguments.delta",
             "output_index": 2, "item_id": "unfinished_tool_item", "delta": tool["arguments"]})
         ),
     ]

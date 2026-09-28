@@ -6,10 +6,10 @@ use std::{
 use anyhow::{Result, anyhow, bail};
 
 use crate::{
-    contracts::{ApprovalResponse, CompactionInput, CompactionOutput, ToolExposureOutput},
+    contracts::{ApprovalResponse, ToolExposureOutput},
     core::ModelResponseOutcome,
     domain::{
-        CacheHints, CallId, ContextBundle, HistoryCompactionReport, HostedToolKind,
+        CacheHints, CallId, ContextBundle, HistoryCompactionReport, HostedToolKind, MessageId,
         ReasoningConfig, ToolCall, ToolCallResolution, ToolResult, ToolSurface,
     },
     model_standard::{CanonicalModelRequest, ModelCapabilities},
@@ -25,6 +25,7 @@ use super::{
 
 mod adapters;
 mod checkpoints;
+mod compaction;
 pub(super) use checkpoints::{RecordedCheckpoint, ReplayCheckpointRecorder, recorded_checkpoints};
 
 pub(super) use adapters::{
@@ -37,6 +38,7 @@ pub(super) struct ReplayState {
     capabilities: ModelCapabilities,
     context: Option<ContextBundle>,
     registered_tool_names: HashSet<String>,
+    incoming_user_message_id: MessageId,
 }
 
 struct ReplayStateInner {
@@ -76,6 +78,7 @@ impl ReplayState {
         context: Option<ContextBundle>,
         registered_tool_names: HashSet<String>,
         snapshot_reasoning: &ReasoningConfig,
+        incoming_user_message_id: MessageId,
     ) -> Self {
         let capabilities = exchanges
             .first()
@@ -109,6 +112,7 @@ impl ReplayState {
             capabilities,
             context,
             registered_tool_names,
+            incoming_user_message_id,
         }
     }
 
@@ -186,61 +190,6 @@ impl ReplayState {
             .unwrap_or(serde_json::Value::Null);
         let mut output = ToolExposureOutput::new(tools);
         output.metadata = metadata;
-        Ok(output)
-    }
-
-    pub fn compact(&self, input: CompactionInput) -> Result<CompactionOutput> {
-        let expected = self.current_request()?;
-        let mut inner = self.lock();
-        let equal = messages_equal(
-            &input.request.messages,
-            &expected.messages,
-            &inner.actual_to_expected,
-        );
-        if equal {
-            let mut output = CompactionOutput::unchanged(input.request.messages);
-            output.token_estimate = input.token_estimate;
-            output.trigger_tokens = expected
-                .metadata
-                .get("compaction_trigger_tokens")
-                .and_then(serde_json::Value::as_u64)
-                .and_then(|value| u32::try_from(value).ok());
-            return Ok(output);
-        }
-
-        let reason = input.reason.as_deref();
-        let report_index = inner
-            .compactions
-            .iter()
-            .position(|candidate| {
-                !candidate.consumed && candidate.report.reason.as_deref() == reason
-            })
-            .or_else(|| {
-                inner
-                    .compactions
-                    .iter()
-                    .position(|candidate| !candidate.consumed)
-            });
-        let Some(report_index) = report_index else {
-            return mismatch(
-                &mut inner,
-                format!(
-                    "compactor input for phase {} differs from the recorded model request, but the journal contains no matching changed compaction",
-                    reason.unwrap_or("unknown")
-                ),
-            );
-        };
-        let report = &mut inner.compactions[report_index];
-        report.consumed = true;
-        let recorded = report.report.clone();
-        let mut output = CompactionOutput::changed(expected.messages, recorded.summary);
-        output.user_message_replacements = recorded.user_message_replacements;
-        output.token_estimate = recorded.output_token_estimate;
-        output.original_token_estimate = recorded.original_token_estimate;
-        output.trigger_tokens = recorded.trigger_tokens;
-        output.summary_source = recorded.summary_source;
-        output.skipped_reason = recorded.skipped_reason;
-        output.metadata = recorded.metadata;
         Ok(output)
     }
 

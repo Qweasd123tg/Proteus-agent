@@ -1,4 +1,4 @@
-//! Component model/v9: immutable description, catalog/quota discovery and canonical stream.
+//! Component model/v10: immutable description, catalog/quota discovery and canonical stream.
 //! Events use acknowledged host callbacks, so slow consumers exert bounded
 //! backpressure without dropping text, tool arguments or usage.
 
@@ -12,7 +12,7 @@ use crate::{
     },
 };
 
-pub const PROCESS_MODEL_CONTRACT_VERSION: &str = "v9";
+pub const PROCESS_MODEL_CONTRACT_VERSION: &str = "v10";
 pub const PROCESS_MODEL_DESCRIBE_METHOD: &str = "describe";
 pub const PROCESS_MODEL_CATALOG_METHOD: &str = "catalog";
 pub const PROCESS_MODEL_QUOTA_METHOD: &str = "quota";

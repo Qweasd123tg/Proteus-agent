@@ -79,6 +79,11 @@ pub async fn replay_workflow(
         fixture.context.clone(),
         registered_tool_names,
         &fixture.snapshot.reasoning,
+        fixture
+            .initial_history
+            .last()
+            .expect("persisted current user message")
+            .id,
     ));
     let tools = register_replay_tools(state.clone(), specs)?;
 
@@ -160,6 +165,7 @@ pub async fn replay_workflow(
     .with_instructions(replay_config.instruction_blocks());
     workflow_context.history_recorder = checkpoint_recorder.clone();
     workflow_context.model_context = fixture.model_context.clone();
+    workflow_context.interrupted_turns = fixture.interrupted_turns.clone();
     workflow_context.intent = fixture.opened.intent.clone();
     workflow_context.permission_mode = fixture.snapshot.permission_mode_default;
 

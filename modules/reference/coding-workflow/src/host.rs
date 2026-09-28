@@ -32,6 +32,8 @@ struct RequestOptions<'a> {
     include_dynamic_meta_tools: bool,
     last_usage: Option<&'a LastModelUsage>,
     context_hint: Option<u32>,
+    check_compaction: bool,
+    compaction_trigger_tokens: Option<u32>,
 }
 
 pub(super) fn request_from_state(
@@ -59,6 +61,8 @@ pub(super) fn request_from_state(
             include_dynamic_meta_tools: phase != "review",
             last_usage,
             context_hint: None,
+            check_compaction: true,
+            compaction_trigger_tokens: None,
         },
     )
 }
@@ -85,6 +89,56 @@ pub(super) fn request_from_state_with_instruction_blocks(
             include_dynamic_meta_tools: phase != "review",
             last_usage,
             context_hint,
+            check_compaction: true,
+            compaction_trigger_tokens: None,
+        },
+    )
+}
+
+pub(super) fn pre_turn_request(
+    input: &WorkflowModuleInput,
+    host: &WorkflowModuleHostMut<'_>,
+    prior_messages: &[CanonicalMessage],
+    context_hint: Option<u32>,
+) -> Result<PreparedRequest, ProcessModuleError> {
+    request_from_state_with_instruction_blocks_and_options(
+        input,
+        host,
+        prior_messages,
+        input.runtime.instructions.clone(),
+        None,
+        "codex_pre_turn",
+        RequestOptions {
+            expose_tools: false,
+            include_dynamic_meta_tools: false,
+            last_usage: None,
+            context_hint,
+            check_compaction: true,
+            compaction_trigger_tokens: None,
+        },
+    )
+}
+
+pub(super) fn first_sampling_request(
+    input: &WorkflowModuleInput,
+    host: &WorkflowModuleHostMut<'_>,
+    messages: &[CanonicalMessage],
+    compaction_trigger_tokens: Option<u32>,
+) -> Result<PreparedRequest, ProcessModuleError> {
+    request_from_state_with_instruction_blocks_and_options(
+        input,
+        host,
+        messages,
+        input.runtime.instructions.clone(),
+        None,
+        "codex_loop",
+        RequestOptions {
+            expose_tools: true,
+            include_dynamic_meta_tools: true,
+            last_usage: None,
+            context_hint: None,
+            check_compaction: false,
+            compaction_trigger_tokens,
         },
     )
 }
@@ -141,14 +195,21 @@ fn request_from_state_with_instruction_blocks_and_options(
     // TokenUsageUpdated нёс max_input_tokens (хост-шейпер правит свою копию
     // уже после того, как module собрал снимок, поэтому делаем это здесь).
     request.limits.max_input_tokens = input.runtime.max_input_tokens;
-    let compacted = compact_messages(
-        input,
-        host,
-        &request,
-        phase,
-        options.last_usage,
-        options.context_hint,
-    )?;
+    let compacted = if options.check_compaction {
+        compact_messages(
+            input,
+            host,
+            &request,
+            phase,
+            options.last_usage,
+            options.context_hint,
+        )?
+    } else {
+        CompactedMessages {
+            messages: request.messages.clone(),
+            report: None,
+        }
+    };
     request.messages = compacted.messages;
     // Порог автокомпакта считает компактор (он владеет конфигом), а возвращает
     // его в отчёте. Кладём в metadata запроса, чтобы снимок взял именно его —
@@ -157,6 +218,7 @@ fn request_from_state_with_instruction_blocks_and_options(
         .report
         .as_ref()
         .and_then(|report| report.trigger_tokens)
+        .or(options.compaction_trigger_tokens)
     {
         insert_request_metadata_u32(&mut request, "compaction_trigger_tokens", trigger);
     }

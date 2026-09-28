@@ -23,6 +23,7 @@ use model_exchanges::select_exchanges;
 #[derive(Debug, Clone)]
 pub(super) struct WorkflowReplayFixture {
     pub model_context: Vec<crate::contracts::ModelContextObservation>,
+    pub interrupted_turns: Vec<crate::contracts::WorkflowHistoryInterruption>,
     pub checkpoints: Vec<super::replay_runtime::RecordedCheckpoint>,
     pub journal_path: std::path::PathBuf,
     pub session_id: SessionId,
@@ -91,8 +92,20 @@ pub(super) fn load_fixture(
     let context = exchanges
         .first()
         .map(|exchange| recorded_context(&exchange.request, &settlement));
+    let opened_index = projection
+        .records
+        .iter()
+        .position(|record| {
+            record.turn_id == Some(turn_id) && matches!(record.entry, JournalEntry::TurnOpened(_))
+        })
+        .ok_or_else(|| anyhow!("selected turn has no opening record"))?;
+    let prior_projection = crate::core::JournalProjection::build(
+        store.session_id(),
+        projection.records[..opened_index].to_vec(),
+    )?;
 
     Ok(WorkflowReplayFixture {
+        interrupted_turns: prior_projection.interrupted_turns,
         model_context: crate::core::model_context::ModelContextState::from_records(
             &projection.records,
             thread_id,

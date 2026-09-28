@@ -137,7 +137,9 @@ struct SessionState {
     run_lock: Mutex<()>,
     session_started: Mutex<bool>,
     history: Arc<Mutex<Vec<CanonicalMessage>>>,
+    history_turn: Mutex<Option<crate::domain::TurnId>>,
     model_context: Arc<Mutex<super::model_context::ModelContextState>>,
+    interrupted_turns: Arc<Mutex<Vec<crate::contracts::WorkflowHistoryInterruption>>>,
     session_store: Option<SessionStore>,
     steering: Arc<SessionSteering>,
 }
@@ -156,7 +158,9 @@ impl SessionState {
             run_lock: Mutex::new(()),
             session_started: Mutex::new(session_started),
             history: Arc::new(Mutex::new(history)),
+            history_turn: Default::default(),
             model_context: Default::default(),
+            interrupted_turns: Default::default(),
             session_store,
             steering: Arc::new(SessionSteering::default()),
         }

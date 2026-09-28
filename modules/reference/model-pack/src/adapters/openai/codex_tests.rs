@@ -27,8 +27,14 @@ fn response() -> Value {
 async fn subscription_uses_oauth_and_sse_for_stream_and_complete() {
     let root = tempfile::tempdir().unwrap();
     let auth_file = auth_file(root.path());
-    for stream in [true, false] {
-        let (url, server) = test_http::server(vec![test_http::sse(response())]).await;
+    for (stream, event_name) in [true, false].into_iter().flat_map(|stream| {
+        [None, Some("message"), Some("response.failed")].map(|name| (stream, name))
+    }) {
+        let mut reply = test_http::sse(response());
+        if let Some(name) = event_name {
+            reply.2 = format!("event: {name}\n{}", reply.2);
+        }
+        let (url, server) = test_http::server(vec![reply]).await;
         let client = OpenAiResponsesClient::from_codex_config(
             json!({"auth_file": auth_file, "base_url": url, "stream": stream}),
         )

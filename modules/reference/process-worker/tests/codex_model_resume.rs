@@ -55,8 +55,9 @@ impl proteus_contracts::contracts::EventSink for CapturedEvents {
 
 fn sse_body(response: &Value) -> String {
     let mut body = String::new();
-    let mut emit = |kind: &str, data: Value| {
-        body.push_str(&format!("event: {kind}\ndata: {data}\n\n"));
+    let mut emit = |kind: &str, mut data: Value| {
+        data["type"] = json!(kind);
+        body.push_str(&format!("data: {data}\n\n"));
     };
     for (index, item) in response["output"].as_array().unwrap().iter().enumerate() {
         if item["type"] != "message" {

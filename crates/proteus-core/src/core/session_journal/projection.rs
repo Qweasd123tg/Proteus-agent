@@ -16,6 +16,8 @@ pub(crate) struct JournalValidationState {
     capture_owner: Option<JournalRecordAttributionOwner>,
     history: Vec<CanonicalMessage>,
     history_revision: u64,
+    history_turn: Option<TurnId>,
+    interrupted_turns: Vec<proteus_contracts::contracts::WorkflowHistoryInterruption>,
     record_ids: HashSet<RecordId>,
     known_parts: HashMap<PartId, CanonicalPart>,
     opened_turns: HashMap<TurnId, TurnLifecycle>,
@@ -166,7 +168,15 @@ impl JournalValidationState {
                     }
                 }
                 validate_active_history_ids(&self.history)?;
+                if mutation
+                    .compaction
+                    .as_ref()
+                    .is_some_and(|report| report.changed)
+                {
+                    self.interrupted_turns.clear();
+                }
                 self.history_revision = mutation.new_revision;
+                self.history_turn = record.turn_id;
             }
             JournalEntry::ModelRequestRecorded(request) => {
                 let owner = self.require_execution_fact(record)?;
@@ -310,11 +320,22 @@ impl JournalValidationState {
                     self.validate_part_id_stability(&self.history.clone())?;
                 }
             }
-            JournalEntry::TurnSettled(_) => {
+            JournalEntry::TurnSettled(settled) => {
                 reject_execution_id(record)?;
                 let turn_id = self.require_root_turn(record)?;
                 if !self.settled_turns.insert(turn_id) {
                     bail!("turn {turn_id} settled more than once");
+                }
+                if settled.status == super::types::TurnSettlementStatus::Canceled
+                    && self.history_turn == Some(turn_id)
+                    && let Some(message) = self.history.last()
+                {
+                    self.interrupted_turns.push(
+                        proteus_contracts::contracts::WorkflowHistoryInterruption {
+                            turn_id,
+                            after_message_id: message.id,
+                        },
+                    );
                 }
                 if self.capture_owner == record.thread_id.zip(record.turn_id) {
                     self.capture = Default::default();
@@ -423,6 +444,7 @@ pub struct JournalProjection {
     pub records: Vec<JournalRecord>,
     pub history: Vec<CanonicalMessage>,
     pub history_revision: u64,
+    pub interrupted_turns: Vec<proteus_contracts::contracts::WorkflowHistoryInterruption>,
     pub interrupted_model_exchanges: Vec<ExchangeId>,
     pub unresolved_tool_calls: Vec<CallId>,
     pub unsettled_turns: Vec<TurnId>,
@@ -486,6 +508,7 @@ impl JournalProjection {
             records,
             history: state.history,
             history_revision: state.history_revision,
+            interrupted_turns: state.interrupted_turns,
             interrupted_model_exchanges,
             unresolved_tool_calls,
             unsettled_turns,

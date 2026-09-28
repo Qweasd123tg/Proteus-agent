@@ -270,9 +270,9 @@ invalid DTO и превышение limits являются fail-closed protocol
 | context provider | v2 | `provide` | — |
 | tool | v3 | `list`, `invoke` | — |
 | context | v2 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
-| model | v9 | `describe`, `catalog`, `quota`, `stream` | `host.model.emit` (acknowledged canonical events) |
-| compactor | v9 | `compact` | `host.model.complete` |
-| workflow | v15 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
+| model | v10 | `describe`, `catalog`, `quota`, `stream` | `host.model.emit` (acknowledged canonical events) |
+| compactor | v10 | `compact` | `host.model.complete` |
+| workflow | v16 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
 
 Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
@@ -280,19 +280,19 @@ DTO, adapter, protocol/conformance и swap evidence в одном commit.
 
 `ToolSpec` содержит обязательный boolean `supports_parallel_tool_calls`,
 независимый от `safety`. Он проходит через tool list, policy, tool exposure,
-canonical model request, workflow/compactor, journal schema v14 и config
+canonical model request, workflow/compactor, journal schema v15 и config
 snapshot v4. Rust
 constructor задаёт `false`, worker JSON обязан передать поле явно. Selector
 сохраняет зарегистрированное значение; несовпадение отклоняется. Старые
 версии этих contracts и ToolSpec без поля не принимаются. Wire остаётся v3;
 параллельность вызовов не меняет composition slot-а и его host authority.
 
-`workflow/v15` передаёт в `runtime` непрозрачный `intent: string | null` и
+`workflow/v16` передаёт в `runtime` непрозрачный `intent: string | null` и
 эффективный `permission_mode` запуска. Семантику имени определяет выбранный
 workflow; неподдерживаемое намерение должно давать явную ошибку, а не обычный
 запуск с проигнорированными параметрами. Поле не расширяет authority: host
 связывает policy с тем же immutable admission snapshot. `TurnOpened.intent`
-записывается в journal v14 и восстанавливается при replay.
+записывается в journal v15 и восстанавливается при replay.
 
 Обязательное `runtime.model_context` содержит упорядоченные типизированные
 факты предыдущих root turns этого thread: `usage { total_tokens, last_tokens }`,
@@ -308,7 +308,15 @@ Core восстанавливает факты из существующих mod
 Расчёт оценок и выбор compaction принадлежат workflow/compactor, а не Core.
 Эта поверхность не записывает синтетические значения в provider `TokenUsage`.
 
-`workflow/v15` возвращает strict terminal envelope: `status = "success"` с
+Обязательное `runtime.interrupted_turns` содержит нейтральные факты
+`{ turn_id, after_message_id }` об отменённых root turns с сохранённой историей.
+Core восстанавливает их из journal либо памяти; выбранный workflow определяет
+модельное представление. Changed compaction удаляет прежние факты даже при
+сохранении anchor message. Replay получает факты на начало выбранного хода.
+`coding.codex_loop` представляет их request-only маркером `<turn_aborted>`
+из выбранного upstream; marker не становится новым принятым вводом пользователя.
+
+`workflow/v16` возвращает strict terminal envelope: `status = "success"` с
 `result: WorkflowOutput` либо `status = "error"` с `failure: WorkflowFailure`.
 Ошибка алгоритма может содержать `history: WorkflowHistoryUpdate` — завершённые
 `new_messages`, optional `history_replacement` и `compactions`; `model_failure`
@@ -355,7 +363,7 @@ tools. Запрос без результата остаётся неизвес�
 
 ## Model Stream В Workflow
 
-`workflow/v15` предоставляет всем exports два callbacks:
+`workflow/v16` предоставляет всем exports два callbacks:
 
 - `host.model.stream.start(WorkflowCompleteModelRequest) -> { stream_id }`;
 - `host.model.stream.next({ stream_id }) -> WorkflowModelStreamItem` с
@@ -560,7 +568,7 @@ handshake всего набора, даже если probe направлен т
 
 ## Model Streaming
 
-`model/v9` использует canonical DTO из `proteus-contracts::contracts::process_model`:
+`model/v10` использует canonical DTO из `proteus-contracts::contracts::process_model`:
 
 Descriptor, catalog, quota, capabilities, stream events и terminal DTO отклоняют неизвестные поля.
 
@@ -625,8 +633,10 @@ progress. В `coding.codex_loop` сохраняется только output пр
 а не внутренний summary неудачного compactor. Завершённые calls проходят общий
 checkpoint/registry/policy/safety path до retry или terminal Error; Core сам
 не исполняет tools из модельного progress.
-Классы `context_window_exceeded`, `stream_disconnected`, `interrupted`, `session_budget_exceeded`,
-`other` задают общую алгоритмическую границу; provider implementation распознаёт
+Классы `context_window_exceeded`, `stream_disconnected`, `retryable`, `interrupted`,
+`session_budget_exceeded`, `other` задают общую алгоритмическую границу. Вариант
+`retryable` несёт `retry_delay_ms: integer | null` — рекомендацию задержки;
+бюджет и решение о повторе принадлежат workflow/compactor. Provider implementation распознаёт
 свои коды, остальные слои не разбирают текст. `host.model.complete` передаёт
 этот DTO в JSON-RPC error `data` для workflow/compactor; Rust helper сохраняет
 его в `ProcessModuleError.model_failure`. Неизвестные поля и отсутствие
@@ -639,11 +649,11 @@ event; это причина, а не команда Core повторить з�
 без завершения, сохраняя остальные
 ошибки данных и deadline отдельными. Codex workflow принимает решение о повторе
 с подтверждённой историей; compactor сохраняет свою политику повторов.
-Действуют `model/v9`, `workflow/v15`, `compactor/v9` и journal schema v14,
+Действуют `model/v10`, `workflow/v16`, `compactor/v10` и journal schema v15,
 без readers старых форм.
 Передача `ToolCall` в существующем `CanonicalMessage` не меняет wire/storage DTO.
 
-Journal schema v14 записывает `ModelMessageRecorded { exchange_id, message }`
+Journal schema v15 записывает `ModelMessageRecorded { exchange_id, message }`
 до доставки completed item и сохраняет полный `ModelFailure`; workflow replay
 воспроизводит последовательность completed items и возвращает тот же
 `kind`, текст и `completed_messages`. Ветвление workflow по типу ошибки прямого

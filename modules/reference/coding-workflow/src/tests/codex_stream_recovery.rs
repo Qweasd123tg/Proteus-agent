@@ -3,61 +3,71 @@ use proteus_contracts::model_standard::{ModelFailure, ModelFailureKind};
 
 #[test]
 fn codex_stream_retry_budget_is_per_sampling_request_and_preserves_progress() {
-    let mut input = workflow_input("read and explain");
-    input.config = json!({"stream_max_retries": 1});
-    let call = ToolCall::new(new_call_id(), "read_file", json!({"path": "src/lib.rs"}));
-    let read = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
-    let first = CanonicalMessage::text(MessageRole::Assistant, "first progress")
-        .with_phase(MessagePhase::Commentary);
-    let second = CanonicalMessage::text(MessageRole::Assistant, "second progress")
-        .with_phase(MessagePhase::Commentary);
-    let mut host = FakeHost::with_responses(vec![tool_call_response(call.clone())])
-        .with_tools(vec![read.clone()], vec![read]);
-    *host.model_failures.lock().unwrap() = VecDeque::from([
-        (1, disconnected(first.clone())),
-        (3, disconnected(second.clone())),
-    ]);
+    for kind in [
+        ModelFailureKind::StreamDisconnected,
+        ModelFailureKind::Retryable {
+            retry_delay_ms: None,
+        },
+        ModelFailureKind::Retryable {
+            retry_delay_ms: Some(0),
+        },
+    ] {
+        let mut input = workflow_input("read and explain");
+        input.config = json!({"stream_max_retries": 1});
+        let call = ToolCall::new(new_call_id(), "read_file", json!({"path": "src/lib.rs"}));
+        let read = test_tool("read_file", "Read file", ToolSafety::ReadOnly);
+        let first = CanonicalMessage::text(MessageRole::Assistant, "first progress")
+            .with_phase(MessagePhase::Commentary);
+        let second = CanonicalMessage::text(MessageRole::Assistant, "second progress")
+            .with_phase(MessagePhase::Commentary);
+        let mut host = FakeHost::with_responses(vec![tool_call_response(call.clone())])
+            .with_tools(vec![read.clone()], vec![read]);
+        *host.model_failures.lock().unwrap() = VecDeque::from([
+            (1, sample_failure(kind, first.clone())),
+            (3, sample_failure(kind, second.clone())),
+        ]);
 
-    let output: WorkflowModuleOutput = serde_json::from_str(
-        &CodingCodexLoopWorkflow
-            .run_json(serde_json::to_string(&input).unwrap(), &mut host)
-            .expect("each successful sampling request resets the stream budget"),
-    )
-    .unwrap();
-    let requests = host.requests.lock().unwrap();
-    assert_eq!(requests.len(), 4);
-    assert_eq!(requests[1].messages.last(), Some(&first));
-    assert_eq!(requests[3].messages.last(), Some(&second));
-    assert_eq!(host.executed_calls.lock().unwrap().as_slice(), &[call]);
-    assert_eq!(
-        host.compactions.lock().unwrap().len(),
-        2,
-        "no extra compaction phase on reconnect"
-    );
-    for progress in [&first, &second] {
+        let output: WorkflowModuleOutput = serde_json::from_str(
+            &CodingCodexLoopWorkflow
+                .run_json(serde_json::to_string(&input).unwrap(), &mut host)
+                .expect("each successful sampling request resets the stream budget"),
+        )
+        .unwrap();
+        let requests = host.requests.lock().unwrap();
+        assert_eq!(requests.len(), 4);
+        assert_eq!(requests[1].messages.last(), Some(&first));
+        assert_eq!(requests[3].messages.last(), Some(&second));
+        assert_eq!(host.executed_calls.lock().unwrap().as_slice(), &[call]);
         assert_eq!(
-            output
-                .new_messages
-                .iter()
-                .filter(|m| *m == progress)
-                .count(),
-            1
+            host.compactions.lock().unwrap().len(),
+            2,
+            "no extra compaction phase on reconnect"
         );
-        assert_eq!(
-            requests[3]
-                .messages
-                .iter()
-                .filter(|m| *m == progress)
-                .count(),
-            1
-        );
-        assert!(
-            host.checkpoints
-                .lock()
-                .unwrap()
-                .iter()
-                .any(|checkpoint| checkpoint.history.new_messages.contains(progress))
-        );
+        for progress in [&first, &second] {
+            assert_eq!(
+                output
+                    .new_messages
+                    .iter()
+                    .filter(|m| *m == progress)
+                    .count(),
+                1
+            );
+            assert_eq!(
+                requests[3]
+                    .messages
+                    .iter()
+                    .filter(|m| *m == progress)
+                    .count(),
+                1
+            );
+            assert!(
+                host.checkpoints
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|checkpoint| checkpoint.history.new_messages.contains(progress))
+            );
+        }
     }
 }
 
@@ -67,7 +77,12 @@ fn codex_stream_completed_items_do_not_reset_the_retry_budget() {
     input.config = json!({"stream_max_retries": 1});
     let first = CanonicalMessage::text(MessageRole::Assistant, "first");
     let second = CanonicalMessage::text(MessageRole::Assistant, "second");
-    let terminal = disconnected(second.clone());
+    let terminal = sample_failure(
+        ModelFailureKind::Retryable {
+            retry_delay_ms: Some(0),
+        },
+        second.clone(),
+    );
     let mut host = FakeHost::default();
     *host.model_failures.lock().unwrap() =
         VecDeque::from([(1, disconnected(first.clone())), (2, terminal.clone())]);
@@ -83,6 +98,12 @@ fn codex_stream_completed_items_do_not_reset_the_retry_budget() {
 fn codex_stream_retry_requires_the_typed_cause_and_can_be_disabled() {
     for (kind, retries) in [
         (ModelFailureKind::StreamDisconnected, 0),
+        (
+            ModelFailureKind::Retryable {
+                retry_delay_ms: Some(0),
+            },
+            0,
+        ),
         (ModelFailureKind::Other, 5),
         (ModelFailureKind::Interrupted, 5),
         (ModelFailureKind::SessionBudgetExceeded, 5),
@@ -102,9 +123,12 @@ fn codex_stream_retry_requires_the_typed_cause_and_can_be_disabled() {
 }
 
 fn disconnected(message: CanonicalMessage) -> ProcessModuleError {
+    sample_failure(ModelFailureKind::StreamDisconnected, message)
+}
+
+fn sample_failure(kind: ModelFailureKind, message: CanonicalMessage) -> ProcessModuleError {
     ProcessModuleError::from_model_failure(
-        ModelFailure::new(ModelFailureKind::StreamDisconnected, "stream disconnected")
-            .with_completed_messages(vec![message]),
+        ModelFailure::new(kind, "sample failed").with_completed_messages(vec![message]),
     )
 }
 
@@ -112,6 +136,9 @@ fn disconnected(message: CanonicalMessage) -> ProcessModuleError {
 fn completed_tools_are_drained_before_terminal_model_failure() {
     for kind in [
         ModelFailureKind::StreamDisconnected,
+        ModelFailureKind::Retryable {
+            retry_delay_ms: None,
+        },
         ModelFailureKind::Other,
     ] {
         let mut input = workflow_input("read then handle failure");

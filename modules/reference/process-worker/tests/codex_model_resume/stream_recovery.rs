@@ -82,15 +82,15 @@ fn partial_sse_body(message_id: &str, text: &str) -> String {
     [
         format!(
             "event: response.output_item.done\ndata: {}\n\n",
-            json!({"output_index": 0, "item": completed})
+            json!({"type": "response.output_item.done", "output_index": 0, "item": completed})
         ),
         format!(
             "event: response.output_item.added\ndata: {}\n\n",
-            json!({"output_index": 1, "item": unfinished})
+            json!({"type": "response.output_item.added", "output_index": 1, "item": unfinished})
         ),
         format!(
             "event: response.output_text.delta\ndata: {}\n\n",
-            json!({
+            json!({"type": "response.output_text.delta",
                 "output_index": 1, "item_id": unfinished_id, "content_index": 0,
                 "delta": UNFINISHED,
             })
