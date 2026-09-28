@@ -1,4 +1,5 @@
-.ui-popup { position:fixed; inset:auto; margin:0; box-sizing:border-box; max-height:calc(100dvh - 16px); overflow:auto; width:280px; max-width:calc(100vw - 16px); padding:7px; border:1px solid var(--border-strong,#444); border-radius:14px; background:var(--bg-popover,#292929); color:var(--text-main,#eee); box-shadow:0 12px 36px #0005; font:13px/1.5 var(--font-sans,system-ui); }
+/* WebKit stretches grid popovers with the UA fit-content height. */
+.ui-popup { height:auto; position:fixed; inset:auto; margin:0; box-sizing:border-box; max-height:calc(100dvh - 16px); overflow:auto; width:280px; max-width:calc(100vw - 16px); padding:7px; border:1px solid var(--border-strong,#444); border-radius:14px; background:var(--bg-popover,#292929); color:var(--text-main,#eee); box-shadow:0 12px 36px #0005; font:13px/1.5 var(--font-sans,system-ui); }
 .ui-popup:popover-open { display:grid; gap:3px; animation:popup-appear var(--motion-fast,120ms) ease-out; }
 .ui-menu-item { display:flex; align-items:center; justify-content:flex-start; gap:10px; width:100%; min-height:36px; padding:8px 10px; border:0; border-radius:8px; background:transparent; color:inherit; text-align:left; font:inherit; cursor:pointer; }
 .ui-menu-item svg { width:17px;height:17px;flex:none;color:var(--text-muted,#aaa); }

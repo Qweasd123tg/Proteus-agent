@@ -367,3 +367,7 @@ entry, проверяет одинаковую стоимость в боков�
 `python3 clients/web/tests/extensions_browser.py --placement-only` проверяет
 независимое размещение виджетов, сохранение их экземпляров при переносе и скрытии,
 откат при ошибке записи, восстановление после reload и размеры подсказок/меню.
+
+`python3 clients/web/tests/popovers_webkit.py` проверяет размеры меню проекта,
+чата и подсказок в WebKitGTK 4.1 — движке Linux desktop. Проверяет также
+размещение у нижнего края окна; требует Python GI, GTK3, WebKit2 и Xvfb.
