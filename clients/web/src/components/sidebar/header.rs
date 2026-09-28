@@ -1,4 +1,4 @@
-use super::super::icons::{EditIcon, RefreshIcon};
+use super::super::icons::{PlusIcon, RefreshIcon};
 use leptos::prelude::*;
 use web_sys::MouseEvent;
 
@@ -15,7 +15,7 @@ where
             </div>
             <div class="sidebar-header-actions">
                 <button type="button" title="Обновить сессии" aria-label="Обновить сессии" on:click=on_refresh><RefreshIcon /></button>
-                <button type="button" title="Новая сессия" aria-label="Новая сессия" on:click=on_new_session><EditIcon /><span class="new-session-label">"Новый чат"</span></button>
+                <button type="button" title="Новая сессия" aria-label="Новая сессия" on:click=on_new_session><PlusIcon /><span class="new-session-label">"Новый чат"</span></button>
             </div>
         </div>
     }

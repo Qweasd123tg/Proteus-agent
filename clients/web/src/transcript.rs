@@ -33,7 +33,7 @@ impl Scopes {
     fn of(message: &Message) -> Self {
         Self {
             user: message.role == MessageRole::User,
-            tools: message.tool.is_some(),
+            tools: message.tool.is_some() && message.subagent.is_none(),
         }
     }
     fn include(&mut self, other: Self) {
@@ -111,6 +111,35 @@ impl Transcript {
     #[cfg(test)]
     pub(crate) fn get_untracked(self) -> Vec<Message> {
         self.with_untracked(Clone::clone)
+    }
+
+    /// Узкая проекция читает запись по ссылке: шапка и выбор вида сообщения
+    /// не клонируют растущую историю вложенных вызовов субагента.
+    pub(crate) fn select<T>(
+        self,
+        id: u64,
+        select: impl Fn(Option<&Message>) -> T + Send + Sync + 'static,
+    ) -> Memo<T>
+    where
+        T: PartialEq + Send + Sync + 'static,
+    {
+        let changed = self.data.with_value(|data| {
+            data.entries
+                .get(&id)
+                .expect("indexed message")
+                .changed
+                .clone()
+        });
+        Memo::new(move |_| {
+            changed.track();
+            self.data.with_value(|data| {
+                select(
+                    data.entries
+                        .get(&id)
+                        .map(|entry| &data.items[entry.position]),
+                )
+            })
+        })
     }
 
     /// Подписка живёт вместе с карточкой. Поиск O(1); чужие изменения её не будят.

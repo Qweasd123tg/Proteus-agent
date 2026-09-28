@@ -61,7 +61,12 @@
     color: var(--text-main);
     resize: none;
     box-shadow: none;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: none;
+    overscroll-behavior: contain;
 }
+.composer-input textarea::-webkit-scrollbar { display: none; }
 .composer-input textarea:focus-visible { outline: none; }
 .composer-input textarea::placeholder { color: var(--text-faint); opacity: 1; }
 .composer-toolbar {

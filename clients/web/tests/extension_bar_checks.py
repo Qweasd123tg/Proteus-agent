@@ -47,9 +47,9 @@ def run(command, js, wait_for):
     pointer([{'type': 'pointerUp', 'button': 0}])
     assert order() == expected, 'Pointer cancellation changed order'
 
-    # Every tab is reachable in a narrow strip without a scrollbar over controls.
+    # Tabs shrink together; long names are ellipsized instead of scrolling.
     js("if(document.querySelector('.tab-workspace').hidden)document.querySelector('[data-workspace-toggle]').click();for(const b of [...document.querySelectorAll('.workspace-picker [data-open-tab]')])b.click();document.querySelector('.tab-workspace').style.setProperty('--workspace-width','320px')")
-    assert js("const t=document.querySelector('.workspace-tabs');return t.scrollWidth>t.clientWidth && getComputedStyle(t).scrollbarWidth==='none' && getComputedStyle(t).overflowY==='hidden'"), 'Overflow strip retains a covering scrollbar'
+    assert js("const t=document.querySelector('.workspace-tabs');return t.scrollWidth<=t.clientWidth+1 && getComputedStyle(t).overflowX==='hidden' && [...t.querySelectorAll('.workspace-tab-name')].some(b=>b.scrollWidth>b.clientWidth && getComputedStyle(b).textOverflow==='ellipsis')"), 'Tab names did not truncate without a scrollbar'
     tabs = js("return [...document.querySelectorAll('.workspace-tab')].map(t=>t.dataset.tabId)")
     js("document.querySelector('.workspace-tabs').scrollLeft=0;document.querySelector('.workspace-tab-name').click();document.querySelector('.workspace-tab-name').focus()")
     for _ in tabs[1:]:
@@ -63,11 +63,12 @@ def run(command, js, wait_for):
     tab_expected = [tabs[2], tabs[0], tabs[1], *tabs[3:]]
     assert js("return [...document.querySelectorAll('.workspace-tab')].map(t=>t.dataset.tabId)") == tab_expected, 'Tab drop did not insert'
     assert js("return document.querySelector('.workspace-tab.active').dataset.tabId") == active, 'Tab drag selected instead of moving'
-    assert order() == tab_expected, 'Tab and widget order diverged'
+    assert [id for id in order() if id in tab_expected] == tab_expected, 'Tab and widget order diverged'
+    widget_expected = order()
     command('/refresh', {})
     wait_for(lambda: js("return !!document.querySelector('[data-widget-slot=composer] .extension-widgets')"), 'Widget strip did not reload')
-    assert order() == tab_expected, 'Reload lost drag order'
-    print('PASS: pointer widget/tab insertion, Escape/pointer cancel, live roots, overflow navigation and reload', flush=True)
+    assert order() == widget_expected, 'Reload lost drag order'
+    print('PASS: pointer widget/tab insertion, Escape/pointer cancel, live roots, truncated names and reload', flush=True)
 
     # Hover/focus use one styled, bounded tooltip and preserve existing descriptions.
     control = '.topbar [data-workspace-toggle]'
@@ -82,4 +83,4 @@ def run(command, js, wait_for):
     wait_for(lambda: js("return document.querySelector('.ui-tooltip')?.matches(':popover-open')"), 'Focus tooltip missing')
     js("document.querySelector('.topbar [data-workspace-toggle]').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}))")
     assert js("return !document.querySelector('.ui-tooltip').matches(':popover-open') && document.querySelector('.topbar [data-workspace-toggle]').getAttribute('aria-describedby')==='existing-description'"), 'Pointer start left tooltip or removed description'
-    print('PASS: one workspace toggle; pointer widget/tab insertion, cancel, live roots and reload; overflow navigation; themed hover/focus tooltip', flush=True)
+    print('PASS: one workspace toggle; pointer widget/tab insertion, cancel, live roots and reload; truncated names; themed hover/focus tooltip', flush=True)

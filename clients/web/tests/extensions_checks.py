@@ -100,3 +100,5 @@ def run(command, js, wait_for, web, origin, loaded):
     wait_for(lambda: js("return document.querySelector('.results-panel').textContent.includes('Проверка интерфейса завершена.')"), 'Composer / tool turn did not complete')
     assert js("return !!document.querySelector('.tool-card') && !document.querySelector('.tool-card.expanded')"), 'Saved compact-card setting did not apply to SPA chat'
     assert js("return !!document.querySelector('.code-block') && document.querySelector('[data-extension-id=plan] .extension-panel-content')?.shadowRoot?.textContent.includes('Проверить панели')"), 'Code block or plan panel did not render'
+    assert js("const b=document.querySelector('[data-widget-id=plan]');return b?.dataset.uiTooltipDetails.includes('Проверить панели') && b.dataset.uiTooltipDetails.includes('Проверить настройки')"), 'Plan did not publish full hover steps'
+    assert js("const b=document.querySelector('[data-widget-id=session-info]');return !!b?.dataset.uiTooltipDetails && !document.querySelector('[data-tab-id=session-info]') && !document.querySelector('[data-extension-id=session-info]')"), 'Session info did not remain compact-only'

@@ -175,3 +175,143 @@ fn user_projection_tracks_edits_replacement_and_role_changes() {
         assert!(users.get().is_empty());
     });
 }
+
+#[tokio::test]
+async fn child_heavy_tool_events_do_not_clone_cards_or_rescan_chat_and_plan() {
+    use crate::types::{
+        SubagentActivity, SubagentActivityStatus, ToolActivity, ToolActivityStatus,
+    };
+    _ = any_spawner::Executor::init_tokio();
+    let owner = Owner::new();
+    let projection_count = Arc::new(AtomicUsize::new(0));
+    let selected_count = Arc::new(AtomicUsize::new(0));
+    let order_count = Arc::new(AtomicUsize::new(0));
+    let (read, write, set_activities) = owner.with(|| {
+        let tools = (0..64)
+            .map(|id| ToolActivity {
+                call_id: format!("child-call-{id}"),
+                name: "shell".into(),
+                args: serde_json::json!({}),
+                args_preview: String::new(),
+                started_at_ms: 1,
+                finished_at_ms: None,
+                status: ToolActivityStatus::Running,
+                result_preview: Some("x".repeat(10_000)),
+            })
+            .collect::<Vec<_>>();
+        let mut child = message(2000, "");
+        // Facade tool attached to the child must not invalidate root-tool projections.
+        child.tool = Some(ToolActivity {
+            call_id: "spawn".into(),
+            name: "spawn_agent".into(),
+            args: serde_json::json!({}),
+            args_preview: String::new(),
+            started_at_ms: 0,
+            finished_at_ms: None,
+            status: ToolActivityStatus::Done,
+            result_preview: Some("child created".into()),
+        });
+        child.subagent = Some(SubagentActivity {
+            child_thread_id: "child-thread".into(),
+            role: "reviewer".into(),
+            description: None,
+            status: SubagentActivityStatus::Running,
+            iterations: None,
+            started_at_ms: 1,
+            finished_at_ms: None,
+            tools: tools.clone(),
+        });
+        let mut history = (0..2000)
+            .map(|id| message(id, "history"))
+            .collect::<Vec<_>>();
+        history.push(child);
+        let (read, write) = transcript(history);
+        let (_, set_activities) = signal(tools);
+        let projection_count = projection_count.clone();
+        Effect::new_isomorphic(move |_| {
+            read.with_tool_messages(|items| {
+                items
+                    .iter()
+                    .filter(|item| item.tool.is_some() && item.subagent.is_none())
+                    .count()
+            });
+            projection_count.fetch_add(1, Ordering::Relaxed);
+        });
+        let order_count = order_count.clone();
+        Effect::new_isomorphic(move |_| {
+            read.ids();
+            order_count.fetch_add(1, Ordering::Relaxed);
+        });
+        let selected = read.select(2000, |message| {
+            message
+                .and_then(|m| m.subagent.as_ref())
+                .map(|child| child.tools[63].status)
+        });
+        let selected_count = selected_count.clone();
+        Effect::new_isomorphic(move |_| {
+            selected.get();
+            selected_count.fetch_add(1, Ordering::Relaxed);
+        });
+        (read, write, set_activities)
+    });
+    for _ in 0..100 {
+        if selected_count.load(Ordering::Relaxed) == 1 {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(projection_count.swap(0, Ordering::Relaxed), 1);
+    assert_eq!(order_count.swap(0, Ordering::Relaxed), 1);
+    assert_eq!(selected_count.swap(0, Ordering::Relaxed), 1);
+    for event in 0..20 {
+        let status = if event % 2 == 0 {
+            ToolActivityStatus::Done
+        } else {
+            ToolActivityStatus::Running
+        };
+        assert!(crate::messages::update_tool_status(
+            set_activities,
+            write,
+            "child-call-63",
+            status,
+            Some("complete output".into()),
+            42
+        ));
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(
+        selected_count.load(Ordering::Relaxed),
+        20,
+        "selected child tool stays live"
+    );
+    assert_eq!(
+        projection_count.load(Ordering::Relaxed),
+        0,
+        "child events must not rebuild grouping or plan projections"
+    );
+    assert_eq!(
+        order_count.load(Ordering::Relaxed),
+        0,
+        "point updates must not rebuild transcript membership"
+    );
+    assert_eq!(
+        read.data
+            .with_value(|data| data.message_reads.load(Ordering::Relaxed)),
+        0,
+        "compact child selectors must not clone its growing nested history"
+    );
+    read.with_untracked(|items| {
+        let child = items.last().unwrap();
+        assert_eq!(
+            child.tool.as_ref().unwrap().result_preview.as_deref(),
+            Some("child created")
+        );
+        assert_eq!(
+            child.subagent.as_ref().unwrap().tools[63]
+                .result_preview
+                .as_deref(),
+            Some("complete output")
+        );
+    });
+    owner.cleanup();
+}

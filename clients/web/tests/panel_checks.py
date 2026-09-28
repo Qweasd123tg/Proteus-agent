@@ -2,6 +2,7 @@
 import base64
 from pathlib import Path
 from extension_bar_checks import run as check_extension_bars
+from composer_scroll_checks import run as check_composer_scroll
 
 
 def run(command, js, wait_for):
@@ -18,6 +19,7 @@ def run(command, js, wait_for):
         return "document.querySelector('.workspace-tab-content > .extension-panel:not([hidden]) .extension-panel-content').shadowRoot"
 
     command('/window/rect', {'width': 1440, 'height': 1000})
+    assert js("return [...document.querySelectorAll('[aria-label=\"Новая сессия\"],.project-new')].every(b=>b.querySelector('use')?.getAttribute('href').endsWith('#plus'))"), 'New session retained the pencil icon'
     assert js("return document.querySelectorAll('.topbar [data-panel-toggle=sidebar]').length===1 && !document.querySelector('.sidebar [data-panel-toggle]')"), 'Sidebar toggle is duplicated or outside header'
     js("document.querySelector('.sidebar-search input').focus();document.querySelector('[data-panel-toggle=sidebar]').click()")
     wait_for(lambda: js("return document.querySelector('.app-layout').classList.contains('sidebar-collapsed') && document.activeElement.matches('.topbar [data-panel-toggle=sidebar]')"), 'Header sidebar toggle/focus failed')
@@ -82,4 +84,5 @@ def run(command, js, wait_for):
     js("for(const b of [...document.querySelectorAll('.workspace-tab-close')])b.click()")
     assert js("return !document.querySelector('.workspace-empty').hidden && document.querySelector('.workspace-empty [data-open-tab=usage]')"), 'Closing final tab lost the chooser'
     check_extension_bars(command, js, wait_for)
+    check_composer_scroll(command, js, wait_for)
     print('PASS: gray palette; header sidebar control; inline file/tree split; diff; cached switching and reopening; no refetch on toggle; desktop panels at narrow width', flush=True)

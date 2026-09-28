@@ -35,7 +35,7 @@ export function mountSidebar(root, update) {
       menu.action(row.dataset.archived==='true'?'Вернуть из архива':'Архивировать','archive',()=>update('archive',session,'')),
       menu.action('Удалить чат','trash',()=>row.querySelector('[data-delete-session]').click(),{danger:true}),
     ]:[
-      menu.action('Новый чат','edit',()=>root.querySelector('[aria-label="Новая сессия"]').click()),
+      menu.action('Новый чат','plus',()=>root.querySelector('[aria-label="Новая сессия"]').click()),
       ...(desktop()?[
         menu.action('Настройки проекта…','settings',()=>native('project')),
         menu.action('Открыть в файловом менеджере','folder',()=>native('folder')),

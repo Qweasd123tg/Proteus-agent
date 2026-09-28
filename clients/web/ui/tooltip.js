@@ -1,8 +1,26 @@
 // Replace native title bubbles without changing Leptos/extension producers.
 // The original text remains available as data-ui-tooltip; aria labels survive.
-const selector = '[data-ui-tooltip],[title]';
+const selector = '[data-ui-tooltip],[data-ui-tooltip-details],[title]';
 const roots = new WeakSet(), removals = new WeakMap(), labels = new WeakMap();
-let bubble, anchor, timer, serial = 0;
+let bubble, anchor, timer, rendered, serial = 0;
+
+function content(element) {
+  return [element.dataset.uiTooltip ?? '', element.dataset.uiTooltipDetails?.trim() ?? ''];
+}
+
+function render() {
+  const [title, details] = content(anchor), signature = JSON.stringify([title, details]);
+  if (rendered === signature) return false;
+  rendered = signature;
+  if (!details) bubble.textContent = title;
+  else {
+    const heading = document.createElement('strong'), body = document.createElement('span');
+    heading.className = 'ui-tooltip-title'; heading.textContent = title;
+    body.className = 'ui-tooltip-details'; body.textContent = details;
+    bubble.replaceChildren(...(title ? [heading, document.createTextNode('\n')] : []), body);
+  }
+  return true;
+}
 
 function convert(element) {
   const text = element.getAttribute('title');
@@ -36,7 +54,7 @@ function observe(root) {
     // Infer each mutation's new value, including set/remove in the same tick.
     for (let i = records.length - 1; i >= 0; i--) {
       const record = records[i];
-      if (record.type !== 'attributes') continue;
+      if (record.type !== 'attributes' || record.attributeName !== 'title') continue;
       const element = record.target;
       const value = next.has(element) ? next.get(element) : element.getAttribute('title');
       next.set(element, record.oldValue);
@@ -52,15 +70,11 @@ function observe(root) {
     for (const record of records) {
       if (record.type === 'childList') record.addedNodes.forEach(scan);
     }
-    if (anchor && (!anchor.isConnected || !anchor.dataset.uiTooltip)) hideTooltip();
-    else if (anchor && bubble?.matches(':popover-open') &&
-             bubble.textContent !== anchor.dataset.uiTooltip) {
-      bubble.textContent = anchor.dataset.uiTooltip;
-      position();
-    }
+    if (anchor && (!anchor.isConnected || !content(anchor).some(Boolean))) hideTooltip();
+    else if (anchor && bubble?.matches(':popover-open') && render()) position();
   });
   observer.observe(root, {subtree: true, childList: true, attributes: true,
-    attributeFilter: ['title'], attributeOldValue: true});
+    attributeFilter: ['title', 'data-ui-tooltip', 'data-ui-tooltip-details'], attributeOldValue: true});
 }
 
 export function hideTooltip() {
@@ -76,21 +90,25 @@ export function hideTooltip() {
 }
 
 function target(event) {
+  let fallback;
   for (const element of event.composedPath()) {
     if (!(element instanceof Element)) continue;
     const root = element.getRootNode();
     if (root instanceof ShadowRoot) observe(root);
     if (!element.matches(selector)) continue;
     convert(element);
-    if (element.dataset.uiTooltip) return element;
+    // A compact host's live details take precedence over its inner icon title.
+    if (element.dataset.uiTooltipDetails?.trim()) return element;
+    if (!fallback && element.dataset.uiTooltip) fallback = element;
   }
+  return fallback;
 }
 
 function position() {
   const viewport = window.visualViewport;
   const left = viewport?.offsetLeft ?? 0, top = viewport?.offsetTop ?? 0;
   const width = viewport?.width ?? innerWidth, height = viewport?.height ?? innerHeight;
-  bubble.style.maxWidth = `${Math.min(280, Math.max(1, width - 16))}px`;
+  bubble.style.maxWidth = `${Math.min(anchor.dataset.uiTooltipDetails ? 360 : 280, Math.max(1, width - 16))}px`;
   bubble.style.maxHeight = `${Math.max(1, height - 16)}px`;
   const r = anchor.getBoundingClientRect(), size = bubble.getBoundingClientRect();
   const x = Math.max(left + 8, Math.min(r.left + (r.width - size.width) / 2, left + width - size.width - 8));
@@ -105,14 +123,14 @@ function show(element, delay) {
   hideTooltip();
   anchor = element;
   timer = setTimeout(() => {
-    if (!element.isConnected || !element.dataset.uiTooltip) { hideTooltip(); return; }
+    if (!element.isConnected || !content(element).some(Boolean)) { hideTooltip(); return; }
     if (!bubble) {
       bubble = document.createElement('div');
       bubble.className = 'ui-tooltip'; bubble.id = `proteus-tooltip-${++serial}`;
       bubble.setAttribute('popover', 'manual'); bubble.setAttribute('role', 'tooltip');
       document.body.append(bubble);
     }
-    bubble.textContent = element.dataset.uiTooltip;
+    render();
     bubble.showPopover(); position();
     const ids = new Set((element.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean));
     ids.add(bubble.id); element.setAttribute('aria-describedby', [...ids].join(' '));

@@ -3,12 +3,12 @@
 .tab-workspace[hidden], .tab-workspace [hidden] { display: none !important; }
 .workspace-tabbar { display:flex; flex:none; align-items:center; gap:4px; height:52px; padding:6px 10px; border-bottom:1px solid var(--border-subtle); }
 .workspace-tabbar > button { width:30px; min-height:30px; padding:0; flex:none; color:var(--text-muted); }
-.workspace-tabs { display:flex; flex:1; min-width:0; overflow-x:auto; overflow-y:hidden; gap:4px; scrollbar-width:none; }
-.workspace-tabs::-webkit-scrollbar { display:none; }
-.workspace-tab { display:flex; align-items:center; flex:none; max-width:230px; border-radius:10px; color:var(--text-muted); }
+.workspace-tabs { display:flex; flex:1; min-width:0; overflow:hidden; gap:4px; }
+.workspace-tab { display:flex; align-items:center; flex:1 1 0; min-width:0; max-width:230px; overflow:hidden; border-radius:10px; color:var(--text-muted); }
 .workspace-tab.active { background:var(--bg-panel-soft); color:var(--text-main); }
-.workspace-tab-name { padding:0 10px; min-height:32px; overflow:hidden; text-overflow:ellipsis; display:block; border:0; font-size:12px; }
+.workspace-tab-name { flex:1; min-width:0; padding:0 8px; min-height:32px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; border:0; font-size:12px; }
 .workspace-tab-close { flex:none; width:26px; min-height:26px; padding:0; }
+.workspace-tab:not(.active):not(:hover):not(:focus-within) .workspace-tab-close { display:none; }
 .workspace-tab-close svg { width:14px; height:14px; }
 .workspace-tab-content { flex:1; min-height:0; min-width:0; display:flex; overflow:hidden; }
 .workspace-tab-content > .extension-panel { flex:1; border:0; border-radius:0; min-height:0; display:flex; flex-direction:column; }

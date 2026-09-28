@@ -1,0 +1,7 @@
+.subagent-tab-link { width: 100%; text-align: left; }
+.subagent-open-label { margin-left: auto; flex-shrink: 0; color: var(--text-muted); font-size: 11px; }
+.subagent-tab-details { padding: 12px; min-width: 0; height: 100%; overflow: auto; overscroll-behavior: contain; }
+.subagent-detail-status { margin-bottom: 12px; }
+.subagent-tab-details .subagent-card-details { border: 0; padding: 0; background: transparent; }
+.subagent-tab-details .subagent-tool-list { min-width: 0; }
+.subagent-tab-details .tool-preview-content { overflow-wrap: anywhere; }

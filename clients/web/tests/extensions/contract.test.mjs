@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseManifest, parseSettings, resourceUrl } from '../../extensions/contract.js';
+import { parseManifest, parseSettings, resourceUrl, hasSurface } from '../../extensions/contract.js';
 import { extensionStorage } from '../../extensions/storage.js';
 
 const base = 'https://client.example/extensions/catalog.json';
@@ -60,4 +60,13 @@ test('settings entry resolves independently and rejects malformed capability dec
   const parsed = parseManifest({ ...manifest, settings: { entry: './settings.js', requires: [] } }, base);
   assert.equal(parsed.settings.entry, 'https://client.example/extensions/settings.js');
   for (const settings of [null, { entry: './s.js' }, { entry: './s.js', requires: ['a', 'a'] }, { entry: './s.js', requires: [], extra: true }]) assert.throws(() => parseManifest({ ...manifest, settings }, base));
+});
+
+test('extension surfaces reject unknown, empty or duplicate values and support compact-only mounting', () => {
+  assert.deepEqual(parseManifest(manifest, base).surfaces, ['compact', 'workspace']);
+  const compact = parseManifest({...manifest, surfaces:['compact']}, base);
+  assert.equal(hasSurface(compact,'workspace'),false);
+  assert.equal(hasSurface(compact,'compact'),true);
+  assert.ok(Object.isFrozen(compact.surfaces));
+  for(const surfaces of [[], ['compact','compact'], ['tabs'], null, 'compact', [false]])assert.throws(()=>parseManifest({...manifest,surfaces},base));
 });

@@ -6,5 +6,8 @@
   "entry": "./panel.js",
   "requires": [
     "agent.session.read"
+  ],
+  "surfaces": [
+    "compact"
   ]
 }

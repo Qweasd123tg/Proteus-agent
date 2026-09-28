@@ -1,5 +1,5 @@
 import { node, icon } from '../dom.js';
-export function mount({ root, compact, services }) {
+export function mount({ root, compact, hover, services }) {
   icon(compact, 'info');
   const fields = [['status','Статус'],['events','Событий'],['tools','Вызовов инструментов'],['pending','Ожидают ответа']];
   const values = new Map();
@@ -10,6 +10,7 @@ export function mount({ root, compact, services }) {
   }
   return services['agent.session.read'].subscribe(snapshot => {
     for (const [key, value] of values) { const text = String(snapshot[key] ?? '—'); if (value.textContent !== text) value.textContent = text; }
-    compact.host.title = `Сессия: ${snapshot.status ?? '—'}`;
+    compact.host.closest('button').title = `Сессия: ${snapshot.status ?? '—'}`;
+    hover?.set(fields.map(([key,label])=>`${label}: ${snapshot[key] ?? '—'}`).join('\n'));
   });
 }

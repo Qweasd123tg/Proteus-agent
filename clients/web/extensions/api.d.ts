@@ -6,6 +6,8 @@ export interface ExtensionManifest {
   description: string;
   entry: string;
   requires: string[];
+  /** Host surfaces. Defaults to both. Compact-only extensions mount without a workspace tab. */
+  surfaces?: Array<'compact' | 'workspace'>;
   /** Panels fill their tab; widgets scroll inside the same tab workspace. */
   presentation?: 'widget' | 'panel';
   /** Independent entry; loaded only by the explicit Configure action. */
@@ -31,10 +33,12 @@ export interface ExtensionPane {
 }
 
 export interface ExtensionContext {
-  /** Panel-owned root; inherited design tokens, no Leptos or Tauri dependency. */
+  /** Extension-owned root (detached without workspace surface); inherited design tokens, no Leptos or Tauri dependency. */
   root: ShadowRoot;
   /** Compact content inside the host's interactive button; absent for a settings entry. */
   compact?: ShadowRoot;
+  /** Live detail text shown with the compact icon's hover label; host owns presentation. */
+  hover?: { set(text: string): void };
   /** Host actions, independent of a particular extension id; absent in settings. */
   panel?: { open(): void; move(location: 'left' | 'right'): void };
   /** Tabs owned by this mount; no additional services or authority. Switching and hiding preserve roots.

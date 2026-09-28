@@ -1,5 +1,9 @@
 """Composer clearance survives reactive chat-width changes, without dock resizing."""
 def run(command, js, wait_for):
+    js("const a=document.querySelector('.composer textarea');window.draftBeforeScroll=a.value;a.value=Array(30).fill('Длинный черновик без полосы прокрутки').join('\\n');a.dispatchEvent(new Event('input',{bubbles:true}))")
+    wait_for(lambda: js("const a=document.querySelector('.composer textarea');return a.scrollHeight>a.clientHeight"), 'Long draft did not exercise input overflow')
+    assert js("const a=document.querySelector('.composer textarea'),s=getComputedStyle(a);a.scrollTop=a.scrollHeight;return a.scrollTop>0 && s.scrollbarWidth==='none' && s.overflowX==='hidden' && a.offsetWidth-a.clientWidth<=2"), 'Input scrollbar is visible or long draft cannot scroll'
+    js("const a=document.querySelector('.composer textarea');a.value=draftBeforeScroll;a.dispatchEvent(new Event('input',{bubbles:true}))")
     js("window.chatWidthBefore=document.querySelector('.session-workspace').style.getPropertyValue('--chat-max-width');window.dockBefore=document.querySelector('.composer').getBoundingClientRect().height; const h=document.querySelector('.chat-resize-handle');h.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,clientX:600}));document.querySelector('.app-layout').dispatchEvent(new MouseEvent('mousemove',{bubbles:true,clientX:620}));document.querySelector('.app-layout').dispatchEvent(new MouseEvent('mouseup',{bubbles:true,clientX:620}));")
     wait_for(lambda: js("return document.querySelector('.session-workspace').style.getPropertyValue('--chat-max-width')!==chatWidthBefore"), 'Chat resize was not exercised')
     wait_for(lambda: js("return document.querySelector('.session-workspace').style.getPropertyValue('--composer-inset')!==''"), 'Chat resize erased composer inset: last lines are hidden behind input')

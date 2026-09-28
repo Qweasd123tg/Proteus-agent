@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-use super::{SubagentCard, ToolActivityCard, subagent_turn_card_class, tool_turn_card_class};
+use super::{SubagentCard, ToolActivityCard, tool_turn_card_class};
 use crate::markdown::{markdown_html, plain_text_html};
 use crate::types::*;
 use crate::ui_utils::{compact_text, copy_to_clipboard, set_timeout};
@@ -51,22 +51,21 @@ pub(crate) fn MessageView(
     messages: crate::transcript::Transcript,
     activity_now_ms: ReadSignal<u64>,
 ) -> impl IntoView {
-    let message = messages.message(message_id);
-    let kind = Memo::new(move |_| current_message_kind(message));
+    let kind = messages.select(message_id, current_message_kind);
 
     view! {
         {move || match kind.get() {
             MessageViewKind::Missing => ().into_any(),
-            MessageViewKind::Subagent => subagent_message_view(message, activity_now_ms),
-            MessageViewKind::Tool => tool_message_view(message, activity_now_ms),
-            MessageViewKind::User => user_message_view(message),
-            MessageViewKind::Reasoning => reasoning_message_view(message),
+            MessageViewKind::Subagent => view! { <SubagentCard message_id messages activity_now_ms /> }.into_any(),
+            MessageViewKind::Tool => tool_message_view(messages.message(message_id), activity_now_ms),
+            MessageViewKind::User => user_message_view(messages.message(message_id)),
+            MessageViewKind::Reasoning => reasoning_message_view(messages.message(message_id)),
             MessageViewKind::Assistant => {
                 // Ответ агента — финальный узел цепочки текущего хода.
-                text_message_view(message, "task-card assistant-turn role-assistant agent-turn-item")
+                text_message_view(messages.message(message_id), "task-card assistant-turn role-assistant agent-turn-item")
             }
             MessageViewKind::System => {
-                text_message_view(message, "task-card assistant-turn role-system")
+                text_message_view(messages.message(message_id), "task-card assistant-turn role-system")
             }
         }}
     }
@@ -118,27 +117,6 @@ fn tool_message_view(message: Memo<Option<Message>>, activity_now_ms: ReadSignal
                 .unwrap_or_else(|| "task-card agent-turn-item tool-turn-item".to_owned())
         }>
             <ToolActivityCard message activity_now_ms />
-        </article>
-    }
-    .into_any()
-}
-
-fn subagent_message_view(
-    message: Memo<Option<Message>>,
-    activity_now_ms: ReadSignal<u64>,
-) -> AnyView {
-    view! {
-        <article class=move || {
-            message
-                .with(|message| {
-                    message
-                        .as_ref()
-                        .and_then(|message| message.subagent.as_ref())
-                        .map(|subagent| subagent_turn_card_class(&subagent.status))
-                })
-                .unwrap_or_else(|| "task-card agent-turn-item subagent-turn-item".to_owned())
-        }>
-            <SubagentCard message activity_now_ms />
         </article>
     }
     .into_any()
@@ -228,24 +206,22 @@ fn reasoning_message_view(message: Memo<Option<Message>>) -> AnyView {
     .into_any()
 }
 
-fn current_message_kind(message: Memo<Option<Message>>) -> MessageViewKind {
-    message.with(|message| {
-        let Some(message) = message.as_ref() else {
-            return MessageViewKind::Missing;
-        };
-        if message.subagent.is_some() {
-            return MessageViewKind::Subagent;
-        }
-        if message.tool.is_some() {
-            return MessageViewKind::Tool;
-        }
-        match message.role {
-            MessageRole::User => MessageViewKind::User,
-            MessageRole::Assistant => MessageViewKind::Assistant,
-            MessageRole::System => MessageViewKind::System,
-            MessageRole::Reasoning => MessageViewKind::Reasoning,
-        }
-    })
+fn current_message_kind(message: Option<&Message>) -> MessageViewKind {
+    let Some(message) = message else {
+        return MessageViewKind::Missing;
+    };
+    if message.subagent.is_some() {
+        return MessageViewKind::Subagent;
+    }
+    if message.tool.is_some() {
+        return MessageViewKind::Tool;
+    }
+    match message.role {
+        MessageRole::User => MessageViewKind::User,
+        MessageRole::Assistant => MessageViewKind::Assistant,
+        MessageRole::System => MessageViewKind::System,
+        MessageRole::Reasoning => MessageViewKind::Reasoning,
+    }
 }
 
 fn current_message_text(message: Memo<Option<Message>>) -> String {

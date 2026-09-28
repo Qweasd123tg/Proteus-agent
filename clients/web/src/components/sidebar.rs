@@ -153,7 +153,7 @@ where
                 <super::icons::FolderIcon />
                 <span>{move || crate::ui_utils::short_path(&workspace_label.get())}</span>
                 <button type="button" class="project-more" data-sidebar-menu="" aria-label="Действия с проектом"><super::icons::MoreIcon/></button>
-                <button type="button" class="project-new" title="Новый чат в проекте" aria-label="Новый чат в проекте" on:click=on_new_session><super::icons::EditIcon/></button>
+                <button type="button" class="project-new" title="Новый чат в проекте" aria-label="Новый чат в проекте" on:click=on_new_session><super::icons::PlusIcon/></button>
             </div>
             <Show when=move || preferences.archived.get()><button class="sidebar-archive-back" on:click=move |_|preferences.archived.set(false)>"← Архив · вернуться к чатам"</button></Show>
             <p class="sidebar-preferences-error" role="status">{move || preferences.error.get()}</p>

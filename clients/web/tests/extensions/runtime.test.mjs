@@ -75,3 +75,9 @@ test('partial mount failure aborts its subscriptions and reports one error', asy
   assert.equal(aborted, true);
   assert.deepEqual(errors, ['broken panel']);
 });
+
+test('compact-only runtime preserves host hover API and mounts without a panel action', async () => {
+  let received;const root={},compact={},hover=Object.freeze({set(){}});
+  const panel=runtime({root,compact,hover,load:async()=>({mount(context){received=context;}})});
+  await panel.ready;assert.equal(received.root,root);assert.equal(received.compact,compact);assert.equal(received.hover,hover);assert.equal(received.panel,undefined);panel.stop();
+});

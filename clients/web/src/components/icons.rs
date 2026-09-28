@@ -29,6 +29,7 @@ icon!(ArrowDownIcon, "arrow-down", 16);
 icon!(StopIcon, "stop", 20);
 icon!(QueueIcon, "queue", 16);
 icon!(EditIcon, "edit", 16);
+icon!(PlusIcon, "plus", 16);
 icon!(TrashIcon, "trash", 16);
 icon!(MoreIcon, "more", 16);
 icon!(PinIcon, "pin", 13);

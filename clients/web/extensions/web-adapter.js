@@ -1,6 +1,7 @@
 import { mountExtensions } from './host.js';
 import { createExtensionRegistry } from './registry.js';
 import { mountExtensionSettings } from './settings.js';
+import { attachClientTabHost } from './subagent-tabs.js';
 
 import { sessionStateService } from './session-state.js';
 export { publishSessionState } from './session-state.js';
@@ -31,6 +32,6 @@ export function mountWebExtensions(root, readConfig, readQuota, readUsage, readW
       diff: path => readWorkspace('/workspace/diff?path=' + encodeURIComponent(path), signal).then(JSON.parse),
     }),
   };
-  const stop = mountExtensions(root, services, { registry, target: document.querySelector('[data-extension-columns=right]') });
+  const stop = mountExtensions(root, services, { registry, target: document.querySelector('[data-extension-columns=right]'), clientTabs: attachClientTabHost });
   return stop;
 }

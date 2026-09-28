@@ -21,7 +21,7 @@ export function resourceUrl(value, base) {
 }
 
 export function parseManifest(value, url) {
-  object(value, ['apiVersion', 'id', 'name', 'description', 'entry', 'requires', 'settings', 'presentation'], 'Манифест');
+  object(value, ['apiVersion', 'id', 'name', 'description', 'entry', 'requires', 'settings', 'presentation', 'surfaces'], 'Манифест');
   if (value.apiVersion !== API_VERSION) throw new Error(`Неподдерживаемая версия UI API: ${value.apiVersion}`);
   if (typeof value.id !== 'string' || !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(value.id)) throw new Error('Некорректный id расширения');
   if (typeof value.name !== 'string' || !value.name.trim()) throw new Error('Не указано название расширения');
@@ -29,6 +29,8 @@ export function parseManifest(value, url) {
   if (!Array.isArray(value.requires) || value.requires.some(item => typeof item !== 'string' || !item)) throw new Error('requires должен быть списком интерфейсов');
   if (new Set(value.requires).size !== value.requires.length) throw new Error('Повтор интерфейса в requires');
   if (value.presentation !== undefined && !['widget', 'panel'].includes(value.presentation)) throw new Error('Неизвестное представление расширения');
+  const surfaces = value.surfaces === undefined ? ['compact', 'workspace'] : value.surfaces;
+  if (!Array.isArray(surfaces) || !surfaces.length || surfaces.some(surface => !['compact', 'workspace'].includes(surface)) || new Set(surfaces).size !== surfaces.length) throw new Error('Некорректные поверхности расширения');
   let settings;
   if (value.settings !== undefined) {
     object(value.settings, ['entry', 'requires'], 'Настройки пакета');
@@ -36,7 +38,7 @@ export function parseManifest(value, url) {
     if (!Array.isArray(required) || required.some(item => typeof item !== 'string' || !item) || new Set(required).size !== required.length) throw new Error('Некорректные интерфейсы настроек');
     settings = Object.freeze({ entry: resourceUrl(value.settings.entry, url), requires: Object.freeze([...required]) });
   }
-  return Object.freeze({ ...value, ...(settings ? { settings } : {}), requires: Object.freeze([...value.requires]), entry: resourceUrl(value.entry, url) });
+  return Object.freeze({ ...value, surfaces: Object.freeze([...surfaces]), ...(settings ? { settings } : {}), requires: Object.freeze([...value.requires]), entry: resourceUrl(value.entry, url) });
 }
 
 export function parseSettings(value, base) {
@@ -55,4 +57,8 @@ export function parseSettings(value, base) {
 
 export function missingServices(manifest, services) {
   return manifest.requires.filter(name => !Object.hasOwn(services, name));
+}
+
+export function hasSurface(manifest, surface) {
+  return (manifest?.surfaces ?? ['compact', 'workspace']).includes(surface);
 }

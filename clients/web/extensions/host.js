@@ -1,15 +1,18 @@
 import { createExtensionRegistry } from './registry.js';
 import { createPanel } from './panel.js';
 import { createWidgets } from './widgets.js';
+import { hasSurface } from './contract.js';
 import { createWorkspace } from './workspace.js';
 
 export function mountExtensions(root, services = {}, options = {}) {
   const registry=options.registry??createExtensionRegistry(options), cards=new Map(), owned=new Map();
-  const widgets=createWidgets(registry.storage,reorder);
+  const widgets=createWidgets(registry.storage,reorder,{open:id=>update(id,{collapsed:false}),hasWorkspace:id=>hasSurface(registry.state().records.find(r=>r.id===id)?.manifest,'workspace')});
   let stopped=false;
-  const all=()=>[...registry.state().records.filter(r=>r.enabled),...[...owned.values()].map(item=>item.record)];
+  const clientOwner={id:'client'};
+  const all=()=>[...registry.state().records.filter(r=>r.enabled&&hasSurface(r.manifest,'workspace')),...[...owned.values()].map(item=>item.record)];
   const workspace=createWorkspace(options.target??root,{storage:registry.storage,select:id=>update(id,{collapsed:false}),close,reorder});
   const notice=document.createElement('p');notice.className='extension-surface-status';notice.setAttribute('role','status');root.append(notice);
+  const widgetError=event=>{notice.textContent=event.detail;};window.addEventListener('proteus-widgets-error',widgetError);
   function reorder(id,before) {
     const records=registry.state().records,current=records.findIndex(record=>record.id===id);
     if(current<0)return;
@@ -31,11 +34,11 @@ export function mountExtensions(root, services = {}, options = {}) {
     if(!stopped)queueMicrotask(render);
   }
   function createOwned(owner,key,{title,location='right',onClose}) {
-    if(stopped||!cards.has(owner.id))throw new Error('Расширение закрыто');
+    if(stopped||owner!==clientOwner&&!cards.has(owner.id))throw new Error('Расширение закрыто');
     if(!/^[a-z0-9][a-z0-9.-]*$/.test(key)||typeof title!=='string'||!title.trim()||!['left','right'].includes(location)||(onClose!==undefined&&typeof onClose!=='function'))throw new Error('Некорректная вкладка');
     const id=`${owner.id}:${key}`;if(owned.has(id))return owned.get(id).handle;
     const record={id,location,owned:true,enabled:true,collapsed:true,manifest:{name:title,presentation:'panel'}};
-    const card=createPanel(record,{surfaceOnly:true,changed:change=>update(id,change)});
+    const card=createPanel(record,{surfaceOnly:true,lightContent:owner===clientOwner,changed:change=>update(id,change)});
     const handle=Object.freeze({root:card.root,signal:card.signal,show(){if(owned.get(id)?.record===record)update(id,{collapsed:false});},hide(){if(owned.get(id)?.record===record)update(id,{collapsed:true});},close(){if(owned.get(id)?.record===record)close(id);}});
     owned.set(id,{owner,record,card,handle,onClose});render();return handle;
   }
@@ -53,8 +56,9 @@ export function mountExtensions(root, services = {}, options = {}) {
       if(card.element.parentNode!==workspace.content)workspace.content.append(card.element);
     }
     workspace.update(all());
-    widgets.update(state.records.filter(r=>r.enabled).map(r=>cards.get(r.id).compact));
+    widgets.update(state.records.filter(r=>r.enabled&&hasSurface(r.manifest,'compact')).map(r=>cards.get(r.id).compact));
   }
+  const disposeClient=options.clientTabs?.(Object.freeze({create:(key,spec)=>createOwned(clientOwner,key,spec)}));
   const unsubscribe=registry.subscribe(render);void registry.start();
-  return()=>{stopped=true;unsubscribe();for(const card of cards.values()){release(card.record);card.stop();}widgets.stop();workspace.stop();if(!options.registry)registry.dispose();root.replaceChildren();};
+  return()=>{window.removeEventListener('proteus-widgets-error',widgetError);stopped=true;unsubscribe();disposeClient?.();release(clientOwner);for(const card of cards.values()){release(card.record);card.stop();}widgets.stop();workspace.stop();if(!options.registry)registry.dispose();root.replaceChildren();};
 }

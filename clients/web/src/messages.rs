@@ -257,8 +257,17 @@ pub(crate) fn update_tool_status(
         }
     });
     let mut nested = false;
-    set_messages.update(|items| {
-        for message in items.iter_mut() {
+    set_messages.update_matching(
+        |message| {
+            message
+                .tool
+                .as_ref()
+                .is_some_and(|tool| tool.call_id == call_id)
+                || message.subagent.as_ref().is_some_and(|subagent| {
+                    subagent.tools.iter().any(|tool| tool.call_id == call_id)
+                })
+        },
+        |message| {
             if let Some(tool) = message.tool.as_mut().filter(|tool| tool.call_id == call_id) {
                 tool.status = status;
                 if let Some(finished_at_ms) = finished_at_ms {
@@ -291,8 +300,8 @@ pub(crate) fn update_tool_status(
                 nested = true;
                 return;
             }
-        }
-    });
+        },
+    );
     nested
 }
 
@@ -422,12 +431,13 @@ pub(crate) fn finish_subagent_message(
     iterations: Option<u32>,
     now_ms: u64,
 ) {
-    set_messages.update(|items| {
-        if let Some(message) = items.iter_mut().rev().find(|message| {
+    set_messages.update_matching(
+        |message| {
             message.subagent.as_ref().is_some_and(|subagent| {
                 subagent.child_thread_id == child_thread_id && subagent.is_running()
             })
-        }) {
+        },
+        |message| {
             let Some(subagent) = message.subagent.as_mut() else {
                 return;
             };
@@ -435,8 +445,8 @@ pub(crate) fn finish_subagent_message(
             subagent.iterations = iterations;
             subagent.finished_at_ms = Some(now_ms);
             message.version += 1;
-        }
-    });
+        },
+    );
 }
 
 /// Вкладывает tool-вызов дочернего цикла в бегущую карточку субагента с тем
@@ -448,12 +458,13 @@ pub(crate) fn push_subagent_tool(
     tool: ToolActivity,
 ) -> bool {
     let mut nested = false;
-    set_messages.update(|items| {
-        if let Some(message) = items.iter_mut().rev().find(|message| {
+    set_messages.update_matching(
+        |message| {
             message.subagent.as_ref().is_some_and(|subagent| {
                 subagent.child_thread_id == thread_id && subagent.is_running()
             })
-        }) {
+        },
+        |message| {
             let Some(subagent) = message.subagent.as_mut() else {
                 return;
             };
@@ -471,8 +482,8 @@ pub(crate) fn push_subagent_tool(
             }
             message.version += 1;
             nested = true;
-        }
-    });
+        },
+    );
     nested
 }
 

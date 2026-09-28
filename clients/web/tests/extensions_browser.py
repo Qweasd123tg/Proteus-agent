@@ -19,6 +19,7 @@ from chrome_checks import run as check_chrome
 from placement_checks import run as check_placement
 from polish_checks import run as check_polish, check_restore_failure
 from tool_chain_checks import run as check_tool_chain
+from subagent_tab_checks import run as check_subagent_tabs
 from planning_checks import run as check_planning
 from usage_checks import run as check_usage
 from architecture_checks import run as check_architecture
@@ -321,6 +322,9 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                 if '--inspector-only' in sys.argv:
                     check_architecture(command, js, wait_for, web, origin)
                     check_tools_picker(command, js, wait_for, web, origin, config, request)
+                    return
+                if '--subagents-only' in sys.argv:
+                    check_subagent_tabs(command, js, wait_for, web, origin)
                     return
                 check_extensions(command, js, wait_for, web, origin, loaded)
                 if '--placement-only' in sys.argv:

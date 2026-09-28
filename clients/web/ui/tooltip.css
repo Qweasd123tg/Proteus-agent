@@ -18,3 +18,5 @@
     overflow-wrap: anywhere;
     pointer-events: none;
 }
+.ui-tooltip-title { display: block; font-weight: 600; }
+.ui-tooltip-details { display: block; color: var(--text-muted); }

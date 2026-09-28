@@ -7,22 +7,36 @@ function position(storage,id){
 }
 
 // Move the existing compact roots, keeping each extension runtime alive.
-export function createWidgets(storage, reorder) {
+export function createWidgets(storage, reorder, {open,hasWorkspace}) {
   const controller=new AbortController(),{signal}=controller;
   const cancelDrags=[];
+  let dragging=false;
+  const menu=createWidgetMenu({signal,place:setPosition,open,hasWorkspace});
   const strips=new Map(positions.filter(p=>p!=='hidden').map(p=>{
     const strip=document.createElement('div');strip.className='extension-widgets';strip.setAttribute('aria-label','Виджеты расширений');
-    cancelDrags.push(enableHorizontalReorder(strip,{itemSelector:'.extension-widget',handleSelector:'.extension-widget',id:button=>button.dataset.widgetId,commit:reorder,signal}));
+    strip.dataset.widgetZone=p;
+    strip.addEventListener('contextmenu',event=>{const button=event.target.closest('.extension-widget');if(button)menu.show(event,button);},{signal});
+    cancelDrags.push(enableHorizontalReorder(strip,{itemSelector:'.extension-widget',handleSelector:'.extension-widget',id:button=>button.dataset.widgetId,commit:drop,signal,lists:()=>[...strips.values()].map(item=>item.strip),onStart(){dragging=true;menu.close();place();},onFinish(){dragging=false;place();}}));
     return [p,{strip,target:null}];
   }));
   let disposed=false,buttons=[];
   function place(){
     if(disposed)return;
     for(const [p,item] of strips){
-      if(!item.strip.childElementCount){if(item.strip.parentNode)item.strip.remove();continue;}
       if(!item.target?.isConnected)item.target=document.querySelector(`[data-widget-slot="${p}"]`);
+      item.target?.classList.toggle('widget-drop-target',dragging);
+      item.strip.classList.toggle('extension-widget-drop-zone',dragging);
+      if(!item.strip.childElementCount&&!dragging){if(item.strip.parentNode)item.strip.remove();continue;}
       if(item.target&&item.strip.parentElement!==item.target)item.target.append(item.strip);
     }
+  }
+  function setPosition(id,value){
+    try{storage.setItem(key(id),value);window.dispatchEvent(new Event('proteus-widgets-position'));}
+    catch{window.dispatchEvent(new CustomEvent('proteus-widgets-error',{detail:'Не удалось сохранить расположение иконки'}));}
+  }
+  function drop(id,before,target){
+    try{storage.setItem(key(id),target.dataset.widgetZone);}catch{read();window.dispatchEvent(new CustomEvent('proteus-widgets-error',{detail:'Не удалось сохранить расположение иконки'}));return;}
+    reorder(id,before);read();
   }
   function read(){
     if(disposed)return;
@@ -44,7 +58,7 @@ export function createWidgets(storage, reorder) {
   window.addEventListener('proteus-widgets-position',read);window.addEventListener('storage',storageChanged);
   return {
     update(next){buttons=next;read();},
-    stop(){disposed=true;controller.abort();observer.disconnect();window.removeEventListener('proteus-widgets-position',read);window.removeEventListener('storage',storageChanged);for(const {strip} of strips.values())strip.remove();},
+    stop(){disposed=true;controller.abort();observer.disconnect();window.removeEventListener('proteus-widgets-position',read);window.removeEventListener('storage',storageChanged);for(const {strip,target} of strips.values()){strip.remove();target?.classList.remove('widget-drop-target');}},
   };
 }
 
@@ -63,3 +77,5 @@ export function widgetPlacement(storage,signal,id) {
   label.append(select,status);return label;
 }
 import { enableHorizontalReorder } from './horizontal-reorder.js';
+
+import { createWidgetMenu } from './widget-menu.js';

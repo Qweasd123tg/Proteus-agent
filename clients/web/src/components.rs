@@ -14,6 +14,7 @@ mod queued_prompts;
 mod settings;
 mod sidebar;
 mod subagent;
+mod subagent_tab;
 pub(crate) mod tool_activity;
 mod tool_chain;
 
@@ -25,7 +26,7 @@ pub(crate) use message::MessageView;
 pub(crate) use message_nav::MessageNav;
 pub(crate) use settings::SettingsView;
 pub(crate) use sidebar::{SidebarFooter, SidebarView};
-pub(crate) use subagent::{SubagentCard, subagent_turn_card_class};
+pub(crate) use subagent::SubagentCard;
 pub(crate) use tool_activity::{
     ToolActivityCard, ToolCardsCollapsed, ToolPreview, format_duration_ms, format_elapsed_seconds,
     tool_args_preview, tool_turn_card_class,

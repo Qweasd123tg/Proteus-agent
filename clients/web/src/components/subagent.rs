@@ -52,106 +52,74 @@ impl SubagentHeader {
 
 #[component]
 pub(crate) fn SubagentCard(
-    message: Memo<Option<Message>>,
+    message_id: u64,
+    messages: crate::transcript::Transcript,
     activity_now_ms: ReadSignal<u64>,
 ) -> impl IntoView {
-    let header = Memo::new(move |_| subagent_header(message));
-    let running =
-        header.with_untracked(|header| header.as_ref().is_some_and(SubagentHeader::is_running));
-    let collapsed_default =
-        use_context::<ToolCardsCollapsed>().is_some_and(|cards| cards.0.get_untracked());
-    let (expanded, set_expanded) = signal(running || !collapsed_default);
-    // Пока субагент работает, карточка раскрыта и показывает живой прогресс;
-    // после завершения сворачивается сама (как reasoning-блок) — в ленте
-    // остаётся компактная строка со статусом, итерациями и длительностью.
-    // Прошлое состояние живёт в возврате эффекта: писать его в сигнал,
-    // который эффект сам же читает, — это лишний цикл уведомлений.
-    Effect::new(move |prev_running: Option<bool>| {
-        let running_now =
-            header.with(|header| header.as_ref().is_some_and(SubagentHeader::is_running));
-        if prev_running == Some(true) && !running_now {
-            set_expanded.set(false);
-        }
-        running_now
-    });
-    // Вложенные tool-карточки стартуют свёрнутыми независимо от глобального
-    // дефолта: раскрытый субагент и так занимает место, детали каждого вызова
-    // раскрываются точечно.
+    let header = messages.select(message_id, subagent_header);
+    let (opened, set_opened) = signal(false);
+    let detail_ref = NodeRef::<leptos::html::Div>::new();
+    let key = format!("subagent-{message_id}");
+    #[cfg(target_arch = "wasm32")]
+    {
+        let key = key.clone();
+        on_cleanup(move || super::subagent_tab::close(&key));
+    }
+    view! {
+        <article class=move || header.with(|header| header.as_ref().map(|header| subagent_turn_card_class(&header.status)).unwrap_or_default())>
+            <button type="button" class="tool-card-summary subagent-tab-link" title="Открыть активность субагента в боковой панели"
+                on:click=move |_| {
+                    let title = header.with_untracked(|header| header.as_ref().map(|header| format!("Субагент · {}", header.role)).unwrap_or_else(|| "Субагент".to_owned()));
+                    if let Some(root) = detail_ref.get() {
+                        set_opened.set(true);
+                        super::subagent_tab::open(&key, &title, &root, move || { let _ = set_opened.try_set(false); });
+                    }
+                }>
+                {move || subagent_badge(header, activity_now_ms)}
+                <strong>{move || header.with(|header| header.as_ref().map(|header| format!("субагент {}", header.role)).unwrap_or_default())}</strong>
+                <span class="tool-card-summary-meta">{move || header.with(|header| header.as_ref().map(SubagentHeader::summary).unwrap_or_default())}</span>
+                <span class="subagent-open-label">"Открыть ↗"</span>
+            </button>
+        </article>
+        <div class="subagent-detail-parking" hidden>
+            <div node_ref=detail_ref class="subagent-tab-details">
+                {move || if opened.get() {
+                    view! { <SubagentDetails message_id messages activity_now_ms /> }.into_any()
+                } else { ().into_any() }}
+            </div>
+        </div>
+    }
+}
+
+#[component]
+fn SubagentDetails(
+    message_id: u64,
+    messages: crate::transcript::Transcript,
+    activity_now_ms: ReadSignal<u64>,
+) -> impl IntoView {
+    let header = messages.select(message_id, subagent_header);
     let (nested_collapsed, _) = signal(true);
     provide_context(ToolCardsCollapsed(nested_collapsed));
-    let call_ids = Memo::new(move |_| {
-        message.with(|message| {
-            message
-                .as_ref()
-                .and_then(|message| message.subagent.as_ref())
-                .map(|subagent| {
-                    subagent
-                        .tools
-                        .iter()
-                        .map(|tool| tool.call_id.clone())
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default()
-        })
+    let call_ids = messages.select(message_id, |message| {
+        message
+            .and_then(|message| message.subagent.as_ref())
+            .map(|subagent| {
+                subagent
+                    .tools
+                    .iter()
+                    .map(|tool| tool.call_id.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
     });
-    // Итог субагента: summary из результата слитой task-карточки. Виден
-    // только после завершения — пока цикл бежит, результата ещё нет.
-    let outcome_text = Memo::new(move |_| {
-        message.with(|message| {
-            message
-                .as_ref()
-                .filter(|message| {
-                    message
-                        .subagent
-                        .as_ref()
-                        .is_some_and(|subagent| !subagent.is_running())
-                })
-                .and_then(|message| message.tool.as_ref())
-                .and_then(|tool| tool.result_preview.clone())
-                .unwrap_or_default()
-        })
+    let outcome_text = messages.select(message_id, |message| {
+        message
+            .and_then(|message| message.tool.as_ref())
+            .and_then(|tool| tool.result_preview.clone())
+            .unwrap_or_default()
     });
-
     view! {
-        <article class=move || if expanded.get() { "tool-card expanded" } else { "tool-card" }>
-            <button
-                type="button"
-                class="tool-card-summary"
-                title=move || if expanded.get() { "Скрыть детали субагента" } else { "Показать детали субагента" }
-                on:click=move |_| set_expanded.update(|value| *value = !*value)
-            >
-                {move || subagent_badge(header, activity_now_ms)}
-                <strong>{move || {
-                    header.with(|header| {
-                        header
-                            .as_ref()
-                            .map(|header| format!("субагент {}", header.role))
-                            .unwrap_or_else(|| "субагент".to_owned())
-                    })
-                }}</strong>
-                {move || {
-                    if expanded.get() {
-                        return ().into_any();
-                    }
-                    header
-                        .with(|header| header.as_ref().map(SubagentHeader::summary))
-                        .filter(|summary| !summary.trim().is_empty())
-                        .map(|summary| view! { <span class="tool-card-summary-meta">{summary}</span> }.into_any())
-                        .unwrap_or_else(|| ().into_any())
-                }}
-                <code>{move || {
-                    header.with(|header| {
-                        header
-                            .as_ref()
-                            .map(|header| header.child_short_id.clone())
-                            .unwrap_or_default()
-                    })
-                }}</code>
-                <span class="tool-card-caret" aria-hidden="true"></span>
-            </button>
-            {move || {
-                if expanded.get() {
-                    view! {
+        <div class="subagent-detail-status">{move || subagent_badge(header, activity_now_ms)}</div>
                         <div class="tool-card-details subagent-card-details">
                             {move || {
                                 header
@@ -183,7 +151,7 @@ pub(crate) fn SubagentCard(
                                             children=move |call_id| {
                                                 view! {
                                                     <NestedSubagentToolCard
-                                                        parent_message=message
+                                                        message_id messages
                                                         call_id
                                                         activity_now_ms
                                                     />
@@ -196,19 +164,14 @@ pub(crate) fn SubagentCard(
                             }}
                             <ToolPreview text=outcome_text caption="итог" />
                         </div>
-                    }
-                    .into_any()
-                } else {
-                    ().into_any()
-                }
-            }}
-        </article>
+
     }
 }
 
 #[component]
 fn NestedSubagentToolCard(
-    parent_message: Memo<Option<Message>>,
+    message_id: u64,
+    messages: crate::transcript::Transcript,
     call_id: String,
     activity_now_ms: ReadSignal<u64>,
 ) -> impl IntoView {
@@ -216,28 +179,26 @@ fn NestedSubagentToolCard(
     // нулевой: memo меняется только когда меняется сам tool, а не при каждом
     // version bump родительской карточки — иначе любой event на субагенте
     // перерисовывал бы все вложенные карточки разом.
-    let nested_message = Memo::new(move |_| {
-        parent_message.with(|parent| {
-            let parent = parent.as_ref()?;
-            let tool = parent
-                .subagent
-                .as_ref()?
-                .tools
-                .iter()
-                .find(|tool| tool.call_id == call_id)?
-                .clone();
-            Some(Message {
-                message_id: None,
-                phase: None,
-                id: parent.id,
-                version: 0,
-                text_offset: 0,
-                role: MessageRole::System,
-                text: String::new(),
-                tool: Some(tool),
-                subagent: None,
-                streaming: false,
-            })
+    let nested_message = messages.select(message_id, move |parent| {
+        let parent = parent?;
+        let tool = parent
+            .subagent
+            .as_ref()?
+            .tools
+            .iter()
+            .find(|tool| tool.call_id == call_id)?
+            .clone();
+        Some(Message {
+            message_id: None,
+            phase: None,
+            id: parent.id,
+            version: 0,
+            text_offset: 0,
+            role: MessageRole::System,
+            text: String::new(),
+            tool: Some(tool),
+            subagent: None,
+            streaming: false,
         })
     });
 
@@ -259,22 +220,19 @@ fn NestedSubagentToolCard(
     }
 }
 
-fn subagent_header(message: Memo<Option<Message>>) -> Option<SubagentHeader> {
-    message.with(|message| {
-        message
-            .as_ref()
-            .and_then(|message| message.subagent.as_ref())
-            .map(|subagent| SubagentHeader {
-                role: subagent.role.clone(),
-                description: subagent.description.clone(),
-                status: subagent.status.clone(),
-                iterations: subagent.iterations,
-                started_at_ms: subagent.started_at_ms,
-                duration_ms: subagent.duration_ms(),
-                tools_len: subagent.tools.len(),
-                child_short_id: short_id(&subagent.child_thread_id).to_owned(),
-            })
-    })
+fn subagent_header(message: Option<&Message>) -> Option<SubagentHeader> {
+    message
+        .and_then(|message| message.subagent.as_ref())
+        .map(|subagent| SubagentHeader {
+            role: subagent.role.clone(),
+            description: subagent.description.clone(),
+            status: subagent.status.clone(),
+            iterations: subagent.iterations,
+            started_at_ms: subagent.started_at_ms,
+            duration_ms: subagent.duration_ms(),
+            tools_len: subagent.tools.len(),
+            child_short_id: short_id(&subagent.child_thread_id).to_owned(),
+        })
 }
 
 /// Класс внешней карточки хода: статус читается точечно, без клонирования
