@@ -74,7 +74,7 @@ def run(command, js, wait_for):
     js("document.querySelector('.app-layout').dispatchEvent(new MouseEvent('mouseup',{bubbles:true}))")
     wait_for(lambda: js('return window.storageWrites > 0'), 'Resize was not persisted after release')
     js('Storage.prototype.setItem=window.originalSetItem; window.perfFixture.remove()')
-    for width in [900, 640, 390]:
+    for width in [900, 640, 390, 300]:
         command('/window/rect', {'width': width, 'height': 1000})
         if width == 900:
             js("if (!document.querySelector('.app-layout.sidebar-collapsed'))[...document.querySelectorAll('[data-panel-toggle=sidebar]')].find(b=>!b.closest('[inert]')).click()")

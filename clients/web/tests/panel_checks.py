@@ -135,6 +135,16 @@ def run(command, js, wait_for):
     ''', 'args': []})
     assert not animated, 'Widget expansion animates layout across frames'
     js('window.extensionObserver.disconnect()')
+    # Empty left docks should not offer an empty tab; removing the last widget
+    # must restore chats even when the user had selected the panels view.
+    assert js("return getComputedStyle(document.querySelector('.sidebar-view-tabs')).display==='none'"), 'Empty panels tab remains visible'
+    open_menu("window.keptQuota.querySelector('.extension-compact')")
+    pointer(f"{menu}.querySelector('[data-location=left]')")
+    js("document.querySelector('.sidebar-view-tabs button:last-child').click()")
+    assert js("return getComputedStyle(document.querySelector('.sidebar-view-tabs')).display!=='none' && getComputedStyle(document.querySelector('.sidebar-search')).visibility==='hidden'"), 'Left widget did not get a usable panels view'
+    open_menu("window.keptQuota.querySelector('.extension-panel-title')")
+    pointer(f"{menu}.querySelector('[data-location=right]')")
+    assert js("return getComputedStyle(document.querySelector('.sidebar-view-tabs')).display==='none' && getComputedStyle(document.querySelector('.sidebar-search')).visibility==='visible'"), 'Moving the last widget left an empty sidebar'
     assert js("return document.querySelector('[data-extension-id=model-quota] .extension-compact').getAttribute('aria-label').includes('37%')"), 'Weekly compact ring missing'
     js("if(document.querySelector('.info-panel.open'))[...document.querySelectorAll('[data-panel-toggle=info]')].find(b=>!b.closest('[inert]')).click()")
     assert js("return document.querySelector('[data-extension-id=model-quota] .extension-compact').getBoundingClientRect().width>0"), 'Compact extension hidden in rail'

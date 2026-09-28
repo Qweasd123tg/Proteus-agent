@@ -7,11 +7,7 @@ pub(super) fn close_menus_on_outside_click(ev: MouseEvent) {
     let target = ev
         .target()
         .and_then(|target| target.dyn_into::<web_sys::Node>().ok());
-    for selector in [
-        ".composer-access-menu[open]",
-        ".composer-model-menu[open]",
-        ".utility-menu[open]",
-    ] {
+    for selector in [".composer-access-menu[open]", ".composer-model-menu[open]"] {
         let Ok(Some(menu)) = document.query_selector(selector) else {
             continue;
         };
@@ -29,8 +25,7 @@ pub(crate) fn dismiss_top_menu() -> bool {
     let Some(document) = window().and_then(|window| window.document()) else {
         return false;
     };
-    let Ok(Some(menu)) = document.query_selector(".composer-menu[open], .utility-menu[open]")
-    else {
+    let Ok(Some(menu)) = document.query_selector(".composer-menu[open]") else {
         return false;
     };
     let _ = menu.remove_attribute("open");

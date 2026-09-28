@@ -21,7 +21,6 @@ macro_rules! icon {
 }
 
 icon!(FolderIcon, "folder", 18);
-icon!(PlusIcon, "plus", 16);
 icon!(RefreshIcon, "refresh", 16);
 icon!(ArrowUpIcon, "arrow-up", 20);
 icon!(ArrowDownIcon, "arrow-down", 16);
@@ -36,7 +35,6 @@ icon!(AnalysisIcon, "analysis", 18);
 icon!(HistoryIcon, "history", 18);
 icon!(InspectorIcon, "inspector", 18);
 icon!(CloseIcon, "close", 16);
-icon!(MoreIcon, "more", 18);
 
 #[component]
 pub(crate) fn PanelIcon(#[prop(default = false)] right: bool) -> impl IntoView {

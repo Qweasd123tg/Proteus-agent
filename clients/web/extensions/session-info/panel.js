@@ -1,7 +1,7 @@
 import { node, icon } from '../dom.js';
 export function mount({ root, compact, services }) {
   icon(compact, 'info');
-  const fields = [['status','Статус'],['model','Модель'],['mode','Режим'],['reasoning','Reasoning'],['workspace','Проект'],['events','Событий'],['tools','Инструментов'],['pending','Ожидают']];
+  const fields = [['status','Статус'],['events','Событий'],['tools','Вызовов инструментов'],['pending','Ожидают ответа']];
   const values = new Map();
   for (const [key, label] of fields) {
     const row = node('div', null, 'row'); const value = node('code');

@@ -304,41 +304,11 @@ button.session-item.active {
     white-space: nowrap;
 }
 
-.session-preview {
-    overflow: hidden;
-    color: var(--text-faint);
-    font-size: 12px;
-    line-height: 1.4;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.session-meta {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    margin-top: 3px;
-    color: var(--text-faint);
-    font-size: 11px;
-}
-
-.session-time {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.session-activity {
-    color: var(--accent-yellow);
-}
-
 .sidebar-brand-row { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 32px; }
 .sidebar-brand { padding-left: 8px; color: var(--text-main); font-size: 18px; font-weight: 600; letter-spacing: -.4px; }
 .sidebar-header-actions button:last-child { order: -1; flex: 1; justify-content: flex-start; gap: 12px; width: auto; padding: 0 8px; font-size: 14px; font-weight: 400; }
 .sidebar-project { display: flex; align-items: center; gap: 10px; min-height: 36px; flex-shrink: 0; padding: 4px 22px; color: var(--text-muted); font-size: 13px; }
 .sidebar-project span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.session-preview, .session-meta { display: none; }
 .session-title-line { width: 100%; }
 .sidebar-rail-surface .sidebar-brand, .sidebar-rail-surface .new-session-label { display: none; }
 .sidebar-rail-surface .sidebar-header-actions button:last-child { flex: none; width: 30px; padding: 0; justify-content: center; }
-.sidebar.extensions-open .sidebar-project { visibility: hidden; }

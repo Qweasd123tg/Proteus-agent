@@ -125,9 +125,9 @@
     overflow-wrap: anywhere;
 }
 
-/* Быстрый доступ к обзору из шапки при любой ширине окна. */
+/* В desktop переключатель уже есть на самой панели. */
 .info-panel-mobile-toggle {
-    display: inline-flex;
+    display: none;
 }
 
 .info-row {

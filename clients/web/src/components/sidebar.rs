@@ -99,6 +99,10 @@ where
         <aside class="sidebar" class:extensions-open=extensions_open style=move || format!("--sidebar-width: {}px", sidebar_width.get())>
             <div class="sidebar-surface" inert=move || sidebar_collapsed.get().then_some("")>
             <SidebarHeader collapsed=sidebar_collapsed on_toggle on_refresh on_new_session />
+            <nav class="sidebar-view-tabs" aria-label="Представление слева">
+                <button aria-pressed=move || (!extensions_open.get()).to_string() class:active=move || !extensions_open.get() on:click=move |_| set_extensions_open.set(false)>"Чаты"</button>
+                <button aria-pressed=move || extensions_open.get().to_string() class:active=extensions_open on:click=move |_| set_extensions_open.set(true)>"Панели"</button>
+            </nav>
             <div class="sidebar-search">
                 <input
                     type="text"
@@ -153,7 +157,9 @@ where
                             let active_session_dir_value = session.session_dir.to_string_lossy().into_owned();
                             let session_for_click = session.clone();
                             let session_for_delete = session.clone();
-                            let tooltip = format!("{title}\n{workspace}\n{message_count} сообщений · {updated_at}\n{}", preview.as_deref().unwrap_or_default());
+                            let detail = [activity_label.as_deref(), preview.as_deref()]
+                                .into_iter().flatten().collect::<Vec<_>>().join(" · ");
+                            let tooltip = format!("{title}\n{workspace}\n{message_count} сообщений · {updated_at}\n{detail}");
                             view! {
                                 <li class="session-list-item">
                                     <div class="session-item-shell">
@@ -172,21 +178,6 @@ where
                                                     <span class=activity_dot_class></span>
                                                     <span class="session-id">{title}</span>
                                                 </span>
-                                            </div>
-                                            {match preview {
-                                                Some(preview) => view! {
-                                                    <div class="session-preview">{preview}</div>
-                                                }.into_any(),
-                                                None => ().into_any(),
-                                            }}
-                                            <div class="session-meta">
-                                                {match activity_label {
-                                                    Some(label) => view! {
-                                                        <span class="session-time session-activity">{label}</span>
-                                                    }.into_any(),
-                                                    None => ().into_any(),
-                                                }}
-                                                <span class="session-time">{updated_at}</span>
                                             </div>
                                         </button>
                                         <button
@@ -286,10 +277,6 @@ where
             </div>
 
             </div>
-            <nav class="sidebar-view-tabs" aria-label="Представление слева">
-                <button aria-pressed=move || (!extensions_open.get()).to_string() class:active=move || !extensions_open.get() on:click=move |_| set_extensions_open.set(false)>"Чаты"</button>
-                <button aria-pressed=move || extensions_open.get().to_string() class:active=extensions_open on:click=move |_| set_extensions_open.set(true)>"Панели"</button>
-            </nav>
             <div class="extension-host extension-dock-left" data-extension-location="left"></div>
             {children()}
             <div

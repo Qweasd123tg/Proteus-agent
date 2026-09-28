@@ -16,7 +16,6 @@ pub(super) fn AppShell(
         active_run_id,
         plan_run_id,
         agent_status,
-        tool_activities,
         pending_approvals,
         pending_user_inputs,
         messages,
@@ -36,7 +35,6 @@ pub(super) fn AppShell(
     } = state.request;
     let super::state::SessionState {
         transport_status,
-        event_count,
         workspace_label,
         active_session_dir,
         sidebar_sessions,
@@ -142,9 +140,8 @@ pub(super) fn AppShell(
                 on_open_session=open_sidebar_session
                 on_delete_session=delete_sidebar_session
             >
-                <SidebarFooter route transport_status active_session_dir active_run_id event_count tool_activities
-                    on_navigate=topnav_click on_reconnect=reconnect_transport
-                    on_cancel=move |value| commands.cancel_turn.run(value) />
+                <SidebarFooter route transport_status active_session_dir
+                    on_navigate=topnav_click on_reconnect=reconnect_transport />
             </SidebarView>
 
             <div class="extension-columns" data-extension-columns="left"></div>

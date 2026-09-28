@@ -200,7 +200,6 @@
 }
 
 @media (max-width: 900px) {
-    .sidebar.extensions-open .sidebar-project { display: none; }
     .sidebar-rail-surface .sidebar-brand-row { width: auto; }
     .sidebar-rail-surface .sidebar-header-actions { width: auto; }
 }

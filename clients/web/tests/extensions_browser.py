@@ -286,6 +286,10 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return
                 check_selects(command, js, wait_for)
                 check_panels(command, js, wait_for)
+                if '--shell-only' in sys.argv:
+                    check_layout(command, js, wait_for)
+                    print('PASS: shell navigation, widget placement, menus, focus, scrolling and responsive layout', flush=True)
+                    return
                 check_usage(command, js, wait_for)
                 check_layout(command, js, wait_for)
                 screenshot = request(url + '/screenshot')['value']
