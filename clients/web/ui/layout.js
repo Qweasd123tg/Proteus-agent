@@ -1,29 +1,16 @@
-// Only animate the surface entering the dock. Layout width changes once.
+// Panels settle in one layout pass; preserve keyboard focus without slide effects.
 let pendingFocus = 0;
-const animations = new Set();
-const motion = matchMedia('(prefers-reduced-motion: reduce)');
-function cancelMotion() { for (const animation of animations) animation.cancel(); animations.clear(); }
-window.addEventListener('resize', cancelMotion);
-document.addEventListener('mousedown', event => { if (event.target.closest?.('.sidebar-resize-handle,.info-panel-resize-handle,.chat-resize-handle')) cancelMotion(); });
-motion.addEventListener('change', cancelMotion);
 export function preparePanelFocus(selector) {
-  cancelAnimationFrame(pendingFocus); cancelMotion();
+  cancelAnimationFrame(pendingFocus);
   const panel = document.querySelector(selector);
   const restore = panel?.contains(document.activeElement);
   pendingFocus = requestAnimationFrame(() => {
     pendingFocus = 0;
-    if (!panel?.isConnected) return;
+    if (!panel?.isConnected || !restore) return;
     const mobileClosed = selector === '.info-panel' && innerWidth <= 900 && !panel.classList.contains('open');
     const button = mobileClosed ? document.querySelector('.info-panel-mobile-toggle')
       : [...panel.querySelectorAll('[data-panel-toggle]')].find(button => !button.closest('[inert]'));
-    if (restore) button?.focus({ preventScroll: true });
-    if (motion.matches || mobileClosed) return;
-    const surfaces = [...panel.querySelectorAll('.sidebar-surface:not([inert]),.sidebar-rail-surface:not([inert]),.info-panel-surface:not([inert]),.info-panel-rail-surface:not([inert]),[data-extension-location]')];
-    for (const surface of surfaces) {
-      const animation = surface.animate([{ opacity: .45, translate: `${selector === '.sidebar' ? -8 : 8}px 0` }, { opacity: 1, translate: '0 0' }], { duration: 160, easing: 'cubic-bezier(.2,.8,.2,1)' });
-      animation.id = 'panel-surface'; animations.add(animation);
-      animation.finished.catch(() => {}).finally(() => animations.delete(animation));
-    }
+    button?.focus({ preventScroll: true });
   });
 }
 

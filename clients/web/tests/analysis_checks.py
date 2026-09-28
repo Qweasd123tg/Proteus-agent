@@ -19,7 +19,7 @@ def run(command, js, wait_for):
     # Retain the real response and add deterministic diagnostic cases through the same reader.
     js("""window.analysisFetch=window.fetch;window.fetch=async(input,init)=>{
       const response=await window.analysisFetch(input,init);
-      if(String(input.url||input).includes('/usage')) {
+      if(new URL(input.url||input,location.href).pathname==='/usage') {
         const snapshot=await response.clone().json(); window.analysisSource=snapshot;
         if(window.analysisFixture) return new Response(JSON.stringify(window.analysisFixture),{status:200,headers:{'Content-Type':'application/json'}});
       }

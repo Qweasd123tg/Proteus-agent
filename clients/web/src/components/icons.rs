@@ -20,6 +20,7 @@ macro_rules! icon {
     };
 }
 
+icon!(FolderIcon, "folder", 18);
 icon!(PlusIcon, "plus", 16);
 icon!(RefreshIcon, "refresh", 16);
 icon!(ArrowUpIcon, "arrow-up", 20);

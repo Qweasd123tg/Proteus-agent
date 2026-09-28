@@ -5,10 +5,10 @@
     gap: 8px;
     min-height: 34px;
     min-width: 0;
-    padding: 5px 10px;
-    border: 1px solid var(--border-subtle);
-    border-radius: 9px;
-    background: var(--bg-panel-soft);
+    padding: 5px 9px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-inner);
+    background: transparent;
     color: var(--text-muted);
     cursor: pointer;
     list-style: none;
@@ -16,12 +16,16 @@
 }
 .composer-menu-trigger::-webkit-details-marker { display: none; }
 .composer-menu-trigger:hover,
-.composer-menu[open] .composer-menu-trigger { background: var(--bg-panel-hover); border-color: var(--border-strong); color: var(--text-main); }
+.composer-menu[open] .composer-menu-trigger {
+    border-color: transparent;
+    background: var(--bg-panel-hover);
+    color: var(--text-main);
+}
 .composer-menu-trigger svg { flex: none; }
 .composer-menu-trigger svg:last-child { transition: transform 140ms; }
 .composer-menu[open] .composer-menu-trigger svg:last-child { transform: rotate(180deg); }
-.composer-menu-model { min-width: 0; overflow: hidden; font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.composer-menu-meta { flex: 0 1 auto; overflow: hidden; color: var(--text-faint); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.composer-menu-model { min-width: 0; overflow: hidden; font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.composer-menu-meta { flex: 0 1 auto; overflow: hidden; color: var(--text-faint); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .composer-menu-meta::before { content: "· "; }
 .composer-menu-label { color: var(--text-faint); font-size: 11px; font-weight: 500; }
 
@@ -30,15 +34,15 @@
     bottom: calc(100% + var(--space-2));
     right: auto;
     left: 10px;
-    width: 360px;
+    width: 350px;
     max-width: calc(100% - 20px);
     max-height: min(480px, 65vh);
     overflow: auto;
-    border: 1px solid var(--border-strong);
+    border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
-    background: var(--bg-root);
-    box-shadow: var(--shadow-md);
-    padding: 5px;
+    background: var(--bg-composer);
+    box-shadow: var(--shadow-lg);
+    padding: var(--space-1);
     z-index: 20;
 }
 .composer-model-menu .composer-menu-panel { left: auto; right: 10px; }
@@ -47,7 +51,7 @@
     display: grid;
     gap: var(--space-2);
     border-bottom: 1px solid var(--border-subtle);
-    padding: 10px;
+    padding: var(--space-3);
 }
 
 .composer-menu-section:last-child {
@@ -71,12 +75,12 @@
 .menu-option {
     display: flex;
     min-width: 0;
-    min-height: 30px;
+    min-height: 32px;
     max-width: 100%;
     align-items: center;
     justify-content: center;
     overflow: hidden;
-    border: 1px solid var(--border-subtle);
+    border: 1px solid transparent;
     border-radius: var(--radius-inner);
     background: var(--bg-panel-soft);
     color: var(--text-muted);
@@ -88,13 +92,19 @@
 
 .menu-option:hover,
 .menu-option:focus {
-    border-color: var(--border-strong);
+    border-color: transparent;
+    background: var(--bg-panel-hover);
     color: var(--text-main);
     outline: none;
 }
 
+.menu-option:focus-visible {
+    outline: 2px solid var(--text-muted);
+    outline-offset: -2px;
+}
+
 .menu-option.active {
-    border-color: var(--border-strong);
+    border-color: transparent;
     background: var(--bg-panel-hover);
     color: var(--text-main);
 }
@@ -107,7 +117,7 @@
 /* Строчный пункт списка: без рамки, активный помечен галкой. */
 .menu-option-row {
     width: 100%;
-    min-height: 42px;
+    min-height: 44px;
     justify-content: space-between;
     gap: var(--space-3);
     border-color: transparent;
@@ -143,6 +153,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-size: 13px;
 }
 
 .menu-option-desc {

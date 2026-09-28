@@ -70,7 +70,7 @@ where
                     <div class="composer-measure" aria-hidden="true">{move || format!("{} ", draft.get())}</div>
                     <textarea node_ref=composer_ref rows="1" aria-label="Сообщение агенту"
                         prop:value=move || draft.get()
-                        placeholder=move || if mode.get() == PermissionMode::Plan { "Что нужно спланировать?" } else { "Напишите задачу…" }
+                        placeholder=move || if mode.get() == PermissionMode::Plan { "Что нужно спланировать?" } else { "Поручите задачу…" }
                         on:input:target=move |ev| set_draft.set(ev.target().value())
                         on:keydown=on_keydown />
                 </div>

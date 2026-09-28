@@ -1,5 +1,5 @@
 use super::super::{
-    icons::{PlusIcon, RefreshIcon},
+    icons::{EditIcon, RefreshIcon},
     panel::PanelToggle,
 };
 use leptos::prelude::*;
@@ -19,10 +19,13 @@ where
 {
     view! {
         <div class="sidebar-header">
-            <PanelToggle expanded=Signal::derive(move || !collapsed.get()) on_toggle />
+            <div class="sidebar-brand-row">
+                <span class="sidebar-brand">"Proteus"</span>
+                <PanelToggle expanded=Signal::derive(move || !collapsed.get()) on_toggle />
+            </div>
             <div class="sidebar-header-actions">
                 <button type="button" title="Обновить сессии" aria-label="Обновить сессии" on:click=on_refresh><RefreshIcon /></button>
-                <button type="button" title="Новая сессия" aria-label="Новая сессия" on:click=on_new_session><PlusIcon /></button>
+                <button type="button" title="Новая сессия" aria-label="Новая сессия" on:click=on_new_session><EditIcon /><span class="new-session-label">"Новый чат"</span></button>
             </div>
         </div>
     }

@@ -1,9 +1,9 @@
 .extension-columns { display: contents; }
-.extension-column { position: relative; display: flex; flex-direction: column; flex: 0 1 var(--column-width, 280px); width: var(--column-width, 280px); min-width: 160px; min-height: 0; overflow: hidden; border-right: 1px solid var(--border-subtle); background: var(--bg-panel); }
+.extension-column { position: relative; display: flex; flex-direction: column; flex: 0 1 var(--column-width, 280px); width: var(--column-width, 280px); min-width: 160px; min-height: 0; overflow: hidden; border-right: 1px solid var(--border-subtle); background: var(--bg-root); }
 .extension-column[data-location=right] { border-right: 0; border-left: 1px solid var(--border-subtle); }
 .extension-column > .extension-panel { flex: 1; min-height: 0; }
-.extension-column .extension-panel-header { height: var(--topbar-height); flex-shrink: 0; padding: 5px 9px; border-bottom: 1px solid var(--border-subtle); }
-.extension-column .extension-panel-title { font-size: 13px; }
+.extension-column .extension-panel-header { height: var(--topbar-height); flex-shrink: 0; padding: 7px 9px; border-bottom: 1px solid var(--border-subtle); }
+.extension-column .extension-panel-title { font-size: 13px; border-radius: var(--radius-inner); background: var(--bg-panel-soft); }
 .extension-column .extension-panel-toggle { width: 24px; flex-basis: 24px; }
 .extension-column.collapsed { width: 40px; min-width: 40px; flex: 0 0 40px; }
 .extension-column.collapsed .extension-panel-header { padding: 5px 4px; }

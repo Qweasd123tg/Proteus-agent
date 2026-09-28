@@ -1,4 +1,4 @@
-use crate::{types::*, ui_utils::short_path};
+use crate::types::*;
 use leptos::prelude::*;
 use web_sys::MouseEvent;
 #[component]
@@ -6,6 +6,7 @@ use web_sys::MouseEvent;
 pub(crate) fn HeaderView<N, O, T>(
     route: ReadSignal<String>,
     workspace_label: ReadSignal<String>,
+    session_title: Memo<String>,
     waiting_background_sessions: Memo<Vec<SessionSummary>>,
     info_panel_open: ReadSignal<bool>,
     on_navigate: N,
@@ -28,10 +29,16 @@ where
                             href="/"
                             on:click=move |ev| on_navigate(ev, "/")
                         >
-                            {move || short_path(&workspace_label.get())}
+                            <super::icons::FolderIcon />
+                            <span>{move || match route.get().as_str() {
+                                "/settings" => "Настройки".to_owned(),
+                                "/resume" => "История сессий".to_owned(),
+                                "/context" => "Анализ сессии".to_owned(),
+                                _ => session_title.get(),
+                            }}</span>
                         </a>
                     </div>
-                    <nav class="topnav">
+                    <nav class="topnav" aria-label="Действия чата">
                         {move || {
                             let waiting = waiting_background_sessions.get();
                             if waiting.is_empty() {
@@ -53,16 +60,15 @@ where
                             }
                         }}
                         <a
-                            class="topnav-link"
+                            class="topnav-link return-to-chat"
                             class:active=move || is_chat_route()
+                            hidden=move || is_chat_route()
                             href="/"
                             on:click=move |ev| on_navigate(ev, "/")
                         >
                             "Чат"
                         </a>
-                        // Резервный тумблер инфо-панели для узких экранов:
-                        // там свёрнутая рейка спрятана целиком, и своей кнопки
-                        // у панели не видно. На десктопе скрыт (см. CSS).
+                        // Панель доступна из шапки при любой ширине окна.
                         {move || if is_chat_route() {
                             view! {
                                 <button
@@ -71,6 +77,7 @@ where
                                     class:active=move || info_panel_open.get()
                                     title="Инфо по чату"
                                     aria-label="Инфо по чату"
+                                    aria-expanded=move || info_panel_open.get().to_string()
                                     on:click=on_toggle_info
                                 >
                                     <super::icons::PanelIcon right=true />

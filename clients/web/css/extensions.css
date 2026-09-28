@@ -1,11 +1,11 @@
 .extension-host { min-width: 0; }
 .extension-panels { display: grid; gap: 12px; }
-.extension-panel { min-width: 0; overflow: hidden; border: 1px solid var(--border-subtle); border-radius: 14px; background: var(--bg-root); }
+.extension-panel { min-width: 0; overflow: hidden; border: 1px solid var(--border-subtle); border-radius: var(--radius-card); background: var(--bg-root); }
 .extension-panel-header { display: flex; }
-.extension-panel-title { width: 100%; justify-content: space-between; padding: 13px 14px; min-height: 46px; border: 0; border-radius: 0; font-size: 13px; color: var(--text-main); text-align: left; white-space: normal; }
+.extension-panel-title { width: 100%; justify-content: space-between; padding: 13px 14px; min-height: 46px; border: 0; border-radius: var(--radius-inner); font-size: 13px; color: var(--text-main); text-align: left; white-space: normal; }
 .extension-panel-title > span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .extension-panel-title:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: -3px; }
-.extension-panel-toggle { display: grid; place-items: center; flex: 0 0 24px; height: 24px; border-radius: 7px; color: var(--text-muted); background: var(--bg-panel-soft); font-size: 16px; font-weight: 400; }
+.extension-panel-toggle { display: grid; place-items: center; flex: 0 0 24px; height: 24px; border-radius: var(--radius-small); color: var(--text-muted); background: var(--bg-panel-soft); font-size: 16px; font-weight: 400; }
 .extension-panel-body { padding: 2px 14px 14px; }
 .extension-panel-inner > .extension-error { margin: 0 14px 12px; }
 .extension-panel-inner > button { margin: 0 14px 14px; }
@@ -15,7 +15,7 @@
 .extension-error:empty, .extension-surface-status:empty { display: none; }
 .extension-host [hidden] { display: none; }
 .extension-list, .extension-available { display: grid; gap: 10px; }
-.extension-choice { display: flex; align-items: center; gap: 16px; padding: 16px 18px; border: 1px solid var(--border-subtle); border-radius: 14px; background: var(--bg-panel); }
+.extension-choice { display: flex; align-items: center; gap: 16px; padding: 16px 18px; border: 1px solid var(--border-subtle); border-radius: var(--radius-card); background: var(--bg-panel); }
 .extension-description { display: flex; align-items: center; gap: 24px; flex: 1; min-width: 0; }
 label.extension-description { cursor: pointer; }
 .extension-description > span { display: grid; gap: 4px; flex: 1; overflow-wrap: anywhere; }
@@ -28,7 +28,7 @@ label.extension-description { cursor: pointer; }
 .extension-available button { font-size: 12px; border-color: var(--border-strong); }
 .extension-source, .extension-reset { padding-top: 20px; font-size: 12px; color: var(--text-muted); }
 .extension-source summary, .extension-reset summary { cursor: pointer; width: fit-content; }
-.extension-source summary, .extension-reset summary { list-style: none; padding: 8px 12px; border: 1px solid var(--border-subtle); border-radius: 8px; }
+.extension-source summary, .extension-reset summary { list-style: none; padding: 8px 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-inner); }
 .extension-source summary::-webkit-details-marker, .extension-reset summary::-webkit-details-marker { display: none; }
 .extension-source summary::after, .extension-reset summary::after { content: '+'; margin-left: 12px; }
 .extension-source[open] summary::after, .extension-reset[open] summary::after { content: '−'; }
@@ -43,7 +43,7 @@ label.extension-description { cursor: pointer; }
 }
 
 .extension-panel:has([aria-expanded=false]) .extension-panel-header { margin-bottom: 0; }
-.extension-options { margin: 20px 0; padding: 16px; border: 1px solid var(--border-subtle); border-radius: 14px; }
+.extension-options { margin: 20px 0; padding: 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-card); }
 .extension-options[hidden] { display: none; }
 .context-usage-report { margin-top: 24px; padding: 20px; background: var(--bg-panel); border: 1px solid var(--border-subtle); border-radius: 16px; }
 .context-usage-report h2 { font-size: 18px; margin: 0 0 8px; }

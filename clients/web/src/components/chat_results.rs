@@ -76,8 +76,9 @@ where
                     && !working
                 {
                     view! {
-                        <div class="empty-state">
-                            <h1 class="empty-state-title">"С чего начнём?"</h1><p>"Опишите задачу, задайте вопрос или предложите идею."</p>
+                        <div class="empty-state chat-empty-state">
+                            <h1 class="empty-state-title">"Чем могу помочь?"</h1>
+                            <p>"Поручите задачу по проекту или задайте вопрос."</p>
                         </div>
                     }
                     .into_any()

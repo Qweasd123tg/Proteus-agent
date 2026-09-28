@@ -38,7 +38,7 @@ def run(command, js, wait_for):
     check_analysis(command, js, wait_for)
     check_selection(command, js, wait_for)
     # Real HTTP failure must clear old totals, then recover from the journal.
-    js("window.usageFetch=window.fetch;window.fetch=(input,init)=>String(input.url||input).includes('/usage')?Promise.resolve(new Response('offline',{status:503})):window.usageFetch(input,init);document.querySelector('.usage-details-host > div').shadowRoot.querySelector('.usage-footer button').click()")
+    js("window.usageFetch=window.fetch;window.fetch=(input,init)=>new URL(input.url||input,location.href).pathname==='/usage'?Promise.resolve(new Response('offline',{status:503})):window.usageFetch(input,init);document.querySelector('.usage-details-host > div').shadowRoot.querySelector('.usage-footer button').click()")
     wait_for(lambda: js("const root=document.querySelector('.usage-details-host > div').shadowRoot;return root.textContent.includes('Не удалось получить расход') && !root.querySelector('.cost-total')"), 'Usage failure retained a stale total')
     js("window.fetch=window.usageFetch;document.querySelector('.usage-details-host > div').shadowRoot.querySelector('.usage-footer button').click()")
     wait_for(lambda: js("return document.querySelector('.usage-details-host > div').shadowRoot.querySelectorAll('.usage-request').length===2"), 'Usage recovery failed')

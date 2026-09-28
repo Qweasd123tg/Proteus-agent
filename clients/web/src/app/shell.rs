@@ -88,6 +88,16 @@ pub(super) fn AppShell(
             .map(|baseline| messages.len().saturating_sub(baseline))
             .unwrap_or(0)
     };
+    let session_title = Memo::new(move |_| {
+        let active = active_session_dir.get();
+        sidebar_sessions.with(|sessions| {
+            sessions
+                .iter()
+                .find(|session| session.session_dir.to_str() == active.as_deref())
+                .map(crate::session::summaries::sidebar_session_title)
+                .unwrap_or_else(|| "Новый чат".to_owned())
+        })
+    });
     let waiting_background_sessions = Memo::new(move |_| {
         let active = active_session_dir.get();
         sidebar_sessions.with(|sessions| {
@@ -140,7 +150,7 @@ pub(super) fn AppShell(
             <div class="extension-columns" data-extension-columns="left"></div>
             <main class="workspace-main">
                 <crate::components::header::HeaderView
-                    route workspace_label waiting_background_sessions info_panel_open
+                    route workspace_label session_title waiting_background_sessions info_panel_open
                     on_navigate=topnav_click
                     on_open_session=move |session| session_actions.open_sidebar_session(session)
                     on_toggle_info=toggle_info_panel

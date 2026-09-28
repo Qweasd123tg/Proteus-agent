@@ -1,16 +1,19 @@
 :root {
     color-scheme: dark;
-    --bg-root: #1b1b1b;
-    --bg-panel: #151515;
-    --bg-composer: #242424;
-    --bg-panel-soft: #252525;
-    --bg-panel-hover: #2d2d2d;
-    --bg-bubble-user: #2f2f2f;
-    --border-subtle: #2b2b2b;
-    --border-strong: #454545;
-    --text-main: #ededed;
-    --text-muted: #a3a3a3;
-    --text-faint: #888;
+    --bg-root: #1e1e2e;
+    --bg-panel: #181825;
+    --bg-composer: #2b2b3d;
+    --bg-panel-soft: #262637;
+    --bg-panel-hover: #313145;
+    --bg-hover: var(--bg-panel-hover);
+    --bg-popover: #2b2b3d;
+    --accent: #b4befe;
+    --bg-bubble-user: #282839;
+    --border-subtle: #303043;
+    --border-strong: #45455e;
+    --text-main: #cdd6f4;
+    --text-muted: #a6adc8;
+    --text-faint: #858aa5;
     --accent-blue: #6b9eff;
     --accent-green: #5cc784;
     --accent-yellow: #d8a21e;
@@ -36,22 +39,22 @@
     --space-5: 20px;
     --space-6: 24px;
     --space-8: 32px;
-    --sidebar-width: 260px;
-    --topbar-height: 48px;
+    --sidebar-width: 280px;
+    --topbar-height: 52px;
     --input-min-height: 56px;
-    --chat-max-width: 768px;
+    --chat-max-width: 820px;
     /* Три роли скруглений: card — самостоятельные карточки/поповеры,
        inner — вложенные блоки и контролы, small — микро-кнопки. */
-    --radius-bubble: 18px;
-    --radius-card: 14px;
-    --radius-inner: 8px;
-    --radius-small: 6px;
+    --radius-bubble: 20px;
+    --radius-card: 16px;
+    --radius-inner: 10px;
+    --radius-small: 7px;
     --radius-chip: 999px;
     /* Тени по «этажам»: sm — плавающие кнопки, md — карточки над лентой,
        lg — поповеры/меню. */
     --shadow-sm: 0 2px 8px rgb(0 0 0 / 35%);
     --shadow-md: 0 8px 24px rgb(0 0 0 / 40%);
-    --shadow-lg: 0 18px 48px rgb(0 0 0 / 55%);
+    --shadow-lg: 0 16px 40px rgb(10 10 20 / 28%);
     font-family: var(--font-sans);
     font-size: 14px;
     line-height: 1.6;
@@ -115,7 +118,7 @@ button:hover {
 }
 
 button:active {
-    transform: translateY(1px);
+    background: var(--bg-panel-hover);
 }
 
 button:disabled {
@@ -247,12 +250,10 @@ textarea {
 @keyframes message-in {
     from {
         opacity: 0;
-        transform: translateY(4px);
     }
 
     to {
         opacity: 1;
-        transform: none;
     }
 }
 

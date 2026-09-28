@@ -13,6 +13,7 @@
         border-bottom: 1px solid var(--border-subtle);
     }
 
+    .sidebar { --sidebar-header-height: 88px; }
     .sidebar-resize-handle {
         display: none;
     }
@@ -86,14 +87,14 @@
 
 @media (max-width: 620px) {
     .topbar {
-        height: auto;
-        align-items: flex-start;
-        flex-direction: column;
+        height: var(--topbar-height);
+        align-items: center;
+        flex-direction: row;
         padding: var(--space-3);
     }
 
     .topbar-left,
-    .topnav { width: 100%; }
+    .topnav { width: auto; }
 
     .resume-list,
     .context-map-scroll,
@@ -178,7 +179,7 @@
     .topbar { gap: 6px; padding: 8px 12px; }
     .topbar-left { justify-content: flex-start; }
     .topbar-left .brand { max-width: calc(100% - 40px); }
-    .topnav { flex-wrap: nowrap; justify-content: flex-start; gap: 2px; }
+    .topnav { width: auto; flex-wrap: nowrap; justify-content: flex-end; gap: 2px; }
     .topnav-link { padding: 6px 8px; }
 
 }
@@ -196,4 +197,10 @@
     .segmented button {
         flex: 1 0 auto;
     }
+}
+
+@media (max-width: 900px) {
+    .sidebar.extensions-open .sidebar-project { display: none; }
+    .sidebar-rail-surface .sidebar-brand-row { width: auto; }
+    .sidebar-rail-surface .sidebar-header-actions { width: auto; }
 }

@@ -10,8 +10,8 @@
     overflow-anchor: auto;
     overscroll-behavior: contain;
     background: var(--bg-root);
-    padding: var(--space-6) var(--space-4) calc(var(--composer-inset, 0px) + 24px);
-    scroll-padding-bottom: calc(var(--composer-inset, 0px) + 24px);
+    padding: 36px clamp(20px, 4vw, 48px) calc(var(--composer-inset, 0px) + 32px);
+    scroll-padding-bottom: calc(var(--composer-inset, 0px) + 32px);
     scrollbar-width: thin;
     /* Лента уходит за само поле; под ним и в нижнем зазоре текст уже скрыт.
        Маска начинается у поля и не рисует отдельную подложку поверх чата. */
@@ -39,10 +39,10 @@
 .empty-state {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    height: 100%;
     align-items: center;
     justify-content: center;
+    gap: 10px;
+    height: 100%;
     border: none;
     color: var(--text-faint);
     padding: var(--space-8);
@@ -51,10 +51,46 @@
 
 .empty-state-title {
     color: var(--text-main);
-    letter-spacing: -0.6px;
     font-size: clamp(22px, 3vw, 30px);
     font-weight: 500;
+    letter-spacing: -0.6px;
 }
 
+.empty-state p {
+    max-width: 360px;
+    color: var(--text-muted);
+    font-size: 14px;
+}
 
-.empty-state p { color: var(--text-muted); font-size: 14px; max-width: 360px; }
+.results-panel > .chat-empty-state {
+    min-height: calc(100% - var(--composer-inset, 0px) - 68px);
+    height: auto;
+    gap: var(--space-2);
+    padding: clamp(48px, 10vh, 96px) var(--space-6) var(--space-8);
+}
+
+.chat-empty-state .empty-state-title {
+    font-size: clamp(24px, 3vw, 32px);
+    font-weight: 550;
+    letter-spacing: -0.04em;
+    line-height: 1.2;
+}
+
+.chat-empty-state p {
+    max-width: 420px;
+    font-size: 15px;
+    line-height: 1.55;
+}
+
+@media (max-width: 620px) {
+    .results-panel {
+        padding: var(--space-6) var(--space-4) calc(var(--composer-inset, 0px) + 24px);
+        scroll-padding-bottom: calc(var(--composer-inset, 0px) + 24px);
+    }
+
+    .results-panel > .chat-empty-state {
+        min-height: calc(100% - var(--composer-inset, 0px) - 48px);
+        padding-right: var(--space-4);
+        padding-left: var(--space-4);
+    }
+}

@@ -6,7 +6,7 @@ use crate::ui_preferences::{
 };
 
 const MIN_CHAT_WIDTH_PX: i32 = 420;
-const DEFAULT_CHAT_WIDTH_PX: i32 = 768;
+const DEFAULT_CHAT_WIDTH_PX: i32 = 820;
 const MAX_CHAT_WIDTH_PX: i32 = 1600;
 const MIN_SIDEBAR_WIDTH_PX: i32 = 210;
 const MAX_SIDEBAR_WIDTH_PX: i32 = 360;
@@ -49,7 +49,7 @@ pub(crate) struct AppResizeState {
 impl AppResizeState {
     pub(crate) fn new() -> Self {
         let (sidebar_width, set_sidebar_width) = signal(
-            load_i32_setting("proteus.sidebarWidth", 260)
+            load_i32_setting("proteus.sidebarWidth", 280)
                 .clamp(MIN_SIDEBAR_WIDTH_PX, MAX_SIDEBAR_WIDTH_PX),
         );
         let (sidebar_collapsed, set_sidebar_collapsed) =
@@ -68,7 +68,7 @@ impl AppResizeState {
         let (dragging_info, set_dragging_info) = signal(false);
         let (dragging_chat, set_dragging_chat) = signal(false);
         let (resize_start_x, set_resize_start_x) = signal(0_i32);
-        let (resize_start_sidebar, set_resize_start_sidebar) = signal(260_i32);
+        let (resize_start_sidebar, set_resize_start_sidebar) = signal(280_i32);
         let (resize_start_info, set_resize_start_info) = signal(DEFAULT_INFO_WIDTH_PX);
         let (resize_start_chat, set_resize_start_chat) = signal(DEFAULT_CHAT_WIDTH_PX);
 

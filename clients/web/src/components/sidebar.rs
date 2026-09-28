@@ -116,6 +116,10 @@ where
                 />
             </div>
 
+            <div class="sidebar-project" title=move || workspace_label.get()>
+                <super::icons::FolderIcon />
+                <span>{move || crate::ui_utils::short_path(&workspace_label.get())}</span>
+            </div>
             <div class="sessions-list">
                 <ul class="session-list">
                     <For
@@ -149,7 +153,7 @@ where
                             let active_session_dir_value = session.session_dir.to_string_lossy().into_owned();
                             let session_for_click = session.clone();
                             let session_for_delete = session.clone();
-                            let tooltip = format!("{title}\n{workspace}\n{message_count} сообщений");
+                            let tooltip = format!("{title}\n{workspace}\n{message_count} сообщений · {updated_at}\n{}", preview.as_deref().unwrap_or_default());
                             view! {
                                 <li class="session-list-item">
                                     <div class="session-item-shell">
@@ -283,8 +287,8 @@ where
 
             </div>
             <nav class="sidebar-view-tabs" aria-label="Представление слева">
-                <button class:active=move || !extensions_open.get() on:click=move |_| set_extensions_open.set(false)>"Чаты"</button>
-                <button class:active=extensions_open on:click=move |_| set_extensions_open.set(true)>"Панели"</button>
+                <button aria-pressed=move || (!extensions_open.get()).to_string() class:active=move || !extensions_open.get() on:click=move |_| set_extensions_open.set(false)>"Чаты"</button>
+                <button aria-pressed=move || extensions_open.get().to_string() class:active=extensions_open on:click=move |_| set_extensions_open.set(true)>"Панели"</button>
             </nav>
             <div class="extension-host extension-dock-left" data-extension-location="left"></div>
             {children()}

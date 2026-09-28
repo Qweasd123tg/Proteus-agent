@@ -11,12 +11,12 @@
 .info-panel:not(.open) .extension-dock-right .extension-panel { border: 0; background: none; overflow: visible; }
 .info-panel:not(.open) .extension-dock-right .extension-panel-header { padding: 0; }
 .info-panel:not(.open) .extension-dock-right :is(.extension-panel-title,.extension-panel-reveal) { display: none; }
-.sidebar-view-tabs { position: absolute; z-index: 2; top: var(--topbar-height); left: 10px; right: 10px; height: 34px; display: flex; gap: 4px; }
-.sidebar-view-tabs button { flex: 1; padding: 4px 8px; font-size: 12px; border-radius: 7px; }
+.sidebar-view-tabs { position: absolute; z-index: 2; top: var(--sidebar-header-height); left: 10px; right: 10px; height: 34px; display: flex; gap: 4px; }
+.sidebar-view-tabs button { flex: 1; padding: 4px 8px; font-size: 12px; border-radius: var(--radius-inner); }
 .sidebar-view-tabs .active { background: var(--bg-hover); color: var(--text-main); }
 .sidebar-search { margin-top: 38px; }
 .sidebar.extensions-open :is(.sidebar-search,.sessions-list) { visibility: hidden; }
-.extension-dock-left { inset: calc(var(--topbar-height) + 38px) 0 var(--sidebar-footer-height); }
+.extension-dock-left { inset: calc(var(--sidebar-header-height) + 38px) 0 var(--sidebar-footer-height); }
 .sidebar:not(.extensions-open) .extension-dock-left { display: none; }
 .app-layout.sidebar-collapsed .sidebar-view-tabs { display: none; }
 .app-layout.sidebar-collapsed .extension-dock-left { display: grid; top: 116px; padding: 8px 4px; }

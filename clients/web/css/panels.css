@@ -19,7 +19,7 @@
     width: var(--info-panel-width, 300px);
     overflow: hidden;
     border-left: 1px solid var(--border-subtle);
-    background: var(--bg-panel);
+    background: var(--bg-root);
 }
 .info-panel:not(.open) .info-panel-surface { transform: translateX(100%); visibility: hidden; pointer-events: none; }
 .info-panel-rail-surface { position: absolute; inset: 0; background: var(--bg-panel); border-left: 1px solid var(--border-subtle); }
@@ -58,13 +58,14 @@
     align-items: center;
     justify-content: space-between;
     padding: 0 var(--space-2) 0 var(--space-4);
+    border-bottom: 1px solid var(--border-subtle);
 }
 
 .info-panel-header h2 {
     overflow: hidden;
     color: var(--text-main);
     font-size: 14px;
-    font-weight: 600;
+    font-weight: 500;
     white-space: nowrap;
     transition:
         opacity 0.12s ease,
@@ -82,7 +83,7 @@
     padding: var(--space-3);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
-    background: var(--bg-panel);
+    background: var(--bg-popover);
     box-shadow: var(--shadow-md);
     opacity: 0;
     visibility: hidden;
@@ -124,10 +125,9 @@
     overflow-wrap: anywhere;
 }
 
-/* Тумблер панели в топбаре нужен только на узких экранах, где свёрнутая
-   рейка спрятана; на десктопе у панели своя кнопка в шапке. */
+/* Быстрый доступ к обзору из шапки при любой ширине окна. */
 .info-panel-mobile-toggle {
-    display: none;
+    display: inline-flex;
 }
 
 .info-row {

@@ -84,7 +84,7 @@ def run(command, js, wait_for):
         assert js(f"return !{menu} && JSON.parse(localStorage.getItem('proteus.ui.extensions')).panels.find(p=>p.id==='files').location==={json.dumps(location)}"), 'Context menu did not close or persist placement'
 
     js("window.keptFiles.querySelector('.extension-panel-title').click()")
-    assert js("return document.getAnimations().some(a=>a.id==='extension-column')") != js("return matchMedia('(prefers-reduced-motion: reduce)').matches"), 'Column animation does not match motion preference'
+    assert not js("return document.getAnimations().some(a=>a.id==='extension-column')"), 'Column slides after changing the chat layout'
     assert js(f"return {column('files')}.classList.contains('collapsed') && {column('files')}.getBoundingClientRect().width<=48"), 'Column did not collapse to a compact rail'
     open_menu("window.keptFiles.querySelector('.extension-compact')")
     assert js(f"return {column('files')}.classList.contains('collapsed') && {menu}.querySelector('[data-location=left]').getAttribute('aria-checked')==='true'"), 'Right click expanded the panel or lost current placement'
@@ -133,7 +133,7 @@ def run(command, js, wait_for):
         title.click();done(running);
       })});
     ''', 'args': []})
-    assert animated != js("return matchMedia('(prefers-reduced-motion: reduce)').matches"), 'Widget expansion has no local animation or ignores reduced motion'
+    assert not animated, 'Widget expansion animates layout across frames'
     js('window.extensionObserver.disconnect()')
     assert js("return document.querySelector('[data-extension-id=model-quota] .extension-compact').getAttribute('aria-label').includes('37%')"), 'Weekly compact ring missing'
     js("if(document.querySelector('.info-panel.open'))[...document.querySelectorAll('[data-panel-toggle=info]')].find(b=>!b.closest('[inert]')).click()")

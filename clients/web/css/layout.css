@@ -15,7 +15,8 @@
     justify-content: space-between;
     gap: 16px;
     background: var(--bg-root);
-    padding: 0 24px;
+    padding: 0 22px;
+    border-bottom: 1px solid var(--border-subtle);
 }
 
 .topbar-left,
@@ -47,10 +48,13 @@
 .topbar-left { flex: 1; gap: 8px; }
 
 .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
     overflow: hidden;
     text-overflow: ellipsis;
     color: var(--text-main);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
     letter-spacing: 0;
     text-decoration: none;
@@ -126,8 +130,8 @@
     padding: var(--space-2);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
-    background: var(--bg-panel);
-    box-shadow: var(--shadow-md);
+    background: var(--bg-popover);
+    box-shadow: var(--shadow-lg);
 }
 
 .utility-menu-item {
@@ -187,3 +191,7 @@ button.utility-menu-item.danger:not(:disabled):hover {
 .connection-badge.status-badge { border: 0; background: transparent; padding: 6px; min-width: 24px; }
 .connection-badge.completed .connection-text { display: none; }
 .connection-badge .dot { width: 5px; height: 5px; }
+
+.brand span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brand svg { color: var(--text-muted); }
+.return-to-chat[hidden] { display: none; }

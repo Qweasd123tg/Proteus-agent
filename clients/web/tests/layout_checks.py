@@ -37,7 +37,8 @@ def run(command, js, wait_for):
             assert len(result['widths']) <= 2, 'Panel animates layout width across frames'
             assert len(result['surfaces']) == 1, 'Panel content changes width during toggle'
             assert not result['chatAnimated'], 'Toggle animates chat content'
-            assert result['animated'] != js("return matchMedia('(prefers-reduced-motion: reduce)').matches"), 'Local motion does not match preference'
+            assert not result['animated'], 'Panel surface slides after the layout has already changed'
+            assert len(result['positions']) == 1, 'Panel content moves after opening or closing'
             assert js("return document.activeElement.matches('[data-panel-toggle]') && !document.activeElement.closest('[inert]')"), 'Focus was lost inside the hidden panel'
     # Rapid reversals must not leave transforms or stale focus.
     command('/execute/async', {'script': r"""
