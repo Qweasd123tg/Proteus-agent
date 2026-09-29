@@ -175,7 +175,10 @@ export function createWorkspace(target, { storage } = {}) {
       }
     for (const r of records)
       if (r.element && !viewMotion.has(r.element))
-        viewMotion.set(r.element, watchViewMotion(r.element, { signal }));
+        viewMotion.set(
+          r.element,
+          watchViewMotion(r.element, { signal, inPlace: true }),
+        );
     const available = new Set(
       records.filter((r) => !r.collapsed).map((r) => r.id),
     );
@@ -227,13 +230,10 @@ export function createWorkspace(target, { storage } = {}) {
         const focused = root.contains(document.activeElement)
           ? document.activeElement
           : null;
+        // WebKit can reset the surface offset on hide/reveal. Nested scroll
+        // containers retain their own offsets; do not scan the transcript.
         if (!wasHidden && (!selected || moving))
-          scrolls.set(
-            root,
-            [root, ...root.querySelectorAll("*")]
-              .filter((n) => n.scrollTop || n.scrollLeft)
-              .map((n) => [n, n.scrollTop, n.scrollLeft]),
-          );
+          scrolls.set(root, [root.scrollTop, root.scrollLeft]);
         if (!selected && !wasHidden) {
           root.dispatchEvent(new Event("module-hide"));
           for (const details of root.querySelectorAll(
@@ -241,20 +241,25 @@ export function createWorkspace(target, { storage } = {}) {
           ))
             details.open = false;
         }
-        root.hidden = !selected;
-        root.inert = !selected;
+        if (root.hidden !== !selected) root.hidden = !selected;
+        if (root.inert !== !selected) root.inert = !selected;
         if (moving) surfaces.append(root);
-        root.dataset.workspaceGroup = index;
+        if (root.dataset.workspaceGroup !== String(index))
+          root.dataset.workspaceGroup = index;
         if (selected && (wasHidden || moving)) {
-          for (const [node, top, left] of scrolls.get(root) || []) {
-            node.scrollTop = top;
-            node.scrollLeft = left;
+          const saved = scrolls.get(root);
+          if (saved) {
+            root.scrollTop = saved[0];
+            root.scrollLeft = saved[1];
           }
           if (focused) focused.focus({ preventScroll: true });
         }
-        root.id = `workspace-view-${r.id}`;
-        root.setAttribute("role", "tabpanel");
-        root.setAttribute("aria-labelledby", `workspace-tab-${r.id}`);
+        if (root.id !== `workspace-view-${r.id}`)
+          root.id = `workspace-view-${r.id}`;
+        if (root.getAttribute("role") !== "tabpanel")
+          root.setAttribute("role", "tabpanel");
+        if (root.getAttribute("aria-labelledby") !== `workspace-tab-${r.id}`)
+          root.setAttribute("aria-labelledby", `workspace-tab-${r.id}`);
       }
     }
     for (const r of records)
@@ -377,13 +382,15 @@ export function createWorkspace(target, { storage } = {}) {
     { signal },
   );
   function ratio(value) {
-    const width = element.clientWidth;
+    const width = layout.groups.length === 2 ? element.clientWidth : 0;
     const minimum =
       layout.groups.length === 2 && width > 0
         ? Math.max(0.2, Math.min(0.5, 320 / Math.max(1, width - 6)))
         : 0.2;
     layout.ratio = Math.max(minimum, Math.min(1 - minimum, value));
-    element.style.setProperty("--workspace-ratio", `${layout.ratio * 100}%`);
+    const next = `${layout.ratio * 100}%`;
+    if (element.style.getPropertyValue("--workspace-ratio") !== next)
+      element.style.setProperty("--workspace-ratio", next);
     handle.setAttribute(
       "aria-valuenow",
       String(Math.round(layout.ratio * 100)),

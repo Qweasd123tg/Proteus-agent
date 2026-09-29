@@ -2,7 +2,7 @@ import { motionAllowed } from "./motion.js";
 
 // The owner changes hidden/inert immediately. The outgoing, inert view keeps
 // only its last painted rectangle until the fade completes; its DOM never moves.
-export function watchViewMotion(element, { signal } = {}) {
+export function watchViewMotion(element, { signal, inPlace = false } = {}) {
   let shown = !element.hidden,
     frame,
     animation,
@@ -47,7 +47,13 @@ export function watchViewMotion(element, { signal } = {}) {
     settle();
     // A parent screen already hides nested sections; do not paint through it.
     if (!motionAllowed() || element.parentElement?.closest("[hidden]")) return;
-    if (!shown) {
+    if (!shown && inPlace) {
+      if (!geometry) return;
+      // Workspace surfaces already overlap without participating in layout.
+      // Keep that geometry: fixing a long transcript forces another full layout.
+      element.style.setProperty("--view-display", geometry.display);
+      element.dataset.viewExit = "in-place";
+    } else if (!shown) {
       if (!geometry) return;
       // An ancestor's own movement already animates this region. A second
       // fixed exit would use a moving coordinate system and visibly drift.

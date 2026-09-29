@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Production popover timelines in native WebKitGTK or isolated Firefox."""
+"""Production popover timelines in native WebKitGTK or isolated Firefox.
+
+Use --cost to report synchronous close costs for 10/30/100/300 menu options.
+"""
 from functools import partial
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -14,6 +17,8 @@ import threading
 import popovers_webkit as harness
 
 harness.PAGE = Path(__file__).with_name('popover_motion_fixture.html').read_text()
+if '--cost' in sys.argv:
+    harness.PAGE = harness.PAGE.replace('<script type="module">', '<script>window.snapshotCostMode=true</script><script type="module">', 1)
 
 
 def firefox(reduced=False):
@@ -64,4 +69,4 @@ if __name__ == '__main__':
     if '--firefox' in sys.argv:
         firefox(reduced='--reduced' in sys.argv)
     else:
-        harness.main(label='WebKitGTK popover motion')
+        harness.main(label='WebKitGTK popover close cost' if '--cost' in sys.argv else 'WebKitGTK popover motion')

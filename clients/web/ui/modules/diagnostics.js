@@ -1,3 +1,5 @@
+import { logicallyVisible, watchLogicalVisibility } from "./visibility.js";
+
 const titles = {
   usage: "Расход и контекст",
   analysis: "Анализ ходов",
@@ -13,22 +15,38 @@ export function diagnosticsService(readUrl, subscribe, signal) {
       const frame = document.createElement("iframe");
       frame.className = "diagnostic-frame";
       frame.title = titles[view];
-      let url;
-      const refresh = () => {
-        if (!readUrl()) throw Error("Диагностика ещё не подключена");
-        const next = new URL(readUrl(), location.href);
+      const desiredUrl = () => {
+        const connection = readUrl();
+        if (!connection) throw Error("Диагностика ещё не подключена");
+        const next = new URL(connection, location.href);
         next.searchParams.set("embedded", "true");
         next.searchParams.set("view", view);
         next.searchParams.set("chat", location.origin);
-        if (next.href === url?.href) return;
-        url = next;
+        return next;
+      };
+      let url,
+        desired = desiredUrl(),
+        stopped = false;
+      const apply = () => {
+        if (stopped || desired.href === url?.href || !logicallyVisible(root))
+          return;
+        url = desired;
         frame.src = url.href;
       };
-      refresh();
+      const refresh = () => {
+        if (stopped) return;
+        desired = desiredUrl();
+        apply();
+      };
       root.append(frame);
+      const stopVisibility = watchLogicalVisibility(root, (visible) => {
+        if (visible) apply();
+      });
       const unsubscribe = subscribe(refresh);
       const listener = (event) => {
         if (
+          stopped ||
+          !url ||
           event.source !== frame.contentWindow ||
           event.origin !== url.origin ||
           event.data?.type !== "proteus-open-chat"
@@ -49,12 +67,13 @@ export function diagnosticsService(readUrl, subscribe, signal) {
           target.searchParams.get("session_dir") ||
           url.searchParams.get("session_dir");
         const sameServer =
-          !target.searchParams.has("server") ||
-          target.searchParams.get("server") === url.searchParams.get("server");
+          (target.searchParams.get("server") ??
+            url.searchParams.get("server")) ===
+          desired.searchParams.get("server");
         if (
           (desktop || target.origin === current.origin) &&
           sameServer &&
-          session === url.searchParams.get("session_dir")
+          session === desired.searchParams.get("session_dir")
         ) {
           document.dispatchEvent(
             new CustomEvent("proteus-client-navigation", { detail: "chat" }),
@@ -75,8 +94,12 @@ export function diagnosticsService(readUrl, subscribe, signal) {
       };
       window.addEventListener("message", listener, { signal });
       const stop = () => {
+        if (stopped) return;
+        stopped = true;
+        stopVisibility();
         unsubscribe();
         window.removeEventListener("message", listener);
+        signal.removeEventListener("abort", stop);
         frame.remove();
       };
       signal.addEventListener("abort", stop, { once: true });

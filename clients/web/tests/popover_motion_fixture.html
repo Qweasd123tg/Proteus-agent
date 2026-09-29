@@ -13,6 +13,7 @@ import {popup} from '/ui/popup.js';
 import '/ui/select.js';
 import {hideTooltip} from '/ui/tooltip.js';
 import {menu} from '/ui/modules/menu.js';
+import {popoverMotion} from '/ui/popover-motion.js';
 const results=[], reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const unhandled=[];window.addEventListener('unhandledrejection',event=>unhandled.push(String(event.reason)));
 let failure, done=false;
@@ -41,8 +42,67 @@ async function exit(node,name){
   assert(pixels().getBoundingClientRect().height>0,name+' exit has no painted surface');
   return opacity(pixels());
 }
+async function shadowSnapshot(){
+  const host=document.createElement('div');host.style.contain='layout';document.body.append(host);
+  const shadow=host.attachShadow({mode:'open'});
+  shadow.innerHTML=`<style>
+    .select-picker { position:fixed;inset:auto;left:420px;top:120px;width:300px;height:110px;overflow:auto;
+      box-sizing:border-box;padding:9px;border:2px solid rgb(88,44,22);border-radius:13px;background:rgb(21,34,55);
+      --text-main:rgb(178,199,211);color:var(--text-main);font:600 15px/23px monospace; }
+    .select-picker-option { display:grid;grid-template-columns:1fr 20px;gap:7px;width:210px;padding:6px 11px;
+      border-bottom:1px solid rgb(88,99,110);background:rgb(37,48,59); }
+    .select-picker-option:nth-child(even) { width:180px;color:rgb(144,155,166);background:rgb(67,78,89); }
+    span { font-size:12px;letter-spacing:1px; }
+    svg { width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2; }
+  </style><div popover="manual" class="select-picker"></div>`;
+  const source=shadow.querySelector('.select-picker');
+  for(let i=0;i<20;i++){
+    const row=document.createElement('div');row.className='select-picker-option';
+    row.innerHTML='<span>Shadow option '+i+'</span><svg viewBox="0 0 16 16"><path d="m2 8 4 4 8-8"/></svg>';
+    source.append(row);
+  }
+  const motion=popoverMotion(source);motion.show();await enter(source,'shadow menu');source.scrollTop=56;
+  const properties=['color','backgroundColor','fontFamily','fontSize','fontWeight','lineHeight','letterSpacing','padding','borderBottomColor','gridTemplateColumns','fill','stroke','strokeWidth'];
+  const originals=[source,...source.querySelectorAll('*')];
+  const expected=originals.map(node=>{
+    const style=getComputedStyle(node),rect=node.getBoundingClientRect();
+    return {styles:properties.map(key=>style[key]),width:rect.width,height:rect.height};
+  });
+  const start=performance.now();motion.hide();const closeMilliseconds=performance.now()-start;
+  const ghost=document.querySelector('.ui-popover-exit');assert(ghost,'Shadow menu exit missing');
+  const animation=ghost.getAnimations()[0];assert(animation,'Shadow snapshot has no actual animation');
+  animation.pause();animation.currentTime=animation.effect.getTiming().duration/2;
+  const copies=[ghost,...ghost.querySelectorAll('*')];
+  copies.forEach((node,index)=>{
+    const style=getComputedStyle(node),rect=node.getBoundingClientRect();
+    assert(properties.every((key,p)=>style[key]===expected[index].styles[p]),'Shadow snapshot changed styles at node '+index);
+    assert(Math.abs(rect.width-expected[index].width)<1&&Math.abs(rect.height-expected[index].height)<1,'Shadow snapshot changed layout at node '+index);
+  });
+  assert(ghost.scrollTop===56&&opacity(ghost)>0&&opacity(ghost)<1,'Shadow snapshot scroll or intermediate fade missing');
+  motion.dispose();host.remove();assert(!ghost.isConnected,'Shadow snapshot retained after dispose');
+  return closeMilliseconds;
+}
+async function snapshotCost(){
+  for(const rows of [10,30,100,300]){
+    const panel=document.createElement('div');panel.className='composer-menu-panel';panel.setAttribute('popover','manual');
+    panel.style.cssText='position:fixed;left:120px;top:90px;max-height:500px;overflow:auto;width:320px';
+    for(let i=0;i<rows;i++){
+      const row=document.createElement('button');row.className='menu-option';
+      row.innerHTML='<span>Model '+i+'</span><span>Context · 128k</span>';panel.append(row);
+    }
+    document.querySelector('#composer').append(panel);const motion=popoverMotion(panel),closeMilliseconds=[];
+    for(let i=0;i<3;i++){
+      motion.show();await frame();await frame();
+      const start=performance.now();motion.hide();closeMilliseconds.push(performance.now()-start);
+      assert(!panel.matches(':popover-open')&&panel.inert,'Cost probe retained interactive menu');
+      await until(()=>!document.querySelector('.ui-popover-exit'),'Cost probe exit did not settle');
+    }
+    motion.dispose();panel.remove();results.push({name:'contained menu',rows,closeMilliseconds});
+  }
+}
 (async()=>{
   await frame();
+  if(window.snapshotCostMode){await snapshotCost();done=true;return;}
   const first=document.querySelector('#first'),second=document.querySelector('#second');
   const panel=popup('motion-probe','Probe',{manual:true});
   panel.show([panel.action('Action','',()=>{})],first);
@@ -149,6 +209,7 @@ async function exit(node,name){
   assert(!document.querySelector('.ui-popover-exit')&&!model.panel.matches(':popover-open'),'Disposal retained visual or native popup');
   assert(!model.panel.hasAttribute('data-popover-motion')&&!model.panel.hasAttribute('data-popover-exiting')&&!model.panel.hasAttribute('data-popover-snapshot')&&!model.panel.hasAttribute('data-popover-measuring'),'Disposal retained motion markers');
   await frame();assert(unhandled.length===0,'Canceled motion rejected outside lifecycle: '+unhandled.join(';'));
-  results.push({name:'composer/closed-focus/preferences',enter:modelEnter,exit:modelExit});done=true;
+  const shadowCloseMilliseconds=reduced?null:await shadowSnapshot();
+  results.push({name:'composer/closed-focus/preferences/shadow-theme',enter:modelEnter,exit:modelExit,shadowCloseMilliseconds});done=true;
 })().catch(error=>failure=error);
 </script></body></html>
