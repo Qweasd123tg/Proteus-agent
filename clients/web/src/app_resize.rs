@@ -25,14 +25,10 @@ pub(crate) struct AppResizeState {
     set_chat_width: WriteSignal<i32>,
     dragging_sidebar: ReadSignal<bool>,
     set_dragging_sidebar: WriteSignal<bool>,
-    dragging_chat: ReadSignal<bool>,
-    set_dragging_chat: WriteSignal<bool>,
     resize_start_x: ReadSignal<i32>,
     set_resize_start_x: WriteSignal<i32>,
     resize_start_sidebar: ReadSignal<i32>,
     set_resize_start_sidebar: WriteSignal<i32>,
-    resize_start_chat: ReadSignal<i32>,
-    set_resize_start_chat: WriteSignal<i32>,
 }
 
 impl AppResizeState {
@@ -48,10 +44,8 @@ impl AppResizeState {
                 .clamp(MIN_CHAT_WIDTH_PX, MAX_CHAT_WIDTH_PX),
         );
         let (dragging_sidebar, set_dragging_sidebar) = signal(false);
-        let (dragging_chat, set_dragging_chat) = signal(false);
         let (resize_start_x, set_resize_start_x) = signal(0_i32);
         let (resize_start_sidebar, set_resize_start_sidebar) = signal(280_i32);
-        let (resize_start_chat, set_resize_start_chat) = signal(DEFAULT_CHAT_WIDTH_PX);
 
         Self {
             sidebar_width,
@@ -62,14 +56,10 @@ impl AppResizeState {
             set_chat_width,
             dragging_sidebar,
             set_dragging_sidebar,
-            dragging_chat,
-            set_dragging_chat,
             resize_start_x,
             set_resize_start_x,
             resize_start_sidebar,
             set_resize_start_sidebar,
-            resize_start_chat,
-            set_resize_start_chat,
         }
     }
 
@@ -86,13 +76,6 @@ impl AppResizeState {
                 return;
             }
             save_bool_setting("proteus.sidebarCollapsed", self.sidebar_collapsed.get());
-        });
-
-        Effect::new(move |_| {
-            if self.is_resizing() {
-                return;
-            }
-            save_i32_setting("proteus.chatWidth", self.chat_width.get());
         });
     }
 
@@ -115,17 +98,9 @@ impl AppResizeState {
             });
     }
 
-    pub(crate) fn begin_chat_resize(self, ev: MouseEvent) {
-        ev.prevent_default();
-        self.set_dragging_chat.set(true);
-        self.set_resize_start_x.set(ev.client_x());
-        self.set_resize_start_chat.set(self.chat_width.get());
-    }
-
     pub(crate) fn drag(self, ev: MouseEvent) {
-        // Обе боковые панели сворачиваются и раскрываются тем же жестом, что
-        // и ресайзятся: утащили край за порог — схлопнулись, вытащили обратно
-        // — раскрылись.
+        // Боковая панель сворачивается и раскрывается тем же жестом,
+        // которым меняется её ширина.
         if self.dragging_sidebar.get() {
             let delta = ev.client_x() - self.resize_start_x.get();
             let target = self.resize_start_sidebar.get() + delta;
@@ -137,22 +112,14 @@ impl AppResizeState {
                     .set(target.clamp(MIN_SIDEBAR_WIDTH_PX, MAX_SIDEBAR_WIDTH_PX));
             }
         }
-        if self.dragging_chat.get() {
-            let delta = ev.client_x() - self.resize_start_x.get();
-            self.set_chat_width.set(
-                (self.resize_start_chat.get() + delta * 2)
-                    .clamp(MIN_CHAT_WIDTH_PX, MAX_CHAT_WIDTH_PX),
-            );
-        }
     }
 
     pub(crate) fn stop(self) {
         self.set_dragging_sidebar.set(false);
-        self.set_dragging_chat.set(false);
     }
 
     pub(crate) fn is_resizing(self) -> bool {
-        self.dragging_sidebar.get() || self.dragging_chat.get()
+        self.dragging_sidebar.get()
     }
 
     pub(crate) fn toggle_sidebar(self) {

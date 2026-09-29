@@ -69,7 +69,6 @@ pub(super) fn AppShell(
     let delete_sidebar_session = move |session| session_actions.delete_sidebar_session(session);
     let toggle_sidebar = move |_| resize.toggle_sidebar();
     let begin_sidebar_resize = move |event| resize.begin_sidebar_resize(event);
-    let begin_chat_resize = move |event| resize.begin_chat_resize(event);
     let resize_drag = move |event| resize.drag(event);
     let stop_resize = move |_| resize.stop();
     let is_resizing = move || resize.is_resizing();
@@ -195,13 +194,6 @@ pub(super) fn AppShell(
                                 on_keydown=move |value| commands.submit_shortcut.run(value)
                                 on_cancel_turn=move |value| commands.cancel_turn.run(value)
                             />
-
-                            <div
-                                class="chat-resize-handle"
-                                aria-hidden="true"
-                                title="Ширина чата"
-                                on:mousedown=begin_chat_resize
-                            ></div>
 
                             <MessageNav
                                 items=user_messages

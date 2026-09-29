@@ -27,7 +27,7 @@ def run(command, js, wait_for, server):
         click('.settings-back')
         wait_for(lambda: js("return !!document.querySelector('.composer textarea')"), 'Chat missing')
 
-    # Values apply to the actual chat and existing drag width, and survive a reload.
+    # Values apply to the actual chat and survive a reload.
     settings('appearance')
     js("window.normalNavHeight=document.querySelector('[data-settings-section=appearance]').getBoundingClientRect().height")
     input_value('[aria-label="Размер текста"]',20)
@@ -38,7 +38,7 @@ def run(command, js, wait_for, server):
     assert js("return getComputedStyle(document.querySelector('.session-workspace')).getPropertyValue('--chat-max-width').trim()==='960px'"), 'Width setting did not reach chat'
     command('/refresh',{})
     wait_for(lambda: js("return !!document.querySelector('.composer textarea')"), 'Reload failed')
-    assert js("return getComputedStyle(document.querySelector('.composer textarea')).fontSize==='20px'"), 'Reload lost appearance'
+    assert js("return getComputedStyle(document.querySelector('.composer textarea')).fontSize==='20px' && getComputedStyle(document.querySelector('.session-workspace')).getPropertyValue('--chat-max-width').trim()==='960px'"), 'Reload lost appearance'
     settings('appearance')
     # Storage rejection must leave the effective value and the slider in agreement.
     js("window.originalStorageSet=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(k==='proteus.fontSize')throw Error('fixture');return originalStorageSet.call(this,k,v)}")
