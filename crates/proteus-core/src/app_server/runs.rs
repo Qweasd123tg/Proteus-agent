@@ -1,5 +1,5 @@
 //! Session-owned admission, cancellation and settlement shared by HTTP/stdio.
-use super::{AppServerEvent, AppServerHandle, transcript_messages};
+use super::{AppServerEvent, AppServerHandle, completed_transcript};
 use crate::{
     contracts::CancellationToken,
     core::{SteeringQueueReceipt, TurnSettlementStatus, UserMessageReservation},
@@ -51,8 +51,8 @@ impl AppServerHandle {
             return Err(anyhow!("cannot clear history while a run is active"));
         }
         self.runtime.clear_history().await?;
-        self.events
-            .finish_progress(transcript_messages(&self.runtime.history().await));
+        // A successful Replace([]) clears the canonical journal transcript.
+        self.events.finish_progress(Ok(Vec::new()));
         self.events.publish_snapshot()
     }
 
@@ -116,10 +116,11 @@ impl AppServerHandle {
                 .runtime
                 .run_reserved_completion(reserved, cancellation.clone())
                 .await;
+            // The reservation remains held until the registry publishes the
+            // terminal state, so no next turn can overtake this projection.
+            let history = completed_transcript(server.runtime.clone()).await;
             let mut runs = server.runs.lock().await;
-            server
-                .events
-                .finish_progress(transcript_messages(&server.runtime.history().await));
+            server.events.finish_progress(history);
             let result = server.publish_turn_completion(completion);
             let (status, error) = match &result {
                 Ok(_) => (AppRunStatus::Success, None),

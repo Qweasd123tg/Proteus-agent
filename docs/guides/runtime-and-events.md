@@ -663,7 +663,13 @@ store; stdio остаётся привязанным к одной session пр�
   broadcast ring. При отставании сервер посылает `EventStreamLagged`, затем новый
   `SessionSnapshot` и отбрасывает уже включённые в него события. Web заменяет
   локальную историю по снимку в потоке; отдельный `/history` при reconnect
-  не выполняется. Pending обновляется своей версионной подпиской;
+  не выполняется. Завершённый transcript проецируется из проверенного журнала
+  при подключении runtime и завершении исполнения, затем кэшируется вместе
+  с актуальным live progress. Чтение журнала выполняется в blocking worker
+  вне блокировок admission и доставки событий. Полный DTO снимка собирается
+  вне блокировки session view; публикация повторно проверяет его sequence.
+  Ошибка проекции сохраняется как ошибка снимка. Pending обновляется своей
+  версионной подпиской;
 - `GET /config` - config summary явно адресованной session, включая её `session_dir`;
 - `GET /workspace/list?session_dir=<path>&path=<relative>` — каталог проекта
   адресованной live-сессии: `path`, `entries` (`name`, `path`, `kind`) и `truncated`.
@@ -701,9 +707,10 @@ store; stdio остаётся привязанным к одной session пр�
 - `POST /request?session_dir=<path>` - generic `StdioRequest` для указанной
   live session, ответом является `StdioOutput::Response`;
 - `GET /history` - transcript указанной live или cold session без обязательного
-  cold resume;
+  cold resume; чтение и проекция журнала cold session выполняются в blocking worker;
 - `GET /context` - diagnostic context map указанной session с fallback из
-  event log/history и без обязательного cold resume;
+  event log/history и без обязательного cold resume; чтение и анализ журнала
+  вынесены в blocking worker;
 - `POST /send` - запускает turn и держит HTTP request до финального
   `AgentOutput`; если root turn уже активен, сразу возвращает queued receipt;
 - `POST /send-async` - принимает turn или steering message без ожидания
@@ -1414,13 +1421,15 @@ plan `TurnOutput` UI может открыть
 chooser для execute/revise/dismiss.
 Web transcript держит sticky-bottom только пока пользователь не скроллит вверх:
 upward wheel/scroll отключает прилипание, повторное автоприлипание происходит
-только при реальном возврате к нижней границе, а browser scroll anchoring
-включается для отлипшего состояния. Список сообщений остаётся стабильным
-keyed-list; во время streaming пересоздаётся только меняющаяся assistant bubble,
-а не весь transcript. Streaming assistant text рендерится через тот же Markdown
+только при реальном возврате к нижней границе. Положение читаемого текста
+сохраняется через видимый якорь виртуального окна строк. История остаётся
+в состоянии клиента, а DOM содержит область просмотра с запасом; переход
+к отсутствующему в DOM сообщению сначала монтирует нужные строки. Во время
+streaming неизменившиеся Markdown-блоки сохраняют DOM и очищенный HTML.
+Streaming assistant text рендерится через тот же Markdown
 pipeline, что и завершённое сообщение. После Markdown, MathJax fragments и
-code-block decorations итоговый HTML очищается sanitizer-ом; raw HTML
-экранируется, а URL schemes вне allowlist не остаются активными в `href`/`src`.
+code-block decorations итоговый HTML очищается sanitizer-ом; разрешённый raw HTML
+сохраняется, а URL schemes вне allowlist не остаются активными в `href`/`src`.
 MathJax запускается только после
 окончания streaming turn, чтобы не перестраивать формулы на каждый token/delta.
 Ненулевой `app_server.approval_timeout_ms` закрывает pending user-input request

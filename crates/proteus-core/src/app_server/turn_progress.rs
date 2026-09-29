@@ -168,10 +168,6 @@ impl TurnProgress {
         self.turn_thread_id
     }
 
-    pub(super) fn turn_id(&self) -> Option<crate::domain::TurnId> {
-        self.turn_id
-    }
-
     pub(super) fn submit(&mut self, text: String) {
         self.submitted = Some(text);
     }

@@ -350,7 +350,7 @@ impl AppServerHandle {
         let session_id = Some(self.runtime.session_id());
         let history = self.runtime.history().await;
         let event_log_path = self.context_event_log_path(&self.cwd).await;
-        build_context_map_snapshot(ContextMapInput {
+        let input = ContextMapInput {
             session_dir,
             session_id,
             workspace_path: Some(self.cwd.clone()),
@@ -358,7 +358,10 @@ impl AppServerHandle {
             history,
             event_log_path,
             diagnostics: Vec::new(),
-        })
+        };
+        tokio::task::spawn_blocking(move || build_context_map_snapshot(input))
+            .await
+            .map_err(|error| anyhow!("context map task failed: {error}"))?
     }
 
     pub async fn context_map_snapshot_for_session_dir(
@@ -367,20 +370,30 @@ impl AppServerHandle {
         activity: Option<AppSessionActivity>,
     ) -> Result<AppContextMapSnapshot> {
         let session_dir = crate::core::canonicalize_session_dir_path(session_dir)?;
-        let session_store = SessionStore::open(session_dir.clone())?;
-        let history = session_store.load_messages()?;
-        let session_id = session_store.session_id();
-        let workspace_path = session_store.workspace_path()?;
-        let event_log_path = self.context_event_log_path(&workspace_path).await;
-        build_context_map_snapshot(ContextMapInput {
-            session_dir: Some(session_dir),
-            session_id: Some(session_id),
-            workspace_path: Some(workspace_path),
-            activity,
-            history,
-            event_log_path,
-            diagnostics: Vec::new(),
+        let config = self.config.read().await;
+        let event_log_config_path = config.event_log.path.clone();
+        drop(config);
+        let config_path = self.config_path.clone();
+        tokio::task::spawn_blocking(move || {
+            let session_store = SessionStore::open(session_dir.clone())?;
+            let workspace_path = session_store.workspace_path()?;
+            let event_log_path = crate::core::event_log_path(
+                &event_log_config_path,
+                config_path.as_deref(),
+                &workspace_path,
+            );
+            build_context_map_snapshot(ContextMapInput {
+                session_dir: Some(session_dir),
+                session_id: Some(session_store.session_id()),
+                workspace_path: Some(workspace_path),
+                activity,
+                history: session_store.load_messages()?,
+                event_log_path,
+                diagnostics: Vec::new(),
+            })
         })
+        .await
+        .map_err(|error| anyhow!("context map task failed: {error}"))?
     }
 
     async fn context_event_log_path(&self, cwd: &Path) -> PathBuf {
@@ -508,7 +521,7 @@ impl AgentAppServer {
         );
         let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
         let pending_user_inputs = Arc::new(Mutex::new(HashMap::new()));
-        events.attach_runtime(&runtime, transcript_messages(&runtime.history().await));
+        events.attach_runtime(&runtime, completed_transcript(runtime.clone()).await?);
         assert!(runtime_events.0.set(events.clone()).is_ok());
         approvals::spawn_approval_forwarder(
             approval_rx,
@@ -534,6 +547,23 @@ impl AgentAppServer {
             runs: Arc::new(Mutex::new(runs::RunRegistry::default())),
         })
     }
+}
+
+/// Build the completed transcript once per committed turn. The journal is the
+/// authority for persisted sessions; disk replay and projection run outside
+/// the event and admission locks and off the async executor.
+async fn completed_transcript(runtime: Arc<AgentRuntime>) -> Result<Vec<AppTranscriptMessage>> {
+    if runtime.session_dir().is_none() {
+        return Ok(transcript_messages(&runtime.history().await));
+    }
+    tokio::task::spawn_blocking(move || {
+        let projection = runtime
+            .session_projection()?
+            .ok_or_else(|| anyhow!("persisted session has no journal projection"))?;
+        Ok(journal_transcript_messages(&projection, None))
+    })
+    .await
+    .map_err(|error| anyhow!("transcript projection task failed: {error}"))?
 }
 
 fn latest_workspace_session_dir(config_path: Option<&Path>, cwd: &Path) -> Result<Option<PathBuf>> {

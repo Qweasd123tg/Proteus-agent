@@ -87,3 +87,64 @@ async fn subscription_snapshot_covers_buffered_events_and_recovers_after_overflo
         "xxxxxxxxxxy"
     );
 }
+
+#[tokio::test]
+async fn reconnect_snapshot_replaces_live_progress_with_committed_transcript_once() {
+    let (events, _) = test_event_channel(8);
+    let sink = RuntimeEventSink::default();
+    assert!(sink.0.set(events.clone()).is_ok());
+    let context = EventContext::new(
+        events.pending_snapshot().session_id,
+        new_thread_id(),
+        Some(new_turn_id()),
+    );
+    let mut subscription = events.subscribe_session();
+    sink.append(EventEnvelope::new(
+        context.clone(),
+        1,
+        Event::TurnStarted {
+            session_id: context.session_id,
+            thread_id: context.thread_id,
+            turn_id: context.turn_id.unwrap(),
+        },
+    ))
+    .await
+    .unwrap();
+    sink.append(EventEnvelope::new(
+        context,
+        2,
+        Event::AssistantTextDelta {
+            message_id: new_message_id(),
+            phase: None,
+            text: "committed".into(),
+            offset: 0,
+        },
+    ))
+    .await
+    .unwrap();
+    let committed =
+        crate::app_server::transcript_messages(&[crate::model_standard::CanonicalMessage::text(
+            crate::model_standard::MessageRole::Assistant,
+            "committed",
+        )]);
+    events.finish_progress(Ok(committed));
+    events.publish_snapshot().unwrap();
+
+    assert!(matches!(
+        subscription.recv().await.unwrap(),
+        AppServerEvent::PendingRequestsUpdated { .. }
+    ));
+    let AppServerEvent::SessionSnapshot { snapshot } = subscription.recv().await.unwrap() else {
+        panic!("baseline")
+    };
+    assert_eq!(snapshot.seq, 4);
+    assert_eq!(snapshot.transcript.len(), 1);
+    assert_eq!(snapshot.transcript[0].text, "committed");
+    // Every buffered live delta and the published snapshot are covered by the
+    // baseline watermark, including the transition to completed history.
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(20), subscription.recv())
+            .await
+            .is_err()
+    );
+}

@@ -1,13 +1,13 @@
 //! The view is updated inline with event delivery, before a producer can move
 //! on. A subscription snapshot and its sequence are sampled under that same lock.
 use super::{AppEventPublisher, AppServerEvent};
-use crate::app_server::{AppTranscriptMessage, TurnProgress, journal_transcript_messages};
+use crate::app_server::{AppTranscriptMessage, TurnProgress};
 use crate::{
     contracts::EventSink,
     core::AgentRuntime,
     domain::{EventEnvelope, SessionId},
 };
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use proteus_contracts::app_protocol::{AppExecutionState, AppSessionSnapshot};
 use std::sync::{Arc, OnceLock, Weak};
 
@@ -24,7 +24,34 @@ pub(super) struct SessionView {
     runtime: Weak<AgentRuntime>,
     progress: TurnProgress,
     execution: AppExecutionState,
-    pub(super) history: Vec<AppTranscriptMessage>,
+    // Completed turns are projected from the validated journal at attachment
+    // and settlement. Reconnect snapshots must not reread it under this lock.
+    pub(super) history: Result<Arc<Vec<AppTranscriptMessage>>, Arc<String>>,
+}
+
+struct SnapshotParts {
+    session_id: SessionId,
+    stream_id: String,
+    seq: u64,
+    root_thread_id: Option<crate::domain::ThreadId>,
+    history: Arc<Vec<AppTranscriptMessage>>,
+    progress: Vec<AppTranscriptMessage>,
+    execution: AppExecutionState,
+}
+
+impl SnapshotParts {
+    fn into_snapshot(self) -> AppSessionSnapshot {
+        let mut transcript = self.history.as_ref().clone();
+        transcript.extend(self.progress);
+        AppSessionSnapshot {
+            session_id: self.session_id,
+            stream_id: self.stream_id,
+            seq: self.seq,
+            root_thread_id: self.root_thread_id,
+            transcript,
+            execution: self.execution,
+        }
+    }
 }
 
 impl SessionView {
@@ -36,7 +63,7 @@ impl SessionView {
             runtime: Weak::new(),
             progress: TurnProgress::default(),
             execution: AppExecutionState::default(),
-            history: Vec::new(),
+            history: Ok(Arc::new(Vec::new())),
         }
     }
 
@@ -50,24 +77,19 @@ impl SessionView {
         }
     }
 
-    fn snapshot(&self) -> Result<AppSessionSnapshot> {
-        let mut transcript = match self
-            .runtime
-            .upgrade()
-            .map(|r| r.session_projection())
-            .transpose()?
-            .flatten()
-        {
-            Some(projection) => journal_transcript_messages(&projection, self.progress.turn_id()),
-            None => self.history.clone(),
-        };
-        transcript.extend(self.progress.snapshot());
-        Ok(AppSessionSnapshot {
+    fn snapshot_parts(&self) -> Result<SnapshotParts> {
+        let history = self
+            .history
+            .as_ref()
+            .map_err(|error| anyhow!("{error}"))?
+            .clone();
+        Ok(SnapshotParts {
             session_id: self.session_id,
             stream_id: self.stream_id.clone(),
             seq: self.seq,
             root_thread_id: self.progress.thread_id(),
-            transcript,
+            history,
+            progress: self.progress.snapshot(),
             execution: self.execution.clone(),
         })
     }
@@ -81,32 +103,60 @@ impl AppEventPublisher {
     ) {
         let mut view = self.0.view.lock().expect("session view lock");
         view.runtime = Arc::downgrade(runtime);
-        view.history = history;
+        view.history = Ok(Arc::new(history));
     }
 
     pub(in crate::app_server) fn session_snapshot(&self) -> Result<AppSessionSnapshot> {
-        self.0.view.lock().expect("session view lock").snapshot()
+        let parts = self
+            .0
+            .view
+            .lock()
+            .expect("session view lock")
+            .snapshot_parts()?;
+        Ok(parts.into_snapshot())
     }
 
     pub(in crate::app_server) fn publish_snapshot(&self) -> Result<()> {
-        let mut view = self.0.view.lock().expect("session view lock");
-        view.seq = view.seq.checked_add(1).expect("session sequence");
-        let event = AppServerEvent::SessionSnapshot {
-            snapshot: Box::new(view.snapshot()?),
-        };
-        let _ = self.0.sequenced.send(SequencedEvent {
-            seq: view.seq,
-            event: event.clone(),
-        });
-        let _ = self.0.events.send(event);
-        Ok(())
+        loop {
+            let parts = self
+                .0
+                .view
+                .lock()
+                .expect("session view lock")
+                .snapshot_parts()?;
+            let previous_seq = parts.seq;
+            let mut snapshot = parts.into_snapshot();
+            snapshot.seq = previous_seq.checked_add(1).expect("session sequence");
+            // Both transports own a DTO. Clone the completed transcript before
+            // taking the event lock, then validate the sampled revision.
+            let event = AppServerEvent::SessionSnapshot {
+                snapshot: Box::new(snapshot),
+            };
+            let copy = event.clone();
+            let mut view = self.0.view.lock().expect("session view lock");
+            if view.seq != previous_seq {
+                continue;
+            }
+            view.seq = previous_seq + 1;
+            let _ = self.0.sequenced.send(SequencedEvent {
+                seq: view.seq,
+                event: copy,
+            });
+            let _ = self.0.events.send(event);
+            return Ok(());
+        }
     }
 
-    pub(in crate::app_server) fn finish_progress(&self, history: Vec<AppTranscriptMessage>) {
+    pub(in crate::app_server) fn finish_progress(
+        &self,
+        history: Result<Vec<AppTranscriptMessage>>,
+    ) {
         let mut view = self.0.view.lock().expect("session view lock");
         view.seq = view.seq.checked_add(1).expect("session sequence");
         view.progress.finish_parent_turn();
-        view.history = history;
+        view.history = history
+            .map(Arc::new)
+            .map_err(|error| Arc::new(format!("{error:#}")));
     }
 }
 

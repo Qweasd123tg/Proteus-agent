@@ -134,8 +134,12 @@ pub(super) async fn history_json(
         return server.transcript().await;
     }
 
-    let projection = SessionStore::open(session_dir)?.load_projection()?;
-    Ok(journal_transcript_messages(&projection, None))
+    tokio::task::spawn_blocking(move || {
+        let projection = SessionStore::open(session_dir)?.load_projection()?;
+        Ok(journal_transcript_messages(&projection, None))
+    })
+    .await
+    .map_err(|error| anyhow!("cold history task failed: {error}"))?
 }
 
 pub(super) async fn context_map_json(
@@ -149,21 +153,27 @@ pub(super) async fn context_map_json(
         return server.context_map_snapshot(Some(activity)).await;
     }
 
-    let store = SessionStore::open(session_dir.clone())?;
-    let workspace_path = store.workspace_path()?;
-    build_context_map_snapshot(ContextMapInput {
-        session_dir: Some(session_dir),
-        session_id: Some(store.session_id()),
-        event_log_path: event_log_path(
-            &state.launch.config.event_log.path,
-            state.launch.config_path.as_deref(),
-            &workspace_path,
-        ),
-        workspace_path: Some(workspace_path),
-        activity: None,
-        history: store.load_messages()?,
-        diagnostics: Vec::new(),
+    let event_log_config_path = state.launch.config.event_log.path.clone();
+    let config_path = state.launch.config_path.clone();
+    tokio::task::spawn_blocking(move || {
+        let store = SessionStore::open(session_dir.clone())?;
+        let workspace_path = store.workspace_path()?;
+        build_context_map_snapshot(ContextMapInput {
+            session_dir: Some(session_dir),
+            session_id: Some(store.session_id()),
+            event_log_path: event_log_path(
+                &event_log_config_path,
+                config_path.as_deref(),
+                &workspace_path,
+            ),
+            workspace_path: Some(workspace_path),
+            activity: None,
+            history: store.load_messages()?,
+            diagnostics: Vec::new(),
+        })
     })
+    .await
+    .map_err(|error| anyhow!("cold context task failed: {error}"))?
 }
 
 pub(super) async fn usage_json(

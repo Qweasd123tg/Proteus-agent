@@ -168,3 +168,28 @@ async fn route_context_can_read_requested_cold_session_without_changing_live_reg
 
     server.shutdown().await;
 }
+
+#[tokio::test]
+async fn live_history_matches_cold_journal_after_turn_settlement() {
+    let (state, server, _config_dir) = dogfood_loop_state().await;
+    server
+        .send_user_message("hello".to_owned())
+        .await
+        .expect("settled turn");
+    let session_dir = server.session_dir_path().expect("session directory");
+    let query = format!("session_dir={}", session_dir.display());
+    let live = super::super::sessions::history_json(&state, Some(&query))
+        .await
+        .expect("live history");
+    assert!(live.iter().any(|message| message.role == "assistant"));
+
+    server.shutdown().await;
+    state.remove_session_server(&session_dir).await;
+    let cold = super::super::sessions::history_json(&state, Some(&query))
+        .await
+        .expect("cold history");
+    assert_eq!(
+        serde_json::to_value(live).unwrap(),
+        serde_json::to_value(cold).unwrap()
+    );
+}
