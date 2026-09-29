@@ -53,11 +53,25 @@ def run(command, js, wait_for, web, origin):
     assert js("return !!childDetail.closest('.subagent-detail-parking')"), 'Closed root was not returned to its client owner'
     js("document.querySelector('.subagent-tab-link').click()")
     wait_for(lambda: js("return document.querySelector('.workspace-tab-content .subagent-tab-details')===childDetail && !!childDetail.querySelector('.tool-card')"), 'Reopening remounted or lost the detail root')
-    js("childDetail.querySelector('.tool-card-summary').click()")
+    assert js("return childDetail.querySelector('.tool-card-summary').getAttribute('aria-expanded')==='true'"), 'Reopening lost expanded tool details'
     wait_for(lambda: js("return childDetail.textContent.includes('Дочерний вывод: child-output-fixture') && childDetail.textContent.includes('Итог: child-summary-fixture')"), 'Reopening lost tool output/task outcome')
+    js("""
+      window.retainedChildCard=document.querySelector('.subagent-tab-link').closest('[data-transcript-row]');
+      for(let i=0;i<600;i++)childEmit({AssistantMessageCompleted:{message_id:crypto.randomUUID(),phase:null,
+        text:'После субагента '+i+'. '+('Текст для проверки длинной истории. ').repeat(4)}});
+    """)
+    wait_for(lambda: js("return +document.querySelector('.results-panel').dataset.transcriptCount>600"), 'Long child history did not update its structural index')
+    js("document.querySelector('.jump-to-bottom')?.click()")
+    try:
+        wait_for(lambda: js("const r=document.querySelector('.results-panel');return +r.dataset.transcriptCount>600 && r.textContent.includes('После субагента 599') && r.scrollHeight-r.clientHeight-r.scrollTop<2"), 'Long history after the child card did not reach its latest output')
+    except AssertionError:
+        print(js("const r=document.querySelector('.results-panel');return {count:r.dataset.transcriptCount,top:r.scrollTop,max:r.scrollHeight-r.clientHeight,sticky:r.classList.contains('sticky-bottom'),rows:[...r.querySelectorAll('[data-transcript-row]')].map(n=>({id:n.dataset.transcriptRow,text:n.textContent.slice(0,90)})),child:retainedChildCard.isConnected,detail:childDetail.isConnected}"), flush=True)
+        raise
+    assert js("return document.querySelectorAll('[data-transcript-row]').length<60 && retainedChildCard.isConnected"), 'Retained child card mounted the entire intervening history'
+    assert js("return childDetail===document.querySelector('.workspace-tab-content .subagent-tab-details') && childDetail.textContent.includes('Дочерний вывод: child-output-fixture')"), 'Sparse retained child card lost its workspace root or output'
     js("document.querySelector('.settings-link').click()")
     wait_for(lambda: js("return !!document.querySelector('.workspace-tab[data-owned=true][data-client=false]') && childDetail.isConnected"), 'Settings discarded the live child tab')
     js("window.childSession=new URL(location.href).searchParams.get('session_dir');window.childBoard=document.querySelector('.tab-workspace');document.querySelector('[aria-label=\"Новая сессия\"]').click()")
     wait_for(lambda: js("return new URL(location.href).searchParams.get('session_dir')!==childSession && document.querySelector('.connection-badge').classList.contains('completed')"), 'New session did not connect after retained settings')
     assert js("return !document.querySelector('.workspace-tab[data-owned=true][data-client=false]') && !childDetail.isConnected && document.querySelector('.tab-workspace')===childBoard"), 'Session change retained stale child tab or replaced workspace'
-    print('PASS: real child reducers; compact chat; owned detail tab; live output/status; cross-group root identity; close/reopen; retained navigation and session teardown', flush=True)
+    print('PASS: real child reducers; compact chat; owned detail tab; live output/status; cross-group root identity; close/reopen; sparse retained card across 600 messages; navigation and session teardown', flush=True)

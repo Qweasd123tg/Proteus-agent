@@ -258,6 +258,10 @@ impl AppSessionActions {
             match result {
                 Ok(activity) => {
                     self.sidebar_rollback.set_value(None);
+                    // A newly selected chat starts at its latest output. Keep
+                    // the previous intent until resume succeeds so a failed
+                    // selection can restore the existing reading mode.
+                    self.set_stick_to_bottom.set(true);
                     if let Some(activity) = activity {
                         apply_active_session_activity(
                             Some(&activity),

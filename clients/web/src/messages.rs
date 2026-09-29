@@ -146,13 +146,7 @@ pub(crate) fn adopt_streaming_tail(
 }
 
 pub(crate) fn finish_streaming_reasoning(set_messages: crate::transcript::TranscriptWriter) {
-    set_messages.update_where(
-        |message| message.role == MessageRole::Reasoning && message.streaming,
-        |message| {
-            message.streaming = false;
-            message.version += 1;
-        },
-    );
+    set_messages.finish_streaming_reasoning();
 }
 
 pub(crate) fn push_tool_message(

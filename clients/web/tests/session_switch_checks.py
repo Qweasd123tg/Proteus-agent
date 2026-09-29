@@ -23,6 +23,12 @@ def run(command, js, wait_for, server, origin):
     other = selected()
     open_session(original)
     wait_for(lambda: selected() == original and connected(), 'Original session did not reopen')
+    js("const r=document.querySelector('.results-panel');r.dispatchEvent(new WheelEvent('wheel',{deltaY:-120,bubbles:true}));r.scrollTop=500")
+    wait_for(lambda: js("return !document.querySelector('.results-panel').classList.contains('sticky-bottom')"), 'Original session did not enter reading mode')
+    open_session(other)
+    wait_for(lambda: selected() == other and connected() and js("return document.querySelector('.results-panel').classList.contains('sticky-bottom')"), 'New chat inherited detached reading mode')
+    open_session(original)
+    wait_for(lambda: selected() == original and connected() and js("const r=document.querySelector('.results-panel');return r.classList.contains('sticky-bottom') && r.scrollHeight-r.clientHeight-r.scrollTop<2"), 'Long reopened chat did not start at its latest message')
     errors = []
 
     # Delay browser delivery of the delta flush and the next resume response.

@@ -9,6 +9,7 @@ export function mountMessageNav(root) {
   const preview = root.querySelector('.msg-nav-preview');
   const motion = matchMedia('(prefers-reduced-motion: reduce)');
   const targets = new Map(), counts = new Map();
+  let anchors = new Map(), current = new Set(), ticksDirty = true;
   let ticks = [], observer, inset = -1, syncFrame = 0, hoverFrame = 0;
   let selected = null, pointerY = null, wave = new Set();
 
@@ -39,7 +40,15 @@ export function mountMessageNav(root) {
   }
   function sync() {
     syncFrame = 0;
-    ticks = [...track.querySelectorAll('.msg-nav-tick')];
+    const changed = ticksDirty;
+    if (ticksDirty) {
+      ticks = [...track.querySelectorAll('.msg-nav-tick')];
+      current = new Set(ticks);
+      anchors = new Map(ticks.map(tick => [tick.dataset.messageId, tick]));
+      if (selected && !current.has(selected)) hide();
+      if (!ticks.some(tick => tick.tabIndex === 0) && ticks[0]) ticks[0].tabIndex = 0;
+      ticksDirty = false;
+    }
     if (ticks.length < 2) {
       observer?.disconnect();
       observer = null;
@@ -50,12 +59,8 @@ export function mountMessageNav(root) {
       hide();
       return;
     }
-    const current = new Set(ticks);
-    if (selected && !current.has(selected)) hide();
-    if (!ticks.some(tick => tick.tabIndex === 0) && ticks[0]) ticks[0].tabIndex = 0;
     const nextInset = Math.ceil(dock.getBoundingClientRect().height);
     if (inset !== nextInset) resetObserver(nextInset);
-    const anchors = new Map(ticks.map(tick => [tick.dataset.messageId, tick]));
     const next = new Map();
     let owner;
     for (const card of results.children) {
@@ -74,7 +79,7 @@ export function mountMessageNav(root) {
       targets.set(element, { tick, visible: false });
       observer.observe(element);
     }
-    for (const tick of counts.keys()) if (!current.has(tick)) counts.delete(tick);
+    if (changed) for (const tick of counts.keys()) if (!current.has(tick)) counts.delete(tick);
   }
   function scheduleSync() {
     if (!syncFrame) syncFrame = requestAnimationFrame(sync);
@@ -150,7 +155,10 @@ export function mountMessageNav(root) {
     event.preventDefault();
     ticks[Math.max(0, Math.min(ticks.length - 1, next))]?.focus({ preventScroll: true });
   }
-  const mutations = new MutationObserver(scheduleSync);
+  const mutations = new MutationObserver(records => {
+    if (records.some(record => record.target === track)) ticksDirty = true;
+    scheduleSync();
+  });
   mutations.observe(track, { childList: true });
   mutations.observe(results, { childList: true });
   const resize = new ResizeObserver(scheduleSync);

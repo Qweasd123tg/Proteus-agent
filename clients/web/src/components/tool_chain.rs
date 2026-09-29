@@ -2,7 +2,7 @@
 use super::{MessageView, ToolCardsCollapsed, icons::*};
 use crate::{
     transcript::Transcript,
-    types::{Message, ToolActivityStatus},
+    types::{Message, MessageRole, ToolActivityStatus},
 };
 use leptos::prelude::*;
 
@@ -11,10 +11,7 @@ pub(super) struct Group {
     pub id: u64,
     pub tools: bool,
     pub ids: Vec<u64>,
-    running: usize,
-    waiting: usize,
-    failed: usize,
-    interrupted: usize,
+    pub role: MessageRole,
 }
 
 pub(super) fn groups(items: &[Message]) -> Vec<Group> {
@@ -26,30 +23,44 @@ pub(super) fn groups(items: &[Message]) -> Vec<Group> {
                 id: item.id,
                 tools: tool.is_some(),
                 ids: Vec::new(),
-                running: 0,
-                waiting: 0,
-                failed: 0,
-                interrupted: 0,
+                role: item.role,
             });
         }
         let group = result.last_mut().unwrap();
         group.ids.push(item.id);
-        if let Some(tool) = tool {
-            match tool.status {
-                ToolActivityStatus::Running | ToolActivityStatus::Approved => group.running += 1,
-                ToolActivityStatus::WaitingApproval => group.waiting += 1,
-                ToolActivityStatus::Failed | ToolActivityStatus::Denied => group.failed += 1,
-                ToolActivityStatus::Interrupted => group.interrupted += 1,
-                ToolActivityStatus::Done => {}
-            }
-        }
     }
     result
 }
 
-impl Group {
-    fn label(&self) -> String {
-        let mut text = format!("Инструменты · {}", self.ids.len());
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+struct Summary {
+    count: usize,
+    running: usize,
+    waiting: usize,
+    failed: usize,
+    interrupted: usize,
+}
+
+impl Summary {
+    fn from_statuses(statuses: &[Option<ToolActivityStatus>]) -> Self {
+        let mut summary = Self {
+            count: statuses.len(),
+            ..Self::default()
+        };
+        for status in statuses.iter().flatten() {
+            match status {
+                ToolActivityStatus::Running | ToolActivityStatus::Approved => summary.running += 1,
+                ToolActivityStatus::WaitingApproval => summary.waiting += 1,
+                ToolActivityStatus::Failed | ToolActivityStatus::Denied => summary.failed += 1,
+                ToolActivityStatus::Interrupted => summary.interrupted += 1,
+                ToolActivityStatus::Done => {}
+            }
+        }
+        summary
+    }
+
+    fn label(self) -> String {
+        let mut text = format!("Инструменты · {}", self.count);
         if self.waiting > 0 {
             text.push_str(&format!(" · ждут разрешения: {}", self.waiting));
         }
@@ -88,14 +99,21 @@ pub(super) fn ToolChain(
     let (cards_collapsed, _) = signal(true);
     provide_context(ToolCardsCollapsed(cards_collapsed));
     let group = Memo::new(move |_| groups.with(|items| items.iter().find(|g| g.id == id).cloned()));
+    let summary = Memo::new(move |_| {
+        group.with(|group| {
+            group
+                .as_ref()
+                .map(|group| messages.with_tool_statuses(&group.ids, Summary::from_statuses))
+        })
+    });
     let content_id = format!("tool-chain-{id}");
     view! {
         <section class="tool-chain" class:expanded=expanded>
             <button type="button" class="tool-chain-toggle" aria-expanded=move || expanded.get().to_string() aria-controls=content_id.clone()
-                class:attention=move || group.with(|g|g.as_ref().is_some_and(|g|g.failed+g.waiting>0))
+                class:attention=move || summary.with(|value| value.is_some_and(|value|value.failed+value.waiting>0))
                 on:click=move |_|expanded.update(|value|*value=!*value)>
                 <TerminalIcon/>
-                <span>{move ||group.with(|g|g.as_ref().map(Group::label).unwrap_or_default())}</span>
+                <span>{move ||summary.with(|value|value.map(Summary::label).unwrap_or_default())}</span>
                 <ChevronDownIcon/>
             </button>
             <div class="tool-chain-items" id=content_id hidden=move ||!expanded.get()>

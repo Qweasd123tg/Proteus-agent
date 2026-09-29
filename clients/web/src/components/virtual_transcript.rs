@@ -6,13 +6,19 @@ use super::{
 };
 use crate::transcript::Transcript;
 use leptos::{html, prelude::*};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, PartialEq, Serialize)]
 struct Row {
     id: String,
     height: u32,
     owner: Option<u64>,
+}
+
+#[derive(Clone, PartialEq, Deserialize)]
+struct VisibleRow {
+    index: usize,
+    gap: f64,
 }
 
 #[component]
@@ -24,30 +30,30 @@ pub(super) fn VirtualTranscript(
     session: ReadSignal<Option<String>>,
     set_last_scroll_top: WriteSignal<i32>,
 ) -> impl IntoView {
-    let range = RwSignal::new((usize::MAX, usize::MAX));
+    let range = RwSignal::new(None::<Vec<VisibleRow>>);
     let rows = Memo::new(move |_| {
         groups.with(|groups| {
             let mut owner = None;
-            messages.with_untracked(|items| {
-                let users = items
-                    .iter()
-                    .filter(|item| item.role == crate::types::MessageRole::User)
-                    .map(|item| item.id)
-                    .collect::<std::collections::HashSet<_>>();
-                groups
-                    .iter()
-                    .map(|group| {
-                        if users.contains(&group.id) {
-                            owner = Some(group.id);
-                        }
-                        Row {
-                            id: group.id.to_string(),
-                            height: if group.tools { 48 } else { 144 },
-                            owner,
-                        }
-                    })
-                    .collect::<Vec<_>>()
-            })
+            groups
+                .iter()
+                .map(|group| {
+                    if group.role == crate::types::MessageRole::User {
+                        owner = Some(group.id);
+                    }
+                    Row {
+                        id: group.id.to_string(),
+                        height: if group.tools { 48 } else { 144 },
+                        owner,
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+    });
+    let owners = Memo::new(move |_| {
+        rows.with(|rows| {
+            rows.iter()
+                .map(|row| (row.id.clone(), row.owner))
+                .collect::<std::collections::HashMap<_, _>>()
         })
     });
     #[cfg(target_arch = "wasm32")]
@@ -59,19 +65,20 @@ pub(super) fn VirtualTranscript(
         <For
             each=move || {
                 let session = session.get();
-                let (start, end) = range.get();
+                let visible = range.get();
                 groups.with(|groups| {
-                    let start = if start == usize::MAX { groups.len().saturating_sub(24) } else { start.min(groups.len()) };
-                    let end = end.min(groups.len()).max(start);
-                    groups[start..end].iter().cloned().map(|group| (session.clone(), group)).collect::<Vec<_>>()
+                    let visible = visible.unwrap_or_else(|| (groups.len().saturating_sub(24)..groups.len()).map(|index| VisibleRow { index, gap: 0.0 }).collect());
+                    visible.into_iter().filter_map(|row| groups.get(row.index).cloned().map(|group| (session.clone(), group))).collect::<Vec<_>>()
                 })
             }
             key=|(session, group)| (session.clone(), group.id, group.tools)
             children=move |(_, group)| {
                 let id = group.id;
                 provide_context(TranscriptRowId(id));
-                let owner = move || rows.with(|rows| rows.iter().find(|row| row.id == id.to_string()).and_then(|row| row.owner).map(|id| format!("msg-{id}")));
+                let owner = move || owners.with(|owners| owners.get(&id.to_string()).copied().flatten().map(|id| format!("msg-{id}")));
+                let gap = move || range.with(|visible| visible.as_ref().and_then(|visible| groups.with(|groups| visible.iter().find(|row| groups.get(row.index).is_some_and(|group| group.id == id)).map(|row| row.gap))).unwrap_or_default());
                 view! {
+                    <div class="transcript-spacer" data-transcript-gap=id.to_string() aria-hidden="true" style:height=move ||format!("{}px",gap())></div>
                     <div class="transcript-row" data-transcript-row=id.to_string() data-prompt-id=owner>
                         {if group.tools {
                             view! { <ToolChain id groups messages activity_now_ms/> }.into_any()
@@ -90,7 +97,7 @@ pub(super) fn VirtualTranscript(
 fn attach(
     root: NodeRef<html::Section>,
     rows: Memo<Vec<Row>>,
-    range: RwSignal<(usize, usize)>,
+    range: RwSignal<Option<Vec<VisibleRow>>>,
     session: ReadSignal<Option<String>>,
     last: WriteSignal<i32>,
 ) {
@@ -108,11 +115,11 @@ fn attach(
     }
     Effect::new(move |_| {
         let Some(element) = root.get() else { return };
-        let on_range =
-            Closure::wrap(
-                Box::new(move |start: usize, end: usize| range.set((start, end)))
-                    as Box<dyn FnMut(usize, usize)>,
-            );
+        let on_range = Closure::wrap(Box::new(move |visible: String| {
+            range.set(Some(
+                serde_json::from_str(&visible).expect("visible transcript rows"),
+            ));
+        }) as Box<dyn FnMut(String)>);
         let on_adjusted =
             Closure::wrap(Box::new(move |top: i32| last.set(top)) as Box<dyn FnMut(i32)>);
         let dispose = mount(

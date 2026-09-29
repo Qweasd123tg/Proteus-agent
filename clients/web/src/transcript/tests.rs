@@ -158,13 +158,12 @@ fn user_projection_tracks_edits_replacement_and_role_changes() {
         replacement.version = 1;
         write.set(vec![replacement]);
         assert_eq!(users.get(), ["other!"]);
-        write.update_where(
-            |_| true,
-            |m| {
+        write.update(|items| {
+            for m in items {
                 m.role = MessageRole::Assistant;
                 m.version += 1;
-            },
-        );
+            }
+        });
         assert!(users.get().is_empty());
         write.update(|items| {
             items[0].role = MessageRole::User;
@@ -173,6 +172,85 @@ fn user_projection_tracks_edits_replacement_and_role_changes() {
         assert_eq!(users.get(), ["other!"]);
         write.set(vec![]);
         assert!(users.get().is_empty());
+    });
+}
+
+#[test]
+fn reasoning_flush_visits_only_active_rows_and_survives_replacement() {
+    Owner::new().with(|| {
+        let (read, write) = transcript((0..3000).map(|id| message(id, "history")).collect());
+        for _ in 0..20 {
+            write.finish_streaming_reasoning();
+        }
+        assert_eq!(
+            read.data
+                .with_value(|data| data.reasoning_examined.load(Ordering::Relaxed)),
+            0
+        );
+
+        write.update(|items| {
+            for item in items
+                .iter_mut()
+                .filter(|item| item.id == 5 || item.id == 2900)
+            {
+                item.role = MessageRole::Reasoning;
+                item.streaming = true;
+                item.version += 1;
+            }
+        });
+        assert_eq!(
+            read.data.with_value(|data| data.streaming_reasoning.len()),
+            2
+        );
+        write.finish_streaming_reasoning();
+        assert_eq!(
+            read.data
+                .with_value(|data| data.reasoning_examined.load(Ordering::Relaxed)),
+            2
+        );
+        assert!(!read.with_untracked(|items| items[5].streaming || items[2900].streaming));
+        write.finish_streaming_reasoning();
+        assert_eq!(
+            read.data
+                .with_value(|data| data.reasoning_examined.load(Ordering::Relaxed)),
+            2
+        );
+
+        let mut replacement = message(5, "new");
+        replacement.role = MessageRole::Reasoning;
+        replacement.streaming = true;
+        write.set(vec![replacement, message(2900, "same id, no reasoning")]);
+        assert_eq!(
+            read.data.with_value(|data| data.streaming_reasoning.len()),
+            1
+        );
+        write.finish_streaming_reasoning();
+        assert_eq!(
+            read.data
+                .with_value(|data| data.reasoning_examined.load(Ordering::Relaxed)),
+            3
+        );
+        assert!(!read.with_untracked(|items| items[0].streaming));
+        write.update_matching(
+            |item| item.id == 5,
+            |item| {
+                item.streaming = true;
+                item.version += 1;
+            },
+        );
+        write.update(|items| {
+            items.remove(0);
+        });
+        assert_eq!(
+            read.data.with_value(|data| data.streaming_reasoning.len()),
+            0
+        );
+        write.finish_streaming_reasoning();
+        assert_eq!(
+            read.data
+                .with_value(|data| data.reasoning_examined.load(Ordering::Relaxed)),
+            3
+        );
     });
 }
 

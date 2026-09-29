@@ -146,11 +146,18 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     view.evaluate_javascript(script, -1, None, None, None, done, None)
 
                 def handle(value):
+                    state['last'] = value
                     stage = state['stage']
                     if stage == 0 and value:
                         state['stage'] = 1
                         evaluate('''(() => {
                             const r = document.querySelector('.results-panel');
+                            // This fixture drives its own gestures. Physical input
+                            // from the shared desktop must not alter the scenario.
+                            for(const type of ['wheel','pointerdown','pointermove','pointerup','keydown'])
+                                window.addEventListener(type,event=>{
+                                    if(event.isTrusted){event.preventDefault();event.stopImmediatePropagation();}
+                                },{capture:true,passive:false});
                             window.scrollEvents = 0;
                             r.addEventListener('scroll', () => scrollEvents++);
                             const draft = document.querySelector('.composer textarea');
@@ -221,7 +228,7 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return True
 
                 def timeout():
-                    fail('Chat scroll regression timed out at stage ' + str(state['stage']))
+                    fail('Chat scroll regression timed out at stage ' + str(state['stage']), state.get('last'))
                     return False
 
                 GLib.timeout_add(100, poll)

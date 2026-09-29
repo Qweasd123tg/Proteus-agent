@@ -1,11 +1,12 @@
 import { TranscriptHeights } from './transcript-heights.js';
 import { adjustScroll, requestBottom, cancelBottom } from './transcript-scroll.js';
+import { transcriptWindow } from './transcript-window.js';
 
 const controllers = new WeakMap();
-const OVERSCAN = 900;
 
 export function mountVirtualTranscript(root, onRange, onAdjusted) {
-  let model = new TranscriptHeights(), start = 0, end = 0, frame = 0;
+  let model = new TranscriptHeights(), visible = [], frame = 0, measureFrame = 0;
+  let windowKey = '';
   let anchor = null, jump = null, stopped = false, width = 0, sessionKey, guardFrame = 0, inputTimer;
   const observed = new Set();
   const top = root.querySelector('[data-transcript-top]');
@@ -20,25 +21,21 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
     cancelAnimationFrame(guardFrame);
     guardFrame = requestAnimationFrame(() => { guardFrame = 0; delete root.dataset.transcriptAdjusting; });
   }
-  function currentAnchor() {
+  function currentAnchor(inset = padding()) {
     if (!model.rows.length) return null;
-    const offset = Math.max(0, root.scrollTop - padding());
+    const offset = Math.max(0, root.scrollTop - inset);
     const index = model.at(offset);
     return { id: String(model.rows[index].id), offset: offset - model.prefix(index) };
   }
-  function restore(value) {
+  function restore(value, inset) {
     if (!value) return;
     const index = model.positions.get(value.id);
-    if (index !== undefined) adjustScroll(root, padding() + model.prefix(index) + value.offset);
+    if (index !== undefined) adjustScroll(root, inset + model.prefix(index) + value.offset);
   }
   function spacers() {
-    top.style.height = `${model.prefix(start)}px`;
-    bottom.style.height = `${Math.max(0, model.total - model.prefix(end))}px`;
-  }
-  function keep(index, range) {
-    if (index === undefined) return;
-    range[0] = Math.min(range[0], index);
-    range[1] = Math.max(range[1], index + 1);
+    top.style.height = `${model.prefix(visible[0]?.index ?? 0)}px`;
+    const last = visible.at(-1);
+    bottom.style.height = `${Math.max(0, model.total - model.prefix(last ? last.index + 1 : 0))}px`;
   }
   function selectionIndex(node) {
     const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
@@ -46,18 +43,13 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
     return row && root.contains(row) ? model.positions.get(row.dataset.transcriptRow) : undefined;
   }
   function rangeFor(offset) {
-    if (!model.rows.length) return [0, 0];
     const viewport = Math.max(1, root.clientHeight);
-    const range = [model.at(Math.max(0, offset - OVERSCAN)),
-      Math.min(model.rows.length, model.at(offset + viewport + OVERSCAN) + 1)];
-    keep(selectionIndex(document.activeElement), range);
-    for (const active of root.querySelectorAll('[data-retain-transcript=true]')) keep(selectionIndex(active), range);
+    const retained = [selectionIndex(document.activeElement)];
+    for (const active of root.querySelectorAll('[data-retain-transcript=true]')) retained.push(selectionIndex(active));
     const selection = getSelection();
-    if (selection && !selection.isCollapsed) {
-      keep(selectionIndex(selection.anchorNode), range);
-      keep(selectionIndex(selection.focusNode), range);
-    }
-    return range;
+    const selected = selection && !selection.isCollapsed
+      ? [selectionIndex(selection.anchorNode), selectionIndex(selection.focusNode)] : null;
+    return transcriptWindow(model, offset, viewport, retained, selected);
   }
   function refresh() {
     frame = 0;
@@ -66,13 +58,14 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
       : pinned() ? Math.max(0, root.scrollTop - padding(), model.total - root.clientHeight)
       : Math.max(0, root.scrollTop - padding());
     const next = rangeFor(offset);
-    if (next[0] !== start || next[1] !== end) {
+    const key = JSON.stringify(next);
+    if (key !== windowKey) {
       anchor ??= currentAnchor();
       adjusting();
-      [start, end] = next;
+      visible = next; windowKey = key;
       spacers();
-      onRange(start, end);
-      queueMicrotask(measure);
+      onRange(key);
+      scheduleMeasure();
     }
     if (pinned()) requestBottom(root);
   }
@@ -80,48 +73,66 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
     if (!frame && !stopped && root.clientHeight) frame = requestAnimationFrame(refresh);
   }
   function measure() {
+    measureFrame = 0;
     if (!root.clientHeight || stopped) return;
-    const saved = anchor || currentAnchor();
+    // Read the complete geometry batch before changing spacers or scrollTop.
+    const inset = padding();
+    const saved = anchor || currentAnchor(inset);
     const rows = [...root.querySelectorAll(':scope > [data-transcript-row]')];
+    const heights = rows.map(row => row.getBoundingClientRect().height);
     const present = new Set(rows);
     for (const old of observed) if (!present.has(old)) { sizes.unobserve(old); observed.delete(old); }
     let changed = false;
-    for (const row of rows) {
+    for (const [index, row] of rows.entries()) {
       if (!observed.has(row)) { observed.add(row); sizes.observe(row); }
-      changed = model.set(row.dataset.transcriptRow, row.getBoundingClientRect().height) || changed;
+      changed = model.set(row.dataset.transcriptRow, heights[index]) || changed;
     }
     if (changed || anchor || jump !== null) {
       adjusting();
+      // Existing gap nodes update without replacing their retained card owners.
+      let previous = -1;
+      for (const row of rows) {
+        const index = model.positions.get(row.dataset.transcriptRow);
+        if (index === undefined) continue;
+        const gap = root.querySelector(`[data-transcript-gap="${row.dataset.transcriptRow}"]`);
+        if (gap) gap.style.height = `${previous < 0 ? 0 : model.prefix(index) - model.prefix(previous + 1)}px`;
+        previous = index;
+      }
       spacers();
       if (jump !== null) {
         const row = rows.find(row => row.dataset.transcriptRow === jump);
         if (row) {
-          adjustScroll(root, root.scrollTop + row.getBoundingClientRect().top - root.getBoundingClientRect().top);
+          adjustScroll(root, inset + model.prefix(model.positions.get(jump)));
           jump = null;
         }
       } else if (pinned()) requestBottom(root);
-      else restore(saved);
+      else restore(saved, inset);
       anchor = null;
       schedule();
     }
     finishAdjustment();
   }
-  const sizes = new ResizeObserver(measure);
+  function scheduleMeasure() {
+    if (!measureFrame && !stopped) measureFrame = requestAnimationFrame(measure);
+  }
+  const sizes = new ResizeObserver(scheduleMeasure);
   const rootSize = new ResizeObserver(() => {
     if (!root.clientHeight) return;
     const next = root.clientWidth;
     // Heights measured at the previous width remain estimates until those rows
     // are visited again. Preserve the current anchor while visible rows resize.
-    if (next !== width) { anchor ??= currentAnchor(); width = next; measure(); }
+    if (next !== width) { anchor ??= currentAnchor(); width = next; scheduleMeasure(); }
     schedule();
   });
   rootSize.observe(root);
-  const mutations = new MutationObserver(measure);
+  const mutations = new MutationObserver(scheduleMeasure);
   mutations.observe(root, { childList: true });
   const adjusted = event => onAdjusted(Math.round(event.detail));
   const scroll = () => { if (!root.hasAttribute('data-transcript-adjusting')) schedule(); };
   const userInput = event => {
     delete root.dataset.transcriptAdjusting; cancelAnimationFrame(guardFrame);
+    // A new gesture takes precedence over the anchor saved by an older mount.
+    anchor = null;
     root.dataset.transcriptUserScroll = '';
     if (event?.type === 'pointerdown') delete root.dataset.transcriptDirection;
     clearTimeout(inputTimer);
@@ -155,7 +166,7 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
       root.dataset.transcriptCount = String(rows.length);
       // This is a new transcript if its old anchor no longer exists.
       if (anchor && !model.positions.has(anchor.id)) anchor = null;
-      start = -1; end = -1;
+      windowKey = '';
       refresh();
     },
     jump(id) {
@@ -163,12 +174,12 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
       jump = String(id); anchor = null;
       refresh();
       // A target already mounted needs no child-list mutation.
-      queueMicrotask(measure);
+      scheduleMeasure();
       return true;
     },
     dispose() {
       stopped = true;
-      cancelAnimationFrame(frame); cancelAnimationFrame(guardFrame); cancelBottom(root);
+      cancelAnimationFrame(frame); cancelAnimationFrame(measureFrame); cancelAnimationFrame(guardFrame); cancelBottom(root);
       mutations.disconnect(); sizes.disconnect(); rootSize.disconnect(); visibility.disconnect();
       root.removeEventListener('scroll', scroll);
       root.removeEventListener('proteus-scroll-adjust', adjusted);

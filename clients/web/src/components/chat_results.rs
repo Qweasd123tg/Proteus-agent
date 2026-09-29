@@ -39,10 +39,8 @@ where
 {
     let prefs = crate::interface_settings::settings();
     let (dismissed_plan, set_dismissed_plan) = signal(None::<String>);
-    let groups = Memo::new(move |_| {
-        messages.ids();
-        messages.with_tool_messages(|items| super::tool_chain::groups(items))
-    });
+    let groups =
+        Memo::new(move |_| messages.with_group_structure(|items| super::tool_chain::groups(items)));
     view! {
         <section
             class="results-panel"

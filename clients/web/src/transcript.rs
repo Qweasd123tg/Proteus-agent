@@ -1,8 +1,8 @@
 //! Клиентская история: один экземпляр данных, отдельные подписки на порядок и записи.
 //! Bulk reducers сохраняют version существующих Message; streaming обновляет одну запись.
-use crate::types::{Message, MessagePhase, MessageRole};
+use crate::types::{Message, MessagePhase, MessageRole, ToolActivityStatus};
 use leptos::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy)]
 pub(crate) struct Transcript {
@@ -11,6 +11,7 @@ pub(crate) struct Transcript {
     order: RwSignal<Vec<u64>>,
     user_changed: RwSignal<()>,
     tools_changed: RwSignal<()>,
+    groups_changed: RwSignal<()>,
 }
 
 #[derive(Clone, Copy)]
@@ -19,8 +20,37 @@ pub(crate) struct TranscriptWriter(Transcript);
 struct Entry {
     position: usize,
     changed: ArcRwSignal<()>,
+    status_changed: ArcRwSignal<()>,
     stamp: Stamp,
     scopes: Scopes,
+    group_class: GroupClass,
+    tool_status: Option<ToolActivityStatus>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct GroupClass {
+    role: MessageRole,
+    root_tool: bool,
+}
+impl GroupClass {
+    fn of(message: &Message) -> Self {
+        Self {
+            role: message.role,
+            root_tool: message.tool.is_some() && message.subagent.is_none(),
+        }
+    }
+}
+
+fn root_tool_status(message: &Message) -> Option<ToolActivityStatus> {
+    message
+        .tool
+        .as_ref()
+        .filter(|_| message.subagent.is_none())
+        .map(|tool| tool.status)
+}
+
+fn is_streaming_reasoning(message: &Message) -> bool {
+    message.role == MessageRole::Reasoning && message.streaming
 }
 
 // Independent projections must not rescan the transcript for assistant text deltas.
@@ -69,8 +99,11 @@ impl Stamp {
 struct TranscriptData {
     items: Vec<Message>,
     entries: HashMap<u64, Entry>,
+    streaming_reasoning: HashSet<u64>,
     #[cfg(test)]
     message_reads: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    reasoning_examined: std::sync::atomic::AtomicUsize,
 }
 
 pub(crate) fn transcript(items: Vec<Message>) -> (Transcript, TranscriptWriter) {
@@ -80,6 +113,7 @@ pub(crate) fn transcript(items: Vec<Message>) -> (Transcript, TranscriptWriter) 
         order: RwSignal::new(Vec::new()),
         user_changed: RwSignal::new(()),
         tools_changed: RwSignal::new(()),
+        groups_changed: RwSignal::new(()),
     };
     let write = TranscriptWriter(read);
     write.set(items);
@@ -87,6 +121,7 @@ pub(crate) fn transcript(items: Vec<Message>) -> (Transcript, TranscriptWriter) 
 }
 
 impl Transcript {
+    #[cfg(test)]
     pub(crate) fn ids(self) -> Vec<u64> {
         self.order.get()
     }
@@ -104,6 +139,30 @@ impl Transcript {
     pub(crate) fn with_tool_messages<T>(self, f: impl FnOnce(&Vec<Message>) -> T) -> T {
         self.tools_changed.track();
         self.with_untracked(f)
+    }
+    pub(crate) fn with_group_structure<T>(self, f: impl FnOnce(&Vec<Message>) -> T) -> T {
+        self.groups_changed.track();
+        self.with_untracked(f)
+    }
+    /// The mounted chain tracks only its own status signals, without cloning
+    /// result previews or subscribing to other chains.
+    pub(crate) fn with_tool_statuses<T>(
+        self,
+        ids: &[u64],
+        f: impl FnOnce(&[Option<ToolActivityStatus>]) -> T,
+    ) -> T {
+        self.data.with_value(|data| {
+            let statuses = ids
+                .iter()
+                .map(|id| {
+                    data.entries.get(id).and_then(|entry| {
+                        entry.status_changed.track();
+                        entry.tool_status
+                    })
+                })
+                .collect::<Vec<_>>();
+            f(&statuses)
+        })
     }
     pub(crate) fn with_untracked<T>(self, f: impl FnOnce(&Vec<Message>) -> T) -> T {
         self.data.with_value(|data| f(&data.items))
@@ -181,6 +240,8 @@ impl TranscriptWriter {
         update: impl FnOnce(&mut Message),
     ) -> bool {
         let mut changed = None;
+        let mut status_changed = None;
+        let mut groups_changed = false;
         let mut scopes = Scopes::default();
         self.0.data.update_value(|data| {
             let Some(position) = data.items.iter().rposition(predicate) else {
@@ -197,40 +258,58 @@ impl TranscriptWriter {
             scopes.include(entry.scopes);
             entry.scopes = Scopes::of(message);
             scopes.include(entry.scopes);
+            let group_class = GroupClass::of(message);
+            groups_changed = entry.group_class != group_class;
+            entry.group_class = group_class;
+            let tool_status = root_tool_status(message);
+            if entry.tool_status != tool_status {
+                status_changed = Some(entry.status_changed.clone());
+                entry.tool_status = tool_status;
+            }
+            if is_streaming_reasoning(message) {
+                data.streaming_reasoning.insert(id);
+            } else {
+                data.streaming_reasoning.remove(&id);
+            }
             entry.stamp = Stamp::of(message);
             changed = Some(entry.changed.clone());
         });
         if let Some(changed) = changed {
             changed.notify();
+            if let Some(status_changed) = status_changed {
+                status_changed.notify();
+            }
             self.0.changed.notify();
             scopes.notify(self.0);
+            if groups_changed {
+                self.0.groups_changed.notify();
+            }
             true
         } else {
             false
         }
     }
 
-    /// Terminal/phase updates do not change membership or rebuild the index.
-    pub(crate) fn update_where(
-        self,
-        predicate: impl Fn(&Message) -> bool,
-        mut update: impl FnMut(&mut Message),
-    ) {
+    /// The common flush path is O(1) when no reasoning is active.
+    pub(crate) fn finish_streaming_reasoning(self) {
         let mut notifications = Vec::new();
         let mut scopes = Scopes::default();
         self.0.data.update_value(|data| {
-            for message in data.items.iter_mut().filter(|message| predicate(message)) {
-                let id = message.id;
-                update(message);
-                assert_eq!(
-                    message.id, id,
-                    "point update cannot change message identity"
-                );
-                let entry = data.entries.get_mut(&id).expect("indexed message");
-                scopes.include(entry.scopes);
-                entry.scopes = Scopes::of(message);
-                scopes.include(entry.scopes);
+            for id in std::mem::take(&mut data.streaming_reasoning) {
+                #[cfg(test)]
+                data.reasoning_examined
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some(entry) = data.entries.get_mut(&id) else {
+                    continue;
+                };
+                let message = &mut data.items[entry.position];
+                if !is_streaming_reasoning(message) {
+                    continue;
+                }
+                message.streaming = false;
+                message.version += 1;
                 entry.stamp = Stamp::of(message);
+                scopes.include(entry.scopes);
                 notifications.push(entry.changed.clone());
             }
         });
@@ -245,24 +324,45 @@ impl TranscriptWriter {
 
     fn reconcile(self, replace: bool, f: impl FnOnce(&mut Vec<Message>)) {
         let mut notifications = Vec::new();
+        let mut status_notifications = Vec::new();
+        let mut groups_changed = false;
         let mut scopes = Scopes::default();
         let mut ids = Vec::new();
         self.0.data.update_value(|data| {
             f(&mut data.items);
             let mut previous = std::mem::take(&mut data.entries);
+            data.streaming_reasoning.clear();
             for (position, message) in data.items.iter().enumerate() {
                 ids.push(message.id);
                 let stamp = Stamp::of(message);
+                let group_class = GroupClass::of(message);
+                let tool_status = root_tool_status(message);
                 let mut entry = previous.remove(&message.id).unwrap_or_else(|| Entry {
                     position,
                     changed: ArcRwSignal::new(()),
+                    status_changed: ArcRwSignal::new(()),
                     stamp: Stamp::of(message),
                     scopes: Scopes::of(message),
+                    group_class,
+                    tool_status,
                 });
-                if replace || entry.stamp != stamp {
+                if replace
+                    || entry.stamp != stamp
+                    || entry.group_class != group_class
+                    || entry.tool_status != tool_status
+                {
                     scopes.include(entry.scopes);
                     scopes.include(Scopes::of(message));
                     notifications.push(entry.changed.clone());
+                }
+                groups_changed |= entry.group_class != group_class;
+                entry.group_class = group_class;
+                if entry.tool_status != tool_status {
+                    status_notifications.push(entry.status_changed.clone());
+                    entry.tool_status = tool_status;
+                }
+                if is_streaming_reasoning(message) {
+                    data.streaming_reasoning.insert(message.id);
                 }
                 entry.scopes = Scopes::of(message);
                 entry.position = position;
@@ -283,14 +383,21 @@ impl TranscriptWriter {
             };
             self.0.order.set(ids);
         }
+        groups_changed |= reordered;
         let changed = reordered || !notifications.is_empty();
         // Notifications occur after the data lock is released, so every reader sees one snapshot.
         for notification in notifications {
             notification.notify();
         }
+        for notification in status_notifications {
+            notification.notify();
+        }
         if changed {
             self.0.changed.notify();
             scopes.notify(self.0);
+        }
+        if groups_changed {
+            self.0.groups_changed.notify();
         }
     }
 }
