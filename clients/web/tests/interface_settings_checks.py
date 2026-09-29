@@ -12,7 +12,9 @@ def run(command, js, wait_for, server):
     def settings(section):
         if not js("return !!document.querySelector('.settings-page')"):
             click('.settings-link')
+        wait_for(lambda: js("return !!document.querySelector('[data-settings-section="+section+"]')"),'Settings navigation missing')
         click('[data-settings-section='+section+']')
+        wait_for(lambda: js("return !!document.querySelector('[data-module-page="+section+"] input')"),'Module not mounted')
 
     def key(code, **modifiers):
         args = dict(code=code, key={'Escape':'Escape','Enter':'Enter'}.get(code,code), bubbles=True, cancelable=True, **modifiers)
@@ -30,14 +32,13 @@ def run(command, js, wait_for, server):
     js("window.normalNavHeight=document.querySelector('[data-settings-section=appearance]').getBoundingClientRect().height")
     input_value('[aria-label="Размер текста"]',20)
     input_value('[aria-label="Ширина диалога"]',960)
-    click('[aria-label="Компактный интерфейс"]')
-    assert js("return document.querySelector('[data-settings-section=appearance]').getBoundingClientRect().height<normalNavHeight"), 'Density did not affect navigation'
+    assert js("return normalNavHeight===34 && !document.querySelector('[aria-label=\"Компактный интерфейс\"]')"), 'Compact layout is not the only layout'
     back()
     assert js("return getComputedStyle(document.querySelector('.message')).fontSize==='20px' && getComputedStyle(document.querySelector('.composer textarea')).fontSize==='20px'"), 'Font setting did not reach message/composer'
     assert js("return getComputedStyle(document.querySelector('.session-workspace')).getPropertyValue('--chat-max-width').trim()==='960px'"), 'Width setting did not reach chat'
     command('/refresh',{})
     wait_for(lambda: js("return !!document.querySelector('.composer textarea')"), 'Reload failed')
-    assert js("return document.querySelector('.app-layout').classList.contains('compact-interface') && getComputedStyle(document.querySelector('.composer textarea')).fontSize==='20px'"), 'Reload lost appearance'
+    assert js("return getComputedStyle(document.querySelector('.composer textarea')).fontSize==='20px'"), 'Reload lost appearance'
     settings('appearance')
     # Storage rejection must leave the effective value and the slider in agreement.
     js("window.originalStorageSet=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(k==='proteus.fontSize')throw Error('fixture');return originalStorageSet.call(this,k,v)}")
@@ -46,7 +47,6 @@ def run(command, js, wait_for, server):
     js("Storage.prototype.setItem=originalStorageSet")
     input_value('[aria-label="Размер текста"]',16)
     input_value('[aria-label="Ширина диалога"]',820)
-    click('[aria-label="Компактный интерфейс"]')
 
     settings('shortcuts')
     wait_for(lambda: js("return !!document.querySelector('[data-bind=sidebar]')"),'Shortcut editor missing')

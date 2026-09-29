@@ -2,8 +2,7 @@ use leptos::{html, prelude::*};
 use web_sys::{KeyboardEvent, MouseEvent, SubmitEvent};
 
 use super::{
-    composer_access_menu::ComposerAccessMenu,
-    composer_model_menu::ComposerModelMenu,
+    client_module::ClientModuleSlot,
     icons::{ArrowUpIcon, StopIcon},
     queued_prompts::QueuedPrompts,
 };
@@ -16,11 +15,6 @@ pub(crate) fn ComposerView<S, K, T, DE, NB>(
     draft: ReadSignal<String>,
     set_draft: WriteSignal<String>,
     mode: ReadSignal<PermissionMode>,
-    model_name: ReadSignal<String>,
-    model_options: ReadSignal<Vec<ModelOption>>,
-    reasoning_enabled: ReadSignal<bool>,
-    effort: ReadSignal<ReasoningEffort>,
-    effort_options: ReadSignal<Vec<String>>,
     is_sending: ReadSignal<bool>,
     active_run_id: ReadSignal<Option<String>>,
     queued_prompts: ReadSignal<Vec<QueuedPromptInfo>>,
@@ -80,11 +74,11 @@ where
                 </div>
                 <div class="composer-toolbar">
                     <div class="composer-options">
-                        <ComposerAccessMenu mode actions />
+                        <ClientModuleSlot surface="composer-access"/>
                         <div class="widget-slot" data-widget-slot="composer"></div>
                     </div>
                     <div class="composer-actions">
-                        <ComposerModelMenu model_name model_options reasoning_enabled effort effort_options actions />
+                        <ClientModuleSlot surface="composer-model"/>
                         {move || active_run_id.get().is_some().then(|| view! {
                             <button type="button" class="composer-stop" title="Остановить ход" aria-label="Остановить ход" on:click=on_cancel_turn><StopIcon /></button>
                         })}

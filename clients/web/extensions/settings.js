@@ -1,3 +1,5 @@
+import {hasSurface} from './contract.js';
+import {mountBuiltinManagement, selectionButtons} from '../ui/modules/management.js';
 import { widgetPlacement } from './widgets.js';
 import { button } from './panel.js';
 import { icon } from './icons.js';
@@ -30,7 +32,7 @@ export function mountExtensionSettings(root, registry, services = {}) {
       close();optionsId=record.id;
       const settingsController=new AbortController();
       const specific=node('div','','extension-specific-settings');
-      optionsBody.replaceChildren(widgetPlacement(registry.storage,settingsController.signal,record.id),specific);
+      optionsBody.replaceChildren(...(hasSurface(record.manifest,'compact')?[widgetPlacement(registry.storage,settingsController.signal,record.id)]:[]),specific);
       const stop=record.manifest?.settings?mountSettingsEntry(specific,record,registry.storage,services):undefined;
       closeOptions=()=>{settingsController.abort();stop?.();optionsBody.replaceChildren();};
     }
@@ -55,10 +57,13 @@ export function mountExtensionSettings(root, registry, services = {}) {
   reset.append(node('p', 'Состав и порядок панелей заменятся поставляемым списком. Заметки сохранятся.', 'settings-hint'));
   const restore = button('Восстановить', () => { reset.open = false; void registry.reset(); }, signal);
   reset.append(restore);
-  root.append(list, available, source, notice, announcement, reset);
+  const builtin=node('div','','builtin-module-settings');
+  root.append(builtin, list, available, source, notice, announcement, reset);
+  const stopBuiltin=mountBuiltinManagement(builtin,registry);
   enableReorder(list,registry,signal,announcement);
   const unsubscribe = registry.subscribe(() => {
-    const { records, bundled, notice: message, busy, ready } = registry.state();
+    const { records: allRecords, bundled, notice: message, busy, ready } = registry.state();
+    const records=allRecords.filter(r=>!r.builtin);
     if (optionsId && !records.some(record => record.id === optionsId)) close();
     const focusKey = document.activeElement?.dataset.controlKey;
     rowsController?.abort(); rowsController = new AbortController();
@@ -92,8 +97,10 @@ export function mountExtensionSettings(root, registry, services = {}) {
       actions.append(remove); row.append(actions);
       cached={row,record,controller,checkbox};rowCache.set(record.id,cached);
       }
+      cached.row.querySelectorAll('[data-select-slot]').forEach(b=>b.remove());
+      selectionButtons(cached.row.querySelector('.extension-actions'),record,registry,rowSignal);
       cached.checkbox.checked=record.enabled;
-      for(const control of cached.row.querySelectorAll('button,input'))control.disabled=busy;
+      for(const control of cached.row.querySelectorAll('button:not([data-select-slot]),input'))control.disabled=busy;
       if(list.children[index]!==cached.row)list.insertBefore(cached.row,list.children[index]??null);
     });
     const choices = bundled.filter(item => !records.some(record => record.id === item.id));
@@ -117,5 +124,5 @@ export function mountExtensionSettings(root, registry, services = {}) {
     if (await registry.install(input.value)) input.value = '';
   }, { signal });
   void registry.start();
-  return () => { close(); controller.abort(); rowsController?.abort(); for(const item of rowCache.values())item.controller.abort();rowCache.clear(); unsubscribe(); pane.remove(); root.replaceChildren(); };
+  return () => { stopBuiltin(); close(); controller.abort(); rowsController?.abort(); for(const item of rowCache.values())item.controller.abort();rowCache.clear(); unsubscribe(); pane.remove(); root.replaceChildren(); };
 }

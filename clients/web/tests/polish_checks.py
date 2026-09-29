@@ -11,8 +11,9 @@ def run(command, js, wait_for):
 
     def settings(section):
         click('.settings-link')
-        wait_for(lambda: js("return !!document.querySelector('.settings-page')"), 'Settings absent')
-        click('.settings-nav button:first-of-type' if section=='appearance' else f'[data-settings-section={section}]')
+        wait_for(lambda: js("return !!document.querySelector('[data-settings-section=appearance]')"), 'Settings absent')
+        click(f'[data-settings-section={section}]')
+        wait_for(lambda: js('return !!document.querySelector("[data-module-page='+section+'] input")'), 'Settings module pending')
 
     # One live compact instance follows its placement, including across SPA mounts.
     wait_for(lambda: js("return !!document.querySelector('[data-widget-id=model-quota] span')?.shadowRoot?.querySelector('svg')"), 'Compact quota did not render')
@@ -47,7 +48,7 @@ def run(command, js, wait_for):
 
     assert js("return [...document.querySelectorAll('[data-delete-session]')].every(b=>b.getBoundingClientRect().height===0)"), 'Delete action leaked into sidebar'
     # Real context menu -> local pin/name/archive, retaining the loaded chat.
-    js("window.rowId=document.querySelector('.session-item-shell').dataset.sessionDir;document.querySelector('.session-item-shell').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:130,clientY:230}))")
+    js("window.rowId=document.querySelector('.session-item-shell').dataset.sessionDir;document.querySelector('.session-item-shell [data-sidebar-menu]').click()")
     menu('Закрепить')
     assert js("return document.querySelector('.session-item-shell').dataset.pinned==='true'"), 'Pin not applied'
     click('.session-item-shell [data-sidebar-menu]')
@@ -75,18 +76,18 @@ def run(command, js, wait_for):
     wait_for(lambda: js("return [...document.querySelectorAll('.composer-model-menu .menu-option-title')].some(x=>x.textContent==='Fixture 2')"), 'Second fixture model absent')
     js("[...document.querySelectorAll('.composer-model-menu .menu-option-row')].find(b=>b.textContent.includes('Fixture 2')).click()")
     wait_for(lambda: js("return JSON.parse(localStorage.getItem('proteus.model.last-selection')||'null')?.model==='fixture-model-2'"), 'Manual model not remembered')
-    js("[...document.querySelectorAll('.composer-model-menu .menu-option')].find(b=>b.textContent.trim()==='high').click()")
+    js("[...document.querySelectorAll('.composer-model-menu .menu-option')].find(b=>b.querySelector('.menu-option-title')?.textContent==='high').click()")
     wait_for(lambda: js("return JSON.parse(localStorage.getItem('proteus.model.last-selection')||'null')?.effort==='high'"), 'Effort not remembered')
     command('/refresh', {})
     wait_for(lambda: js("return document.querySelector('.connection-badge')?.classList.contains('completed')"), 'Model reload not connected')
     click('[aria-label="Новая сессия"]')
-    wait_for(lambda: js("return new URL(location.href).searchParams.get('session_dir')!==sessionStorage.getItem('polish.originalSession') && document.querySelector('.connection-badge')?.classList.contains('completed') && document.querySelector('.composer-model-menu summary')?.title==='fixture-model-2'"), 'New chat lost selected model')
-    assert js("return document.querySelector('.composer-menu-meta')?.textContent.includes('High') || [...document.querySelectorAll('.composer-model-menu .menu-option.active')].some(b=>b.textContent.trim()==='high')"), 'New chat lost effort'
+    wait_for(lambda: js("return new URL(location.href).searchParams.get('session_dir')!==sessionStorage.getItem('polish.originalSession') && document.querySelector('.connection-badge')?.classList.contains('completed') && document.querySelector('.composer-model-menu summary')?.dataset.uiTooltip==='fixture-model-2'"), 'New chat lost selected model')
+    assert js("return document.querySelector('.composer-menu-meta')?.textContent.includes('High') || [...document.querySelectorAll('.composer-model-menu .menu-option.active')].some(b=>b.querySelector('.menu-option-title')?.textContent==='high')"), 'New chat lost effort'
     click('.composer-model-menu summary')
     js("[...document.querySelectorAll('.composer-model-menu .menu-option-row')].find(b=>b.querySelector('.menu-option-title').textContent==='Fixture').click()")
     wait_for(lambda: js("return JSON.parse(localStorage.getItem('proteus.model.last-selection')||'null')?.model==='fixture-model'"), 'Second model selection did not save')
     js("[...document.querySelectorAll('.session-item-shell')].find(r=>r.dataset.sessionDir===sessionStorage.getItem('polish.originalSession')).querySelector('.session-item').click()")
-    wait_for(lambda: js("return document.querySelector('.composer-model-menu summary')?.title==='fixture-model-2' && document.querySelector('.connection-badge')?.classList.contains('completed')"), 'Resume overwrote existing session model')
+    wait_for(lambda: js("return document.querySelector('.composer-model-menu summary')?.dataset.uiTooltip==='fixture-model-2' && document.querySelector('.connection-badge')?.classList.contains('completed')"), 'Resume overwrote existing session model')
     assert js("return JSON.parse(localStorage.getItem('proteus.model.last-selection')).model==='fixture-model'"), 'Resume replaced last manual preference'
     print('PASS: last model+effort persisted; new chat restores pair; resumed chat retains own settings', flush=True)
 

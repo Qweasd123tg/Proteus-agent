@@ -46,7 +46,7 @@ export function mountExtensions(root, services = {}, options = {}) {
     if(stopped)return;
     const state=registry.state();notice.textContent=state.notice||(!state.ready?'Загрузка вкладок…':'');
     for(const [id,card]of cards)if(!state.records.some(r=>r.id===id&&r.enabled&&r===card.record)){release(card.record);card.stop();cards.delete(id);}
-    for(const record of state.records.filter(r=>r.enabled))if(!cards.has(record.id)){
+    for(const record of state.records.filter(r=>r.enabled&&(hasSurface(r.manifest,'workspace')||hasSurface(r.manifest,'compact'))))if(!cards.has(record.id)){
       const card=createPanel(record,{services,storage:registry.storage,changed:change=>update(record.id,change),createOwned:(key,spec)=>createOwned(record,key,spec),releaseOwned:()=>release(record)});
       cards.set(record.id,{...card,record});
     }

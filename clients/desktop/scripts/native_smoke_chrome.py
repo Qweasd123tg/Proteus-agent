@@ -56,14 +56,15 @@ def exercise(application, env):
     # Focus starts at the first menu item; select Inspector with the real keyboard.
     time.sleep(.2)
     xdo('key', 'Down', 'Return')
-    inspector = wait(lambda: window('^Proteus Inspector'), 'Sidebar Inspector action failed')
-    time.sleep(2)
-    close_when_ready(inspector, '^Proteus Inspector')
+    time.sleep(5)
+    assert not window('^Proteus Inspector'), 'Diagnostics opened a separate window'
+    # Main stays alive; capture the embedded native WebKit view for inspection.
     xdo('windowfocus', '--sync', main)
     xdo('key', 'ctrl+shift+i')
-    inspector = wait(lambda: window('^Proteus Inspector'), 'Inspector keyboard shortcut failed')
-    time.sleep(2)
-    close_when_ready(inspector, '^Proteus Inspector')
+    time.sleep(25)
+    assert not window('^Proteus Inspector'), 'Diagnostic shortcut opened a separate window'
+    if shutil.which('import'):
+        subprocess.run(['import','-window',main,'/tmp/proteus-native-modules.png'],env=env,check=True,timeout=5)
     close(main)
     assert application.wait(timeout=15) == 0, 'Chat close button did not exit cleanly'
-    print('PASS: native titlebar project/Inspector actions and close semantics', flush=True)
+    print('PASS: native titlebar project/embedded diagnostics actions and close semantics', flush=True)

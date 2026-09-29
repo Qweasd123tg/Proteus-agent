@@ -9,6 +9,7 @@ from markdown_checks import run as check_markdown, FIXTURE as MARKDOWN_FIXTURE
 from simplify_checks import run as check_simplify
 from settings_checks import run as check_settings
 from interface_settings_checks import run as check_interface_settings
+from client_modules_checks import run as check_client_modules
 from extensions_checks import run as check_extensions
 from panel_checks import run as check_panels
 from select_checks import run as check_selects
@@ -117,10 +118,10 @@ class Assets(SimpleHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split('?', 1)[0]
         inspector = ROOT / 'clients/inspector/dist'
-        if path in ('/architecture', '/configs') or (not (Path(self.directory) / path.lstrip('/')).exists() and (inspector / path.lstrip('/')).is_file()):
+        if (path=='/' and 'embedded=true' in self.path) or path in ('/architecture', '/configs') or (not (Path(self.directory) / path.lstrip('/')).exists() and (inspector / path.lstrip('/')).is_file()):
             original = self.directory
             self.directory = str(inspector)
-            if path in ('/architecture', '/configs'):
+            if path=='/' or path in ('/architecture', '/configs'):
                 self.path = '/index.html'
             try:
                 super().do_GET()
@@ -167,6 +168,21 @@ class Assets(SimpleHTTPRequestHandler):
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps(data).encode())
+        elif self.path.startswith('/fixture/client/'):
+            self.send_response(200)
+            if self.path.endswith('extension.json'):
+                data = json.dumps({"apiVersion":1,"id":"client-test","name":"Своя диагностика","description":"Browser fixture","entry":"./page.js","requires":["client.composer","agent.config.read"],"surfaces":["settings","composer-model"],"navigation":{"group":"diagnostics","icon":"analysis"}})
+                self.send_header('Content-Type','application/json')
+            else:
+                data = """export async function mount({root,surface,services,signal}) {
+                  window.clientMounts=(window.clientMounts||0)+1;
+                  signal.addEventListener('abort',()=>window.clientAborts=(window.clientAborts||0)+1);
+                  const input=document.createElement('input');input.dataset.customModule=surface;input.value=services['client.composer'].read().model;root.append(input);
+                  await services['agent.config.read'].read();root.dataset.configRead='true';
+                  return()=>window.clientDisposals=(window.clientDisposals||0)+1;
+                }"""
+                self.send_header('Content-Type','text/javascript')
+            self.end_headers();self.wfile.write(data.encode())
         elif self.path.startswith('/fixture/'):
             self.send_response(200)
             if self.path.endswith('extension.json'):
@@ -211,7 +227,7 @@ def main():
     assert driver_binary, 'Set GECKODRIVER or install geckodriver on PATH'
     with tempfile.TemporaryDirectory(prefix='proteus-ui-extensions-') as temporary:
         folder = Path(temporary)
-        server = ThreadingHTTPServer(('127.0.0.1', 0), partial(Assets, directory=str(ROOT / 'clients/web/dist')))
+        server = ThreadingHTTPServer(('127.0.0.1', 0), partial(Assets, directory=str(os.environ.get('PROTEUS_UI_TEST_DIST',ROOT / 'clients/web/dist'))))
         server.model_inputs = []
         server.model_gate = threading.Event()
         server.model_gate.set()
@@ -326,6 +342,9 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return
                 if '--subagents-only' in sys.argv:
                     check_subagent_tabs(command, js, wait_for, web, origin)
+                    return
+                if '--modules-only' in sys.argv:
+                    check_client_modules(command,js,wait_for,web,origin,loaded)
                     return
                 check_extensions(command, js, wait_for, web, origin, loaded)
                 if '--placement-only' in sys.argv:

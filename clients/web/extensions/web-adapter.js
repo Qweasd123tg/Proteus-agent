@@ -1,37 +1,54 @@
-import { mountExtensions } from './host.js';
-import { createExtensionRegistry } from './registry.js';
-import { mountExtensionSettings } from './settings.js';
-import { attachClientTabHost } from './subagent-tabs.js';
+import { mountExtensions } from "./host.js";
+import { createExtensionRegistry } from "./registry.js";
+import { attachClientTabHost } from "./subagent-tabs.js";
 
-import { sessionStateService } from './session-state.js';
-export { publishSessionState } from './session-state.js';
+import { createAgentServices } from "./agent-services.js";
+export { publishSessionState } from "./session-state.js";
 
-const registry = createExtensionRegistry();
-export function mountWebExtensionSettings(root) { return mountExtensionSettings(root, registry); }
+import { builtins } from "../ui/modules/catalog.js";
+import { createClientModuleRegistry } from "../ui/modules/registry.js";
+import { mountSettings } from "../ui/modules/settings-host.js";
+import { mountComposerSlot } from "../ui/modules/host.js";
+import { moduleServices, readRequestedModule } from "../ui/modules/services.js";
+export {
+  configureModules,
+  publishModules,
+  requestSettingsModule,
+} from "../ui/modules/services.js";
+const registry = createClientModuleRegistry(
+  createExtensionRegistry({ reservedIds: builtins.map((r) => r.id) }),
+);
+const agent = createAgentServices();
+const clientServices = Object.assign(moduleServices(registry), agent.services);
+export function mountClientSettings(root) {
+  return mountSettings(root, registry, clientServices, readRequestedModule());
+}
+export function mountClientSlot(root, slot) {
+  return mountComposerSlot(root, slot, registry, clientServices);
+}
 
 // Адаптер этой витрины. Credentials остаются в transport-коде клиента;
 // расширение получает только объявленный интерфейс чтения публичного API.
-export function mountWebExtensions(root, readConfig, readQuota, readUsage, readWorkspace) {
-  const reader = callback => signal => Object.freeze({
-    async read() {
-      signal.throwIfAborted();
-      const value = await callback(signal);
-      signal.throwIfAborted();
-      return JSON.parse(value);
-    },
+export function mountWebExtensions(
+  root,
+  readConfig,
+  readQuota,
+  readUsage,
+  readWorkspace,
+) {
+  const release = agent.bind({
+    readConfig,
+    readQuota,
+    readUsage,
+    readWorkspace,
   });
-  const services = {
-    'agent.config.read': reader(readConfig),
-    'agent.model.quota.read': reader(readQuota),
-    'agent.usage.read': reader(readUsage),
-    'agent.session.read': sessionStateService,
-    'agent.workspace.read': signal => Object.freeze({
-      list: path => readWorkspace('/workspace/list?path=' + encodeURIComponent(path), signal).then(JSON.parse),
-      read: path => readWorkspace('/workspace/file?path=' + encodeURIComponent(path), signal).then(JSON.parse),
-      changes: () => readWorkspace('/workspace/changes', signal).then(JSON.parse),
-      diff: path => readWorkspace('/workspace/diff?path=' + encodeURIComponent(path), signal).then(JSON.parse),
-    }),
+  const stop = mountExtensions(root, clientServices, {
+    registry,
+    target: document.querySelector("[data-extension-columns=right]"),
+    clientTabs: attachClientTabHost,
+  });
+  return () => {
+    stop();
+    release();
   };
-  const stop = mountExtensions(root, services, { registry, target: document.querySelector('[data-extension-columns=right]'), clientTabs: attachClientTabHost });
-  return stop;
 }

@@ -294,13 +294,7 @@ pub(super) fn commands(
                 }
             }
             "inspector" => {
-                let Some(w) = window() else { return false };
-                if js_sys::Reflect::has(&w, &"__TAURI__".into()).unwrap_or(false) {
-                    return false;
-                }
-                let _ = w.location().set_href(&crate::api::inspector_link_url(
-                    active_session_dir.get_untracked().as_deref(),
-                ));
+                super::client_modules::request_settings_module("diagnostic-usage");
             }
             "stop" if router.is_chat() => {
                 if active_run_id.get_untracked().is_none() {

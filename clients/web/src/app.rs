@@ -1,3 +1,4 @@
+mod client_modules;
 mod commands;
 mod connection;
 mod effects;
@@ -18,6 +19,7 @@ pub(crate) fn App() -> impl IntoView {
     provide_context(ToolCardsCollapsed(state.view.tool_cards_collapsed));
     effects::install(state, router);
     let connection = connection::connect(state);
+    client_modules::install(state, connection, router);
     let commands = commands::commands(state, connection, router);
     view! { <shell::AppShell state connection commands router /> }
 }

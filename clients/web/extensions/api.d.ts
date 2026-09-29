@@ -6,8 +6,8 @@ export interface ExtensionManifest {
   description: string;
   entry: string;
   requires: string[];
-  /** Host surfaces. Defaults to both. Compact-only extensions mount without a workspace tab. */
-  surfaces?: Array<'compact' | 'workspace'>;
+   surfaces?: ClientSurface[];
+  navigation?: { group: 'settings' | 'diagnostics'; icon: string };
   /** Panels fill their tab; widgets scroll inside the same tab workspace. */
   presentation?: 'widget' | 'panel';
   /** Independent entry; loaded only by the explicit Configure action. */
@@ -34,7 +34,8 @@ export interface ExtensionPane {
 
 export interface ExtensionContext {
   /** Extension-owned root (detached without workspace surface); inherited design tokens, no Leptos or Tauri dependency. */
-  root: ShadowRoot;
+  root: ShadowRoot | HTMLElement;
+  surface?: ClientSurface;
   /** Compact content inside the host's interactive button; absent for a settings entry. */
   compact?: ShadowRoot;
   /** Live detail text shown with the compact icon's hover label; host owns presentation. */
@@ -161,3 +162,31 @@ export interface AgentWorkspaceReader {
   }>;
   diff(path: string): Promise<{ path: string; kind: 'text' | 'binary' | 'too_large' | 'unavailable'; patch: string | null }>;
 }
+
+/** Settings are ordered pages; composer slots select one enabled implementation. */
+export type ClientSurface = 'compact' | 'workspace' | 'settings' | 'composer-model' | 'composer-access';
+export interface ClientPreferences {
+  fontSize: number; chatWidth: number; animations: boolean;
+  autoScroll: boolean; toolCardsCollapsed: boolean; sendMode: 'enter' | 'ctrl-enter';
+}
+export interface ClientComposerState {
+  model: string; models: Array<{name:string;label:string;hidden:boolean}>;
+  reasoning: boolean; effort: string; effortLabel: string; efforts: string[];
+  mode: 'normal' | 'auto' | 'plan';
+  modes: Array<{value: string; label: string; description: string}>;
+}
+/** client.preferences and client.composer. Writes validate before dispatch; failures throw.
+ * Composer changes use the existing agent commands; snapshots reflect their completion.
+ * Service operations are valid only while the mount signal is active.
+ */
+export interface ClientStateService<State, Writable = State> {
+  read(): State;
+  set<K extends keyof Writable>(key: K, value: Writable[K]): void;
+  subscribe(callback: () => void): () => void;
+}
+export type ClientPreferencesService = ClientStateService<ClientPreferences>;
+export type ClientComposerService = ClientStateService<ClientComposerState, Pick<ClientComposerState,'model'|'effort'|'mode'>>;
+export interface ClientDiagnosticsService {
+  mount(view: 'usage'|'analysis'|'configs'|'architecture', root: HTMLElement): () => void;
+}
+export interface ClientModulesService { mount(root: HTMLElement): () => void }

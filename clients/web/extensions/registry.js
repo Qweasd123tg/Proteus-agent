@@ -32,6 +32,7 @@ export function createExtensionRegistry(options = {}) {
     try {
       const response = await read(record.url, controller.signal);
       const manifest = parseManifest(response.value, response.url);
+      if (options.reservedIds?.includes(manifest.id)) throw new Error('Идентификатор занят встроенным модулем');
       if (manifest.id !== record.id) throw new Error(`id манифеста изменился: ${manifest.id}`);
       return { ...record, manifest };
     } catch (error) { return { ...record, error: `Манифест: ${error.message}` }; }
@@ -56,6 +57,7 @@ export function createExtensionRegistry(options = {}) {
             ? { ...bundled.find(item => item.id === record.id && item.url === record.url), ...record }
             : resolve(record)));
       if (controller.signal.aborted) return;
+      if (next.some(record => options.reservedIds?.includes(record.id))) throw new Error('Список содержит идентификатор встроенного модуля');
       records = next; ready = true; notice = catalogError;
       if (defaults) save();
     } catch (error) { notice = `Не удалось загрузить расширения: ${error.message}`; }
@@ -96,6 +98,7 @@ export function createExtensionRegistry(options = {}) {
         const response = await read(url, controller.signal);
         const manifest = parseManifest(response.value, response.url);
         if (controller.signal.aborted) return false;
+        if (options.reservedIds?.includes(manifest.id)) throw new Error('Это имя занято встроенным модулем');
         if (records.some(record => record.id === manifest.id)) throw new Error(`Расширение ${manifest.id} уже добавлено`);
         records.push({ id: manifest.id, url, manifest, enabled: true, collapsed: false, location: 'right' });
         save(); return true;

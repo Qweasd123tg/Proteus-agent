@@ -5,12 +5,13 @@ from pathlib import Path
 
 def open_report(js, wait_for):
     js("window.reportChatBefore=new URL(location.href).searchParams.get('session_dir');document.querySelector('.settings-link').click()")
-    wait_for(lambda: js("return !!document.querySelector('[data-settings-section=diagnostics]')"), 'Settings did not mount')
-    js("document.querySelector('[data-settings-section=diagnostics]').click()")
-    assert js("return !reportChatBefore || (new URL(location.href).searchParams.get('session_dir')===reportChatBefore && new URL(document.querySelector('.settings-content a').href).searchParams.get('session_dir')===reportChatBefore)"), 'Inspector link dropped the selected chat while connecting'
+    wait_for(lambda: js("return !!document.querySelector('[data-settings-section=diagnostic-usage]')"), 'Settings did not mount')
+    js("document.querySelector('[data-settings-section=diagnostic-usage]').click()")
+    wait_for(lambda: js("return !!document.querySelector('.diagnostic-frame')"),'Diagnostic module missing')
+    assert js("return !reportChatBefore || (new URL(location.href).searchParams.get('session_dir')===reportChatBefore && new URL(document.querySelector('.diagnostic-frame').src).searchParams.get('session_dir')===reportChatBefore)"), 'Inspector link dropped the selected chat while connecting'
     # The fixture serves both compiled clients on one origin. Production uses a
     # separate Inspector origin/window, carrying the same explicit session scope.
-    js("const link=document.querySelector('.settings-content a');const url=new URL(link.href);url.host=location.host;url.pathname='/configs';url.searchParams.set('view','usage');url.searchParams.set('chat',location.origin);location.assign(url.href)")
+    js("const url=new URL(document.querySelector('.diagnostic-frame').src);url.searchParams.delete('embedded');url.host=location.host;url.pathname='/configs';url.searchParams.set('view','usage');url.searchParams.set('chat',location.origin);location.assign(url.href)")
     wait_for(lambda: js("return !!document.querySelector('.inspector-shell .analysis-page')"), 'Report did not open inside Inspector')
 
 

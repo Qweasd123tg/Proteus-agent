@@ -10,14 +10,6 @@ pub(crate) fn ExtensionsView(active_session_dir: ReadSignal<Option<String>>) -> 
     view! { <div class="extension-host extension-workspace-status" node_ref=root aria-label="Панели расширений"></div> }
 }
 
-#[component]
-pub(crate) fn ExtensionSettingsView() -> impl IntoView {
-    let root = NodeRef::<leptos::html::Div>::new();
-    #[cfg(target_arch = "wasm32")]
-    browser::attach_settings(root);
-    view! { <div class="extension-settings" node_ref=root></div> }
-}
-
 #[cfg(target_arch = "wasm32")]
 mod browser {
     use super::*;
@@ -25,8 +17,6 @@ mod browser {
 
     #[wasm_bindgen(raw_module = "/extensions/web-adapter.js")]
     extern "C" {
-        #[wasm_bindgen(js_name = mountWebExtensionSettings, catch)]
-        fn mount_settings(root: &web_sys::Element) -> Result<js_sys::Function, JsValue>;
         #[wasm_bindgen(js_name = mountWebExtensions, catch)]
         fn mount_extensions(
             root: &web_sys::Element,
@@ -36,25 +26,6 @@ mod browser {
             read_workspace: &js_sys::Function,
         ) -> Result<js_sys::Function, JsValue>;
 
-    }
-
-    pub(super) fn attach_settings(root: NodeRef<leptos::html::Div>) {
-        Effect::new(move |_| {
-            let Some(element) = root.get() else { return };
-            match mount_settings(element.as_ref()) {
-                Ok(dispose) => {
-                    let dispose = StoredValue::new_local(dispose);
-                    on_cleanup(move || {
-                        dispose.with_value(|callback| {
-                            let _ = callback.call0(&JsValue::NULL);
-                        });
-                    });
-                }
-                Err(_) => {
-                    element.set_text_content(Some("Не удалось загрузить настройки расширений"))
-                }
-            }
-        });
     }
 
     fn reader(path: String) -> Closure<dyn Fn(web_sys::AbortSignal) -> js_sys::Promise> {

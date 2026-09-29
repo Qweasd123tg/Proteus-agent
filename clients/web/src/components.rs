@@ -1,8 +1,8 @@
 mod approval;
 mod chat_results;
+mod client_module;
 mod composer;
-mod composer_access_menu;
-mod composer_model_menu;
+
 mod controls;
 pub(crate) mod extensions;
 pub(crate) mod header;

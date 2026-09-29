@@ -2,7 +2,7 @@ import { registerShortcuts } from '/ui/shortcuts/runtime.js';
 import { popup } from '/ui/popup.js';
 // Native chrome belongs to the desktop shell; browser clients keep their own frame.
 const api = window.__TAURI__;
-if (api) mountWindowChrome(api);
+if (api && window.parent === window) mountWindowChrome(api);
 
 export function mountWindowChrome(api) {
   if (document.querySelector('.desktop-titlebar')) return;
@@ -45,7 +45,11 @@ export function mountWindowChrome(api) {
   const actions = {
     project: () => api.core.invoke('open_project'),
     folder: () => api.core.invoke('open_workspace_folder'),
-    inspector: () => api.core.invoke('open_client', { label: 'inspector', sessionDir: new URL(location.href).searchParams.get('session_dir') }),
+    inspector: () => {
+      const event=new CustomEvent('proteus-open-settings-module',{detail:'diagnostic-usage',cancelable:true});
+      if(!document.dispatchEvent(event))return;
+      return api.core.invoke('open_client', { label: 'inspector', sessionDir: new URL(location.href).searchParams.get('session_dir') });
+    },
     minimize: () => win.minimize(),
     maximize: async () => { await win.toggleMaximize(); await refresh(); },
     close: () => win.close(),
@@ -71,7 +75,7 @@ export function mountWindowChrome(api) {
     const anchor=event.target.closest('[data-app-menu]');if(!anchor)return;
     menu.show([
       menu.action('Открыть проект…','folder',()=>perform(actions.project)),
-      menu.action('Inspector','inspector',()=>perform(actions.inspector)),
+      menu.action('Диагностика','inspector',()=>perform(actions.inspector)),
       menu.action('Выйти из Proteus','close',()=>perform(actions.quit)),
     ],anchor,{x:anchor.getBoundingClientRect().left,y:anchor.getBoundingClientRect().bottom+6});
   }, options);

@@ -41,13 +41,13 @@ def run(command, js, wait_for, web, origin):
     js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
     assert js("return !document.querySelector('.desktop-app-menu-panel').matches(':popover-open') && document.activeElement.matches('[data-app-menu]')"), 'Menu did not return focus on Escape'
     assert js("return !document.querySelector('.desktop-titlebar [data-app-menu], .desktop-titlebar details')"), 'Duplicate Proteus menu remains'
-    for index, native in [(0,'open_project'), (1,'open_client'), (2,'quit_app')]:
+    for index, native in [(0,'open_project'), (2,'quit_app')]:
         js(f"document.querySelector('.sidebar-surface [data-app-menu]').click();document.querySelectorAll('.desktop-app-menu-panel button')[{index}].click()")
         wait_for(lambda: js(f"return chromeCalls.includes('{native}')"), f'Missing native {native} action')
     js("document.querySelector('[data-action=close]').click();document.dispatchEvent(new CustomEvent('proteus-desktop-action',{detail:'folder'}))")
     wait_for(lambda: js("return chromeCalls.includes('close') && chromeCalls.includes('open_workspace_folder')"), 'Native close/folder action failed')
     js("window.chromeCalls.length=0;for(const code of ['KeyO','KeyI','KeyQ']) document.dispatchEvent(new KeyboardEvent('keydown',{code,ctrlKey:true,shiftKey:code!=='KeyQ',bubbles:true}))")
-    wait_for(lambda: js("return ['open_project','open_client','quit_app'].every(name=>chromeCalls.includes(name))"), 'Desktop shortcuts failed')
+    wait_for(lambda: js("return ['open_project','quit_app'].every(name=>chromeCalls.includes(name)) && !chromeCalls.includes('open_client') && !!document.querySelector('.settings-page')"), 'Desktop shortcuts failed')
     # Native shortcuts use the same editor and must not fire during capture.
     command('/window/rect', {'width':1440, 'height':1000})
     js("document.querySelector('.settings-link').click()")

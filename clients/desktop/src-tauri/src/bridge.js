@@ -1,5 +1,6 @@
 // Installed before the Leptos entrypoint on every native client navigation.
 document.addEventListener('click', (event) => {
+  if(window.parent!==window)return;
   const link = event.target.closest?.('a');
   if (!link) return;
   const href = link.getAttribute('href') || '';

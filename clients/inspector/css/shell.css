@@ -123,3 +123,7 @@ code { font-variant-ligatures: none; }
 .inspector-nav-item { min-height:38px; padding:8px 12px; }
 .sidebar-connection { margin-top:auto; }
 .inspector-topbar { flex-basis:var(--topbar-height); padding-inline:24px; }
+
+.embedded-inspector .inspector-shell { grid-template-columns:minmax(0,1fr); }
+.embedded-inspector .inspector-sidebar, .embedded-inspector .inspector-topbar { display:none; }
+.embedded-inspector .inspector-main { height:100dvh; }

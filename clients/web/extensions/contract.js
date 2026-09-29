@@ -21,7 +21,7 @@ export function resourceUrl(value, base) {
 }
 
 export function parseManifest(value, url) {
-  object(value, ['apiVersion', 'id', 'name', 'description', 'entry', 'requires', 'settings', 'presentation', 'surfaces'], 'Манифест');
+  object(value, ['apiVersion', 'id', 'name', 'description', 'entry', 'requires', 'settings', 'presentation', 'surfaces', 'navigation'], 'Манифест');
   if (value.apiVersion !== API_VERSION) throw new Error(`Неподдерживаемая версия UI API: ${value.apiVersion}`);
   if (typeof value.id !== 'string' || !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(value.id)) throw new Error('Некорректный id расширения');
   if (typeof value.name !== 'string' || !value.name.trim()) throw new Error('Не указано название расширения');
@@ -30,7 +30,11 @@ export function parseManifest(value, url) {
   if (new Set(value.requires).size !== value.requires.length) throw new Error('Повтор интерфейса в requires');
   if (value.presentation !== undefined && !['widget', 'panel'].includes(value.presentation)) throw new Error('Неизвестное представление расширения');
   const surfaces = value.surfaces === undefined ? ['compact', 'workspace'] : value.surfaces;
-  if (!Array.isArray(surfaces) || !surfaces.length || surfaces.some(surface => !['compact', 'workspace'].includes(surface)) || new Set(surfaces).size !== surfaces.length) throw new Error('Некорректные поверхности расширения');
+  if (!Array.isArray(surfaces) || !surfaces.length || surfaces.some(surface => !['compact', 'workspace', 'settings', 'composer-model', 'composer-access'].includes(surface)) || new Set(surfaces).size !== surfaces.length) throw new Error('Некорректные поверхности расширения');
+  if (value.navigation !== undefined) {
+    object(value.navigation, ['group','icon'], 'Навигация модуля');
+    if (!surfaces.includes('settings') || !['settings','diagnostics'].includes(value.navigation.group) || typeof value.navigation.icon !== 'string' || !/^[a-z][a-z0-9-]*$/.test(value.navigation.icon)) throw new Error('Некорректная навигация модуля');
+  }
   let settings;
   if (value.settings !== undefined) {
     object(value.settings, ['entry', 'requires'], 'Настройки пакета');

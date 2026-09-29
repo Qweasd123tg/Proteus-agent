@@ -26,11 +26,6 @@ pub(super) fn AppShell(
         set_draft,
         queued_prompts,
         mode,
-        model_name,
-        model_options,
-        reasoning_enabled,
-        effort,
-        effort_options,
         ..
     } = state.request;
     let super::state::SessionState {
@@ -47,8 +42,6 @@ pub(super) fn AppShell(
         set_stick_to_bottom,
         last_results_scroll_top,
         set_last_results_scroll_top,
-        tool_cards_collapsed,
-        set_tool_cards_collapsed,
         activity_now_ms,
         detach_baseline,
         results_ref,
@@ -121,7 +114,6 @@ pub(super) fn AppShell(
             style=move || format!("--sidebar-width: {}px; --chat-font-size: {}px", resize.sidebar_width.get(), prefs.font_size.get())
             class:chat-route=move || router.is_chat()
             class:settings-route=move || route.get() == "/settings"
-            class:compact-interface=move || prefs.compact.get()
             class:resizing=is_resizing
             class:sidebar-collapsed=resize.sidebar_collapsed
             on:mousemove=resize_drag
@@ -162,7 +154,7 @@ pub(super) fn AppShell(
                     {move || {
                         let current = route.get();
                         if current == "/settings" {
-                        view! { <SettingsView resize tool_cards_collapsed set_tool_cards_collapsed active_session_dir on_navigate=topnav_click /> }.into_any()
+                        view! { <SettingsView/> }.into_any()
                     } else {
                         view! {
                             <ChatResultsView
@@ -192,11 +184,6 @@ pub(super) fn AppShell(
                                 draft
                                 set_draft
                                 mode
-                                model_name
-                                model_options
-                                reasoning_enabled
-                                effort
-                                effort_options
                                 is_sending
                                 active_run_id
                                 stick_to_bottom

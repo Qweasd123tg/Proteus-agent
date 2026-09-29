@@ -23,6 +23,7 @@ def run(command, js, wait_for):
     click('[data-settings-section=extensions]')
     assert js("const row=document.querySelector('[data-settings-section=extensions]');return document.querySelector('.settings-nav').getBoundingClientRect().width===chatWidth && row.getBoundingClientRect().height===chatRow.height && getComputedStyle(row).fontSize===chatRow.font && getComputedStyle(row).borderRadius===chatRow.radius"), 'Settings/chat navigation geometry differs'
     assert js("return !document.querySelector('[aria-label^=\"Выше:\"], [aria-label^=\"Ниже:\"]')"), 'Order arrows remain'
+    wait_for(lambda: len(order())>2,'Module list missing')
     before = order()
     # Move the third row to the top using trusted pointer events, inspect before drop.
     handle = f'[data-reorder="{before[2]}"]'
@@ -57,7 +58,7 @@ def run(command, js, wait_for):
     js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
     assert js("return document.querySelector('.extension-options').hidden && document.activeElement.dataset.settingsId==='usage' && escapedToApp===0"), 'Panel Escape did not restore focus or reached agent'
     click('[data-settings-id=usage]')
-    click('[data-settings-section=diagnostics]')
+    click('[data-settings-section=diagnostic-usage]')
     assert js("return document.querySelector('.extension-options').getBoundingClientRect().width===0"), 'Options leaked into another section'
     click('[data-settings-section=extensions]')
     assert js("return document.querySelector('.extension-options-content')===keptOptions && keptOptions.shadowRoot.querySelector('[name=model]').value==='draft-model'"), 'Hiding settings lost unsaved form'
@@ -75,6 +76,8 @@ def run(command, js, wait_for):
     command('/refresh', {})
     wait_for(lambda: js("return !!document.querySelector('.settings-link')"), 'Reload failed')
     click('.settings-link')
+    wait_for(lambda: js("return !!document.querySelector('[data-settings-section=extensions]')"),'Settings missing')
+    click('[data-settings-section=extensions]')
     wait_for(lambda: js("return document.querySelectorAll('.extension-list [data-extension-choice]').length>2"), 'Extensions missing after reload')
     assert order() == expected, 'Reload lost drag order'
     click('.settings-back')

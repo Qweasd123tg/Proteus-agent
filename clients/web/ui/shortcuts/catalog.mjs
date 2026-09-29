@@ -7,7 +7,7 @@ export const commands = [
   {id:'workspace', label:'Показать боковую область', group:'Навигация', binding:'Mod+Shift+KeyB'},
   {id:'settings', label:'Открыть настройки', group:'Навигация', binding:'Mod+Comma'},
   {id:'project', label:'Открыть проект', group:'Приложение', binding:'Mod+Shift+KeyO', native:true},
-  {id:'inspector', label:'Открыть Inspector', group:'Приложение', binding:'Mod+Shift+KeyI'},
+  {id:'inspector', label:'Открыть диагностику', group:'Приложение', binding:'Mod+Shift+KeyI'},
   {id:'quit', label:'Выйти из Proteus', group:'Приложение', binding:'Mod+KeyQ', native:true},
 ];
 export const defaults = () => Object.fromEntries(commands.map(c => [c.id, c.binding]));

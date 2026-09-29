@@ -4,7 +4,7 @@
 .settings-route .topbar [data-panel-toggle], .settings-route .topbar [data-workspace-toggle], .settings-route .topbar .return-to-chat { visibility:hidden; }
 .settings-page { display:grid; grid-template-columns:var(--sidebar-width) minmax(320px,1fr) auto; position:relative; width:100%; height:100%; min-height:0; overflow-x:auto; overflow-y:hidden; }
 .settings-nav { display:flex; flex-direction:column; gap:var(--nav-row-gap); padding:18px var(--nav-list-inset); border-right:1px solid var(--border-subtle); background:var(--bg-panel); overflow-y:auto; }
-.settings-nav a, .settings-nav button { display:flex; align-items:center; justify-content:flex-start; flex:none; gap:10px; min-height:var(--nav-row-height); padding:9px var(--nav-row-inset); border:0; border-radius:var(--radius-inner); text-align:left; text-decoration:none; font-size:var(--nav-row-font); line-height:var(--nav-row-line); font-weight:400; color:var(--text-main); background:transparent; }
+.settings-nav a, .settings-nav button { display:flex; align-items:center; justify-content:flex-start; flex:none; gap:10px; min-height:var(--nav-row-height); padding:6px var(--nav-row-inset); border:0; border-radius:var(--radius-inner); text-align:left; text-decoration:none; font-size:var(--nav-row-font); line-height:var(--nav-row-line); font-weight:400; color:var(--text-main); background:transparent; }
 .settings-nav a:hover, .settings-nav button:hover { background:var(--bg-panel-hover); }
 .settings-nav button.active { background:var(--bg-panel-soft); }
 .settings-nav svg { width:18px; height:18px; flex:none; color:var(--text-muted); }
@@ -16,7 +16,7 @@
 .settings-section { margin-top:0; }
 .settings-section h2 { font-size:14px; font-weight:500; margin-bottom:16px; }
 .settings-section-description { color:var(--text-muted); font-size:13px; margin-bottom:24px; }
-.settings-row { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:20px; border:1px solid var(--border-subtle); border-radius:16px; background:var(--bg-panel-soft); color:var(--text-main); text-decoration:none; cursor:pointer; }
+.settings-row { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:12px 16px; border:1px solid var(--border-subtle); border-radius:16px; background:var(--bg-panel-soft); color:var(--text-main); text-decoration:none; cursor:pointer; }
 .settings-label { display:grid; min-width:0; gap:4px; }
 .settings-label strong { font-size:13px; font-weight:500; }
 .settings-hint { max-width:640px; color:var(--text-muted); font-size:12px; line-height:1.5; }
@@ -33,7 +33,7 @@
 
 /* Extension settings occupy the same independent right-hand space as chat tools. */
 .settings-page > .extension-options { position:relative; display:flex; flex-direction:column; width:min(var(--workspace-width,460px),40vw); min-width:300px; min-height:0; margin:0; padding:0; border:0; border-left:1px solid var(--border-subtle); border-radius:0; background:var(--bg-root); }
-.settings-page > .extension-options[hidden], .settings-page:has(#extensions[hidden]) > .extension-options { display:none; }
+.settings-page > .extension-options[hidden], .settings-page:has(.settings-section[hidden] .extension-settings) > .extension-options { display:none; }
 .extension-options-header { display:flex; align-items:center; justify-content:space-between; gap:12px; height:52px; flex:none; padding:6px 16px; border-bottom:1px solid var(--border-subtle); }
 .extension-options-header h3 { margin:0; min-width:0; overflow:hidden; text-overflow:ellipsis; font-size:14px; font-weight:500; }
 .extension-options-header button { width:30px; min-height:30px; padding:0; color:var(--text-muted); }
@@ -59,7 +59,8 @@
 .settings-range { display:flex; align-items:center; gap:12px; flex-shrink:0; }
 .settings-range input { width:140px; accent-color:var(--text-main); }
 .settings-range output { min-width:58px; text-align:right; font-variant-numeric:tabular-nums; }
-.settings-row select { flex-shrink:0; }
+.settings-row > select { width:auto; flex:0 1 210px; min-width:160px; max-width:45%; }
+.settings-row > .settings-label { flex:1; }
 .appearance-preview { padding:24px; margin-top:20px; border:1px solid var(--border-subtle); border-radius:16px; line-height:1.62; }
 .appearance-preview p { margin:12px 0; }
 .appearance-preview code { font-family:var(--font-mono); font-size:.85em; }
@@ -72,13 +73,35 @@
 .shortcut-controls [data-bind] { min-width:132px; font-size:12px; font-family:var(--font-mono); border-color:var(--border-strong); }
 .shortcut-controls [aria-pressed=true] { outline:2px solid var(--text-muted); }
 .shortcut-controls [data-clear], .shortcut-controls [data-reset] { color:var(--text-muted); font-size:12px; }
-.compact-interface { --nav-row-height:34px; --nav-row-inset:10px; --nav-row-gap:2px; }
-.compact-interface .settings-nav button, .compact-interface .settings-nav a { padding-top:6px; padding-bottom:6px; }
-.compact-interface .settings-row { padding:12px 16px; }
-.compact-interface .results-panel > .task-card, .compact-interface .results-panel > .assistant-turn { margin-bottom:12px; }
 @media (max-width:1100px) {
     .settings-content { padding-left:24px; padding-right:24px; }
     .settings-range { flex-direction:column; align-items:flex-end; gap:4px; }
     .shortcut-row { align-items:flex-start; flex-direction:column; }
 }
-.compact-interface .session-item { padding-top:6px; padding-bottom:6px; }
+
+/* Range controls do not inherit text-field padding or browser-specific tracks. */
+.settings-range input[type=range] { appearance:none; -webkit-appearance:none; width:140px; height:24px; margin:0; padding:0; border:0; background:transparent; cursor:pointer; box-shadow:none; }
+.settings-range input[type=range]::-webkit-slider-runnable-track { height:4px; border-radius:2px; background:var(--text-muted); }
+.settings-range input[type=range]::-webkit-slider-thumb { appearance:none; -webkit-appearance:none; width:16px; height:16px; margin-top:-6px; border:0; border-radius:50%; background:var(--text-main); }
+.settings-range input[type=range]::-moz-range-track { height:4px; border:0; border-radius:2px; background:var(--text-muted); }
+.settings-range input[type=range]::-moz-range-thumb { width:16px; height:16px; border:0; border-radius:50%; background:var(--text-main); }
+.results-panel > .task-card, .results-panel > .assistant-turn { margin-bottom:12px; }
+
+.settings-content { container-type:inline-size; }
+@container (max-width:480px) {
+  .settings-row { flex-wrap:wrap; gap:12px; }
+  .settings-row > .settings-label { flex-basis:100%; }
+  .settings-row > select { flex:1; max-width:100%; }
+  .settings-range { flex-direction:row; width:100%; }
+  .settings-range input[type=range] { flex:1; }
+}
+.builtin-module-settings { margin-bottom:28px; }
+.builtin-module-list { display:grid; gap:8px; margin-bottom:12px; }
+.builtin-module-list .settings-row { margin:0; }
+.settings-toggle:disabled { cursor:default; }
+.module-selection { display:flex; gap:6px; }
+.diagnostic-settings { display:flex; flex-direction:column; padding:20px; }
+.diagnostic-settings .settings-toolbar { margin-bottom:16px; }
+.diagnostic-settings > .settings-section:not([hidden]), .diagnostic-settings .client-module-content { display:flex; flex:1; min-height:0; }
+.diagnostic-frame { width:100%; height:100%; flex:1; border:0; border-radius:12px; }
+.client-module-slot:empty { display:none; }

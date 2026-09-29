@@ -274,6 +274,15 @@ fn load_inspector_origin() -> Result<(), String> {
     Ok(())
 }
 
+pub(crate) fn inspector_embedded_url(session_dir: Option<&str>) -> String {
+    if proteus_client_common::desktop::is_desktop() {
+        return session_dir
+            .map(|dir| session_path("/inspector.html", dir))
+            .unwrap_or_else(|| "/inspector.html".to_owned());
+    }
+    inspector_link_url(session_dir)
+}
+
 /// Ссылка на Inspector с пробросом session token и app-server origin:
 /// hardcoded href терял бы token при включённом token-режиме.
 pub(crate) fn inspector_link_url(session_dir: Option<&str>) -> String {

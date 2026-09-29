@@ -227,7 +227,7 @@
     display: block;
     border-radius: var(--radius-inner);
     color: var(--text-main);
-    padding: 9px 32px 9px var(--nav-row-inset);
+    padding: 6px 32px 6px var(--nav-row-inset);
     font-size: var(--nav-row-font);
     line-height: var(--nav-row-line);
     transition:

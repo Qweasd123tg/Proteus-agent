@@ -40,12 +40,12 @@
     --space-6: 24px;
     --space-8: 32px;
     --sidebar-width: 280px;
-    --nav-row-height: 40px;
+    --nav-row-height: 34px;
     --nav-row-font: 14px;
     --nav-row-line: 22px;
-    --nav-row-inset: 14px;
+    --nav-row-inset: 10px;
     --nav-list-inset: 10px;
-    --nav-row-gap: 4px;
+    --nav-row-gap: 2px;
     --topbar-height: 52px;
     --input-min-height: 56px;
     --chat-max-width: 820px;

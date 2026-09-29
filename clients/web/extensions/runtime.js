@@ -2,7 +2,7 @@ import { missingServices } from './contract.js';
 
 // Никаких импортов Leptos, Tauri или agent runtime. Другой клиент может
 // предоставить те же интерфейсы своим transport-адаптером.
-export function createPanelRuntime({ manifest, root, compact, hover, panel, panels, services, storage, load = url => import(url), onError }) {
+export function createPanelRuntime({ manifest, root, compact, hover, panel, panels, services, storage, surface, load = url => import(url), onError }) {
   const controller = new AbortController();
   const { signal } = controller;
   let cleanup;
@@ -22,7 +22,7 @@ export function createPanelRuntime({ manifest, root, compact, hover, panel, pane
       if (typeof implementation.mount !== 'function') throw new Error('Расширение не экспортирует mount');
       const selected = Object.fromEntries(manifest.requires.map(name => [name, services[name](signal)]));
       const scopedPanels = panels && Object.freeze({ create(...args) { signal.throwIfAborted(); return panels.create(...args); } });
-      const result = await implementation.mount(Object.freeze({ root, compact, hover, panel, panels: scopedPanels, services: Object.freeze(selected), storage, signal }));
+      const result = await implementation.mount(Object.freeze({ root, compact, hover, panel, surface, panels: scopedPanels, services: Object.freeze(selected), storage, signal }));
       if (result !== undefined && typeof result !== 'function') throw new Error('mount должен вернуть функцию очистки или undefined');
       cleanup = result;
       if (stopped) dispose();

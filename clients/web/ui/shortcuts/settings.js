@@ -53,6 +53,7 @@ export function mountShortcutSettings(root) {
     catch(error) { status.textContent = error.message; }
   }, {...options,capture:true});
   document.addEventListener('pointerdown', event => { if(recording && !event.target.closest('[data-bind]')) cancel(); }, {...options,capture:true});
+  root.closest('.settings-section')?.addEventListener('module-hide', () => {if(recording)cancel();}, options);
   window.addEventListener('blur', cancel, options);
   window.addEventListener('proteus-shortcuts-change', render, options);
   search.addEventListener('input',render,options);
