@@ -1,5 +1,6 @@
 """Real journal → authenticated usage API → sidebar, settings and context report."""
 import base64
+import time
 from pathlib import Path
 from analysis_checks import run as check_analysis, check_selection, open_report
 
@@ -25,6 +26,14 @@ def run(command, js, wait_for):
     js("document.querySelector('.workspace-add').click();document.querySelector('.workspace-picker [data-open-tab=usage]').click()")
     wait_for(lambda: js("const root=" + shadow() + ";return root?.querySelector('.usage-headline > strong')?.textContent==='280'"), 'Usage totals do not match two real provider requests')
     assert js("const root=" + shadow() + ";return root.querySelector('.cost-total').textContent.includes('$0.000252')"), 'Cost double-counted cache or reasoning'
+    js("window.savedUsageFetch=window.fetch;window.hiddenUsageReads=0;window.fetch=(input,init)=>{if(new URL(input.url||input,location.href).pathname==='/usage')window.hiddenUsageReads++;return window.savedUsageFetch(input,init)}")
+    js("document.querySelector('[data-tab-id=\"client:chat\"] [role=tab]').click()")
+    wait_for(lambda: js("return document.querySelector('[data-extension-id=usage]').hidden"), 'Usage tab did not hide')
+    time.sleep(5.2)
+    assert js("return window.hiddenUsageReads===0"), 'Hidden usage tab kept polling'
+    js("document.querySelector('[data-tab-id=usage] [role=tab]').click()")
+    wait_for(lambda: js("return window.hiddenUsageReads>=1"), 'Usage tab did not refresh when reopened')
+    js("window.fetch=window.savedUsageFetch")
     js("const root=" + shadow() + ";root.querySelector('.usage-recent').open=true;root.querySelector('.usage-request').open=true")
     assert js("const root=" + shadow() + ";return root.querySelectorAll('.usage-request').length===2 && root.textContent.includes('Рассуждения') && root.textContent.includes('Пользовательский')"), 'Per-request details missing'
     js("document.querySelector('[data-extension-id=usage]').scrollIntoView({block:'start'})")

@@ -14,7 +14,13 @@ mod tests;
 
 /// A snapshot of the selected session. Polling belongs to this mounted view.
 #[component]
-pub(crate) fn ContextMapView(session_dir: ReadSignal<Option<String>>) -> impl IntoView {
+pub(crate) fn ContextMapView(
+    session_dir: ReadSignal<Option<String>>,
+    active: Signal<bool>,
+) -> impl IntoView {
+    let root = NodeRef::<leptos::html::Section>::new();
+    let host_visible = crate::visibility::watch(root);
+    let active = Signal::derive(move || active.get() && host_visible.get());
     let snapshot = RwSignal::new(None::<ContextMapSnapshot>);
     let snapshot_session = RwSignal::new(None::<String>);
     let status = RwSignal::new(String::new());
@@ -25,12 +31,17 @@ pub(crate) fn ContextMapView(session_dir: ReadSignal<Option<String>>) -> impl In
     Effect::new(move |_| {
         let selected = session_dir.get();
         revision.get();
+        let shown = active.get();
         generation.update(|value| *value += 1);
         let request_generation = generation.get_untracked();
         // Never show another session's snapshot under the new selection.
         if snapshot_session.get_untracked() != selected {
             snapshot.set(None);
             snapshot_session.set(selected.clone());
+        }
+        if !shown {
+            pending.set(false);
+            return;
         }
         let Some(selected) = selected else {
             status.set("Сессия ещё не выбрана".to_owned());
@@ -59,7 +70,7 @@ pub(crate) fn ContextMapView(session_dir: ReadSignal<Option<String>>) -> impl In
     });
     if let Ok(timer) = set_interval_with_handle(
         move || {
-            if !pending.get_untracked() {
+            if active.get_untracked() && !pending.get_untracked() {
                 revision.update(|value| *value += 1);
             }
         },
@@ -69,7 +80,7 @@ pub(crate) fn ContextMapView(session_dir: ReadSignal<Option<String>>) -> impl In
     }
 
     view! {
-        <section class="analysis-context">
+        <section class="analysis-context" node_ref=root>
             <div class="analysis-section-heading">
                 <div>
                     <h2>"Контекст и инструменты"</h2>

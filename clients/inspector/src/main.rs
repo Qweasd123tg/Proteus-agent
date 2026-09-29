@@ -11,6 +11,7 @@ mod session_report;
 mod types;
 mod ui_utils;
 mod usage_details;
+mod visibility;
 
 use leptos::mount::mount_to_body;
 

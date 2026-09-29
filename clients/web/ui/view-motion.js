@@ -94,8 +94,11 @@ export function watchViewMotion(element, { signal, inPlace = false } = {}) {
   const resize = new ResizeObserver(remember);
   resize.observe(element);
   const refresh = () => {
-    cancelAnimationFrame(frame);
-    frame = requestAnimationFrame(remember);
+    if (!shown || element.hidden || animation || stopped || frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = undefined;
+      remember();
+    });
   };
   // Scrolling can move a settings section without changing its size.
   window.addEventListener("scroll", refresh, true);

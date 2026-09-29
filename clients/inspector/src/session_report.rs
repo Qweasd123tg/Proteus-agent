@@ -16,7 +16,7 @@ fn sidebar_session_title(item: &SessionSummary) -> String {
 }
 
 #[component]
-pub(crate) fn SessionReportView() -> impl IntoView {
+pub(crate) fn SessionReportView(visible: Signal<bool>) -> impl IntoView {
     let (sessions, set_sessions) = signal(Vec::<SessionSummary>::new());
     let active_session_dir = RwSignal::new(crate::api::query_value("session_dir"));
     let error = RwSignal::new(String::new());
@@ -117,9 +117,9 @@ pub(crate) fn SessionReportView() -> impl IntoView {
                 <div hidden=move || context_tab.get()>
                     <UsageDetailsView session_dir=selected />
                 </div>
-                <Show when=move || context_tab.get()>
-                    <ContextMapView session_dir=selected />
-                </Show>
+                <div hidden=move || !context_tab.get()>
+                    <ContextMapView session_dir=selected active=Signal::derive(move || visible.get() && context_tab.get()) />
+                </div>
             </div>
         </section>
     }

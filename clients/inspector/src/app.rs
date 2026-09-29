@@ -117,7 +117,9 @@ pub(crate) fn App() -> impl IntoView {
                 </header>
                 <div class="inspector-content" id="inspector-content" tabindex="-1">
                     <Show when=move || report_seen.get()>
-                        <div class="inspector-view" hidden=move || !is_report()><crate::session_report::SessionReportView/></div>
+                        <div class="inspector-view" hidden=move || !is_report()>
+                            <crate::session_report::SessionReportView visible=Signal::derive(move || is_report())/>
+                        </div>
                     </Show>
                     <Show when=move || analysis_seen.get()>
                         <div class="inspector-view" hidden=move || !is_analysis()><crate::analysis::AnalysisView/></div>

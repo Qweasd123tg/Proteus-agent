@@ -1,7 +1,15 @@
 function ancestors(root) {
   const nodes = [];
-  for (let node = root; node; node = node.parentNode ?? node.host)
+  for (let node = root; node;) {
     nodes.push(node);
+    let frame;
+    // Same-origin diagnostic frames remain mounted in hidden workspace tabs.
+    // Their local document alone does not describe host visibility.
+    if (node.nodeType === 9) {
+      try { frame = node.defaultView?.frameElement; } catch { frame = null; }
+    }
+    node = node.parentNode ?? node.host ?? frame;
+  }
   return nodes;
 }
 

@@ -2,6 +2,7 @@ import { readRates } from './pricing.js';
 import { node, renderSummary, renderModels, renderRequests, priceNote } from './render.js';
 import { modelKey, turnIds, scopedRequests, selectRequests, requestExport } from './selection.js';
 import { style } from './style.js';
+import { observeVisibility } from '../visibility.js';
 
 function options(select, items, value) {
   select.replaceChildren(...items.map(([id, label]) => { const option = node('option', label); option.value = id; return option; }));
@@ -41,6 +42,7 @@ export function mountReport({ root, services, storage, signal }, wide = false) {
   if (wide) surface.append(filters, listHeading);
   surface.append(content, footer, priceNote()); root.append(surface);
   let snapshot, pending = false, pricingChanged = false, page = 0, scopeValue = 'all', modelValue = 'all';
+  let active = false, timer, refreshAfterPending = false;
   let rowsController, exportRows = [];
   const diagnosticFilters = () => ({ status: state.value, origin: origin.value, query: search.value, sort: order.value });
 
@@ -85,20 +87,30 @@ export function mountReport({ root, services, storage, signal }, wide = false) {
   }
 
   async function update(force = false) {
-    if (pending || signal.aborted) return;
+    if (pending || signal.aborted || !active) return;
     pending = true; refresh.disabled = true;
     try {
       const next = await services['agent.usage.read'].read();
       if (signal.aborted) return;
+      if (!active) { refreshAfterPending = true; return; }
       const changed = force || pricingChanged || next?.session_id !== snapshot?.session_id || next?.revision !== snapshot?.revision || !content.firstChild;
       snapshot = next;
       if (changed) { render(); pricingChanged = false; }
       status.className = 'muted'; status.textContent = `Обновлено ${new Date().toLocaleTimeString('ru-RU')}`;
     } catch (error) {
-      if (signal.aborted) return;
+      if (signal.aborted || !active) return;
       snapshot = undefined; render();
       status.className = 'error'; status.textContent = `Не удалось получить расход: ${error.message}`;
-    } finally { pending = false; if (!signal.aborted) refresh.disabled = false; }
+    } finally {
+      pending = false;
+      if (!signal.aborted) {
+        refresh.disabled = false;
+        if (active && refreshAfterPending) {
+          refreshAfterPending = false;
+          queueMicrotask(() => void update(true));
+        }
+      }
+    }
   }
   const change = () => { page = 0; render(); };
   scope.addEventListener('change', () => { scopeValue = scope.value; change(); }, { signal });
@@ -116,9 +128,16 @@ export function mountReport({ root, services, storage, signal }, wide = false) {
   }, { signal });
   refresh.addEventListener('click', () => void update(true), { signal });
   const unsubscribe = storage.subscribe(() => { pricingChanged = true; void update(true); });
-  const timer = setInterval(() => void update(), 5000);
-  const stop = () => { clearInterval(timer); rowsController?.abort(); unsubscribe(); };
+  const stopVisibility = observeVisibility(root, shown => {
+    active = shown;
+    clearInterval(timer);
+    if (shown) {
+      if (!pending) refreshAfterPending = false;
+      void update(true);
+      timer = setInterval(() => void update(), 5000);
+    }
+  }, signal);
+  const stop = () => { clearInterval(timer); stopVisibility(); rowsController?.abort(); unsubscribe(); };
   signal.addEventListener('abort', stop, { once: true });
-  void update();
   return stop;
 }

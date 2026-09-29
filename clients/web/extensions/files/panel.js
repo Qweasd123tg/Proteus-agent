@@ -1,5 +1,6 @@
 import { node, icon } from '../dom.js';
 import { createPreview } from './preview.js';
+import { observeVisibility } from '../visibility.js';
 
 export function mount({ root, compact, services, signal }) {
   icon(compact, 'folder');
@@ -19,17 +20,34 @@ export function mount({ root, compact, services, signal }) {
   refresh.append(shape('refresh'));
   refresh.type='button'; refresh.title='Обновить дерево'; refresh.setAttribute('aria-label','Обновить дерево');
   const filter=node('input'); filter.type='search'; filter.placeholder='Фильтрация файлов…'; filter.setAttribute('aria-label','Фильтрация файлов'); toolbar.append(filter,refresh);
-  filter.addEventListener('input',()=>{ for(const row of tree.querySelectorAll('.row')) row.hidden=!row.textContent.toLowerCase().includes(filter.value.toLowerCase()); },{signal});
+  let filterFrame;
+  function applyFilter(){
+    filterFrame=undefined;
+    const query=filter.value.toLowerCase();
+    for(const row of tree.querySelectorAll('.row'))row.hidden=!row.textContent.toLowerCase().includes(query);
+  }
+  filter.addEventListener('input',()=>{
+    if(!filterFrame)filterFrame=requestAnimationFrame(applyFilter);
+  },{signal});
+  signal.addEventListener('abort',()=>cancelAnimationFrame(filterFrame),{once:true});
   const tree=node('div',null,'tree'); tree.setAttribute('role','tree'); tree.setAttribute('aria-label','Файлы проекта');
   const browser=node('div',null,'file-browser'), viewer=node('div',null,'file-preview');
   const split=node('div',null,'file-split');split.tabIndex=0;split.setAttribute('role','separator');split.setAttribute('aria-label','Ширина дерева файлов');split.setAttribute('aria-orientation','vertical');
   browser.append(toolbar,tree);root.append(viewer,split,browser);
   root.append(node('style',`:host{flex-direction:row!important;container-type:inline-size}.file-browser{display:flex;flex:0 0 var(--tree-width,42%);min-width:120px;max-width:65%;flex-direction:column}.toolbar{padding:8px;gap:6px}.toolbar input{width:100%;min-width:0;padding:8px;border-radius:10px;border:1px solid var(--border-subtle);background:var(--bg-panel-soft);color:inherit;font:inherit}.row{height:30px;min-height:30px;font:13px var(--font-sans)}.tree{padding:6px}.tree [hidden]{display:none}.file-split{width:5px;flex:none;border-left:1px solid var(--border-subtle);cursor:col-resize;touch-action:none}.file-split:hover,.file-split:focus-visible{background:var(--border-strong)}:host(.tree-hidden) .file-browser,:host(.tree-hidden) .file-split{display:none}`));
-  let drag;
+  let drag, resizeFrame, resizeWidth;
   function treeWidth(width){const hostWidth=root.host.getBoundingClientRect().width;browser.style.setProperty('--tree-width',`${Math.max(120,Math.min(hostWidth*.65,width))}px`);split.setAttribute('aria-valuenow',String(Math.round(browser.getBoundingClientRect().width)));}
   split.addEventListener('pointerdown',event=>{if(event.button!==0)return;event.preventDefault();drag={id:event.pointerId,x:event.clientX,width:browser.getBoundingClientRect().width};split.setPointerCapture(event.pointerId);},{signal});
-  split.addEventListener('pointermove',event=>{if(drag?.id===event.pointerId)treeWidth(drag.width+drag.x-event.clientX);},{signal});
-  for(const name of ['pointerup','pointercancel','lostpointercapture'])split.addEventListener(name,()=>{drag=null;},{signal});
+  split.addEventListener('pointermove',event=>{
+    if(drag?.id!==event.pointerId)return;
+    resizeWidth=drag.width+drag.x-event.clientX;
+    if(!resizeFrame)resizeFrame=requestAnimationFrame(()=>{resizeFrame=undefined;treeWidth(resizeWidth);});
+  },{signal});
+  for(const name of ['pointerup','pointercancel','lostpointercapture'])split.addEventListener(name,()=>{
+    if(resizeFrame){cancelAnimationFrame(resizeFrame);resizeFrame=undefined;treeWidth(resizeWidth);}
+    drag=null;
+  },{signal});
+  signal.addEventListener('abort',()=>cancelAnimationFrame(resizeFrame),{once:true});
   split.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight'].includes(event.key))return;event.preventDefault();treeWidth(browser.getBoundingClientRect().width+(event.key==='ArrowLeft'?20:-20));},{signal});
   const workspace=services['agent.workspace.read'], expanded=new Set(), listings=new Map(), pending=new Set();
   let generation=0, selected='', focused='', preview, changes=new Map(), gitError='', gitTruncated=false;
@@ -76,7 +94,7 @@ export function mount({ root, compact, services, signal }) {
     }
     if(gitError) fragment.append(node('p',gitError,'status'));
     if(gitTruncated) fragment.append(node('p','Список изменений Git показан не полностью.','status'));
-    tree.replaceChildren(fragment); tree.scrollTop=scroll; for(const row of tree.querySelectorAll('.row')) row.hidden=!row.textContent.toLowerCase().includes(filter.value.toLowerCase());
+    tree.replaceChildren(fragment); tree.scrollTop=scroll; cancelAnimationFrame(filterFrame); applyFilter();
     const rows=visibleRows();
     if(!rows.some(row=>row.tabIndex===0)&&rows.length) { rows[0].tabIndex=0; focused=rows[0].dataset.path; }
     if(hadFocus) focusPath(focused);
@@ -155,5 +173,9 @@ export function mount({ root, compact, services, signal }) {
     void load(''); void loadChanges(generation);
   }
   preview=createPreview({root:viewer,workspace,signal,onToggleTree:()=>{root.host.classList.toggle('tree-hidden');return !root.host.classList.contains('tree-hidden');}});
-  refresh.addEventListener('click',reload,{signal}); render(); reload();
+  refresh.addEventListener('click',reload,{signal}); render();
+  let loaded=false;
+  observeVisibility(root, shown=>{
+    if(shown&&!loaded){loaded=true;reload();}
+  },signal);
 }

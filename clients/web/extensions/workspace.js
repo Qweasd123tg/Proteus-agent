@@ -38,6 +38,8 @@ export function createWorkspace(target, { storage } = {}) {
   let records = [],
     layout,
     drag,
+    resizeX,
+    resizeFrame,
     pickerGroup = 0;
   try {
     layout = parseLayout(storage?.getItem(layoutKey));
@@ -168,13 +170,14 @@ export function createWorkspace(target, { storage } = {}) {
   function render() {
     const finishTabMotion = animateTabs();
     records = [...sources.values()].flatMap((s) => s.records);
+    const animated = records.filter((r) => r.element && r.element.dataset.clientView !== "settings");
     for (const [root, stop] of viewMotion)
-      if (!records.some((r) => r.element === root)) {
+      if (!animated.some((r) => r.element === root)) {
         stop();
         viewMotion.delete(root);
       }
-    for (const r of records)
-      if (r.element && !viewMotion.has(r.element))
+    for (const r of animated)
+      if (!viewMotion.has(r.element))
         viewMotion.set(
           r.element,
           watchViewMotion(r.element, { signal, inPlace: true }),
@@ -411,13 +414,24 @@ export function createWorkspace(target, { storage } = {}) {
     "pointermove",
     (e) => {
       if (drag !== e.pointerId) return;
-      const r = element.getBoundingClientRect();
-      ratio((e.clientX - r.left) / r.width);
+      resizeX = e.clientX;
+      if (!resizeFrame)
+        resizeFrame = requestAnimationFrame(() => {
+          resizeFrame = undefined;
+          const r = element.getBoundingClientRect();
+          ratio((resizeX - r.left) / r.width);
+        });
     },
     { signal },
   );
   function end() {
     if (drag === undefined) return;
+    if (resizeFrame) {
+      cancelAnimationFrame(resizeFrame);
+      resizeFrame = undefined;
+      const r = element.getBoundingClientRect();
+      ratio((resizeX - r.left) / r.width);
+    }
     drag = undefined;
     element.classList.remove("resizing");
     save();
@@ -472,6 +486,7 @@ export function createWorkspace(target, { storage } = {}) {
       };
     },
     stop() {
+      cancelAnimationFrame(resizeFrame);
       pickerMotion.dispose();
       for (const stop of viewMotion.values()) stop();
       viewMotion.clear();
