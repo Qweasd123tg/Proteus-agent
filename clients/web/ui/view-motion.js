@@ -101,7 +101,14 @@ export function watchViewMotion(element, { signal, inPlace = false } = {}) {
     });
   };
   // Scrolling can move a settings section without changing its size.
-  window.addEventListener("scroll", refresh, true);
+  const scrolled = (event) => {
+    const target = event.target;
+    // An internal transcript/tree scroll does not move the view's own box.
+    // Only scrolling an ancestor changes the exit geometry we remember.
+    if (target === document || target === window
+      || (target !== element && target?.contains?.(element))) refresh();
+  };
+  window.addEventListener("scroll", scrolled, true);
   window.addEventListener("resize", refresh);
   const preference = () => {
     if (!motionAllowed()) settle();
@@ -114,7 +121,7 @@ export function watchViewMotion(element, { signal, inPlace = false } = {}) {
     observer.disconnect();
     resize.disconnect();
     cancelAnimationFrame(frame);
-    window.removeEventListener("scroll", refresh, true);
+    window.removeEventListener("scroll", scrolled, true);
     window.removeEventListener("resize", refresh);
     window.removeEventListener("proteus-motion-change", preference);
     signal?.removeEventListener("abort", stop);

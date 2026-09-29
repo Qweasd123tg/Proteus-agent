@@ -12,7 +12,8 @@ export function requestBottom(root) {
     if (root.isConnected && root.clientHeight && root.classList.contains('sticky-bottom')) {
       delete root.dataset.transcriptUserScroll;
       delete root.dataset.transcriptDirection;
-      adjustScroll(root, root.scrollHeight);
+      const bottom = Math.max(0, root.scrollHeight - root.clientHeight);
+      if (Math.abs(root.scrollTop - bottom) > .5) adjustScroll(root, bottom);
     }
   }));
 }

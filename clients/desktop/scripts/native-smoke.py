@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Cold-start a relocated release; observe its real native→WASM→SSE path.
 
-Default: headless Xvfb startup. --niri also exercises Inspector on the current GPU.
+Default: headless Xvfb startup. --niri also delivers the diagnostic shortcut,
+resizes the main window and checks clean close on the current GPU. It does not
+verify the embedded diagnostics DOM; use the browser module/shortcut gate for that.
 Personal preferences and provider credentials remain isolated in either mode.
 """
 import argparse
@@ -64,7 +66,7 @@ def stop(process):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--niri", action="store_true", help="Use current niri/Wayland with ydotool; open, resize and close Inspector")
+    parser.add_argument("--niri", action="store_true", help="Use current niri/Wayland with ydotool; deliver diagnostic shortcut, resize main window and close cleanly (no DOM check)")
     parser.add_argument("--chrome", action="store_true", help="Click the native titlebar in isolated Xvfb")
     parser.add_argument("--package", type=Path, help="Portable package directory (including debug packages)")
     options = parser.parse_args()

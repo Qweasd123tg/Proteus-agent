@@ -2,9 +2,6 @@ use leptos::prelude::*;
 
 use crate::messages::finish_streaming_reasoning;
 use crate::types::{AssistantTextUpdate, Message, MessageRole};
-use crate::ui_utils::set_timeout;
-
-const STREAM_DELTA_FLUSH_MS: i32 = 80;
 
 #[cfg(test)]
 #[path = "stream_tests.rs"]
@@ -22,7 +19,7 @@ pub(crate) struct BufferedStreamDeltas {
     turn_thread_id: Option<String>,
 }
 
-/// Drop deltas from the previous transcript and invalidate its pending timer.
+/// Drop deltas from the previous transcript and invalidate its pending frame callback.
 pub(crate) fn reset_stream_delta_buffer(buffer: StoredValue<BufferedStreamDeltas, LocalStorage>) {
     buffer.update_value(|buffer| {
         buffer.assistant.clear();
@@ -200,7 +197,23 @@ fn flush_stream_delta_buffer_if_current(bindings: StreamFlushBindings, epoch: u6
 }
 
 fn schedule_stream_delta_flush(bindings: StreamFlushBindings, epoch: u64) {
-    set_timeout(STREAM_DELTA_FLUSH_MS, move || {
-        flush_stream_delta_buffer_if_current(bindings, epoch);
-    });
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::{JsCast, prelude::*};
+
+        #[wasm_bindgen(raw_module = "/ui/stream-frame.js")]
+        extern "C" {
+            #[wasm_bindgen(js_name = scheduleStreamFlush)]
+            fn schedule_stream_flush(callback: &js_sys::Function);
+        }
+
+        // Hidden documents pause RAF. Completion still flushes synchronously;
+        // the stale callback can run safely when the document becomes visible.
+        let callback = Closure::once_into_js(move || {
+            flush_stream_delta_buffer_if_current(bindings, epoch);
+        });
+        schedule_stream_flush(callback.unchecked_ref());
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = (bindings, epoch);
 }

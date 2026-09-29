@@ -14,6 +14,8 @@ copy('@highlightjs/cdn-assets/LICENSE','highlight/LICENSE');
 copy('mermaid/dist/mermaid.esm.min.mjs','mermaid/mermaid.esm.min.mjs');
 copy('mermaid/dist/chunks/mermaid.esm.min','mermaid/chunks/mermaid.esm.min');
 copy('mermaid/LICENSE','mermaid/LICENSE');
+copy('morphdom/dist/morphdom-esm.js','morphdom/morphdom.js');
+copy('morphdom/LICENSE','morphdom/LICENSE');
 
 await build({entryPoints:[local('interactive/render.mjs')],outfile:output+'/json-render/renderer.js',bundle:true,format:'esm',minify:true,target:['es2022'],legalComments:'linked'});
 copy('@json-render/core/LICENSE','json-render/LICENSE');

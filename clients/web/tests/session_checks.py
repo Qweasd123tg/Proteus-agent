@@ -51,6 +51,7 @@ window.EventSource=class extends OriginalEventSource {
         fixtureHistoryReads++;
         window.fixtureBaseItems ??= output.event.snapshot.transcript.length;
         output.event.snapshot.transcript=[...historyFixture,...output.event.snapshot.transcript.slice(fixtureBaseItems)];
+        window.fixtureLastSnapshot=output.event.snapshot;
         event=new MessageEvent('output',{data:JSON.stringify(output)});
       }
       handler(event);

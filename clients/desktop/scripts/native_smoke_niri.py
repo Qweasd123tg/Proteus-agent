@@ -47,15 +47,17 @@ def exercise(application, project):
 
 
 def exercise_windows(application, project, input_env):
-    pid = None
-
-    def find(inspector):
-        return next((window for window in windows(project, pid)
-                     if window["title"].startswith("Proteus Inspector") == inspector), None)
-
-    main = wait_for(application, lambda: find(False))
+    main = wait_for(application, lambda: next(iter(windows(project)), None))
     pid = main["pid"]
     assert pid, "Compositor did not report the native process ID"
+
+    def assert_main_retained():
+        assert application.poll() is None, "Native application exited during diagnostic shortcut smoke"
+        current = windows(project, pid)
+        assert len(current) == 1, f"Diagnostic shortcut changed native window count: {current}"
+        assert current[0]["id"] == main["id"], "Diagnostic shortcut replaced the main window"
+
+    assert_main_retained()
     for cycle in range(3):
         action("focus-window", main)
         wait_for(application, lambda: any(window["id"] == main["id"]
@@ -65,20 +67,17 @@ def exercise_windows(application, project, input_env):
         # Use physical key codes: synthetic Wayland keymaps can lose GTK accelerators.
         subprocess.run(["ydotool", "key", "29:1", "42:1", "23:1", "23:0", "42:0", "29:0"],
                        env=input_env, check=True)
-        try:
-            inspector = wait_for(application, lambda: find(True))
-        except AssertionError:
-            print("Native windows:", windows(project, pid), flush=True)
-            raise
-        assert len(windows(project, pid)) == 2, "Opening Inspector duplicated native windows"
+        # Diagnostics lives inside settings. niri cannot observe the embedded DOM;
+        # this checks native survival/cardinality after physical shortcut delivery.
+        for _ in range(10):
+            time.sleep(0.1)
+            assert_main_retained()
         for width in [900, 1400, 1000]:
-            action("set-window-width", inspector, str(width))
+            action("set-window-width", main, str(width))
             time.sleep(0.5)
-            assert application.poll() is None, "Native application crashed during Inspector resize"
-        action("close-window", inspector)
-        wait_for(application, lambda: find(True) is None)
-        assert find(False), "Closing Inspector closed the chat"
-        print(f"PASS: Inspector open/resize/close cycle {cycle + 1}", flush=True)
+            assert_main_retained()
+        print(f"PASS: physical diagnostic shortcut/main-window resize cycle {cycle + 1} "
+              "(embedded diagnostics DOM not observed)", flush=True)
     action("close-window", main)
     assert application.wait(timeout=15) == 0, "Closing the chat did not exit cleanly"
     print("PASS: closing chat exits the native application", flush=True)

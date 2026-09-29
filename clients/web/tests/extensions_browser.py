@@ -25,6 +25,7 @@ from placement_checks import run as check_placement
 from polish_checks import run as check_polish, check_restore_failure
 from tool_chain_checks import run as check_tool_chain
 from subagent_tab_checks import run as check_subagent_tabs
+from typing_checks import run as check_typing
 from planning_checks import run as check_planning
 from usage_checks import run as check_usage
 from architecture_checks import run as check_architecture
@@ -100,7 +101,7 @@ class Assets(SimpleHTTPRequestHandler):
         if count == 1 and '--markdown-only' in sys.argv:
             output[0]['content'][0]['text'] += MARKDOWN_FIXTURE
         if count >= 2:
-            chunks = [f"Абзац {i}: " + "Продолжение ответа. " * 8 + "\n\n" for i in range(32)]
+            chunks = getattr(self.server, 'typing_chunks', None) or [f"Абзац {i}: " + "Продолжение ответа. " * 8 + "\n\n" for i in range(32)]
             output = [{"id":f"ui-answer-{count}","type":"message","role":"assistant","content":[{"type":"output_text","text":''.join(chunks)}]}]
         self.send_response(200)
         self.send_header('Content-Type', 'text/event-stream')
@@ -112,10 +113,16 @@ class Assets(SimpleHTTPRequestHandler):
                 self.wfile.flush()
             emit('response.output_item.added', {"output_index":0,"item":{"id":output[0]['id'],"type":"message","role":"assistant","content":[]}})
             for index, chunk in enumerate(chunks):
+                typing_gate = getattr(self.server, 'typing_gate', None)
+                if typing_gate is not None and not typing_gate.acquire(timeout=60):
+                    raise AssertionError('Typing fixture held a text chunk too long')
                 emit('response.output_text.delta', {"output_index":0,"item_id":output[0]['id'],"content_index":0,"delta":chunk})
                 if index == 3 and not self.server.stream_gate.wait(timeout=60):
                     raise AssertionError('Streaming fixture held the response too long')
                 time.sleep(.1)
+            typing_completed = getattr(self.server, 'typing_completed', None)
+            if typing_completed is not None and not typing_completed.wait(timeout=60):
+                raise AssertionError('Typing fixture held completion too long')
         self.wfile.write(('event: response.completed\ndata: '+json.dumps({"type":"response.completed","response":{"status":"completed","output":output,"usage":{"input_tokens":100,"output_tokens":40,"input_tokens_details":{"cached_tokens":60},"output_tokens_details":{"reasoning_tokens":10}}}})+'\n\n').encode())
 
     def do_GET(self):
@@ -355,6 +362,9 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return
                 if '--subagents-only' in sys.argv:
                     check_subagent_tabs(command, js, wait_for, web, origin)
+                    return
+                if '--typing-only' in sys.argv:
+                    check_typing(command, js, wait_for, web, origin, server)
                     return
                 if '--modules-only' in sys.argv:
                     check_client_modules(command,js,wait_for,web,origin,loaded)

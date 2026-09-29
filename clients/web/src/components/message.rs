@@ -1,3 +1,5 @@
+mod fragment;
+
 use leptos::prelude::*;
 
 use super::{SubagentCard, ToolActivityCard, tool_turn_card_class};
@@ -62,59 +64,72 @@ pub(crate) fn MessageView(
             MessageViewKind::Reasoning => reasoning_message_view(messages.message(message_id)),
             MessageViewKind::Assistant => {
                 // Ответ агента — финальный узел цепочки текущего хода.
-                text_message_view(messages.message(message_id), "task-card assistant-turn role-assistant agent-turn-item")
+                text_message_view(messages, message_id, "task-card assistant-turn role-assistant agent-turn-item")
             }
             MessageViewKind::System => {
-                text_message_view(messages.message(message_id), "task-card assistant-turn role-system")
+                text_message_view(messages, message_id, "task-card assistant-turn role-system")
             }
         }}
     }
 }
 
-fn text_message_view(message: Memo<Option<Message>>, turn_class: &'static str) -> AnyView {
+fn text_message_view(
+    messages: crate::transcript::Transcript,
+    id: u64,
+    turn_class: &'static str,
+) -> AnyView {
     let blocks = Memo::new(move |previous| {
-        message.with(|message| {
+        messages.with_message(id, |message| {
             crate::markdown::markdown_blocks(
                 message
-                    .as_ref()
                     .map(|message| message.text.as_str())
                     .unwrap_or_default(),
                 previous,
             )
         })
     });
+    let header = messages.select(id, |message| {
+        message
+            .map(|message| match message.phase {
+                Some(MessagePhase::Commentary) => "Proteus · комментарий",
+                Some(MessagePhase::FinalAnswer) => "Proteus · ответ",
+                None => message.role.label(),
+            })
+            .unwrap_or("Сообщение")
+    });
+    let streaming = messages.select(id, |message| {
+        message.is_some_and(|message| message.streaming)
+    });
+    let content_class = messages.select(id, |message| {
+        message
+            .map(|message| {
+                let class = message.role.message_class();
+                if message.streaming {
+                    format!("{class} streaming-message")
+                } else {
+                    class.to_owned()
+                }
+            })
+            .unwrap_or_else(|| "message system-message".to_owned())
+    });
     view! {
         <article class=turn_class>
             <div class="task-card-header">
-                <span class="assistant-role">{move || {
-                    message
-                        .with(|message| message.as_ref().map(|message| match message.phase {
-                            Some(crate::types::MessagePhase::Commentary) => "Proteus · комментарий",
-                            Some(crate::types::MessagePhase::FinalAnswer) => "Proteus · ответ",
-                            None => message.role.label(),
-                        }))
-                        .unwrap_or("Сообщение")
-                }}</span>
+                <span class="assistant-role">{move || header.get()}</span>
                 <div class="message-actions">
                     <CopyButton
-                        text=move || current_message_text(message)
+                        text=move || messages.with_message(id, |message| message.map(|message| message.text.clone()).unwrap_or_default())
                         class="icon-button"
                         title="Скопировать markdown"
                     />
                 </div>
             </div>
-            <div
-                class=move || current_message_content_class(message)
-            >
+            <div class=move || content_class.get()>
                 <For each=move || blocks.with(|blocks| (0..blocks.len()).collect::<Vec<_>>()) key=|index|*index
-                    children=move |index| {
-                        let html = Memo::new(move |_| blocks.with(|blocks| blocks.get(index).map(|block| block.html.clone()).unwrap_or_default()));
-                        view! { <div class="markdown-fragment" inner_html=move ||html.get()></div> }
-                    }/>
+                    children=move |index| fragment::view(blocks, index, streaming)/>
             </div>
         </article>
-    }
-    .into_any()
+    }.into_any()
 }
 
 fn tool_message_view(message: Memo<Option<Message>>, activity_now_ms: ReadSignal<u64>) -> AnyView {
@@ -279,21 +294,6 @@ fn current_reasoning_html(message: Memo<Option<Message>>) -> String {
             .map(|message| plain_text_html(&compact_text(&message.text, REASONING_RENDER_LIMIT)))
             .unwrap_or_default()
     })
-}
-
-fn current_message_content_class(message: Memo<Option<Message>>) -> String {
-    message
-        .with(|message| {
-            message.as_ref().map(|message| {
-                let message_class = message.role.message_class();
-                if message.streaming {
-                    format!("{message_class} streaming-message")
-                } else {
-                    message_class.to_owned()
-                }
-            })
-        })
-        .unwrap_or_else(|| "message system-message".to_owned())
 }
 
 #[cfg(test)]

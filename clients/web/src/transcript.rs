@@ -172,6 +172,19 @@ impl Transcript {
         self.with_untracked(Clone::clone)
     }
 
+    /// Чтение по индексу без клонирования текста. Структурная подписка позволяет
+    /// пережить удаление и последующее появление того же локального id.
+    pub(crate) fn with_message<T>(self, id: u64, f: impl FnOnce(Option<&Message>) -> T) -> T {
+        self.order.track();
+        self.data.with_value(|data| {
+            let message = data.entries.get(&id).map(|entry| {
+                entry.changed.track();
+                &data.items[entry.position]
+            });
+            f(message)
+        })
+    }
+
     /// Узкая проекция читает запись по ссылке: шапка и выбор вида сообщения
     /// не клонируют растущую историю вложенных вызовов субагента.
     pub(crate) fn select<T>(

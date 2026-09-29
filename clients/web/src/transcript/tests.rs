@@ -393,3 +393,44 @@ async fn child_heavy_tool_events_do_not_clone_cards_or_rescan_chat_and_plan() {
     });
     owner.cleanup();
 }
+
+#[tokio::test]
+async fn borrowed_selector_tracks_replacement_removal_and_reinsertion_without_clones() {
+    _ = any_spawner::Executor::init_tokio();
+    let owner = Owner::new();
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (read, write) = owner.with(|| {
+        let (read, write) = transcript(vec![message(1, "first"), message(2, "other")]);
+        let seen = seen.clone();
+        Effect::new_isomorphic(move |_| {
+            read.with_message(1, |message| {
+                seen.lock()
+                    .unwrap()
+                    .push(message.map(|message| message.text.clone()))
+            });
+        });
+        (read, write)
+    });
+    tokio::task::yield_now().await;
+    write.update_matching(|message| message.id == 2, |message| message.text.push('!'));
+    tokio::task::yield_now().await;
+    assert_eq!(seen.lock().unwrap().len(), 1);
+    write.set(vec![message(1, "snapshot")]);
+    tokio::task::yield_now().await;
+    write.set(Vec::new());
+    tokio::task::yield_now().await;
+    write.set(vec![message(1, "reinserted")]);
+    tokio::task::yield_now().await;
+    write.update_matching(|message| message.id == 1, |message| message.text.push('!'));
+    tokio::task::yield_now().await;
+    assert_eq!(
+        seen.lock().unwrap().last().unwrap().as_deref(),
+        Some("reinserted!")
+    );
+    assert!(seen.lock().unwrap().contains(&None));
+    assert_eq!(
+        read.data
+            .with_value(|data| data.message_reads.load(Ordering::Relaxed)),
+        0
+    );
+}

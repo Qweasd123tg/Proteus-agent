@@ -45,7 +45,8 @@ def run(command, js, wait_for, web, origin, loaded):
     wait_for(lambda: js("return !!document.querySelector('[data-client-slot=composer-model] [data-config-read] [data-custom-module=composer-model]')"),'Selection or declared service not restored')
     click('.settings-link');page('extensions')
     click('[data-select-slot=composer-model][data-module-id=model-selector]')
-    page('diagnostic-usage')
+    js("document.dispatchEvent(new KeyboardEvent('keydown',{key:'I',code:'KeyI',ctrlKey:true,shiftKey:true,bubbles:true,cancelable:true}))")
+    wait_for(lambda: js("return document.querySelector('[data-settings-section=diagnostic-usage]')?.classList.contains('active') && !document.querySelector('[data-client-view=settings]').hidden"), 'Diagnostic shortcut did not select embedded settings')
     wait_for(lambda: js("return !!document.querySelector('.diagnostic-frame')?.contentDocument?.querySelector('.inspector-shell')"),'Embedded Inspector not loaded')
     assert js("const f=document.querySelector('.diagnostic-frame'),d=f.contentDocument;return getComputedStyle(d.querySelector('.inspector-sidebar')).display==='none' && f.getBoundingClientRect().height>250 && !d.body.textContent.includes('Session token storage failed')"),'Embedded diagnostics chrome/connection failed'
     wait_for(lambda: js("return document.querySelector('.diagnostic-frame').contentDocument.querySelector('#analysis-session')?.options.length>0"),'Embedded report did not authenticate/load sessions')

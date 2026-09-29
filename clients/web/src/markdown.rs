@@ -5,6 +5,7 @@ use pulldown_cmark::{Options as MarkdownOptions, Parser, html};
 
 mod blocks;
 mod math;
+pub(crate) use blocks::Block;
 pub(crate) use blocks::blocks as markdown_blocks;
 mod preview;
 #[cfg(test)]

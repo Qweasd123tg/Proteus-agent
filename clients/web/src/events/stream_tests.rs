@@ -108,25 +108,19 @@ fn snapshot_tail_accepts_only_new_text_and_completion_keeps_its_identity() {
 }
 
 #[test]
-fn old_timer_cannot_flush_deltas_after_transcript_reset() {
+fn old_frame_cannot_flush_deltas_after_transcript_reset() {
     Owner::new().with(|| {
         let (messages, b) = bindings();
         let old_epoch = b
             .stream_delta_buffer
             .with_value(|buffer| buffer.flush_epoch);
-        b.stream_delta_buffer.update_value(|buffer| {
-            buffer.assistant.push(update("old", None, 0, "old chat"));
-            buffer.flush_scheduled = true;
-        });
+        queue_assistant_delta(b, update("old", None, 0, "old chat"));
 
         reset_stream_delta_buffer(b.stream_delta_buffer);
         let new_epoch = b
             .stream_delta_buffer
             .with_value(|buffer| buffer.flush_epoch);
-        b.stream_delta_buffer.update_value(|buffer| {
-            buffer.assistant.push(update("new", None, 0, "new chat"));
-            buffer.flush_scheduled = true;
-        });
+        queue_assistant_delta(b, update("new", None, 0, "new chat"));
 
         flush_stream_delta_buffer_if_current(b, old_epoch);
         assert!(messages.get_untracked().is_empty());
@@ -144,28 +138,56 @@ fn old_timer_cannot_flush_deltas_after_transcript_reset() {
 }
 
 #[test]
-fn explicit_flush_invalidates_previous_timer() {
+fn explicit_flush_invalidates_previous_frame() {
     Owner::new().with(|| {
         let (messages, b) = bindings();
         let old_epoch = b
             .stream_delta_buffer
             .with_value(|buffer| buffer.flush_epoch);
-        b.stream_delta_buffer.update_value(|buffer| {
-            buffer.assistant.push(update("first", None, 0, "first"));
-            buffer.flush_scheduled = true;
-        });
+        queue_assistant_delta(b, update("first", None, 0, "first"));
         flush_stream_delta_buffer(b);
         let new_epoch = b
             .stream_delta_buffer
             .with_value(|buffer| buffer.flush_epoch);
-        b.stream_delta_buffer.update_value(|buffer| {
-            buffer.assistant.push(update("second", None, 0, "second"));
-            buffer.flush_scheduled = true;
-        });
+        queue_assistant_delta(b, update("second", None, 0, "second"));
 
         flush_stream_delta_buffer_if_current(b, old_epoch);
         assert_eq!(messages.get_untracked().len(), 1);
         flush_stream_delta_buffer_if_current(b, new_epoch);
         assert_eq!(messages.get_untracked().len(), 2);
+    });
+}
+
+#[test]
+fn frame_coalesces_unicode_deltas_and_completion_invalidates_it() {
+    Owner::new().with(|| {
+        let (messages, b) = bindings();
+        let phase = Some(MessagePhase::FinalAnswer);
+        queue_assistant_delta(b, update("a", phase, 0, "Привет "));
+        let epoch = b
+            .stream_delta_buffer
+            .with_value(|buffer| buffer.flush_epoch);
+        queue_assistant_delta(b, update("a", phase, "Привет ".len(), "мир"));
+        assert!(messages.get_untracked().is_empty());
+        b.stream_delta_buffer.with_value(|buffer| {
+            assert_eq!(buffer.flush_epoch, epoch);
+            assert_eq!(buffer.assistant.len(), 1);
+            assert_eq!(buffer.assistant[0].text, "Привет мир");
+        });
+        flush_stream_delta_buffer_if_current(b, epoch);
+        assert_eq!(messages.get_untracked()[0].text, "Привет мир");
+        queue_assistant_delta(b, update("a", phase, "Привет мир".len(), "!"));
+        let pending_epoch = b
+            .stream_delta_buffer
+            .with_value(|buffer| buffer.flush_epoch);
+        complete_assistant_message(b, update("a", phase, 0, "Привет мир!"));
+        queue_assistant_delta(b, update("b", None, 0, "Следующий"));
+        flush_stream_delta_buffer_if_current(b, pending_epoch);
+        let items = messages.get_untracked();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].text, "Привет мир!");
+        assert_eq!(items[0].phase, phase);
+        assert_eq!(items[0].text_offset, 0);
+        assert!(!items[0].streaming);
     });
 }

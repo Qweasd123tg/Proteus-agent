@@ -34,10 +34,10 @@ def run(command, js, wait_for, server, origin):
     # Delay browser delivery of the delta flush and the next resume response.
     # The provider, event stream, and sidebar actions remain real.
     js("""
-      window.switchTimers=[];window.switchTimeout=window.setTimeout;
-      window.setTimeout=(callback,delay,...args)=>delay===80
-        ? switchTimeout(()=>switchTimers.push(()=>callback(...args)),0)
-        : switchTimeout(callback,delay,...args);
+      window.switchFrames=[];window.switchRAF=window.requestAnimationFrame;
+      window.requestAnimationFrame=callback=>callback.proteusStreamFlush
+        ? (switchFrames.push(callback),0)
+        : switchRAF(callback);
       window.switchFetch=window.fetch;
       window.fetch=(input,...args)=>new URL(input.url||input,location.href).pathname==='/resume'
         ? new Promise(resolve=>window.releaseSwitchResume=()=>resolve(switchFetch(input,...args)))
@@ -48,10 +48,10 @@ def run(command, js, wait_for, server, origin):
         before = server.model_requests
         draft('Поток перед переключением чата')
         js("document.querySelector('.composer-submit').click()")
-        wait_for(lambda: server.model_requests > before and js('return switchTimers.length>0'), 'Stream delta was not buffered')
+        wait_for(lambda: server.model_requests > before and js('return switchFrames.length>0'), 'Stream delta was not buffered')
         open_session(other)
         wait_for(lambda: selected() == other and js("return typeof releaseSwitchResume==='function'"), 'Pending session switch did not start')
-        js('window.setTimeout=switchTimeout;switchTimers.splice(0).forEach(callback=>callback())')
+        js('window.requestAnimationFrame=switchRAF;switchFrames.splice(0).forEach(callback=>callback())')
         # Cross a render boundary before inspecting the new transcript.
         js('window.switchRendered=false;requestAnimationFrame(()=>requestAnimationFrame(()=>window.switchRendered=true))')
         wait_for(lambda: js('return switchRendered'), 'Session switch did not render')
@@ -61,7 +61,7 @@ def run(command, js, wait_for, server, origin):
         wait_for(connected, 'Target session did not connect')
     finally:
         server.stream_gate.set()
-        js('window.setTimeout=switchTimeout;window.fetch=switchFetch')
+        js('window.requestAnimationFrame=switchRAF;window.fetch=switchFetch')
 
     open_session(original)
     wait_for(lambda: selected() == original and connected() and js("return !document.querySelector('.composer-stop') && document.querySelector('.results-panel').textContent.includes('Абзац 31:')"), 'Original response did not settle after returning')
