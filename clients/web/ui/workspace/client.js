@@ -1,5 +1,6 @@
 import { mountControlPlacement } from "../modules/placement.js";
 import { createWorkspace } from "../../extensions/workspace.js";
+import { watchViewMotion } from "../view-motion.js";
 let board, attachment;
 export function clientWorkspace() {
   if (board) return board;
@@ -78,8 +79,15 @@ export function clientWorkspace() {
       attributeFilter: ["data-workspace-title"],
     });
   const stopControls = mountControlPlacement(target);
+  const stopScreens = [
+    target,
+    document.querySelector('[data-client-view="settings"]'),
+  ]
+    .filter(Boolean)
+    .map((element) => watchViewMotion(element));
   const stop = board.stop;
   board.stop = () => {
+    for (const stop of stopScreens) stop();
     stopControls();
     controller.abort();
     titles.disconnect();

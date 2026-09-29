@@ -69,11 +69,14 @@ def run(command, js, wait_for):
     js("keepFrame.remove()")
     js("window.beforeRatio=JSON.parse(localStorage.getItem('proteus.workspace.layout')).ratio;document.querySelector('.workspace-resize').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}))")
     assert js("return JSON.parse(localStorage.getItem('proteus.workspace.layout')).ratio<beforeRatio"),'Divider did not persist'
-    # Drag the chat into the other tab strip and cancel a second drag.
+    # Pointer coordinates must be measured after tabs finish their prior move.
+    # The drag itself remains a trusted pointer interaction, including cancellation.
+    wait_for(lambda: js("return [...document.querySelectorAll('.workspace-tab')].every(tab=>!tab.getAnimations().some(a=>a.playState==='running'))"),'Tab positions did not settle before dragging')
     start=point(tab('client:chat'));end=point('.workspace-group[data-group="1"] .workspace-tabs')
     pointer([move(start),{'type':'pointerDown','button':0},move(end),{'type':'pointerUp','button':0}])
     assert js("return document.querySelector('[data-tab-id=\"client:chat\"]').closest('[data-group]').dataset.group==='1' && keptComposer.value==='Черновик между областями'"),'Pointer transfer failed'
     js("window.savedLayout=localStorage.getItem('proteus.workspace.layout')")
+    wait_for(lambda: js("return [...document.querySelectorAll('.workspace-tab')].every(tab=>!tab.getAnimations().some(a=>a.playState==='running'))"),'Tab positions did not settle before the canceled drag')
     start=point(tab('client:chat'));end=point('.workspace-group[data-group="0"] .workspace-tabs')
     pointer([move(start),{'type':'pointerDown','button':0},move(end)])
     js("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")

@@ -10,7 +10,9 @@ import {
   mergeGroups,
 } from "../ui/workspace/state.mjs";
 import { createGroup, createTab } from "../ui/workspace/group.js";
-import { motionAllowed } from "../ui/motion.js";
+import { watchViewMotion } from "../ui/view-motion.js";
+import { popoverMotion } from "../ui/popover-motion.js";
+import { tabMotion } from "../ui/workspace/tab-motion.js";
 
 // The board owns placement; providers own content and its lifetime.
 export function createWorkspace(target, { storage } = {}) {
@@ -31,7 +33,8 @@ export function createWorkspace(target, { storage } = {}) {
   const sources = new Map(),
     tabs = new Map(),
     scrolls = new WeakMap(),
-    visibility = new WeakMap();
+    visibility = new WeakMap(),
+    viewMotion = new Map();
   let records = [],
     layout,
     drag,
@@ -65,6 +68,8 @@ export function createWorkspace(target, { storage } = {}) {
     status,
   );
   target.append(element);
+  const pickerMotion = popoverMotion(picker);
+  const animateTabs = tabMotion(element, signal);
   function save() {
     try {
       storage?.setItem(layoutKey, JSON.stringify(layout));
@@ -158,10 +163,19 @@ export function createWorkspace(target, { storage } = {}) {
     const r = add.getBoundingClientRect();
     picker.style.left = `${Math.max(8, Math.min(innerWidth - 300, r.right - 280))}px`;
     picker.style.top = `${Math.max(8, Math.min(innerHeight - 340, r.bottom + 6))}px`;
-    picker.showPopover();
+    pickerMotion.show();
   }
   function render() {
+    const finishTabMotion = animateTabs();
     records = [...sources.values()].flatMap((s) => s.records);
+    for (const [root, stop] of viewMotion)
+      if (!records.some((r) => r.element === root)) {
+        stop();
+        viewMotion.delete(root);
+      }
+    for (const r of records)
+      if (r.element && !viewMotion.has(r.element))
+        viewMotion.set(r.element, watchViewMotion(r.element, { signal }));
     const available = new Set(
       records.filter((r) => !r.collapsed).map((r) => r.id),
     );
@@ -241,11 +255,6 @@ export function createWorkspace(target, { storage } = {}) {
         root.id = `workspace-view-${r.id}`;
         root.setAttribute("role", "tabpanel");
         root.setAttribute("aria-labelledby", `workspace-tab-${r.id}`);
-        if (selected && wasHidden && motionAllowed())
-          root.animate([{ opacity: 0.65 }, { opacity: 1 }], {
-            duration: 200,
-            easing: "cubic-bezier(.2,.7,.2,1)",
-          });
       }
     }
     for (const r of records)
@@ -273,6 +282,7 @@ export function createWorkspace(target, { storage } = {}) {
       b.setAttribute("aria-label", b.title);
     }
     focus(layout.focused);
+    finishTabMotion();
   }
   for (const [index, group] of groups.entries()) {
     enableHorizontalReorder(group.tabs, {
@@ -455,6 +465,9 @@ export function createWorkspace(target, { storage } = {}) {
       };
     },
     stop() {
+      pickerMotion.dispose();
+      for (const stop of viewMotion.values()) stop();
+      viewMotion.clear();
       controller.abort();
       resizeObserver.disconnect();
       element.remove();

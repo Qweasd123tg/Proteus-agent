@@ -10,7 +10,8 @@
 .app-layout.sidebar-collapsed .sidebar { --sidebar-footer-height: 56px; }
 .app-layout.sidebar-collapsed .sidebar-footer { padding: 6px 4px; }
 .app-layout.sidebar-collapsed .sidebar-footer > a { width: 32px; min-height: 32px; padding: 7px; justify-content: center; }
-.app-layout.sidebar-collapsed .sidebar-footer-label, .app-layout.sidebar-collapsed .sidebar-footer .connection-text { display: none; }
+.app-layout.sidebar-collapsed .sidebar-footer .connection-text { display: none; }
+.app-layout.sidebar-collapsed .sidebar-footer-label { position:absolute; left:42px; top:18px; opacity:0; visibility:hidden; pointer-events:none; }
 .app-layout.sidebar-collapsed .sidebar-footer-status { flex-direction: column; }
 .app-layout.sidebar-collapsed .sidebar-footer-status .connection-badge { max-width: none; min-width: 30px; }
 

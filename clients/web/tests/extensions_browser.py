@@ -13,6 +13,7 @@ from client_modules_checks import run as check_client_modules
 from extensions_checks import run as check_extensions
 from panel_checks import run as check_panels
 from workspace_checks import run as check_workspace
+from motion_checks import run as check_motion
 from select_checks import run as check_selects
 from layout_checks import run as check_layout
 from session_checks import run as check_session, check_inspector_startup, BOOTSTRAP
@@ -306,7 +307,7 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     except OSError:
                         return False
                 wait_for(driver_ready, 'geckodriver startup')
-                reduced_motion = int(os.environ.get('PROTEUS_TEST_REDUCED_MOTION', '0'))
+                reduced_motion = 1 if '--reduced-motion' in sys.argv else int(os.environ.get('PROTEUS_TEST_REDUCED_MOTION', '0'))
                 capabilities = {'capabilities': {'alwaysMatch': {'browserName': 'firefox', 'pageLoadStrategy': 'eager', 'moz:firefoxOptions': {'args': ['-headless'], 'prefs': {'network.proxy.type': 0, 'ui.prefersReducedMotion': reduced_motion}}}}}
                 session = request(endpoint + '/session', 'POST', capabilities)['value']['sessionId']
                 url = endpoint + '/session/' + session
@@ -326,6 +327,11 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return
                 if '--chrome-only' in sys.argv:
                     check_chrome(command, js, wait_for, web, origin)
+                    return
+                if '--motion-only' in sys.argv:
+                    command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
+                    wait_for(loaded, 'Client did not load for motion checks')
+                    check_motion(command, js, wait_for)
                     return
                 if '--workspace-layout-only' in sys.argv:
                     command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})

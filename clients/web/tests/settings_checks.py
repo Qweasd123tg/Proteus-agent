@@ -47,22 +47,23 @@ def run(command, js, wait_for):
     assert order() == expected and js("return !document.querySelector('.extension-drag-ghost') && escapedToApp===0 && localStorage.getItem('proteus.ui.extensions')===orderSaved"), 'Escape did not cancel drag cleanly'
     click('[data-settings-id=usage]')
     wait_for(lambda: js("return !!document.querySelector('.extension-options-content')?.shadowRoot?.querySelector('form')"), 'Settings form not mounted')
-    wait_for(lambda: js("return !document.querySelector('.extension-options').getAnimations().length"), 'Options animation did not settle')
+    wait_for(lambda: js("return !document.querySelector('.extension-options').getAnimations().some(a=>a.playState==='running')"), 'Options animation did not settle')
     assert js("const n=document.querySelector('.settings-nav').getBoundingClientRect(),l=document.querySelector('.settings-content').getBoundingClientRect(),r=document.querySelector('.extension-options').getBoundingClientRect();return n.right<=l.left && r.left===l.left && r.right<=l.right+1 && r.width>300"), 'Module details escaped the Settings screen'
     js("window.keptOptions=document.querySelector('.extension-options-content');keptOptions.shadowRoot.querySelector('[name=model]').value='draft-model'")
     # A dropdown consumes Escape first, then the pane consumes the next one.
     js("keptOptions.shadowRoot.querySelector('select').click()")
     assert js("return !!keptOptions.shadowRoot.querySelector('.select-picker')"), 'Settings dropdown not open'
     command('/actions', {'actions': [{'type': 'key', 'id': 'settings-key', 'actions': [{'type': 'keyDown', 'value': '\ue00c'}, {'type': 'keyUp', 'value': '\ue00c'}]}]})
-    assert js("return !keptOptions.shadowRoot.querySelector('.select-picker') && !document.querySelector('.extension-options').hidden && escapedToApp===0"), 'Dropdown Escape closed pane or reached agent'
+    assert js("return !keptOptions.shadowRoot.querySelector('.select-picker')?.matches(':popover-open') && !document.querySelector('.extension-options').hidden && escapedToApp===0"), 'Dropdown Escape closed pane or reached agent'
+    wait_for(lambda: js("return !keptOptions.shadowRoot.querySelector('.select-picker')"), 'Closed dropdown did not finish leaving')
     js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
     assert js("return document.querySelector('.extension-options').hidden && document.activeElement.dataset.settingsId==='usage' && escapedToApp===0"), 'Panel Escape did not restore focus or reached agent'
     click('[data-settings-id=usage]')
     click('[data-settings-section=diagnostic-usage]')
-    assert js("return document.querySelector('.extension-options').getBoundingClientRect().width===0"), 'Options leaked into another section'
+    wait_for(lambda: js("return document.querySelector('.extension-options').getBoundingClientRect().width===0"), 'Options leaked into another section')
     click('[data-settings-section=extensions]')
     assert js("return document.querySelector('.extension-options-content')===keptOptions && keptOptions.shadowRoot.querySelector('[name=model]').value==='draft-model'"), 'Hiding settings lost unsaved form'
-    wait_for(lambda: js("return !document.querySelector('.settings-nav').getAnimations({subtree:true}).length"), 'Navigation transition did not settle')
+    wait_for(lambda: js("return !document.querySelector('.settings-nav').getAnimations({subtree:true}).some(a=>a.playState==='running')"), 'Navigation transition did not settle')
     Path('/tmp/proteus-settings-three-panes.png').write_bytes(base64.b64decode(command('/screenshot', None)))
     for width in [900, 620, 390]:
         command('/window/rect', {'width': width, 'height': 1000})

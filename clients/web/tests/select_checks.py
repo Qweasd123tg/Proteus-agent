@@ -14,6 +14,8 @@ def run(command, js, wait_for):
 
     select = "document.querySelector('#picker-fixture select')"
     menu = "document.querySelector('.select-picker')"
+    def removed(expression=menu):
+        wait_for(lambda: js(f"return !{expression}"), 'Closed picker retained its transient DOM')
     try:
         js("""
           const fixture=document.createElement('div');fixture.id='picker-fixture';
@@ -30,27 +32,34 @@ def run(command, js, wait_for):
         pointer(f"{menu}.querySelectorAll('[role=option]')[1]")
         assert js(f"return !!{menu} && {select}.value==='alpha'"), 'Disabled pointer option was selected'
         keys('\ue015', '\ue007')  # ArrowDown, Enter skips disabled and hidden groups.
-        assert js(f"return !{menu} && {select}.value==='beta' && document.activeElement==={select} && document.querySelector('#picker-fixture').dataset.inputs==='1' && document.querySelector('#picker-fixture').dataset.changes==='1'"), 'Keyboard selection lost value, bindings or trigger focus'
+        assert js(f"return !{menu}?.matches(':popover-open') && {select}.value==='beta' && document.activeElement==={select} && document.querySelector('#picker-fixture').dataset.inputs==='1' && document.querySelector('#picker-fixture').dataset.changes==='1'"), 'Keyboard selection lost value, bindings or trigger focus'
+        removed()
         keys(' ')
         wait_for(lambda: js(f"return !!{menu}"), 'Space did not open themed picker')
         keys('\ue010', '\ue00c')  # End, Escape must not commit.
-        assert js(f"return !{menu} && {select}.value==='beta' && document.activeElement==={select}"), 'Escape committed or lost focus'
+        assert js(f"return !{menu}?.matches(':popover-open') && {select}.value==='beta' && document.activeElement==={select}"), 'Escape committed or lost focus'
+        removed()
         keys('g', '\ue007')
         assert js(f"return {select}.value==='gamma'"), 'Typing from the trigger did not select through the themed menu'
+        removed()
         pointer(select)
         keys('\ue004')  # Tab continues from the trigger in DOM tab order.
-        assert js(f"return !{menu} && document.activeElement.id==='picker-after'"), 'Tab trapped focus or skipped the next field'
+        assert js(f"return !{menu}?.matches(':popover-open') && document.activeElement.id==='picker-after'"), 'Tab trapped focus or skipped the next field'
+        removed()
         pointer(select)
         command('/actions', {'actions': [{'type': 'key', 'id': 'select-keyboard', 'actions': [
             {'type': 'keyDown', 'value': '\ue008'}, {'type': 'keyDown', 'value': '\ue004'},
             {'type': 'keyUp', 'value': '\ue004'}, {'type': 'keyUp', 'value': '\ue008'}]}]})
-        assert js(f"return !{menu} && document.activeElement.id==='picker-before'"), 'Shift+Tab did not return to the previous field'
+        assert js(f"return !{menu}?.matches(':popover-open') && document.activeElement.id==='picker-before'"), 'Shift+Tab did not return to the previous field'
+        removed()
         pointer(select)
         pointer("document.querySelector('#picker-after')")
-        assert js(f"return !{menu} && document.activeElement.id==='picker-after'"), 'Outside click did not dismiss and transfer focus'
+        assert js(f"return !{menu}?.matches(':popover-open') && document.activeElement.id==='picker-after'"), 'Outside click did not dismiss and transfer focus'
+        removed()
         pointer(select)
         pointer(f"{menu}.querySelectorAll('[role=option]')[0]")
-        assert js(f"return !{menu} && {select}.value==='alpha'"), 'Trusted pointer did not commit a selectable option'
+        assert js(f"return !{menu}?.matches(':popover-open') && {select}.value==='alpha'"), 'Trusted pointer did not commit a selectable option'
+        removed()
         pointer(select)
         js(f"{select}.remove()")
         wait_for(lambda: js(f"return !{menu}"), 'Detached trigger left an orphan menu')
@@ -63,7 +72,8 @@ def run(command, js, wait_for):
         pointer(f"{shadow}.querySelector('select')")
         wait_for(lambda: js(f"return !!{shadow}.querySelector('.select-picker') && {shadow}.activeElement?.classList.contains('select-picker')"), 'Shadow DOM select did not open its themed picker')
         keys('\ue015', '\ue007')
-        assert js(f"return {shadow}.querySelector('select').value==='B' && !{shadow}.querySelector('.select-picker')"), 'Shadow DOM keyboard binding failed'
+        assert js(f"return {shadow}.querySelector('select').value==='B' && !{shadow}.querySelector('.select-picker')?.matches(':popover-open')"), 'Shadow DOM keyboard binding failed'
+        removed(f"{shadow}.querySelector('.select-picker')")
         pointer(f"{shadow}.querySelector('select')")
         js("window.detachedPickerRoot=document.querySelector('#picker-shadow').shadowRoot;document.querySelector('#picker-shadow').remove()")
         wait_for(lambda: js("return !window.detachedPickerRoot.querySelector('.select-picker')"), 'Detached Shadow DOM host retained menu and listeners')

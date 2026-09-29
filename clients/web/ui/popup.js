@@ -1,17 +1,20 @@
 // Shared keyboard/focus behavior for application and sidebar menus.
 import { icon } from '../extensions/icons.js';
+import { popoverMotion } from './popover-motion.js';
 export function popup(className, label, {manual=false}={}) {
   if (!document.querySelector('link[data-popups]')) {
     const style=document.createElement('link');style.rel='stylesheet';style.href=new URL('./popup.css',import.meta.url).href;style.dataset.popups='';document.head.append(style);
   }
   const element=document.createElement('div');element.className=`ui-popup ${className}`;element.setAttribute('popover',manual?'manual':'auto');element.setAttribute('aria-label',label);document.body.append(element);
   let anchor;
+  const motion=popoverMotion(element,{anchor:()=>anchor});
   function hide(focus=false){if(element.matches(':popover-open'))element.hidePopover();if(focus&&anchor?.isConnected)anchor.focus({preventScroll:true});}
   function show(content, target, point, focus=true){
-    hide();anchor=target;element.replaceChildren(...content);element.showPopover();
+    hide();anchor=target;element.replaceChildren(...content);motion.show(()=>{
     const r=target.getBoundingClientRect(),size=element.getBoundingClientRect();
     element.style.left=`${Math.max(8,Math.min(point?.x??r.right+6,innerWidth-size.width-8))}px`;
     element.style.top=`${Math.max(8,Math.min(point?.y??r.top,innerHeight-size.height-8))}px`;
+    });
     if(focus)element.querySelector('button,input')?.focus({preventScroll:true});
   }
   element.addEventListener('keydown',event=>{
@@ -32,5 +35,5 @@ export function popup(className, label, {manual=false}={}) {
   const outside=event=>{if(element.matches(':popover-open')&&!event.composedPath().includes(element))hide();};
   const escape=event=>{if(event.key==='Escape'&&element.matches(':popover-open')){event.preventDefault();event.stopPropagation();hide(true);}};
   if(manual){document.addEventListener('pointerdown',outside,true);document.addEventListener('keydown',escape,true);}
-  return {element,show,hide,action,dispose(){hide();element.remove();window.removeEventListener('resize',resized);if(manual){document.removeEventListener('pointerdown',outside,true);document.removeEventListener('keydown',escape,true);}}};
+  return {element,show,hide,action,dispose(){hide();motion.dispose();element.remove();window.removeEventListener('resize',resized);if(manual){document.removeEventListener('pointerdown',outside,true);document.removeEventListener('keydown',escape,true);}}};
 }

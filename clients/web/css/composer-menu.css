@@ -1,4 +1,6 @@
 .composer-menu { min-width: 0; max-width: 360px; }
+/* Native popover state hides the fixed panel; details must not freeze its exit. */
+.composer-menu::details-content { content-visibility:visible; }
 .composer-menu-trigger {
     display: flex;
     align-items: center;

@@ -6,6 +6,7 @@ import { icon } from './icons.js';
 import { createSettingsPane } from './settings-pane.js';
 import { enableReorder } from './settings-reorder.js';
 import { mountSettingsEntry } from './settings-entry.js';
+import { mountDisclosureMotion } from '../ui/disclosure-motion.js';
 
 function node(tag, text, className) {
   const element = document.createElement(tag);
@@ -62,6 +63,11 @@ export function mountExtensionSettings(root, registry, services = {}) {
   const builtinContent=node('div');
   builtin.append(builtinContent);
   root.append(builtin, list, available, source, notice, announcement, reset);
+  const resetContent=node('div');
+  resetContent.append(...[...reset.children].slice(1));reset.append(resetContent);
+  mountDisclosureMotion(builtin,builtinContent,signal);
+  mountDisclosureMotion(source,form,signal);
+  mountDisclosureMotion(reset,resetContent,signal);
   const stopBuiltin=mountBuiltinManagement(builtinContent,registry);
   enableReorder(list,registry,signal,announcement);
   const unsubscribe = registry.subscribe(() => {

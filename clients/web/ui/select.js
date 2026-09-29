@@ -1,5 +1,6 @@
 // Keep the form control and its bindings; render its picker in the app's theme.
 // Delegation also covers controls inside extension ShadowRoots.
+import { popoverMotion } from './popover-motion.js';
 let active, serial = 0, pointerSelect;
 const single = event => event.composedPath().find(node => node instanceof HTMLSelectElement && !node.multiple && node.size <= 1 && !node.matches(':disabled'));
 
@@ -44,12 +45,18 @@ function open(select) {
     row.addEventListener('pointermove', () => { if (available(i)) highlight(i); }, { signal });
     row.addEventListener('click', () => choose(i), { signal });
   });
-  function close(focus = true) {
+  function cleanup(focus = false) {
     if (active?.menu !== menu) return;
-    controller.abort(); observer.disconnect(); removalObserver.disconnect(); menu.remove(); active = undefined;
+    controller.abort(); observer.disconnect(); removalObserver.disconnect(); active = undefined;
     previousAria.forEach(([name, value]) => value === null ? select.removeAttribute(name) : select.setAttribute(name, value));
     if (focus && select.isConnected) select.focus({ preventScroll: true });
   }
+  function close(focus = true) {
+    cleanup(focus);
+    if (!menu.isConnected) { motion.dispose(); menu.remove(); }
+    else motion.hide();
+  }
+  const motion = popoverMotion(menu, {anchor: () => select, onClose: () => cleanup(), onExit: () => { motion.dispose(); menu.remove(); }});
   active = { menu, select, close };
   const observer = new MutationObserver(() => close(false));
   const removalObserver = new MutationObserver(() => { if (!select.isConnected || !menu.isConnected || select.matches(':disabled')) close(false); });
@@ -58,7 +65,7 @@ function open(select) {
   }
   observer.observe(select, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'hidden', 'label', 'value', 'selected', 'multiple', 'size'] });
   select.setAttribute('aria-controls', menu.id); select.setAttribute('aria-expanded', 'true');
-  menu.showPopover?.();
+  motion.show(() => {
   const rect = select.getBoundingClientRect();
   menu.style.minWidth = `${Math.min(Math.max(rect.width, 170), innerWidth - 16)}px`;
   menu.style.maxWidth = `${innerWidth - 16}px`;
@@ -66,6 +73,7 @@ function open(select) {
   const size = menu.getBoundingClientRect();
   menu.style.left = `${Math.max(8, Math.min(rect.left, innerWidth - size.width - 8))}px`;
   menu.style.top = `${Math.max(8, rect.bottom + size.height + 8 < innerHeight ? rect.bottom + 6 : rect.top - size.height - 6)}px`;
+  });
   menu.focus({ preventScroll: true }); highlight(available(index) ? index : options.findIndex((_, i) => available(i)));
   document.addEventListener('pointerdown', event => {
     if (!event.composedPath().includes(menu) && !event.composedPath().includes(select)) close(false);

@@ -33,7 +33,7 @@
     border-right: 1px solid var(--border-subtle);
     background: var(--bg-panel);
 }
-.app-layout.sidebar-collapsed .sidebar-surface { transform: translateX(-100%); visibility: hidden; pointer-events: none; }
+.app-layout.sidebar-collapsed .sidebar-surface { transform: translateX(-100%); opacity:0; visibility: hidden; pointer-events: none; }
 .sidebar-rail-surface {
     position: absolute;
     inset: 0 auto var(--sidebar-footer-height, 224px) 0;

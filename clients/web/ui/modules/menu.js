@@ -1,4 +1,5 @@
 import { icon } from "../../extensions/icons.js";
+import { popoverMotion } from "../popover-motion.js";
 export function menu(root, kind, label, glyph, signal) {
   const details = document.createElement("details");
   details.className = `composer-menu composer-${kind}-menu`;
@@ -17,6 +18,7 @@ export function menu(root, kind, label, glyph, signal) {
   panel.setAttribute("popover", "auto");
   details.append(summary, panel);
   root.append(details);
+  const motion = popoverMotion(panel, {anchor: () => summary});
   function position() {
     const r = summary.getBoundingClientRect(),
       size = panel.getBoundingClientRect();
@@ -29,8 +31,7 @@ export function menu(root, kind, label, glyph, signal) {
       if (details.open) {
         for (const other of document.querySelectorAll(".composer-menu[open]"))
           if (other !== details) other.open = false;
-        panel.showPopover();
-        position();
+        motion.show(position);
       } else if (panel.matches(":popover-open")) panel.hidePopover();
     },
     { signal },
@@ -53,6 +54,7 @@ export function menu(root, kind, label, glyph, signal) {
     "abort",
     () => {
       if (panel.matches(":popover-open")) panel.hidePopover();
+      motion.dispose();
     },
     { once: true },
   );

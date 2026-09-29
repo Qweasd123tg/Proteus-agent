@@ -1,0 +1,154 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="/css/tokens.css"><link rel="stylesheet" href="/ui/popup.css">
+<link rel="stylesheet" href="/ui/select.css"><link rel="stylesheet" href="/ui/tooltip.css">
+<link rel="stylesheet" href="/css/composer-menu.css">
+<link rel="stylesheet" href="/css/motion.css">
+</head><body><div id="screen">
+<button id="first" style="position:absolute;left:80px;top:180px" title="Первый">First</button>
+<button id="second" style="position:absolute;left:680px;top:180px" title="Второй">Second</button>
+<select id="select" style="position:absolute;left:80px;top:380px"><option>A</option><option>B</option></select>
+<div id="composer" style="contain:layout;position:absolute;left:200px;top:550px;width:350px"></div></div>
+<script type="module">
+import {popup} from '/ui/popup.js';
+import '/ui/select.js';
+import {hideTooltip} from '/ui/tooltip.js';
+import {menu} from '/ui/modules/menu.js';
+const results=[], reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const unhandled=[];window.addEventListener('unhandledrejection',event=>unhandled.push(String(event.reason)));
+let failure, done=false;
+window.probe=()=>{if(failure)throw failure;return done?results:null};
+const assert=(value,message)=>{if(!value)throw Error(message)};
+const opacity=node=>Number(getComputedStyle(node).opacity);
+const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
+async function until(check,message){
+  const end=performance.now()+2500;
+  while(!check()){assert(performance.now()<end,message);await frame();}
+}
+async function enter(node,name){
+  await until(()=>node.matches(':popover-open'),name+' did not open');
+  if(reduced){assert(opacity(node)===1,name+' ignored reduced motion');return 1;}
+  await until(()=>opacity(node)>0&&opacity(node)<1,name+' has no intermediate enter opacity');
+  const sample=opacity(node);
+  await until(()=>opacity(node)===1,name+' entry never settles');
+  return sample;
+}
+async function exit(node,name){
+  assert(!node.matches(':popover-open')&&node.inert,name+' remains interactive');
+  assert(getComputedStyle(node).pointerEvents==='none',name+' still captures pointer');
+  if(reduced){assert(getComputedStyle(node).display==='none',name+' reduced exit');return 0;}
+  const pixels=()=>document.querySelector('.ui-popover-exit')||node;
+  await until(()=>opacity(pixels())>0&&opacity(pixels())<1,name+' has no intermediate exit opacity');
+  assert(pixels().getBoundingClientRect().height>0,name+' exit has no painted surface');
+  return opacity(pixels());
+}
+(async()=>{
+  await frame();
+  const first=document.querySelector('#first'),second=document.querySelector('#second');
+  const panel=popup('motion-probe','Probe',{manual:true});
+  panel.show([panel.action('Action','',()=>{})],first);
+  assert(reduced||opacity(panel.element)<0.05,'Menu flashes before positioned entry');
+  const menuEnter=await enter(panel.element,'menu');
+  panel.hide(true);
+  assert(document.activeElement===first,'Menu did not restore focus immediately');
+  const menuExit=await exit(panel.element,'menu');
+  const interruptedOpacity=opacity(panel.element);
+  panel.show([panel.action('Same anchor','',()=>{})],first);
+  assert(reduced||opacity(panel.element)>=interruptedOpacity-0.05,'Reversing exit flashes to zero');
+  await enter(panel.element,'same-anchor menu');panel.hide();await exit(panel.element,'same-anchor menu');
+  panel.show([panel.action('Replacement','',()=>{})],second);
+  await enter(panel.element,'reopened menu');
+  assert(panel.element.textContent==='Replacement'&&panel.element.getBoundingClientRect().left>600,'Reopen uses stale anchor or contents');
+  panel.hide();await until(()=>getComputedStyle(panel.element).display==='none','Menu exit never settles');
+  results.push({name:'menu/reopen/focus',enter:menuEnter,exit:menuExit,overlay:CSS.supports('overlay','auto'),reduced});
+
+  const select=document.querySelector('#select');select.click();
+  const picker=document.querySelector('.select-picker:popover-open');
+  const selectEnter=await enter(picker,'select');
+  picker.hidePopover();
+  assert(select.getAttribute('aria-expanded')!=='true','External select dismissal retained expanded state');
+  const selectExit=await exit(picker,'select');
+  select.click();const next=document.querySelector('.select-picker:popover-open');
+  assert(next&&next!==picker,'Select cannot reopen during exit');
+  await enter(next,'reopened select');
+  await until(()=>!picker.isConnected,'Old picker was not removed');
+  assert(next.isConnected,'Old exit removed the new picker');
+  document.querySelector('#screen').dispatchEvent(new Event('module-hide'));
+  assert(!next.matches(':popover-open'),'Module hide retained select');
+  await until(()=>!next.isConnected,'Hidden module retained transient picker');
+  results.push({name:'select/cleanup/module-hide',enter:selectEnter,exit:selectExit});
+
+  first.focus();
+  await until(()=>document.querySelector('.ui-tooltip')?.matches(':popover-open'),'Focused tooltip did not open');
+  const tooltip=document.querySelector('.ui-tooltip');
+  const tooltipEnter=await enter(tooltip,'tooltip');
+  tooltip.hidePopover();
+  assert(!first.getAttribute('aria-describedby')?.split(/\s+/).includes(tooltip.id),'External hide retains aria-describedby');
+  first.dispatchEvent(new PointerEvent('pointerover',{bubbles:true,pointerType:'mouse'}));
+  await until(()=>tooltip.matches(':popover-open'),'External hide prevents same-anchor hover');
+  await enter(tooltip,'external reopened tooltip');hideTooltip();
+  const tooltipExit=await exit(tooltip,'tooltip');
+  second.focus();await until(()=>tooltip.matches(':popover-open'),'Replacement tooltip did not open');
+  await enter(tooltip,'replacement tooltip');
+  assert(tooltip.textContent==='Второй','Tooltip retained old anchor text');hideTooltip();
+  results.push({name:'tooltip/anchor',enter:tooltipEnter,exit:tooltipExit});
+
+  const controller=new AbortController();
+  const model=menu(document.querySelector('#composer'),'model','Model','',controller.signal);
+  model.summary.textContent='Model';const choice=document.createElement('button');choice.textContent='Choice';choice.id='model-choice';choice.setAttribute('role','menuitem');model.panel.append(choice);
+  model.panel.style.maxHeight='90px';
+  for(let i=0;i<15;i++){const row=document.createElement('button');row.textContent='Row '+i;row.style.display='block';model.panel.append(row);}
+  const closedHeight=model.details.getBoundingClientRect().height;
+  model.details.open=true;const modelEnter=await enter(model.panel,'composer');
+  model.panel.scrollTop=70;
+  const beforeExit=model.panel.getBoundingClientRect(),beforeExitScroll=model.panel.scrollTop;
+  model.details.open=false;
+  await until(()=>!model.panel.matches(':popover-open'),'Composer did not dismiss');
+  const modelExit=await exit(model.panel,'composer');
+  if(!reduced){
+    const ghost=document.querySelector('.ui-popover-exit'),during=ghost.getBoundingClientRect();
+    assert(Math.abs(during.left-beforeExit.left)<1&&Math.abs(during.top-beforeExit.top)<5,'Contained exit changed coordinate origin');
+    assert(ghost.scrollTop===beforeExitScroll&&ghost.scrollTop>0,'Snapshot lost scroll position');
+    assert(ghost.inert&&ghost.getAttribute('aria-hidden')==='true'&&!ghost.matches('[popover],.composer-menu-panel,.select-picker')&&!ghost.querySelector('[id],[role],[tabindex]'),'Exit snapshot retains runtime identity or focus');
+    const beforeReverse=opacity(ghost);model.details.open=true;
+    await until(()=>model.panel.matches(':popover-open'),'Contained reverse did not open');
+    assert(opacity(model.panel)>=beforeReverse-0.1&&!document.querySelector('.ui-popover-exit'),'Contained reverse flashes or leaves snapshot');
+    await until(()=>opacity(model.panel)===1,'Contained reverse did not settle');
+    model.details.open=false;await until(()=>!model.panel.matches(':popover-open'),'Contained repeat did not close');
+  }
+  choice.focus();assert(document.activeElement!==choice,'Closing composer kept a focusable option');
+  await until(()=>getComputedStyle(model.panel).display==='none'&&!document.querySelector('.ui-popover-exit'),'Composer exit never settles');
+  assert(model.details.getBoundingClientRect().height===closedHeight,'Closed composer occupies layout space');
+  if(!reduced){
+    model.details.open=true;await enter(model.panel,'snapshot preference probe');model.details.open=false;
+    await until(()=>!model.panel.matches(':popover-open'),'Snapshot preference probe did not close');
+    assert(document.querySelector('.ui-popover-exit'),'Missing snapshot preference probe');
+  }
+  document.documentElement.dataset.animations='off';window.dispatchEvent(new Event('proteus-motion-change'));
+  assert(!document.querySelector('.ui-popover-exit'),'Disabling motion retained snapshot');
+  panel.show([panel.action('No motion','',()=>{})],first);
+  assert(opacity(panel.element)===1,'Disabled entry still animates');panel.hide();
+  assert(getComputedStyle(panel.element).display==='none','Disabled exit still animates');
+  if(!reduced){
+    document.documentElement.dataset.animations='on';window.dispatchEvent(new Event('proteus-motion-change'));
+    panel.show([panel.action('Cancel exit','',()=>{})],first);await enter(panel.element,'preference probe');panel.hide();
+    document.documentElement.dataset.animations='off';window.dispatchEvent(new Event('proteus-motion-change'));
+    assert(getComputedStyle(panel.element).display==='none','Disabling motion did not end an active exit');
+  }
+  if(!reduced){
+    document.documentElement.dataset.animations='on';window.dispatchEvent(new Event('proteus-motion-change'));
+    document.querySelector('#composer').append(panel.element);
+    panel.show([panel.action('Same tick','',()=>{})],first);await enter(panel.element,'same-tick probe');
+    panel.hide();panel.show([panel.action('Same tick reopened','',()=>{})],first);
+    assert(opacity(panel.element)>0.95&&!document.querySelector('.ui-popover-exit'),'Same-tick reopen flashes or leaves snapshot');
+    await frame();assert(unhandled.length===0,'Same-tick reopen rejected outside lifecycle');
+    panel.hide();await until(()=>!document.querySelector('.ui-popover-exit'),'Same-tick probe did not settle');
+    model.details.open=true;await enter(model.panel,'disposal probe');model.details.open=false;
+    await until(()=>!!document.querySelector('.ui-popover-exit'),'Disposal snapshot missing');
+  }
+  controller.abort();panel.dispose();
+  assert(!document.querySelector('.ui-popover-exit')&&!model.panel.matches(':popover-open'),'Disposal retained visual or native popup');
+  assert(!model.panel.hasAttribute('data-popover-motion')&&!model.panel.hasAttribute('data-popover-exiting')&&!model.panel.hasAttribute('data-popover-snapshot')&&!model.panel.hasAttribute('data-popover-measuring'),'Disposal retained motion markers');
+  await frame();assert(unhandled.length===0,'Canceled motion rejected outside lifecycle: '+unhandled.join(';'));
+  results.push({name:'composer/closed-focus/preferences',enter:modelEnter,exit:modelExit});done=true;
+})().catch(error=>failure=error);
+</script></body></html>

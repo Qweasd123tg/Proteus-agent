@@ -1,9 +1,11 @@
 import { popup } from './popup.js';
+import { mountSidebarMotion } from './sidebar-motion.js';
 const node=(tag,text)=>{const el=document.createElement(tag);el.textContent=text;return el;};
 
 // DOM data comes from Leptos; mutations go back through its state callback.
 export function mountSidebar(root, update) {
   const controller=new AbortController(),{signal}=controller;
+  const stopMotion=mountSidebarMotion(root);
   const menu=popup('sidebar-menu','Действия',{manual:true}),card=popup('sidebar-hover','Сведения'),rename=popup('sidebar-rename-popup','Переименовать чат');
   card.element.setAttribute('role','tooltip');
   menu.element.setAttribute('role','menu');
@@ -78,5 +80,5 @@ export function mountSidebar(root, update) {
   root.addEventListener('scroll',clearHover,{signal,capture:true});
   root.addEventListener('pointerdown',clearHover,{signal});
   root.addEventListener('click',clearHover,{signal});
-  return ()=>{controller.abort();clearHover();menu.dispose();card.dispose();rename.dispose();};
+  return ()=>{stopMotion();controller.abort();clearHover();menu.dispose();card.dispose();rename.dispose();};
 }

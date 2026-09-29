@@ -1,10 +1,11 @@
 import { snapshot, mac } from './shortcuts/runtime.js';
 import { label } from './shortcuts/catalog.mjs';
+import { popoverMotion } from './popover-motion.js';
 // Replace native title bubbles without changing Leptos/extension producers.
 // The original text remains available as data-ui-tooltip; aria labels survive.
 const selector = '[data-ui-tooltip],[data-ui-tooltip-details],[title],[data-shortcut]';
 const roots = new WeakSet(), removals = new WeakMap(), labels = new WeakMap();
-let bubble, anchor, timer, rendered, serial = 0;
+let bubble, motion, anchor, timer, rendered, serial = 0;
 
 function content(element) {
   const binding = snapshot().bindings[element.dataset.shortcut];
@@ -81,7 +82,7 @@ function observe(root) {
     attributeFilter: ['title', 'data-ui-tooltip', 'data-ui-tooltip-details', 'data-shortcut', 'aria-label'], attributeOldValue: true});
 }
 
-export function hideTooltip() {
+function clearAnchor() {
   clearTimeout(timer);
   if (anchor && bubble) {
     const ids = (anchor.getAttribute('aria-describedby') ?? '').split(/\s+/)
@@ -89,8 +90,12 @@ export function hideTooltip() {
     if (ids.length) anchor.setAttribute('aria-describedby', ids.join(' '));
     else anchor.removeAttribute('aria-describedby');
   }
-  if (bubble?.matches(':popover-open')) bubble.hidePopover();
   anchor = undefined;
+}
+
+export function hideTooltip() {
+  clearAnchor();
+  if (bubble?.matches(':popover-open')) bubble.hidePopover();
 }
 
 function target(event) {
@@ -133,9 +138,10 @@ function show(element, delay) {
       bubble.className = 'ui-tooltip'; bubble.id = `proteus-tooltip-${++serial}`;
       bubble.setAttribute('popover', 'manual'); bubble.setAttribute('role', 'tooltip');
       document.body.append(bubble);
+      motion = popoverMotion(bubble, {quick: true, anchor: () => anchor, onClose: clearAnchor});
     }
     render();
-    bubble.showPopover(); position();
+    motion.show(position);
     const ids = new Set((element.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean));
     ids.add(bubble.id); element.setAttribute('aria-describedby', [...ids].join(' '));
   }, delay);

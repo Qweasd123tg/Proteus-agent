@@ -1,6 +1,7 @@
 import { hasSurface } from "../../extensions/contract.js";
 import { icon } from "../../extensions/icons.js";
 import { mountModule } from "./host.js";
+import { watchViewMotion } from "../view-motion.js";
 export function mountSettings(root, registry, services, requested) {
   const controller = new AbortController(),
     signal = controller.signal,
@@ -13,7 +14,10 @@ export function mountSettings(root, registry, services, requested) {
   const back = document.createElement("a");
   back.className = "settings-back";
   back.href = "/";
-  back.append(icon("arrow-left"), document.createTextNode("Вернуться к работе"));
+  back.append(
+    icon("arrow-left"),
+    document.createTextNode("Вернуться к работе"),
+  );
   back.addEventListener(
     "click",
     (e) => {
@@ -108,16 +112,29 @@ export function mountSettings(root, registry, services, requested) {
       const section = document.createElement("section");
       section.className = "settings-section";
       section.dataset.modulePage = record.id;
+      section.hidden = true;
       content.append(section);
+      const stopMotion = watchViewMotion(section, { signal });
       // Register before mount: a module may subscribe to the same registry.
       const item = { record, section, stop: () => {} };
       mounted.set(selected, item);
-      item.stop = mountModule(section, record, registry, services, "settings");
+      const stopModule = mountModule(
+        section,
+        record,
+        registry,
+        services,
+        "settings",
+      );
+      item.stop = () => {
+        stopMotion();
+        stopModule();
+      };
     }
     for (const [id, item] of mounted) {
       if (id !== selected && !item.section.hidden)
         item.section.dispatchEvent(new Event("module-hide", { bubbles: true }));
       item.section.hidden = id !== selected;
+      item.section.inert = id !== selected;
     }
   }
   window.addEventListener(
