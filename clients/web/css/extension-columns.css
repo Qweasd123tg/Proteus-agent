@@ -1,10 +1,17 @@
-.extension-columns { display: contents; }
-.tab-workspace { position: relative; display: flex; flex-direction: column; flex: 0 1 var(--workspace-width,560px); width: var(--workspace-width,560px); min-width: 320px; min-height: 0; border-left: 1px solid var(--border-subtle); background: var(--bg-root); }
-.tab-workspace[hidden], .tab-workspace [hidden] { display: none !important; }
-.workspace-tabbar { display:flex; flex:none; align-items:center; gap:4px; height:52px; padding:6px 10px; border-bottom:1px solid var(--border-subtle); }
+.workspace-board { flex:1; min-height:0; min-width:0; display:flex; overflow:auto; }
+.workspace-board > [data-client-view] { display:none; }
+.tab-workspace { position:relative; display:flex; flex:1; min-width:320px; min-height:0; background:var(--bg-root); }
+.tab-workspace.split { min-width:646px; }
+.workspace-group { display:flex; flex-direction:column; flex:1; min-width:0; min-height:0; container-type:inline-size; }
+.tab-workspace.split > .workspace-group:first-child { flex:0 0 calc(var(--workspace-ratio,50%) - 3px); }
+.tab-workspace [hidden] { display:none!important; }
+.workspace-group.focused .workspace-tab.active { box-shadow:inset 0 -2px var(--text-faint); }
+.settings-workspace { width:100%; min-width:0; min-height:0; display:flex; }
+.workspace-status { position:absolute; bottom:8px; left:8px; font-size:12px; color:var(--text-muted); pointer-events:none; }
+.workspace-tabbar { display:flex; flex:none; align-items:center; gap:4px; height:44px; padding:6px 10px; border-bottom:1px solid var(--border-subtle); }
 .workspace-tabbar > button { width:30px; min-height:30px; padding:0; flex:none; color:var(--text-muted); }
-.workspace-tabs { display:flex; flex:1; min-width:0; overflow:hidden; gap:4px; }
-.workspace-tab { display:flex; align-items:center; flex:1 1 0; min-width:0; max-width:230px; overflow:hidden; border-radius:10px; color:var(--text-muted); }
+.workspace-tabs { display:flex; flex:1; min-width:0; overflow:auto; scrollbar-width:none; gap:4px; min-height:32px; }
+.workspace-tab { display:flex; align-items:center; flex:0 1 200px; min-width:100px; max-width:230px; overflow:hidden; border-radius:10px; color:var(--text-muted); }
 .workspace-tab.active { background:var(--bg-panel-soft); color:var(--text-main); }
 .workspace-tab-name { flex:1; min-width:0; padding:0 8px; min-height:32px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; border:0; font-size:12px; }
 .workspace-tab-close { flex:none; width:26px; min-height:26px; padding:0; }
@@ -22,7 +29,20 @@
 .workspace-picker { margin:0; position:fixed; inset:auto; max-height:calc(100dvh - 16px); overflow:auto; width:min(360px,90vw); padding:8px; border:1px solid var(--border-strong); border-radius:14px; color:var(--text-main); background:var(--bg-popover); box-shadow:var(--shadow-lg); }
 .workspace-picker:popover-open { display:flex; flex-direction:column; gap:3px; }
 .workspace-picker button { justify-content:flex-start; min-height:36px; }
-.workspace-resize { position:absolute; inset:0 auto 0 -3px; width:6px; cursor:col-resize; touch-action:none; }
-.workspace-resize:hover { background:var(--border-strong); }
-.tab-workspace.expanded { position:fixed; z-index:35; inset:var(--desktop-chrome-height,0px) 0 0; width:auto; }
-.tab-workspace.expanded .workspace-resize { display:none; }
+.workspace-resize { flex:0 0 6px; position:relative; background:var(--border-subtle); cursor:col-resize; touch-action:none; }
+.workspace-resize:hover,.workspace-resize:focus-visible,.resizing > .workspace-resize { background:var(--text-faint); }
+.tab-workspace.resizing iframe { pointer-events:none; }
+.workspace-group .workspace-tabbar { padding:5px 6px; }
+@container (max-width:650px) {
+  .settings-page { grid-template-columns:minmax(120px,155px) minmax(0,1fr); }
+  .settings-nav { padding:12px 6px; }
+  .settings-nav button,.settings-nav a { font-size:12px; gap:6px; padding:6px; }
+  .settings-content { padding:24px 14px; }
+}
+/* Content roots never change parents on transfer: iframe documents and native
+   selection survive moving a tab between groups in Firefox and WebKit. */
+.workspace-surfaces { position:absolute; inset:44px 0 0; pointer-events:none; display:block; }
+.workspace-surfaces > [role=tabpanel] { position:absolute; inset:0; width:100%; height:100%; pointer-events:auto; container-type:inline-size; }
+.split > .workspace-surfaces > [data-workspace-group="0"] { right:auto; width:calc(var(--workspace-ratio) - 3px); }
+.split > .workspace-surfaces > [data-workspace-group="1"] { left:calc(var(--workspace-ratio) + 3px); width:calc(100% - var(--workspace-ratio) - 3px); }
+.workspace-resize { z-index:1; }

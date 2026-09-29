@@ -10,7 +10,7 @@ def run(command, js, wait_for, server):
         command('/element/'+element['element-6066-11e4-a52e-4f735466cecf']+'/click', {})
 
     def settings(section):
-        if not js("return !!document.querySelector('.settings-page')"):
+        if not js("return !document.querySelector('[data-client-view=settings]').hidden"):
             click('.settings-link')
         wait_for(lambda: js("return !!document.querySelector('[data-settings-section="+section+"]')"),'Settings navigation missing')
         click('[data-settings-section='+section+']')
@@ -63,7 +63,7 @@ def run(command, js, wait_for, server):
     # Capture and cancellation must not trigger a command or retain capture after navigation.
     click('[data-bind=settings]')
     key('Escape')
-    assert js("return !document.documentElement.dataset.shortcutRecording && !!document.querySelector('.settings-page')"), 'Escape recording cancellation failed'
+    assert js("return !document.documentElement.dataset.shortcutRecording && !document.querySelector('[data-client-view=settings]').hidden"), 'Escape recording cancellation failed'
     click('[data-bind=settings]')
     click('[data-settings-section=appearance]')
     assert js("return !document.documentElement.dataset.shortcutRecording"), 'Unmount leaked recording capture'
@@ -99,7 +99,7 @@ def run(command, js, wait_for, server):
     assert js("return document.querySelector('.app-layout').classList.contains('sidebar-collapsed')!==sidebarBefore"), 'Reload lost dispatch binding'
     key('KeyJ',ctrlKey=True,altKey=True)
     key('Comma',ctrlKey=True)
-    wait_for(lambda: js("return !!document.querySelector('.settings-page')"),'Settings shortcut failed')
+    wait_for(lambda: js("return !document.querySelector('[data-client-view=settings]').hidden"),'Settings shortcut failed')
     settings('shortcuts')
     click('[data-reset-shortcuts]')
     assert js("return JSON.parse(localStorage.getItem('proteus.shortcuts')).sidebar==='Mod+KeyB'"), 'Reset all failed'

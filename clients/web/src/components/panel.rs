@@ -16,6 +16,7 @@ where
         <button
             type="button"
             class=if right { "panel-toggle" } else { "panel-toggle sidebar-collapse-toggle" }
+            data-shortcut=if right { "workspace" } else { "sidebar" }
             data-panel-toggle=if right { "info" } else { "sidebar" }
             aria-label=if right { "Панель обзора" } else { "Панель сессий" }
             aria-expanded=move || expanded.get().to_string()

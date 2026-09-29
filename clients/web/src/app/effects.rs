@@ -41,18 +41,17 @@ pub(super) fn install(state: AppState, router: AppRouter) {
         ..
     } = state.view;
     let prefs = crate::interface_settings::settings();
-    let is_chat_route = move || router.is_chat();
+    let chat_visible = router.chat_visible;
     Effect::new(move |_| {
         let _ = (
             messages.with(|_| ()),
             pending_user_inputs.with(|items| items.len()),
             queued_prompts.with(|items| items.len()),
             is_sending.get(),
-            // Возврат на чат после SPA-перехода: лента смонтирована заново,
-            // прилипание к низу надо восстановить.
-            is_chat_route(),
+            // Возврат к сохранённой вкладке: восстанавливаем прилипание к низу.
+            chat_visible.get(),
         );
-        if prefs.auto_scroll.get() && stick_to_bottom.get() {
+        if chat_visible.get() && prefs.auto_scroll.get() && stick_to_bottom.get() {
             schedule_results_scroll(
                 results_ref,
                 stick_to_bottom,
@@ -65,7 +64,7 @@ pub(super) fn install(state: AppState, router: AppRouter) {
 
     // One owned timer per active chat, independent of individual tool events.
     let activity_clock_active = Memo::new(move |_| {
-        is_chat_route()
+        chat_visible.get()
             && (is_sending.get()
                 || tool_activities.with(|items| items.iter().any(tool_activity_is_active)))
     });

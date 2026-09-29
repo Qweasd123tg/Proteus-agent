@@ -38,7 +38,7 @@ def run(command, js, wait_for, web, origin, loaded):
     wait_for(lambda: js("return !!document.querySelector('[data-custom-module=composer-model]')"),'Alternative selector not mounted')
     assert js("return !document.querySelector('.composer-model-menu')"),'Two implementations selected at once'
     command('/refresh',{})
-    wait_for(lambda: js("return !!document.querySelector('[data-custom-module=composer-model]')"),'Selection not restored')
+    wait_for(lambda: js("return !!document.querySelector('[data-client-slot=composer-model] [data-config-read] [data-custom-module=composer-model]')"),'Selection or declared service not restored')
     click('.settings-link');page('extensions')
     click('[data-select-slot=composer-model][data-module-id=model-selector]')
     page('diagnostic-usage')
@@ -48,6 +48,16 @@ def run(command, js, wait_for, web, origin, loaded):
     js("window.keptDiagnostic=document.querySelector('.diagnostic-frame')")
     page('appearance');page('diagnostic-usage')
     assert js("return keptDiagnostic===document.querySelector('.diagnostic-frame')"),'Diagnostic iframe remounted on switch'
+    js("window.keptDiagnosticDocument=keptDiagnostic.contentDocument;window.diagnosticLoads=0;keptDiagnostic.addEventListener('load',()=>diagnosticLoads++)")
+    page('appearance');click('[data-animation-toggle]');page('diagnostic-usage')
+    assert js("return diagnosticLoads===0 && keptDiagnostic.contentDocument===keptDiagnosticDocument"),'Unrelated preferences reloaded diagnostic'
+    click('[data-tab-id="client:settings"] .workspace-tab-close')
+    assert js("return keptDiagnostic.isConnected && keptDiagnostic.contentDocument===keptDiagnosticDocument && document.querySelector('[data-client-view=settings]').hidden"),'Closing settings destroyed retained diagnostic'
+    click('.settings-link')
+    assert js("return keptDiagnostic.contentDocument===keptDiagnosticDocument && !document.querySelector('[data-client-view=settings]').hidden"),'Reopening settings reloaded diagnostic'
+    js("document.querySelector('[data-tab-id=\"client:settings\"]').closest('.workspace-group').querySelector('.workspace-transfer').click()")
+    assert js("return keptDiagnostic.contentDocument===keptDiagnosticDocument && document.querySelector('[data-tab-id=\"client:settings\"]').closest('[data-group]').dataset.group==='1'"),'Moving settings reloaded embedded Inspector'
+    click('[data-workspace-split]')
     for id in ['diagnostic-analysis','diagnostic-configs','diagnostic-architecture']:
         page(id)
         wait_for(lambda: js('return !!document.querySelector("[data-module-page='+id+'] iframe")?.contentDocument?.querySelector(".inspector-shell")'), 'Diagnostic not loaded: '+id)
@@ -58,7 +68,19 @@ def run(command, js, wait_for, web, origin, loaded):
     click('.settings-back')
     wait_for(lambda: js("return !!document.querySelector('.composer-model-menu')"),'Built-in selector not restored')
     click('.settings-link');page('diagnostic-usage')
-    wait_for(lambda: js("return !!document.querySelector('.diagnostic-frame')?.contentDocument?.querySelector('.analysis-open-chat')"),'Return-to-chat action missing')
-    js("document.querySelector('.diagnostic-frame').contentDocument.querySelector('.analysis-open-chat').click()")
-    wait_for(lambda: js("return !!document.querySelector('.composer textarea') && !document.querySelector('.settings-page')"),'Embedded diagnostic did not return to parent chat')
-    print('PASS: installed diagnostic and selector use declared services; lazy mounting; drafts; disable/dispose; required management; persistent replacement; all four embedded Inspector pages',flush=True)
+    wait_for(lambda: js("return !!document.querySelector('[data-module-page=diagnostic-usage] iframe')?.contentDocument?.querySelector('.analysis-open-chat')"),'Return-to-chat action missing')
+    js("window.returnFrame=document.querySelector('[data-module-page=diagnostic-usage] iframe');window.returnDocument=returnFrame.contentDocument;window.returnBoard=document.querySelector('.tab-workspace');returnDocument.querySelector('.analysis-open-chat').click()")
+    wait_for(lambda: js("return !!document.querySelector('.composer textarea') && document.querySelector('[data-client-view=settings]').hidden"),'Embedded diagnostic did not return to parent chat')
+    assert js("return returnFrame.isConnected && returnFrame.contentDocument===returnDocument && document.querySelector('.tab-workspace')===returnBoard"),'Same-session return reloaded client or Inspector'
+    previous_session = js("return new URL(location.href).searchParams.get('session_dir')")
+    click('[aria-label="Новая сессия"]')
+    wait_for(lambda: js("return new URL(location.href).searchParams.get('session_dir')!=="+repr(previous_session)+" && document.querySelector('.connection-badge').classList.contains('completed')"),'Session did not change')
+    wait_for(lambda: js("return [...document.querySelectorAll('.diagnostic-frame')].every(frame=>new URL(frame.src).searchParams.get('session_dir')===new URL(location.href).searchParams.get('session_dir'))"),'Retained diagnostic stayed bound to the old session')
+    click('.settings-link');page('diagnostic-usage')
+    wait_for(lambda: js("return returnFrame.contentDocument!==returnDocument && !!returnFrame.contentDocument?.querySelector('#analysis-session')?.querySelector('option[value=\""+previous_session+"\"]')"),'Diagnostic did not reload its real session catalog')
+    js("const select=returnFrame.contentDocument.querySelector('#analysis-session');select.value="+repr(previous_session)+";select.dispatchEvent(new returnFrame.contentWindow.Event('change',{bubbles:true}));const url=new URL(location.href);url.searchParams.set('inspector',location.origin);history.replaceState(history.state,'',url)")
+    wait_for(lambda: js("return new URL(returnFrame.contentDocument.querySelector('.analysis-open-chat').href).searchParams.get('session_dir')==="+repr(previous_session)), 'Inspector did not select the previous session')
+    js("returnFrame.contentDocument.querySelector('.analysis-open-chat').click()")
+    wait_for(lambda: js("return new URL(location.href).searchParams.get('session_dir')==="+repr(previous_session)+" && !!document.querySelector('.connection-badge.completed') && !!document.querySelector('[data-client-view=chat]:not([hidden])')"),'Cross-session return did not select chat')
+    assert js("return !new URL(location.href).searchParams.has('workspace_view') && new URL(location.href).searchParams.get('inspector')===location.origin"),'Cross-session return lost Inspector config or left its transient view parameter'
+    print('PASS: installed diagnostic and selector use declared services; lazy mounting; drafts; disable/dispose; required management; persistent replacement; retained Inspector document on close/reopen and transfer; all four Inspector pages; session rebinding; same-session return identity and cross-session navigation',flush=True)

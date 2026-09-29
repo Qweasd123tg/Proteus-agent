@@ -1,3 +1,5 @@
+import { clientWorkspace } from "../ui/workspace/client.js";
+export { mountClientWorkspace, revealClientView } from "../ui/workspace/client.js";
 import { mountExtensions } from "./host.js";
 import { createExtensionRegistry } from "./registry.js";
 import { attachClientTabHost } from "./subagent-tabs.js";
@@ -44,7 +46,7 @@ export function mountWebExtensions(
   });
   const stop = mountExtensions(root, clientServices, {
     registry,
-    target: document.querySelector("[data-extension-columns=right]"),
+    workspace: clientWorkspace(),
     clientTabs: attachClientTabHost,
   });
   return () => {

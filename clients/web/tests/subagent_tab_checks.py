@@ -44,14 +44,20 @@ def run(command, js, wait_for, web, origin):
     assert js("return childDetail.scrollWidth<=childDetail.clientWidth+1"), 'Child details create horizontal overflow'
     js("window.childScrollProbe=document.createElement('div');childScrollProbe.style.height='1600px';childDetail.append(childScrollProbe);childDetail.scrollTop=childDetail.scrollHeight")
     assert js("return childDetail.scrollTop>0 && childDetail.clientHeight<=document.querySelector('.workspace-tab-content').clientHeight"), 'Long child activity is clipped instead of scrollable'
-    js("childScrollProbe.remove()")
-    js("document.querySelector('.workspace-tab[data-owned=true] .workspace-tab-close').click()")
-    wait_for(lambda: js("return !document.querySelector('.workspace-tab[data-owned=true]') && !childDetail.querySelector('.tool-card')"), 'Closing child tab retained its tool subscriptions/content')
+    js("childScrollProbe.remove();window.childToolCard=childDetail.querySelector('.tool-card');document.querySelector('.workspace-group[data-group=\"0\"] .workspace-transfer').click()")
+    assert js("return childDetail===document.querySelector('.workspace-tab-content .subagent-tab-details') && childDetail.querySelector('.tool-card')===childToolCard && document.querySelector('.workspace-tab[data-owned=true][data-client=false]').closest('[data-group]').dataset.group==='1'"), 'Moving child tab remounted its Rust-owned tool content'
+    js("document.querySelector('.workspace-group[data-group=\"1\"] .workspace-transfer').click()")
+    assert js("return childDetail.querySelector('.tool-card')===childToolCard && childDetail.textContent.includes('Дочерний вывод: child-output-fixture')"), 'Returning child tab lost live output'
+    js("document.querySelector('.workspace-tab[data-owned=true][data-client=false] .workspace-tab-close').click()")
+    wait_for(lambda: js("return !document.querySelector('.workspace-tab[data-owned=true][data-client=false]') && !childDetail.querySelector('.tool-card')"), 'Closing child tab retained its tool subscriptions/content')
     assert js("return !!childDetail.closest('.subagent-detail-parking')"), 'Closed root was not returned to its client owner'
     js("document.querySelector('.subagent-tab-link').click()")
     wait_for(lambda: js("return document.querySelector('.workspace-tab-content .subagent-tab-details')===childDetail && !!childDetail.querySelector('.tool-card')"), 'Reopening remounted or lost the detail root')
     js("childDetail.querySelector('.tool-card-summary').click()")
     wait_for(lambda: js("return childDetail.textContent.includes('Дочерний вывод: child-output-fixture') && childDetail.textContent.includes('Итог: child-summary-fixture')"), 'Reopening lost tool output/task outcome')
     js("document.querySelector('.settings-link').click()")
-    wait_for(lambda: js("return !document.querySelector('.workspace-tab[data-owned=true]') && !childDetail.isConnected"), 'Navigation leaked the child tab or its client DOM')
-    print('PASS: real child reducers; compact chat; owned detail tab; live output/status; close/reopen and navigation cleanup', flush=True)
+    wait_for(lambda: js("return !!document.querySelector('.workspace-tab[data-owned=true][data-client=false]') && childDetail.isConnected"), 'Settings discarded the live child tab')
+    js("window.childSession=new URL(location.href).searchParams.get('session_dir');window.childBoard=document.querySelector('.tab-workspace');document.querySelector('[aria-label=\"Новая сессия\"]').click()")
+    wait_for(lambda: js("return new URL(location.href).searchParams.get('session_dir')!==childSession && document.querySelector('.connection-badge').classList.contains('completed')"), 'New session did not connect after retained settings')
+    assert js("return !document.querySelector('.workspace-tab[data-owned=true][data-client=false]') && !childDetail.isConnected && document.querySelector('.tab-workspace')===childBoard"), 'Session change retained stale child tab or replaced workspace'
+    print('PASS: real child reducers; compact chat; owned detail tab; live output/status; cross-group root identity; close/reopen; retained navigation and session teardown', flush=True)

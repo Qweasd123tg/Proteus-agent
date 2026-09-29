@@ -33,17 +33,15 @@
     position: absolute;
     left: 2px;
     top: calc(50% - 1px);
-    width: 6px;
+    width: calc(7px * (var(--tick-base, 1) + var(--tick-wave, 0)));
     height: 2px;
     border-radius: 1px;
     background: var(--text-faint);
-    opacity: .4;
-    transform: scaleX(calc(var(--tick-base, 1) + var(--tick-wave, 0)));
-    transform-origin: left center;
-    transition: transform 150ms cubic-bezier(.22, 1, .36, 1), opacity 150ms, background 150ms;
+    opacity: .68;
+    transition: width 220ms cubic-bezier(.2,.7,.2,1), opacity 220ms, background 220ms;
 }
 .msg-nav-tick.is-visible { --tick-base: 1.6; }
-.msg-nav.dense .msg-nav-tick::before { height: 1px; top: calc(50% - .5px); }
+.msg-nav.dense .msg-nav-tick::before { height: 2px; top: calc(50% - 1px); }
 .msg-nav-tick.is-visible::before { background: var(--text-main); opacity: .85; }
 .msg-nav-tick.is-previewed::before,
 .msg-nav-tick:focus-visible::before { background: var(--text-main); opacity: 1; }
@@ -67,7 +65,7 @@
     opacity: 0;
     visibility: hidden;
     transform: translate(-4px, -50%);
-    transition: opacity 120ms, transform 120ms, visibility 120ms;
+    transition: opacity 220ms, transform 220ms cubic-bezier(.2,.7,.2,1), visibility 220ms;
 }
 .msg-nav-preview p {
     margin: 0;

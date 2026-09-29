@@ -74,13 +74,13 @@ where
                 </div>
                 <div class="composer-toolbar">
                     <div class="composer-options">
-                        <ClientModuleSlot surface="composer-access"/>
+                        <div class="module-dock" data-module-zone="composer-start"><ClientModuleSlot surface="composer-access"/></div>
                         <div class="widget-slot" data-widget-slot="composer"></div>
                     </div>
                     <div class="composer-actions">
-                        <ClientModuleSlot surface="composer-model"/>
+                        <div class="module-dock" data-module-zone="composer-end"><ClientModuleSlot surface="composer-model"/></div>
                         {move || active_run_id.get().is_some().then(|| view! {
-                            <button type="button" class="composer-stop" title="Остановить ход" aria-label="Остановить ход" on:click=on_cancel_turn><StopIcon /></button>
+                            <button type="button" class="composer-stop" data-shortcut="stop" title="Остановить ход" aria-label="Остановить ход" on:click=on_cancel_turn><StopIcon /></button>
                         })}
                         <button type="submit" class="composer-submit" disabled=draft_is_empty
                             hidden=move || active_run_id.get().is_some() && draft_is_empty()

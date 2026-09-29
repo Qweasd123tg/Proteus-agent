@@ -281,11 +281,11 @@ pub(super) fn commands(
                     std::time::Duration::ZERO,
                 );
             }
-            "sidebar" if router.is_chat() => resize.toggle_sidebar(),
-            "workspace" if router.is_chat() => {
+            "sidebar" => resize.toggle_sidebar(),
+            "workspace" => {
                 if let Some(button) = window()
                     .and_then(|w| w.document())
-                    .and_then(|d| d.query_selector("[data-workspace-toggle]").ok().flatten())
+                    .and_then(|d| d.query_selector("[data-workspace-split]").ok().flatten())
                 {
                     use wasm_bindgen::JsCast;
                     if let Some(button) = button.dyn_ref::<web_sys::HtmlElement>() {
@@ -296,7 +296,7 @@ pub(super) fn commands(
             "inspector" => {
                 super::client_modules::request_settings_module("diagnostic-usage");
             }
-            "stop" if router.is_chat() => {
+            "stop" if router.is_chat() && router.chat_visible.get_untracked() => {
                 if active_run_id.get_untracked().is_none() {
                     return false;
                 }

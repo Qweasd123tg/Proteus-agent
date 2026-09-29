@@ -135,6 +135,15 @@ export function mountSettings(root, registry, services, requested) {
     (e) => select(e.detail),
     { signal },
   );
+  root.closest("[data-client-view]")?.addEventListener(
+    "module-hide",
+    () => {
+      for (const item of mounted.values())
+        if (!item.section.hidden)
+          item.section.dispatchEvent(new Event("module-hide"));
+    },
+    { signal },
+  );
   const unsubscribe = registry.subscribe(render);
   void registry.start();
   return () => {

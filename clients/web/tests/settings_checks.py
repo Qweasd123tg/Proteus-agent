@@ -21,7 +21,7 @@ def run(command, js, wait_for):
     click('.settings-link')
     wait_for(lambda: js("return !!document.querySelector('[data-settings-section=extensions]')"), 'Settings missing')
     click('[data-settings-section=extensions]')
-    assert js("const row=document.querySelector('[data-settings-section=extensions]');return document.querySelector('.settings-nav').getBoundingClientRect().width===chatWidth && row.getBoundingClientRect().height===chatRow.height && getComputedStyle(row).fontSize===chatRow.font && getComputedStyle(row).borderRadius===chatRow.radius"), 'Settings/chat navigation geometry differs'
+    assert js("const row=document.querySelector('[data-settings-section=extensions]');return row.getBoundingClientRect().height===chatRow.height && getComputedStyle(row).fontSize===chatRow.font && getComputedStyle(row).borderRadius===chatRow.radius"), 'Settings/chat navigation geometry differs'
     assert js("return !document.querySelector('[aria-label^=\"Выше:\"], [aria-label^=\"Ниже:\"]')"), 'Order arrows remain'
     wait_for(lambda: len(order())>2,'Module list missing')
     before = order()
@@ -48,7 +48,7 @@ def run(command, js, wait_for):
     click('[data-settings-id=usage]')
     wait_for(lambda: js("return !!document.querySelector('.extension-options-content')?.shadowRoot?.querySelector('form')"), 'Settings form not mounted')
     wait_for(lambda: js("return !document.querySelector('.extension-options').getAnimations().length"), 'Options animation did not settle')
-    assert js("const n=document.querySelector('.settings-nav').getBoundingClientRect(),l=document.querySelector('.settings-content').getBoundingClientRect(),r=document.querySelector('.extension-options').getBoundingClientRect();return n.right<=l.left && l.right<=r.left && r.width>=300 && r.right<=innerWidth"), 'Settings are not three independent panes'
+    assert js("const n=document.querySelector('.settings-nav').getBoundingClientRect(),l=document.querySelector('.settings-content').getBoundingClientRect(),r=document.querySelector('.extension-options').getBoundingClientRect();return n.right<=l.left && r.left===l.left && r.right<=l.right+1 && r.width>300"), 'Module details escaped the Settings tab'
     js("window.keptOptions=document.querySelector('.extension-options-content');keptOptions.shadowRoot.querySelector('[name=model]').value='draft-model'")
     # A dropdown consumes Escape first, then the pane consumes the next one.
     js("keptOptions.shadowRoot.querySelector('select').click()")
@@ -62,16 +62,14 @@ def run(command, js, wait_for):
     assert js("return document.querySelector('.extension-options').getBoundingClientRect().width===0"), 'Options leaked into another section'
     click('[data-settings-section=extensions]')
     assert js("return document.querySelector('.extension-options-content')===keptOptions && keptOptions.shadowRoot.querySelector('[name=model]').value==='draft-model'"), 'Hiding settings lost unsaved form'
-    js("const handle=document.querySelector('.extension-options .workspace-resize');handle.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}))")
-    assert js("return document.querySelector('.extension-options .workspace-resize').getAttribute('aria-valuenow')===localStorage.getItem('proteus.ui.workspace.width')"), 'Pane width was not saved'
     wait_for(lambda: js("return !document.querySelector('.settings-nav').getAnimations({subtree:true}).length"), 'Navigation transition did not settle')
     Path('/tmp/proteus-settings-three-panes.png').write_bytes(base64.b64decode(command('/screenshot', None)))
     for width in [900, 620, 390]:
         command('/window/rect', {'width': width, 'height': 1000})
-        assert js("const n=document.querySelector('.settings-nav').getBoundingClientRect(),l=document.querySelector('.settings-content').getBoundingClientRect(),r=document.querySelector('.extension-options').getBoundingClientRect();return n.right<=l.left && l.right<=r.left && l.width>=320 && r.right<=document.querySelector('.settings-page').getBoundingClientRect().left+document.querySelector('.settings-page').scrollWidth && getComputedStyle(document.querySelector('.settings-nav')).flexDirection==='column' && getComputedStyle(document.querySelector('.extension-options')).position==='relative'"), 'Settings switched to mobile layout'
+        assert js("const n=document.querySelector('.settings-nav').getBoundingClientRect(),l=document.querySelector('.settings-content').getBoundingClientRect(),r=document.querySelector('.extension-options').getBoundingClientRect();return n.right<=l.left && r.left===l.left && r.width>0 && r.right<=l.right+1 && getComputedStyle(document.querySelector('.settings-nav')).flexDirection==='column'"), 'Settings switched to mobile layout'
     command('/window/rect', {'width': 1440, 'height': 1000})
     click('.settings-back')
-    wait_for(lambda: js("return !!document.querySelector('.settings-link') && !document.querySelector('.settings-page')"), 'Settings cleanup failed')
+    wait_for(lambda: js("return !!document.querySelector('.settings-link') && document.querySelector('[data-client-view=settings]').hidden"), 'Settings cleanup failed')
     js("window.removeEventListener('keydown',watchEscape)")
     command('/refresh', {})
     wait_for(lambda: js("return !!document.querySelector('.settings-link')"), 'Reload failed')
@@ -81,4 +79,4 @@ def run(command, js, wait_for):
     wait_for(lambda: js("return document.querySelectorAll('.extension-list [data-extension-choice]').length>2"), 'Extensions missing after reload')
     assert order() == expected, 'Reload lost drag order'
     click('.settings-back')
-    print('PASS: shared chat/settings geometry; pointer insertion and cancel; persisted order; three panes; dropdown/pane Escape isolation; drafts and width; desktop panes at every window width', flush=True)
+    print('PASS: shared chat/settings geometry; pointer insertion and cancel; persisted order; module detail page; dropdown/pane Escape isolation; drafts; desktop panes at every window width', flush=True)

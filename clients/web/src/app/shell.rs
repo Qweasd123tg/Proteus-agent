@@ -107,6 +107,8 @@ pub(super) fn AppShell(
     });
 
     super::extension_state::publish(state);
+    let workspace_ref = NodeRef::<leptos::html::Div>::new();
+    crate::components::workspace::attach(workspace_ref);
 
     view! {
         <div
@@ -141,22 +143,19 @@ pub(super) fn AppShell(
 
             <main class="workspace-main">
                 <crate::components::header::HeaderView
-                    route workspace_label session_title waiting_background_sessions
+                    workspace_label waiting_background_sessions
                     sidebar_collapsed=resize.sidebar_collapsed on_toggle_sidebar=toggle_sidebar
                     on_navigate=topnav_click
-                    on_open_session=move |session| session_actions.open_sidebar_session(session)
+                    on_open_session=resume_open
                 />
 
+                <div class="workspace-board" data-client-workspace="" node_ref=workspace_ref>
                 <section
+                    data-client-view="chat"
+                    data-workspace-title=move || session_title.get()
                     class="session-workspace"
                     style=("--chat-max-width", move || format!("{}px", resize.chat_width.get()))
                 >
-                    {move || {
-                        let current = route.get();
-                        if current == "/settings" {
-                        view! { <SettingsView/> }.into_any()
-                    } else {
-                        view! {
                             <ChatResultsView
                                 results_ref
                                 stick_to_bottom
@@ -207,12 +206,13 @@ pub(super) fn AppShell(
                                 items=user_messages
                                 on_jump=move |value| commands.jump_to_message.run(value)
                             />
-                        }.into_any()
-                    }}}
                 </section>
+                <section class="settings-workspace" data-client-view="settings" data-workspace-title="Настройки">
+                    <SettingsView/>
+                </section>
+                </div>
             </main>
 
-            <div class="extension-columns" data-extension-columns="right"></div>
             <crate::components::extensions::ExtensionsView active_session_dir />
 
         </div>

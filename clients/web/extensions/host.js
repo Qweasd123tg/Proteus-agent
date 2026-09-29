@@ -10,7 +10,8 @@ export function mountExtensions(root, services = {}, options = {}) {
   let stopped=false;
   const clientOwner={id:'client'};
   const all=()=>[...registry.state().records.filter(r=>r.enabled&&hasSurface(r.manifest,'workspace')),...[...owned.values()].map(item=>item.record)];
-  const workspace=createWorkspace(options.target??root,{storage:registry.storage,select:id=>update(id,{collapsed:false}),close,reorder});
+  const board=options.workspace??createWorkspace(options.target??root,{storage:registry.storage});
+  const workspace=board.connect('extensions',{select:id=>update(id,{collapsed:false}),close});
   const notice=document.createElement('p');notice.className='extension-surface-status';notice.setAttribute('role','status');root.append(notice);
   const widgetError=event=>{notice.textContent=event.detail;};window.addEventListener('proteus-widgets-error',widgetError);
   function reorder(id,before) {
@@ -53,12 +54,12 @@ export function mountExtensions(root, services = {}, options = {}) {
     for(const record of all()){
       const card=cards.get(record.id)??owned.get(record.id).card;card.update();
       card.element.id=`workspace-view-${record.id}`;card.element.setAttribute('role','tabpanel');card.element.setAttribute('aria-labelledby',`workspace-tab-${record.id}`);
-      if(card.element.parentNode!==workspace.content)workspace.content.append(card.element);
+
     }
-    workspace.update(all());
+    workspace.update(all().map(record=>({...record,element:(cards.get(record.id)??owned.get(record.id).card).element})));
     widgets.update(state.records.filter(r=>r.enabled&&hasSurface(r.manifest,'compact')).map(r=>cards.get(r.id).compact));
   }
   const disposeClient=options.clientTabs?.(Object.freeze({create:(key,spec)=>createOwned(clientOwner,key,spec)}));
   const unsubscribe=registry.subscribe(render);void registry.start();
-  return()=>{window.removeEventListener('proteus-widgets-error',widgetError);stopped=true;unsubscribe();disposeClient?.();release(clientOwner);for(const card of cards.values()){release(card.record);card.stop();}widgets.stop();workspace.stop();if(!options.registry)registry.dispose();root.replaceChildren();};
+  return()=>{window.removeEventListener('proteus-widgets-error',widgetError);stopped=true;unsubscribe();disposeClient?.();release(clientOwner);for(const card of cards.values()){release(card.record);card.stop();}widgets.stop();workspace.stop();if(!options.workspace)board.stop();if(!options.registry)registry.dispose();root.replaceChildren();};
 }

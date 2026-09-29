@@ -31,3 +31,5 @@ pub(crate) use tool_activity::{
     ToolActivityCard, ToolCardsCollapsed, ToolPreview, format_duration_ms, format_elapsed_seconds,
     tool_args_preview, tool_turn_card_class,
 };
+
+pub(crate) mod workspace;

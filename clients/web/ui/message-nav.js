@@ -100,7 +100,7 @@ export function mountMessageNav(root) {
     const nextWave = new Set();
     if (motionAllowed()) {
       for (let i = Math.max(0, index - 4); i <= Math.min(ticks.length - 1, index + 4); i++) {
-        const amount = 3 * Math.exp(-((i - position) ** 2) / 3);
+        const amount = 2.3 * Math.exp(-((i - position) ** 2) / 3);
         ticks[i].style.setProperty('--tick-wave', amount.toFixed(3));
         nextWave.add(ticks[i]);
       }

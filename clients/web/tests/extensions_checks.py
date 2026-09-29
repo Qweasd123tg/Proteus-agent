@@ -12,9 +12,9 @@ def run(command, js, wait_for, web, origin, loaded):
         wait_for(lambda: js("return !!document.querySelector('.extension-settings [data-extension-choice=notes]')"), 'Extension settings did not load')
         wait_for(lambda: js("return document.querySelector('.settings-link').classList.contains('active')"), 'Settings navigation highlight is stale')
     def chat():
-        js("document.querySelector('.topnav a[href=\"/\"]').click()")
+        js("document.querySelector('.settings-back').click()")
         wait_for(loaded, 'Chat did not restore agent panel')
-        wait_for(lambda: js("return document.querySelector('.topnav a[href=\"/\"]').classList.contains('active')"), 'Chat navigation highlight is stale')
+        wait_for(lambda: js("return document.querySelector('[data-tab-id=\"client:chat\"]').classList.contains('active')"), 'Chat navigation highlight is stale')
     def install(path):
         js("document.querySelector('[data-settings-section=extensions]').click()")
         wait_for(lambda: js("return !!document.querySelector('.extension-install')"),'Module manager missing')
@@ -26,7 +26,7 @@ def run(command, js, wait_for, web, origin, loaded):
     js("localStorage.setItem('proteus.toolCardsCollapsed','false');localStorage.setItem('proteus.ui.extensions', JSON.stringify({apiVersion:1,panels:[{id:'agent-info',url:location.origin+'/extensions/agent-info/extension.json',enabled:true,collapsed:false},{id:'notes',url:location.origin+'/extensions/notes/extension.json',enabled:false,collapsed:false}]}))")
     command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
     wait_for(loaded, 'Leptos transport did not deliver authenticated config')
-    assert js("return !document.querySelector('.extension-manager') && !document.querySelector('.extension-install') && !document.querySelector('[data-extension-id=model-quota]')")
+    assert js("return document.querySelector('[data-client-view=settings]').hidden && !document.querySelector('[data-extension-id=model-quota]')")
     js("window.savedFetch=window.fetch; window.settingsWrites=0; window.fetch=(input,init)=>{const path=String(input.url||input).split('?')[0]; if(path.endsWith('/config/web'))window.settingsWrites++; return path.endsWith('/config')?Promise.resolve(new Response(JSON.stringify({error:'offline fixture'}),{status:502})):window.savedFetch(input,init)}")
     settings()
     assert js("return !document.querySelector('[data-module-page=chat] input').disabled"), 'Backend outage blocked client preferences'
@@ -56,10 +56,10 @@ def run(command, js, wait_for, web, origin, loaded):
     assert js("const root=document.querySelector('[data-extension-id=model-quota] .extension-panel-content').shadowRoot; return root.textContent.includes('37% осталось') && root.textContent.includes('0% осталось') && root.textContent.includes('15 мин') && root.textContent.includes('Лимит исчерпан') && root.textContent.includes('ожидаем новые данные') && root.textContent.includes('12.50') && root.querySelectorAll('progress').length === 3")
     wait_for(lambda: js("return !!document.querySelector('[data-extension-id=notes] .extension-panel-content')?.shadowRoot?.querySelector('textarea')"), 'Notes absent')
     js("const area=document.querySelector('[data-extension-id=notes] .extension-panel-content').shadowRoot.querySelector('textarea');area.value='Моя заметка';area.dispatchEvent(new Event('input'))")
-    assert js("return document.querySelector('.workspace-tabs').firstElementChild.dataset.tabId") == 'notes'
+    assert js("return !!document.querySelector('[data-tab-id=notes]')"), 'Enabled tab missing'
     js("document.querySelector('[data-tab-id=external-test] .workspace-tab-close').click()")
     assert js('return !window.externalAborted && !window.externalDisposed')
-    js("document.querySelector('.workspace-picker [data-open-tab=external-test]').click()")
+    js("document.querySelector('.workspace-add').click();document.querySelector('.workspace-picker [data-open-tab=external-test]').click()")
     assert js('return window.externalMounted === 1'), 'Expand remounted a live panel'
     settings()
     assert js('return !window.externalAborted && !window.externalDisposed'), 'Navigation disposed a live dock'
@@ -78,7 +78,7 @@ def run(command, js, wait_for, web, origin, loaded):
     chat()
     wait_for(lambda: js('return window.externalMounted === 2 && window.slowMounts === 1'), 'Return did not mount new panels')
     # Collapse while async mount is pending keeps that same instance.
-    js("document.querySelector('[data-tab-id=slow-test] .workspace-tab-close').click();document.querySelector('.workspace-picker [data-open-tab=slow-test]').click()")
+    js("document.querySelector('[data-tab-id=slow-test] .workspace-tab-close').click();document.querySelector('.workspace-add').click();document.querySelector('.workspace-picker [data-open-tab=slow-test]').click()")
     assert js('return window.slowMounts === 1 && !window.slowDisposals'), 'Collapse restarted pending mount'
     js('window.finishSlowMount()')
     assert js('return !window.slowDisposals'), 'Live async instance was disposed'
@@ -90,7 +90,7 @@ def run(command, js, wait_for, web, origin, loaded):
     command('/refresh', {})
     wait_for(loaded, 'Reload failed')
     wait_for(lambda: js("return document.querySelector('[data-extension-id=notes] .extension-panel-content')?.shadowRoot?.querySelector('textarea')?.value === 'Моя заметка'"), 'Notes lost on reload')
-    assert js("return document.querySelector('.workspace-tabs').firstElementChild.dataset.tabId") == 'notes'
+    assert js("return !!document.querySelector('[data-tab-id=notes]')"), 'Enabled tab missing'
     command('/url', {'url': web + '/standalone.html'})
     wait_for(lambda: js("return document.querySelector('[data-extension-id=notes] .extension-panel-content')?.shadowRoot?.querySelector('textarea')?.value === 'Моя заметка'"), 'Independent host needs agent')
     wait_for(lambda: js("return document.querySelector('[data-extension-id=agent-info] .extension-error')?.textContent.includes('agent.config.read')"), 'Missing interface not isolated')

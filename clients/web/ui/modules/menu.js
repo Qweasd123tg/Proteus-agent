@@ -14,16 +14,47 @@ export function menu(root, kind, label, glyph, signal) {
   summary.append(meta, icon("chevron-down"));
   const panel = document.createElement("div");
   panel.className = "composer-menu-panel";
+  panel.setAttribute("popover", "auto");
   details.append(summary, panel);
   root.append(details);
+  function position() {
+    const r = summary.getBoundingClientRect(),
+      size = panel.getBoundingClientRect();
+    panel.style.left = `${Math.max(8, Math.min(r.left, innerWidth - size.width - 8))}px`;
+    panel.style.top = `${Math.max(8, Math.min(r.bottom + size.height + 8 < innerHeight ? r.bottom + 6 : r.top - size.height - 6, innerHeight - size.height - 8))}px`;
+  }
   details.addEventListener(
     "toggle",
     () => {
-      if (details.open)
+      if (details.open) {
         for (const other of document.querySelectorAll(".composer-menu[open]"))
           if (other !== details) other.open = false;
+        panel.showPopover();
+        position();
+      } else if (panel.matches(":popover-open")) panel.hidePopover();
     },
     { signal },
+  );
+  panel.addEventListener(
+    "toggle",
+    () => {
+      if (!panel.matches(":popover-open")) details.open = false;
+    },
+    { signal },
+  );
+  window.addEventListener(
+    "resize",
+    () => {
+      details.open = false;
+    },
+    { signal },
+  );
+  signal.addEventListener(
+    "abort",
+    () => {
+      if (panel.matches(":popover-open")) panel.hidePopover();
+    },
+    { once: true },
   );
   return { details, summary, name, meta, panel };
 }

@@ -6,9 +6,7 @@ use web_sys::MouseEvent;
 pub(crate) fn HeaderView<N, O, S>(
     sidebar_collapsed: ReadSignal<bool>,
     on_toggle_sidebar: S,
-    route: ReadSignal<String>,
     workspace_label: ReadSignal<String>,
-    session_title: Memo<String>,
     waiting_background_sessions: Memo<Vec<SessionSummary>>,
     on_navigate: N,
     on_open_session: O,
@@ -18,7 +16,6 @@ where
     N: Fn(MouseEvent, &'static str) + Copy + Send + Sync + 'static,
     O: Fn(SessionSummary) + Copy + Send + Sync + 'static,
 {
-    let is_chat_route = move || !matches!(route.get().as_str(), "/settings");
     view! {
                 <header class="topbar">
                     <div class="topbar-left">
@@ -32,15 +29,13 @@ where
                             on:click=move |ev| on_navigate(ev, "/")
                         >
                             <super::icons::FolderIcon />
-                            <span>{move || match route.get().as_str() {
-                                "/settings" => "Настройки".to_owned(),
-                                _ => session_title.get(),
-                            }}</span>
+                            <span>{move || crate::ui_utils::short_path(&workspace_label.get())}</span>
                         </a>
                     </div>
-                    <nav class="topnav" aria-label="Действия чата">
+                    <nav class="topnav" aria-label="Действия рабочей области">
+                        <div class="module-dock" data-module-zone="header"></div>
                         <div class="widget-slot" data-widget-slot="header"></div>
-                        <button type="button" class="sidebar-toggle" data-workspace-toggle="" title="Боковая панель" aria-label="Боковая панель" aria-expanded="false"><super::icons::PanelIcon right=true /></button>
+                        <button type="button" class="sidebar-toggle" data-workspace-split="" data-shortcut="workspace" title="Разделить область" aria-label="Разделить область" aria-pressed="false"><super::icons::PanelIcon right=true /></button>
                         {move || {
                             let waiting = waiting_background_sessions.get();
                             if waiting.is_empty() {
@@ -61,15 +56,6 @@ where
                                 }.into_any()
                             }
                         }}
-                        <a
-                            class="topnav-link return-to-chat"
-                            class:active=move || is_chat_route()
-                            hidden=move || is_chat_route()
-                            href="/"
-                            on:click=move |ev| on_navigate(ev, "/")
-                        >
-                            "Вернуться в чат"
-                        </a>
                     </nav>
                 </header>
     }

@@ -1,8 +1,4 @@
-/* Settings replaces the chat list while retaining its saved width and navigation geometry. */
-.app-layout.settings-route > .sidebar, .app-layout.settings-route > .extension-columns { display:none; }
-.app-layout.settings-route { padding-bottom:0; }
-.settings-route .topbar [data-panel-toggle], .settings-route .topbar [data-workspace-toggle], .settings-route .topbar .return-to-chat { visibility:hidden; }
-.settings-page { display:grid; grid-template-columns:var(--sidebar-width) minmax(320px,1fr) auto; position:relative; width:100%; height:100%; min-height:0; overflow-x:auto; overflow-y:hidden; }
+.settings-page { display:grid; grid-template-columns:200px minmax(0,1fr) auto; position:relative; width:100%; height:100%; min-height:0; overflow-x:auto; overflow-y:hidden; }
 .settings-nav { display:flex; flex-direction:column; gap:var(--nav-row-gap); padding:18px var(--nav-list-inset); border-right:1px solid var(--border-subtle); background:var(--bg-panel); overflow-y:auto; }
 .settings-nav a, .settings-nav button { display:flex; align-items:center; justify-content:flex-start; flex:none; gap:10px; min-height:var(--nav-row-height); padding:6px var(--nav-row-inset); border:0; border-radius:var(--radius-inner); text-align:left; text-decoration:none; font-size:var(--nav-row-font); line-height:var(--nav-row-line); font-weight:400; color:var(--text-main); background:transparent; }
 .settings-nav a:hover, .settings-nav button:hover { background:var(--bg-panel-hover); }
@@ -31,9 +27,10 @@
 .settings-content .extension-choice:last-child { border-bottom:0; }
 .settings-section[hidden], .settings-retry[hidden] { display:none; }
 
-/* Extension settings occupy the same independent right-hand space as chat tools. */
-.settings-page > .extension-options { position:relative; display:flex; flex-direction:column; width:min(var(--workspace-width,460px),40vw); min-width:300px; min-height:0; margin:0; padding:0; border:0; border-left:1px solid var(--border-subtle); border-radius:0; background:var(--bg-root); }
-.settings-page > .extension-options[hidden], .settings-page:has(.settings-section[hidden] .extension-settings) > .extension-options { display:none; }
+/* Module details stay inside the Settings tab. */
+.settings-content { position:relative; }
+.settings-content > .extension-options { position:absolute; inset:0; display:flex; flex-direction:column; min-width:0; min-height:0; margin:0; padding:0; border:0; background:var(--bg-root); z-index:2; }
+.settings-content > .extension-options[hidden], .settings-content:has(.settings-section[hidden] .extension-settings) > .extension-options { display:none; }
 .extension-options-header { display:flex; align-items:center; justify-content:space-between; gap:12px; height:52px; flex:none; padding:6px 16px; border-bottom:1px solid var(--border-subtle); }
 .extension-options-header h3 { margin:0; min-width:0; overflow:hidden; text-overflow:ellipsis; font-size:14px; font-weight:500; }
 .extension-options-header button { width:30px; min-height:30px; padding:0; color:var(--text-muted); }

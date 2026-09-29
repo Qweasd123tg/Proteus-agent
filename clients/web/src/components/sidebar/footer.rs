@@ -20,7 +20,7 @@ where
     };
     view! {
         <nav class="sidebar-footer" aria-label="Инструменты и настройки">
-            <a href="/settings" class="settings-link" class:active=move || route.get() == "/settings" title="Настройки" aria-label="Настройки" on:click=move |ev| on_navigate(ev, "/settings")>
+            <a href="/settings" class="settings-link" data-shortcut="settings" class:active=move || route.get() == "/settings" title="Настройки" aria-label="Настройки" on:click=move |ev| on_navigate(ev, "/settings")>
                 <SettingsIcon/><span class="sidebar-footer-label">"Настройки"</span>
             </a>
             <div class="sidebar-footer-status">

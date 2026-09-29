@@ -12,7 +12,7 @@
       "id": "plan",
       "url": "./plan/extension.json",
       "enabled": true,
-      "collapsed": false,
+      "collapsed": true,
       "location": "right"
     },
     {
@@ -33,25 +33,25 @@
       "id": "agent-info",
       "url": "./agent-info/extension.json",
       "enabled": true,
-      "collapsed": false
+      "collapsed": true
     },
     {
       "id": "notes",
       "url": "./notes/extension.json",
       "enabled": false,
-      "collapsed": false
+      "collapsed": true
     },
     {
       "id": "model-quota",
       "url": "./model-quota/extension.json",
       "enabled": true,
-      "collapsed": false
+      "collapsed": true
     },
     {
       "id": "usage",
       "url": "./usage/extension.json",
       "enabled": true,
-      "collapsed": false
+      "collapsed": true
     }
   ]
 }

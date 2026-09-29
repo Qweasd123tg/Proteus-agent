@@ -47,7 +47,7 @@ def run(command, js, wait_for, web, origin):
     js("document.querySelector('[data-action=close]').click();document.dispatchEvent(new CustomEvent('proteus-desktop-action',{detail:'folder'}))")
     wait_for(lambda: js("return chromeCalls.includes('close') && chromeCalls.includes('open_workspace_folder')"), 'Native close/folder action failed')
     js("window.chromeCalls.length=0;for(const code of ['KeyO','KeyI','KeyQ']) document.dispatchEvent(new KeyboardEvent('keydown',{code,ctrlKey:true,shiftKey:code!=='KeyQ',bubbles:true}))")
-    wait_for(lambda: js("return ['open_project','quit_app'].every(name=>chromeCalls.includes(name)) && !chromeCalls.includes('open_client') && !!document.querySelector('.settings-page')"), 'Desktop shortcuts failed')
+    wait_for(lambda: js("return ['open_project','quit_app'].every(name=>chromeCalls.includes(name)) && !chromeCalls.includes('open_client') && !document.querySelector('[data-client-view=settings]').hidden"), 'Desktop shortcuts failed')
     # Native shortcuts use the same editor and must not fire during capture.
     command('/window/rect', {'width':1440, 'height':1000})
     js("document.querySelector('.settings-link').click()")

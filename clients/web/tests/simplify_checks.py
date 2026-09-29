@@ -11,7 +11,7 @@ def run(command, js, wait_for, web, origin):
     assert js("return JSON.stringify(footerBefore)===JSON.stringify([...document.querySelectorAll('.sidebar-footer > a')].map(x=>x.getBoundingClientRect().y)) && new Set(footerMoves).size<=1"), 'Connecting moved navigation'
     js("footerObserver.disconnect();window.workspaceBefore=document.querySelector('.tab-workspace');window.sessionBefore=new URL(location.href).searchParams.get('session_dir');const area=document.querySelector('.composer textarea');area.value='Сохранённый черновик';area.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('.settings-link').click()")
     wait_for(lambda: js("return !!document.querySelector('.settings-back')"), 'Settings missing')
-    assert js("return !document.querySelector('.sidebar-footer a[href=\"/context\"]') && document.querySelector('.sidebar').getBoundingClientRect().width===0"), 'Diagnostics still clutter chat navigation'
+    assert js("return !document.querySelector('.sidebar-footer a[href=\"/context\"]') && document.querySelector('.sidebar').getBoundingClientRect().width>0"), 'Diagnostics still clutter chat navigation'
     js("document.querySelector('[data-settings-section=extensions]').click()")
     wait_for(lambda: js("return document.querySelector('[data-settings-section=extensions]').getAttribute('aria-pressed')==='true'"), 'Settings selection is stale')
     assert js("return !document.querySelector('[data-module-page=extensions]').hidden && document.querySelector('.settings-section:has(.appearance-preview)').hidden"), 'Settings sections overlap'

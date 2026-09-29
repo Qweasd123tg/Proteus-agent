@@ -140,3 +140,20 @@
 .app-layout.resizing .chat-resize-handle::before {
     opacity: 1;
 }
+
+.module-dock { display:flex; align-items:center; gap:4px; min-width:0; flex-wrap:wrap; }
+.client-module-movable { display:flex; align-items:center; min-width:0; max-width:100%; }
+.client-module-slot { min-width:0; }
+.module-drag-handle { flex:none; width:14px; min-height:28px; padding:0; color:var(--text-faint); cursor:grab; touch-action:none; opacity:0; transition:opacity .2s; }
+.client-module-movable:hover .module-drag-handle,.client-module-movable:focus-within .module-drag-handle { opacity:1; }
+.module-drop-target { min-width:72px; min-height:34px; outline:1px dashed var(--text-faint); border-radius:6px; }
+.topnav > .module-dock { max-width:min(50vw,480px); flex-wrap:nowrap; }
+.composer-options { flex:1 1 auto; max-width:none; flex-wrap:wrap; }
+.composer-actions { flex:1 1 auto; }
+@container (max-width:650px) {
+  .composer { padding:0 12px 12px; }
+  .composer-toolbar { flex-wrap:wrap; }
+  .composer-options { flex-basis:100%; }
+}
+
+.client-module-movable:has(.client-module-slot:empty) { display:none; }

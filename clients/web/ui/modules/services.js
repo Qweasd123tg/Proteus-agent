@@ -68,7 +68,14 @@ export function moduleServices(registry) {
         },
       }),
     "client.diagnostics": (signal) =>
-      diagnosticsService(() => diagnosticUrl, signal),
+      diagnosticsService(
+        () => diagnosticUrl,
+        (fn) => {
+          events.addEventListener("change", fn, { signal });
+          return () => events.removeEventListener("change", fn);
+        },
+        signal,
+      ),
   };
   return services;
 }

@@ -8,7 +8,7 @@ def run(command, js, wait_for, server):
         wait_for(lambda: js("return !document.querySelector('.composer-submit').disabled"), 'Send was not enabled')
         js("document.querySelector('.composer-submit').click()")
 
-    # Count owned one-second clocks; navigation must dispose rather than accumulate them.
+    # Count owned one-second clocks: visibility, not the focused route, owns the clock.
     js("window.clockTimers=new Set();window.originalInterval=window.setInterval;window.originalClearInterval=window.clearInterval;window.setInterval=(callback,delay,...args)=>{const id=originalInterval(callback,delay,...args);if(delay===1000)clockTimers.add(id);return id};window.clearInterval=id=>{clockTimers.delete(id);return originalClearInterval(id)}")
     before = server.model_requests
     server.stream_gate.clear()
@@ -19,7 +19,15 @@ def run(command, js, wait_for, server):
         wait_for(lambda: js('return clockTimers.size===1'), 'Active chat must own exactly one activity timer')
         js("document.querySelector('.settings-link').click()")
         wait_for(lambda: js('return clockTimers.size===0'), 'Leaving chat retained an activity timer')
-        js("document.querySelector('.topnav a[href=\"/\"]').click()")
+        js("document.querySelector('[data-tab-id=\"client:settings\"]').closest('.workspace-group').querySelector('.workspace-transfer').click()")
+        wait_for(lambda: js("return !document.querySelector('[data-client-view=chat]').hidden && !document.querySelector('[data-client-view=settings]').hidden && clockTimers.size===1"), 'Split chat lost its activity timer while settings was focused')
+        js("document.querySelector('[data-tab-id=\"client:settings\"] .workspace-tab-name').click()")
+        assert js("return location.pathname==='/settings' && clockTimers.size===1"), 'Settings route stopped the visible split chat timer'
+        js("document.querySelector('[data-tab-id=\"client:chat\"] .workspace-tab-name').click();document.querySelector('[data-workspace-split]').click()")
+        wait_for(lambda: js("return document.querySelectorAll('.workspace-group:not([hidden])').length===1 && clockTimers.size===1"), 'Merging groups duplicated or stopped the active chat timer')
+        js("document.querySelector('.settings-link').click()")
+        wait_for(lambda: js('return clockTimers.size===0'), 'Hiding merged chat retained its activity timer')
+        js("document.querySelector('.settings-back').click()")
         wait_for(lambda: js('return clockTimers.size===1'), 'Returning to chat did not restore exactly one activity timer')
         js("document.querySelector('.connection-badge').click()")
         wait_for(lambda: js("const c=[...document.querySelectorAll('.results-panel .role-assistant')].at(-1);return document.querySelector('.connection-badge').classList.contains('completed') && c?.textContent.includes('Абзац 0:') && c.textContent.includes('Абзац 3:') && !c.textContent.includes('Абзац 31:')"), 'Snapshot lost the already streamed prefix')

@@ -58,7 +58,7 @@ export function enableHorizontalReorder(list, { itemSelector, handleSelector, id
       const delta = positions.get(row) - row.getBoundingClientRect().left;
       if (Number.isFinite(delta) && delta) {
         for (const animation of row.getAnimations()) animation.cancel();
-        row.animate([{ transform: `translateX(${delta}px)` }, { transform: 'translateX(0)' }], { duration: 140, easing: 'ease-out' });
+        row.animate([{ transform: `translateX(${delta}px)` }, { transform: 'translateX(0)' }], { duration: 220, easing: 'cubic-bezier(.2,.7,.2,1)' });
       }
     }
   }

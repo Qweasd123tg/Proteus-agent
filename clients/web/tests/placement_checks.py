@@ -13,7 +13,7 @@ def run(command, js, wait_for):
 
     def settings():
         click('.settings-link')
-        wait_for(lambda: js("return !!document.querySelector('.settings-page')"), 'Settings missing')
+        wait_for(lambda: js("return !document.querySelector('[data-client-view=settings]').hidden"), 'Settings missing')
         click('[data-settings-section=extensions]')
 
     def place(id, value):
@@ -106,7 +106,7 @@ def run(command, js, wait_for):
     click('.session-item-shell .session-more')
     assert js("return document.querySelector('.sidebar-menu').getBoundingClientRect().height<360"), 'Context menu stretched to bottom'
     js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
-    js("if(document.querySelector('.tab-workspace').hidden)document.querySelector('[data-workspace-toggle]').click()")
+    js("if(document.querySelector('.tab-workspace').hidden)document.querySelector('[data-workspace-split]').click()")
     click('.workspace-add')
     assert js("return document.querySelector('.workspace-picker').getBoundingClientRect().height<500"), 'Tab picker stretched to bottom'
     js("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")

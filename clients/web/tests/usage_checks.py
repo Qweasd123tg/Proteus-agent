@@ -20,9 +20,9 @@ def run(command, js, wait_for):
     wait_for(lambda: js("return !!document.querySelector('.extension-options-content')?.shadowRoot?.querySelector('form')"), 'Separate settings entry did not mount')
     js("const root=document.querySelector('.extension-options-content').shadowRoot;for(const [name,value] of Object.entries({provider:'',model:'fixture-model',input:1,cached:.1,write:1,output:2,threshold:0,input_multiplier:1,output_multiplier:1}))root.querySelector(`[name=${name}]`).value=value;root.querySelector('form').requestSubmit()")
     wait_for(lambda: js("return document.querySelector('.extension-options-content').shadowRoot.textContent.includes('Тариф сохранён')"), 'Custom rate failed to persist')
-    js("document.querySelector('.topnav a[href=\"/\"]').click()")
+    js("document.querySelector('.settings-back').click()")
     wait_for(chat_loaded, 'Chat did not return')
-    js("document.querySelector('.workspace-picker [data-open-tab=usage]').click()")
+    js("document.querySelector('.workspace-add').click();document.querySelector('.workspace-picker [data-open-tab=usage]').click()")
     wait_for(lambda: js("const root=" + shadow() + ";return root?.querySelector('.usage-headline > strong')?.textContent==='280'"), 'Usage totals do not match two real provider requests')
     assert js("const root=" + shadow() + ";return root.querySelector('.cost-total').textContent.includes('$0.000252')"), 'Cost double-counted cache or reasoning'
     js("const root=" + shadow() + ";root.querySelector('.usage-recent').open=true;root.querySelector('.usage-request').open=true")
@@ -47,5 +47,5 @@ def run(command, js, wait_for):
     wait_for(chat_loaded, 'Selected chat did not restore after analysis')
     # Keep the layout regression focused on the original visible panels.
     wait_for(lambda: js("return !!document.querySelector('[data-extension-id=usage] .extension-panel-content')"), 'Usage panel not restored')
-    js("document.querySelector('.workspace-picker [data-open-tab=usage]').click()")
+    js("document.querySelector('.workspace-add').click();document.querySelector('.workspace-picker [data-open-tab=usage]').click()")
     print('PASS: durable per-request usage; cache/reasoning pricing; independent rate settings; sidebar/context agreement; reload and API error recovery', flush=True)

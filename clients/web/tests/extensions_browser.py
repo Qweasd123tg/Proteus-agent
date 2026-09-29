@@ -12,6 +12,7 @@ from interface_settings_checks import run as check_interface_settings
 from client_modules_checks import run as check_client_modules
 from extensions_checks import run as check_extensions
 from panel_checks import run as check_panels
+from workspace_checks import run as check_workspace
 from select_checks import run as check_selects
 from layout_checks import run as check_layout
 from session_checks import run as check_session, check_inspector_startup, BOOTSTRAP
@@ -325,6 +326,11 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return
                 if '--chrome-only' in sys.argv:
                     check_chrome(command, js, wait_for, web, origin)
+                    return
+                if '--workspace-layout-only' in sys.argv:
+                    command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
+                    wait_for(loaded, 'Client did not load for workspace checks')
+                    check_workspace(command, js, wait_for)
                     return
                 if '--workspace-only' in sys.argv:
                     command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})

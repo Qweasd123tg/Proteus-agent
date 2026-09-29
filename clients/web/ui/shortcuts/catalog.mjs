@@ -4,7 +4,7 @@ export const commands = [
   {id:'focus-composer', label:'Фокус в поле сообщения', group:'Чат', binding:'Mod+KeyL'},
   {id:'stop', label:'Остановить ответ', group:'Чат', binding:'Escape'},
   {id:'sidebar', label:'Показать список чатов', group:'Навигация', binding:'Mod+KeyB'},
-  {id:'workspace', label:'Показать боковую область', group:'Навигация', binding:'Mod+Shift+KeyB'},
+  {id:'workspace', label:'Разделить или объединить область', group:'Навигация', binding:'Mod+Shift+KeyB'},
   {id:'settings', label:'Открыть настройки', group:'Навигация', binding:'Mod+Comma'},
   {id:'project', label:'Открыть проект', group:'Приложение', binding:'Mod+Shift+KeyO', native:true},
   {id:'inspector', label:'Открыть диагностику', group:'Приложение', binding:'Mod+Shift+KeyI'},

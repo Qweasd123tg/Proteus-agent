@@ -172,3 +172,7 @@
 .menu-option.active .menu-option-check {
     visibility: visible;
 }
+
+/* A module can live in any dock; its menu stays inside the viewport. */
+.composer-menu .composer-menu-panel { position:fixed; inset:auto; margin:0; width:350px; max-width:calc(100vw - 16px); max-height:min(480px,calc(100dvh - 16px)); }
+.composer-menu .composer-menu-panel:not(:popover-open) { display:none; }

@@ -1,11 +1,15 @@
+import { snapshot, mac } from './shortcuts/runtime.js';
+import { label } from './shortcuts/catalog.mjs';
 // Replace native title bubbles without changing Leptos/extension producers.
 // The original text remains available as data-ui-tooltip; aria labels survive.
-const selector = '[data-ui-tooltip],[data-ui-tooltip-details],[title]';
+const selector = '[data-ui-tooltip],[data-ui-tooltip-details],[title],[data-shortcut]';
 const roots = new WeakSet(), removals = new WeakMap(), labels = new WeakMap();
 let bubble, anchor, timer, rendered, serial = 0;
 
 function content(element) {
-  return [element.dataset.uiTooltip ?? '', element.dataset.uiTooltipDetails?.trim() ?? ''];
+  const binding = snapshot().bindings[element.dataset.shortcut];
+  const shortcut = binding ? label(binding, mac) : '';
+  return [element.dataset.uiTooltip ?? element.getAttribute('aria-label') ?? '', [element.dataset.uiTooltipDetails?.trim(), shortcut].filter(Boolean).join('\n')];
 }
 
 function render() {
@@ -74,7 +78,7 @@ function observe(root) {
     else if (anchor && bubble?.matches(':popover-open') && render()) position();
   });
   observer.observe(root, {subtree: true, childList: true, attributes: true,
-    attributeFilter: ['title', 'data-ui-tooltip', 'data-ui-tooltip-details'], attributeOldValue: true});
+    attributeFilter: ['title', 'data-ui-tooltip', 'data-ui-tooltip-details', 'data-shortcut', 'aria-label'], attributeOldValue: true});
 }
 
 export function hideTooltip() {
@@ -99,7 +103,7 @@ function target(event) {
     convert(element);
     // A compact host's live details take precedence over its inner icon title.
     if (element.dataset.uiTooltipDetails?.trim()) return element;
-    if (!fallback && element.dataset.uiTooltip) fallback = element;
+    if (!fallback && (element.dataset.uiTooltip || element.dataset.shortcut && element.getAttribute('aria-label'))) fallback = element;
   }
   return fallback;
 }
@@ -142,7 +146,7 @@ document.addEventListener('pointerover', event => {
 }, true);
 document.addEventListener('focusin', event => show(target(event), 150), true);
 document.addEventListener('pointerout', event => {
-  if (anchor && !anchor.contains(event.relatedTarget)) hideTooltip();
+  if (anchor && event.composedPath().includes(anchor) && !anchor.contains(event.relatedTarget)) hideTooltip();
 }, true);
 document.addEventListener('focusout', hideTooltip, true);
 for (const type of ['pointerdown', 'click', 'dragstart']) document.addEventListener(type, hideTooltip, true);
@@ -156,4 +160,5 @@ window.addEventListener('resize', hideTooltip);
 window.addEventListener('blur', hideTooltip);
 window.visualViewport?.addEventListener('resize', hideTooltip);
 window.visualViewport?.addEventListener('scroll', hideTooltip);
+window.addEventListener('proteus-shortcuts-change', () => { if(anchor && bubble?.matches(':popover-open')) { render(); position(); } });
 observe(document);
