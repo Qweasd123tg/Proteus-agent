@@ -84,7 +84,7 @@
 .settings-range input[type=range]::-webkit-slider-thumb { appearance:none; -webkit-appearance:none; width:16px; height:16px; margin-top:-6px; border:0; border-radius:50%; background:var(--text-main); }
 .settings-range input[type=range]::-moz-range-track { height:4px; border:0; border-radius:2px; background:var(--text-muted); }
 .settings-range input[type=range]::-moz-range-thumb { width:16px; height:16px; border:0; border-radius:50%; background:var(--text-main); }
-.results-panel > .task-card, .results-panel > .assistant-turn { margin-bottom:12px; }
+:is(.results-panel, .transcript-row) > .task-card, :is(.results-panel, .transcript-row) > .assistant-turn { margin-bottom:12px; }
 
 .settings-content { container-type:inline-size; }
 @container (max-width:480px) {

@@ -163,6 +163,7 @@ pub(super) fn AppShell(
                                 last_results_scroll_top
                                 set_last_results_scroll_top
                                 messages
+                                session=active_session_dir
                                 activity_now_ms
                                 pending_approvals
                                 pending_user_inputs

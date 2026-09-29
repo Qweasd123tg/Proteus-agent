@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use leptos::{html, prelude::*};
 use web_sys::WheelEvent;
 
-use super::{ApprovalCard, MessageView, PlanActionsCard, UserInputCard, WorkingCard};
+use super::{ApprovalCard, PlanActionsCard, UserInputCard, WorkingCard};
 use crate::chat_scroll::is_at_bottom;
 use crate::types::*;
 
@@ -16,6 +16,7 @@ pub(crate) fn ChatResultsView<A, I, R, E, X>(
     last_results_scroll_top: ReadSignal<i32>,
     set_last_results_scroll_top: WriteSignal<i32>,
     messages: crate::transcript::Transcript,
+    session: ReadSignal<Option<String>>,
     activity_now_ms: ReadSignal<u64>,
     pending_approvals: ReadSignal<Vec<ApprovalRequestInfo>>,
     pending_user_inputs: ReadSignal<Vec<UserInputRequestInfo>>,
@@ -49,6 +50,9 @@ where
             aria-label="Диалог"
             node_ref=results_ref
             on:wheel=move |ev: WheelEvent| {
+                if ev.delta_y() != 0.0 && let Some(results) = results_ref.get_untracked() {
+                    let _ = results.set_attribute("data-transcript-direction", if ev.delta_y() < 0.0 { "up" } else { "down" });
+                }
                 if ev.delta_y() < 0.0 {
                     set_stick_to_bottom.set(false);
                 }
@@ -56,13 +60,19 @@ where
             on:scroll=move |_| {
                 if let Some(results) = results_ref.get() {
                     let scroll_top = results.scroll_top();
+                    if results.has_attribute("data-transcript-adjusting") {
+                        set_last_results_scroll_top.set(scroll_top);
+                        return;
+                    }
                     let previous_top = last_results_scroll_top.get_untracked();
-                    if scroll_top < previous_top {
+                    if scroll_top < previous_top
+                        && (results.has_attribute("data-transcript-user-scroll") || !stick_to_bottom.get_untracked()) {
                         // Первый кадр плавной прокрутки может сдвинуть ленту
                         // всего на 1px. Даже внутри допуска нижнего края это
                         // движение вверх, а не разрешение вернуть её вниз.
                         set_stick_to_bottom.set(false);
                     } else if scroll_top > previous_top
+                        && results.get_attribute("data-transcript-direction").as_deref() != Some("up")
                         && results.client_height() > 0
                         && is_at_bottom(&results)
                     {
@@ -94,17 +104,7 @@ where
                     ().into_any()
                 }
             }}
-            <For
-                each=move || groups.get()
-                key=|group| (group.id,group.tools)
-                children=move |group| {
-                    if group.tools {
-                        view!{<super::tool_chain::ToolChain id=group.id groups messages activity_now_ms/>}.into_any()
-                    } else {
-                        view!{<MessageView message_id=group.id messages activity_now_ms/>}.into_any()
-                    }
-                }
-            />
+            <super::virtual_transcript::VirtualTranscript root=results_ref groups messages activity_now_ms session set_last_scroll_top=set_last_results_scroll_top/>
             <For
                 each=move || pending_approvals.get()
                 key=|request| request.approval_id.clone()

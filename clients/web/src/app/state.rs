@@ -221,8 +221,6 @@ pub(super) struct ViewState {
     pub set_last_error_toast: WriteSignal<Option<String>>,
     pub stick_to_bottom: ReadSignal<bool>,
     pub set_stick_to_bottom: WriteSignal<bool>,
-    pub scroll_frame_pending: ReadSignal<bool>,
-    pub set_scroll_frame_pending: WriteSignal<bool>,
     pub last_results_scroll_top: ReadSignal<i32>,
     pub set_last_results_scroll_top: WriteSignal<i32>,
     pub tool_cards_collapsed: ReadSignal<bool>,
@@ -241,7 +239,6 @@ impl ViewState {
         let (next_toast_id, set_next_toast_id) = signal(1);
         let (last_error_toast, set_last_error_toast) = signal(None);
         let (stick_to_bottom, set_stick_to_bottom) = signal(true);
-        let (scroll_frame_pending, set_scroll_frame_pending) = signal(false);
         let (last_results_scroll_top, set_last_results_scroll_top) = signal(0);
         let (tool_cards_collapsed, set_tool_cards_collapsed) =
             signal(crate::ui_preferences::load_bool_setting(
@@ -262,8 +259,6 @@ impl ViewState {
             set_last_error_toast,
             stick_to_bottom,
             set_stick_to_bottom,
-            scroll_frame_pending,
-            set_scroll_frame_pending,
             last_results_scroll_top,
             set_last_results_scroll_top,
             tool_cards_collapsed,

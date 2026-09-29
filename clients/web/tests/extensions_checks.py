@@ -109,6 +109,8 @@ def run(command, js, wait_for, web, origin, loaded):
     wait_for(lambda: js("return !document.querySelector('.composer-submit').disabled"), 'Send action did not enable after input')
     js("document.querySelector('.composer-submit').click()")
     wait_for(lambda: js("return document.querySelector('.results-panel').textContent.includes('Проверка интерфейса завершена.')"), 'Composer / tool turn did not complete')
+    js("document.querySelector('.tool-chain-toggle').click()")
+    wait_for(lambda: js("return !!document.querySelector('.tool-card')"), 'Tool chain did not reveal cards')
     assert js("return !!document.querySelector('.tool-card') && !document.querySelector('.tool-card.expanded')"), 'Saved compact-card setting did not apply to SPA chat'
     assert js("return !!document.querySelector('.code-block') && document.querySelector('[data-extension-id=plan] .extension-panel-content')?.shadowRoot?.textContent.includes('Проверить панели')"), 'Code block or plan panel did not render'
     assert js("const b=document.querySelector('[data-widget-id=plan]');return b?.dataset.uiTooltipDetails.includes('Проверить панели') && b.dataset.uiTooltipDetails.includes('Проверить настройки')"), 'Plan did not publish full hover steps'

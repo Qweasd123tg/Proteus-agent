@@ -45,8 +45,16 @@ def run(command, js, wait_for, server):
         wait_for(lambda: js('return clockTimers.size===0'), 'Hiding merged chat retained its activity timer')
         js("document.querySelector('.settings-back').click()")
         wait_for(lambda: js('return clockTimers.size===1'), 'Returning to merged chat did not restore exactly one activity timer')
+        # Virtual rows outside the reading viewport are intentionally absent.
+        # Reveal the active answer before checking its reconnect DOM.
+        js("document.querySelector('.jump-to-bottom').click()")
+        wait_for(lambda: js("const c=[...document.querySelectorAll('.results-panel .role-assistant')].at(-1);return c?.textContent.includes('Абзац 3:') && !c.textContent.includes('Абзац 31:')"), 'Active streaming answer was not revealed')
         js("document.querySelector('.connection-badge').click()")
-        wait_for(lambda: js("const c=[...document.querySelectorAll('.results-panel .role-assistant')].at(-1);return document.querySelector('.connection-badge').classList.contains('completed') && c?.textContent.includes('Абзац 0:') && c.textContent.includes('Абзац 3:') && !c.textContent.includes('Абзац 31:')"), 'Snapshot lost the already streamed prefix')
+        try:
+            wait_for(lambda: js("const c=[...document.querySelectorAll('.results-panel .role-assistant')].at(-1);return document.querySelector('.connection-badge').classList.contains('completed') && c?.textContent.includes('Абзац 0:') && c.textContent.includes('Абзац 3:') && !c.textContent.includes('Абзац 31:')"), 'Snapshot lost the already streamed prefix')
+        except AssertionError:
+            print(js("const r=document.querySelector('.results-panel');return JSON.stringify({top:r.scrollTop,max:r.scrollHeight-r.clientHeight,sticky:r.className,rows:[...r.querySelectorAll('[data-transcript-row]')].map(n=>[n.dataset.transcriptRow,n.textContent.slice(0,100),n.textContent.slice(-80)]),timers:clockTimers.size})"),flush=True)
+            raise
     finally:
         server.stream_gate.set()
     wait_for(lambda: js("const c=[...document.querySelectorAll('.results-panel .role-assistant')].at(-1);return !document.querySelector('.composer-stop') && c?.textContent.includes('Абзац 31:')"), 'Reconnected stream did not settle')

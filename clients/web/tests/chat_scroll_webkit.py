@@ -8,6 +8,7 @@ are local; no account or existing Proteus session is used.
 """
 
 import atexit
+import argparse
 from functools import partial
 from http.server import ThreadingHTTPServer
 import json
@@ -20,10 +21,17 @@ import tempfile
 import threading
 import time
 
+import extensions_browser as fixture
 from extensions_browser import Assets, ROOT, stop, urlencode
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--wayland', action='store_true')
+    parser.add_argument('--history', type=int, default=240)
+    args = parser.parse_args()
+    assert args.history >= 2, 'History needs at least two messages'
+    fixture.BOOTSTRAP = fixture.BOOTSTRAP.replace('length: 240', 'length: ' + str(args.history))
     display = None
     if '--wayland' in sys.argv:
         os.environ['GDK_BACKEND'] = 'wayland'
@@ -169,16 +177,18 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                             r.dispatchEvent(new WheelEvent('wheel', {deltaY:-0.5, bubbles:true}));
                             r.dispatchEvent(new Event('scroll', {bubbles:true}));
                             r.scrollTop = r.scrollHeight - r.clientHeight - 1;
-                            return {top:r.scrollTop, max:r.scrollHeight-r.clientHeight};
+                            const y=r.getBoundingClientRect().top;
+                            window.readingAnchor=[...r.querySelectorAll('[data-transcript-row]')].find(n=>n.getBoundingClientRect().top<=y && n.getBoundingClientRect().bottom>y);
+                            return {top:readingAnchor.getBoundingClientRect().top-y, max:r.scrollHeight-r.clientHeight};
                         })()''', lambda result: state.update(detached_top=result['top']))
                     elif stage == 3 and value and value['scrollEvents']:
-                        if value['sticky'] or abs(value['top'] - state['detached_top']) > 1:
+                        if value['sticky'] or value['anchorTop'] is None or abs(value['anchorTop'] - state['detached_top']) > 1:
                             fail('Upward reading gesture snapped to bottom', value)
                             return
                         state['stage'] = 4
                         server.stream_gate.set()
                     elif stage == 4 and value and value['settled']:
-                        if value['sticky'] or abs(value['top'] - state['detached_top']) > 2:
+                        if value['sticky'] or value['anchorTop'] is None or abs(value['anchorTop'] - state['detached_top']) > 2:
                             fail('New streamed content pulled the reader from history', value)
                             return
                         state['stage'] = 5
@@ -196,14 +206,14 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                         return not errors
                     stage = state['stage']
                     if stage == 0:
-                        script = "!!document.querySelector('.results-panel')?.textContent.includes('Сохранённое сообщение 239') && document.querySelector('.connection-badge')?.classList.contains('completed')"
+                        script = "!!document.querySelector('.results-panel')?.textContent.includes('Сохранённое сообщение " + str(args.history - 1) + "') && document.querySelector('.connection-badge')?.classList.contains('completed')"
                     elif stage == 1:
                         script = "document.querySelector('.results-panel')?.textContent.includes('Абзац 3:') && !!document.querySelector('.composer-stop')"
                     else:
                         script = '''(() => {
                             const r = document.querySelector('.results-panel');
                             const max = r.scrollHeight-r.clientHeight;
-                            return {top:r.scrollTop,max,sticky:r.classList.contains('sticky-bottom'),
+                            return {anchorTop:window.readingAnchor?.isConnected ? readingAnchor.getBoundingClientRect().top-r.getBoundingClientRect().top : null,top:r.scrollTop,max,sticky:r.classList.contains('sticky-bottom'),
                                 atBottom:max-r.scrollTop<=1,scrollEvents:scrollEvents,
                                 settled:!document.querySelector('.composer-stop') && r.textContent.includes('Абзац 31:')};
                         })()'''

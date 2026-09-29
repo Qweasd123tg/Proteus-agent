@@ -30,9 +30,6 @@ pub(super) fn install(state: AppState, router: AppRouter) {
         last_error_toast,
         set_last_error_toast,
         stick_to_bottom,
-        scroll_frame_pending,
-        set_scroll_frame_pending,
-        set_last_results_scroll_top,
         set_activity_now_ms,
         detach_baseline,
         set_detach_baseline,
@@ -52,13 +49,7 @@ pub(super) fn install(state: AppState, router: AppRouter) {
             chat_visible.get(),
         );
         if chat_visible.get() && prefs.auto_scroll.get() && stick_to_bottom.get() {
-            schedule_results_scroll(
-                results_ref,
-                stick_to_bottom,
-                scroll_frame_pending,
-                set_scroll_frame_pending,
-                set_last_results_scroll_top,
-            );
+            schedule_results_scroll(results_ref, stick_to_bottom);
         }
     });
 

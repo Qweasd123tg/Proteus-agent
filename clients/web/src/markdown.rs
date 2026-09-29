@@ -3,7 +3,9 @@ use std::collections::HashSet;
 use ammonia::Builder as HtmlSanitizer;
 use pulldown_cmark::{Options as MarkdownOptions, Parser, html};
 
+mod blocks;
 mod math;
+pub(crate) use blocks::blocks as markdown_blocks;
 mod preview;
 #[cfg(test)]
 mod tests;
@@ -11,19 +13,23 @@ use math::{extract_math_fragments, normalize_math_code_blocks};
 pub(crate) use preview::highlight_preview;
 
 pub(crate) fn markdown_html(text: &str) -> String {
-    let mut options = MarkdownOptions::empty();
-    options.insert(MarkdownOptions::ENABLE_TABLES);
-    options.insert(MarkdownOptions::ENABLE_STRIKETHROUGH);
-    options.insert(MarkdownOptions::ENABLE_TASKLISTS);
     let normalized_text = normalize_math_code_blocks(text);
     let (markdown_text, math_fragments) = extract_math_fragments(&normalized_text);
-    let parser = Parser::new_ext(&markdown_text, options);
+    let parser = Parser::new_ext(&markdown_text, options());
     let mut output = String::new();
     html::push_html(&mut output, parser);
     for (token, html) in math_fragments {
         output = output.replace(&token, &html);
     }
     sanitize_html(&enhance_code_blocks(&output))
+}
+
+fn options() -> MarkdownOptions {
+    let mut options = MarkdownOptions::empty();
+    options.insert(MarkdownOptions::ENABLE_TABLES);
+    options.insert(MarkdownOptions::ENABLE_STRIKETHROUGH);
+    options.insert(MarkdownOptions::ENABLE_TASKLISTS);
+    options
 }
 
 fn sanitize_html(html: &str) -> String {

@@ -12,11 +12,10 @@ def run(command, js, wait_for):
             const r=document.querySelector('.results-panel').getBoundingClientRect();
             const bottom=document.querySelector('.composer').getBoundingClientRect().top;
             const ticks=[...document.querySelectorAll('.msg-nav-tick')];
-            const expected=ticks.filter(t=>{
-                const first=document.getElementById(t.dataset.messageId); let last=first;
-                while(last.nextElementSibling && !last.nextElementSibling.matches('.user-turn')) last=last.nextElementSibling;
-                return first.getBoundingClientRect().top<bottom && last.getBoundingClientRect().bottom>r.top;
-            });
+            const visibleOwners=new Set([...document.querySelectorAll('[data-transcript-row]')].filter(card=>{
+                const rect=card.getBoundingClientRect();return rect.top<bottom && rect.bottom>r.top;
+            }).map(card=>card.dataset.promptId));
+            const expected=ticks.filter(t=>visibleOwners.has(t.dataset.messageId));
             const actual=ticks.filter(t=>t.classList.contains('is-visible'));
             return expected.length>1 && expected.length===actual.length && expected.every(t=>actual.includes(t));
         """)

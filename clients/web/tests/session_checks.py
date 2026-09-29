@@ -137,9 +137,12 @@ def run(command, js, wait_for, web, origin, loaded):
     wait_for(lambda: js("return document.querySelector('.results-panel').textContent.includes('Абзац 3:') && !!document.querySelector('.composer-stop')"), 'Live streaming did not reach the UI')
     wait_for(lambda: js("const r=document.querySelector('.results-panel');return r.classList.contains('sticky-bottom') && r.scrollHeight-r.scrollTop-r.clientHeight<=4"), 'Streaming did not follow the bottom')
     js("const r=document.querySelector('.results-panel');r.dispatchEvent(new WheelEvent('wheel',{deltaY:-120,bubbles:true}));r.scrollTop=600")
-    wait_for(lambda: js("return !document.querySelector('.composer-stop') && document.querySelector('.results-panel').textContent.includes('Абзац 31:')"), 'Stream failed to settle')
-    assert js("return oldCard.isConnected && oldMutations===0"), 'Streaming replaced an unchanged history card'
-    assert js("return Math.abs(document.querySelector('.results-panel').scrollTop-600)<2"), 'Streaming pulled the reader away from history'
+    wait_for(lambda: js("const r=document.querySelector('.results-panel'),y=r.getBoundingClientRect().top;return [...r.querySelectorAll('[data-transcript-row]')].some(n=>n.getBoundingClientRect().top<=y && n.getBoundingClientRect().bottom>y)"), 'Reading window missing')
+    js("const r=document.querySelector('.results-panel'),y=r.getBoundingClientRect().top;window.readingAnchor=[...r.querySelectorAll('[data-transcript-row]')].find(n=>n.getBoundingClientRect().top<=y && n.getBoundingClientRect().bottom>y);window.readingTop=readingAnchor.getBoundingClientRect().top-y")
+    wait_for(lambda: js("return !document.querySelector('.composer-stop')"), 'Stream failed to settle')
+    assert js("return oldMutations===0"), 'Streaming changed an unchanged history card'
+    assert js("return document.querySelectorAll('[data-transcript-row]').length<60"), 'History DOM grew with the transcript'
+    assert js("return readingAnchor.isConnected && Math.abs(readingAnchor.getBoundingClientRect().top-document.querySelector('.results-panel').getBoundingClientRect().top-window.readingTop)<2"), 'Streaming pulled the reader away from history'
     js('oldObserver.disconnect()')
     print('PASS: loaded history; isolated card updates; live follow/reading; reconnect releases callbacks', flush=True)
     command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})

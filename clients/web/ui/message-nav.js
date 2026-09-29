@@ -59,7 +59,8 @@ export function mountMessageNav(root) {
     const next = new Map();
     let owner;
     for (const card of results.children) {
-      owner = anchors.get(card.id) || owner;
+      if (card.matches('.transcript-spacer')) continue;
+      owner = anchors.get(card.dataset.promptId || card.id) || owner;
       if (owner) next.set(card, owner);
     }
     for (const [element, target] of targets) {

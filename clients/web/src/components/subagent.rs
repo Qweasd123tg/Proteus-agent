@@ -66,7 +66,7 @@ pub(crate) fn SubagentCard(
         on_cleanup(move || super::subagent_tab::close(&key));
     }
     view! {
-        <article class=move || header.with(|header| header.as_ref().map(|header| subagent_turn_card_class(&header.status)).unwrap_or_default())>
+        <article data-retain-transcript=move ||opened.get().then_some("true") class=move || header.with(|header| header.as_ref().map(|header| subagent_turn_card_class(&header.status)).unwrap_or_default())>
             <button type="button" class="tool-card-summary subagent-tab-link" title="Открыть активность субагента в боковой панели"
                 on:click=move |_| {
                     let title = header.with_untracked(|header| header.as_ref().map(|header| format!("Субагент · {}", header.role)).unwrap_or_else(|| "Субагент".to_owned()));

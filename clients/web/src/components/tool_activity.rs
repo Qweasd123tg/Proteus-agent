@@ -1,10 +1,17 @@
 use leptos::prelude::*;
-use serde_json::Value;
 
+use super::transcript_state::{TranscriptRowId, TranscriptViewState};
 use crate::markdown::highlight_preview;
-use crate::tool_names::{APPLY_PATCH_TOOL, UPDATE_PLAN_TOOL};
 use crate::types::*;
-use crate::ui_utils::{compact_text, format_json, short_id};
+use crate::ui_utils::short_id;
+
+mod display;
+#[cfg(target_arch = "wasm32")]
+pub(crate) use display::parse_plan_steps;
+pub(crate) use display::tool_args_preview;
+use display::{
+    PatchFilePreview, PlanStepPreview, ToolArgPreview, tool_static_changed, tool_static_projection,
+};
 
 /// Превью tool-карточки раскрывается ступенями: компактно → расширенно → полностью.
 const TOOL_PREVIEW_COMPACT_LINES: usize = 5;
@@ -14,86 +21,65 @@ const TOOL_PREVIEW_EXPANDED_LINES: usize = 20;
 #[derive(Clone, Copy)]
 pub(crate) struct ToolCardsCollapsed(pub(crate) ReadSignal<bool>);
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct ToolDisplay {
-    summary: Option<String>,
-    args: Vec<ToolArgPreview>,
-    patch_files: Vec<PatchFilePreview>,
-    plan_steps: Vec<PlanStepPreview>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct PlanStepPreview {
-    pub(crate) step: String,
-    pub(crate) status: String,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct ToolArgPreview {
-    key: String,
-    value: String,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct PatchFilePreview {
-    path: String,
-    operation: PatchOperation,
-    additions: usize,
-    deletions: usize,
-    body: String,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum PatchOperation {
-    Add,
-    Delete,
-    Update,
-    Move,
-}
-
-impl PatchOperation {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Add => "создан",
-            Self::Delete => "удалён",
-            Self::Update => "изменён",
-            Self::Move => "перемещён",
-        }
-    }
-
-    /// Класс для цветовой метки операции в строке файла.
-    fn class(self) -> &'static str {
-        match self {
-            Self::Add => "tool-file-op op-add",
-            Self::Delete => "tool-file-op op-delete",
-            Self::Update => "tool-file-op op-update",
-            Self::Move => "tool-file-op op-move",
-        }
-    }
-}
-
 #[component]
 pub(crate) fn ToolActivityCard(
     message: Memo<Option<Message>>,
     activity_now_ms: ReadSignal<u64>,
 ) -> impl IntoView {
-    // Стартовое состояние из client preferences; дальше — локально.
+    // Стартовое состояние из client preferences; при размонтировании строки
+    // виртуальной ленты раскрытие хранится вместе с transcript state.
     let collapsed_default =
         use_context::<ToolCardsCollapsed>().is_some_and(|cards| cards.0.get_untracked());
-    let (expanded, set_expanded) = signal(!collapsed_default);
-    // Тексты держим в Memo поверх карточки, чтобы стриминг результата обновлял
-    // превью, не пересоздавая внутренний компонент и его состояние раскрытия.
-    let args_text = Memo::new(move |_| {
-        current_tool(message)
-            .map(|tool| tool_activity_args_preview(&tool))
-            .unwrap_or_default()
+    let state_id = use_context::<TranscriptRowId>()
+        .map(|row| row.0)
+        .or_else(|| message.with_untracked(|message| message.as_ref().map(|message| message.id)));
+    let state_prefix = message
+        .with_untracked(|message| {
+            message
+                .as_ref()
+                .and_then(|message| message.tool.as_ref())
+                .map(|tool| tool.call_id.clone())
+        })
+        .unwrap_or_default();
+    let expanded = use_context::<TranscriptViewState>()
+        .zip(state_id)
+        .map(|(state, id)| {
+            state.boolean(
+                id,
+                format!("tool-details:{state_prefix}"),
+                !collapsed_default,
+            )
+        })
+        .unwrap_or_else(|| RwSignal::new(!collapsed_default));
+    // Tool args stay fixed while status and result change. Compare borrowed args
+    // against the previous projection before parsing the patch/plan again.
+    let static_tool = Memo::new_with_compare(
+        move |previous| {
+            message.with(|message| {
+                tool_static_projection(
+                    previous,
+                    message.as_ref().and_then(|message| message.tool.as_ref()),
+                )
+            })
+        },
+        tool_static_changed,
+    );
+    let args_text = Signal::derive(move || {
+        static_tool.with(|tool| {
+            tool.as_ref()
+                .map(|tool| tool.args_text.clone())
+                .unwrap_or_default()
+        })
     });
     let result_text = Memo::new(move |_| {
-        current_tool(message)
-            .and_then(|tool| tool.result_preview)
-            .unwrap_or_default()
+        message.with(|message| {
+            message
+                .as_ref()
+                .and_then(|message| message.tool.as_ref())
+                .and_then(|tool| tool.result_preview.clone())
+                .unwrap_or_default()
+        })
     });
-    let display = Memo::new(move |_| current_tool(message).map(|tool| tool_display(&tool)));
     view! {
         <article class=move || if expanded.get() { "tool-card expanded" } else { "tool-card" }>
             <button
@@ -101,7 +87,7 @@ pub(crate) fn ToolActivityCard(
                 class="tool-card-summary"
                 aria-expanded=move || expanded.get().to_string()
                 title=move || if expanded.get() { "Скрыть детали tool" } else { "Показать детали tool" }
-                on:click=move |_| set_expanded.update(|value| *value = !*value)
+                on:click=move |_| expanded.update(|value| *value = !*value)
             >
                 // Бейдж показываем только пока тул в работе (спиннер + таймер).
                 // Терминальный статус (готово/ошибка/отклонено) несёт цветная
@@ -137,9 +123,8 @@ pub(crate) fn ToolActivityCard(
                     if expanded.get() {
                         return ().into_any();
                     }
-                    display
-                        .get()
-                        .and_then(|display| display.summary)
+                    static_tool
+                        .with(|tool| tool.as_ref().and_then(|tool| tool.display.summary.clone()))
                         .filter(|summary| !summary.trim().is_empty())
                         .map(|summary| view! { <span class="tool-card-summary-meta">{summary}</span> }.into_any())
                         .unwrap_or_else(|| ().into_any())
@@ -175,25 +160,23 @@ pub(crate) fn ToolActivityCard(
             </button>
             {move || {
                 if expanded.get() {
-                    let tool_display = display.get();
-                    let patch_files = tool_display
-                        .as_ref()
-                        .map(|display| display.patch_files.clone())
-                        .unwrap_or_default();
-                    let arg_previews = tool_display
-                        .as_ref()
-                        .map(|display| display.args.clone())
-                        .unwrap_or_default();
-                    let plan_steps = tool_display
-                        .as_ref()
-                        .map(|display| display.plan_steps.clone())
-                        .unwrap_or_default();
+                    let (patch_files, arg_previews, plan_steps) = static_tool.with(|tool| {
+                        tool.as_ref()
+                            .map(|tool| {
+                                (
+                                    tool.display.patch_files.clone(),
+                                    tool.display.args.clone(),
+                                    tool.display.plan_steps.clone(),
+                                )
+                            })
+                            .unwrap_or_default()
+                    });
                     let has_patch_files = !patch_files.is_empty();
                     let has_plan = !plan_steps.is_empty();
                     view! {
                         <div class="tool-card-details">
                             {if has_patch_files {
-                                view! { <ToolFileList files=patch_files /> }.into_any()
+                                view! { <ToolFileList files=patch_files state_prefix=state_prefix.clone() /> }.into_any()
                             } else {
                                 ().into_any()
                             }}
@@ -210,9 +193,9 @@ pub(crate) fn ToolActivityCard(
                             } else if !arg_previews.is_empty() {
                                 view! { <ToolArgList args=arg_previews /> }.into_any()
                             } else {
-                                view! { <ToolPreview text=args_text caption="запрос" /> }.into_any()
+                                view! { <ToolPreview text=args_text caption="запрос" state_key=format!("tool-args:{state_prefix}") /> }.into_any()
                             }}
-                            <ToolPreview text=result_text caption="ответ" />
+                            <ToolPreview text=result_text caption="ответ" state_key=format!("tool-result:{state_prefix}") />
                         </div>
                     }.into_any()
                 } else {
@@ -273,24 +256,28 @@ fn PlanStepList(steps: Vec<PlanStepPreview>) -> impl IntoView {
 }
 
 #[component]
-fn ToolFileList(files: Vec<PatchFilePreview>) -> impl IntoView {
+fn ToolFileList(files: Vec<PatchFilePreview>, state_prefix: String) -> impl IntoView {
     view! {
         <div class="tool-file-list">
             <div class="tool-preview-caption">"файлы"</div>
             <For
                 each=move || files.clone()
                 key=|file| file.path.clone()
-                children=move |file| view! { <ToolFileRow file /> }
+                children=move |file| view! { <ToolFileRow file state_prefix=state_prefix.clone() /> }
             />
         </div>
     }
 }
 
 #[component]
-fn ToolFileRow(file: PatchFilePreview) -> impl IntoView {
-    let (expanded, set_expanded) = signal(false);
+fn ToolFileRow(file: PatchFilePreview, state_prefix: String) -> impl IntoView {
     let body = file.body.clone();
     let path = file.path.clone();
+    let state_key = format!("tool-file:{state_prefix}:{path}");
+    let expanded = use_context::<TranscriptViewState>()
+        .zip(use_context::<TranscriptRowId>())
+        .map(|(state, row)| state.boolean(row.0, state_key.clone(), false))
+        .unwrap_or_else(|| RwSignal::new(false));
     let operation = file.operation;
     let additions = file.additions;
     let deletions = file.deletions;
@@ -301,7 +288,7 @@ fn ToolFileRow(file: PatchFilePreview) -> impl IntoView {
                 type="button"
                 class="tool-file-toggle"
                 title=move || if expanded.get() { "Скрыть patch файла" } else { "Показать patch файла" }
-                on:click=move |_| set_expanded.update(|value| *value = !*value)
+                on:click=move |_| expanded.update(|value| *value = !*value)
             >
                 <span class=operation.class()>{operation.label()}</span>
                 <span class="tool-file-path">{path}</span>
@@ -315,7 +302,7 @@ fn ToolFileRow(file: PatchFilePreview) -> impl IntoView {
                     let body = body.clone();
                     view! {
                         <div class="tool-file-detail">
-                            <ToolPreview text=Signal::derive(move || body.clone()) />
+                            <ToolPreview text=Signal::derive(move || body.clone()) state_key=format!("tool-file-preview:{state_key}") />
                         </div>
                     }
                     .into_any()
@@ -327,13 +314,6 @@ fn ToolFileRow(file: PatchFilePreview) -> impl IntoView {
     }
 }
 
-/// Владельная копия tool — для memos, которым нужен весь ToolActivity
-/// (args/result превью). Горячие closures шапки читают точечно через
-/// `message.with`, не клонируя args и полный вывод.
-pub(crate) fn current_tool(message: Memo<Option<Message>>) -> Option<ToolActivity> {
-    message.with(|message| message.as_ref().and_then(|message| message.tool.clone()))
-}
-
 fn current_tool_status(message: Memo<Option<Message>>) -> Option<ToolActivityStatus> {
     message.with(|message| {
         message
@@ -341,277 +321,6 @@ fn current_tool_status(message: Memo<Option<Message>>) -> Option<ToolActivitySta
             .and_then(|message| message.tool.as_ref())
             .map(|tool| tool.status)
     })
-}
-
-fn tool_display(tool: &ToolActivity) -> ToolDisplay {
-    let patch = if tool.name == APPLY_PATCH_TOOL {
-        apply_patch_text_from_args(&tool.args)
-            .or_else(|| apply_patch_text_from_args_preview(&tool.args_preview))
-    } else {
-        None
-    };
-    let patch_files = patch
-        .as_deref()
-        .map(parse_apply_patch_files)
-        .unwrap_or_default();
-    let plan_steps = if tool.name == UPDATE_PLAN_TOOL {
-        parse_plan_steps(&tool.args)
-    } else {
-        Vec::new()
-    };
-    let args = if patch_files.is_empty() && plan_steps.is_empty() {
-        tool_arg_previews(&tool.args)
-    } else {
-        Vec::new()
-    };
-    let summary = if !patch_files.is_empty() {
-        Some(apply_patch_summary(&patch_files))
-    } else if !plan_steps.is_empty() {
-        Some(plan_summary(&plan_steps))
-    } else {
-        generic_tool_summary(&args)
-    };
-
-    ToolDisplay {
-        summary,
-        args,
-        patch_files,
-        plan_steps,
-    }
-}
-
-pub(crate) fn parse_plan_steps(args: &Value) -> Vec<PlanStepPreview> {
-    args.get("plan")
-        .and_then(Value::as_array)
-        .map(|steps| {
-            steps
-                .iter()
-                .filter_map(|entry| {
-                    let step = entry.get("step").and_then(Value::as_str)?;
-                    let status = entry.get("status").and_then(Value::as_str)?;
-                    Some(PlanStepPreview {
-                        step: step.to_owned(),
-                        status: status.to_owned(),
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn plan_summary(steps: &[PlanStepPreview]) -> String {
-    let completed = steps
-        .iter()
-        .filter(|step| step.status == "completed")
-        .count();
-    let current = steps
-        .iter()
-        .find(|step| step.status == "in_progress")
-        .map(|step| format!(" · {}", step.step))
-        .unwrap_or_default();
-    format!("план {}/{}{}", completed, steps.len(), current)
-}
-
-fn tool_activity_args_preview(tool: &ToolActivity) -> String {
-    if tool.name == APPLY_PATCH_TOOL {
-        apply_patch_text_from_args(&tool.args)
-            .or_else(|| apply_patch_text_from_args_preview(&tool.args_preview))
-            .unwrap_or_else(|| tool.args_preview.clone())
-    } else {
-        tool.args_preview.clone()
-    }
-}
-
-pub(crate) fn tool_args_preview(tool_name: &str, args: &Value) -> String {
-    if tool_name == APPLY_PATCH_TOOL {
-        apply_patch_text_from_args(args).unwrap_or_else(|| format_json(args))
-    } else {
-        format_json(args)
-    }
-}
-
-fn apply_patch_text_from_args_preview(args_preview: &str) -> Option<String> {
-    let value = serde_json::from_str::<Value>(args_preview).ok()?;
-    apply_patch_text_from_args(&value)
-}
-
-fn apply_patch_text_from_args(args: &Value) -> Option<String> {
-    args.get("patch")
-        .and_then(Value::as_str)
-        .or_else(|| args.get("input").and_then(Value::as_str))
-        .filter(|patch| !patch.trim().is_empty())
-        .map(ToOwned::to_owned)
-}
-
-fn parse_apply_patch_files(patch: &str) -> Vec<PatchFilePreview> {
-    let mut files = Vec::new();
-    let mut current: Option<PatchFilePreviewBuilder> = None;
-
-    for line in patch.lines() {
-        if line == "*** Begin Patch" || line == "*** End Patch" {
-            continue;
-        }
-
-        if let Some((operation, path)) = apply_patch_file_header(line) {
-            if let Some(builder) = current.take() {
-                files.push(builder.finish());
-            }
-            current = Some(PatchFilePreviewBuilder::new(operation, path, line));
-            continue;
-        }
-
-        if let Some(path) = line.strip_prefix("*** Move to: ") {
-            if let Some(builder) = current.as_mut() {
-                builder.operation = PatchOperation::Move;
-                builder.path = format!("{} -> {path}", builder.path);
-                builder.push(line);
-            }
-            continue;
-        }
-
-        if let Some(builder) = current.as_mut() {
-            builder.push(line);
-        }
-    }
-
-    if let Some(builder) = current {
-        files.push(builder.finish());
-    }
-
-    files
-}
-
-fn apply_patch_file_header(line: &str) -> Option<(PatchOperation, String)> {
-    [
-        ("*** Add File: ", PatchOperation::Add),
-        ("*** Delete File: ", PatchOperation::Delete),
-        ("*** Update File: ", PatchOperation::Update),
-    ]
-    .into_iter()
-    .find_map(|(prefix, operation)| {
-        line.strip_prefix(prefix)
-            .map(|path| (operation, path.to_owned()))
-    })
-}
-
-struct PatchFilePreviewBuilder {
-    path: String,
-    operation: PatchOperation,
-    additions: usize,
-    deletions: usize,
-    body: Vec<String>,
-}
-
-impl PatchFilePreviewBuilder {
-    fn new(operation: PatchOperation, path: String, header: &str) -> Self {
-        Self {
-            path,
-            operation,
-            additions: 0,
-            deletions: 0,
-            body: vec![header.to_owned()],
-        }
-    }
-
-    fn push(&mut self, line: &str) {
-        if line.starts_with('+') {
-            self.additions += 1;
-        } else if line.starts_with('-') {
-            self.deletions += 1;
-        }
-        self.body.push(line.to_owned());
-    }
-
-    fn finish(self) -> PatchFilePreview {
-        PatchFilePreview {
-            path: self.path,
-            operation: self.operation,
-            additions: self.additions,
-            deletions: self.deletions,
-            body: self.body.join("\n"),
-        }
-    }
-}
-
-fn apply_patch_summary(files: &[PatchFilePreview]) -> String {
-    let additions = files.iter().map(|file| file.additions).sum::<usize>();
-    let deletions = files.iter().map(|file| file.deletions).sum::<usize>();
-    format!(
-        "отредактировано {} · +{} -{}",
-        file_count_label(files.len()),
-        additions,
-        deletions
-    )
-}
-
-fn file_count_label(count: usize) -> String {
-    let form = match (count % 10, count % 100) {
-        (1, 11) => "файлов",
-        (1, _) => "файл",
-        (2..=4, 12..=14) => "файлов",
-        (2..=4, _) => "файла",
-        _ => "файлов",
-    };
-    format!("{count} {form}")
-}
-
-fn tool_arg_previews(args: &Value) -> Vec<ToolArgPreview> {
-    let Some(map) = args.as_object() else {
-        return Vec::new();
-    };
-
-    map.iter()
-        .filter(|(_, value)| !value.is_null())
-        .take(6)
-        .map(|(key, value)| ToolArgPreview {
-            key: key.clone(),
-            value: tool_arg_value_preview(value),
-        })
-        .collect()
-}
-
-fn tool_arg_value_preview(value: &Value) -> String {
-    match value {
-        Value::String(value) => compact_text(value, 160),
-        Value::Bool(value) => value.to_string(),
-        Value::Number(value) => value.to_string(),
-        Value::Array(items) => {
-            if items.is_empty() {
-                "[]".to_owned()
-            } else {
-                format!("[{}]", item_count_label(items.len()))
-            }
-        }
-        Value::Object(map) => {
-            if map.is_empty() {
-                "{}".to_owned()
-            } else {
-                format!("{{{}}}", item_count_label(map.len()))
-            }
-        }
-        Value::Null => "null".to_owned(),
-    }
-}
-
-fn generic_tool_summary(args: &[ToolArgPreview]) -> Option<String> {
-    if args.is_empty() {
-        return None;
-    }
-    Some(
-        args.iter()
-            .take(3)
-            .map(|arg| format!("{}={}", arg.key, compact_text(&arg.value, 48)))
-            .collect::<Vec<_>>()
-            .join(" · "),
-    )
-}
-
-fn item_count_label(count: usize) -> String {
-    if count == 1 {
-        "1 item".to_owned()
-    } else {
-        format!("{count} items")
-    }
 }
 
 fn current_tool_status_label(
@@ -651,66 +360,99 @@ pub(crate) fn ToolPreview(
     /// Подпись секции («запрос»/«ответ»). Пустая — секция без заголовка.
     #[prop(optional)]
     caption: &'static str,
+    /// Persistent disclosure key for a preview inside a transcript row.
+    #[prop(optional)]
+    state_key: Option<String>,
 ) -> impl IntoView {
     // 0 — компактно (5 строк), 1 — расширенно (20 строк), 2 — полностью.
-    let (level, set_level) = signal(0u8);
-    move || {
+    let level = state_key
+        .and_then(|key| {
+            use_context::<TranscriptViewState>()
+                .zip(use_context::<TranscriptRowId>())
+                .map(|(state, row)| state.level(row.0, key, 0))
+        })
+        .unwrap_or_else(|| RwSignal::new(0u8));
+    // Counting every line of a long result on each expand/collapse is needless.
+    // Keep the line count with the text; only the visible prefix is highlighted.
+    let preview = Memo::new(move |_| {
         let raw = text.get();
-        if raw.trim().is_empty() {
-            return ().into_any();
+        PreviewText {
+            total_lines: raw.lines().count(),
+            empty: raw.trim().is_empty(),
+            raw,
         }
-        let head = if caption.is_empty() {
-            ().into_any()
-        } else {
-            view! { <div class="tool-preview-caption">{caption}</div> }.into_any()
-        };
-        let lines: Vec<&str> = raw.lines().collect();
-        let total = lines.len();
-        let shown = tool_preview_visible_lines(total, level.get());
-        let body = highlight_preview(&lines[..shown].join("\n"));
-        let hidden = total - shown;
-        let control = if hidden > 0 {
-            // С первого шага прыгаем сразу к полному, если средняя ступень
-            // ничего бы не добавила (текст короче порога расширения).
-            let next = if level.get() == 0 && total > TOOL_PREVIEW_EXPANDED_LINES {
-                1
+    });
+    move || {
+        preview.with(|preview| {
+            if preview.empty {
+                return ().into_any();
+            }
+            let head = if caption.is_empty() {
+                ().into_any()
             } else {
-                2
+                view! { <div class="tool-preview-caption">{caption}</div> }.into_any()
             };
-            let label = format!("+ {}", hidden_tool_lines_label(hidden));
+            let total = preview.total_lines;
+            let shown = tool_preview_visible_lines(total, level.get());
+            let body = highlight_preview(
+                &preview
+                    .raw
+                    .lines()
+                    .take(shown)
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            );
+            let hidden = total - shown;
+            let control = if hidden > 0 {
+                // С первого шага прыгаем сразу к полному, если средняя ступень
+                // ничего бы не добавила (текст короче порога расширения).
+                let next = if level.get() == 0 && total > TOOL_PREVIEW_EXPANDED_LINES {
+                    1
+                } else {
+                    2
+                };
+                let label = format!("+ {}", hidden_tool_lines_label(hidden));
+                view! {
+                    <button
+                        type="button"
+                        class="tool-preview-toggle"
+                        on:click=move |_| level.set(next)
+                    >
+                        {label}
+                    </button>
+                }
+                .into_any()
+            } else if total > TOOL_PREVIEW_COMPACT_LINES {
+                view! {
+                    <button
+                        type="button"
+                        class="tool-preview-toggle"
+                        on:click=move |_| level.set(0)
+                    >
+                        "▴ свернуть"
+                    </button>
+                }
+                .into_any()
+            } else {
+                ().into_any()
+            };
             view! {
-                <button
-                    type="button"
-                    class="tool-preview-toggle"
-                    on:click=move |_| set_level.set(next)
-                >
-                    {label}
-                </button>
+                <div class="tool-preview">
+                    {head}
+                    <pre inner_html=body></pre>
+                    {control}
+                </div>
             }
             .into_any()
-        } else if total > TOOL_PREVIEW_COMPACT_LINES {
-            view! {
-                <button
-                    type="button"
-                    class="tool-preview-toggle"
-                    on:click=move |_| set_level.set(0)
-                >
-                    "▴ свернуть"
-                </button>
-            }
-            .into_any()
-        } else {
-            ().into_any()
-        };
-        view! {
-            <div class="tool-preview">
-                {head}
-                <pre inner_html=body></pre>
-                {control}
-            </div>
-        }
-        .into_any()
+        })
     }
+}
+
+#[derive(PartialEq)]
+struct PreviewText {
+    raw: String,
+    total_lines: usize,
+    empty: bool,
 }
 
 /// Сколько строк превью показать на данной ступени раскрытия.
@@ -807,96 +549,5 @@ mod tests {
         assert_eq!(hidden_tool_lines_label(5), "ещё 5 строк");
         assert_eq!(hidden_tool_lines_label(11), "ещё 11 строк");
         assert_eq!(hidden_tool_lines_label(21), "ещё 21 строка");
-    }
-
-    #[test]
-    fn apply_patch_args_preview_extracts_patch_body() {
-        let patch = "*** Begin Patch\n*** Add File: a.txt\n+hi\n*** End Patch";
-        let args = serde_json::json!({ "patch": patch });
-
-        assert_eq!(tool_args_preview("apply_patch", &args), patch);
-        assert!(tool_args_preview("shell", &args).contains("\"patch\""));
-    }
-
-    #[test]
-    fn apply_patch_args_preview_extracts_freeform_input() {
-        let patch = "*** Begin Patch\n*** Update File: a.txt\n-old\n+new\n*** End Patch";
-        let args = serde_json::json!({ "input": patch });
-
-        assert_eq!(tool_args_preview("apply_patch", &args), patch);
-    }
-
-    #[test]
-    fn apply_patch_display_groups_files_with_line_stats() {
-        let patch = "\
-*** Begin Patch
-*** Add File: a.txt
-+one
-+two
-*** Update File: src/lib.rs
-@@
--old
-+new
- context
-*** End Patch";
-        let files = parse_apply_patch_files(patch);
-
-        assert_eq!(files.len(), 2);
-        assert_eq!(files[0].path, "a.txt");
-        assert_eq!(files[0].operation, PatchOperation::Add);
-        assert_eq!(files[0].additions, 2);
-        assert_eq!(files[0].deletions, 0);
-        assert_eq!(files[1].path, "src/lib.rs");
-        assert_eq!(files[1].operation, PatchOperation::Update);
-        assert_eq!(files[1].additions, 1);
-        assert_eq!(files[1].deletions, 1);
-    }
-
-    #[test]
-    fn tool_display_summarizes_apply_patch_instead_of_raw_args() {
-        let patch = "*** Begin Patch\n*** Add File: a.txt\n+hi\n*** End Patch";
-        let args = serde_json::json!({ "patch": patch });
-        let display = tool_display(&ToolActivity {
-            call_id: "call-1".to_owned(),
-            name: "apply_patch".to_owned(),
-            args: args.clone(),
-            args_preview: format_json(&args),
-            started_at_ms: 0,
-            finished_at_ms: None,
-            status: ToolActivityStatus::Done,
-            result_preview: None,
-        });
-
-        assert_eq!(
-            display.summary.as_deref(),
-            Some("отредактировано 1 файл · +1 -0")
-        );
-        assert!(display.args.is_empty());
-        assert_eq!(display.patch_files.len(), 1);
-    }
-
-    #[test]
-    fn tool_display_summarizes_generic_args() {
-        let args = serde_json::json!({
-            "path": "src/lib.rs",
-            "limit": 20,
-            "hidden": null
-        });
-        let display = tool_display(&ToolActivity {
-            call_id: "call-1".to_owned(),
-            name: "read_file".to_owned(),
-            args: args.clone(),
-            args_preview: format_json(&args),
-            started_at_ms: 0,
-            finished_at_ms: None,
-            status: ToolActivityStatus::Done,
-            result_preview: None,
-        });
-
-        assert_eq!(display.args.len(), 2);
-        assert_eq!(
-            display.summary.as_deref(),
-            Some("limit=20 · path=src/lib.rs")
-        );
     }
 }

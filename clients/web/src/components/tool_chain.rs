@@ -74,7 +74,15 @@ pub(super) fn ToolChain(
     activity_now_ms: ReadSignal<u64>,
 ) -> impl IntoView {
     let compact = use_context::<ToolCardsCollapsed>().is_none_or(|value| value.0.get_untracked());
-    let (expanded, set_expanded) = signal(!compact);
+    let expanded = use_context::<super::transcript_state::TranscriptViewState>()
+        .map(|state| state.boolean(id, "tool-chain", !compact))
+        .unwrap_or_else(|| RwSignal::new(!compact));
+    let mounted = RwSignal::new(expanded.get_untracked());
+    Effect::new(move |_| {
+        if expanded.get() {
+            mounted.set(true);
+        }
+    });
     // Inside a chain the second level always consists of brief calls. Each call
     // independently opens its details at the third level, without remounting.
     let (cards_collapsed, _) = signal(true);
@@ -85,14 +93,19 @@ pub(super) fn ToolChain(
         <section class="tool-chain" class:expanded=expanded>
             <button type="button" class="tool-chain-toggle" aria-expanded=move || expanded.get().to_string() aria-controls=content_id.clone()
                 class:attention=move || group.with(|g|g.as_ref().is_some_and(|g|g.failed+g.waiting>0))
-                on:click=move |_|set_expanded.update(|value|*value=!*value)>
+                on:click=move |_|expanded.update(|value|*value=!*value)>
                 <TerminalIcon/>
                 <span>{move ||group.with(|g|g.as_ref().map(Group::label).unwrap_or_default())}</span>
                 <ChevronDownIcon/>
             </button>
             <div class="tool-chain-items" id=content_id hidden=move ||!expanded.get()>
-                <For each=move ||group.with(|g|g.as_ref().map(|g|g.ids.clone()).unwrap_or_default()) key=|id|*id
-                    children=move |message_id|view!{<MessageView message_id messages activity_now_ms/>}/>
+                <Show when=move ||mounted.get()>
+                    <For each=move ||group.with(|g|g.as_ref().map(|g|g.ids.clone()).unwrap_or_default()) key=|id|*id
+                        children=move |message_id| {
+                            provide_context(super::transcript_state::TranscriptRowId(message_id));
+                            view!{<MessageView message_id messages activity_now_ms/>}
+                        }/>
+                </Show>
             </div>
         </section>
     }

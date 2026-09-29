@@ -1,8 +1,21 @@
 import {highlight, math, diagrams} from './markdown-loaders.js';
 import {renderInteractive} from './interactive.js';
+import {requestBottom} from './transcript-scroll.js';
 
 const finished=new WeakSet(), queued=new Set();
 let running=false, frame=0, diagramId=0;
+const nearby=new WeakSet(), observed=new WeakSet();
+const viewport=new IntersectionObserver(entries=>{
+  for(const entry of entries){
+    if(entry.isIntersecting){nearby.add(entry.target);enqueue(entry.target.closest('.message'));}
+    else nearby.delete(entry.target);
+  }
+},{rootMargin:'800px 0px'});
+function ready(node){
+  if(finished.has(node))return false;
+  if(!observed.has(node)){observed.add(node);viewport.observe(node);}
+  return nearby.has(node);
+}
 function enqueue(message) {
   if(!message?.matches('.message')||message.matches('.streaming-message'))return;
   queued.add(message);
@@ -21,7 +34,7 @@ function failure(node, error) {
   node.parentElement.append(status);
 }
 async function renderCode(code) {
-  if(finished.has(code)||!code.isConnected)return;
+  if(!code.isConnected||!ready(code))return;
   const language=[...code.classList].find(name=>name.startsWith('language-'))?.slice(9);
   if(!language){finished.add(code);return;}
   if(language==='json-render'){await renderInteractive(code);if(code.isConnected)finished.add(code);return;}
@@ -46,10 +59,12 @@ async function renderCode(code) {
   block.querySelector('.code-actions').prepend(toggle);finished.add(code);
 }
 async function render(message) {
+  let started=performance.now();
   for(const code of message.querySelectorAll('.code-block pre code')) {
     try{await renderCode(code);}catch(error){if(code.isConnected)failure(code,error);}
+    if(performance.now()-started>6){await new Promise(requestAnimationFrame);started=performance.now();}
   }
-  const formulas=[...message.querySelectorAll('.mathjax-inline,.mathjax-display')].filter(node=>!finished.has(node));
+  const formulas=[...message.querySelectorAll('.mathjax-inline,.mathjax-display')].filter(ready);
   if(!formulas.length)return;
   try{
     const engine=await math();
@@ -62,13 +77,12 @@ async function render(message) {
 async function drain() {
   frame=0;running=true;
   const root=document.querySelector('.results-panel');
-  const pinned=root?.classList.contains('sticky-bottom')&&root.scrollHeight-root.scrollTop-root.clientHeight<=64;
   const batch=[...queued];queued.clear();
   try{for(const message of batch)if(message.isConnected&&!message.matches('.streaming-message'))await render(message);}
   finally{
     running=false;
     // Do not pull the reader back down if they scrolled away during async work.
-    if(pinned&&root?.isConnected&&root.scrollHeight-root.scrollTop-root.clientHeight<=128)root.scrollTop=root.scrollHeight;
+    requestBottom(root);
     if(queued.size&&!frame)frame=requestAnimationFrame(drain);
   }
 }
@@ -80,6 +94,10 @@ const observer=new MutationObserver(records=>{
       record.addedNodes.forEach(collect);
       if(window.MathJax?.typesetClear)for(const node of record.removedNodes){
         if(node.nodeType===Node.ELEMENT_NODE&&(node.matches('.message,.mathjax-inline,.mathjax-display')||node.querySelector('.mathjax-inline,.mathjax-display')))window.MathJax.typesetClear([node]);
+      }
+      for(const node of record.removedNodes)if(node.nodeType===Node.ELEMENT_NODE){
+        viewport.unobserve(node);
+        for(const child of node.querySelectorAll('code,.mathjax-inline,.mathjax-display'))viewport.unobserve(child);
       }
     }
   }

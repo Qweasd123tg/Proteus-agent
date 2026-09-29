@@ -24,6 +24,11 @@
     overflow-anchor: none;
 }
 
+/* Rows contain child margins, so cached heights and spacers have one geometry. */
+.transcript-row { display: flow-root; }
+.transcript-spacer { height: 0; pointer-events: none; overflow-anchor: none; }
+.results-panel { overflow-anchor: none; }
+
 /* Центрирующая колонка: на все прямые дети results-panel наводим max-width.
    Это держит DOM без обёрток, но даёт ChatGPT-подобную чат-rail. */
 /* Specificity (0,2,0): должно бить .task-card { max-width: 100% } из

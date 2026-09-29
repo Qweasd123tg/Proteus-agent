@@ -72,7 +72,17 @@ pub(crate) fn MessageView(
 }
 
 fn text_message_view(message: Memo<Option<Message>>, turn_class: &'static str) -> AnyView {
-    let rendered_html = cached_message_html(message);
+    let blocks = Memo::new(move |previous| {
+        message.with(|message| {
+            crate::markdown::markdown_blocks(
+                message
+                    .as_ref()
+                    .map(|message| message.text.as_str())
+                    .unwrap_or_default(),
+                previous,
+            )
+        })
+    });
     view! {
         <article class=turn_class>
             <div class="task-card-header">
@@ -95,8 +105,13 @@ fn text_message_view(message: Memo<Option<Message>>, turn_class: &'static str) -
             </div>
             <div
                 class=move || current_message_content_class(message)
-                inner_html=move || rendered_html.get()
-            ></div>
+            >
+                <For each=move || blocks.with(|blocks| (0..blocks.len()).collect::<Vec<_>>()) key=|index|*index
+                    children=move |index| {
+                        let html = Memo::new(move |_| blocks.with(|blocks| blocks.get(index).map(|block| block.html.clone()).unwrap_or_default()));
+                        view! { <div class="markdown-fragment" inner_html=move ||html.get()></div> }
+                    }/>
+            </div>
         </article>
     }
     .into_any()
@@ -154,7 +169,16 @@ fn user_message_view(message: Memo<Option<Message>>) -> AnyView {
 fn reasoning_message_view(message: Memo<Option<Message>>) -> AnyView {
     let message_is_streaming =
         move || message.with(|message| message.as_ref().is_some_and(|message| message.streaming));
-    let (expanded, set_expanded) = signal(false);
+    let id = message.with_untracked(|message| {
+        message
+            .as_ref()
+            .map(|message| message.id)
+            .unwrap_or_default()
+    });
+    let expanded = use_context::<super::transcript_state::TranscriptViewState>()
+        .map(|state| state.boolean(id, "reasoning", false))
+        .unwrap_or_else(|| RwSignal::new(false));
+    let set_expanded = expanded;
     // Прошлое streaming-состояние — в возврате эффекта, не в сигнале,
     // который эффект сам читает и пишет (лишний цикл уведомлений на каждый
     // event ленты).

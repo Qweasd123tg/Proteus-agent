@@ -4,9 +4,13 @@ from pathlib import Path
 
 
 def run(command, js, wait_for):
-    wait_for(lambda: js("return !!document.querySelector('.tool-chain .tool-card')"), 'Tool chain missing')
+    command("/refresh", {})
+    wait_for(lambda: js("return !!document.querySelector('.tool-chain-toggle')"), 'Tool chain missing')
     assert js("const c=document.querySelector('.tool-chain');return !c.classList.contains('expanded') && c.getBoundingClientRect().height<=40 && c.querySelector('.tool-chain-items').hidden"), 'Compact chain is not one row'
-    js("window.chain=document.querySelector('.tool-chain');window.card=chain.querySelector('.tool-card');chain.querySelector('.tool-chain-toggle').click()")
+    assert js("return !document.querySelector('.tool-chain .tool-card')"), 'Closed chain eagerly mounted tool cards'
+    js("window.chain=document.querySelector('.tool-chain');chain.querySelector('.tool-chain-toggle').click()")
+    wait_for(lambda: js("return !!chain.querySelector('.tool-card')"), 'Opened chain did not mount tool cards')
+    js("window.card=chain.querySelector('.tool-card')")
     assert js("return !chain.querySelector('.tool-chain-items').hidden && !card.classList.contains('expanded')"), 'Chain did not reveal brief calls'
     # Exercise adjacent nodes with the real rendered card markup. The provider
     # fixture emits one call, so add two brief neighbours for rail geometry.

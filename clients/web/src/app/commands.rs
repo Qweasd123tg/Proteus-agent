@@ -250,6 +250,21 @@ pub(super) fn commands(
         }
     };
     let jump_to_message = move |id: u64| {
+        set_stick_to_bottom.set(false);
+        #[cfg(target_arch = "wasm32")]
+        {
+            use wasm_bindgen::prelude::*;
+            #[wasm_bindgen(raw_module = "/ui/virtual-transcript.js")]
+            extern "C" {
+                #[wasm_bindgen(js_name = jumpToTranscriptMessage)]
+                fn jump(root: &web_sys::Element, id: &str) -> bool;
+            }
+            if let Some(root) = state.view.results_ref.get_untracked()
+                && jump(root.as_ref(), &id.to_string())
+            {
+                return;
+            }
+        }
         if let Some(element) = window()
             .and_then(|window| window.document())
             .and_then(|document| document.get_element_by_id(&format!("msg-{id}")))

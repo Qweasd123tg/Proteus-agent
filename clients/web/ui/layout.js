@@ -1,3 +1,4 @@
+import { requestBottom } from './transcript-scroll.js';
 // Panels settle in one layout pass; preserve keyboard focus without slide effects.
 let pendingFocus = 0;
 export function preparePanelFocus(selector) {
@@ -24,7 +25,7 @@ export function mountComposerDock(root) {
     const follow = results?.classList.contains('sticky-bottom');
     height = next;
     workspace.style.setProperty('--composer-inset', `${height}px`);
-    if (follow) results.scrollTop = results.scrollHeight;
+    if (follow) requestBottom(results);
   };
   const observer = new ResizeObserver(update);
   observer.observe(root);

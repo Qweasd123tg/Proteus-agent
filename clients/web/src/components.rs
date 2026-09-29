@@ -17,6 +17,8 @@ mod subagent;
 mod subagent_tab;
 pub(crate) mod tool_activity;
 mod tool_chain;
+pub(crate) mod transcript_state;
+mod virtual_transcript;
 
 pub(crate) use approval::{ApprovalCard, UserInputCard};
 pub(crate) use chat_results::ChatResultsView;

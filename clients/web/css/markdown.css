@@ -190,13 +190,13 @@
 }
 
 /* Transcript blocks settle in place. Status indicators may still animate. */
-.results-panel > .task-card,
-.results-panel > .user-turn {
+:is(.results-panel, .transcript-row) > .task-card,
+:is(.results-panel, .transcript-row) > .user-turn {
     animation: none;
     transform: none;
 }
 
-.results-panel > .user-turn {
+:is(.results-panel, .transcript-row) > .user-turn {
     margin-bottom: var(--space-6);
 }
 
@@ -220,16 +220,16 @@
     padding: 0;
 }
 
-.results-panel > .role-assistant {
+:is(.results-panel, .transcript-row) > .role-assistant {
     margin-bottom: var(--space-6);
 }
 
-.results-panel > .role-assistant.agent-turn-item {
+:is(.results-panel, .transcript-row) > .role-assistant.agent-turn-item {
     padding-left: 0;
 }
 
-.results-panel > .role-assistant.agent-turn-item::before,
-.results-panel > .role-assistant.agent-turn-item::after {
+:is(.results-panel, .transcript-row) > .role-assistant.agent-turn-item::before,
+:is(.results-panel, .transcript-row) > .role-assistant.agent-turn-item::after {
     display: none;
 }
 
