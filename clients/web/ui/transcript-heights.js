@@ -19,7 +19,9 @@ export class TranscriptHeights {
     if (index === undefined || height <= 0) return false;
     this.measured.set(String(id), height);
     const delta = height - this.values[index];
-    if (Math.abs(delta) < .25) return false;
+    // Fractional row heights accumulate above the reading anchor. Keep the
+    // prefix index and measured cache equal, including changes below 1px.
+    if (delta === 0) return false;
     this.values[index] = height;
     this.add(index, delta);
     return true;

@@ -2,7 +2,12 @@
 // checked when it runs, including after asynchronous Markdown work.
 const frames = new WeakMap();
 export function adjustScroll(root, top) {
-  root.scrollTop = top;
+  // Whole CSS pixels avoid repeatedly assigning fractions that the native
+  // scroll position rounds back to the same value.
+  const target = Math.round(Math.max(0, Math.min(top, root.scrollHeight - root.clientHeight)));
+  // Even an equal assignment can interrupt the browser's ongoing wheel scroll.
+  if (Math.abs(root.scrollTop - target) <= .5) return;
+  root.scrollTop = target;
   root.dispatchEvent(new CustomEvent('proteus-scroll-adjust', { detail: root.scrollTop }));
 }
 export function requestBottom(root) {

@@ -32,7 +32,11 @@ def run(command, js, wait_for):
     js("const t=document.querySelectorAll('.msg-nav-tick')[50];t.focus();t.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}))")
     assert js("return document.activeElement===document.querySelectorAll('.msg-nav-tick')[51]"), 'Arrow key did not select the next message'
     js('document.activeElement.click()')
-    wait_for(lambda: js("const tick=document.activeElement, card=document.getElementById(tick.dataset.messageId), r=document.querySelector('.results-panel');return Math.abs(card.getBoundingClientRect().top-r.getBoundingClientRect().top)<2"), 'Navigation did not jump to the selected message')
+    try:
+        wait_for(lambda: js("const tick=document.activeElement, card=document.getElementById(tick.dataset.messageId), r=document.querySelector('.results-panel');return Math.abs(card.getBoundingClientRect().top-r.getBoundingClientRect().top)<2"), 'Navigation did not jump to the selected message')
+    except AssertionError:
+        print(js("const tick=document.activeElement,card=document.getElementById(tick.dataset.messageId),r=document.querySelector('.results-panel');return {id:tick.dataset.messageId,cardTop:card?.getBoundingClientRect().top,rowTop:card?.closest('[data-transcript-row]')?.getBoundingClientRect().top,rootTop:r.getBoundingClientRect().top,top:r.scrollTop,max:r.scrollHeight-r.clientHeight,attrs:{...r.dataset},rows:[...r.querySelectorAll('[data-transcript-row]')].map(row=>row.dataset.transcriptRow)}"),flush=True)
+        raise
     wait_for(visibility_matches, 'Visibility stayed stale after message jump')
     js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
     assert js("return !document.querySelector('.msg-nav').classList.contains('preview-open')"), 'Escape did not hide the preview'

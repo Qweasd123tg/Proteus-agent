@@ -26,6 +26,7 @@ from polish_checks import run as check_polish, check_restore_failure
 from tool_chain_checks import run as check_tool_chain
 from subagent_tab_checks import run as check_subagent_tabs
 from typing_checks import run as check_typing
+from scroll_jitter_checks import run as check_scroll_jitter
 from planning_checks import run as check_planning
 from usage_checks import run as check_usage
 from architecture_checks import run as check_architecture
@@ -365,6 +366,9 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return
                 if '--typing-only' in sys.argv:
                     check_typing(command, js, wait_for, web, origin, server)
+                    return
+                if '--scroll-jitter-only' in sys.argv:
+                    check_scroll_jitter(command, js, wait_for, web, origin)
                     return
                 if '--modules-only' in sys.argv:
                     check_client_modules(command,js,wait_for,web,origin,loaded)

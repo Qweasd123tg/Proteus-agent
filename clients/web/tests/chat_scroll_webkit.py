@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import select
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -23,6 +24,7 @@ import time
 
 import extensions_browser as fixture
 from extensions_browser import Assets, ROOT, stop, urlencode
+from scroll_jitter_checks import PROBE as JITTER_PROBE, validate as validate_jitter
 
 
 def main():
@@ -30,7 +32,7 @@ def main():
     parser.add_argument('--wayland', action='store_true')
     parser.add_argument('--history', type=int, default=240)
     args = parser.parse_args()
-    assert args.history >= 2, 'History needs at least two messages'
+    assert args.history >= 240, 'Window-turnover regression needs at least 240 messages'
     fixture.BOOTSTRAP = fixture.BOOTSTRAP.replace('length: 240', 'length: ' + str(args.history))
     display = None
     if '--wayland' in sys.argv:
@@ -128,6 +130,20 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                 state = {'stage': 0, 'pending': False, 'detached_top': None}
                 errors = []
 
+                def present_probe_window():
+                    # The frame probe requires an on-screen window. Background
+                    # Wayland surfaces can pause RAF while the shared desktop is
+                    # being used, even though JavaScript polling still works.
+                    if args.wayland and shutil.which('niri'):
+                        native = next((item for item in json.loads(subprocess.check_output(
+                            ['niri', 'msg', '--json', 'windows'])) if item.get('pid') == os.getpid()), None)
+                        assert native, 'Compositor did not expose the test window'
+                        if not native['is_floating']:
+                            subprocess.run(['niri', 'msg', 'action', 'toggle-window-floating', '--id', str(native['id'])], check=True, capture_output=True)
+                        subprocess.run(['niri', 'msg', 'action', 'focus-window', '--id', str(native['id'])], check=True, capture_output=True)
+                    else:
+                        window.present()
+
                 def fail(message, value=None):
                     errors.append(message + (': ' + json.dumps(value, ensure_ascii=False) if value is not None else ''))
                     Gtk.main_quit()
@@ -206,6 +222,15 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                             return true;
                         })()''', lambda _: None)
                     elif stage == 5 and value and value['sticky'] and value['atBottom']:
+                        state['stage'] = 6
+                        present_probe_window()
+                        evaluate(JITTER_PROBE + '.then(value=>window.scrollJitterResult=value,error=>window.scrollJitterResult={error:String(error)});true', lambda _: None)
+                    elif stage == 6 and value and value['result']:
+                        try:
+                            validate_jitter(value['result'])
+                        except AssertionError as error:
+                            fail(str(error), value)
+                            return
                         Gtk.main_quit()
 
                 def poll():
@@ -216,13 +241,16 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                         script = "!!document.querySelector('.results-panel')?.textContent.includes('Сохранённое сообщение " + str(args.history - 1) + "') && document.querySelector('.connection-badge')?.classList.contains('completed')"
                     elif stage == 1:
                         script = "document.querySelector('.results-panel')?.textContent.includes('Абзац 3:') && !!document.querySelector('.composer-stop')"
+                    elif stage == 6:
+                        script = '({result:window.scrollJitterResult || null,hidden:document.hidden,progress:window.scrollJitterProgress || null})'
                     else:
                         script = '''(() => {
                             const r = document.querySelector('.results-panel');
                             const max = r.scrollHeight-r.clientHeight;
                             return {anchorTop:window.readingAnchor?.isConnected ? readingAnchor.getBoundingClientRect().top-r.getBoundingClientRect().top : null,top:r.scrollTop,max,sticky:r.classList.contains('sticky-bottom'),
                                 atBottom:max-r.scrollTop<=1,scrollEvents:scrollEvents,
-                                settled:!document.querySelector('.composer-stop') && r.textContent.includes('Абзац 31:')};
+                                settled:!document.querySelector('.composer-stop'),
+                                rows:[...r.querySelectorAll('[data-transcript-row]')].map(row=>row.dataset.transcriptRow)};
                         })()'''
                     evaluate(script, handle)
                     return True
@@ -232,14 +260,16 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return False
 
                 GLib.timeout_add(100, poll)
-                GLib.timeout_add_seconds(45, timeout)
+                # The shared 320-frame probe adds render time to the streaming
+                # scenario; this deadline is a hang guard, not an FPS budget.
+                GLib.timeout_add_seconds(90, timeout)
                 view.load_uri(web + '/foundation.html?' + urlencode({
                     'server': origin, 'token': 'scroll-fixture',
                 }))
                 Gtk.main()
                 assert not errors, '\n'.join(errors)
-                assert state['stage'] == 5, 'Chat scroll regression ended at stage ' + str(state['stage'])
-                print('PASS: WebKit near-bottom upward reading survives queued scroll and streaming; downward return resumes following', flush=True)
+                assert state['stage'] == 6, 'Chat scroll regression ended at stage ' + str(state['stage'])
+                print('PASS: WebKit near-bottom reading survives queued scroll and streaming; downward return follows; virtual window turnover preserves each frame', flush=True)
             finally:
                 server.stream_gate.set()
                 if window is not None:

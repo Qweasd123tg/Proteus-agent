@@ -5,9 +5,9 @@ import { transcriptWindow } from './transcript-window.js';
 const controllers = new WeakMap();
 
 export function mountVirtualTranscript(root, onRange, onAdjusted) {
-  let model = new TranscriptHeights(), visible = [], frame = 0, measureFrame = 0;
+  let model = new TranscriptHeights(), visible = [], frame = 0, measureQueued = false;
   let windowKey = '';
-  let anchor = null, jump = null, stopped = false, width = 0, sessionKey, guardFrame = 0, inputTimer;
+  let anchor = null, jump = null, jumpAligned = false, stopped = false, width = 0, sessionKey, guardFrame = 0, inputTimer;
   const observed = new Set();
   const top = root.querySelector('[data-transcript-top]');
   const bottom = root.querySelector('[data-transcript-bottom]');
@@ -19,7 +19,14 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
   }
   function finishAdjustment() {
     cancelAnimationFrame(guardFrame);
-    guardFrame = requestAnimationFrame(() => { guardFrame = 0; delete root.dataset.transcriptAdjusting; });
+    guardFrame = requestAnimationFrame(() => {
+      guardFrame = 0;
+      // Keep the same anchor through the entire pre-paint DOM commit: child
+      // effects and ResizeObserver can refine a just-mounted row more than once.
+      anchor = null;
+      if (jumpAligned) { jump = null; jumpAligned = false; schedule(); }
+      delete root.dataset.transcriptAdjusting;
+    });
   }
   function currentAnchor(inset = padding()) {
     if (!model.rows.length) return null;
@@ -27,8 +34,30 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
     const index = model.at(offset);
     return { id: String(model.rows[index].id), offset: offset - model.prefix(index) };
   }
+  function turnoverAnchor() {
+    const value = currentAnchor();
+    const row = value && root.querySelector(`[data-transcript-row="${value.id}"]`);
+    if (row && root.clientHeight) {
+      value.visualTop = row.getBoundingClientRect().top - root.getBoundingClientRect().top;
+      value.scrollTop = root.scrollTop;
+    }
+    return value;
+  }
   function restore(value, inset) {
     if (!value) return;
+    if (value.visualTop !== undefined) {
+      const row = root.querySelector(`[data-transcript-row="${value.id}"]`);
+      if (row) {
+        // Carry native scrolling between capture and commit into the desired
+        // position, so a geometry correction does not undo wheel movement.
+        const expected = value.visualTop - (root.scrollTop - value.scrollTop);
+        const actual = row.getBoundingClientRect().top - root.getBoundingClientRect().top;
+        adjustScroll(root, root.scrollTop + actual - expected);
+        value.visualTop = expected;
+        value.scrollTop = root.scrollTop;
+        return;
+      }
+    }
     const index = model.positions.get(value.id);
     if (index !== undefined) adjustScroll(root, inset + model.prefix(index) + value.offset);
   }
@@ -60,7 +89,7 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
     const next = rangeFor(offset);
     const key = JSON.stringify(next);
     if (key !== windowKey) {
-      anchor ??= currentAnchor();
+      anchor ??= turnoverAnchor();
       adjusting();
       visible = next; windowKey = key;
       spacers();
@@ -73,12 +102,17 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
     if (!frame && !stopped && root.clientHeight) frame = requestAnimationFrame(refresh);
   }
   function measure() {
-    measureFrame = 0;
+    measureQueued = false;
     if (!root.clientHeight || stopped) return;
     // Read the complete geometry batch before changing spacers or scrollTop.
     const inset = padding();
     const saved = anchor || currentAnchor(inset);
     const rows = [...root.querySelectorAll(':scope > [data-transcript-row]')];
+    // Leptos commits the requested window asynchronously. Its child-list
+    // observer will retry when those rows exist; never measure the old window
+    // against the new spacers or paint one frame with estimated row heights.
+    if (rows.length !== visible.length || rows.some((row, index) =>
+      row.dataset.transcriptRow !== String(model.rows[visible[index].index]?.id))) return;
     const heights = rows.map(row => row.getBoundingClientRect().height);
     const present = new Set(rows);
     for (const old of observed) if (!present.has(old)) { sizes.unobserve(old); observed.delete(old); }
@@ -101,19 +135,25 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
       spacers();
       if (jump !== null) {
         const row = rows.find(row => row.dataset.transcriptRow === jump);
-        if (row) {
-          adjustScroll(root, inset + model.prefix(model.positions.get(jump)));
-          jump = null;
+        if (row && row.getBoundingClientRect().height > 0) {
+          // The newly mounted view may still be filling its first contents.
+          // Align real DOM geometry instead of consuming an estimated prefix.
+          adjustScroll(root, root.scrollTop + row.getBoundingClientRect().top - root.getBoundingClientRect().top);
+          jumpAligned = true;
         }
       } else if (pinned()) requestBottom(root);
       else restore(saved, inset);
-      anchor = null;
       schedule();
     }
     finishAdjustment();
   }
   function scheduleMeasure() {
-    if (!measureFrame && !stopped) measureFrame = requestAnimationFrame(measure);
+    if (!measureQueued && !stopped) {
+      measureQueued = true;
+      // Mutation/ResizeObserver work is already batched. Finish geometry before
+      // paint instead of exposing the estimated window for an extra frame.
+      queueMicrotask(measure);
+    }
   }
   const sizes = new ResizeObserver(scheduleMeasure);
   const rootSize = new ResizeObserver(() => {
@@ -126,13 +166,14 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
   });
   rootSize.observe(root);
   const mutations = new MutationObserver(scheduleMeasure);
-  mutations.observe(root, { childList: true });
+  mutations.observe(root, { childList: true, subtree: true });
   const adjusted = event => onAdjusted(Math.round(event.detail));
   const scroll = () => { if (!root.hasAttribute('data-transcript-adjusting')) schedule(); };
   const userInput = event => {
     delete root.dataset.transcriptAdjusting; cancelAnimationFrame(guardFrame);
     // A new gesture takes precedence over the anchor saved by an older mount.
     anchor = null;
+    jump = null; jumpAligned = false;
     root.dataset.transcriptUserScroll = '';
     if (event?.type === 'pointerdown') delete root.dataset.transcriptDirection;
     clearTimeout(inputTimer);
@@ -159,8 +200,8 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
   document.addEventListener('selectionchange', schedule);
   const controller = {
     update(rows, session) {
-      anchor = currentAnchor();
-      if (sessionKey !== session) { model = new TranscriptHeights(); anchor = null; jump = null; sessionKey = session; }
+      anchor = turnoverAnchor();
+      if (sessionKey !== session) { model = new TranscriptHeights(); anchor = null; jump = null; jumpAligned = false; sessionKey = session; }
       model.reset(rows);
       if (jump !== null && !model.positions.has(jump)) jump = null;
       root.dataset.transcriptCount = String(rows.length);
@@ -171,7 +212,7 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
     },
     jump(id) {
       if (!model.positions.has(String(id))) return false;
-      jump = String(id); anchor = null;
+      jump = String(id); jumpAligned = false; anchor = null;
       refresh();
       // A target already mounted needs no child-list mutation.
       scheduleMeasure();
@@ -179,7 +220,7 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
     },
     dispose() {
       stopped = true;
-      cancelAnimationFrame(frame); cancelAnimationFrame(measureFrame); cancelAnimationFrame(guardFrame); cancelBottom(root);
+      cancelAnimationFrame(frame); cancelAnimationFrame(guardFrame); cancelBottom(root);
       mutations.disconnect(); sizes.disconnect(); rootSize.disconnect(); visibility.disconnect();
       root.removeEventListener('scroll', scroll);
       root.removeEventListener('proteus-scroll-adjust', adjusted);

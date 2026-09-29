@@ -7,6 +7,11 @@ test('viewport lookup uses measured heights after resize, append and removal', (
   const rows = Array.from({ length: 3000 }, (_, id) => ({ id: String(id), height: 100 }));
   const heights = new TranscriptHeights(rows);
   assert.equal(heights.at(299900), 2999);
+  heights.set('20', 100.125);
+  assert.equal(heights.prefix(21), 2100.125, 'fractional heights must enter the prefix index');
+  const preciseTotal = heights.total;
+  heights.reset(rows);
+  assert.equal(heights.total, preciseTotal, 'reset must not introduce deferred fractional movement');
   heights.set('20', 180);
   assert.equal(heights.prefix(21), 2180);
   assert.equal(heights.at(2179), 20);
