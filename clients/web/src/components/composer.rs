@@ -40,6 +40,7 @@ where
     DE: Fn() -> bool + Copy + Send + 'static,
     NB: Fn() -> usize + Copy + Send + Sync + 'static,
 {
+    let prefs = crate::interface_settings::settings();
     let dock_ref = NodeRef::<html::Form>::new();
     #[cfg(target_arch = "wasm32")]
     crate::ui_layout::attach_composer(dock_ref);
@@ -55,11 +56,14 @@ where
     view! {
         <form class="composer" node_ref=dock_ref on:submit=on_submit>
             <QueuedPrompts items=queued_prompts actions />
-            <Show when=move || !stick_to_bottom.get()>
+            <Show when=move || !stick_to_bottom.get() || !prefs.auto_scroll.get()>
                 <button type="button"
                     class="jump-to-bottom" class:has-count=move || { new_below_count() > 0 }
                     title="К последнему сообщению" aria-label="К последнему сообщению"
-                    on:click=move |_| set_stick_to_bottom.set(true)>
+                    on:click=move |_| {
+                        set_stick_to_bottom.set(true);
+                        if let Some(element)=web_sys::window().and_then(|w|w.document()).and_then(|d|d.query_selector(".results-panel").ok().flatten()) { element.set_scroll_top(element.scroll_height()); }
+                    }>
                     <super::icons::ArrowDownIcon/>{move || (new_below_count() > 0).then(|| new_below_count().to_string())}
                 </button>
             </Show>
@@ -82,11 +86,11 @@ where
                     <div class="composer-actions">
                         <ComposerModelMenu model_name model_options reasoning_enabled effort effort_options actions />
                         {move || active_run_id.get().is_some().then(|| view! {
-                            <button type="button" class="composer-stop" title="Остановить ход · Esc" aria-label="Остановить ход" on:click=on_cancel_turn><StopIcon /></button>
+                            <button type="button" class="composer-stop" title="Остановить ход" aria-label="Остановить ход" on:click=on_cancel_turn><StopIcon /></button>
                         })}
                         <button type="submit" class="composer-submit" disabled=draft_is_empty
                             hidden=move || active_run_id.get().is_some() && draft_is_empty()
-                            aria-label=submit_label title=move || format!("{} · Enter", submit_label())><ArrowUpIcon /></button>
+                            aria-label=submit_label title=move || format!("{} · {}", submit_label(), if prefs.ctrl_enter.get(){"Ctrl / Cmd + Enter"}else{"Enter"})><ArrowUpIcon /></button>
                     </div>
                 </div>
             </div>

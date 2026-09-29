@@ -40,6 +40,7 @@ pub(super) fn install(state: AppState, router: AppRouter) {
         resize,
         ..
     } = state.view;
+    let prefs = crate::interface_settings::settings();
     let is_chat_route = move || router.is_chat();
     Effect::new(move |_| {
         let _ = (
@@ -51,7 +52,7 @@ pub(super) fn install(state: AppState, router: AppRouter) {
             // прилипание к низу надо восстановить.
             is_chat_route(),
         );
-        if stick_to_bottom.get() {
+        if prefs.auto_scroll.get() && stick_to_bottom.get() {
             schedule_results_scroll(
                 results_ref,
                 stick_to_bottom,

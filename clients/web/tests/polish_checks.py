@@ -12,7 +12,7 @@ def run(command, js, wait_for):
     def settings(section):
         click('.settings-link')
         wait_for(lambda: js("return !!document.querySelector('.settings-page')"), 'Settings absent')
-        click('.settings-nav button:first-of-type' if section=='general' else f'[data-settings-section={section}]')
+        click('.settings-nav button:first-of-type' if section=='appearance' else f'[data-settings-section={section}]')
 
     # One live compact instance follows its placement, including across SPA mounts.
     wait_for(lambda: js("return !!document.querySelector('[data-widget-id=model-quota] span')?.shadowRoot?.querySelector('svg')"), 'Compact quota did not render')
@@ -29,7 +29,7 @@ def run(command, js, wait_for):
     assert js("return document.querySelector('[data-extension-choice=model-quota] input')===switchNode && !switchNode.checked"), 'Extension toggle was replaced'
     js("switchNode.click()")
     click('.settings-back')
-    settings('general')
+    settings('appearance')
     assert js("return parseFloat(getComputedStyle(document.querySelector('.settings-toggle'),'::before').transitionDuration)>0"), 'Toggle has no motion'
     click('[data-animation-toggle]')
     wait_for(lambda: js("return document.documentElement.dataset.animations==='off' && localStorage.getItem('proteus.animations')==='false'"), 'Motion setting not applied/persisted')
@@ -41,7 +41,7 @@ def run(command, js, wait_for):
     command('/refresh', {})
     wait_for(lambda: js("return !!document.querySelector('.session-item-shell')"), 'Reload absent')
     wait_for(lambda: js("return document.documentElement.dataset.animations==='off' && !!document.querySelector('[data-widget-slot=header] .extension-widget')"), 'Reload lost UI preferences')
-    settings('general')
+    settings('appearance')
     click('[data-animation-toggle]')
     click('.settings-back')
 

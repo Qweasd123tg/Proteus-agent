@@ -96,6 +96,13 @@ impl AppResizeState {
         });
     }
 
+    pub(crate) fn set_width(self, value: i32) -> Result<(), String> {
+        let value = value.clamp(MIN_CHAT_WIDTH_PX, MAX_CHAT_WIDTH_PX);
+        crate::interface_settings::save_number("proteus.chatWidth", value)?;
+        self.set_chat_width.set(value);
+        Ok(())
+    }
+
     pub(crate) fn begin_sidebar_resize(self, ev: MouseEvent) {
         ev.prevent_default();
         self.set_dragging_sidebar.set(true);

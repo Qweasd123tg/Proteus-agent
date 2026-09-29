@@ -8,6 +8,7 @@ import base64
 from markdown_checks import run as check_markdown, FIXTURE as MARKDOWN_FIXTURE
 from simplify_checks import run as check_simplify
 from settings_checks import run as check_settings
+from interface_settings_checks import run as check_interface_settings
 from extensions_checks import run as check_extensions
 from panel_checks import run as check_panels
 from select_checks import run as check_selects
@@ -349,6 +350,11 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     check_panels(command, js, wait_for)
                     check_layout(command, js, wait_for)
                     check_architecture(command, js, wait_for, web, origin)
+                    return
+                if '--preferences-only' in sys.argv:
+                    check_interface_settings(command, js, wait_for, server)
+                    check_settings(command, js, wait_for)
+                    check_chrome(command, js, wait_for, web, origin)
                     return
                 if '--settings-only' in sys.argv:
                     check_settings(command, js, wait_for)

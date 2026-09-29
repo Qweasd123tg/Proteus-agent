@@ -35,6 +35,8 @@ icon!(MoreIcon, "more", 16);
 icon!(PinIcon, "pin", 13);
 icon!(ShieldIcon, "shield", 16);
 icon!(ChevronDownIcon, "chevron-down", 14);
+icon!(ChatIcon, "chat", 18);
+icon!(KeyboardIcon, "keyboard", 18);
 icon!(SettingsIcon, "settings", 18);
 icon!(ExtensionsIcon, "modules", 18);
 icon!(TerminalIcon, "terminal", 18);

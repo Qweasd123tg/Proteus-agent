@@ -1,3 +1,4 @@
+import { registerShortcuts } from '/ui/shortcuts/runtime.js';
 import { popup } from '/ui/popup.js';
 // Native chrome belongs to the desktop shell; browser clients keep their own frame.
 const api = window.__TAURI__;
@@ -77,16 +78,10 @@ export function mountWindowChrome(api) {
   document.addEventListener('proteus-desktop-action',event=>{
     if(['project','folder','inspector'].includes(event.detail))perform(actions[event.detail]);
   },options);
-  document.addEventListener('keydown', event => {
-    if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.repeat) {
-      const action = event.shiftKey ? { KeyO: 'project', KeyI: 'inspector' }[event.code]
-        : event.code === 'KeyQ' ? 'quit' : null;
-      if (action) {
-        event.preventDefault(); event.stopImmediatePropagation(); menu.hide();
-        perform(actions[action]); return;
-      }
-    }
-  }, { ...options, capture: true });
+  const releaseShortcuts = registerShortcuts(id => {
+    if (!['project','inspector','quit'].includes(id)) return false;
+    menu.hide(); perform(actions[id]); return true;
+  }, 100);
   const edges = document.createElement('div');
   edges.className = 'desktop-resize-edges';
   for (const direction of ['North', 'South', 'East', 'West', 'NorthEast', 'NorthWest', 'SouthEast', 'SouthWest']) {
@@ -105,7 +100,7 @@ export function mountWindowChrome(api) {
   });
   const dispose = () => {
     if (disposed) return;
-    disposed = true; controller.abort(); releaseResize?.();
+    disposed = true; controller.abort(); releaseResize?.(); releaseShortcuts();
     menu.dispose(); bar.remove(); edges.remove(); style.remove();
     delete document.documentElement.dataset.desktopChrome;
     document.documentElement.classList.remove('desktop-maximized', 'desktop-fullscreen');

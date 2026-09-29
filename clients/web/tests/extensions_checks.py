@@ -23,17 +23,17 @@ def run(command, js, wait_for, web, origin, loaded):
     assert js("return !document.querySelector('.extension-manager') && !document.querySelector('.extension-install') && !document.querySelector('[data-extension-id=model-quota]')")
     js("window.savedFetch=window.fetch; window.settingsWrites=0; window.fetch=(input,init)=>{const path=String(input.url||input).split('?')[0]; if(path.endsWith('/config/web'))window.settingsWrites++; return path.endsWith('/config')?Promise.resolve(new Response(JSON.stringify({error:'offline fixture'}),{status:502})):window.savedFetch(input,init)}")
     settings()
-    assert js("return !document.querySelector('#general input').disabled"), 'Backend outage blocked client preferences'
-    js("document.querySelector('#general input').click()")
+    assert js("return !document.querySelector('#chat-settings input').disabled"), 'Backend outage blocked client preferences'
+    js("document.querySelector('#chat-settings input').click()")
     wait_for(lambda: js("return localStorage.getItem('proteus.toolCardsCollapsed') === 'true'"), 'Client preference was not persisted')
     assert js("return window.settingsWrites === 0"), 'Client setting called backend'
-    js("window.savedSetItem=Storage.prototype.setItem; Storage.prototype.setItem=function(key,value){if(key==='proteus.toolCardsCollapsed')throw new Error('storage fixture');return window.savedSetItem.call(this,key,value)};document.querySelector('#general input').click()")
-    wait_for(lambda: js("return document.querySelector('.settings-status').textContent.includes('Не сохранено') && document.querySelector('#general input').checked"), 'Storage failure was hidden or toggle did not roll back')
+    js("window.savedSetItem=Storage.prototype.setItem; Storage.prototype.setItem=function(key,value){if(key==='proteus.toolCardsCollapsed')throw new Error('storage fixture');return window.savedSetItem.call(this,key,value)};document.querySelector('#chat-settings input').click()")
+    wait_for(lambda: js("return document.querySelector('#chat-settings .settings-status').textContent.includes('Не сохранено') && document.querySelector('#chat-settings input').checked"), 'Storage failure was hidden or toggle did not roll back')
     js("Storage.prototype.setItem=window.savedSetItem;window.fetch=window.savedFetch")
     command('/refresh', {})
-    wait_for(lambda: js("return !!document.querySelector('#general input')"), 'Settings route did not restore')
-    assert js("return document.querySelector('#general input').checked"), 'Client preference lost on reload'
-    js("document.querySelector('#general input').click()")
+    wait_for(lambda: js("return !!document.querySelector('#chat-settings input')"), 'Settings route did not restore')
+    assert js("return document.querySelector('#chat-settings input').checked"), 'Client preference lost on reload'
+    js("document.querySelector('#chat-settings input').click()")
     wait_for(lambda: js("return localStorage.getItem('proteus.toolCardsCollapsed') === 'false'"), 'Client preference did not reset')
     wait_for(lambda: js("return !!document.querySelector('[data-extension-available=model-quota]')"), 'New bundled package unavailable in existing settings')
     js("document.querySelector('[data-extension-available=model-quota]').click(); document.querySelector('[data-extension-choice=notes] input').click(); document.querySelector('[data-reorder=notes]').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true}))")
@@ -60,10 +60,10 @@ def run(command, js, wait_for, web, origin, loaded):
     settings()
     js("document.querySelector('[data-extension-choice=external-test] input').click()")
     # Saved web setting must take effect on the next SPA chat mount.
-    wait_for(lambda: js("return !document.querySelector('#general input').disabled"), 'Chat setting not ready')
-    js("document.querySelector('#general input').click()")
-    wait_for(lambda: js("return document.querySelector('.settings-status').textContent === 'Сохранено на этом устройстве'"), 'Chat setting save failed')
-    assert js("return document.querySelector('#general input').checked")
+    wait_for(lambda: js("return !document.querySelector('#chat-settings input').disabled"), 'Chat setting not ready')
+    js("document.querySelector('#chat-settings input').click()")
+    wait_for(lambda: js("return document.querySelector('#chat-settings .settings-status').textContent === 'Сохранено на этом устройстве'"), 'Chat setting save failed')
+    assert js("return document.querySelector('#chat-settings input').checked")
     install('/fixture/slow/extension.json')
     wait_for(lambda: js("return !!document.querySelector('[data-extension-choice=slow-test]')"), 'Slow fixture not installed')
     chat()

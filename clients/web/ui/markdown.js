@@ -62,7 +62,7 @@ async function render(message) {
 async function drain() {
   frame=0;running=true;
   const root=document.querySelector('.results-panel');
-  const pinned=root&&root.scrollHeight-root.scrollTop-root.clientHeight<=64;
+  const pinned=root?.classList.contains('sticky-bottom')&&root.scrollHeight-root.scrollTop-root.clientHeight<=64;
   const batch=[...queued];queued.clear();
   try{for(const message of batch)if(message.isConnected&&!message.matches('.streaming-message'))await render(message);}
   finally{

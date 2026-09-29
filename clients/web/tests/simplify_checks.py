@@ -14,7 +14,7 @@ def run(command, js, wait_for, web, origin):
     assert js("return !document.querySelector('.sidebar-footer a[href=\"/context\"]') && document.querySelector('.sidebar').getBoundingClientRect().width===0"), 'Diagnostics still clutter chat navigation'
     js("document.querySelector('[data-settings-section=extensions]').click()")
     wait_for(lambda: js("return document.querySelector('[data-settings-section=extensions]').getAttribute('aria-pressed')==='true'"), 'Settings selection is stale')
-    assert js("return !document.querySelector('#extensions').hidden && document.querySelector('#general').hidden"), 'Settings sections overlap'
+    assert js("return !document.querySelector('#extensions').hidden && document.querySelector('.settings-section:has(.appearance-preview)').hidden"), 'Settings sections overlap'
     Path('/tmp/proteus-settings-simplified.png').write_bytes(base64.b64decode(command('/screenshot', None)))
     for width in [900,620,390]:
         command('/window/rect', {'width':width,'height':1000})

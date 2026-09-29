@@ -1,4 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg">
+<symbol id="keyboard" viewBox="0 0 20 20"><rect x="2" y="5" width="16" height="11" rx="2"/><path d="M5 8h1m3 0h1m3 0h1m-9 3h1m3 0h1m3 0h1m-8 3h7"/></symbol>
+
   <!-- Proteus UI: 20 × 20, 1.5-unit strokes, round caps and joins. -->
   <symbol id="terminal" viewBox="0 0 20 20"><rect x="2.5" y="3.5" width="15" height="13" rx="2"/><path d="m6 7 3 3-3 3m5 0h3"/></symbol>
   <symbol id="plus" viewBox="0 0 20 20"><path d="M10 4v12M4 10h12"/></symbol>

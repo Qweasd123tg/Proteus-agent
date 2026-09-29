@@ -12,11 +12,12 @@ use leptos::prelude::*;
 
 #[component]
 pub(crate) fn App() -> impl IntoView {
+    provide_context(crate::interface_settings::InterfaceSettings::new());
     let state = state::AppState::new();
     let router = navigation::AppRouter::new(state.session.active_session_dir);
     provide_context(ToolCardsCollapsed(state.view.tool_cards_collapsed));
     effects::install(state, router);
     let connection = connection::connect(state);
-    let commands = commands::commands(state, connection);
+    let commands = commands::commands(state, connection, router);
     view! { <shell::AppShell state connection commands router /> }
 }

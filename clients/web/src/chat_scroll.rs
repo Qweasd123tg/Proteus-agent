@@ -31,7 +31,12 @@ pub(crate) fn schedule_results_scroll(
     }
     set_scroll_frame_pending.set(true);
 
+    let auto_scroll = crate::interface_settings::settings().auto_scroll;
     let callback = Closure::once_into_js(move || {
+        if !auto_scroll.get_untracked() {
+            set_scroll_frame_pending.set(false);
+            return;
+        }
         scroll_results_to_bottom(results_ref, stick_to_bottom, set_last_results_scroll_top);
         set_scroll_frame_pending.set(false);
     });

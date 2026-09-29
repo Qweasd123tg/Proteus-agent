@@ -1,68 +1,22 @@
-use leptos::{html, prelude::*};
-use wasm_bindgen::{JsCast, closure::Closure};
-use web_sys::{KeyboardEvent, window};
-
-use crate::actions::cancel_active_run;
-use crate::types::TransportStatus;
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn install_global_keydown(
-    composer_ref: NodeRef<html::Textarea>,
-    _resize: crate::app_resize::AppResizeState,
-    active_session_dir: ReadSignal<Option<String>>,
-    transcript_generation: ReadSignal<u64>,
-    active_run_id: ReadSignal<Option<String>>,
-    next_request_id: ReadSignal<u64>,
-    set_next_request_id: WriteSignal<u64>,
-    set_messages: crate::transcript::TranscriptWriter,
-    next_message_id: ReadSignal<u64>,
-    set_next_message_id: WriteSignal<u64>,
-    set_transport_status: WriteSignal<TransportStatus>,
-) {
-    let global_keydown =
-        Closure::<dyn FnMut(KeyboardEvent)>::wrap(Box::new(move |ev: KeyboardEvent| {
-            if ev.ctrl_key() && ev.key().eq_ignore_ascii_case("l") {
-                ev.prevent_default();
-                if let Some(textarea) = composer_ref.get() {
-                    let _ = textarea.focus();
-                }
-            } else if ev.key() == "Escape" {
-                // Сначала закрывается открытое меню композера; отмена хода —
-                // только когда закрывать нечего, иначе Escape по меню
-                // неожиданно стопит агента.
-                if crate::app::menus::dismiss_top_menu() {
-                    ev.prevent_default();
-                    return;
-                }
-                if active_run_id.get().is_some() {
-                    ev.prevent_default();
-                    cancel_active_run(
-                        active_session_dir,
-                        transcript_generation,
-                        active_run_id,
-                        next_request_id,
-                        set_next_request_id,
-                        set_messages,
-                        next_message_id,
-                        set_next_message_id,
-                        set_transport_status,
-                    );
-                }
-            }
-        }));
-    if let Some(window) = window() {
-        let _ = window
-            .add_event_listener_with_callback("keydown", global_keydown.as_ref().unchecked_ref());
+//! One shared dispatcher for web and native commands, with owner-bound cleanup.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn install(callback: impl FnMut(String) -> bool + 'static) {
+    use leptos::prelude::*;
+    use wasm_bindgen::{JsCast, prelude::*};
+    #[wasm_bindgen(raw_module = "/ui/shortcuts/runtime.js")]
+    extern "C" {
+        #[wasm_bindgen(js_name = registerShortcuts)]
+        fn register(handler: &js_sys::Function) -> js_sys::Function;
     }
-    let listener = StoredValue::new_local(global_keydown);
+    let callback = Closure::<dyn FnMut(String) -> bool>::new(callback);
+    let dispose = StoredValue::new_local(register(callback.as_ref().unchecked_ref()));
+    let callback = StoredValue::new_local(callback);
     on_cleanup(move || {
-        listener.with_value(|listener| {
-            if let Some(window) = window() {
-                let _ = window.remove_event_listener_with_callback(
-                    "keydown",
-                    listener.as_ref().unchecked_ref(),
-                );
-            }
-        })
+        dispose.with_value(|f| {
+            let _ = f.call0(&JsValue::NULL);
+        });
+        callback.dispose();
     });
 }
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn install(_callback: impl FnMut(String) -> bool + 'static) {}

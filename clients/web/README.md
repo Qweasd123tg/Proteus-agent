@@ -9,7 +9,7 @@ production-клиентом.
 
 Текущий статус: Leptos/Trunk app-server client с transcript, composer,
 permission mode controls, approval queue, пошаговой typed user-input карточкой,
-cancel action, отправкой по `Enter` и переносом строки по `Ctrl+Enter`,
+cancel action, настраиваемой отправкой по `Enter` или `Ctrl/Cmd+Enter`,
 очередью отложенных prompts во время running turn, autoscroll с отлипанием при
 любом скролле вверх,
 working indicator, drag-resize sidebar/composer с сохранением размеров,

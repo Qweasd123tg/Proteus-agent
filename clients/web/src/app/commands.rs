@@ -2,7 +2,6 @@ use super::{connection::ClientConnection, state::AppState};
 use crate::{
     actions::*,
     api::{post_json, session_path},
-    app_keyboard::install_global_keydown,
     messages::report_error,
     types::*,
     ui_utils::input::insert_textarea_newline,
@@ -23,7 +22,12 @@ pub(super) struct ChatCommands {
     pub jump_to_message: Callback<u64>,
     pub dismiss_toast: Callback<u64>,
 }
-pub(super) fn commands(state: AppState, connection: ClientConnection) -> ChatCommands {
+pub(super) fn commands(
+    state: AppState,
+    connection: ClientConnection,
+    router: super::navigation::AppRouter,
+) -> ChatCommands {
+    let prefs = crate::interface_settings::settings();
     let actions = connection.actions;
     let super::state::ChatState {
         next_message_id,
@@ -229,21 +233,20 @@ pub(super) fn commands(state: AppState, connection: ClientConnection) -> ChatCom
         ev.prevent_default();
         submit_prompt();
     };
-    // Escape обрабатывает глобальный keydown-listener, иначе отмена уходит дважды.
     let submit_shortcut = move |ev: KeyboardEvent| {
-        if ev.key() != "Enter" {
+        if ev.key() != "Enter" || ev.is_composing() || ev.repeat() || ev.default_prevented() {
             return;
         }
-        if ev.ctrl_key() {
+        let modified = ev.ctrl_key() || ev.meta_key();
+        let send = !ev.shift_key() && !ev.alt_key() && modified == prefs.ctrl_enter.get_untracked();
+        if send {
+            ev.prevent_default();
+            submit_prompt();
+        } else if modified && !ev.alt_key() {
             ev.prevent_default();
             if let Some(textarea) = composer_ref.get_untracked() {
                 insert_textarea_newline(textarea, set_draft);
             }
-            return;
-        }
-        if !(ev.shift_key() || ev.alt_key() || ev.meta_key()) {
-            ev.prevent_default();
-            submit_prompt();
         }
     };
     let jump_to_message = move |id: u64| {
@@ -259,19 +262,66 @@ pub(super) fn commands(state: AppState, connection: ClientConnection) -> ChatCom
     let dismiss_toast = move |toast_id: u64| {
         set_toasts.update(|items| items.retain(|toast| toast.id != toast_id));
     };
-    install_global_keydown(
-        composer_ref,
-        resize,
-        active_session_dir,
-        transcript_generation,
-        active_run_id,
-        next_request_id,
-        set_next_request_id,
-        set_messages,
-        next_message_id,
-        set_next_message_id,
-        set_transport_status,
-    );
+    crate::app_keyboard::install(move |id| {
+        match id.as_str() {
+            "dismiss-menu" => return super::menus::dismiss_top_menu(),
+            "settings" => router.navigate("/settings"),
+            "new-chat" => {
+                connection.session_actions.start_new_session();
+                router.navigate("/");
+            }
+            "focus-composer" => {
+                router.navigate("/");
+                set_timeout(
+                    move || {
+                        if let Some(input) = composer_ref.get_untracked() {
+                            let _ = input.focus();
+                        }
+                    },
+                    std::time::Duration::ZERO,
+                );
+            }
+            "sidebar" if router.is_chat() => resize.toggle_sidebar(),
+            "workspace" if router.is_chat() => {
+                if let Some(button) = window()
+                    .and_then(|w| w.document())
+                    .and_then(|d| d.query_selector("[data-workspace-toggle]").ok().flatten())
+                {
+                    use wasm_bindgen::JsCast;
+                    if let Some(button) = button.dyn_ref::<web_sys::HtmlElement>() {
+                        button.click();
+                    }
+                }
+            }
+            "inspector" => {
+                let Some(w) = window() else { return false };
+                if js_sys::Reflect::has(&w, &"__TAURI__".into()).unwrap_or(false) {
+                    return false;
+                }
+                let _ = w.location().set_href(&crate::api::inspector_link_url(
+                    active_session_dir.get_untracked().as_deref(),
+                ));
+            }
+            "stop" if router.is_chat() => {
+                if active_run_id.get_untracked().is_none() {
+                    return false;
+                }
+                cancel_active_run(
+                    active_session_dir,
+                    transcript_generation,
+                    active_run_id,
+                    next_request_id,
+                    set_next_request_id,
+                    set_messages,
+                    next_message_id,
+                    set_next_message_id,
+                    set_transport_status,
+                );
+            }
+            _ => return false,
+        }
+        true
+    });
     ChatCommands {
         resolve_approval: Callback::new(move |(id, approved, cache)| {
             resolve_approval(id, approved, cache)

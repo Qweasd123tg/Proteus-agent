@@ -56,6 +56,7 @@ pub(super) fn AppShell(
         resize,
         ..
     } = state.view;
+    let prefs = crate::interface_settings::settings();
     let user_messages = state.user_messages;
     let route = router.route;
     let actions = connection.actions;
@@ -117,9 +118,10 @@ pub(super) fn AppShell(
     view! {
         <div
             class="app-layout"
-            style=move || format!("--sidebar-width: {}px", resize.sidebar_width.get())
+            style=move || format!("--sidebar-width: {}px; --chat-font-size: {}px", resize.sidebar_width.get(), prefs.font_size.get())
             class:chat-route=move || router.is_chat()
             class:settings-route=move || route.get() == "/settings"
+            class:compact-interface=move || prefs.compact.get()
             class:resizing=is_resizing
             class:sidebar-collapsed=resize.sidebar_collapsed
             on:mousemove=resize_drag
@@ -160,7 +162,7 @@ pub(super) fn AppShell(
                     {move || {
                         let current = route.get();
                         if current == "/settings" {
-                        view! { <SettingsView tool_cards_collapsed set_tool_cards_collapsed active_session_dir on_navigate=topnav_click /> }.into_any()
+                        view! { <SettingsView resize tool_cards_collapsed set_tool_cards_collapsed active_session_dir on_navigate=topnav_click /> }.into_any()
                     } else {
                         view! {
                             <ChatResultsView

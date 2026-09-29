@@ -36,6 +36,7 @@ where
     E: Fn(web_sys::MouseEvent) + Copy + Send + 'static,
     X: Fn(web_sys::MouseEvent) + Copy + Send + 'static,
 {
+    let prefs = crate::interface_settings::settings();
     let (dismissed_plan, set_dismissed_plan) = signal(None::<String>);
     let groups = Memo::new(move |_| {
         messages.ids();
@@ -44,7 +45,7 @@ where
     view! {
         <section
             class="results-panel"
-            class:sticky-bottom=stick_to_bottom
+            class:sticky-bottom=move || prefs.auto_scroll.get() && stick_to_bottom.get()
             aria-label="Диалог"
             node_ref=results_ref
             on:wheel=move |ev: WheelEvent| {

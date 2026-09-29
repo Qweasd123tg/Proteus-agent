@@ -1,5 +1,6 @@
 """Desktop titlebar over the real client; native window calls have an explicit test adapter."""
 import base64
+import json
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -7,19 +8,19 @@ from urllib.parse import urlencode
 def run(command, js, wait_for, web, origin):
     command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
     wait_for(lambda: js("return !!document.querySelector('.topbar') && document.querySelector('.connection-badge')?.classList.contains('completed')"), 'Chat did not load for native chrome checks')
-    command('/execute/async', {'script': '''
-      const done=arguments[arguments.length-1];
+    fixture = """
       window.chromeCalls=[];window.chromeMax=false;window.chromeFull=false;window.chromeReleased=0;
       const native={label:'main',isMaximized:async()=>chromeMax,isFullscreen:async()=>chromeFull,
         toggleMaximize:async()=>{chromeMax=!chromeMax;chromeCalls.push('maximize')},
         minimize:async()=>chromeCalls.push('minimize'),close:async()=>chromeCalls.push('close'),
         startDragging:async()=>chromeCalls.push('drag'),startResizeDragging:async d=>chromeCalls.push(d),
         onResized:async f=>{window.chromeResize=f;return ()=>window.chromeReleased++}};
-      import('/window-chrome.js').then(m=>{
-        window.disposeChrome=m.mountWindowChrome({window:{getCurrentWindow:()=>native},core:{invoke:async(name)=>chromeCalls.push(name)}});
-        done(null);
-      }).catch(e=>done(String(e)));
-    ''', 'args': []})
+      const {mountWindowChrome}=await import('/window-chrome.js');
+      window.disposeChrome=mountWindowChrome({window:{getCurrentWindow:()=>native},core:{invoke:async(name)=>chromeCalls.push(name)}});
+    """
+    # Load in the page realm: WebDriver imports have an independent module map.
+    js("const script=document.createElement('script');script.type='module';script.textContent="+json.dumps(fixture)+";document.head.append(script)")
+    wait_for(lambda: js("return !!document.querySelector('.desktop-titlebar')"), 'Native chrome did not mount')
     wait_for(lambda: js("return getComputedStyle(document.querySelector('.topbar')).position==='fixed'"), 'Native titlebar stylesheet did not load')
     for width in (1440, 860):
         command('/window/rect', {'width': width, 'height': 1000})
@@ -47,6 +48,20 @@ def run(command, js, wait_for, web, origin):
     wait_for(lambda: js("return chromeCalls.includes('close') && chromeCalls.includes('open_workspace_folder')"), 'Native close/folder action failed')
     js("window.chromeCalls.length=0;for(const code of ['KeyO','KeyI','KeyQ']) document.dispatchEvent(new KeyboardEvent('keydown',{code,ctrlKey:true,shiftKey:code!=='KeyQ',bubbles:true}))")
     wait_for(lambda: js("return ['open_project','open_client','quit_app'].every(name=>chromeCalls.includes(name))"), 'Desktop shortcuts failed')
+    # Native shortcuts use the same editor and must not fire during capture.
+    command('/window/rect', {'width':1440, 'height':1000})
+    js("document.querySelector('.settings-link').click()")
+    wait_for(lambda: js("return !!document.querySelector('[data-settings-section=shortcuts]')"), 'Settings navigation pending')
+    js("document.querySelector('[data-settings-section=shortcuts]').click()")
+    wait_for(lambda: js("return !!document.querySelector('[data-bind=project]')"), 'Native shortcut editor missing')
+    js("window.chromeCalls.length=0;document.querySelector('[data-bind=project]').click();document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyQ',key:'q',ctrlKey:true,bubbles:true,cancelable:true}))")
+    assert js("return chromeCalls.length===0 && document.querySelector('.shortcut-settings [role=status]').textContent.includes('Уже назначено')"), 'Capture executed native quit or accepted a conflict'
+    js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyO',key:'o',ctrlKey:true,altKey:true,bubbles:true,cancelable:true}))")
+    js("document.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyO',ctrlKey:true,shiftKey:true,bubbles:true}))")
+    assert js("return chromeCalls.length===0"), 'Old native shortcut remains active'
+    js("document.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyO',ctrlKey:true,altKey:true,bubbles:true}))")
+    wait_for(lambda: js("return chromeCalls.filter(c=>c==='open_project').length===1"), 'Remapped native shortcut failed or dispatched twice')
+    js("document.querySelector('[data-reset-shortcuts]').click();document.querySelector('.settings-back').click()")
     js('window.chromeFull=true;window.chromeResize()')
     wait_for(lambda: js("return getComputedStyle(document.querySelector('.desktop-titlebar')).display==='none'"), 'Fullscreen retained the titlebar')
     js('window.disposeChrome();window.disposeChrome()')

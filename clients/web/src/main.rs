@@ -8,6 +8,7 @@ mod app_toasts;
 mod chat_scroll;
 mod components;
 mod events;
+mod interface_settings;
 mod markdown;
 mod messages;
 mod model_preference;
