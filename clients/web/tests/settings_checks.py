@@ -48,7 +48,7 @@ def run(command, js, wait_for):
     click('[data-settings-id=usage]')
     wait_for(lambda: js("return !!document.querySelector('.extension-options-content')?.shadowRoot?.querySelector('form')"), 'Settings form not mounted')
     wait_for(lambda: js("return !document.querySelector('.extension-options').getAnimations().length"), 'Options animation did not settle')
-    assert js("const n=document.querySelector('.settings-nav').getBoundingClientRect(),l=document.querySelector('.settings-content').getBoundingClientRect(),r=document.querySelector('.extension-options').getBoundingClientRect();return n.right<=l.left && r.left===l.left && r.right<=l.right+1 && r.width>300"), 'Module details escaped the Settings tab'
+    assert js("const n=document.querySelector('.settings-nav').getBoundingClientRect(),l=document.querySelector('.settings-content').getBoundingClientRect(),r=document.querySelector('.extension-options').getBoundingClientRect();return n.right<=l.left && r.left===l.left && r.right<=l.right+1 && r.width>300"), 'Module details escaped the Settings screen'
     js("window.keptOptions=document.querySelector('.extension-options-content');keptOptions.shadowRoot.querySelector('[name=model]').value='draft-model'")
     # A dropdown consumes Escape first, then the pane consumes the next one.
     js("keptOptions.shadowRoot.querySelector('select').click()")

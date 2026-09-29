@@ -13,14 +13,14 @@ export function mountSettings(root, registry, services, requested) {
   const back = document.createElement("a");
   back.className = "settings-back";
   back.href = "/";
-  back.append(icon("arrow-left"), document.createTextNode("Вернуться в чат"));
+  back.append(icon("arrow-left"), document.createTextNode("Вернуться к работе"));
   back.addEventListener(
     "click",
     (e) => {
       if (e.button === 0 && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         document.dispatchEvent(
-          new CustomEvent("proteus-client-navigation", { detail: "chat" }),
+          new CustomEvent("proteus-client-navigation", { detail: "workspace" }),
         );
       }
     },

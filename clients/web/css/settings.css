@@ -1,4 +1,6 @@
-.settings-page { display:grid; grid-template-columns:200px minmax(0,1fr) auto; position:relative; width:100%; height:100%; min-height:0; overflow-x:auto; overflow-y:hidden; }
+.app-layout.settings-route > .sidebar, .settings-route .sidebar-collapse-toggle,
+.settings-route .topnav > :is(.module-dock,.widget-slot,[data-workspace-split]) { display:none; }
+.settings-page { display:grid; grid-template-columns:var(--sidebar-width,280px) minmax(0,1fr) auto; position:relative; width:100%; height:100%; min-height:0; overflow-x:auto; overflow-y:hidden; }
 .settings-nav { display:flex; flex-direction:column; gap:var(--nav-row-gap); padding:18px var(--nav-list-inset); border-right:1px solid var(--border-subtle); background:var(--bg-panel); overflow-y:auto; }
 .settings-nav a, .settings-nav button { display:flex; align-items:center; justify-content:flex-start; flex:none; gap:10px; min-height:var(--nav-row-height); padding:6px var(--nav-row-inset); border:0; border-radius:var(--radius-inner); text-align:left; text-decoration:none; font-size:var(--nav-row-font); line-height:var(--nav-row-line); font-weight:400; color:var(--text-main); background:transparent; }
 .settings-nav a:hover, .settings-nav button:hover { background:var(--bg-panel-hover); }
@@ -27,7 +29,7 @@
 .settings-content .extension-choice:last-child { border-bottom:0; }
 .settings-section[hidden], .settings-retry[hidden] { display:none; }
 
-/* Module details stay inside the Settings tab. */
+/* Module details stay inside the separate Settings screen. */
 .settings-content { position:relative; }
 .settings-content > .extension-options { position:absolute; inset:0; display:flex; flex-direction:column; min-width:0; min-height:0; margin:0; padding:0; border:0; background:var(--bg-root); z-index:2; }
 .settings-content > .extension-options[hidden], .settings-content:has(.settings-section[hidden] .extension-settings) > .extension-options { display:none; }
@@ -93,6 +95,9 @@
   .settings-range input[type=range] { flex:1; }
 }
 .builtin-module-settings { margin-bottom:28px; }
+.builtin-module-settings > summary { padding:14px 16px; border:1px solid var(--border-subtle); border-radius:12px; background:var(--bg-panel-soft); cursor:pointer; }
+.builtin-module-settings > summary:hover { background:var(--bg-panel-hover); }
+.builtin-module-settings > div { padding-top:20px; }
 .builtin-module-list { display:grid; gap:8px; margin-bottom:12px; }
 .builtin-module-list .settings-row { margin:0; }
 .settings-toggle:disabled { cursor:default; }

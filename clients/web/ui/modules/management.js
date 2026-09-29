@@ -21,8 +21,10 @@ export function mountBuiltinManagement(root, registry) {
   const controller = new AbortController(),
     rows = new Map();
   let choicesController;
-  const heading = document.createElement("h2");
-  heading.textContent = "Встроенные модули";
+  const heading = document.createElement("p");
+  heading.className = "settings-section-description";
+  heading.textContent =
+    "Основные части клиента: настройки, диагностика и управление чатом. Отключайте их только при необходимости.";
   root.append(heading);
   const list = document.createElement("div");
   list.className = "builtin-module-list";
@@ -36,7 +38,7 @@ export function mountBuiltinManagement(root, registry) {
   root.append(reset);
   const unsubscribe = registry.subscribe(() => {
     choicesController?.abort();
-    choicesController=new AbortController();
+    choicesController = new AbortController();
     for (const record of registry.state().records.filter((r) => r.builtin)) {
       let row = rows.get(record.id);
       if (!row) {

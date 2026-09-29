@@ -281,8 +281,8 @@ pub(super) fn commands(
                     std::time::Duration::ZERO,
                 );
             }
-            "sidebar" => resize.toggle_sidebar(),
-            "workspace" => {
+            "sidebar" if router.is_chat() => resize.toggle_sidebar(),
+            "workspace" if router.is_chat() => {
                 if let Some(button) = window()
                     .and_then(|w| w.document())
                     .and_then(|d| d.query_selector("[data-workspace-split]").ok().flatten())

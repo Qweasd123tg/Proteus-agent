@@ -34,7 +34,11 @@ pub(super) fn install(state: AppState, connection: ClientConnection, router: App
                 .unwrap_or_default()
         });
     let navigate = Closure::<dyn FnMut(String)>::new(move |page: String| {
-        router.navigate(if page == "chat" { "/" } else { "/settings" });
+        if page == "workspace" {
+            router.restore_workspace();
+        } else {
+            router.navigate(if page == "chat" { "/" } else { "/settings" });
+        }
     });
     let dispose = configure(
         preference.as_ref().unchecked_ref(),

@@ -13,6 +13,8 @@ def run(command, js, wait_for, web, origin, loaded):
         wait_for(lambda: js("return document.querySelector('.settings-link').classList.contains('active')"), 'Settings navigation highlight is stale')
     def chat():
         js("document.querySelector('.settings-back').click()")
+        # Returning from Settings restores the selected tool; this helper needs chat.
+        js("document.querySelector('.brand').click()")
         wait_for(loaded, 'Chat did not restore agent panel')
         wait_for(lambda: js("return document.querySelector('[data-tab-id=\"client:chat\"]').classList.contains('active')"), 'Chat navigation highlight is stale')
     def install(path):

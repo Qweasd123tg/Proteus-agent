@@ -24,7 +24,10 @@ frame.addEventListener('load',()=>{
   document.querySelector('.workspace-group[data-group="1"] .workspace-transfer').click();
   check(frame.contentDocument===documentBefore && documentBefore.querySelector('input').value==='retained' && chat.querySelector('textarea').value==='draft','native document lifetime');
   const handle=document.querySelector('.workspace-resize');handle.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));
-  check(JSON.parse(store.get('proteus.workspace.layout')).ratio<.5,'native divider persistence');
+  const ratio=board.element.style.getPropertyValue('--workspace-ratio');
+  document.querySelector('#target').style.display='none';source.update(records);
+  document.querySelector('#target').style.display='flex';source.update(records);
+  check(JSON.parse(store.get('proteus.workspace.layout')).ratio<.5 && board.element.style.getPropertyValue('--workspace-ratio')===ratio,'native divider persistence through hidden screen');
   document.querySelector('[data-workspace-split]').click();board.reveal('client:chat');
   check(document.querySelectorAll('.workspace-group:not([hidden])').length===1 && !chat.hidden && chat.getBoundingClientRect().width>1000,'native merge');
   return checks;

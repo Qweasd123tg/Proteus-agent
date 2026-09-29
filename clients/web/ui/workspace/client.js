@@ -21,13 +21,6 @@ export function clientWorkspace() {
           }),
         );
       },
-      onSelect() {
-        document.dispatchEvent(
-          new CustomEvent("proteus-workspace-route", {
-            detail: element.dataset.clientView,
-          }),
-        );
-      },
     }),
   );
   attachment = board.connect("client", {
@@ -47,7 +40,23 @@ export function clientWorkspace() {
     },
   });
   attachment.update(records);
+  let screen = location.pathname === "/settings" ? "settings" : "chat";
   function reveal(view) {
+    const nextScreen = view === "settings" ? "settings" : "chat";
+    if (screen !== nextScreen) {
+      const previous =
+        screen === "settings"
+          ? [document.querySelector('[data-client-view="settings"]')]
+          : [...target.querySelectorAll('[role="tabpanel"]:not([hidden])')];
+      for (const root of previous) {
+        root?.dispatchEvent(new Event("module-hide"));
+        for (const details of root?.querySelectorAll("details[open]") || [])
+          details.open = false;
+      }
+      for (const popup of document.querySelectorAll(":popover-open"))
+        popup.hidePopover();
+      screen = nextScreen;
+    }
     const r = records.find((r) => r.id === `client:${view}`);
     if (!r) return;
     r.collapsed = false;

@@ -149,7 +149,8 @@ pub(super) fn AppShell(
                     on_open_session=resume_open
                 />
 
-                <div class="workspace-board" data-client-workspace="" node_ref=workspace_ref>
+                <div class="workspace-board" data-client-workspace="" node_ref=workspace_ref
+                    hidden=move || !router.is_chat() inert=move || !router.is_chat()>
                 <section
                     data-client-view="chat"
                     data-workspace-title=move || session_title.get()
@@ -207,10 +208,11 @@ pub(super) fn AppShell(
                                 on_jump=move |value| commands.jump_to_message.run(value)
                             />
                 </section>
-                <section class="settings-workspace" data-client-view="settings" data-workspace-title="Настройки">
+                </div>
+                <section class="settings-workspace" data-client-view="settings"
+                    hidden=move || router.is_chat() inert=move || router.is_chat()>
                     <SettingsView/>
                 </section>
-                </div>
             </main>
 
             <crate::components::extensions::ExtensionsView active_session_dir />

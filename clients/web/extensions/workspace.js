@@ -367,12 +367,10 @@ export function createWorkspace(target, { storage } = {}) {
     { signal },
   );
   function ratio(value) {
+    const width = element.clientWidth;
     const minimum =
-      layout.groups.length === 2
-        ? Math.max(
-            0.2,
-            Math.min(0.5, 320 / Math.max(1, element.clientWidth - 6)),
-          )
+      layout.groups.length === 2 && width > 0
+        ? Math.max(0.2, Math.min(0.5, 320 / Math.max(1, width - 6)))
         : 0.2;
     layout.ratio = Math.max(minimum, Math.min(1 - minimum, value));
     element.style.setProperty("--workspace-ratio", `${layout.ratio * 100}%`);

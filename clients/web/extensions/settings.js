@@ -57,9 +57,12 @@ export function mountExtensionSettings(root, registry, services = {}) {
   reset.append(node('p', 'Состав и порядок панелей заменятся поставляемым списком. Заметки сохранятся.', 'settings-hint'));
   const restore = button('Восстановить', () => { reset.open = false; void registry.reset(); }, signal);
   reset.append(restore);
-  const builtin=node('div','','builtin-module-settings');
+  const builtin=node('details','','builtin-module-settings');
+  builtin.append(node('summary','Системные модули'));
+  const builtinContent=node('div');
+  builtin.append(builtinContent);
   root.append(builtin, list, available, source, notice, announcement, reset);
-  const stopBuiltin=mountBuiltinManagement(builtin,registry);
+  const stopBuiltin=mountBuiltinManagement(builtinContent,registry);
   enableReorder(list,registry,signal,announcement);
   const unsubscribe = registry.subscribe(() => {
     const { records: allRecords, bundled, notice: message, busy, ready } = registry.state();

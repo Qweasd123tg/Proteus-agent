@@ -41,7 +41,7 @@ pub(super) fn install(state: AppState, router: AppRouter) {
         ..
     } = state.view;
     let prefs = crate::interface_settings::settings();
-    let chat_visible = router.chat_visible;
+    let chat_visible = Memo::new(move |_| router.is_chat() && router.chat_visible.get());
     Effect::new(move |_| {
         let _ = (
             messages.with(|_| ()),
