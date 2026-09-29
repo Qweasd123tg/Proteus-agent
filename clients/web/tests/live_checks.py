@@ -17,6 +17,15 @@ def run(command, js, wait_for, server):
         wait_for(lambda: server.model_requests > before, 'Streaming request did not start')
         wait_for(lambda: js("const c=[...document.querySelectorAll('.results-panel .role-assistant')].at(-1);return c?.textContent.includes('Абзац 3:') && !c.textContent.includes('Абзац 31:')"), 'Expected partial stream')
         wait_for(lambda: js('return clockTimers.size===1'), 'Active chat must own exactly one activity timer')
+        # WebKit smooth wheel starts within the bottom tolerance. That first
+        # pixel must detach instead of allowing the next frame to snap back.
+        js("const r=document.querySelector('.results-panel');r.dispatchEvent(new WheelEvent('wheel',{deltaY:-1,bubbles:true}));window.onePixelTop=r.scrollHeight-r.clientHeight-1;r.scrollTop=onePixelTop")
+        wait_for(lambda: js("return !document.querySelector('.results-panel').classList.contains('sticky-bottom') && Math.abs(document.querySelector('.results-panel').scrollTop-onePixelTop)<.5"), 'First pixel of upward scrolling snapped back to the bottom')
+        js("window.pixelScrollRendered=false;requestAnimationFrame(()=>requestAnimationFrame(()=>window.pixelScrollRendered=true))")
+        wait_for(lambda: js('return pixelScrollRendered'), 'Small upward scroll did not render')
+        assert js("return !document.querySelector('.results-panel').classList.contains('sticky-bottom') && Math.abs(document.querySelector('.results-panel').scrollTop-onePixelTop)<.5"), 'Auto-scroll reclaimed a small upward gesture'
+        js("const r=document.querySelector('.results-panel');r.dispatchEvent(new WheelEvent('wheel',{deltaY:1,bubbles:true}));r.scrollTop=r.scrollHeight")
+        wait_for(lambda: js("return document.querySelector('.results-panel').classList.contains('sticky-bottom')"), 'Scrolling down to the bottom did not resume follow')
         js("const a=document.querySelector('.composer textarea');a.value='Черновик во время ответа';a.dispatchEvent(new Event('input',{bubbles:true}));const r=document.querySelector('.results-panel');r.dispatchEvent(new WheelEvent('wheel',{deltaY:-120,bubbles:true}));r.scrollTop=120;window.readingScroll=r.scrollTop")
         js("document.querySelector('.settings-link').click()")
         wait_for(lambda: js('return clockTimers.size===0'), 'Leaving chat retained an activity timer')

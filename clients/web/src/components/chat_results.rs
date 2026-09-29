@@ -4,7 +4,7 @@ use leptos::{html, prelude::*};
 use web_sys::WheelEvent;
 
 use super::{ApprovalCard, MessageView, PlanActionsCard, UserInputCard, WorkingCard};
-use crate::chat_scroll::{CHAT_REATTACH_THRESHOLD_PX, is_at_bottom};
+use crate::chat_scroll::is_at_bottom;
 use crate::types::*;
 
 #[component]
@@ -56,14 +56,17 @@ where
             on:scroll=move |_| {
                 if let Some(results) = results_ref.get() {
                     let scroll_top = results.scroll_top();
-                    if is_at_bottom(&results) {
-                        set_stick_to_bottom.set(true);
-                    } else if scroll_top + CHAT_REATTACH_THRESHOLD_PX
-                        < last_results_scroll_top.get()
-                    {
-                        // Скролл вверх любым способом (scrollbar, touch, PageUp)
-                        // отключает прилипание, не только колесо.
+                    let previous_top = last_results_scroll_top.get_untracked();
+                    if scroll_top < previous_top {
+                        // Первый кадр плавной прокрутки может сдвинуть ленту
+                        // всего на 1px. Даже внутри допуска нижнего края это
+                        // движение вверх, а не разрешение вернуть её вниз.
                         set_stick_to_bottom.set(false);
+                    } else if scroll_top > previous_top
+                        && results.client_height() > 0
+                        && is_at_bottom(&results)
+                    {
+                        set_stick_to_bottom.set(true);
                     }
                     set_last_results_scroll_top.set(scroll_top);
 
