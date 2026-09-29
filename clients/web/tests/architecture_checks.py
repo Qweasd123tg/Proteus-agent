@@ -28,6 +28,60 @@ def run(command, js, wait_for, web, origin):
     before = js("return document.querySelector('.graph-stage').style.transform")
     js("document.querySelector('.graph-viewport').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}))")
     assert js("return document.querySelector('.graph-stage').style.transform") != before
+    assert js(r"""
+        const viewport = document.querySelector('.graph-viewport'), stage = document.querySelector('.graph-stage');
+        const zoom = document.querySelector('.graph-zoom'), before = stage.style.transform;
+        const start = before.match(/translate\(([-\d.]+)px, ([-\d.]+)px\)/);
+        const stageChanges = new MutationObserver(() => {}), zoomChanges = new MutationObserver(() => {});
+        stageChanges.observe(stage, {attributes: true, attributeFilter: ['style']});
+        zoomChanges.observe(zoom, {childList: true});
+        viewport.setPointerCapture = () => {};
+        const point = (type, x, y) => new PointerEvent(type, {bubbles: true, button: 0, pointerId: 37, clientX: x, clientY: y});
+        viewport.dispatchEvent(point('pointerdown', 40, 40));
+        for (let index = 0; index < 80; index++) viewport.dispatchEvent(point('pointermove', 40 + index, 40 + index / 2));
+        const queued = stage.style.transform === before && stageChanges.takeRecords().length === 0;
+        viewport.dispatchEvent(point('pointerup', 220, 100));
+        const end = stage.style.transform.match(/translate\(([-\d.]+)px, ([-\d.]+)px\)/);
+        const result = queued && end && Math.abs(Number(end[1]) - Number(start[1]) - 180) < .01
+          && Math.abs(Number(end[2]) - Number(start[2]) - 60) < .01
+          && stageChanges.takeRecords().length === 1 && zoomChanges.takeRecords().length === 0;
+        stageChanges.disconnect(); zoomChanges.disconnect(); delete viewport.setPointerCapture;
+        return !!result;
+    """), 'Graph drag did not batch moves or flush the final pointer position'
+    assert js(r"""
+        const viewport = document.querySelector('.graph-viewport'), stage = document.querySelector('.graph-stage');
+        const before = stage.style.transform, start = Number(before.match(/scale\(([-\d.]+)\)/)[1]);
+        const rect = viewport.getBoundingClientRect(), observer = new MutationObserver(records => probe.writes += records.length);
+        const probe = {stage, observer, writes: 0, expected: Math.min(2.5, start * Math.exp(.004 * 40))};
+        observer.observe(stage, {attributes: true, attributeFilter: ['style']});
+        for (let index = 0; index < 40; index++) viewport.dispatchEvent(new WheelEvent('wheel', {
+          bubbles: true, cancelable: true, deltaY: -1, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2,
+        }));
+        probe.queued = stage.style.transform === before && observer.takeRecords().length === 0;
+        window.__graphFrameProbe = probe;
+        return probe.queued;
+    """), 'Graph wheel burst wrote a transform before the animation frame'
+    wait_for(lambda: js("const p=window.__graphFrameProbe;return Math.abs(Number(p.stage.style.transform.match(/scale\\(([-\\d.]+)\\)/)[1])-p.expected)<.0001"), 'Graph wheel burst did not apply its accumulated zoom')
+    assert js("const p=window.__graphFrameProbe;const result=p.writes+p.observer.takeRecords().length===1;p.observer.disconnect();delete window.__graphFrameProbe;return result"), 'Graph wheel burst wrote more than one transform per frame'
+    assert command('/execute/async', {'script': """
+        const done = arguments[arguments.length - 1];
+        import('/graph/view.js').then(({mountTopologyGraph}) => {
+          const root = document.createElement('div');
+          root.style.width = '400px'; root.style.height = '300px'; document.body.append(root);
+          const source = JSON.stringify({profile: 'test', cwd: '/', config_files: [], module_epoch: 1,
+            permission_mode: 'ask', slots: [], modules: [], tools: [], edges: []});
+          const dispose = mountTopologyGraph(root, source);
+          const stage = root.querySelector('.graph-stage'), viewport = root.querySelector('.graph-viewport');
+          const rect = viewport.getBoundingClientRect(), before = stage.style.transform;
+          viewport.dispatchEvent(new WheelEvent('wheel', {bubbles: true, cancelable: true, deltaY: -1,
+            clientX: rect.left + 50, clientY: rect.top + 50}));
+          dispose();
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            const result = root.childElementCount === 0 && stage.style.transform === before;
+            root.remove(); done(result);
+          }));
+        }).catch(error => done(String(error)));
+    """, 'args': []}), 'Disposed graph applied a pending transform'
     js("document.querySelector('[data-scope=assembly]').click()")
     command('/execute/async', {'script': 'requestAnimationFrame(()=>requestAnimationFrame(()=>arguments[arguments.length-1](null)))', 'args': []})
     Path('/tmp/proteus-architecture-ux.png').write_bytes(base64.b64decode(command('/screenshot', None)))
@@ -48,4 +102,4 @@ def run(command, js, wait_for, web, origin):
         wait_for(lambda: js("return !document.querySelector('.graph-node.selected') && !!document.querySelector('[data-node-id=\"slot:workflow\"]') && document.querySelectorAll('.graph-toolbar').length === 1"), 'Refresh did not reset selection or duplicated graph mounts')
     command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
     wait_for(lambda: js("return !!document.querySelector('.composer textarea') && document.querySelector('.connection-badge')?.classList.contains('completed')"), 'Chat failed after Inspector navigation')
-    print('PASS: Inspector graph API/selection/links/search/zoom/keyboard/catalog/resize/fullscreen', flush=True)
+    print('PASS: Inspector graph API/selection/links/search/zoom/keyboard/frame batching/teardown/catalog/resize/fullscreen', flush=True)

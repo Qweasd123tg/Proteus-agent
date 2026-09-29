@@ -13,6 +13,7 @@ export function mountTopologyGraph(root, source) {
   const model = graphModel(JSON.parse(source));
   const controller = new AbortController();
   const { signal } = controller;
+  let disposed = false, transformFrame = null, fitFrame = null, wheelRect = null, zoomText = '';
   let scope = 'assembly', inactive = false, selected = null, query = '';
   let layout, scale = 1, offset = { x: 0, y: 0 }, drag, autoFit = true;
   const nodeElements = new Map(), edgeElements = [];
@@ -63,24 +64,48 @@ export function mountTopologyGraph(root, source) {
     root.classList.toggle('fullscreen');
     expand.textContent = root.classList.contains('fullscreen') ? 'Свернуть' : 'Развернуть';
     expand.setAttribute('aria-expanded', String(root.classList.contains('fullscreen')));
-    autoFit = true; requestAnimationFrame(fit);
+    autoFit = true; scheduleFit();
   });
   expand.setAttribute('aria-expanded', 'false');
 
-  function transform() {
+  function applyTransform() {
+    if (disposed) return;
     stage.style.transform = `translate(${offset.x}px, ${offset.y}px) scale(${scale})`;
-    zoomLabel.textContent = `${Math.round(scale * 100)}%`;
+    const nextZoomText = `${Math.round(scale * 100)}%`;
+    if (zoomText !== nextZoomText) {
+      zoomText = nextZoomText;
+      zoomLabel.textContent = zoomText;
+    }
+  }
+  function scheduleTransform() {
+    if (disposed || transformFrame !== null) return;
+    transformFrame = requestAnimationFrame(() => { transformFrame = null; wheelRect = null; applyTransform(); });
+  }
+  function transform() {
+    if (transformFrame !== null) cancelAnimationFrame(transformFrame);
+    transformFrame = null; wheelRect = null;
+    applyTransform();
+  }
+  function scheduleFit() {
+    if (disposed || fitFrame !== null) return;
+    fitFrame = requestAnimationFrame(() => {
+      fitFrame = null;
+      if (autoFit) fit();
+    });
   }
   function fit() {
     if (!layout || !viewport.clientWidth || !viewport.clientHeight) return;
+    if (fitFrame !== null) cancelAnimationFrame(fitFrame);
+    fitFrame = null;
     scale = Math.max(.12, Math.min(1, (viewport.clientWidth - 40) / layout.width, (viewport.clientHeight - 40) / layout.height));
     offset = { x: (viewport.clientWidth - layout.width * scale) / 2, y: (viewport.clientHeight - layout.height * scale) / 2 };
     autoFit = true; transform();
   }
-  function zoom(factor, x = viewport.clientWidth / 2, y = viewport.clientHeight / 2) {
+  function zoom(factor, x = viewport.clientWidth / 2, y = viewport.clientHeight / 2, deferred = false) {
     const next = Math.max(.12, Math.min(2.5, scale * factor));
     offset = { x: x - (x - offset.x) * next / scale, y: y - (y - offset.y) * next / scale };
-    scale = next; autoFit = false; transform();
+    scale = next; autoFit = false;
+    if (deferred) scheduleTransform(); else transform();
   }
   function center(id) {
     const node = layout.nodes.find(node => node.id === id);
@@ -175,9 +200,9 @@ export function mountTopologyGraph(root, source) {
   viewport.addEventListener('wheel', event => {
     if (event.target.closest('.graph-controls')) return;
     event.preventDefault();
-    const rect = viewport.getBoundingClientRect();
-    const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1);
-    zoom(Math.exp(-Math.max(-120, Math.min(120, delta)) * .004), event.clientX - rect.left, event.clientY - rect.top);
+    const rect = wheelRect ??= viewport.getBoundingClientRect();
+    const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? rect.height : 1);
+    zoom(Math.exp(-Math.max(-120, Math.min(120, delta)) * .004), event.clientX - rect.left, event.clientY - rect.top, true);
   }, { signal, passive: false });
   viewport.addEventListener('pointerdown', event => {
     if (event.button !== 0 || event.target.closest('button')) return;
@@ -189,9 +214,17 @@ export function mountTopologyGraph(root, source) {
   viewport.addEventListener('pointermove', event => {
     if (!drag || drag.id !== event.pointerId) return;
     offset = { x: drag.ox + event.clientX - drag.x, y: drag.oy + event.clientY - drag.y };
-    autoFit = false; transform();
+    autoFit = false; scheduleTransform();
   }, { signal });
-  function release() { drag = null; viewport.classList.remove('dragging'); }
+  function release(event) {
+    if (!drag || (event.pointerId !== undefined && drag.id !== event.pointerId)) return;
+    if (event.type !== 'lostpointercapture') {
+      offset = { x: drag.ox + event.clientX - drag.x, y: drag.oy + event.clientY - drag.y };
+      autoFit = false;
+    }
+    transform();
+    drag = null; viewport.classList.remove('dragging');
+  }
   viewport.addEventListener('lostpointercapture', release, { signal });
   viewport.addEventListener('pointercancel', release, { signal });
   viewport.addEventListener('pointerup', release, { signal });
@@ -209,7 +242,13 @@ export function mountTopologyGraph(root, source) {
     if (root.classList.contains('fullscreen')) { expand.click(); expand.focus(); }
     else { selected = null; search.value = ''; results(); }
   }, { signal });
-  const observer = new ResizeObserver(() => { if (autoFit) fit(); }); observer.observe(viewport);
+  const observer = new ResizeObserver(() => { wheelRect = null; if (autoFit) scheduleFit(); }); observer.observe(viewport);
   draw();
-  return () => { controller.abort(); observer.disconnect(); root.replaceChildren(); root.classList.remove('fullscreen'); };
+  return () => {
+    disposed = true;
+    controller.abort(); observer.disconnect();
+    if (transformFrame !== null) cancelAnimationFrame(transformFrame);
+    if (fitFrame !== null) cancelAnimationFrame(fitFrame);
+    root.replaceChildren(); root.classList.remove('fullscreen');
+  };
 }
