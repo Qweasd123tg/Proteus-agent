@@ -14,11 +14,22 @@ mod tests;
 pub(crate) struct BufferedStreamDeltas {
     assistant: Vec<AssistantTextUpdate>,
     flush_scheduled: bool,
+    flush_epoch: u64,
     /// Thread бегущего хода (envelope TurnStarted). Text-дельты чужих threads
     /// (стрим дочернего цикла субагента) не относятся к родительскому
     /// транскрипту: без фильтра они доклеивались бы в сообщение ассистента и
     /// «срезались» при перезаписи финальным текстом хода.
     turn_thread_id: Option<String>,
+}
+
+/// Drop deltas from the previous transcript and invalidate its pending timer.
+pub(crate) fn reset_stream_delta_buffer(buffer: StoredValue<BufferedStreamDeltas, LocalStorage>) {
+    buffer.update_value(|buffer| {
+        buffer.assistant.clear();
+        buffer.flush_scheduled = false;
+        buffer.flush_epoch = buffer.flush_epoch.wrapping_add(1);
+        buffer.turn_thread_id = None;
+    });
 }
 
 /// Запоминает thread нового хода: с этого момента в транскрипт идут только
@@ -68,7 +79,7 @@ pub(crate) fn queue_assistant_delta(bindings: StreamFlushBindings, update: Assis
     if !bindings.streamed_this_turn.get_untracked() {
         bindings.set_streamed_this_turn.set(true);
     }
-    let mut should_schedule = false;
+    let mut schedule_epoch = None;
     bindings.stream_delta_buffer.update_value(|buffer| {
         if let Some(last) = buffer.assistant.last_mut()
             && last.message_id == update.message_id
@@ -81,11 +92,11 @@ pub(crate) fn queue_assistant_delta(bindings: StreamFlushBindings, update: Assis
         }
         if !buffer.flush_scheduled {
             buffer.flush_scheduled = true;
-            should_schedule = true;
+            schedule_epoch = Some(buffer.flush_epoch);
         }
     });
-    if should_schedule {
-        schedule_stream_delta_flush(bindings);
+    if let Some(epoch) = schedule_epoch {
+        schedule_stream_delta_flush(bindings, epoch);
     }
 }
 
@@ -93,6 +104,7 @@ pub(crate) fn flush_stream_delta_buffer(bindings: StreamFlushBindings) {
     let mut assistant = Vec::new();
     bindings.stream_delta_buffer.update_value(|buffer| {
         buffer.flush_scheduled = false;
+        buffer.flush_epoch = buffer.flush_epoch.wrapping_add(1);
         assistant = std::mem::take(&mut buffer.assistant);
     });
 
@@ -178,8 +190,17 @@ pub(crate) fn apply_assistant_update(
     bindings.set_streamed_this_turn.set(true);
 }
 
-fn schedule_stream_delta_flush(bindings: StreamFlushBindings) {
-    set_timeout(STREAM_DELTA_FLUSH_MS, move || {
+fn flush_stream_delta_buffer_if_current(bindings: StreamFlushBindings, epoch: u64) {
+    let current = bindings
+        .stream_delta_buffer
+        .with_value(|buffer| buffer.flush_scheduled && buffer.flush_epoch == epoch);
+    if current {
         flush_stream_delta_buffer(bindings);
+    }
+}
+
+fn schedule_stream_delta_flush(bindings: StreamFlushBindings, epoch: u64) {
+    set_timeout(STREAM_DELTA_FLUSH_MS, move || {
+        flush_stream_delta_buffer_if_current(bindings, epoch);
     });
 }

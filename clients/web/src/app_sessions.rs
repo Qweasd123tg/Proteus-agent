@@ -6,7 +6,9 @@ use leptos::task::spawn_local;
 use web_sys::window;
 
 use crate::api::{clear_selected_session_dir, persist_selected_session_dir, post_json};
-use crate::events::{EventStreamBindings, close_event_stream, reconnect_event_stream};
+use crate::events::{
+    EventStreamBindings, close_event_stream, reconnect_event_stream, reset_stream_delta_buffer,
+};
 use crate::session::settings::load_runtime_settings;
 use crate::session::summaries::{apply_active_session_activity, load_sidebar_sessions};
 use crate::types::*;
@@ -75,15 +77,25 @@ pub(crate) struct TranscriptBindings {
     pub(crate) set_next_message_id: WriteSignal<u64>,
 }
 
+#[derive(Clone)]
+pub(crate) struct SidebarRollback {
+    session_dir: Option<String>,
+    label: String,
+    workspace: String,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct AppSessionActions {
     pub(crate) event_source: StoredValue<Option<EventConnection>, LocalStorage>,
     pub(crate) event_stream: EventStreamBindings,
+    pub(crate) sidebar_rollback: StoredValue<Option<SidebarRollback>, LocalStorage>,
     pub(crate) runtime_settings: RuntimeSettingsBindings,
     pub(crate) transcript: TranscriptBindings,
     pub(crate) active_session_dir: ReadSignal<Option<String>>,
     pub(crate) set_transcript_generation: WriteSignal<u64>,
+    pub(crate) session_label: ReadSignal<String>,
     pub(crate) set_session_label: WriteSignal<String>,
+    pub(crate) workspace_label: ReadSignal<String>,
     pub(crate) set_is_sending: WriteSignal<bool>,
     pub(crate) set_active_run_id: WriteSignal<Option<String>>,
     pub(crate) set_active_stream_message_id: WriteSignal<Option<u64>>,
@@ -113,7 +125,14 @@ impl AppSessionActions {
     }
 
     pub(crate) fn start_new_session(self) {
-        let previous_session = self.active_session_dir.get_untracked();
+        let previous_selection = self
+            .sidebar_rollback
+            .with_value(Clone::clone)
+            .unwrap_or_else(|| SidebarRollback {
+                session_dir: self.active_session_dir.get_untracked(),
+                label: self.session_label.get_untracked(),
+                workspace: self.workspace_label.get_untracked(),
+            });
         close_event_stream(self.event_source);
         self.reset_chat_view();
         let expected_generation = self.transcript.transcript_generation.get_untracked();
@@ -122,7 +141,7 @@ impl AppSessionActions {
         self.set_sidebar_sessions_status
             .set("создаю новую сессию".to_owned());
         spawn_local(async move {
-            let result = create_session(previous_session.clone()).await;
+            let result = create_session(previous_selection.session_dir.clone()).await;
             if self.transcript.transcript_generation.get_untracked() != expected_generation {
                 return;
             }
@@ -145,8 +164,14 @@ impl AppSessionActions {
                 Err(error) => {
                     self.set_sidebar_sessions_status
                         .set(format!("не удалось создать сессию: {error}"));
-                    if let Some(previous_session) = previous_session {
+                    self.set_session_label.set(previous_selection.label);
+                    self.runtime_settings
+                        .set_workspace_label
+                        .set(previous_selection.workspace);
+                    if let Some(previous_session) = previous_selection.session_dir {
                         self.activate_session(previous_session);
+                    } else {
+                        let _ = clear_selected_session_dir();
                     }
                     self.reconnect_if_current(expected_generation);
                 }
@@ -162,7 +187,17 @@ impl AppSessionActions {
             return;
         }
 
+        self.sidebar_rollback.update_value(|rollback| {
+            if rollback.is_none() {
+                *rollback = Some(SidebarRollback {
+                    session_dir: self.active_session_dir.get_untracked(),
+                    label: self.session_label.get_untracked(),
+                    workspace: self.workspace_label.get_untracked(),
+                });
+            }
+        });
         close_event_stream(self.event_source);
+        reset_stream_delta_buffer(self.event_stream.stream_delta_buffer);
         let expected_generation = self.transcript.transcript_generation.get_untracked() + 1;
         self.set_transcript_generation.set(expected_generation);
         self.runtime_settings
@@ -206,16 +241,24 @@ impl AppSessionActions {
             {
                 return;
             }
-            match result {
+            let result = match result {
                 Ok(StdioOutput::Response {
                     ok: true, output, ..
-                }) => {
-                    if let Some(activity) = output
-                        .as_ref()
-                        .and_then(|value| value.get("activity"))
-                        .cloned()
-                        .and_then(|value| serde_json::from_value::<SessionActivityInfo>(value).ok())
-                    {
+                }) => Ok(output
+                    .as_ref()
+                    .and_then(|value| value.get("activity"))
+                    .cloned()
+                    .and_then(|value| serde_json::from_value::<SessionActivityInfo>(value).ok())),
+                Ok(StdioOutput::Response { error, .. }) => {
+                    Err(error.unwrap_or_else(|| "сервер отклонил открытие сессии".to_owned()))
+                }
+                Ok(StdioOutput::Event { .. }) => Err("неожиданное событие resume".to_owned()),
+                Err(error) => Err(error),
+            };
+            match result {
+                Ok(activity) => {
+                    self.sidebar_rollback.set_value(None);
+                    if let Some(activity) = activity {
                         apply_active_session_activity(
                             Some(&activity),
                             self.set_is_sending,
@@ -229,34 +272,44 @@ impl AppSessionActions {
                     self.runtime_settings
                         .load(session_dir.clone(), expected_generation);
                 }
-                Ok(StdioOutput::Response { error, .. }) => {
-                    self.set_sidebar_sessions_status
-                        .set(error.unwrap_or_else(|| "не удалось открыть сессию".to_owned()));
-                    self.runtime_settings
-                        .set_transport_status
-                        .set(TransportStatus::Error(
-                            "не удалось открыть выбранную сессию".to_owned(),
-                        ));
-                }
-                Ok(StdioOutput::Event { .. }) => {
-                    self.set_sidebar_sessions_status
-                        .set("неожиданное событие resume".to_owned());
-                    self.runtime_settings
-                        .set_transport_status
-                        .set(TransportStatus::Error(
-                            "неожиданное событие resume".to_owned(),
-                        ));
-                }
                 Err(error) => {
-                    self.set_sidebar_sessions_status
-                        .set(format!("не удалось открыть сессию: {error}"));
-                    self.runtime_settings
-                        .set_transport_status
-                        .set(TransportStatus::Error(error));
+                    self.restore_after_failed_resume(error);
                 }
             }
             self.load_sidebar_sessions();
         });
+    }
+
+    fn restore_after_failed_resume(self, error: String) {
+        let rollback = self.sidebar_rollback.with_value(Clone::clone);
+        let message = format!("не удалось открыть сессию: {error}");
+        self.reset_chat_view();
+        if let Some(rollback) = rollback {
+            self.set_session_label.set(rollback.label);
+            self.runtime_settings
+                .set_workspace_label
+                .set(rollback.workspace);
+            if let Some(previous_session) = rollback.session_dir {
+                self.activate_session(previous_session);
+                let generation = self.transcript.transcript_generation.get_untracked();
+                self.reconnect_if_current(generation);
+            } else {
+                self.runtime_settings.set_active_session_dir.set(None);
+                let _ = clear_selected_session_dir();
+                self.runtime_settings
+                    .set_transport_status
+                    .set(TransportStatus::Error(message.clone()));
+            }
+        } else {
+            self.set_session_label.set("not started".to_owned());
+            self.runtime_settings.set_active_session_dir.set(None);
+            let _ = clear_selected_session_dir();
+            self.runtime_settings
+                .set_transport_status
+                .set(TransportStatus::Error(message.clone()));
+        }
+        self.set_sidebar_sessions_status.set(message.clone());
+        self.runtime_settings.on_selection_error.run(message);
     }
 
     pub(crate) fn delete_sidebar_session(self, session: SessionSummary) {
@@ -302,6 +355,14 @@ impl AppSessionActions {
                         }
                         return;
                     }
+                    self.sidebar_rollback.update_value(|rollback| {
+                        if let Some(rollback) = rollback.as_mut()
+                            && rollback.session_dir.as_deref() == Some(session_dir.as_str())
+                        {
+                            rollback.session_dir = None;
+                            rollback.label = "not started".to_owned();
+                        }
+                    });
                     self.set_sidebar_sessions.update(|items| {
                         items.retain(|item| item.session_dir != std::path::Path::new(&session_dir));
                     });
@@ -356,6 +417,8 @@ impl AppSessionActions {
     fn reset_chat_view(self) {
         self.set_transcript_generation
             .update(|generation| *generation += 1);
+        self.sidebar_rollback.set_value(None);
+        reset_stream_delta_buffer(self.event_stream.stream_delta_buffer);
         self.transcript.set_messages.set(Vec::new());
         self.transcript.set_next_message_id.set(1);
         self.set_active_stream_message_id.set(None);

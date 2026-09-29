@@ -19,6 +19,7 @@ from layout_checks import run as check_layout
 from session_checks import run as check_session, check_inspector_startup, BOOTSTRAP
 from queue_checks import run as check_queue
 from live_checks import run as check_live
+from session_switch_checks import run as check_session_switch
 from chrome_checks import run as check_chrome
 from placement_checks import run as check_placement
 from polish_checks import run as check_polish, check_restore_failure
@@ -401,7 +402,11 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                 if '--stability-only' in sys.argv:
                     check_session(command, js, wait_for, web, origin, loaded)
                     check_live(command, js, wait_for, server)
+                    check_session_switch(command, js, wait_for, server, origin)
                     print('PASS: client stability, long history, streaming, reconnect and timer lifecycle', flush=True)
+                    return
+                if '--session-switch-only' in sys.argv:
+                    check_session_switch(command, js, wait_for, server, origin)
                     return
                 check_selects(command, js, wait_for)
                 check_panels(command, js, wait_for)
@@ -420,6 +425,7 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                 check_session(command, js, wait_for, web, origin, loaded)
                 check_queue(command, js, wait_for, server)
                 check_live(command, js, wait_for, server)
+                check_session_switch(command, js, wait_for, server, origin)
                 check_planning(command, js, wait_for, server, request, origin, ROOT, config, folder, env, stop)
                 check_tools_picker(command, js, wait_for, web, origin, config, request)
                 stop(backend)

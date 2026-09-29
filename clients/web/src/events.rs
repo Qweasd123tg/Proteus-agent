@@ -12,7 +12,7 @@ use wasm_bindgen::JsValue;
 use self::runtime::{
     event_updates_visible_count, update_runtime_status_and_tools, update_session_labels,
 };
-pub(crate) use self::stream::BufferedStreamDeltas;
+pub(crate) use self::stream::{BufferedStreamDeltas, reset_stream_delta_buffer};
 use self::stream::{StreamFlushBindings, flush_stream_delta_buffer, set_stream_turn_thread};
 use crate::actions::handle_command_response;
 use crate::messages::{finalize_running_activity, push_message, push_user_message_once};
@@ -174,7 +174,7 @@ fn handle_app_event(
         }
         AppServerEvent::SessionSnapshot { snapshot } => {
             let _identity = (&snapshot.session_id, &snapshot.stream_id, snapshot.seq);
-            stream_delta_buffer.set_value(BufferedStreamDeltas::default());
+            reset_stream_delta_buffer(stream_delta_buffer);
             set_stream_turn_thread(
                 stream_bindings,
                 snapshot.root_thread_id.map(|id| id.to_string()).as_deref(),
@@ -262,7 +262,7 @@ fn handle_app_event(
             web_sys::console::warn_1(&JsValue::from_str(&format!(
                 "event stream lagged by {count}; waiting for session snapshot"
             )));
-            stream_delta_buffer.set_value(BufferedStreamDeltas::default());
+            reset_stream_delta_buffer(stream_delta_buffer);
             pending.refresh();
         }
         AppServerEvent::Shutdown => {

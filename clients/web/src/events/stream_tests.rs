@@ -106,3 +106,66 @@ fn snapshot_tail_accepts_only_new_text_and_completion_keeps_its_identity() {
         assert!(!messages.get_untracked()[0].streaming);
     });
 }
+
+#[test]
+fn old_timer_cannot_flush_deltas_after_transcript_reset() {
+    Owner::new().with(|| {
+        let (messages, b) = bindings();
+        let old_epoch = b
+            .stream_delta_buffer
+            .with_value(|buffer| buffer.flush_epoch);
+        b.stream_delta_buffer.update_value(|buffer| {
+            buffer.assistant.push(update("old", None, 0, "old chat"));
+            buffer.flush_scheduled = true;
+        });
+
+        reset_stream_delta_buffer(b.stream_delta_buffer);
+        let new_epoch = b
+            .stream_delta_buffer
+            .with_value(|buffer| buffer.flush_epoch);
+        b.stream_delta_buffer.update_value(|buffer| {
+            buffer.assistant.push(update("new", None, 0, "new chat"));
+            buffer.flush_scheduled = true;
+        });
+
+        flush_stream_delta_buffer_if_current(b, old_epoch);
+        assert!(messages.get_untracked().is_empty());
+        assert_eq!(
+            b.stream_delta_buffer
+                .with_value(|buffer| buffer.assistant.len()),
+            1
+        );
+
+        flush_stream_delta_buffer_if_current(b, new_epoch);
+        let items = messages.get_untracked();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].text, "new chat");
+    });
+}
+
+#[test]
+fn explicit_flush_invalidates_previous_timer() {
+    Owner::new().with(|| {
+        let (messages, b) = bindings();
+        let old_epoch = b
+            .stream_delta_buffer
+            .with_value(|buffer| buffer.flush_epoch);
+        b.stream_delta_buffer.update_value(|buffer| {
+            buffer.assistant.push(update("first", None, 0, "first"));
+            buffer.flush_scheduled = true;
+        });
+        flush_stream_delta_buffer(b);
+        let new_epoch = b
+            .stream_delta_buffer
+            .with_value(|buffer| buffer.flush_epoch);
+        b.stream_delta_buffer.update_value(|buffer| {
+            buffer.assistant.push(update("second", None, 0, "second"));
+            buffer.flush_scheduled = true;
+        });
+
+        flush_stream_delta_buffer_if_current(b, old_epoch);
+        assert_eq!(messages.get_untracked().len(), 1);
+        flush_stream_delta_buffer_if_current(b, new_epoch);
+        assert_eq!(messages.get_untracked().len(), 2);
+    });
+}

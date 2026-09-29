@@ -17,10 +17,13 @@ def run(command, js, wait_for, server):
         wait_for(lambda: server.model_requests > before, 'Streaming request did not start')
         wait_for(lambda: js("const c=[...document.querySelectorAll('.results-panel .role-assistant')].at(-1);return c?.textContent.includes('Абзац 3:') && !c.textContent.includes('Абзац 31:')"), 'Expected partial stream')
         wait_for(lambda: js('return clockTimers.size===1'), 'Active chat must own exactly one activity timer')
+        js("const a=document.querySelector('.composer textarea');a.value='Черновик во время ответа';a.dispatchEvent(new Event('input',{bubbles:true}));const r=document.querySelector('.results-panel');r.dispatchEvent(new WheelEvent('wheel',{deltaY:-120,bubbles:true}));r.scrollTop=120;window.readingScroll=r.scrollTop")
         js("document.querySelector('.settings-link').click()")
         wait_for(lambda: js('return clockTimers.size===0'), 'Leaving chat retained an activity timer')
         js("document.querySelector('.settings-back').click()")
         wait_for(lambda: js('return clockTimers.size===1'), 'Returning to chat did not restore exactly one activity timer')
+        assert js("return document.querySelector('.composer textarea').value==='Черновик во время ответа'"), 'Settings navigation lost the draft during streaming'
+        wait_for(lambda: js("return Math.abs(document.querySelector('.results-panel').scrollTop-readingScroll)<2"), 'Settings navigation lost the reading position during streaming')
         js("document.querySelector('[data-tab-id=\"client:chat\"]').closest('.workspace-group').querySelector('.workspace-transfer').click()")
         wait_for(lambda: js("return document.querySelectorAll('.workspace-group:not([hidden])').length===2 && clockTimers.size===1"), 'Splitting the chat duplicated or stopped its activity timer')
         js("document.querySelector('.settings-link').click()")
