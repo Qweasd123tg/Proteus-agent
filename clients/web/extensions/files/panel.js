@@ -21,10 +21,19 @@ export function mount({ root, compact, services, signal }) {
   refresh.type='button'; refresh.title='Обновить дерево'; refresh.setAttribute('aria-label','Обновить дерево');
   const filter=node('input'); filter.type='search'; filter.placeholder='Фильтрация файлов…'; filter.setAttribute('aria-label','Фильтрация файлов'); toolbar.append(filter,refresh);
   let filterFrame;
-  function applyFilter(){
+  function applyFilter(activeRow=root.activeElement?.closest?.('.row'),hadFocus=activeRow&&tree.contains(activeRow)){
     filterFrame=undefined;
     const query=filter.value.toLowerCase();
-    for(const row of tree.querySelectorAll('.row'))row.hidden=!row.textContent.toLowerCase().includes(query);
+    const allRows=[...tree.querySelectorAll('.row')];
+    for(const row of allRows){
+      const hidden=!!query&&!row.textContent.toLowerCase().includes(query);
+      if(row.hidden!==hidden)row.hidden=hidden;
+    }
+    const rows=allRows.filter(row=>!row.disabled&&!row.hidden);
+    const target=rows.find(row=>row===activeRow)||rows.find(row=>row.dataset.path===focused)||rows[0];
+    if(target)focused=target.dataset.path;
+    for(const row of allRows)if(row.tabIndex!==(row===target?0:-1))row.tabIndex=row===target?0:-1;
+    if(hadFocus&&target!==activeRow)target?.focus();
   }
   filter.addEventListener('input',()=>{
     if(!filterFrame)filterFrame=requestAnimationFrame(applyFilter);
@@ -60,60 +69,104 @@ export function mount({ root, compact, services, signal }) {
     focused=path;
     for(const row of visibleRows()) { row.tabIndex=row.dataset.path===path?0:-1; if(row.tabIndex===0) row.focus(); }
   }
+  const marks={added:'A',modified:'M',deleted:'D',renamed:'R',untracked:'U',conflict:'!'};
+  const labels={added:'Добавлен',modified:'Изменён',deleted:'Удалён',renamed:'Переименован',untracked:'Не отслеживается',conflict:'Конфликт'};
+  function treeRow(entry,parent,depth,deleted,previous) {
+    const folder=entry.kind==='directory', status=changes.get(entry.path), selectedRow=selected===entry.path;
+    const row=previous??node('button');
+    if(!previous) {
+      row.type='button'; row.dataset.path=entry.path; row.setAttribute('role','treeitem');
+      row.append(folder?shape('chevron-right','chevron'):node('span',null,'spacer'));
+      const type=({rs:'rust',js:'js',jsx:'js',mjs:'js',ts:'js',tsx:'js',json:'json',md:'md',mdx:'md'})[entry.name.split('.').pop().toLowerCase()];
+      row.append(shape(folder?'folder':'file',!folder&&type?`file-type-${type}`:undefined),node('span',entry.name,'label'));
+    }
+    const className=`row ${folder?'folder':'file'}${selectedRow?' active':''}${status?` git-${status}`:''}`;
+    if(row.className!==className) row.className=className;
+    if(row.dataset.parent!==parent) row.dataset.parent=parent;
+    const padding=`${8+depth*14}px`;
+    if(row.style.paddingLeft!==padding) row.style.paddingLeft=padding;
+    const level=String(depth+1), isSelected=String(selectedRow);
+    if(row.getAttribute('aria-level')!==level) row.setAttribute('aria-level',level);
+    if(row.getAttribute('aria-selected')!==isSelected) row.setAttribute('aria-selected',isSelected);
+    if(folder) {
+      const expandedValue=String(expanded.has(entry.path));
+      if(row.getAttribute('aria-expanded')!==expandedValue) row.setAttribute('aria-expanded',expandedValue);
+    }
+    const disabled=!folder&&!deleted&&entry.kind!=='file';
+    if(row.disabled!==disabled) row.disabled=disabled;
+    const title=`${entry.path}${disabled?' · Просмотр недоступен':''}${status?` · ${labels[status]??status}`:''}`;
+    if(row.title!==title) row.title=title;
+    const name=row.querySelector('.label');
+    if(name.textContent!==entry.name) name.textContent=entry.name;
+    let mark=row.querySelector('.git-mark');
+    if(status) {
+      if(!mark) { mark=node('span',null,'git-mark'); row.append(mark); }
+      const label=labels[status]??status;
+      if(mark.textContent!==(marks[status]??'')) mark.textContent=marks[status]??'';
+      if(mark.getAttribute('aria-label')!==label) mark.setAttribute('aria-label',label);
+    } else mark?.remove();
+    return row;
+  }
   function render() {
-    const scroll=tree.scrollTop, hadFocus=root.activeElement && tree.contains(root.activeElement), fragment=document.createDocumentFragment();
+    const scroll=tree.scrollTop, activeRow=root.activeElement?.closest?.('.row'), hadFocus=activeRow&&tree.contains(activeRow);
+    const previous=new Map([...tree.children].map(child=>[child.dataset.key,child])), wanted=[];
+    function keep(key,create) {
+      const item=create(previous.get(key));
+      if(item.dataset.key!==key) item.dataset.key=key;
+      wanted.push(item);
+    }
+    function status(key,message) {
+      keep(`status:${key}`,previous=>{
+        const item=previous??node('p',null,'status');
+        if(item.textContent!==message) item.textContent=message;
+        return item;
+      });
+    }
     function append(path,depth) {
       const listing=listings.get(path);
-      if(!listing) { fragment.append(node('p','Загрузка…','status')); return; }
-      if(listing.error) { fragment.append(node('p',listing.error,'status')); return; }
+      if(!listing) { status(`${path}:loading`,'Загрузка…'); return; }
+      if(listing.error) { status(`${path}:error`,listing.error); return; }
       for(const entry of listing.entries) {
-        const folder=entry.kind==='directory', row=node('button',null,`row ${folder?'folder':'file'}${selected===entry.path?' active':''}`);
-        row.type='button'; row.dataset.path=entry.path; row.dataset.parent=path; row.title=entry.path;
-        row.style.paddingLeft=`${8+depth*14}px`; row.setAttribute('role','treeitem'); row.setAttribute('aria-level',String(depth+1));
-        row.setAttribute('aria-selected',String(selected===entry.path)); row.tabIndex=focused===entry.path?0:-1;
-        if(folder) { row.setAttribute('aria-expanded',String(expanded.has(entry.path))); row.append(shape('chevron-right','chevron')); }
-        else row.append(node('span',null,'spacer'));
-        const type=({rs:'rust',js:'js',jsx:'js',mjs:'js',ts:'js',tsx:'js',json:'json',md:'md',mdx:'md'})[entry.name.split('.').pop().toLowerCase()];
-        row.append(shape(folder?'folder':'file',!folder&&type?`file-type-${type}`:undefined),node('span',entry.name,'label'));
-        if(!folder) decorate(row,entry.path);
-        row.disabled=!folder&&entry.kind!=='file';
-        if(row.disabled) row.title+=' · Просмотр недоступен';
-        fragment.append(row);
+        const folder=entry.kind==='directory';
+        keep(`entry:${entry.path}:${entry.kind}`,previous=>treeRow(entry,path,depth,false,previous));
         if(folder&&expanded.has(entry.path)) append(entry.path,depth+1);
       }
-      if(!listing.entries.length) fragment.append(node('p','Пустая папка','status'));
-      if(listing.truncated) fragment.append(node('p','Показаны первые 1000 элементов.','status'));
+      if(!listing.entries.length) status(`${path}:empty`,'Пустая папка');
+      if(listing.truncated) status(`${path}:truncated`,'Показаны первые 1000 элементов.');
     }
     append('',0);
     const deleted=[...changes].filter(([,status])=>status==='deleted');
-    if(deleted.length) fragment.append(node('p','Удалённые файлы','status'));
-    for(const [path] of deleted) {
-      const row=node('button',null,`row file${selected===path?' active':''}`); row.type='button'; row.dataset.path=path; row.dataset.parent=''; row.title=path;
-      row.setAttribute('role','treeitem'); row.setAttribute('aria-level','1'); row.setAttribute('aria-selected',String(selected===path)); row.tabIndex=focused===path?0:-1;
-      row.append(node('span',null,'spacer'),shape('file'),node('span',path,'label')); decorate(row,path); fragment.append(row);
+    if(deleted.length) status('git:deleted','Удалённые файлы');
+    for(const [path] of deleted) keep(`deleted:${path}`,previous=>treeRow({path,name:path,kind:'file'},'',0,true,previous));
+    if(gitError) status('git:error',gitError);
+    if(gitTruncated) status('git:truncated','Список изменений Git показан не полностью.');
+    let cursor=tree.firstChild;
+    for(const item of wanted) {
+      if(item===cursor) cursor=cursor.nextSibling;
+      else tree.insertBefore(item,cursor);
     }
-    if(gitError) fragment.append(node('p',gitError,'status'));
-    if(gitTruncated) fragment.append(node('p','Список изменений Git показан не полностью.','status'));
-    tree.replaceChildren(fragment); tree.scrollTop=scroll; cancelAnimationFrame(filterFrame); applyFilter();
-    const rows=visibleRows();
-    if(!rows.some(row=>row.tabIndex===0)&&rows.length) { rows[0].tabIndex=0; focused=rows[0].dataset.path; }
-    if(hadFocus) focusPath(focused);
+    while(cursor) { const next=cursor.nextSibling; cursor.remove(); cursor=next; }
+    if(tree.scrollTop!==scroll) tree.scrollTop=scroll;
+    cancelAnimationFrame(filterFrame); applyFilter(activeRow,hadFocus);
   }
-  function decorate(row,path) {
-    const status=changes.get(path); if(!status) return;
-    const marks={added:'A',modified:'M',deleted:'D',renamed:'R',untracked:'U',conflict:'!'};
-    const labels={added:'Добавлен',modified:'Изменён',deleted:'Удалён',renamed:'Переименован',untracked:'Не отслеживается',conflict:'Конфликт'};
-    row.classList.add(`git-${status}`); row.title+=` · ${labels[status]??status}`;
-    const mark=node('span',marks[status]??'', 'git-mark'); mark.setAttribute('aria-label',labels[status]??status); row.append(mark);
+  let renderFrame;
+  function scheduleRender() {
+    if(renderFrame!==undefined) return;
+    renderFrame=requestAnimationFrame(()=>{renderFrame=undefined;render();});
   }
+  function renderNow() {
+    if(renderFrame!==undefined) { cancelAnimationFrame(renderFrame); renderFrame=undefined; }
+    render();
+  }
+  signal.addEventListener('abort',()=>cancelAnimationFrame(renderFrame),{once:true});
   async function loadChanges(revision) {
     try {
       const result=await workspace.changes();
       if(signal.aborted||revision!==generation) return;
-      changes=new Map(result.entries.map(entry=>[entry.path,entry.status])); gitError=''; gitTruncated=result.truncated; render();
+      changes=new Map(result.entries.map(entry=>[entry.path,entry.status])); gitError=''; gitTruncated=result.truncated; scheduleRender();
     } catch(error) {
       if(signal.aborted||revision!==generation) return;
-      gitError=`Не удалось получить изменения Git: ${error.message}`; render();
+      gitError=`Не удалось получить изменения Git: ${error.message}`; scheduleRender();
     }
   }
   async function load(path,revision=generation) {
@@ -122,18 +175,18 @@ export function mount({ root, compact, services, signal }) {
     try {
       const listing=await workspace.list(path);
       if(signal.aborted||revision!==generation) return;
-      listings.set(path,listing); pending.delete(path); render();
+      listings.set(path,listing); pending.delete(path); scheduleRender();
       for(const entry of listing.entries) if(entry.kind==='directory'&&expanded.has(entry.path)) void load(entry.path,revision);
     } catch(error) {
       if(signal.aborted||revision!==generation) return;
-      pending.delete(path); listings.set(path,{error:`Не удалось открыть папку: ${error.message}`}); render();
+      pending.delete(path); listings.set(path,{error:`Не удалось открыть папку: ${error.message}`}); scheduleRender();
     }
   }
   function toggle(row,open=!expanded.has(row.dataset.path)) {
     const path=row.dataset.path;
     if(open) { expanded.add(path); if(!listings.has(path)||listings.get(path).error) void load(path); }
     else expanded.delete(path);
-    focused=path; render();
+    focused=path; renderNow();
   }
   function openFile(path) {
     selected=path; focused=path;
@@ -173,7 +226,7 @@ export function mount({ root, compact, services, signal }) {
     void load(''); void loadChanges(generation);
   }
   preview=createPreview({root:viewer,workspace,signal,onToggleTree:()=>{root.host.classList.toggle('tree-hidden');return !root.host.classList.contains('tree-hidden');}});
-  refresh.addEventListener('click',reload,{signal}); render();
+  refresh.addEventListener('click',reload,{signal}); renderNow();
   let loaded=false;
   observeVisibility(root, shown=>{
     if(shown&&!loaded){loaded=true;reload();}

@@ -38,6 +38,24 @@ def run(command, js, wait_for):
     wait_for(lambda: js(f"return [...{files}.querySelectorAll('.file')].some(row=>row.querySelector('.label').textContent==='hello world.txt')"), 'Directory did not expand')
     js(f"[...{files}.querySelectorAll('.file')].find(row=>row.querySelector('.label').textContent==='hello world.txt').click()")
     wait_for(lambda: js(f"return {active()}?.querySelector('pre')?.textContent.includes('<b>Привет</b>')"), 'Document did not open')
+    # A refresh can complete directory and Git reads independently. Keep the
+    # focused, selected row while its status changes and a deleted row vanishes.
+    js(f"""window.keptFileRow=[...{files}.querySelectorAll('.file')].find(row=>row.querySelector('.label').textContent==='hello world.txt');
+window.keptFileRow.focus();window.fileTreeFetch=window.fetch;window.fileTreeListCount=0;
+window.fetch=async(input,...args)=>{{
+  const response=await window.fileTreeFetch(input,...args),url=new URL(input.url||input,location.href);
+  if(url.pathname.endsWith('/workspace/list'))window.fileTreeListCount++;
+  if(!url.pathname.endsWith('/workspace/changes'))return response;
+  const body=await response.clone().json();
+  body.entries=body.entries.filter(entry=>!entry.path.endsWith('deleted.txt')).map(entry=>entry.path.endsWith('hello world.txt')?{{...entry,status:'added'}}:entry);
+  return new Response(JSON.stringify(body),{{status:response.status,headers:{{'Content-Type':'application/json'}}}});
+}};
+{files}.querySelector('[aria-label="Обновить дерево"]').click();""")
+    wait_for(lambda: js(f"return window.fileTreeListCount>=2 && {files}.querySelector('.file.git-added')===window.keptFileRow && !{files}.querySelector('.git-deleted')"), 'Refresh did not reconcile directory and Git changes')
+    assert js(f"return {files}.activeElement===window.keptFileRow && window.keptFileRow.classList.contains('active') && window.keptFileRow.getAttribute('aria-selected')==='true' && window.keptFileRow.querySelector('.git-mark').textContent==='A'"), 'Refresh replaced the focused row or lost its selection'
+    js(f"window.fetch=window.fileTreeFetch;{files}.querySelector('.toolbar button').click()")
+    wait_for(lambda: js(f"return {files}.querySelector('.file.git-modified')===window.keptFileRow && !!{files}.querySelector('.git-deleted')"), 'Git status did not return after refresh')
+    assert js(f"return {files}.activeElement===window.keptFileRow && window.keptFileRow.getAttribute('aria-selected')==='true'"), 'Restoring Git status lost row focus or selection'
     assert js(f"return !{active()}.querySelector('pre b')"), 'Document interpreted HTML'
     assert js("return document.querySelectorAll('.tab-workspace').length===1 && !document.querySelector('.extension-column')"), 'Documents added another column'
     assert js("return document.querySelector('.workspace-tab.active').dataset.tabId==='files' && !document.querySelector('[data-tab-id^=\"files:document-\"]')"), 'File escaped its browser tab'
