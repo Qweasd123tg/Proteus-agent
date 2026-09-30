@@ -4,7 +4,7 @@ use leptos::{html, prelude::*};
 use web_sys::WheelEvent;
 
 use super::{ApprovalCard, PlanActionsCard, UserInputCard, WorkingCard};
-use crate::chat_scroll::is_at_bottom;
+use crate::chat_scroll::{is_at_bottom, targets_transcript};
 use crate::types::*;
 
 #[component]
@@ -48,7 +48,9 @@ where
             aria-label="Диалог"
             node_ref=results_ref
             on:wheel=move |ev: WheelEvent| {
-                if ev.delta_y() != 0.0 && let Some(results) = results_ref.get_untracked() {
+                let Some(results) = results_ref.get_untracked() else { return };
+                if !targets_transcript(&results, &ev) { return; }
+                if ev.delta_y() != 0.0 {
                     let _ = results.set_attribute("data-transcript-direction", if ev.delta_y() < 0.0 { "up" } else { "down" });
                 }
                 if ev.delta_y() < 0.0 {

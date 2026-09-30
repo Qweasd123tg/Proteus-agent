@@ -24,7 +24,7 @@ import time
 
 import extensions_browser as fixture
 from extensions_browser import Assets, ROOT, stop, urlencode
-from scroll_jitter_checks import PROBE as JITTER_PROBE, validate as validate_jitter
+from scroll_jitter_checks import INPUT_PROBE, PROBE as JITTER_PROBE, validate as validate_jitter
 
 
 def main():
@@ -122,9 +122,13 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                                 break
                 assert origin, 'Fixture app-server did not start: ' + log.read()
 
-                window = Gtk.Window(title='Proteus chat scroll regression')
+                window_title = 'Proteus chat scroll regression — ' + folder.name
+                window = Gtk.Window(title=window_title)
                 window.set_default_size(1440, 1000)
                 view = WebKit2.WebView()
+                # All fixture endpoints are loopback; system proxy settings must
+                # not route this isolated test through the user's remote proxy.
+                view.get_context().get_website_data_manager().set_network_proxy_settings(WebKit2.NetworkProxyMode.NO_PROXY, None)
                 window.add(view)
                 window.show_all()
                 state = {'stage': 0, 'pending': False, 'detached_top': None}
@@ -136,17 +140,27 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     # being used, even though JavaScript polling still works.
                     if args.wayland and shutil.which('niri'):
                         native = next((item for item in json.loads(subprocess.check_output(
-                            ['niri', 'msg', '--json', 'windows'])) if item.get('pid') == os.getpid()), None)
-                        assert native, 'Compositor did not expose the test window'
+                            ['niri', 'msg', '--json', 'windows'])) if item.get('title') == window_title), None)
+                        # The compositor's PID can belong to a different PID
+                        # namespace; use this fixture's unique window title.
+                        if not native:
+                            return False
                         if not native['is_floating']:
                             subprocess.run(['niri', 'msg', 'action', 'toggle-window-floating', '--id', str(native['id'])], check=True, capture_output=True)
                         subprocess.run(['niri', 'msg', 'action', 'focus-window', '--id', str(native['id'])], check=True, capture_output=True)
                     else:
                         window.present()
+                    return True
 
                 def fail(message, value=None):
                     errors.append(message + (': ' + json.dumps(value, ensure_ascii=False) if value is not None else ''))
                     Gtk.main_quit()
+
+                def load_failed(_view, _stage, uri, error):
+                    fail('Fixture page failed to load: ' + uri + ': ' + str(error))
+                    return True
+
+                view.connect('load-failed', load_failed)
 
                 def evaluate(script, callback):
                     state['pending'] = True
@@ -179,7 +193,14 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                             const draft = document.querySelector('.composer textarea');
                             draft.value = 'Проверить прокрутку';
                             draft.dispatchEvent(new Event('input', {bubbles:true}));
-                            requestAnimationFrame(() => document.querySelector('.composer-submit').click());
+                            // Let the compositor's initial floating/resize and
+                            // the first measured window settle before streaming.
+                            let warmup=12;
+                            const submit=()=>{
+                                if(warmup--){requestAnimationFrame(submit);return;}
+                                document.querySelector('.composer-submit').click();
+                            };
+                            requestAnimationFrame(submit);
                             return true;
                         })()''', lambda _: None)
                     elif stage == 1 and value:
@@ -202,8 +223,10 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                             r.scrollTop = r.scrollHeight - r.clientHeight - 1;
                             const y=r.getBoundingClientRect().top;
                             window.readingAnchor=[...r.querySelectorAll('[data-transcript-row]')].find(n=>n.getBoundingClientRect().top<=y && n.getBoundingClientRect().bottom>y);
-                            return {top:readingAnchor.getBoundingClientRect().top-y, max:r.scrollHeight-r.clientHeight};
-                        })()''', lambda result: state.update(detached_top=result['top']))
+                            return {id:readingAnchor.dataset.transcriptRow,top:readingAnchor.getBoundingClientRect().top-y,
+                              scrollTop:r.scrollTop,max:r.scrollHeight-r.clientHeight,
+                              rows:[...r.querySelectorAll('[data-transcript-row]')].map(row=>row.dataset.transcriptRow)};
+                        })()''', lambda result: state.update(detached_top=result['top'], detached_probe=result))
                     elif stage == 3 and value and value['scrollEvents']:
                         if value['sticky'] or value['anchorTop'] is None or abs(value['anchorTop'] - state['detached_top']) > 1:
                             fail('Upward reading gesture snapped to bottom', value)
@@ -212,7 +235,7 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                         server.stream_gate.set()
                     elif stage == 4 and value and value['settled']:
                         if value['sticky'] or value['anchorTop'] is None or abs(value['anchorTop'] - state['detached_top']) > 2:
-                            fail('New streamed content pulled the reader from history', value)
+                            fail('New streamed content pulled the reader from history', {'before':state['detached_probe'],'after':value})
                             return
                         state['stage'] = 5
                         evaluate('''(() => {
@@ -224,7 +247,7 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     elif stage == 5 and value and value['sticky'] and value['atBottom']:
                         state['stage'] = 6
                         present_probe_window()
-                        evaluate(JITTER_PROBE + '.then(value=>window.scrollJitterResult=value,error=>window.scrollJitterResult={error:String(error)});true', lambda _: None)
+                        evaluate(INPUT_PROBE + '.then(()=>'+JITTER_PROBE+').then(value=>window.scrollJitterResult=value,error=>window.scrollJitterResult={error:String(error)});true', lambda _: None)
                     elif stage == 6 and value and value['result']:
                         try:
                             validate_jitter(value['result'])
@@ -238,7 +261,19 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                         return not errors
                     stage = state['stage']
                     if stage == 0:
-                        script = "!!document.querySelector('.results-panel')?.textContent.includes('Сохранённое сообщение " + str(args.history - 1) + "') && document.querySelector('.connection-badge')?.classList.contains('completed')"
+                        if not state.get('presented'):
+                            state['presented'] = present_probe_window()
+                        script = """(() => {
+                            const root=document.querySelector('.results-panel');
+                            window.scrollStartupDetails={hidden:document.hidden,
+                              count:root?.dataset.transcriptCount,
+                              height:root?.clientHeight,
+                              rows:[...document.querySelectorAll('[data-transcript-row]')].map(row=>row.dataset.transcriptRow),
+                              connection:document.querySelector('.connection-badge')?.textContent,
+                              text:document.body.textContent.slice(-1200)};
+                            return !!root?.textContent.includes('Сохранённое сообщение """ + str(args.history - 1) + """')
+                              && document.querySelector('.connection-badge')?.classList.contains('completed');
+                        })()"""
                     elif stage == 1:
                         script = "document.querySelector('.results-panel')?.textContent.includes('Абзац 3:') && !!document.querySelector('.composer-stop')"
                     elif stage == 6:
@@ -256,6 +291,9 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return True
 
                 def timeout():
+                    if state['stage'] == 0 and not state['pending']:
+                        evaluate('window.scrollStartupDetails', lambda value: fail('Chat scroll startup timed out', value))
+                        return False
                     fail('Chat scroll regression timed out at stage ' + str(state['stage']), state.get('last'))
                     return False
 

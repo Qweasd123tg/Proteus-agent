@@ -1,12 +1,13 @@
 import { TranscriptHeights } from './transcript-heights.js';
 import { adjustScroll, requestBottom, cancelBottom } from './transcript-scroll.js';
-import { transcriptWindow } from './transcript-window.js';
+import { transcriptViewport, transcriptWindow } from './transcript-window.js';
+import { targetsTranscript } from './transcript-input.js';
 
 const controllers = new WeakMap();
 
 export function mountVirtualTranscript(root, onRange, onAdjusted) {
   let model = new TranscriptHeights(), visible = [], frame = 0, measureQueued = false;
-  let windowKey = '';
+  let windowKey = '', viewportRange = null;
   let anchor = null, jump = null, jumpAligned = false, stopped = false, width = 0, sessionKey, guardFrame = 0, inputTimer;
   const observed = new Set();
   const top = root.querySelector('[data-transcript-top]');
@@ -73,12 +74,13 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
   }
   function rangeFor(offset) {
     const viewport = Math.max(1, root.clientHeight);
+    viewportRange = transcriptViewport(model, offset, viewport, viewportRange);
     const retained = [selectionIndex(document.activeElement)];
     for (const active of root.querySelectorAll('[data-retain-transcript=true]')) retained.push(selectionIndex(active));
     const selection = getSelection();
     const selected = selection && !selection.isCollapsed
       ? [selectionIndex(selection.anchorNode), selectionIndex(selection.focusNode)] : null;
-    return transcriptWindow(model, offset, viewport, retained, selected);
+    return transcriptWindow(model, offset, viewport, retained, selected, 900, viewportRange);
   }
   function refresh() {
     frame = 0;
@@ -170,6 +172,7 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
   const adjusted = event => onAdjusted(Math.round(event.detail));
   const scroll = () => { if (!root.hasAttribute('data-transcript-adjusting')) schedule(); };
   const userInput = event => {
+    if (event?.type === 'wheel' && !targetsTranscript(root, event)) return;
     delete root.dataset.transcriptAdjusting; cancelAnimationFrame(guardFrame);
     // A new gesture takes precedence over the anchor saved by an older mount.
     anchor = null;
@@ -183,10 +186,14 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
     }, 800);
   };
   const keyboardInput = event => {
+    const focused = document.activeElement;
+    const documentFocused = !focused || focused === document.body || focused === document.documentElement;
+    const direction = ['ArrowUp','PageUp','Home'].includes(event.key) || (event.key === ' ' && event.shiftKey) ? 'up' : 'down';
     if (['ArrowUp','ArrowDown','PageUp','PageDown','Home','End',' '].includes(event.key)
-      && (root.contains(document.activeElement) || root.matches(':hover'))
-      && !document.activeElement?.matches('input,textarea,[contenteditable=true]')) {
-        root.dataset.transcriptDirection = ['ArrowUp','PageUp','Home'].includes(event.key) || (event.key === ' ' && event.shiftKey) ? 'up' : 'down';
+      && (root.contains(focused) || (documentFocused && root.matches(':hover')))
+      && !focused?.closest('input,textarea,select,[contenteditable]:not([contenteditable=false])')
+      && targetsTranscript(root, event, direction === 'up' ? -1 : 1)) {
+        root.dataset.transcriptDirection = direction;
         userInput(event);
       }
   };
@@ -196,13 +203,14 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
   root.addEventListener('proteus-scroll-adjust', adjusted);
   root.addEventListener('wheel', userInput, { passive: true });
   root.addEventListener('pointerdown', userInput);
-  document.addEventListener('keydown', keyboardInput, true);
+  document.addEventListener('keydown', keyboardInput);
   document.addEventListener('selectionchange', schedule);
   const controller = {
     update(rows, session) {
       anchor = turnoverAnchor();
       if (sessionKey !== session) { model = new TranscriptHeights(); anchor = null; jump = null; jumpAligned = false; sessionKey = session; }
       model.reset(rows);
+      viewportRange = null;
       if (jump !== null && !model.positions.has(jump)) jump = null;
       root.dataset.transcriptCount = String(rows.length);
       // This is a new transcript if its old anchor no longer exists.
@@ -226,7 +234,7 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
       root.removeEventListener('proteus-scroll-adjust', adjusted);
       root.removeEventListener('wheel', userInput);
       root.removeEventListener('pointerdown', userInput);
-      document.removeEventListener('keydown', keyboardInput, true);
+      document.removeEventListener('keydown', keyboardInput);
       clearTimeout(inputTimer);
       document.removeEventListener('selectionchange', schedule);
       controllers.delete(root);

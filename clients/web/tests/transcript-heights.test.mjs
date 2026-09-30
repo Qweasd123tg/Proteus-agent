@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TranscriptHeights } from '../ui/transcript-heights.js';
-import { transcriptWindow } from '../ui/transcript-window.js';
+import { transcriptViewport, transcriptWindow } from '../ui/transcript-window.js';
 
 test('viewport lookup uses measured heights after resize, append and removal', () => {
   const rows = Array.from({ length: 3000 }, (_, id) => ({ id: String(id), height: 100 }));
@@ -46,4 +46,42 @@ test('text selection retains its interval without widening unrelated focused car
   assert.deepEqual(indices.filter(index => index >= 70 && index <= 75), [70, 71, 72, 73, 74, 75]);
   assert.ok(indices.includes(3));
   assert.ok(!indices.includes(20), 'focus must not retain unrelated intervening rows');
+});
+
+test('small wheel steps reuse the viewport buffer without hiding visible rows', () => {
+  const heights = new TranscriptHeights(Array.from({ length: 3000 }, (_, id) => ({ id: String(id), height: 100.125 })));
+  let previous = null, turnovers = 0;
+  for (let step = 0; step < 80; step++) {
+    const offset = 12000 + (step < 40 ? -step : step - 80) * 48;
+    const bounds = transcriptViewport(heights, offset, 800, previous);
+    if (bounds !== previous) turnovers++;
+    assert.ok(heights.prefix(bounds.start) <= offset);
+    assert.ok(heights.prefix(bounds.end) >= offset + 800);
+    previous = bounds;
+  }
+  assert.ok(turnovers < 12, `wheel steps refilled the buffer ${turnovers} times`);
+  const jumped = transcriptViewport(heights, 200000, 800, previous);
+  assert.notEqual(jumped, previous, 'a fast gesture must not wait for the old buffer');
+  assert.ok(heights.prefix(jumped.start) <= 200000);
+  assert.ok(heights.prefix(jumped.end) >= 200800);
+  const expanded = transcriptViewport(heights, 200000, 4000, jumped);
+  assert.ok(heights.prefix(expanded.end) >= 204000, 'a taller viewport needs immediate coverage');
+});
+
+test('viewport buffer handles history boundaries and keeps retained islands independent', () => {
+  const heights = new TranscriptHeights(Array.from({ length: 100 }, (_, id) => ({ id: String(id), height: 100 })));
+  const head = transcriptViewport(heights, 0, 800);
+  assert.equal(head.start, 0);
+  assert.equal(transcriptViewport(heights, 48, 800, head), head);
+  const tail = transcriptViewport(heights, heights.total - 800, 800, head);
+  assert.equal(tail.end, 100);
+  assert.equal(transcriptViewport(heights, heights.total - 848, 800, tail), tail);
+  const retained = transcriptWindow(heights, 9200, 800, [2], [70, 72], 900, tail);
+  assert.ok(retained.some(row => row.index === 2));
+  assert.deepEqual(retained.filter(row => row.index >= 70 && row.index <= 72).map(row => row.index), [70, 71, 72]);
+  assert.ok(!transcriptWindow(heights, 9200, 800, [], null, 900, tail).some(row => row.index === 2), 'unfocused islands must not enter the viewport buffer');
+  heights.reset(heights.rows.slice(0, 5));
+  assert.deepEqual(transcriptViewport(heights, 0, 800, tail), { start: 0, end: 5 });
+  heights.reset([]);
+  assert.deepEqual(transcriptViewport(heights, 0, 800, head), { start: 0, end: 0 });
 });

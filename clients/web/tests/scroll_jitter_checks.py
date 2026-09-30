@@ -3,6 +3,66 @@ import json
 from urllib.parse import urlencode
 
 
+INPUT_PROBE = r"""
+      (async()=>{
+        const root=document.querySelector('.results-panel');
+        const {requestBottom}=await import('/ui/transcript-scroll.js');
+        const frames=async n=>{for(let i=0;i<n;i++)await new Promise(resolve=>requestAnimationFrame(resolve))};
+        const host=root.querySelector(':scope > [data-transcript-row]:last-of-type')
+          || [...root.querySelectorAll(':scope > [data-transcript-row]')].at(-1);
+        const inner=document.createElement('div');
+        inner.style.cssText='height:64px;overflow-y:auto;overscroll-behavior-y:contain';
+        inner.innerHTML='<div style="height:600px">Nested scroll fixture</div>';
+        const button=document.createElement('button');button.textContent='Keyboard fixture';
+        const outside=document.createElement('button');outside.style.position='fixed';
+        outside.textContent='External panel fixture';document.body.append(outside);
+        host.append(inner,button);
+        const restore=async()=>{
+          root.dispatchEvent(new WheelEvent('wheel',{deltaY:120,bubbles:true}));
+          root.scrollTop=root.scrollHeight;requestBottom(root);await frames(8);
+          if(!root.classList.contains('sticky-bottom'))throw Error('Follow mode did not return');
+        };
+        const untouched=async(event,target=root)=>{
+          const before=root.scrollTop;
+          target.dispatchEvent(event);await frames(3);
+          if(!root.classList.contains('sticky-bottom') || Math.abs(root.scrollTop-before)>1
+            || root.hasAttribute('data-transcript-user-scroll'))throw Error('An unrelated gesture changed transcript follow mode: '+event.type);
+        };
+        try{
+          await restore();inner.scrollTop=200;
+          await untouched(new WheelEvent('wheel',{deltaY:-48,bubbles:true}),inner);
+          inner.scrollTop=0;
+          await untouched(new WheelEvent('wheel',{deltaY:-48,bubbles:true}),inner);
+          inner.style.overscrollBehaviorY='auto';inner.scrollTop=200;
+          await untouched(new WheelEvent('wheel',{deltaY:-48,bubbles:true}),inner);
+          await untouched(new WheelEvent('wheel',{deltaY:-48,ctrlKey:true,bubbles:true}));
+          await untouched(new WheelEvent('wheel',{deltaY:-48,shiftKey:true,bubbles:true}));
+          button.focus({preventScroll:true});
+          button.addEventListener('keydown',event=>event.preventDefault(),{once:true});
+          await untouched(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}),button);
+          outside.focus({preventScroll:true});
+          // A hovered chat must not take keyboard intent from another panel.
+          const matches=root.matches;
+          root.matches=selector=>selector===':hover' || matches.call(root,selector);
+          try{
+            await untouched(new KeyboardEvent('keydown',{key:'PageUp',bubbles:true}),outside);
+          }finally{delete root.matches;}
+          root.tabIndex=-1;root.focus({preventScroll:true});
+          // A bottom-follow frame queued before the first native keyboard step
+          // must yield to the upward gesture, including subpixel movement.
+          requestBottom(root);
+          root.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true}));
+          const before=root.scrollTop;inner.style.height='96px';await frames(5);
+          if(Math.abs(root.scrollTop-before)>1)throw Error('Pending bottom-follow frame overrode keyboard reading intent');
+          await restore();
+          return {nestedWheel:true,zoomWheel:true,horizontalWheel:true,consumedKey:true,externalPanelKey:true,pendingKeyboard:true};
+        }finally{
+          inner.remove();button.remove();outside.remove();root.removeAttribute('tabindex');await restore();
+        }
+      })()
+"""
+
+
 PROBE = r"""
       (async()=>{
         const root=document.querySelector('.results-panel');
@@ -86,6 +146,7 @@ def validate(result):
     print('Scroll jitter: ' + json.dumps(result, ensure_ascii=False), flush=True)
     assert 'error' not in result, result
     assert result['steps'] == 80 and result['turnovers'] > 0, result
+    assert result['turnovers'] <= 20, 'Viewport buffer refilled too often: ' + str(result)
     assert result['maxDrift'] <= 1, 'Reading anchor jumped: ' + str(result)
     assert result['noOpWrites'] == 0 and result['equalAdjustEvents'] == 0, result
     return result
@@ -100,6 +161,11 @@ def run(command, js, wait_for, web, origin):
           +root.dataset.transcriptCount>=240 && root.querySelector('[data-transcript-row]') &&
           root.scrollHeight-root.clientHeight-root.scrollTop<2;
     """), 'Long authoritative transcript did not render its tail')
+    input_result = command('/execute/async', {'args': [], 'script':
+        'const done=arguments[arguments.length-1];\n' + INPUT_PROBE +
+        '.then(done,error=>done({error:String(error)}));'})
+    assert 'error' not in input_result, input_result
+    print('Scroll input ownership: ' + json.dumps(input_result), flush=True)
     result = command('/execute/async', {'args': [], 'script':
         'const done=arguments[arguments.length-1];\n' + PROBE +
         '.then(done,error=>done({error:String(error)}));'})

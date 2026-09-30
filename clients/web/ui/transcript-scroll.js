@@ -14,7 +14,8 @@ export function requestBottom(root) {
   if (!root || frames.has(root)) return;
   frames.set(root, requestAnimationFrame(() => {
     frames.delete(root);
-    if (root.isConnected && root.clientHeight && root.classList.contains('sticky-bottom')) {
+    if (root.isConnected && root.clientHeight && root.classList.contains('sticky-bottom')
+      && !(root.hasAttribute('data-transcript-user-scroll') && root.dataset.transcriptDirection === 'up')) {
       delete root.dataset.transcriptUserScroll;
       delete root.dataset.transcriptDirection;
       const bottom = Math.max(0, root.scrollHeight - root.clientHeight);
