@@ -5,7 +5,6 @@ use serde_json::Value;
 
 use super::{ToolPreview, tool_args_preview};
 use crate::types::*;
-use crate::ui_utils::short_path;
 
 #[component]
 pub(crate) fn ApprovalCard<F>(request: ApprovalRequestInfo, on_resolve: F) -> impl IntoView
@@ -22,12 +21,18 @@ where
         ApprovalCacheScope::ExactCall
     };
     let allows_workspace_write_cache = approval_allows_workspace_write_cache(&request);
-    let spec_hint = request
+    let tool_description = request
         .tool_spec
         .as_ref()
         .map(|spec| spec.description.as_str())
         .unwrap_or(&request.reason)
         .to_owned();
+    let has_preview_body = request
+        .preview
+        .as_ref()
+        .and_then(|preview| preview.body.as_ref())
+        .is_some_and(|body| !body.trim().is_empty());
+    let cache_id = format!("approval-scope-{}", request.approval_id);
     let origin_label = request
         .origin
         .as_ref()
@@ -35,56 +40,47 @@ where
 
     view! {
         <article class="control-card approval-card">
-            <div class="control-card-header">
-                <span class="status-badge running">
-                    <span class="dot"></span>
-                    "Доступ"
-                </span>
-                {origin_label
-                    .map(|label| {
-                        view! {
-                            <span class="status-badge subagent">
-                                {format!("субагент: {label}")}
-                            </span>
-                        }
-                    })}
-                <strong>{request.call.name}</strong>
-                <code>{short_path(&request.cwd)}</code>
-            </div>
-            <p>{spec_hint}</p>
-            {approval_preview(request.preview.clone())}
-            <ToolPreview text=Signal::derive(move || args_preview.clone()) />
-            <div class="control-row">
-                <span class="control-label">"Кэш"</span>
-                <div class="segmented">
-                    <button
-                        type="button"
-                        class:active=move || cache.get() == ApprovalCacheScope::None
-                        on:click=move |_| set_cache.set(ApprovalCacheScope::None)
-                    >
-                        {ApprovalCacheScope::None.label()}
-                    </button>
-                    <button
-                        type="button"
-                        class:active=move || cache.get() == exact_scope
-                        on:click=move |_| set_cache.set(exact_scope)
-                    >
-                        {exact_scope.label()}
-                    </button>
-                    {if allows_workspace_write_cache {
-                        view! {
-                            <button
-                                type="button"
-                                class:active=move || cache.get() == ApprovalCacheScope::WorkspaceWrite
-                                on:click=move |_| set_cache.set(ApprovalCacheScope::WorkspaceWrite)
-                            >
-                                {ApprovalCacheScope::WorkspaceWrite.label()}
-                            </button>
-                        }.into_any()
-                    } else {
-                        ().into_any()
-                    }}
+            <header class="approval-heading">
+                <div class="control-card-header">
+                    <span class="status-badge attention">"Требуется разрешение"</span>
+                    <strong title=tool_description>{request.call.name}</strong>
+                    {origin_label.map(|label| view! { <span class="status-badge subagent">{format!("субагент: {label}")}</span> })}
                 </div>
+                <code class="approval-cwd">{request.cwd.to_string_lossy().into_owned()}</code>
+            </header>
+            <p>{request.reason}</p>
+            {approval_preview(request.preview.clone())}
+            {if has_preview_body {
+                view! {
+                    <details class="approval-arguments">
+                        <summary>"Параметры вызова"</summary>
+                        <ToolPreview text=Signal::derive(move || args_preview.clone()) />
+                    </details>
+                }.into_any()
+            } else {
+                view! { <ToolPreview text=Signal::derive(move || args_preview.clone()) caption="параметры вызова" /> }.into_any()
+            }}
+            <div class="approval-scope">
+                <label for=cache_id.clone()>"Разрешение действует"</label>
+                <select id=cache_id prop:value=move || match cache.get() {
+                    ApprovalCacheScope::None => "none",
+                    ApprovalCacheScope::ExactCall | ApprovalCacheScope::ExactCommand => "exact",
+                    ApprovalCacheScope::WorkspaceWrite => "workspace_write",
+                } on:change:target=move |event| {
+                    let scope = match event.target().value().as_str() {
+                        "exact" => exact_scope,
+                        "workspace_write" if allows_workspace_write_cache => ApprovalCacheScope::WorkspaceWrite,
+                        _ => ApprovalCacheScope::None,
+                    };
+                    set_cache.set(scope);
+                }>
+                    <option value="none" data-description=ApprovalCacheScope::None.description()>{ApprovalCacheScope::None.label()}</option>
+                    <option value="exact" data-description=exact_scope.description()>{exact_scope.label()}</option>
+                    {allows_workspace_write_cache.then(|| view! {
+                        <option value="workspace_write" data-description=ApprovalCacheScope::WorkspaceWrite.description()>{ApprovalCacheScope::WorkspaceWrite.label()}</option>
+                    })}
+                </select>
+                <p>{move || cache.get().description()}</p>
             </div>
             <div class="control-actions">
                 <button
@@ -116,51 +112,27 @@ fn approval_preview(preview: Option<ApprovalPreviewInfo>) -> impl IntoView {
         summary,
         affected_files,
         body,
-        language,
+        language: _,
         metadata: _,
     } = preview;
     let kind = approval_preview_kind(&kind);
-    let files = approval_preview_files(&affected_files);
-    let body_label = language
-        .as_deref()
-        .filter(|language| !language.trim().is_empty())
-        .unwrap_or("preview")
-        .to_owned();
     let body = body
         .filter(|body| !body.trim().is_empty())
         .map(|body| body.to_owned());
 
     view! {
-        <section>
+        <section class="approval-preview">
             <div class="control-card-header">
-                <span class="status-badge completed">
-                    <span class="dot"></span>
-                    {kind}
-                </span>
+                <span class="control-label">{kind}</span>
                 <strong>{title}</strong>
             </div>
             <p>{summary}</p>
-            {if let Some(files) = files {
-                view! {
-                    <div class="control-row">
-                        <span class="control-label">"Файлы"</span>
-                        <code>{files}</code>
-                    </div>
-                }.into_any()
-            } else {
-                ().into_any()
-            }}
+            {(!affected_files.is_empty()).then(|| view! {
+                <ul class="approval-files">{affected_files.into_iter().map(|path| view! { <li>{path}</li> }).collect_view()}</ul>
+            })}
             {if let Some(body) = body {
                 view! {
-                    <div>
-                        <div class="control-card-header">
-                            <span class="status-badge idle">
-                                <span class="dot"></span>
-                                {body_label}
-                            </span>
-                        </div>
-                        <ToolPreview text=Signal::derive(move || body.clone()) />
-                    </div>
+                    <ToolPreview text=Signal::derive(move || body.clone()) />
                 }.into_any()
             } else {
                 ().into_any()
@@ -177,18 +149,6 @@ fn approval_preview_kind(kind: &str) -> String {
         "write_file" => "Файл".to_owned(),
         kind if !kind.trim().is_empty() => kind.to_owned(),
         _ => "Preview".to_owned(),
-    }
-}
-
-fn approval_preview_files(files: &[String]) -> Option<String> {
-    if files.is_empty() {
-        return None;
-    }
-    let visible = files.iter().take(3).cloned().collect::<Vec<_>>().join(", ");
-    if files.len() > 3 {
-        Some(format!("{visible}, +{}", files.len() - 3))
-    } else {
-        Some(visible)
     }
 }
 

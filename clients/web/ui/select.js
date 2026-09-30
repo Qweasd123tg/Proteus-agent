@@ -8,7 +8,7 @@ function open(select) {
   active?.close();
   const controller = new AbortController(), { signal } = controller;
   const menu = document.createElement('div');
-  menu.className = 'select-picker'; menu.id = `select-picker-${++serial}`;
+  menu.className = 'select-picker choice-surface'; menu.id = `select-picker-${++serial}`;
   menu.setAttribute('role', 'listbox'); menu.setAttribute('popover', 'manual'); menu.tabIndex = -1;
   menu.setAttribute('aria-label', select.getAttribute('aria-label') || select.labels?.[0]?.textContent || select.title || 'Выбор');
   const root = select.getRootNode();
@@ -36,12 +36,18 @@ function open(select) {
   options.forEach((option, i) => {
     if (option.parentElement instanceof HTMLOptGroupElement && group !== option.parentElement && !option.parentElement.hidden) {
       group = option.parentElement;
-      const heading = document.createElement('div'); heading.className = 'select-picker-group'; heading.textContent = group.label; menu.append(heading);
+      const heading = document.createElement('div'); heading.className = 'select-picker-group choice-heading'; heading.textContent = group.label; menu.append(heading);
     }
-    const row = document.createElement('div'); row.id = `${menu.id}-${i}`; row.className = 'select-picker-option';
+    const row = document.createElement('div'); row.id = `${menu.id}-${i}`; row.className = 'select-picker-option choice-row';
     row.setAttribute('role', 'option'); row.setAttribute('aria-selected', String(i === select.selectedIndex));
     row.setAttribute('aria-disabled', String(!available(i))); row.hidden = option.hidden || option.parentElement.hidden;
-    row.textContent = option.label; rows.push(row); menu.append(row);
+    const text = document.createElement('span'); text.className = 'choice-copy';
+    const label = document.createElement('span'); label.className = 'choice-title'; label.textContent = option.label; text.append(label);
+    const description = option.dataset.description || option.title || option.dataset.uiTooltip;
+    if (description) {
+      const hint = document.createElement('span'); hint.className = 'choice-description'; hint.textContent = description; text.append(hint);
+    }
+    row.append(text); rows.push(row); menu.append(row);
     row.addEventListener('pointermove', () => { if (available(i)) highlight(i); }, { signal });
     row.addEventListener('click', () => choose(i), { signal });
   });
@@ -63,12 +69,13 @@ function open(select) {
   for (let ancestorRoot = root; ancestorRoot; ancestorRoot = ancestorRoot instanceof ShadowRoot ? ancestorRoot.host.getRootNode() : null) {
     removalObserver.observe(ancestorRoot, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled'] });
   }
-  observer.observe(select, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'hidden', 'label', 'value', 'selected', 'multiple', 'size'] });
+  observer.observe(select, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'hidden', 'label', 'value', 'selected', 'multiple', 'size', 'data-description', 'title', 'data-ui-tooltip'] });
   select.setAttribute('aria-controls', menu.id); select.setAttribute('aria-expanded', 'true');
   motion.show(() => {
   const rect = select.getBoundingClientRect();
   menu.style.minWidth = `${Math.min(Math.max(rect.width, 170), innerWidth - 16)}px`;
-  menu.style.maxWidth = `${innerWidth - 16}px`;
+  menu.style.width = 'max-content';
+  menu.style.maxWidth = `${Math.max(Math.min(rect.width, innerWidth - 16), Math.min(420, innerWidth - 16))}px`;
   menu.style.maxHeight = `${Math.max(40, Math.min(320, Math.max(innerHeight - rect.bottom, rect.top) - 16))}px`;
   const size = menu.getBoundingClientRect();
   menu.style.left = `${Math.max(8, Math.min(rect.left, innerWidth - size.width - 8))}px`;

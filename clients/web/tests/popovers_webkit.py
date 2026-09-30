@@ -16,8 +16,8 @@ import threading
 ROOT = Path(__file__).resolve().parents[1]
 PAGE = '''<!doctype html><html data-desktop-chrome data-animations="off"><head>
 <meta charset="utf-8"><link rel="stylesheet" href="/css/tokens.css">
-<link rel="stylesheet" href="/ui/popup.css"></head><body>
-<aside id="sidebar">
+<link rel="stylesheet" href="/ui/popup.css"><link rel="stylesheet" href="/ui/select.css"><link rel="stylesheet" href="/css/composer-menu.css"><script type="module" src="/ui/select.js"></script></head><body>
+<div id="choices" style="position:fixed;left:1120px;top:900px;width:230px"><select aria-label="Long choice"><option value="a" data-description="Пояснение длинного пункта без обрезания">Название длинного пункта с параметрами модели и дополнительными условиями выбора</option><option value="b">Другой пункт</option></select><div id="model-menu"></div><div id="shadow-choice"></div></div><aside id="sidebar">
 <button data-workspace="/tmp/project" style="position:absolute;left:130px;top:220px">
 <span data-sidebar-menu>Проект</span></button>
 <div data-session-dir="/tmp/session" data-hover-title="Чат">
@@ -25,7 +25,16 @@ PAGE = '''<!doctype html><html data-desktop-chrome data-animations="off"><head>
 <script type="module">
 import {mountSidebar} from '/ui/sidebar.js';
 import {popup} from '/ui/popup.js';
+import {mount as mountModel} from '/ui/modules/model.js';
+import {theme} from '/extensions/theme.js';
+const controller=new AbortController();
+const state={model:'test',models:[{name:'test',label:'Очень длинное название модели с подробным уточнением варианта и режима работы'}],reasoning:false,efforts:[]};
+mountModel({root:document.querySelector('#model-menu'),signal:controller.signal,services:{'client.composer':{read:()=>state,subscribe:()=>()=>{},set:()=>{}}}});
+const shadow=document.querySelector('#shadow-choice').attachShadow({mode:'open'}),style=document.createElement('style');style.textContent=theme;shadow.append(style);
+const control=document.createElement('select');control.innerHTML='<option>A</option><option data-description="Пояснение внутри расширения">B</option>';shadow.append(control);
 mountSidebar(document.querySelector('#sidebar'),()=>{});
+const modelDetails=document.querySelector('.composer-model-menu');modelDetails.open=true;
+await new Promise(resolve=>setTimeout(resolve,30));
 window.probe=()=>{
     const result=[];
     const measure=(name,element,maxHeight)=>{
@@ -36,6 +45,20 @@ window.probe=()=>{
         for(const button of element.querySelectorAll('button'))
             if(button.getBoundingClientRect().height>64)throw Error(name+': stretched row');
     };
+    const choiceBounds=element=>{
+        const r=element.getBoundingClientRect();
+        if(r.height<40 || r.height>400 || r.left<8 || r.right>innerWidth-8 || r.top<8 || r.bottom>innerHeight-8 || element.scrollWidth>element.clientWidth)throw Error('Choice bounds: '+JSON.stringify(r));
+    };
+    const modelPanel=document.querySelector('.composer-menu-panel');choiceBounds(modelPanel);
+    if(modelPanel.querySelector('.choice-title').getBoundingClientRect().height<35)throw Error('Composer title clipped');
+    modelPanel.hidePopover();modelDetails.open=false;
+    const select=document.querySelector('#choices select');select.click();
+    const picker=document.querySelector('.select-picker');choiceBounds(picker);
+    if(picker.querySelector('.choice-title').getBoundingClientRect().height<35 || !picker.querySelector('.choice-description'))throw Error('Long choice lost text/hint');
+    picker.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+    control.click();const shadowPicker=shadow.querySelector('.select-picker');choiceBounds(shadowPicker);
+    if(getComputedStyle(shadowPicker).backgroundColor!==getComputedStyle(picker).backgroundColor || !shadowPicker.querySelector('.choice-description'))throw Error('Shadow picker lost shared theme');
+    shadowPicker.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
     const project=document.querySelector('[data-workspace]');
     for(const top of [220,innerHeight-40]){
         project.style.top=top+'px';
@@ -69,7 +92,7 @@ class Assets(SimpleHTTPRequestHandler):
         self.wfile.write(PAGE.encode())
 
 
-def main(label='WebKitGTK content-sized project/session menus, bottom-edge positioning and hover'):
+def main(label='WebKitGTK project/session menus; long select descriptions, bottom-edge geometry and Shadow DOM theme'):
     server = ThreadingHTTPServer(('127.0.0.1', 0), partial(Assets, directory=str(ROOT)))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     with tempfile.TemporaryFile(mode='w+') as log:

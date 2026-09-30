@@ -86,26 +86,23 @@ pub(crate) fn ToolActivityCard(
                 type="button"
                 class="tool-card-summary"
                 aria-expanded=move || expanded.get().to_string()
-                title=move || if expanded.get() { "Скрыть детали tool" } else { "Показать детали tool" }
+                title=move || if expanded.get() { "Скрыть детали инструмента" } else { "Показать детали инструмента" }
                 on:click=move |_| expanded.update(|value| *value = !*value)
             >
-                // Бейдж показываем только пока тул в работе (спиннер + таймер).
-                // Терминальный статус (готово/ошибка/отклонено) несёт цветная
-                // точка на рейке — дублировать его текстом на карточке незачем.
                 {move || {
                     let Some(status) = current_tool_status(message) else {
                         return ().into_any();
                     };
-                    if status.is_terminal() {
+                    if status == ToolActivityStatus::Done {
                         return ().into_any();
                     }
                     view! {
-                        <span class=status.badge_class()>
-                            <span class="spinner-dot"></span>
+                        <span class=if status == ToolActivityStatus::WaitingApproval { "status-badge attention" } else { status.badge_class() }>
+                            {(!status.is_terminal() && status != ToolActivityStatus::WaitingApproval)
+                                .then(|| view! { <span class="spinner-dot" aria-hidden="true"></span> })}
                             {move || current_tool_status_label(message, activity_now_ms)}
                         </span>
-                    }
-                    .into_any()
+                    }.into_any()
                 }}
                 <strong>{move || {
                     message
@@ -146,16 +143,6 @@ pub(crate) fn ToolActivityCard(
                         })
                         .unwrap_or_else(|| ().into_any())
                 }}
-                <code>{move || {
-                    message
-                        .with(|message| {
-                            message
-                                .as_ref()
-                                .and_then(|message| message.tool.as_ref())
-                                .map(|tool| short_id(&tool.call_id).to_owned())
-                        })
-                        .unwrap_or_default()
-                }}</code>
                 <span class="tool-card-caret" aria-hidden="true"></span>
             </button>
             {move || {
@@ -175,6 +162,17 @@ pub(crate) fn ToolActivityCard(
                     let has_plan = !plan_steps.is_empty();
                     view! {
                         <div class="tool-card-details">
+                            <code class="tool-card-identity">{move || {
+                                message
+                                    .with(|message| {
+                                        message
+                                            .as_ref()
+                                            .and_then(|message| message.tool.as_ref())
+                                            .map(|tool| short_id(&tool.call_id).to_owned())
+                                    })
+                                    .unwrap_or_default()
+                            }}</code>
+
                             {if has_patch_files {
                                 view! { <ToolFileList files=patch_files state_prefix=state_prefix.clone() /> }.into_any()
                             } else {

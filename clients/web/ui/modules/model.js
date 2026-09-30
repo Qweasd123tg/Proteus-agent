@@ -39,7 +39,7 @@ export function mount({ root, services, signal }) {
         const button = option(efforts, effort, state.effort === effort, () =>
           service.set("effort", effort),
         );
-        button.classList.remove("menu-option-row");
+        button.classList.remove("menu-option-row", "choice-row");
       }
     }
   }

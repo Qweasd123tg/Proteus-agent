@@ -5,7 +5,7 @@ export function popup(className, label, {manual=false}={}) {
   if (!document.querySelector('link[data-popups]')) {
     const style=document.createElement('link');style.rel='stylesheet';style.href=new URL('./popup.css',import.meta.url).href;style.dataset.popups='';document.head.append(style);
   }
-  const element=document.createElement('div');element.className=`ui-popup ${className}`;element.setAttribute('popover',manual?'manual':'auto');element.setAttribute('aria-label',label);document.body.append(element);
+  const element=document.createElement('div');element.className=`ui-popup choice-surface ${className}`;element.setAttribute('popover',manual?'manual':'auto');element.setAttribute('aria-label',label);document.body.append(element);
   let anchor;
   const motion=popoverMotion(element,{anchor:()=>anchor});
   function hide(focus=false){if(element.matches(':popover-open'))element.hidePopover();if(focus&&anchor?.isConnected)anchor.focus({preventScroll:true});}
@@ -25,8 +25,8 @@ export function popup(className, label, {manual=false}={}) {
     buttons[event.key==='Home'?0:event.key==='End'?buttons.length-1:(i+(event.key==='ArrowUp'?-1:1)+buttons.length)%buttons.length]?.focus();
   });
   function action(text,glyph,run,{danger=false}={}){
-    const button=document.createElement('button');button.type='button';button.className=`ui-menu-item${danger?' danger':''}`;button.setAttribute('role','menuitem');
-    if(glyph)button.append(icon(glyph));button.append(document.createTextNode(text));
+    const button=document.createElement('button');button.type='button';button.className=`ui-menu-item choice-row${danger?' danger':''}`;button.setAttribute('role','menuitem');
+    if(glyph)button.append(icon(glyph));const title=document.createElement('span');title.className='choice-title';title.textContent=text;button.append(title);
     button.addEventListener('click',()=>{hide(true);run();});return button;
   }
   const resized=()=>hide();window.addEventListener('resize',resized);

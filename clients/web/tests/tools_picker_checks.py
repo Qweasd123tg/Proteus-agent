@@ -25,6 +25,10 @@ def run(command, js, wait_for, web, origin, config, request):
         command('/url', {'url': url})
         wait_for(lambda: js("return !!document.querySelector('.cfg-tabs button') && !!document.querySelector('.tools-picker-row')"),
                  'Inspector config builder did not mount')
+        js("document.querySelector('.cfg-runtime-settings select').click()")
+        wait_for(lambda: js("return !!document.querySelector('.select-picker')?.matches(':popover-open')"), 'Inspector model picker did not open')
+        assert js("const row=document.querySelector('.select-picker [role=option]');return row.querySelector('.choice-title').textContent && row.querySelector('.choice-description').textContent==='subscription'"), 'Inspector picker mixed model label with provider identity'
+        js("document.querySelector('.select-picker').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
         js("[...document.querySelectorAll('.cfg-tabs button')].find(button => button.textContent === 'Инструменты').click()")
 
     def save(expected_selected):

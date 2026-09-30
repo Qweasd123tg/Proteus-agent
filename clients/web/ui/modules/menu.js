@@ -14,7 +14,7 @@ export function menu(root, kind, label, glyph, signal) {
   meta.className = "composer-menu-meta";
   summary.append(meta, icon("chevron-down"));
   const panel = document.createElement("div");
-  panel.className = "composer-menu-panel";
+  panel.className = "composer-menu-panel choice-surface";
   panel.setAttribute("popover", "auto");
   details.append(summary, panel);
   root.append(details);
@@ -64,7 +64,7 @@ export function section(panel, title) {
   const node = document.createElement("section");
   node.className = "composer-menu-section";
   const label = document.createElement("span");
-  label.className = "composer-menu-label";
+  label.className = "composer-menu-label choice-heading";
   label.textContent = title;
   const options = document.createElement("div");
   options.className = "composer-menu-options stacked";
@@ -75,17 +75,18 @@ export function section(panel, title) {
 export function option(root, label, active, run, description = "") {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "menu-option menu-option-row";
+  button.className = "menu-option menu-option-row choice-row";
   button.classList.toggle("active", active);
+  button.setAttribute("aria-pressed", String(active));
   const text = document.createElement("span");
-  text.className = "menu-option-text";
+  text.className = "menu-option-text choice-copy";
   const title = document.createElement("span");
-  title.className = "menu-option-title";
+  title.className = "menu-option-title choice-title";
   title.textContent = label;
   text.append(title);
   if (description) {
     const hint = document.createElement("span");
-    hint.className = "menu-option-desc";
+    hint.className = "menu-option-desc choice-description";
     hint.textContent = description;
     text.append(hint);
   }

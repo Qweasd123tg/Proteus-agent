@@ -89,10 +89,11 @@ pub(crate) fn SessionReportView(visible: Signal<bool>) -> impl IntoView {
                         } else { None }}
                         <For each=move || sessions.get() key=|item| item.session_dir.to_string_lossy().into_owned()
                             children=move |item| {
-                                let label = format!("{} · {}", sidebar_session_title(&item), short_id(&item.session_id));
+                                let label = sidebar_session_title(&item);
+                                let description = format!("{} · {} сообщений · {}", item.workspace_path.display(), item.message_count, short_id(&item.session_id));
                                 let option_session = item.session_dir.to_string_lossy().into_owned();
                                 view! {
-                                    <option value=item.session_dir.to_string_lossy().into_owned()
+                                    <option value=item.session_dir.to_string_lossy().into_owned() data-description=description
                                         prop:selected=move || selected.get().as_deref() == Some(option_session.as_str())>
                                         {label}
                                     </option>

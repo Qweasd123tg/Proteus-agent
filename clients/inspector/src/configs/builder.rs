@@ -228,7 +228,7 @@ fn RuntimeSettings(
                 <select disabled=move || busy.get() prop:value=move || draft_provider.get()
                     on:change:target=move |ev| drafts.provider.set(ev.target().value())>
                     <For each=move || providers.clone() key=|p| p.id.clone() children=move |p| view! {
-                        <option value=p.id.clone()>{format!("{} · {}", p.label, p.id)}</option>
+                        <option value=p.id.clone() data-description=p.id>{p.label}</option>
                     }/>
                 </select>
             </label>
@@ -312,7 +312,7 @@ fn BuilderSlotCard(
                     }
                 >
                     <For each=move || modules_for_select.clone() key=|module| module.id.clone() children=move |module| view! {
-                        <option value=module.id.clone()>{module.id.clone()}</option>
+                        <option value=module.id.clone() data-description=module.description.unwrap_or_default()>{module.id.clone()}</option>
                     }/>
                 </select>
             </label>

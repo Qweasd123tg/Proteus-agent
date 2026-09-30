@@ -4,13 +4,13 @@ export function createWidgetMenu({signal,place,open,hasWorkspace}) {
   function close(){if(menu?.matches(':popover-open'))menu.hidePopover();anchor=undefined;}
   function show(event,button){
     event.preventDefault();event.stopPropagation();close();anchor=button;
-    if(!menu){menu=document.createElement('div');menu.className='extension-widget-menu';menu.setAttribute('popover','manual');menu.setAttribute('role','menu');document.body.append(menu);}
+    if(!menu){menu=document.createElement('div');menu.className='extension-widget-menu choice-surface';menu.setAttribute('popover','manual');menu.setAttribute('role','menu');document.body.append(menu);}
     menu.replaceChildren();
     const id=button.dataset.widgetId;
     const actions=[];
     if(hasWorkspace(id))actions.push(['Открыть вкладку',()=>open(id)]);
     actions.push(['В верхнюю панель',()=>place(id,'header')],['Под полем ввода',()=>place(id,'composer')],['Скрыть иконку',()=>place(id,'hidden')]);
-    for(const [label,action]of actions){const item=document.createElement('button');item.type='button';item.setAttribute('role','menuitem');item.textContent=label;item.addEventListener('click',()=>{close();action();});menu.append(item);}
+    for(const [label,action]of actions){const item=document.createElement('button');item.type='button';item.className='choice-row';item.setAttribute('role','menuitem');item.textContent=label;item.addEventListener('click',()=>{close();action();});menu.append(item);}
     menu.showPopover();
     const rect=menu.getBoundingClientRect();
     menu.style.left=`${Math.max(8,Math.min(event.clientX,innerWidth-rect.width-8))}px`;

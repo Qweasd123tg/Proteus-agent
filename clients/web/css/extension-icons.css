@@ -22,6 +22,4 @@
 .widget-slot.widget-drop-target { display:flex; min-width:64px; min-height:32px; border-radius:8px; outline:1px dashed var(--accent-blue,var(--border-strong)); background:var(--bg-panel-hover); }
 .extension-widgets.extension-widget-drop-zone { min-width:64px;min-height:32px; }
 .extension-widgets.extension-widget-drop-zone:empty::before { content:'Перенести сюда';padding:0 8px;color:var(--text-muted);font-size:11px;white-space:nowrap; }
-.extension-widget-menu { position:fixed;inset:auto;margin:0;padding:5px;min-width:180px;width:max-content;max-width:calc(100vw - 16px);height:auto;max-height:calc(100vh - 16px);overflow:auto;border:1px solid var(--border-strong);border-radius:12px;background:var(--bg-popover);color:var(--text-main);box-shadow:var(--shadow-sm); }
-.extension-widget-menu button { display:block;width:100%;padding:8px 10px;border:0;border-radius:7px;text-align:left;background:transparent;color:inherit;font:inherit;font-size:12px; }
-.extension-widget-menu button:hover,.extension-widget-menu button:focus-visible { background:var(--bg-panel-hover);outline:none; }
+.extension-widget-menu { position:fixed; inset:auto; margin:0; min-width:180px; width:max-content; max-width:calc(100vw - 16px); max-height:calc(100dvh - 16px); overflow:auto; }

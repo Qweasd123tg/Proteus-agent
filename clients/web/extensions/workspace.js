@@ -20,7 +20,7 @@ export function createWorkspace(target, { storage } = {}) {
     { signal } = controller;
   const element = node("div", null, "tab-workspace"),
     surfaces = node("div", null, "workspace-tab-content workspace-surfaces");
-  const picker = node("div", null, "workspace-picker");
+  const picker = node("div", null, "workspace-picker choice-surface");
   picker.setAttribute("popover", "auto");
   picker.setAttribute("aria-label", "Открыть вкладку");
   const handle = node("div", null, "workspace-resize");
@@ -153,7 +153,11 @@ export function createWorkspace(target, { storage } = {}) {
   function choices(container) {
     container.replaceChildren();
     for (const r of records.filter((r) => !r.owned || r.client)) {
-      const b = node("button", r.manifest?.name ?? r.id);
+      const b = node("button", null, "choice-row");
+      const text = node("span", null, "choice-copy");
+      text.append(node("span", r.manifest?.name ?? r.id, "choice-title"));
+      if (r.manifest?.description) text.append(node("span", r.manifest.description, "choice-description"));
+      b.append(text);
       b.type = "button";
       b.dataset.openTab = r.id;
       container.append(b);
@@ -162,10 +166,11 @@ export function createWorkspace(target, { storage } = {}) {
   function showPicker(index, add) {
     pickerGroup = index;
     choices(picker);
-    const r = add.getBoundingClientRect();
-    picker.style.left = `${Math.max(8, Math.min(innerWidth - 300, r.right - 280))}px`;
-    picker.style.top = `${Math.max(8, Math.min(innerHeight - 340, r.bottom + 6))}px`;
-    pickerMotion.show();
+    pickerMotion.show(() => {
+      const r = add.getBoundingClientRect(), size = picker.getBoundingClientRect();
+      picker.style.left = `${Math.max(8, Math.min(r.right - size.width, innerWidth - size.width - 8))}px`;
+      picker.style.top = `${Math.max(8, Math.min(r.bottom + size.height + 8 < innerHeight ? r.bottom + 6 : r.top - size.height - 6, innerHeight - size.height - 8))}px`;
+    });
   }
   function render() {
     const finishTabMotion = animateTabs();

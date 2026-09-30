@@ -1,0 +1,447 @@
+.tool-card-summary {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    min-height: 36px;
+    align-items: center;
+    justify-content: flex-start;
+    gap: var(--space-2);
+    border: 1px solid transparent;
+    border-radius: var(--radius-inner);
+    background: transparent;
+    color: var(--text-muted);
+    padding: 6px 10px;
+    text-align: left;
+    font-size: 13px;
+    transition:
+        border-color 0.15s ease,
+        background 0.15s ease,
+        color 0.15s ease;
+}
+
+.tool-card-summary:hover {
+    border-color: var(--border-strong);
+    background: var(--bg-panel-hover);
+    color: var(--text-main);
+}
+
+/* Каретка раскрытия: поворачивается, когда детали открыты. */
+.tool-card-caret {
+    flex-shrink: 0;
+    color: var(--text-faint);
+    font-size: 15px;
+    line-height: 1;
+    transition: color 0.15s ease;
+}
+
+.tool-card-caret { margin-left:auto; width:14px; height:14px; position:relative; }
+.tool-card-caret::before { content:''; position:absolute; width:6px; height:6px; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor; transform:rotate(-45deg); top:4px; left:2px; }
+.tool-card.expanded .tool-card-caret::before { transform:rotate(45deg); top:2px; }
+
+.tool-card-summary:hover .tool-card-caret {
+    color: var(--text-muted);
+}
+
+.tool-card.expanded .tool-card-caret {
+    color: var(--text-muted);
+}
+
+.tool-card-summary strong {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-main);
+    font-size: 13px;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tool-card-summary-meta {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tool-card-identity {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+/* Длительность завершённого вызова прижимается к каретке справа. */
+.tool-card-duration {
+    flex-shrink: 0;
+    margin-left: auto;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.tool-card-duration ~ .tool-card-caret { margin-left: 0; }
+
+.tool-card-details {
+    display: grid;
+    gap: var(--space-2);
+    border: 1px solid var(--border-subtle);
+    border-top: 0;
+    border-radius: 0 0 var(--radius-inner) var(--radius-inner);
+    background: var(--bg-root);
+    padding: var(--space-3);
+    margin-top: -1px;
+}
+
+.subagent-card-details {
+    gap: var(--space-3);
+}
+
+.subagent-description {
+    display: grid;
+    min-width: 0;
+    gap: 4px;
+}
+
+.subagent-description p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.subagent-tool-list {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-2);
+}
+
+.subagent-nested-item.agent-turn-item {
+    margin-bottom: var(--space-2);
+    padding-left: 0;
+}
+
+.subagent-nested-item.agent-turn-item:last-child {
+    margin-bottom: 0;
+}
+
+.subagent-nested-item.agent-turn-item::before,
+.subagent-nested-item.agent-turn-item::after {
+    display: none;
+}
+
+.tool-card.expanded .tool-card-summary {
+    border-color: var(--border-subtle);
+    background: var(--bg-panel-soft);
+    border-radius: var(--radius-inner) var(--radius-inner) 0 0;
+}
+
+.tool-preview {
+    display: grid;
+    min-width: 0;
+    gap: 4px;
+}
+
+/* Заголовок секции превью: «запрос» / «ответ». */
+.tool-preview-caption {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+/* Одна заметная линия отделяет вход (параметры/запрос/файлы) от ответа.
+   Тянем блок ответа за горизонтальный паддинг деталей отрицательными полями и
+   компенсируем паддингом — линия идёт от края до края, не «висит». Появляется
+   только когда выше есть блок входа: у одиночного ответа её не будет. */
+.tool-card-details > .tool-preview + .tool-preview,
+.tool-card-details > .tool-arg-list + .tool-preview,
+.tool-card-details > .tool-file-list + .tool-preview {
+    border-top: 1px solid var(--border-strong);
+    margin: var(--space-1) calc(-1 * var(--space-3)) 0;
+    padding: var(--space-3) var(--space-3) 0;
+}
+
+.tool-arg-list,
+.tool-file-list {
+    display: grid;
+    min-width: 0;
+    gap: 4px;
+}
+
+.tool-arg-row {
+    display: grid;
+    /* Колонка ключей обнимает контент (с потолком), а не тянется долей
+       ширины карточки — иначе между ключом и значением дыра в треть карточки. */
+    grid-template-columns: minmax(90px, 140px) minmax(0, 1fr);
+    min-width: 0;
+    gap: var(--space-2);
+    align-items: baseline;
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 3px 0;
+}
+
+.tool-arg-row:last-child {
+    border-bottom: 0;
+}
+
+.tool-arg-key {
+    overflow: hidden;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tool-arg-value {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    white-space: pre-wrap;
+}
+
+.tool-file-row {
+    min-width: 0;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.tool-file-row:last-child {
+    border-bottom: 0;
+}
+
+.tool-file-toggle {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    width: 100%;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-2);
+    border: 0;
+    background: transparent;
+    color: var(--text-muted);
+    padding: 5px 0;
+    text-align: left;
+    cursor: pointer;
+}
+
+.tool-file-toggle:hover {
+    color: var(--text-main);
+}
+
+.tool-file-op {
+    color: var(--text-faint);
+    font-size: 11px;
+}
+
+/* Цвет метки по виду правки файла. */
+.tool-file-op.op-add {
+    color: var(--accent-green);
+}
+
+.tool-file-op.op-delete {
+    color: var(--accent-red);
+}
+
+.tool-file-op.op-update {
+    color: var(--accent-blue);
+}
+
+.tool-file-op.op-move {
+    color: var(--accent-yellow);
+}
+
+.tool-file-path {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-main);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tool-file-stats {
+    display: inline-flex;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.tool-file-add {
+    color: var(--accent-green);
+}
+
+.tool-file-del {
+    color: var(--accent-red);
+}
+
+.tool-file-detail {
+    border-top: 1px solid var(--border-subtle);
+    padding: var(--space-2) 0 var(--space-3);
+}
+
+.control-card .tool-preview {
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-inner);
+    background: var(--bg-root);
+    padding: var(--space-3);
+}
+
+/* Карточка цельная: контент течёт целиком, без внутреннего скролла. */
+.tool-preview pre {
+    margin: 0;
+    max-width: 100%;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    overflow: visible;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+/* Кнопка-ступень раскрытия превью (ещё N строк / свернуть). */
+.tool-preview-toggle {
+    justify-self: start;
+    border: 0;
+    border-radius: var(--radius-small);
+    background: transparent;
+    color: var(--accent-blue);
+    padding: 2px 6px;
+    margin-left: -6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.tool-preview-toggle:hover {
+    background: var(--bg-panel-hover);
+    color: var(--text-main);
+}
+
+/* Подсветка содержимого превью. */
+.tool-preview .tk-key {
+    color: var(--accent-blue);
+}
+
+.tool-preview .tk-str {
+    color: var(--accent-green);
+}
+
+.tool-preview .tk-num {
+    color: var(--accent-yellow);
+}
+
+.tool-preview .tk-bool {
+    color: #c08cf0;
+}
+
+.tool-preview .tk-punct {
+    color: var(--text-faint);
+}
+
+/* Каждая строка диффа — блок, чтобы фон тянулся на всю ширину превью. */
+.tool-preview .tk-line {
+    display: block;
+}
+
+.tool-preview .tk-add {
+    color: var(--accent-green);
+}
+
+.tool-preview .tk-del {
+    color: var(--accent-red);
+}
+
+/* Заливка добавленных/удалённых строк целиком. */
+.tool-preview .tk-line.tk-row-add {
+    background: var(--accent-green-soft);
+    box-shadow: inset 2px 0 0 var(--accent-green);
+}
+
+.tool-preview .tk-line.tk-row-del {
+    background: var(--accent-red-soft);
+    box-shadow: inset 2px 0 0 var(--accent-red);
+}
+
+.tool-preview .tk-hunk {
+    color: var(--accent-blue);
+}
+
+.tool-preview .tk-meta {
+    color: var(--text-faint);
+}
+
+.tool-preview .tk-patch-boundary {
+    color: var(--accent-blue);
+    font-weight: 600;
+}
+
+.tool-preview .tk-patch-op {
+    color: var(--text-faint);
+}
+
+.tool-preview .tk-patch-path {
+    color: var(--accent-yellow);
+}
+
+.tool-preview .tk-patch-context {
+    color: var(--text-muted);
+}
+
+.tool-preview .tk-patch-meta {
+    color: var(--text-faint);
+    font-style: italic;
+}
+
+/* Коды git status --short: ?? (untracked) — жёлтый, добавления зелёные,
+   удаления красные, остальные изменения синие; заголовок ветки приглушён. */
+.tool-preview .tk-git-branch {
+    color: var(--text-faint);
+}
+
+.tool-preview .tk-git-untracked {
+    color: var(--accent-yellow);
+    font-weight: 600;
+}
+
+.tool-preview .tk-git-add {
+    color: var(--accent-green);
+    font-weight: 600;
+}
+
+.tool-preview .tk-git-del {
+    color: var(--accent-red);
+    font-weight: 600;
+}
+
+.tool-preview .tk-git-mod {
+    color: var(--accent-blue);
+    font-weight: 600;
+}
+
+.spinner-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    flex-shrink: 0;
+    border: 1px solid currentcolor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+.tool-card-summary .status-badge { flex-shrink:0; border:0; padding:0; border-radius:0; font-size:11px; }
+.tool-card-summary .status-badge.running { color:var(--text-muted); }
+.tool-card-summary .status-badge.attention { color:var(--accent-yellow); }
+.tool-card-summary .status-badge.failed { color:var(--accent-red); }
+.tool-card-summary .status-badge.idle { color:var(--text-faint); }
+@media (max-width:1000px) { .tool-card-summary { flex-wrap:wrap; } .tool-card-summary-meta { flex-basis:45%; } .tool-arg-row { grid-template-columns:minmax(70px,100px) minmax(0,1fr); } }

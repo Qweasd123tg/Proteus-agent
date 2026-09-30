@@ -458,6 +458,16 @@ workspace boundary или аргументной validation. Если `preview` 
 approval остаётся валидным и должен рендериться через обычные `ToolCall`,
 `reason`, `cwd` и `tool_spec`.
 
+Web/desktop approval-карточка показывает причину, полный рабочий каталог и
+preview действия. При наличии body исходные параметры находятся в раскрываемом
+блоке; без body параметры видны сразу. Все affected files доступны в карточке.
+Выбор «Разрешение действует» начинается с «Один раз»: «Тот же вызов» соответствует
+`exact_call`, «Та же команда» — `exact_command`, «Запись в проекте» — разрешённому
+для tool-а `workspace_write`. Пояснение относится к запросившему агенту и текущему
+runtime сессии. Отказ всегда отправляет `approved=false, cache=none`.
+В ленте ошибки, отказы и прерывания tools имеют текстовый статус; успешные
+вызовы сохраняют компактную строку. ID вызова доступен в деталях.
+
 Headless runtime без approval transport отказывает `Ask`. App-server transport
 публикует `ApprovalRequested` и ждёт ответ UI-клиента через `approval`.
 Pending request хранится в app-server и доступен через

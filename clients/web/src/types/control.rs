@@ -7,14 +7,29 @@ pub(crate) use proteus_contracts::{
 };
 pub(crate) trait ApprovalCacheLabel {
     fn label(self) -> &'static str;
+    fn description(self) -> &'static str;
 }
 impl ApprovalCacheLabel for ApprovalCacheScope {
     fn label(self) -> &'static str {
         match self {
             Self::None => "Один раз",
-            Self::ExactCall => "Точно",
-            Self::ExactCommand => "Команда",
-            Self::WorkspaceWrite => "Workspace",
+            Self::ExactCall => "Тот же вызов",
+            Self::ExactCommand => "Та же команда",
+            Self::WorkspaceWrite => "Запись в проекте",
+        }
+    }
+    fn description(self) -> &'static str {
+        match self {
+            Self::None => "Только этот вызов. Следующий запрос снова потребует разрешения.",
+            Self::ExactCall => {
+                "Для этого агента до перезапуска сессии: тот же инструмент с теми же параметрами в этом каталоге."
+            }
+            Self::ExactCommand => {
+                "Для этого агента до перезапуска сессии: та же команда с теми же параметрами в этом каталоге."
+            }
+            Self::WorkspaceWrite => {
+                "Для этого агента до перезапуска сессии: разрешённая запись файлов в проекте для этого инструмента."
+            }
         }
     }
 }

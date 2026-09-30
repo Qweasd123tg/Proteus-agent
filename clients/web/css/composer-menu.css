@@ -1,3 +1,4 @@
+@import url('../ui/choice.css');
 .composer-menu { min-width: 0; max-width: 360px; }
 /* Native popover state hides the fixed panel; details must not freeze its exit. */
 .composer-menu::details-content { content-visibility:visible; }
@@ -29,36 +30,10 @@
 .composer-menu-model { min-width: 0; overflow: hidden; font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .composer-menu-meta { flex: 0 1 auto; overflow: hidden; color: var(--text-faint); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .composer-menu-meta::before { content: "· "; }
-.composer-menu-label { color: var(--text-faint); font-size: 11px; font-weight: 500; }
-
-.composer-menu-panel {
-    position: absolute;
-    bottom: calc(100% + var(--space-2));
-    right: auto;
-    left: 10px;
-    width: 350px;
-    max-width: calc(100% - 20px);
-    max-height: min(480px, 65vh);
-    overflow: auto;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-card);
-    background: var(--bg-composer);
-    box-shadow: var(--shadow-lg);
-    padding: var(--space-1);
-    z-index: 20;
-}
-.composer-model-menu .composer-menu-panel { left: auto; right: 10px; }
-
-.composer-menu-section {
-    display: grid;
-    gap: var(--space-2);
-    border-bottom: 1px solid var(--border-subtle);
-    padding: var(--space-3);
-}
-
-.composer-menu-section:last-child {
-    border-bottom: 0;
-}
+.composer-menu-panel { position:fixed; inset:auto; margin:0; width:350px; max-width:calc(100vw - 16px); max-height:min(480px,calc(100dvh - 16px)); overflow:auto; z-index:20; }
+.composer-menu-section { display:grid; gap:2px; border-bottom:1px solid var(--border-subtle); padding:0 0 6px; }
+.composer-menu-section + .composer-menu-section { padding-top:4px; }
+.composer-menu-section:last-child { border-bottom:0; padding-bottom:0; }
 
 .composer-menu-options {
     display: flex;
@@ -74,7 +49,7 @@
     gap: 2px;
 }
 
-.menu-option {
+.menu-option:not(.menu-option-row) {
     display: flex;
     min-width: 0;
     min-height: 32px;
@@ -92,77 +67,35 @@
     white-space: nowrap;
 }
 
-.menu-option:hover,
-.menu-option:focus {
+.menu-option:not(.menu-option-row):hover,
+.menu-option:not(.menu-option-row):focus {
     border-color: transparent;
     background: var(--bg-panel-hover);
     color: var(--text-main);
     outline: none;
 }
 
-.menu-option:focus-visible {
+.menu-option:not(.menu-option-row):focus-visible {
     outline: 2px solid var(--text-muted);
     outline-offset: -2px;
 }
 
-.menu-option.active {
+.menu-option:not(.menu-option-row).active {
     border-color: transparent;
     background: var(--bg-panel-hover);
     color: var(--text-main);
 }
 
-.menu-option:disabled {
+.menu-option:not(.menu-option-row):disabled {
     cursor: not-allowed;
     opacity: 0.55;
 }
 
-/* Строчный пункт списка: без рамки, активный помечен галкой. */
-.menu-option-row {
-    width: 100%;
-    min-height: 44px;
-    justify-content: space-between;
-    gap: var(--space-3);
-    border-color: transparent;
-    background: transparent;
-    padding: 9px 10px;
-    text-align: left;
-    white-space: normal;
-}
-
-.menu-option-row:hover,
-.menu-option-row:focus {
-    border-color: transparent;
-    background: var(--bg-panel-soft);
-}
-
-.menu-option-row.active {
-    border-color: transparent;
-    background: var(--bg-panel-hover);
-}
-
-.menu-option-row:disabled {
-    opacity: 1;
-    color: var(--text-main);
-}
-
-.menu-option-text {
-    display: grid;
-    min-width: 0;
-    gap: 1px;
-}
-
-.menu-option-title {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 13px;
-}
-
-.menu-option-desc {
-    color: var(--text-faint);
-    font-size: 11px;
-    white-space: normal;
-}
+/* Row geometry and typography come from the shared choice surface. */
+.menu-option.menu-option-row { justify-content:space-between; overflow:visible; }
+.menu-option-row.active { background:var(--bg-panel-hover); }
+.menu-option-row:disabled { opacity:.55; }
+.menu-option:not(.menu-option-row) .choice-title { font-size:12px; white-space:nowrap; }
 
 .menu-option-check {
     flex: 0 0 auto;
@@ -175,6 +108,4 @@
     visibility: visible;
 }
 
-/* A module can live in any dock; its menu stays inside the viewport. */
-.composer-menu .composer-menu-panel { position:fixed; inset:auto; margin:0; width:350px; max-width:calc(100vw - 16px); max-height:min(480px,calc(100dvh - 16px)); }
 .composer-menu .composer-menu-panel:not(:popover-open) { display:none; }

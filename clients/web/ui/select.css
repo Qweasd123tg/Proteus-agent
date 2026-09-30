@@ -1,17 +1,10 @@
+@import url('./choice.css');
 /* Shared by both clients and the extension Shadow DOM theme. */
-.select-picker {
-    position: fixed; inset: auto; margin: 0; padding: 5px; box-sizing: border-box;
-    overflow: auto; z-index: 10000; border: 1px solid var(--border-strong, #444);
-    border-radius: 11px; background: var(--bg-panel, #222); color: var(--text-main, #ededed);
-    box-shadow: 0 12px 36px #0006; font: 12px/1.5 var(--font-sans, system-ui);
-    outline: none;
-}
-.select-picker-option { position: relative; padding: 7px 30px 7px 10px; border-radius: 6px; cursor: pointer; overflow-wrap: anywhere; }
-.select-picker-option.focused { background: var(--bg-hover, #383838); }
-.select-picker-option:is([aria-selected=true], [aria-checked=true])::after { content: '✓'; position: absolute; right: 10px; color: var(--text-main, #ededed); }
-.select-picker-option[aria-disabled=true] { opacity: .4; cursor: default; }
-.select-picker-option[hidden] { display: none; }
-.select-picker-group { padding: 6px 10px 3px; color: var(--text-muted, #aaa); font-size: 11px; }
+.select-picker { position: fixed; inset: auto; margin: 0; overflow: auto; z-index: 10000; outline: none; }
+.select-picker-option { position: relative; padding-right: 34px; }
+.select-picker-option:is([aria-selected=true], [aria-checked=true])::after { content: '✓'; position: absolute; right: 12px; color: currentColor; }
+.select-picker-option[aria-selected=true] { background: var(--bg-panel-soft, #282828); }
+.select-picker-group:not(:first-child) { margin-top: 4px; border-top: 1px solid var(--border-subtle, #333); }
 select:not([multiple]):is(:not([size]), [size="0"], [size="1"]) {
     appearance: none;
     -webkit-appearance: none;

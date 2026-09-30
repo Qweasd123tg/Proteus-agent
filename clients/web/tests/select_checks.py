@@ -60,6 +60,13 @@ def run(command, js, wait_for):
         pointer(f"{menu}.querySelectorAll('[role=option]')[0]")
         assert js(f"return !{menu}?.matches(':popover-open') && {select}.value==='alpha'"), 'Trusted pointer did not commit a selectable option'
         removed()
+        js(f"const option={select}.options[0];option.textContent='Alpha ' + 'длинное название модели '.repeat(8);option.dataset.description='Пояснение ' + 'с длинными параметрами '.repeat(10);document.querySelector('#picker-fixture').style.left=(innerWidth-280)+'px';document.querySelector('#picker-fixture').style.top=(innerHeight-80)+'px'")
+        pointer(select)
+        wait_for(lambda: js(f"return !!{menu}?.matches(':popover-open')"), 'Long choice did not open')
+        assert js(f"const m={menu},r=m.getBoundingClientRect(),o=m.querySelector('[role=option]'),title=o.querySelector('.choice-title'),hint=o.querySelector('.choice-description');return r.left>=8 && r.right<=innerWidth-8 && r.top>=8 && r.bottom<=innerHeight-8 && m.scrollWidth<=m.clientWidth && title.getBoundingClientRect().height>25 && hint.textContent.startsWith('Пояснение') && (!document.querySelector('.composer-menu-panel') || getComputedStyle(m).backgroundColor===getComputedStyle(document.querySelector('.composer-menu-panel')).backgroundColor)"), 'Long title/description clipped, menu overflowed or shared surface differs'
+        keys('\ue00c')
+        removed()
+        js("document.querySelector('#picker-fixture').style.left='100px';document.querySelector('#picker-fixture').style.top='80px'")
         pointer(select)
         js(f"{select}.remove()")
         wait_for(lambda: js(f"return !{menu}"), 'Detached trigger left an orphan menu')
@@ -79,4 +86,4 @@ def run(command, js, wait_for):
         wait_for(lambda: js("return !window.detachedPickerRoot.querySelector('.select-picker')"), 'Detached Shadow DOM host retained menu and listeners')
     finally:
         js("document.querySelector('#picker-fixture')?.remove();delete window.detachedPickerRoot")
-    print('PASS: themed select trusted pointer; groups; value events; keyboard; Escape; Tab; outside click; Shadow DOM cleanup', flush=True)
+    print('PASS: themed select trusted pointer; groups; value events; keyboard; Escape; Tab; outside click; long choice/description and bottom-edge geometry; Shadow DOM cleanup', flush=True)

@@ -1,0 +1,118 @@
+.control-card {
+    display: grid;
+    gap: var(--space-3);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-panel);
+    padding: var(--space-4);
+}
+
+.approval-card {
+    margin-bottom: var(--space-5);
+}
+
+.control-card-header {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.control-card-header strong,
+.control-card-header code {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.control-card-header strong {
+    color: var(--text-main);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.control-card-header code {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.control-card p {
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.control-card > pre {
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-inner);
+    background: var(--bg-root);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    padding: var(--space-3);
+    white-space: pre-wrap;
+}
+
+.control-row,
+.control-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+.segmented {
+    display: flex;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-inner);
+}
+
+.segmented button {
+    min-height: 28px;
+    flex: 0 0 auto;
+    border: 0;
+    border-radius: 0;
+    border-right: 1px solid var(--border-subtle);
+    background: transparent;
+    color: var(--text-muted);
+    padding: 0 var(--space-3);
+}
+
+.segmented button:last-child {
+    border-right: 0;
+}
+
+.segmented button.active {
+    background: var(--bg-panel-hover);
+    color: var(--text-main);
+}
+
+
+/* Permission scope is a user choice; it uses the same form picker as settings. */
+.approval-card { background:var(--bg-panel-soft); border-color:var(--border-strong); }
+.approval-heading { display:grid; gap:8px; }
+.approval-heading .control-card-header { flex-wrap:wrap; gap:8px; }
+.approval-heading .control-card-header strong { overflow-wrap:anywhere; white-space:normal; }
+.approval-cwd { color:var(--text-faint); font:11px/1.5 var(--font-mono); overflow-wrap:anywhere; }
+.approval-scope { display:grid; grid-template-columns:minmax(0,1fr) minmax(160px,230px); gap:6px 16px; align-items:center; }
+.approval-scope label { color:var(--text-main); font-size:13px; }
+.approval-scope p { grid-column:1 / -1; color:var(--text-muted); font-size:12px; }
+.approval-card .control-actions { justify-content:flex-end; padding-top:4px; }
+.approval-card .control-actions button { min-height:36px; }
+.approval-preview { display:grid; min-width:0; gap:8px; }
+.approval-preview .control-card-header { flex-wrap:wrap; gap:8px; }
+.approval-preview .control-card-header strong { white-space:normal; overflow-wrap:anywhere; font-size:13px; }
+.approval-files { display:grid; gap:4px; list-style:none; color:var(--text-muted); font:11px/1.5 var(--font-mono); overflow-wrap:anywhere; }
+.approval-arguments { min-width:0; }
+.approval-arguments summary { display:flex; gap:8px; align-items:center; color:var(--text-muted); font-size:12px; cursor:pointer; list-style:none; padding:4px 0; }
+.approval-arguments summary::-webkit-details-marker { display:none; }
+.approval-arguments summary::before { content:'+'; font-size:14px; }
+.approval-arguments[open] summary::before { content:'−'; }
+.approval-arguments .tool-preview { margin-top:8px; }
+@media (max-width:1000px) { .approval-scope { grid-template-columns:minmax(0,1fr); } }

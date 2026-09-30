@@ -24,6 +24,7 @@ from chrome_checks import run as check_chrome
 from placement_checks import run as check_placement
 from polish_checks import run as check_polish, check_restore_failure
 from tool_chain_checks import run as check_tool_chain
+from approval_checks import run as check_approvals
 from subagent_tab_checks import run as check_subagent_tabs
 from typing_checks import run as check_typing
 from scroll_jitter_checks import run as check_scroll_jitter
@@ -101,13 +102,17 @@ class Assets(SimpleHTTPRequestHandler):
             output = [{"id":"ui-answer","type":"message","role":"assistant","content":[{"type":"output_text","text":"Проверка интерфейса завершена.\n\n- Панели раскрываются одним изменением ширины.\n- Расширения настраиваются в отдельном разделе.\n- Поле ввода оставляет место для последних сообщений.\n\n```rust\nfn main() {\n    println!(\"Proteus UI fixture\");\n}\n```"}]}]
         if count == 1 and '--markdown-only' in sys.argv:
             output[0]['content'][0]['text'] += MARKDOWN_FIXTURE
-        if count >= 2:
+        if '--approval-only' in sys.argv:
+            calls={0:('write_file',{'path':'approval-result.txt','content':'approved once'}),2:('exec_command',{'cmd':'printf approval-command','max_output_tokens':100}),4:('write_file',{'path':'denied-result.txt','content':'must not exist'})}
+            if count in calls:
+                name,args=calls[count];output=[{'type':'function_call','call_id':f'approval-{count}','name':name,'arguments':json.dumps(args)}]
+        if count >= 2 and '--approval-only' not in sys.argv:
             chunks = getattr(self.server, 'typing_chunks', None) or [f"Абзац {i}: " + "Продолжение ответа. " * 8 + "\n\n" for i in range(32)]
             output = [{"id":f"ui-answer-{count}","type":"message","role":"assistant","content":[{"type":"output_text","text":''.join(chunks)}]}]
         self.send_response(200)
         self.send_header('Content-Type', 'text/event-stream')
         self.end_headers()
-        if count >= 2:
+        if count >= 2 and '--approval-only' not in sys.argv:
             def emit(name, data):
                 data['type'] = name
                 self.wfile.write(('event: '+name+'\ndata: '+json.dumps(data)+'\n\n').encode())
@@ -276,6 +281,8 @@ command = "/bin/true"
 [module_config.model.custom-model]
 implementation = "openai_codex"
 base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/usage') + '\nauth_file = ' + json.dumps(str(auth)) + '\n[event_log]\npath = ' + json.dumps(str(folder / 'events.jsonl')) + '\n')
+        if '--approval-only' in sys.argv:
+            config.write_text(config.read_text().replace('policy.allow_all','policy.ask_write').replace('policy = "allow_all"','policy = "ask_write"').replace('enabled = ["update_plan"]','enabled = ["update_plan", "write_file", "exec_command"]'))
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0))
             driver_port = sock.getsockname()[1]
@@ -328,6 +335,11 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return js("return document.querySelector('[data-extension-id=agent-info] .extension-panel-content')?.shadowRoot?.textContent.includes('extensions-smoke')")
                 command('/window/rect', {'width': 1440, 'height': 1000})
                 assert js("return matchMedia('(prefers-reduced-motion: reduce)').matches") == bool(reduced_motion), 'Browser did not apply motion preference'
+                if '--approval-only' in sys.argv:
+                    command('/url', {'url':web+'/?'+urlencode({'server':origin,'token':'extension-smoke'})})
+                    wait_for(loaded,'Client missing')
+                    check_approvals(command,js,wait_for,folder)
+                    return
                 if '--preference-error-only' in sys.argv:
                     command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
                     wait_for(loaded,'Client missing')
@@ -381,6 +393,10 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return
                 if '--markdown-only' in sys.argv:
                     check_markdown(command,js,wait_for)
+                    return
+                if '--choices-only' in sys.argv:
+                    check_selects(command,js,wait_for)
+                    check_tool_chain(command,js,wait_for)
                     return
                 if '--tool-chain-only' in sys.argv:
                     check_tool_chain(command, js, wait_for)

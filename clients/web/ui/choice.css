@@ -1,0 +1,50 @@
+/* One surface and row rhythm for form pickers, action menus and composer choices.
+   Geometry and selection behavior belong to the individual controls. */
+.choice-surface {
+    height: auto;
+    box-sizing: border-box;
+    padding: 6px;
+    border: 1px solid var(--border-strong, #484848);
+    border-radius: var(--radius-card, 16px);
+    background: var(--bg-popover, #2c2c2c);
+    color: var(--text-main, #e6e6e6);
+    box-shadow: var(--shadow-lg, 0 16px 40px rgb(0 0 0 / 28%));
+    font: 13px/1.45 var(--font-sans, system-ui);
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong, #484848) transparent;
+}
+.choice-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    min-height: 36px;
+    width: 100%;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: var(--radius-inner, 10px);
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    font: inherit;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+}
+.choice-row:is(:hover, :focus-visible, .focused, .active):not(:disabled):not([aria-disabled=true]) {
+    background: var(--bg-panel-hover, #343434);
+    color: var(--text-main, #e6e6e6);
+}
+.choice-row:focus-visible { outline: 2px solid var(--text-muted, #aaa); outline-offset: -2px; }
+.choice-copy { display: grid; min-width: 0; flex: 1; gap: 3px; }
+.choice-title { min-width: 0; font-size: 13px; font-weight: 500; line-height: 1.4; white-space: normal; overflow-wrap: anywhere; }
+.choice-description { color: var(--text-muted, #aaa); font-size: 12px; font-weight: 400; line-height: 1.45; white-space: normal; overflow-wrap: anywhere; }
+.choice-heading { display: block; padding: 8px 10px 5px; color: var(--text-faint, #808080); font-size: 11px; font-weight: 500; line-height: 1.4; }
+.choice-row:is(:disabled, [aria-disabled=true]) { opacity: .45; cursor: default; }
+.choice-row[hidden] { display: none; }
+@media (forced-colors: active) {
+    .choice-surface { background: Canvas; color: CanvasText; border-color: ButtonText; }
+    .choice-row:is(:focus-visible, .focused, .active) { background: Highlight; color: HighlightText; forced-color-adjust: none; }
+    .choice-row:is(:disabled, [aria-disabled=true]) { color: GrayText; opacity: 1; }
+}

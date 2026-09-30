@@ -28,9 +28,8 @@
 .workspace-tab-content [data-presentation=panel] .extension-panel-content { flex:1; min-height:0; height:100%; }
 .workspace-empty { display:flex; flex:1; flex-direction:column; justify-content:center; gap:8px; padding:32px; overflow:auto; }
 .workspace-empty button { justify-content:flex-start; background:var(--bg-panel-soft); min-height:42px; flex:none; }
-.workspace-picker { margin:0; position:fixed; inset:auto; max-height:calc(100dvh - 16px); overflow:auto; width:min(360px,90vw); padding:8px; border:1px solid var(--border-strong); border-radius:14px; color:var(--text-main); background:var(--bg-popover); box-shadow:var(--shadow-lg); }
-.workspace-picker:popover-open { display:flex; flex-direction:column; gap:3px; }
-.workspace-picker button { justify-content:flex-start; min-height:36px; }
+.workspace-picker { margin:0; position:fixed; inset:auto; max-height:calc(100dvh - 16px); overflow:auto; width:min(360px,calc(100vw - 16px)); }
+.workspace-picker:popover-open { display:flex; flex-direction:column; gap:2px; }
 .workspace-resize { flex:0 0 6px; position:relative; background:var(--border-subtle); cursor:col-resize; touch-action:none; }
 .workspace-resize:hover,.workspace-resize:focus-visible,.resizing > .workspace-resize { background:var(--text-faint); }
 .tab-workspace.resizing iframe { pointer-events:none; }
