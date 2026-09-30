@@ -1,5 +1,6 @@
 mod backend;
 mod graphics;
+mod local_transport;
 mod preferences;
 mod windows;
 
@@ -213,7 +214,10 @@ fn setup(app: &mut tauri::App) -> Result<()> {
 
 fn main() {
     // SAFETY: no GTK initialization or application threads have started yet.
-    unsafe { graphics::configure_before_threads() };
+    unsafe {
+        local_transport::configure_before_threads();
+        graphics::configure_before_threads();
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             let label = if app.get_webview_window("main").is_some() {
