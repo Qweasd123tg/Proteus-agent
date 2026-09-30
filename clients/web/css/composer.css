@@ -3,8 +3,20 @@
     position: absolute;
     inset: auto 0 0;
     z-index: 5;
+    isolation: isolate;
     width: 100%;
     padding: 0 clamp(16px, 3vw, 32px) 24px;
+}
+
+/* Fade only the dock's fixed-size backdrop. A mask on the whole scroll surface
+   makes WebKit repaint the transcript during native wheel animation. */
+.composer::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(to bottom, transparent 0, var(--bg-root) 22px);
 }
 
 .composer-shell {

@@ -31,7 +31,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--wayland', action='store_true')
     parser.add_argument('--history', type=int, default=240)
+    parser.add_argument('--native-wheel', action='store_true', help='Compare trusted wheel movement with the previous full-surface mask on niri')
     args = parser.parse_args()
+    if args.native_wheel:
+        assert args.wayland and all(shutil.which(name) for name in ['niri', 'ydotool', 'ydotoold']), 'Native wheel probe requires Wayland/niri and ydotool'
     assert args.history >= 240, 'Window-turnover regression needs at least 240 messages'
     fixture.BOOTSTRAP = fixture.BOOTSTRAP.replace('length: 240', 'length: ' + str(args.history))
     display = None
@@ -52,7 +55,8 @@ def main():
         os.environ.update(DISPLAY=':' + number, GDK_BACKEND='x11')
         os.environ.pop('WAYLAND_DISPLAY', None)
         os.environ['WEBKIT_DISABLE_COMPOSITING_MODE'] = '1'
-    os.environ['WEBKIT_DISABLE_DMABUF_RENDERER'] = '1'
+    if not args.wayland:
+        os.environ.setdefault('WEBKIT_DISABLE_DMABUF_RENDERER', '1')
 
     import gi
     gi.require_version('Gtk', '3.0')
@@ -102,6 +106,7 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                    XDG_DATA_HOME=str(folder / 'data'))
         backend = None
         window = None
+        wheel_probe = None
         with (folder / 'backend.log').open('w+') as log:
             try:
                 backend = subprocess.Popen([
@@ -176,6 +181,7 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     view.evaluate_javascript(script, -1, None, None, None, done, None)
 
                 def handle(value):
+                    nonlocal wheel_probe
                     state['last'] = value
                     stage = state['stage']
                     if stage == 0 and value:
@@ -186,7 +192,7 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                             // from the shared desktop must not alter the scenario.
                             for(const type of ['wheel','pointerdown','pointermove','pointerup','keydown'])
                                 window.addEventListener(type,event=>{
-                                    if(event.isTrusted){event.preventDefault();event.stopImmediatePropagation();}
+                                    if(event.isTrusted && !window.nativeWheelActive){event.preventDefault();event.stopImmediatePropagation();}
                                 },{capture:true,passive:false});
                             window.scrollEvents = 0;
                             r.addEventListener('scroll', () => scrollEvents++);
@@ -247,6 +253,11 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     elif stage == 5 and value and value['sticky'] and value['atBottom']:
                         state['stage'] = 6
                         present_probe_window()
+                        if args.native_wheel:
+                            from native_wheel_checks import NativeWheelProbe
+                            wheel_probe = NativeWheelProbe(GLib, evaluate, present_probe_window, window_title,
+                                lambda result: (state.update(wheel_result=result), Gtk.main_quit()), fail)
+                            return
                         evaluate(INPUT_PROBE + '.then(()=>'+JITTER_PROBE+').then(value=>window.scrollJitterResult=value,error=>window.scrollJitterResult={error:String(error)});true', lambda _: None)
                     elif stage == 6 and value and value['result']:
                         try:
@@ -277,6 +288,8 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     elif stage == 1:
                         script = "document.querySelector('.results-panel')?.textContent.includes('Абзац 3:') && !!document.querySelector('.composer-stop')"
                     elif stage == 6:
+                        if args.native_wheel:
+                            return True
                         script = '({result:window.scrollJitterResult || null,hidden:document.hidden,progress:window.scrollJitterProgress || null})'
                     else:
                         script = '''(() => {
@@ -307,8 +320,11 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                 Gtk.main()
                 assert not errors, '\n'.join(errors)
                 assert state['stage'] == 6, 'Chat scroll regression ended at stage ' + str(state['stage'])
-                print('PASS: WebKit near-bottom reading survives queued scroll and streaming; downward return follows; virtual window turnover preserves each frame', flush=True)
+                print('PASS: trusted native wheel comparison' if args.native_wheel else
+                      'PASS: WebKit near-bottom reading survives queued scroll and streaming; downward return follows; virtual window turnover preserves each frame', flush=True)
             finally:
+                if wheel_probe is not None:
+                    wheel_probe.stop()
                 server.stream_gate.set()
                 if window is not None:
                     window.destroy()

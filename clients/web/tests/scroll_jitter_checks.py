@@ -30,6 +30,13 @@ INPUT_PROBE = r"""
         };
         try{
           await restore();inner.scrollTop=200;
+          // Reattaching can precede the next bottom-follow frame clearing the
+          // last gesture's direction. Clicking must not detach the reader.
+          root.dataset.transcriptDirection='up';
+          root.dataset.transcriptUserScroll='';
+          root.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));await frames(3);
+          if(!root.classList.contains('sticky-bottom'))throw Error('Pointer click reused a stale upward gesture');
+          await restore();
           await untouched(new WheelEvent('wheel',{deltaY:-48,bubbles:true}),inner);
           inner.scrollTop=0;
           await untouched(new WheelEvent('wheel',{deltaY:-48,bubbles:true}),inner);
@@ -55,7 +62,7 @@ INPUT_PROBE = r"""
           const before=root.scrollTop;inner.style.height='96px';await frames(5);
           if(Math.abs(root.scrollTop-before)>1)throw Error('Pending bottom-follow frame overrode keyboard reading intent');
           await restore();
-          return {nestedWheel:true,zoomWheel:true,horizontalWheel:true,consumedKey:true,externalPanelKey:true,pendingKeyboard:true};
+          return {nestedWheel:true,zoomWheel:true,horizontalWheel:true,consumedKey:true,externalPanelKey:true,pendingKeyboard:true,pointerFollow:true};
         }finally{
           inner.remove();button.remove();outside.remove();root.removeAttribute('tabindex');await restore();
         }

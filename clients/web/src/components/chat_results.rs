@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 
 use leptos::{html, prelude::*};
-use web_sys::WheelEvent;
 
 use super::{ApprovalCard, PlanActionsCard, UserInputCard, WorkingCard};
-use crate::chat_scroll::{is_at_bottom, targets_transcript};
+use crate::chat_scroll::is_at_bottom;
 use crate::types::*;
 
 #[component]
@@ -47,16 +46,6 @@ where
             class:sticky-bottom=move || prefs.auto_scroll.get() && stick_to_bottom.get()
             aria-label="Диалог"
             node_ref=results_ref
-            on:wheel=move |ev: WheelEvent| {
-                let Some(results) = results_ref.get_untracked() else { return };
-                if !targets_transcript(&results, &ev) { return; }
-                if ev.delta_y() != 0.0 {
-                    let _ = results.set_attribute("data-transcript-direction", if ev.delta_y() < 0.0 { "up" } else { "down" });
-                }
-                if ev.delta_y() < 0.0 {
-                    set_stick_to_bottom.set(false);
-                }
-            }
             on:scroll=move |_| {
                 if let Some(results) = results_ref.get() {
                     let scroll_top = results.scroll_top();
@@ -104,7 +93,7 @@ where
                     ().into_any()
                 }
             }}
-            <super::virtual_transcript::VirtualTranscript root=results_ref groups messages activity_now_ms session set_last_scroll_top=set_last_results_scroll_top/>
+            <super::virtual_transcript::VirtualTranscript root=results_ref groups messages activity_now_ms session set_last_scroll_top=set_last_results_scroll_top set_stick_to_bottom/>
             <For
                 each=move || pending_approvals.get()
                 key=|request| request.approval_id.clone()

@@ -29,6 +29,7 @@ pub(super) fn VirtualTranscript(
     activity_now_ms: ReadSignal<u64>,
     session: ReadSignal<Option<String>>,
     set_last_scroll_top: WriteSignal<i32>,
+    set_stick_to_bottom: WriteSignal<bool>,
 ) -> impl IntoView {
     let range = RwSignal::new(None::<Vec<VisibleRow>>);
     let rows = Memo::new(move |_| {
@@ -57,9 +58,16 @@ pub(super) fn VirtualTranscript(
         })
     });
     #[cfg(target_arch = "wasm32")]
-    attach(root, rows, range, session, set_last_scroll_top);
+    attach(
+        root,
+        rows,
+        range,
+        session,
+        set_last_scroll_top,
+        set_stick_to_bottom,
+    );
     #[cfg(not(target_arch = "wasm32"))]
-    let _ = (root, rows, set_last_scroll_top);
+    let _ = (root, rows, set_last_scroll_top, set_stick_to_bottom);
     view! {
         <div class="transcript-spacer" data-transcript-top="" aria-hidden="true"></div>
         <For
@@ -100,6 +108,7 @@ fn attach(
     range: RwSignal<Option<Vec<VisibleRow>>>,
     session: ReadSignal<Option<String>>,
     last: WriteSignal<i32>,
+    stick_to_bottom: WriteSignal<bool>,
 ) {
     use wasm_bindgen::{JsCast, closure::Closure, prelude::*};
     #[wasm_bindgen(raw_module = "/ui/virtual-transcript.js")]
@@ -109,6 +118,7 @@ fn attach(
             root: &web_sys::Element,
             range: &js_sys::Function,
             adjusted: &js_sys::Function,
+            reading_up: &js_sys::Function,
         ) -> js_sys::Function;
         #[wasm_bindgen(js_name = updateVirtualTranscript)]
         fn update(root: &web_sys::Element, rows: &str, session: &str);
@@ -122,14 +132,17 @@ fn attach(
         }) as Box<dyn FnMut(String)>);
         let on_adjusted =
             Closure::wrap(Box::new(move |top: i32| last.set(top)) as Box<dyn FnMut(i32)>);
+        let on_reading_up =
+            Closure::wrap(Box::new(move || stick_to_bottom.set(false)) as Box<dyn FnMut()>);
         let dispose = mount(
             element.as_ref(),
             on_range.as_ref().unchecked_ref(),
             on_adjusted.as_ref().unchecked_ref(),
+            on_reading_up.as_ref().unchecked_ref(),
         );
-        let lifetime = StoredValue::new_local((dispose, on_range, on_adjusted));
+        let lifetime = StoredValue::new_local((dispose, on_range, on_adjusted, on_reading_up));
         on_cleanup(move || {
-            lifetime.with_value(|(dispose, _, _)| {
+            lifetime.with_value(|(dispose, _, _, _)| {
                 let _ = dispose.call0(&JsValue::NULL);
             });
         });

@@ -15,7 +15,7 @@ def run(command, js, wait_for):
     assert js("return document.querySelector('.jr-bar-value').textContent==='80 с'"), 'Chart value lost'
     js("document.querySelectorAll('.jr-tab')[1].click();const search=document.querySelector('.jr-search');search.value='После';search.dispatchEvent(new Event('input',{bubbles:true}))")
     assert js("return document.querySelectorAll('.jr-tab')[1].getAttribute('aria-selected')==='true' && document.querySelectorAll('.jr-table tbody tr').length===1 && document.querySelector('.jr-table tbody').textContent.includes('35')"), 'Tabs / filter did not respond'
-    js("document.querySelectorAll('.jr-tab')[1].dispatchEvent(new KeyboardEvent('keydown',{key:'Home',bubbles:true}))")
+    js("document.querySelectorAll('.jr-tab')[1].dispatchEvent(new KeyboardEvent('keydown',{key:'Home',bubbles:true,cancelable:true}))")
     assert js("return document.querySelector('.jr-tab').getAttribute('aria-selected')==='true'"), 'Keyboard tab navigation failed'
     js("document.querySelector('.markdown-interactive').closest('.code-block').querySelector('.code-source').click()")
     assert js("return !document.querySelector('code.language-json-render').parentElement.hidden && document.querySelector('code.language-json-render').textContent.includes('summary')"), 'JSON source unavailable'

@@ -2,24 +2,6 @@ use leptos::{html, prelude::*};
 use web_sys::HtmlElement;
 pub(crate) const CHAT_REATTACH_THRESHOLD_PX: i32 = 4;
 
-pub(crate) fn targets_transcript(results: &HtmlElement, event: &web_sys::WheelEvent) -> bool {
-    #[cfg(target_arch = "wasm32")]
-    {
-        use wasm_bindgen::prelude::*;
-        #[wasm_bindgen(raw_module = "/ui/transcript-input.js")]
-        extern "C" {
-            #[wasm_bindgen(js_name = targetsTranscript)]
-            fn targets(root: &web_sys::Element, event: &web_sys::WheelEvent) -> bool;
-        }
-        targets(results.as_ref(), event)
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = (results, event);
-        true
-    }
-}
-
 pub(crate) fn is_at_bottom(results: &HtmlElement) -> bool {
     let distance = results.scroll_height() - results.scroll_top() - results.client_height();
     distance <= CHAT_REATTACH_THRESHOLD_PX

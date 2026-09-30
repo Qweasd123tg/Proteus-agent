@@ -5,7 +5,7 @@ import { targetsTranscript } from './transcript-input.js';
 
 const controllers = new WeakMap();
 
-export function mountVirtualTranscript(root, onRange, onAdjusted) {
+export function mountVirtualTranscript(root, onRange, onAdjusted, onReadingUp) {
   let model = new TranscriptHeights(), visible = [], frame = 0, measureQueued = false;
   let windowKey = '', viewportRange = null;
   let anchor = null, jump = null, jumpAligned = false, stopped = false, width = 0, sessionKey, guardFrame = 0, inputTimer;
@@ -171,8 +171,14 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
   mutations.observe(root, { childList: true, subtree: true });
   const adjusted = event => onAdjusted(Math.round(event.detail));
   const scroll = () => { if (!root.hasAttribute('data-transcript-adjusting')) schedule(); };
-  const userInput = event => {
+  const userInput = (event, direction) => {
     if (event?.type === 'wheel' && !targetsTranscript(root, event)) return;
+    const previousDirection = root.dataset.transcriptDirection;
+    if (event?.type === 'wheel') direction = event.deltaY < 0 ? 'up' : 'down';
+    if (direction) root.dataset.transcriptDirection = direction;
+    // The wheel listener is passive; leave browser scrolling in charge and only
+    // cross WASM once when an upward gesture actually leaves follow mode.
+    if (direction === 'up' && (previousDirection !== 'up' || pinned())) onReadingUp();
     delete root.dataset.transcriptAdjusting; cancelAnimationFrame(guardFrame);
     // A new gesture takes precedence over the anchor saved by an older mount.
     anchor = null;
@@ -193,8 +199,7 @@ export function mountVirtualTranscript(root, onRange, onAdjusted) {
       && (root.contains(focused) || (documentFocused && root.matches(':hover')))
       && !focused?.closest('input,textarea,select,[contenteditable]:not([contenteditable=false])')
       && targetsTranscript(root, event, direction === 'up' ? -1 : 1)) {
-        root.dataset.transcriptDirection = direction;
-        userInput(event);
+        userInput(event, direction);
       }
   };
   const visibility = new MutationObserver(schedule);
