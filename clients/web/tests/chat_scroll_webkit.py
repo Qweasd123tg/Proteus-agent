@@ -32,7 +32,11 @@ def main():
     parser.add_argument('--wayland', action='store_true')
     parser.add_argument('--history', type=int, default=240)
     parser.add_argument('--native-wheel', action='store_true', help='Compare trusted wheel movement with the previous full-surface mask on niri')
+    parser.add_argument('--gpu-stress', action='store_true', help='Sustain 3240 chat/settings RAF frames and check WebKit sync_file FD growth')
     args = parser.parse_args()
+    assert not (args.native_wheel and args.gpu_stress), 'Run wheel comparison and GPU stress separately'
+    if args.gpu_stress:
+        assert args.wayland, 'GPU stress requires an on-screen Wayland surface'
     if args.native_wheel:
         assert args.wayland and all(shutil.which(name) for name in ['niri', 'ydotool', 'ydotoold']), 'Native wheel probe requires Wayland/niri and ydotool'
     assert args.history >= 240, 'Window-turnover regression needs at least 240 messages'
@@ -138,6 +142,9 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                 window.show_all()
                 state = {'stage': 0, 'pending': False, 'detached_top': None}
                 errors = []
+                if args.gpu_stress:
+                    from gpu_stress_checks import PROBE as GPU_PROBE, SyncFileMonitor
+                    gpu_monitor = SyncFileMonitor()
 
                 def present_probe_window():
                     # The frame probe requires an on-screen window. Background
@@ -265,6 +272,23 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                         except AssertionError as error:
                             fail(str(error), value)
                             return
+                        if args.gpu_stress:
+                            state['stage'] = 7
+                            gpu_monitor.sample()
+                            evaluate(GPU_PROBE + '.then(value=>window.gpuStressResult=value,error=>window.gpuStressResult={error:String(error)});true', lambda _: None)
+                        else:
+                            Gtk.main_quit()
+                    elif stage == 7 and value and value['result']:
+                        if value['result'].get('error'):
+                            fail('GPU stress failed', value)
+                            return
+                        gpu_monitor.sample()
+                        try:
+                            gpu_monitor.validate()
+                        except AssertionError as error:
+                            fail(str(error), gpu_monitor.report())
+                            return
+                        print('GPU stress: ' + json.dumps({'frames': value['result'], 'processes': gpu_monitor.report()}), flush=True)
                         Gtk.main_quit()
 
                 def poll():
@@ -291,6 +315,8 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                         if args.native_wheel:
                             return True
                         script = '({result:window.scrollJitterResult || null,hidden:document.hidden,progress:window.scrollJitterProgress || null})'
+                    elif stage == 7:
+                        script = '({result:window.gpuStressResult || null,hidden:document.hidden})'
                     else:
                         script = '''(() => {
                             const r = document.querySelector('.results-panel');
@@ -311,15 +337,26 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return False
 
                 GLib.timeout_add(100, poll)
+                if args.gpu_stress:
+                    def sample_gpu():
+                        if state['stage'] == 7:
+                            gpu_monitor.sample()
+                            try:
+                                gpu_monitor.validate_growth()
+                            except AssertionError as error:
+                                fail(str(error), gpu_monitor.report())
+                                return False
+                        return not errors
+                    GLib.timeout_add_seconds(1, sample_gpu)
                 # The shared 320-frame probe adds render time to the streaming
                 # scenario; this deadline is a hang guard, not an FPS budget.
-                GLib.timeout_add_seconds(90, timeout)
+                GLib.timeout_add_seconds(180 if args.gpu_stress else 90, timeout)
                 view.load_uri(web + '/foundation.html?' + urlencode({
                     'server': origin, 'token': 'scroll-fixture',
                 }))
                 Gtk.main()
                 assert not errors, '\n'.join(errors)
-                assert state['stage'] == 6, 'Chat scroll regression ended at stage ' + str(state['stage'])
+                assert state['stage'] == (7 if args.gpu_stress else 6), 'Chat scroll regression ended at stage ' + str(state['stage'])
                 print('PASS: trusted native wheel comparison' if args.native_wheel else
                       'PASS: WebKit near-bottom reading survives queued scroll and streaming; downward return follows; virtual window turnover preserves each frame', flush=True)
             finally:

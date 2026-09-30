@@ -55,7 +55,7 @@ CI отключён; проверки выполняются локально. M
 | MCP/ACP | Реальный stdio peer; prompt/tools/approval/cancel и cold history по изменению |
 | Web/Inspector | Затронутые Rust/Node tests и `trunk build`; browser smoke при UX change |
 | UI extensions | Contract/lifecycle tests; реальный browser/agent API при изменении интеграции |
-| Desktop launch/package | Backend lifecycle, portable build и native smoke |
+| Desktop launch/package | Backend lifecycle, portable build и native smoke; при изменении графического запуска — Linux/NVIDIA default и явный override переменных окружения до GTK, native Wayland с аппаратным ускорением |
 
 Полный Rust gate нужен для общих contracts, runtime wiring, зависимостей,
 изменений взаимодействующих crates, интеграции и release:

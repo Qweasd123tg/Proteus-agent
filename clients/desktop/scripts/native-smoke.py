@@ -122,6 +122,23 @@ path = ''' + json.dumps(str(events)) + "\n")
                         raise AssertionError("Native application exited during startup")
                     if events.exists() and any("SessionStarted" in json.loads(line).get("event", {}) for line in events.read_text().splitlines()):
                         print("PASS: relocated native app → saved project → packaged backend → Leptos SSE SessionStarted")
+                        log.flush()
+                        log.seek(0)
+                        if "NVIDIA detected; explicit sync disabled" in log.read():
+                            webkit = []
+                            for pid in descendants(application.pid):
+                                try:
+                                    process = Path(f"/proc/{pid}")
+                                    if not (process / "comm").read_text().startswith("WebKitWeb"):
+                                        continue
+                                    inherited = dict(item.split(b"=", 1) for item in (process / "environ").read_bytes().split(b"\0") if b"=" in item)
+                                    assert inherited.get(b"__NV_DISABLE_EXPLICIT_SYNC") == b"1", "WebKit did not inherit the NVIDIA workaround"
+                                    assert inherited.get(b"WEBKIT_DISABLE_DMABUF_RENDERER") == (env["WEBKIT_DISABLE_DMABUF_RENDERER"].encode() if "WEBKIT_DISABLE_DMABUF_RENDERER" in env else None), "Desktop changed DMA-BUF rendering"
+                                    webkit.append(pid)
+                                except FileNotFoundError:
+                                    continue
+                            assert webkit, "No native WebKit process checked for graphics startup"
+                            print("PASS: native WebKit inherits explicit-sync workaround and retains DMA-BUF configuration")
                         if options.chrome:
                             from native_smoke_chrome import exercise
                             exercise(application, env)
