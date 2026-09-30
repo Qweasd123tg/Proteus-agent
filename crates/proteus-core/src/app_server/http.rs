@@ -334,6 +334,7 @@ where
                 server
                     .set_config_builder(
                         command.modules,
+                        command.hooks,
                         command.module_config,
                         command.tools_enabled,
                         command.active_provider,

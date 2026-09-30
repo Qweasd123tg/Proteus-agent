@@ -25,6 +25,7 @@ async fn checkpoint_compares_execution_before_any_tool_is_requested() {
             vec![],
             vec![],
             vec![],
+            vec![],
             None,
             Default::default(),
             &ReasoningConfig::default(),
@@ -93,10 +94,12 @@ async fn only_declared_in_flight_lifecycles_may_cross_a_checkpoint() {
                 approval_reason: None,
                 resolution: ToolCallResolution::Allowed,
                 result: ToolResult::ok(call.id.clone(), &call.id),
+                raw_result: None,
             })
             .collect();
         let user = CanonicalMessage::text(MessageRole::User, "read concurrently");
         let state = Arc::new(ReplayState::new(
+            vec![],
             vec![],
             tools,
             vec![],
@@ -125,7 +128,7 @@ async fn only_declared_in_flight_lifecycles_may_cross_a_checkpoint() {
             vec![user],
             vec![expected.clone(), expected],
         );
-        let checkpoint = || WorkflowHistoryCheckpoint {
+        let checkpoint = WorkflowHistoryCheckpoint {
             history: WorkflowHistoryUpdate::new(vec![message(&actual[..2])]),
             tool_results: actual[..2]
                 .iter()
@@ -133,7 +136,7 @@ async fn only_declared_in_flight_lifecycles_may_cross_a_checkpoint() {
                 .map(WorkflowToolResultBinding::new)
                 .collect(),
         };
-        recorder.checkpoint(checkpoint()).await.unwrap();
+        recorder.checkpoint(checkpoint.clone()).await.unwrap();
         for index in [1, 0] {
             state.record_tool_requested(&actual[index]).unwrap();
             state
@@ -145,7 +148,7 @@ async fn only_declared_in_flight_lifecycles_may_cross_a_checkpoint() {
         if unrelated_crosses {
             state.record_tool_requested(&actual[2]).unwrap();
         }
-        let result = recorder.checkpoint(checkpoint()).await;
+        let result = recorder.checkpoint(checkpoint.clone()).await;
         if unrelated_crosses {
             assert!(
                 result

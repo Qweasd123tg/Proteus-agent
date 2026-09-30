@@ -11,6 +11,7 @@ use crate::ui_utils::short_path;
 
 mod builder;
 mod draft;
+mod hooks;
 mod module_config_editor;
 mod summary;
 mod tools_picker;
@@ -32,6 +33,7 @@ pub(super) enum SaveFeedback {
 pub(crate) fn ConfigsView() -> impl IntoView {
     let (summary, set_summary) = signal(None::<ConfigSummary>);
     let (builder, set_builder) = signal(None::<ConfigBuilderSnapshot>);
+    let (draft_hooks, set_draft_hooks) = signal(Vec::<String>::new());
     let (draft_modules, set_draft_modules) = signal(BTreeMap::<String, String>::new());
     let (draft_config_texts, set_draft_config_texts) = signal(ModuleDrafts::new());
     let (draft_errors, set_draft_errors) = signal(DraftErrors::new());
@@ -46,6 +48,7 @@ pub(crate) fn ConfigsView() -> impl IntoView {
 
     let drafts = DraftSetters {
         modules: set_draft_modules,
+        hooks: set_draft_hooks,
         config_texts: set_draft_config_texts,
         errors: set_draft_errors,
         tools: set_draft_tools,
@@ -56,7 +59,8 @@ pub(crate) fn ConfigsView() -> impl IntoView {
     let dirty = Memo::new(move |_| {
         builder.with(|builder| {
             builder.as_ref().is_some_and(|builder| {
-                !draft_errors.get().is_empty()
+                draft_hooks.get() != builder.hooks
+                    || !draft_errors.get().is_empty()
                     || is_dirty(
                         builder,
                         &draft_modules.get(),
@@ -140,6 +144,7 @@ pub(crate) fn ConfigsView() -> impl IntoView {
                                     builder
                                     summary=summary.clone()
                                     draft_modules
+                                    draft_hooks
                                     draft_config_texts
                                     draft_errors
                                     draft_tools
@@ -175,6 +180,7 @@ pub(crate) fn ConfigsView() -> impl IntoView {
 #[derive(Clone, Copy)]
 pub(super) struct DraftSetters {
     modules: WriteSignal<BTreeMap<String, String>>,
+    hooks: WriteSignal<Vec<String>>,
     config_texts: WriteSignal<ModuleDrafts>,
     errors: WriteSignal<DraftErrors>,
     tools: WriteSignal<BTreeSet<String>>,
@@ -185,6 +191,7 @@ pub(super) struct DraftSetters {
 impl DraftSetters {
     pub(super) fn reset_to(&self, builder: &ConfigBuilderSnapshot) {
         self.modules.set(builder_active_modules(builder));
+        self.hooks.set(builder.hooks.clone());
         self.config_texts.set(builder_config_texts(builder));
         self.errors.set(DraftErrors::new());
         self.tools

@@ -71,6 +71,9 @@ pub struct AppAnalysisStep {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AppAnalysisStepData {
+    Hook {
+        trace: Box<crate::contracts::HookTrace>,
+    },
     Model {
         exchange_id: ExchangeId,
         origin: ModelCallOrigin,

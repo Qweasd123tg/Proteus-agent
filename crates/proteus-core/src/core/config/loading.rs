@@ -60,12 +60,16 @@ impl AppConfig {
         })?;
         config.active_model_config()?;
         config.validate_module_config_slots()?;
+        config.modules.validate_hooks()?;
         Ok(config)
     }
 
     fn validate_module_config_slots(&self) -> Result<()> {
         for slot in self.module_config.keys() {
-            if matches!(slot.as_str(), "tool" | "context_provider" | "model") {
+            if matches!(
+                slot.as_str(),
+                "tool" | "context_provider" | "model" | "hook"
+            ) {
                 continue;
             }
             match core_slot_descriptor_by_id(slot) {

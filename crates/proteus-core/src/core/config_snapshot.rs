@@ -37,7 +37,7 @@ pub struct SessionConfigTool {
 }
 
 impl SessionConfigSnapshot {
-    pub const SCHEMA_VERSION: u32 = 4;
+    pub const SCHEMA_VERSION: u32 = 5;
 
     pub fn from_runtime_config(
         config: &AppConfig,

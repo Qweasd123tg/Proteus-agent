@@ -8,12 +8,15 @@ use async_trait::async_trait;
 
 use super::{ReplayState, calls_equal, messages_equal};
 use crate::{
-    contracts::{WorkflowHistoryCheckpoint, WorkflowHistoryRecorder},
+    contracts::{
+        ExecutionAttribution, ToolExecutionRecorder, WorkflowHistoryCheckpoint,
+        WorkflowHistoryRecorder,
+    },
     core::{
         HistoryMutationKind, JournalEntry, JournalRecord, ToolCallRecordPhase,
         prepare_failed_history_update,
     },
-    domain::{ExchangeId, ThreadId, ToolCall, TurnId},
+    domain::{ExchangeId, ThreadId, ToolCall, ToolCallResolution, ToolResult, TurnId},
     model_standard::CanonicalMessage,
 };
 
@@ -80,10 +83,17 @@ pub(crate) fn recorded_checkpoints(
     checkpoints
 }
 
+struct CommittedHistory {
+    history: Vec<CanonicalMessage>,
+    capture: crate::core::session_journal::history_capture::HistoryCapture,
+    compactions: usize,
+}
+
 pub(crate) struct ReplayCheckpointRecorder {
     state: Arc<ReplayState>,
     initial: Vec<CanonicalMessage>,
     expected: Mutex<VecDeque<RecordedCheckpoint>>,
+    committed: Mutex<CommittedHistory>,
 }
 
 impl ReplayCheckpointRecorder {
@@ -94,9 +104,18 @@ impl ReplayCheckpointRecorder {
     ) -> Self {
         Self {
             state,
+            committed: Mutex::new(CommittedHistory {
+                history: initial.clone(),
+                capture: Default::default(),
+                compactions: 0,
+            }),
             initial,
             expected: Mutex::new(expected.into()),
         }
+    }
+
+    pub(crate) fn committed_history(&self) -> Vec<CanonicalMessage> {
+        self.committed.lock().unwrap().history.clone()
     }
 
     pub(crate) fn finish(&self) {
@@ -200,6 +219,26 @@ impl WorkflowHistoryRecorder for ReplayCheckpointRecorder {
                 ),
                 "checkpoint history differs from its recorded snapshot"
             );
+            drop(inner);
+            let mut committed = self.committed.lock().unwrap();
+            ensure!(
+                progress.compactions.len() >= committed.compactions,
+                "checkpoint discarded previously reported compactions"
+            );
+            let compacted = progress
+                .compactions
+                .iter()
+                .skip(committed.compactions)
+                .any(|report| report.changed);
+            let (capture, history) = committed.capture.rebase(
+                &committed.history,
+                &prepared.final_messages,
+                &checkpoint.tool_results,
+                compacted,
+            )?;
+            committed.history = history;
+            committed.capture = capture;
+            committed.compactions = progress.compactions.len();
             Ok(())
         })();
         if let Err(error) = &result {
@@ -215,3 +254,48 @@ impl WorkflowHistoryRecorder for ReplayCheckpointRecorder {
 #[cfg(test)]
 #[path = "checkpoint_tests.rs"]
 mod tests;
+
+#[async_trait]
+impl ToolExecutionRecorder for ReplayCheckpointRecorder {
+    async fn tool_call_requested(
+        &self,
+        attribution: ExecutionAttribution,
+        call: &ToolCall,
+    ) -> Result<()> {
+        self.committed.lock().unwrap().capture.validate_call(call)?;
+        self.state.tool_call_requested(attribution, call).await
+    }
+    async fn tool_call_resolved(
+        &self,
+        attribution: ExecutionAttribution,
+        call: &ToolCall,
+        resolution: &ToolCallResolution,
+    ) -> Result<()> {
+        self.state
+            .tool_call_resolved(attribution, call, resolution)
+            .await
+    }
+    async fn tool_approval_requested(
+        &self,
+        attribution: ExecutionAttribution,
+        call: &ToolCall,
+        reason: &str,
+    ) -> Result<()> {
+        self.state
+            .tool_approval_requested(attribution, call, reason)
+            .await
+    }
+    async fn tool_result_recorded(
+        &self,
+        attribution: ExecutionAttribution,
+        result: &ToolResult,
+    ) -> Result<()> {
+        self.state.tool_result_recorded(attribution, result).await?;
+        let mut committed = self.committed.lock().unwrap();
+        let CommittedHistory {
+            capture, history, ..
+        } = &mut *committed;
+        capture.record(history, result)?;
+        Ok(())
+    }
+}

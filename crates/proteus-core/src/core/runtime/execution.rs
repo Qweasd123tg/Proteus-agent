@@ -102,6 +102,14 @@ impl AgentRuntime {
         let binding =
             ToolExecutionBinding::detached(admission.scope.clone()).with_recorder(recorder);
         let registry = &admission.snapshot.runtime.registry;
+        let hook_recorder: Arc<dyn crate::contracts::ExecutionRecorder> =
+            match &self.session.session_store {
+                Some(store) => Arc::new(crate::core::SessionExecutionRecorder::detached(
+                    store.clone(),
+                    admission.scope.execution_id,
+                )),
+                None => Arc::new(crate::contracts::NoopExecutionRecorder),
+            };
         BoundTools::new(
             registry.tools.clone(),
             Arc::new(ModeAwarePolicy::new(
@@ -112,6 +120,7 @@ impl AgentRuntime {
             Arc::<ExecutionPermissionGrants>::default(),
             binding,
         )
+        .with_hooks(registry.bind_hooks(admission.scope.clone(), hook_recorder))
     }
 
     fn bind_detached_memory(&self, admission: &ExecutionAdmission) -> BoundMemory {

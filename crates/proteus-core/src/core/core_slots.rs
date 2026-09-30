@@ -4,6 +4,7 @@ use crate::domain::ModuleKind;
 pub(crate) enum CoreSlotSelection {
     ProviderConfig,
     ModulesConfig,
+    OrderedModulesConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,7 +18,16 @@ pub(crate) struct CoreSlotDescriptor {
     pub selection: CoreSlotSelection,
 }
 
-pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 9] = [
+pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 10] = [
+    CoreSlotDescriptor {
+        kind: ModuleKind::Hook,
+        title: "Hooks",
+        responsibility: "Applies ordered typed execution contributions.",
+        category: "pipeline",
+        order: 9,
+        required: false,
+        selection: CoreSlotSelection::OrderedModulesConfig,
+    },
     CoreSlotDescriptor {
         kind: ModuleKind::Workflow,
         title: "Workflow",

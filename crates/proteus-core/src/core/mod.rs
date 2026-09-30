@@ -11,6 +11,7 @@ mod context_provider;
 pub(crate) mod core_slots;
 mod eval_report;
 mod event_store;
+mod execution_hooks;
 mod model_call_scope;
 mod model_context;
 mod model_service;
@@ -53,6 +54,7 @@ pub use config_snapshot::{
 };
 pub use eval_report::{EvalReport, read_eval_report};
 pub use event_store::InMemoryEventStore;
+pub use execution_hooks::RuntimeHookChain;
 pub use module_catalog::{ModuleCatalog, ModuleCatalogEntrySummary};
 pub use prompt_replay::{
     PROMPT_REPLAY_REPORT_SCHEMA_VERSION, PromptReplayCounts, PromptReplayNames,

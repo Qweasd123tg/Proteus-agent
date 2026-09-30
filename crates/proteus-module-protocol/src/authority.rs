@@ -3,10 +3,11 @@ use proteus_contracts::contracts::{
     CONTEXT_HOST_RECALL_MEMORY_METHOD, CONTEXT_HOST_SEARCH_METHOD, MODEL_HOST_EMIT_METHOD,
     PROCESS_COMPACTOR_CONTRACT_VERSION, PROCESS_COMPACTOR_METHOD, PROCESS_CONTEXT_BUILD_METHOD,
     PROCESS_CONTEXT_CONTRACT_VERSION, PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION,
-    PROCESS_CONTEXT_PROVIDER_METHOD, PROCESS_MEMORY_CONTRACT_VERSION, PROCESS_MEMORY_RECALL_METHOD,
-    PROCESS_MEMORY_REMEMBER_METHOD, PROCESS_MODEL_CATALOG_METHOD, PROCESS_MODEL_CONTRACT_VERSION,
-    PROCESS_MODEL_DESCRIBE_METHOD, PROCESS_MODEL_QUOTA_METHOD, PROCESS_MODEL_STREAM_METHOD,
-    PROCESS_PATCH_APPLY_METHOD, PROCESS_PATCH_CONTRACT_VERSION, PROCESS_POLICY_CONTRACT_VERSION,
+    PROCESS_CONTEXT_PROVIDER_METHOD, PROCESS_HOOK_CONTRACT_VERSION, PROCESS_HOOK_INVOKE_METHOD,
+    PROCESS_MEMORY_CONTRACT_VERSION, PROCESS_MEMORY_RECALL_METHOD, PROCESS_MEMORY_REMEMBER_METHOD,
+    PROCESS_MODEL_CATALOG_METHOD, PROCESS_MODEL_CONTRACT_VERSION, PROCESS_MODEL_DESCRIBE_METHOD,
+    PROCESS_MODEL_QUOTA_METHOD, PROCESS_MODEL_STREAM_METHOD, PROCESS_PATCH_APPLY_METHOD,
+    PROCESS_PATCH_CONTRACT_VERSION, PROCESS_POLICY_CONTRACT_VERSION,
     PROCESS_POLICY_EVALUATE_METHOD, PROCESS_POLICY_VISIBILITY_METHOD,
     PROCESS_SEARCH_CONTRACT_VERSION, PROCESS_SEARCH_METHOD, PROCESS_TOOL_CONTRACT_VERSION,
     PROCESS_TOOL_EXPOSURE_CONTRACT_VERSION, PROCESS_TOOL_EXPOSURE_SELECT_METHOD,
@@ -132,6 +133,15 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         required_features: NO_PROTOCOL_FEATURES,
     },
     ProcessContractAuthority {
+        slot: "hook",
+        contract_version: PROCESS_HOOK_CONTRACT_VERSION,
+        composition: ProcessModuleComposition::OrderedMany,
+        module_methods: &[PROCESS_HOOK_INVOKE_METHOD],
+        host_methods: NO_HOST_METHODS,
+        host_features: NO_PROTOCOL_FEATURES,
+        required_features: NO_PROTOCOL_FEATURES,
+    },
+    ProcessContractAuthority {
         slot: "tool_exposure",
         contract_version: PROCESS_TOOL_EXPOSURE_CONTRACT_VERSION,
         composition: ProcessModuleComposition::SelectOne,
@@ -249,6 +259,16 @@ mod tests {
         assert_eq!(authority.composition, ProcessModuleComposition::SelectOne);
         assert_eq!(authority.module_methods, [PROCESS_SEARCH_METHOD]);
         assert!(authority.host_methods.is_empty());
+    }
+
+    #[test]
+    fn hooks_are_ordered_and_have_no_callbacks() {
+        let authority = process_contract_authority("hook", PROCESS_HOOK_CONTRACT_VERSION).unwrap();
+        assert_eq!(authority.composition, ProcessModuleComposition::OrderedMany);
+        assert_eq!(authority.module_methods, [PROCESS_HOOK_INVOKE_METHOD]);
+        assert!(authority.host_methods.is_empty());
+        assert!(authority.host_features.is_empty());
+        assert!(process_contract_authority("hook", "v2").is_none());
     }
 
     #[test]

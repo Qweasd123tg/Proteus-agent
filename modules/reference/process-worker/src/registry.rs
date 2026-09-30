@@ -23,12 +23,17 @@ pub struct CollectedModules {
     pub contexts: HashMap<String, ContextBuilderModuleObject>,
     pub compactors: HashMap<String, CompactorModuleObject>,
     pub exposures: HashMap<String, ToolExposureModuleObject>,
+    pub hooks: HashMap<String, proteus_contracts::process_module::HookModuleObject>,
     pub workflows: HashMap<String, WorkflowModuleObject>,
 }
 
 impl CollectedModules {
     pub fn load(slot: &str, module_id: &str, module_config: Value) -> Result<Self> {
         let mut modules = Self::with_config(module_config);
+        if slot == "hook" {
+            hook_pack::register_hook(&mut modules, module_id)?;
+            return Ok(modules);
+        }
         if slot == "model" {
             model_pack::register_model(&mut modules, module_id)?;
             return Ok(modules);
@@ -97,6 +102,7 @@ impl CollectedModules {
             compactors: HashMap::new(),
             exposures: HashMap::new(),
             workflows: HashMap::new(),
+            hooks: HashMap::new(),
         }
     }
 }
@@ -198,6 +204,14 @@ impl ModuleRegistry for CollectedModules {
         exposure: ToolExposureModuleObject,
     ) -> ProcessModuleResult<()> {
         insert(&mut self.exposures, module_id, exposure)
+    }
+
+    fn register_hook(
+        &mut self,
+        module_id: String,
+        hook: proteus_contracts::process_module::HookModuleObject,
+    ) -> ProcessModuleResult<()> {
+        insert(&mut self.hooks, module_id, hook)
     }
 
     fn register_workflow(

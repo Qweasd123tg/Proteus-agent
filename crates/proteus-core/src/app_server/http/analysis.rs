@@ -115,6 +115,13 @@ fn turn_details(projection: &JournalProjection, turn_id: TurnId) -> Result<AppTu
                     error: None,
                 });
             }
+            JournalEntry::HookInvoked(trace) => {
+                let mut step = new_step(AppAnalysisStepData::Hook {
+                    trace: Box::new(trace.clone()),
+                });
+                step.finished_at_ms = Some(record.timestamp_ms);
+                steps.push(step);
+            }
             JournalEntry::ModelRequestRecorded(model) => {
                 models.insert(model.exchange_id, steps.len());
                 steps.push(new_step(AppAnalysisStepData::Model {
@@ -180,7 +187,7 @@ fn turn_details(projection: &JournalProjection, turn_id: TurnId) -> Result<AppTu
                     }
                 }
             }
-            JournalEntry::ToolResultRecorded(tool) => {
+            JournalEntry::ToolEffectRecorded(tool) | JournalEntry::ToolResultRecorded(tool) => {
                 if let Some(&index) = tools.get(&(record.execution_id, tool.result.call_id.clone()))
                 {
                     steps[index].finished_at_ms = Some(record.timestamp_ms);

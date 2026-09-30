@@ -33,6 +33,8 @@ skill-pack = { path = "../skill-pack", default-features = false }
 sqlite-memory = { path = "../sqlite-memory", default-features = false }
 model-pack = { path = "../model-pack" }
 
+hook-pack = { path = "../hook-pack" }
+
 [dev-dependencies]
 async-trait = "0.1"
 proteus-core = { path = "../../../crates/proteus-core" }

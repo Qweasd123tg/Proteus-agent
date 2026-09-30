@@ -220,6 +220,7 @@ impl AppServerHandle {
     pub async fn set_config_builder(
         &self,
         modules: BTreeMap<String, String>,
+        hooks: Option<Vec<String>>,
         module_config: BTreeMap<String, BTreeMap<String, Value>>,
         tools_enabled: Option<Vec<String>>,
         active_provider: Option<String>,
@@ -232,6 +233,10 @@ impl AppServerHandle {
         if let Some(active_provider) = &active_provider {
             validate_config_builder_provider(active_provider, &next_config)?;
         }
+        if let Some(hooks) = hooks {
+            next_config.modules.hooks = hooks;
+        }
+        next_config.modules.validate_hooks()?;
         let previous_active_provider = next_config.active_provider.clone();
         for (slot, module_id) in modules {
             set_module_slot(&mut next_config.modules, &slot, module_id)?;

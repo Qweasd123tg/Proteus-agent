@@ -42,6 +42,7 @@ native loader в проекте отсутствуют.
 
 | Slot | Composition | Selection | Component export | Reference ids |
 |---|---|---|---|---|
+| `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v1` | `hook.instructions`, `hook.output_budget` |
 | `workflow` | `select_one` | `modules.workflow` | да | `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`, `coding.project_check` |
 | `search` | `select_one` | `modules.search` | да | `rg` |
 | `memory` | `select_one` | `modules.memory` | да | `jsonl`, `sqlite` |
@@ -129,6 +130,26 @@ callbacks сверяются с его authority, а не с объединен�
 `m:<generation>:<sequence>`; `h:<generation>:0` зарезервирован для handshake.
 
 ## Slots По Назначению
+
+### Hooks
+
+`hook/v1` — typed contributions на host-owned точках `turn_started`,
+`before_model`, `before_tool`, `after_tool`, `turn_settled`. Список
+`modules.hooks` задаёт порядок; пустой список отключает hooks. Один export
+не получает host callbacks и не вызывает tools/model/memory. Component
+по-прежнему задаёт общий lifecycle, authority одинаковая для каждого handler.
+
+Перед model разрешена замена только messages/instructions; перед tool —
+явный block без изменения call; после tool — только output. Host повторно
+валидирует каждый response. Ошибка before-model/before-tool останавливает
+соответствующий side effect. After-tool не отменяет совершившийся эффект:
+фактический result сохраняется, ошибка hook завершается явно. Уведомления
+turn-start/turn-end best-effort. Cancellation и deadline адресуются отдельной
+invocation; state после reload/restart принадлежит реализации, host его
+автоматически не восстанавливает. Canonical journal записывает input,
+accepted responses/failures и output цепочки. Workflow replay применяет
+записанные responses к raw boundaries без запуска hook workers; internal
+compactor hooks не исполняются повторно, как и summary model exchanges.
 
 ### Workflow
 
@@ -290,7 +311,7 @@ input/output. `metadata` — непрозрачные данные module, не 
 
 Тот же DTO возвращает workflow callback `host.history.compact`; актуальные
 границы — `compactor/v10` и `workflow/v16`, прежние slot versions не принимаются.
-Wire protocol остаётся v3, журнал использует schema v15.
+Wire protocol остаётся v3, журнал использует schema v16.
 Workflow replay сохраняет typed поля `HistoryCompactionReport` и весь `metadata`, не подмешивая и не
 удаляя ключи с известными именами. Core помечает внутренний model callback
 compactor origin-ом `compactor` в journal envelope. Workflow replay проверяет

@@ -203,6 +203,11 @@ pub trait CompactorModule: Send + Sync + 'static {
 
 pub type CompactorModuleObject = Box<dyn CompactorModule>;
 
+pub trait HookModule: Send + Sync + 'static {
+    fn invoke_json(&self, input_json: String) -> ProcessModuleResult<String>;
+}
+pub type HookModuleObject = Box<dyn HookModule>;
+
 pub trait ToolExposureModule: Send + Sync + 'static {
     fn select_json(&self, input_json: String) -> ProcessModuleResult<String>;
 }
@@ -369,6 +374,12 @@ pub trait ModuleRegistry {
         module_id: String,
         exposure: ToolExposureModuleObject,
     ) -> ProcessModuleResult<()>;
+    fn register_hook(
+        &mut self,
+        module_id: String,
+        hook: HookModuleObject,
+    ) -> ProcessModuleResult<()>;
+
     fn register_workflow(
         &mut self,
         module_id: String,

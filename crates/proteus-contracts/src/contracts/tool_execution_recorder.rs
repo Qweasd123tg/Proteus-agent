@@ -12,6 +12,15 @@ use crate::{
 /// detached execution never invents Session/Thread/Turn identities.
 #[async_trait]
 pub trait ToolExecutionRecorder: Send + Sync {
+    /// Actual settled outcome, persisted before cancellable output contributions.
+    async fn tool_effect_recorded(
+        &self,
+        _attribution: ExecutionAttribution,
+        _result: &ToolResult,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     async fn tool_call_requested(
         &self,
         attribution: ExecutionAttribution,

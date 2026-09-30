@@ -8,7 +8,7 @@ use crate::{
     domain::PermissionMode,
 };
 
-pub const ASSEMBLY_PLAN_SCHEMA_VERSION: u32 = 2;
+pub const ASSEMBLY_PLAN_SCHEMA_VERSION: u32 = 3;
 
 /// Полностью развёрнутый, но ещё не запущенный план сборки runtime.
 ///
@@ -24,6 +24,7 @@ pub struct AssemblyPlan {
     pub permission_mode: PermissionMode,
     pub model: Option<AssemblyModelPlan>,
     pub slots: Vec<AssemblySlotPlan>,
+    pub hooks: Vec<String>,
     pub components: Vec<AssemblyComponentPlan>,
     pub tools: AssemblyToolsPlan,
     pub checks: Vec<AssemblyCheck>,

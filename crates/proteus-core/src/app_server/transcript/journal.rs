@@ -23,6 +23,14 @@ pub(crate) fn journal_transcript_messages(
 ) -> Vec<AppTranscriptMessage> {
     let visibility = TranscriptVisibility::from_projection(projection);
     let mut state = TranscriptProjectionState::default();
+    let final_results = projection
+        .records
+        .iter()
+        .filter_map(|record| match &record.entry {
+            JournalEntry::ToolResultRecorded(tool) => Some(tool.result.call_id.clone()),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
 
     for record in &projection.records {
         // The live turn is owned by the inline event projection until settlement.
@@ -70,6 +78,15 @@ pub(crate) fn journal_transcript_messages(
             JournalEntry::ToolResultRecorded(tool)
                 if record.turn_id != live_turn_id
                     && visibility.is_root_record(record.thread_id, record.turn_id) =>
+            {
+                if state.seen_results.insert(tool.result.call_id.clone()) {
+                    append_transcript_tool_result(&mut state.transcript, &tool.result);
+                }
+            }
+            JournalEntry::ToolEffectRecorded(tool)
+                if record.turn_id != live_turn_id
+                    && visibility.is_root_record(record.thread_id, record.turn_id)
+                    && !final_results.contains(&tool.result.call_id) =>
             {
                 if state.seen_results.insert(tool.result.call_id.clone()) {
                     append_transcript_tool_result(&mut state.transcript, &tool.result);

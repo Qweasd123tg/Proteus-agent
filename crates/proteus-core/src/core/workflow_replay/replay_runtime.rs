@@ -24,6 +24,8 @@ use super::{
 };
 
 mod adapters;
+mod hooks;
+pub(super) use hooks::ReplayHooks;
 mod checkpoints;
 mod compaction;
 pub(super) use checkpoints::{RecordedCheckpoint, ReplayCheckpointRecorder, recorded_checkpoints};
@@ -42,6 +44,7 @@ pub(super) struct ReplayState {
 }
 
 struct ReplayStateInner {
+    hooks: Vec<(crate::contracts::HookTrace, bool)>,
     exchanges: Vec<RecordedModelExchange>,
     next_exchange: usize,
     tools: Vec<ExpectedToolState>,
@@ -73,6 +76,7 @@ pub(super) struct ReplaySummary {
 impl ReplayState {
     pub fn new(
         exchanges: Vec<RecordedModelExchange>,
+        hooks: Vec<crate::contracts::HookTrace>,
         tools: Vec<RecordedToolInvocation>,
         compactions: Vec<HistoryCompactionReport>,
         context: Option<ContextBundle>,
@@ -83,9 +87,18 @@ impl ReplayState {
         let capabilities = exchanges
             .first()
             .map(|exchange| replay_capabilities(&exchange.request, snapshot_reasoning))
+            .or_else(|| {
+                hooks.iter().find_map(|trace| match &trace.input.event {
+                    crate::contracts::HookEvent::BeforeModel { request, .. } => {
+                        Some(replay_capabilities(request, snapshot_reasoning))
+                    }
+                    _ => None,
+                })
+            })
             .unwrap_or_else(ModelCapabilities::empty);
         Self {
             inner: Mutex::new(ReplayStateInner {
+                hooks: hooks.into_iter().map(|trace| (trace, false)).collect(),
                 exchanges,
                 next_exchange: 0,
                 tools: tools
@@ -132,6 +145,20 @@ impl ReplayState {
 
     pub fn current_request(&self) -> Result<CanonicalModelRequest> {
         let mut inner = self.lock();
+        if let Some(request) = inner.hooks.iter().find_map(|(trace, consumed)| {
+            if *consumed {
+                return None;
+            }
+            match &trace.input.event {
+                crate::contracts::HookEvent::BeforeModel {
+                    origin: crate::contracts::ModelCallOrigin::Direct,
+                    request,
+                } => Some(request.clone()),
+                _ => None,
+            }
+        }) {
+            return Ok(request);
+        }
         match inner.exchanges.get(inner.next_exchange) {
             Some(exchange) => Ok(exchange.request.clone()),
             None => mismatch(
@@ -218,7 +245,24 @@ impl ReplayState {
                 expected.recorded.resolution
             );
         }
-        let mut result = expected.recorded.result.clone();
+        let mut result = expected
+            .recorded
+            .raw_result
+            .clone()
+            .or_else(|| {
+                inner
+                    .hooks
+                    .iter()
+                    .find_map(|(trace, _)| match &trace.input.event {
+                        crate::contracts::HookEvent::AfterTool { call, result }
+                            if call.id == expected.recorded.call.id =>
+                        {
+                            Some(result.clone())
+                        }
+                        _ => None,
+                    })
+            })
+            .unwrap_or_else(|| expected.recorded.result.clone());
         rewrite_result_call_ids(&mut result, &inner.expected_to_actual);
         result.call_id = actual_call_id.to_owned();
         Ok(result)
@@ -226,6 +270,12 @@ impl ReplayState {
 
     pub fn summary(&self) -> ReplaySummary {
         let mut inner = self.lock();
+        let remaining_hooks = inner.hooks.iter().filter(|(_, consumed)| !consumed).count();
+        if remaining_hooks != 0 {
+            inner.issues.push(format!(
+                "workflow left {remaining_hooks} recorded hook boundaries unconsumed"
+            ));
+        }
         let model_exchanges = inner.next_exchange;
         let tool_calls = inner.tools.iter().filter(|tool| tool.requested).count();
         if model_exchanges != inner.exchanges.len() {

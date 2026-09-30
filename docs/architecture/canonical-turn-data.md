@@ -1,6 +1,6 @@
 # Canonical Turn Data
 
-Текущий формат — journal schema v15, config snapshot v4 и session metadata v4. Resume history,
+Текущий формат — journal schema v16, config snapshot v5 и session metadata v4. Resume history,
 transcript, eval, prompt replay и workflow replay читают canonical journal.
 
 Canonical context parts сохраняют обязательный `ContextChunk.render_mode`:
@@ -425,3 +425,18 @@ enrichment. Это не ограничение journal schema.
   `MessageId`, `CallId` и `exchange_id`;
 - root module-swap tests не зависят от storage implementation;
 - provider-specific wire types не выходят из adapters.
+
+## Hook Facts И Фактический Tool Outcome
+
+`HookInvoked` хранит typed input, ordered accepted responses/failures и output
+цепочки. `ToolEffectRecorded` при активных hooks фиксирует actual result до
+ожидания after-tool contribution, а `ToolResultRecorded` — final result. Final
+может изменить текст output, сохраняя status/error/content. Без final исходный
+результат остаётся известным; root settlement включает его в cold и живую history,
+transcript и анализ хода используют raw fallback. Внутри незавершённого хода
+это execution fact, а не завершённый workflow checkpoint.
+Без session store recorder удерживает pending raw result до завершения workflow
+и включает его в живую history, если final result не поступил.
+
+Replay воспроизводит записанные hook decisions и raw/final result отдельно;
+он не вызывает hook workers и не повторяет tool effects.

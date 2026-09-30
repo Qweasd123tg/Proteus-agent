@@ -18,6 +18,15 @@ pub fn render_topology_map(snapshot: &TopologySnapshot) -> String {
         out.push_str(&format!("config: {}\n", plain_text(config_path)));
     }
 
+    out.push_str(&format!(
+        "hooks (ordered): {}\n",
+        snapshot
+            .hooks
+            .iter()
+            .map(|id| plain_text(id))
+            .collect::<Vec<_>>()
+            .join(" -> ")
+    ));
     out.push_str("\nRuntime path\n");
     for slot in ordered_slots(snapshot)
         .into_iter()

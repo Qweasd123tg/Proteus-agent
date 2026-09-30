@@ -90,6 +90,7 @@ impl ExportWorker {
             );
         }
         match self.binding.slot.as_str() {
+            "hook" => self.hook(params),
             "model" => self.model(method, params, bridge),
             "tool" => self.tool(method, params, bridge),
             "search" => self.search(params),
@@ -103,6 +104,19 @@ impl ExportWorker {
             "workflow" => self.workflow(params, bridge),
             slot => bail!("reference worker does not dispatch slot {slot:?}"),
         }
+    }
+
+    fn hook(&self, params: Value) -> Result<Value> {
+        let input: proteus_contracts::contracts::HookInput = decode(params)?;
+        let hook = self
+            .modules
+            .hooks
+            .get(&self.binding.module_id)
+            .ok_or_else(|| anyhow!("hook module missing"))?;
+        let output = hook.invoke_json(serde_json::to_string(&input)?)?;
+        let response: proteus_contracts::contracts::HookResponse = serde_json::from_str(&output)?;
+        proteus_contracts::contracts::apply_hook_response(&input.event, &response)?;
+        encode(proteus_contracts::contracts::ProcessHookResponse { result: response })
     }
 
     fn tool(&self, method: &str, params: Value, bridge: &HostBridge) -> Result<Value> {

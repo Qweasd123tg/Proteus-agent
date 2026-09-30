@@ -11,6 +11,7 @@ pub struct TopologySnapshot {
     pub permission_mode: String,
     pub model: Option<ModelTopology>,
     pub slots: Vec<SlotTopology>,
+    pub hooks: Vec<String>,
     pub modules: Vec<ModuleTopology>,
     pub tools: Vec<ToolTopology>,
     pub edges: Vec<TopologyEdge>,

@@ -132,16 +132,17 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = response_bytes(response).await;
     let plan: Value = serde_json::from_slice(&body).expect("assembly plan JSON");
-    assert_eq!(plan["schema_version"], 2);
+    assert_eq!(plan["schema_version"], 3);
+    assert_eq!(plan["hooks"], json!([]));
     assert_eq!(plan["profile"], "dev-basic");
     assert_eq!(plan["model"]["provider"], "fake");
     assert_eq!(plan["tools"]["agent_control_surface"], "task");
     assert!(plan["tools"].get("subagent_surface").is_none());
-    assert!(
-        plan["slots"]
-            .as_array()
-            .is_some_and(|slots| slots.len() == 9)
-    );
+    assert!(plan["slots"].as_array().is_some_and(|slots| {
+        slots
+            .iter()
+            .any(|slot| slot["id"] == "hook" && slot["module_id"].is_null())
+    }));
     assert!(plan.get("config").is_none(), "raw config leaked into plan");
 
     let response = route_request(

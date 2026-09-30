@@ -12,6 +12,7 @@ pub fn render_topology_table(snapshot: &TopologySnapshot) -> String {
         lines.push(format!("model: {}/{}", model.provider, model.name));
     }
     lines.push(String::new());
+    lines.push(format!("Hooks (ordered): {}", snapshot.hooks.join(" -> ")));
     lines.push("Active slots:".to_owned());
     lines.push(render_table(
         ["slot", "active_module", "source"],

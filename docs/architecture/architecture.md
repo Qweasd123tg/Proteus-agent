@@ -515,7 +515,9 @@ composition(contract) = select_one | ordered_many
 
 `workflow`, `search`, `memory`, `context`, `policy`, `patch`,
 `compactor` и `tool_exposure` используют `select_one`.
-`tool` и `context_provider` используют `ordered_many`.
+`tool`, `context_provider` и typed `hook/v1` chain используют `ordered_many`.
+`modules.hooks` задаёт явный порядок execution contributions; Core владеет
+точками вызова и validation, а handlers проходят тот же process boundary.
 
 Worker не может объявить новый composition mode или произвольный hook.
 Добавление нового slot проходит [slot-governance.md](slot-governance.md).

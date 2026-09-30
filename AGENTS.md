@@ -52,7 +52,8 @@ Transport и cardinality не смешиваются. Host-defined process contr
 composition(contract) = select_one | ordered_many
 ```
 
-Текущие behavior slots — `select_one`. `ordered_many` допустим только для
+Behavior slots используют `select_one`, кроме typed `hook/v1` chain с
+явным порядком `modules.hooks`. `ordered_many` допустим только для
 typed chain surface с одинаковой authority всех участников, явным порядком,
 повторной validation и отдельным slot-governance evidence. Module не может
 сам объявить новый hook или изменить composition mode.

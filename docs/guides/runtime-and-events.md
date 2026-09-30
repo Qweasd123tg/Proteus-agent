@@ -308,18 +308,60 @@ history сохраняют раздельные commentary/final items. Клие
 Если provider не классифицирует сообщения, `phase = null`: клиент не
 угадывает фазу. Ответ без стриминга проходит тот же item-completion путь.
 
+## Хуки Выполнения
+
+Opt-in `modules.hooks` задаёт упорядоченную цепочку process exports `hook/v1`.
+Core вызывает её в пяти точках: `turn_started`, `before_model`, `before_tool`,
+`after_tool`, `turn_settled`. Это общая execution boundary: model/tool hooks
+действуют также в host callbacks внешнего workflow и при detached tool calls.
+Отдельный workflow не обязан повторять их wiring.
+
+`before_model` разрешает заменить только messages/instructions запроса, сохраняя
+model, tools, attribution и параметры. После каждого вклада проверяются
+canonical identities и capabilities; изменение содержимого существующего
+canonical part требует нового `part_id`. `before_tool` выполняется после
+проверки аргументов и может остановить вызов с непустой причиной; первая
+блокировка завершает цепочку. В журнале это `HookBlocked`, после неё tools
+не запускаются. Разрешение самого hook не заменяет policy/approval/safety path.
+`after_tool` меняет только `output`, сохраняя status, error, identity и metadata;
+общий лимит вывода runtime применяется и после hook.
+
+Перед следующим effect журнал записывает `HookInvoked`: исходный event,
+ordered steps с accepted response/error и итоговый event. Ошибка до model/tool
+останавливает execution без соответствующего effect. Ошибка после tool
+сохраняет фактический исходный результат инструмента и завершает execution
+явной ошибкой. Для активной hook chain `ToolEffectRecorded` фиксирует raw result до
+ожидания after-tool handler; `ToolResultRecorded` затем фиксирует final result.
+При interruption без final история и transcript используют известный raw
+outcome. После settlement он доступен следующему turn в живой сессии, включая
+runtime без session store. Raw tool result также содержится во входе завершённого hook trace, поэтому
+replay не применяет output contribution дважды и не повторяет инструмент.
+
+`turn_started` и `turn_settled` — best-effort notifications: ошибка handler
+сохраняется в trace, следующие handlers продолжают работу, исход хода не
+меняется. Terminal notification получает вычисленный outcome перед записью
+`TurnSettled`; даже при cancellation/timeout она имеет отдельный bounded
+cleanup token. Каждый process export ограничен своим `timeout_ms` (по
+умолчанию 5000 мс). Snapshot и порядок handlers неизменны в пределах хода.
+
+Workflow replay применяет записанные responses и failures без запуска hook
+workers. Он проверяет входы и consumption traces; callbacks внутренней model
+работы compactor остаются частью существующей recorded-compaction oracle.
+Раздел «Анализ ходов» в настройках показывает hook traces. Пример включения —
+[`hooks.config.toml`](../../examples/configs/hooks.config.toml).
+
 ## Файлы Сессии И Durable Snapshots
 
 Если runtime запущен с config path, рядом с config root создаётся дерево
 `sessions/<workspace>/<session>/` (подробно про layout, resume и lifecycle —
 раздел «Session Store» ниже). Source of truth — `journal.jsonl`, где одна
-строка является строгим record schema v15 с `record_id`, монотонным
+строка является строгим record schema v16 с `record_id`, монотонным
 `session_seq`, timestamp, mandatory session id, optional execution/thread/turn
 ids, `kind` и payload. `TurnOpened`, model и tool facts требуют
 `ExecutionId`; history/settlement остаются chat facts без execution owner.
 Detached execution facts имеют execution id, но не выдумывают thread/turn.
 
-Journal фиксирует `turn_opened`, revisioned `history_mutated`, точные shaped
+Journal фиксирует `turn_opened`, typed `hook_invoked`, revisioned `history_mutated`, точные shaped
 model request/completed items/terminal response, tool request/approval/resolution/result и
 `turn_settled`. Conversation history для resume получается fold-ом
 `history_mutated`; request-scoped context в неё не попадает. Compaction пишет
@@ -909,12 +951,12 @@ journal. ОС освобождает владение при закрытии pr
 находится в parent directory, а время создания/изменения берётся из metadata
 файловой системы. Новая session получает 10-значный numeric basename,
 детерминированный из внутреннего UUID; полный `SessionId` сохраняется в
-`session.json` schema v4 вместе с `journal_schema_version = 15`. Перед записью runtime
+`session.json` schema v4 вместе с `journal_schema_version = 16`. Перед записью runtime
 проверяет metadata, поэтому коллизия коротких имён завершается ошибкой и не
 смешивает histories.
 
 Reader принимает только basename из 10 ASCII-цифр с обязательным
-`session.json` schema v4 и journal schema v15. UUID-basename directories,
+`session.json` schema v4 и journal schema v16. UUID-basename directories,
 прежние session/journal schemas и неизвестные wire/storage формы
 отвергаются явно: pre-release cutover не содержит legacy decoder или dual-read.
 Обычный каталог и автоматический выбор последней session пропускают

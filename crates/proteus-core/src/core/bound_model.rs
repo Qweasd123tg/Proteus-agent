@@ -1,9 +1,11 @@
-use std::{sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use futures_util::StreamExt;
 
+#[path = "bound_model/hooks.rs"]
+mod hooks;
 #[path = "bound_model/presentation.rs"]
 mod presentation;
 #[path = "bound_model/progress.rs"]
@@ -90,6 +92,18 @@ impl ModelExecutionBinding {
         self.recorder.clone()
     }
 
+    pub fn attribution(&self) -> crate::contracts::ExecutionAttribution {
+        match &self.turn {
+            Some(turn) => crate::contracts::ExecutionAttribution::for_turn(
+                self.scope.execution_id,
+                turn.session_id,
+                turn.thread_id,
+                turn.turn_id,
+            ),
+            None => crate::contracts::ExecutionAttribution::detached(self.scope.execution_id),
+        }
+    }
+
     fn bind_request(&self, request: &mut CanonicalModelRequest) -> Result<()> {
         let Some(turn) = &self.turn else {
             if let Some(key) = RESERVED_ATTRIBUTION_KEYS
@@ -165,6 +179,9 @@ pub struct BoundModel {
     service: Arc<ModelService>,
     binding: ModelExecutionBinding,
     model_timeout_ms: u64,
+    hooks: Arc<dyn crate::contracts::ExecutionHooks>,
+    hook_attribution: crate::contracts::ExecutionAttribution,
+    hook_cwd: PathBuf,
 }
 
 impl BoundModel {
@@ -173,15 +190,31 @@ impl BoundModel {
         binding: ModelExecutionBinding,
         model_timeout_ms: u64,
     ) -> Self {
+        let hook_attribution = binding.attribution();
         Self {
             service,
             binding,
             model_timeout_ms,
+            hooks: Arc::new(crate::contracts::NoExecutionHooks),
+            hook_attribution,
+            hook_cwd: PathBuf::new(),
         }
     }
 
     pub fn binding(&self) -> &ModelExecutionBinding {
         &self.binding
+    }
+
+    pub(crate) fn with_hooks(
+        mut self,
+        hooks: Arc<dyn crate::contracts::ExecutionHooks>,
+        attribution: crate::contracts::ExecutionAttribution,
+        cwd: PathBuf,
+    ) -> Self {
+        self.hooks = hooks;
+        self.hook_attribution = attribution;
+        self.hook_cwd = cwd;
+        self
     }
 
     fn deadline(&self) -> Option<tokio::time::Instant> {
@@ -194,8 +227,7 @@ impl BoundModel {
         request: CanonicalModelRequest,
         deadline: Option<tokio::time::Instant>,
     ) -> Result<ModelEventStream> {
-        let mut request = self.service.prepare_request(request)?;
-        self.binding.bind_request(&mut request)?;
+        let request = self.apply_before_model(request).await?;
         let exchange_id = new_exchange_id();
 
         self.binding

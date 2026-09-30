@@ -6,6 +6,7 @@ use crate::api::{get_json, post_json};
 use crate::types::*;
 use crate::ui_utils::shorten_home;
 
+use super::hooks::HooksEditor;
 use super::module_config_editor::{ModuleConfigEditor, has_module_errors};
 use super::summary::ConfigSections;
 use super::tools_picker::ToolsPicker;
@@ -22,6 +23,7 @@ pub(super) fn ConfigBuilderView(
     builder: ConfigBuilderSnapshot,
     summary: ConfigSummary,
     draft_modules: ReadSignal<BTreeMap<String, String>>,
+    draft_hooks: ReadSignal<Vec<String>>,
     draft_config_texts: ReadSignal<ModuleDrafts>,
     draft_errors: ReadSignal<DraftErrors>,
     draft_tools: ReadSignal<BTreeSet<String>>,
@@ -38,6 +40,7 @@ pub(super) fn ConfigBuilderView(
 ) -> impl IntoView {
     let slots = builder.slots.clone();
     let tools = builder.tools.clone();
+    let hook_modules = builder.hook_modules.clone();
     let warnings = builder.warnings.clone();
     let target_path_full = builder
         .target_path
@@ -84,6 +87,7 @@ pub(super) fn ConfigBuilderView(
             };
         let request = ConfigBuilderSaveRequest {
             modules: draft_modules.get_untracked(),
+            hooks: Some(draft_hooks.get_untracked()),
             module_config,
             tools_enabled: Some(draft_tools.get_untracked().into_iter().collect()),
             active_provider: Some(draft_provider.get_untracked()),
@@ -160,6 +164,7 @@ pub(super) fn ConfigBuilderView(
                                 on:input:target=move |ev| slot_search.set(ev.target().value())
                             />
                         </div>
+                        <HooksEditor modules=hook_modules.clone() draft_hooks set_hooks=drafts.hooks/>
                         <div class="config-builder-grid">
                             <For
                                 each=move || slots.clone()

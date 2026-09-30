@@ -27,6 +27,10 @@ pub fn render_topology_markdown(snapshot: &TopologySnapshot) -> String {
         out.push_str(&format!("config_path: `{}`\n", md_inline(path)));
     }
 
+    out.push_str(&format!(
+        "\nhooks (ordered): `{}`\n",
+        md_inline(&snapshot.hooks.join(" -> "))
+    ));
     out.push_str("\n## Runtime Path\n\n");
     out.push_str("```text\n");
     out.push_str(&render_topology_runtime_path(snapshot));

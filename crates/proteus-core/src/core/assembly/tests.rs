@@ -124,3 +124,54 @@ fn prepared_registry_uses_the_plan_selection() {
     );
     assert_eq!(assembly.plan().cwd(), cwd.path());
 }
+
+#[test]
+fn hooks_preserve_config_order_and_only_include_selected_exports() {
+    let mut config = crate::test_model::config();
+    config.modules.hooks = vec!["second".into(), "first".into()];
+    config.components.insert(
+        "hooks".into(),
+        serde_json::from_value(json!({
+            "command": "declaration-only-hook-worker",
+            "exports": {"hook": {"first": {}, "second": {}, "unused": {}}}
+        }))
+        .unwrap(),
+    );
+    let catalog = ModuleCatalog::from_config(&config).unwrap();
+    let plan = AssemblyPlan::resolve(config, None, PathBuf::from("."), &catalog).unwrap();
+    assert!(plan.is_valid());
+    assert_eq!(plan.hooks, ["second", "first"]);
+    assert_eq!(plan.module_id(ModuleKind::Hook), None);
+    let hooks = plan
+        .components
+        .iter()
+        .find(|component| component.id == "hooks")
+        .unwrap();
+    for export in &hooks.exports {
+        assert!(export.host_methods.is_empty());
+        assert_eq!(
+            export.composition,
+            crate::contracts::ProcessModuleComposition::OrderedMany
+        );
+        assert_eq!(
+            export.use_state,
+            if export.module_id == "unused" {
+                AssemblyExportUse::Available
+            } else {
+                AssemblyExportUse::Included
+            }
+        );
+    }
+    assert!(render_assembly_plan(&plan).contains("second -> first"));
+}
+
+#[test]
+fn invalid_hook_selections_block_the_plan_before_launch() {
+    for ids in [vec![""], vec!["missing"], vec!["missing", "missing"]] {
+        let mut config = crate::test_model::config();
+        config.modules.hooks = ids.into_iter().map(str::to_owned).collect();
+        let catalog = ModuleCatalog::from_config(&config).unwrap();
+        let plan = AssemblyPlan::resolve(config, None, PathBuf::from("."), &catalog).unwrap();
+        assert!(plan.ensure_valid().is_err());
+    }
+}

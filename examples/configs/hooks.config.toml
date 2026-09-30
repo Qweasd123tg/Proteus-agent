@@ -1,0 +1,92 @@
+active_provider = "fake"
+
+[[instructions]]
+kind = "System"
+file = "../../configs/prompts/direct-patch.md"
+priority = 90
+
+[profile]
+name = "opt-in-hooks"
+
+[providers.fake]
+provider = "fake"
+model = "fake-tool-model"
+stream = true
+
+[modules]
+hooks = ["hook.instructions", "hook.output_budget"]
+workflow = "coding.codex_loop"
+search = "rg"
+memory = "jsonl"
+context = "simple"
+policy = "allow_all"
+patch = "direct"
+compactor = "codex"
+tool_exposure = "codex_dynamic"
+
+# Один component экспортирует workflow, tools и две независимые hook contributions.
+# Их authority задаётся активным slot; hooks включены только в этом примере.
+[components.reference-agent]
+command = "proteus-reference-worker"
+
+[components.reference-agent.exports.workflow."coding.codex_loop"]
+
+[components.reference-agent.exports.search.rg]
+
+[components.reference-agent.exports.memory.jsonl]
+
+[components.reference-agent.exports.context.simple]
+
+[components.reference-agent.exports.policy.allow_all]
+
+[components.reference-agent.exports.patch.direct]
+
+[components.reference-agent.exports.compactor.codex]
+
+[components.reference-agent.exports.tool_exposure.codex_dynamic]
+
+[components.reference-agent.exports.tool."reference.tools"]
+
+[tools]
+enabled = ["read_file", "request_user_input"]
+
+[permissions]
+mode = "normal"
+
+[module_config.context.simple]
+max_search_results = 5
+
+[module_config.memory.jsonl]
+path = ".proteus/p4-memory.jsonl"
+
+[module_config.tool_exposure.codex_dynamic]
+max_hot_tools = 8
+always_include = ["read_file", "request_user_input"]
+
+[runtime]
+model_timeout_ms = 10000
+context_timeout_ms = 10000
+workflow_timeout_ms = 30000
+
+[event_log]
+path = ".proteus/events.jsonl"
+
+[components.reference-agent.exports.model.fake]
+
+[module_config.model.fake]
+implementation = "fake"
+
+# Contributions применяются в порядке modules.hooks; этот профиль opt-in.
+[components.reference-agent.exports.hook."hook.instructions"]
+timeout_ms = 5000
+
+[components.reference-agent.exports.hook."hook.output_budget"]
+timeout_ms = 5000
+
+[module_config.hook."hook.instructions"]
+text = "Перед изменением файлов объясни измеримый ожидаемый результат."
+placement = "append"
+
+[module_config.hook."hook.output_budget"]
+max_bytes = 16000
+head_bytes = 12000

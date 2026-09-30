@@ -4,7 +4,8 @@ use anyhow::{Context, Result};
 
 use crate::{
     contracts::{
-        AgentWorkflowContext, CancellationToken, EventEmitter, ExecutionContext, ExecutionScope,
+        AgentWorkflowContext, CancellationToken, EventEmitter, ExecutionAttribution,
+        ExecutionContext, ExecutionHooks, ExecutionScope, HookEvent, HookInput, HookTurnStatus,
         NoopExecutionRecorder,
     },
     core::{
@@ -25,8 +26,8 @@ pub use report::*;
 use fixture::load_fixture;
 use normalize::changed_compactions_equal;
 use replay_runtime::{
-    ReplayApprovalTransport, ReplayCompactor, ReplayContextBuilder, ReplayModel, ReplayState,
-    ReplayToolExposure, register_replay_tools,
+    ReplayApprovalTransport, ReplayCompactor, ReplayContextBuilder, ReplayHooks, ReplayModel,
+    ReplayState, ReplayToolExposure, register_replay_tools,
 };
 
 /// Replays one recorded root turn through its selected Workflow module.
@@ -74,6 +75,7 @@ pub async fn replay_workflow(
         .collect::<HashSet<_>>();
     let state = Arc::new(ReplayState::new(
         fixture.exchanges.clone(),
+        fixture.hooks.clone(),
         fixture.tools.clone(),
         fixture.compactions.clone(),
         fixture.context.clone(),
@@ -113,7 +115,22 @@ pub async fn replay_workflow(
     let event_store = Arc::new(InMemoryEventStore::new());
     let events = Arc::new(EventEmitter::new(event_store));
     let scope = ExecutionScope::fresh(CancellationToken::new());
-    let model: Arc<dyn crate::contracts::Model> = if fixture.exchanges.is_empty() {
+    let hook_attribution = ExecutionAttribution::for_turn(
+        scope.execution_id,
+        fixture.session_id,
+        fixture.thread_id,
+        fixture.turn_id,
+    );
+    let hooks: Arc<dyn ExecutionHooks> = Arc::new(ReplayHooks::new(
+        state.clone(),
+        fixture.snapshot.modules.hooks.clone(),
+    ));
+    let model: Arc<dyn crate::contracts::Model> = if fixture.exchanges.is_empty()
+        && fixture
+            .hooks
+            .iter()
+            .all(|trace| !matches!(trace.input.event, HookEvent::BeforeModel { .. }))
+    {
         // No provider capabilities were recorded. Reject calls at the oracle
         // before shaping can fail: even a caught error must mark divergence.
         Arc::new(ReplayModel::new(state.clone()))
@@ -127,11 +144,15 @@ pub async fn replay_workflow(
             fixture.turn_id,
             Arc::new(NoopExecutionRecorder),
         );
-        Arc::new(BoundModel::new(model_service, model_binding, 0))
+        Arc::new(BoundModel::new(model_service, model_binding, 0).with_hooks(
+            hooks.clone(),
+            hook_attribution,
+            fixture.opened.task.cwd.clone(),
+        ))
     };
     let approval: Arc<dyn crate::contracts::ApprovalTransport> =
         Arc::new(ReplayApprovalTransport::new(state.clone()));
-    let execution_context = ExecutionContext::new(
+    let mut execution_context = ExecutionContext::new(
         scope,
         0,
         model,
@@ -141,6 +162,7 @@ pub async fn replay_workflow(
         policy,
         approval,
     );
+    execution_context.hooks = hooks.clone();
     let checkpoint_recorder = Arc::new(replay_runtime::ReplayCheckpointRecorder::new(
         state.clone(),
         fixture.initial_history.clone(),
@@ -161,7 +183,7 @@ pub async fn replay_workflow(
         Arc::new(ReplayToolExposure::new(state.clone())),
         None,
     )
-    .with_tool_recorder(state.clone())
+    .with_tool_recorder(checkpoint_recorder.clone())
     .with_instructions(replay_config.instruction_blocks());
     workflow_context.history_recorder = checkpoint_recorder.clone();
     workflow_context.model_context = fixture.model_context.clone();
@@ -169,6 +191,16 @@ pub async fn replay_workflow(
     workflow_context.intent = fixture.opened.intent.clone();
     workflow_context.permission_mode = fixture.snapshot.permission_mode_default;
 
+    let _ = hooks
+        .apply(HookInput {
+            event: HookEvent::TurnStarted {
+                task: fixture.opened.task.clone(),
+                history: fixture.initial_history.clone(),
+            },
+            attribution: hook_attribution,
+            cwd: fixture.opened.task.cwd.clone(),
+        })
+        .await;
     let replay_result = workflow
         .run(
             fixture.opened.task.clone(),
@@ -206,7 +238,7 @@ pub async fn replay_workflow(
             Some(compactions),
         ),
         Err(mut error) => {
-            let mut history = fixture.initial_history.clone();
+            let mut history = checkpoint_recorder.committed_history();
             let mut compactions = None;
             if let Some(progress) = error
                 .downcast_ref::<crate::contracts::WorkflowFailure>()
@@ -228,7 +260,11 @@ pub async fn replay_workflow(
                     });
                 match update {
                     Ok(update) => {
-                        history = update.final_messages;
+                        // Failed live commits retain results already captured after
+                        // the explicit workflow progress prefix.
+                        if !history.starts_with(&update.final_messages) {
+                            history = update.final_messages;
+                        }
                         compactions = Some(progress.compactions);
                     }
                     Err(validation) => {
@@ -249,6 +285,22 @@ pub async fn replay_workflow(
             )
         }
     };
+    let _ = hooks
+        .apply(HookInput {
+            event: HookEvent::TurnSettled {
+                status: match replay_outcome.status {
+                    TurnSettlementStatus::Success => HookTurnStatus::Success,
+                    TurnSettlementStatus::Error => HookTurnStatus::Error,
+                    TurnSettlementStatus::Canceled => HookTurnStatus::Canceled,
+                    TurnSettlementStatus::Timeout => HookTurnStatus::Timeout,
+                },
+                output: replay_outcome.output.clone(),
+                error: replay_outcome.error.clone(),
+            },
+            attribution: hook_attribution,
+            cwd: fixture.opened.task.cwd.clone(),
+        })
+        .await;
     checkpoint_recorder.finish();
     let summary = state.summary();
     let journal_after = std::fs::read(&fixture.journal_path).with_context(|| {

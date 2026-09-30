@@ -76,6 +76,9 @@ pub struct SetReasoningEnabledRequest {
 #[derive(Debug, Clone, Default, serde::Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SetConfigBuilderRequest {
+    /// None preserves the ordered hook selection; Some replaces it.
+    #[serde(default)]
+    pub hooks: Option<Vec<String>>,
     #[serde(default)]
     pub modules: BTreeMap<String, String>,
     #[serde(default)]

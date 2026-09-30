@@ -26,6 +26,7 @@ mod execution;
 mod execution_binding;
 mod failed_history;
 mod history;
+mod hooks;
 mod paths;
 mod settings;
 mod steering;

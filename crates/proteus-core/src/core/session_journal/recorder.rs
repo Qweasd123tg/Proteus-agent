@@ -45,6 +45,24 @@ impl SessionExecutionRecorder {
 
 #[async_trait]
 impl ExecutionRecorder for SessionExecutionRecorder {
+    async fn hook_recorded(&self, trace: &crate::contracts::HookTrace) -> Result<()> {
+        if trace.input.attribution.execution_id != self.attribution.execution_id
+            || trace.input.attribution.agent.map(|agent| agent.session_id)
+                != self.attribution.agent.map(|agent| agent.session_id)
+            || trace.input.attribution.agent.map(|agent| agent.turn_id)
+                != self.attribution.agent.map(|agent| agent.turn_id)
+        {
+            bail!("hook trace conflicts with its execution recorder owner");
+        }
+        self.store
+            .append_execution_journal_entry(
+                trace.input.attribution,
+                JournalEntry::HookInvoked(trace.clone()),
+            )
+            .await?;
+        Ok(())
+    }
+
     async fn model_request_recorded(
         &self,
         exchange_id: ExchangeId,
@@ -158,6 +176,23 @@ impl SessionToolExecutionRecorder {
 
 #[async_trait]
 impl ToolExecutionRecorder for SessionToolExecutionRecorder {
+    async fn tool_effect_recorded(
+        &self,
+        attribution: ExecutionAttribution,
+        result: &ToolResult,
+    ) -> Result<()> {
+        self.validate_attribution(attribution)?;
+        self.store
+            .append_execution_journal_entry(
+                attribution,
+                JournalEntry::ToolEffectRecorded(ToolResultRecorded {
+                    result: result.clone(),
+                }),
+            )
+            .await?;
+        Ok(())
+    }
+
     async fn tool_call_requested(
         &self,
         attribution: ExecutionAttribution,

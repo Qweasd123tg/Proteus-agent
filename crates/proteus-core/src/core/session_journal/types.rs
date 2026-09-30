@@ -10,7 +10,7 @@ use proteus_contracts::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const JOURNAL_SCHEMA_VERSION: u32 = 15;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 16;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -111,6 +111,7 @@ pub struct TurnSettled {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum JournalKind {
+    HookInvoked,
     TurnOpened,
     HistoryMutated,
     ModelRequestRecorded,
@@ -118,6 +119,7 @@ pub enum JournalKind {
     ModelResponseRecorded,
     ToolCallRecorded,
     ToolResultRecorded,
+    ToolEffectRecorded,
     TurnSettled,
 }
 
@@ -129,6 +131,7 @@ pub enum JournalKind {
     deny_unknown_fields
 )]
 pub enum JournalEntry {
+    HookInvoked(proteus_contracts::contracts::HookTrace),
     TurnOpened(TurnOpened),
     HistoryMutated(HistoryMutated),
     ModelRequestRecorded(ModelRequestRecorded),
@@ -136,12 +139,14 @@ pub enum JournalEntry {
     ModelResponseRecorded(ModelResponseRecorded),
     ToolCallRecorded(ToolCallRecorded),
     ToolResultRecorded(ToolResultRecorded),
+    ToolEffectRecorded(ToolResultRecorded),
     TurnSettled(TurnSettled),
 }
 
 impl JournalEntry {
     pub fn kind(&self) -> JournalKind {
         match self {
+            Self::HookInvoked(_) => JournalKind::HookInvoked,
             Self::TurnOpened(_) => JournalKind::TurnOpened,
             Self::HistoryMutated(_) => JournalKind::HistoryMutated,
             Self::ModelRequestRecorded(_) => JournalKind::ModelRequestRecorded,
@@ -149,6 +154,7 @@ impl JournalEntry {
             Self::ModelResponseRecorded(_) => JournalKind::ModelResponseRecorded,
             Self::ToolCallRecorded(_) => JournalKind::ToolCallRecorded,
             Self::ToolResultRecorded(_) => JournalKind::ToolResultRecorded,
+            Self::ToolEffectRecorded(_) => JournalKind::ToolEffectRecorded,
             Self::TurnSettled(_) => JournalKind::TurnSettled,
         }
     }

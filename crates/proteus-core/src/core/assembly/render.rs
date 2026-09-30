@@ -29,7 +29,7 @@ pub fn render_assembly_plan(plan: &AssemblyPlan) -> String {
     lines.push(format!("permission mode: {:?}", plan.permission_mode));
 
     lines.push("slots:".to_owned());
-    for slot in &plan.slots {
+    for slot in plan.slots.iter().filter(|slot| slot.id != "hook") {
         let selection = match (&slot.module_id, &slot.source, &slot.component_id) {
             (Some(module_id), Some(source), Some(component_id)) => {
                 format!("{module_id} [{source:?}, component {component_id}]")
@@ -41,6 +41,7 @@ pub fn render_assembly_plan(plan: &AssemblyPlan) -> String {
         lines.push(format!("  {}: {selection}", slot.id));
     }
 
+    lines.push(format!("hooks (ordered): {}", plan.hooks.join(" -> ")));
     lines.push("components:".to_owned());
     if plan.components.is_empty() {
         lines.push("  (none)".to_owned());

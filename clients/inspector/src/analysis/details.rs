@@ -72,6 +72,14 @@ pub(super) fn StepDetails(step: AppAnalysisStep) -> impl IntoView {
                     <p>{report.reason.clone()}</p><pre class="analysis-text">{report.summary.clone()}</pre>
                     <details><summary>"Отчёт сжатия"</summary><pre>{pretty(&report)}</pre></details>
                 }.into_any(),
+                AppAnalysisStepData::Hook { trace } => view! {
+                    <p class="analysis-note">"Обработчики выполнены в порядке конфигурации. Здесь сохранены вход, решения и результат цепочки."</p>
+                    <section><h3>"Обработчики"</h3>
+                        {trace.steps.iter().map(|step| view! { <details><summary>{step.module_id.clone()}</summary><pre>{pretty(&step.outcome)}</pre></details> }).collect_view()}
+                    </section>
+                    <details><summary>"Входные данные"</summary><pre>{pretty(&trace.input)}</pre></details>
+                    <details><summary>"Результат цепочки"</summary><pre>{pretty(&trace.output)}</pre></details>
+                }.into_any(),
             }}
             <details class="analysis-identity"><summary>"Идентификаторы шага"</summary><code>{identity}</code></details>
         </article>

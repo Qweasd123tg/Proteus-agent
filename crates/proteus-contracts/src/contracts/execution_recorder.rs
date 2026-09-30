@@ -23,6 +23,11 @@ pub enum ModelCallOrigin {
 /// identity. Implementations may persist the facts or keep them in memory.
 #[async_trait]
 pub trait ExecutionRecorder: Send + Sync {
+    /// Persist hook decisions before the next execution side effect.
+    async fn hook_recorded(&self, _trace: &super::HookTrace) -> Result<()> {
+        Ok(())
+    }
+
     async fn model_request_recorded(
         &self,
         exchange_id: ExchangeId,

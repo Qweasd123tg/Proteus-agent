@@ -28,6 +28,14 @@ pub(super) fn step_title(step: &AppAnalysisStep) -> String {
         ),
         AppAnalysisStepData::Tool { call, .. } => call.name.clone(),
         AppAnalysisStepData::Compaction { .. } => "Сжатие истории".into(),
+        AppAnalysisStepData::Hook { trace } => match &trace.input.event {
+            proteus_contracts::contracts::HookEvent::TurnStarted { .. } => "Начало хода",
+            proteus_contracts::contracts::HookEvent::BeforeModel { .. } => "Перед запросом модели",
+            proteus_contracts::contracts::HookEvent::BeforeTool { .. } => "Перед инструментом",
+            proteus_contracts::contracts::HookEvent::AfterTool { .. } => "После инструмента",
+            proteus_contracts::contracts::HookEvent::TurnSettled { .. } => "Завершение хода",
+        }
+        .into(),
     }
 }
 
@@ -36,6 +44,7 @@ pub(super) fn step_kind(step: &AppAnalysisStep) -> &'static str {
         AppAnalysisStepData::Model { .. } => "Модель",
         AppAnalysisStepData::Tool { .. } => "Инструмент",
         AppAnalysisStepData::Compaction { .. } => "Контекст",
+        AppAnalysisStepData::Hook { .. } => "Хуки",
     }
 }
 
@@ -53,6 +62,12 @@ pub(super) fn step_has_error(step: &AppAnalysisStep) -> bool {
                 })
         }
         AppAnalysisStepData::Tool { result, .. } => result.as_ref().is_some_and(|r| !r.ok),
+        AppAnalysisStepData::Hook { trace } => trace.steps.iter().any(|step| {
+            matches!(
+                step.outcome,
+                proteus_contracts::contracts::HookStepOutcome::Failed { .. }
+            )
+        }),
         _ => false,
     }
 }

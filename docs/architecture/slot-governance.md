@@ -193,3 +193,17 @@ Cursor-like output artifact идеи, но не доказывает, что н�
   `docs/guides/configuration.md`;
 - минимум две работающие независимые реализации, не считая no-op, legacy alias
   или planned-вариант; swap test должен прогнать обе через один runtime path.
+
+## Hook Contributions
+
+`hook/v1` закрывает класс одновременно включаемых typed execution contributions:
+общие точки до model/tool и после tool принадлежат host, поэтому независимую
+contribution не нужно встраивать в каждый workflow. Реальные opt-in
+implementations — instruction injection и tool-output budget. Contract
+ограничивает мутации и не открывает универсальные callbacks.
+
+`modules.hooks` задаёт exact order; каждый handler имеет одинаковые права,
+свой deadline/cancellation и validation. Before-model/tool failures closed,
+after-tool сохраняет actual effect с явной ошибкой; lifecycle notifications
+best-effort. Implementation-owned state не обещает restore после restart.
+Chain evidence проверяет A→B/B→A, failure и запрет host callbacks.

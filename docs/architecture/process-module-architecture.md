@@ -104,7 +104,7 @@ roots = ["src", "crates"]
 - `components.<component_id>` — host-owned executable и shared lifecycle;
 - `exports.<slot>.<module_id>` — exact export identity и его timeout/description;
 - `module_config.<slot>.<module_id>` — opaque object реализации;
-- `[modules]` — выбор `module_id` для `select_one` slot.
+- `[modules]` — выбор `module_id` для `select_one` slot; `hooks` — явный ordered список exports.
 
 Пример выбора:
 
@@ -132,7 +132,7 @@ Composition хранится в общей authority table и подтвержд
 
 - `select_one`: workflow, search, memory, context, policy, patch, compactor,
   tool exposure;
-- `ordered_many`: tool, context provider.
+- `ordered_many`: tool, context provider, hook.
 
 Worker не может изменить cardinality, сделать свой `module_id` особым или
 объявить новый slot. Это изменение host contract.
@@ -262,6 +262,7 @@ invalid DTO и превышение limits являются fail-closed protocol
 
 | Slot | Contract | Module methods | Host callbacks |
 |---|---|---|---|
+| hook | v1 | `hook.invoke` | — |
 | search | v2 | `search` | — |
 | memory | v2 | `remember`, `recall` | — |
 | patch | v1 | `apply` | — |
@@ -280,8 +281,8 @@ DTO, adapter, protocol/conformance и swap evidence в одном commit.
 
 `ToolSpec` содержит обязательный boolean `supports_parallel_tool_calls`,
 независимый от `safety`. Он проходит через tool list, policy, tool exposure,
-canonical model request, workflow/compactor, journal schema v15 и config
-snapshot v4. Rust
+canonical model request, workflow/compactor, journal schema v16 и config
+snapshot v5. Rust
 constructor задаёт `false`, worker JSON обязан передать поле явно. Selector
 сохраняет зарегистрированное значение; несовпадение отклоняется. Старые
 версии этих contracts и ToolSpec без поля не принимаются. Wire остаётся v3;
@@ -649,11 +650,11 @@ event; это причина, а не команда Core повторить з�
 без завершения, сохраняя остальные
 ошибки данных и deadline отдельными. Codex workflow принимает решение о повторе
 с подтверждённой историей; compactor сохраняет свою политику повторов.
-Действуют `model/v10`, `workflow/v16`, `compactor/v10` и journal schema v15,
+Действуют `model/v10`, `workflow/v16`, `compactor/v10` и journal schema v16,
 без readers старых форм.
 Передача `ToolCall` в существующем `CanonicalMessage` не меняет wire/storage DTO.
 
-Journal schema v15 записывает `ModelMessageRecorded { exchange_id, message }`
+Journal schema v16 записывает `ModelMessageRecorded { exchange_id, message }`
 до доставки completed item и сохраняет полный `ModelFailure`; workflow replay
 воспроизводит последовательность completed items и возвращает тот же
 `kind`, текст и `completed_messages`. Ветвление workflow по типу ошибки прямого
@@ -715,3 +716,19 @@ Protocol tests, runtime swap и real-worker conformance перечислены �
 Эти возможности могут строиться только поверх slot contracts, явной
 invocation authority и проверяемого lifecycle — без второго native path и без
 исключений для конкретного component/module id.
+
+## Typed Hook Chain
+
+`hook/v1` имеет `composition=ordered_many`; host выбирает exact exports
+по `modules.hooks` в порядке config snapshot. Wire input содержит typed event,
+execution attribution и cwd; cancellation token остаётся host-only. Методы
+`host.*` не разрешены. События: turn-start/end (best-effort notifications),
+before-model (messages/instructions), before-tool (block), after-tool (output).
+Каждый mutating response валидируется до следующего handler. Идентичность,
+policy и effect status изменять нельзя. Pre-model/pre-tool failure не допускает
+соответствующий effect; after-tool failure сохраняет actual tool result.
+
+Hook process persistent и допускает concurrent invocation; нельзя хранить
+execution state в единственном shared mutable поле. Reload меняет snapshot
+атомарно, потеря component затрагивает все exports этого component; restart
+не восстанавливает implementation-owned state автоматически.

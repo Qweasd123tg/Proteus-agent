@@ -336,6 +336,9 @@ impl Default for ModelConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModulesConfig {
+    /// Explicit execution order of process hook contributions.
+    #[serde(default)]
+    pub hooks: Vec<String>,
     #[serde(default)]
     pub workflow: Option<String>,
     #[serde(default)]
@@ -357,6 +360,7 @@ pub struct ModulesConfig {
 impl Default for ModulesConfig {
     fn default() -> Self {
         Self {
+            hooks: Vec::new(),
             workflow: None,
             search: None,
             memory: None,
@@ -370,6 +374,19 @@ impl Default for ModulesConfig {
 }
 
 impl ModulesConfig {
+    pub fn validate_hooks(&self) -> Result<()> {
+        let mut seen = std::collections::BTreeSet::new();
+        for id in &self.hooks {
+            if id.trim().is_empty() {
+                bail!("modules.hooks contains a blank id");
+            }
+            if !seen.insert(id) {
+                bail!("modules.hooks contains duplicate id: {id}");
+            }
+        }
+        Ok(())
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (ModuleKind, &str)> {
         CORE_SLOT_DESCRIPTORS
             .iter()

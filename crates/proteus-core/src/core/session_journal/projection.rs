@@ -51,6 +51,7 @@ struct ToolLifecycle {
     approval_requested: bool,
     resolved: bool,
     result: bool,
+    effect: Option<proteus_contracts::domain::ToolResult>,
 }
 
 impl JournalValidationState {
@@ -60,6 +61,13 @@ impl JournalValidationState {
         }
 
         match &record.entry {
+            JournalEntry::HookInvoked(trace) => {
+                self.require_execution_fact(record)?;
+                super::hooks::validate_trace(record, trace)?;
+                for messages in super::hooks::model_messages(trace) {
+                    self.validate_part_id_stability(messages)?;
+                }
+            }
             JournalEntry::TurnOpened(opened) => {
                 self.capture = Default::default();
                 self.capture_owner = None;
@@ -291,6 +299,23 @@ impl JournalValidationState {
                     }
                 }
             }
+            JournalEntry::ToolEffectRecorded(tool) => {
+                let owner = self.require_execution_fact(record)?;
+                let Some(lifecycle) = self.tool_calls.get_mut(&tool.result.call_id) else {
+                    bail!("tool effect {} has no preceding call", tool.result.call_id);
+                };
+                if !lifecycle.resolved
+                    || lifecycle.owner != Some(owner)
+                    || lifecycle.effect.is_some()
+                    || lifecycle.result
+                {
+                    bail!(
+                        "tool effect {} violates its call lifecycle",
+                        tool.result.call_id
+                    );
+                }
+                lifecycle.effect = Some(tool.result.clone());
+            }
             JournalEntry::ToolResultRecorded(tool) => {
                 let owner = self.require_execution_fact(record)?;
                 let Some(lifecycle) = self.tool_calls.get_mut(&tool.result.call_id) else {
@@ -311,6 +336,13 @@ impl JournalValidationState {
                 if lifecycle.result {
                     bail!("duplicate tool result {}", tool.result.call_id);
                 }
+                if let Some(actual) = &lifecycle.effect
+                    && (actual.ok != tool.result.ok
+                        || actual.error != tool.result.error
+                        || actual.content != tool.result.content)
+                {
+                    bail!("tool result changed its actual status/error/content");
+                }
                 lifecycle.result = true;
                 if record.thread_id.zip(record.turn_id) == self.capture_owner
                     && self.capture.record(&mut self.history, &tool.result)?
@@ -323,6 +355,27 @@ impl JournalValidationState {
             JournalEntry::TurnSettled(settled) => {
                 reject_execution_id(record)?;
                 let turn_id = self.require_root_turn(record)?;
+                if self.capture_owner == record.thread_id.zip(record.turn_id) {
+                    let pending = self
+                        .tool_calls
+                        .values()
+                        .filter(|call| {
+                            !call.result
+                                && call.owner.is_some_and(|owner| {
+                                    owner.thread_id == record.thread_id
+                                        && owner.turn_id == record.turn_id
+                                })
+                        })
+                        .filter_map(|call| call.effect.clone())
+                        .collect::<Vec<_>>();
+                    for result in pending {
+                        if self.capture.record(&mut self.history, &result)? {
+                            self.history_revision = self.history_revision.saturating_add(1);
+                            validate_active_history_ids(&self.history)?;
+                            self.validate_part_id_stability(&self.history.clone())?;
+                        }
+                    }
+                }
                 if !self.settled_turns.insert(turn_id) {
                     bail!("turn {turn_id} settled more than once");
                 }
@@ -492,7 +545,7 @@ impl JournalProjection {
         let mut unresolved_tool_calls = state
             .tool_calls
             .iter()
-            .filter(|(_, lifecycle)| !lifecycle.result)
+            .filter(|(_, lifecycle)| !lifecycle.result && lifecycle.effect.is_none())
             .map(|(call_id, _)| call_id.clone())
             .collect::<Vec<_>>();
         unresolved_tool_calls.sort();

@@ -65,6 +65,12 @@ pub(super) fn config_builder_snapshot_from_topology(
                 id: id.to_owned(),
             })
             .collect(),
+        hooks: config.modules.hooks.clone(),
+        hook_modules: modules
+            .iter()
+            .filter(|module| module.slot == "hook")
+            .map(config_builder_module)
+            .collect(),
         module_config: config.module_config.clone(),
         tools_enabled: config.tools.enabled.clone(),
         tools: topology
@@ -252,6 +258,15 @@ pub(super) async fn persist_config_builder(path: &Path, config: &AppConfig) -> R
         doc["modules"][kind.as_str()] = toml_edit::value(id.to_owned());
     }
 
+    doc["modules"]["hooks"] = toml_edit::value(
+        config
+            .modules
+            .hooks
+            .iter()
+            .cloned()
+            .collect::<toml_edit::Array>(),
+    );
+
     if doc
         .get("agent_control")
         .is_none_or(|item| !item.is_table_like())
@@ -294,4 +309,38 @@ pub(super) async fn read_toml_document_or_empty(path: &Path) -> Result<toml_edit
     existing
         .parse::<toml_edit::DocumentMut>()
         .map_err(|err| anyhow!("failed to parse config TOML at {}: {err}", path.display()))
+}
+
+#[cfg(test)]
+mod hook_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn builder_save_preserves_hook_order_when_editing_other_selections() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let mut config = crate::test_model::config();
+        config.modules.hooks = vec!["second".into(), "first".into()];
+        config.modules.search = Some("rg".into());
+        persist_config_builder(&path, &config).await.unwrap();
+        config.modules.search = Some("other-search".into());
+        persist_config_builder(&path, &config).await.unwrap();
+        let saved: toml::Value =
+            toml::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
+        assert_eq!(
+            saved["modules"]["hooks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|id| id.as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["second", "first"]
+        );
+        assert_eq!(saved["modules"]["search"].as_str(), Some("other-search"));
+        config.modules.hooks.clear();
+        persist_config_builder(&path, &config).await.unwrap();
+        let saved: toml::Value =
+            toml::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
+        assert!(saved["modules"]["hooks"].as_array().unwrap().is_empty());
+    }
 }

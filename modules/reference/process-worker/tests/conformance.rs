@@ -159,6 +159,8 @@ fn all_reference_exports_share_a_component_and_route_over_one_broker() {
         ("context_provider", "skills"),
         ("compactor", "codex"),
         ("tool_exposure", "codex_dynamic"),
+        ("hook", "hook.instructions"),
+        ("hook", "hook.output_budget"),
         ("policy", "allow_all"),
         ("policy", "ask_write"),
         ("policy", "codex_policy"),
@@ -172,6 +174,10 @@ fn all_reference_exports_share_a_component_and_route_over_one_broker() {
     let exports = modules.map(|(slot, module_id)| {
         let config = if slot == "model" {
             json!({"implementation": module_id, "auth_file": workspace.path().join("chatgpt.json")})
+        } else if module_id == "hook.instructions" {
+            json!({"text":"Verify assumptions", "placement":"append"})
+        } else if module_id == "hook.output_budget" {
+            json!({"max_bytes":7,"head_bytes":3})
         } else {
             json!({})
         };
@@ -206,6 +212,48 @@ fn all_reference_exports_share_a_component_and_route_over_one_broker() {
         let description: proteus_contracts::contracts::ProcessModelDescriptor =
             invoke(&export, "describe", Value::Null);
         assert!(!description.adapter_id.is_empty(), "{}", target.module_id);
+    }
+    for target in targets.iter().filter(|target| target.slot == "hook") {
+        use proteus_contracts::contracts::{
+            HookEvent, HookInput, HookResponse, ModelCallOrigin, ProcessHookResponse,
+        };
+        let event = if target.module_id == "hook.instructions" {
+            HookEvent::BeforeModel {
+                origin: ModelCallOrigin::Direct,
+                request: proteus_contracts::model_standard::CanonicalModelRequest::new(
+                    ModelRef::new("fake", "x"),
+                    vec![],
+                ),
+            }
+        } else {
+            let call = ToolCall::new(new_call_id(), "read_file", json!({}));
+            HookEvent::AfterTool {
+                result: proteus_contracts::domain::ToolResult::ok(call.id.clone(), "абвгдеёж"),
+                call,
+            }
+        };
+        let input = HookInput {
+            event,
+            attribution: ExecutionAttribution::detached(new_execution_id()),
+            cwd: workspace.path().into(),
+        };
+        let export = TestExportSession {
+            inner: session.clone(),
+            target: target.clone(),
+        };
+        let response: ProcessHookResponse =
+            invoke(&export, "hook.invoke", serde_json::to_value(input).unwrap());
+        match response.result {
+            HookResponse::ModelContext {
+                instructions,
+                messages,
+            } => {
+                assert!(messages.is_empty());
+                assert_eq!(instructions.last().unwrap().text, "Verify assumptions");
+            }
+            HookResponse::ToolOutput { output } => assert_eq!(output, "аёж"),
+            other => panic!("unexpected hook response {other:?}"),
+        }
     }
     let policy_target = targets
         .iter()

@@ -24,6 +24,7 @@ use model_exchanges::select_exchanges;
 pub(super) struct WorkflowReplayFixture {
     pub model_context: Vec<crate::contracts::ModelContextObservation>,
     pub interrupted_turns: Vec<crate::contracts::WorkflowHistoryInterruption>,
+    pub hooks: Vec<crate::contracts::HookTrace>,
     pub checkpoints: Vec<super::replay_runtime::RecordedCheckpoint>,
     pub journal_path: std::path::PathBuf,
     pub session_id: SessionId,
@@ -54,6 +55,7 @@ pub(super) struct RecordedToolInvocation {
     pub approval_reason: Option<String>,
     pub resolution: ToolCallResolution,
     pub result: ToolResult,
+    pub raw_result: Option<ToolResult>,
 }
 
 #[derive(Debug)]
@@ -62,6 +64,7 @@ struct PendingToolInvocation {
     approval_reason: Option<String>,
     resolution: Option<ToolCallResolution>,
     result: Option<ToolResult>,
+    raw_result: Option<ToolResult>,
 }
 
 pub(super) fn load_fixture(
@@ -89,9 +92,39 @@ pub(super) fn load_fixture(
         .map(|exchange| exchange.exchange_id)
         .collect();
     let tools = select_tools(&projection.records, execution_id, thread_id)?;
-    let context = exchanges
-        .first()
-        .map(|exchange| recorded_context(&exchange.request, &settlement));
+    let hooks = projection
+        .records
+        .iter()
+        .filter_map(|record| {
+            if record.execution_id != Some(execution_id)
+                || record.thread_id != Some(thread_id)
+                || record.turn_id != Some(turn_id)
+            {
+                return None;
+            }
+            let JournalEntry::HookInvoked(trace) = &record.entry else {
+                return None;
+            };
+            if matches!(
+                trace.input.event,
+                crate::contracts::HookEvent::BeforeModel {
+                    origin: crate::contracts::ModelCallOrigin::Compactor,
+                    ..
+                }
+            ) {
+                return None;
+            }
+            Some(trace.clone())
+        })
+        .collect::<Vec<_>>();
+    let context_request = hooks
+        .iter()
+        .find_map(|trace| match &trace.input.event {
+            crate::contracts::HookEvent::BeforeModel { request, .. } => Some(request),
+            _ => None,
+        })
+        .or_else(|| exchanges.first().map(|exchange| &exchange.request));
+    let context = context_request.map(|request| recorded_context(request, &settlement));
     let opened_index = projection
         .records
         .iter()
@@ -105,6 +138,7 @@ pub(super) fn load_fixture(
     )?;
 
     Ok(WorkflowReplayFixture {
+        hooks,
         interrupted_turns: prior_projection.interrupted_turns,
         model_context: crate::core::model_context::ModelContextState::from_records(
             &projection.records,
@@ -324,6 +358,7 @@ fn select_tools(
                         approval_reason: None,
                         resolution: None,
                         result: None,
+                        raw_result: None,
                     });
                 }
                 ToolCallRecordPhase::ApprovalRequested { reason } => {
@@ -335,6 +370,10 @@ fn select_tools(
                     invocation.resolution = Some(resolution.clone());
                 }
             },
+            JournalEntry::ToolEffectRecorded(recorded) => {
+                let invocation = pending_tool(&mut pending, &positions, &recorded.result.call_id)?;
+                invocation.raw_result = Some(recorded.result.clone());
+            }
             JournalEntry::ToolResultRecorded(recorded) => {
                 let invocation = pending_tool(&mut pending, &positions, &recorded.result.call_id)?;
                 invocation.result = Some(recorded.result.clone());
@@ -353,8 +392,10 @@ fn select_tools(
                 resolution: pending
                     .resolution
                     .ok_or_else(|| anyhow!("tool call {call_id} has no recorded resolution"))?,
+                raw_result: pending.raw_result.clone(),
                 result: pending
                     .result
+                    .or(pending.raw_result)
                     .ok_or_else(|| anyhow!("tool call {call_id} has no recorded result"))?,
             })
         })
@@ -448,3 +489,7 @@ fn message_text(message: &CanonicalMessage) -> String {
         .collect::<Vec<_>>()
         .join("\n\n")
 }
+
+#[cfg(test)]
+#[path = "fixture/tool_effect_tests.rs"]
+mod tool_effect_tests;

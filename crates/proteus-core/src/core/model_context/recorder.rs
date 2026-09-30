@@ -24,6 +24,10 @@ pub(crate) struct ContextExecutionRecorder {
 
 #[async_trait]
 impl ExecutionRecorder for ContextExecutionRecorder {
+    async fn hook_recorded(&self, trace: &crate::contracts::HookTrace) -> Result<()> {
+        self.inner.hook_recorded(trace).await
+    }
+
     async fn model_request_recorded(
         &self,
         exchange_id: ExchangeId,

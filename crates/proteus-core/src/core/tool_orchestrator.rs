@@ -67,6 +67,7 @@ impl ToolOrchestrator {
             binding,
         )
         .with_limits(self.default_timeout_ms, self.max_output_bytes)
+        .with_hooks(ctx.execution.hooks.clone())
     }
 }
 

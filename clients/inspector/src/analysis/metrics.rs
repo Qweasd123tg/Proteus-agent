@@ -29,7 +29,7 @@ pub(super) fn TurnMetrics(steps: Arc<Vec<AppAnalysisStep>>) -> impl IntoView {
                 tools += 1;
                 missing += usize::from(result.is_none());
             }
-            AppAnalysisStepData::Compaction { .. } => {}
+            AppAnalysisStepData::Compaction { .. } | AppAnalysisStepData::Hook { .. } => {}
         }
     }
     let tokens = if usage_count == 0 {

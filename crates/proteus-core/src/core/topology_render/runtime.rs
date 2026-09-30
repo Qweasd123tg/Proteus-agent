@@ -24,6 +24,15 @@ pub fn render_topology_runtime_path(snapshot: &TopologySnapshot) -> String {
         out.push_str(&format!("config: {}\n", plain_text(config_path)));
     }
 
+    out.push_str(&format!(
+        "hooks (ordered): {}\n",
+        snapshot
+            .hooks
+            .iter()
+            .map(|id| plain_text(id))
+            .collect::<Vec<_>>()
+            .join(" -> ")
+    ));
     out.push_str("\nActive product path\n");
     render_runtime_slot(snapshot, "workflow", "turn loop", &mut out);
     render_runtime_slot(snapshot, "context", "context build", &mut out);

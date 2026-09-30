@@ -69,6 +69,7 @@ struct EvalAccumulator {
     changed_files: BTreeSet<String>,
     failure_reason: Option<String>,
     calls: BTreeMap<CallId, ToolCall>,
+    settled_tools: BTreeSet<CallId>,
 }
 
 pub fn read_eval_report(path: impl AsRef<Path>) -> Result<EvalReport> {
@@ -144,8 +145,8 @@ impl EvalAccumulator {
                     }
                 }
             },
-            JournalEntry::ToolResultRecorded(tool) => {
-                if !tool.result.ok {
+            JournalEntry::ToolEffectRecorded(tool) | JournalEntry::ToolResultRecorded(tool) => {
+                if self.settled_tools.insert(tool.result.call_id.clone()) && !tool.result.ok {
                     self.tool_failures += 1;
                 }
                 if tool.result.ok
@@ -168,7 +169,9 @@ impl EvalAccumulator {
                         .or_else(|| Some(format!("turn settled with status {:?}", settled.status)));
                 }
             }
-            JournalEntry::HistoryMutated(_) | JournalEntry::ModelMessageRecorded(_) => {}
+            JournalEntry::HistoryMutated(_)
+            | JournalEntry::ModelMessageRecorded(_)
+            | JournalEntry::HookInvoked(_) => {}
         }
         Ok(())
     }

@@ -31,7 +31,12 @@ pub fn build_topology_snapshot(input: TopologyBuildInput<'_>) -> TopologySnapsho
         .collect::<Vec<_>>();
 
     let slots = build_slots(plan.catalog_entries(), active_modules);
-    let modules = build_modules(plan.catalog_entries(), active_modules);
+    let mut modules = build_modules(plan.catalog_entries(), active_modules);
+    for module in &mut modules {
+        if module.slot == "hook" {
+            module.active = plan.hooks.contains(&module.id);
+        }
+    }
     let tools = build_tools(config, input.tools, &mut warnings);
     if config.modules.tool_exposure.is_none() && tools.iter().filter(|t| t.registered).count() > 10
     {
@@ -39,7 +44,15 @@ pub fn build_topology_snapshot(input: TopologyBuildInput<'_>) -> TopologySnapsho
             "tool_exposure is not selected, so the host exposes every policy-visible tool; select a ToolExposure process module when schema cost becomes significant",
         ));
     }
-    let edges = build_edges(&active_modules, &modules, &tools);
+    let mut edges = build_edges(&active_modules, &modules, &tools);
+    for (index, id) in plan.hooks.iter().enumerate() {
+        edges.push(TopologyEdge {
+            from: "config".to_owned(),
+            to: format!("module:hook:{id}"),
+            kind: "ordered_hook".to_owned(),
+            label: Some(format!("{}", index + 1)),
+        });
+    }
 
     TopologySnapshot {
         profile: plan.profile.clone(),
@@ -57,6 +70,7 @@ pub fn build_topology_snapshot(input: TopologyBuildInput<'_>) -> TopologySnapsho
         permission_mode: format!("{:?}", input.permission_mode),
         model,
         slots,
+        hooks: plan.hooks.clone(),
         modules,
         tools,
         edges,
@@ -171,6 +185,7 @@ mod tests {
                 "search",
                 "patch",
                 "memory",
+                "hook",
             ]
         );
 

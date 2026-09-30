@@ -9,6 +9,11 @@ use crate::ui_utils::compact_json;
 #[component]
 pub(super) fn TopologySnapshotView(snapshot: TopologySnapshot, source: String) -> impl IntoView {
     let slots = slot_views(&snapshot);
+    let hook_order = if snapshot.hooks.is_empty() {
+        "Отключены".to_owned()
+    } else {
+        snapshot.hooks.join(" → ")
+    };
     let slot_cards = slots.clone();
 
     let model_label = snapshot
@@ -53,6 +58,7 @@ pub(super) fn TopologySnapshotView(snapshot: TopologySnapshot, source: String) -
             <section class="architecture-summary" aria-label="Текущая сборка">
                 <div><span>"Профиль"</span><strong>{non_empty(&snapshot.profile, "default")}</strong></div>
                 <div><span>"Модель"</span><strong>{model_label}</strong></div>
+                <div><span>"Hooks · порядок"</span><strong>{hook_order}</strong></div>
                 <div><span>"Состав"</span><strong>{format!("{process_module_count} модулей · {registered_tool_count} инструментов")}</strong></div>
             </section>
             <div class="architecture-tabs" role="group" aria-label="Представление архитектуры">

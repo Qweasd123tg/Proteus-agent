@@ -48,6 +48,7 @@ pub struct ExecutionContext {
     pub scope: ExecutionScope,
     pub model_timeout_ms: u64,
     pub model: Arc<dyn Model>,
+    pub hooks: Arc<dyn super::ExecutionHooks>,
     pub search: Arc<dyn SearchBackend>,
     pub memory: Arc<dyn MemoryStore>,
     pub tools: ToolRegistry,
@@ -74,6 +75,7 @@ impl ExecutionContext {
             scope,
             model_timeout_ms,
             model,
+            hooks: Arc::new(super::NoExecutionHooks),
             search,
             memory,
             tools,
@@ -85,6 +87,11 @@ impl ExecutionContext {
 
     pub fn with_cancellation(mut self, cancellation: CancellationToken) -> Self {
         self.scope = ExecutionScope::new(self.scope.execution_id, cancellation);
+        self
+    }
+
+    pub fn with_hooks(mut self, hooks: Arc<dyn super::ExecutionHooks>) -> Self {
+        self.hooks = hooks;
         self
     }
 

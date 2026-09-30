@@ -33,6 +33,25 @@ pub(super) struct TurnHistoryRecorder {
     pub(super) tools: Arc<dyn ToolExecutionRecorder>,
     pub(super) capture: Mutex<HistoryCapture>,
     pub(super) recorded_compactions: Mutex<usize>,
+    pub(super) pending_effects: Mutex<Vec<ToolResult>>,
+}
+
+impl TurnHistoryRecorder {
+    pub(super) async fn settle_in_memory_effects(&self) -> Result<()> {
+        if self.store.is_some() {
+            return Ok(());
+        }
+        let mut capture = self.capture.lock().await;
+        let mut effects = self.pending_effects.lock().await;
+        if effects.is_empty() {
+            return Ok(());
+        }
+        let mut history = self.history.lock().await;
+        for result in effects.drain(..) {
+            capture.record(&mut history, &result)?;
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -94,6 +113,18 @@ impl WorkflowHistoryRecorder for TurnHistoryRecorder {
 
 #[async_trait]
 impl ToolExecutionRecorder for TurnHistoryRecorder {
+    async fn tool_effect_recorded(
+        &self,
+        attribution: ExecutionAttribution,
+        result: &ToolResult,
+    ) -> Result<()> {
+        self.tools.tool_effect_recorded(attribution, result).await?;
+        if self.store.is_none() && attribution == self.attribution {
+            self.pending_effects.lock().await.push(result.clone());
+        }
+        Ok(())
+    }
+
     async fn tool_call_requested(
         &self,
         attribution: ExecutionAttribution,
@@ -135,7 +166,10 @@ impl ToolExecutionRecorder for TurnHistoryRecorder {
         let mut capture = self.capture.lock().await;
         self.tools.tool_result_recorded(attribution, result).await?;
         if attribution == self.attribution {
+            let mut effects = self.pending_effects.lock().await;
             capture.record(&mut *self.history.lock().await, result)?;
+            // No cancellation point between accepting final and retiring raw.
+            effects.retain(|effect| effect.call_id != result.call_id);
         }
         Ok(())
     }

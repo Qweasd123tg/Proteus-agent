@@ -107,6 +107,17 @@ impl AssemblyPlan {
             })
             .collect::<Vec<_>>();
 
+        if let Err(error) = config.modules.validate_hooks() {
+            checks.push(AssemblyCheck::error("invalid_hooks", error.to_string()));
+        }
+        for id in &config.modules.hooks {
+            if !known.contains_key(&("hook".to_owned(), id.clone())) {
+                checks.push(AssemblyCheck::error(
+                    "hook_not_registered",
+                    format!("active hook is not registered: hook/{id}"),
+                ));
+            }
+        }
         check_duplicate_requested_tools(&config, &mut checks);
         let config_files = assembly_config_files(config_path);
         if config_files.len() > 1 {
@@ -150,6 +161,7 @@ impl AssemblyPlan {
             permission_mode: config.permissions.mode,
             model,
             slots,
+            hooks: config.modules.hooks.clone(),
             components,
             tools,
             checks,
@@ -285,6 +297,10 @@ fn build_components(
                         .is_some_and(|selected| selected == module_id)
                     {
                         AssemblyExportUse::Selected
+                    } else if slot == "hook" {
+                        if config.modules.hooks.iter().any(|id| id == module_id) {
+                            AssemblyExportUse::Included
+                        } else { AssemblyExportUse::Available }
                     } else if authority.composition
                         == crate::contracts::ProcessModuleComposition::OrderedMany
                     {

@@ -414,7 +414,7 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
     )
     .expect("config snapshot json");
 
-    assert_eq!(value["schema_version"], 4);
+    assert_eq!(value["schema_version"], 5);
     assert_eq!(value["active_provider"], "fake");
     assert_eq!(value["profile_name"], "snapshot-profile");
     assert_eq!(value["modules"]["workflow"], "coding.plan_execute_review");

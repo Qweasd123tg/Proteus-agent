@@ -22,6 +22,8 @@ use crate::{
 
 #[derive(Clone)]
 pub struct RuntimeRegistry {
+    pub hooks: Vec<(String, Arc<dyn crate::contracts::HookHandler>)>,
+    pub cwd: PathBuf,
     pub model_config: crate::core::ModelConfig,
     pub runtime_config: crate::core::RuntimeConfig,
     pub instructions: Vec<crate::model_standard::InstructionBlock>,
@@ -39,6 +41,18 @@ pub struct RuntimeRegistry {
 }
 
 impl RuntimeRegistry {
+    pub(crate) fn bind_hooks(
+        &self,
+        scope: crate::contracts::ExecutionScope,
+        recorder: Arc<dyn crate::contracts::ExecutionRecorder>,
+    ) -> Arc<dyn crate::contracts::ExecutionHooks> {
+        Arc::new(crate::core::RuntimeHookChain::new(
+            self.hooks.clone(),
+            scope,
+            recorder,
+            self.model_service.clone(),
+        ))
+    }
     pub(crate) async fn model_quota(&self) -> Result<Option<crate::contracts::ModelQuotaSnapshot>> {
         self.model_service.quota().await
     }
@@ -71,6 +85,7 @@ impl RuntimeRegistry {
             cwd,
             context_providers: &context_providers,
         };
+        let hooks = catalog.build_hooks(&config.modules.hooks, &build_ctx)?;
         let model_config = plan.model_config()?;
         let model_adapter = catalog.build_model_adapter(&model_config, cwd)?;
         let model_service = Arc::new(ModelService::new(model_adapter));
@@ -125,6 +140,8 @@ impl RuntimeRegistry {
             None => Arc::new(NoWorkflow),
         };
         Ok(Self {
+            hooks,
+            cwd: cwd.to_path_buf(),
             model_config,
             runtime_config: config.runtime.clone(),
             instructions: config.instruction_blocks(),
@@ -149,11 +166,16 @@ impl RuntimeRegistry {
         permission_mode: crate::domain::PermissionMode,
     ) -> ExecutionContext {
         let scope = model_binding.scope().clone();
-        let model: Arc<dyn Model> = Arc::new(BoundModel::new(
-            self.model_service.clone(),
-            model_binding,
-            self.runtime_config.model_timeout_ms,
-        ));
+        let attribution = model_binding.attribution();
+        let hooks = self.bind_hooks(scope.clone(), model_binding.recorder());
+        let model: Arc<dyn Model> = Arc::new(
+            BoundModel::new(
+                self.model_service.clone(),
+                model_binding,
+                self.runtime_config.model_timeout_ms,
+            )
+            .with_hooks(hooks.clone(), attribution, self.cwd.clone()),
+        );
         ExecutionContext::new(
             scope,
             self.runtime_config.model_timeout_ms,
@@ -164,6 +186,7 @@ impl RuntimeRegistry {
             Arc::new(ModeAwarePolicy::new(permission_mode, self.policy.clone())),
             approval,
         )
+        .with_hooks(hooks)
     }
 
     /// Wraps an already-bound generic execution in the chat/application

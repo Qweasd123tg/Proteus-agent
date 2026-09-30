@@ -47,6 +47,7 @@ pub enum ToolCallResolution {
     Approved,
     ApprovalDenied { reason: String },
     PolicyDenied { reason: String },
+    HookBlocked { reason: String },
     ValidationFailed { reason: String },
     Unsupported { reason: String },
 }

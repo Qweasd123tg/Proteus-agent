@@ -23,6 +23,7 @@ use self::support::{
     metadata_with, truncate_utf8, validate_tool_call_args, visibility_decision_allows,
 };
 
+mod hooks;
 mod support;
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
@@ -101,6 +102,7 @@ pub struct BoundTools {
     binding: ToolExecutionBinding,
     default_timeout_ms: u64,
     max_output_bytes: usize,
+    hooks: Arc<dyn crate::contracts::ExecutionHooks>,
 }
 
 impl BoundTools {
@@ -119,6 +121,7 @@ impl BoundTools {
             binding,
             default_timeout_ms: DEFAULT_TIMEOUT_MS,
             max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
+            hooks: Arc::new(crate::contracts::NoExecutionHooks),
         }
     }
 
@@ -130,6 +133,11 @@ impl BoundTools {
 
     pub fn binding(&self) -> &ToolExecutionBinding {
         &self.binding
+    }
+
+    pub fn with_hooks(mut self, hooks: Arc<dyn crate::contracts::ExecutionHooks>) -> Self {
+        self.hooks = hooks;
+        self
     }
 
     pub fn visible_specs(&self, cwd: &Path) -> Vec<ToolSpec> {
@@ -195,7 +203,14 @@ impl BoundTools {
                 "tool": call.name,
                 "validation_error": true,
             }));
-            return self.finish(observer, result).await;
+            return self.finish(observer, &cwd, &call, result).await;
+        }
+
+        if let Some(result) = self
+            .enforce_before_tool(observer, &cwd, &call, tool_spec.clone())
+            .await?
+        {
+            return Ok(result);
         }
 
         let decision = self.evaluate_access(&cwd, &call, tool_spec.clone());
@@ -264,7 +279,7 @@ impl BoundTools {
                     },
                 )
                 .await?;
-                self.finish(observer, result).await
+                self.finish(observer, &cwd, &call, result).await
             }
             PolicyDecision::Deny { reason } => {
                 self.record_resolution(
@@ -274,8 +289,13 @@ impl BoundTools {
                     },
                 )
                 .await?;
-                self.finish(observer, ToolResult::error(call.id.clone(), reason))
-                    .await
+                self.finish(
+                    observer,
+                    &cwd,
+                    &call,
+                    ToolResult::error(call.id.clone(), reason),
+                )
+                .await
             }
             other => {
                 let reason = format!("unsupported policy decision: {other:?}");
@@ -286,8 +306,13 @@ impl BoundTools {
                     },
                 )
                 .await?;
-                self.finish(observer, ToolResult::error(call.id.clone(), reason))
-                    .await
+                self.finish(
+                    observer,
+                    &cwd,
+                    &call,
+                    ToolResult::error(call.id.clone(), reason),
+                )
+                .await
             }
         }
     }
@@ -343,7 +368,7 @@ impl BoundTools {
         let started = Instant::now();
         let tool_cancellation = self.binding.scope.cancellation.child_token();
         let mut tool_ctx = ToolContext {
-            cwd,
+            cwd: cwd.clone(),
             attribution: self.binding.attribution,
             cancellation: tool_cancellation.clone(),
             user_input: None,
@@ -412,10 +437,10 @@ impl BoundTools {
             "duration_ms",
             json!(started.elapsed().as_millis() as u64),
         );
-        self.finish(observer, result).await
+        self.finish(observer, &cwd, call, result).await
     }
 
-    async fn finish(
+    async fn record_result(
         &self,
         observer: &dyn ToolExecutionObserver,
         result: ToolResult,

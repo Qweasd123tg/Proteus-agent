@@ -18,7 +18,7 @@ Baseline: `openai/codex` commit
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v16`, `compactor/v10`, journal schema v15 и config snapshot v4.
+Действующие версии: `workflow/v16`, `compactor/v10`, journal schema v16 и config snapshot v5.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,

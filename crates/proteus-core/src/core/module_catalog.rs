@@ -104,6 +104,25 @@ impl ModuleCatalog {
         }
     }
 
+    pub fn build_hooks(
+        &self,
+        ids: &[String],
+        ctx: &ModuleBuildContext<'_>,
+    ) -> Result<Vec<(String, Arc<dyn crate::contracts::HookHandler>)>> {
+        ids.iter()
+            .map(|id| {
+                Ok((
+                    id.clone(),
+                    self.build_typed::<dyn crate::contracts::HookHandler>(
+                        slot::HOOK,
+                        id,
+                        &ModuleBuildInput::Module(ctx),
+                    )?,
+                ))
+            })
+            .collect()
+    }
+
     pub fn from_config(config: &AppConfig) -> Result<Self> {
         let mut catalog = Self::new();
         catalog.register_process_components(config)?;

@@ -875,6 +875,42 @@ Zero `approval_timeout_ms` означает отсутствие server-side dea
 для всех его чатов. Секция `[web]` не принимается; автоматического переноса
 старой настройки из config нет.
 
+## Ordered Hooks
+
+```toml
+[modules]
+hooks = ["hook.instructions", "hook.output_budget"]
+
+[components.hooks]
+command = "proteus-reference-worker"
+
+[components.hooks.exports.hook."hook.instructions"]
+timeout_ms = 5000
+
+[components.hooks.exports.hook."hook.output_budget"]
+timeout_ms = 5000
+
+[module_config.hook."hook.instructions"]
+text = "Объясняй результат по-русски."
+placement = "append"
+
+[module_config.hook."hook.output_budget"]
+max_bytes = 4096
+head_bytes = 1024
+```
+
+Порядок массива является порядком выполнения, не сортируется по id или
+component. Пустой массив (default) отключает contributions. Blank, duplicate
+и неизвестные ids отклоняются до сборки runtime. Не выбранный hook export
+остаётся available. Config принадлежит `module_config.hook.<id>`; timeout
+отдельного export перекрывает default 5000 ms.
+
+В настройках приложения раздел «Сборка агента» показывает список hooks:
+один id на строку;
+перестановка строк меняет порядок. Save других slots сохраняет этот список.
+`POST /config/builder` принимает отдельное `hooks: string[]`; отсутствие поля
+сохраняет прежний список, пустой массив отключает hooks.
+
 ## Config Builder
 
 Inspector/config builder меняет selection, provider, permission mode и enabled

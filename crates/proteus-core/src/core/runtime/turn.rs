@@ -232,7 +232,13 @@ impl AgentRuntime {
                 .await?;
         }
         let result = self
-            .run_opened_turn(reserved, execution_scope, snapshot, config_snapshot, task)
+            .run_opened_turn(
+                reserved,
+                execution_scope.clone(),
+                snapshot.clone(),
+                config_snapshot,
+                task,
+            )
             .await;
         let settlement = match &result {
             Ok(output) => crate::core::TurnSettled {
@@ -250,6 +256,13 @@ impl AgentRuntime {
                 }
             }
         };
+        self.notify_turn_settled(
+            &snapshot,
+            execution_scope,
+            execution_attribution,
+            &settlement,
+        )
+        .await;
         if self.session.session_store.is_none()
             && settlement.status == crate::core::TurnSettlementStatus::Canceled
         {
@@ -286,6 +299,16 @@ impl AgentRuntime {
                     "{turn_error:#}; additionally failed to persist turn settlement: {settlement_error:#}"
                 )),
             };
+        }
+        if result.is_err()
+            && let Some(store) = &self.session.session_store
+        {
+            // Settlement folds known effects whose after-hook was interrupted.
+            // The next live turn must see the same progress as a cold resume.
+            super::history::refresh_committed_history(
+                &mut *self.session.history.lock().await,
+                store.load_messages()?,
+            )?;
         }
         result
     }
@@ -345,6 +368,8 @@ impl AgentRuntime {
         let mut workflow_context = self
             .bind_agent_workflow_context(execution_scope, &snapshot, turn_id)
             .await?;
+        self.notify_turn_started(&workflow_context, &task, &history)
+            .await;
         workflow_context.queued_user_messages = self.session.steering.queued_count_handle();
         workflow_context.intent = reserved.intent;
         workflow_context.permission_mode = snapshot.permission_mode;
@@ -378,9 +403,10 @@ impl AgentRuntime {
             tools: workflow_context.tool_recorder.clone(),
             capture: Default::default(),
             recorded_compactions: Default::default(),
+            pending_effects: Default::default(),
         });
         workflow_context.history_recorder = checkpoint_recorder.clone();
-        workflow_context.tool_recorder = checkpoint_recorder;
+        workflow_context.tool_recorder = checkpoint_recorder.clone();
         let workflow_timeout_ms = snapshot.runtime.registry.runtime_config.workflow_timeout_ms;
         let workflow =
             snapshot
@@ -402,6 +428,7 @@ impl AgentRuntime {
                 }
             }
         };
+        checkpoint_recorder.settle_in_memory_effects().await?;
         let delivery_records = steering_model.delivery_records().await;
         let mut workflow_output = match workflow_result {
             Ok(output) => output,

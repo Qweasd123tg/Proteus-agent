@@ -14,6 +14,8 @@ pub struct ConfigBuilderSnapshot {
     pub permission_mode: String,
     pub permission_modes: Vec<String>,
     pub active_modules: Vec<ConfigBuilderModuleSelection>,
+    pub hooks: Vec<String>,
+    pub hook_modules: Vec<ConfigBuilderModule>,
     pub module_config: BTreeMap<String, BTreeMap<String, Value>>,
     pub tools_enabled: Vec<String>,
     pub tools: Vec<ConfigBuilderTool>,

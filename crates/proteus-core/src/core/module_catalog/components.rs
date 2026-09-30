@@ -78,6 +78,20 @@ impl ModuleCatalog {
                     },
                 );
             }
+            "hook" => {
+                ensure_process_id_is_free(self, slot::HOOK, &module_id)?;
+                self.register_module::<dyn crate::contracts::HookHandler>(
+                    slot::HOOK,
+                    &module_id,
+                    process_manifest(&module_id, ModuleKind::Hook, description),
+                    move |ctx| {
+                        Ok(Arc::new(crate::process_adapters::ProcessHookAdapter::new(
+                            export.clone(),
+                            ctx.cwd,
+                        )?))
+                    },
+                );
+            }
             "tool" => self.process_tools.push(export),
             "context_provider" => self.process_context_providers.push(export),
             "search" => {

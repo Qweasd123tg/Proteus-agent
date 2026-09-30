@@ -1,4 +1,5 @@
 pub(crate) mod history_capture;
+mod hooks;
 mod projection;
 mod recorder;
 mod storage;
