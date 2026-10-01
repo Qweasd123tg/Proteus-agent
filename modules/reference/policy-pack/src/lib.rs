@@ -5,7 +5,8 @@ use std::collections::HashSet;
 use proteus_contracts::{
     domain::{PolicyDecision, ToolCall, ToolSafety, ToolSpec},
     process_module::{
-        ModuleRegistry, PolicyModule, PolicyModuleObject, ProcessModuleError, ToolModuleObject,
+        ModuleRegistry, PolicyModule, PolicyModuleInvocationContext, PolicyModuleObject,
+        PolicyModuleVisibilityContext, ProcessModuleError, ToolModuleObject,
     },
 };
 use serde::Deserialize;
@@ -44,7 +45,7 @@ impl PolicyModule for AskWritePolicyModule {
             Ok(call) => call,
             Err(error) => return policy_error(format!("invalid ToolCall JSON: {error}")),
         };
-        let ctx: PolicyContextDto = match serde_json::from_str(ctx_json.as_str()) {
+        let ctx: PolicyModuleInvocationContext = match serde_json::from_str(ctx_json.as_str()) {
             Ok(ctx) => ctx,
             Err(error) => return policy_error(format!("invalid PolicyContext JSON: {error}")),
         };
@@ -56,7 +57,7 @@ impl PolicyModule for AskWritePolicyModule {
     }
 
     fn evaluate_visibility_json(&self, ctx_json: String) -> Result<String, ProcessModuleError> {
-        let ctx: PolicyVisibilityContextDto = match serde_json::from_str(ctx_json.as_str()) {
+        let ctx: PolicyModuleVisibilityContext = match serde_json::from_str(ctx_json.as_str()) {
             Ok(ctx) => ctx,
             Err(error) => {
                 return policy_error(format!("invalid PolicyVisibilityContext JSON: {error}"));
@@ -83,7 +84,7 @@ impl PolicyModule for CodexPolicyModule {
             Ok(call) => call,
             Err(error) => return policy_error(format!("invalid ToolCall JSON: {error}")),
         };
-        let ctx: PolicyContextDto = match serde_json::from_str(ctx_json.as_str()) {
+        let ctx: PolicyModuleInvocationContext = match serde_json::from_str(ctx_json.as_str()) {
             Ok(ctx) => ctx,
             Err(error) => return policy_error(format!("invalid PolicyContext JSON: {error}")),
         };
@@ -136,7 +137,7 @@ impl PolicyModule for CodexPolicyModule {
     }
 
     fn evaluate_visibility_json(&self, ctx_json: String) -> Result<String, ProcessModuleError> {
-        let ctx: PolicyVisibilityContextDto = match serde_json::from_str(ctx_json.as_str()) {
+        let ctx: PolicyModuleVisibilityContext = match serde_json::from_str(ctx_json.as_str()) {
             Ok(ctx) => ctx,
             Err(error) => {
                 return policy_error(format!("invalid PolicyVisibilityContext JSON: {error}"));
@@ -148,30 +149,6 @@ impl PolicyModule for CodexPolicyModule {
         };
         decision(evaluate_codex_tool_spec(&config, &ctx.tool_spec))
     }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct PolicyContextDto {
-    #[allow(dead_code)]
-    pub(crate) cwd: String,
-    pub(crate) tool_spec: Option<ToolSpec>,
-    #[serde(default)]
-    pub(crate) config: Value,
-    /// Turn-scoped approval-gated гранты, которые ядро собрало из одобренных
-    /// tool results (см. contracts `ExecutionPermissionGrants`).
-    #[serde(default)]
-    pub(crate) granted_permissions: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct PolicyVisibilityContextDto {
-    #[allow(dead_code)]
-    pub(crate) cwd: String,
-    pub(crate) tool_spec: ToolSpec,
-    #[serde(default)]
-    pub(crate) config: Value,
 }
 
 #[derive(Debug, Default, Deserialize)]

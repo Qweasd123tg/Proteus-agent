@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     contracts::ExecutionAttribution,
-    domain::{AgentOutput, AgentTask, HistoryCompactionReport},
+    domain::{AgentOutput, AgentTask, HistoryCompactionReport, ToolSpec},
     model_standard::CanonicalMessage,
 };
 
@@ -85,6 +85,30 @@ pub trait ToolModule: Send + Sync + 'static {
 }
 
 pub type ToolModuleObject = Box<dyn ToolModule>;
+
+/// JSON-контекст `PolicyModule::evaluate_json` внутри worker executable.
+/// Implementation config остаётся непрозрачным для worker.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyModuleInvocationContext {
+    pub cwd: String,
+    pub tool_spec: Option<ToolSpec>,
+    #[serde(default)]
+    pub config: serde_json::Value,
+    /// Гранты текущего хода, собранные host из одобренных tool results.
+    #[serde(default)]
+    pub granted_permissions: Vec<String>,
+}
+
+/// JSON-контекст `PolicyModule::evaluate_visibility_json` внутри worker.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyModuleVisibilityContext {
+    pub cwd: String,
+    pub tool_spec: ToolSpec,
+    #[serde(default)]
+    pub config: serde_json::Value,
+}
 
 pub trait PolicyModule: Send + Sync + 'static {
     fn evaluate_json(&self, call_json: String, context_json: String)

@@ -12,12 +12,15 @@ use std::collections::BTreeMap;
 
 use proteus_contracts::{
     domain::{PolicyDecision, ToolCall},
-    process_module::{PolicyModule, ProcessModuleError},
+    process_module::{
+        PolicyModule, PolicyModuleInvocationContext, PolicyModuleVisibilityContext,
+        ProcessModuleError,
+    },
 };
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::{PolicyContextDto, PolicyVisibilityContextDto, decision, policy_error};
+use crate::{decision, policy_error};
 
 const DEFAULT_ACTION: RuleAction = RuleAction::Ask;
 const COMMAND_SEPARATORS: [&str; 6] = ["&&", "||", ";", "|", "\n", "\r"];
@@ -35,7 +38,7 @@ impl PolicyModule for OpencodePolicyModule {
             Ok(call) => call,
             Err(error) => return policy_error(format!("invalid ToolCall JSON: {error}")),
         };
-        let ctx: PolicyContextDto = match serde_json::from_str(ctx_json.as_str()) {
+        let ctx: PolicyModuleInvocationContext = match serde_json::from_str(ctx_json.as_str()) {
             Ok(ctx) => ctx,
             Err(error) => return policy_error(format!("invalid PolicyContext JSON: {error}")),
         };
@@ -47,7 +50,7 @@ impl PolicyModule for OpencodePolicyModule {
     }
 
     fn evaluate_visibility_json(&self, ctx_json: String) -> Result<String, ProcessModuleError> {
-        let ctx: PolicyVisibilityContextDto = match serde_json::from_str(ctx_json.as_str()) {
+        let ctx: PolicyModuleVisibilityContext = match serde_json::from_str(ctx_json.as_str()) {
             Ok(ctx) => ctx,
             Err(error) => {
                 return policy_error(format!("invalid PolicyVisibilityContext JSON: {error}"));

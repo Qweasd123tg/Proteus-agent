@@ -42,6 +42,9 @@ use proteus_process_host::ProcessSpec;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
+#[path = "conformance/policy.rs"]
+mod policy;
+
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 fn worker_spec(workspace: &Path) -> ProcessSpec {
@@ -470,25 +473,7 @@ fn search_patch_and_memory_round_trip_canonical_dtos() {
 fn policy_exposure_provider_and_compactor_execute_in_worker() {
     let workspace = tempfile::tempdir().expect("workspace");
 
-    let policy = connect(workspace.path(), "policy", "allow_all", json!({}));
-    let spec = ToolSpec::new(
-        "read_file",
-        "read",
-        json!({"type": "object"}),
-        ToolSafety::ReadOnly,
-    );
-    let decision: ProcessPolicyResponse = invoke(
-        &policy,
-        PROCESS_POLICY_EVALUATE_METHOD,
-        serde_json::to_value(ProcessPolicyEvaluateInput {
-            call: ToolCall::new(new_call_id(), "read_file", json!({"path": "x"})),
-            cwd: workspace.path().to_path_buf(),
-            tool_spec: Some(spec.clone()),
-            granted_permissions: Vec::new(),
-        })
-        .expect("policy input"),
-    );
-    assert!(matches!(decision.result, PolicyDecision::Allow));
+    policy::exercise_policy_contexts(workspace.path());
 
     let exposure = connect(
         workspace.path(),

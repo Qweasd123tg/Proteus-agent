@@ -492,6 +492,14 @@ DTO нужен только для другой границы с собстве
 implementation config, которого нет в `ProcessContextInput`.
 Повторное объявление одинаковых полей или alias для удалённого типа не нужны.
 
+Для `PolicyModule` worker и implementations используют
+`PolicyModuleInvocationContext` и `PolicyModuleVisibilityContext` из
+`proteus-contracts::process_module`. Это внутренняя JSON-схема Rust helpers с
+непрозрачным implementation config; внешние `ProcessPolicyEvaluateInput` и
+`ProcessPolicyVisibilityInput` остаются отдельными wire DTO slot `policy/v2`.
+Общие типы задают данные; разбор конфигурации и решения принадлежат каждой
+policy implementation.
+
 Критерий чистки — самостоятельность реализации: изменение её алгоритма внутри
 действующего contract не требует правок другой implementation. Pack группирует
 исходники; размещение в одном crate или component не делает разные алгоритмы

@@ -15,12 +15,12 @@ use proteus_contracts::{
     },
     domain::ToolSpec,
     process_module::{
-        ContextBuilderModuleInput, MemoryModuleInvocationContext, ToolModuleInvocationContext,
-        WorkflowModuleInput, WorkflowModuleOutput,
+        ContextBuilderModuleInput, MemoryModuleInvocationContext, PolicyModuleInvocationContext,
+        PolicyModuleVisibilityContext, ToolModuleInvocationContext, WorkflowModuleInput,
+        WorkflowModuleOutput,
     },
 };
 use proteus_module_protocol::process_contract_authority;
-use serde::Serialize;
 use serde_json::Value;
 
 use crate::{
@@ -34,21 +34,6 @@ use crate::{
 pub(crate) struct ExportWorker {
     binding: ProcessComponentExportInitialize,
     modules: CollectedModules,
-}
-
-#[derive(Serialize)]
-struct PolicyContextWire {
-    cwd: String,
-    tool_spec: Option<ToolSpec>,
-    config: Value,
-    granted_permissions: Vec<String>,
-}
-
-#[derive(Serialize)]
-struct PolicyVisibilityContextWire {
-    cwd: String,
-    tool_spec: ToolSpec,
-    config: Value,
 }
 
 impl ExportWorker {
@@ -278,7 +263,7 @@ impl ExportWorker {
                 let input: ProcessPolicyEvaluateInput = decode(params)?;
                 policy.evaluate_json(
                     serde_json::to_string(&input.call)?,
-                    serde_json::to_string(&PolicyContextWire {
+                    serde_json::to_string(&PolicyModuleInvocationContext {
                         cwd: input.cwd.to_string_lossy().into_owned(),
                         tool_spec: input.tool_spec,
                         config: self.binding.module_config.clone(),
@@ -289,7 +274,7 @@ impl ExportWorker {
             PROCESS_POLICY_VISIBILITY_METHOD => {
                 let input: ProcessPolicyVisibilityInput = decode(params)?;
                 policy.evaluate_visibility_json(serde_json::to_string(
-                    &PolicyVisibilityContextWire {
+                    &PolicyModuleVisibilityContext {
                         cwd: input.cwd.to_string_lossy().into_owned(),
                         tool_spec: input.tool_spec,
                         config: self.binding.module_config.clone(),
