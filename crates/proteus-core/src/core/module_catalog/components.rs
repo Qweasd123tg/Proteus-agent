@@ -12,8 +12,8 @@ use crate::{
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
     process_adapters::{
         ProcessApprovalPolicy, ProcessComponentLauncher, ProcessContextBuilder,
-        ProcessHistoryCompactor, ProcessMemoryStore, ProcessModel, ProcessPatchApplier,
-        ProcessSearchBackend, ProcessToolExposure, ProcessWorkflowAdapter,
+        ProcessExportConfig, ProcessHistoryCompactor, ProcessMemoryStore, ProcessModel,
+        ProcessPatchApplier, ProcessSearchBackend, ProcessToolExposure, ProcessWorkflowAdapter,
     },
 };
 
@@ -56,7 +56,7 @@ impl ModuleCatalog {
 
     fn register_process_export(
         &mut self,
-        export: crate::process_adapters::ProcessExportConfig,
+        export: ProcessExportConfig,
         description: Option<String>,
         model_timeout_ms: u64,
     ) -> Result<()> {
@@ -67,7 +67,7 @@ impl ModuleCatalog {
                 ensure_process_id_is_free(self, slot::MODEL, &module_id)?;
                 self.register_model(
                     &module_id,
-                    process_manifest(&module_id, ModuleKind::Model, description),
+                    process_manifest(&export, ModuleKind::Model, description),
                     move |ctx| {
                         Ok(Arc::new(ProcessModel::new(
                             export.clone(),
@@ -84,7 +84,7 @@ impl ModuleCatalog {
                 self.register_module::<dyn crate::contracts::HookHandler>(
                     slot::HOOK,
                     &module_id,
-                    process_manifest(&module_id, ModuleKind::Hook, description),
+                    process_manifest(&export, ModuleKind::Hook, description),
                     move |ctx| {
                         Ok(Arc::new(crate::process_adapters::ProcessHookAdapter::new(
                             export.clone(),
@@ -100,7 +100,7 @@ impl ModuleCatalog {
                 self.register_module::<dyn SearchBackend>(
                     slot::SEARCH,
                     &module_id,
-                    process_manifest(&module_id, ModuleKind::Search, description),
+                    process_manifest(&export, ModuleKind::Search, description),
                     move |ctx| {
                         Ok(Arc::new(ProcessSearchBackend::new(
                             export.clone(),
@@ -114,7 +114,7 @@ impl ModuleCatalog {
                 self.register_module::<dyn MemoryStore>(
                     slot::MEMORY,
                     &module_id,
-                    process_manifest(&module_id, ModuleKind::Memory, description),
+                    process_manifest(&export, ModuleKind::Memory, description),
                     move |ctx| Ok(Arc::new(ProcessMemoryStore::new(export.clone(), ctx.cwd)?)),
                 );
             }
@@ -123,7 +123,7 @@ impl ModuleCatalog {
                 self.register_module::<dyn ContextBuilder>(
                     slot::CONTEXT,
                     &module_id,
-                    process_manifest(&module_id, ModuleKind::Context, description),
+                    process_manifest(&export, ModuleKind::Context, description),
                     move |ctx| {
                         Ok(Arc::new(ProcessContextBuilder::new(
                             export.clone(),
@@ -137,7 +137,7 @@ impl ModuleCatalog {
                 ensure_process_id_is_free(self, slot::POLICY, &module_id)?;
                 self.register_policy(
                     &module_id,
-                    process_manifest(&module_id, ModuleKind::Policy, description),
+                    process_manifest(&export, ModuleKind::Policy, description),
                     move |ctx| {
                         Ok(Arc::new(ProcessApprovalPolicy::new(
                             export.clone(),
@@ -151,7 +151,7 @@ impl ModuleCatalog {
                 self.register_module::<dyn PatchApplier>(
                     slot::PATCH,
                     &module_id,
-                    process_manifest(&module_id, ModuleKind::Patch, description),
+                    process_manifest(&export, ModuleKind::Patch, description),
                     move |ctx| Ok(Arc::new(ProcessPatchApplier::new(export.clone(), ctx.cwd)?)),
                 );
             }
@@ -160,7 +160,7 @@ impl ModuleCatalog {
                 self.register_module::<dyn HistoryCompactor>(
                     slot::COMPACTOR,
                     &module_id,
-                    process_manifest(&module_id, ModuleKind::Compactor, description),
+                    process_manifest(&export, ModuleKind::Compactor, description),
                     move |ctx| {
                         Ok(Arc::new(ProcessHistoryCompactor::new(
                             export.clone(),
@@ -175,7 +175,7 @@ impl ModuleCatalog {
                 self.register_module::<dyn ToolExposure>(
                     slot::TOOL_EXPOSURE,
                     &module_id,
-                    process_manifest(&module_id, ModuleKind::ToolExposure, description),
+                    process_manifest(&export, ModuleKind::ToolExposure, description),
                     move |ctx| Ok(Arc::new(ProcessToolExposure::new(export.clone(), ctx.cwd)?)),
                 );
             }
@@ -184,7 +184,7 @@ impl ModuleCatalog {
                 self.register_module::<dyn Workflow>(
                     slot::WORKFLOW,
                     &module_id,
-                    process_manifest(&module_id, ModuleKind::Workflow, description),
+                    process_manifest(&export, ModuleKind::Workflow, description),
                     move |ctx| {
                         Ok(Arc::new(ProcessWorkflowAdapter::new(
                             export.clone(),
@@ -222,14 +222,15 @@ fn ensure_process_id_is_free(catalog: &ModuleCatalog, slot: SlotId, id: &str) ->
     Ok(())
 }
 
-fn process_manifest(id: &str, kind: ModuleKind, description: Option<String>) -> ModuleManifest {
-    let contract_version = current_process_contract_authority(kind.as_str())
-        .expect("process module kind must have canonical authority")
-        .contract_version;
+fn process_manifest(
+    export: &ProcessExportConfig,
+    kind: ModuleKind,
+    description: Option<String>,
+) -> ModuleManifest {
     let mut manifest = ModuleManifest::process(
-        id,
+        export.module_id(),
         kind,
-        contract_version,
+        &export.binding().contract_version,
         &["process", "component", "stdio", "newline_json"],
     );
     manifest.description = description;

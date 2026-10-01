@@ -479,17 +479,32 @@ memory/policy/context/compactor/workflow paths, включая callbacks.
   `proteus-module-protocol::PROCESS_CONTRACT_AUTHORITIES`;
 - exact export ищется через `ProcessComponentBinding::export`, а его launch
   settings остаются в host config;
+- ID и версия в catalog manifest берутся из проверенного binding этого export,
+  без повторного определения версии по catalog kind;
 - adapters используют общий `ProcessExportClient`; одинаковый разбор и
   сериализация host callbacks находятся в `process_adapters::host_rpc`.
 
 Module helpers используют канонический DTO напрямую, если передают ту же
-схему. Например, `context-pack`, `skill-pack`, worker и host adapter используют
-один `ProcessContextProviderInput`. Отдельный helper DTO нужен только для
-другой границы с собственными данными: `ContextBuilderModuleInput` содержит
+границу с той же семантикой. Например, `context-pack`, `skill-pack`, worker и
+host adapter используют один `ProcessContextProviderInput`. Отдельный helper
+DTO нужен только для другой границы с собственными данными:
+`ContextBuilderModuleInput` содержит
 implementation config, которого нет в `ProcessContextInput`.
 Повторное объявление одинаковых полей или alias для удалённого типа не нужны.
 
-Общий helper выделяется по одинаковой semantics, а не только по похожему коду.
+Критерий чистки — самостоятельность реализации: изменение её алгоритма внутри
+действующего contract не требует правок другой implementation. Pack группирует
+исходники; размещение в одном crate или component не делает разные алгоритмы
+одной ответственностью. Стандартизируются contracts, данные и правила
+взаимодействия, а внутренняя организация implementation остаётся её решением.
+
+Общий helper выделяется, когда у поведения один владелец и одна семантика.
+Повтор небольшого parsing или `build_json` в независимых implementations
+допустим. Перед объединением проверяется, какую общую зависимость оно добавит:
+изменение правил или конфигурации одного module не должно менять поведение
+другого через скрытые флаги или ветки общего helper. Совпадение полей разных
+DTO само по себе также не доказывает принадлежность одной границе.
+
 Slot adapter сохраняет runtime dispatch, invocation context, cancellation,
 бюджет и преобразование typed failures. В частности, workflow добавляет
 `ModelFailure` в RPC error data; общий JSON helper не должен терять эти данные

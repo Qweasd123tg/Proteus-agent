@@ -92,7 +92,10 @@ rendering, UI state, tests и provider/module-specific детали.
   в одном `app.rs`.
 - Contracts, process adapters и module helpers оформляйте по
   [единому образцу](docs/architecture/modules.md#единый-образец-реализации):
-  используйте канонические DTO и общие helpers, сохраняя slot-specific semantics.
+  сначала определите владельца общей ответственности. Одинаковый pack или
+  похожий код не являются основанием связывать разные implementations.
+  Повтор небольшого кода в самостоятельных modules допустим; канонические
+  DTO и общие helpers должны сохранять границы и slot-specific semantics.
 
 ## Workspace Layout
 
