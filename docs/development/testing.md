@@ -114,7 +114,7 @@ Dev/test сохраняют line tables для backtraces без тяжёлой 
 | Граница | Target / исходники |
 |---|---|
 | Framing, child lifecycle, bounded transport | `proteus-process-host`, включая собственный runner `tests/session.rs` |
-| Wire ID, handshake, export identity, callback authority, multiplexing | `proteus-module-protocol`, `tests/broker_v3.rs` |
+| RPC envelope, wire ID, handshake, export identity, callback authority, multiplexing | `proteus-module-protocol` (`v3::frame`, `v3::wire_id`), `tests/broker_v3.rs` |
 | Подмена implementation, structural absence, shared component и failure/restart | [`proteus-core --test module_swap`](../../crates/proteus-core/tests/module_swap.rs) |
 | Reference exports, descriptors, tools и callbacks | [`proteus-reference-worker --test conformance`](../../modules/reference/process-worker/tests/conformance.rs) |
 | Ordered hooks, actual effect и следующий живой turn после interruption, replay Success/Error | [`proteus-core --test hook_runtime`](../../crates/proteus-core/tests/hook_runtime.rs) |

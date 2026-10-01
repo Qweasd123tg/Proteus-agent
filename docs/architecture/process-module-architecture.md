@@ -277,6 +277,29 @@ Rust host и worker используют один
 фазе и связи с активным invocation/lineage остаются у host или worker.
 Общий parser не принимает решений о routing, authority или lifecycle.
 
+### Форма JSON-RPC Envelope
+
+Rust host и worker используют один
+`proteus_module_protocol::v3::parse_component_frame`. Он возвращает
+`ComponentFrame` и принимает только object с `jsonrpc: "2.0"`:
+
+- request: ровно `jsonrpc`, строковый `id`, `method`, `params`;
+- notification: ровно `jsonrpc`, `method`, `params`;
+- success response: ровно `jsonrpc`, строковый `id`, `result`;
+- error response: ровно `jsonrpc`, строковый `id`, `error` с typed
+  `ProcessModuleRpcError`.
+
+Неизвестные или отсутствующие поля и неоднозначные сочетания request/response
+отвергаются. `method` обязан быть строкой, которая не пуста после `trim`;
+проверка не изменяет само имя. Пустые имена отвергаются при разборе кадра на
+обеих сторонах. `params` и `result` остаются opaque JSON: явный `null`
+допустим для envelope и отличается от отсутствующего поля. Typed payload
+валидируется отдельно по slot contract.
+
+Разбор envelope не проверяет грамматику или роль ID, права метода,
+порядок handshake, активность invocation и lifecycle. Эти проверки выполняются
+в соответствующей фазе host или worker после разбора общей формы кадра.
+
 ## Authority Table
 
 | Slot | Contract | Module methods | Host callbacks |

@@ -6,8 +6,8 @@ use proteus_process_host::{NewlineJsonFraming, ProcessTransport};
 
 use crate::{ProcessComponentBinding, handshake::validate_manifest};
 
-use super::wire::{COMPONENT_PROTOCOL_V3, IncomingFrame, host_id, initialize_request, parse_frame};
-use super::{WireDirection, parse_wire_id};
+use super::wire::{COMPONENT_PROTOCOL_V3, host_id, initialize_request};
+use super::{ComponentFrame, WireDirection, parse_component_frame, parse_wire_id};
 
 pub(crate) fn initialize_transport(
     transport: &mut ProcessTransport<NewlineJsonFraming>,
@@ -24,8 +24,8 @@ pub(crate) fn initialize_transport(
         .recv_frame(timeout)
         .map_err(anyhow::Error::from)
         .context("component-v3 initialize request failed")?;
-    let IncomingFrame::Response { id, result } =
-        parse_frame(frame).context("invalid component-v3 initialize response envelope")?
+    let ComponentFrame::Response { id, result } = parse_component_frame(frame)
+        .context("invalid component-v3 initialize response envelope")?
     else {
         bail!("component-v3 initialize must receive one terminal response");
     };

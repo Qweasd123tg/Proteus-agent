@@ -11,7 +11,6 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use proteus_contracts::contracts::ProcessModuleCallbackParams;
 use proteus_module_protocol::ProcessModuleRpcError;
-use serde::Deserialize;
 use serde_json::{Value, json};
 
 const MAX_PENDING_CALLBACKS: usize = 256;
@@ -131,91 +130,6 @@ impl WorkerTransport {
             callbacks.remove(id);
         }
     }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RpcRequest {
-    pub jsonrpc: String,
-    pub id: String,
-    pub method: String,
-    pub params: Value,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RpcNotification {
-    pub jsonrpc: String,
-    pub method: String,
-    pub params: Value,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RpcSuccess {
-    jsonrpc: String,
-    id: String,
-    result: Value,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RpcFailure {
-    jsonrpc: String,
-    id: String,
-    error: ProcessModuleRpcError,
-}
-
-pub enum IncomingFrame {
-    Request(RpcRequest),
-    Notification(RpcNotification),
-    CallbackResponse { id: String, result: CallbackResult },
-}
-
-pub fn parse_frame(value: Value) -> Result<IncomingFrame> {
-    let object = value
-        .as_object()
-        .ok_or_else(|| anyhow!("JSON-RPC frame must be an object"))?;
-    let has_id = object.contains_key("id");
-    let has_method = object.contains_key("method");
-    let has_result = object.contains_key("result");
-    let has_error = object.contains_key("error");
-    match (has_id, has_method, has_result, has_error) {
-        (true, true, false, false) => {
-            let request: RpcRequest = serde_json::from_value(value)?;
-            validate_version(&request.jsonrpc)?;
-            Ok(IncomingFrame::Request(request))
-        }
-        (false, true, false, false) => {
-            let notification: RpcNotification = serde_json::from_value(value)?;
-            validate_version(&notification.jsonrpc)?;
-            Ok(IncomingFrame::Notification(notification))
-        }
-        (true, false, true, false) => {
-            let response: RpcSuccess = serde_json::from_value(value)?;
-            validate_version(&response.jsonrpc)?;
-            Ok(IncomingFrame::CallbackResponse {
-                id: response.id,
-                result: Ok(response.result),
-            })
-        }
-        (true, false, false, true) => {
-            let response: RpcFailure = serde_json::from_value(value)?;
-            validate_version(&response.jsonrpc)?;
-            Ok(IncomingFrame::CallbackResponse {
-                id: response.id,
-                result: Err(response.error),
-            })
-        }
-        _ => bail!("invalid or ambiguous JSON-RPC envelope"),
-    }
-}
-
-fn validate_version(version: &str) -> Result<()> {
-    if version != "2.0" {
-        bail!("unsupported JSON-RPC version {version:?}");
-    }
-    Ok(())
 }
 
 pub fn rpc_success(id: &str, result: Value) -> Value {

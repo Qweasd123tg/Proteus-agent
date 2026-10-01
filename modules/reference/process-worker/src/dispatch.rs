@@ -16,17 +16,14 @@ use proteus_contracts::contracts::{
 };
 use proteus_module_protocol::{
     ProcessModuleRpcError, process_contract_authority,
-    v3::{WireDirection, parse_wire_id},
+    v3::{ComponentFrame, WireDirection, parse_component_frame, parse_wire_id},
 };
 use serde_json::Value;
 
 use crate::{
     exports::ExportWorker,
     hosts::HostBridge,
-    transport::{
-        FrameReader, IncomingFrame, RpcNotification, RpcRequest, WorkerTransport, parse_frame,
-        rpc_error, rpc_success,
-    },
+    transport::{FrameReader, WorkerTransport, rpc_error, rpc_success},
 };
 
 const MAX_ACTIVE_INVOCATIONS: usize = 32;
@@ -54,18 +51,23 @@ pub fn run() -> Result<()> {
     let initialize_value = reader
         .read()?
         .ok_or_else(|| anyhow!("missing initialize request"))?;
-    let IncomingFrame::Request(initialize_request) = parse_frame(initialize_value)? else {
+    let ComponentFrame::Request {
+        id: initialize_id,
+        method,
+        params,
+    } = parse_component_frame(initialize_value)?
+    else {
         bail!("first frame must be a JSON-RPC initialize request");
     };
-    if initialize_request.method != PROCESS_COMPONENT_INITIALIZE_METHOD {
+    if method != PROCESS_COMPONENT_INITIALIZE_METHOD {
         bail!("first request must be JSON-RPC initialize");
     }
-    let initialize_wire_id = parse_wire_id(&initialize_request.id)?;
+    let initialize_wire_id = parse_wire_id(&initialize_id)?;
     if initialize_wire_id.direction != WireDirection::Host || initialize_wire_id.sequence != 0 {
         bail!("initialize request must use host id sequence zero");
     }
-    let binding: ProcessComponentInitialize = serde_json::from_value(initialize_request.params)
-        .context("invalid process component initialize params")?;
+    let binding: ProcessComponentInitialize =
+        serde_json::from_value(params).context("invalid process component initialize params")?;
     validate_initialize(&binding)?;
 
     let mut exports = BTreeMap::new();
@@ -80,7 +82,7 @@ pub fn run() -> Result<()> {
     };
     let transport = Arc::new(WorkerTransport::new(initialize_wire_id.generation));
     transport.write(&rpc_success(
-        &initialize_request.id,
+        &initialize_id,
         serde_json::to_value(manifest)?,
     ))?;
 
@@ -95,10 +97,12 @@ pub fn run() -> Result<()> {
     });
 
     while let Some(value) = reader.read()? {
-        match parse_frame(value)? {
-            IncomingFrame::Request(request) => runtime.start_invocation(request)?,
-            IncomingFrame::Notification(notification) => runtime.cancel(notification)?,
-            IncomingFrame::CallbackResponse { id, result } => {
+        match parse_component_frame(value)? {
+            ComponentFrame::Request { id, method, params } => {
+                runtime.start_invocation(id, method, params)?;
+            }
+            ComponentFrame::Notification { method, params } => runtime.cancel(method, params)?,
+            ComponentFrame::Response { id, result } => {
                 runtime.complete_callback(id, result)?;
             }
         }
@@ -107,13 +111,17 @@ pub fn run() -> Result<()> {
 }
 
 impl WorkerRuntime {
-    fn start_invocation(self: &Arc<Self>, request: RpcRequest) -> Result<()> {
-        if request.method.trim().is_empty() || request.method == PROCESS_COMPONENT_INITIALIZE_METHOD
-        {
-            bail!("invalid component invocation method {:?}", request.method);
+    fn start_invocation(
+        self: &Arc<Self>,
+        request_id: String,
+        method: String,
+        params: Value,
+    ) -> Result<()> {
+        if method == PROCESS_COMPONENT_INITIALIZE_METHOD {
+            bail!("invalid component invocation method {method:?}");
         }
-        self.validate_invocation_id(&request.id)?;
-        let call: ProcessComponentInvocation = serde_json::from_value(request.params)
+        self.validate_invocation_id(&request_id)?;
+        let call: ProcessComponentInvocation = serde_json::from_value(params)
             .context("invalid process component invocation params")?;
         let cancellation = Arc::new(AtomicBool::new(false));
         {
@@ -121,14 +129,14 @@ impl WorkerRuntime {
                 .active
                 .lock()
                 .map_err(|_| anyhow!("active invocation map poisoned"))?;
-            if active.contains_key(&request.id) {
-                bail!("invocation id was reused: {}", request.id);
+            if active.contains_key(&request_id) {
+                bail!("invocation id was reused: {request_id}");
             }
-            validate_lineage(&request.id, &call.lineage, &active, self.generation)?;
+            validate_lineage(&request_id, &call.lineage, &active, self.generation)?;
             if active.len() >= MAX_ACTIVE_INVOCATIONS {
                 drop(active);
                 self.transport.write(&rpc_error(
-                    &request.id,
+                    &request_id,
                     ProcessModuleRpcError::new(
                         -32014,
                         "reference worker active invocation capacity is exhausted",
@@ -137,7 +145,7 @@ impl WorkerRuntime {
                 return Ok(());
             }
             active.insert(
-                request.id.clone(),
+                request_id.clone(),
                 ActiveInvocation {
                     cancellation: Arc::clone(&cancellation),
                     lineage: call.lineage.clone(),
@@ -146,10 +154,9 @@ impl WorkerRuntime {
         }
 
         let runtime = Arc::clone(self);
-        let invocation_id = request.id;
+        let invocation_id = request_id;
         let thread_id = invocation_id.replace(':', "-");
         let invocation_id_for_thread = invocation_id.clone();
-        let method = request.method;
         match thread::Builder::new()
             .name(format!("component-invocation-{thread_id}"))
             .spawn(move || {
@@ -208,15 +215,12 @@ impl WorkerRuntime {
         }
     }
 
-    fn cancel(&self, notification: RpcNotification) -> Result<()> {
-        if notification.method != PROCESS_MODULE_CANCEL_METHOD {
-            bail!(
-                "unsupported component notification {:?}",
-                notification.method
-            );
+    fn cancel(&self, method: String, params: Value) -> Result<()> {
+        if method != PROCESS_MODULE_CANCEL_METHOD {
+            bail!("unsupported component notification {method:?}");
         }
         let cancel: ProcessModuleCancel =
-            serde_json::from_value(notification.params).context("invalid cancellation params")?;
+            serde_json::from_value(params).context("invalid cancellation params")?;
         self.validate_invocation_id(&cancel.invocation_id)?;
         let active = self
             .active

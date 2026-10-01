@@ -6,6 +6,7 @@ mod broker;
 mod callback_ids;
 mod config;
 mod failure;
+mod frame;
 mod handshake;
 mod invocation;
 mod notification;
@@ -17,6 +18,7 @@ mod wire_id;
 
 pub use broker::{ComponentBroker, ComponentBrokerSnapshot, WeakComponentBroker};
 pub use config::ComponentBrokerOptions;
+pub use frame::{ComponentFrame, parse_component_frame};
 pub use invocation::{
     AsyncHostRequestDispatcher, CancelCause, ComponentBrokerError, ComponentBrokerErrorKind,
     ComponentFailure, ComponentHostRequest, HostRequestFuture, InvocationCancelHandle,

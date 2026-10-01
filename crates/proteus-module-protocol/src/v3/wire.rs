@@ -1,11 +1,11 @@
-use anyhow::{Context, Result, bail};
+use anyhow::Result;
 use proteus_contracts::contracts::{
     PROCESS_COMPONENT_INITIALIZE_METHOD, PROCESS_MODULE_CANCEL_METHOD, ProcessComponentExportRef,
     ProcessComponentInvocation, ProcessInvocationLineage, ProcessModuleCallbackParams,
     ProcessModuleCancel, ProcessModuleCancelCause, ProcessModuleNotificationParams,
 };
 use serde_json::Value;
-use serde_json::{Map, json};
+use serde_json::json;
 
 use crate::ProcessModuleRpcError;
 
@@ -13,23 +13,6 @@ use super::invocation::CancelCause;
 
 pub const COMPONENT_PROTOCOL_V3: &str =
     proteus_contracts::contracts::PROCESS_COMPONENT_PROTOCOL_VERSION;
-
-#[derive(Debug)]
-pub(crate) enum IncomingFrame {
-    Response {
-        id: String,
-        result: Result<Value, ProcessModuleRpcError>,
-    },
-    Request {
-        id: String,
-        method: String,
-        params: Value,
-    },
-    Notification {
-        method: String,
-        params: Value,
-    },
-}
 
 pub(crate) type CallbackParams = ProcessModuleCallbackParams;
 pub(crate) type NotificationParams = ProcessModuleNotificationParams;
@@ -99,108 +82,4 @@ fn request(id: &str, method: &str, params: Value) -> Value {
 
 fn notification(method: &str, params: Value) -> Value {
     json!({"jsonrpc": "2.0", "method": method, "params": params})
-}
-
-pub(crate) fn parse_frame(value: Value) -> Result<IncomingFrame> {
-    let object = value
-        .as_object()
-        .ok_or_else(|| anyhow::anyhow!("JSON-RPC frame must be an object"))?;
-    if object.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
-        bail!("JSON-RPC frame must declare jsonrpc=\"2.0\"");
-    }
-
-    match (
-        object.contains_key("id"),
-        object.contains_key("method"),
-        object.contains_key("result"),
-        object.contains_key("error"),
-    ) {
-        (true, false, true, false) => parse_success(object),
-        (true, false, false, true) => parse_error(object),
-        (true, true, false, false) => parse_request(object),
-        (false, true, false, false) => parse_notification(object),
-        _ => bail!("invalid or ambiguous JSON-RPC envelope"),
-    }
-}
-
-fn parse_success(object: &Map<String, Value>) -> Result<IncomingFrame> {
-    require_exact_fields(object, &["jsonrpc", "id", "result"])?;
-    Ok(IncomingFrame::Response {
-        id: string_id(object.get("id").expect("checked id"))?,
-        result: Ok(object.get("result").expect("checked result").clone()),
-    })
-}
-
-fn parse_error(object: &Map<String, Value>) -> Result<IncomingFrame> {
-    require_exact_fields(object, &["jsonrpc", "id", "error"])?;
-    let error = serde_json::from_value::<ProcessModuleRpcError>(
-        object.get("error").expect("checked error").clone(),
-    )
-    .context("invalid JSON-RPC error body")?;
-    Ok(IncomingFrame::Response {
-        id: string_id(object.get("id").expect("checked id"))?,
-        result: Err(error),
-    })
-}
-
-fn parse_request(object: &Map<String, Value>) -> Result<IncomingFrame> {
-    require_exact_fields(object, &["jsonrpc", "id", "method", "params"])?;
-    let method = object
-        .get("method")
-        .and_then(Value::as_str)
-        .filter(|method| !method.trim().is_empty())
-        .ok_or_else(|| anyhow::anyhow!("JSON-RPC method must be a non-empty string"))?;
-    Ok(IncomingFrame::Request {
-        id: string_id(object.get("id").expect("checked id"))?,
-        method: method.to_owned(),
-        params: object.get("params").expect("checked params").clone(),
-    })
-}
-
-fn parse_notification(object: &Map<String, Value>) -> Result<IncomingFrame> {
-    require_exact_fields(object, &["jsonrpc", "method", "params"])?;
-    let method = object
-        .get("method")
-        .and_then(Value::as_str)
-        .filter(|method| !method.trim().is_empty())
-        .ok_or_else(|| anyhow::anyhow!("JSON-RPC method must be a non-empty string"))?;
-    Ok(IncomingFrame::Notification {
-        method: method.to_owned(),
-        params: object.get("params").expect("checked params").clone(),
-    })
-}
-
-fn string_id(value: &Value) -> Result<String> {
-    value
-        .as_str()
-        .map(str::to_owned)
-        .ok_or_else(|| anyhow::anyhow!("component-v3 JSON-RPC id must be a string"))
-}
-
-fn require_exact_fields(object: &Map<String, Value>, expected: &[&str]) -> Result<()> {
-    if object.len() != expected.len() {
-        bail!("JSON-RPC envelope contains unknown or missing fields");
-    }
-    for field in expected {
-        if !object.contains_key(*field) {
-            bail!("JSON-RPC envelope is missing field {field:?}");
-        }
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn envelopes_reject_unknown_fields_and_numeric_ids() {
-        parse_frame(json!({"jsonrpc":"2.0", "id":"h:1:1", "result":{}})).expect("valid response");
-        parse_frame(json!({"jsonrpc":"2.0", "id":1, "result":{}}))
-            .expect_err("numeric id must fail");
-        parse_frame(json!({
-            "jsonrpc":"2.0", "id":"h:1:1", "result":{}, "legacy":true
-        }))
-        .expect_err("unknown envelope field must fail");
-    }
 }

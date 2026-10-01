@@ -484,18 +484,22 @@ memory/policy/context/compactor/workflow paths, включая callbacks.
 - adapters используют общий `ProcessExportClient`; одинаковый разбор и
   сериализация host callbacks находятся в `process_adapters::host_rpc`.
 
-Для общих идентификаторов действует следующий образец:
+Для общих протокольных правил действует следующий образец:
 
 | Правило | Владелец и источник | Пример использования | Проверка |
 |---|---|---|---|
 | Строка catalog namespace | `proteus_contracts::domain::ModuleKind::as_str` | `slot::MODEL` получает строку от `ModuleKind::Model`; config и topology используют тот же источник | `module_swap`, `config_profiles` |
 | Грамматика wire ID | `proteus_module_protocol::v3::parse_wire_id` | Rust host и worker импортируют общий parser; `h:1:0` — initialize, `m:1:1` — module callback | `v3::wire_id`, `broker_v3`, worker `conformance` |
+| Форма JSON-RPC envelope | `proteus_module_protocol::v3::parse_component_frame` | Rust host и worker получают `ComponentFrame` с request, notification или response; opaque payload сохраняется | `v3::frame`, `broker_v3`, worker `conformance` |
 
 `ModuleKind` описывает catalog kinds; он не заменяет таблицу process contracts
 или правила selection. Например, `context_provider` имеет process export
 contract, но не является отдельным `ModuleKind`. Проверки ожидаемой стороны,
 актуальной generation, допустимости sequence zero и lineage выполняются
 обработчиком конкретной фазы после общего разбора wire ID.
+Общий разбор envelope проверяет форму кадра, обязательные поля и непустое
+строковое имя метода. Допустимость метода для export и фазы, связь с активным
+invocation, cancellation и settlement проверяются отдельно принимающей стороной.
 
 Module helpers используют канонический DTO напрямую, если передают ту же
 границу с той же семантикой. Например, `context-pack`, `skill-pack`, worker и

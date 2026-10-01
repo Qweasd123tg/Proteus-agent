@@ -8,17 +8,17 @@ use serde_json::Value;
 use crate::ProcessModuleRpcError;
 
 use super::{
-    WireDirection,
+    ComponentFrame, WireDirection,
     broker::ControlCommand,
     invocation::ComponentHostRequest,
-    parse_wire_id,
+    parse_component_frame, parse_wire_id,
     pending::{LoopState, PendingCallback},
-    wire::{self, CallbackParams, IncomingFrame, NotificationParams, parse_frame},
+    wire::{self, CallbackParams, NotificationParams},
 };
 
 impl LoopState {
     pub(super) fn handle_frame(&mut self, frame: Value) {
-        let incoming = match parse_frame(frame) {
+        let incoming = match parse_component_frame(frame) {
             Ok(incoming) => incoming,
             Err(error) => {
                 self.protocol_failure(format!("invalid component-v3 frame: {error:#}"));
@@ -26,11 +26,11 @@ impl LoopState {
             }
         };
         match incoming {
-            IncomingFrame::Response { id, result } => self.handle_response(id, result),
-            IncomingFrame::Request { id, method, params } => {
+            ComponentFrame::Response { id, result } => self.handle_response(id, result),
+            ComponentFrame::Request { id, method, params } => {
                 self.handle_callback(id, method, params)
             }
-            IncomingFrame::Notification { method, params } => {
+            ComponentFrame::Notification { method, params } => {
                 self.handle_notification(method, params)
             }
         }
