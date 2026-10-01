@@ -5,12 +5,13 @@ use std::sync::{
 
 use proteus_contracts::{
     contracts::{
-        CONTEXT_HOST_PROVIDER_METHOD, CONTEXT_HOST_RECALL_MEMORY_METHOD,
-        CONTEXT_HOST_SEARCH_METHOD, WORKFLOW_HOST_BUILD_CONTEXT_METHOD,
-        WORKFLOW_HOST_COMPACT_HISTORY_METHOD, WORKFLOW_HOST_COMPLETE_MODEL_METHOD,
-        WORKFLOW_HOST_EMIT_EVENT_METHOD, WORKFLOW_HOST_EXECUTE_TOOL_METHOD,
-        WORKFLOW_HOST_EXECUTE_TOOLS_METHOD, WORKFLOW_HOST_RUNTIME_STATUS_METHOD,
-        WORKFLOW_HOST_SELECT_TOOLS_METHOD, WORKFLOW_HOST_VISIBLE_TOOLS_METHOD,
+        COMPACTOR_HOST_COMPLETE_MODEL_METHOD, CONTEXT_HOST_PROVIDER_METHOD,
+        CONTEXT_HOST_RECALL_MEMORY_METHOD, CONTEXT_HOST_SEARCH_METHOD,
+        WORKFLOW_HOST_BUILD_CONTEXT_METHOD, WORKFLOW_HOST_COMPACT_HISTORY_METHOD,
+        WORKFLOW_HOST_COMPLETE_MODEL_METHOD, WORKFLOW_HOST_EMIT_EVENT_METHOD,
+        WORKFLOW_HOST_EXECUTE_TOOL_METHOD, WORKFLOW_HOST_EXECUTE_TOOLS_METHOD,
+        WORKFLOW_HOST_RUNTIME_STATUS_METHOD, WORKFLOW_HOST_SELECT_TOOLS_METHOD,
+        WORKFLOW_HOST_VISIBLE_TOOLS_METHOD,
     },
     process_module::{
         CompactorModuleHost, ContextBuilderModuleHost, MemoryModuleHost, ProcessModuleError,
@@ -163,19 +164,12 @@ impl CompactorModuleHost for CompactorHostBridge {
     }
 
     fn complete_model_json(&self, request_json: String) -> Result<String, ProcessModuleError> {
-        let request: Value = match serde_json::from_str(request_json.as_str()) {
-            Ok(request) => request,
-            Err(error) => return Err(ProcessModuleError::new(error.to_string())),
-        };
-        match self
-            .0
-            .call("host.model.complete", json!({ "request": request }))
-        {
-            Ok(value) => {
-                json_string(value).map_or_else(|error| Err(ProcessModuleError::new(error)), Ok)
-            }
-            Err(error) => Err(model_callback_error(error)),
-        }
+        model_aware_call(
+            &self.0,
+            COMPACTOR_HOST_COMPLETE_MODEL_METHOD,
+            "request",
+            request_json,
+        )
     }
 }
 
@@ -230,7 +224,7 @@ impl WorkflowModuleHost for WorkflowHostBridge {
     }
 
     fn build_context_json(&self, task_json: String) -> Result<String, ProcessModuleError> {
-        workflow_call(
+        model_aware_call(
             &self.0,
             WORKFLOW_HOST_BUILD_CONTEXT_METHOD,
             "task",
@@ -239,7 +233,7 @@ impl WorkflowModuleHost for WorkflowHostBridge {
     }
 
     fn start_model_stream_json(&self, request_json: String) -> Result<String, ProcessModuleError> {
-        workflow_call(
+        model_aware_call(
             &self.0,
             proteus_contracts::contracts::WORKFLOW_HOST_START_MODEL_STREAM_METHOD,
             "request",
@@ -259,7 +253,7 @@ impl WorkflowModuleHost for WorkflowHostBridge {
     }
 
     fn complete_model_json(&self, request_json: String) -> Result<String, ProcessModuleError> {
-        workflow_call(
+        model_aware_call(
             &self.0,
             WORKFLOW_HOST_COMPLETE_MODEL_METHOD,
             "request",
@@ -268,7 +262,7 @@ impl WorkflowModuleHost for WorkflowHostBridge {
     }
 
     fn compact_history_json(&self, input_json: String) -> Result<String, ProcessModuleError> {
-        workflow_call(
+        model_aware_call(
             &self.0,
             WORKFLOW_HOST_COMPACT_HISTORY_METHOD,
             "input",
@@ -287,7 +281,7 @@ impl WorkflowModuleHost for WorkflowHostBridge {
     }
 
     fn select_tools_json(&self, request_json: String) -> Result<String, ProcessModuleError> {
-        workflow_call(
+        model_aware_call(
             &self.0,
             WORKFLOW_HOST_SELECT_TOOLS_METHOD,
             "request",
@@ -336,19 +330,17 @@ impl WorkflowModuleHost for WorkflowHostBridge {
     }
 }
 
-fn workflow_call(
+/// JSON host callbacks with typed model failures shared by workflow and compactor slots.
+fn model_aware_call(
     bridge: &HostBridge,
     method: &str,
     field: &str,
     payload: String,
 ) -> Result<String, ProcessModuleError> {
-    let value = match parse_value(payload) {
-        Ok(value) => value,
-        Err(error) => return Err(ProcessModuleError::new(error)),
-    };
+    let value = parse_value(payload).map_err(ProcessModuleError::new)?;
     match bridge.call(method, single_param(field, value)) {
-        Ok(value) => workflow_json(value),
-        Err(error) => workflow_error(error),
+        Ok(value) => json_string(value).map_err(ProcessModuleError::new),
+        Err(error) => Err(model_callback_error(error)),
     }
 }
 

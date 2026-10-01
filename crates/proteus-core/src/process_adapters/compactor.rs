@@ -13,7 +13,7 @@ use crate::contracts::{
     ProcessCompactionResponse, ProcessCompactorCompleteModelInput,
 };
 
-use super::{ProcessExportClient, ProcessExportConfig};
+use super::{ProcessExportClient, ProcessExportConfig, host_rpc};
 
 pub struct ProcessHistoryCompactor {
     client: Arc<ProcessExportClient>,
@@ -105,18 +105,10 @@ impl AsyncHostRequestDispatcher for CompactorDispatcher {
         Box::pin(async move {
             let response = host.complete_model(input.request).await.map_err(|error| {
                 let failure = crate::model_standard::ModelFailure::from_error(&error);
-                ProcessModuleRpcError::new(
-                    -32_100,
-                    format!("compactor model callback failed: {error:#}"),
-                )
-                .with_data(serde_json::to_value(failure).expect("model failure serialization"))
+                host_rpc::callback_error("compactor model callback", &error)
+                    .with_data(serde_json::to_value(failure).expect("model failure serialization"))
             })?;
-            serde_json::to_value(response).map_err(|error| {
-                ProcessModuleRpcError::new(
-                    -32603,
-                    format!("failed to serialize compactor model response: {error}"),
-                )
-            })
+            host_rpc::encode(response, "compactor model")
         })
     }
 }

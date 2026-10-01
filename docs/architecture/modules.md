@@ -531,9 +531,14 @@ policy implementation.
 DTO само по себе также не доказывает принадлежность одной границе.
 
 Slot adapter сохраняет runtime dispatch, invocation context, cancellation,
-бюджет и преобразование typed failures. В частности, workflow добавляет
-`ModelFailure` в RPC error data; общий JSON helper не должен терять эти данные
-или добавлять их callbacks другого slot.
+бюджет и преобразование typed failures. Workflow передаёт имеющийся
+`ModelFailure` в RPC error data, а compactor получает его через
+`ModelFailure::from_error`. Оба используют общую упаковку ответа и RPC ошибки
+из `host_rpc`, сохраняя собственное преобразование typed failure.
+В reference worker общий `model_aware_call` упаковывает JSON callbacks этих
+slots и восстанавливает `ModelFailure` из error data. Context callbacks
+используют отдельный путь обычных ошибок: одинаковая форма JSON не даёт
+основания менять error semantics.
 
 В исходниках отдельно держат DTO/contract, подключение и dispatch, сам
 алгоритм и крупные tests. Маленький связный adapter может оставаться одним
@@ -542,6 +547,24 @@ Slot adapter сохраняет runtime dispatch, invocation context, cancellati
 переводятся на него, а повторное объявление удаляется в том же изменении.
 Проверки выбираются по [матрице](../development/testing.md#evidence-matrix),
 включая conformance и swap при изменении process boundary.
+
+### Как Проследить Один Вызов
+
+Пример — вызов `search` для выбранного export `search/<module_id>`.
+Эти файлы показывают путь от общего slot до конкретного алгоритма:
+
+| Шаг | Где смотреть | Ответственность |
+|---|---|---|
+| Контракт слота | [search_backend.rs](../../crates/proteus-contracts/src/contracts/search_backend.rs) | `SearchBackend::search` принимает `SearchQuery` и возвращает `Vec<ContextChunk>`; `ProcessSearchResponse` задаёт форму результата на process-границе. |
+| Подключение выбранного export | [components.rs](../../crates/proteus-core/src/core/module_catalog/components.rs) и [search.rs](../../crates/proteus-core/src/process_adapters/search.rs) | Catalog регистрирует factory `ProcessSearchBackend` для каждого configured search export; runtime выбирает её по `modules.search`. Созданный adapter реализует общий trait и вызывает метод `search`. |
+| Вызов компонента | [client.rs](../../crates/proteus-core/src/process_adapters/client.rs) и [broker.rs](../../crates/proteus-module-protocol/src/v3/broker.rs) | `ProcessExportClient` передаёт typed запрос и ссылку на export в `ComponentBroker`; broker управляет вызовом и общим process lifecycle компонента. |
+| Выбор export внутри worker | [dispatch.rs](../../modules/reference/process-worker/src/dispatch.rs) и [exports.rs](../../modules/reference/process-worker/src/exports.rs) | Worker находит export по `slot/module_id`, проверяет допустимость метода и вызывает зарегистрированный search module; результат упаковывается в `ProcessSearchResponse`. |
+| Алгоритм reference-модуля | [rg-search/src/lib.rs](../../modules/reference/rg-search/src/lib.rs) | `RgSearchModule` разбирает `SearchQuery` и выполняет поиск через `rg`. |
+
+Один configured component может содержать несколько exports и общий процесс,
+но каждый вызов указывает конкретный export. Алгоритм `rg` можно заменить
+другой реализацией того же `search` contract и выбрать её export в config
+без изменения core или соседних modules.
 
 ## Как Добавить Модуль
 
