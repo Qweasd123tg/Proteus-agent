@@ -911,6 +911,16 @@ component. Пустой массив (default) отключает contributions.
 `POST /config/builder` принимает отдельное `hooks: string[]`; отсутствие поля
 сохраняет прежний список, пустой массив отключает hooks.
 
+Для собственных JS/TS handlers есть внешний
+[`hook-process` worker и SDK](../../examples/modules/hook-process/README.md).
+Node.js 22.18+ загружает entry-файл, `hooks.on` регистрирует canonical события,
+а optional `tools` фильтрует точные имена инструментов. Export config содержит
+`entry` и необязательный object `settings`. Обёртки помогают переносить узкие
+Pi/OpenCode tool handlers и JSON-stdin PreToolUse scripts Codex/Claude Code.
+Неподдержанные upstream действия отклоняются явно; это адаптер переноса,
+не загрузчик чужих plugins. Worker использует тот же `hook/v1`, без отдельной
+registration или authority surface в Core.
+
 ## Config Builder
 
 Inspector/config builder меняет selection, provider, permission mode и enabled

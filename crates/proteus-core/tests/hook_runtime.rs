@@ -1,3 +1,5 @@
+#[path = "hook_runtime/js_ports.rs"]
+mod js_ports;
 #[path = "support/model.rs"]
 mod test_model;
 use proteus_contracts::contracts::HookEvent;
@@ -175,7 +177,12 @@ async fn assert_replay(runtime: &AgentRuntime, config: &AppConfig) {
         runtime.session_dir().unwrap(),
         config,
         &catalog,
-        WorkflowReplayOptions::default(),
+        WorkflowReplayOptions {
+            turn_id: records(runtime)
+                .iter()
+                .rev()
+                .find_map(|record| record.turn_id),
+        },
     )
     .await
     .unwrap();

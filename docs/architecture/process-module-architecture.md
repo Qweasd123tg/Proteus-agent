@@ -552,6 +552,11 @@ single-export components:
 - `examples/modules/compactor-process/compact.py`;
 - `examples/modules/agent-worker/agent.py`.
 
+JS/TS [`hook-process`](../../examples/modules/hook-process/README.md) использует
+тот же wire v3 с несколькими `hook/v1` exports, concurrent invocations и
+адресной отменой через `AbortSignal`. SDK и porting helpers находятся внутри
+внешнего component; в Core нет language- или origin-specific пути исполнения.
+
 Новый component проверяется CLI:
 
 ```bash

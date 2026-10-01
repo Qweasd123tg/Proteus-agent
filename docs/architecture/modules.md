@@ -151,6 +151,12 @@ accepted responses/failures и output цепочки. Workflow replay приме
 записанные responses к raw boundaries без запуска hook workers; internal
 compactor hooks не исполняются повторно, как и summary model exchanges.
 
+Внешний [`hook-process`](../../examples/modules/hook-process/README.md)
+предоставляет JS/TS SDK и явные обёртки для переноса отдельных Pi/OpenCode
+handlers и PreToolUse commands Codex/Claude. Он экспортирует обычный
+`hook/v1` с тем же contract и без дополнительных callbacks. Upstream lifecycle
+или неподдержанные actions не эмулируются; различия описаны рядом с примерами.
+
 ### Workflow
 
 Владеет agent loop, но не инфраструктурой. Через callbacks может запросить
