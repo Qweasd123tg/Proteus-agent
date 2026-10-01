@@ -48,7 +48,7 @@ mod policy;
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 fn worker_spec(workspace: &Path) -> ProcessSpec {
-    ProcessSpec::new(env!("CARGO_BIN_EXE_proteus-reference-worker")).cwd(workspace)
+    ProcessSpec::new(env!("CARGO_BIN_EXE_proteus-reference-module")).cwd(workspace)
 }
 
 struct TestExportSession {

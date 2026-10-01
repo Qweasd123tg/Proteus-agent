@@ -26,7 +26,7 @@ supports_json_schema = true
 supports_reasoning_config = true
 
 [components.reference-model]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 env_allowlist = ["HOME", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
 
 [components.reference-model.exports.model.openai_codex]

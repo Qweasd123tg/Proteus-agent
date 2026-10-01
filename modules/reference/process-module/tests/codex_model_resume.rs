@@ -200,7 +200,7 @@ fn config(endpoint: &str, streaming: bool) -> AppConfig {
             "context": {"codex_context": {"providers": ["project_instructions", "environment"]}}},
         "modules": {"workflow": "coding.codex_loop", "policy": "allow_all", "context": "codex_context"},
         "components": {"fixture": {
-            "command": env!("CARGO_BIN_EXE_proteus-reference-worker"),
+            "command": env!("CARGO_BIN_EXE_proteus-reference-module"),
             "exports": {"model": {"openai": {}}, "workflow": {"coding.codex_loop": {}}, "context": {"codex_context": {}},
                 "policy": {"allow_all": {}}, "tool": {"reference.tools": {}}}}},
         "tools": {"enabled": ["read_file"]},

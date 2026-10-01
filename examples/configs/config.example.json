@@ -28,7 +28,7 @@
   },
   "components": {
     "reference-workflow": {
-      "command": "proteus-reference-worker",
+      "command": "proteus-reference-module",
       "exports": {
         "workflow": {
           "coding.plan_execute_review": {}
@@ -36,7 +36,7 @@
       }
     },
     "reference-context": {
-      "command": "proteus-reference-worker",
+      "command": "proteus-reference-module",
       "exports": {
         "context": {
           "simple": {}
@@ -44,7 +44,7 @@
       }
     },
     "reference-capabilities": {
-      "command": "proteus-reference-worker",
+      "command": "proteus-reference-module",
       "exports": {
         "policy": {
           "ask_write": {}
@@ -55,7 +55,7 @@
       }
     },
     "reference-model": {
-      "command": "proteus-reference-worker",
+      "command": "proteus-reference-module",
       "env_allowlist": [
         "HOME",
         "OPENAI_API_KEY",

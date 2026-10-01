@@ -1,7 +1,7 @@
 //! File tools reference process module: read_file, write_file, list_dir, grep, find_files,
 //! read_many_files.
 //!
-//! Reference-реализация файловых tools, экспортируемая единым process worker.
+//! Reference-реализация файловых tools, экспортируемая единым процессным модулем.
 //! Она использует sync `ToolModule` + `std::fs` (не `tokio::fs`) и проверяет,
 //! что поведение tools можно вынести за границу core.
 //!
@@ -14,7 +14,7 @@
 //! cargo build --release -p file-tools
 //! ```
 //!
-//! Реализация линкуется только внутрь `proteus-reference-worker`; host видит
+//! Реализация линкуется только внутрь `proteus-reference-module`; host видит
 //! её через общий `tool` process contract.
 //!
 //! После этого добавьте нужные имена (`read_file`, `write_file`, `list_dir`,

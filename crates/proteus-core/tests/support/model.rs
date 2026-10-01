@@ -2,13 +2,13 @@
 use proteus_core::core::AppConfig;
 use std::{path::PathBuf, sync::OnceLock};
 
-pub fn worker() -> PathBuf {
-    static WORKER: OnceLock<PathBuf> = OnceLock::new();
-    WORKER
+pub fn reference_module() -> PathBuf {
+    static REFERENCE_MODULE_PATH: OnceLock<PathBuf> = OnceLock::new();
+    REFERENCE_MODULE_PATH
         .get_or_init(|| {
-            let path = PathBuf::from(std::env::var_os("PROTEUS_TEST_REFERENCE_WORKER")
-                .expect("use scripts/test.py to build and bind the reference worker before running core tests"));
-            assert!(path.is_file(), "reference test worker is missing: {}", path.display());
+            let path = PathBuf::from(std::env::var_os("PROTEUS_TEST_REFERENCE_MODULE")
+                .expect("use scripts/test.py to build and bind the reference module before running core tests"));
+            assert!(path.is_file(), "reference test module is missing: {}", path.display());
             path
         })
         .clone()
@@ -20,7 +20,7 @@ pub fn config() -> AppConfig {
     config.components.insert(
         "test-model".into(),
         serde_json::from_value(serde_json::json!({
-            "command": worker(), "exports": {"model": {"fake": {}}}
+            "command": reference_module(), "exports": {"model": {"fake": {}}}
         }))
         .unwrap(),
     );
@@ -39,6 +39,6 @@ pub fn config() -> AppConfig {
 pub fn toml_component() -> String {
     format!(
         "\n[components.test-model]\ncommand = {}\n[components.test-model.exports.model.fake]\n[module_config.model.fake]\nimplementation = \"fake\"\n",
-        serde_json::to_string(&worker()).unwrap()
+        serde_json::to_string(&reference_module()).unwrap()
     )
 }

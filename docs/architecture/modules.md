@@ -2,11 +2,12 @@
 
 Capability описывает, что требуется runtime/controller-у; slot задаёт
 host-defined typed selection/assembly point для этой capability: DTO, методы,
-callbacks, composition, cancellation и failure semantics. Module — конкретная
-реализация slot, а `module_id` только выбирает её.
+callbacks, composition, cancellation и failure semantics. Модуль — отдельная
+запускаемая программа со своей реализацией. Он предоставляет один или несколько
+exports слотов; `module_id` выбирает реализацию конкретного slot внутри него.
 
 ```text
-Capability -> Slot -> Module -> Component export
+Agent -> Slot -> Module export (slot/module_id) -> Process module
 ```
 
 Это понятийная зависимость, а не новый universal capability registry. Slot
@@ -18,9 +19,10 @@ contract.
 authority(module) = authority(slot, invocation_context)
 ```
 
-Все внешние modules являются exports process components: Component Runtime v2
-использует wire protocol v3; `workflow` использует strict contract v18,
-`compactor` — v10, `model` — v11; версии остальных slots приведены в authority table
+Все внешние реализации подключаются через exports процессных модулей.
+Component Runtime v2 использует wire protocol v3; `workflow` использует strict
+contract v18, `compactor` — v10, `model` — v11; версии остальных slots приведены
+в authority table
 [process-module-architecture.md](process-module-architecture.md). Runtime допускает
 несколько одновременных и вложенных invocation одного component. Dylib ABI и
 native loader в проекте отсутствуют.
@@ -32,8 +34,12 @@ native loader в проекте отсутствуют.
 - **behavior slot** — одна выбранная реализация (`select_one`);
 - **ordered contribution slot** — явно упорядоченный набор
   (`ordered_many`);
-- **component** — host-owned launch config, process и общий failure domain;
-- **component export** — exact `slot/module_id` binding;
+- **process module** — отдельная executable, предоставляющая один или
+  несколько exports; внутренние алгоритмы и их исходники принадлежат ей;
+- **component** — техническое имя в текущем config и runtime для записи
+  запуска этого модуля, процесса и общего failure domain;
+- **export** — точная пара `slot/module_id`, связывающая slot с реализацией
+  внутри модуля;
 - **module config** — непрозрачный object реализации;
 - **reference module** — tracked dogfood/test implementation без привилегий;
 - **structural absence** — поведение host при отсутствии selection, не module.
@@ -59,14 +65,14 @@ native loader в проекте отсутствуют.
 Agent control в матрицу не входит, потому что это
 root-owned application service, а не выбираемый behavior slot.
 
-## Component, Export И Selection
+## Module Export И Selection
 
 ```toml
 [modules]
 memory = "sqlite"
 
 [components.reference-memory]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 
 [components.reference-memory.exports.memory.sqlite]
 timeout_ms = 30000
@@ -89,9 +95,9 @@ path = ".proteus/memory.sqlite"
 9. Несколько exports одного component делят process lifecycle, но не authority.
 
 `examples/configs/proteus.one-component.example.toml` показывает допустимый
-крайний случай: десять callback-связанных exports reference worker-а собраны в
-один process. Topology test подтверждает один PID, nested lineage, адресную отмену и
-canonical journal/replay; это не делает такую топологию обязательной.
+пример: десять callback-связанных exports reference-модуля работают в одном
+process. Topology test подтверждает один PID, nested lineage, адресную отмену и
+canonical journal/replay. Модуль с одним export устроен по тем же правилам.
 
 Нет специальных ids `default`, `none`, `process` или `all_visible`.
 Чтобы не выбирать module, поле slot просто не указывается.
@@ -122,7 +128,7 @@ canonical journal/replay; это не делает такую топологию
 }
 ```
 
-Worker возвращает exact-set manifest. Missing/extra/duplicate export и
+Модуль возвращает exact-set manifest. Missing/extra/duplicate export и
 несовпадение component id/slot/id/version/composition завершают build
 snapshot-а ошибкой. Каждый вызов содержит target export; module methods и
 callbacks сверяются с его authority, а не с объединением component. Wire ids
@@ -149,7 +155,7 @@ turn-start/turn-end best-effort. Cancellation и deadline адресуются �
 invocation; state после reload/restart принадлежит реализации, host его
 автоматически не восстанавливает. Canonical journal записывает input,
 accepted responses/failures и output цепочки. Workflow replay применяет
-записанные responses к raw boundaries без запуска hook workers; internal
+записанные responses к raw boundaries без запуска hook-модулей; internal
 compactor hooks не исполняются повторно, как и summary model exchanges.
 
 `before_stop` проверяет успешный кандидат root turn. `continue_turn` с
@@ -204,7 +210,7 @@ Plan-фаза ограничивает и выбранные tools, и compariso
 завершённые assistant messages из `ModelFailure.completed_messages` прямого
 запроса. Ошибка compactor не добавляет внутренний summary в history. Это общий
 contract для любых workflow implementations, а не восстановление локального
-состояния потерянного worker-а. Дополнительно `host.history.checkpoint` позволяет
+состояния потерянного модуля. Дополнительно `host.history.checkpoint` позволяет
 явно подтвердить промежуточную history и выбрать calls, результаты которых Core
 должен включать в неё при записи journal. Callback доступен всем workflow exports;
 его используют `coding.codex_loop` и Python example. Без checkpoint внутренние
@@ -389,7 +395,7 @@ host-owned `ExecutionAttribution`: обязательный `ExecutionId` и opt
 - Rust LSP: `lsp_diagnostics`;
 - policy grant request: `request_permissions`.
 
-Для узкого профиля тот же worker принимает selectors `file_tools`,
+Для узкого профиля тот же модуль принимает selectors `file_tools`,
 `git_tools`, `shell_tools`, `plan_tool`, `skill_tool`, `rust_lsp` и
 `policy_tools`. Они используют тот же `tool/v3` contract; selector не
 меняет authority.
@@ -405,7 +411,7 @@ Core не обращается к provider HTTP и не знает имён мо
 `null`, если implementation его не предоставляет. Он доступен через публичный
 `GET /model/quota` независимо от UI. `openai_codex` проецирует окна, группы и
 кредиты ChatGPT в этот DTO внутри своего адаптера; API-key implementations
-и fake возвращают `null`. Имена exports и происхождение worker не меняют contract.
+и fake возвращают `null`. Имена exports и происхождение модуля не меняют contract.
 
 Общий `model/v11` contract: `describe` возвращает неизменяемые adapter id,
 capabilities и hosted tools; `stream` принимает canonical request и флаг
@@ -414,9 +420,10 @@ provider streaming. Дельты доставляются через acknowledge
 отмена принадлежат host adapter, provider HTTP/SDK — реализации.
 
 Reference implementations находятся в `modules/reference/model-pack` и
-линкуются в worker, не в Core. `providers.<name>.provider` выбирает export id,
+линкуются в процессный модуль, не в Core. `providers.<name>.provider` выбирает
+export id,
 `module_config.model.<id>` передаётся реализации без разбора provider schema.
-Reference worker требует в нём `implementation`; export id не обязан совпадать
+Reference-модуль требует в нём `implementation`; export id не обязан совпадать
 с implementation, поэтому один provider можно подключить несколько раз.
 Core сохраняет `ModelService`, `BoundModel`, canonical validation и journal.
 Одинаковый contract действует для arbitrary external ids и reference ids;
@@ -424,7 +431,7 @@ Core сохраняет `ModelService`, `BoundModel`, canonical validation и jo
 
 `openai_codex` использует ChatGPT OAuth и подписочный Codex Responses backend.
 Credentials, browser/device login и refresh принадлежат model-pack; команды
-управления вызываются у executable `proteus-reference-worker auth openai_codex`.
+управления вызываются у executable `proteus-reference-module auth openai_codex`.
 Это локальная management surface поставляемого component, не новый host method
 или slot. Core, workflow и tool authority не различают способ оплаты модели.
 `stream=false` собирает один provider SSE в terminal response. Хранилище,
@@ -453,18 +460,18 @@ service. `ModuleKind::Subagent`, `modules.subagent` и catalog implementation
 
 Это принципиально отличает отсутствие реализации от «стандартного модуля».
 
-## Reference Worker
+## Reference Process Module
 
-`proteus-reference-worker` содержит behavior selectors и model implementations
+`proteus-reference-module` содержит behavior selectors и model implementations
 и может подтвердить несколько exports одного component. Он использует тот же
-protocol, что out-of-tree worker. Его Rust helper traits в
+protocol, что внешний процессный модуль. Его Rust helper traits в
 `proteus-contracts::process_module` действуют только внутри executable и не
 являются host ABI.
 
 Проверка всех identities:
 
 ```bash
-cargo test -p proteus-reference-worker --test conformance
+cargo test -p proteus-reference-module --test conformance
 ```
 
 Тест выполняет не только handshake: он вызывает реальные file/search/patch/
@@ -489,8 +496,8 @@ memory/policy/context/compactor/workflow paths, включая callbacks.
 | Правило | Владелец и источник | Пример использования | Проверка |
 |---|---|---|---|
 | Строка catalog namespace | `proteus_contracts::domain::ModuleKind::as_str` | `slot::MODEL` получает строку от `ModuleKind::Model`; config и topology используют тот же источник | `module_swap`, `config_profiles` |
-| Грамматика wire ID | `proteus_module_protocol::v3::parse_wire_id` | Rust host и worker импортируют общий parser; `h:1:0` — initialize, `m:1:1` — module callback | `v3::wire_id`, `broker_v3`, worker `conformance` |
-| Форма JSON-RPC envelope | `proteus_module_protocol::v3::parse_component_frame` | Rust host и worker получают `ComponentFrame` с request, notification или response; opaque payload сохраняется | `v3::frame`, `broker_v3`, worker `conformance` |
+| Грамматика wire ID | `proteus_module_protocol::v3::parse_wire_id` | Rust host и модуль импортируют общий parser; `h:1:0` — initialize, `m:1:1` — module callback | `v3::wire_id`, `broker_v3`, conformance модуля |
+| Форма JSON-RPC envelope | `proteus_module_protocol::v3::parse_component_frame` | Rust host и модуль получают `ComponentFrame` с request, notification или response; opaque payload сохраняется | `v3::frame`, `broker_v3`, conformance модуля |
 
 `ModuleKind` описывает catalog kinds; он не заменяет таблицу process contracts
 или правила selection. Например, `context_provider` имеет process export
@@ -502,14 +509,14 @@ contract, но не является отдельным `ModuleKind`. Прове
 invocation, cancellation и settlement проверяются отдельно принимающей стороной.
 
 Module helpers используют канонический DTO напрямую, если передают ту же
-границу с той же семантикой. Например, `context-pack`, `skill-pack`, worker и
-host adapter используют один `ProcessContextProviderInput`. Отдельный helper
+границу с той же семантикой. Например, `context-pack`, `skill-pack`, процессный
+модуль и host adapter используют один `ProcessContextProviderInput`. Отдельный helper
 DTO нужен только для другой границы с собственными данными:
 `ContextBuilderModuleInput` содержит
 implementation config, которого нет в `ProcessContextInput`.
 Повторное объявление одинаковых полей или alias для удалённого типа не нужны.
 
-Для `PolicyModule` worker и implementations используют
+Для `PolicyModule` процессный модуль и implementations используют
 `PolicyModuleInvocationContext` и `PolicyModuleVisibilityContext` из
 `proteus-contracts::process_module`. Это внутренняя JSON-схема Rust helpers с
 непрозрачным implementation config; внешние `ProcessPolicyEvaluateInput` и
@@ -535,7 +542,7 @@ Slot adapter сохраняет runtime dispatch, invocation context, cancellati
 `ModelFailure` в RPC error data, а compactor получает его через
 `ModelFailure::from_error`. Оба используют общую упаковку ответа и RPC ошибки
 из `host_rpc`, сохраняя собственное преобразование typed failure.
-В reference worker общий `model_aware_call` упаковывает JSON callbacks этих
+В reference-модуле общий `model_aware_call` упаковывает JSON callbacks этих
 slots и восстанавливает `ModelFailure` из error data. Context callbacks
 используют отдельный путь обычных ошибок: одинаковая форма JSON не даёт
 основания менять error semantics.
@@ -558,7 +565,7 @@ slots и восстанавливает `ModelFailure` из error data. Context 
 | Контракт слота | [search_backend.rs](../../crates/proteus-contracts/src/contracts/search_backend.rs) | `SearchBackend::search` принимает `SearchQuery` и возвращает `Vec<ContextChunk>`; `ProcessSearchResponse` задаёт форму результата на process-границе. |
 | Подключение выбранного export | [components.rs](../../crates/proteus-core/src/core/module_catalog/components.rs) и [search.rs](../../crates/proteus-core/src/process_adapters/search.rs) | Catalog регистрирует factory `ProcessSearchBackend` для каждого configured search export; runtime выбирает её по `modules.search`. Созданный adapter реализует общий trait и вызывает метод `search`. |
 | Вызов компонента | [client.rs](../../crates/proteus-core/src/process_adapters/client.rs) и [broker.rs](../../crates/proteus-module-protocol/src/v3/broker.rs) | `ProcessExportClient` передаёт typed запрос и ссылку на export в `ComponentBroker`; broker управляет вызовом и общим process lifecycle компонента. |
-| Выбор export внутри worker | [dispatch.rs](../../modules/reference/process-worker/src/dispatch.rs) и [exports.rs](../../modules/reference/process-worker/src/exports.rs) | Worker находит export по `slot/module_id`, проверяет допустимость метода и вызывает зарегистрированный search module; результат упаковывается в `ProcessSearchResponse`. |
+| Выбор export внутри модуля | [dispatch.rs](../../modules/reference/process-module/src/dispatch.rs) и [exports.rs](../../modules/reference/process-module/src/exports.rs) | Процессный модуль находит export по `slot/module_id`, проверяет допустимость метода и вызывает реализацию поиска; результат упаковывается в `ProcessSearchResponse`. |
 | Алгоритм reference-модуля | [rg-search/src/lib.rs](../../modules/reference/rg-search/src/lib.rs) | `RgSearchModule` разбирает `SearchQuery` и выполняет поиск через `rg`. |
 
 Один configured component может содержать несколько exports и общий процесс,

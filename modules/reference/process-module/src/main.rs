@@ -6,7 +6,7 @@ mod transport;
 
 fn main() {
     if let Err(error) = run() {
-        eprintln!("proteus-reference-worker: {error:#}");
+        eprintln!("proteus-reference-module: {error:#}");
         std::process::exit(1);
     }
 }
@@ -23,5 +23,5 @@ fn run() -> anyhow::Result<()> {
             std::iter::once(args[0].clone()).chain(args.into_iter().skip(3)),
         );
     }
-    anyhow::bail!("usage: proteus-reference-worker [auth openai_codex <login|status|logout>]");
+    anyhow::bail!("usage: proteus-reference-module [auth openai_codex <login|status|logout>]");
 }

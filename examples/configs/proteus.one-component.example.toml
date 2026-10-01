@@ -26,7 +26,7 @@ tool_exposure = "codex_dynamic"
 # Этот профиль намеренно собирает callback-связанные exports в один process.
 # Это отдельный failure domain для P4 evidence, а не новый обязательный default.
 [components.reference-agent]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 
 [components.reference-agent.exports.workflow."coding.codex_loop"]
 

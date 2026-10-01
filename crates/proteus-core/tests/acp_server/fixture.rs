@@ -36,7 +36,7 @@ impl Client {
         config.components.insert(
             "runtime".into(),
             serde_json::from_value(json!({
-                "command": super::test_model::worker(),
+                "command": super::test_model::reference_module(),
                 "exports": {"workflow":{"coding.single_loop":{}},"context":{"simple":{}},
                     "policy":{"ask_write":{}},"patch":{"direct":{}}}
             }))

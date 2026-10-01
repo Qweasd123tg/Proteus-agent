@@ -28,9 +28,12 @@ authority(module) = authority(slot, invocation_context)
 ```
 
 Core владеет сборкой, authority, lifecycle и общими границами исполнения.
-Алгоритм принадлежит module. Slot задаёт typed contract и способ выбора
-implementation; component — внешний process с одним или несколькими exports.
-Profile связывает конфигурацию и выбранные modules.
+Агент собирается из модулей через slots. Slot задаёт typed contract и способ
+выбора implementation. Модуль — запускаемая программа со своей внутренней
+реализацией; она может предоставить один или несколько slots. Каждый её export
+имеет пару `slot/module_id` и получает права именно своего slot. В текущем
+config `components.<id>` описывает запуск модуля и общий lifecycle его exports.
+Profile связывает конфигурацию и выбранные exports модулей.
 
 UI — сменная витрина. Модульность агента и расширяемость клиентов независимы:
 UI-расширение при необходимости использует публичный контракт агента, а agent

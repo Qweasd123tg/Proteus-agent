@@ -20,18 +20,18 @@ use proteus_contracts::{
 };
 use serde_json::{Value, json};
 
-use crate::transport::WorkerTransport;
+use crate::transport::ModuleTransport;
 
 #[derive(Clone)]
 pub struct HostBridge {
-    transport: Arc<WorkerTransport>,
+    transport: Arc<ModuleTransport>,
     invocation_id: String,
     canceled: Arc<AtomicBool>,
 }
 
 impl HostBridge {
     pub fn new(
-        transport: Arc<WorkerTransport>,
+        transport: Arc<ModuleTransport>,
         invocation_id: String,
         canceled: Arc<AtomicBool>,
     ) -> Self {

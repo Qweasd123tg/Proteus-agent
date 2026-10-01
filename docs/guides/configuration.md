@@ -92,7 +92,7 @@ model = "fake-tool-model"
 stream = true
 
 [components.reference-model]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 
 [components.reference-model.exports.model.fake]
 
@@ -105,17 +105,17 @@ context = "simple"
 policy = "ask_write"
 
 [components.reference-workflow]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 
 [components.reference-workflow.exports.workflow."coding.single_loop"]
 
 [components.reference-context]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 
 [components.reference-context.exports.context.simple]
 
 [components.reference-capabilities]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 
 [components.reference-capabilities.exports.policy.ask_write]
 
@@ -126,7 +126,7 @@ enabled = []
 mode = "normal"
 ```
 
-Reference worker должен находиться в `PATH`; `./install.sh` обеспечивает
+Reference-модуль должен находиться в `PATH`; `./install.sh` обеспечивает
 это для установленного wrapper-а.
 
 `active_provider` необязателен. Если его нет, Core не создаёт model adapter;
@@ -162,13 +162,13 @@ auth = "x-api-key"
 api_version = "2023-06-01"
 
 [components.reference-model]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 env_allowlist = ["HOME", "ANTHROPIC_API_KEY"]
 
 [components.reference-model.exports.model.anthropic]
 ```
 
-Reference worker экспортирует следующие model implementations:
+Reference-модуль экспортирует следующие model implementations:
 
 - `fake`;
 - `openai`;
@@ -207,15 +207,15 @@ OpenCode или отдельный API proxy не требуются.
 После `./install.sh`:
 
 ```bash
-proteus-reference-worker auth openai_codex login
-proteus-reference-worker auth openai_codex status
+proteus-reference-module auth openai_codex login
+proteus-reference-module auth openai_codex status
 proteus --config codex-chatgpt
 ```
 
 Для машины без callback в браузере:
 
 ```bash
-proteus-reference-worker auth openai_codex login --device-auth
+proteus-reference-module auth openai_codex login --device-auth
 ```
 
 Device-code login должен быть разрешён в настройках ChatGPT. Обычный вход
@@ -235,7 +235,7 @@ token автоматически обновляется вместе с access t
 сессию Proteus, не отзывает все сессии ChatGPT.
 
 ```bash
-proteus-reference-worker auth openai_codex logout
+proteus-reference-module auth openai_codex logout
 ```
 
 Готовый `codex-chatgpt` использует `gpt-5.6-luna` и собственные
@@ -264,7 +264,7 @@ chunk и иначе оформляет project instructions. Поиск може
 `openai_codex` сам запрашивает `GET /backend-api/codex/models` с ChatGPT OAuth.
 Web показывает все возвращённые модели, включая entries с отметкой «скрытая»,
 и только их `supported_reasoning_levels`, включая новые строковые значения.
-Успешный каталог кэшируется в worker на 5 минут; следующая загрузка настроек
+Успешный каталог кэшируется в модуле на 5 минут; следующая загрузка настроек
 после expiry запрашивает его снова. Параллельные загрузки объединяются.
 Каталог не расходует inference tokens. При ошибке web показывает причину,
 список не подменяется статическим или API-каталогом. Ошибка не мешает загрузке
@@ -292,7 +292,7 @@ implementation = "openai_codex"
 auth_file = "$HOME/.config/Proteus-agent/secrets/chatgpt.json"
 
 [components.reference-model]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 env_allowlist = ["HOME"]
 
 [components.reference-model.exports.model.openai_codex]
@@ -371,7 +371,7 @@ checkpoint сохраняет их до backoff. Задержка начинае
 отмена и общий model deadline не запускают этот retry. Каждый вызов модели
 имеет свой model deadline, а общий workflow deadline охватывает все попытки.
 
-Environment читается внутри worker: нужные переменные (`HOME`, API key,
+Environment читается внутри модуля: нужные переменные (`HOME`, API key,
 proxy variables) явно перечисляются в `env_allowlist` component. Это относится
 и к `$HOME` в путях JSON secrets. Core не читает credential и не знает схему
 настроек провайдера. Reference modules разрешают ключ при первом запросе;
@@ -432,7 +432,7 @@ tool_exposure = "codex_dynamic"
 
 Reference context implementations `simple`, `repo_aware` и `codex_context`
 отвергают неизвестные поля в своём `module_config.context.<id>` при
-инициализации worker. В `repo_aware` и `codex_context` нулевой `memory_limit`
+инициализации модуля. В `repo_aware` и `codex_context` нулевой `memory_limit`
 исключает результаты памяти, а `max_search_results = 0` отключает
 предварительный поиск.
 
@@ -569,7 +569,7 @@ exports этих slots являются contributions:
 
 ```toml
 [components.reference-capabilities]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 
 [components.reference-capabilities.exports.context_provider.skills]
 
@@ -591,7 +591,7 @@ Tool export получает список specs с bootstrap timeout 30 000 мс
 
 ## Reference Inventory
 
-Удобный dogfood executable `proteus-reference-worker` публикует:
+Удобный dogfood executable `proteus-reference-module` публикует:
 
 ```text
 model:            fake, openai, openai_compatible, openai_codex, anthropic
@@ -801,7 +801,7 @@ AgentControl surface; approval проверяется при исполнени�
 tool_exposure = "codex_dynamic"
 
 [components.reference-capabilities]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 
 [components.reference-capabilities.exports.tool_exposure.codex_dynamic]
 
@@ -903,7 +903,7 @@ Zero `approval_timeout_ms` означает отсутствие server-side dea
 hooks = ["hook.instructions", "hook.output_budget"]
 
 [components.hooks]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 
 [components.hooks.exports.hook."hook.instructions"]
 timeout_ms = 5000
@@ -933,7 +933,7 @@ component. Пустой массив (default) отключает contributions.
 сохраняет прежний список, пустой массив отключает hooks.
 
 Для собственных JS/TS handlers есть внешний
-[`hook-process` worker и SDK](../../examples/modules/hook-process/README.md).
+[`hook-process` модуль и SDK](../../examples/modules/hook-process/README.md).
 Node.js 22.18+ загружает entry-файл, `hooks.on` регистрирует canonical события,
 а optional `tools` фильтрует точные имена инструментов. Export config содержит
 `entry` и необязательный object `settings`. Обёртки помогают переносить узкие
@@ -941,7 +941,7 @@ Pi/OpenCode tool handlers (включая изменение args), JSON-stdin P
 `updatedInput` и Stop scripts Codex/Claude Code. Completion review сохраняет
 root turn, имеет общий workflow deadline и лимит 8 продолжений.
 Неподдержанные upstream действия отклоняются явно; это адаптер переноса,
-не загрузчик чужих plugins. Worker использует тот же `hook/v2`, без отдельной
+не загрузчик чужих plugins. Модуль использует тот же `hook/v2`, без отдельной
 registration или authority surface в Core.
 
 ## Config Builder
@@ -960,7 +960,7 @@ proteus --config codex inspect plan
 ```
 
 Неизвестный selection или другая блокирующая plan-проверка не запускает
-worker и не заменяет текущий runtime. Поля и ограничения описаны в
+модуля и не заменяет текущий runtime. Поля и ограничения описаны в
 [assembly-plan.md](../architecture/assembly-plan.md).
 
 ## Проверка

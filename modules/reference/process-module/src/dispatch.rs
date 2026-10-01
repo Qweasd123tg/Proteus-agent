@@ -21,16 +21,16 @@ use proteus_module_protocol::{
 use serde_json::Value;
 
 use crate::{
-    exports::ExportWorker,
+    exports::ModuleExport,
     hosts::HostBridge,
-    transport::{FrameReader, WorkerTransport, rpc_error, rpc_success},
+    transport::{FrameReader, ModuleTransport, rpc_error, rpc_success},
 };
 
 const MAX_ACTIVE_INVOCATIONS: usize = 32;
 
-struct ComponentWorker {
+struct ModuleExports {
     component_id: String,
-    exports: BTreeMap<(String, String), ExportWorker>,
+    exports: BTreeMap<(String, String), ModuleExport>,
 }
 
 #[derive(Clone)]
@@ -39,9 +39,9 @@ struct ActiveInvocation {
     lineage: ProcessInvocationLineage,
 }
 
-struct WorkerRuntime {
-    component: ComponentWorker,
-    transport: Arc<WorkerTransport>,
+struct ModuleRuntime {
+    component: ModuleExports,
+    transport: Arc<ModuleTransport>,
     generation: u64,
     active: Mutex<HashMap<String, ActiveInvocation>>,
 }
@@ -73,21 +73,21 @@ pub fn run() -> Result<()> {
     let mut exports = BTreeMap::new();
     for export in binding.exports {
         let key = (export.slot.clone(), export.module_id.clone());
-        exports.insert(key, ExportWorker::load(export)?);
+        exports.insert(key, ModuleExport::load(export)?);
     }
     let manifest = ProcessComponentManifest {
         protocol_version: PROCESS_COMPONENT_PROTOCOL_VERSION.to_owned(),
         component_id: binding.component_id.clone(),
-        exports: exports.values().map(ExportWorker::manifest).collect(),
+        exports: exports.values().map(ModuleExport::manifest).collect(),
     };
-    let transport = Arc::new(WorkerTransport::new(initialize_wire_id.generation));
+    let transport = Arc::new(ModuleTransport::new(initialize_wire_id.generation));
     transport.write(&rpc_success(
         &initialize_id,
         serde_json::to_value(manifest)?,
     ))?;
 
-    let runtime = Arc::new(WorkerRuntime {
-        component: ComponentWorker {
+    let runtime = Arc::new(ModuleRuntime {
+        component: ModuleExports {
             component_id: binding.component_id,
             exports,
         },
@@ -110,7 +110,7 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 
-impl WorkerRuntime {
+impl ModuleRuntime {
     fn start_invocation(
         self: &Arc<Self>,
         request_id: String,
@@ -139,7 +139,7 @@ impl WorkerRuntime {
                     &request_id,
                     ProcessModuleRpcError::new(
                         -32014,
-                        "reference worker active invocation capacity is exhausted",
+                        "reference module active invocation capacity is exhausted",
                     ),
                 ))?;
                 return Ok(());
@@ -206,11 +206,11 @@ impl WorkerRuntime {
             }
         };
         if let Err(error) = self.transport.write(&response) {
-            eprintln!("proteus-reference-worker: failed to write invocation response: {error:#}");
+            eprintln!("proteus-reference-module: failed to write invocation response: {error:#}");
             std::process::exit(1);
         }
         if let Err(error) = self.finish_invocation(&invocation_id) {
-            eprintln!("proteus-reference-worker: failed to settle invocation: {error:#}");
+            eprintln!("proteus-reference-module: failed to settle invocation: {error:#}");
             std::process::exit(1);
         }
     }
@@ -270,7 +270,7 @@ impl WorkerRuntime {
     }
 }
 
-impl ComponentWorker {
+impl ModuleExports {
     fn dispatch(
         &self,
         call: ProcessComponentInvocation,

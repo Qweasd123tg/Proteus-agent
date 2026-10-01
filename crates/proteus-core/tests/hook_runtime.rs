@@ -24,7 +24,7 @@ async fn config() -> AppConfig {
     .unwrap();
     let mut value =
         serde_json::to_value(config.components.get("reference-agent").unwrap()).unwrap();
-    value["command"] = json!(test_model::worker());
+    value["command"] = json!(test_model::reference_module());
     value["exports"]["hook"] = json!({"hook.instructions":{},"hook.output_budget":{}});
     config.components.insert(
         "reference-agent".into(),

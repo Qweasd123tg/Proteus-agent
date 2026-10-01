@@ -42,7 +42,7 @@ CompactionOutput` и не использует разрешённый contract-�
 Проверка общей семантики с Rust compactor через реальные worker processes:
 
 ```bash
-cargo test -p proteus-reference-worker --test compactor_interop
+cargo test -p proteus-reference-module --test compactor_interop
 ```
 
 Процесс получает очищенное окружение с `PATH`; дополнительные имена

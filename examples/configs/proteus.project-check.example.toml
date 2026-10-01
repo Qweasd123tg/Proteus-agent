@@ -12,7 +12,7 @@ policy = "ask_write"
 # One ordinary component exports the controller and its configured tools. The
 # host still computes authority per active export; this is not union authority.
 [components.reference-controller]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 
 [components.reference-controller.exports.workflow."coding.project_check"]
 

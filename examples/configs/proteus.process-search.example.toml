@@ -15,7 +15,7 @@ context = "simple"
 policy = "ask_write"
 
 [components.reference-workflow]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 
 [components.reference-workflow.exports.workflow."coding.single_loop"]
 
@@ -27,12 +27,12 @@ args = ["examples/modules/search-process/search.py"]
 timeout_ms = 60000
 
 [components.reference-context]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 
 [components.reference-context.exports.context.simple]
 
 [components.reference-capabilities]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 
 [components.reference-capabilities.exports.policy.ask_write]
 
@@ -49,7 +49,7 @@ enabled = ["search"]
 mode = "normal"
 
 [components.reference-model]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 env_allowlist = ["HOME", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
 
 [components.reference-model.exports.model.fake]

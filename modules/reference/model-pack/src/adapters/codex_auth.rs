@@ -15,7 +15,7 @@ mod tests;
 pub(super) const CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 const ISSUER: &str = "https://auth.openai.com";
 const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
-const LOGIN_HINT: &str = "proteus-reference-worker auth openai_codex login";
+const LOGIN_HINT: &str = "proteus-reference-module auth openai_codex login";
 
 #[derive(Clone, Debug)]
 pub(super) struct CodexAuth {
@@ -54,7 +54,7 @@ impl CodexAuth {
     pub async fn access(&self, rejected_token: Option<String>) -> Result<Access> {
         // A caller's cancellation must not abandon a refresh after the server
         // rotated the token but before we saved it. The bounded transaction
-        // retains the OS lock and completes on this worker's runtime.
+        // retains the OS lock and completes on this module's runtime.
         let lock = store::lock(&self.path).await?;
         let auth = self.clone();
         let credentials = tokio::spawn(async move {

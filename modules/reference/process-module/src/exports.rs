@@ -31,12 +31,12 @@ use crate::{
     registry::CollectedModules,
 };
 
-pub(crate) struct ExportWorker {
+pub(crate) struct ModuleExport {
     binding: ProcessComponentExportInitialize,
     modules: CollectedModules,
 }
 
-impl ExportWorker {
+impl ModuleExport {
     pub(crate) fn load(binding: ProcessComponentExportInitialize) -> Result<Self> {
         let modules = CollectedModules::load(
             &binding.slot,
@@ -87,7 +87,7 @@ impl ExportWorker {
             "context_provider" => self.context_provider(params),
             "compactor" => self.compactor(params, bridge),
             "workflow" => self.workflow(params, bridge),
-            slot => bail!("reference worker does not dispatch slot {slot:?}"),
+            slot => bail!("reference-module does not dispatch slot {slot:?}"),
         }
     }
 

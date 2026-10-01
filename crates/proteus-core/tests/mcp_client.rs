@@ -423,7 +423,7 @@ async fn inline_mcp_tool_uses_runtime_approval_journal_and_replay_path() {
     config.components.insert(
         "runtime".into(),
         serde_json::from_value(json!({
-            "command": test_model::worker(),
+            "command": test_model::reference_module(),
             "exports": {
                 "workflow":{"coding.single_loop":{}},
                 "context":{"simple":{}},

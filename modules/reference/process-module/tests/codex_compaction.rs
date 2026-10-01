@@ -213,7 +213,7 @@ fn config(endpoint: &str) -> AppConfig {
         },
         "components": {
             "fixture": {
-                "command": env!("CARGO_BIN_EXE_proteus-reference-worker"),
+                "command": env!("CARGO_BIN_EXE_proteus-reference-module"),
                 "exports": {
                     "model": {"openai": {}},
                     "workflow": {"coding.codex_loop": {}},

@@ -1,7 +1,7 @@
 # Tool Output Artifacts
 
 Исследовательская библиотека для сохранения больших результатов tools в файлы.
-Она исключена из root workspace, не экспортируется `proteus-reference-worker`
+Она исключена из root workspace, не экспортируется `proteus-reference-module`
 и не подключается через config. Это пример алгоритма, а не готовый runtime module.
 
 Реализованный эксперимент:

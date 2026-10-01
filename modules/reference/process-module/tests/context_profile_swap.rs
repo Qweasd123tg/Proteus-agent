@@ -42,7 +42,7 @@ async fn context_search_profile_prefetches_code_and_preserves_workflow_replay() 
                 .unwrap();
         for component in config.components.values_mut() {
             let mut value = serde_json::to_value(&*component).unwrap();
-            value["command"] = json!(env!("CARGO_BIN_EXE_proteus-reference-worker"));
+            value["command"] = json!(env!("CARGO_BIN_EXE_proteus-reference-module"));
             *component = serde_json::from_value(value).unwrap();
         }
         // Preserve the provider capabilities; only HTTP inference is stubbed.

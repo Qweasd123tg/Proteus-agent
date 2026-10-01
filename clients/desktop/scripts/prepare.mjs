@@ -12,14 +12,19 @@ export function run(command, args, cwd = root) {
 }
 
 export function prepareBackend(release) {
-  run('cargo', ['build', '--locked', ...(release ? ['--release'] : []), '-p', 'proteus-core', '-p', 'proteus-reference-worker']);
+  run('cargo', ['build', '--locked', ...(release ? ['--release'] : []), '-p', 'proteus-core', '-p', 'proteus-reference-module']);
   const resources = path.join(desktop, 'src-tauri/resources');
-  mkdirSync(path.join(resources, 'bin'), { recursive: true });
-  for (const name of ['proteus', 'proteus-reference-worker']) {
-    const target = path.join(resources, 'bin', name);
+  const bin = path.join(resources, 'bin');
+  const binaries = ['proteus', 'proteus-reference-module'];
+  mkdirSync(bin, { recursive: true });
+  for (const name of binaries) {
+    const target = path.join(bin, name);
     cpSync(path.join(root, 'target', release ? 'release' : 'debug', name), target + '.next');
     chmodSync(target + '.next', 0o755);
     renameSync(target + '.next', target);
+  }
+  for (const name of readdirSync(bin)) {
+    if (!binaries.includes(name)) rmSync(path.join(bin, name), { recursive: true, force: true });
   }
   rmSync(path.join(resources, 'configs'), { recursive: true, force: true });
   const tracked = spawnSync('git', ['ls-files', '-z', '--', 'configs'], { cwd: root, encoding: 'utf8' });

@@ -101,7 +101,7 @@ fn python_worker() -> PathBuf {
 
 fn config(module_id: &str) -> AppConfig {
     let command = if module_id == "codex" {
-        json!({"command": env!("CARGO_BIN_EXE_proteus-reference-worker")})
+        json!({"command": env!("CARGO_BIN_EXE_proteus-reference-module")})
     } else {
         json!({"command": "python3", "args": [python_worker()],
             "env": {"PYTHONDONTWRITEBYTECODE": "1"}})
@@ -117,7 +117,7 @@ fn config(module_id: &str) -> AppConfig {
     config.components.insert(
         "model".into(),
         serde_json::from_value(json!({
-            "command": env!("CARGO_BIN_EXE_proteus-reference-worker"),
+            "command": env!("CARGO_BIN_EXE_proteus-reference-module"),
             "exports": {"model": {"fake": {}}}
         }))
         .unwrap(),

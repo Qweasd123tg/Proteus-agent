@@ -101,7 +101,7 @@ Supervisor передаёт `--token` и нужные `--allow-origin` явно,
 
 ```bash
 proteus --config codex server acp
-# из checkout после cargo build -p proteus-core -p proteus-reference-worker:
+# из checkout после cargo build -p proteus-core -p proteus-reference-module:
 target/debug/proteus --config /absolute/path/to/config.json server acp
 ```
 
@@ -353,7 +353,7 @@ cleanup token. Каждый process export ограничен своим `timeou
 умолчанию 5000 мс). Snapshot и порядок handlers неизменны в пределах хода.
 
 Workflow replay применяет записанные responses и failures без запуска hook
-workers. Он проверяет входы и consumption traces; callbacks внутренней model
+процессных модулей. Он проверяет входы и consumption traces; callbacks внутренней model
 работы compactor остаются частью существующей recorded-compaction oracle.
 Раздел «Анализ ходов» в настройках показывает hook traces. Пример включения —
 [`hooks.config.toml`](../../examples/configs/hooks.config.toml).
@@ -1324,7 +1324,7 @@ Core path:
 7. недоставленное queued сообщение может открыть follow-up с новым domain
    `TurnId` в той же `run_reserved_chain`.
 
-Baseline `coding.single_loop` экспортируется `proteus-reference-worker` из
+Baseline `coding.single_loop` экспортируется `proteus-reference-module` из
 crate `coding-workflow`. Внутри шага 5 он через process workflow callbacks:
 
 1. испускает `TaskReceived`;
@@ -1572,7 +1572,7 @@ turn-level cancellation token. `ExecutionScope` внутри `ExecutionContext`
 время callbacks
 (`build_context`, `complete_model`, `execute_tool`, `emit_event`). Process
 session отправляет cancel и после bounded grace reset-ит/останавливает child;
-следующая invocation может запустить новый worker, но текущий turn не retry-ится.
+следующая invocation может запустить новый процесс модуля, но текущий turn не retry-ится.
 
 `runtime.model_timeout_ms` исполняется в `BoundModel`: единый deadline охватывает
 запуск запроса и чтение model stream, включая provider retry/backoff. При его

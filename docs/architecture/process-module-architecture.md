@@ -1,6 +1,9 @@
-# Process Components И Module Contracts
+# Процессные Модули И Их Контракты
 
-Документ описывает действующий Component Runtime v2 / wire v3.
+Документ описывает действующий Component Runtime v2 / wire v3. Агент собирается
+из modules через slots; каждый процессный модуль предоставляет один или
+несколько exports. Совместный процесс нескольких slots — обычный вариант,
+у него нет особого статуса или дополнительных прав.
 
 Текущая внешняя граница:
 
@@ -9,6 +12,11 @@ one active configured component = one process + one shared lifecycle
 one component = one or more exact module exports
 one export = one slot contract + one module_id
 ```
+
+`component` — техническое имя записи запуска модуля (`components.<id>`) и её
+общего process lifecycle в текущем config/runtime. Отдельной пользовательской
+сущности поверх модуля оно не вводит. `module_id` называет реализацию
+конкретного slot, а каждый вызов адресуется exact export `slot/module_id`.
 
 Здесь три независимые версии:
 
@@ -32,7 +40,7 @@ Native ABI также не является запасным путём: dylib l
 ## Главный Инвариант
 
 ```text
-Core -> Contract -> Component Export Implementation
+Core -> Contract -> Module Export Implementation
 
 authority(export invocation) = authority(slot, invocation_context)
 ```
@@ -58,7 +66,7 @@ AppConfig.components
   -> ProcessExportClient
   -> Arc<ComponentBroker> (общий для workspace)
   -> ProcessTransport (frame reader + bounded writer + lifecycle)
-  -> worker stdin/stdout
+  -> module stdin/stdout
 ```
 
 - `proteus-process-host` знает только child lifecycle, framing и
@@ -69,7 +77,8 @@ AppConfig.components
   `proteus-core`.
 - `proteus-core::process_adapters` переводит canonical slot traits в wire DTO
   и привязывает invocation-scoped callbacks к runtime.
-- Worker реализует wire напрямую на любом языке или использует свои helpers.
+- Процессный модуль реализует wire напрямую на любом языке или использует свои
+  helpers.
 
 `ProcessComponentLauncher` кэширует один broker на canonical workspace.
 Поэтому два adapters одного component не запускают два одинаковых child
@@ -82,7 +91,7 @@ Launch задаётся один раз, exports — вложенной карт
 
 ```toml
 [components.reference-capabilities]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 args = []
 cwd = "."
 env_allowlist = ["OPTIONAL_TOKEN"]
@@ -136,7 +145,7 @@ Composition хранится в общей authority table и подтвержд
   tool exposure;
 - `ordered_many`: tool, context provider, hook.
 
-Worker не может изменить cardinality, сделать свой `module_id` особым или
+Модуль не может изменить cardinality, сделать свой `module_id` особым или
 объявить новый slot. Это изменение host contract.
 
 ## Strict Multi-Export Handshake
@@ -174,7 +183,7 @@ Worker не может изменить cardinality, сделать свой `mo
 }
 ```
 
-Worker подтверждает тот же exact set:
+Модуль подтверждает тот же exact set:
 
 ```json
 {
@@ -266,7 +275,7 @@ ID имеет ровно три сегмента: `h:<generation>:<sequence>` д
 `m:<generation>:<sequence>` для module. Числа — канонические десятичные `u64`:
 без знака, пробелов и ведущих нулей, кроме самого `0`.
 
-Rust host и worker используют один
+Rust host и модуль используют один
 `proteus_module_protocol::v3::parse_wire_id`, возвращающий `WireId` с
 `WireDirection`, generation и sequence. Parser сначала проверяет направление
 и число сегментов, затем числовые значения. Так же выбирается диагностика,
@@ -274,12 +283,12 @@ Rust host и worker используют один
 
 Ноль допустим при разборе синтаксиса: initialize использует sequence zero.
 Проверки ожидаемой стороны, текущей generation, допустимости нуля в конкретной
-фазе и связи с активным invocation/lineage остаются у host или worker.
+фазе и связи с активным invocation/lineage остаются у host или модуля.
 Общий parser не принимает решений о routing, authority или lifecycle.
 
 ### Форма JSON-RPC Envelope
 
-Rust host и worker используют один
+Rust host и модуль используют один
 `proteus_module_protocol::v3::parse_component_frame`. Он возвращает
 `ComponentFrame` и принимает только object с `jsonrpc: "2.0"`:
 
@@ -298,7 +307,7 @@ Rust host и worker используют один
 
 Разбор envelope не проверяет грамматику или роль ID, права метода,
 порядок handshake, активность invocation и lifecycle. Эти проверки выполняются
-в соответствующей фазе host или worker после разбора общей формы кадра.
+в соответствующей фазе host или модуль после разбора общей формы кадра.
 
 ## Authority Table
 
@@ -325,7 +334,7 @@ DTO, adapter, protocol/conformance и swap evidence в одном commit.
 независимый от `safety`. Он проходит через tool list, policy, tool exposure,
 canonical model request, workflow/compactor, journal schema v17 и config
 snapshot v6. Rust
-constructor задаёт `false`, worker JSON обязан передать поле явно. Selector
+constructor задаёт `false`, модуль обязан передать поле в JSON явно. Selector
 сохраняет зарегистрированное значение; несовпадение отклоняется. Старые
 версии этих contracts и ToolSpec без поля не принимаются. Wire остаётся v3;
 параллельность вызовов не меняет composition slot-а и его host authority.
@@ -385,7 +394,7 @@ compaction и точного current user message либо typed цепочки 
 через `user_message_replacements` с новыми ids. При ошибке допустим завершённый
 replacement без последующего ответа. Core не создаёт `AgentOutput` для ошибки.
 Отсутствующий `history` означает отсутствие возвращённых данных, а не отсутствие
-side effects. Потеря worker-а, cancel и timeout не восстанавливают его локальное
+side effects. Потеря модуля, cancel и timeout не восстанавливают его локальное
 состояние. Эта граница одинакова для всех workflow exports.
 
 `host.history.checkpoint` принимает `WorkflowHistoryCheckpoint`: cumulative
@@ -405,7 +414,7 @@ Core валидирует update тем же history validator, вплетает
 и подтверждает callback после durable checkpoint. Новое сокращение history
 требует нового changed compaction. Terminal output использует тот же cumulative
 формат: подтверждённый prefix повторно не добавляется. Failure может вернуть
-prefix без уже записанного tool result, потерянного при передаче ответа worker-у;
+prefix без уже записанного tool result, потерянного при передаче ответа модулю;
 такой результат сохраняется. Success не может опускать подтверждённый прогресс.
 
 Последующие root `ToolResultRecorded` для объявленных calls сами завершают
@@ -500,7 +509,7 @@ reference-capabilities   search, provider, policy, patch, compactor,
                          tool exposure, tools
 ```
 
-Один и тот же `proteus-reference-worker` может запускаться несколько раз
+Один и тот же `proteus-reference-module` может запускаться несколько раз
 намеренно: это разные желаемые failure domains, а не transport workaround.
 Exports с callback-связями разрешено объединять; component с одним export
 также полностью валиден.
@@ -517,8 +526,9 @@ Exports с callback-связями разрешено объединять; comp
   после начала обычного async traffic; sync `policy` использует тот же broker
   через callback-free blocking invocation, а не второй runtime.
 
-Runtime доказан hostile Python worker-ом в `tests/broker_v3.rs` и реальным
-reference worker-ом: nested callback входит в другой export того же PID, а
+Runtime проверен Python-модулем с некорректными ответами в
+`tests/broker_v3.rs` и реальным reference-модулем: nested callback входит в
+другой export того же PID, а
 targeted cancel сохраняет sibling и generation. Отдельный topology profile
 `examples/configs/proteus.one-component.example.toml` и test
 `topology_journal.rs` проводят полный process-backed workflow, параллельный
@@ -592,11 +602,11 @@ command-execution authority.
 Поэтому нет ложных ids `none`, `default`, `text` или `all_visible`. Явно
 выбранный неизвестный id — ошибка.
 
-## Reference Worker И Внешние Примеры
+## Reference Module И Внешние Примеры
 
-`modules/reference/process-worker` связывает tracked Rust implementations в
+`modules/reference/process-module` связывает tracked Rust implementations в
 один executable, но initialize создаёт все exports, запрошенные конкретным
-component binding. Reference worker не является standard/default pack и не
+component binding. Reference-модуль не является standard/default pack и не
 получает особых прав.
 
 Python examples доказывают независимость wire от Rust и реализуют
@@ -678,7 +688,7 @@ Descriptor, catalog, quota, capabilities, stream events и terminal DTO откл
   один canonical request; `stream` выбирает streaming или complete режим
   реализации. Если provider поддерживает только SSE, complete собирает один
   SSE request в terminal без промежуточных events (`openai_codex`).
-- До terminal worker последовательно вызывает `host.model.emit` с
+- До terminal модуль последовательно вызывает `host.model.emit` с
   `ProcessModelEvent { sequence, event }` и ждёт `null` ack. Нумерация с нуля,
   без пропусков; `Response` и `Error` через emit запрещены.
 - `TextDelta { message_id, phase, text }` адресует canonical message id;
@@ -736,7 +746,7 @@ model call воспроизводится без разбора текста. Э
 HTTP status и Retry-After в этот минимальный DTO пока не входят.
 
 Canonical события не используют lossy `module.progress`. Host держит очередь
-из одного события: медленный consumer замедляет worker, события не теряются.
+из одного события: медленный consumer замедляет модуль, события не теряются.
 Emit разрешён только model export и только во время `stream`; он не вызывает
 host work и не получает tool/model authority. `max_pending_callbacks_per_root`
 ограничивает одновременно выполняемые callbacks всей root lineage, включая
@@ -751,7 +761,7 @@ Callback ids сохраняются точными объединяемыми
 
 Drop потока отменяет invocation. Отказ от ожидания admission также отменяет
 оставшуюся работу через закрытый terminal receiver. Адресная отмена сохраняет
-siblings; некооперативный worker попадает под общий cancel-grace/reset.
+siblings; некооперативный модуль попадает под общий cancel-grace/reset.
 Reference provider retries и SSE fallback остаются внутри model-pack и не
 добавляются host adapter-ом. Canonical validation, usage/journal и execution
 identity остаются в Core. Набор возможностей для `ModelRef` определяет
@@ -759,11 +769,11 @@ implementation через typed describe; Core не угадывает его п
 
 ## Core-Owned Границы
 
-Tracked reference crates — ordinary Rust libraries, линкуемые внутрь worker.
+Tracked reference crates — ordinary Rust libraries, линкуемые внутрь процессного модуля.
 
 Все behavior implementations, включая model providers, используют process
 exports. Core сохраняет canonical model service, execution binding и journal;
-provider HTTP/SDK implementations находятся в worker.
+provider HTTP/SDK implementations находятся в процессном модуле.
 Для subagents действует другой process contract: полный Proteus соединяется с
 другим полным Proteus через root-owned `AgentControl`, а не становится
 Component Runtime export-ом. Это не скрытый extension mechanism и не основание
@@ -771,7 +781,7 @@ Component Runtime export-ом. Это не скрытый extension mechanism и
 
 ## Evidence Gates
 
-Protocol tests, runtime swap и real-worker conformance перечислены в
+Protocol tests, runtime swap и conformance реального модуля перечислены в
 [каталоге проверок](../development/testing.md#process-и-modules).
 Выбор focused или полного workspace gate определяется затронутой границей
 по [матрице изменений](../development/testing.md#evidence-matrix).

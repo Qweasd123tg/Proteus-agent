@@ -27,7 +27,7 @@ tool_exposure = "codex_dynamic"
 # Один component экспортирует workflow, tools и две независимые hook contributions.
 # Их authority задаётся активным slot; hooks включены только в этом примере.
 [components.reference-agent]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 
 [components.reference-agent.exports.workflow."coding.codex_loop"]
 

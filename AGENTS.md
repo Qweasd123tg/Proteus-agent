@@ -11,7 +11,7 @@
 контекста; они нужны только по явному запросу истории конкретного решения.
 
 Текущий сценарий — локальная работа владельца с собственными доверенными
-модулями. Sandbox и hardening для недоверенных сторонних workers не являются
+модулями. Sandbox и hardening для недоверенных сторонних модулей не являются
 целью или блокером этого этапа. Не возвращайте их в обзор рисков, roadmap или
 ответ «что дальше» без отдельного запроса владельца на эту тему. Это решение
 о приоритетах, а не поручение отключать существующие policy/approval contracts.
@@ -39,8 +39,9 @@ Component Runtime v2 с wire protocol v3, описанный в
 удалены; возвращать второй native extension path или compatibility reader
 нельзя.
 
-Один configured component может экспортировать несколько `slot/module_id` и
-даёт им общий process lifecycle/failure domain. Authority всё равно
+Один процессный модуль может предоставлять несколько exports `slot/module_id`.
+`component` — техническая запись его запуска в текущем config/runtime; все её
+exports делят process lifecycle/failure domain. Authority всё равно
 вычисляется по активному export, а не объединяется на component. Multiplexed
 broker допускает concurrent invocation и host-routed reentrancy между exports
 одного component; direct cross-export dispatch и union authority запрещены.
@@ -60,7 +61,7 @@ typed chain surface с одинаковой authority всех участник�
 
 Process boundary сам по себе не sandbox. Пока нет uniform launch policy,
 таблица slot authority доказывает равенство protocol-visible `host.*` прав, но
-workers остаются доверенными executable с OS-правами пользователя. Полный
+модули остаются доверенными executable с OS-правами пользователя. Полный
 инвариант включает одинаковый класс filesystem/network/env/process/resource
 ограничений, когда такая sandbox surface появится.
 
@@ -102,7 +103,7 @@ rendering, UI state, tests и provider/module-specific детали.
 - `crates/proteus-contracts` — публичные traits, DTO и canonical model;
   `proteus-core` — runtime, wiring, process adapters и app-server;
   `proteus-module-protocol` — component-v3 broker и conformance;
-  `proteus-process-host` — lifecycle stdio workers.
+  `proteus-process-host` — lifecycle stdio процессных модулей.
 - `clients/web`, `clients/inspector`, `clients/desktop` — Leptos-клиенты и
   Tauri-оболочка.
 - `modules/reference` — reference implementations; каталог slots и exports
@@ -110,10 +111,10 @@ rendering, UI state, tests и provider/module-specific детали.
   вне production path.
 - `configs` — поставляемые profiles и prompts, источник для `install.sh`.
 - `examples/configs`, `examples/modules`, `examples/mcp` — примеры config,
-  внешних components и локального MCP server.
+  внешних модулей и локального MCP server.
 
-Reference crates линкуются только внутрь `proteus-reference-worker` и не
-являются отдельным runtime ABI. Installer публикует `proteus` и этот worker в
+Reference crates линкуются только внутрь `proteus-reference-module` и не
+являются отдельным runtime ABI. Installer публикует `proteus` и этот модуль в
 одном release, но любой внешний executable с тем же process contract имеет
 ровно тот же статус. Reference каталог не является standard/default pack.
 
@@ -178,8 +179,8 @@ Reference crates линкуются только внутрь `proteus-reference
 1. Найти подходящий trait в `crates/proteus-contracts/src/contracts`.
 2. Проверить, имеет ли slot component export contract из
    `docs/architecture/process-module-architecture.md`.
-3. Если да — реализовать внешний worker, не зависящий от `proteus-core`, и
-   пройти conformance gate этого slot.
+3. Если да — реализовать внешний процессный модуль, не зависящий от
+   `proteus-core`, и пройти conformance gate этого slot.
 4. Если нет — сначала реализовать общий process adapter для всего slot. Не
    добавлять временный native/builtin путь для одной implementation.
 5. Добавить explicit component export и config/profile selection; reference implementation при
@@ -276,8 +277,8 @@ implementation. Сначала расширяйте существующий bou
 
 Объём проверки выбирайте по изменению, согласно `docs/development/testing.md`.
 Используйте `scripts/test.py` с явным package/target/filter, либо `full`
-для полного Rust gate. Core fixtures требуют свежий worker path, который
-готовит runner; не запускайте вложенные Cargo builds из tests.
+для полного Rust gate. Core fixtures требуют свежий путь к reference-модулю,
+который готовит runner; не запускайте вложенные Cargo builds из tests.
 Для документации достаточно проверить содержание, ссылки и `git diff --check`.
 Для prompts/config добавляйте проверку загрузки затронутого профиля. Локальная
 правка требует затронутого test target; полный workspace — общих contracts,

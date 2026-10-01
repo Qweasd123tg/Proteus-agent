@@ -40,7 +40,7 @@ Secret-файлы не синхронизируются через git и дол
 отдельно.
 
 `install.sh` хранит пару executable `proteus` +
-`proteus-reference-worker` под `~/.proteus/releases/<snapshot-id>/` и атомарно
+`proteus-reference-module` под `~/.proteus/releases/<snapshot-id>/` и атомарно
 переключает symlink `~/.proteus/current`. Wrapper добавляет этот каталог в
 `PATH`, поэтому packaged components находят worker. Native module
 каталога и dylib artifacts в build snapshot нет.

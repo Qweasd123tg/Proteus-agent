@@ -28,7 +28,7 @@ members = [
     "modules/reference/codex-tool-exposure",
     "modules/reference/memory-pack",
     "modules/reference/policy-pack",
-    "modules/reference/process-worker",
+    "modules/reference/process-module",
     "modules/reference/hook-pack",
     "modules/reference/model-pack",
 ]

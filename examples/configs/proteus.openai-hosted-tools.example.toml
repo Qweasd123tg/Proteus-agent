@@ -18,7 +18,7 @@ api_key_env = "OPENAI_API_KEY"
 base_url = "https://api.openai.com/v1"
 
 [components.reference-openai-model]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 env_allowlist = ["HOME", "OPENAI_API_KEY"]
 
 [components.reference-openai-model.exports.model.openai]

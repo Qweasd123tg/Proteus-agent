@@ -60,7 +60,7 @@ consumer, но сам по себе не вводит новый public contract
 ожидаемый input, а consumer сохраняет нужное поведение в собранном profile.
 Успешный handshake и совпадение констант сами по себе этого не доказывают.
 
-`cargo test -p proteus-reference-worker --test compactor_interop` запускает
+`cargo test -p proteus-reference-module --test compactor_interop` запускает
 Rust и Python compactor через один process slot: переименование или отсутствие
 имени request context не меняет retention, а пользовательское имя `context`
 не превращает сообщение в служебное. Тот же тест проверяет typed отчёт обеих

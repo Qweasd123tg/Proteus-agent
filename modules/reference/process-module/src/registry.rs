@@ -81,7 +81,7 @@ impl CollectedModules {
                 | "coding.plan_execute_review"
                 | "coding.project_check",
             ) => coding_workflow::register_modules,
-            _ => bail!("reference worker has no {slot} module {module_id:?}"),
+            _ => bail!("reference module has no {slot} module {module_id:?}"),
         };
 
         register(&mut modules).map_err(anyhow::Error::new)?;

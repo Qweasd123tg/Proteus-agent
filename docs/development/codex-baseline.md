@@ -29,8 +29,8 @@ Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 Proteus на upstream-shaped response. Они не запускают два полных runtimes
 и не являются полным differential harness.
 
-Сквозной [test](../../modules/reference/process-worker/tests/codex_model_resume.rs)
-запускает `coding.codex_loop` в process worker с локальным Responses server
+Сквозной [test](../../modules/reference/process-module/tests/codex_model_resume.rs)
+запускает `coding.codex_loop` в процессный модуль с локальным Responses server
 (JSON и SSE), выполняет `read_file`, завершает первый runtime process и
 продолжает session в новом. Проверяется фактический следующий HTTP request:
 порядок items, multipart text в одном message, phase, encrypted reasoning,
@@ -56,7 +56,7 @@ Upstream anchors того же baseline: `core/src/session/turn.rs` формир
 загрузка schemas и полное совпадение каталога этим срезом не подтверждаются.
 
 Сквозная проверка в
-[codex_model_resume](../../modules/reference/process-worker/tests/codex_model_resume.rs)
+[codex_model_resume](../../modules/reference/process-module/tests/codex_model_resume.rs)
 использует tracked профиль и локальный HTTP server: проверяет фактические
 requests, прямое исполнение ранее скрытого tool, journal, cold history
 и workflow replay. Policy и approval остаются общей границей исполнения.
@@ -76,12 +76,12 @@ Codex-family profiles используют reference export `patch/codex` чер
 и сохранение эффекта при поздней ошибке применения. Перенесённые streaming
 parser fixtures проверяют тот же синтаксис при разбиении входа на дельты.
 
-[Process substitution](../../modules/reference/process-worker/tests/patch_transaction.rs)
+[Process substitution](../../modules/reference/process-module/tests/patch_transaction.rs)
 меняет `direct` на `codex` в том же slot: common patch проходит оба exports,
 context/EOF semantics выбирается реализацией, module error не разрушает broker.
-[Conformance](../../modules/reference/process-worker/tests/conformance.rs)
+[Conformance](../../modules/reference/process-module/tests/conformance.rs)
 проверяет handshake и canonical DTO обоих exports. Существующий
-[workflow fixture](../../modules/reference/process-worker/tests/codex_model_resume/patch_interception.rs)
+[workflow fixture](../../modules/reference/process-module/tests/codex_model_resume/patch_interception.rs)
 использует tracked Codex profile: function patch и shell interception проходят
 policy, approval, journal, cold history и replay с выбранным `codex` export.
 Перехваченные `shell`/`exec_command` сохраняют `workdir`: одноимённый файл в
@@ -103,7 +103,7 @@ baseline: `model-provider-info/src/lib.rs::request_max_retries` и
 на этом уровне не повторяются. Backoff начинается с 200 мс, удваивается
 и получает jitter 0,9–1,1; настройка `request_max_retries` ограничена 100.
 
-[HTTP/process regression](../../modules/reference/process-worker/tests/codex_model_resume/request_retry.rs)
+[HTTP/process regression](../../modules/reference/process-module/tests/codex_model_resume/request_retry.rs)
 проводит `shell append → HTTP 500 → HTTP 200` для JSON и SSE. Ход завершается
 без нового сообщения пользователя, запрос при retry не меняется, эффект tool
 происходит ровно один раз. Journal содержит один model exchange на логический
@@ -132,7 +132,7 @@ EOF до terminal event. Бюджет — пять повторов после �
 Типизированный `Retryable` покрывает transient `response.failed` и HTTP 500
 после исчерпания внутренних HTTP retries. Advice из pinned SSE rate-limit
 message заменяет backoff обычного sampling loop; quota и permanent errors
-терминальны. [Retry regression](../../modules/reference/process-worker/tests/codex_model_resume/request_retry.rs)
+терминальны. [Retry regression](../../modules/reference/process-module/tests/codex_model_resume/request_retry.rs)
 проверяет эти ветки, journal, cold history и replay.
 
 SSE dispatcher использует исключительно JSON `data.type`: отсутствие SSE
@@ -148,7 +148,7 @@ Upstream anchors закреплённого `67cc3c3`:
 Каждая попытка — отдельный canonical model exchange, в отличие от HTTP retry
 внутри adapter-а. Core не содержит специального алгоритма повторов.
 
-[Process regression](../../modules/reference/process-worker/tests/codex_model_resume/stream_recovery.rs)
+[Process regression](../../modules/reference/process-module/tests/codex_model_resume/stream_recovery.rs)
 проверяет `completed shell call → обрыв SSE → исполнение shell → retry →
 completed assistant item → обрыв SSE → итоговый ответ`
 без нового пользовательского turn: эффект один, незавершённые дельты отсутствуют
@@ -156,11 +156,11 @@ completed assistant item → обрыв SSE → итоговый ответ`
 не обращается к живой модели и не повторяет эффект. До call сохраняется encrypted
 reasoning; повтор того же completed item не дублирует эффект, а полные аргументы
 без `output_item.done` не становятся выполненным call. Отдельный
-[terminal case](../../modules/reference/process-worker/tests/codex_model_resume/stream_recovery/tool_progress.rs)
+[terminal case](../../modules/reference/process-module/tests/codex_model_resume/stream_recovery/tool_progress.rs)
 проверяет исполнение completed call при `stream_max_retries = 0`: исходный model
 Error и call/result остаются в journal, cold history и matched Error replay.
 Другой process case проверяет clean EOF до исчерпания бюджета и matched Error replay;
-[Cancel case](../../modules/reference/process-worker/tests/codex_model_resume/stream_recovery/cancellation.rs)
+[Cancel case](../../modules/reference/process-module/tests/codex_model_resume/stream_recovery/cancellation.rs)
 — отмену после сохранённого результата tool из ошибочного sample, отсутствие
 следующего HTTP-запроса и cold history. Module regression проверяет сброс бюджета
 после успешного sampling request и отсутствие retry для остальных typed causes. Общий model
@@ -170,7 +170,7 @@ Upstream `stream_events_utils.rs::handle_output_item_done` сохраняет co
 call и ставит tool в исполнение; `session/turn.rs::try_run_sampling_request`
 вызывает `drain_in_flight` после выхода из stream loop, в том числе по ошибке.
 Proteus через `host.model.stream.start/next` запускает completed call до terminal
-и сохраняет result до retry либо Error. [Early-execution regression](../../modules/reference/process-worker/tests/codex_model_resume/stream_recovery/early_execution.rs)
+и сохраняет result до retry либо Error. [Early-execution regression](../../modules/reference/process-module/tests/codex_model_resume/stream_recovery/early_execution.rs)
 не завершает SSE до эффекта tool, затем отправляет поздний commentary item и
 проверяет порядок model items/result, cold history и matched replay. Вторая
 ветка обрывает stream после эффекта: retry не исполняет call повторно. Cancel
@@ -181,7 +181,7 @@ workflow-модуля, пока чтение stream продолжается. Ga
 `ToolCallRuntime` из закреплённого `core/src/tools/parallel.rs`; drain собирает
 все outcomes в порядке calls, как `session/turn.rs::drain_in_flight`, в том числе
 при обрыве SSE. Batch из одного item использует общий `execute_batch`.
-[Process regression](../../modules/reference/process-worker/tests/codex_model_resume/stream_recovery/parallel_execution.rs)
+[Process regression](../../modules/reference/process-module/tests/codex_model_resume/stream_recovery/parallel_execution.rs)
 удерживает SSE открытым, доказывает перекрытие двух командных tools, обратное завершение
 и последовательные write/ReadOnly участки перед следующим parallel call. Проверяются approval allow/deny,
 retry после обрыва при работающих calls, отсутствие повторного эффекта, cold
@@ -222,8 +222,8 @@ non-stream fallback из-за idle timeout не запускаются. Общи
 [Adapter regression](../../modules/reference/model-pack/src/adapters/openai/sse_idle_tests.rs)
 проверяет config и границу parsed event с виртуальным временем.
 Существующие process fixtures
-[early_execution](../../modules/reference/process-worker/tests/codex_model_resume/stream_recovery/early_execution.rs)
-и [tool_progress](../../modules/reference/process-worker/tests/codex_model_resume/stream_recovery/tool_progress.rs)
+[early_execution](../../modules/reference/process-module/tests/codex_model_resume/stream_recovery/early_execution.rs)
+и [tool_progress](../../modules/reference/process-module/tests/codex_model_resume/stream_recovery/tool_progress.rs)
 держат соединение открытым после completed call и ждут закрытия клиентом:
 проверяются успешный retry, terminal Error при отключённых повторах и
 неповторяемый model deadline раньше idle. Во всех случаях tool effect один,
@@ -236,7 +236,7 @@ cold history сохраняет результат, journal и workflow replay �
 checkpoint объявляет целевой `execution_call`, Core проводит его через общий
 registry/policy/safety path. Host не содержит перехвата по именам tools.
 
-[Process regression](../../modules/reference/process-worker/tests/codex_model_resume/patch_interception.rs)
+[Process regression](../../modules/reference/process-module/tests/codex_model_resume/patch_interception.rs)
 проверяет оба shell tools и прямой `apply_patch`: изменение файла, исходный call
 в history, целевой call в journal, cold history и matched replay без повторного
 эффекта. Проверяются также approval и запрет целевого patch, в том числе когда
@@ -276,7 +276,7 @@ Codex при этом обновляет context accounting: [preflight след
 ответ без usage сохраняет его. После смены модели compactor применяет текущие
 лимиты к сохранённой оценке. Синтетические токены не попадают в usage/cost.
 
-[Process regression](../../modules/reference/process-worker/tests/codex_model_resume/context_overflow.rs)
+[Process regression](../../modules/reference/process-module/tests/codex_model_resume/context_overflow.rs)
 проверяет `write_file → overflow → Error → новый turn → summary → Success`:
 ровно четыре HTTP-запроса, единственное исполнение tool, реальный usage,
 продолжение с session store и без него, отдельный cold process, journal/replay
@@ -287,7 +287,7 @@ gate Codex. Текущий оценщик Proteus использует макс�
 overflow hint; полная upstream-семантика оценки reasoning/items, model
 `comp_hash` и финального overflow внутри summary этим сценарием не покрывается.
 
-[SSE regression](../../modules/reference/process-worker/tests/codex_model_resume/partial_sse_recovery.rs)
+[SSE regression](../../modules/reference/process-module/tests/codex_model_resume/partial_sse_recovery.rs)
 проверяет завершённые assistant message items, за которыми следует обрыв до
 `response.completed`. Model failure несёт их в `completed_messages`; Codex
 workflow выбирает этот progress для history. Исходные ids и phases сохраняются
@@ -299,7 +299,7 @@ workflow выбирает этот progress для history. Исходные ids
 не восстанавливаются. Раннее исполнение calls и повтор SSE
 проверяется отдельным сценарием выше.
 
-[HTTP/process regression](../../modules/reference/process-worker/tests/codex_model_resume/model_failure_recovery.rs)
+[HTTP/process regression](../../modules/reference/process-module/tests/codex_model_resume/model_failure_recovery.rs)
 проводит `write_file → пять HTTP 500 → новый turn`: проверяет исчерпание
 четырёх HTTP-повторов с неизменным request, единственное
 исполнение tool, call/result в фактическом следующем request, journal, history
@@ -317,7 +317,7 @@ Upstream anchors того же baseline: запись перед постано�
 prompt-only `aborted` для отсутствующего function/custom output в
 `core/src/context_manager/normalize.rs` и `history.rs::for_prompt_annotated`.
 
-[Crash regression](../../modules/reference/process-worker/tests/codex_model_resume/crash_recovery.rs)
+[Crash regression](../../modules/reference/process-module/tests/codex_model_resume/crash_recovery.rs)
 завершает настоящий runtime process через kill для function и freeform custom
 calls в двух контролируемых точках:
 после записи трёх файлов, до tool result; после `ToolResultRecorded`, до возврата
@@ -337,7 +337,7 @@ function/custom-call нормализацию следующего запрос�
 
 ### Cancel, Timeout И Ошибка Batch
 
-[Interruption regression](../../modules/reference/process-worker/tests/codex_model_resume/interruption_recovery.rs)
+[Interruption regression](../../modules/reference/process-module/tests/codex_model_resume/interruption_recovery.rs)
 проводит один batch из двух function calls через три способа прерывания.
 Первый tool делает неидемпотентный append. Cancel и workflow timeout наступают
 после durable `ToolResultRecorded`, до подтверждения результата workflow;
@@ -372,7 +372,7 @@ output ограничено 50 мс.
 
 [Unit fixtures](../../modules/reference/shell-tool/src/unified_exec/tests/pipe_exec.rs)
 проверяют эти ветки настоящими процессами, включая большой вывод и отмену
-группы команды. [Process fixtures](../../modules/reference/process-worker/tests/codex_model_resume/terminal.rs)
+группы команды. [Process fixtures](../../modules/reference/process-module/tests/codex_model_resume/terminal.rs)
 проводят model-issued запуск, input/poll и exit через component-v3, следующие
 HTTP requests, journal, cold history и matched workflow replay с закрытым
 provider и удалённым файлом-эффектом. Poll действительно длится больше 30 секунд:
@@ -405,7 +405,7 @@ Codex. Настройка принадлежит compactor и задаётся �
 HTTP provider. Это поведение самого компонента;
 recovery после ошибки обычного workflow model call сюда не входит.
 
-[HTTP/process regression](../../modules/reference/process-worker/tests/codex_compaction.rs)
+[HTTP/process regression](../../modules/reference/process-module/tests/codex_compaction.rs)
 проверяет фактические запросы, короткий retry после HTTP 400
 `context_length_exceeded`, единственное исполнение tool и cold history. Workflow
 replay сценария `tool → summary → обычный model response → Success` использует
@@ -416,14 +416,14 @@ window и после HTTP 500: listener провайдера уже закрыт
 воспроизводятся два прямых model exchanges и один tool outcome.
 Внутренние summary exchanges сохраняются в журнале с origin `compactor`.
 Это проверка orchestration по готовому compaction report, а не повторное исполнение
-алгоритма compactor. [Recovery regression](../../modules/reference/process-worker/tests/codex_compaction/recovery.rs)
+алгоритма compactor. [Recovery regression](../../modules/reference/process-module/tests/codex_compaction/recovery.rs)
 проверяет исчерпание summary retries, переполнение минимального prompt и отмену:
 выполненный tool остаётся в journal и cold history, новый summary не появляется,
 root получает `Error` или `Canceled`. Replay ошибки compactor без changed
 checkpoint явно отклоняется. Полный compaction lifecycle, remote branches и
 replay внутренних типизированных веток ошибки compactor пока не подтверждены.
 
-Проверки [совместимости compactor](../../modules/reference/process-worker/tests/codex_compaction/compatibility.rs)
+Проверки [совместимости compactor](../../modules/reference/process-module/tests/codex_compaction/compatibility.rs)
 проводят summary дольше 30 секунд при достаточном общем бюджете workflow и
 pre-turn compaction после успешного ответа с большим provider usage.
 Последний usage предыдущего хода учитывается и в памяти, и после cold resume.
@@ -452,12 +452,12 @@ pre-turn compaction после успешного ответа с большим
 cargo test -p proteus-contracts canonical_response
 cargo test -p model-pack codex_parity_preserves_ordered_commentary_and_final_messages
 cargo test -p model-pack --lib adapters::openai::round_trip_tests
-cargo test -p proteus-reference-worker --test codex_model_resume
+cargo test -p proteus-reference-module --test codex_model_resume
 cargo test -p coding-workflow codex_loop_preserves_commentary_and_uses_the_last_message_as_final_output
 cargo test -p codex-compactor
 cargo test -p context-pack
-cargo test -p proteus-reference-worker --test codex_compaction --test compactor_interop
-cargo test -p proteus-reference-worker --test conformance
+cargo test -p proteus-reference-module --test codex_compaction --test compactor_interop
+cargo test -p proteus-reference-module --test conformance
 ./scripts/test.py -p proteus-core --test module_swap
 ```
 

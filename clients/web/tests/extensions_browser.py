@@ -2,7 +2,7 @@
 """Real Firefox + built Leptos + isolated subscription app-server + loopback provider. No live account.
 
 Requires Firefox and geckodriver (PATH or GECKODRIVER). Only stdlib Python.
-Run after trunk build and cargo build -p proteus-core -p proteus-reference-worker.
+Run after trunk build and cargo build -p proteus-core -p proteus-reference-module.
 """
 import base64
 from markdown_checks import run as check_markdown, FIXTURE as MARKDOWN_FIXTURE
@@ -261,7 +261,7 @@ name = "extensions-smoke"
 provider = "custom-model"
 model = "fixture-model"
 [components.model]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 [components.model.exports.model.custom-model]
 [components.model.exports.workflow."coding.single_loop"]
 [components.model.exports.tool."reference.tools"]

@@ -12,7 +12,7 @@ Core -> Contract -> Module Implementation
 
 `proteus-core` знает, когда вызвать search, policy или workflow, но не знает
 алгоритм конкретной реализации. DTO и traits принадлежат
-`proteus-contracts`; внешняя implementation говорит с host через component
+`proteus-contracts`; внешний модуль говорит с host через component
 wire protocol v3. Действующие slot versions приведены в authority table
 [process-module-architecture.md](process-module-architecture.md).
 
@@ -23,7 +23,7 @@ authority(module) = authority(slot, invocation_context)
 ```
 
 Host выбирает разрешённые module methods, callbacks, config, cancellation и
-failure semantics по `slot/contract_version`. `module_id`, язык worker-а и
+failure semantics по `slot/contract_version`. `module_id`, язык модуля и
 нахождение исходников не дают дополнительных прав.
 
 ## Слои
@@ -86,7 +86,7 @@ external component processes
   tools самостоятельно. Внутренний app-server JSONL и Component wire v3 не
   становятся ACP; [поддержанная граница](../guides/runtime-and-events.md#acp-для-редакторов).
 - `AssemblyPlan` один раз разворачивает config в точные slot selections,
-  components, export authority и preflight checks; workers при этом не
+  components, export authority и preflight checks; процессные модули при этом не
   запускаются.
 - `AgentRuntime` владеет session/turn lifecycle, history commit, steering и
   private admission одного immutable `ExecutionAdmissionSnapshot`; он атомарно
@@ -101,7 +101,8 @@ external component processes
 - `Workflow` владеет конкретным agent algorithm/control flow. Core не содержит
   встроенный обязательный model -> tool -> model loop.
 - Process adapters переводят canonical Rust contract в strict JSON-RPC DTO.
-- Worker не зависит от `proteus-core` и может быть написан на любом языке.
+- Процессный модуль не зависит от `proteus-core` и может быть написан на любом
+  языке.
 
 Native extension ABI отсутствует: нет dylib loader, `plugin.toml`,
 `abi_stable` или второго пути регистрации.
@@ -110,27 +111,28 @@ Native extension ABI отсутствует: нет dylib loader, `plugin.toml`,
 
 ```text
 crates/
-  proteus-contracts/       canonical DTO, traits, process worker helper API
+  proteus-contracts/       canonical DTO, traits, process module helper API
   proteus-module-protocol/ handshake, authority table, JSON-RPC session
   proteus-process-host/    bounded duplex stdio + lifecycle без знания slots
   proteus-core/            runtime, wiring, adapters, CLI, app-server
 modules/
-  reference/               test/dogfood implementations + process worker
+  reference/               test/dogfood implementations + process module
   research/                нестабилизированные experiments
 clients/
   web/                     chat
   inspector/               config и topology
   desktop/                 Tauri-окна, process supervisor и упаковка клиентов
 configs/                   packaged profiles
-examples/                  configs, external workers, MCP smoke
+examples/                  configs, external modules, MCP smoke
 ```
 
 `modules/reference` — source organization, а не runtime trust tier.
-`proteus-reference-worker` линкует эти Rust crates в один executable для
-удобства dogfood. На host boundary он ничем не отличается от Python worker-а.
+`proteus-reference-module` линкует эти Rust crates в один executable для
+удобства dogfood. На host boundary он ничем не отличается от модуля на Python.
 
-Desktop-оболочка поставляет согласованную пару `proteus`/worker и статические
-Leptos-клиенты, но не линкует Core. Она владеет только окнами, выбором проекта,
+Desktop-оболочка поставляет согласованную пару `proteus`/
+`proteus-reference-module` и статические Leptos-клиенты, но не линкует Core.
+Она владеет только окнами, выбором проекта,
 готовностью и завершением дочернего app-server. HTTP/SSE, session store,
 approvals и process-module authority остаются за существующими границами.
 Запуск и сборка: [desktop.md](../guides/desktop.md).
@@ -327,7 +329,7 @@ git_status
 ```
 
 Все команды всё равно возвращаются в host через `host.tools.execute` и проходят
-`ToolRegistry -> policy -> approval -> safety`; worker не запускает shell
+`ToolRegistry -> policy -> approval -> safety`; модуль не запускает shell
 самостоятельно. Success path не вызывает context, compactor, tool exposure или
 model и не читает history. Runnable profile:
 `examples/configs/proteus.project-check.example.toml`.
@@ -482,29 +484,28 @@ Scope/grants/recorders раздельны; SessionStore сериализует a
 Exports одного component сохраняют shared process failure domain.
 Адресный cancel одной execution не отменяет sibling или Turn.
 
-## Capability, Slot, Module, Worker И Profile
+## Capability, Slot, Module И Profile
 
 - **Capability** — требуемая семантическая возможность, например workspace
   search или model inference; это vocabulary, а не универсальный runtime enum.
 - **Slot** — host-defined typed selection/assembly point для capability:
   contract, cardinality, invocation и authority rules, например `search`.
-- **Module** — реализация slot с конкретным `module_id`.
-- **Component** — один configured executable, persistent process и shared
-  lifecycle/failure domain.
-- **Export** — точная пара `slot/module_id`, опубликованная component.
-- **Worker** — executable, который подтверждает exact set exports во время
-  handshake. Один binary может обслуживать разные component bindings.
+- **Module** — отдельная запускаемая программа со своей реализацией. Она
+  может предоставить один или несколько slots через exports.
+- **Component** — техническая запись запуска модуля в config/runtime:
+  executable, persistent process и общий lifecycle/failure domain.
+- **Export** — точная пара `slot/module_id`, опубликованная модулем.
 - **Profile** — config, который выбирает modules, provider, tools и policy.
-- **Reference module** — tracked тестовая/dogfood implementation без особых
-  прав.
+- **Reference module** — поставляемый тестовый/dogfood модуль без особых прав.
 
 Слово «plugin» допустимо как пользовательское название внешнего расширения, но
 не обозначает отдельный runtime origin или API.
 
 Иными словами, capability отвечает «что требуется», slot — «где и по каким
-host rules выбирается реализация», module/component — «кто это реализует и как
-запускается». Slot остаётся assembly mechanism и не становится identity или
-runtime primitive одного execution.
+host rules выбирается реализация», module — «кто это реализует и как
+запускается». Поле `components` описывает запуск модуля. Slot остаётся
+assembly mechanism и не становится identity или runtime primitive одного
+execution.
 
 ## Composition
 
@@ -520,7 +521,7 @@ composition(contract) = select_one | ordered_many
 `modules.hooks` задаёт явный порядок execution contributions; Core владеет
 точками вызова и validation, а handlers проходят тот же process boundary.
 
-Worker не может объявить новый composition mode или произвольный hook.
+Модуль не может объявить новый composition mode или произвольный hook.
 Добавление нового slot проходит [slot-governance.md](slot-governance.md).
 
 ## Config И Catalog
@@ -530,7 +531,7 @@ Worker не может объявить новый composition mode или пр�
 search = "rg"
 
 [components.reference-capabilities]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 
 [components.reference-capabilities.exports.search.rg]
 
@@ -582,7 +583,7 @@ handshake timeout и per-export invocation timeouts. После spawn host от�
 - для каждого export: slot, module id, contract version, composition, module
   config и host features.
 
-Worker обязан вернуть manifest с тем же exact export set. Каждый module call
+Модуль обязан вернуть manifest с тем же exact export set. Каждый module call
 несёт target export; дальнейшие module и `host.*` methods проверяются общей
 authority table именно активного target. Все exports делят один multiplexed
 broker, reset и lazy restart. Несколько invocation могут быть активны
@@ -600,7 +601,7 @@ Production conformance и topology/journal suites проверяют один co
 concurrent sibling, targeted cancel и canonical workflow replay.
 Подробнее: [process-module-architecture.md](process-module-architecture.md).
 
-Process boundary даёт lifecycle isolation, но пока не OS sandbox. Worker
+Process boundary даёт lifecycle isolation, но пока не OS sandbox. Модуль
 остаётся доверенным executable с правами текущего пользователя. Config
 очищает environment и копирует только `PATH` плюс явный `env_allowlist` /
 `env`, однако filesystem/network/process права не ограничены отдельной
@@ -611,7 +612,7 @@ sandbox policy.
 Core владеет provider-neutral `ModelService` и execution-bound `BoundModel`:
 canonical shaping/validation, deadline, attribution и journal. Provider
 HTTP adapters и secrets находятся в `modules/reference/model-pack`; runtime
-вызывает их через тот же `model/v11` contract, что и внешний worker.
+вызывает их через тот же `model/v11` contract, что и внешний модуль.
 `describe({ model: ModelRef })` возвращает capabilities и hosted tools конкретной
 модели. Host кэширует описание по `(provider, model)` в пределах snapshot и
 проверяет стабильность adapter id. Execution binding собирает hosted tools
@@ -671,7 +672,7 @@ cargo fmt --all --check
 git diff --check
 ```
 
-Full уже включает `module_swap` и worker conformance; отдельно после него их
+Full уже включает `module_swap` и conformance процессного модуля; отдельно после него их
 не запускают. Для локального adapter выбирайте соответствующие targets по
 [матрице изменений](../development/testing.md#evidence-matrix).
 

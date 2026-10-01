@@ -1,8 +1,8 @@
-//! Rust helper API used by the bundled process-module worker.
+//! Rust helper API used by the bundled reference process module.
 //!
 //! This is not an in-process extension ABI. Implementations linked into one
 //! executable use ordinary Rust trait objects; the only host boundary is the
-//! versioned process protocol from [`crate::contracts`]. Out-of-tree workers
+//! versioned process protocol from [`crate::contracts`]. Out-of-tree modules
 //! may implement that JSON protocol directly in any language and do not need
 //! this helper module.
 

@@ -146,7 +146,7 @@ pub(super) async fn fixture_config(endpoint: &str) -> AppConfig {
 
     for component in config.components.values_mut() {
         let mut value = serde_json::to_value(&*component).expect("component config value");
-        value["command"] = json!(env!("CARGO_BIN_EXE_proteus-reference-worker"));
+        value["command"] = json!(env!("CARGO_BIN_EXE_proteus-reference-module"));
         *component = serde_json::from_value::<ProcessComponentConfig>(value)
             .expect("fixture worker command");
     }

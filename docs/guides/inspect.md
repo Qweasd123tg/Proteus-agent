@@ -95,7 +95,7 @@ Tool node показывает:
 - source;
 - registered/enabled state.
 
-Process tools имеют source `dynamic/process-module`. То, что worker вернул
+Process tools имеют source `dynamic/process-module`. То, что модуль вернул
 tool из `list`, ещё не делает его enabled: model-visible surface определяется
 `tools.enabled`, policy и tool exposure.
 

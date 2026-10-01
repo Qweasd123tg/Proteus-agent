@@ -1965,7 +1965,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "proteus-reference-worker"
+name = "proteus-reference-module"
 version = "0.0.0-dev"
 dependencies = [
  "anyhow",

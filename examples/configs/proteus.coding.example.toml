@@ -17,17 +17,17 @@ patch = "direct"
 compactor = "codex"
 
 [components.reference-workflow]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 
 [components.reference-workflow.exports.workflow."coding.single_loop"]
 
 [components.reference-context]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 
 [components.reference-context.exports.context.repo_aware]
 
 [components.reference-capabilities]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 
 [components.reference-capabilities.exports.search.rg]
 

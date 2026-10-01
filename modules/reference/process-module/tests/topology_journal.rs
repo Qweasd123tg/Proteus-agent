@@ -36,7 +36,7 @@ fn workspace_file(path: &str) -> PathBuf {
 }
 
 fn worker_binary() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_proteus-reference-worker"))
+    PathBuf::from(env!("CARGO_BIN_EXE_proteus-reference-module"))
 }
 
 fn install_pid_recording_command(config: &mut AppConfig, marker: &Path) {

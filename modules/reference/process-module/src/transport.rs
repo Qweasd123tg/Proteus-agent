@@ -47,14 +47,14 @@ type CallbackResult = Result<Value, ProcessModuleRpcError>;
 /// Shared output and callback routing. stdin is intentionally absent: only the
 /// dispatch loop owns the reader, while invocation threads wait on their own
 /// callback channels.
-pub struct WorkerTransport {
+pub struct ModuleTransport {
     generation: u64,
     writer: Mutex<BufWriter<std::io::Stdout>>,
     callbacks: Mutex<HashMap<String, mpsc::SyncSender<CallbackResult>>>,
     next_callback_sequence: AtomicU64,
 }
 
-impl WorkerTransport {
+impl ModuleTransport {
     pub fn new(generation: u64) -> Self {
         Self {
             generation,

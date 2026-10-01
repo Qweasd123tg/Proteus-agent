@@ -64,21 +64,21 @@ proteus init coding
 proteus doctor
 ```
 
-`install.sh` собирает `proteus` и `proteus-reference-worker`, размещает их
+`install.sh` собирает `proteus` и `proteus-reference-module`, размещает их
 одним локальным build snapshot под `~/.proteus/current` и атомарно переключает
 `current`. Wrapper добавляет snapshot directory в `PATH`, поэтому components с
-`command = "proteus-reference-worker"` работают без абсолютного
+`command = "proteus-reference-module"` работают без абсолютного
 пути. Альтернативные каталоги задаются через `PROTEUS_BIN_DIR`,
 `PROTEUS_HOME` и `PROTEUS_CONFIG_HOME`.
 
 Для подключения подписки ChatGPT через OAuth, как в OpenCode:
 
 ```bash
-proteus-reference-worker auth openai_codex login
+proteus-reference-module auth openai_codex login
 proteus --config codex-chatgpt
 ```
 
-Installer также публикует launcher `proteus-reference-worker` для команд
+Installer также публикует launcher `proteus-reference-module` для команд
 авторизации provider-а. `login --device-auth` позволяет войти без локального
 browser callback; `status` показывает локальный вход, `logout` удаляет его.
 Отдельные credentials Proteus не затрагивают вход Codex/OpenCode. Профиль
@@ -110,7 +110,7 @@ dogfood, не для публикации в интернет.
 Smoke без внешнего API:
 
 ```bash
-cargo build -p proteus-core -p proteus-reference-worker
+cargo build -p proteus-core -p proteus-reference-module
 PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config examples/configs/proteus.example.toml doctor
 
 PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config examples/configs/proteus.process-agent.example.toml "explain this profile"
@@ -168,7 +168,7 @@ Process adapters автоматически сохраняют этот parent �
 несколько behavior slots и capabilities для evidence; обычные profiles
 могут разделять их по желаемым failure domains.
 
-Process boundary пока не sandbox: worker получает очищенное окружение, но
+Process boundary пока не sandbox: модуль получает очищенное окружение, но
 работает с обычными OS-правами пользователя. Protocol-visible callbacks
 разрешаются общей authority table по паре `slot/contract_version`, никогда по
 `module_id`.
@@ -186,15 +186,15 @@ Process boundary пока не sandbox: worker получает очищенно
   `ToolRegistry -> ApprovalPolicy -> ToolSafety -> Tool`;
 - canonical model DTO, durable session journal, resume, HTTP/SSE app-server,
   CLI, chat и Inspector;
-- reference worker с behavior selectors и model implementations, включая
+- reference-модуль с behavior selectors и model implementations, включая
   deterministic project-check, и
   отдельный Python workflow/search/compactor examples;
-- conformance, real-worker execution и runtime swap regression gates.
+- conformance, process-module execution и runtime swap regression gates.
 - topology/journal gate: один PID выполняет callback-связанный workflow,
   переживает адресную отмену и даёт совпадающий canonical workflow replay.
 
 Model implementations (`fake`, `openai`, `openai_compatible`, `openai_codex`, `anthropic`)
-живут в reference worker и заменяются внешними `model` exports по
+живут в reference-модуль и заменяются внешними `model` exports по
 [общему process contract](docs/architecture/process-module-architecture.md#model-streaming). Root-owned
 `AgentControl` не является slot: он запускает полные peer-экземпляры Proteus
 из top-level `agent_control` config и обслуживает обе model-facing facade.
@@ -222,7 +222,7 @@ cargo run -p proteus-core -- --config configs/config.toml inspect plan
 cargo run -p proteus-core -- --config configs/config.toml inspect topology --format runtime
 cargo run -p proteus-core -- --config configs/config.toml inspect topology --format map
 
-# protocol handshake отдельного worker-а
+# protocol handshake отдельного модуля
 cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-search --export '{"slot":"search","module_id":"python_rg","contract_version":"v2","module_config":{}}' --probe-export search/python_rg --probe-method search --probe-params '{"text":"","cwd":".","max_results":0,"use_case":"conformance","starts_with":[],"ends_with":[]}' -- python3 examples/modules/search-process/search.py
 ```
 
@@ -245,16 +245,16 @@ Namespaces `init`, `modules`, `tools`, `doctor`, `server`, `inspect`, `eval`,
 ## Структура Репозитория
 
 ```text
-crates/proteus-contracts/       traits, DTO, canonical model, worker helpers
+crates/proteus-contracts/       traits, DTO, canonical model, module helpers
 crates/proteus-module-protocol/ multiplexed component broker, authority, conformance CLI
 crates/proteus-process-host/    persistent child lifecycle и framing
 crates/proteus-core/            runtime, wiring, process adapters, model service, server
-modules/reference/              reference implementations и один worker
+modules/reference/              reference implementations и один process-модуль
 modules/research/               нестабилизированные experiments
 clients/web/                    chat client
 clients/inspector/              config/topology client
 configs/                        packaged named configs и prompts
-examples/                       runnable configs, workers и MCP smoke
+examples/                       runnable configs, модули и MCP smoke
 docs/                           reference, testing rules и roadmap
 ```
 
@@ -293,4 +293,4 @@ git diff --check
 Ключевые gates process boundary:
 
 - `crates/proteus-core/tests/module_swap.rs`;
-- `modules/reference/process-worker/tests/conformance.rs`.
+- `modules/reference/process-module/tests/conformance.rs`.

@@ -324,7 +324,7 @@ async fn configure(root: &Path, endpoint: &str, workflow: &str, deferred: bool) 
         config.components.insert(
             "fixture-exposure".into(),
             serde_json::from_value(json!({
-                "command": env!("CARGO_BIN_EXE_proteus-reference-worker"),
+                "command": env!("CARGO_BIN_EXE_proteus-reference-module"),
                 "exports": {"tool_exposure": {"codex_dynamic": {}}}
             }))
             .unwrap(),

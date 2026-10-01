@@ -8,14 +8,14 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parent.parent
-WORKER = "proteus-reference-worker"
+REFERENCE_MODULE = "proteus-reference-module"
 
 
 def cargo_artifact(args, env):
     """Read Cargo's executable path; never guess an old binary from target/."""
     command = ["cargo", *args, "--message-format=json-render-diagnostics"]
     child = subprocess.Popen(command, cwd=ROOT, env=env, stdout=subprocess.PIPE, text=True)
-    worker = None
+    module_path = None
     for line in child.stdout:
         message = json.loads(line)
         if message.get("reason") == "compiler-message":
@@ -23,14 +23,14 @@ def cargo_artifact(args, env):
             if rendered:
                 print(rendered, end="", file=sys.stderr)
         elif (message.get("reason") == "compiler-artifact"
-              and message["target"]["name"] == WORKER
+              and message["target"]["name"] == REFERENCE_MODULE
               and not message["profile"]["test"]
               and message.get("executable")):
-            worker = message["executable"]
+            module_path = message["executable"]
     status = child.wait()
     if status:
         raise SystemExit(status)
-    return worker
+    return module_path
 
 
 def test_env():
@@ -77,26 +77,26 @@ def main(args):
     if full:
         # Exact same selection/features/profile for compilation and execution.
         build_args = args[:args.index("--")] if "--" in args else args
-        worker = cargo_artifact(["test", *build_args, "--no-run"], env)
-        if not worker:
-            raise SystemExit("Full gate did not build a reference worker executable.")
-        env["PROTEUS_TEST_REFERENCE_WORKER"] = worker
+        module_path = cargo_artifact(["test", *build_args, "--no-run"], env)
+        if not module_path:
+            raise SystemExit("Full gate did not build a reference module executable.")
+        env["PROTEUS_TEST_REFERENCE_MODULE"] = module_path
     elif any(package.split("@", 1)[0] == "proteus-core" for package in selected_packages(args)):
-        if env.get("PROTEUS_TEST_REFERENCE_WORKER"):
-            worker = Path(env["PROTEUS_TEST_REFERENCE_WORKER"]).resolve()
-            if not worker.is_file():
-                raise SystemExit(f"Explicit reference worker is missing: {worker}")
-            env["PROTEUS_TEST_REFERENCE_WORKER"] = str(worker)
+        if env.get("PROTEUS_TEST_REFERENCE_MODULE"):
+            module_path = Path(env["PROTEUS_TEST_REFERENCE_MODULE"]).resolve()
+            if not module_path.is_file():
+                raise SystemExit(f"Explicit reference module is missing: {module_path}")
+            env["PROTEUS_TEST_REFERENCE_MODULE"] = str(module_path)
         else:
             metadata = json.loads(subprocess.check_output(
                 ["cargo", "metadata", "--format-version=1", "--no-deps"], cwd=ROOT, env=env, text=True))
             # A narrow fixture build must not rewrite the workspace feature cache.
-            worker_dir = Path(metadata["target_directory"]) / "test-worker"
-            worker = cargo_artifact(["build", "--locked", "-p", WORKER, "--bin", WORKER,
-                                     "--target-dir", str(worker_dir)], env)
-            if not worker:
-                raise SystemExit("Reference worker build did not emit an executable.")
-            env["PROTEUS_TEST_REFERENCE_WORKER"] = worker
+            fixture_dir = Path(metadata["target_directory"]) / "test-module"
+            module_path = cargo_artifact(["build", "--locked", "-p", REFERENCE_MODULE, "--bin", REFERENCE_MODULE,
+                                     "--target-dir", str(fixture_dir)], env)
+            if not module_path:
+                raise SystemExit("Reference module build did not emit an executable.")
+            env["PROTEUS_TEST_REFERENCE_MODULE"] = module_path
     prepared = time.monotonic()
     print(f"Preparation: {prepared-start:.2f}s", file=sys.stderr, flush=True)
     status = subprocess.call(["cargo", "test", *args], cwd=ROOT, env=env)

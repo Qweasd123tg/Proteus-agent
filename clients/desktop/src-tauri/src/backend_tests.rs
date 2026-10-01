@@ -1,6 +1,6 @@
 use super::*;
 
-/// An explicit gate using the same binary/worker pair as the desktop package.
+/// An explicit gate using the same host/module pair as the desktop package.
 /// Run after prepare.mjs; no model credentials or network provider are involved.
 #[test]
 #[ignore = "requires packaged backend; run after prepare.mjs with --include-ignored"]
@@ -15,7 +15,7 @@ active_provider = "fake"
 provider = "fake"
 model = "fake-model"
 [components.model]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 [components.model.exports.model.fake]
 [module_config.model.fake]
 implementation = "fake"

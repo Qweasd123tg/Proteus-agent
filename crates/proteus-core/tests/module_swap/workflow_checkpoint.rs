@@ -20,7 +20,7 @@ async fn rust_and_python_workflows_share_the_checkpoint_contract() {
         config.modules.context = Some("simple".into());
         config.modules.policy = Some("allow_all".into());
         let mut reference = json!({
-            "command": test_model::worker(),
+            "command": test_model::reference_module(),
             "exports": {"context": {"simple": {}}, "policy": {"allow_all": {}}}
         });
         if workflow != "python_agent_loop" {

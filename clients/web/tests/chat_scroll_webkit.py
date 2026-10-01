@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """WebKitGTK regression for reading near the bottom of a streaming chat.
 
-Run after ``trunk build`` and ``cargo build -p proteus-core -p proteus-reference-worker``.
+Run after ``trunk build`` and ``cargo build -p proteus-core -p proteus-reference-module``.
 Requires Python GI, GTK3, WebKit2 4.1 and Xvfb. Use ``--wayland`` when Xvfb is
 unavailable and a Wayland session is running. The app-server and model fixture
 are local; no account or existing Proteus session is used.
@@ -90,7 +90,7 @@ def main():
 provider = "custom-model"
 model = "fixture-model"
 [components.model]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 [components.model.exports.model.custom-model]
 [components.model.exports.workflow."coding.single_loop"]
 [components.model.exports.policy.allow_all]

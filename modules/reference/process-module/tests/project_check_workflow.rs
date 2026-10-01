@@ -50,7 +50,7 @@ async fn project_check_config(git_failure: bool, test_failure: bool) -> AppConfi
     config.components.insert(
         "project-check-controller".to_owned(),
         component(json!({
-            "command": env!("CARGO_BIN_EXE_proteus-reference-worker"),
+            "command": env!("CARGO_BIN_EXE_proteus-reference-module"),
             "exports": {
                 "workflow": { "coding.project_check": {} },
                 "policy": { "ask_write": {} },
@@ -62,7 +62,7 @@ async fn project_check_config(git_failure: bool, test_failure: bool) -> AppConfi
         component(json!({
             "command": "python3",
             "args": [workspace_file(
-                "modules/reference/process-worker/tests/fixtures/project_check_tools.py"
+                "modules/reference/process-module/tests/fixtures/project_check_tools.py"
             )],
             "env": {
                 "PYTHONDONTWRITEBYTECODE": "1",
@@ -223,7 +223,7 @@ async fn check_model_free_replay(git_failure: bool, test_failure: bool, continua
     replay_config.components.insert(
         "project-check-controller".to_owned(),
         component(json!({
-            "command": env!("CARGO_BIN_EXE_proteus-reference-worker"),
+            "command": env!("CARGO_BIN_EXE_proteus-reference-module"),
             "exports": {
                 "workflow": { "coding.project_check": {} },
                 "policy": { "ask_write": {} },

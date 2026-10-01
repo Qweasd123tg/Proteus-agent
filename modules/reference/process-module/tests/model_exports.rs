@@ -11,7 +11,7 @@ fn one_reference_worker_supports_independent_model_exports_using_the_same_implem
             "large": {"provider": "endpoint_b", "model": "second", "stream": false}
         },
         "components": {"models": {
-            "command": env!("CARGO_BIN_EXE_proteus-reference-worker"),
+            "command": env!("CARGO_BIN_EXE_proteus-reference-module"),
             "exports": {"model": {"endpoint_a": {}, "endpoint_b": {}}}
         }},
         "module_config": {"model": {
@@ -41,7 +41,7 @@ fn reference_model_requires_explicit_implementation_in_opaque_module_config() {
     let cwd = tempfile::tempdir().unwrap();
     let config: AppConfig = serde_json::from_value(json!({
         "active_provider": "fake", "providers": {"fake": {"provider": "fake"}},
-        "components": {"model": {"command": env!("CARGO_BIN_EXE_proteus-reference-worker"),
+        "components": {"model": {"command": env!("CARGO_BIN_EXE_proteus-reference-module"),
             "exports": {"model": {"fake": {}}}}}
     }))
     .unwrap();
@@ -104,7 +104,7 @@ async fn subscription_catalog_crosses_real_worker_and_updates_app_selection() {
     });
     let config: AppConfig = serde_json::from_value(json!({
         "active_provider": "subscription", "providers": {"subscription": {"provider": "arbitrary-export", "model": "discovered-a"}},
-        "components": {"models": {"command": env!("CARGO_BIN_EXE_proteus-reference-worker"), "exports": {"model": {"arbitrary-export": {}}}}},
+        "components": {"models": {"command": env!("CARGO_BIN_EXE_proteus-reference-module"), "exports": {"model": {"arbitrary-export": {}}}}},
         "module_config": {"model": {"arbitrary-export": {"implementation": "openai_codex", "auth_file": auth_file, "base_url": base_url, "quota_url": format!("{base_url}/wham/usage")}}}
     })).unwrap();
     let server = AgentAppServer::launch(config, cwd.path().to_path_buf(), None)

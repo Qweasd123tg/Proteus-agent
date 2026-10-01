@@ -11,10 +11,10 @@ profile и не даёт дополнительных host capabilities. Для 
 slot действует один contract и один authority surface.
 
 Crates в `reference/` — ordinary libraries, слинкованные в
-`proteus-reference-worker`. Единственная host boundary — process protocol;
+`proteus-reference-module`. Единственная host boundary — process protocol;
 native ABI и per-crate manifests отсутствуют.
 
-Новые реализации создаются как внешние process workers по
+Новые модули создаются как отдельные executable по
 [`docs/architecture/process-module-architecture.md`](../docs/architecture/process-module-architecture.md).
 Если нужного process slot ещё нет, сначала добавляется общий adapter и
 conformance contract всего slot; отдельный builtin/native путь для одной

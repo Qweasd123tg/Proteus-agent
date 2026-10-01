@@ -27,7 +27,7 @@ fn broker(workspace: &Path, module_id: &str) -> ComponentBroker {
         ProcessExportBinding::new("patch", module_id, version, json!({})).expect("patch export");
     let binding = ProcessComponentBinding::new("reference-patch", [export]).unwrap();
     ComponentBroker::connect(
-        ProcessSpec::new(env!("CARGO_BIN_EXE_proteus-reference-worker")).cwd(workspace),
+        ProcessSpec::new(env!("CARGO_BIN_EXE_proteus-reference-module")).cwd(workspace),
         binding,
         ComponentBrokerOptions::default(),
     )
@@ -189,7 +189,7 @@ async fn patch_tool_workdir_is_invocation_scoped_across_process_modules() {
         config.components.insert(
             "patch-fixture".into(),
             serde_json::from_value(json!({
-                "command": env!("CARGO_BIN_EXE_proteus-reference-worker"),
+                "command": env!("CARGO_BIN_EXE_proteus-reference-module"),
                 "exports": {"model": {"fake": {}}, "patch": {(module_id): {}}}
             }))
             .unwrap(),

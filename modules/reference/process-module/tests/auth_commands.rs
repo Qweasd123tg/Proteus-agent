@@ -5,7 +5,7 @@ fn provider_auth_commands_preserve_protocol_separation_and_hide_tokens() {
     let root = tempfile::tempdir().unwrap();
     let file = root.path().join("chatgpt.json");
     let invoke = |action: &str| {
-        Command::new(env!("CARGO_BIN_EXE_proteus-reference-worker"))
+        Command::new(env!("CARGO_BIN_EXE_proteus-reference-module"))
             .args(["auth", "openai_codex", action, "--auth-file"])
             .arg(&file)
             .output()
@@ -32,7 +32,7 @@ fn provider_auth_commands_preserve_protocol_separation_and_hide_tokens() {
     assert!(!file.exists());
     assert!(invoke("logout").status.success());
     assert!(!invoke("typo").status.success());
-    let unknown = Command::new(env!("CARGO_BIN_EXE_proteus-reference-worker"))
+    let unknown = Command::new(env!("CARGO_BIN_EXE_proteus-reference-module"))
         .args(["auth", "unknown", "status"])
         .output()
         .unwrap();

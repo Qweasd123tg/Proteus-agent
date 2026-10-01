@@ -12,24 +12,24 @@ configs_dir="${config_home}/configs"
 
 cargo build --release --manifest-path "${project_dir}/Cargo.toml" \
   -p proteus-core \
-  -p proteus-reference-worker
+  -p proteus-reference-module
 
 mkdir -p "${bin_dir}"
 bin_tmp="${bin_path}.tmp.$$"
-worker_tmp="${bin_dir}/proteus-reference-worker.tmp.$$"
+module_tmp="${bin_dir}/proteus-reference-module.tmp.$$"
 release_id=$(date -u +%Y%m%dT%H%M%SZ)-$$
 release_tmp="${releases_dir}/.${release_id}.tmp"
 release_dir="${releases_dir}/${release_id}"
 current_tmp="${proteus_home}/.current.$$"
 release_published=0
-rm -f "${bin_tmp}" "${worker_tmp}" "${current_tmp}"
+rm -f "${bin_tmp}" "${module_tmp}" "${current_tmp}"
 rm -rf "${release_tmp}"
 
 cleanup_install() {
   status=$?
   trap - EXIT HUP INT TERM
   set +e
-  rm -f "${bin_tmp}" "${worker_tmp}" "${current_tmp}"
+  rm -f "${bin_tmp}" "${module_tmp}" "${current_tmp}"
   rm -rf "${release_tmp}"
   if [ "${release_published}" -eq 0 ]; then
     rm -rf "${release_dir}"
@@ -328,21 +328,21 @@ sed -i "s|__PROTEUS_PROJECT_DIR__|${escaped_project_dir}|g" "${bin_tmp}"
 chmod 755 "${bin_tmp}"
 
 # The provider's management commands use the same atomically selected snapshot.
-cat > "${worker_tmp}" <<'WORKER_WRAPPER'
+cat > "${module_tmp}" <<'MODULE_WRAPPER'
 #!/usr/bin/env sh
 set -eu
 proteus_home="${PROTEUS_HOME:-${HOME}/.proteus}"
-exec "${proteus_home}/current/proteus-reference-worker" "$@"
-WORKER_WRAPPER
-chmod 755 "${worker_tmp}"
+exec "${proteus_home}/current/proteus-reference-module" "$@"
+MODULE_WRAPPER
+chmod 755 "${module_tmp}"
 
-# Stage the host and reference worker before the `current` symlink makes the
+# Stage the host and reference module before the `current` symlink makes the
 # build snapshot visible.
 mkdir -p "${release_tmp}"
 cp "${project_dir}/target/release/proteus" "${release_tmp}/proteus"
-cp "${project_dir}/target/release/proteus-reference-worker" "${release_tmp}/proteus-reference-worker"
+cp "${project_dir}/target/release/proteus-reference-module" "${release_tmp}/proteus-reference-module"
 chmod 755 "${release_tmp}/proteus"
-chmod 755 "${release_tmp}/proteus-reference-worker"
+chmod 755 "${release_tmp}/proteus-reference-module"
 
 mkdir -p "${releases_dir}"
 mv "${release_tmp}" "${release_dir}"
@@ -375,7 +375,8 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 mv "${bin_tmp}" "${bin_path}"
-mv "${worker_tmp}" "${bin_dir}/proteus-reference-worker"
+mv "${module_tmp}" "${bin_dir}/proteus-reference-module"
+rm -f "${bin_dir}/proteus-reference-worker"
 
 trap - EXIT HUP INT TERM
 
@@ -437,7 +438,7 @@ fi
 
 echo "Installed: ${bin_path}"
 echo "Snapshot:  ${release_dir}"
-echo "Worker:    ${current_release}/proteus-reference-worker"
+echo "Module:    ${current_release}/proteus-reference-module"
 echo "Configs:   ${configs_dir}"
 echo "Next:      ${bin_path} init coding && ${bin_path} doctor"
 case ":${PATH}:" in

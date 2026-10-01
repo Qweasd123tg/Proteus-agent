@@ -9,17 +9,17 @@ patch = "codex"
 compactor = "codex"
 
 [components.reference-workflow]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 
 [components.reference-workflow.exports.workflow."coding.codex_loop"]
 
 [components.reference-context]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 
 [components.reference-context.exports.context.codex_context]
 
 [components.reference-capabilities]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 
 [components.reference-capabilities.exports.search.rg]
 

@@ -91,7 +91,7 @@ def main():
 provider = "fake"
 model = "fake-model"
 [components.model]
-command = "proteus-reference-worker"
+command = "proteus-reference-module"
 [components.model.exports.model.fake]
 [module_config.model.fake]
 implementation = "fake"
