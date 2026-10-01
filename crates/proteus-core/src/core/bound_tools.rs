@@ -166,12 +166,27 @@ impl BoundTools {
                 "duplicate model tool: {}",
                 tool.name
             );
-            let registered = self.registry.spec(&tool.name)?;
-            anyhow::ensure!(
-                registered == *tool,
-                "model request changed registered tool '{}'",
-                tool.name
-            );
+            let registered = if matches!(
+                tool.surface,
+                crate::domain::ToolSurface::WorkflowFunction { .. }
+            ) {
+                anyhow::ensure!(
+                    self.registry.get(&tool.name).is_none(),
+                    "workflow tool '{}' shadows a registered host tool",
+                    tool.name
+                );
+                crate::domain::tool_validation::validate_tool_input_schema(tool)
+                    .map_err(anyhow::Error::msg)?;
+                tool.clone()
+            } else {
+                let registered = self.registry.spec(&tool.name)?;
+                anyhow::ensure!(
+                    registered == *tool,
+                    "model request changed registered tool '{}'",
+                    tool.name
+                );
+                registered
+            };
             anyhow::ensure!(
                 visibility_decision_allows(
                     tool,

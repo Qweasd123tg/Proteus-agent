@@ -52,6 +52,51 @@ async fn model_request_cannot_redefine_or_expose_policy_hidden_tools() {
     hosted.surface = ToolSurface::provider_hosted(HostedToolConfig::WebSearch {
         config: WebSearchHostedToolConfig::default(),
     });
+    let mut registry = ToolRegistry::new();
+    registry.register(ProbeTool(local.clone())).unwrap();
+    let owned = ToolSpec::new(
+        "custom_discovery",
+        "workflow discovery",
+        json!({"type":"object"}),
+        ToolSafety::ReadOnly,
+    )
+    .with_surface(ToolSurface::workflow_function());
+    assert!(registry.register(ProbeTool(owned.clone())).is_err());
+    let tools = BoundTools::new(
+        registry,
+        Arc::new(ReadOnlyPolicy),
+        Arc::new(HeadlessApprovalTransport),
+        Arc::default(),
+        ToolExecutionBinding::detached(ExecutionScope::fresh(CancellationToken::new())),
+    );
+    tools.validate_model_tools(&[owned.clone()], &cwd).unwrap();
+    let mut shadow = owned.clone();
+    shadow.name = local.name.clone();
+    assert!(
+        tools
+            .validate_model_tools(&[shadow], &cwd)
+            .unwrap_err()
+            .to_string()
+            .contains("shadows")
+    );
+    let mut denied = owned.clone();
+    denied.safety = ToolSafety::Network;
+    assert!(
+        tools
+            .validate_model_tools(&[denied], &cwd)
+            .unwrap_err()
+            .to_string()
+            .contains("policy-hidden")
+    );
+    let mut ordinary = owned;
+    ordinary.surface = ToolSurface::function();
+    assert!(
+        tools
+            .validate_model_tools(&[ordinary], &cwd)
+            .unwrap_err()
+            .to_string()
+            .contains("unknown tool")
+    );
     for registered in [local.clone(), hosted.clone()] {
         let adapter = Arc::new(ImmediateAdapter::new());
         let mut registry = ToolRegistry::new();

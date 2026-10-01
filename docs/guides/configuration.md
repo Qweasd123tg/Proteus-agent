@@ -436,6 +436,13 @@ Reference context implementations `simple`, `repo_aware` и `codex_context`
 `max_context_bytes` для всего context bundle. Обёртки инструкций добавляются
 после чтения; текст сохраняется на границе UTF-8.
 
+В `repo_aware` и `codex_context` загруженные project instructions занимают
+`max_context_bytes` первыми; score поиска или памяти не может вытеснить правила.
+Остальные chunks выбираются по score и возвращаются в исходном порядке.
+Если весь загруженный текст инструкций с обёртками не помещается, context build
+завершается явной ошибкой. Уменьшайте исходный `project_doc_max_bytes` либо
+увеличивайте общий бюджет, вместо незаметного удаления AGENTS.md.
+
 Local `codex` compactor по умолчанию запускается при достижении 90% известного
 сырого окна модели. `module_config.compactor.codex.trigger_tokens` задаёт
 абсолютный порог, ограниченный теми же 90%. Если окно неизвестно и явного порога

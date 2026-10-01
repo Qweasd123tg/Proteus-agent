@@ -19,7 +19,7 @@ const WRITTEN_CONTENT: &str = "write_file executed exactly once before model fai
 const INITIAL_PROMPT: &str = "Запиши контрольный файл через write_file.";
 const CONTINUE_PROMPT: &str = "Продолжай после ошибки модели.";
 
-fn tool_response() -> Value {
+fn tool_response(deferred: bool) -> Value {
     json!({
         "id": "failure_recovery_tool",
         "object": "response",
@@ -29,11 +29,10 @@ fn tool_response() -> Value {
             "id": "failure_recovery_write_item",
             "status": "completed",
             "call_id": "call_write_before_failure",
-            "name": "write_file",
-            "arguments": serde_json::to_string(&json!({
-                "path": TARGET_FILE,
-                "content": WRITTEN_CONTENT,
-            }))
+            "name": if deferred { "proteus_tool_call" } else { "write_file" },
+            "arguments": serde_json::to_string(&if deferred {
+                json!({"name":"write_file","args":{"path": TARGET_FILE,"content": WRITTEN_CONTENT}})
+            } else { json!({"path": TARGET_FILE,"content": WRITTEN_CONTENT}) })
             .unwrap(),
         }],
     })
@@ -59,39 +58,70 @@ fn success_response() -> Value {
     })
 }
 
-async fn serve(listener: TcpListener) -> Vec<Value> {
+fn failed_request_index(workflow: &str) -> usize {
+    if workflow == "coding.plan_execute_review" {
+        2
+    } else {
+        1
+    }
+}
+fn retry_count(workflow: &str) -> usize {
+    if workflow == "coding.codex_loop" {
+        5
+    } else {
+        1
+    }
+}
+async fn serve(listener: TcpListener, workflow: &str, deferred: bool) -> Vec<Value> {
+    let mut replies = Vec::new();
+    if workflow == "coding.plan_execute_review" {
+        replies.push(("200 OK", success_response()));
+    }
+    replies.push(("200 OK", tool_response(deferred)));
+    for _ in 0..retry_count(workflow) {
+        replies.push(("500 Internal Server Error", json!({"error": {"message": "fixture model failure", "type": "server_error", "code": "server_error"}})));
+    }
+    for _ in 0..if workflow == "coding.plan_execute_review" {
+        3
+    } else {
+        1
+    } {
+        replies.push(("200 OK", success_response()));
+    }
     let mut requests = Vec::new();
-    // Exhaust the default four request retries before starting a new turn.
-    for round in 0..7 {
+    for (status, body) in replies {
         let (mut socket, _) = tokio::time::timeout(Duration::from_secs(10), listener.accept())
             .await
             .expect("bounded fixture accept")
             .unwrap();
         requests.push(super::read_json_request(&mut socket).await);
-        let (status, body) = match round {
-            0 => ("200 OK", tool_response().to_string()),
-            1..=5 => (
-                "500 Internal Server Error",
-                json!({"error": {"message": "fixture model failure", "type": "server_error", "code": "server_error"}}).to_string(),
-            ),
-            6 => ("200 OK", success_response().to_string()),
-            _ => unreachable!(),
-        };
-        socket
-            .write_all(
-                format!(
-                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                    body.len()
-                )
-                .as_bytes(),
-            )
-            .await
-            .unwrap();
+        let body = body.to_string();
+        socket.write_all(format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
     }
     requests
 }
 
-fn assert_resume_request(failed_round_request: &Value, request: &Value) {
+fn assert_requests(requests: &[Value], workflow: &str, deferred: bool) {
+    let failed = failed_request_index(workflow);
+    let resumed = failed + retry_count(workflow);
+    assert_eq!(
+        requests.len(),
+        resumed
+            + if workflow == "coding.plan_execute_review" {
+                3
+            } else {
+                1
+            }
+    );
+    assert!(
+        requests[failed..resumed]
+            .windows(2)
+            .all(|pair| pair[0] == pair[1])
+    );
+    assert_resume_request(&requests[failed], &requests[resumed], deferred);
+}
+
+fn assert_resume_request(failed_round_request: &Value, request: &Value, deferred: bool) {
     let actual_results: Vec<_> = failed_round_request["input"]
         .as_array()
         .expect("failed-round Responses input array")
@@ -112,7 +142,12 @@ fn assert_resume_request(failed_round_request: &Value, request: &Value) {
         .filter(|item| {
             item["type"] == "function_call"
                 && item["call_id"] == "call_write_before_failure"
-                && item["name"] == "write_file"
+                && item["name"]
+                    == if deferred {
+                        "proteus_tool_call"
+                    } else {
+                        "write_file"
+                    }
         })
         .collect();
     assert_eq!(
@@ -122,7 +157,9 @@ fn assert_resume_request(failed_round_request: &Value, request: &Value) {
     );
     assert_eq!(
         tool_calls[0]["arguments"].as_str().unwrap(),
-        tool_response()["output"][0]["arguments"].as_str().unwrap(),
+        tool_response(deferred)["output"][0]["arguments"]
+            .as_str()
+            .unwrap(),
     );
 
     let results: Vec<_> = input
@@ -242,8 +279,8 @@ async fn assert_canonical_session(config: &AppConfig, session_dir: &Path) {
                 assert_eq!(replay.replay.status, TurnSettlementStatus::Error);
                 assert!(
                     replay.comparison.matched,
-                    "failed-turn replay diverged: {:?}",
-                    replay.comparison.issues,
+                    "{} failed-turn replay diverged: {:?}; replay error: {:?}",
+                    replay.source.workflow_id, replay.comparison.issues, replay.replay.error,
                 );
                 assert!(replay.source_journal_unchanged);
             }
@@ -252,7 +289,7 @@ async fn assert_canonical_session(config: &AppConfig, session_dir: &Path) {
     }
 }
 
-async fn configure(root: &Path, endpoint: &str) -> AppConfig {
+async fn configure(root: &Path, endpoint: &str, workflow: &str, deferred: bool) -> AppConfig {
     std::fs::create_dir(root.join("workspace")).unwrap();
     std::fs::write(
         root.join("workspace/AGENTS.md"),
@@ -266,6 +303,41 @@ async fn configure(root: &Path, endpoint: &str) -> AppConfig {
         .entry("workflow".into())
         .or_default()
         .insert("coding.codex_loop".into(), json!({"stream_max_retries": 0}));
+    config.modules.workflow = Some(workflow.into());
+    for component in config.components.values_mut() {
+        let mut value = serde_json::to_value(&*component).unwrap();
+        if value["exports"].get("workflow").is_some() {
+            value["exports"]["workflow"] = json!({workflow: {}});
+            *component = serde_json::from_value(value).unwrap();
+        }
+    }
+    if workflow != "coding.codex_loop" {
+        config
+            .module_config
+            .get_mut("model")
+            .unwrap()
+            .get_mut("openai")
+            .unwrap()["request_max_retries"] = json!(0);
+    }
+    if deferred {
+        config.modules.tool_exposure = Some("codex_dynamic".into());
+        config.components.insert(
+            "fixture-exposure".into(),
+            serde_json::from_value(json!({
+                "command": env!("CARGO_BIN_EXE_proteus-reference-worker"),
+                "exports": {"tool_exposure": {"codex_dynamic": {}}}
+            }))
+            .unwrap(),
+        );
+        config
+            .module_config
+            .entry("tool_exposure".into())
+            .or_default()
+            .insert(
+                "codex_dynamic".into(),
+                json!({"max_hot_tools":1,"always_include":["read_file"]}),
+            );
+    }
     std::fs::write(
         root.join("config.json"),
         serde_json::to_vec(&config).unwrap(),
@@ -295,40 +367,50 @@ async fn assert_cold_history(config: AppConfig, root: &Path, session_dir: &Path)
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn completed_tool_survives_model_failure_and_warm_continuation() {
-    let root = tempfile::tempdir().unwrap();
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let config = configure(
-        root.path(),
-        &format!("http://{}", listener.local_addr().unwrap()),
-    )
-    .await;
-    let server = tokio::spawn(serve(listener));
-    let config_path = root.path().join("config.json");
+    for (workflow, deferred) in [
+        ("coding.codex_loop", false),
+        ("coding.single_loop", false),
+        ("coding.plan_execute_review", false),
+        ("coding.single_loop", true),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let config = configure(
+            root.path(),
+            &format!("http://{}", listener.local_addr().unwrap()),
+            workflow,
+            deferred,
+        )
+        .await;
+        let server = tokio::spawn(serve(listener, workflow, deferred));
+        let config_path = root.path().join("config.json");
 
-    let runtime = AgentRuntime::builder(config.clone(), root.path().join("workspace"))
-        .with_config_path(Some(&config_path))
-        .with_approval(Arc::new(ApprovingTransport))
-        .build_async()
-        .await
-        .unwrap();
-    let error = runtime.run(INITIAL_PROMPT.to_owned()).await.unwrap_err();
-    assert!(format!("{error:#}").contains("fixture model failure"));
-    assert_eq!(
-        std::fs::read_to_string(root.path().join("workspace").join(TARGET_FILE)).unwrap(),
-        WRITTEN_CONTENT
-    );
-    runtime.run(CONTINUE_PROMPT.to_owned()).await.unwrap();
+        let runtime = AgentRuntime::builder(config.clone(), root.path().join("workspace"))
+            .with_config_path(Some(&config_path))
+            .with_approval(Arc::new(ApprovingTransport))
+            .build_async()
+            .await
+            .unwrap();
+        let error = runtime.run(INITIAL_PROMPT.to_owned()).await.unwrap_err();
+        assert!(
+            format!("{error:#}").contains("fixture model failure"),
+            "{error:#}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("workspace").join(TARGET_FILE)).unwrap(),
+            WRITTEN_CONTENT
+        );
+        runtime.run(CONTINUE_PROMPT.to_owned()).await.unwrap();
 
-    let requests = tokio::time::timeout(Duration::from_secs(5), server)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(requests.len(), 7);
-    assert!(requests[1..6].windows(2).all(|pair| pair[0] == pair[1]));
-    assert_resume_request(&requests[1], &requests[6]);
-    let session_dir = runtime.session_dir().unwrap();
-    assert_canonical_session(&config, &session_dir).await;
-    assert_cold_history(config, root.path(), &session_dir).await;
+        let requests = tokio::time::timeout(Duration::from_secs(5), server)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_requests(&requests, workflow, deferred);
+        let session_dir = runtime.session_dir().unwrap();
+        assert_canonical_session(&config, &session_dir).await;
+        assert_cold_history(config, root.path(), &session_dir).await;
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -376,7 +458,10 @@ async fn model_failure_cold_runtime_child() {
         .await;
     if first {
         let error = result.unwrap_err();
-        assert!(format!("{error:#}").contains("fixture model failure"));
+        assert!(
+            format!("{error:#}").contains("fixture model failure"),
+            "{error:#}"
+        );
         let thread_id: proteus_contracts::domain::ThreadId =
             serde_json::from_slice(&std::fs::read(root.join("thread.json")).unwrap()).unwrap();
         std::fs::write(
@@ -418,32 +503,40 @@ async fn run_child(root: &Path) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn completed_tool_survives_model_failure_and_cold_process_restart() {
-    let root = tempfile::tempdir().unwrap();
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let config = configure(
-        root.path(),
-        &format!("http://{}", listener.local_addr().unwrap()),
-    )
-    .await;
-    let server = tokio::spawn(serve(listener));
+    for (workflow, deferred) in [
+        ("coding.codex_loop", false),
+        ("coding.single_loop", false),
+        ("coding.plan_execute_review", false),
+        ("coding.single_loop", true),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let config = configure(
+            root.path(),
+            &format!("http://{}", listener.local_addr().unwrap()),
+            workflow,
+            deferred,
+        )
+        .await;
+        let server = tokio::spawn(serve(listener, workflow, deferred));
 
-    run_child(root.path()).await;
-    assert_eq!(
-        std::fs::read_to_string(root.path().join("workspace").join(TARGET_FILE)).unwrap(),
-        WRITTEN_CONTENT
-    );
-    run_child(root.path()).await;
-    let requests = tokio::time::timeout(Duration::from_secs(5), server)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(requests.len(), 7);
-    assert!(requests[1..6].windows(2).all(|pair| pair[0] == pair[1]));
-    assert_resume_request(&requests[1], &requests[6]);
+        run_child(root.path()).await;
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("workspace").join(TARGET_FILE)).unwrap(),
+            WRITTEN_CONTENT
+        );
+        run_child(root.path()).await;
+        let requests = tokio::time::timeout(Duration::from_secs(5), server)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_requests(&requests, workflow, deferred);
 
-    let note: Value =
-        serde_json::from_slice(&std::fs::read(root.path().join("resume.json")).unwrap()).unwrap();
-    let session_dir = PathBuf::from(note["session_dir"].as_str().unwrap());
-    assert_canonical_session(&config, &session_dir).await;
-    assert_cold_history(config, root.path(), &session_dir).await;
+        let note: Value =
+            serde_json::from_slice(&std::fs::read(root.path().join("resume.json")).unwrap())
+                .unwrap();
+        let session_dir = PathBuf::from(note["session_dir"].as_str().unwrap());
+        assert_canonical_session(&config, &session_dir).await;
+        assert_cold_history(config, root.path(), &session_dir).await;
+    }
 }

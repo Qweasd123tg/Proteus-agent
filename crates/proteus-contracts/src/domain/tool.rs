@@ -344,6 +344,12 @@ pub enum ToolSurface {
         strict: bool,
         output_schema: Option<serde_json::Value>,
     },
+    /// Function handled by the workflow. This declaration grants no host
+    /// execution authority; delegated operations still use registered tools.
+    WorkflowFunction {
+        strict: bool,
+        output_schema: Option<serde_json::Value>,
+    },
     Freeform {
         format: FreeformToolFormat,
     },
@@ -363,6 +369,13 @@ impl ToolSurface {
     pub fn strict_function() -> Self {
         Self::Function {
             strict: true,
+            output_schema: None,
+        }
+    }
+
+    pub const fn workflow_function() -> Self {
+        Self::WorkflowFunction {
+            strict: false,
             output_schema: None,
         }
     }
@@ -388,7 +401,9 @@ impl ToolSurface {
     /// return activity items instead, so they deliberately have no value here.
     pub const fn call_surface(&self) -> Option<ToolCallSurface> {
         match self {
-            Self::Function { .. } => Some(ToolCallSurface::Function),
+            Self::Function { .. } | Self::WorkflowFunction { .. } => {
+                Some(ToolCallSurface::Function)
+            }
             Self::Freeform { .. } => Some(ToolCallSurface::Freeform),
             Self::ProviderHosted { .. } => None,
         }

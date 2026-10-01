@@ -7,6 +7,23 @@
 3. execution-bound `BoundTools` спрашивает `ApprovalPolicy` отдельно для visibility и execution;
 4. сами tools проверяют workspace/path ограничения.
 
+`ToolRegistry` проверяет `input_schema` при регистрации. Перед execution и
+после каждого hook-переписывания аргументы проверяются общим JSON Schema
+validator: включая optional/nested properties, items, enum, ограничения,
+composition и локальные `$ref`. Неверные аргументы получают
+`ValidationFailed` до approval и side effect. Некорректная schema или ссылка
+на внешний schema resource — ошибка; HTTP/file retrieval отключён.
+Dialect выбирается по `$schema`; стандартные annotation keywords не задают
+дополнительных ограничений. Ошибка аргументов показывает JSON Pointer и
+условие schema, без вывода самого ошибочного значения.
+
+`workflow_function` явно обозначает локальный handler выбранного workflow.
+Model boundary проверяет его schema и visibility policy и запрещает shadowing
+host tool names; `ToolRegistry` отвергает регистрацию такой surface как host
+tool. Объявление не даёт права на IO: каждый делегированный host вызов проходит
+обычную registry/schema/policy/approval проверку. Core не делает исключений по
+именам discovery handlers или `module_id`.
+
 Facade-tool `task` проходит тот же путь
 `ToolOrchestrator(agent adapter) -> BoundTools -> ToolRegistry -> mode-aware
 ApprovalPolicy -> Tool::invoke`;

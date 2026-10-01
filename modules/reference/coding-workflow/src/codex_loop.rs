@@ -40,23 +40,8 @@ pub(crate) fn run_codex_loop(
     match run_loop(&input, host, module_id, &mut turn, stream_retry) {
         Ok((text, metadata)) => turn
             .finish(host, text, metadata)
-            .map_err(|error| failure_with_history(error, &turn)),
-        Err(error) => Err(failure_with_history(error, &turn)),
-    }
-}
-
-fn failure_with_history(error: ProcessModuleError, turn: &TurnScaffold) -> WorkflowFailure {
-    let mut failure = WorkflowFailure::from(error);
-    match turn.history_update() {
-        Ok(Some(history)) => failure.with_history(history),
-        Ok(None) => failure,
-        Err(history_error) => {
-            failure.message = format!(
-                "{}; failed to collect workflow history: {}",
-                failure.message, history_error.message
-            );
-            failure
-        }
+            .map_err(|error| turn.failure(error)),
+        Err(error) => Err(turn.failure(error)),
     }
 }
 

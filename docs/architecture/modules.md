@@ -173,6 +173,24 @@ runtime status, context, model completion/stream, compaction, visible/selected t
 tool execution и event emission. Session ids, approvals, tool ownership и
 journal остаются host-owned.
 
+Reference `coding.single_loop`, `coding.plan_execute_review` и
+`coding.codex_loop` сохраняют compaction и промежуточную историю через общий
+checkpoint contract до выполнения tools и после получения результатов.
+Ошибка следующего model/compactor call не удаляет завершённые действия;
+отмена оставляет подтверждённые результаты в cold history.
+`coding.plan_execute_review` переносит реальный model usage между фазами для
+триггера compactor и сбрасывает старый замер после сжатия.
+Deferred `proteus_tool_call` сохраняет исходный call id и точный результат
+целевого tool: checkpoint объявляет реальные name/args, а model history
+сохраняет внешний вызов. Дополнительного внутреннего call id и remap metadata нет.
+Для workflow-owned discovery/delegation используется typed
+`ToolSurface::WorkflowFunction`: provider передаёт её как обычный function call,
+а результат формирует выбранный workflow. Она не регистрируется как host tool,
+не может перекрыть зарегистрированное имя и проходит visibility policy.
+Делегированный эффект по-прежнему исполняется через общий registry/approval path.
+Plan-фаза ограничивает и выбранные tools, и comparison candidates до read-only
+перед включением discovery, чтобы replay не создавал ложные скрытые tools.
+
 Именованные действия `planning.start`, `planning.revise`, `planning.execute`
 реализованы в coding-workflow для `coding.single_loop` и `coding.codex_loop`.
 Они используют общий `runtime.intent` и проверяют эффективный

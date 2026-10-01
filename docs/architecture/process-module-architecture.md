@@ -576,6 +576,14 @@ handshake всего набора, даже если probe направлен т
 
 `model/v10` использует canonical DTO из `proteus-contracts::contracts::process_model`:
 
+Canonical `ToolSurface::WorkflowFunction` обозначает function handler
+выбранного workflow. Model provider сериализует его как function, но host
+registry не принимает такую surface для регистрации. Model boundary проверяет
+schema, visibility policy и отсутствие совпадения с host tool name.
+Это routing результата в workflow, а не дополнительная host authority:
+делегированные операции используют обычный `host.tools.execute` с
+зарегистрированным target и теми же policy/approval checks.
+
 Descriptor, catalog, quota, capabilities, stream events и terminal DTO отклоняют неизвестные поля.
 
 - `describe(null) -> ProcessModelDescriptor`: стабильные adapter id,

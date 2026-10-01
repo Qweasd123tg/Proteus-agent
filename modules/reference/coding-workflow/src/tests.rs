@@ -6,6 +6,7 @@ mod codex_loop;
 mod codex_stream_recovery;
 mod codex_tool_dispatch;
 mod dynamic_tool_surface;
+mod failure_history;
 mod intents;
 mod output_helpers;
 mod plan_execute_review;

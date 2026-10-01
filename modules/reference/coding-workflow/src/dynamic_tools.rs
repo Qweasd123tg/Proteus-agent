@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use proteus_contracts::{
-    domain::{ToolCall, ToolResult, ToolSafety, ToolSpec, ToolSurface, new_call_id},
+    domain::{ToolCall, ToolResult, ToolSafety, ToolSpec, ToolSurface},
     process_module::{ProcessModuleError, WorkflowModuleHostMut, WorkflowModuleInput},
 };
 use serde_json::{Value, json};
@@ -73,6 +73,7 @@ pub fn meta_tool_specs_for_phase(phase: &str) -> Vec<ToolSpec> {
             }),
             ToolSafety::ReadOnly,
         )
+        .with_surface(ToolSurface::workflow_function())
         .with_parallel_tool_calls(true)
         .with_metadata(json!({
             "category": "proteus_dynamic_tools",
@@ -93,6 +94,7 @@ pub fn meta_tool_specs_for_phase(phase: &str) -> Vec<ToolSpec> {
             }),
             ToolSafety::ReadOnly,
         )
+        .with_surface(ToolSurface::workflow_function())
         .with_parallel_tool_calls(true)
         .with_metadata(json!({
             "category": "proteus_dynamic_tools",
@@ -122,6 +124,7 @@ pub fn meta_tool_specs_for_phase(phase: &str) -> Vec<ToolSpec> {
             }),
             ToolSafety::WritesFiles,
         )
+        .with_surface(ToolSurface::workflow_function())
         .with_metadata(json!({
             "category": "proteus_dynamic_tools",
             "hot": true,
@@ -142,12 +145,43 @@ pub fn all_policy_visible_tools(
     from_json_string(tools_json.as_str())
 }
 
+fn normalized_meta_call(call: &ToolCall, phase: &str) -> Result<ToolCall, ToolResult> {
+    let spec = meta_tool_specs_for_phase(phase)
+        .into_iter()
+        .find(|spec| spec.name == call.name)
+        .ok_or_else(|| {
+            ToolResult::error(
+                call.id.clone(),
+                "workflow tool is unavailable in this phase",
+            )
+        })?;
+    if let Some(error) = proteus_contracts::domain::validate_tool_call_args(call, &spec) {
+        return Err(ToolResult::error(call.id.clone(), error)
+            .with_metadata(json!({"validation_error":true})));
+    }
+    let mut effective = call.clone();
+    if let Some(raw) = &call.raw_arguments {
+        effective.args = serde_json::from_str(raw).map_err(|error| {
+            ToolResult::error(
+                call.id.clone(),
+                format!("failed to parse function arguments: {error}"),
+            )
+        })?;
+    }
+    Ok(effective)
+}
+
 pub fn handle_meta_tool_call(
     host: &WorkflowModuleHostMut<'_>,
     input: &WorkflowModuleInput,
     call: &ToolCall,
     phase: &str,
 ) -> Result<ToolResult, ProcessModuleError> {
+    let effective = match normalized_meta_call(call, phase) {
+        Ok(call) => call,
+        Err(result) => return Ok(result),
+    };
+    let call = &effective;
     match call.name.as_str() {
         TOOL_SEARCH => handle_search(host, input, call),
         TOOL_DESCRIBE => handle_describe(host, input, call),
@@ -271,72 +305,84 @@ fn handle_describe(
     )
 }
 
+pub(crate) enum DeferredCall {
+    Execute(ToolCall),
+    Rejected(ToolResult),
+}
+
 fn handle_deferred_call(
     host: &WorkflowModuleHostMut<'_>,
     input: &WorkflowModuleInput,
     outer_call: &ToolCall,
     phase: &str,
 ) -> Result<ToolResult, ProcessModuleError> {
+    match prepare_deferred_call(host, input, outer_call, phase)? {
+        DeferredCall::Execute(call) => execute_tool(host, input, &call),
+        DeferredCall::Rejected(result) => Ok(result),
+    }
+}
+
+pub(crate) fn prepare_deferred_call(
+    host: &WorkflowModuleHostMut<'_>,
+    input: &WorkflowModuleInput,
+    outer_call: &ToolCall,
+    phase: &str,
+) -> Result<DeferredCall, ProcessModuleError> {
+    let effective = match normalized_meta_call(outer_call, phase) {
+        Ok(call) => call,
+        Err(result) => return Ok(DeferredCall::Rejected(result)),
+    };
+    let outer_call = &effective;
     let Some(args) = outer_call.args.as_object() else {
-        return Ok(ToolResult::error(
+        return Ok(DeferredCall::Rejected(ToolResult::error(
             outer_call.id.clone(),
             "proteus_tool_call args must be an object",
-        ));
+        )));
     };
     let Some(name) = args.get("name").and_then(Value::as_str) else {
-        return Ok(ToolResult::error(
+        return Ok(DeferredCall::Rejected(ToolResult::error(
             outer_call.id.clone(),
             "proteus_tool_call requires string arg 'name'",
-        ));
+        )));
     };
     if is_meta_tool(name) {
-        return Ok(ToolResult::error(
+        return Ok(DeferredCall::Rejected(ToolResult::error(
             outer_call.id.clone(),
             "proteus_tool_call cannot call Proteus meta-tools",
-        ));
+        )));
     }
 
     let tools = all_policy_visible_tools(host, input)?;
     let Some(spec) = tools.iter().find(|tool| tool.name == name) else {
-        return Ok(ToolResult::error(
+        return Ok(DeferredCall::Rejected(ToolResult::error(
             outer_call.id.clone(),
             format!("tool '{name}' is not available or is denied by policy"),
-        ));
+        )));
     };
     if matches!(spec.surface, ToolSurface::ProviderHosted { .. }) {
-        return Ok(ToolResult::error(
+        return Ok(DeferredCall::Rejected(ToolResult::error(
             outer_call.id.clone(),
             format!(
                 "provider-hosted tool '{name}' cannot be invoked through {TOOL_CALL}; it must be exposed directly on the model request"
             ),
-        ));
+        )));
     }
     if phase == "plan" && !matches!(spec.safety, ToolSafety::ReadOnly) {
-        return Ok(ToolResult::error(
+        return Ok(DeferredCall::Rejected(ToolResult::error(
             outer_call.id.clone(),
             format!(
                 "tool '{name}' is not available through proteus_tool_call in plan phase because it is {}",
                 safety_label(&spec.safety)
             ),
-        ));
+        )));
     }
 
     let inner_args = args.get("args").cloned().unwrap_or_else(|| json!({}));
-    let inner_call = ToolCall::new(new_call_id(), name.to_owned(), inner_args);
-    let inner_call_id = inner_call.id.clone();
-    let mut result = execute_tool(host, input, &inner_call)?;
-    let original_result_call_id = result.call_id.clone();
-    result.call_id = outer_call.id.clone();
-    result.metadata = metadata_with_deferred_tool(
-        result.metadata,
-        json!({
-            "name": name,
-            "inner_call_id": inner_call_id,
-            "inner_result_call_id": original_result_call_id,
-            "outer_call_id": outer_call.id,
-        }),
-    );
-    Ok(result)
+    Ok(DeferredCall::Execute(ToolCall::new(
+        outer_call.id.clone(),
+        name,
+        inner_args,
+    )))
 }
 
 fn json_result(call: &ToolCall, value: Value) -> Result<ToolResult, ProcessModuleError> {
@@ -390,23 +436,6 @@ fn compact_metadata(metadata: &Value) -> Value {
         compact.insert("category".to_owned(), category.clone());
     }
     Value::Object(compact)
-}
-
-fn metadata_with_deferred_tool(mut metadata: Value, deferred_tool: Value) -> Value {
-    match &mut metadata {
-        Value::Object(map) => {
-            map.insert("deferred_tool".to_owned(), deferred_tool);
-            metadata
-        }
-        Value::Null => json!({ "deferred_tool": deferred_tool }),
-        previous => {
-            let previous = std::mem::replace(previous, Value::Null);
-            json!({
-                "deferred_tool": deferred_tool,
-                "previous_metadata": previous,
-            })
-        }
-    }
 }
 
 fn score_tool(tool: &ToolSpec, query: &str) -> f32 {

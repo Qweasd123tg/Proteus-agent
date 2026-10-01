@@ -596,6 +596,51 @@ fn context_worker_uses_only_its_slot_callback_authority() {
     let response: ProcessContextResponse = serde_json::from_value(value).expect("context response");
     assert_eq!(response.result.chunks.len(), 1);
     assert_eq!(response.result.chunks[0].source, "task");
+
+    std::fs::write(workspace.path().join("AGENTS.md"), "project rules").unwrap();
+    for module in ["repo_aware", "codex_context"] {
+        for budget in [4096, 0] {
+            let context = connect(
+                workspace.path(),
+                "context",
+                module,
+                json!({"providers": ["project_instructions"], "max_context_bytes": budget}),
+            );
+            let invocation = context
+                .invoke_with_dispatcher_and_cancel_check(
+                    PROCESS_CONTEXT_BUILD_METHOD,
+                    serde_json::to_value(ProcessContextInput {
+                        task: AgentTask::new("inspect rules", workspace.path().into()),
+                    })
+                    .unwrap(),
+                    TIMEOUT,
+                    Arc::new(ContextDispatcher),
+                    || false,
+                )
+                .unwrap();
+            match invocation.terminal {
+                ProcessModuleTerminal::Success(value) if budget > 0 => {
+                    let output: ProcessContextResponse = serde_json::from_value(value).unwrap();
+                    assert!(
+                        output
+                            .result
+                            .chunks
+                            .iter()
+                            .any(|chunk| chunk.content.contains("project rules"))
+                    );
+                }
+                ProcessModuleTerminal::ModuleError(error) if budget == 0 => {
+                    assert!(
+                        error
+                            .message
+                            .contains("cannot fit loaded project instructions"),
+                        "{error:?}"
+                    );
+                }
+                terminal => panic!("{module}/{budget}: {terminal:?}"),
+            }
+        }
+    }
 }
 
 struct WorkflowDispatcher;
@@ -644,6 +689,14 @@ fn dispatch_workflow_callback(
                 Vec::new(),
                 FinishReason::Stop,
             ))
+        }
+        proteus_contracts::contracts::WORKFLOW_HOST_CHECKPOINT_HISTORY_METHOD => {
+            let checkpoint: proteus_contracts::contracts::WorkflowHistoryCheckpoint =
+                serde_json::from_value(request.params)
+                    .map_err(|error| ProcessModuleRpcError::new(-32602, error.to_string()))?;
+            assert!(!checkpoint.history.new_messages.is_empty());
+            assert!(checkpoint.tool_results.is_empty());
+            encode_callback(WorkflowHostAck::default())
         }
         WORKFLOW_HOST_EMIT_EVENT_METHOD => encode_callback(WorkflowHostAck::default()),
         method => Err(ProcessModuleRpcError::new(

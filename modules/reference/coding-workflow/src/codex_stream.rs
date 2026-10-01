@@ -29,9 +29,15 @@ pub(crate) fn sample(
         let mut sample = SampleProgress::default();
         let mut in_flight = InFlight::default();
         let mut accept = |messages: &[CanonicalMessage]| {
-            sample.accept(host, turn, request, tools, messages, |batch, parallel| {
-                in_flight.start(scope, host, input, batch, parallel)
-            })
+            sample.accept(
+                host,
+                input,
+                turn,
+                request,
+                tools,
+                messages,
+                |batch, parallel| in_flight.start(scope, host, input, batch, parallel),
+            )
         };
         let outcome = (|| {
             let cursor =
@@ -80,6 +86,7 @@ impl SampleProgress {
     fn accept(
         &mut self,
         host: &WorkflowModuleHostMut<'_>,
+        input: &WorkflowModuleInput,
         turn: &mut TurnScaffold,
         request: &CanonicalModelRequest,
         tools: &mut CodexToolRun,
@@ -108,7 +115,7 @@ impl SampleProgress {
                 tools.tool_rounds += 1;
                 self.had_tools = true;
             }
-            let batch = tools.prepare(host, turn, &calls, &request.tools)?;
+            let batch = tools.prepare(host, input, turn, &calls, &request.tools)?;
             let parallel = batch.permits_parallel(&request.tools);
             start(batch, parallel)?;
         } else if changed {

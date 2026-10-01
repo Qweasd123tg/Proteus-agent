@@ -10,12 +10,14 @@ fn plan_execute_review_runs_plan_execute_and_review_requests() {
             CanonicalMessage::text(MessageRole::Assistant, "plan"),
             Vec::new(),
             FinishReason::Stop,
-        ),
+        )
+        .with_usage(TokenUsage::new(8000, 100)),
         CanonicalModelResponse::new(
             CanonicalMessage::text(MessageRole::Assistant, "draft"),
             Vec::new(),
             FinishReason::Stop,
-        ),
+        )
+        .with_usage(TokenUsage::new(6000, 100)),
         CanonicalModelResponse::new(
             CanonicalMessage::text(MessageRole::Assistant, "final"),
             Vec::new(),
@@ -73,6 +75,8 @@ fn plan_execute_review_runs_plan_execute_and_review_requests() {
     let compactions = host.compactions.lock().expect("compactions");
     assert_eq!(compactions.len(), 3);
     assert_eq!(compactions[2].reason.as_deref(), Some("review"));
+    assert!(compactions[1].token_estimate.unwrap() >= 8100);
+    assert!(compactions[2].token_estimate.unwrap() >= 6100);
     assert_eq!(compactions[2].window_tokens, Some(16_000));
     assert!(
         compactions[2]

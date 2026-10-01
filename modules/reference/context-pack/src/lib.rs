@@ -1,16 +1,17 @@
 //! Context-builder reference process modules.
 
 use std::{
-    cmp::Ordering,
     path::{Component, Path, PathBuf},
     process::Command,
 };
 
+mod budget;
 mod codex;
 mod config;
 mod search_queries;
 mod workspace_files;
 
+use budget::apply_byte_budget;
 use codex::build_codex_context;
 use config::{CodexContextConfig, RepoAwareContextConfig, SimpleContextConfig};
 use proteus_contracts::{
@@ -169,7 +170,7 @@ fn build_repo_aware_context(
         }
     }
 
-    let chunks = apply_byte_budget(chunks, config.max_context_bytes);
+    let chunks = apply_byte_budget(chunks, config.max_context_bytes)?;
     let token_estimate = token_estimate(&chunks);
     Ok(ContextBundle::new(chunks)
         .with_summary(format!(
@@ -594,35 +595,6 @@ fn retag_context_chunks(
         chunk.metadata = metadata_with(chunk.metadata.clone(), "context_profile", json!(to_prefix));
     }
     chunks
-}
-
-fn apply_byte_budget(chunks: Vec<ContextChunk>, max_context_bytes: usize) -> Vec<ContextChunk> {
-    if max_context_bytes == 0 {
-        return Vec::new();
-    }
-
-    let mut used = 0usize;
-    let mut ranked = chunks.into_iter().enumerate().collect::<Vec<_>>();
-    ranked.sort_by(|(left_index, left), (right_index, right)| {
-        right
-            .score
-            .unwrap_or(0.0)
-            .partial_cmp(&left.score.unwrap_or(0.0))
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| left_index.cmp(right_index))
-    });
-
-    let mut selected = Vec::new();
-    for (index, chunk) in ranked {
-        let len = chunk.content.len();
-        if used + len > max_context_bytes {
-            continue;
-        }
-        used += len;
-        selected.push((index, chunk));
-    }
-    selected.sort_by_key(|(index, _)| *index);
-    selected.into_iter().map(|(_, chunk)| chunk).collect()
 }
 
 fn token_estimate(chunks: &[ContextChunk]) -> u32 {

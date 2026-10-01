@@ -89,7 +89,7 @@ fn byte_budget_prefers_higher_score_and_restores_original_order() {
         ContextChunk::new("high_b", "33333").with_score(0.8),
     ];
 
-    let selected = apply_byte_budget(chunks, 10);
+    let selected = apply_byte_budget(chunks, 10).unwrap();
 
     assert_eq!(
         selected
@@ -101,6 +101,48 @@ fn byte_budget_prefers_higher_score_and_restores_original_order() {
 }
 
 #[test]
+fn regression_context_budget_keeps_project_instructions_before_ranked_evidence() {
+    let instructions = chunk(
+        "repo_aware:project_instructions",
+        None,
+        "rules".into(),
+        0.95,
+        "project_instructions",
+        "project instruction file",
+    );
+    let selected = apply_byte_budget(
+        vec![
+            ContextChunk::new("search", "noise").with_score(1.0),
+            instructions,
+        ],
+        5,
+    )
+    .unwrap();
+    assert_eq!(selected.len(), 1);
+    assert_eq!(selected[0].content, "rules");
+}
+
+#[test]
+fn context_budget_reports_project_instruction_overflow_instead_of_dropping_rules() {
+    for limit in [0, 4] {
+        let instructions = chunk(
+            "repo_aware:project_instructions",
+            None,
+            "rules".into(),
+            0.95,
+            "project_instructions",
+            "project instruction file",
+        );
+        let error = apply_byte_budget(vec![instructions], limit).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("cannot fit loaded project instructions")
+        );
+    }
+}
+
+#[test]
 fn byte_budget_keeps_tie_score_order() {
     let chunks = vec![
         ContextChunk::new("first", "11111").with_score(0.5),
@@ -108,7 +150,7 @@ fn byte_budget_keeps_tie_score_order() {
         ContextChunk::new("third", "33333").with_score(0.5),
     ];
 
-    let selected = apply_byte_budget(chunks, 10);
+    let selected = apply_byte_budget(chunks, 10).unwrap();
 
     assert_eq!(
         selected

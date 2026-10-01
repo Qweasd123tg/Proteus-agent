@@ -40,7 +40,7 @@ impl WorkflowModule for CodingSingleLoopWorkflow {
                 Ok(json) => Ok(String::from(json)),
                 Err(error) => workflow_err(error),
             },
-            Err(error) => Err(error.into()),
+            Err(error) => Err(error),
         }
     }
 }
@@ -82,7 +82,7 @@ impl WorkflowModule for CodingPlanExecuteReviewWorkflow {
                 Ok(json) => Ok(String::from(json)),
                 Err(error) => workflow_err(error),
             },
-            Err(error) => Err(error.into()),
+            Err(error) => Err(error),
         }
     }
 }

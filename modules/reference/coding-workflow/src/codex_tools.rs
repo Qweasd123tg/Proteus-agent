@@ -20,12 +20,13 @@ impl CodexToolRun {
     pub(crate) fn prepare(
         &mut self,
         host: &WorkflowModuleHostMut<'_>,
+        input: &WorkflowModuleInput,
         turn: &mut TurnScaffold,
         calls: &[ToolCall],
         request_tools: &[ToolSpec],
     ) -> Result<CodexToolBatch, ProcessModuleError> {
         let batch = CodexToolBatch::prepare(calls, request_tools);
-        turn.checkpoint(host, &batch.execution_calls())?;
+        turn.checkpoint_tools(host, input, &batch.execution_calls(), "codex_loop")?;
         self.executed_tools
             .extend(calls.iter().map(|call| call.name.clone()));
         Ok(batch)

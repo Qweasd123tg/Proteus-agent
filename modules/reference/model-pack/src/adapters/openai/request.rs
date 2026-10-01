@@ -202,6 +202,10 @@ fn to_openai_tool(tool: &ToolSpec) -> Result<Value> {
         ToolSurface::Function {
             strict,
             output_schema,
+        }
+        | ToolSurface::WorkflowFunction {
+            strict,
+            output_schema,
         } => {
             let mut value = json!({
                 "type": "function",
@@ -236,7 +240,9 @@ fn openai_named_tool_choice(request: &CanonicalModelRequest, name: &str) -> Resu
         .find(|tool| tool.name == name)
         .ok_or_else(|| anyhow!("tool_choice references unknown tool '{name}'"))?;
     match &tool.surface {
-        ToolSurface::Function { .. } => Ok(json!({ "type": "function", "name": name })),
+        ToolSurface::Function { .. } | ToolSurface::WorkflowFunction { .. } => {
+            Ok(json!({ "type": "function", "name": name }))
+        }
         ToolSurface::Freeform { .. } => Ok(json!({ "type": "custom", "name": name })),
         ToolSurface::ProviderHosted { config } => Ok(json!({ "type": config.kind().as_str() })),
         _ => Err(anyhow!(

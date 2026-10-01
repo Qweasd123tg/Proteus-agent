@@ -1,5 +1,8 @@
 use proteus_contracts::{
-    contracts::{WorkflowHistoryCheckpoint, WorkflowHistoryUpdate, WorkflowToolResultBinding},
+    contracts::{
+        WorkflowFailure, WorkflowHistoryCheckpoint, WorkflowHistoryUpdate,
+        WorkflowToolResultBinding,
+    },
     domain::{
         AgentOutput, CONTEXT_MESSAGE_NAME, Event, HistoryCompactionReport, MessageId, ToolResult,
     },
@@ -33,6 +36,43 @@ pub(crate) struct TurnScaffold {
 }
 
 impl TurnScaffold {
+    pub(crate) fn failure(&self, error: ProcessModuleError) -> WorkflowFailure {
+        let mut failure = WorkflowFailure::from(error);
+        match self.history_update() {
+            Ok(Some(history)) => failure.with_history(history),
+            Ok(None) => failure,
+            Err(history_error) => {
+                failure.message = format!(
+                    "{}; failed to collect workflow history: {}",
+                    failure.message, history_error.message
+                );
+                failure
+            }
+        }
+    }
+
+    pub(crate) fn checkpoint_tools(
+        &mut self,
+        host: &WorkflowModuleHostMut<'_>,
+        input: &WorkflowModuleInput,
+        calls: &[proteus_contracts::domain::ToolCall],
+        phase: &str,
+    ) -> Result<(), ProcessModuleError> {
+        let mut execution_calls = Vec::new();
+        for call in calls {
+            if call.name == crate::dynamic_tools::TOOL_CALL {
+                if let crate::dynamic_tools::DeferredCall::Execute(call) =
+                    crate::dynamic_tools::prepare_deferred_call(host, input, call, phase)?
+                {
+                    execution_calls.push(call);
+                }
+            } else if !crate::dynamic_tools::is_meta_tool(&call.name) {
+                execution_calls.push(call.clone());
+            }
+        }
+        self.checkpoint(host, &execution_calls)
+    }
+
     pub(crate) fn begin_without_context(
         host: &mut WorkflowModuleHostMut<'_>,
         input: &WorkflowModuleInput,

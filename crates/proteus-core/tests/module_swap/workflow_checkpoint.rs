@@ -5,7 +5,12 @@ use proteus_core::core::{
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rust_and_python_workflows_share_the_checkpoint_contract() {
-    for workflow in ["coding.codex_loop", "python_agent_loop"] {
+    for workflow in [
+        "coding.codex_loop",
+        "coding.single_loop",
+        "coding.plan_execute_review",
+        "python_agent_loop",
+    ] {
         let root = tempfile::tempdir().unwrap();
         let workspace = root.path().join("workspace");
         std::fs::create_dir(&workspace).unwrap();
@@ -18,7 +23,7 @@ async fn rust_and_python_workflows_share_the_checkpoint_contract() {
             "command": test_model::worker(),
             "exports": {"context": {"simple": {}}, "policy": {"allow_all": {}}}
         });
-        if workflow == "coding.codex_loop" {
+        if workflow != "python_agent_loop" {
             reference["exports"]["workflow"] = json!({workflow: {}});
         } else {
             config.components.insert("python-workflow".into(), serde_json::from_value(json!({

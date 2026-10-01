@@ -33,6 +33,7 @@ pub(super) fn step_title(step: &AppAnalysisStep) -> String {
             proteus_contracts::contracts::HookEvent::BeforeModel { .. } => "Перед запросом модели",
             proteus_contracts::contracts::HookEvent::BeforeTool { .. } => "Перед инструментом",
             proteus_contracts::contracts::HookEvent::AfterTool { .. } => "После инструмента",
+            proteus_contracts::contracts::HookEvent::BeforeStop { .. } => "Проверка завершения",
             proteus_contracts::contracts::HookEvent::TurnSettled { .. } => "Завершение хода",
         }
         .into(),

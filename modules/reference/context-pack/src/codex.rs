@@ -37,7 +37,7 @@ pub(super) fn build_codex_context(
         ));
     }
 
-    let chunks = apply_byte_budget(chunks, config.max_context_bytes);
+    let chunks = apply_byte_budget(chunks, config.max_context_bytes)?;
     let token_estimate = token_estimate(&chunks);
     Ok(ContextBundle::new(chunks)
         .with_summary(format!(

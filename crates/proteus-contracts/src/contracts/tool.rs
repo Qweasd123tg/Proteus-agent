@@ -310,6 +310,14 @@ impl ToolRegistry {
 
     pub fn register_arc(&mut self, source: ToolSource, tool: Arc<dyn Tool>) -> Result<()> {
         let spec = tool.spec();
+        anyhow::ensure!(
+            !matches!(
+                spec.surface,
+                crate::domain::ToolSurface::WorkflowFunction { .. }
+            ),
+            "workflow-owned tool '{}' cannot register as a host tool",
+            spec.name
+        );
         if let Some(existing) = self.tools.get(&spec.name) {
             return Err(anyhow!(
                 "duplicate tool registration: {} from {} conflicts with {}",
@@ -318,6 +326,8 @@ impl ToolRegistry {
                 existing.source.label()
             ));
         }
+        crate::domain::tool_validation::validate_tool_input_schema(&spec)
+            .map_err(anyhow::Error::msg)?;
         self.tools.insert(spec.name, ToolEntry { source, tool });
         Ok(())
     }

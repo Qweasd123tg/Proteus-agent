@@ -1,67 +1,129 @@
-//! Shared argument validation for tool execution and every hook contribution.
+//! Shared JSON Schema validation for tool execution and every hook contribution.
 use super::{ToolCall, ToolSpec};
 use serde_json::Value;
 
+/// Schemas are self-contained; local `$ref` is supported, external retrieval is
+/// disabled. This validation never adds filesystem/network capabilities.
+pub fn validate_tool_input_schema(spec: &ToolSpec) -> Result<(), String> {
+    compile_schema(spec).map(|_| ())
+}
+
+fn compile_schema(spec: &ToolSpec) -> Result<jsonschema::Validator, String> {
+    jsonschema::options()
+        .offline()
+        .build(&spec.input_schema)
+        .map_err(|error| format!("tool '{}' has invalid input schema: {error}", spec.name))
+}
+
 pub fn validate_tool_call_args(call: &ToolCall, spec: &ToolSpec) -> Option<String> {
-    if let Some(raw_arguments) = call.raw_arguments.as_deref()
-        && let Err(error) = serde_json::from_str::<Value>(raw_arguments)
-    {
-        return Some(format!("failed to parse function arguments: {error}"));
-    }
-
-    let schema = spec.input_schema.as_object()?;
-    let required_args = schema.get("required").and_then(Value::as_array);
-    let properties = schema.get("properties").and_then(Value::as_object);
-    let expects_object = required_args.is_some() || properties.is_some();
-    if expects_object && !call.args.is_object() {
-        return Some(format!("tool '{}' requires object args", call.name));
-    }
-
-    let args = call.args.as_object()?;
-    for required in required_args.into_iter().flatten() {
-        let Some(name) = required.as_str() else {
-            continue;
+    let parsed;
+    let args = if let Some(raw_arguments) = call.raw_arguments.as_deref() {
+        parsed = match serde_json::from_str::<Value>(raw_arguments) {
+            Ok(value) => value,
+            Err(error) => return Some(format!("failed to parse function arguments: {error}")),
         };
-        let property = properties.and_then(|properties| properties.get(name));
-        let expected_types = property.map(schema_type_names).unwrap_or_default();
-        let Some(value) = args.get(name) else {
-            return Some(required_arg_error(&call.name, name, &expected_types));
-        };
-        if !expected_types.is_empty()
-            && !expected_types
-                .iter()
-                .any(|expected_type| value_matches_schema_type(value, expected_type))
-        {
-            return Some(required_arg_error(&call.name, name, &expected_types));
+        &parsed
+    } else {
+        &call.args
+    };
+    let validator = match compile_schema(spec) {
+        Ok(validator) => validator,
+        Err(error) => return Some(error),
+    };
+    validator.validate(args).err().map(|error| {
+        format!(
+            "tool '{}' arguments violate schema at '{}': {} (schema '{}')",
+            call.name,
+            error.instance_path(),
+            error.masked(),
+            error.schema_path(),
+        )
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::ToolSafety;
+    use serde_json::json;
+
+    #[test]
+    fn regression_tool_arguments_validate_optional_nested_and_root_types() {
+        let spec = ToolSpec::new(
+            "probe",
+            "probe",
+            json!({
+                "type": "object",
+                "properties": {
+                    "options": {"type": "object", "properties": {
+                        "count": {"type": "integer", "minimum": 1},
+                        "mode": {"enum": ["read", "write"]}
+                    }, "additionalProperties": false},
+                    "paths": {"type": "array", "items": {"type": "string"}}
+                }, "additionalProperties": false
+            }),
+            ToolSafety::ReadOnly,
+        );
+        for args in [
+            json!({"options": false}),
+            json!({"options": {"count": "1"}}),
+            json!({"options": {"count": 0}}),
+            json!({"options": {"mode": "invalid"}}),
+            json!({"paths": [42]}),
+            json!({"extra": true}),
+            json!(false),
+        ] {
+            assert!(
+                validate_tool_call_args(&ToolCall::new("probe", "probe", args.clone()), &spec)
+                    .is_some(),
+                "accepted {args}"
+            );
         }
     }
-    None
-}
-
-fn schema_type_names(schema: &Value) -> Vec<&str> {
-    match schema.get("type") {
-        Some(Value::String(type_name)) => vec![type_name.as_str()],
-        Some(Value::Array(type_names)) => type_names.iter().filter_map(Value::as_str).collect(),
-        _ => Vec::new(),
+    #[test]
+    fn schemas_support_local_refs_composition_and_reject_invalid_or_external_refs() {
+        let spec = ToolSpec::new(
+            "probe",
+            "probe",
+            json!({
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "$defs": {"choice": {"oneOf": [{"const": "auto"}, {"type": "integer", "minimum": 1}]}},
+                "type": "object", "properties": {"choice": {"$ref": "#/$defs/choice"}},
+                "required": ["choice"]
+            }),
+            ToolSafety::ReadOnly,
+        );
+        for args in [json!({"choice":"auto"}), json!({"choice":2})] {
+            assert!(
+                validate_tool_call_args(&ToolCall::new("probe", "probe", args), &spec).is_none()
+            );
+        }
+        for args in [json!({}), json!({"choice":0}), json!({"choice":"invalid"})] {
+            assert!(
+                validate_tool_call_args(&ToolCall::new("probe", "probe", args), &spec).is_some()
+            );
+        }
+        for schema in [
+            json!({"type":"typo"}),
+            json!({"$ref":"https://example.com/tool-schema"}),
+            json!(null),
+        ] {
+            let spec = ToolSpec::new("probe", "probe", schema, ToolSafety::ReadOnly);
+            assert!(validate_tool_input_schema(&spec).is_err());
+        }
+        let spec = ToolSpec::new(
+            "probe",
+            "probe",
+            json!({"type":"object"}),
+            ToolSafety::ReadOnly,
+        );
+        let call = ToolCall::new("probe", "probe", json!({})).with_raw_arguments("false");
+        assert!(
+            validate_tool_call_args(&call, &spec).is_some(),
+            "raw provider args are authoritative"
+        );
+        assert!(
+            validate_tool_call_args(&ToolCall::new("probe", "probe", json!({})), &spec).is_none()
+        );
     }
-}
-
-fn value_matches_schema_type(value: &Value, expected_type: &str) -> bool {
-    match expected_type {
-        "array" => value.is_array(),
-        "boolean" => value.is_boolean(),
-        "integer" => value.as_i64().is_some() || value.as_u64().is_some(),
-        "null" => value.is_null(),
-        "number" => value.is_number(),
-        "object" => value.is_object(),
-        "string" => value.is_string(),
-        _ => true,
-    }
-}
-
-fn required_arg_error(tool_name: &str, arg_name: &str, expected_types: &[&str]) -> String {
-    let Some(expected_type) = expected_types.first() else {
-        return format!("tool '{tool_name}' requires arg '{arg_name}'");
-    };
-    format!("tool '{tool_name}' requires {expected_type} arg '{arg_name}'")
 }

@@ -41,10 +41,20 @@ fn proteus_tool_search_returns_compact_policy_visible_matches() {
     assert_eq!(output["matches"][0]["name"], "git_log");
     assert_eq!(output["matches"][0]["input_schema"], Value::Null);
     assert_eq!(output["matches"][0]["required_args"], json!(["path"]));
+    for args in [
+        json!({"query":"history","limit":"3"}),
+        json!({"query":"history","safety":"typo"}),
+    ] {
+        let invalid = ToolCall::new(new_call_id(), dynamic_tools::TOOL_SEARCH, args);
+        let result =
+            dynamic_tools::handle_meta_tool_call(&mut host, &input, &invalid, "execute").unwrap();
+        assert!(!result.ok);
+        assert_eq!(result.metadata["validation_error"], true);
+    }
 }
 
 #[test]
-fn proteus_tool_call_executes_hidden_tool_and_remaps_result_to_outer_call_id() {
+fn proteus_tool_call_preserves_execution_identity_and_actual_result() {
     let outer_call = ToolCall::new(
         new_call_id(),
         dynamic_tools::TOOL_CALL,
@@ -75,7 +85,7 @@ fn proteus_tool_call_executes_hidden_tool_and_remaps_result_to_outer_call_id() {
     let executed_calls = host.executed_calls.lock().expect("executed calls");
     assert_eq!(executed_calls.len(), 1);
     assert_eq!(executed_calls[0].name, "hidden_echo");
-    assert_ne!(executed_calls[0].id, outer_call.id);
+    assert_eq!(executed_calls[0].id, outer_call.id);
 
     let result = output
         .new_messages
@@ -88,13 +98,11 @@ fn proteus_tool_call_executes_hidden_tool_and_remaps_result_to_outer_call_id() {
         })
         .expect("tool result");
     assert_eq!(result.call_id, outer_call.id);
+    assert_eq!(result.metadata, json!({"inner": true}));
+    let checkpoints = host.checkpoints.lock().unwrap();
     assert_eq!(
-        result.metadata["deferred_tool"]["name"],
-        Value::String("hidden_echo".to_owned())
-    );
-    assert_eq!(
-        result.metadata["deferred_tool"]["inner_call_id"],
-        Value::String(executed_calls[0].id.clone())
+        checkpoints[0].tool_results[0].execution_call,
+        executed_calls[0]
     );
 }
 
@@ -187,7 +195,7 @@ fn proteus_tool_call_rejects_non_readonly_hidden_tool_in_plan_phase() {
             .error
             .as_deref()
             .unwrap_or_default()
-            .contains("plan phase")
+            .contains("phase")
     );
     assert!(
         host.executed_calls

@@ -348,6 +348,41 @@ async fn agent_runtime_records_a_detached_process_tool_execution_without_turn_st
         record.entry,
         JournalEntry::ToolCallRecorded(_) | JournalEntry::ToolResultRecorded(_)
     )));
+
+    let marker = workspace.path().join("invalid-args-executed");
+    for (index, args) in [
+        json!({"label": false}),
+        json!({"delay_ms": -1}),
+        json!({"delay_ms": "0"}),
+        json!({"wait_for_cancel": 42}),
+        json!({"unknown": true}),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut args = args;
+        args["start_marker"] = json!(marker);
+        let result = runtime
+            .execute_tool(
+                ToolCall::new(format!("invalid-args-{index}"), "phase8_probe", args),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert!(!result.ok);
+        assert_eq!(result.metadata["validation_error"], true);
+        assert!(
+            !marker.exists(),
+            "invalid arguments reached the process tool"
+        );
+    }
+    let projection = SessionStore::open(session_dir.to_path_buf())
+        .unwrap()
+        .load_projection()
+        .unwrap();
+    assert_eq!(projection.records.iter().filter(|record| matches!(&record.entry,
+        JournalEntry::ToolCallRecorded(tool) if matches!(tool.phase,
+            proteus_core::core::ToolCallRecordPhase::Resolved { resolution: proteus_contracts::domain::ToolCallResolution::ValidationFailed { .. } }))).count(), 5);
 }
 
 async fn wait_for_file(path: &Path) {

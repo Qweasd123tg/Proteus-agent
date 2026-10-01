@@ -73,9 +73,13 @@ async fn reply(socket: &mut TcpStream, status: u16, body: Value) {
     socket.shutdown().await.unwrap();
 }
 
-async fn check(failure: Failure) {
+async fn check(failure: Failure, workflow: &str) {
     let root = tempfile::tempdir().unwrap();
-    std::fs::write(root.path().join("probe.txt"), "known tool result").unwrap();
+    std::fs::write(
+        root.path().join("probe.txt"),
+        "known tool result\n".repeat(1000),
+    )
+    .unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let mut config = config(&format!("http://{}", listener.local_addr().unwrap()));
     config
@@ -90,6 +94,12 @@ async fn check(failure: Failure) {
         .unwrap()
         .get_mut("openai")
         .unwrap()["request_max_retries"] = json!(0);
+    config.modules.workflow = Some(workflow.into());
+    let mut component = serde_json::to_value(config.components.get("fixture").unwrap()).unwrap();
+    component["exports"]["workflow"] = json!({workflow: {}});
+    config
+        .components
+        .insert("fixture".into(), serde_json::from_value(component).unwrap());
     let config_path = root.path().join("config.json");
     std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
     let cancel = CancellationToken::new();
@@ -191,15 +201,33 @@ async fn check(failure: Failure) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn exhausted_summary_retries_preserve_completed_tool_and_cold_history() {
-    check(Failure::RetryExhausted).await;
+    for workflow in [
+        "coding.codex_loop",
+        "coding.single_loop",
+        "coding.plan_execute_review",
+    ] {
+        check(Failure::RetryExhausted, workflow).await;
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn prompt_only_overflow_is_terminal_and_preserves_completed_tool() {
-    check(Failure::MinimalPrompt).await;
+    for workflow in [
+        "coding.codex_loop",
+        "coding.single_loop",
+        "coding.plan_execute_review",
+    ] {
+        check(Failure::MinimalPrompt, workflow).await;
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancel_during_summary_closes_connection_and_preserves_completed_tool() {
-    check(Failure::Cancel).await;
+    for workflow in [
+        "coding.codex_loop",
+        "coding.single_loop",
+        "coding.plan_execute_review",
+    ] {
+        check(Failure::Cancel, workflow).await;
+    }
 }

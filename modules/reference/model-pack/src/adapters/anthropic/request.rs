@@ -146,7 +146,7 @@ fn joined_instructions(request: &CanonicalModelRequest) -> Option<String> {
 
 fn to_anthropic_tool(tool: &ToolSpec, cache_control: Option<&Value>) -> Result<Value> {
     match &tool.surface {
-        ToolSurface::Function { .. } => {
+        ToolSurface::Function { .. } | ToolSurface::WorkflowFunction { .. } => {
             let mut value = json!({
                 "name": tool.name,
                 "description": tool.description,

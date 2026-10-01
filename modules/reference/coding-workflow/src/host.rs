@@ -162,8 +162,16 @@ fn request_from_state_with_instruction_blocks_and_options(
     };
     let exposure_metadata = selected.metadata;
     let mut tools = selected.tools;
+    if phase == "plan" {
+        tools.retain(|tool| matches!(tool.safety, proteus_contracts::domain::ToolSafety::ReadOnly));
+    }
     let dynamic_tools_enabled = if options.expose_tools && options.include_dynamic_meta_tools {
-        let all_candidate_tools = dynamic_tools::all_policy_visible_tools(host, input)?;
+        let mut all_candidate_tools = dynamic_tools::all_policy_visible_tools(host, input)?;
+        if phase == "plan" {
+            all_candidate_tools.retain(|tool| {
+                matches!(tool.safety, proteus_contracts::domain::ToolSafety::ReadOnly)
+            });
+        }
         dynamic_tools::has_hidden_tools(&tools, &all_candidate_tools)
     } else {
         false

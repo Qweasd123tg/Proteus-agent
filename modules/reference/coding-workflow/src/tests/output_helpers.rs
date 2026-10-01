@@ -1,4 +1,5 @@
 use super::*;
+use crate::output_text::output_text;
 
 #[test]
 fn empty_text_response_gets_placeholder() {
