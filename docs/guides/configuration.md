@@ -797,6 +797,12 @@ max_hot_tools = 16
 Если selection отсутствует, host передаёт workflow все policy-visible tools.
 Это structural behavior, не скрытый module id.
 
+`max_hot_tools` — положительное целое, `always_include` — массив непустых
+имён tools (пустой массив очищает поставляемый список). Эти настройки читаются
+из config выбранного export, а не из invocation. Неизвестные keys и неверные
+типы отвергаются. Configs `ask_write`, `codex_policy` и `opencode_policy`
+также отвергают неизвестные поля, включая опечатки в `allow`, `ask_before` и `deny`.
+
 ## Subagents
 
 ```toml

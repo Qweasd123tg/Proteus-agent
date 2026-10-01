@@ -1,5 +1,5 @@
 use proteus_contracts::{
-    domain::{AgentOutput, Event, ToolCall, ToolChoice, ToolResult},
+    domain::{Event, ToolCall, ToolChoice, ToolResult},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, InstructionBlock, InstructionKind, MessageRole,
     },
@@ -13,6 +13,7 @@ use crate::{
     host::{complete_model, emit_event, execute_tool},
     metadata::with_workflow_phase,
     output_text::message_text,
+    scaffold::TurnScaffold,
     validation::{response_output_message, validate_model_response},
 };
 
@@ -61,18 +62,14 @@ pub(crate) fn run_project_check(
     host: &mut WorkflowModuleHostMut<'_>,
 ) -> Result<WorkflowModuleOutput, ProcessModuleError> {
     super::intents::reject(&input)?;
-    emit_event(
-        host,
-        &Event::TaskReceived {
-            task: input.task.clone(),
-        },
-    )?;
+    let mut turn = TurnScaffold::begin_without_context(host, &input)?;
 
     let git_status = run_tool(host, &input, "git-status", "git_status", json!({}))?;
     if !git_status.ok {
         return finish(
             host,
             &input,
+            &mut turn,
             blocked_report("git_status", "git status", &git_status),
         );
     }
@@ -89,6 +86,7 @@ pub(crate) fn run_project_check(
         return finish(
             host,
             &input,
+            &mut turn,
             blocked_report("project_detection", "project root listing", &root_entries),
         );
     }
@@ -97,6 +95,7 @@ pub(crate) fn run_project_check(
         return finish(
             host,
             &input,
+            &mut turn,
             CheckReport {
                 text: format!(
                     "Тип проекта не определён. Поддерживаемые markers: {}.",
@@ -141,6 +140,7 @@ pub(crate) fn run_project_check(
         return finish(
             host,
             &input,
+            &mut turn,
             CheckReport {
                 text: format!(
                     "Проверка проекта завершена успешно.\n\n- Тип: `{}` (`{}`)\n- Команда: `{}`\n- Рабочее дерево: {}",
@@ -165,6 +165,7 @@ pub(crate) fn run_project_check(
         return finish(
             host,
             &input,
+            &mut turn,
             blocked_report("tests", "test command", &test_result).with_project(project, git_dirty),
         );
     }
@@ -209,6 +210,7 @@ pub(crate) fn run_project_check(
     finish(
         host,
         &input,
+        &mut turn,
         CheckReport {
             text: format!(
                 "Проверка проекта завершилась ошибкой.\n\n- Тип: `{}` (`{}`)\n- Команда: `{}`\n- Exit code: {}\n- Рабочее дерево: {}\n\nОбъяснение модели:\n{}",
@@ -242,7 +244,12 @@ fn run_tool(
     name: &str,
     args: Value,
 ) -> Result<ToolResult, ProcessModuleError> {
-    let call_id = format!("project-check-{}-{stage}", input.runtime.turn_id);
+    let attempt = input
+        .runtime
+        .continuation
+        .as_ref()
+        .map_or(0, |review| review.attempt);
+    let call_id = format!("project-check-{}-{attempt}-{stage}", input.runtime.turn_id);
     execute_tool(host, input, &ToolCall::new(call_id, name, args))
 }
 
@@ -341,6 +348,7 @@ fn blocked_report(stage: &'static str, operation: &str, result: &ToolResult) -> 
 fn finish(
     host: &mut WorkflowModuleHostMut<'_>,
     input: &WorkflowModuleInput,
+    turn: &mut TurnScaffold,
     report: CheckReport,
 ) -> Result<WorkflowModuleOutput, ProcessModuleError> {
     let project = report.project.map(|project| {
@@ -370,24 +378,14 @@ fn finish(
             "model_finish_reason": report.model_finish_reason,
         },
     });
-    let output = AgentOutput::new(report.text.clone(), metadata);
+    let text = report.text.clone();
     let message = with_workflow_phase(
         CanonicalMessage::text(MessageRole::Assistant, report.text),
         PROJECT_CHECK_MODULE_ID,
         report.stage,
     );
-    emit_event(
-        host,
-        &Event::TurnFinished {
-            output: output.clone(),
-        },
-    )?;
-    Ok(WorkflowModuleOutput {
-        output,
-        new_messages: vec![message],
-        history_replacement: None,
-        compactions: Vec::new(),
-    })
+    turn.persistent_messages.push(message);
+    turn.finish(host, text, metadata)
 }
 
 #[cfg(test)]

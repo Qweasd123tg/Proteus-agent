@@ -172,9 +172,12 @@ impl WorkflowHostRuntime {
             .visible_tool_specs(&self.ctx, &request.cwd);
         let ctx = self.ctx.clone();
         self.run_active(async move {
-            ctx.tool_exposure
-                .select(ToolExposureInput::new(request, candidates))
-                .await
+            let output = ctx
+                .tool_exposure
+                .select(ToolExposureInput::new(request, candidates.clone()))
+                .await?;
+            output.validate_against(&candidates)?;
+            Ok(output)
         })
         .await
     }

@@ -151,6 +151,7 @@ impl PolicyModule for CodexPolicyModule {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct PolicyContextDto {
     #[allow(dead_code)]
     pub(crate) cwd: String,
@@ -164,6 +165,7 @@ pub(crate) struct PolicyContextDto {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct PolicyVisibilityContextDto {
     #[allow(dead_code)]
     pub(crate) cwd: String,
@@ -173,6 +175,7 @@ pub(crate) struct PolicyVisibilityContextDto {
 }
 
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct AskWriteConfig {
     #[serde(default)]
     allow: Vec<String>,
@@ -196,6 +199,7 @@ impl AskWriteConfig {
 }
 
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CodexPolicyConfig {
     #[serde(default)]
     allow: Vec<String>,
@@ -343,6 +347,17 @@ pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), Process
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn policy_config_rejects_unknown_fields_and_wrong_types() {
+        for config in [
+            serde_json::json!({"deny_typo":["read_file"]}),
+            serde_json::json!({"allow":42}),
+        ] {
+            assert!(CodexPolicyConfig::from_value(&config).is_err());
+            assert!(AskWriteConfig::from_value(&config).is_err());
+        }
+    }
     use proteus_contracts::domain::{PolicyDecision, ToolCall, ToolSafety, ToolSpec, new_call_id};
     use serde_json::json;
 

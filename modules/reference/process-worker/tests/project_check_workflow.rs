@@ -79,26 +79,49 @@ async fn project_check_config(git_failure: bool) -> AppConfig {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn deterministic_controller_replays_without_model_or_tool_implementations() {
-    check_model_free_replay(false).await;
+    for continuations in [0, 2] {
+        check_model_free_replay(false, continuations).await;
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn deterministic_controller_replays_recorded_tool_failure() {
-    check_model_free_replay(true).await;
+    for continuations in [0, 2] {
+        check_model_free_replay(true, continuations).await;
+    }
 }
 
-async fn check_model_free_replay(git_failure: bool) {
+async fn check_model_free_replay(git_failure: bool, continuations: usize) {
     let config_root = tempfile::tempdir().expect("config root");
     let workspace = tempfile::tempdir().expect("workspace");
     let config_path = config_root.path().join("config.toml");
-    let config = project_check_config(git_failure).await;
+    let mut config = project_check_config(git_failure).await;
+    if continuations > 0 {
+        config.modules.hooks = vec!["review".into()];
+        config.components.insert("review-hook".into(), component(json!({
+            "command":"node", "args":[workspace_file("examples/modules/hook-process/worker.mjs")],
+            "exports":{"hook":{"review":{}}}
+        })));
+        config
+            .module_config
+            .entry("hook".into())
+            .or_default()
+            .insert(
+                "review".into(),
+                json!({
+                    "entry":workspace_file("crates/proteus-core/tests/fixtures/review_hooks.mjs"),
+                    "settings":{"continuations":continuations}
+                }),
+            );
+    }
     let expected_status = if git_failure { "blocked" } else { "passed" };
     let expected_tools = if git_failure {
         vec!["git_status"]
     } else {
         vec!["git_status", "list_dir", "shell"]
-    };
-    let expected_approvals = if git_failure { 0 } else { 1 };
+    }
+    .repeat(continuations + 1);
+    let expected_approvals = if git_failure { 0 } else { continuations + 1 };
     let catalog = ModuleCatalog::from_config(&config).expect("project-check module catalog");
     let runtime = AgentRuntime::builder(config.clone(), workspace.path().to_path_buf())
         .with_config_path(Some(&config_path))
@@ -131,7 +154,7 @@ async fn check_model_free_replay(git_failure: bool) {
         .expect("canonical projection");
     assert!(projection.unsettled_turns.is_empty());
     assert!(projection.interrupted_model_exchanges.is_empty());
-    assert_eq!(projection.history.len(), 2);
+    assert_eq!(projection.history.len(), 2 + continuations);
     assert_eq!(projection.history[0].role, MessageRole::User);
     assert_eq!(projection.history[1].role, MessageRole::Assistant);
 
@@ -171,7 +194,10 @@ async fn check_model_free_replay(git_failure: bool) {
     assert!(eval.succeeded());
     assert_eq!(eval.model_calls, 0);
     assert_eq!(eval.tool_calls, expected_tools.len());
-    assert_eq!(eval.tool_failures, usize::from(git_failure));
+    assert_eq!(
+        eval.tool_failures,
+        usize::from(git_failure) * (continuations + 1)
+    );
     assert_eq!(eval.approvals_requested, expected_approvals);
     assert_eq!(eval.approvals_resolved, expected_approvals);
     assert_eq!(eval.approvals_approved, expected_approvals);

@@ -24,7 +24,7 @@ pub const PROCESS_MEMORY_RECALL_METHOD: &str = "recall";
 pub const PROCESS_PATCH_CONTRACT_VERSION: &str = "v1";
 pub const PROCESS_PATCH_APPLY_METHOD: &str = "apply";
 
-pub const PROCESS_TOOL_EXPOSURE_CONTRACT_VERSION: &str = "v2";
+pub const PROCESS_TOOL_EXPOSURE_CONTRACT_VERSION: &str = "v3";
 pub const PROCESS_TOOL_EXPOSURE_SELECT_METHOD: &str = "select";
 
 pub const PROCESS_POLICY_CONTRACT_VERSION: &str = "v2";
@@ -162,6 +162,22 @@ mod tests {
             "legacy": true
         }))
         .expect_err("unknown response fields must be rejected");
+        let input = super::super::ToolExposureInput::new(
+            super::super::ToolExposureRequest::new(AgentTask::new(
+                "probe",
+                std::path::PathBuf::from("."),
+            )),
+            vec![],
+        );
+        let mut value = serde_json::to_value(ProcessToolExposureInput { input }).unwrap();
+        value["input"]["config"] = serde_json::json!({});
+        serde_json::from_value::<ProcessToolExposureInput>(value)
+            .expect_err("config belongs to export, not invocation");
+        let mut value =
+            serde_json::to_value(super::super::ToolExposureOutput::new(vec![])).unwrap();
+        value["typo"] = serde_json::json!(true);
+        serde_json::from_value::<super::super::ToolExposureOutput>(value)
+            .expect_err("nested output must be strict");
     }
 
     #[test]

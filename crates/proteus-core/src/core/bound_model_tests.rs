@@ -20,6 +20,8 @@ use crate::{
 mod deadline;
 #[path = "bound_model_tests/failure_progress.rs"]
 mod failure_progress;
+#[path = "bound_model_tests/tool_authority.rs"]
+mod tool_authority;
 
 #[derive(Default)]
 struct CollectingSink {

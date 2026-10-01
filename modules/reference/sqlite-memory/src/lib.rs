@@ -173,7 +173,9 @@ fn row_to_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<ItemWire> {
     let kind: String = row.get(0)?;
     let content: String = row.get(1)?;
     let metadata_json: String = row.get(2)?;
-    let metadata: Value = serde_json::from_str(&metadata_json).unwrap_or(Value::Null);
+    let metadata: Value = serde_json::from_str(&metadata_json).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(error))
+    })?;
     Ok(ItemWire {
         kind,
         content,
@@ -251,6 +253,19 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].kind, "preference");
         assert_eq!(items[0].metadata["source"], "test");
+
+        conn.lock()
+            .unwrap()
+            .execute("UPDATE memory_items SET metadata = 'broken-json'", [])
+            .unwrap();
+        for text in ["", "dark"] {
+            let error = recall_impl(
+                &conn,
+                &serde_json::json!({"text":text,"limit":5}).to_string(),
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("Conversion error"), "{error:#}");
+        }
     }
 
     #[test]

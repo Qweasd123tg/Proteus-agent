@@ -233,6 +233,8 @@ root marker, запускает фиксированную test command и об�
 или compactor. Это architecture probe, не default workflow и не special
 authority: direct process execution внутри него отсутствует, каждый tool
 проходит общий host safety path.
+Completion review повторно запускает проверки в том же turn; каждая попытка
+получает собственные tool call ids, а final history сохраняет ответы всех попыток.
 
 ### Search
 
@@ -241,6 +243,8 @@ authority: direct process execution внутри него отсутствует
 сохраняется в результате. Отсутствие совпадений возвращает пустой список,
 ошибка regex или запуска поиска — ошибку invocation. Лимит результатов
 ограничивает найденные совпадения, а не служебные записи ripgrep.
+Prefix — строковый фильтр относительного пути, а не обязательный существующий
+root. Начальный `./` не влияет на совпадение; лимит применяется после фильтров.
 External example: `examples/modules/search-process/search.py`.
 
 ### Memory
@@ -251,6 +255,7 @@ External example: `examples/modules/search-process/search.py`.
 `jsonl` и `sqlite` имеют одинаковую protocol authority; различается только
 storage implementation. `recall` с `limit = 0` возвращает пустой список у обеих
 реализаций.
+Некорректная JSON metadata в SQLite — явная ошибка чтения, без подмены на `null`.
 
 ### Context И Context Provider
 
@@ -338,6 +343,13 @@ compactor origin-ом `compactor` в journal envelope. Workflow replay пров�
 Выбирает подмножество уже policy-visible tools. Если module не выбран, host
 передаёт все policy-visible candidates; это structural behavior, не
 `all_visible` module.
+
+`tool_exposure/v3` принимает strict `request` и `candidates`; конфигурация
+принадлежит export и передаётся только через handshake. Возвращённые specs
+должны точно совпадать с candidates, без дубликатов: менять safety, surface,
+schema, timeout или parallel permission нельзя. Перед фактическим model request
+runtime повторно проверяет registry specs и текущую policy visibility,
+включая provider-hosted tools. Unknown fields и неверные типы настроек — ошибки.
 
 ### Tool
 

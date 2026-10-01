@@ -182,6 +182,7 @@ pub struct BoundModel {
     hooks: Arc<dyn crate::contracts::ExecutionHooks>,
     hook_attribution: crate::contracts::ExecutionAttribution,
     hook_cwd: PathBuf,
+    tool_authority: Option<crate::core::BoundTools>,
 }
 
 impl BoundModel {
@@ -198,11 +199,17 @@ impl BoundModel {
             hooks: Arc::new(crate::contracts::NoExecutionHooks),
             hook_attribution,
             hook_cwd: PathBuf::new(),
+            tool_authority: None,
         }
     }
 
     pub fn binding(&self) -> &ModelExecutionBinding {
         &self.binding
+    }
+
+    pub(crate) fn with_tool_authority(mut self, tools: crate::core::BoundTools) -> Self {
+        self.tool_authority = Some(tools);
+        self
     }
 
     pub(crate) fn with_hooks(

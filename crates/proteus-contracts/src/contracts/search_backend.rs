@@ -53,7 +53,7 @@ impl SearchQuery {
             || self
                 .starts_with
                 .iter()
-                .any(|prefix| path.starts_with(prefix)))
+                .any(|prefix| path.starts_with(prefix.trim_start_matches("./"))))
             && (self.ends_with.is_empty()
                 || self.ends_with.iter().any(|suffix| path.ends_with(suffix)))
     }

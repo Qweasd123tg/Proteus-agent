@@ -266,7 +266,7 @@ invalid DTO и превышение limits являются fail-closed protocol
 | search | v2 | `search` | — |
 | memory | v2 | `remember`, `recall` | — |
 | patch | v1 | `apply` | — |
-| tool exposure | v2 | `select` | — |
+| tool exposure | v3 | `select` | — |
 | policy | v2 | `evaluate`, `evaluate_visibility` | — |
 | context provider | v2 | `provide` | — |
 | tool | v3 | `list`, `invoke` | — |

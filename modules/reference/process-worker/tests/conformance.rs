@@ -491,7 +491,7 @@ fn policy_exposure_provider_and_compactor_execute_in_worker() {
         workspace.path(),
         "tool_exposure",
         "codex_dynamic",
-        json!({}),
+        json!({"max_hot_tools":1,"always_include":["probe_9"]}),
     );
     let selected: ProcessToolExposureResponse = invoke(
         &exposure,
@@ -502,12 +502,22 @@ fn policy_exposure_provider_and_compactor_execute_in_worker() {
                     "read the file",
                     workspace.path().to_path_buf(),
                 )),
-                vec![spec],
+                (0..12)
+                    .map(|index| {
+                        ToolSpec::new(
+                            format!("probe_{index}"),
+                            "probe",
+                            json!({"type":"object"}),
+                            ToolSafety::ReadOnly,
+                        )
+                    })
+                    .collect(),
             ),
         })
         .expect("exposure input"),
     );
     assert_eq!(selected.result.tools.len(), 1);
+    assert_eq!(selected.result.tools[0].name, "probe_9");
 
     let provider = connect(workspace.path(), "context_provider", "skills", json!({}));
     let chunks: ProcessContextChunksResponse = invoke(

@@ -8,6 +8,9 @@ impl BoundModel {
         &self,
         request: CanonicalModelRequest,
     ) -> Result<CanonicalModelRequest> {
+        if let Some(tools) = &self.tool_authority {
+            tools.validate_model_tools(&request.tools, &self.hook_cwd)?;
+        }
         let mut request = self.service.prepare_request(request)?;
         self.binding.bind_request(&mut request)?;
         let event = self
@@ -30,6 +33,9 @@ impl BoundModel {
         };
         let mut request = self.service.prepare_request(transformed)?;
         self.binding.bind_request(&mut request)?;
+        if let Some(tools) = &self.tool_authority {
+            tools.validate_model_tools(&request.tools, &self.hook_cwd)?;
+        }
         Ok(request)
     }
 }

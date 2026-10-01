@@ -70,6 +70,7 @@ enum RuleAction {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct OpencodeRule {
     permission: String,
     #[serde(default = "default_pattern")]
@@ -78,6 +79,7 @@ struct OpencodeRule {
 }
 
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct GroupConfig {
     #[serde(default)]
     tools: Vec<String>,
@@ -92,6 +94,7 @@ struct GroupConfig {
 }
 
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct OpencodePolicyConfig {
     /// Порядок значим: действует последнее совпавшее правило.
     #[serde(default)]

@@ -28,8 +28,7 @@ fn failed_test(output: &str, exit_code: i64) -> ToolResult {
 
 #[test]
 fn deterministic_project_check_passes_without_context_compaction_or_model() {
-    let mut input = workflow_input("проверь проект");
-    input.history.clear();
+    let input = workflow_input("проверь проект");
     let mut host = FakeHost::default().with_tool_results(vec![
         successful_tool("## main", json!({})),
         successful_tool("file\tCargo.toml\ndir\tsrc", json!({})),

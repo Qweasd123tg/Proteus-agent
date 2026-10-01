@@ -1,5 +1,7 @@
 #[path = "support/model.rs"]
 mod test_model;
+#[path = "module_swap/tool_exposure.rs"]
+mod tool_exposure;
 #[path = "module_swap/workflow_checkpoint.rs"]
 mod workflow_checkpoint;
 

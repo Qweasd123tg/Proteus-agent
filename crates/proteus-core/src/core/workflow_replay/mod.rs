@@ -125,6 +125,15 @@ pub async fn replay_workflow(
         state.clone(),
         fixture.snapshot.modules.hooks.clone(),
     ));
+    let approval: Arc<dyn crate::contracts::ApprovalTransport> =
+        Arc::new(ReplayApprovalTransport::new(state.clone()));
+    let tool_authority = crate::core::BoundTools::new(
+        tools.clone(),
+        policy.clone(),
+        approval.clone(),
+        Arc::default(),
+        crate::core::ToolExecutionBinding::detached(scope.clone()),
+    );
     let model: Arc<dyn crate::contracts::Model> = if fixture.exchanges.is_empty()
         && fixture
             .hooks
@@ -144,14 +153,16 @@ pub async fn replay_workflow(
             fixture.turn_id,
             Arc::new(NoopExecutionRecorder),
         );
-        Arc::new(BoundModel::new(model_service, model_binding, 0).with_hooks(
-            hooks.clone(),
-            hook_attribution,
-            fixture.opened.task.cwd.clone(),
-        ))
+        Arc::new(
+            BoundModel::new(model_service, model_binding, 0)
+                .with_hooks(
+                    hooks.clone(),
+                    hook_attribution,
+                    fixture.opened.task.cwd.clone(),
+                )
+                .with_tool_authority(tool_authority),
+        )
     };
-    let approval: Arc<dyn crate::contracts::ApprovalTransport> =
-        Arc::new(ReplayApprovalTransport::new(state.clone()));
     let mut execution_context = ExecutionContext::new(
         scope,
         0,

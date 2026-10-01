@@ -50,7 +50,7 @@ fn run_rg(query: SearchQuery) -> Result<Vec<ContextChunk>, String> {
     }
 
     let command = build_rg_command(&query);
-    let lines = match run_rg_limited(command, query.max_results, RG_TIMEOUT) {
+    let lines = match run_rg_limited(command, query, RG_TIMEOUT) {
         Ok(lines) => lines,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Err("ripgrep executable 'rg' was not found in PATH".to_owned());
@@ -62,14 +62,6 @@ fn run_rg(query: SearchQuery) -> Result<Vec<ContextChunk>, String> {
         .iter()
         .map(String::as_str)
         .filter_map(parse_rg_match)
-        .filter(|chunk| {
-            chunk
-                .path
-                .as_ref()
-                .and_then(|path| path.to_str())
-                .is_some_and(|path| query.matches_path(path))
-        })
-        .take(query.max_results)
         .collect())
 }
 
@@ -93,17 +85,45 @@ fn search_roots(query: &SearchQuery) -> Vec<PathBuf> {
     let roots = query
         .starts_with
         .iter()
-        .filter_map(|prefix| safe_relative_root(prefix))
+        .filter_map(|prefix| {
+            let path = safe_relative_root(prefix)?;
+            // A prefix is a predicate, not necessarily an existing path.
+            // Only a trailing slash permits narrowing to that directory;
+            // otherwise siblings with the same filename prefix also match.
+            let mut root = if prefix.ends_with('/') {
+                path.as_path()
+            } else {
+                path.parent()?
+            };
+            while !root.as_os_str().is_empty() && !query.cwd.join(root).is_dir() {
+                root = root.parent()?;
+            }
+            Some(if root.as_os_str().is_empty() {
+                PathBuf::from(".")
+            } else {
+                root.to_path_buf()
+            })
+        })
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
         .collect::<Vec<_>>();
-    if roots.is_empty() {
+    if roots.is_empty() || roots.iter().any(|root| root == Path::new(".")) {
         vec![PathBuf::from(".")]
     } else {
         roots
+            .iter()
+            .filter(|root| {
+                !roots
+                    .iter()
+                    .any(|parent| parent != *root && root.starts_with(parent))
+            })
+            .cloned()
+            .collect()
     }
 }
 
 fn safe_relative_root(prefix: &str) -> Option<PathBuf> {
-    let trimmed = prefix.trim().trim_start_matches("./").trim_end_matches('/');
+    let trimmed = prefix.trim_start_matches("./").trim_end_matches('/');
     if trimmed.is_empty() || trimmed == "." {
         return Some(PathBuf::from("."));
     }
@@ -132,9 +152,10 @@ fn suffix_glob(suffix: &str) -> Option<String> {
 
 fn run_rg_limited(
     mut command: Command,
-    max_results: usize,
+    query: SearchQuery,
     timeout: Duration,
 ) -> std::io::Result<Vec<String>> {
+    let max_results = query.max_results;
     if max_results == 0 {
         return Ok(Vec::new());
     }
@@ -174,7 +195,13 @@ fn run_rg_limited(
                     return;
                 }
             };
-            if parse_rg_match(&line).is_some() {
+            if parse_rg_match(&line).is_some_and(|chunk| {
+                chunk
+                    .path
+                    .as_ref()
+                    .and_then(|path| path.to_str())
+                    .is_some_and(|path| query.matches_path(path))
+            }) {
                 lines.push(line);
                 if lines.len() >= max_results {
                     let _ = tx.send(Ok((lines, true)));
@@ -326,7 +353,9 @@ mod tests {
 
     #[test]
     fn rg_command_uses_safe_path_filters_as_search_roots_and_globs() {
-        let query = SearchQuery::new("needle", std::path::PathBuf::from("/tmp/workspace"), 10)
+        let dir = temp_workspace();
+        fs::create_dir(dir.join("src")).unwrap();
+        let query = SearchQuery::new("needle", dir.clone(), 10)
             .with_path_filters(["src/", "../outside", "/tmp"], [".rs", "../secret"]);
         let command = build_rg_command(&query);
         let args = command
@@ -339,6 +368,7 @@ mod tests {
         assert!(!args.iter().any(|arg| arg == "../outside"));
         assert!(!args.iter().any(|arg| arg == "/tmp"));
         assert!(!args.iter().any(|arg| arg.contains("secret")));
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -379,6 +409,50 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(paths, ["src/a.txt"]);
+
+        fs::write(dir.join("src/another.txt"), "needle\n").unwrap();
+        for prefix in ["src/a", "./src/a"] {
+            let chunks = run_rg(
+                SearchQuery::new("needle", dir.clone(), 2)
+                    .with_path_filters([prefix], [] as [&str; 0]),
+            )
+            .unwrap();
+            assert_eq!(chunks.len(), 2, "{prefix}");
+            assert!(
+                chunks
+                    .iter()
+                    .all(|chunk| chunk.path.as_ref().unwrap().starts_with("src"))
+            );
+        }
+        assert_eq!(
+            run_rg(
+                SearchQuery::new("needle", dir.clone(), 10)
+                    .with_path_filters(["src/", "src/a"], [] as [&str; 0])
+            )
+            .unwrap()
+            .len(),
+            2
+        );
+        // Existing directory name without '/' is still a prefix of siblings.
+        fs::create_dir_all(dir.join("src-other")).unwrap();
+        fs::write(dir.join("src-other/a.txt"), "needle\n").unwrap();
+        assert_eq!(
+            run_rg(
+                SearchQuery::new("needle", dir.clone(), 10)
+                    .with_path_filters(["src"], [] as [&str; 0])
+            )
+            .unwrap()
+            .len(),
+            3
+        );
+        assert!(
+            run_rg(
+                SearchQuery::new("needle", dir.clone(), 1)
+                    .with_path_filters(["missing/"], [] as [&str; 0])
+            )
+            .unwrap()
+            .is_empty()
+        );
 
         let _ = fs::remove_dir_all(dir);
     }

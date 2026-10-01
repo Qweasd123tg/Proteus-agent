@@ -168,13 +168,23 @@ impl RuntimeRegistry {
         let scope = model_binding.scope().clone();
         let attribution = model_binding.attribution();
         let hooks = self.bind_hooks(scope.clone(), model_binding.recorder());
+        let policy: Arc<dyn ApprovalPolicy> =
+            Arc::new(ModeAwarePolicy::new(permission_mode, self.policy.clone()));
+        let tools = crate::core::BoundTools::new(
+            self.tools.clone(),
+            policy.clone(),
+            approval.clone(),
+            Arc::default(),
+            crate::core::ToolExecutionBinding::detached(scope.clone()),
+        );
         let model: Arc<dyn Model> = Arc::new(
             BoundModel::new(
                 self.model_service.clone(),
                 model_binding,
                 self.runtime_config.model_timeout_ms,
             )
-            .with_hooks(hooks.clone(), attribution, self.cwd.clone()),
+            .with_hooks(hooks.clone(), attribution, self.cwd.clone())
+            .with_tool_authority(tools),
         );
         ExecutionContext::new(
             scope,
@@ -183,7 +193,7 @@ impl RuntimeRegistry {
             self.search.clone(),
             self.memory.clone(),
             self.tools.clone(),
-            Arc::new(ModeAwarePolicy::new(permission_mode, self.policy.clone())),
+            policy,
             approval,
         )
         .with_hooks(hooks)

@@ -158,6 +158,37 @@ impl BoundTools {
             .collect()
     }
 
+    pub(crate) fn validate_model_tools(&self, tools: &[ToolSpec], cwd: &Path) -> Result<()> {
+        let mut names = std::collections::HashSet::new();
+        for tool in tools {
+            anyhow::ensure!(
+                names.insert(&tool.name),
+                "duplicate model tool: {}",
+                tool.name
+            );
+            let registered = self.registry.spec(&tool.name)?;
+            anyhow::ensure!(
+                registered == *tool,
+                "model request changed registered tool '{}'",
+                tool.name
+            );
+            anyhow::ensure!(
+                visibility_decision_allows(
+                    tool,
+                    self.policy
+                        .evaluate_visibility(&PolicyVisibilityContext::new(
+                            cwd.to_path_buf(),
+                            registered
+                        )),
+                    self.approval.can_request_approval(),
+                ),
+                "model request contains policy-hidden tool '{}'",
+                tool.name
+            );
+        }
+        Ok(())
+    }
+
     pub async fn execute(&self, cwd: PathBuf, call: ToolCall) -> Result<ToolResult> {
         self.execute_enriched(cwd, call, &NoopToolExecutionObserver, |_| {})
             .await

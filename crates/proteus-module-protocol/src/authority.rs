@@ -300,7 +300,7 @@ mod tests {
             ("hook", "v1", "v2"),
             ("tool", "v2", "v3"),
             ("policy", "v1", "v2"),
-            ("tool_exposure", "v1", "v2"),
+            ("tool_exposure", "v2", "v3"),
         ] {
             assert!(process_contract_authority(slot, previous).is_none());
             assert!(process_contract_authority(slot, current).is_some());

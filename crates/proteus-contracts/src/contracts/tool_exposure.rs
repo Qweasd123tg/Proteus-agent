@@ -1,12 +1,13 @@
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{AgentTask, ToolSpec};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct ToolExposureRequest {
     pub task: AgentTask,
@@ -57,13 +58,11 @@ impl ToolExposureRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct ToolExposureInput {
     pub request: ToolExposureRequest,
-    #[serde(default)]
     pub candidates: Vec<ToolSpec>,
-    #[serde(default)]
-    pub config: serde_json::Value,
 }
 
 impl ToolExposureInput {
@@ -71,20 +70,14 @@ impl ToolExposureInput {
         Self {
             request,
             candidates,
-            config: serde_json::Value::Null,
         }
-    }
-
-    pub fn with_config(mut self, config: serde_json::Value) -> Self {
-        self.config = config;
-        self
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct ToolExposureOutput {
-    #[serde(default)]
     pub tools: Vec<ToolSpec>,
     #[serde(default)]
     pub metadata: serde_json::Value,
@@ -96,6 +89,24 @@ impl ToolExposureOutput {
             tools,
             metadata: serde_json::Value::Null,
         }
+    }
+
+    /// Selection can reorder or omit candidates, but cannot redefine tools.
+    pub fn validate_against(&self, candidates: &[ToolSpec]) -> Result<()> {
+        let mut names = std::collections::HashSet::new();
+        for tool in &self.tools {
+            ensure!(
+                names.insert(&tool.name),
+                "duplicate selected tool: {}",
+                tool.name
+            );
+            ensure!(
+                candidates.iter().any(|candidate| candidate == tool),
+                "tool exposure changed or invented registered tool '{}'",
+                tool.name
+            );
+        }
+        Ok(())
     }
 }
 
