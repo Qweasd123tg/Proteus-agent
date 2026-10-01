@@ -6,11 +6,11 @@ use std::path::Path;
 
 use discovery::{SkillDocument, discover_skills};
 use proteus_contracts::{
+    contracts::ProcessContextProviderInput,
     domain::ContextChunk,
     process_module::{
-        ContextProviderModule, ContextProviderModuleInput, ContextProviderModuleObject,
-        ModuleRegistry, ProcessModuleError, ToolModule, ToolModuleHostMut,
-        ToolModuleInvocationContext, ToolModuleObject,
+        ContextProviderModule, ContextProviderModuleObject, ModuleRegistry, ProcessModuleError,
+        ToolModule, ToolModuleHostMut, ToolModuleInvocationContext, ToolModuleObject,
     },
 };
 use serde::Deserialize;
@@ -24,11 +24,11 @@ pub struct SkillTool;
 
 impl ContextProviderModule for SkillsContextProvider {
     fn provide_json(&self, input_json: String) -> Result<String, ProcessModuleError> {
-        let input: ContextProviderModuleInput = match serde_json::from_str(input_json.as_str()) {
+        let input: ProcessContextProviderInput = match serde_json::from_str(input_json.as_str()) {
             Ok(input) => input,
             Err(error) => {
                 return Err(ProcessModuleError::new(format!(
-                    "failed to parse ContextProviderModuleInput: {error}"
+                    "failed to parse ProcessContextProviderInput: {error}"
                 )));
             }
         };

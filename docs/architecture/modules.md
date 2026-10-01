@@ -470,6 +470,39 @@ cargo test -p proteus-reference-worker --test conformance
 Тест выполняет не только handshake: он вызывает реальные file/search/patch/
 memory/policy/context/compactor/workflow paths, включая callbacks.
 
+## Единый Образец Реализации
+
+Общие сведения о границе поддерживаются в одном месте:
+
+- wire DTO, версии и имена методов принадлежат `proteus-contracts`;
+- допущенные contracts, composition и callback authority собраны в
+  `proteus-module-protocol::PROCESS_CONTRACT_AUTHORITIES`;
+- exact export ищется через `ProcessComponentBinding::export`, а его launch
+  settings остаются в host config;
+- adapters используют общий `ProcessExportClient`; одинаковый разбор и
+  сериализация host callbacks находятся в `process_adapters::host_rpc`.
+
+Module helpers используют канонический DTO напрямую, если передают ту же
+схему. Например, `context-pack`, `skill-pack`, worker и host adapter используют
+один `ProcessContextProviderInput`. Отдельный helper DTO нужен только для
+другой границы с собственными данными: `ContextBuilderModuleInput` содержит
+implementation config, которого нет в `ProcessContextInput`.
+Повторное объявление одинаковых полей или alias для удалённого типа не нужны.
+
+Общий helper выделяется по одинаковой semantics, а не только по похожему коду.
+Slot adapter сохраняет runtime dispatch, invocation context, cancellation,
+бюджет и преобразование typed failures. В частности, workflow добавляет
+`ModelFailure` в RPC error data; общий JSON helper не должен терять эти данные
+или добавлять их callbacks другого slot.
+
+В исходниках отдельно держат DTO/contract, подключение и dispatch, сам
+алгоритм и крупные tests. Маленький связный adapter может оставаться одним
+файлом; универсальный framework или обязательное число файлов не требуются.
+При чистке выбирается существующий канонический тип/helper, все consumers
+переводятся на него, а повторное объявление удаляется в том же изменении.
+Проверки выбираются по [матрице](../development/testing.md#evidence-matrix),
+включая conformance и swap при изменении process boundary.
+
 ## Как Добавить Модуль
 
 1. Найти slot contract в `proteus-contracts`.

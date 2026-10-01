@@ -17,7 +17,9 @@ one export = one slot contract + one module_id
 - **component wire protocol v3** — strict multi-export JSON-RPC handshake,
   target/lineage каждого вызова и direction-separated ids;
 - **slot-owned contract version** — DTO, module methods, callbacks и
-  composition конкретного slot; сейчас используются v1, v2 и v3.
+  composition конкретного slot; версия независима от wire protocol.
+  Текущие версии задаются в `proteus-contracts` и используются общей
+  authority table; каталог — в [modules.md](modules.md).
 
 `proteus-module-protocol::v3::ComponentBroker` является единственной внешней
 границей configured modules. Старый wire v2 удалён; compatibility reader и

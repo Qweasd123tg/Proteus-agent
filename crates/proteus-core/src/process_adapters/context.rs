@@ -6,7 +6,7 @@ use proteus_module_protocol::{
     ProcessModuleRpcError,
     v3::{AsyncHostRequestDispatcher, ComponentHostRequest, HostRequestFuture},
 };
-use serde::{Serialize, de::DeserializeOwned};
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::{
@@ -22,10 +22,12 @@ use crate::{
     domain::{ContextBundle, ContextChunk},
 };
 
-use super::{ProcessExportClient, ProcessExportConfig};
+use super::{
+    ProcessExportClient, ProcessExportConfig,
+    host_rpc::{callback_error, decode, encode},
+};
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
-const HOST_CALLBACK_ERROR: i64 = -32_100;
 
 pub struct ProcessContextBuilder {
     client: Arc<ProcessExportClient>,
@@ -171,23 +173,12 @@ impl RepoAwareContextProvider for ProcessContextProvider {
     }
 }
 
-fn decode<T: DeserializeOwned>(params: Value, method: &str) -> Result<T, ProcessModuleRpcError> {
-    serde_json::from_value(params).map_err(|error| {
-        ProcessModuleRpcError::new(-32602, format!("invalid {method} params: {error}"))
-    })
-}
-
 fn host_result<T: Serialize>(
     result: Result<T>,
     method: &str,
 ) -> Result<Value, ProcessModuleRpcError> {
-    let value = result.map_err(|error| {
-        ProcessModuleRpcError::new(HOST_CALLBACK_ERROR, format!("{method} failed: {error:#}"))
-    })?;
-    serde_json::to_value(value).map_err(|error| {
-        ProcessModuleRpcError::new(
-            -32603,
-            format!("failed to serialize {method} response: {error}"),
-        )
-    })
+    encode(
+        result.map_err(|error| callback_error(method, &error))?,
+        method,
+    )
 }

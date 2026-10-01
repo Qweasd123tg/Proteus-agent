@@ -5,6 +5,7 @@ mod compactor;
 mod config;
 mod context;
 mod hook;
+mod host_rpc;
 mod invocation_error;
 mod invocation_scope;
 mod memory;

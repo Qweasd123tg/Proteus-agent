@@ -13,7 +13,7 @@ use proteus_module_protocol::{
 use proteus_process_host::ProcessSpec;
 use serde::{Deserialize, Serialize};
 
-use crate::core::expand_user_path;
+use crate::{contracts::ProcessComponentExportRef, core::expand_user_path};
 
 const DEFAULT_HANDSHAKE_TIMEOUT_MS: u64 = 30_000;
 
@@ -171,11 +171,9 @@ impl ProcessComponentLauncher {
         })?;
         let binding = self
             .binding
-            .exports
-            .iter()
-            .find(|binding| binding.slot == slot && binding.module_id == module_id)
+            .export(&ProcessComponentExportRef::new(slot, module_id))
             .cloned()
-            .ok_or_else(|| {
+            .map_err(|_| {
                 anyhow::anyhow!(
                     "component {:?} has no bound export {slot}/{module_id}",
                     self.component_id

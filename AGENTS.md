@@ -90,6 +90,9 @@ rendering, UI state, tests и provider/module-specific детали.
 - UI-клиенты подчиняются тому же правилу: крупные страницы дробите на
   компоненты, состояние, transport/api bindings и view helpers, не смешивая их
   в одном `app.rs`.
+- Contracts, process adapters и module helpers оформляйте по
+  [единому образцу](docs/architecture/modules.md#единый-образец-реализации):
+  используйте канонические DTO и общие helpers, сохраняя slot-specific semantics.
 
 ## Workspace Layout
 

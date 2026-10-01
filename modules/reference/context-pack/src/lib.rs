@@ -15,14 +15,14 @@ use budget::apply_byte_budget;
 use codex::build_codex_context;
 use config::{CodexContextConfig, RepoAwareContextConfig, SimpleContextConfig};
 use proteus_contracts::{
-    contracts::SearchQuery,
+    contracts::{ProcessContextProviderInput, SearchQuery},
     domain::{
         ContextBundle, ContextChunk, ContextRenderMode, ENVIRONMENT_CONTEXT_TAG, EXEC_SHELL,
         MemoryItem, MemoryQuery,
     },
     process_module::{
         ContextBuilderModule, ContextBuilderModuleHostMut, ContextBuilderModuleInput,
-        ContextBuilderModuleObject, ContextProviderModuleInput, ModuleRegistry, ProcessModuleError,
+        ContextBuilderModuleObject, ModuleRegistry, ProcessModuleError,
     },
 };
 use search_queries::extract_search_queries;
@@ -490,7 +490,7 @@ fn external_provider_chunks(
     host: &mut ContextBuilderModuleHostMut<'_>,
     provider_id: &str,
 ) -> anyhow::Result<Vec<ContextChunk>> {
-    let provider_input = ContextProviderModuleInput {
+    let provider_input = ProcessContextProviderInput {
         provider_id: provider_id.to_owned(),
         task: input.task.clone(),
         metadata: Value::Null,

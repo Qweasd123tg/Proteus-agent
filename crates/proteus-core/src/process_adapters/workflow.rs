@@ -6,7 +6,7 @@ use proteus_module_protocol::{
     ProcessModuleRpcError,
     v3::{AsyncHostRequestDispatcher, ComponentHostRequest, HostRequestFuture},
 };
-use serde::{Serialize, de::DeserializeOwned};
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::{
@@ -27,10 +27,12 @@ use crate::{
     model_standard::CanonicalMessage,
 };
 
-use super::{ProcessExportClient, ProcessExportConfig};
+use super::{
+    ProcessExportClient, ProcessExportConfig,
+    host_rpc::{self, decode, encode},
+};
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
-const HOST_CALLBACK_ERROR: i64 = -32_100;
 
 /// One persistent external Workflow implementation selected through config.
 pub struct ProcessWorkflowAdapter {
@@ -252,21 +254,6 @@ impl AsyncHostRequestDispatcher for ProcessWorkflowDispatcher {
     }
 }
 
-fn decode<T: DeserializeOwned>(params: Value, method: &str) -> Result<T, ProcessModuleRpcError> {
-    serde_json::from_value(params).map_err(|error| {
-        ProcessModuleRpcError::new(-32602, format!("invalid {method} params: {error}"))
-    })
-}
-
-fn encode<T: Serialize>(value: T, method: &str) -> Result<Value, ProcessModuleRpcError> {
-    serde_json::to_value(value).map_err(|error| {
-        ProcessModuleRpcError::new(
-            -32603,
-            format!("failed to serialize {method} response: {error}"),
-        )
-    })
-}
-
 fn host_result<T: Serialize>(
     result: Result<T>,
     method: &str,
@@ -278,8 +265,7 @@ fn host_result<T: Serialize>(
 }
 
 fn callback_error(method: &str, error: anyhow::Error) -> ProcessModuleRpcError {
-    let rpc =
-        ProcessModuleRpcError::new(HOST_CALLBACK_ERROR, format!("{method} failed: {error:#}"));
+    let rpc = host_rpc::callback_error(method, &error);
     match error.downcast_ref::<crate::model_standard::ModelFailure>() {
         Some(failure) => {
             rpc.with_data(serde_json::to_value(failure).expect("model failure serialization"))

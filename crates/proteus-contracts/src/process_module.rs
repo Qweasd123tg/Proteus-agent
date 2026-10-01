@@ -138,15 +138,6 @@ pub trait MemoryModule: Send + Sync + 'static {
 
 pub type MemoryModuleObject = Box<dyn MemoryModule>;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct ContextProviderModuleInput {
-    pub provider_id: String,
-    pub task: AgentTask,
-    #[serde(default)]
-    pub metadata: serde_json::Value,
-}
-
 pub trait ContextProviderModule: Send + Sync + 'static {
     fn provide_json(&self, input_json: String) -> ProcessModuleResult<String>;
 }
