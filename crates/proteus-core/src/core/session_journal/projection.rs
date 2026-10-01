@@ -48,6 +48,7 @@ struct ExecutionFactOwner {
 struct ToolLifecycle {
     owner: Option<ExecutionFactOwner>,
     call: Option<proteus_contracts::domain::ToolCall>,
+    hook_reviewed: bool,
     approval_requested: bool,
     resolved: bool,
     result: bool,
@@ -62,8 +63,30 @@ impl JournalValidationState {
 
         match &record.entry {
             JournalEntry::HookInvoked(trace) => {
-                self.require_execution_fact(record)?;
+                let owner = self.require_execution_fact(record)?;
                 super::hooks::validate_trace(record, trace)?;
+                if let proteus_contracts::contracts::HookEvent::BeforeTool { call, .. } =
+                    &trace.input.event
+                {
+                    let lifecycle = self.tool_calls.get_mut(&call.id).ok_or_else(|| {
+                        anyhow::anyhow!("tool hook precedes requested call {}", call.id)
+                    })?;
+                    if lifecycle.owner != Some(owner)
+                        || lifecycle.call.as_ref() != Some(call)
+                        || lifecycle.hook_reviewed
+                        || lifecycle.approval_requested
+                        || lifecycle.resolved
+                    {
+                        bail!("tool hook conflicts with requested call {}", call.id);
+                    }
+                    lifecycle.hook_reviewed = true;
+                    if let Some(proteus_contracts::contracts::HookEvent::BeforeTool {
+                        call, ..
+                    }) = &trace.output
+                    {
+                        lifecycle.call = Some(call.clone());
+                    }
+                }
                 for messages in super::hooks::model_messages(trace) {
                     self.validate_part_id_stability(messages)?;
                 }
@@ -230,7 +253,9 @@ impl JournalValidationState {
             }
             JournalEntry::ToolCallRecorded(tool) => {
                 let owner = self.require_execution_fact(record)?;
-                if record.thread_id.zip(record.turn_id) == self.capture_owner {
+                if matches!(tool.phase, ToolCallRecordPhase::Requested)
+                    && record.thread_id.zip(record.turn_id) == self.capture_owner
+                {
                     self.capture.validate_call(&tool.call)?;
                 }
                 let lifecycle = self.tool_calls.entry(tool.call.id.clone()).or_default();

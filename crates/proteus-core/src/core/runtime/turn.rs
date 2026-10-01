@@ -408,12 +408,12 @@ impl AgentRuntime {
         workflow_context.history_recorder = checkpoint_recorder.clone();
         workflow_context.tool_recorder = checkpoint_recorder.clone();
         let workflow_timeout_ms = snapshot.runtime.registry.runtime_config.workflow_timeout_ms;
-        let workflow =
-            snapshot
-                .runtime
-                .registry
-                .workflow
-                .run(task.clone(), history.clone(), workflow_context);
+        let workflow = crate::core::reviewed_workflow::run(
+            snapshot.runtime.registry.workflow.as_ref(),
+            task.clone(),
+            history.clone(),
+            workflow_context,
+        );
         let workflow_result = if workflow_timeout_ms == 0 {
             workflow.await
         } else {

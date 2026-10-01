@@ -1,6 +1,6 @@
 # Перенос Скриптовых Хуков
 
-Внешний JS/TS component для текущего `hook/v1`, без npm dependencies.
+Внешний JS/TS component для текущего `hook/v2`, без npm dependencies.
 Нужен Node.js **22.18+**: `.mjs` работает как JavaScript, `.ts` — через
 встроенный type stripping. TypeScript syntax с необходимой генерацией кода
 (например, `enum`) требует предварительной сборки в JS. Внешние dependencies
@@ -59,7 +59,7 @@ export default function setup(hooks) {
 }
 ```
 
-`setup` может быть async. `hooks.on(event, handler, {tools})` использует пять
+`setup` может быть async. `hooks.on(event, handler, {tools})` использует шесть
 canonical событий. `tools` — непустой список точных имён только для
 `before_tool`/`after_tool`; фильтр применяется до handler. Регистрация
 заканчивается после setup; внутри export действует порядок регистрации,
@@ -86,9 +86,9 @@ SDK не создаёт ещё одну копию полной model schema.
 
 | Исходный handler | Регистрация | Поддержанная операция |
 |---|---|---|
-| Pi `tool_call` | `hooks.on("before_tool", piToolCall(handler))` | `block: true` с причиной |
+| Pi `tool_call` | `hooks.on("before_tool", piToolCall(handler))` | Изменение `input` или `block: true` с причиной |
 | Pi `tool_result` | `hooks.on("after_tool", piToolResult(handler))` | Замена text content → Proteus `output` |
-| OpenCode `tool.execute.before` | `hooks.on("before_tool", openCodeToolBefore(handler))` | Чтение `input.tool`, `output.args`; без изменения args |
+| OpenCode `tool.execute.before` | `hooks.on("before_tool", openCodeToolBefore(handler))` | Изменение `output.args` |
 | OpenCode `tool.execute.after` | `hooks.on("after_tool", openCodeToolAfter(handler))` | Изменение `output.output` |
 
 Примеры: [Pi/TS](entries/pi.ts), [OpenCode/JS](entries/opencode.mjs).
@@ -100,7 +100,7 @@ SDK не создаёт ещё одну копию полной model schema.
 `piToolResult` применим только к unstructured результату. `isError`/`details`
 можно читать, но менять status/metadata нельзя. Нет преобразования images
 или structured data в текст с потерей информации. OpenCode `output.title`
-не поддержан. Изменение args, status или неподдержанного поля — явная ошибка.
+не поддержан. Изменение status или неподдержанного поля — явная ошибка.
 Handler exception проходит как обычная ошибка Proteus hook; для ожидаемого
 veto используйте canonical `block_tool`, а не `throw`.
 
@@ -130,7 +130,7 @@ args = ["examples/modules/hook-process/entries/deny-edit.py"]
 ```
 
 Обёртка передаёт `hook_event_name: "PreToolUse"`, `cwd`, `session_id`,
-`tool_name`, `tool_use_id`, `tool_input`. Tool names/arguments — Proteus;
+`turn_id`, `tool_name`, `tool_use_id`, `tool_input`. Tool names/arguments — Proteus;
 для script, ожидающего другие имена, измените mapping в entry. Не создаются
 fake `transcript_path`, `permission_mode` или `model`: такие зависимости
 скрипта требуют отдельного переноса. `session_id` может быть `null`.
@@ -141,8 +141,12 @@ fake `transcript_path`, `permission_mode` или `model`: такие завис�
 Exit `0` с пустым stdout/JSON `{}` продолжает обработку. `allow` также
 продолжает обычный Proteus policy/approval path и не выдаёт разрешение.
 
-Plain-text stdout, `updatedInput`, `additionalContext`, `systemMessage`,
-`ask`, Stop-control и другие неподдержанные поля не игнорируются: перенос
+`updatedInput` поддержан вместе с `permissionDecision: "allow"`: args
+повторно проходят validation, policy и approval. Для Bash/apply_patch upstream
+`command` нужно явно преобразовать в Proteus argument schema в entry.
+
+Plain-text stdout, `additionalContext`, `systemMessage`,
+`ask`, `continue: false` и другие неподдержанные поля не игнорируются: перенос
 завершается явной ошибкой. Это отличие адаптера от оригинальных harnesses.
 Exit codes кроме `0`/`2` тоже считаются ошибкой hook. Это помогает найти
 участки, требующие адаптации, вместо молчаливой потери поведения.
@@ -159,17 +163,48 @@ Exit codes кроме `0`/`2` тоже считаются ошибкой hook. �
 [Codex hooks](https://learn.chatgpt.com/docs/hooks#pretooluse),
 [Claude Code hooks](https://code.claude.com/docs/en/hooks#pretooluse).
 
+## Проверка Завершения
+
+```js
+export default function setup(hooks) {
+  hooks.on("before_stop", (event) => {
+    if (event.attempt === 0 && !event.output.text.includes("Проверено")) {
+      return { action: "continue_turn", reason: "Проверь результат и укажи выполненные проверки." };
+    }
+  });
+}
+```
+
+`before_stop` вызывается после успешного workflow перед финалом root turn.
+`attempt = 0` — исходный кандидат. Первая причина завершает цепочку review;
+host запускает тот же workflow с предыдущей историей, developer instruction
+и `runtime.continuation`. Новое человеческое сообщение не создаётся. Общий
+workflow timeout и cancellation действуют на все попытки; после восьми
+продолжений очередной запрос завершает turn явной ошибкой. Кандидат сохранён
+до ожидания review, поэтому отмена или ошибка reviewer сохраняет прогресс.
+`TurnFinished` приходит клиенту только после принятия кандидата.
+
+Для существующего Codex/Claude Stop script используйте [stop.mjs](entries/stop.mjs)
+вместо `command.mjs` в том же config. В stdin поступают `hook_event_name: "Stop"`,
+`cwd`, `session_id`, `turn_id`, `stop_hook_active`, `last_assistant_message`.
+`stopDecision` переносит JSON `{ "decision": "block", "reason": "..." }`
+или exit `2` с причиной в stderr в `continue_turn`. Пустой успешный ответ/`{}`
+принимает кандидата. Это перенос решения: Codex Stop создаёт новый continuation
+prompt; Proteus сохраняет root turn и передаёт причину как developer instruction.
+`transcript_path`, system messages и остальные lifecycle API требуют адаптации.
+
 ## События И Границы Переноса
 
 | Proteus | Близкая upstream задача | Граница |
 |---|---|---|
 | `turn_started` | Наблюдение начала обработки | Notification после принятия ввода; не `SessionStart` и не admission gate |
 | `before_model` | Pi `context`, OpenCode context hooks | Canonical messages/instructions; схемы messages нужно сопоставлять явно |
-| `before_tool` | Pi `tool_call`, OpenCode before, Codex/Claude `PreToolUse` | Только veto; args и approval не переписываются |
+| `before_tool` | Pi `tool_call`, OpenCode before, Codex/Claude `PreToolUse` | Veto или замена args; затем обычные validation/policy/approval |
 | `after_tool` | Pi `tool_result`, OpenCode after, Codex/Claude post-tool обработка | Только текстовый `output`; фактический статус инструмента сохраняется |
+| `before_stop` | Stop-проверка готового ответа | `continue_turn` с причиной, тот же root turn, максимум 8 продолжений |
 | `turn_settled` | Наблюдение итогового результата | Notification; не actionable Stop, `agent_before_settle` или `session.idle` |
 
-Session/fork/switch, отдельные compaction hooks, управление продолжением,
+Session/fork/switch, отдельные compaction hooks,
 provider/UI/command/tool registration требуют соответствующего Proteus
 contract. Они не считаются успешно перенесёнными через приблизительный alias.
 
@@ -182,7 +217,7 @@ node --test examples/modules/hook-process/tests/*.test.mjs
 cargo test -p proteus-core --test hook_runtime --test module_swap
 cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
   --component-id js-hooks \
-  --export '{"slot":"hook","module_id":"ported-pi","contract_version":"v1","module_config":{"entry":"examples/modules/hook-process/entries/pi.ts"}}' \
+  --export '{"slot":"hook","module_id":"ported-pi","contract_version":"v2","module_config":{"entry":"examples/modules/hook-process/entries/pi.ts"}}' \
   --probe-export hook/ported-pi --probe-method hook.invoke \
   --probe-params '{"cwd":"/tmp","attribution":{"execution_id":"00000000-0000-0000-0000-000000000001","agent":null},"event":{"event":"before_tool","call":{"id":"00000000-0000-0000-0000-000000000002","name":"apply_patch","args":{},"surface":"function","raw_arguments":null},"spec":null,"blocked":null}}' \
   -- node examples/modules/hook-process/worker.mjs

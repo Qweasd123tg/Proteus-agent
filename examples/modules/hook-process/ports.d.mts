@@ -1,13 +1,14 @@
-import type { Handler, HookContext } from "./hooks.mjs";
+import type { Handler, HookContext, EventResponse } from "./hooks.mjs";
 type PortContext = HookContext & { readonly hasUI: false };
 interface PiCall {
   readonly type: "tool_call";
   readonly toolCallId: string;
   readonly toolName: string;
-  readonly input: Readonly<Record<string, unknown>>;
+  readonly input: Record<string, unknown>;
 }
 interface TextPart { readonly type: "text"; readonly text: string }
-interface PiResult extends Omit<PiCall, "type"> {
+interface PiResult extends Omit<PiCall, "type" | "input"> {
+  readonly input: Readonly<Record<string, unknown>>;
   readonly type: "tool_result";
   readonly content: readonly TextPart[];
   readonly details: unknown;
@@ -22,3 +23,5 @@ interface OpenCodeInput { readonly tool: string; readonly callID: string; readon
 export function openCodeToolBefore(handler: (input: OpenCodeInput, output: { args: Record<string, unknown> }) => void | Promise<void>): Handler<"before_tool">;
 export function openCodeToolAfter(handler: (input: OpenCodeInput & { readonly args: Readonly<Record<string, unknown>> }, output: { output: string }) => void | Promise<void>): Handler<"after_tool">;
 export function preToolUseDecision(result: { code: number; stdout: string; stderr: string }): ReturnType<Handler<"before_tool">>;
+
+export function stopDecision(output: { code: number | null; stdout: string; stderr: string }): EventResponse["before_stop"] | void;

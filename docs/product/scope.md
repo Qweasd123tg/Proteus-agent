@@ -10,8 +10,9 @@
 - Slots для workflow, search, memory, context/context providers, policy,
   patch, compactor, tool exposure, tools и model.
 - AssemblyPlan, атомарный runtime snapshot и ExecutionScope.
-- Opt-in typed `hook/v1` contributions: явная ordered chain, model instructions/
-  messages, pre-tool block и post-tool output; callbacks отсутствуют.
+- Opt-in typed `hook/v2` contributions: явная ordered chain, model instructions/
+  messages, pre-tool block/args, post-tool output и bounded completion review;
+  callbacks отсутствуют.
 - Общий tool safety/approval path и execution-bound model/tools/memory.
 - Canonical journal, history/resume, prompt replay и workflow replay
   в поддержанной границе.

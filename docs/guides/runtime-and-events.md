@@ -310,9 +310,9 @@ history сохраняют раздельные commentary/final items. Клие
 
 ## Хуки Выполнения
 
-Opt-in `modules.hooks` задаёт упорядоченную цепочку process exports `hook/v1`.
-Core вызывает её в пяти точках: `turn_started`, `before_model`, `before_tool`,
-`after_tool`, `turn_settled`. Это общая execution boundary: model/tool hooks
+Opt-in `modules.hooks` задаёт упорядоченную цепочку process exports `hook/v2`.
+Core вызывает её в шести точках: `turn_started`, `before_model`, `before_tool`,
+`after_tool`, `before_stop`, `turn_settled`. Это общая execution boundary: model/tool hooks
 действуют также в host callbacks внешнего workflow и при detached tool calls.
 Отдельный workflow не обязан повторять их wiring.
 
@@ -321,10 +321,18 @@ model, tools, attribution и параметры. После каждого вк�
 canonical identities и capabilities; изменение содержимого существующего
 canonical part требует нового `part_id`. `before_tool` выполняется после
 проверки аргументов и может остановить вызов с непустой причиной; первая
-блокировка завершает цепочку. В журнале это `HookBlocked`, после неё tools
+блокировка завершает цепочку. `tool_arguments` заменяет args без изменения
+id/name/surface; новые args повторно валидируются, policy и approval видят
+эффективный вызов, исходный Requested остаётся в журнале. В журнале это `HookBlocked`, после неё tools
 не запускаются. Разрешение самого hook не заменяет policy/approval/safety path.
 `after_tool` меняет только `output`, сохраняя status, error, identity и metadata;
 общий лимит вывода runtime применяется и после hook.
+
+`before_stop` — root review успешного кандидата. `continue_turn` с причиной
+возобновляет тот же workflow/turn с предыдущей историей и developer instruction;
+лимит 8, timeout общий. Кандидат сохраняется до review, финальный `TurnFinished`
+приходит только после принятия. Ошибка reviewer сохраняет прогресс, но turn
+завершается Error; cancellation/timeout сохраняют фактическую историю.
 
 Перед следующим effect журнал записывает `HookInvoked`: исходный event,
 ordered steps с accepted response/error и итоговый event. Ошибка до model/tool
@@ -355,7 +363,7 @@ workers. Он проверяет входы и consumption traces; callbacks в�
 Если runtime запущен с config path, рядом с config root создаётся дерево
 `sessions/<workspace>/<session>/` (подробно про layout, resume и lifecycle —
 раздел «Session Store» ниже). Source of truth — `journal.jsonl`, где одна
-строка является строгим record schema v16 с `record_id`, монотонным
+строка является строгим record schema v17 с `record_id`, монотонным
 `session_seq`, timestamp, mandatory session id, optional execution/thread/turn
 ids, `kind` и payload. `TurnOpened`, model и tool facts требуют
 `ExecutionId`; history/settlement остаются chat facts без execution owner.
@@ -956,7 +964,7 @@ journal. ОС освобождает владение при закрытии pr
 смешивает histories.
 
 Reader принимает только basename из 10 ASCII-цифр с обязательным
-`session.json` schema v4 и journal schema v16. UUID-basename directories,
+`session.json` schema v4 и journal schema v17. UUID-basename directories,
 прежние session/journal schemas и неизвестные wire/storage формы
 отвергаются явно: pre-release cutover не содержит legacy decoder или dual-read.
 Обычный каталог и автоматический выбор последней session пропускают
@@ -1027,7 +1035,7 @@ compactions должна завершаться сохранённым conversat
 resume используют сокращённое представление. Runtime атомарно заменяет историю
 этим snapshot-ом и затем дописывает `new_messages`.
 
-`workflow/v16` также позволяет вернуть `WorkflowFailure` с накопленным history
+`workflow/v17` также позволяет вернуть `WorkflowFailure` с накопленным history
 update. Core проверяет и сохраняет его до settlement со статусом `Error`.
 `coding.codex_loop` использует этот путь: если tool завершился, а следующий
 model call упал, новый turn получает прежний call/result и после перезапуска

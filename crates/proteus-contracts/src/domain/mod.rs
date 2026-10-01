@@ -20,6 +20,7 @@ pub mod run_options;
 pub use run_options::RunOptions;
 pub mod task;
 pub mod tool;
+pub mod tool_validation;
 pub mod usage;
 
 pub use compaction::*;
@@ -35,4 +36,5 @@ pub use output::*;
 pub use patch::*;
 pub use task::*;
 pub use tool::*;
+pub use tool_validation::validate_tool_call_args;
 pub use usage::*;

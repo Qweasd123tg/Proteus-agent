@@ -79,6 +79,7 @@ impl Workflow for ProcessWorkflowAdapter {
                 model_context: ctx.model_context.clone(),
                 interrupted_turns: ctx.interrupted_turns.clone(),
                 intent: ctx.intent.clone(),
+                continuation: ctx.continuation.clone(),
                 permission_mode: ctx.permission_mode,
                 session_id: ctx.session_id,
                 thread_id: ctx.thread_id,

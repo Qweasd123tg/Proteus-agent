@@ -19,10 +19,17 @@ impl BoundTools {
         &self,
         observer: &dyn ToolExecutionObserver,
         cwd: &Path,
-        call: &ToolCall,
+        call: &mut ToolCall,
         spec: Option<ToolSpec>,
     ) -> Result<Option<ToolResult>> {
-        match self.before_tool(cwd, call, spec).await {
+        let outcome = self
+            .before_tool(cwd, call, spec)
+            .await
+            .map(|(effective, blocked)| {
+                *call = effective;
+                blocked
+            });
+        match outcome {
             Ok(Some(reason)) => {
                 self.record_resolution(
                     call,
@@ -63,7 +70,7 @@ impl BoundTools {
         cwd: &Path,
         call: &ToolCall,
         spec: Option<ToolSpec>,
-    ) -> Result<Option<String>> {
+    ) -> Result<(ToolCall, Option<String>)> {
         let event = self
             .hooks
             .apply(self.hook_input(
@@ -75,10 +82,10 @@ impl BoundTools {
                 },
             ))
             .await?;
-        let HookEvent::BeforeTool { blocked, .. } = event else {
+        let HookEvent::BeforeTool { call, blocked, .. } = event else {
             anyhow::bail!("hook changed tool event kind");
         };
-        Ok(blocked)
+        Ok((call, blocked))
     }
 
     pub(super) async fn finish(

@@ -16,12 +16,12 @@ use crate::{
         ExecutionPermissionGrants, ExecutionScope, NoopToolExecutionRecorder, PolicyContext,
         PolicyVisibilityContext, RequestOrigin, ToolContext, ToolExecutionRecorder, ToolRegistry,
     },
-    domain::{PolicyDecision, ToolCall, ToolCallResolution, ToolResult, ToolSpec},
+    domain::{
+        PolicyDecision, ToolCall, ToolCallResolution, ToolResult, ToolSpec, validate_tool_call_args,
+    },
 };
 
-use self::support::{
-    metadata_with, truncate_utf8, validate_tool_call_args, visibility_decision_allows,
-};
+use self::support::{metadata_with, truncate_utf8, visibility_decision_allows};
 
 mod hooks;
 mod support;
@@ -207,12 +207,15 @@ impl BoundTools {
         }
 
         if let Some(result) = self
-            .enforce_before_tool(observer, &cwd, &call, tool_spec.clone())
+            .enforce_before_tool(observer, &cwd, &mut call, tool_spec.clone())
             .await?
         {
             return Ok(result);
         }
 
+        if self.binding.scope.cancellation.is_cancelled() {
+            anyhow::bail!("tool execution canceled");
+        }
         let decision = self.evaluate_access(&cwd, &call, tool_spec.clone());
         let mut enrich = Some(enrich);
         match decision {

@@ -1,5 +1,7 @@
 #[path = "hook_runtime/js_ports.rs"]
 mod js_ports;
+#[path = "hook_runtime/review.rs"]
+mod review;
 #[path = "support/model.rs"]
 mod test_model;
 use proteus_contracts::contracts::HookEvent;

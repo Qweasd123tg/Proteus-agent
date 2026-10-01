@@ -45,16 +45,19 @@ impl TurnScaffold {
         )?;
 
         let persistent_messages = input.history.clone();
-        let current_user_message = persistent_messages.last().ok_or_else(|| {
-            ProcessModuleError::new(
-                "workflow input history must end with the persisted current user message",
-            )
-        })?;
+        let current_user_message = match &input.runtime.continuation {
+            Some(continuation) => persistent_messages
+                .iter()
+                .find(|message| message.id == continuation.current_user_message_id),
+            None => persistent_messages.last(),
+        }
+        .ok_or_else(|| ProcessModuleError::new("workflow input has no current user anchor"))?;
         if current_user_message.role != MessageRole::User
-            || message_text(current_user_message) != input.task.text
+            || (input.runtime.continuation.is_none()
+                && message_text(current_user_message) != input.task.text)
         {
             return Err(ProcessModuleError::new(
-                "workflow input history does not end with the current task user message",
+                "workflow input has no current task user message",
             ));
         }
         let current_user_message_id = current_user_message.id;
@@ -69,8 +72,17 @@ impl TurnScaffold {
             current_turn_messages_start,
             context_chunks: 0,
             context_token_estimate: None,
-            compactions: Vec::new(),
-            history_replacement_len: None,
+            compactions: input
+                .runtime
+                .continuation
+                .as_ref()
+                .map(|c| c.history.compactions.clone())
+                .unwrap_or_default(),
+            history_replacement_len: input
+                .runtime
+                .continuation
+                .as_ref()
+                .and_then(|c| c.history.history_replacement.as_ref().map(Vec::len)),
             result_bindings: Default::default(),
         })
     }

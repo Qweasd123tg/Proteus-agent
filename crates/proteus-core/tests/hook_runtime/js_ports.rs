@@ -1,6 +1,6 @@
 use super::*;
 
-fn js_component(config: &mut AppConfig, entries: &[(&str, &str, serde_json::Value)]) {
+pub(super) fn js_component(config: &mut AppConfig, entries: &[(&str, &str, serde_json::Value)]) {
     let mut exports = serde_json::Map::new();
     config.modules.hooks.clear();
     for (id, entry, settings) in entries {
@@ -9,7 +9,7 @@ fn js_component(config: &mut AppConfig, entries: &[(&str, &str, serde_json::Valu
         config.module_config.entry("hook".into()).or_default().insert(
             (*id).into(),
             json!({
-                "entry": workspace_file(&format!("examples/modules/hook-process/entries/{entry}")),
+                "entry": if Path::new(entry).is_absolute() { PathBuf::from(entry) } else { workspace_file(&format!("examples/modules/hook-process/entries/{entry}")) },
                 "settings": settings,
             }),
         );

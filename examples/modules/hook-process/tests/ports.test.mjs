@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createHooks } from "../hooks.mjs";
-import { piToolCall, piToolResult, openCodeToolBefore, openCodeToolAfter, preToolUseDecision } from "../ports.mjs";
+import { piToolCall, piToolResult, openCodeToolBefore, openCodeToolAfter, preToolUseDecision, stopDecision } from "../ports.mjs";
 import { runCommand } from "../command.mjs";
 
 const attribution = { execution_id: "execution", agent: { session_id: "session", thread_id: "thread", turn_id: "turn" } };
@@ -40,7 +40,7 @@ test("unsupported upstream behavior fails explicitly", async () => {
   const hooks = createHooks();
   assert.throws(() => hooks.api.on("session_start", () => {}), /unsupported hook event/);
   hooks.api.on("before_tool", openCodeToolBefore((input, output) => { output.args.path = "other"; }));
-  await assert.rejects(invoke(hooks, before), /cannot rewrite tool arguments/);
+  assert.deepEqual((await invoke(hooks, before)).result, { action: "tool_arguments", args: { path: "other" } });
   const status = createHooks();
   status.api.on("after_tool", piToolResult(() => ({ isError: true })));
   await assert.rejects(invoke(status, after), /cannot change tool status/);
@@ -55,7 +55,11 @@ test("unsupported upstream behavior fails explicitly", async () => {
 test("canonical data are immutable and throw semantics remain explicit", async () => {
   const hooks = createHooks();
   hooks.api.on("before_tool", piToolCall((event) => { event.input.path = "other"; }));
-  await assert.rejects(invoke(hooks, before), TypeError);
+  assert.deepEqual((await invoke(hooks, before)).result, { action: "tool_arguments", args: { path: "other" } });
+  assert.equal(before.call.args.path, "file");
+  const immutable = createHooks();
+  immutable.api.on("before_tool", event => { event.call.name = "other"; });
+  await assert.rejects(invoke(immutable, before), TypeError);
   const throwing = createHooks();
   throwing.api.on("before_tool", openCodeToolBefore(() => { throw new Error("ported failure"); }));
   await assert.rejects(invoke(throwing, before), /ported failure/);
@@ -67,7 +71,7 @@ test("Codex/Claude PreToolUse veto subset and unsupported decisions", () => {
   assert.deepEqual(preToolUseDecision({ code: 2, stdout: "ignored", stderr: "blocked" }), { action: "block_tool", reason: "blocked" });
   assert.equal(preToolUseDecision({ code: 0, stdout: "", stderr: "" }), undefined);
   for (const output of [
-    { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow", updatedInput: {} } },
+    { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", updatedInput: {} } },
     { continue: false, stopReason: "stop" },
     { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask" } },
   ]) assert.throws(() => preToolUseDecision({ code: 0, stdout: JSON.stringify(output), stderr: "" }));
@@ -83,4 +87,18 @@ test("command bridge sends JSON on stdin and waits for cancellation cleanup", as
   const pending = runCommand(process.execPath, ["-e", "setInterval(()=>{},1000)"], {}, { ...ctx, signal: controller.signal });
   setTimeout(() => controller.abort(new Error("owner cancel")), 50);
   await assert.rejects(pending, /owner cancel/);
+});
+
+test("argument rewrites compose and Stop review ends the ordered chain", async () => {
+  const hooks = createHooks();
+  hooks.api.on("before_tool", piToolCall(event => { event.input.path = "pi"; }));
+  hooks.api.on("before_tool", openCodeToolBefore((input, output) => { output.args.path += ".ts"; }));
+  assert.deepEqual((await invoke(hooks, before)).result, { action: "tool_arguments", args: { path: "pi.ts" } });
+  const json = JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow", updatedInput: { path: "codex" } } });
+  assert.deepEqual(preToolUseDecision({ code: 0, stdout: json, stderr: "" }), { action: "tool_arguments", args: { path: "codex" } });
+  hooks.api.on("before_stop", () => stopDecision({ code: 0, stdout: '{"decision":"block","reason":"check tests"}', stderr: "" }));
+  hooks.api.on("before_stop", () => { throw new Error("must not run after continuation"); });
+  assert.deepEqual((await invoke(hooks, { event: "before_stop", task: {}, history: [], output: {}, attempt: 0, continuation: null })).result,
+    { action: "continue_turn", reason: "check tests" });
+  assert.throws(() => stopDecision({ code: 0, stdout: '{"decision":"block","reason":" "}', stderr: "" }));
 });

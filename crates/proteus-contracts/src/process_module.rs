@@ -238,6 +238,8 @@ pub struct WorkflowModuleRuntimeInfo {
     pub instructions: Vec<InstructionBlock>,
     /// Opaque action name interpreted by the selected workflow.
     pub intent: Option<String>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub continuation: Option<crate::contracts::WorkflowContinuation>,
     pub permission_mode: crate::domain::PermissionMode,
     #[serde(default)]
     pub reasoning: ReasoningConfig,

@@ -1,6 +1,6 @@
 # Process agent worker
 
-`agent.py` — минимальный внешний `Workflow` v16 worker. Он не импортирует
+`agent.py` — минимальный внешний `Workflow` v17 worker. Он не импортирует
 `proteus-core`, Rust crates или provider SDK: связь с runtime состоит только из
 strict JSON-RPC поверх stdin/stdout.
 
@@ -33,7 +33,7 @@ executable + config-ом без Rust adapter под конкретный `module
 ```bash
 cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
   --component-id python-agent \
-  --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v16","module_config":{}}' \
+  --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v17","module_config":{}}' \
   -- python3 -B examples/modules/agent-worker/agent.py
 ```
 
@@ -53,7 +53,7 @@ execution закрыт structural deny. Чтобы проверить tool loop 
 выберите нужные tool modules/tools и policy в своём профиле; менять worker для
 этого не требуется.
 
-## Contract v16
+## Contract v17
 
 Module method: `run` (`ProcessWorkflowInput -> ProcessWorkflowResponse`).
 Успешный ответ использует явный envelope
@@ -74,7 +74,7 @@ Module method: `run` (`ProcessWorkflowInput -> ProcessWorkflowResponse`).
 terminal и затем исполняет tools. Выбор раннего исполнения принадлежит workflow;
 Core предоставляет Python и Rust одну streaming boundary.
 
-Разрешённые callbacks определяются только парой `workflow/v16`:
+Разрешённые callbacks определяются только парой `workflow/v17`:
 
 - `host.runtime.status`;
 - `host.context.build`;
@@ -94,3 +94,9 @@ Core предоставляет Python и Rust одну streaming boundary.
 Process boundary пока не является sandbox. Worker запускается как доверенный
 процесс с явно очищенным/разрешённым environment, но имеет обычные OS-права
 пользователя.
+
+`runtime.continuation` обязателен как nullable поле. При completion review он
+содержит причину, user anchor и накопленный `WorkflowHistoryUpdate`;
+input history уже включает прошлый кандидат. Example сохраняет прежний
+progress/replacement/compactions в последующих checkpoints/output. Это тот же
+root turn; новое user message не добавляется.

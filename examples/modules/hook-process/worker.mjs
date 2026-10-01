@@ -26,8 +26,8 @@ async function initialize(request) {
   const manifest = [];
   for (const binding of params.exports) {
     object(binding, ["slot", "module_id", "contract_version", "composition", "module_config", "host_features"], [], "export binding");
-    if (binding.slot !== "hook" || binding.contract_version !== "v1" || binding.composition !== "ordered_many") {
-      throw new Error("worker supports only hook/v1 ordered_many exports");
+    if (binding.slot !== "hook" || binding.contract_version !== "v2" || binding.composition !== "ordered_many") {
+      throw new Error("worker supports only hook/v2 ordered_many exports");
     }
     nonblank(binding.module_id, "module id");
     if (exports.has(binding.module_id)) throw new Error("duplicate export module id");
@@ -40,7 +40,7 @@ async function initialize(request) {
     await extension.default(hooks.api);
     hooks.seal();
     exports.set(binding.module_id, hooks);
-    manifest.push({ slot: "hook", module_id: binding.module_id, contract_version: "v1", composition: "ordered_many", module_features: [] });
+    manifest.push({ slot: "hook", module_id: binding.module_id, contract_version: "v2", composition: "ordered_many", module_features: [] });
   }
   ready = true;
   send({ id: request.id, result: { protocol_version: "v3", component_id: params.component_id, exports: manifest } });

@@ -658,6 +658,7 @@ fn workflow_worker_runs_a_complete_callback_driven_turn() {
         history: vec![CanonicalMessage::text(MessageRole::User, task.text.clone())],
         runtime: ProcessWorkflowRuntimeInfo {
             intent: None,
+            continuation: None,
             permission_mode: proteus_contracts::domain::PermissionMode::Normal,
             session_id: new_session_id(),
             thread_id: new_thread_id(),
@@ -879,6 +880,7 @@ fn workflow_input(workspace: &Path) -> Value {
         history: vec![CanonicalMessage::text(MessageRole::User, task.text.clone())],
         runtime: ProcessWorkflowRuntimeInfo {
             intent: None,
+            continuation: None,
             permission_mode: proteus_contracts::domain::PermissionMode::Normal,
             session_id: new_session_id(),
             thread_id: new_thread_id(),
@@ -900,7 +902,7 @@ fn workflow_input(workspace: &Path) -> Value {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn targeted_cancel_keeps_concurrent_sibling_and_generation_alive() {
     let workspace = tempfile::tempdir().expect("workspace");
-    let workflow = ProcessExportBinding::new("workflow", "coding.single_loop", "v16", json!({}))
+    let workflow = ProcessExportBinding::new("workflow", "coding.single_loop", "v17", json!({}))
         .expect("workflow binding");
     let workflow_target = workflow.export_ref();
     let policy =

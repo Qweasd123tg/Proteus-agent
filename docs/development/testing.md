@@ -86,7 +86,7 @@ git diff --check
 | Подмена implementation, structural absence, shared component и failure/restart | [`proteus-core --test module_swap`](../../crates/proteus-core/tests/module_swap.rs) |
 | Reference exports, descriptors, tools и callbacks | [`proteus-reference-worker --test conformance`](../../modules/reference/process-worker/tests/conformance.rs) |
 | Ordered hooks, actual effect и следующий живой turn после interruption, replay Success/Error | [`proteus-core --test hook_runtime`](../../crates/proteus-core/tests/hook_runtime.rs) |
-| JS/TS hook SDK, перенос handlers, multiplexing и targeted cancel | `node --test examples/modules/hook-process/tests/*.test.mjs`; настоящие slot/journal/replay — `hook_runtime::js_ports` |
+| JS/TS hook SDK, перенос handlers, multiplexing и targeted cancel | `node --test examples/modules/hook-process/tests/*.test.mjs`; настоящие slot/journal/replay — `hook_runtime::js_ports` и `hook_runtime::review` |
 | Model process, catalog/quota и cancellation | `proteus-core --test model_process`, `proteus-reference-worker --test model_exports` |
 | Execution attribution и операции без chat identity | `proteus-core --test execution_boundary`, `core::runtime::tests::execution`, `core::bound_model`, `core::bound_tools` |
 | Один process с callback-связанными exports и journal/replay | `proteus-reference-worker --test topology_journal` |
@@ -205,7 +205,7 @@ npm ci --prefix clients/web/rendering --ignore-scripts
 
 ## Ordered Hook Evidence
 
-Для `hook/v1` проверяются strict DTO/response validation, одинаковая authority
+Для `hook/v2` проверяются strict DTO/response validation, одинаковая authority
 без host callbacks, config order и отсутствие duplicate/unknown selection.
 Boundary chain покрывает A→B/B→A, pre-effect failure, actual tool outcome
 при post-effect failure, targeted cancellation и component restart. Config

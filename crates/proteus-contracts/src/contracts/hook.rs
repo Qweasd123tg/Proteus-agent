@@ -1,7 +1,7 @@
 //! Ordered, execution-bound contributions at typed runtime boundaries.
 use super::{ExecutionAttribution, ModelCallOrigin};
 use crate::{
-    domain::{AgentOutput, AgentTask, ToolCall, ToolResult, ToolSpec},
+    domain::{AgentOutput, AgentTask, ToolCall, ToolResult, ToolSpec, validate_tool_call_args},
     model_standard::{CanonicalMessage, CanonicalModelRequest, InstructionBlock},
 };
 use anyhow::{Result, bail};
@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-pub const PROCESS_HOOK_CONTRACT_VERSION: &str = "v1";
+pub const PROCESS_HOOK_CONTRACT_VERSION: &str = "v2";
 pub const PROCESS_HOOK_INVOKE_METHOD: &str = "hook.invoke";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -39,6 +39,13 @@ pub enum HookEvent {
         call: ToolCall,
         result: ToolResult,
     },
+    BeforeStop {
+        task: AgentTask,
+        history: Vec<CanonicalMessage>,
+        output: AgentOutput,
+        attempt: u32,
+        continuation: Option<String>,
+    },
     TurnSettled {
         status: HookTurnStatus,
         output: Option<AgentOutput>,
@@ -61,6 +68,12 @@ pub enum HookResponse {
         messages: Vec<CanonicalMessage>,
         instructions: Vec<InstructionBlock>,
     },
+    ToolArguments {
+        args: serde_json::Value,
+    },
+    ContinueTurn {
+        reason: String,
+    },
     BlockTool {
         reason: String,
     },
@@ -80,6 +93,12 @@ impl<'de> Deserialize<'de> for HookResponse {
                 messages: Vec<CanonicalMessage>,
                 instructions: Vec<InstructionBlock>,
             },
+            ToolArguments {
+                args: serde_json::Value,
+            },
+            ContinueTurn {
+                reason: String,
+            },
             BlockTool {
                 reason: String,
             },
@@ -96,6 +115,8 @@ impl<'de> Deserialize<'de> for HookResponse {
                 messages,
                 instructions,
             },
+            Wire::ToolArguments { args } => Self::ToolArguments { args },
+            Wire::ContinueTurn { reason } => Self::ContinueTurn { reason },
             Wire::BlockTool { reason } => Self::BlockTool { reason },
             Wire::ToolOutput { output } => Self::ToolOutput { output },
         })
@@ -122,6 +143,20 @@ pub fn apply_hook_response(event: &HookEvent, response: &HookResponse) -> Result
             validate_model_context(&request.messages, messages)?;
             request.messages = messages.clone();
             request.instructions = instructions.clone();
+        }
+        (HookEvent::BeforeTool { call, spec, .. }, HookResponse::ToolArguments { args }) => {
+            call.args = args.clone();
+            call.raw_arguments = None;
+            if let Some(spec) = spec
+                && let Some(error) = validate_tool_call_args(call, spec)
+            {
+                bail!("invalid hook tool arguments: {error}");
+            }
+        }
+        (HookEvent::BeforeStop { continuation, .. }, HookResponse::ContinueTurn { reason })
+            if !reason.trim().is_empty() =>
+        {
+            *continuation = Some(reason.clone());
         }
         (HookEvent::BeforeTool { blocked, .. }, HookResponse::BlockTool { reason })
             if !reason.trim().is_empty() =>

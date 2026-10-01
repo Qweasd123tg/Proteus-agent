@@ -1,20 +1,20 @@
 import { frozenCopy, nonblank, object } from "./validation.mjs";
 
-const events = new Set(["turn_started", "before_model", "before_tool", "after_tool", "turn_settled"]);
+const events = new Set(["turn_started", "before_model", "before_tool", "after_tool", "before_stop", "turn_settled"]);
 
 function responseFor(event, raw) {
   const response = raw === undefined ? { action: "continue" } : raw;
   const fields = {
     continue: [], model_context: ["messages", "instructions"],
-    block_tool: ["reason"], tool_output: ["output"],
+    block_tool: ["reason"], tool_output: ["output"], tool_arguments: ["args"], continue_turn: ["reason"],
   }[response?.action];
   if (!fields) throw new Error("unsupported hook action");
   object(response, ["action", ...fields], [], "hook response");
-  const permitted = { model_context: "before_model", block_tool: "before_tool", tool_output: "after_tool" };
+  const permitted = { model_context: "before_model", block_tool: "before_tool", tool_output: "after_tool", tool_arguments: "before_tool", continue_turn: "before_stop" };
   if (response.action !== "continue" && permitted[response.action] !== event.event) {
     throw new Error(`action ${response.action} is not allowed for ${event.event}`);
   }
-  if (response.action === "block_tool") nonblank(response.reason, "block reason");
+  if (["block_tool", "continue_turn"].includes(response.action)) nonblank(response.reason, "block reason");
   if (response.action === "tool_output" && typeof response.output !== "string") {
     throw new Error("tool output must be a string");
   }
@@ -69,7 +69,8 @@ export function createHooks(settings = {}) {
         const response = responseFor(event, result);
         if (response.action === "continue") continue;
         final = response;
-        if (response.action === "block_tool") break;
+        if (["block_tool", "continue_turn"].includes(response.action)) break;
+        if (response.action === "tool_arguments") { event.call.args = response.args; event.call.raw_arguments = null; }
         if (response.action === "tool_output") event.result.output = response.output;
         if (response.action === "model_context") {
           event.request.messages = response.messages;

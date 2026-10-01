@@ -134,6 +134,23 @@ impl ReplayState {
     }
 
     pub fn context(&self) -> Result<ContextBundle> {
+        // Each reviewed candidate belongs to its own context-build invocation;
+        // later candidates may include fresh workspace search results.
+        let candidate = self.lock().hooks.iter().find_map(|(trace, consumed)| {
+            if *consumed {
+                return None;
+            }
+            match &trace.input.event {
+                crate::contracts::HookEvent::BeforeStop { output, .. } => Some(output.clone()),
+                _ => None,
+            }
+        });
+        if let Some(output) = candidate {
+            return Ok(super::fixture::recorded_context(
+                &self.current_request()?,
+                Some(&output),
+            ));
+        }
         match &self.context {
             Some(context) => Ok(context.clone()),
             None => mismatch(

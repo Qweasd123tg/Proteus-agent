@@ -9,6 +9,7 @@ export default function setup(hooks) {
     const input = {
       hook_event_name: "PreToolUse", cwd: ctx.cwd,
       session_id: ctx.attribution.agent?.session_id ?? null,
+      turn_id: ctx.attribution.agent?.turn_id ?? null,
       tool_use_id: call.id, tool_name: call.name, tool_input: call.args,
     };
     return preToolUseDecision(await runCommand(command, args, input, ctx));

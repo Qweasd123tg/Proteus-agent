@@ -21,6 +21,7 @@ pub(crate) mod process_output;
 mod prompt_replay;
 mod provider_hosted_tools;
 mod registry;
+mod reviewed_workflow;
 mod runtime;
 mod session_journal;
 mod session_store;

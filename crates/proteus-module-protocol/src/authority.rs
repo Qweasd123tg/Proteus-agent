@@ -268,7 +268,7 @@ mod tests {
         assert_eq!(authority.module_methods, [PROCESS_HOOK_INVOKE_METHOD]);
         assert!(authority.host_methods.is_empty());
         assert!(authority.host_features.is_empty());
-        assert!(process_contract_authority("hook", "v2").is_none());
+        assert!(process_contract_authority("hook", "v3").is_none());
     }
 
     #[test]
@@ -296,7 +296,8 @@ mod tests {
             ("context_provider", "v1", "v2"),
             ("model", "v9", "v10"),
             ("compactor", "v9", "v10"),
-            ("workflow", "v15", "v16"),
+            ("workflow", "v16", "v17"),
+            ("hook", "v1", "v2"),
             ("tool", "v2", "v3"),
             ("policy", "v1", "v2"),
             ("tool_exposure", "v1", "v2"),

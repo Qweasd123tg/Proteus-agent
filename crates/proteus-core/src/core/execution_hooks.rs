@@ -98,6 +98,9 @@ impl ExecutionHooks for RuntimeHookChain {
                         HookEvent::BeforeTool {
                             blocked: Some(_),
                             ..
+                        } | HookEvent::BeforeStop {
+                            continuation: Some(_),
+                            ..
                         }
                     ) {
                         break;

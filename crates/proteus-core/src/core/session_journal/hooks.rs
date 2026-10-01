@@ -7,6 +7,9 @@ pub(super) fn model_messages(
     if let HookEvent::BeforeModel { request, .. } = &trace.input.event {
         sets.push(request.messages.as_slice());
     }
+    if let HookEvent::BeforeStop { history, .. } = &trace.input.event {
+        sets.push(history.as_slice());
+    }
     for step in &trace.steps {
         if let HookStepOutcome::Accepted {
             response: proteus_contracts::contracts::HookResponse::ModelContext { messages, .. },
@@ -36,6 +39,9 @@ pub(super) fn validate_trace(record: &JournalRecord, trace: &HookTrace) -> Resul
         HookEvent::BeforeTool {
             blocked: Some(_),
             ..
+        } | HookEvent::BeforeStop {
+            continuation: Some(_),
+            ..
         }
     ) {
         bail!("hook chain starts with an already blocked tool");
@@ -56,6 +62,9 @@ pub(super) fn validate_trace(record: &JournalRecord, trace: &HookTrace) -> Resul
                 &event,
                 HookEvent::BeforeTool {
                     blocked: Some(_),
+                    ..
+                } | HookEvent::BeforeStop {
+                    continuation: Some(_),
                     ..
                 }
             )

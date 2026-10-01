@@ -19,7 +19,7 @@ authority(module) = authority(slot, invocation_context)
 ```
 
 Все внешние modules являются exports process components: Component Runtime v2
-использует wire protocol v3; `workflow` использует strict contract v16,
+использует wire protocol v3; `workflow` использует strict contract v17,
 `compactor` — v10, `model` — v10; версии остальных slots приведены в authority table
 [process-module-architecture.md](process-module-architecture.md). Runtime допускает
 несколько одновременных и вложенных invocation одного component. Dylib ABI и
@@ -42,7 +42,7 @@ native loader в проекте отсутствуют.
 
 | Slot | Composition | Selection | Component export | Reference ids |
 |---|---|---|---|---|
-| `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v1` | `hook.instructions`, `hook.output_budget` |
+| `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v2` | `hook.instructions`, `hook.output_budget` |
 | `workflow` | `select_one` | `modules.workflow` | да | `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`, `coding.project_check` |
 | `search` | `select_one` | `modules.search` | да | `rg` |
 | `memory` | `select_one` | `modules.memory` | да | `jsonl`, `sqlite` |
@@ -133,14 +133,15 @@ callbacks сверяются с его authority, а не с объединен�
 
 ### Hooks
 
-`hook/v1` — typed contributions на host-owned точках `turn_started`,
-`before_model`, `before_tool`, `after_tool`, `turn_settled`. Список
+`hook/v2` — typed contributions на host-owned точках `turn_started`,
+`before_model`, `before_tool`, `after_tool`, `before_stop`, `turn_settled`. Список
 `modules.hooks` задаёт порядок; пустой список отключает hooks. Один export
 не получает host callbacks и не вызывает tools/model/memory. Component
 по-прежнему задаёт общий lifecycle, authority одинаковая для каждого handler.
 
 Перед model разрешена замена только messages/instructions; перед tool —
-явный block без изменения call; после tool — только output. Host повторно
+block или замена args без изменения id/name/surface; после tool — только output.
+Новые args проходят общую validation до policy/approval; raw_arguments снимается. Host повторно
 валидирует каждый response. Ошибка before-model/before-tool останавливает
 соответствующий side effect. After-tool не отменяет совершившийся эффект:
 фактический result сохраняется, ошибка hook завершается явно. Уведомления
@@ -151,10 +152,18 @@ accepted responses/failures и output цепочки. Workflow replay приме
 записанные responses к raw boundaries без запуска hook workers; internal
 compactor hooks не исполняются повторно, как и summary model exchanges.
 
+`before_stop` проверяет успешный кандидат root turn. `continue_turn` с
+непустой причиной запускает тот же workflow, сохраняя историю и идентичность
+turn; причина передаётся developer instruction и `runtime.continuation`.
+Первое решение продолжить завершает chain. Лимит — 8 продолжений; общий
+workflow timeout не сбрасывается. Кандидат checkpoint-ится до review, финальное
+UI-событие публикуется после принятия. Ошибка reviewer — явный Error с сохранённым
+прогрессом; Canceled/Timeout подтверждаются settlement и cold history.
+
 Внешний [`hook-process`](../../examples/modules/hook-process/README.md)
 предоставляет JS/TS SDK и явные обёртки для переноса отдельных Pi/OpenCode
-handlers и PreToolUse commands Codex/Claude. Он экспортирует обычный
-`hook/v1` с тем же contract и без дополнительных callbacks. Upstream lifecycle
+handlers и PreToolUse/Stop commands Codex/Claude. Он экспортирует обычный
+`hook/v2` с тем же contract и без дополнительных callbacks. Upstream lifecycle
 или неподдержанные actions не эмулируются; различия описаны рядом с примерами.
 
 ### Workflow
@@ -170,7 +179,7 @@ journal остаются host-owned.
 `runtime.permission_mode`; Core не знает их инструкций. Подробности и команды —
 в [runtime-and-events.md](../guides/runtime-and-events.md).
 
-`workflow/v16` возвращает success с `WorkflowOutput` либо error с
+`workflow/v17` возвращает success с `WorkflowOutput` либо error с
 `WorkflowFailure`. Ошибка может явно вернуть выполненную часть истории через
 `WorkflowHistoryUpdate`; Core проверяет её и сохраняет до terminal `Error`.
 `coding.codex_loop` использует этот путь после сбоя model call, включая
@@ -218,7 +227,7 @@ Checkpoint связывает исходный call в history с явно об�
 исполнение без преобразования. Подмена module не требует имени Codex в host.
 
 `coding.project_check` — reference code-heavy controller на том же
-`workflow/v16`. Он детерминированно вызывает `git_status`, определяет project по
+`workflow/v17`. Он детерминированно вызывает `git_status`, определяет project по
 root marker, запускает фиксированную test command и обращается к model только
 один раз для объяснения failed test. Success path не вызывает model, context
 или compactor. Это architecture probe, не default workflow и не special
@@ -316,8 +325,8 @@ model history. При `changed = false` сообщения должны совп
 input/output. `metadata` — непрозрачные данные module, не источник этих полей.
 
 Тот же DTO возвращает workflow callback `host.history.compact`; актуальные
-границы — `compactor/v10` и `workflow/v16`, прежние slot versions не принимаются.
-Wire protocol остаётся v3, журнал использует schema v16.
+границы — `compactor/v10` и `workflow/v17`, прежние slot versions не принимаются.
+Wire protocol остаётся v3, журнал использует schema v17.
 Workflow replay сохраняет typed поля `HistoryCompactionReport` и весь `metadata`, не подмешивая и не
 удаляя ключи с известными именами. Core помечает внутренний model callback
 compactor origin-ом `compactor` в journal envelope. Workflow replay проверяет

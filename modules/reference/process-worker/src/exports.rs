@@ -376,6 +376,7 @@ impl ExportWorker {
             config: self.binding.module_config.clone(),
             runtime: WorkflowModuleRuntimeInfo {
                 intent: input.runtime.intent,
+                continuation: input.runtime.continuation,
                 permission_mode: input.runtime.permission_mode,
                 session_id: input.runtime.session_id,
                 thread_id: input.runtime.thread_id,

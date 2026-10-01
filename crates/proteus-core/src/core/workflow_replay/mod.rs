@@ -201,32 +201,32 @@ pub async fn replay_workflow(
             cwd: fixture.opened.task.cwd.clone(),
         })
         .await;
-    let replay_result = workflow
-        .run(
-            fixture.opened.task.clone(),
-            fixture.initial_history.clone(),
-            workflow_context,
-        )
-        .await
-        .and_then(|output| {
-            let persisted_user = fixture
-                .initial_history
-                .last()
-                .context("workflow replay fixture has no persisted current user message")?;
-            let history_update = prepare_history_update(
-                &fixture.initial_history,
-                persisted_user,
-                &output.new_messages,
-                output.history_replacement.as_deref(),
-                &output.compactions,
-                &HashSet::new(),
-            )?;
-            Ok((
-                output.output,
-                history_update.final_messages,
-                output.compactions,
-            ))
-        });
+    let replay_result = crate::core::reviewed_workflow::run(
+        workflow.as_ref(),
+        fixture.opened.task.clone(),
+        fixture.initial_history.clone(),
+        workflow_context,
+    )
+    .await
+    .and_then(|output| {
+        let persisted_user = fixture
+            .initial_history
+            .last()
+            .context("workflow replay fixture has no persisted current user message")?;
+        let history_update = prepare_history_update(
+            &fixture.initial_history,
+            persisted_user,
+            &output.new_messages,
+            output.history_replacement.as_deref(),
+            &output.compactions,
+            &HashSet::new(),
+        )?;
+        Ok((
+            output.output,
+            history_update.final_messages,
+            output.compactions,
+        ))
+    });
     let (replay_outcome, replay_history, replay_compactions) = match replay_result {
         Ok((output, history, compactions)) => (
             WorkflowReplayOutcome {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dependency-free out-of-tree Workflow v16 component for Proteus.
+"""Dependency-free out-of-tree Workflow v17 component for Proteus.
 
 The worker owns a small model/tool loop. Models, tools, policy, approvals,
 safety, events, and cancellation remain host capabilities reached only through
@@ -27,7 +27,7 @@ from component_runtime import (  # noqa: E402
 
 SLOT = "workflow"
 MODULE_ID = "python_agent_loop"
-CONTRACT_VERSION = "v16"
+CONTRACT_VERSION = "v17"
 
 INITIALIZE_FIELDS = {
     "protocol_version",
@@ -50,6 +50,7 @@ RUNTIME_FIELDS = {
     "model_ref",
     "instructions",
     "intent",
+    "continuation",
     "permission_mode",
     "reasoning",
     "max_input_tokens",
@@ -336,8 +337,16 @@ def run_workflow(
     history = invocation["history"]
     if not isinstance(history, list) or not history:
         raise ProtocolError("workflow history must be a non-empty array")
-    if history[-1].get("role") != "User":
-        raise ProtocolError("workflow history must end with the current user message")
+    continuation = runtime["continuation"]
+    if continuation is None:
+        if history[-1].get("role") != "User":
+            raise ProtocolError("workflow history must end with the current user message")
+        prior_progress = {"new_messages": [], "history_replacement": None, "compactions": []}
+    else:
+        continuation = require_object(continuation, {"attempt", "reason", "current_user_message_id", "history"}, "continuation")
+        prior_progress = require_object(continuation["history"], {"new_messages", "history_replacement", "compactions"}, "continuation history")
+        if not any(message.get("id") == continuation["current_user_message_id"] and message.get("role") == "User" for message in history):
+            raise ProtocolError("continuation history has no current user anchor")
     if runtime["intent"] is not None:
         raise ProtocolError(f"unsupported workflow intent: {runtime['intent']}")
     del runtime
@@ -359,7 +368,7 @@ def run_workflow(
 
     messages = [context_message(chunk) for chunk in context["chunks"]]
     messages.extend(history)
-    persistent_new: list[dict[str, Any]] = []
+    persistent_new: list[dict[str, Any]] = list(prior_progress["new_messages"])
     tools = select_tools(peer, task)
     tool_rounds = 0
 
@@ -380,7 +389,7 @@ def run_workflow(
         captured = response["tool_calls"] if response["finish_reason"] != "Stop" and not final_round else []
         bindings = {call["id"]: {"call_id": call["id"], "execution_call": call, "message_id": uuid_string(), "part_id": uuid_string()} for call in captured}
         acknowledgement = peer.host_call("host.history.checkpoint", {
-            "history": {"new_messages": persistent_new, "history_replacement": None, "compactions": []},
+            "history": {"new_messages": persistent_new, "history_replacement": prior_progress["history_replacement"], "compactions": prior_progress["compactions"]},
             "tool_results": list(bindings.values()),
         })
         require_object(acknowledgement, set(), "checkpoint acknowledgement")
@@ -402,8 +411,8 @@ def run_workflow(
                 "result": {
                     "output": output,
                     "new_messages": persistent_new,
-                    "history_replacement": None,
-                    "compactions": [],
+                    "history_replacement": prior_progress["history_replacement"],
+                    "compactions": prior_progress["compactions"],
                 }
             }
 
@@ -447,7 +456,7 @@ def initialize(raw: Any) -> dict[str, Any]:
     if actual != expected:
         raise ProtocolError(f"unsupported initialize identity: {actual!r}")
     if require_string_list(export["host_features"], "host_features"):
-        raise ProtocolError("workflow v16 has no negotiated optional features")
+        raise ProtocolError("workflow v17 has no negotiated optional features")
     component_config = parse_config(export["module_config"])
     return {
         "protocol_version": PROTOCOL_VERSION,
@@ -468,7 +477,7 @@ def invoke(context: InvocationContext, method: str, params: Any) -> dict[str, An
     if context.export != {"slot": SLOT, "module_id": MODULE_ID}:
         raise ProtocolError(f"unknown component export: {context.export!r}")
     if method != "run":
-        raise ProtocolError(f"workflow v16 does not support method {method!r}")
+        raise ProtocolError(f"workflow v17 does not support method {method!r}")
     return run_workflow(Peer(context), params, component_config)
 
 

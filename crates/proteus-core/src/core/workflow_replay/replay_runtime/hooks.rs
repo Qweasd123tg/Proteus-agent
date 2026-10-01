@@ -62,10 +62,15 @@ impl ExecutionHooks for ReplayHooks {
         let stopped = trace.output.is_none()
             || matches!(
                 &trace.output,
-                Some(HookEvent::BeforeTool {
-                    blocked: Some(_),
-                    ..
-                })
+                Some(
+                    HookEvent::BeforeTool {
+                        blocked: Some(_),
+                        ..
+                    } | HookEvent::BeforeStop {
+                        continuation: Some(_),
+                        ..
+                    }
+                )
             );
         if !stopped && trace.steps.len() != self.module_ids.len() {
             return mismatch(
@@ -77,11 +82,19 @@ impl ExecutionHooks for ReplayHooks {
             || input.attribution.agent != trace.input.attribution.agent
             || !events_equal(&input.event, &trace.input.event, &inner.actual_to_expected)
         {
+            let fields = match (&input.event, &trace.input.event) {
+                (
+                    HookEvent::BeforeModel { request: a, .. },
+                    HookEvent::BeforeModel { request: b, .. },
+                ) => super::super::normalize::request_difference(a, b, &inner.actual_to_expected),
+                _ => String::new(),
+            };
             return mismatch(
                 &mut inner,
                 format!(
-                    "hook boundary {} input differs from recorded input",
-                    boundary_name(&input.event)
+                    "hook boundary {} input differs from recorded input; {}",
+                    boundary_name(&input.event),
+                    fields
                 ),
             );
         }
@@ -129,6 +142,9 @@ fn same_boundary(actual: &HookEvent, expected: &HookEvent, ids: &HashMap<CallId,
             ids.get(&a.id).unwrap_or(&a.id) == &b.id
         }
         (HookEvent::BeforeModel { origin: a, .. }, HookEvent::BeforeModel { origin: b, .. }) => {
+            a == b
+        }
+        (HookEvent::BeforeStop { attempt: a, .. }, HookEvent::BeforeStop { attempt: b, .. }) => {
             a == b
         }
         _ => std::mem::discriminant(actual) == std::mem::discriminant(expected),
@@ -179,6 +195,28 @@ fn events_equal(actual: &HookEvent, expected: &HookEvent, ids: &HashMap<CallId, 
                 result: br,
             },
         ) => calls_equal(a, b, ids) && results_equal(ar, br, ids),
+        (
+            HookEvent::BeforeStop {
+                task: a,
+                history: ah,
+                output: ao,
+                attempt: aa,
+                continuation: ac,
+            },
+            HookEvent::BeforeStop {
+                task: b,
+                history: bh,
+                output: bo,
+                attempt: ba,
+                continuation: bc,
+            },
+        ) => {
+            a == b
+                && messages_equal(ah, bh, ids)
+                && outputs_equal(ao, bo, ids)
+                && aa == ba
+                && ac == bc
+        }
         (
             HookEvent::TurnSettled {
                 status: a,
@@ -237,6 +275,7 @@ fn boundary_name(event: &HookEvent) -> &'static str {
         HookEvent::BeforeModel { .. } => "before_model",
         HookEvent::BeforeTool { .. } => "before_tool",
         HookEvent::AfterTool { .. } => "after_tool",
+        HookEvent::BeforeStop { .. } => "before_stop",
         HookEvent::TurnSettled { .. } => "turn_settled",
     }
 }

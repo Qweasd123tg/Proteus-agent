@@ -21,7 +21,7 @@ use crate::{
     model_standard::{CanonicalMessage, CanonicalModelRequest, InstructionBlock},
 };
 
-pub const PROCESS_WORKFLOW_CONTRACT_VERSION: &str = "v16";
+pub const PROCESS_WORKFLOW_CONTRACT_VERSION: &str = "v17";
 pub const PROCESS_WORKFLOW_METHOD: &str = "run";
 
 pub const WORKFLOW_HOST_RUNTIME_STATUS_METHOD: &str = "host.runtime.status";
@@ -34,17 +34,17 @@ pub const WORKFLOW_HOST_EXECUTE_TOOL_METHOD: &str = "host.tools.execute";
 pub const WORKFLOW_HOST_EXECUTE_TOOLS_METHOD: &str = "host.tools.execute_batch";
 pub const WORKFLOW_HOST_EMIT_EVENT_METHOD: &str = "host.events.emit";
 
-/// Strict invocation payload for process Workflow contract v16.
+/// Strict invocation payload for process Workflow contract v17.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessWorkflowInput {
     pub task: AgentTask,
-    /// Persistent history through the current user message.
+    /// Persistent history through the admitted user; continuations include the preceding candidate.
     pub history: Vec<CanonicalMessage>,
     pub runtime: ProcessWorkflowRuntimeInfo,
 }
 
-/// Provider-neutral invocation context visible to every Workflow v16 module.
+/// Provider-neutral invocation context visible to every Workflow v17 module.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessWorkflowRuntimeInfo {
@@ -57,6 +57,8 @@ pub struct ProcessWorkflowRuntimeInfo {
     pub instructions: Vec<InstructionBlock>,
     /// Opaque action name interpreted by the selected workflow.
     pub intent: Option<String>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub continuation: Option<WorkflowContinuation>,
     pub permission_mode: crate::domain::PermissionMode,
     pub reasoning: ReasoningConfig,
     pub max_input_tokens: Option<u32>,
@@ -64,6 +66,18 @@ pub struct ProcessWorkflowRuntimeInfo {
     pub context_timeout_ms: u64,
     /// Zero means that the core-owned outer workflow deadline is disabled.
     pub workflow_timeout_ms: u64,
+}
+
+/// Host-reviewed continuation of the same root turn. No new user message is admitted.
+/// The workflow retains the preceding candidate in `history` and returns cumulative
+/// progress after this user anchor, including the supplied compaction evidence.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct WorkflowContinuation {
+    pub attempt: u32,
+    pub reason: String,
+    pub current_user_message_id: MessageId,
+    pub history: super::WorkflowHistoryUpdate,
 }
 
 /// Neutral cancellation fact anchored to the retained conversation history.
@@ -75,7 +89,7 @@ pub struct WorkflowHistoryInterruption {
     pub after_message_id: MessageId,
 }
 
-/// Strict terminal result envelope for process Workflow contract v16.
+/// Strict terminal result envelope for process Workflow contract v17.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProcessWorkflowResponse {
@@ -173,6 +187,7 @@ pub struct AgentWorkflowContext {
     pub instructions: Vec<InstructionBlock>,
     /// Opaque action name interpreted by the selected workflow.
     pub intent: Option<String>,
+    pub continuation: Option<WorkflowContinuation>,
     pub permission_mode: crate::domain::PermissionMode,
     pub reasoning: ReasoningConfig,
     pub context_timeout_ms: u64,
@@ -221,6 +236,7 @@ impl AgentWorkflowContext {
             interrupted_turns: Vec::new(),
             instructions: Vec::new(),
             intent: None,
+            continuation: None,
             permission_mode: crate::domain::PermissionMode::Normal,
             reasoning,
             context_timeout_ms,
@@ -346,6 +362,7 @@ mod process_contract_tests {
             history: vec![CanonicalMessage::text(MessageRole::User, "hello")],
             runtime: ProcessWorkflowRuntimeInfo {
                 intent: None,
+                continuation: None,
                 permission_mode: crate::domain::PermissionMode::Normal,
                 session_id: new_session_id(),
                 thread_id: new_thread_id(),
@@ -371,12 +388,12 @@ mod process_contract_tests {
         serde_json::from_value::<ProcessWorkflowInput>(value)
             .expect_err("unknown process workflow fields must fail");
 
-        for field in ["model_context", "interrupted_turns"] {
+        for field in ["model_context", "interrupted_turns", "continuation"] {
             let mut value = serde_json::to_value(process_input()).expect("workflow input");
             value["runtime"].as_object_mut().unwrap().remove(field);
             assert!(
                 serde_json::from_value::<ProcessWorkflowInput>(value).is_err(),
-                "{field} is required in workflow v16"
+                "{field} is required in workflow v17"
             );
         }
     }

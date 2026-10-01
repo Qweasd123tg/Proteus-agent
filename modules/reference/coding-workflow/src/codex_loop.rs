@@ -72,39 +72,45 @@ fn run_loop(
     let mut context_hint = ModelContextAccounting::from_observations(&input.runtime.model_context)
         .preflight_estimate_hint();
 
-    // Admission already persisted the current user. It must not participate in
-    // the pre-turn summary or be truncated before the first coding request.
-    let current_user_position =
-        crate::history::current_user_index(&turn.model_messages, turn.current_user_message_id)
-            .ok_or_else(|| {
-                ProcessModuleError::new("pre-turn history dropped the current user message")
-            })?;
-    let current_user = turn.model_messages[current_user_position].clone();
-    let prepared = pre_turn_request(
-        input,
-        host,
-        &turn.model_messages[..current_user_position],
-        context_hint,
-    )?;
-    let trigger_tokens = prepared
-        .compaction
-        .as_ref()
-        .and_then(|report| report.trigger_tokens);
-    let mut compacted = prepared.request.messages;
-    compacted.push(current_user);
-    let changed = turn.apply_compaction_report(
-        prepared.compaction.as_ref(),
-        &compacted,
-        PersistentRepair::ReplaceAfter,
-    )?;
-    if changed {
-        context_hint = None;
-        turn.checkpoint(host, &[])?;
-    }
-    let context_position = if changed {
-        turn.model_messages.len() - 1
+    let (trigger_tokens, context_position) = if input.runtime.continuation.is_some() {
+        // Resume the full preceding candidate; the original user is already anchored.
+        (None, 0)
     } else {
-        0
+        // Admission already persisted the current user. It must not participate in
+        // the pre-turn summary or be truncated before the first coding request.
+        let current_user_position =
+            crate::history::current_user_index(&turn.model_messages, turn.current_user_message_id)
+                .ok_or_else(|| {
+                    ProcessModuleError::new("pre-turn history dropped the current user message")
+                })?;
+        let current_user = turn.model_messages[current_user_position].clone();
+        let prepared = pre_turn_request(
+            input,
+            host,
+            &turn.model_messages[..current_user_position],
+            context_hint,
+        )?;
+        let trigger_tokens = prepared
+            .compaction
+            .as_ref()
+            .and_then(|report| report.trigger_tokens);
+        let mut compacted = prepared.request.messages;
+        compacted.push(current_user);
+        let changed = turn.apply_compaction_report(
+            prepared.compaction.as_ref(),
+            &compacted,
+            PersistentRepair::ReplaceAfter,
+        )?;
+        if changed {
+            context_hint = None;
+            turn.checkpoint(host, &[])?;
+        }
+        let context_position = if changed {
+            turn.model_messages.len() - 1
+        } else {
+            0
+        };
+        (trigger_tokens, context_position)
     };
     turn.inject_context(host, input, context_position)?;
     let mut first_sampling = true;

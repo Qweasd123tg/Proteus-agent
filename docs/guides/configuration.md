@@ -916,9 +916,11 @@ component. Пустой массив (default) отключает contributions.
 Node.js 22.18+ загружает entry-файл, `hooks.on` регистрирует canonical события,
 а optional `tools` фильтрует точные имена инструментов. Export config содержит
 `entry` и необязательный object `settings`. Обёртки помогают переносить узкие
-Pi/OpenCode tool handlers и JSON-stdin PreToolUse scripts Codex/Claude Code.
+Pi/OpenCode tool handlers (включая изменение args), JSON-stdin PreToolUse
+`updatedInput` и Stop scripts Codex/Claude Code. Completion review сохраняет
+root turn, имеет общий workflow deadline и лимит 8 продолжений.
 Неподдержанные upstream действия отклоняются явно; это адаптер переноса,
-не загрузчик чужих plugins. Worker использует тот же `hook/v1`, без отдельной
+не загрузчик чужих plugins. Worker использует тот же `hook/v2`, без отдельной
 registration или authority surface в Core.
 
 ## Config Builder

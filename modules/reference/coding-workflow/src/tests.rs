@@ -277,6 +277,7 @@ fn workflow_input(text: &str) -> WorkflowModuleInput {
         config: json!({}),
         runtime: WorkflowModuleRuntimeInfo {
             intent: None,
+            continuation: None,
             permission_mode: proteus_contracts::domain::PermissionMode::Normal,
             session_id: new_session_id(),
             thread_id: new_thread_id(),

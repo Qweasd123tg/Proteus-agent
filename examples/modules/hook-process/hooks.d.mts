@@ -32,10 +32,13 @@ export interface HookEvents {
   before_model: { readonly event: "before_model"; readonly origin: string; readonly request: ModelRequest };
   before_tool: { readonly event: "before_tool"; readonly call: ToolCall; readonly spec: unknown; readonly blocked: string | null };
   after_tool: { readonly event: "after_tool"; readonly call: ToolCall; readonly result: ToolResult };
+  before_stop: { readonly event: "before_stop"; readonly task: unknown; readonly history: readonly unknown[]; readonly output: unknown; readonly attempt: number; readonly continuation: string | null };
   turn_settled: { readonly event: "turn_settled"; readonly status: "success" | "error" | "canceled" | "timeout"; readonly output: unknown; readonly error: string | null };
 }
 export type HookResponse =
   | { action: "continue" }
+  | { action: "tool_arguments"; args: unknown }
+  | { action: "continue_turn"; reason: string }
   | { action: "block_tool"; reason: string }
   | { action: "tool_output"; output: string }
   | { action: "model_context"; messages: readonly unknown[]; instructions: readonly unknown[] };
@@ -43,8 +46,9 @@ type Continue = Extract<HookResponse, { action: "continue" }>;
 export type EventResponse = {
   turn_started: Continue;
   before_model: Continue | Extract<HookResponse, { action: "model_context" }>;
-  before_tool: Continue | Extract<HookResponse, { action: "block_tool" }>;
+  before_tool: Continue | Extract<HookResponse, { action: "block_tool" | "tool_arguments" }>;
   after_tool: Continue | Extract<HookResponse, { action: "tool_output" }>;
+  before_stop: Continue | Extract<HookResponse, { action: "continue_turn" }>;
   turn_settled: Continue;
 };
 export type Handler<E extends keyof HookEvents> =

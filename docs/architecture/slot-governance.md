@@ -196,7 +196,7 @@ Cursor-like output artifact идеи, но не доказывает, что н�
 
 ## Hook Contributions
 
-`hook/v1` закрывает класс одновременно включаемых typed execution contributions:
+`hook/v2` закрывает класс одновременно включаемых typed execution contributions:
 общие точки до model/tool и после tool принадлежат host, поэтому независимую
 contribution не нужно встраивать в каждый workflow. Реальные opt-in
 implementations — instruction injection и tool-output budget. Contract
@@ -207,3 +207,11 @@ implementations — instruction injection и tool-output budget. Contract
 after-tool сохраняет actual effect с явной ошибкой; lifecycle notifications
 best-effort. Implementation-owned state не обещает restore после restart.
 Chain evidence проверяет A→B/B→A, failure и запрет host callbacks.
+
+`hook/v2` расширяет тот же slot аргументами before-tool и completion review:
+новой authority/callbacks нет. Args проходят shared validation после каждого
+export до policy/approval; Requested сохраняет model provenance. Before-stop
+возвращает только причину bounded continuation, не меняет task/history/output.
+Root владеет лимитом 8, единым deadline, checkpoint и принятием финала. Swap
+и hook-runtime evidence проверяют actual execution/replay, границу лимита,
+сохранение кандидата при cancel/timeout и один принятый UI-final.

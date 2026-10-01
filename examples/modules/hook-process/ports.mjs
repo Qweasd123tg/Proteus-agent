@@ -5,14 +5,17 @@ import { frozenCopy, nonblank, object } from "./validation.mjs";
 // They do not load upstream extensions or emulate an upstream runtime.
 export function piToolCall(handler) {
   return async ({ call }, ctx) => {
-    const result = await handler(frozenCopy({
-      type: "tool_call", toolCallId: call.id, toolName: call.name, input: call.args,
-    }), Object.freeze({ ...ctx, hasUI: false }));
-    if (result === undefined) return;
+    const event = Object.freeze({
+      type: "tool_call", toolCallId: call.id, toolName: call.name, input: structuredClone(call.args),
+    });
+    const result = await handler(event, Object.freeze({ ...ctx, hasUI: false }));
+    if (result === undefined) return !isDeepStrictEqual(event.input, call.args)
+      ? { action: "tool_arguments", args: event.input } : undefined;
     object(result, [], ["block", "reason"], "ported Pi tool_call result");
     if (result.block === true) return { action: "block_tool", reason: nonblank(result.reason, "block reason") };
     if (result.block !== undefined && result.block !== false) throw new Error("block must be boolean");
     if (result.reason !== undefined) throw new Error("reason requires block: true");
+    if (!isDeepStrictEqual(event.input, call.args)) return { action: "tool_arguments", args: event.input };
   };
 }
 
@@ -30,7 +33,7 @@ export function piToolResult(handler) {
     object(answer, [], ["content", "details", "isError"], "ported Pi tool_result result");
     if ((Object.hasOwn(answer, "details") && !isDeepStrictEqual(answer.details, details)) ||
         (Object.hasOwn(answer, "isError") && answer.isError !== isError)) {
-      throw new Error("hook/v1 cannot change tool status or metadata");
+      throw new Error("hook/v2 cannot change tool status or metadata");
     }
     if (answer.content === undefined) return;
     if (!Array.isArray(answer.content)) throw new Error("content must be an array");
@@ -52,7 +55,7 @@ export function openCodeToolBefore(handler) {
     const result = await handler(openCodeInput(call, ctx), output);
     if (result !== undefined) throw new Error("ported OpenCode handlers must mutate output and return void");
     object(output, ["args"], [], "ported OpenCode before output");
-    if (!isDeepStrictEqual(output.args, call.args)) throw new Error("hook/v1 cannot rewrite tool arguments");
+    if (!isDeepStrictEqual(output.args, call.args)) return { action: "tool_arguments", args: output.args };
     // Handler exceptions remain explicit hook failures; they are not converted to a veto.
   };
 }
@@ -68,7 +71,7 @@ export function openCodeToolAfter(handler) {
   };
 }
 
-/** Convert only the shared PreToolUse veto subset of Codex/Claude command output. */
+/** Convert the shared PreToolUse deny/allow + updatedInput subset. */
 export function preToolUseDecision({ code, stdout, stderr }) {
   if (code === 2) return { action: "block_tool", reason: nonblank(stderr.trim(), "exit 2 reason") };
   if (code !== 0) throw new Error(`command hook exited ${code}: ${stderr.trim()}`);
@@ -76,11 +79,24 @@ export function preToolUseDecision({ code, stdout, stderr }) {
   const output = object(JSON.parse(stdout), [], ["hookSpecificOutput"], "ported PreToolUse output");
   if (!output.hookSpecificOutput) return;
   const decision = object(output.hookSpecificOutput, ["hookEventName", "permissionDecision"],
-    ["permissionDecisionReason"], "ported PreToolUse decision");
+    ["permissionDecisionReason", "updatedInput"], "ported PreToolUse decision");
   if (decision.hookEventName !== "PreToolUse") throw new Error("expected PreToolUse decision");
   if (decision.permissionDecision === "deny") {
+    if (Object.hasOwn(decision, "updatedInput")) throw new Error("updatedInput requires allow");
     return { action: "block_tool", reason: nonblank(decision.permissionDecisionReason, "deny reason") };
   }
   if (decision.permissionDecision !== "allow") throw new Error("only deny/allow decisions can be ported");
+  if (Object.hasOwn(decision, "updatedInput")) return { action: "tool_arguments", args: decision.updatedInput };
   // "allow" continues through Proteus policy/approval; it never grants permissions.
+}
+
+/** Shared Stop block decision: request another attempt in the same Proteus turn. */
+export function stopDecision({ code, stdout, stderr }) {
+  if (code === 2) return { action: "continue_turn", reason: nonblank(stderr.trim(), "exit 2 reason") };
+  if (code !== 0) throw new Error(`command hook exited ${code}: ${stderr.trim()}`);
+  if (!stdout.trim()) return;
+  const output = object(JSON.parse(stdout), [], ["decision", "reason"], "ported Stop output");
+  if (output.decision === undefined && output.reason === undefined) return;
+  if (output.decision !== "block") throw new Error("only the Stop block decision can be ported");
+  return { action: "continue_turn", reason: nonblank(output.reason, "stop reason") };
 }

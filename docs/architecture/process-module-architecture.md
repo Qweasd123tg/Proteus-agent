@@ -262,7 +262,7 @@ invalid DTO и превышение limits являются fail-closed protocol
 
 | Slot | Contract | Module methods | Host callbacks |
 |---|---|---|---|
-| hook | v1 | `hook.invoke` | — |
+| hook | v2 | `hook.invoke` | — |
 | search | v2 | `search` | — |
 | memory | v2 | `remember`, `recall` | — |
 | patch | v1 | `apply` | — |
@@ -273,7 +273,7 @@ invalid DTO и превышение limits являются fail-closed protocol
 | context | v2 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
 | model | v10 | `describe`, `catalog`, `quota`, `stream` | `host.model.emit` (acknowledged canonical events) |
 | compactor | v10 | `compact` | `host.model.complete` |
-| workflow | v16 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
+| workflow | v17 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
 
 Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
@@ -281,14 +281,14 @@ DTO, adapter, protocol/conformance и swap evidence в одном commit.
 
 `ToolSpec` содержит обязательный boolean `supports_parallel_tool_calls`,
 независимый от `safety`. Он проходит через tool list, policy, tool exposure,
-canonical model request, workflow/compactor, journal schema v16 и config
+canonical model request, workflow/compactor, journal schema v17 и config
 snapshot v5. Rust
 constructor задаёт `false`, worker JSON обязан передать поле явно. Selector
 сохраняет зарегистрированное значение; несовпадение отклоняется. Старые
 версии этих contracts и ToolSpec без поля не принимаются. Wire остаётся v3;
 параллельность вызовов не меняет composition slot-а и его host authority.
 
-`workflow/v16` передаёт в `runtime` непрозрачный `intent: string | null` и
+`workflow/v17` передаёт в `runtime` непрозрачный `intent: string | null` и
 эффективный `permission_mode` запуска. Семантику имени определяет выбранный
 workflow; неподдерживаемое намерение должно давать явную ошибку, а не обычный
 запуск с проигнорированными параметрами. Поле не расширяет authority: host
@@ -317,7 +317,7 @@ Core восстанавливает их из journal либо памяти; в�
 `coding.codex_loop` представляет их request-only маркером `<turn_aborted>`
 из выбранного upstream; marker не становится новым принятым вводом пользователя.
 
-`workflow/v16` возвращает strict terminal envelope: `status = "success"` с
+`workflow/v17` возвращает strict terminal envelope: `status = "success"` с
 `result: WorkflowOutput` либо `status = "error"` с `failure: WorkflowFailure`.
 Ошибка алгоритма может содержать `history: WorkflowHistoryUpdate` — завершённые
 `new_messages`, optional `history_replacement` и `compactions`; `model_failure`
@@ -364,7 +364,7 @@ tools. Запрос без результата остаётся неизвес�
 
 ## Model Stream В Workflow
 
-`workflow/v16` предоставляет всем exports два callbacks:
+`workflow/v17` предоставляет всем exports два callbacks:
 
 - `host.model.stream.start(WorkflowCompleteModelRequest) -> { stream_id }`;
 - `host.model.stream.next({ stream_id }) -> WorkflowModelStreamItem` с
@@ -553,7 +553,7 @@ single-export components:
 - `examples/modules/agent-worker/agent.py`.
 
 JS/TS [`hook-process`](../../examples/modules/hook-process/README.md) использует
-тот же wire v3 с несколькими `hook/v1` exports, concurrent invocations и
+тот же wire v3 с несколькими `hook/v2` exports, concurrent invocations и
 адресной отменой через `AbortSignal`. SDK и porting helpers находятся внутри
 внешнего component; в Core нет language- или origin-specific пути исполнения.
 
@@ -655,11 +655,11 @@ event; это причина, а не команда Core повторить з�
 без завершения, сохраняя остальные
 ошибки данных и deadline отдельными. Codex workflow принимает решение о повторе
 с подтверждённой историей; compactor сохраняет свою политику повторов.
-Действуют `model/v10`, `workflow/v16`, `compactor/v10` и journal schema v16,
+Действуют `model/v10`, `workflow/v17`, `compactor/v10` и journal schema v17,
 без readers старых форм.
 Передача `ToolCall` в существующем `CanonicalMessage` не меняет wire/storage DTO.
 
-Journal schema v16 записывает `ModelMessageRecorded { exchange_id, message }`
+Journal schema v17 записывает `ModelMessageRecorded { exchange_id, message }`
 до доставки completed item и сохраняет полный `ModelFailure`; workflow replay
 воспроизводит последовательность completed items и возвращает тот же
 `kind`, текст и `completed_messages`. Ветвление workflow по типу ошибки прямого
@@ -724,11 +724,12 @@ invocation authority и проверяемого lifecycle — без второ
 
 ## Typed Hook Chain
 
-`hook/v1` имеет `composition=ordered_many`; host выбирает exact exports
+`hook/v2` имеет `composition=ordered_many`; host выбирает exact exports
 по `modules.hooks` в порядке config snapshot. Wire input содержит typed event,
 execution attribution и cwd; cancellation token остаётся host-only. Методы
 `host.*` не разрешены. События: turn-start/end (best-effort notifications),
-before-model (messages/instructions), before-tool (block), after-tool (output).
+before-model (messages/instructions), before-tool (block/args), after-tool (output),
+before-stop (bounded continuation того же root turn).
 Каждый mutating response валидируется до следующего handler. Идентичность,
 policy и effect status изменять нельзя. Pre-model/pre-tool failure не допускает
 соответствующий effect; after-tool failure сохраняет actual tool result.
@@ -737,3 +738,28 @@ Hook process persistent и допускает concurrent invocation; нельз�
 execution state в единственном shared mutable поле. Reload меняет snapshot
 атомарно, потеря component затрагивает все exports этого component; restart
 не восстанавливает implementation-owned state автоматически.
+
+### Completion Review И Workflow Continuation
+
+`hook/v2` добавляет `tool_arguments { args }` к before-tool и
+`continue_turn { reason }` к `before_stop`. Tool identity неизменна, изменённые
+args валидируются после каждого export до policy/approval; journal хранит
+исходный Requested и effective call в успешном trace/approval/resolution.
+Rejected rewrite не достигает tool. Старый `hook/v1` не принимается.
+
+Root вызывает `before_stop { task, history, output, attempt, continuation: null }`
+после успешного workflow и сохранения кандидата. Первая непустая причина
+завершает ordered chain. Максимум 8 продолжений в одном execution/turn,
+в пределах прежнего outer timeout/cancellation. Уведомление `turn_settled`
+остаётся best-effort и не возобновляет execution. Replay исполняет тот же root
+review loop с записанными responses, без запуска hook executables.
+
+`workflow/v17` требует nullable `runtime.continuation`. Значение содержит
+`attempt`, `reason`, `current_user_message_id`, `history: WorkflowHistoryUpdate`.
+При continuation input history включает прошлый кандидат и может заканчиваться
+assistant/tool; текущий user определяется явным anchor. Output/checkpoints/
+failure history остаются накопительными относительно исходного root input:
+workflow сохраняет прошлые new_messages, replacement и compactions из seed,
+добавляет новый прогресс и compaction evidence. Host повторно проверяет обычный
+history contract. Причина также присутствует в runtime developer instructions.
+Reference workflows и внешний Python example поддерживают эту поверхность.

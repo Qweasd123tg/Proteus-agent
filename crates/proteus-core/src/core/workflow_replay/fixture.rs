@@ -124,7 +124,14 @@ pub(super) fn load_fixture(
             _ => None,
         })
         .or_else(|| exchanges.first().map(|exchange| &exchange.request));
-    let context = context_request.map(|request| recorded_context(request, &settlement));
+    let first_output = hooks
+        .iter()
+        .find_map(|trace| match &trace.input.event {
+            crate::contracts::HookEvent::BeforeStop { output, .. } => Some(output),
+            _ => None,
+        })
+        .or(settlement.output.as_ref());
+    let context = context_request.map(|request| recorded_context(request, first_output));
     let opened_index = projection
         .records
         .iter()
@@ -443,7 +450,10 @@ fn select_settlement_and_compactions(
     ))
 }
 
-fn recorded_context(request: &CanonicalModelRequest, settlement: &TurnSettled) -> ContextBundle {
+pub(super) fn recorded_context(
+    request: &CanonicalModelRequest,
+    output: Option<&crate::domain::AgentOutput>,
+) -> ContextBundle {
     let mut chunks = request
         .messages
         .iter()
@@ -453,9 +463,7 @@ fn recorded_context(request: &CanonicalModelRequest, settlement: &TurnSettled) -
             _ => None,
         })
         .collect::<Vec<_>>();
-    let expected_chunks = settlement
-        .output
-        .as_ref()
+    let expected_chunks = output
         .and_then(|output| output.metadata.get("context"))
         .and_then(|context| context.get("chunks"))
         .and_then(serde_json::Value::as_u64)
@@ -468,9 +476,7 @@ fn recorded_context(request: &CanonicalModelRequest, settlement: &TurnSettled) -
         ));
     }
     let mut bundle = ContextBundle::new(chunks);
-    bundle.token_estimate = settlement
-        .output
-        .as_ref()
+    bundle.token_estimate = output
         .and_then(|output| output.metadata.get("context"))
         .and_then(|context| context.get("initial_token_estimate"))
         .and_then(serde_json::Value::as_u64)

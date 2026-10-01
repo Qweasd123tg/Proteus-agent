@@ -45,8 +45,8 @@ impl WorkflowToolResultBinding {
     }
 }
 
-/// Cumulative update relative to the invocation's input history, just like its
-/// terminal output. A checkpoint is committed before its acknowledgement.
+/// Cumulative update relative to the root turn's input history, just like its
+/// terminal output. Continuations retain the supplied progress seed. A checkpoint is committed before its acknowledgement.
 /// During model streaming a workflow may extend the model prefix while keeping
 /// identical pending result bindings. The host carries already recorded results
 /// to the end of that prefix in binding order. Once drained, results appear in

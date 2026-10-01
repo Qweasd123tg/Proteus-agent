@@ -339,7 +339,7 @@ approval и ошибку инструмента; исходные tools и model
 Probe одновременно локализует оставшийся coupling, не разрешая новую Core
 migration автоматически:
 
-- `workflow/v16` input и tool callback всё ещё требуют agent-shaped
+- `workflow/v17` input и tool callback всё ещё требуют agent-shaped
   `AgentTask`, а invocation несёт history и session/thread/turn ids;
 - `AppConfig` всё ещё требует active model даже для model-free success path.
 
@@ -515,7 +515,7 @@ composition(contract) = select_one | ordered_many
 
 `workflow`, `search`, `memory`, `context`, `policy`, `patch`,
 `compactor` и `tool_exposure` используют `select_one`.
-`tool`, `context_provider` и typed `hook/v1` chain используют `ordered_many`.
+`tool`, `context_provider` и typed `hook/v2` chain используют `ordered_many`.
 `modules.hooks` задаёт явный порядок execution contributions; Core владеет
 точками вызова и validation, а handlers проходят тот же process boundary.
 
