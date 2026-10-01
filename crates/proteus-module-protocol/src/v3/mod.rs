@@ -13,6 +13,7 @@ mod pending;
 mod routing;
 mod runtime;
 mod wire;
+mod wire_id;
 
 pub use broker::{ComponentBroker, ComponentBrokerSnapshot, WeakComponentBroker};
 pub use config::ComponentBrokerOptions;
@@ -23,3 +24,4 @@ pub use invocation::{
 };
 pub use notification::{InvocationNotification, InvocationNotificationReceiver};
 pub use wire::COMPONENT_PROTOCOL_V3;
+pub use wire_id::{WireDirection, WireId, parse_wire_id};

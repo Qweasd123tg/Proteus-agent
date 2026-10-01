@@ -8,12 +8,12 @@ use serde_json::Value;
 use crate::ProcessModuleRpcError;
 
 use super::{
+    WireDirection,
     broker::ControlCommand,
     invocation::ComponentHostRequest,
+    parse_wire_id,
     pending::{LoopState, PendingCallback},
-    wire::{
-        self, CallbackParams, IdDirection, IncomingFrame, NotificationParams, parse_frame, parse_id,
-    },
+    wire::{self, CallbackParams, IncomingFrame, NotificationParams, parse_frame},
 };
 
 impl LoopState {
@@ -37,14 +37,14 @@ impl LoopState {
     }
 
     fn handle_response(&mut self, id: String, result: Result<Value, ProcessModuleRpcError>) {
-        let wire_id = match parse_id(&id) {
+        let wire_id = match parse_wire_id(&id) {
             Ok(wire_id) => wire_id,
             Err(error) => {
                 self.protocol_failure(format!("invalid response id {id:?}: {error}"));
                 return;
             }
         };
-        if wire_id.direction != IdDirection::Host
+        if wire_id.direction != WireDirection::Host
             || wire_id.generation != self.generation
             || wire_id.sequence == 0
         {
@@ -76,14 +76,14 @@ impl LoopState {
     }
 
     fn handle_callback(&mut self, id: String, method: String, params: Value) {
-        let wire_id = match parse_id(&id) {
+        let wire_id = match parse_wire_id(&id) {
             Ok(wire_id) => wire_id,
             Err(error) => {
                 self.protocol_failure(format!("invalid callback id {id:?}: {error}"));
                 return;
             }
         };
-        if wire_id.direction != IdDirection::Module
+        if wire_id.direction != WireDirection::Module
             || wire_id.generation != self.generation
             || wire_id.sequence == 0
         {
@@ -113,7 +113,7 @@ impl LoopState {
                 return;
             }
         };
-        let parent_wire_id = match parse_id(&callback_params.invocation_id) {
+        let parent_wire_id = match parse_wire_id(&callback_params.invocation_id) {
             Ok(parent_id) => parent_id,
             Err(error) => {
                 self.protocol_failure(format!(
@@ -123,7 +123,7 @@ impl LoopState {
                 return;
             }
         };
-        if parent_wire_id.direction != IdDirection::Host
+        if parent_wire_id.direction != WireDirection::Host
             || parent_wire_id.generation != self.generation
             || parent_wire_id.sequence == 0
         {
@@ -310,7 +310,7 @@ impl LoopState {
                 return;
             }
         };
-        let wire_id = match parse_id(&params.invocation_id) {
+        let wire_id = match parse_wire_id(&params.invocation_id) {
             Ok(id) => id,
             Err(error) => {
                 self.protocol_failure(format!(
@@ -320,7 +320,7 @@ impl LoopState {
                 return;
             }
         };
-        if wire_id.direction != IdDirection::Host
+        if wire_id.direction != WireDirection::Host
             || wire_id.generation != self.generation
             || wire_id.sequence == 0
         {

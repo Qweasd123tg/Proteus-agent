@@ -14,19 +14,6 @@ use super::invocation::CancelCause;
 pub const COMPONENT_PROTOCOL_V3: &str =
     proteus_contracts::contracts::PROCESS_COMPONENT_PROTOCOL_VERSION;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum IdDirection {
-    Host,
-    Module,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct WireId {
-    pub direction: IdDirection,
-    pub generation: u64,
-    pub sequence: u64,
-}
-
 #[derive(Debug)]
 pub(crate) enum IncomingFrame {
     Response {
@@ -49,41 +36,6 @@ pub(crate) type NotificationParams = ProcessModuleNotificationParams;
 
 pub(crate) fn host_id(generation: u64, sequence: u64) -> String {
     format!("h:{generation}:{sequence}")
-}
-
-pub(crate) fn parse_id(raw: &str) -> Result<WireId> {
-    let mut parts = raw.split(':');
-    let direction = match parts.next() {
-        Some("h") => IdDirection::Host,
-        Some("m") => IdDirection::Module,
-        _ => bail!("wire id {raw:?} has an unknown direction"),
-    };
-    let generation_raw = parts
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("wire id {raw:?} is missing generation"))?;
-    let sequence_raw = parts
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("wire id {raw:?} is missing sequence"))?;
-    if parts.next().is_some() {
-        bail!("wire id {raw:?} has extra segments");
-    }
-    let generation = parse_canonical_number(generation_raw, raw, "generation")?;
-    let sequence = parse_canonical_number(sequence_raw, raw, "sequence")?;
-    Ok(WireId {
-        direction,
-        generation,
-        sequence,
-    })
-}
-
-fn parse_canonical_number(value: &str, id: &str, label: &str) -> Result<u64> {
-    let parsed = value
-        .parse::<u64>()
-        .with_context(|| format!("wire id {id:?} has invalid {label}"))?;
-    if parsed.to_string() != value {
-        bail!("wire id {id:?} has non-canonical {label}");
-    }
-    Ok(parsed)
 }
 
 pub(crate) fn initialize_request(generation: u64, params: Value) -> Value {
@@ -240,25 +192,6 @@ fn require_exact_fields(object: &Map<String, Value>, expected: &[&str]) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn directional_ids_are_exact_and_canonical() {
-        assert_eq!(
-            parse_id("h:7:42").expect("host id"),
-            WireId {
-                direction: IdDirection::Host,
-                generation: 7,
-                sequence: 42,
-            }
-        );
-        assert_eq!(
-            parse_id("m:7:9").expect("module id").direction,
-            IdDirection::Module
-        );
-        for invalid in ["7:1", "h:07:1", "h:7:01", "h:7", "h:7:1:extra"] {
-            parse_id(invalid).expect_err("invalid id must fail");
-        }
-    }
 
     #[test]
     fn envelopes_reject_unknown_fields_and_numeric_ids() {

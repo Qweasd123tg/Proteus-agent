@@ -260,6 +260,23 @@ authority по собственному `module_id`.
 Unknown/reused/wrong-generation id, malformed envelope, forbidden callback,
 invalid DTO и превышение limits являются fail-closed protocol errors.
 
+### Грамматика Wire ID
+
+ID имеет ровно три сегмента: `h:<generation>:<sequence>` для host и
+`m:<generation>:<sequence>` для module. Числа — канонические десятичные `u64`:
+без знака, пробелов и ведущих нулей, кроме самого `0`.
+
+Rust host и worker используют один
+`proteus_module_protocol::v3::parse_wire_id`, возвращающий `WireId` с
+`WireDirection`, generation и sequence. Parser сначала проверяет направление
+и число сегментов, затем числовые значения. Так же выбирается диагностика,
+если ID повреждён сразу несколькими способами.
+
+Ноль допустим при разборе синтаксиса: initialize использует sequence zero.
+Проверки ожидаемой стороны, текущей generation, допустимости нуля в конкретной
+фазе и связи с активным invocation/lineage остаются у host или worker.
+Общий parser не принимает решений о routing, authority или lifecycle.
+
 ## Authority Table
 
 | Slot | Contract | Module methods | Host callbacks |

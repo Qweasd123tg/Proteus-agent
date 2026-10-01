@@ -14,15 +14,18 @@ use proteus_contracts::contracts::{
     ProcessComponentInvocation, ProcessComponentManifest, ProcessInvocationLineage,
     ProcessModuleCancel,
 };
-use proteus_module_protocol::{ProcessModuleRpcError, process_contract_authority};
+use proteus_module_protocol::{
+    ProcessModuleRpcError, process_contract_authority,
+    v3::{WireDirection, parse_wire_id},
+};
 use serde_json::Value;
 
 use crate::{
     exports::ExportWorker,
     hosts::HostBridge,
     transport::{
-        FrameReader, IncomingFrame, RpcNotification, RpcRequest, WireDirection, WorkerTransport,
-        parse_frame, parse_wire_id, rpc_error, rpc_success,
+        FrameReader, IncomingFrame, RpcNotification, RpcRequest, WorkerTransport, parse_frame,
+        rpc_error, rpc_success,
     },
 };
 

@@ -73,20 +73,20 @@ pub type SlotId = Cow<'static, str>;
 /// Константы для встроенных behavior slots и catalog kinds. Используются ядром
 /// и module implementations как стабильные идентификаторы.
 pub mod slot {
-    use super::SlotId;
+    use super::{ModuleKind, SlotId};
     use std::borrow::Cow;
 
-    pub const MODEL: SlotId = Cow::Borrowed("model");
-    pub const SEARCH: SlotId = Cow::Borrowed("search");
-    pub const MEMORY: SlotId = Cow::Borrowed("memory");
-    pub const CONTEXT: SlotId = Cow::Borrowed("context");
-    pub const TOOL: SlotId = Cow::Borrowed("tool");
-    pub const POLICY: SlotId = Cow::Borrowed("policy");
-    pub const PATCH: SlotId = Cow::Borrowed("patch");
-    pub const COMPACTOR: SlotId = Cow::Borrowed("compactor");
-    pub const TOOL_EXPOSURE: SlotId = Cow::Borrowed("tool_exposure");
-    pub const HOOK: SlotId = Cow::Borrowed("hook");
-    pub const WORKFLOW: SlotId = Cow::Borrowed("workflow");
+    pub const MODEL: SlotId = Cow::Borrowed(ModuleKind::Model.as_str());
+    pub const SEARCH: SlotId = Cow::Borrowed(ModuleKind::Search.as_str());
+    pub const MEMORY: SlotId = Cow::Borrowed(ModuleKind::Memory.as_str());
+    pub const CONTEXT: SlotId = Cow::Borrowed(ModuleKind::Context.as_str());
+    pub const TOOL: SlotId = Cow::Borrowed(ModuleKind::Tool.as_str());
+    pub const POLICY: SlotId = Cow::Borrowed(ModuleKind::Policy.as_str());
+    pub const PATCH: SlotId = Cow::Borrowed(ModuleKind::Patch.as_str());
+    pub const COMPACTOR: SlotId = Cow::Borrowed(ModuleKind::Compactor.as_str());
+    pub const TOOL_EXPOSURE: SlotId = Cow::Borrowed(ModuleKind::ToolExposure.as_str());
+    pub const HOOK: SlotId = Cow::Borrowed(ModuleKind::Hook.as_str());
+    pub const WORKFLOW: SlotId = Cow::Borrowed(ModuleKind::Workflow.as_str());
 }
 
 /// Сопоставление `ModuleKind` → `SlotId` для встроенных registry namespaces.
