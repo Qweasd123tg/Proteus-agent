@@ -377,15 +377,19 @@ impl AgentRuntime {
             Some(store) => store.load_projection()?.interrupted_turns,
             None => self.session.interrupted_turns.lock().await.clone(),
         };
-        let steering_model = SteeringModel::new(
-            workflow_context.execution.model.clone(),
-            self.session.steering.clone(),
-            self.services.events.clone(),
-            self.session.session_id,
-            self.session.thread_id,
-            turn_id,
-        );
-        workflow_context.execution.model = Arc::new(steering_model.clone());
+        let steering_model = workflow_context.execution.model.as_ref().map(|model| {
+            SteeringModel::new(
+                model.clone(),
+                self.session.steering.clone(),
+                self.services.events.clone(),
+                self.session.session_id,
+                self.session.thread_id,
+                turn_id,
+            )
+        });
+        if let Some(model) = &steering_model {
+            workflow_context.execution.model = Some(Arc::new(model.clone()));
+        }
         let checkpoint_recorder = Arc::new(super::checkpoint::TurnHistoryRecorder {
             attribution: ExecutionAttribution::for_turn(
                 workflow_context.execution.scope.execution_id,
@@ -429,7 +433,10 @@ impl AgentRuntime {
             }
         };
         checkpoint_recorder.settle_in_memory_effects().await?;
-        let delivery_records = steering_model.delivery_records().await;
+        let delivery_records = match &steering_model {
+            Some(model) => model.delivery_records().await,
+            None => Vec::new(),
+        };
         let mut workflow_output = match workflow_result {
             Ok(output) => output,
             Err(error) => {

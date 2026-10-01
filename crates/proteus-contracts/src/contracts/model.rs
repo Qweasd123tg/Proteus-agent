@@ -17,7 +17,8 @@ pub type ModelEventStream =
 #[async_trait]
 pub trait Model: Send + Sync {
     fn id(&self) -> Cow<'static, str>;
-    fn capabilities(&self, model: &ModelRef) -> ModelCapabilities;
+    /// Immutable per-model metadata; a failed description must propagate.
+    fn capabilities(&self, model: &ModelRef) -> Result<ModelCapabilities>;
 
     /// Live selection metadata owned by this provider. None means discovery
     /// is unsupported; an empty catalog is an authoritative empty result.
@@ -33,8 +34,8 @@ pub trait Model: Send + Sync {
 
     /// Configured provider-hosted tool instances for this model. The default
     /// keeps providers without hosted execution unchanged.
-    fn provider_hosted_tools(&self, _model: &ModelRef) -> Vec<ToolSpec> {
-        Vec::new()
+    fn provider_hosted_tools(&self, _model: &ModelRef) -> anyhow::Result<Vec<ToolSpec>> {
+        Ok(Vec::new())
     }
 
     /// Returns provider events normalized to the canonical stream contract.

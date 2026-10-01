@@ -271,9 +271,9 @@ invalid DTO и превышение limits являются fail-closed protocol
 | context provider | v2 | `provide` | — |
 | tool | v3 | `list`, `invoke` | — |
 | context | v2 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
-| model | v10 | `describe`, `catalog`, `quota`, `stream` | `host.model.emit` (acknowledged canonical events) |
+| model | v11 | `describe`, `catalog`, `quota`, `stream` | `host.model.emit` (acknowledged canonical events) |
 | compactor | v10 | `compact` | `host.model.complete` |
-| workflow | v17 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
+| workflow | v18 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
 
 Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
@@ -282,13 +282,25 @@ DTO, adapter, protocol/conformance и swap evidence в одном commit.
 `ToolSpec` содержит обязательный boolean `supports_parallel_tool_calls`,
 независимый от `safety`. Он проходит через tool list, policy, tool exposure,
 canonical model request, workflow/compactor, journal schema v17 и config
-snapshot v5. Rust
+snapshot v6. Rust
 constructor задаёт `false`, worker JSON обязан передать поле явно. Selector
 сохраняет зарегистрированное значение; несовпадение отклоняется. Старые
 версии этих contracts и ToolSpec без поля не принимаются. Wire остаётся v3;
 параллельность вызовов не меняет composition slot-а и его host authority.
 
-`workflow/v17` передаёт в `runtime` непрозрачный `intent: string | null` и
+`workflow/v18` использует обязательный `runtime.execution_id`, явные nullable
+`runtime.conversation` и `runtime.model_ref`. Conversation содержит полный
+набор session/thread/turn ids; частичная attribution не принимается. Standalone
+invocation передаёт `conversation: null` и может передать пустую history.
+`WorkflowInvocationContext::Execution` предоставляет execution-bound model,
+context и tools без создания chat identity. `Agent` добавляет события чата,
+steering и history recorder. Chat events, history checkpoints и compaction
+без разговорного контекста завершаются явной ошибкой. Tool callbacks обоих
+invocation modes используют один registry/policy/approval/safety path.
+Ненастроенная модель отсутствует и в wire reference, и в ExecutionContext;
+`host.model.complete/stream` возвращает явную ошибку, без fake adapter.
+
+`workflow/v18` передаёт в `runtime` непрозрачный `intent: string | null` и
 эффективный `permission_mode` запуска. Семантику имени определяет выбранный
 workflow; неподдерживаемое намерение должно давать явную ошибку, а не обычный
 запуск с проигнорированными параметрами. Поле не расширяет authority: host
@@ -317,7 +329,7 @@ Core восстанавливает их из journal либо памяти; в�
 `coding.codex_loop` представляет их request-only маркером `<turn_aborted>`
 из выбранного upstream; marker не становится новым принятым вводом пользователя.
 
-`workflow/v17` возвращает strict terminal envelope: `status = "success"` с
+`workflow/v18` возвращает strict terminal envelope: `status = "success"` с
 `result: WorkflowOutput` либо `status = "error"` с `failure: WorkflowFailure`.
 Ошибка алгоритма может содержать `history: WorkflowHistoryUpdate` — завершённые
 `new_messages`, optional `history_replacement` и `compactions`; `model_failure`
@@ -364,7 +376,7 @@ tools. Запрос без результата остаётся неизвес�
 
 ## Model Stream В Workflow
 
-`workflow/v17` предоставляет всем exports два callbacks:
+`workflow/v18` предоставляет всем exports два callbacks:
 
 - `host.model.stream.start(WorkflowCompleteModelRequest) -> { stream_id }`;
 - `host.model.stream.next({ stream_id }) -> WorkflowModelStreamItem` с
@@ -574,7 +586,7 @@ handshake всего набора, даже если probe направлен т
 
 ## Model Streaming
 
-`model/v10` использует canonical DTO из `proteus-contracts::contracts::process_model`:
+`model/v11` использует canonical DTO из `proteus-contracts::contracts::process_model`:
 
 Canonical `ToolSurface::WorkflowFunction` обозначает function handler
 выбранного workflow. Model provider сериализует его как function, но host
@@ -586,8 +598,14 @@ schema, visibility policy и отсутствие совпадения с host t
 
 Descriptor, catalog, quota, capabilities, stream events и terminal DTO отклоняют неизвестные поля.
 
-- `describe(null) -> ProcessModelDescriptor`: стабильные adapter id,
-  capabilities и hosted tools данного export; вызывается при сборке snapshot.
+- `describe(ProcessModelDescribeRequest { model: ModelRef }) -> ProcessModelDescriptor`:
+  стабильный adapter id export и capabilities/hosted tools конкретной модели.
+  Host кэширует ответ по `(provider, model)` в пределах snapshot. Первый
+  descriptor читается при сборке, последующие — через callback-free broker
+  invocation с тем же deadline и host-routed reentrancy. Ошибка describe
+  передаётся вызывающему коду; возможности другой модели не подставляются.
+  При смене `ModelRef` execution binding заменяет provider-hosted tools
+  через общий registry с повторной validation и policy checks.
 - `catalog(null) -> Option<ModelCatalog>`: живые selection metadata данного
   provider export. `null` означает отсутствие discovery; `models = []` —
   успешный пустой каталог. Entries содержат `id`, `display_name`, `description`,
@@ -663,7 +681,7 @@ event; это причина, а не команда Core повторить з�
 без завершения, сохраняя остальные
 ошибки данных и deadline отдельными. Codex workflow принимает решение о повторе
 с подтверждённой историей; compactor сохраняет свою политику повторов.
-Действуют `model/v10`, `workflow/v17`, `compactor/v10` и journal schema v17,
+Действуют `model/v11`, `workflow/v18`, `compactor/v10` и journal schema v17,
 без readers старых форм.
 Передача `ToolCall` в существующем `CanonicalMessage` не меняет wire/storage DTO.
 
@@ -694,8 +712,8 @@ Drop потока отменяет invocation. Отказ от ожидания 
 siblings; некооперативный worker попадает под общий cancel-grace/reset.
 Reference provider retries и SSE fallback остаются внутри model-pack и не
 добавляются host adapter-ом. Canonical validation, usage/journal и execution
-identity остаются в Core. Разные descriptor capabilities выбираются отдельными
-exports, без угадывания по model name.
+identity остаются в Core. Набор возможностей для `ModelRef` определяет
+implementation через typed describe; Core не угадывает его по имени модели.
 
 ## Core-Owned Границы
 
@@ -762,7 +780,7 @@ Root вызывает `before_stop { task, history, output, attempt, continuatio
 остаётся best-effort и не возобновляет execution. Replay исполняет тот же root
 review loop с записанными responses, без запуска hook executables.
 
-`workflow/v17` требует nullable `runtime.continuation`. Значение содержит
+`workflow/v18` требует nullable `runtime.continuation`. Значение содержит
 `attempt`, `reason`, `current_user_message_id`, `history: WorkflowHistoryUpdate`.
 При continuation input history включает прошлый кандидат и может заканчиваться
 assistant/tool; текущий user определяется явным anchor. Output/checkpoints/

@@ -104,7 +104,12 @@ async fn arbitrary_model_exports_preserve_exact_canonical_request_stream_and_ter
             serde_json::to_value(adapter.catalog().await.unwrap().unwrap()).unwrap(),
             catalog
         );
-        assert!(adapter.capabilities(&request(id).model).supports_streaming);
+        assert!(
+            adapter
+                .capabilities(&request(id).model)
+                .unwrap()
+                .supports_streaming
+        );
         let mut stream = adapter.stream(input).await.unwrap();
         let mut actual = Vec::new();
         while let Some(event) = stream.next().await {
@@ -198,16 +203,19 @@ async fn invalid_descriptors_and_response_shapes_fail_at_the_host_boundary() {
     invalid["terminal"]["response"]["messages"] = json!([]);
     let registry =
         RuntimeRegistry::from_config(&config("bad", invalid), cwd.path().to_path_buf()).unwrap();
-    let execution = registry.execution_context(
-        ModelExecutionBinding::detached(proteus_contracts::contracts::ExecutionScope::fresh(
-            Default::default(),
-        )),
-        Arc::new(HeadlessApprovalTransport),
-        proteus_contracts::domain::PermissionMode::Normal,
-    );
+    let execution = registry
+        .execution_context(
+            ModelExecutionBinding::detached(proteus_contracts::contracts::ExecutionScope::fresh(
+                Default::default(),
+            )),
+            Arc::new(HeadlessApprovalTransport),
+            proteus_contracts::domain::PermissionMode::Normal,
+        )
+        .unwrap();
     assert!(
         execution
-            .model
+            .require_model()
+            .unwrap()
             .complete(request("bad"))
             .await
             .unwrap_err()
@@ -409,4 +417,100 @@ async fn external_catalog_drives_selection_and_rejects_invalid_metadata() {
         let adapter = model(&self::config("invalid", settings.clone()), cwd.path()).unwrap();
         assert!(adapter.catalog().await.is_err());
     }
+}
+
+#[tokio::test]
+async fn one_export_describes_and_shapes_distinct_models_and_hosted_tools() {
+    use proteus_contracts::domain::{
+        HostedToolConfig, HostedToolKind, ToolSafety, ToolSpec, ToolSurface,
+        WebSearchHostedToolConfig,
+    };
+    let cwd = tempfile::tempdir().unwrap();
+    let hosted = ToolSpec::new("web_search", "search", json!({}), ToolSafety::Network)
+        .with_surface(ToolSurface::provider_hosted(HostedToolConfig::WebSearch {
+            config: WebSearchHostedToolConfig::default(),
+        }));
+    let small = ModelRef::new("multi", "small");
+    let large = ModelRef::new("multi", "large");
+    let small_caps = ModelCapabilities::empty().with_max_input_tokens(Some(128));
+    let large_caps = ModelCapabilities::basic_text_and_tools()
+        .with_max_input_tokens(Some(4096))
+        .with_provider_hosted_tools(vec![HostedToolKind::WebSearch]);
+    let mut setup = settings();
+    setup["descriptors"] = json!({
+        "fixture": setup["descriptor"].clone(),
+        "small": ProcessModelDescriptor {adapter_id:"independent-model".into(), capabilities: small_caps.clone(), hosted_tools:vec![]},
+        "large": ProcessModelDescriptor {adapter_id:"independent-model".into(), capabilities: large_caps.clone(), hosted_tools:vec![hosted.clone()]},
+    });
+    let mut small_request = request("multi");
+    small_request.model = small.clone();
+    let mut large_request = small_request.clone();
+    large_request.model = large.clone();
+    let mut expected_small = small_request.clone();
+    expected_small.tools.clear();
+    expected_small.tool_choice = proteus_contracts::domain::ToolChoice::None;
+    expected_small.limits.max_input_tokens = Some(128);
+    let mut expected_large = large_request.clone();
+    expected_large.limits.max_input_tokens = Some(4096);
+    expected_large.limits.max_output_tokens = Some(2048);
+    setup["expected_inputs"] = json!({"small":{"request":expected_small,"stream":true}, "large":{"request":expected_large,"stream":true}});
+    let cfg = config("multi", setup);
+    let adapter = model(&cfg, cwd.path()).unwrap();
+    assert_eq!(adapter.capabilities(&small).unwrap(), small_caps);
+    assert_eq!(adapter.capabilities(&large).unwrap(), large_caps);
+    assert!(
+        adapter
+            .capabilities(&ModelRef::new("multi", "unknown"))
+            .is_err()
+    );
+
+    let registry = RuntimeRegistry::from_config(&cfg, cwd.path().into()).unwrap();
+    for input in [small_request, large_request] {
+        let ctx = registry
+            .execution_context_for_model(
+                ModelExecutionBinding::detached(
+                    proteus_contracts::contracts::ExecutionScope::fresh(
+                        proteus_contracts::contracts::CancellationToken::new(),
+                    ),
+                ),
+                Arc::new(HeadlessApprovalTransport),
+                proteus_contracts::domain::PermissionMode::Normal,
+                Some(&input.model),
+            )
+            .unwrap();
+        ctx.require_model().unwrap().complete(input).await.unwrap();
+    }
+    for (selected, has_hosted) in [(&small, false), (&large, true), (&small, false)] {
+        let ctx = registry
+            .execution_context_for_model(
+                ModelExecutionBinding::detached(
+                    proteus_contracts::contracts::ExecutionScope::fresh(
+                        proteus_contracts::contracts::CancellationToken::new(),
+                    ),
+                ),
+                Arc::new(HeadlessApprovalTransport),
+                proteus_contracts::domain::PermissionMode::Normal,
+                Some(selected),
+            )
+            .unwrap();
+        assert_eq!(ctx.tools.get("web_search").is_some(), has_hosted);
+    }
+    let runtime = proteus_core::core::AgentRuntime::builder(cfg, cwd.path().into())
+        .build_async()
+        .await
+        .unwrap();
+    for (name, has_hosted) in [("small", false), ("large", true), ("small", false)] {
+        runtime.set_model_name(name.into()).await.unwrap();
+        assert_eq!(
+            runtime
+                .tool_entries()
+                .await
+                .iter()
+                .any(|(_, spec)| spec.name == "web_search"),
+            has_hosted
+        );
+    }
+    assert!(runtime.set_model_name("unknown".into()).await.is_err());
+    assert_eq!(runtime.model_ref().await.unwrap(), small);
+    assert!(runtime.tool_entries().await.is_empty());
 }

@@ -10,10 +10,10 @@ use tokio::{
 use super::*;
 use crate::{
     contracts::{
-        AgentWorkflowContext, ApprovalPolicy, ApprovalRequest, ApprovalResponse, ApprovalTransport,
-        CancellationToken, ExecutionAttribution, MemoryInvocationContext, MemoryStore,
-        PolicyContext, PolicyVisibilityContext, Tool, ToolContext, ToolRegistry, ToolSource,
-        Workflow, WorkflowOutput,
+        ApprovalPolicy, ApprovalRequest, ApprovalResponse, ApprovalTransport, CancellationToken,
+        ExecutionAttribution, MemoryInvocationContext, MemoryStore, PolicyContext,
+        PolicyVisibilityContext, Tool, ToolContext, ToolRegistry, ToolSource, Workflow,
+        WorkflowOutput,
     },
     core::PreparedAssembly,
     domain::{
@@ -440,7 +440,7 @@ impl Workflow for BlockingWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        _ctx: AgentWorkflowContext,
+        _ctx: crate::contracts::WorkflowInvocationContext,
     ) -> Result<WorkflowOutput> {
         self.started.notify_one();
         self.proceed.notified().await;

@@ -12,7 +12,7 @@ pub struct ConfigSummary {
     pub cwd: String,
     pub session_dir: Option<String>,
     pub profile: String,
-    pub model: ConfigModel,
+    pub model: Option<ConfigModel>,
     pub model_options: Vec<ModelOption>,
     pub reasoning: ConfigReasoning,
     pub permission_mode: String,

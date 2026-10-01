@@ -1,4 +1,4 @@
-//! Component model/v10: immutable description, catalog/quota discovery and canonical stream.
+//! Component model/v11: per-model description, catalog/quota discovery and canonical stream.
 //! Events use acknowledged host callbacks, so slow consumers exert bounded
 //! backpressure without dropping text, tool arguments or usage.
 
@@ -12,7 +12,7 @@ use crate::{
     },
 };
 
-pub const PROCESS_MODEL_CONTRACT_VERSION: &str = "v10";
+pub const PROCESS_MODEL_CONTRACT_VERSION: &str = "v11";
 pub const PROCESS_MODEL_DESCRIBE_METHOD: &str = "describe";
 pub const PROCESS_MODEL_CATALOG_METHOD: &str = "catalog";
 pub const PROCESS_MODEL_QUOTA_METHOD: &str = "quota";
@@ -62,14 +62,19 @@ impl ModelCatalog {
     }
 }
 
-/// Capabilities and hosted tools apply to the configured export. Profiles
-/// requiring different capabilities select distinct exports/configurations.
+/// Immutable capabilities and hosted tools for one ModelRef within an export.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessModelDescriptor {
     pub adapter_id: String,
     pub capabilities: ModelCapabilities,
     pub hosted_tools: Vec<ToolSpec>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessModelDescribeRequest {
+    pub model: crate::domain::ModelRef,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -116,7 +116,7 @@ async fn dogfood_loop_state() -> (HttpAppState, AppServerHandle, tempfile::TempD
 
 fn dogfood_loop_config() -> AppConfig {
     let mut config = crate::test_model::config();
-    let active_provider = config.active_provider.clone();
+    let active_provider = config.active_provider.clone().unwrap();
     config
         .providers
         .get_mut(&active_provider)

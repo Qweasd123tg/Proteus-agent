@@ -11,7 +11,7 @@ pub(super) fn ConfigOverview(summary: ConfigSummary) -> impl IntoView {
         .unwrap_or("(не выбран)")
         .to_owned();
     let config_path = shorten_home(&config_path_full);
-    let model = non_empty(&summary.model.label, "Модель не выбрана");
+    let model = summary.model.as_ref().map(|m| non_empty(&m.label, "Модель не выбрана")).unwrap_or_else(|| "Модель не выбрана".to_owned());
     view! {
         <section class="config-overview cfg-overview" aria-label="Текущая сборка">
             <article class="config-panel">
@@ -22,7 +22,7 @@ pub(super) fn ConfigOverview(summary: ConfigSummary) -> impl IntoView {
             <article class="config-panel">
                 <span class="panel-kicker">"Модель"</span>
                 <strong>{model}</strong>
-                <p>{format!("{} · {}", non_empty(&summary.model.provider, "provider не задан"), non_empty(&summary.model.name, "model не задан"))}</p>
+                <p>{format!("{} · {}", summary.model.as_ref().map(|m| m.provider.as_str()).unwrap_or("provider не задан"), summary.model.as_ref().map(|m| m.name.as_str()).unwrap_or("model не задан"))}</p>
             </article>
             <article class="config-panel">
                 <span class="panel-kicker">"Режим"</span>

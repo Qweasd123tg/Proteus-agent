@@ -196,7 +196,7 @@ impl DraftSetters {
         self.errors.set(DraftErrors::new());
         self.tools
             .set(builder.tools_enabled.iter().cloned().collect());
-        self.provider.set(builder.active_provider.clone());
+        self.provider.set(builder.active_provider.clone().unwrap_or_default());
         self.mode.set(builder.permission_mode.clone());
     }
 }
@@ -212,7 +212,7 @@ fn is_dirty(
     *modules != builder_active_modules(builder)
         || *config_texts != builder_config_texts(builder)
         || *tools != builder.tools_enabled.iter().cloned().collect()
-        || provider != builder.active_provider
+        || Some(provider) != builder.active_provider.as_deref() && !(provider.is_empty() && builder.active_provider.is_none())
         || mode != builder.permission_mode
 }
 

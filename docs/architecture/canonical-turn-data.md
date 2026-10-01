@@ -1,6 +1,6 @@
 # Canonical Turn Data
 
-Текущий формат — journal schema v17, config snapshot v5 и session metadata v4. Resume history,
+Текущий формат — journal schema v17, config snapshot v6 и session metadata v4. Resume history,
 transcript, eval, prompt replay и workflow replay читают canonical journal.
 
 Canonical context parts сохраняют обязательный `ContextChunk.render_mode`:
@@ -308,6 +308,9 @@ recorded/replay outcome и usage, text equality, local/hosted/citation counts и
 недетерминированной генерации, а не ошибкой команды.
 
 ### Workflow Replay v0
+
+Replay сохраняет записанный `ExecutionId`: он доступен workflow/v18 и может
+участвовать в deterministic ids и terminal metadata.
 
 `proteus --config <profile> replay workflow
 <session-dir-or-journal-path> [--turn-id <id>] [--json]` повторяет один

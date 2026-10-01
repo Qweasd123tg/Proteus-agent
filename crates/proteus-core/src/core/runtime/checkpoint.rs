@@ -29,7 +29,7 @@ pub(super) struct TurnHistoryRecorder {
     pub(super) interrupted_turns: Arc<Mutex<Vec<crate::contracts::WorkflowHistoryInterruption>>>,
     pub(super) initial_history: Vec<CanonicalMessage>,
     pub(super) current_user: CanonicalMessage,
-    pub(super) steering: SteeringModel,
+    pub(super) steering: Option<SteeringModel>,
     pub(super) tools: Arc<dyn ToolExecutionRecorder>,
     pub(super) capture: Mutex<HistoryCapture>,
     pub(super) recorded_compactions: Mutex<usize>,
@@ -57,7 +57,10 @@ impl TurnHistoryRecorder {
 #[async_trait]
 impl WorkflowHistoryRecorder for TurnHistoryRecorder {
     async fn checkpoint(&self, mut checkpoint: WorkflowHistoryCheckpoint) -> Result<()> {
-        let deliveries = self.steering.delivery_records().await;
+        let deliveries = match &self.steering {
+            Some(model) => model.delivery_records().await,
+            None => Vec::new(),
+        };
         let allowed = weave_deliveries_into_failed_history(&mut checkpoint.history, &deliveries)?;
         let progress = checkpoint.history;
         let prepared = prepare_failed_history_update(

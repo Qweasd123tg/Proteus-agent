@@ -34,8 +34,8 @@ impl Model for ReplayModel {
         "workflow-replay".into()
     }
 
-    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-        self.state.capabilities()
+    fn capabilities(&self, _model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
+        Ok(self.state.capabilities())
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {

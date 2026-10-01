@@ -49,7 +49,7 @@ async fn selectors_use_external_catalog_and_apply_to_journaled_request() {
             "exports":{"model":{"external":{}}}
         })).unwrap());
         config.providers.clear();
-        config.active_provider = "external".into();
+        config.active_provider = Some("external".to_owned());
         config.providers.insert("external".into(), serde_json::from_value(json!({
             "provider":"external","model":"first","stream":true,
             "reasoning":{"effort":"high","summary":true}

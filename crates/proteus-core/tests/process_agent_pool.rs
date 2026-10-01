@@ -43,18 +43,20 @@ impl ApprovalPolicy for AllowAllPolicy {
 fn test_runtime_context(events: Arc<InMemoryEventStore>) -> AgentWorkflowContext {
     let registry = RuntimeRegistry::from_config(&test_model::config(), PathBuf::from("."))
         .expect("default runtime registry");
-    let mut execution = registry.execution_context(
-        ModelExecutionBinding::detached(ExecutionScope::fresh(CancellationToken::new())),
-        Arc::new(HeadlessApprovalTransport),
-        PermissionMode::Normal,
-    );
+    let mut execution = registry
+        .execution_context(
+            ModelExecutionBinding::detached(ExecutionScope::fresh(CancellationToken::new())),
+            Arc::new(HeadlessApprovalTransport),
+            PermissionMode::Normal,
+        )
+        .unwrap();
     execution.policy = Arc::new(AllowAllPolicy);
     AgentWorkflowContext::new(
         execution,
         new_session_id(),
         new_thread_id(),
         new_turn_id(),
-        ModelRef::new("fake", "fake-tool-model"),
+        Some(ModelRef::new("fake", "fake-tool-model")),
         ReasoningConfig::default(),
         30_000,
         Arc::new(EventEmitter::new(events)),

@@ -36,7 +36,7 @@
   [Контракт и границы](../guides/ui-extensions.md).
 - OpenAI, OpenAI-compatible, ChatGPT subscription OAuth (`openai_codex`),
   Anthropic и fake implementations в reference
-  `model-pack`; Core использует общий `model/v10` process adapter.
+  `model-pack`; Core использует общий `model/v11` process adapter.
 - Doctor, inspect/topology, eval report и атомарная локальная установка.
 
 Reference modules и profiles — поставляемые примеры без особых прав.
@@ -45,8 +45,8 @@ Reference modules и profiles — поставляемые примеры без
 
 | Граница | Ограничение |
 |---|---|
-| Model | Capabilities и hosted tools фиксируются descriptor-ом export при сборке; разные наборы возможностей требуют отдельных exports |
-| Workflow | Process input требует task/history/chat ids и model reference; AppConfig требует active provider |
+| Model | Descriptor запрашивается для конкретного `ModelRef` и сохраняется в runtime snapshot; обновление возможностей требует пересборки snapshot |
+| Workflow | Standalone invocation допускает пустую history, отсутствие conversation и модели; chat events/history checkpoints/compaction требуют разговорного контекста |
 | Replay | Model-free Turn поддержан; context/tool exposure/compaction требуют записанного model request. Прямые model calls workflow отделены от summary exchanges; replay хода с внутренним summary требует записанного changed-compaction checkpoint и следующего direct model request; внутренний алгоритм и typed error branches compactor не воспроизводятся. Root steering и внешние Canceled/Timeout не эмулируются |
 | Collaboration | Spawn принимает только parallel_safe роли с isolation=none; настроенный coder с worktree в эту surface не входит |
 | Peer recovery | Resume зависит от живого process; durable tree, attach и reconnect отсутствуют |

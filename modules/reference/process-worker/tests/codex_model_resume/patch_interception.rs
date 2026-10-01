@@ -187,7 +187,7 @@ async fn check_surface(surface: Surface, policy_mode: PolicyMode, broken_stream:
     let mut config = fixture_config(&format!("http://{}", listener.local_addr().unwrap())).await;
     config
         .providers
-        .get_mut(&config.active_provider)
+        .get_mut(config.active_provider.as_ref().unwrap())
         .unwrap()
         .stream = broken_stream;
     configure_policy(&mut config, policy_mode);

@@ -16,7 +16,7 @@ use proteus_contracts::{
     domain::ToolSpec,
     process_module::{
         ContextBuilderModuleInput, MemoryModuleInvocationContext, ToolModuleInvocationContext,
-        WorkflowModuleInput, WorkflowModuleOutput, WorkflowModuleRuntimeInfo,
+        WorkflowModuleInput, WorkflowModuleOutput,
     },
 };
 use proteus_module_protocol::process_contract_authority;
@@ -174,10 +174,9 @@ impl ExportWorker {
             .ok_or_else(|| anyhow!("model module was not registered"))?;
         match method {
             PROCESS_MODEL_DESCRIBE_METHOD => {
-                if !params.is_null() {
-                    bail!("model describe params must be null");
-                }
-                encode(model.describe())
+                let input: proteus_contracts::contracts::ProcessModelDescribeRequest =
+                    decode(params)?;
+                encode(model.describe(input.model)?)
             }
             PROCESS_MODEL_CATALOG_METHOD => {
                 if !params.is_null() {
@@ -374,23 +373,7 @@ impl ExportWorker {
             task: input.task,
             history: input.history,
             config: self.binding.module_config.clone(),
-            runtime: WorkflowModuleRuntimeInfo {
-                intent: input.runtime.intent,
-                continuation: input.runtime.continuation,
-                permission_mode: input.runtime.permission_mode,
-                session_id: input.runtime.session_id,
-                thread_id: input.runtime.thread_id,
-                turn_id: input.runtime.turn_id,
-                model_ref: input.runtime.model_ref,
-                model_context: input.runtime.model_context,
-                interrupted_turns: input.runtime.interrupted_turns,
-                instructions: input.runtime.instructions,
-                reasoning: input.runtime.reasoning,
-                max_input_tokens: input.runtime.max_input_tokens,
-                model_timeout_ms: input.runtime.model_timeout_ms,
-                context_timeout_ms: input.runtime.context_timeout_ms,
-                workflow_timeout_ms: input.runtime.workflow_timeout_ms,
-            },
+            runtime: input.runtime,
         };
         let mut host = WorkflowHostBridge(bridge.clone());
         let output = match workflow.run_json(serde_json::to_string(&module_input)?, &mut host) {

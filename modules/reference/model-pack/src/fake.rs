@@ -51,8 +51,8 @@ impl Model for FakeModelClient {
         "fake".into()
     }
 
-    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-        ModelCapabilities::basic_text_and_tools()
+    fn capabilities(&self, _model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
+        Ok(ModelCapabilities::basic_text_and_tools())
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {

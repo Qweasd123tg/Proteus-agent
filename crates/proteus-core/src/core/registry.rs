@@ -24,10 +24,10 @@ use crate::{
 pub struct RuntimeRegistry {
     pub hooks: Vec<(String, Arc<dyn crate::contracts::HookHandler>)>,
     pub cwd: PathBuf,
-    pub model_config: crate::core::ModelConfig,
+    pub model_config: Option<crate::core::ModelConfig>,
     pub runtime_config: crate::core::RuntimeConfig,
     pub instructions: Vec<crate::model_standard::InstructionBlock>,
-    model_service: Arc<ModelService>,
+    model_service: Option<Arc<ModelService>>,
     pub search: Arc<dyn SearchBackend>,
     pub memory: Arc<dyn MemoryStore>,
     pub context: Arc<dyn ContextBuilder>,
@@ -54,11 +54,17 @@ impl RuntimeRegistry {
         ))
     }
     pub(crate) async fn model_quota(&self) -> Result<Option<crate::contracts::ModelQuotaSnapshot>> {
-        self.model_service.quota().await
+        match &self.model_service {
+            Some(model) => model.quota().await,
+            None => Ok(None),
+        }
     }
 
     pub(crate) async fn model_catalog(&self) -> Result<Option<crate::contracts::ModelCatalog>> {
-        self.model_service.catalog().await
+        match &self.model_service {
+            Some(model) => model.catalog().await,
+            None => Ok(None),
+        }
     }
 
     pub fn from_config(config: &AppConfig, cwd: PathBuf) -> Result<Self> {
@@ -86,9 +92,15 @@ impl RuntimeRegistry {
             context_providers: &context_providers,
         };
         let hooks = catalog.build_hooks(&config.modules.hooks, &build_ctx)?;
-        let model_config = plan.model_config()?;
-        let model_adapter = catalog.build_model_adapter(&model_config, cwd)?;
-        let model_service = Arc::new(ModelService::new(model_adapter));
+        let model_config = config.selected_model_config()?;
+        let model_service = model_config
+            .as_ref()
+            .map(|cfg| {
+                catalog
+                    .build_model_adapter(cfg, cwd)
+                    .map(|model| Arc::new(ModelService::new(model)))
+            })
+            .transpose()?;
 
         let search: Arc<dyn SearchBackend> = match plan.module_id(crate::domain::ModuleKind::Search)
         {
@@ -123,11 +135,14 @@ impl RuntimeRegistry {
         let mut tools =
             catalog.build_tools(&build_ctx, search.clone(), patch.clone(), memory.clone())?;
         agent_control_runtime.register_tools(&mut tools, config.runtime.workflow_timeout_ms)?;
-        crate::core::register_provider_hosted_tools(
-            &mut tools,
-            model_service.id().as_ref(),
-            model_service.provider_hosted_tools(&model_config.model_ref()),
-        )?;
+        if let (Some(service), Some(config)) = (&model_service, &model_config) {
+            crate::core::register_provider_hosted_tools(
+                &mut tools,
+                service.id().as_ref(),
+                service.provider_hosted_tools(&config.model_ref())?,
+            )?;
+        }
+
         let policy_ctx = PolicyBuildContext { cwd };
         let policy: Arc<dyn ApprovalPolicy> =
             match plan.module_id(crate::domain::ModuleKind::Policy) {
@@ -164,39 +179,113 @@ impl RuntimeRegistry {
         model_binding: ModelExecutionBinding,
         approval: Arc<dyn crate::contracts::ApprovalTransport>,
         permission_mode: crate::domain::PermissionMode,
-    ) -> ExecutionContext {
+    ) -> Result<ExecutionContext> {
+        let model_ref = self.model_config.as_ref().map(|cfg| cfg.model_ref());
+        self.execution_context_for_model(
+            model_binding,
+            approval,
+            permission_mode,
+            model_ref.as_ref(),
+        )
+    }
+
+    pub fn execution_context_for_model(
+        &self,
+        model_binding: ModelExecutionBinding,
+        approval: Arc<dyn crate::contracts::ApprovalTransport>,
+        permission_mode: crate::domain::PermissionMode,
+        model_ref: Option<&ModelRef>,
+    ) -> Result<ExecutionContext> {
         let scope = model_binding.scope().clone();
         let attribution = model_binding.attribution();
         let hooks = self.bind_hooks(scope.clone(), model_binding.recorder());
         let policy: Arc<dyn ApprovalPolicy> =
             Arc::new(ModeAwarePolicy::new(permission_mode, self.policy.clone()));
+        let selected_tools = self.tools_for_model(model_ref)?;
         let tools = crate::core::BoundTools::new(
-            self.tools.clone(),
+            selected_tools.clone(),
             policy.clone(),
             approval.clone(),
             Arc::default(),
             crate::core::ToolExecutionBinding::detached(scope.clone()),
         );
-        let model: Arc<dyn Model> = Arc::new(
-            BoundModel::new(
-                self.model_service.clone(),
-                model_binding,
-                self.runtime_config.model_timeout_ms,
-            )
-            .with_hooks(hooks.clone(), attribution, self.cwd.clone())
-            .with_tool_authority(tools),
-        );
-        ExecutionContext::new(
+        let model = self.model_service.as_ref().map(|service| {
+            Arc::new(
+                BoundModel::new(
+                    service.clone(),
+                    model_binding,
+                    self.runtime_config.model_timeout_ms,
+                )
+                .with_hooks(hooks.clone(), attribution, self.cwd.clone())
+                .with_tool_authority(tools),
+            ) as Arc<dyn Model>
+        });
+        Ok(ExecutionContext::new(
             scope,
             self.runtime_config.model_timeout_ms,
             model,
             self.search.clone(),
             self.memory.clone(),
-            self.tools.clone(),
+            selected_tools,
             policy,
             approval,
         )
-        .with_hooks(hooks)
+        .with_hooks(hooks))
+    }
+
+    pub(crate) fn tools_for_model(&self, model: Option<&ModelRef>) -> Result<ToolRegistry> {
+        let mut tools = ToolRegistry::new();
+        for (source, spec) in self.tools.entries() {
+            if !matches!(
+                spec.surface,
+                crate::domain::ToolSurface::ProviderHosted { .. }
+            ) {
+                tools.register_arc(source, self.tools.get(&spec.name).expect("registered tool"))?;
+            }
+        }
+        if let Some(model) = model {
+            let service = self
+                .model_service
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("no model is configured"))?;
+            crate::core::register_provider_hosted_tools(
+                &mut tools,
+                service.id().as_ref(),
+                service.provider_hosted_tools(model)?,
+            )?;
+        }
+        Ok(tools)
+    }
+
+    /// Creates a standalone invocation without manufacturing conversation ids.
+    pub fn workflow_execution_context(
+        &self,
+        scope: crate::contracts::ExecutionScope,
+        approval: Arc<dyn crate::contracts::ApprovalTransport>,
+        permission_mode: crate::domain::PermissionMode,
+    ) -> Result<crate::contracts::WorkflowInvocationContext> {
+        let execution = self.execution_context(
+            ModelExecutionBinding::detached(scope),
+            approval,
+            permission_mode,
+        )?;
+        Ok(crate::contracts::WorkflowInvocationContext::Execution(
+            crate::contracts::WorkflowExecutionContext {
+                execution,
+                context: self.context.clone(),
+                tool_exposure: self.tool_exposure.clone(),
+                model_ref: self.model_config.as_ref().map(|cfg| cfg.model_ref()),
+                reasoning: self
+                    .model_config
+                    .as_ref()
+                    .map(|cfg| cfg.reasoning.clone())
+                    .unwrap_or_default(),
+                instructions: self.instructions.clone(),
+                context_timeout_ms: self.runtime_config.context_timeout_ms,
+                permission_mode,
+                intent: None,
+            },
+        ))
     }
 
     /// Wraps an already-bound generic execution in the chat/application
@@ -212,7 +301,7 @@ impl RuntimeRegistry {
         session_id: SessionId,
         thread_id: ThreadId,
         turn_id: TurnId,
-        model_ref: ModelRef,
+        model_ref: Option<ModelRef>,
         reasoning: ReasoningConfig,
         events: Arc<EventEmitter>,
         user_input: Arc<dyn UserInputTransport>,
@@ -237,6 +326,6 @@ impl RuntimeRegistry {
 
     #[cfg(test)]
     pub(crate) fn replace_model_for_test(&mut self, model: Arc<dyn Model>) {
-        self.model_service = Arc::new(ModelService::new(model));
+        self.model_service = Some(Arc::new(ModelService::new(model)));
     }
 }

@@ -108,17 +108,11 @@ fn agent_control_surface_defaults_to_task_and_rejects_unknown_values() {
 }
 
 #[test]
-fn app_config_requires_explicit_provider_selection_and_rejects_model_field() {
-    let error = serde_json::from_value::<AppConfig>(serde_json::json!({
-        "providers": { "default": {} }
-    }))
-    .expect_err("provider selection is required");
-
-    assert!(
-        error
-            .to_string()
-            .contains("missing field `active_provider`")
-    );
+fn app_config_supports_model_free_selection_and_rejects_unknown_fields() {
+    let config: AppConfig =
+        serde_json::from_value(serde_json::json!({"providers": { "unused": {} }})).unwrap();
+    assert!(config.selected_model_config().unwrap().is_none());
+    assert!(config.active_model_config().is_err());
 
     let error = serde_json::from_value::<AppConfig>(serde_json::json!({
         "active_provider": "fake",
@@ -129,13 +123,13 @@ fn app_config_requires_explicit_provider_selection_and_rejects_model_field() {
     assert!(error.to_string().contains("unknown field `model`"));
 
     let mut config = AppConfig::default();
-    config.active_provider.clear();
+    config.active_provider = Some(String::new());
     let error = config
         .active_model_config()
         .expect_err("empty provider id must be rejected");
     assert!(error.to_string().contains("must not be empty"));
 
-    config.active_provider = "missing".to_owned();
+    config.active_provider = Some("missing".to_owned());
     let error = config
         .active_model_config()
         .expect_err("unknown provider id must be rejected");

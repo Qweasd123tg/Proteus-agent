@@ -445,11 +445,14 @@ impl Model for SteeringModel {
         self.inner.id()
     }
 
-    fn capabilities(&self, model: &ModelRef) -> ModelCapabilities {
+    fn capabilities(&self, model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
         self.inner.capabilities(model)
     }
 
-    fn provider_hosted_tools(&self, model: &ModelRef) -> Vec<crate::domain::ToolSpec> {
+    fn provider_hosted_tools(
+        &self,
+        model: &ModelRef,
+    ) -> anyhow::Result<Vec<crate::domain::ToolSpec>> {
         self.inner.provider_hosted_tools(model)
     }
 

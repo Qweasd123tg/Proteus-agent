@@ -1,4 +1,10 @@
-use std::{borrow::Cow, path::Path, pin::Pin, sync::Arc};
+use std::{
+    borrow::Cow,
+    collections::BTreeMap,
+    path::Path,
+    pin::Pin,
+    sync::{Arc, Mutex as StdMutex},
+};
 
 use anyhow::{Result, bail};
 use async_trait::async_trait;
@@ -26,7 +32,8 @@ use crate::{
 
 pub struct ProcessModel {
     client: Arc<ProcessExportClient>,
-    descriptor: ProcessModelDescriptor,
+    adapter_id: String,
+    descriptions: StdMutex<BTreeMap<(String, String), ProcessModelDescriptor>>,
     stream: bool,
 }
 
@@ -36,6 +43,7 @@ impl ProcessModel {
         cwd: &Path,
         stream: bool,
         timeout_ms: u64,
+        model: ModelRef,
     ) -> Result<Self> {
         let client = Arc::new(ProcessExportClient::connect(
             "model",
@@ -44,17 +52,49 @@ impl ProcessModel {
             cwd,
             timeout_ms,
         )?);
-        let descriptor: ProcessModelDescriptor =
-            client.invoke_bootstrap(PROCESS_MODEL_DESCRIBE_METHOD, &Value::Null)?;
+        let descriptor: ProcessModelDescriptor = client.invoke_bootstrap(
+            PROCESS_MODEL_DESCRIBE_METHOD,
+            &crate::contracts::ProcessModelDescribeRequest {
+                model: model.clone(),
+            },
+        )?;
         if descriptor.adapter_id.trim().is_empty() {
             client.reset();
             bail!("model describe returned an empty adapter_id");
         }
         Ok(Self {
             client,
-            descriptor,
+            adapter_id: descriptor.adapter_id.clone(),
+            descriptions: StdMutex::new(BTreeMap::from([(
+                (model.provider, model.model),
+                descriptor,
+            )])),
             stream,
         })
+    }
+
+    fn describe_model(&self, model: &ModelRef) -> Result<ProcessModelDescriptor> {
+        let key = (model.provider.clone(), model.model.clone());
+        if let Some(descriptor) = self.descriptions.lock().unwrap().get(&key) {
+            return Ok(descriptor.clone());
+        }
+        // Never hold the cache lock across a broker call: another export of the
+        // same component can be the active parent of this callback-free probe.
+        let descriptor: ProcessModelDescriptor = self.client.invoke_blocking(
+            PROCESS_MODEL_DESCRIBE_METHOD,
+            &crate::contracts::ProcessModelDescribeRequest {
+                model: model.clone(),
+            },
+        )?;
+        if descriptor.adapter_id != self.adapter_id {
+            self.client.reset();
+            bail!("model describe changed adapter_id for the same export");
+        }
+        self.descriptions
+            .lock()
+            .unwrap()
+            .insert(key, descriptor.clone());
+        Ok(descriptor)
     }
 }
 
@@ -139,13 +179,13 @@ impl AsyncHostRequestDispatcher for EventSink {
 #[async_trait]
 impl Model for ProcessModel {
     fn id(&self) -> Cow<'static, str> {
-        Cow::Owned(self.descriptor.adapter_id.clone())
+        Cow::Owned(self.adapter_id.clone())
     }
-    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-        self.descriptor.capabilities.clone()
+    fn capabilities(&self, model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
+        Ok(self.describe_model(model)?.capabilities)
     }
-    fn provider_hosted_tools(&self, _model: &ModelRef) -> Vec<ToolSpec> {
-        self.descriptor.hosted_tools.clone()
+    fn provider_hosted_tools(&self, model: &ModelRef) -> anyhow::Result<Vec<ToolSpec>> {
+        Ok(self.describe_model(model)?.hosted_tools)
     }
 
     async fn catalog(&self) -> Result<Option<crate::contracts::ModelCatalog>> {

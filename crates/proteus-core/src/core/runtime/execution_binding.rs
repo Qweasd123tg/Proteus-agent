@@ -62,11 +62,12 @@ impl AgentRuntime {
             turn_id,
             execution_recorder,
         );
-        let execution = snapshot.runtime.registry.execution_context(
+        let execution = snapshot.runtime.registry.execution_context_for_model(
             model_binding,
             self.services.approval.clone(),
             snapshot.permission_mode,
-        );
+            snapshot.model_ref.as_ref(),
+        )?;
 
         let mut context = snapshot
             .runtime

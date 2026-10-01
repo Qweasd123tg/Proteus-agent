@@ -266,6 +266,7 @@ fn capabilities_do_not_guess_openai_context_window_without_config() {
     assert_eq!(
         client
             .capabilities(&ModelRef::new("openai", "gpt-test"))
+            .unwrap()
             .max_input_tokens,
         None
     );
@@ -280,6 +281,7 @@ fn capabilities_use_explicit_openai_context_window_from_config() {
     assert_eq!(
         client
             .capabilities(&ModelRef::new("openai", "gpt-test"))
+            .unwrap()
             .max_input_tokens,
         Some(123_456)
     );
@@ -299,13 +301,13 @@ fn capabilities_are_model_profile_driven() {
     .unwrap();
 
     let model = ModelRef::new("openai", "custom-proxy-model");
-    let conservative = conservative.capabilities(&model);
+    let conservative = conservative.capabilities(&model).unwrap();
     assert!(!conservative.supports_parallel_tool_calls);
     assert!(!conservative.supports_freeform_tools);
     assert!(!conservative.supports_json_schema);
     assert!(!conservative.supports_reasoning_config);
 
-    let explicit = explicit.capabilities(&model);
+    let explicit = explicit.capabilities(&model).unwrap();
     assert!(explicit.supports_parallel_tool_calls);
     assert!(explicit.supports_freeform_tools);
     assert!(explicit.supports_json_schema);

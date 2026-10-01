@@ -170,9 +170,30 @@ pub(crate) fn run_project_check(
         );
     }
 
+    let Some(model_ref) = input.runtime.model_ref.clone() else {
+        return finish(
+            host,
+            &input,
+            &mut turn,
+            CheckReport {
+                text: format!(
+                    "Проверка проекта завершилась ошибкой.\n{}",
+                    test_result.output
+                ),
+                status: "failed",
+                stage: "tests",
+                project: Some(project),
+                git_dirty: Some(git_dirty),
+                exit_code,
+                timed_out,
+                model_calls: 0,
+                model_finish_reason: None,
+            },
+        );
+    };
     let diagnostic = diagnostic_prompt(&input, project, git_dirty, &test_result);
     let mut request = CanonicalModelRequest::new(
-        input.runtime.model_ref.clone(),
+        model_ref,
         vec![CanonicalMessage::text(MessageRole::User, diagnostic)],
     )
     .with_instructions(vec![InstructionBlock::new(
@@ -249,7 +270,10 @@ fn run_tool(
         .continuation
         .as_ref()
         .map_or(0, |review| review.attempt);
-    let call_id = format!("project-check-{}-{attempt}-{stage}", input.runtime.turn_id);
+    let call_id = format!(
+        "project-check-{}-{attempt}-{stage}",
+        input.runtime.execution_id
+    );
     execute_tool(host, input, &ToolCall::new(call_id, name, args))
 }
 
@@ -359,9 +383,10 @@ fn finish(
         })
     });
     let metadata = json!({
-        "session_id": input.runtime.session_id,
-        "thread_id": input.runtime.thread_id,
-        "turn_id": input.runtime.turn_id,
+        "session_id": input.runtime.conversation.as_ref().map(|c| c.session_id),
+        "thread_id": input.runtime.conversation.as_ref().map(|c| c.thread_id),
+        "turn_id": input.runtime.conversation.as_ref().map(|c| c.turn_id),
+        "execution_id": input.runtime.execution_id,
         "workflow": {
             "source": "process",
             "module_id": PROJECT_CHECK_MODULE_ID,

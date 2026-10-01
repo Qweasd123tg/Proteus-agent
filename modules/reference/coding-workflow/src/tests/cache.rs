@@ -16,7 +16,12 @@ fn cache_relevant_input(request: &CanonicalModelRequest) -> Vec<Value> {
 #[test]
 fn stable_context_keeps_the_next_turn_wire_input_append_only() {
     let first_input = workflow_input("first question");
-    let session_id = first_input.runtime.session_id;
+    let session_id = first_input
+        .runtime
+        .conversation
+        .as_ref()
+        .unwrap()
+        .session_id;
     let first_input_json = serde_json::to_string(&first_input).expect("first input json");
     let mut first_host = FakeHost::default().with_context_text("stable workspace context");
 
@@ -33,7 +38,12 @@ fn stable_context_keeps_the_next_turn_wire_input_append_only() {
     second_history.extend(first_output.new_messages);
     second_history.push(second_user);
     second_input.history = second_history;
-    second_input.runtime.session_id = session_id;
+    second_input
+        .runtime
+        .conversation
+        .as_mut()
+        .unwrap()
+        .session_id = session_id;
     let second_input_json = serde_json::to_string(&second_input).expect("second input json");
     let mut second_host = FakeHost::default().with_context_text("stable workspace context");
 

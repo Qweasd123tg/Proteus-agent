@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dependency-free out-of-tree Workflow v17 component for Proteus.
+"""Dependency-free out-of-tree Workflow v18 component for Proteus.
 
 The worker owns a small model/tool loop. Models, tools, policy, approvals,
 safety, events, and cancellation remain host capabilities reached only through
@@ -27,7 +27,7 @@ from component_runtime import (  # noqa: E402
 
 SLOT = "workflow"
 MODULE_ID = "python_agent_loop"
-CONTRACT_VERSION = "v17"
+CONTRACT_VERSION = "v18"
 
 INITIALIZE_FIELDS = {
     "protocol_version",
@@ -44,9 +44,8 @@ EXPORT_INITIALIZE_FIELDS = {
 }
 INPUT_FIELDS = {"task", "history", "runtime"}
 RUNTIME_FIELDS = {
-    "session_id",
-    "thread_id",
-    "turn_id",
+    "execution_id",
+    "conversation",
     "model_ref",
     "instructions",
     "intent",
@@ -206,7 +205,7 @@ def model_request(
         "cache": {
             "cache_instructions": True,
             "cache_context": True,
-            "routing_key": f"{runtime['session_id']}:{runtime['thread_id']}",
+            "routing_key": f"{runtime['conversation']['session_id']}:{runtime['conversation']['thread_id']}",
         },
         "client_metadata": {},
         "metadata": {"workflow": MODULE_ID},
@@ -322,6 +321,8 @@ def run_workflow(
 ) -> dict[str, Any]:
     invocation = require_object(params, INPUT_FIELDS, "ProcessWorkflowInput")
     runtime = require_object(invocation["runtime"], RUNTIME_FIELDS, "workflow runtime")
+    require_object(runtime["conversation"], {"session_id", "thread_id", "turn_id"}, "conversation")
+    require_object(runtime["model_ref"], {"provider", "model"}, "model reference")
     if not isinstance(runtime["interrupted_turns"], list):
         raise ProtocolError("runtime.interrupted_turns must be an array")
     for value in runtime["interrupted_turns"]:
@@ -456,7 +457,7 @@ def initialize(raw: Any) -> dict[str, Any]:
     if actual != expected:
         raise ProtocolError(f"unsupported initialize identity: {actual!r}")
     if require_string_list(export["host_features"], "host_features"):
-        raise ProtocolError("workflow v17 has no negotiated optional features")
+        raise ProtocolError("workflow v18 has no negotiated optional features")
     component_config = parse_config(export["module_config"])
     return {
         "protocol_version": PROTOCOL_VERSION,
@@ -477,7 +478,7 @@ def invoke(context: InvocationContext, method: str, params: Any) -> dict[str, An
     if context.export != {"slot": SLOT, "module_id": MODULE_ID}:
         raise ProtocolError(f"unknown component export: {context.export!r}")
     if method != "run":
-        raise ProtocolError(f"workflow v17 does not support method {method!r}")
+        raise ProtocolError(f"workflow v18 does not support method {method!r}")
     return run_workflow(Peer(context), params, component_config)
 
 

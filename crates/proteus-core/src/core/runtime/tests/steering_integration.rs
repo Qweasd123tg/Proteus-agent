@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use super::*;
 use crate::{
     contracts::{
-        AgentWorkflowContext, CancellationToken, CompactionHost, EventSink, Model,
-        ModelEventStream, Workflow, WorkflowFailure, WorkflowHistoryUpdate, WorkflowOutput,
+        CancellationToken, CompactionHost, EventSink, Model, ModelEventStream, Workflow,
+        WorkflowFailure, WorkflowHistoryUpdate, WorkflowOutput,
     },
     core::RuntimeCompactionHost,
     domain::{
@@ -61,8 +61,8 @@ impl Model for ScriptedModel {
         "scripted-steering".into()
     }
 
-    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-        ModelCapabilities::empty()
+    fn capabilities(&self, _model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
+        Ok(ModelCapabilities::empty())
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
@@ -103,13 +103,14 @@ impl Workflow for TwoRoundSteeringWorkflow {
         &self,
         _task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: AgentWorkflowContext,
+        ctx: crate::contracts::WorkflowInvocationContext,
     ) -> Result<WorkflowOutput> {
+        let ctx = ctx.into_agent()?;
         let first = ctx
             .execution
-            .model
+            .require_model()?
             .complete(CanonicalModelRequest::new(
-                ctx.model_ref.clone(),
+                ctx.model_ref.clone().expect("model selection"),
                 history.clone(),
             ))
             .await?;
@@ -137,9 +138,9 @@ impl Workflow for TwoRoundSteeringWorkflow {
         new_messages.push(tool_message);
         let second = ctx
             .execution
-            .model
+            .require_model()?
             .complete(CanonicalModelRequest::new(
-                ctx.model_ref.clone(),
+                ctx.model_ref.clone().expect("model selection"),
                 second_messages,
             ))
             .await
@@ -161,13 +162,14 @@ impl Workflow for CompactionBoundarySteeringWorkflow {
         &self,
         _task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: AgentWorkflowContext,
+        ctx: crate::contracts::WorkflowInvocationContext,
     ) -> Result<WorkflowOutput> {
+        let ctx = ctx.into_agent()?;
         let first = ctx
             .execution
-            .model
+            .require_model()?
             .complete(CanonicalModelRequest::new(
-                ctx.model_ref.clone(),
+                ctx.model_ref.clone().expect("model selection"),
                 history.clone(),
             ))
             .await?;
@@ -190,7 +192,7 @@ impl Workflow for CompactionBoundarySteeringWorkflow {
         let compaction_host = RuntimeCompactionHost::new(ctx.clone());
         let summary = compaction_host
             .complete_model(CanonicalModelRequest::new(
-                ctx.model_ref.clone(),
+                ctx.model_ref.clone().expect("model selection"),
                 vec![CanonicalMessage::text(MessageRole::User, "summarize")],
             ))
             .await?;
@@ -201,9 +203,9 @@ impl Workflow for CompactionBoundarySteeringWorkflow {
         second_messages.push(tool_message.clone());
         let second = ctx
             .execution
-            .model
+            .require_model()?
             .complete(CanonicalModelRequest::new(
-                ctx.model_ref.clone(),
+                ctx.model_ref.clone().expect("model selection"),
                 second_messages,
             ))
             .await?;
@@ -223,8 +225,9 @@ impl Workflow for BlockingFollowupWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: AgentWorkflowContext,
+        ctx: crate::contracts::WorkflowInvocationContext,
     ) -> Result<WorkflowOutput> {
+        let ctx = ctx.into_agent()?;
         self.tasks.lock().await.push(task.text.clone());
         self.options.lock().await.push(crate::domain::RunOptions {
             intent: ctx.intent.clone(),

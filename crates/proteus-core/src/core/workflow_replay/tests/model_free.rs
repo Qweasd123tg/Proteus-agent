@@ -28,16 +28,20 @@ impl Workflow for Probe {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: AgentWorkflowContext,
+        ctx: crate::contracts::WorkflowInvocationContext,
     ) -> anyhow::Result<WorkflowOutput> {
+        let ctx = ctx.into_agent()?;
         // Deliberately swallow host errors: equal terminal errors alone must
         // never conceal a changed workflow's unrecorded host calls.
         match self {
             Self::NoCalls => {}
             Self::Model => {
-                let request = CanonicalModelRequest::new(ctx.model_ref.clone(), history)
-                    .with_tools(vec![probe_tool_spec()]);
-                let _ = ctx.execution.model.complete(request).await;
+                let request = CanonicalModelRequest::new(
+                    ctx.model_ref.clone().expect("model selection"),
+                    history,
+                )
+                .with_tools(vec![probe_tool_spec()]);
+                let _ = ctx.execution.require_model()?.complete(request).await;
             }
             Self::Context => {
                 let input = ContextBuildInput::new(
@@ -73,7 +77,7 @@ impl Workflow for Probe {
                 let input = CompactionInput::new(
                     task,
                     proteus_contracts::model_standard::CanonicalModelRequest::new(
-                        ctx.model_ref.clone(),
+                        ctx.model_ref.clone().expect("model selection"),
                         history,
                     ),
                 );

@@ -15,8 +15,8 @@ impl Model for PendingStartAdapter {
         "pending-start".into()
     }
 
-    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-        ModelCapabilities::empty()
+    fn capabilities(&self, _model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
+        Ok(ModelCapabilities::empty())
     }
 
     async fn stream(&self, _request: CanonicalModelRequest) -> Result<ModelEventStream> {
@@ -36,8 +36,8 @@ impl Model for DelayedStreamAdapter {
         "delayed-stream".into()
     }
 
-    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-        ModelCapabilities::empty()
+    fn capabilities(&self, _model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
+        Ok(ModelCapabilities::empty())
     }
 
     async fn stream(&self, _request: CanonicalModelRequest) -> Result<ModelEventStream> {
@@ -98,8 +98,8 @@ impl Model for DropObservedAdapter {
         "drop-observed".into()
     }
 
-    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-        ModelCapabilities::empty()
+    fn capabilities(&self, _model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
+        Ok(ModelCapabilities::empty())
     }
 
     async fn stream(&self, _request: CanonicalModelRequest) -> Result<ModelEventStream> {

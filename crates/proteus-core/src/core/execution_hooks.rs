@@ -14,14 +14,14 @@ pub struct RuntimeHookChain {
     handlers: Vec<(String, Arc<dyn HookHandler>)>,
     scope: ExecutionScope,
     recorder: Arc<dyn ExecutionRecorder>,
-    model_service: Arc<ModelService>,
+    model_service: Option<Arc<ModelService>>,
 }
 impl RuntimeHookChain {
     pub fn new(
         handlers: Vec<(String, Arc<dyn HookHandler>)>,
         scope: ExecutionScope,
         recorder: Arc<dyn ExecutionRecorder>,
-        model_service: Arc<ModelService>,
+        model_service: Option<Arc<ModelService>>,
     ) -> Self {
         Self {
             handlers,
@@ -82,7 +82,11 @@ impl ExecutionHooks for RuntimeHookChain {
                 }
                 let mut next = apply_hook_response(&event, &response)?;
                 if let HookEvent::BeforeModel { request, .. } = &mut next {
-                    *request = self.model_service.prepare_request(request.clone())?;
+                    *request = self
+                        .model_service
+                        .as_ref()
+                        .ok_or_else(|| anyhow!("no model is configured"))?
+                        .prepare_request(request.clone())?;
                 }
                 Ok((response, next))
             });

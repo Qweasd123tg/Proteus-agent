@@ -57,9 +57,11 @@ impl Workflow for CompactionProbeWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: AgentWorkflowContext,
+        ctx: crate::contracts::WorkflowInvocationContext,
     ) -> anyhow::Result<WorkflowOutput> {
-        let compaction_input = replay_compaction_input(&task, &history, &ctx.model_ref);
+        let ctx = ctx.into_agent()?;
+        let compaction_input =
+            replay_compaction_input(&task, &history, ctx.model_ref.as_ref().unwrap());
         let compacted = ctx
             .compactor
             .compact(
@@ -72,9 +74,12 @@ impl Workflow for CompactionProbeWorkflow {
         if matches!(self.mode, CompactionProbeMode::DivergeReport) {
             report.summary_source = Some("changed_implementation".to_owned());
         }
-        let request = CanonicalModelRequest::new(ctx.model_ref.clone(), compacted.messages.clone())
-            .with_tools(vec![probe_tool_spec()]);
-        let response = ctx.execution.model.complete(request).await?;
+        let request = CanonicalModelRequest::new(
+            ctx.model_ref.clone().expect("model selection"),
+            compacted.messages.clone(),
+        )
+        .with_tools(vec![probe_tool_spec()]);
+        let response = ctx.execution.require_model()?.complete(request).await?;
         Ok(
             WorkflowOutput::new(AgentOutput::text("compacted"), response.messages)
                 .with_history_replacement(compacted.messages)

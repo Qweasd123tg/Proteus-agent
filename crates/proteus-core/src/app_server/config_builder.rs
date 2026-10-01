@@ -145,7 +145,7 @@ fn config_builder_providers(config: &AppConfig) -> Vec<ConfigBuilderProvider> {
             provider: profile.provider.clone(),
             model: profile.model.clone(),
             label: format!("{}/{}", profile.provider, profile.model),
-            active: config.active_provider == *id,
+            active: config.active_provider.as_ref() == Some(id),
         })
         .collect()
 }
@@ -231,7 +231,11 @@ pub(super) async fn persist_config_builder(path: &Path, config: &AppConfig) -> R
 
     let mut doc = read_toml_document_or_empty(path).await?;
 
-    doc["active_provider"] = toml_edit::value(config.active_provider.clone());
+    if let Some(provider) = &config.active_provider {
+        doc["active_provider"] = toml_edit::value(provider.clone());
+    } else {
+        doc.remove("active_provider");
+    }
     if doc.get("providers").is_none() {
         let text = toml::to_string_pretty(&ProvidersToml {
             providers: &config.providers,

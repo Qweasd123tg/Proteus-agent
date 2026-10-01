@@ -172,7 +172,7 @@ async fn check(mode: Mode) {
     }
     config
         .providers
-        .get_mut(&config.active_provider)
+        .get_mut(config.active_provider.as_ref().unwrap())
         .unwrap()
         .stream = mode.streaming();
     if matches!(mode, Mode::PartialSse) {

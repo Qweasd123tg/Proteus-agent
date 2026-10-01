@@ -95,7 +95,7 @@ pub struct RuntimeSnapshot {
 struct RuntimeExecutionState {
     runtime: RuntimeSnapshot,
     permission_mode: PermissionMode,
-    model_ref: ModelRef,
+    model_ref: Option<ModelRef>,
     reasoning: ReasoningConfig,
 }
 
@@ -288,20 +288,38 @@ impl AgentRuntime {
             anyhow::bail!("persisted runtime reload requires a config snapshot");
         }
         let _reload_guard = self.services.reload_lock.lock().await;
-        let mut state = self.services.execution_state.write().await;
-        let old_epoch = state.runtime.epoch;
+        let snapshot = self.capture_execution_snapshot().await;
+        let old_epoch = snapshot.runtime.epoch;
         let new_epoch = old_epoch.next();
-        let tool_names = assembly
-            .registry()
+        let model_ref = if assembly.registry().model_config.is_none() {
+            None
+        } else {
+            model_ref
+                .or_else(|| snapshot.model_ref.clone())
+                .or_else(|| {
+                    assembly
+                        .registry()
+                        .model_config
+                        .as_ref()
+                        .map(|cfg| cfg.model_ref())
+                })
+        };
+        let mut runtime = RuntimeSnapshot::new(new_epoch, assembly, config_snapshot);
+        runtime.registry.tools = runtime.registry.tools_for_model(model_ref.as_ref())?;
+        let tool_names = runtime
+            .registry
             .tools
             .specs()
             .into_iter()
             .map(|spec| spec.name)
-            .collect::<Vec<_>>();
-        state.runtime = RuntimeSnapshot::new(new_epoch, assembly, config_snapshot);
-        if let Some(model_ref) = model_ref {
-            state.model_ref = model_ref;
-        }
+            .collect();
+        let mut state = self.services.execution_state.write().await;
+        anyhow::ensure!(
+            state.runtime.epoch == old_epoch && state.model_ref == snapshot.model_ref,
+            "runtime selection changed during reload; retry reload"
+        );
+        state.runtime = runtime;
+        state.model_ref = model_ref;
         if let Some(permission_mode) = permission_mode {
             state.permission_mode = permission_mode;
         }
@@ -337,7 +355,7 @@ impl AgentRuntime {
                 Event::SessionStarted {
                     session_id: self.session.session_id,
                     cwd: self.services.cwd.clone(),
-                    model: Some(snapshot.model_ref.clone()),
+                    model: snapshot.model_ref.clone(),
                     session_dir: self.session_dir().map(|path| path.to_path_buf()),
                 },
             )

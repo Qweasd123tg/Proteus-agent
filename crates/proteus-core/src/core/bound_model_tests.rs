@@ -109,8 +109,8 @@ impl Model for ImmediateAdapter {
         "immediate".into()
     }
 
-    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-        ModelCapabilities::empty()
+    fn capabilities(&self, _model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
+        Ok(ModelCapabilities::empty())
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
@@ -134,8 +134,8 @@ impl Model for ConcurrentAdapter {
         "concurrent".into()
     }
 
-    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-        ModelCapabilities::empty()
+    fn capabilities(&self, _model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
+        Ok(ModelCapabilities::empty())
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
@@ -168,8 +168,8 @@ impl Model for CancellationAdapter {
         "cancellation".into()
     }
 
-    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-        ModelCapabilities::empty()
+    fn capabilities(&self, _model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
+        Ok(ModelCapabilities::empty())
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {

@@ -154,7 +154,7 @@ model = "fake-smart"
             }))
     );
     assert_eq!(server.permission_mode().await, PermissionMode::Auto);
-    let model_ref = server.runtime.model_ref().await;
+    let model_ref = server.runtime.model_ref().await.unwrap();
     assert_eq!(model_ref.model, "fake-smart");
 
     let summary = server.config_summary().await;
@@ -203,7 +203,7 @@ async fn route_config_builder_creates_complete_provider_config() {
     let persisted = AppConfig::load(Some(&config_path))
         .await
         .expect("persisted config must load");
-    assert_eq!(persisted.active_provider, "fake");
+    assert_eq!(persisted.active_provider.as_deref(), Some("fake"));
     assert!(persisted.providers.contains_key("fake"));
 
     server.shutdown().await;

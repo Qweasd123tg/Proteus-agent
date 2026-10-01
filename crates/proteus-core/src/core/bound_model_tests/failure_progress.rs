@@ -20,8 +20,8 @@ impl Model for StartFailureAdapter {
         "start-failure-progress".into()
     }
 
-    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-        ModelCapabilities::empty()
+    fn capabilities(&self, _model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
+        Ok(ModelCapabilities::empty())
     }
 
     async fn stream(&self, _request: CanonicalModelRequest) -> Result<ModelEventStream> {
@@ -39,8 +39,8 @@ impl Model for CompletedThenPendingAdapter {
         "completed-then-pending".into()
     }
 
-    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-        ModelCapabilities::empty()
+    fn capabilities(&self, _model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
+        Ok(ModelCapabilities::empty())
     }
 
     async fn stream(&self, _request: CanonicalModelRequest) -> Result<ModelEventStream> {
@@ -66,8 +66,8 @@ impl Model for ProgressAdapter {
         "failure-progress".into()
     }
 
-    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-        ModelCapabilities::empty()
+    fn capabilities(&self, _model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
+        Ok(ModelCapabilities::empty())
     }
 
     async fn stream(&self, _request: CanonicalModelRequest) -> Result<ModelEventStream> {

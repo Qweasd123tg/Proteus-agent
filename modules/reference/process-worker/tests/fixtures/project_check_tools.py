@@ -122,6 +122,10 @@ def invoke(context, method, params):
         args = call.get("args") or {}
         if args.get("command") != "cargo test":
             raise ProtocolError(f"unexpected project-check command: {args!r}")
+        if os.environ.get("PROJECT_CHECK_TEST_FAILURE") == "true":
+            failed = result(call, "test result: FAILED. recorded assertion", {"fixture": True, "exit_code": 1, "timed_out": False})
+            failed["result"].update(ok=False, error="process exited with code 1")
+            return failed
         return result(
             call,
             "test result: ok. 1 passed; 0 failed",

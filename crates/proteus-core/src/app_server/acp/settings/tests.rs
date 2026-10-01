@@ -19,7 +19,7 @@ fn rendered(active: &str, efforts: &[&str], error: bool) -> Value {
     .unwrap();
     let summary = selection_summary(
         &AppConfig::default(),
-        &active,
+        &Some(active.clone()),
         &reasoning,
         if error {
             Err(anyhow::anyhow!("catalog unavailable"))
@@ -29,7 +29,7 @@ fn rendered(active: &str, efforts: &[&str], error: bool) -> Value {
     );
     serde_json::to_value(render(
         ModelSelection {
-            active,
+            active: Some(active),
             reasoning,
             summary,
         },

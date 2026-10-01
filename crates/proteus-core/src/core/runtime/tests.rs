@@ -10,7 +10,7 @@ use tokio::time::Duration;
 use super::turn::{TurnAbort, turn_settlement_status};
 use super::*;
 use crate::{
-    contracts::{AgentWorkflowContext, Workflow, WorkflowOutput},
+    contracts::{Workflow, WorkflowOutput},
     core::{ConfiguredToolConfig, ConfiguredToolExecutorConfig, ModuleCatalog, PreparedAssembly},
     domain::{AgentOutput, AgentTask, ExecutionId, HistoryCompactionReport, ToolSafety},
     model_standard::{CanonicalMessage, CanonicalModelRequest, MessageRole},
@@ -93,7 +93,7 @@ impl Workflow for ShortHistoryWorkflow {
         &self,
         _task: AgentTask,
         _history: Vec<CanonicalMessage>,
-        _ctx: AgentWorkflowContext,
+        _ctx: crate::contracts::WorkflowInvocationContext,
     ) -> Result<WorkflowOutput> {
         Ok(WorkflowOutput::new(
             AgentOutput::text("bad workflow"),
@@ -108,7 +108,7 @@ impl Workflow for CompactingWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        _ctx: AgentWorkflowContext,
+        _ctx: crate::contracts::WorkflowInvocationContext,
     ) -> Result<WorkflowOutput> {
         assert_eq!(history.len(), 3);
         let summary = CanonicalMessage::text(MessageRole::User, "compacted summary");
@@ -137,7 +137,7 @@ impl Workflow for HangingWorkflow {
         &self,
         _task: AgentTask,
         _history: Vec<CanonicalMessage>,
-        _ctx: AgentWorkflowContext,
+        _ctx: crate::contracts::WorkflowInvocationContext,
     ) -> Result<WorkflowOutput> {
         tokio::time::sleep(Duration::from_secs(30)).await;
         Ok(WorkflowOutput::new(
@@ -153,7 +153,7 @@ impl Workflow for DelayedWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        _ctx: AgentWorkflowContext,
+        _ctx: crate::contracts::WorkflowInvocationContext,
     ) -> Result<WorkflowOutput> {
         tokio::time::sleep(Duration::from_millis(20)).await;
         Ok(successful_messages(history, task, "done"))
@@ -166,15 +166,17 @@ impl Workflow for ModelCallingWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: AgentWorkflowContext,
+        ctx: crate::contracts::WorkflowInvocationContext,
     ) -> Result<WorkflowOutput> {
+        let ctx = ctx.into_agent()?;
         let current_user = history.last().expect("persisted current user message");
         assert_eq!(message_text_for_test(current_user), task.text);
-        let request = CanonicalModelRequest::new(ctx.model_ref.clone(), history)
-            .with_instructions(ctx.instructions.clone())
-            .with_tools(ctx.execution.tools.specs())
-            .with_reasoning(ctx.reasoning.clone());
-        let response = ctx.execution.model.complete(request).await?;
+        let request =
+            CanonicalModelRequest::new(ctx.model_ref.clone().expect("model selection"), history)
+                .with_instructions(ctx.instructions.clone())
+                .with_tools(ctx.execution.tools.specs())
+                .with_reasoning(ctx.reasoning.clone());
+        let response = ctx.execution.require_model()?.complete(request).await?;
         Ok(WorkflowOutput::new(
             AgentOutput::text("done"),
             response.messages,
@@ -188,8 +190,9 @@ impl Workflow for ExecutionScopeProbeWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: AgentWorkflowContext,
+        ctx: crate::contracts::WorkflowInvocationContext,
     ) -> Result<WorkflowOutput> {
+        let ctx = ctx.into_agent()?;
         self.seen
             .lock()
             .expect("execution scope observations")
@@ -204,8 +207,9 @@ impl Workflow for SnapshotProbeWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: AgentWorkflowContext,
+        ctx: crate::contracts::WorkflowInvocationContext,
     ) -> Result<WorkflowOutput> {
+        let ctx = ctx.into_agent()?;
         if self.wait_once.swap(false, Ordering::SeqCst) {
             self.started.notify_one();
             self.proceed.notified().await;
@@ -414,7 +418,10 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
     )
     .expect("config snapshot json");
 
-    assert_eq!(value["schema_version"], 5);
+    assert_eq!(
+        value["schema_version"],
+        crate::core::SessionConfigSnapshot::SCHEMA_VERSION
+    );
     assert_eq!(value["active_provider"], "fake");
     assert_eq!(value["profile_name"], "snapshot-profile");
     assert_eq!(value["modules"]["workflow"], "coding.plan_execute_review");
@@ -476,7 +483,7 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
         serde_json::from_value(opened.config_snapshot.clone()).expect("turn config snapshot");
     assert_eq!(module_epoch, 1);
     assert_eq!(turn_snapshot.profile_name, "reloaded-profile");
-    assert_eq!(turn_snapshot.model.model, "runtime-model-override");
+    assert_eq!(turn_snapshot.model.unwrap().model, "runtime-model-override");
     assert_eq!(turn_snapshot.reasoning.effort.as_deref(), Some("high"));
     assert_eq!(turn_snapshot.permission_mode_default, PermissionMode::Plan);
 }

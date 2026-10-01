@@ -58,7 +58,7 @@ impl AppConfig {
                 path.display()
             )
         })?;
-        config.active_model_config()?;
+        config.selected_model_config()?;
         config.validate_module_config_slots()?;
         config.modules.validate_hooks()?;
         Ok(config)

@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct ModelRef {
     pub provider: String,
     pub model: String,

@@ -16,12 +16,13 @@ mod single_loop;
 
 use serde_json::Value;
 
+use proteus_contracts::contracts::ProcessWorkflowRuntimeInfo;
 use proteus_contracts::{
     domain::{
         AgentTask, ContextChunk, HostedToolConfig, ModelRef, ReasoningConfig, ToolSurface,
         WebSearchHostedToolConfig, new_call_id, new_session_id, new_thread_id, new_turn_id,
     },
-    process_module::{ProcessModuleError, WorkflowModuleHost, WorkflowModuleRuntimeInfo},
+    process_module::{ProcessModuleError, WorkflowModuleHost},
 };
 
 #[derive(Default)]
@@ -276,14 +277,17 @@ fn workflow_input(text: &str) -> WorkflowModuleInput {
         task,
         history,
         config: json!({}),
-        runtime: WorkflowModuleRuntimeInfo {
+        runtime: ProcessWorkflowRuntimeInfo {
             intent: None,
             continuation: None,
             permission_mode: proteus_contracts::domain::PermissionMode::Normal,
-            session_id: new_session_id(),
-            thread_id: new_thread_id(),
-            turn_id: new_turn_id(),
-            model_ref: ModelRef::new("fake", "model"),
+            execution_id: proteus_contracts::domain::new_execution_id(),
+            conversation: Some(proteus_contracts::contracts::WorkflowConversationIdentity {
+                session_id: new_session_id(),
+                thread_id: new_thread_id(),
+                turn_id: new_turn_id(),
+            }),
+            model_ref: Some(ModelRef::new("fake", "model")),
             model_context: Vec::new(),
             interrupted_turns: Vec::new(),
             instructions: Vec::new(),

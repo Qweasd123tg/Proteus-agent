@@ -24,7 +24,7 @@ use super::{AgentRuntime, RuntimeSnapshot};
 pub(super) struct ExecutionAdmissionSnapshot {
     pub(super) runtime: RuntimeSnapshot,
     pub(super) permission_mode: PermissionMode,
-    pub(super) model_ref: ModelRef,
+    pub(super) model_ref: Option<ModelRef>,
     pub(super) reasoning: ReasoningConfig,
     pub(super) config_snapshot: Option<SessionConfigSnapshot>,
 }
@@ -82,6 +82,17 @@ impl AgentRuntime {
         let mut config_snapshot = state.runtime.config_snapshot.clone();
         if let Some(config) = &mut config_snapshot {
             config.model = state.model_ref.clone();
+            config.tools = state
+                .runtime
+                .registry
+                .tools
+                .entries()
+                .into_iter()
+                .map(|(source, spec)| crate::core::SessionConfigTool {
+                    source: source.label(),
+                    spec,
+                })
+                .collect();
             config.reasoning = state.reasoning.clone();
             config.permission_mode_default = permission_mode;
         }

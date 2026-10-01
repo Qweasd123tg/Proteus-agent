@@ -209,8 +209,11 @@ fn all_reference_exports_share_a_component_and_route_over_one_broker() {
             inner: session.clone(),
             target: target.clone(),
         };
-        let description: proteus_contracts::contracts::ProcessModelDescriptor =
-            invoke(&export, "describe", Value::Null);
+        let description: proteus_contracts::contracts::ProcessModelDescriptor = invoke(
+            &export,
+            "describe",
+            json!({"model": {"provider": target.module_id, "model": "probe"}}),
+        );
         assert!(!description.adapter_id.is_empty(), "{}", target.module_id);
     }
     for target in targets.iter().filter(|target| target.slot == "hook") {
@@ -723,10 +726,13 @@ fn workflow_worker_runs_a_complete_callback_driven_turn() {
             intent: None,
             continuation: None,
             permission_mode: proteus_contracts::domain::PermissionMode::Normal,
-            session_id: new_session_id(),
-            thread_id: new_thread_id(),
-            turn_id: new_turn_id(),
-            model_ref: ModelRef::new("fake", "fake-model"),
+            execution_id: proteus_contracts::domain::new_execution_id(),
+            conversation: Some(proteus_contracts::contracts::WorkflowConversationIdentity {
+                session_id: new_session_id(),
+                thread_id: new_thread_id(),
+                turn_id: new_turn_id(),
+            }),
+            model_ref: Some(ModelRef::new("fake", "fake-model")),
             model_context: Vec::new(),
             interrupted_turns: Vec::new(),
             instructions: Vec::new(),
@@ -945,10 +951,13 @@ fn workflow_input(workspace: &Path) -> Value {
             intent: None,
             continuation: None,
             permission_mode: proteus_contracts::domain::PermissionMode::Normal,
-            session_id: new_session_id(),
-            thread_id: new_thread_id(),
-            turn_id: new_turn_id(),
-            model_ref: ModelRef::new("fake", "fake-model"),
+            execution_id: proteus_contracts::domain::new_execution_id(),
+            conversation: Some(proteus_contracts::contracts::WorkflowConversationIdentity {
+                session_id: new_session_id(),
+                thread_id: new_thread_id(),
+                turn_id: new_turn_id(),
+            }),
+            model_ref: Some(ModelRef::new("fake", "fake-model")),
             model_context: Vec::new(),
             interrupted_turns: Vec::new(),
             instructions: Vec::new(),
@@ -965,7 +974,7 @@ fn workflow_input(workspace: &Path) -> Value {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn targeted_cancel_keeps_concurrent_sibling_and_generation_alive() {
     let workspace = tempfile::tempdir().expect("workspace");
-    let workflow = ProcessExportBinding::new("workflow", "coding.single_loop", "v17", json!({}))
+    let workflow = ProcessExportBinding::new("workflow", "coding.single_loop", "v18", json!({}))
         .expect("workflow binding");
     let workflow_target = workflow.export_ref();
     let policy =

@@ -70,7 +70,7 @@ pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 10] = [
         responsibility: "Adapts canonical model requests to provider APIs.",
         category: "pipeline",
         order: 4,
-        required: true,
+        required: false,
         selection: CoreSlotSelection::ProviderConfig,
     },
     CoreSlotDescriptor {

@@ -14,7 +14,7 @@ pub(super) struct SelectionSummary {
 }
 
 pub(super) struct ModelSelection {
-    pub active: ModelRef,
+    pub active: Option<ModelRef>,
     pub reasoning: ReasoningConfig,
     pub summary: SelectionSummary,
 }
@@ -40,10 +40,17 @@ impl super::AppServerHandle {
 
 pub(super) fn selection_summary(
     config: &AppConfig,
-    active: &ModelRef,
+    active: &Option<ModelRef>,
     reasoning: &ReasoningConfig,
     catalog: anyhow::Result<Option<ModelCatalog>>,
 ) -> SelectionSummary {
+    let Some(active) = active else {
+        return SelectionSummary {
+            models: Vec::new(),
+            efforts: Vec::new(),
+            error: None,
+        };
+    };
     match catalog {
         Ok(Some(catalog)) => SelectionSummary {
             efforts: catalog

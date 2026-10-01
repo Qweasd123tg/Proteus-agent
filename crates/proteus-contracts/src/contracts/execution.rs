@@ -47,7 +47,7 @@ impl ExecutionScope {
 pub struct ExecutionContext {
     pub scope: ExecutionScope,
     pub model_timeout_ms: u64,
-    pub model: Arc<dyn Model>,
+    pub model: Option<Arc<dyn Model>>,
     pub hooks: Arc<dyn super::ExecutionHooks>,
     pub search: Arc<dyn SearchBackend>,
     pub memory: Arc<dyn MemoryStore>,
@@ -60,11 +60,16 @@ pub struct ExecutionContext {
 }
 
 impl ExecutionContext {
+    pub fn require_model(&self) -> anyhow::Result<&Arc<dyn Model>> {
+        self.model
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("no model is configured for this execution"))
+    }
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         scope: ExecutionScope,
         model_timeout_ms: u64,
-        model: Arc<dyn Model>,
+        model: Option<Arc<dyn Model>>,
         search: Arc<dyn SearchBackend>,
         memory: Arc<dyn MemoryStore>,
         tools: ToolRegistry,

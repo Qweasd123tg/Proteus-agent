@@ -10,7 +10,7 @@ use tokio::{
 
 use crate::{
     contracts::{
-        AgentWorkflowContext, ModelCallOrigin, WorkflowModelStreamCursor, WorkflowModelStreamItem,
+        ExecutionContext, ModelCallOrigin, WorkflowModelStreamCursor, WorkflowModelStreamItem,
     },
     core::model_call_scope::with_model_call_origin,
     model_standard::{CanonicalModelRequest, ModelFailure, ModelStreamEvent},
@@ -37,7 +37,7 @@ impl Drop for ActiveStream {
 impl ModelStreams {
     pub(super) async fn start(
         &self,
-        ctx: &AgentWorkflowContext,
+        ctx: &ExecutionContext,
         request: CanonicalModelRequest,
     ) -> Result<WorkflowModelStreamCursor> {
         let mut active = self
@@ -61,7 +61,7 @@ impl ModelStreams {
             ModelCallOrigin::Direct,
             async move {
                 let result = async {
-                    let mut stream = ctx.execution.model.stream(request).await?;
+                    let mut stream = ctx.require_model()?.stream(request).await?;
                     while let Some(event) = stream.next().await {
                         let item = match event? {
                             ModelStreamEvent::MessageCompleted { message } => {

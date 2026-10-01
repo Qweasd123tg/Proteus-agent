@@ -120,7 +120,15 @@ fn prepared_registry_uses_the_plan_selection() {
 
     assert_eq!(
         assembly.plan().module_id(ModuleKind::Model),
-        Some(assembly.registry().model_config.provider.as_str())
+        Some(
+            assembly
+                .registry()
+                .model_config
+                .as_ref()
+                .unwrap()
+                .provider
+                .as_str()
+        )
     );
     assert_eq!(assembly.plan().cwd(), cwd.path());
 }

@@ -19,8 +19,8 @@ pub struct SessionConfigSnapshot {
     pub schema_version: u32,
     pub ts: u64,
     pub profile_name: String,
-    pub active_provider: String,
-    pub model: ModelRef,
+    pub active_provider: Option<String>,
+    pub model: Option<ModelRef>,
     pub reasoning: ReasoningConfig,
     pub modules: SessionConfigModules,
     pub agent_control_surface: String,
@@ -37,7 +37,7 @@ pub struct SessionConfigTool {
 }
 
 impl SessionConfigSnapshot {
-    pub const SCHEMA_VERSION: u32 = 5;
+    pub const SCHEMA_VERSION: u32 = 6;
 
     pub fn from_runtime_config(
         config: &AppConfig,
@@ -58,8 +58,12 @@ impl SessionConfigSnapshot {
             ts: unix_timestamp_ms(),
             profile_name: config.profile.name.clone(),
             active_provider: config.active_provider.clone(),
-            model: registry.model_config.model_ref(),
-            reasoning: registry.model_config.reasoning.clone(),
+            model: registry.model_config.as_ref().map(|cfg| cfg.model_ref()),
+            reasoning: registry
+                .model_config
+                .as_ref()
+                .map(|cfg| cfg.reasoning.clone())
+                .unwrap_or_default(),
             modules: config.modules.clone(),
             agent_control_surface: config.agent_control.surface.as_str().to_owned(),
             tools,

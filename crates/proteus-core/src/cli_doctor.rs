@@ -110,8 +110,12 @@ pub(crate) async fn run_doctor(
 }
 
 pub(crate) fn check_model_config(findings: &mut DoctorFindings, config: &AppConfig) {
-    let model = match config.active_model_config() {
-        Ok(model) => model,
+    let model = match config.selected_model_config() {
+        Ok(Some(model)) => model,
+        Ok(None) => {
+            findings.ok("model: not configured (model-free assembly)");
+            return;
+        }
         Err(error) => {
             findings.error(format!("model config: {error:#}"));
             return;

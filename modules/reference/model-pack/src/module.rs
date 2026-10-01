@@ -83,14 +83,15 @@ fn build(id: &str, config: &Value, stream: bool) -> ProcessModuleResult<Arc<dyn 
 }
 
 impl ModelModule for ProviderModule {
-    fn describe(&self) -> ProcessModelDescriptor {
-        // Reference capabilities are export-configured and do not depend on model names.
-        let model = ModelRef::new("", "");
-        ProcessModelDescriptor {
+    fn describe(&self, model: ModelRef) -> ProcessModuleResult<ProcessModelDescriptor> {
+        Ok(ProcessModelDescriptor {
             adapter_id: self.streaming.id().into_owned(),
-            capabilities: self.streaming.capabilities(&model),
-            hosted_tools: self.streaming.provider_hosted_tools(&model),
-        }
+            capabilities: self.streaming.capabilities(&model).map_err(error)?,
+            hosted_tools: self
+                .streaming
+                .provider_hosted_tools(&model)
+                .map_err(error)?,
+        })
     }
 
     fn catalog(

@@ -1,4 +1,4 @@
-"""Non-Rust model/v10 boundary fixture; all test behavior is export-configured."""
+"""Non-Rust model/v11 boundary fixture; all test behavior is export-configured."""
 import os
 import sys
 import threading
@@ -16,8 +16,8 @@ def initialize(params):
         raise ProtocolError("expected component v3")
     exports = []
     for export in params["exports"]:
-        if (export["slot"], export["contract_version"], export["composition"]) != ("model", "v10", "select_one"):
-            raise ProtocolError("expected model/v10 select_one")
+        if (export["slot"], export["contract_version"], export["composition"]) != ("model", "v11", "select_one"):
+            raise ProtocolError("expected model/v11 select_one")
         settings[export["module_id"]] = export["module_config"]
         if "pid_marker" in export["module_config"]:
             with Path(export["module_config"]["pid_marker"]).open("a") as file:
@@ -30,8 +30,13 @@ def initialize(params):
 def invoke(context, method, params):
     config = settings[context.export["module_id"]]
     if method == "describe":
-        if params is not None:
-            raise ProtocolError("describe expects null")
+        if not isinstance(params, dict) or set(params) != {"model"} or set(params["model"]) != {"provider", "model"}:
+            raise ProtocolError("describe expects a ModelRef")
+        name = params["model"]["model"]
+        if "descriptors" in config:
+            if name not in config["descriptors"]:
+                raise ProtocolError(f"unsupported model {name}")
+            return config["descriptors"][name]
         return config["descriptor"]
     if method == "catalog":
         if params is not None:
@@ -52,6 +57,9 @@ def invoke(context, method, params):
         raise ProtocolError("invalid model request")
     if "expected_input" in config and params != config["expected_input"]:
         raise ProtocolError("canonical model input changed")
+    expected = config.get("expected_inputs", {}).get(params["request"]["model"]["model"])
+    if expected is not None and params != expected:
+        raise ProtocolError("per-model canonical shaping changed")
     mode = config.get("mode", "normal")
     marker = Path(config["marker"]) if "marker" in config else None
     marker_lock = threading.Lock()

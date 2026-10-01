@@ -18,7 +18,12 @@ impl AgentRuntime {
     pub async fn set_model_name(&self, model: String) -> Result<()> {
         let model = model.trim();
         anyhow::ensure!(!model.is_empty(), "model name must not be empty");
-        let snapshot = self.snapshot().await;
+        let admission = self.capture_execution_snapshot().await;
+        let snapshot = admission.runtime;
+        let mut model_ref = admission
+            .model_ref
+            .ok_or_else(|| anyhow::anyhow!("no active model is configured"))?;
+        model_ref.model = model.to_owned();
         let catalog = snapshot.registry.model_catalog().await?;
         let selected = catalog
             .as_ref()
@@ -32,12 +37,14 @@ impl AgentRuntime {
                     })
             })
             .transpose()?;
+        let tools = snapshot.registry.tools_for_model(Some(&model_ref))?;
         let mut state = self.services.execution_state.write().await;
         anyhow::ensure!(
             state.runtime.epoch == snapshot.epoch,
             "model provider changed during catalog lookup; retry selection"
         );
-        state.model_ref.model = model.to_owned();
+        state.model_ref = Some(model_ref);
+        state.runtime.registry.tools = tools;
         if let Some(selected) = selected {
             if state
                 .reasoning
@@ -60,11 +67,20 @@ impl AgentRuntime {
     /// Полная замена provider+model, например после смены `active_provider`
     /// через config builder: `reload_assembly` пересобирает model adapter, но
     /// не трогает runtime override model_ref.
-    pub async fn set_model_ref(&self, model_ref: ModelRef) {
-        self.services.execution_state.write().await.model_ref = model_ref;
+    pub async fn set_model_ref(&self, model_ref: ModelRef) -> Result<()> {
+        let snapshot = self.snapshot().await;
+        let tools = snapshot.registry.tools_for_model(Some(&model_ref))?;
+        let mut state = self.services.execution_state.write().await;
+        anyhow::ensure!(
+            state.runtime.epoch == snapshot.epoch,
+            "model provider changed during selection; retry selection"
+        );
+        state.model_ref = Some(model_ref);
+        state.runtime.registry.tools = tools;
+        Ok(())
     }
 
-    pub async fn model_ref(&self) -> ModelRef {
+    pub async fn model_ref(&self) -> Option<ModelRef> {
         self.services.execution_state.read().await.model_ref.clone()
     }
 
@@ -96,7 +112,9 @@ impl AgentRuntime {
             let model = catalog
                 .models
                 .iter()
-                .find(|entry| entry.id == state.model_ref.model)
+                .find(|entry| {
+                    Some(entry.id.as_str()) == state.model_ref.as_ref().map(|m| m.model.as_str())
+                })
                 .ok_or_else(|| {
                     anyhow::anyhow!("active model is absent from the provider catalog")
                 })?;

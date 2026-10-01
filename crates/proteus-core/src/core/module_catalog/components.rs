@@ -74,6 +74,7 @@ impl ModuleCatalog {
                             ctx.cwd,
                             ctx.config.stream,
                             model_timeout_ms,
+                            ctx.config.model_ref(),
                         )?))
                     },
                 );

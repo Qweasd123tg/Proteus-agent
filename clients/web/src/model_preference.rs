@@ -20,7 +20,7 @@ fn storage() -> Result<web_sys::Storage, String> {
 pub(crate) async fn read_current(session: &str) -> Result<Selection, String> {
     let config = get_json::<ConfigSummary>(&session_path("/config", session)).await?;
     Ok(Selection {
-        model: config.model.name,
+        model: config.model.ok_or_else(|| "В этой сборке модель не выбрана".to_owned())?.name,
         effort: if config.reasoning.enabled {
             config.reasoning.effort
         } else {
@@ -52,6 +52,8 @@ pub(crate) async fn restore(session: &str) -> Result<(), String> {
     else {
         return Ok(());
     };
+    let config = get_json::<ConfigSummary>(&session_path("/config", session)).await?;
+    if config.model.is_none() { return Ok(()); }
     let selection: Selection =
         serde_json::from_str(&value).map_err(|e| format!("Некорректные настройки модели: {e}"))?;
     checked(

@@ -41,15 +41,24 @@ fn render(selection: ModelSelection, modes: SessionModeState) -> Vec<SessionConf
         .summary
         .models
         .into_iter()
-        .filter(|model| !model.hidden || model.name == selection.active.model)
+        .filter(|model| {
+            !model.hidden
+                || Some(model.name.as_str())
+                    == selection.active.as_ref().map(|model| model.model.as_str())
+        })
         .map(|model| {
             SessionConfigSelectOption::new(model.name, model.label).description(model.description)
         })
         .collect::<Vec<_>>();
     if !models.is_empty() {
         options.push(
-            SessionConfigOption::select("model", "Model", selection.active.model, models)
-                .category(SessionConfigOptionCategory::Model),
+            SessionConfigOption::select(
+                "model",
+                "Model",
+                selection.active.map(|m| m.model).unwrap_or_default(),
+                models,
+            )
+            .category(SessionConfigOptionCategory::Model),
         );
     }
     if !selection.summary.efforts.is_empty() {

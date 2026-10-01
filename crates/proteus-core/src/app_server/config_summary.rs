@@ -121,7 +121,10 @@ fn matching_provider_profiles<'a>(
 }
 
 fn active_provider_profile(config: &AppConfig) -> Option<&crate::core::ProviderProfileConfig> {
-    config.providers.get(&config.active_provider)
+    config
+        .active_provider
+        .as_ref()
+        .and_then(|id| config.providers.get(id))
 }
 
 fn push_unique_strings(options: &mut Vec<String>, values: &[String]) {
@@ -195,11 +198,11 @@ impl super::AppServerHandle {
             cwd: self.cwd.display().to_string(),
             session_dir: self.runtime.session_dir().map(|p| p.display().to_string()),
             profile: config.profile.name.clone(),
-            model: ConfigModel {
-                provider: model_ref.provider.clone(),
-                name: model_ref.model.clone(),
-                label: format!("{}/{}", model_ref.provider, model_ref.model),
-            },
+            model: model_ref.as_ref().map(|model| ConfigModel {
+                provider: model.provider.clone(),
+                name: model.model.clone(),
+                label: format!("{}/{}", model.provider, model.model),
+            }),
             model_options: selection.models,
             model_catalog_error: selection.error,
             reasoning: ConfigReasoning {

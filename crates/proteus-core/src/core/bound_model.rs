@@ -288,11 +288,11 @@ impl Model for BoundModel {
         self.service.id()
     }
 
-    fn capabilities(&self, model: &ModelRef) -> ModelCapabilities {
+    fn capabilities(&self, model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
         self.service.capabilities(model)
     }
 
-    fn provider_hosted_tools(&self, model: &ModelRef) -> Vec<ToolSpec> {
+    fn provider_hosted_tools(&self, model: &ModelRef) -> anyhow::Result<Vec<ToolSpec>> {
         self.service.provider_hosted_tools(model)
     }
 

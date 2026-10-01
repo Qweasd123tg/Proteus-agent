@@ -39,7 +39,7 @@ impl CompactionHost for RuntimeCompactionHost {
         tokio::select! {
             result = with_model_call_origin(
                 ModelCallOrigin::Compactor,
-                without_root_steering(ctx.execution.model.complete(request)),
+                without_root_steering(ctx.execution.require_model()?.complete(request)),
             ) => result,
             _ = cancellation.cancelled() => Err(interrupted()),
         }

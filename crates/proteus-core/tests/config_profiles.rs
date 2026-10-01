@@ -58,7 +58,7 @@ async fn subscription_profiles_keep_root_and_every_peer_on_oauth() {
     assert_eq!(configs.len(), 3);
     for config in configs {
         assert_eq!(config.providers.len(), 1);
-        assert_eq!(config.active_provider, "chatgpt");
+        assert_eq!(config.active_provider.as_deref(), Some("chatgpt"));
         assert_eq!(config.providers["chatgpt"].provider, "openai_codex");
         let settings = config
             .process_export_config("model", "openai_codex")

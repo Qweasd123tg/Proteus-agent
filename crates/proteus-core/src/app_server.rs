@@ -252,9 +252,9 @@ impl AppServerHandle {
         // на лету через POST /model.
         let provider_changed = active_provider
             .as_ref()
-            .is_some_and(|provider| provider != &previous_active_provider);
+            .is_some_and(|provider| Some(provider) != previous_active_provider.as_ref());
         if let Some(active_provider) = active_provider {
-            next_config.active_provider = active_provider;
+            next_config.active_provider = Some(active_provider);
         }
         if let Some(mode) = permission_mode {
             next_config.permissions.mode = mode;

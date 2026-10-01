@@ -149,8 +149,8 @@ impl Model for AnthropicMessagesClient {
         "anthropic.messages".into()
     }
 
-    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-        ModelCapabilities::empty()
+    fn capabilities(&self, _model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
+        Ok(ModelCapabilities::empty()
             .with_tools(true)
             .with_parallel_tool_calls(true)
             .with_system_role(true)
@@ -158,7 +158,7 @@ impl Model for AnthropicMessagesClient {
             .with_reasoning_config(true)
             .with_streaming(true)
             .with_max_input_tokens(Some(200_000))
-            .with_max_output_tokens(Some(64_000))
+            .with_max_output_tokens(Some(64_000)))
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {

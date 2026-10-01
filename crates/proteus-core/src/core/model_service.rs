@@ -34,7 +34,7 @@ impl ModelService {
         &self,
         request: CanonicalModelRequest,
     ) -> Result<CanonicalModelRequest> {
-        let capabilities = self.adapter.capabilities(&request.model);
+        let capabilities = self.adapter.capabilities(&request.model)?;
         self.shaper.shape(request, &capabilities)
     }
 
@@ -52,11 +52,11 @@ impl Model for ModelService {
         self.adapter.id()
     }
 
-    fn capabilities(&self, model: &ModelRef) -> ModelCapabilities {
+    fn capabilities(&self, model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
         self.adapter.capabilities(model)
     }
 
-    fn provider_hosted_tools(&self, model: &ModelRef) -> Vec<ToolSpec> {
+    fn provider_hosted_tools(&self, model: &ModelRef) -> anyhow::Result<Vec<ToolSpec>> {
         self.adapter.provider_hosted_tools(model)
     }
 
@@ -170,8 +170,8 @@ mod tests {
         fn id(&self) -> std::borrow::Cow<'static, str> {
             "scripted".into()
         }
-        fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-            self.capabilities.clone()
+        fn capabilities(&self, _model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
+            Ok(self.capabilities.clone())
         }
         async fn stream(&self, _request: CanonicalModelRequest) -> Result<ModelEventStream> {
             let events = self

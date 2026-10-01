@@ -12,8 +12,8 @@ impl Model for MockModel {
     fn id(&self) -> std::borrow::Cow<'static, str> {
         "mock".into()
     }
-    fn capabilities(&self, _: &ModelRef) -> ModelCapabilities {
-        ModelCapabilities::empty()
+    fn capabilities(&self, _: &ModelRef) -> anyhow::Result<ModelCapabilities> {
+        Ok(ModelCapabilities::empty())
     }
     async fn stream(&self, _: CanonicalModelRequest) -> Result<ModelEventStream> {
         panic!("hooks must not invoke provider")
@@ -83,7 +83,7 @@ fn chain(
             handlers,
             ExecutionScope::fresh(token),
             Arc::new(NoopExecutionRecorder),
-            Arc::new(ModelService::new(Arc::new(MockModel))),
+            Some(Arc::new(ModelService::new(Arc::new(MockModel)))),
         ),
         calls,
     )

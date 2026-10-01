@@ -140,11 +140,17 @@ fn cache_routing_key_is_stable_for_session() {
     let input = workflow_input("first turn");
     let mut next_turn = input.clone();
     next_turn.task.text = "second turn with another tool intent".to_owned();
-    next_turn.runtime.turn_id = new_turn_id();
+    next_turn.runtime.conversation.as_mut().unwrap().turn_id = new_turn_id();
 
     let key = cache_routing_key(&input);
     assert_eq!(key, cache_routing_key(&next_turn));
-    assert_eq!(key, format!("proteus:session:{}", input.runtime.session_id));
+    assert_eq!(
+        key,
+        format!(
+            "proteus:session:{}",
+            input.runtime.conversation.as_ref().unwrap().session_id
+        )
+    );
     assert!(key.len() <= 64);
 }
 
@@ -152,7 +158,7 @@ fn cache_routing_key_is_stable_for_session() {
 fn cache_routing_key_changes_between_sessions() {
     let first = workflow_input("change code");
     let mut second = first.clone();
-    second.runtime.session_id = new_session_id();
+    second.runtime.conversation.as_mut().unwrap().session_id = new_session_id();
 
     assert_ne!(cache_routing_key(&first), cache_routing_key(&second));
 }

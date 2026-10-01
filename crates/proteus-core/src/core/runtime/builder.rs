@@ -196,8 +196,12 @@ impl AgentRuntimeBuilder {
             Vec::new()
         };
         let session_started = resume_history && !history.is_empty();
-        let model_ref = registry.model_config.model_ref();
-        let reasoning = registry.model_config.reasoning.clone();
+        let model_ref = registry.model_config.as_ref().map(|cfg| cfg.model_ref());
+        let reasoning = registry
+            .model_config
+            .as_ref()
+            .map(|cfg| cfg.reasoning.clone())
+            .unwrap_or_default();
         let default_reasoning = reasoning.clone();
 
         Ok(AgentRuntime {

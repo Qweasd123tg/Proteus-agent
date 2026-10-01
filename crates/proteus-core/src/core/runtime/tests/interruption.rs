@@ -9,8 +9,9 @@ impl Workflow for InterruptionProbeWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: AgentWorkflowContext,
+        ctx: crate::contracts::WorkflowInvocationContext,
     ) -> Result<WorkflowOutput> {
+        let ctx = ctx.into_agent()?;
         match task.text.as_str() {
             "cancel" => {
                 assert!(ctx.interrupted_turns.is_empty());

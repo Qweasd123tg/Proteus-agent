@@ -246,15 +246,16 @@ fn build_tool_registry_for_listing(
     let config = plan.config();
     let cwd = plan.cwd();
     let agent_control = AgentControlRuntime::from_config(&config.agent_control)?;
-    let model_config = plan.model_config()?;
-    let model = catalog.build_model_adapter(&model_config, cwd)?;
     let mut tools = catalog.build_tools_for_inspection(config, cwd)?;
     agent_control.register_tools(&mut tools, config.runtime.workflow_timeout_ms)?;
-    register_provider_hosted_tools(
-        &mut tools,
-        model.id().as_ref(),
-        model.provider_hosted_tools(&model_config.model_ref()),
-    )?;
+    if let Some(model_config) = config.selected_model_config()? {
+        let model = catalog.build_model_adapter(&model_config, cwd)?;
+        register_provider_hosted_tools(
+            &mut tools,
+            model.id().as_ref(),
+            model.provider_hosted_tools(&model_config.model_ref())?,
+        )?;
+    }
     Ok(tools)
 }
 
@@ -276,20 +277,24 @@ fn build_cli_topology(
             AgentControlRuntime::disabled()
         }
     };
-    let hosted_tools = config.active_model_config().and_then(|model_config| {
-        let model = catalog.build_model_adapter(&model_config, cwd)?;
-        Ok((
-            model.id().into_owned(),
-            model.provider_hosted_tools(&model_config.model_ref()),
-        ))
+    let hosted_tools = config.selected_model_config().and_then(|model_config| {
+        model_config
+            .map(|model_config| {
+                let model = catalog.build_model_adapter(&model_config, cwd)?;
+                Ok((
+                    model.id().into_owned(),
+                    model.provider_hosted_tools(&model_config.model_ref())?,
+                ))
+            })
+            .transpose()
     });
-    let (hosted_source, hosted_specs) = match hosted_tools {
+    let hosted_tools = match hosted_tools {
         Ok(hosted) => hosted,
         Err(error) => {
             extra_warnings.push(TopologyWarning::error(format!(
                 "inspect could not build model-hosted tools: {error:#}"
             )));
-            ("unavailable-model".to_owned(), Vec::new())
+            None
         }
     };
     let tool_entries = match catalog.build_tools_for_inspection(config, cwd) {
@@ -301,12 +306,12 @@ fn build_cli_topology(
                     "inspect could not register agent-control tools: {error:#}"
                 )));
             }
-            if let Err(error) =
-                register_provider_hosted_tools(&mut tools, &hosted_source, hosted_specs)
-            {
-                extra_warnings.push(TopologyWarning::error(format!(
-                    "inspect could not register model-hosted tools: {error:#}"
-                )));
+            if let Some((source, specs)) = hosted_tools {
+                if let Err(error) = register_provider_hosted_tools(&mut tools, &source, specs) {
+                    extra_warnings.push(TopologyWarning::error(format!(
+                        "inspect could not register model-hosted tools: {error:#}"
+                    )));
+                }
             }
             tools.entries()
         }

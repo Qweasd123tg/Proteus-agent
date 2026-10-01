@@ -127,7 +127,7 @@ pub(super) async fn fixture_config(endpoint: &str) -> AppConfig {
 
     config
         .providers
-        .get_mut(&config.active_provider)
+        .get_mut(config.active_provider.as_ref().unwrap())
         .expect("active Codex provider")
         .stream = false;
     let model = config

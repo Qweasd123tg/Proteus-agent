@@ -191,13 +191,42 @@ fn read_only_cli_paths_do_not_start_unrelated_process_components() {
         .components
         .extend(crate::test_model::config().components);
 
-    let (plan, catalog) = resolve_cli_assembly(&config, None, dir.path(), config.permissions.mode)
-        .expect("assembly plan");
-    let _tools = build_tool_registry_for_listing(&plan, &catalog).expect("tool list registry");
-    let _topology =
-        build_cli_topology(&config, None, dir.path(), config.permissions.mode).expect("topology");
-    let mut findings = DoctorFindings::default();
-    check_external_commands(&mut findings, &config, dir.path());
+    for provider in [config.active_provider.clone(), None] {
+        config.active_provider = provider;
+        let (plan, catalog) =
+            resolve_cli_assembly(&config, None, dir.path(), config.permissions.mode)
+                .expect("assembly plan");
+        let _tools = build_tool_registry_for_listing(&plan, &catalog).expect("tool list registry");
+        let topology = build_cli_topology(&config, None, dir.path(), config.permissions.mode)
+            .expect("topology");
+        assert!(!topology.warnings.iter().any(|warning| {
+            warning
+                .message
+                .contains("could not build model-hosted tools")
+        }));
+        let mut findings = DoctorFindings::default();
+        check_model_config(&mut findings, &config);
+        check_external_commands(&mut findings, &config, dir.path());
+        assert!(!findings.has_errors());
+        assert!(findings.entries.iter().any(|entry| {
+            entry.level == "ok"
+                && entry
+                    .message
+                    .contains("process component search-fixture (1 exports)")
+        }));
+        assert!(findings.entries.iter().any(|entry| {
+            entry.level == "ok"
+                && entry
+                    .message
+                    .contains("process component compactor-fixture (1 exports)")
+        }));
+        assert!(findings.entries.iter().any(|entry| {
+            entry.level == "ok"
+                && entry
+                    .message
+                    .contains("process component workflow-fixture (1 exports)")
+        }));
+    }
 
     assert!(
         !marker.exists(),
@@ -211,24 +240,6 @@ fn read_only_cli_paths_do_not_start_unrelated_process_components() {
         !workflow_marker.exists(),
         "read-only CLI path unexpectedly spawned process workflow"
     );
-    assert!(findings.entries.iter().any(|entry| {
-        entry.level == "ok"
-            && entry
-                .message
-                .contains("process component search-fixture (1 exports)")
-    }));
-    assert!(findings.entries.iter().any(|entry| {
-        entry.level == "ok"
-            && entry
-                .message
-                .contains("process component compactor-fixture (1 exports)")
-    }));
-    assert!(findings.entries.iter().any(|entry| {
-        entry.level == "ok"
-            && entry
-                .message
-                .contains("process component workflow-fixture (1 exports)")
-    }));
 }
 
 #[test]
@@ -600,7 +611,7 @@ async fn init_coding_writes_loadable_single_config_file() {
     let model = config.active_model_config().expect("active model");
 
     assert_eq!(config.profile.name, "coding-local");
-    assert_eq!(config.active_provider, "anthropic");
+    assert_eq!(config.active_provider.as_deref(), Some("anthropic"));
     assert_eq!(model.provider, "anthropic");
     assert_eq!(
         config.modules.workflow.as_deref(),
@@ -625,7 +636,7 @@ async fn init_codex_writes_loadable_config_with_runtime_fragment() {
         .expect("generated config loads");
 
     assert_eq!(config.profile.name, "codex-proxy");
-    assert_eq!(config.active_provider, "anthropic");
+    assert_eq!(config.active_provider.as_deref(), Some("anthropic"));
     assert_eq!(
         config.active_model_config().expect("active model").provider,
         "anthropic"

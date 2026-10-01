@@ -193,12 +193,18 @@ fn request_from_state_with_instruction_blocks_and_options(
             80,
         ));
     }
-    let mut request =
-        CanonicalModelRequest::new(input.runtime.model_ref.clone(), messages.to_vec())
-            .with_instructions(instructions)
-            .with_tools(tools)
-            .with_reasoning(input.runtime.reasoning.clone())
-            .with_cache(CacheHints::new(true, true).with_routing_key(cache_routing_key(input)));
+    let mut request = CanonicalModelRequest::new(
+        input
+            .runtime
+            .model_ref
+            .clone()
+            .ok_or_else(|| ProcessModuleError::new("this workflow requires a model"))?,
+        messages.to_vec(),
+    )
+    .with_instructions(instructions)
+    .with_tools(tools)
+    .with_reasoning(input.runtime.reasoning.clone())
+    .with_cache(CacheHints::new(true, true).with_routing_key(cache_routing_key(input)));
     // Прокидываем потолок окна из capabilities в лимиты запроса, чтобы снимок
     // TokenUsageUpdated нёс max_input_tokens (хост-шейпер правит свою копию
     // уже после того, как module собрал снимок, поэтому делаем это здесь).

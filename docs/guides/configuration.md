@@ -129,6 +129,14 @@ mode = "normal"
 Reference worker должен находиться в `PATH`; `./install.sh` обеспечивает
 это для установленного wrapper-а.
 
+`active_provider` необязателен. Если его нет, Core не создаёт model adapter;
+`providers` можно опустить или оставить с невыбранными profiles. Пустой или
+неизвестный заданный id — ошибка. Обращение workflow к отсутствующей модели
+также даёт явную ошибку. Пример сборки без модели:
+[`proteus.project-check.example.toml`](../../examples/configs/proteus.project-check.example.toml).
+У неё ошибка тестов возвращается с выводом команды; для дополнительного
+объяснения можно явно настроить provider и model export.
+
 ## Provider Profiles
 
 `active_provider` выбирает key из `[providers]`:

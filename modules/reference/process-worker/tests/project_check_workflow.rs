@@ -41,7 +41,7 @@ fn component(value: serde_json::Value) -> ProcessComponentConfig {
     serde_json::from_value(value).expect("valid process component config")
 }
 
-async fn project_check_config(git_failure: bool) -> AppConfig {
+async fn project_check_config(git_failure: bool, test_failure: bool) -> AppConfig {
     let profile = workspace_file("examples/configs/proteus.project-check.example.toml");
     let mut config = AppConfig::load(Some(&profile))
         .await
@@ -52,7 +52,6 @@ async fn project_check_config(git_failure: bool) -> AppConfig {
         component(json!({
             "command": env!("CARGO_BIN_EXE_proteus-reference-worker"),
             "exports": {
-                "model": {"fake": {}},
                 "workflow": { "coding.project_check": {} },
                 "policy": { "ask_write": {} },
             },
@@ -68,6 +67,7 @@ async fn project_check_config(git_failure: bool) -> AppConfig {
             "env": {
                 "PYTHONDONTWRITEBYTECODE": "1",
                 "PROJECT_CHECK_GIT_FAILURE": git_failure.to_string(),
+                "PROJECT_CHECK_TEST_FAILURE": test_failure.to_string(),
             },
             "exports": {
                 "tool": { "project-check-fixture-tools": {} },
@@ -80,22 +80,29 @@ async fn project_check_config(git_failure: bool) -> AppConfig {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn deterministic_controller_replays_without_model_or_tool_implementations() {
     for continuations in [0, 2] {
-        check_model_free_replay(false, continuations).await;
+        check_model_free_replay(false, false, continuations).await;
     }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn deterministic_controller_replays_recorded_tool_failure() {
     for continuations in [0, 2] {
-        check_model_free_replay(true, continuations).await;
+        check_model_free_replay(true, false, continuations).await;
     }
 }
 
-async fn check_model_free_replay(git_failure: bool, continuations: usize) {
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deterministic_controller_returns_test_diagnostics_without_a_model() {
+    for continuations in [0, 2] {
+        check_model_free_replay(false, true, continuations).await;
+    }
+}
+
+async fn check_model_free_replay(git_failure: bool, test_failure: bool, continuations: usize) {
     let config_root = tempfile::tempdir().expect("config root");
     let workspace = tempfile::tempdir().expect("workspace");
     let config_path = config_root.path().join("config.toml");
-    let mut config = project_check_config(git_failure).await;
+    let mut config = project_check_config(git_failure, test_failure).await;
     if continuations > 0 {
         config.modules.hooks = vec!["review".into()];
         config.components.insert("review-hook".into(), component(json!({
@@ -114,7 +121,13 @@ async fn check_model_free_replay(git_failure: bool, continuations: usize) {
                 }),
             );
     }
-    let expected_status = if git_failure { "blocked" } else { "passed" };
+    let expected_status = if git_failure {
+        "blocked"
+    } else if test_failure {
+        "failed"
+    } else {
+        "passed"
+    };
     let expected_tools = if git_failure {
         vec!["git_status"]
     } else {
@@ -137,6 +150,8 @@ async fn check_model_free_replay(git_failure: bool, continuations: usize) {
         .expect("deterministic project check");
     assert!(output.text.contains(if git_failure {
         "остановлена"
+    } else if test_failure {
+        "ошибкой"
     } else {
         "завершена успешно"
     }));
@@ -196,7 +211,7 @@ async fn check_model_free_replay(git_failure: bool, continuations: usize) {
     assert_eq!(eval.tool_calls, expected_tools.len());
     assert_eq!(
         eval.tool_failures,
-        usize::from(git_failure) * (continuations + 1)
+        usize::from(git_failure || test_failure) * (continuations + 1)
     );
     assert_eq!(eval.approvals_requested, expected_approvals);
     assert_eq!(eval.approvals_resolved, expected_approvals);

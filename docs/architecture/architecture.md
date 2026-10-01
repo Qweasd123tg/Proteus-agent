@@ -323,7 +323,7 @@ git_status
   -> list_dir(".")
   -> marker -> fixed test command
        -> success: terminal output, model calls = 0
-       -> test failure: one tool-free model explanation -> terminal output
+       -> test failure: diagnostics; optional tool-free model explanation -> terminal output
 ```
 
 Все команды всё равно возвращаются в host через `host.tools.execute` и проходят
@@ -336,12 +336,13 @@ Canonical journal, cold history и workflow replay принимают его Tur
 records. Replay повторяет controller на записанных tool outcomes, включая
 approval и ошибку инструмента; исходные tools и model provider не создаются.
 
-Probe одновременно локализует оставшийся coupling, не разрешая новую Core
-migration автоматически:
+`AppConfig` без `active_provider` собирается без model export. Ошибка тестов
+возвращается с выводом команды; при настроенной модели controller добавляет
+объяснение. `workflow/v18` использует общий `execution_id`, optional
+`conversation { session_id, thread_id, turn_id }` и optional `model_ref`.
+Самостоятельный workflow может передать пустую history. `AgentTask` и
+`AgentOutput` остаются общими task/result DTO этого slot.
 
-- `workflow/v17` input и tool callback всё ещё требуют agent-shaped
-  `AgentTask`, а invocation несёт history и session/thread/turn ids;
-- `AppConfig` всё ещё требует active model даже для model-free success path.
 
 Runtime/replay gate закреплён в `project_check_workflow`: model/tool
 implementations отсутствуют в replay-каталоге, итог и history совпадают.
@@ -610,8 +611,11 @@ sandbox policy.
 Core владеет provider-neutral `ModelService` и execution-bound `BoundModel`:
 canonical shaping/validation, deadline, attribution и journal. Provider
 HTTP adapters и secrets находятся в `modules/reference/model-pack`; runtime
-вызывает их через тот же `model/v10` contract, что и внешний worker.
-`describe` фиксирует capabilities/hosted tools export при сборке snapshot.
+вызывает их через тот же `model/v11` contract, что и внешний worker.
+`describe({ model: ModelRef })` возвращает capabilities и hosted tools конкретной
+модели. Host кэширует описание по `(provider, model)` в пределах snapshot и
+проверяет стабильность adapter id. Execution binding собирает hosted tools
+для выбранной модели через общий registry/policy path.
 
 Subagents обслуживает отдельный
 root-owned `AgentControl`: полный Proteus общается с другим полным Proteus,

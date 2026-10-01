@@ -33,12 +33,12 @@ pub(crate) fn output_metadata_with_extra(
 ) -> Value {
     let token_estimate = estimate_message_tokens(messages).or(context_token_estimate);
     let mut metadata = json!({
-        "session_id": input.runtime.session_id,
-        "thread_id": input.runtime.thread_id,
-        "turn_id": input.runtime.turn_id,
+        "session_id": input.runtime.conversation.as_ref().map(|c| c.session_id),
+        "thread_id": input.runtime.conversation.as_ref().map(|c| c.thread_id),
+        "turn_id": input.runtime.conversation.as_ref().map(|c| c.turn_id),
         "model": {
-            "provider": input.runtime.model_ref.provider.clone(),
-            "name": input.runtime.model_ref.model.clone(),
+            "provider": input.runtime.model_ref.as_ref().map(|m| m.provider.clone()),
+            "name": input.runtime.model_ref.as_ref().map(|m| m.model.clone()),
         },
         "context": {
             "chunks": context_chunks,
@@ -126,5 +126,8 @@ pub(crate) fn insert_request_metadata_value(
 /// key tools/instructions, любое легитимное изменение prefix разбрасывает одну
 /// conversation по разным cache buckets и убивает reuse последующих turn-ов.
 pub(crate) fn cache_routing_key(input: &WorkflowModuleInput) -> String {
-    format!("proteus:session:{}", input.runtime.session_id)
+    match &input.runtime.conversation {
+        Some(c) => format!("proteus:session:{}", c.session_id),
+        None => format!("proteus:execution:{}", input.runtime.execution_id),
+    }
 }

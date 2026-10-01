@@ -45,16 +45,22 @@ fn permission_grants_are_bound_to_one_execution_context() {
         PreparedAssembly::from_config(test_model::config(), workspace.path().to_path_buf(), None)
             .expect("prepared assembly");
     let snapshot = RuntimeSnapshot::new(ModuleEpoch::initial(), assembly, None);
-    let execution_a = snapshot.registry.execution_context(
-        ModelExecutionBinding::detached(ExecutionScope::fresh(CancellationToken::new())),
-        Arc::new(HeadlessApprovalTransport),
-        PermissionMode::Normal,
-    );
-    let execution_b = snapshot.registry.execution_context(
-        ModelExecutionBinding::detached(ExecutionScope::fresh(CancellationToken::new())),
-        Arc::new(HeadlessApprovalTransport),
-        PermissionMode::Normal,
-    );
+    let execution_a = snapshot
+        .registry
+        .execution_context(
+            ModelExecutionBinding::detached(ExecutionScope::fresh(CancellationToken::new())),
+            Arc::new(HeadlessApprovalTransport),
+            PermissionMode::Normal,
+        )
+        .unwrap();
+    let execution_b = snapshot
+        .registry
+        .execution_context(
+            ModelExecutionBinding::detached(ExecutionScope::fresh(CancellationToken::new())),
+            Arc::new(HeadlessApprovalTransport),
+            PermissionMode::Normal,
+        )
+        .unwrap();
 
     execution_a
         .permission_grants
@@ -113,11 +119,14 @@ async fn process_search_runs_through_execution_context_without_chat_identity() {
     )
     .expect("prepared assembly");
     let snapshot = RuntimeSnapshot::new(ModuleEpoch::initial(), assembly, None);
-    let execution = snapshot.registry.execution_context(
-        ModelExecutionBinding::detached(ExecutionScope::fresh(CancellationToken::new())),
-        Arc::new(HeadlessApprovalTransport),
-        PermissionMode::Normal,
-    );
+    let execution = snapshot
+        .registry
+        .execution_context(
+            ModelExecutionBinding::detached(ExecutionScope::fresh(CancellationToken::new())),
+            Arc::new(HeadlessApprovalTransport),
+            PermissionMode::Normal,
+        )
+        .unwrap();
 
     let chunks = execution
         .search
@@ -754,3 +763,6 @@ async fn agent_runtime_timeout_reaches_the_process_invocation() {
     wait_for_file(&started).await;
     wait_for_file(&cancel_marker).await;
 }
+
+#[path = "execution_boundary/workflow.rs"]
+mod workflow;

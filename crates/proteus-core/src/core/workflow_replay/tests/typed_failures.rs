@@ -19,13 +19,15 @@ impl Workflow for FailureRoutingWorkflow {
         &self,
         _task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: AgentWorkflowContext,
+        ctx: crate::contracts::WorkflowInvocationContext,
     ) -> anyhow::Result<WorkflowOutput> {
-        let request = CanonicalModelRequest::new(ctx.model_ref.clone(), history)
-            .with_tools(vec![probe_tool_spec()]);
+        let ctx = ctx.into_agent()?;
+        let request =
+            CanonicalModelRequest::new(ctx.model_ref.clone().expect("model selection"), history)
+                .with_tools(vec![probe_tool_spec()]);
         let error = ctx
             .execution
-            .model
+            .require_model()?
             .complete(request)
             .await
             .expect_err("model must fail");

@@ -4,10 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 
 use crate::{
-    contracts::{
-        AgentWorkflowContext, ApprovalPolicy, PolicyContext, PolicyVisibilityContext, Workflow,
-        WorkflowOutput,
-    },
+    contracts::{ApprovalPolicy, PolicyContext, PolicyVisibilityContext, Workflow, WorkflowOutput},
     core::{ModuleCatalog, ToolOrchestrator},
     domain::{AgentOutput, AgentTask, PolicyDecision, ToolCall},
     model_standard::{CanonicalMessage, CanonicalModelRequest, ContentPart, MessageRole},
@@ -56,18 +53,22 @@ impl Workflow for TestToolLoopWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: AgentWorkflowContext,
+        ctx: crate::contracts::WorkflowInvocationContext,
     ) -> Result<WorkflowOutput> {
+        let ctx = ctx.into_agent()?;
         let mut messages = history;
         let mut new_messages = Vec::new();
         let orchestrator = ToolOrchestrator::default();
 
         for _ in 0..4 {
-            let request = CanonicalModelRequest::new(ctx.model_ref.clone(), messages.clone())
-                .with_instructions(ctx.instructions.clone())
-                .with_tools(ctx.execution.tools.specs())
-                .with_reasoning(ctx.reasoning.clone());
-            let response = ctx.execution.model.complete(request).await?;
+            let request = CanonicalModelRequest::new(
+                ctx.model_ref.clone().expect("model selection"),
+                messages.clone(),
+            )
+            .with_instructions(ctx.instructions.clone())
+            .with_tools(ctx.execution.tools.specs())
+            .with_reasoning(ctx.reasoning.clone());
+            let response = ctx.execution.require_model()?.complete(request).await?;
             messages.extend(response.messages.iter().cloned());
             new_messages.extend(response.messages.iter().cloned());
 

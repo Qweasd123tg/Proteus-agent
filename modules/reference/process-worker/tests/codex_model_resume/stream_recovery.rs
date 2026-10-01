@@ -181,7 +181,7 @@ async fn configure(
     let mut config = fixture_config(endpoint).await;
     config
         .providers
-        .get_mut(&config.active_provider)
+        .get_mut(config.active_provider.as_ref().unwrap())
         .unwrap()
         .stream = true;
     config

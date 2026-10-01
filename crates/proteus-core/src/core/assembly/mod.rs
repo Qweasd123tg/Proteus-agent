@@ -31,8 +31,8 @@ impl AssemblyPlan {
     ) -> Result<Self> {
         let catalog_entries = catalog.entry_summaries();
         let mut checks = Vec::new();
-        let model_config = match config.active_model_config() {
-            Ok(model) => Some(model),
+        let model_config = match config.selected_model_config() {
+            Ok(model) => model,
             Err(error) => {
                 checks.push(AssemblyCheck::error(
                     "model_config",
@@ -42,7 +42,7 @@ impl AssemblyPlan {
             }
         };
         let model = model_config.as_ref().map(|model| AssemblyModelPlan {
-            profile_id: config.active_provider.clone(),
+            profile_id: config.active_provider.clone().expect("selected provider"),
             provider: model.provider.clone(),
             name: model.model.clone(),
             stream: model.stream,

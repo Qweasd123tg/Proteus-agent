@@ -41,7 +41,7 @@ pub(super) async fn run(
     context: AgentWorkflowContext,
 ) -> Result<WorkflowOutput> {
     if !context.execution.hooks.is_active() {
-        return workflow.run(task, initial_history, context).await;
+        return workflow.run(task, initial_history, context.into()).await;
     }
     let mut history = initial_history.clone();
     let original_user_message_id = history
@@ -66,7 +66,9 @@ pub(super) async fn run(
                 128,
             ));
         }
-        let output = workflow.run(task.clone(), history, invocation).await?;
+        let output = workflow
+            .run(task.clone(), history, invocation.into())
+            .await?;
         let progress = WorkflowHistoryUpdate {
             new_messages: output.new_messages.clone(),
             history_replacement: output.history_replacement.clone(),

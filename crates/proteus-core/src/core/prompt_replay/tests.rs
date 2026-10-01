@@ -51,10 +51,10 @@ impl Model for RecordingModel {
         "test.recording".into()
     }
 
-    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-        ModelCapabilities::empty()
+    fn capabilities(&self, _model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
+        Ok(ModelCapabilities::empty()
             .with_tools(true)
-            .with_streaming(true)
+            .with_streaming(true))
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {

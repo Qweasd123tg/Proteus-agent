@@ -90,7 +90,7 @@ pub(super) fn ConfigBuilderView(
             hooks: Some(draft_hooks.get_untracked()),
             module_config,
             tools_enabled: Some(draft_tools.get_untracked().into_iter().collect()),
-            active_provider: Some(draft_provider.get_untracked()),
+            active_provider: { let value = draft_provider.get_untracked(); (!value.is_empty()).then_some(value) },
             permission_mode: Some(draft_mode.get_untracked())
                 .filter(|mode| !mode.is_empty())
                 .map(|mode| {

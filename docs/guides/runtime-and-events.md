@@ -391,7 +391,10 @@ corruption в середине файла завершает load ошибкой
 `config_snapshot.json` — последний turn/persist snapshot resolved runtime
 config для этой сессии. Текущая `schema_version = 3`: поле
 `agent_control_surface` заменило старое имя без compatibility reader-а, а
-`active_provider` обязательно и содержит id точного профиля из `providers`.
+`active_provider`, если задан, содержит id точного профиля из `providers`.
+При его отсутствии сборка не создаёт model adapter; обращение к модели
+завершается явной ошибкой. Наличие невыбранных provider profiles само по себе
+не включает модель.
 Snapshot перезаписывается при открытии существующей сессии и при принятии user
 message. В snapshot входят profile name, active provider, актуальные model/ref
 и reasoning config, выбранные module ids, список зарегистрированных tools с
@@ -1035,7 +1038,7 @@ compactions должна завершаться сохранённым conversat
 resume используют сокращённое представление. Runtime атомарно заменяет историю
 этим snapshot-ом и затем дописывает `new_messages`.
 
-`workflow/v17` также позволяет вернуть `WorkflowFailure` с накопленным history
+`workflow/v18` также позволяет вернуть `WorkflowFailure` с накопленным history
 update. Core проверяет и сохраняет его до settlement со статусом `Error`.
 `coding.codex_loop` использует этот путь: если tool завершился, а следующий
 model call упал, новый turn получает прежний call/result и после перезапуска

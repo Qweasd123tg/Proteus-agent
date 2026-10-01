@@ -29,6 +29,7 @@ fn one_reference_worker_supports_independent_model_exports_using_the_same_implem
         assert_eq!(
             model
                 .capabilities(&model_config.model_ref())
+                .unwrap()
                 .max_input_tokens,
             Some(max_tokens)
         );

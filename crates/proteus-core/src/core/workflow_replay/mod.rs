@@ -114,7 +114,7 @@ pub async fn replay_workflow(
 
     let event_store = Arc::new(InMemoryEventStore::new());
     let events = Arc::new(EventEmitter::new(event_store));
-    let scope = ExecutionScope::fresh(CancellationToken::new());
+    let scope = ExecutionScope::new(fixture.execution_id, CancellationToken::new());
     let hook_attribution = ExecutionAttribution::for_turn(
         scope.execution_id,
         fixture.session_id,
@@ -166,7 +166,7 @@ pub async fn replay_workflow(
     let mut execution_context = ExecutionContext::new(
         scope,
         0,
-        model,
+        Some(model),
         Arc::new(NullSearch),
         Arc::new(NoMemory),
         tools,

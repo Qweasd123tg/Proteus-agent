@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 
 use crate::{
-    contracts::{AgentWorkflowContext, Workflow, WorkflowOutput},
+    contracts::{Workflow, WorkflowOutput},
     domain::{AgentOutput, AgentTask},
     model_standard::{CanonicalMessage, MessageRole},
 };
@@ -16,10 +16,10 @@ impl Workflow for NoWorkflow {
         &self,
         _task: AgentTask,
         _history: Vec<CanonicalMessage>,
-        ctx: AgentWorkflowContext,
+        ctx: crate::contracts::WorkflowInvocationContext,
     ) -> Result<WorkflowOutput> {
         anyhow::ensure!(
-            ctx.intent.is_none(),
+            ctx.runtime_info(0)?.intent.is_none(),
             "no workflow is selected to handle the requested intent"
         );
         let output = AgentOutput::text(

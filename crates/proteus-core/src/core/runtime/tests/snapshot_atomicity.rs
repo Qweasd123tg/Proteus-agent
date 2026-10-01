@@ -79,8 +79,8 @@ impl Model for LabeledModel {
         Cow::Borrowed(self.0)
     }
 
-    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-        ModelCapabilities::empty()
+    fn capabilities(&self, _model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
+        Ok(ModelCapabilities::empty())
     }
 
     async fn stream(&self, _request: CanonicalModelRequest) -> Result<ModelEventStream> {
@@ -117,14 +117,15 @@ impl Workflow for AtomicityProbeWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: AgentWorkflowContext,
+        ctx: crate::contracts::WorkflowInvocationContext,
     ) -> Result<WorkflowOutput> {
-        let model_ref = ctx.model_ref.clone();
+        let ctx = ctx.into_agent()?;
+        let model_ref = ctx.model_ref.clone().expect("model selection");
         let reasoning = ctx.reasoning.clone();
-        let provider_id = ctx.execution.model.id().into_owned();
+        let provider_id = ctx.execution.require_model()?.id().into_owned();
         let response = ctx
             .execution
-            .model
+            .require_model()?
             .complete(
                 CanonicalModelRequest::new(model_ref.clone(), history.clone())
                     .with_reasoning(reasoning.clone()),
@@ -182,7 +183,7 @@ async fn admitted_turn_freezes_registry_and_effective_settings_until_settlement(
             .replace_model_for_test(Arc::new(LabeledModel("provider-a")));
     }
     let model_a = ModelRef::new("provider-a", "model-a");
-    runtime.set_model_ref(model_a.clone()).await;
+    runtime.set_model_ref(model_a.clone()).await.unwrap();
     runtime
         .set_reasoning_effort(Some("low".to_owned()))
         .await
@@ -206,7 +207,8 @@ async fn admitted_turn_freezes_registry_and_effective_settings_until_settlement(
     runtime.set_permission_mode(PermissionMode::Auto).await;
     runtime
         .set_model_ref(ModelRef::new("provider-a", "changed-before-spawn"))
-        .await;
+        .await
+        .unwrap();
     let running_runtime = runtime.clone();
     let first = tokio::spawn(async move {
         running_runtime
@@ -257,7 +259,7 @@ async fn admitted_turn_freezes_registry_and_effective_settings_until_settlement(
         .await
         .expect("reload runtime");
     let model_b = ModelRef::new("provider-b", "model-b");
-    runtime.set_model_ref(model_b.clone()).await;
+    runtime.set_model_ref(model_b.clone()).await.unwrap();
     runtime
         .set_reasoning_effort(Some("high".to_owned()))
         .await
@@ -319,10 +321,10 @@ async fn admitted_turn_freezes_registry_and_effective_settings_until_settlement(
         serde_json::from_value(opened[0].config_snapshot.clone()).expect("config A");
     let recorded_b: SessionConfigSnapshot =
         serde_json::from_value(opened[1].config_snapshot.clone()).expect("config B");
-    assert_eq!(recorded_a.model, observations[0].model_ref);
+    assert_eq!(recorded_a.model, Some(observations[0].model_ref.clone()));
     assert_eq!(recorded_a.reasoning, observations[0].reasoning);
     assert_eq!(recorded_a.permission_mode_default, PermissionMode::Normal);
-    assert_eq!(recorded_b.model, observations[1].model_ref);
+    assert_eq!(recorded_b.model, Some(observations[1].model_ref.clone()));
     assert_eq!(recorded_b.reasoning, observations[1].reasoning);
     assert_eq!(recorded_b.permission_mode_default, PermissionMode::Plan);
 }

@@ -20,7 +20,9 @@ pub use loading::expand_user_path;
 pub struct AppConfig {
     #[serde(default)]
     pub profile: ProfileConfig,
-    pub active_provider: String,
+    #[serde(default)]
+    pub active_provider: Option<String>,
+    #[serde(default)]
     pub providers: BTreeMap<String, ProviderProfileConfig>,
     #[serde(default)]
     pub instructions: Vec<InstructionSourceConfig>,
@@ -55,7 +57,7 @@ impl Default for AppConfig {
                 active_provider.clone(),
                 ProviderProfileConfig::default(),
             )]),
-            active_provider,
+            active_provider: Some(active_provider),
             instructions: Vec::new(),
             modules: ModulesConfig::default(),
             module_config: BTreeMap::new(),
@@ -172,18 +174,27 @@ fn default_agent_max_idle_processes() -> usize {
 
 impl AppConfig {
     pub fn active_model_config(&self) -> Result<ModelConfig> {
-        if self.active_provider.trim().is_empty() {
+        self.selected_model_config()?
+            .context("no active model is configured")
+    }
+
+    pub fn selected_model_config(&self) -> Result<Option<ModelConfig>> {
+        let Some(active_provider) = &self.active_provider else {
+            return Ok(None);
+        };
+        if active_provider.trim().is_empty() {
             bail!("active_provider must not be empty");
         }
         self.providers
-            .get(&self.active_provider)
+            .get(active_provider)
             .with_context(|| {
                 format!(
                     "active_provider '{}' is not defined in providers",
-                    self.active_provider
+                    active_provider
                 )
             })?
             .to_model_config()
+            .map(Some)
     }
 
     pub fn module_config_or<T>(&self, kind: ModuleKind, id: &str, fallback: T) -> Result<T>

@@ -12,9 +12,9 @@ use tokio::time::timeout;
 
 use crate::{
     contracts::{
-        AgentWorkflowContext, CompactionInput, CompactionOutput, ContextBuildInput,
-        ExecutionAttribution, MemoryInvocationContext, ModelCallOrigin, ToolExposureInput,
-        ToolExposureOutput, ToolExposureRequest, WorkflowRuntimeStatus,
+        CompactionInput, CompactionOutput, ContextBuildInput, ExecutionAttribution,
+        MemoryInvocationContext, ModelCallOrigin, ToolExposureInput, ToolExposureOutput,
+        ToolExposureRequest, WorkflowInvocationContext, WorkflowRuntimeStatus,
     },
     domain::{AgentTask, Event, ToolCall, ToolResult, ToolSpec},
     model_standard::{CanonicalModelRequest, CanonicalModelResponse},
@@ -28,7 +28,7 @@ use super::{
 
 /// Async host capability surface shared by all process Workflow exports.
 pub(crate) struct WorkflowHostRuntime {
-    ctx: AgentWorkflowContext,
+    ctx: WorkflowInvocationContext,
     tool_orchestrator: ToolOrchestrator,
     model_streams: model_stream::ModelStreams,
 }
@@ -39,9 +39,13 @@ impl WorkflowHostRuntime {
         checkpoint: crate::contracts::WorkflowHistoryCheckpoint,
     ) -> Result<()> {
         self.ensure_active()?;
-        self.ctx.history_recorder.checkpoint(checkpoint).await
+        self.ctx
+            .agent()?
+            .history_recorder
+            .checkpoint(checkpoint)
+            .await
     }
-    pub(crate) fn new(ctx: AgentWorkflowContext) -> Self {
+    pub(crate) fn new(ctx: WorkflowInvocationContext) -> Self {
         Self {
             ctx,
             model_streams: Default::default(),
@@ -51,8 +55,13 @@ impl WorkflowHostRuntime {
 
     pub(crate) fn status(&self) -> WorkflowRuntimeStatus {
         WorkflowRuntimeStatus {
-            cancelled: self.ctx.is_cancelled(),
-            queued_user_messages: self.ctx.queued_user_messages().min(u32::MAX as usize) as u32,
+            cancelled: self.ctx.execution().is_cancelled(),
+            queued_user_messages: self
+                .ctx
+                .agent()
+                .map(|ctx| ctx.queued_user_messages())
+                .unwrap_or(0)
+                .min(u32::MAX as usize) as u32,
         }
     }
 
@@ -62,26 +71,31 @@ impl WorkflowHostRuntime {
     ) -> Result<crate::domain::ContextBundle> {
         let ctx = self.ctx.clone();
         self.run_active(async move {
-            let memory_context = MemoryInvocationContext::new(
-                ExecutionAttribution::for_turn(
-                    ctx.execution.scope.execution_id,
-                    ctx.session_id,
-                    ctx.thread_id,
-                    ctx.turn_id,
+            let execution = ctx.execution();
+            let attribution = match ctx.agent() {
+                Ok(agent) => ExecutionAttribution::for_turn(
+                    execution.scope.execution_id,
+                    agent.session_id,
+                    agent.thread_id,
+                    agent.turn_id,
                 ),
-                ctx.execution.scope.cancellation.clone(),
-            );
+                Err(_) => ExecutionAttribution::detached(execution.scope.execution_id),
+            };
+            let memory_context =
+                MemoryInvocationContext::new(attribution, execution.scope.cancellation.clone());
+            let timeout_ms = ctx.context_timeout_ms();
+
             timeout(
-                Duration::from_millis(ctx.context_timeout_ms),
-                ctx.context.build(ContextBuildInput {
+                Duration::from_millis(timeout_ms),
+                ctx.context().build(ContextBuildInput {
                     task,
-                    search: ctx.execution.search.clone(),
-                    memory: ctx.execution.memory.clone(),
+                    search: execution.search.clone(),
+                    memory: execution.memory.clone(),
                     memory_context,
                 }),
             )
             .await
-            .map_err(|_| anyhow!("context build timed out after {}ms", ctx.context_timeout_ms))?
+            .map_err(|_| anyhow!("context build timed out after {}ms", timeout_ms))?
         })
         .await
     }
@@ -91,7 +105,9 @@ impl WorkflowHostRuntime {
         request: CanonicalModelRequest,
     ) -> Result<crate::contracts::WorkflowModelStreamCursor> {
         self.ensure_active()?;
-        self.model_streams.start(&self.ctx, request).await
+        self.model_streams
+            .start(self.ctx.execution(), request)
+            .await
     }
 
     pub(crate) async fn next_model_stream(
@@ -113,7 +129,7 @@ impl WorkflowHostRuntime {
         self.run_active(async move {
             with_model_call_origin(
                 ModelCallOrigin::Direct,
-                ctx.execution.model.complete(request),
+                ctx.execution().require_model()?.complete(request),
             )
             .await
         })
@@ -121,7 +137,7 @@ impl WorkflowHostRuntime {
     }
 
     pub(crate) async fn compact_history(&self, input: CompactionInput) -> Result<CompactionOutput> {
-        let ctx = self.ctx.clone();
+        let ctx = self.ctx.agent()?.clone();
         self.run_active(async move {
             ctx.emit(Event::HistoryCompactionStarted {
                 reason: input.reason.clone(),
@@ -160,20 +176,21 @@ impl WorkflowHostRuntime {
 
     pub(crate) fn visible_tools(&self, cwd: PathBuf) -> Result<Vec<ToolSpec>> {
         self.ensure_active()?;
-        Ok(self.tool_orchestrator.visible_tool_specs(&self.ctx, &cwd))
+        match self.ctx.agent() {
+            Ok(ctx) => Ok(self.tool_orchestrator.visible_tool_specs(ctx, &cwd)),
+            Err(_) => Ok(self.detached_tools().visible_specs(&cwd)),
+        }
     }
 
     pub(crate) async fn select_tools(
         &self,
         request: ToolExposureRequest,
     ) -> Result<ToolExposureOutput> {
-        let candidates = self
-            .tool_orchestrator
-            .visible_tool_specs(&self.ctx, &request.cwd);
+        let candidates = self.visible_tools(request.cwd.clone())?;
         let ctx = self.ctx.clone();
         self.run_active(async move {
             let output = ctx
-                .tool_exposure
+                .tool_exposure()
                 .select(ToolExposureInput::new(request, candidates.clone()))
                 .await?;
             output.validate_against(&candidates)?;
@@ -183,10 +200,13 @@ impl WorkflowHostRuntime {
     }
 
     pub(crate) async fn execute_tool(&self, task: AgentTask, call: ToolCall) -> Result<ToolResult> {
-        let ctx = self.ctx.clone();
-        let orchestrator = self.tool_orchestrator.clone();
-        self.run_active(async move { orchestrator.execute(&ctx, &task, call).await })
-            .await
+        self.run_active(async {
+            match self.ctx.agent() {
+                Ok(ctx) => self.tool_orchestrator.execute(ctx, &task, call).await,
+                Err(_) => self.detached_tools().execute(task.cwd, call).await,
+            }
+        })
+        .await
     }
 
     pub(crate) async fn execute_tools(
@@ -194,26 +214,36 @@ impl WorkflowHostRuntime {
         task: AgentTask,
         calls: Vec<ToolCall>,
     ) -> Result<Vec<ToolResult>> {
-        let ctx = self.ctx.clone();
-        let orchestrator = self.tool_orchestrator.clone();
-        self.run_active(async move { execute_tool_batch(&orchestrator, &ctx, &task, calls).await })
+        self.run_active(execute_tool_batch(self, &task, calls))
             .await
     }
 
     pub(crate) async fn emit_event(&self, event: Event) -> Result<()> {
-        let ctx = self.ctx.clone();
+        let ctx = self.ctx.agent()?.clone();
         self.run_active(async move { ctx.emit(event).await }).await
     }
 
+    fn detached_tools(&self) -> super::BoundTools {
+        let ctx = self.ctx.execution();
+        super::BoundTools::new(
+            ctx.tools.clone(),
+            ctx.policy.clone(),
+            ctx.approval.clone(),
+            ctx.permission_grants.clone(),
+            super::ToolExecutionBinding::detached(ctx.scope.clone()),
+        )
+        .with_hooks(ctx.hooks.clone())
+    }
+
     fn ensure_active(&self) -> Result<()> {
-        if self.ctx.is_cancelled() {
+        if self.ctx.execution().is_cancelled() {
             return Err(anyhow!("turn canceled by client"));
         }
         Ok(())
     }
 
     async fn run_active<T>(&self, future: impl Future<Output = Result<T>>) -> Result<T> {
-        let cancellation = self.ctx.execution.scope.cancellation.clone();
+        let cancellation = self.ctx.execution().scope.cancellation.clone();
         if cancellation.is_cancelled() {
             return Err(anyhow!("turn canceled by client"));
         }
@@ -228,12 +258,11 @@ impl WorkflowHostRuntime {
 /// workflows. Consecutive explicitly parallel calls may overlap; other calls
 /// fence the sequence. The root-owned task group has its own role eligibility.
 async fn execute_tool_batch(
-    orchestrator: &ToolOrchestrator,
-    ctx: &AgentWorkflowContext,
+    host: &WorkflowHostRuntime,
     task: &AgentTask,
     calls: Vec<ToolCall>,
 ) -> Result<Vec<ToolResult>> {
-    let specs = orchestrator.visible_tool_specs(ctx, &task.cwd);
+    let specs = host.visible_tools(task.cwd.clone())?;
     let parallel = |call: &ToolCall| {
         specs
             .iter()
@@ -251,15 +280,18 @@ async fn execute_tool_batch(
             }
             if calls_are_parallel_eligible(
                 &group,
-                &ctx.agent_control
-                    .as_ref()
+                &host
+                    .ctx
+                    .agent()
+                    .ok()
+                    .and_then(|ctx| ctx.agent_control.as_ref())
                     .map(|control| control.profiles())
                     .unwrap_or_default(),
             ) {
                 let outputs = futures_util::future::join_all(
                     group
                         .into_iter()
-                        .map(|call| orchestrator.execute(ctx, task, call)),
+                        .map(|call| host.execute_tool(task.clone(), call)),
                 )
                 .await;
                 for output in outputs {
@@ -267,7 +299,7 @@ async fn execute_tool_batch(
                 }
             } else {
                 for call in group {
-                    results.push(orchestrator.execute(ctx, task, call).await?);
+                    results.push(host.execute_tool(task.clone(), call).await?);
                 }
             }
             continue;
@@ -280,14 +312,14 @@ async fn execute_tool_batch(
             let outputs = futures_util::future::join_all(
                 group
                     .into_iter()
-                    .map(|call| orchestrator.execute(ctx, task, call)),
+                    .map(|call| host.execute_tool(task.clone(), call)),
             )
             .await;
             for output in outputs {
                 results.push(output?);
             }
         } else {
-            results.push(orchestrator.execute(ctx, task, call).await?);
+            results.push(host.execute_tool(task.clone(), call).await?);
         }
     }
     Ok(results)

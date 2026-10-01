@@ -212,12 +212,15 @@ impl Model for OpenAiResponsesClient {
         }
     }
 
-    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
-        self.model_profile.capabilities(self.max_input_tokens)
+    fn capabilities(&self, _model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
+        Ok(self.model_profile.capabilities(self.max_input_tokens))
     }
 
-    fn provider_hosted_tools(&self, _model: &ModelRef) -> Vec<crate::domain::ToolSpec> {
-        self.model_profile.hosted_tools.specs()
+    fn provider_hosted_tools(
+        &self,
+        _model: &ModelRef,
+    ) -> anyhow::Result<Vec<crate::domain::ToolSpec>> {
+        Ok(self.model_profile.hosted_tools.specs())
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {

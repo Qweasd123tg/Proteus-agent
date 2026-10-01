@@ -7,7 +7,7 @@ pub struct ConfigBuilderSnapshot {
     pub config_path: Option<String>,
     pub target_path: Option<String>,
     pub writable: bool,
-    pub active_provider: String,
+    pub active_provider: Option<String>,
     pub providers: Vec<ConfigBuilderProvider>,
     /// Persisted `[permissions] mode` (snake_case) — то, что редактирует
     /// builder. Runtime mode может отличаться после `POST /mode`.

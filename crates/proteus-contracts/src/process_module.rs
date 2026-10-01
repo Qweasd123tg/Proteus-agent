@@ -12,11 +12,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     contracts::ExecutionAttribution,
-    domain::{
-        AgentOutput, AgentTask, HistoryCompactionReport, ModelRef, ReasoningConfig, SessionId,
-        ThreadId, TurnId,
-    },
-    model_standard::{CanonicalMessage, InstructionBlock},
+    domain::{AgentOutput, AgentTask, HistoryCompactionReport},
+    model_standard::CanonicalMessage,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -222,32 +219,7 @@ pub struct WorkflowModuleInput {
     pub history: Vec<CanonicalMessage>,
     #[serde(default)]
     pub config: serde_json::Value,
-    pub runtime: WorkflowModuleRuntimeInfo,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct WorkflowModuleRuntimeInfo {
-    pub session_id: SessionId,
-    pub thread_id: ThreadId,
-    pub turn_id: TurnId,
-    pub model_ref: ModelRef,
-    pub model_context: Vec<crate::contracts::ModelContextObservation>,
-    pub interrupted_turns: Vec<crate::contracts::WorkflowHistoryInterruption>,
-    #[serde(default)]
-    pub instructions: Vec<InstructionBlock>,
-    /// Opaque action name interpreted by the selected workflow.
-    pub intent: Option<String>,
-    #[serde(deserialize_with = "Option::deserialize")]
-    pub continuation: Option<crate::contracts::WorkflowContinuation>,
-    pub permission_mode: crate::domain::PermissionMode,
-    #[serde(default)]
-    pub reasoning: ReasoningConfig,
-    #[serde(default)]
-    pub max_input_tokens: Option<u32>,
-    pub model_timeout_ms: u64,
-    pub context_timeout_ms: u64,
-    pub workflow_timeout_ms: u64,
+    pub runtime: crate::contracts::ProcessWorkflowRuntimeInfo,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -305,7 +277,10 @@ pub trait ModelModuleHost: Send + Sync {
 }
 
 pub trait ModelModule: Send + Sync + 'static {
-    fn describe(&self) -> crate::contracts::ProcessModelDescriptor;
+    fn describe(
+        &self,
+        model: crate::domain::ModelRef,
+    ) -> ProcessModuleResult<crate::contracts::ProcessModelDescriptor>;
     fn catalog(
         &self,
         host: &dyn ModelModuleHost,

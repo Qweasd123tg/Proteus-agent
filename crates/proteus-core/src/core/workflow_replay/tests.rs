@@ -6,8 +6,8 @@ use tempfile::TempDir;
 
 use super::*;
 use crate::contracts::{
-    AgentWorkflowContext, ApprovalPolicy, ExecutionAttribution, PolicyContext,
-    PolicyVisibilityContext, Workflow, WorkflowOutput,
+    ApprovalPolicy, ExecutionAttribution, PolicyContext, PolicyVisibilityContext, Workflow,
+    WorkflowOutput,
 };
 use crate::{
     core::{
@@ -45,15 +45,19 @@ impl Workflow for ProbeWorkflow {
         &self,
         task: AgentTask,
         history: Vec<CanonicalMessage>,
-        ctx: AgentWorkflowContext,
+        ctx: crate::contracts::WorkflowInvocationContext,
     ) -> anyhow::Result<WorkflowOutput> {
+        let ctx = ctx.into_agent()?;
         let spec = probe_tool_spec();
-        let mut first = CanonicalModelRequest::new(ctx.model_ref.clone(), history.clone())
-            .with_tools(vec![spec.clone()]);
+        let mut first = CanonicalModelRequest::new(
+            ctx.model_ref.clone().expect("model selection"),
+            history.clone(),
+        )
+        .with_tools(vec![spec.clone()]);
         if self.diverge {
             first.metadata = json!({ "implementation_changed": true });
         }
-        let first_response = ctx.execution.model.complete(first).await?;
+        let first_response = ctx.execution.require_model()?.complete(first).await?;
         let mut new_messages = first_response.messages.clone();
         let call = first_response
             .tool_calls
@@ -73,9 +77,12 @@ impl Workflow for ProbeWorkflow {
 
         let mut second_messages = history;
         second_messages.extend(new_messages.iter().cloned());
-        let second = CanonicalModelRequest::new(ctx.model_ref.clone(), second_messages)
-            .with_tools(vec![spec]);
-        let second_response = ctx.execution.model.complete(second).await?;
+        let second = CanonicalModelRequest::new(
+            ctx.model_ref.clone().expect("model selection"),
+            second_messages,
+        )
+        .with_tools(vec![spec]);
+        let second_response = ctx.execution.require_model()?.complete(second).await?;
         new_messages.extend(second_response.messages);
         Ok(WorkflowOutput::new(probe_output(&result), new_messages))
     }
@@ -399,8 +406,8 @@ fn snapshot(spec: &ToolSpec) -> SessionConfigSnapshot {
         schema_version: SessionConfigSnapshot::SCHEMA_VERSION,
         ts: 1,
         profile_name: "replay-test".to_owned(),
-        active_provider: "missing-provider".to_owned(),
-        model: ModelRef::new("missing-provider", "offline-model"),
+        active_provider: Some("missing-provider".to_owned()),
+        model: Some(ModelRef::new("missing-provider", "offline-model")),
         reasoning: ReasoningConfig::default(),
         modules,
         agent_control_surface: "none".to_owned(),
