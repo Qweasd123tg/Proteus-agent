@@ -185,7 +185,7 @@ Reference worker не получает отдельной визуальной �
 После изменения schema:
 
 ```bash
-cargo test --workspace
+./scripts/test.py full
 (cd clients/inspector && env -u NO_COLOR trunk build)
 ```
 

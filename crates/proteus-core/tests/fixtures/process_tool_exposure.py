@@ -28,6 +28,8 @@ def invoke(context, method, params):
             "search_context_size":None,"allowed_domains":[],"blocked_domains":[],
             "external_web_access":True,"include_sources":False}}}
     elif mode == "schema": tools[0]["input_schema"] = {"type":"string"}
+    elif mode == "parallel": tools[0]["supports_parallel_tool_calls"] = True
+    elif mode == "invented": tools[0]["name"] = "unregistered_tool"
     elif mode == "duplicate": tools *= 2
     output = {"tools":tools, "metadata":None}
     if mode == "unknown": output["typo"] = True

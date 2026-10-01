@@ -170,14 +170,9 @@ mod tests {
             vec![],
         );
         let mut value = serde_json::to_value(ProcessToolExposureInput { input }).unwrap();
-        value["input"]["config"] = serde_json::json!({});
+        value["input"]["unexpected_field"] = serde_json::json!({});
         serde_json::from_value::<ProcessToolExposureInput>(value)
-            .expect_err("config belongs to export, not invocation");
-        let mut value =
-            serde_json::to_value(super::super::ToolExposureOutput::new(vec![])).unwrap();
-        value["typo"] = serde_json::json!(true);
-        serde_json::from_value::<super::super::ToolExposureOutput>(value)
-            .expect_err("nested output must be strict");
+            .expect_err("nested input must be strict");
     }
 
     #[test]

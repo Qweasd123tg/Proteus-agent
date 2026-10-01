@@ -6,23 +6,15 @@ pub fn worker() -> PathBuf {
     static WORKER: OnceLock<PathBuf> = OnceLock::new();
     WORKER
         .get_or_init(|| {
-            let status = std::process::Command::new(env!("CARGO"))
-                .args(["build", "--quiet", "-p", "proteus-reference-worker"])
-                .current_dir(env!("CARGO_MANIFEST_DIR"))
-                .status()
-                .expect("build reference model fixture");
-            assert!(status.success(), "reference worker build failed");
-            std::env::current_exe()
-                .unwrap()
-                .parent()
-                .unwrap()
-                .parent()
-                .unwrap()
-                .join("proteus-reference-worker")
+            let path = PathBuf::from(std::env::var_os("PROTEUS_TEST_REFERENCE_WORKER")
+                .expect("use scripts/test.py to build and bind the reference worker before running core tests"));
+            assert!(path.is_file(), "reference test worker is missing: {}", path.display());
+            path
         })
         .clone()
 }
 
+#[allow(dead_code)]
 pub fn config() -> AppConfig {
     let mut config = AppConfig::default();
     config.components.insert(

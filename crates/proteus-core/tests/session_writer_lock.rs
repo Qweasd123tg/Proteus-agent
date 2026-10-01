@@ -56,6 +56,7 @@ async fn exclusive_session_writer_is_released_after_process_exit() {
         .arg("session_writer_process_helper")
         .arg("--ignored")
         .arg("--nocapture")
+        .arg("--test-threads=1")
         .env(HELPER_ENV, "1")
         .env(CONFIG_DIR_ENV, config_dir.path())
         .env(WORKSPACE_ENV, workspace.path())
@@ -71,7 +72,7 @@ async fn exclusive_session_writer_is_released_after_process_exit() {
         line.clear();
         let bytes = stdout.read_line(&mut line).expect("read helper output");
         assert_ne!(bytes, 0, "helper exited before acquiring writer ownership");
-        if line.trim() == LOCKED_MARKER {
+        if line.contains(LOCKED_MARKER) {
             break;
         }
     }

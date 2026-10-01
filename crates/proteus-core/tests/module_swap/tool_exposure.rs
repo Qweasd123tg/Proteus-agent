@@ -6,7 +6,15 @@ use proteus_contracts::{
 
 #[tokio::test]
 async fn external_selector_can_only_return_unchanged_unique_candidates() {
-    for mode in ["valid", "hosted", "schema", "duplicate", "unknown"] {
+    for mode in [
+        "valid",
+        "hosted",
+        "schema",
+        "parallel",
+        "invented",
+        "duplicate",
+        "unknown",
+    ] {
         let workspace = tempfile::tempdir().unwrap();
         let mut config = test_model::config();
         config.modules.tool_exposure = Some("probe.exposure".into());

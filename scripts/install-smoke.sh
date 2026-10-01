@@ -130,14 +130,14 @@ require_text "send_message" "${output_dir}/collaboration-tools.txt"
 require_text "followup_task" "${output_dir}/collaboration-tools.txt"
 
 run_and_capture collaboration-process "${output_dir}/collaboration-process.txt" \
-  env PROTEUS_TEST_BINARY="${proteus}" cargo test \
+  env PROTEUS_TEST_BINARY="${proteus}" PROTEUS_TEST_REFERENCE_WORKER="${bin_dir}/proteus-reference-worker" cargo test \
   --manifest-path "${project_dir}/Cargo.toml" \
   -p proteus-core --test process_agent_control \
   process_agents_route_bounded_messages_without_cross_delivery -- --exact
 require_text "test result: ok" "${output_dir}/collaboration-process.txt"
 
 run_and_capture process-peer-surfaces "${output_dir}/process-peer-surfaces.txt" \
-  env PROTEUS_TEST_BINARY="${proteus}" cargo test \
+  env PROTEUS_TEST_BINARY="${proteus}" PROTEUS_TEST_REFERENCE_WORKER="${bin_dir}/proteus-reference-worker" cargo test \
   --manifest-path "${project_dir}/Cargo.toml" \
   -p proteus-core --test process_agent_pool \
   process_peers_derive_distinct_tool_surfaces_from_child_configs -- --exact

@@ -1,0 +1,3 @@
+[target.x86_64-unknown-linux-gnu]
+# Linux development requires lld; WASM and other host targets are unaffected.
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]

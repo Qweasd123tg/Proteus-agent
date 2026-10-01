@@ -458,7 +458,7 @@ cargo test -p codex-compactor
 cargo test -p context-pack
 cargo test -p proteus-reference-worker --test codex_compaction --test compactor_interop
 cargo test -p proteus-reference-worker --test conformance
-cargo test -p proteus-core --test module_swap
+./scripts/test.py -p proteus-core --test module_swap
 ```
 
 После изменения применяются общие gates из [testing.md](testing.md).

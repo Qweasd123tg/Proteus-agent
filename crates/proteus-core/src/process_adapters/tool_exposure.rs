@@ -42,39 +42,3 @@ impl ToolExposure for ProcessToolExposure {
         Ok(response.result)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::domain::{ToolSafety, ToolSpec};
-    use serde_json::json;
-
-    #[test]
-    fn selection_preserves_registered_parallel_permission() {
-        let tool = ToolSpec::new("probe", "probe", json!({}), ToolSafety::ReadOnly);
-        let candidates = [tool.clone()];
-        ToolExposureOutput::new(vec![tool.clone()])
-            .validate_against(&candidates)
-            .unwrap();
-        let output = ToolExposureOutput::new(vec![tool.clone().with_parallel_tool_calls(true)]);
-        assert!(output.validate_against(&candidates).is_err());
-        assert!(output.validate_against(&[]).is_err());
-        let mut changed = tool.clone();
-        changed.safety = ToolSafety::Network;
-        changed.surface = crate::domain::ToolSurface::provider_hosted(
-            crate::domain::HostedToolConfig::WebSearch {
-                config: crate::domain::WebSearchHostedToolConfig::default(),
-            },
-        );
-        assert!(
-            ToolExposureOutput::new(vec![changed])
-                .validate_against(&candidates)
-                .is_err()
-        );
-        assert!(
-            ToolExposureOutput::new(vec![tool.clone(), tool])
-                .validate_against(&candidates)
-                .is_err()
-        );
-    }
-}

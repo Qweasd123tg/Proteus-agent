@@ -281,7 +281,7 @@ docs/                           reference, testing rules и roadmap
 
 ```bash
 cargo fmt --all --check
-cargo test --workspace --no-fail-fast
+./scripts/test.py full
 git diff --check
 ```
 

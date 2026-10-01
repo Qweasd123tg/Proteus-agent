@@ -663,10 +663,13 @@ Module не пишет canonical journal напрямую. Runtime reload стр
 
 ```bash
 cargo fmt --all --check
-cargo test --workspace
-cargo test -p proteus-core --test module_swap
-cargo test -p proteus-reference-worker --test conformance
+./scripts/test.py full
+git diff --check
 ```
+
+Full уже включает `module_swap` и worker conformance; отдельно после него их
+не запускают. Для локального adapter выбирайте соответствующие targets по
+[матрице изменений](../development/testing.md#evidence-matrix).
 
 Изменения Inspector дополнительно проверяются `trunk build`. Точная evidence
 матрица находится в [testing.md](../development/testing.md).

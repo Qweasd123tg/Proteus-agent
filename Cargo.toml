@@ -32,3 +32,8 @@ members = [
     "modules/reference/hook-pack",
     "modules/reference/model-pack",
 ]
+
+# Keep file/line backtraces without the large variable/type debug sections.
+# The test profile inherits dev so both commands reuse the same artifacts.
+[profile.dev]
+debug = "line-tables-only"

@@ -30,6 +30,9 @@ prompt или число компонентов в примере. Строгу�
 Не запускайте подряд focused, package и workspace suites, если последний
 набор уже включает нужные сценарии. Успешную проверку повторяют после новых
 затрагивающих её изменений или для разбора конкретной ошибки.
+Если полный прогон завершился с отдельными failures и изменены только эти
+tests/fixtures, повторите упавшие targets. Успешные targets сохраняют evidence;
+повторный workspace нужен при новой общей production-правке.
 CI отключён; проверки выполняются локально. Manual dogfood — добровольная
 [диагностика](dogfood-gate.md), без обязательного места в последовательности.
 
@@ -62,14 +65,43 @@ CI отключён; проверки выполняются локально. M
 
 ```bash
 cargo fmt --all --check
-cargo test --workspace --no-fail-fast
+./scripts/test.py full
 git diff --check
 ```
 
 Для локальной правки используйте, например,
-`cargo test -p proteus-core --lib <filter>` или
-`cargo test -p proteus-core --test <target> <filter>`.
+`./scripts/test.py -p proteus-core --lib <filter>` или
+`./scripts/test.py -p proteus-core --test <target> <filter>`.
 `cargo check` не заменяет поведенческие tests.
+
+## Быстрая Локальная Проверка
+
+`scripts/test.py` принимает обычные Cargo arguments с явным `-p`, а `full`
+выбирает весь workspace. Для локального module/helper выбирайте package или
+filter из матрицы; полный прогон не нужен после каждого изменения.
+
+Runner один раз готовит свежий reference worker и передаёт его path через
+`PROTEUS_TEST_REFERENCE_WORKER`. Core fixtures не запускают Cargo и не угадывают
+старый binary в `target/`. Full использует executable из того же `cargo test
+--no-run`; focused Core использует отдельный cache `target/test-worker`, чтобы
+узкий feature graph не перезаписывал workspace artifacts. Обычные package
+tests без Core не собирают worker.
+Для installed smoke или явно подготовленного worker можно задать его path в
+`PROTEUS_TEST_REFERENCE_WORKER`: focused runner использует этот executable без
+сборки. Свежесть такой явной привязки обеспечивает вызывающий сценарий; missing
+file — ошибка. Full всегда получает worker из своего Cargo artifact stream.
+
+Defaults runner-а: два build jobs, четыре test threads, loopback в `NO_PROXY`
+и отключённые Python bytecode caches. Явные environment settings сохраняются.
+После изменения build settings первая сборка заполняет cache заново; скорость
+тёплого прогона измеряется отдельно от этой разовой стоимости.
+
+Dev/test сохраняют line tables для backtraces без тяжёлой variable/type debug
+информации. Для отладки переменных можно задать `CARGO_PROFILE_DEV_DEBUG=2`
+и `CARGO_PROFILE_TEST_DEBUG=2`; смена этих settings требует пересборки.
+На `x86_64-unknown-linux-gnu` настроен установленный `lld` через `cc`;
+для Linux development требуется executable `ld.lld`. Остальные targets,
+включая WASM, используют свои linker settings.
 
 ## Каталог Проверок
 
@@ -173,7 +205,7 @@ allow/ask/deny, path, timeout/cancel или output limits — когда эта 
 а не исполняет команды самостоятельно.
 
 Fixtures используют локальные HTTP/stdio peers, без live credentials.
-Core test fixture явно собирает reference worker; это не production dependency
+Runner явно собирает reference worker до Core tests; это не production dependency
 Core на reference crates. Shell fixtures разбирают JSON-RPC id JSON-парсером,
 не полагаясь на порядок ключей.
 
