@@ -2,8 +2,8 @@
 
 Baseline: `openai/codex` commit
 `67cc3c318dc8b5532db6ade4182b1dc6f3870889`, зафиксирован 2026-09-01.
-Этот документ описывает существующее evidence. Граница всего первого
-экзамена определяется в [roadmap.md](../product/roadmap.md).
+Этот документ описывает существующее evidence. Критерии проверки сборки
+Codex определяются в [roadmap.md](../product/roadmap.md).
 
 ## Ordered Commentary И Final
 

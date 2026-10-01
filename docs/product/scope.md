@@ -18,7 +18,8 @@
   в поддержанной границе.
 - Workflow checkpoints и явные bindings tool results: выбранный прогресс
   сохраняется при потере процесса, результат неизвестного side effect не
-  выдумывается. Используется Codex workflow и Python example.
+  выдумывается. Используется `coding.single_loop`, `coding.codex_loop`,
+  `coding.plan_execute_review` и Python example.
 - AgentControl для полных local Proteus peers: lifecycle, bounded mailbox,
   messaging, follow-up и адресная отмена.
 - CLI/REPL, HTTP/SSE/stdio app-server, web chat и Inspector.
@@ -57,14 +58,15 @@ Reference modules и profiles — поставляемые примеры без
 [subagents.md](../architecture/subagents.md).
 Это инвентарь ограничений, а не перечень обязательных следующих фич.
 
-## Статус Первого Экзамена
+## Статус Примера Codex
 
 Codex profile существует. Ordered commentary/final messages сохраняются
 в canonical response/history/journal, live events и app transcript. Есть fixture и regression этого среза:
 [codex-baseline.md](../development/codex-baseline.md).
 
 Полного differential harness и сравнительного отчёта по обычным задачам
-и расходу нет. Экзамен ещё не пройден. Process conformance и module swap
+и расходу нет. Близость сборки пока подтверждена отдельными срезами.
+Process conformance и module swap
 подтверждают техническую заменяемость; они не доказывают удобство любых
 комбинаций модулей или качество live агента.
 
