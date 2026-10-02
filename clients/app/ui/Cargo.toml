@@ -51,3 +51,9 @@ web-sys = { version = "0.3", features = [
 [dev-dependencies]
 any_spawner = { version = "0.3", features = ["futures-executor", "tokio"] }
 tokio = { version = "1.52.3", features = ["rt", "macros"] }
+
+# Dev WASM keeps this crate fast to rebuild and debuggable, while Leptos,
+# Markdown and the sanitizer run optimized from cached artifacts.
+[profile.dev.package."*"]
+opt-level = 2
+debug = false
