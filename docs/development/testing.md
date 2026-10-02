@@ -44,6 +44,7 @@ CI отключён; проверки выполняются локально. M
 | Изменение | Достаточная проверка |
 |---|---|
 | Документация, комментарии | Содержание, локальные ссылки, `git diff --check` |
+| Скрипты сборки приложения | `node --test clients/app/scripts/build.test.mjs`, затронутый реальный build; повторный запуск проверяет пропуск этапов |
 | Prompt/config без schema change | Загрузка затронутого профиля; init/install только при изменении упаковки |
 | Чистка tests | Изменённые test targets и сохранённые behavior checks |
 | Локальный helper | Затронутый test target |
@@ -215,7 +216,7 @@ Core на reference crates. Shell fixtures разбирают JSON-RPC id JSON-�
 Их пакеты собираются через Trunk:
 
 ```bash
-npm ci --prefix clients/app/ui/rendering --ignore-scripts
+node clients/app/scripts/dependencies.mjs
 (cd clients/app/ui && env -u NO_COLOR trunk build --locked)
 (cd clients/app/diagnostics && env -u NO_COLOR trunk build --locked)
 ```
@@ -223,6 +224,17 @@ npm ci --prefix clients/app/ui/rendering --ignore-scripts
 `cargo check` внутри клиента не заменяет Trunk из-за различий target/features.
 При изменении shared client DTO проверяются оба consumer-а. При локальной
 правке одного клиента второй собирать не требуется.
+
+CSS/JS/картинки проверяйте на уже работающем `./scripts/desktop.sh dev`:
+обновление ресурсов не требует Rust/WASM или release-сборки. Новая переносимая
+сборка нужна при проверке упаковки, native startup или по запросу владельца.
+Не запускайте её после каждой правки интерфейса. Общие Rust gates выбирайте
+по затронутой границе, а не по факту запуска приложения.
+
+Скрипты сборки проверяются отдельным Node-сценарием с временным репозиторием
+и подменёнными компиляторами: выбор этапов, повторный запуск, изменение CSS,
+embedded config, восстановление WASM и permissions, ошибка этапа. Этот сценарий
+не заменяет реальную сборку при изменении compiler flags или упаковки assets.
 
 - Browser/Node commands и покрытие UI extensions:
   [ui-extensions.md](../guides/ui-extensions.md#проверка).

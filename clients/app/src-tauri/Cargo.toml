@@ -29,7 +29,7 @@ custom-protocol = ["tauri/custom-protocol"]
 
 [profile.dev]
 debug = 0
-incremental = false
+incremental = true
 
 [profile.release]
 strip = "debuginfo"

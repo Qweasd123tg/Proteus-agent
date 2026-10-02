@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tauri dev",
-    "build": "tauri build --no-bundle -- --locked && node scripts/portable.mjs",
+    "build": "node scripts/build.mjs",
     "prepare:assets": "node scripts/prepare.mjs"
   },
   "devDependencies": {

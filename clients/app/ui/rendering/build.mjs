@@ -1,8 +1,11 @@
 import { cpSync, mkdirSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {build} from 'esbuild';
+import {cachedStep,fingerprint} from '../../scripts/build-cache.mjs';
 const local = path => fileURLToPath(new URL(path, import.meta.url));
 const output = local('../vendor');
+const key=fingerprint([local('./package.json'),local('./package-lock.json'),local('./build.mjs'),local('./interactive')])+process.version;
+await cachedStep(local('../../.build-cache'),'rendering',key,[output],async()=>{
 rmSync(output, {recursive:true,force:true});
 mkdirSync(output,{recursive:true});
 const copy = (source,target) => cpSync(local('node_modules/'+source),output+'/'+target,{recursive:true,filter:path=>!path.endsWith('.map')&&!path.endsWith('.d.ts')});
@@ -20,3 +23,5 @@ copy('morphdom/LICENSE','morphdom/LICENSE');
 await build({entryPoints:[local('interactive/render.mjs')],outfile:output+'/json-render/renderer.js',bundle:true,format:'esm',minify:true,target:['es2022'],legalComments:'linked'});
 copy('@json-render/core/LICENSE','json-render/LICENSE');
 copy('zod/LICENSE','json-render/ZOD-LICENSE');
+
+});
