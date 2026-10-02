@@ -261,7 +261,7 @@ sensitive keys в value-bearing metadata, client metadata и tool arguments
 Из одного journal строятся или могут быть построены:
 
 - resume history — fold history revisions (**реализовано**);
-- web transcript — render conversation parts и terminal tool cards
+- история сообщений приложения — render conversation parts и terminal tool cards
   (**реализовано**; live delta-tail остаётся process-resident);
 - trace — lifecycle view с ids и длительностями, дополненная event log для
   live deltas;

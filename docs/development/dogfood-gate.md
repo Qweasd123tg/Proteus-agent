@@ -61,31 +61,18 @@ cargo run --bin proteus -- eval report "/path/to/session-dir"
 
 ## Manual Client Diagnostic
 
-Для проверки web-сценария используется Leptos chat client в `clients/web`,
-подключённый к `proteus server http` через HTTP/SSE. Config/architecture
-экраны находятся в отдельном клиенте `clients/inspector`.
-
-App-server запускается только на loopback (`127.0.0.1`) для local dogfood.
-Wrapper `proteus` включает ephemeral session token по умолчанию
-(отключение — явное, `PROTEUS_NO_SESSION_TOKEN=1`); прямой запуск
-`proteus server http` без `--token` остаётся допустимым для loopback debug и
-ограничивает CORS локальным или явно разрешённым web origin. Non-loopback bind
-без token отклоняется до startup. Строгий token режим включается через
-`--token`; тогда `/events`, `/send`,
-approval/user-input/cancel/config/history/resume/reload/shutdown endpoints
-требуют token. Browser `EventSource` не умеет произвольные headers, поэтому
-для SSE допустим query token; для `fetch` предпочтителен header
-`Authorization: Bearer <token>`. Raw token не
-логировать и не хранить в `localStorage`. Launcher и оба browser-клиента
-используют единый query key `token`; значение сохраняется только в
-`sessionStorage`.
+Для ручной проверки используется приложение `clients/app`: чат и диагностика
+работают в одном окне, расширения подключаются через публичный API агента.
+Оболочка запускает локальный app-server с токеном и передаёт подключение
+интерфейсу. При прямом запуске `proteus server http` параметры token и
+`--allow-origin` задаются явно; non-loopback bind без token отклоняется.
+Правила описаны в [security-and-policy.md](../guides/security-and-policy.md).
 
 Минимальный сценарий:
 
 ```text
 proteus doctor
-запустить proteus server http на 127.0.0.1
-запустить clients/web или другой app-server chat client
+запустить приложение и выбрать проект/профиль
 отправить маленькую coding-задачу
 увидеть ход выполнения
 увидеть tool call / approval
@@ -100,69 +87,35 @@ Diagnostic успешен, если сценарий можно пройти б�
 
 ### Ручной UI Smoke
 
-Используйте этот чеклист, когда браузерную автоматику нельзя запустить
-надёжно. Он проверяет именно web/app-server loop, а не только HTTP endpoints.
+Используйте этот список для проверки основного приложения. Он покрывает
+путь от интерфейса через app-server к выполнению задачи.
 
-1. Запустить app-server на loopback с разрешённым origin:
+1. Запустить готовый `proteus-desktop` либо `./scripts/desktop.sh dev`
+   для разработки. Выбрать проект и настроенный профиль.
+2. Проверить соединение, историю и отсутствие ошибок авторизации.
+3. Отправить небольшую задачу, требующую инструмента и подтверждения.
+   Проверить обновление состояния, разрешить одно действие и отклонить другое.
+4. В сценарии `request_user_input` отправить ответ из интерфейса.
+5. Отменить активный ход и проверить завершение ожидающих подтверждений
+   и запросов ввода.
+6. Открыть сохранённую сессию, затем диагностические расширения в настройках:
+   расход, анализ, сборку и архитектуру. Проверить выбранную сессию и профиль.
+7. После выполнения проверить сохранённые данные:
 
    ```bash
-   proteus server http \
-     --port 8787 \
-     --allow-origin http://127.0.0.1:1420 \
-     --allow-origin http://localhost:1420 \
-     --allow-origin http://127.0.0.1:1421 \
-     --allow-origin http://localhost:1421
+   proteus --config codex-chatgpt doctor
+   proteus --config codex-chatgpt eval report "/path/to/session-dir"
+   proteus --config codex-chatgpt replay workflow "/path/to/session-dir" --json
    ```
 
-2. В другом терминале запустить web-клиент:
+   Для журнала с несколькими ходами укажите `--turn-id`. Replay пока отклоняет
+   ход с доставленным steering/follow-up и внешними `Canceled`/`Timeout`;
+   эти статусы проверяются через `TurnSettled` и cold `/history`.
 
-   ```bash
-   cd clients/web
-   trunk serve
-   ```
-
-3. Открыть UI без query token:
-
-   ```text
-   http://127.0.0.1:1420/
-   ```
-
-   Для строгого token smoke можно отдельно запустить server с
-   `--token "$PROTEUS_SESSION_TOKEN"` и открыть
-   `http://127.0.0.1:1420/?token=<PROTEUS_SESSION_TOKEN>`.
-
-4. Проверить, что в sidebar нет auth-token ошибки, event stream подключён,
-   `/config` и `/history` не показывают HTTP 401.
-5. Отправить маленькую задачу, которая требует tool call и approval.
-6. Убедиться, что tool activity card меняет состояние во время выполнения.
-7. Approve один pending approval и дождаться продолжения turn-а.
-8. На отдельном approval выбрать deny и убедиться, что UI показывает понятную
-   ошибку или финальный ответ с отказом.
-9. В сценарии с `request_user_input` отправить typed answer из UI.
-10. Во время активного turn-а нажать cancel и проверить, что pending approval и
-    typed input очищены или переходят в понятное terminal-состояние.
-11. Открыть `Сессии` в chat UI и `http://127.0.0.1:1421/configs` в inspector,
-    проверить, что страницы загружаются без auth errors и показывают текущую
-    session/config информацию.
-12. После run-а выполнить readback:
-
-    ```bash
-    proteus doctor
-    proteus eval report "/path/to/session-dir"
-    # optional orchestration readback для session с одним root turn
-    proteus --config codex replay workflow "/path/to/session-dir" --json
-    ```
-
-    Для journal с несколькими turns нужно явно добавить `--turn-id`. Текущий
-    workflow replay намеренно отклоняет turn с доставленным steering/follow-up и runtime-owned
-    `Canceled`/`Timeout`; такие статусы проверяются по `TurnSettled` и cold
-    `/history`. Этот отказ фиксирует известную границу replay, а не потерю
-    durable данных.
-
-UI-сценарий проверен, если шаги 4-12 прошли без потери контроля над
-turn-ом. Если задача сама провалилась, но UI сохранил transcript/journal и
-ясно показал причину, фиксируйте это как `failed` или `inconclusive` в
-postmortem, а не как блокер web/app-server boundary.
+Сценарий проверен, если управление ходом сохраняется, данные читаются после
+завершения, а причина ошибки видна в интерфейсе и журнале. Неудачная задача
+сама по себе не доказывает дефект интерфейса; фиксируйте результат проверки
+с условиями запуска и конкретным расхождением.
 
 ## Blocking Bugs
 

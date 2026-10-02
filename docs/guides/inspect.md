@@ -148,9 +148,9 @@ Snapshot может сообщить:
 Selected process failure при реальной сборке runtime остаётся hard error, а не
 warning/fallback.
 
-## Inspector
+## Диагностика Приложения
 
-`clients/inspector` использует JSON snapshot и config summary. UI показывает:
+`clients/app/diagnostics` использует JSON snapshot и config summary. UI показывает:
 
 - process components и exports;
 - slot selections;
@@ -180,30 +180,30 @@ warning/fallback.
 «Развернуть» открывает карту на всё окно; `Esc` закрывает этот режим либо
 сбрасывает выделение и поиск. В узком окне свойства располагаются под картой.
 Обновление snapshot пересоздаёт карту и сбрасывает её локальный выбор.
-Reference worker не получает отдельной визуальной категории.
+Reference-модуль не получает отдельной визуальной категории.
 
-Проверка UI после сборки обоих клиентов: `node --test clients/inspector/tests/*.test.mjs`
-и общий `python3 clients/web/tests/extensions_browser.py`. Browser fixture
+Проверка UI после сборки интерфейса и встроенной диагностики: `node --test clients/app/diagnostics/tests/*.test.mjs`
+и общий `python3 clients/app/ui/tests/extensions_browser.py`. Browser fixture
 использует настоящий app-server с локальным provider fixture и проверяет
 переходы карта/каталог, выбор узлов, связи, поиск, масштаб, клавиатуру,
 узкое и развёрнутое представления и повторное обновление.
-Для отдельной проверки Inspector у того же сценария есть `--inspector-only`.
+Для проверки встроенной диагностики у того же сценария есть `--inspector-only`.
 
 После изменения schema:
 
 ```bash
 ./scripts/test.py full
-(cd clients/inspector && env -u NO_COLOR trunk build)
+(cd clients/app/diagnostics && env -u NO_COLOR trunk build)
 ```
 
 ## Анализ сохранённого хода
 
-Раздел Inspector `/analysis` (desktop: `/inspector.html?view=analysis`)
+Раздел «Анализ ходов» в настройках (`/inspector.html?view=analysis`)
 показывает список сессий и ходов, итоговый ответ, причину завершения,
 конфигурацию на момент запуска и последовательность шагов. Сводка показывает
 число запросов и инструментов, ошибки, незавершённые шаги и сумму известных
 токенов с покрытием usage по запросам. Выбор сессии
-не вызывает `/resume`, не запускает workers и не меняет активный чат.
+не вызывает `/resume`, не запускает процессные модули и не меняет активный чат.
 
 Источник — canonical journal, а не текущий config или live SSE. HTTP
 `/analysis` требует абсолютный `session_dir`; без `turn_id` выбирает последний

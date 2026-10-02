@@ -236,7 +236,7 @@ async fn route_approval_resolves_pending_request_with_auth_and_cors() {
     let request = Request::builder()
         .method(Method::POST)
         .uri(session_uri("/approval", &server))
-        .header(ORIGIN, "http://127.0.0.1:1420")
+        .header(ORIGIN, "http://127.0.0.1:1430")
         .header(AUTHORIZATION, "Bearer session-secret")
         .header(CONTENT_TYPE, "application/json")
         .body(json_body(json!({
@@ -256,7 +256,7 @@ async fn route_approval_resolves_pending_request_with_auth_and_cors() {
             .headers()
             .get("access-control-allow-origin")
             .and_then(|value| value.to_str().ok()),
-        Some("http://127.0.0.1:1420")
+        Some("http://127.0.0.1:1430")
     );
     match response_output(response).await {
         StdioOutput::Response { id, ok, error, .. } => {
@@ -283,7 +283,7 @@ async fn route_user_input_resolves_pending_request_with_auth_and_cors() {
     let request = Request::builder()
         .method(Method::POST)
         .uri(session_uri("/user-input", &server))
-        .header(ORIGIN, "http://127.0.0.1:1420")
+        .header(ORIGIN, "http://127.0.0.1:1430")
         .header(AUTHORIZATION, "Bearer session-secret")
         .header(CONTENT_TYPE, "application/json")
         .body(json_body(json!({
@@ -307,7 +307,7 @@ async fn route_user_input_resolves_pending_request_with_auth_and_cors() {
             .headers()
             .get("access-control-allow-origin")
             .and_then(|value| value.to_str().ok()),
-        Some("http://127.0.0.1:1420")
+        Some("http://127.0.0.1:1430")
     );
     match response_output(response).await {
         StdioOutput::Response { id, ok, error, .. } => {
@@ -349,7 +349,7 @@ async fn route_pending_returns_current_pending_requests_with_auth_and_cors() {
             .headers()
             .get("access-control-allow-origin")
             .and_then(|value| value.to_str().ok()),
-        Some("http://127.0.0.1:1420")
+        Some("http://127.0.0.1:1430")
     );
     let bytes = response_bytes(response).await;
     let pending: crate::app_server::AppPendingRequests =

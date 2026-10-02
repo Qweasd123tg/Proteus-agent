@@ -142,7 +142,11 @@ fn token_auth_accepts_percent_encoded_event_source_query_token() {
     let security = HttpSecurity {
         session_token: Arc::from("session secret/%"),
         require_session_token: true,
-        allowed_origins: Arc::from(default_allowed_origins().into_boxed_slice()),
+        allowed_origins: Arc::from(
+            HttpServerConfig::default()
+                .allowed_origins
+                .into_boxed_slice(),
+        ),
     };
     let request = Request::builder()
         .uri("/events?token=session%20secret%2F%25")
@@ -186,10 +190,8 @@ fn token_auth_rejects_missing_and_invalid_tokens() {
 fn origin_validation_allows_configured_origins() {
     let security = test_security();
     for origin in [
-        "http://127.0.0.1:1420",
-        "http://localhost:1420",
-        "http://127.0.0.1:1421",
-        "http://localhost:1421",
+        "http://127.0.0.1:1430",
+        "http://localhost:1430",
         "https://app.example.test",
     ] {
         let request = request_with_origin(Some(origin));
@@ -205,13 +207,31 @@ fn origin_validation_allows_configured_origins() {
 
 #[test]
 fn origin_validation_rejects_untrusted_origins() {
+    let default_security = HttpSecurity {
+        session_token: Arc::from("session-secret"),
+        require_session_token: true,
+        allowed_origins: Arc::from(
+            HttpServerConfig::default()
+                .allowed_origins
+                .into_boxed_slice(),
+        ),
+    };
+    for origin in ["http://127.0.0.1:1420", "http://127.0.0.1:1421"] {
+        let request = request_with_origin(Some(origin));
+        assert_eq!(
+            validate_origin(&request, &default_security)
+                .expect_err("origin must be explicitly configured")
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+    }
     let security = test_security();
     for origin in [
         "https://evil.example.test",
         "null",
         "file://localhost/tmp/app.html",
         "http://127.0.0.1:5173",
-        "http://[::1]:1420",
+        "http://[::1]:1430",
         "http://localhost.evil.example.test",
     ] {
         let request = request_with_origin(Some(origin));
@@ -225,7 +245,7 @@ fn options_response_adds_cors_headers_for_allowed_origin() {
     let request = Request::builder()
         .method(Method::OPTIONS)
         .uri("/config")
-        .header(ORIGIN, "http://localhost:1420")
+        .header(ORIGIN, "http://localhost:1430")
         .header("access-control-request-method", "POST")
         .body(())
         .expect("request");
@@ -238,7 +258,7 @@ fn options_response_adds_cors_headers_for_allowed_origin() {
             .headers()
             .get("access-control-allow-origin")
             .and_then(|value| value.to_str().ok()),
-        Some("http://localhost:1420")
+        Some("http://localhost:1430")
     );
     assert_eq!(
         response
@@ -329,7 +349,7 @@ async fn route_accepts_allowed_origin_and_never_uses_wildcard_cors() {
     let request = Request::builder()
         .method(Method::GET)
         .uri(session_uri("/config", &server))
-        .header(ORIGIN, "http://127.0.0.1:1420")
+        .header(ORIGIN, "http://127.0.0.1:1430")
         .header(AUTHORIZATION, "Bearer session-secret")
         .body(empty_body())
         .expect("request");
@@ -342,7 +362,7 @@ async fn route_accepts_allowed_origin_and_never_uses_wildcard_cors() {
             .headers()
             .get("access-control-allow-origin")
             .and_then(|value| value.to_str().ok()),
-        Some("http://127.0.0.1:1420")
+        Some("http://127.0.0.1:1430")
     );
     assert_ne!(
         response

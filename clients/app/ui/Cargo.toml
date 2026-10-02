@@ -1,0 +1,52 @@
+[package]
+name = "proteus-app-ui"
+version = "0.0.0-dev"
+edition = "2024"
+publish = false
+description = "Main Proteus app interface"
+
+[dependencies]
+proteus-contracts = { path = "../../../crates/proteus-contracts" }
+ammonia = "4"
+console_error_panic_hook = "0.1"
+leptos = { version = "0.8.19", features = ["csr"] }
+pulldown-cmark = "0.13"
+proteus-app-common = { path = "../common" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+    "AbortSignal",
+    "Clipboard",
+    "Document",
+    "DomRect",
+    "Element",
+    "Event",
+    "EventSource",
+    "EventTarget",
+    "Headers",
+    "History",
+    "HtmlInputElement",
+    "HtmlSelectElement",
+    "HtmlTextAreaElement",
+    "Location",
+    "MouseEvent",
+    "MessageEvent",
+    "Navigator",
+    "Request",
+    "RequestInit",
+    "RequestMode",
+    "Response",
+    "Storage",
+    "SubmitEvent",
+    "WheelEvent",
+    "Window", "CustomEvent",
+    "Url",
+    "UrlSearchParams",
+] }
+
+[dev-dependencies]
+any_spawner = { version = "0.3", features = ["futures-executor", "tokio"] }
+tokio = { version = "1.52.3", features = ["rt", "macros"] }

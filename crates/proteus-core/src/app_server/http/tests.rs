@@ -17,7 +17,6 @@ use crate::contracts::{
 use crate::core::{AppConfig, ModuleCatalog};
 use crate::domain::{PermissionMode, ToolCall, new_call_id};
 
-use super::config::default_allowed_origins;
 use super::security::{
     endpoint_requires_auth, request_has_valid_token, request_requires_session_token,
     validate_origin,
@@ -28,8 +27,11 @@ fn empty_body() -> Full<Bytes> {
 }
 
 fn test_security() -> HttpSecurity {
-    let mut allowed_origins = default_allowed_origins();
-    allowed_origins.push("https://app.example.test".to_owned());
+    let allowed_origins = vec![
+        "http://127.0.0.1:1430".to_owned(),
+        "http://localhost:1430".to_owned(),
+        "https://app.example.test".to_owned(),
+    ];
     HttpSecurity {
         session_token: Arc::from("session-secret"),
         require_session_token: true,
@@ -170,7 +172,7 @@ fn authed_get_request(path: &str) -> Request<Full<Bytes>> {
     Request::builder()
         .method(Method::GET)
         .uri(path)
-        .header(ORIGIN, "http://127.0.0.1:1420")
+        .header(ORIGIN, "http://127.0.0.1:1430")
         .header(AUTHORIZATION, "Bearer session-secret")
         .body(empty_body())
         .expect("request")
@@ -180,7 +182,7 @@ fn authed_json_request(path: &str, value: Value) -> Request<Full<Bytes>> {
     Request::builder()
         .method(Method::POST)
         .uri(path)
-        .header(ORIGIN, "http://127.0.0.1:1420")
+        .header(ORIGIN, "http://127.0.0.1:1430")
         .header(AUTHORIZATION, "Bearer session-secret")
         .header(CONTENT_TYPE, "application/json")
         .body(json_body(value))

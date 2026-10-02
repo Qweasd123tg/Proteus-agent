@@ -31,7 +31,7 @@ Core определяет допустимые методы модуля, обр
 ```text
 Application / Client
    |
-   | web/Inspector: HTTP/SSE
+   | app: HTTP/SSE
    | product CLI/REPL and AgentControl peers: stdio JSONL
    v
 AppServer HTTP/stdio
@@ -119,9 +119,11 @@ modules/
   reference/               test/dogfood implementations + process module
   research/                нестабилизированные experiments
 clients/
-  web/                     chat
-  inspector/               config и topology
-  desktop/                 Tauri-окна, process supervisor и упаковка клиентов
+  app/                     основной клиент и упаковка приложения
+    ui/                    чат, рабочая область и расширения интерфейса
+    diagnostics/           встроенные конфигурация, анализ и карта
+    common/                общие правила подключения и сессий
+    src-tauri/             окно, выбор проекта и управление сервером
 configs/                   packaged profiles
 examples/                  configs, external modules, MCP smoke
 ```
@@ -131,7 +133,7 @@ examples/                  configs, external modules, MCP smoke
 удобства dogfood. На host boundary он ничем не отличается от модуля на Python.
 
 Desktop-оболочка поставляет согласованную пару `proteus`/
-`proteus-reference-module` и статические Leptos-клиенты, но не линкует Core.
+`proteus-reference-module` и статический интерфейс на Leptos, но не линкует Core.
 Она владеет только окнами, выбором проекта,
 готовностью и завершением дочернего app-server. HTTP/SSE, session store,
 approvals и process-module authority остаются за существующими границами.
@@ -161,23 +163,23 @@ Admission, cancellation и terminal execution находятся в `app_server/
 
 Намерение запуска принадлежит публичному контракту (`RunOptions.intent`),
 а его алгоритм и инструкции — выбранному workflow. Override прав фиксируется
-при admission и не меняет default сессии. Web не дописывает скрытую стратегию
+при admission и не меняет default сессии. Приложение не дописывает скрытую стратегию
 планирования в пользовательское сообщение.
 
 Публичные Rust DTO HTTP/stdio, событий, pending/session snapshots,
 конфигурации, Config Builder и topology определены в
-`proteus-contracts::app_protocol`. Core формирует эти типы, web и Inspector
-используют их напрямую, включая typed IDs, права и статусы. Browser target
-поддержан самим contracts crate; клиенты не зависят от Core. UI оставляет
+`proteus-contracts::app_protocol`. Core формирует эти типы, основной интерфейс и встроенная диагностика
+используют их напрямую, включая typed IDs, права и статусы. WASM target
+поддержан самим contracts crate; интерфейс не зависит от Core. UI оставляет
 собственные модели представления, подписи и форматирование.
-`clients/common` содержит независимые от UI-фреймворка правила подключения,
+`clients/app/common` содержит независимые от UI-фреймворка правила подключения,
 декодирование ответов, `PendingCursor` и `SessionCursor`: новый stream и lag
 требуют полного baseline; устаревшие snapshots и чужая session отклоняются.
 Настройки отображения принадлежат клиенту и не входят в AppConfig или journal.
 
 UI — сменный клиент и витрина возможностей агента. Его расширения принадлежат
 клиенту: отдельные ES modules с манифестами, своим lifecycle и необязательными
-интерфейсами данных. Правые панели web/desktop загружаются независимо от backend
+интерфейсами данных. Панели приложения загружаются независимо от backend
 modules; общий загрузчик не зависит от transport агента. Привязка конкретного
 клиента к публичному `/config` находится в его `web-adapter.js` и HTTP-коде.
 Установка UI-пакета не меняет profiles, slots, process exports или authority.
@@ -259,7 +261,7 @@ cancel, invalid response или смерть process классифицирую�
 
 | Переход | File / type / method | Owner и lifetime |
 |---|---|---|
-| Web send | `clients/web/src/actions.rs`, `/send-async` action | Client request |
+| Отправка из приложения | `clients/app/ui/src/actions.rs`, `/send-async` action | Client request |
 | HTTP/stdio dispatch | `crates/proteus-core/src/app_server/runs.rs`, `dispatch_user_message` | Session-owned run; active до settlement, включая `cancel_requested` |
 | Reservation/queue | `crates/proteus-core/src/core/runtime/steering.rs`, `SessionSteering::reserve` | Session lifetime; создаёт domain `TurnId`/`MessageId` |
 | Serialized root chain | `crates/proteus-core/src/core/runtime/turn.rs`, `run_reserved_completion`, `run_reserved_chain` | `AgentRuntime`; один `run_lock`, один или несколько sequential Turns |
@@ -674,5 +676,5 @@ Full уже включает `module_swap` и conformance процессного
 не запускают. Для локального adapter выбирайте соответствующие targets по
 [матрице изменений](../development/testing.md#evidence-matrix).
 
-Изменения Inspector дополнительно проверяются `trunk build`. Точная evidence
+Изменения встроенной диагностики дополнительно проверяются `trunk build`. Точная evidence
 матрица находится в [testing.md](../development/testing.md).

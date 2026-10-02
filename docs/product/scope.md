@@ -22,17 +22,19 @@
   `coding.plan_execute_review` и Python example.
 - AgentControl для полных local Proteus peers: lifecycle, bounded mailbox,
   messaging, follow-up и адресная отмена.
-- CLI/REPL, HTTP/SSE/stdio app-server, web chat и Inspector.
+- CLI/REPL и HTTP/SSE/stdio app-server. Основной пользовательский клиент —
+  приложение Proteus; его интерфейс находится в `clients/app/ui`, а исходники
+  диагностических экранов — в `clients/app/diagnostics`.
 - ACP v1 stdio agent для редакторов: независимые sessions, streamed responses,
   tools/approval, отмена, селекторы модели/reasoning/прав, план выполнения
   и editor stdio MCP через существующий runtime;
   [возможности и ограничения](../guides/runtime-and-events.md#acp-для-редакторов).
-- Desktop-оболочка Tauri под Fedora: готовые клиенты и backend в переносимой папке,
-  автоматическое подключение, выбор проекта/профиля и встроенная диагностика Inspector.
-- Независимые UI-расширения web/desktop: компактные виджеты у поля ввода и
-  в шапке, вкладки общей рабочей области с одной или двумя группами, установка ES module
-  по URL манифеста, порядок и lifecycle;
-  публичные API агента, квота/расход, файлы и автономные заметки.
+- Приложение на Tauri под Fedora: интерфейс и backend в переносимой папке,
+  автоматическое подключение, выбор проекта/профиля и диагностические разделы.
+- Независимые расширения интерфейса: компактные виджеты у поля ввода и
+  в шапке, вкладки общей рабочей области с одной или двумя группами, установка
+  пакета JavaScript по URL манифеста, порядок и жизненный цикл;
+  публичный API агента, квота/расход, файлы и автономные заметки.
   [Контракт и границы](../guides/ui-extensions.md).
 - OpenAI, OpenAI-compatible, ChatGPT subscription OAuth (`openai_codex`),
   Anthropic и fake implementations в reference
@@ -40,6 +42,10 @@
 - Doctor, inspect/topology, eval report и атомарная локальная установка.
 
 Reference modules и profiles — поставляемые примеры без особых прав.
+
+Часть прежних экранов Inspector уже открывается в основном приложении через
+расширения интерфейса и встроенную диагностику. Полный перенос их функций
+в расширения интерфейса ещё не завершён.
 
 ## Что Пока Ограничено
 
@@ -50,7 +56,7 @@ Reference modules и profiles — поставляемые примеры без
 | Replay | Model-free Turn поддержан; context/tool exposure/compaction требуют записанного model request. Прямые model calls workflow отделены от summary exchanges; replay хода с внутренним summary требует записанного changed-compaction checkpoint и следующего direct model request; внутренний алгоритм и typed error branches compactor не воспроизводятся. Root steering и внешние Canceled/Timeout не эмулируются |
 | Collaboration | Spawn принимает только parallel_safe роли с isolation=none; настроенный coder с worktree в эту surface не входит |
 | Peer recovery | Resume зависит от живого process; durable tree, attach и reconnect отсутствуют |
-| Worker trust | Собственные workers доверенные и работают с OS-правами владельца; принятый локальный режим, sandbox не является задачей этапа |
+| Доверие к модулям | Собственные процессные модули доверенные и работают с OS-правами владельца; принятый локальный режим, sandbox не является задачей этапа |
 | Форматы | Config/API/DTO/wire/storage пока не стабилизированы |
 
 Точные границы: [modules.md](../architecture/modules.md),

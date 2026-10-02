@@ -1,36 +1,33 @@
 # Документация Proteus
 
-Для восстановления контекста достаточно трёх документов:
+Начните с [главного README](../README.md): он показывает, как запустить Proteus
+и собрать агента из слотов и модулей. Затем прочитайте:
 
-1. [spec.md](product/spec.md) — зачем нужен конструктор и роль экзамена Codex.
-2. [scope.md](product/scope.md) — что реализовано и что ограничено.
-3. [roadmap.md](product/roadmap.md) — согласованный результат и условия завершения.
+1. [Замысел](product/spec.md) — для чего нужен конструктор и как устроен агент.
+2. [Текущее состояние](product/scope.md) — что уже работает и где проходят границы.
+3. [План](product/roadmap.md) — какие результаты ещё нужны и как понять, что работа завершена.
 
-Текущие решения владельца определяют направление. Справочники описывают
-действующий код; при расхождении с ним исправляется соответствующий документ.
+Для конкретной задачи выберите ближайший документ из таблицы. Если описание
+расходится с кодом, обновите соответствующий справочник. История решений лежит
+в `docs/archive/`; она не заменяет описание действующего устройства.
 
-`docs/archive/` и `examples/research/` содержат историю решений; их не используют
-для выбора текущей работы. `modules/research/` содержит неподключённые прототипы.
-Локальные отчёты в `docs/Proteus-audit/` не входят в актуальные справочники:
-их выводы требуют сверки с текущим кодом.
-
-## Справочники По Задачам
+## Куда Смотреть
 
 | Задача | Документ |
 |---|---|
-| Установить и запустить | [README](../README.md), [другая машина](guides/second-pc-bootstrap.md) |
-| Собрать и использовать desktop-приложение | [desktop.md](guides/desktop.md) |
-| Подключить или написать расширение UI | [ui-extensions.md](guides/ui-extensions.md) |
-| Настроить profile, model, tools | [configuration.md](guides/configuration.md) |
-| Понять runtime и ownership | [architecture.md](architecture/architecture.md) |
-| Понять сборку и reload | [assembly-plan.md](architecture/assembly-plan.md), [hot-swap.md](architecture/hot-swap.md) |
-| Добавить module или изменить contract | [modules.md](architecture/modules.md), [process protocol](architecture/process-module-architecture.md), [slot governance](architecture/slot-governance.md) |
-| Проверить взаимодействие modules | [pack-contracts.md](architecture/pack-contracts.md) |
-| Разобрать peers | [subagents.md](architecture/subagents.md) |
-| Разобрать history, events и replay | [runtime-and-events.md](guides/runtime-and-events.md), [canonical-turn-data.md](architecture/canonical-turn-data.md) |
-| Разобрать tools и permissions | [security-and-policy.md](guides/security-and-policy.md) |
-| Проверить изменение | [testing.md](development/testing.md) |
-| Посмотреть существующее Codex evidence | [codex-baseline.md](development/codex-baseline.md) |
-| Диагностировать запуск | [inspect.md](guides/inspect.md), [manual diagnostic](development/dogfood-gate.md) |
+| Установить и запустить Proteus | [Главный README](../README.md), [запуск на другой машине](guides/second-pc-bootstrap.md) |
+| Собрать и использовать настольное приложение | [Настольное приложение](guides/desktop.md) |
+| Подключить или написать расширение интерфейса | [Расширения интерфейса](guides/ui-extensions.md) |
+| Настроить профиль, модель и инструменты | [Конфигурация](guides/configuration.md) |
+| Разобраться в устройстве и ответственности частей системы | [Архитектура](architecture/architecture.md) |
+| Понять, как собирается и обновляется агент | [План сборки](architecture/assembly-plan.md), [обновление во время работы](architecture/hot-swap.md) |
+| Добавить модуль или изменить слот | [Слоты и модули](architecture/modules.md), [запуск модулей](architecture/process-module-architecture.md), [правила добавления слота](architecture/slot-governance.md) |
+| Проверить согласованность модулей | [Контракты между наборами модулей](architecture/pack-contracts.md) |
+| Разобрать взаимодействие агентов | [Взаимодействие агентов](architecture/subagents.md) |
+| Разобрать историю, события и повтор выполнения | [Работа во время выполнения](guides/runtime-and-events.md), [данные хода агента](architecture/canonical-turn-data.md) |
+| Разобрать инструменты и запросы разрешений | [Инструменты и разрешения](guides/security-and-policy.md) |
+| Проверить изменение | [Проверки](development/testing.md) |
+| Сверить поведение с Codex | [База сравнения](development/codex-baseline.md) |
+| Найти причину сбоя при запуске | [Диагностика](guides/inspect.md), [ручная проверка](development/dogfood-gate.md) |
 
 Правила работы с репозиторием — в [AGENTS.md](../AGENTS.md).

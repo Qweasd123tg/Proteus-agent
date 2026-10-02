@@ -56,7 +56,7 @@ CI отключён; проверки выполняются локально. M
 | Agent control | Real process peers, адресная доставка/отмена и независимые child configs |
 | HTTP/session | Затронутые handlers; reconnect/cold history/auth/SSE при изменении этих границ |
 | MCP/ACP | Реальный stdio peer; prompt/tools/approval/cancel и cold history по изменению |
-| Web/Inspector | Затронутые Rust/Node tests и `trunk build`; browser smoke при UX change |
+| Интерфейс приложения и диагностика | Затронутые Rust/Node tests и `trunk build`; browser smoke при UX change |
 | UI extensions | Contract/lifecycle tests; реальный browser/agent API при изменении интеграции |
 | Desktop launch/package | Backend lifecycle, portable build и native smoke; при изменении графического запуска — Linux/NVIDIA default и явный override переменных окружения до GTK, native Wayland с аппаратным ускорением |
 
@@ -188,7 +188,7 @@ unsupported capability или намеренный divergence. Snapshot не о�
 | MCP discovery/result mapping/cancel/restart | `proteus-core --test mcp_client` |
 | ACP prompt/approval/cancel, model/mode selectors | `proteus-core --test acp_server`, `--lib app_server::acp` |
 | HTTP адресация, очереди, SSE и cold reads | `proteus-core --lib app_server::http` |
-| Live projections и client revisions | `app_server::events`, `app_server::turn_progress`, `proteus-client-common` |
+| Live projections и client revisions | `app_server::events`, `app_server::turn_progress`, `proteus-app-common` |
 | OAuth/Responses/Anthropic mapping и retries | `model-pack`; module targets `auth_commands`, `model_exports` |
 | Terminal processes | `shell-tool`; модуль `codex_model_resume terminal::` |
 
@@ -211,12 +211,13 @@ Core на reference crates. Shell fixtures разбирают JSON-RPC id JSON-�
 
 ### Клиенты И Установка
 
-Web и Inspector исключены из root workspace. Их production-сборка:
+Интерфейс приложения и встроенная диагностика исключены из root workspace.
+Их пакеты собираются через Trunk:
 
 ```bash
-npm ci --prefix clients/web/rendering --ignore-scripts
-(cd clients/web && env -u NO_COLOR trunk build --locked)
-(cd clients/inspector && env -u NO_COLOR trunk build --locked)
+npm ci --prefix clients/app/ui/rendering --ignore-scripts
+(cd clients/app/ui && env -u NO_COLOR trunk build --locked)
+(cd clients/app/diagnostics && env -u NO_COLOR trunk build --locked)
 ```
 
 `cargo check` внутри клиента не заменяет Trunk из-за различий target/features.

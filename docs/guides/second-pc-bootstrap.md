@@ -1,92 +1,56 @@
 # Запуск На Другом ПК
 
-Короткая инструкция для поднятия текущего агента на новой машине.
+Основной клиент — приложение. Готовую папку `Proteus` перенесите целиком
+и запустите `proteus-desktop`. При первом запуске выберите проект и профиль.
+Сборка из исходников и системные зависимости описаны в
+[руководстве приложения](desktop.md#сборка-и-разработка).
 
-## Установка
+## Профили И Доступ К Модели
+
+Именованные профили хранятся в `~/.config/Proteus-agent/configs/`.
+Собственные профили можно перенести на новую машину. Пути к секретам должны
+соответствовать локальному окружению, например
+`$HOME/.config/Proteus-agent/secrets/anthropic.json`.
+
+Ключи и OAuth-авторизация настраиваются на каждом ПК отдельно по
+[руководству конфигурации](configuration.md). Секреты не входят в Git
+или переносимый пакет приложения.
+
+## Команды Для Терминала
+
+Если нужны CLI и команды авторизации, установите их из репозитория:
 
 ```bash
 git clone <repo> Agent
 cd Agent
 ./install.sh
-proteus init coding
+proteus --config codex-chatgpt doctor
 ```
 
-Для собственной раскладки `install.sh` принимает `PROTEUS_BIN_DIR`,
-`PROTEUS_HOME` и `PROTEUS_CONFIG_HOME`.
-Если нужно диагностировать сам installer, отдельно запустите
-`./scripts/install-smoke.sh`: он повторит установку во временные каталоги.
-Для обычного переноса на другой ПК этот дополнительный прогон не нужен.
+Установщик принимает `PROTEUS_BIN_DIR`, `PROTEUS_HOME` и
+`PROTEUS_CONFIG_HOME`. Он хранит `proteus` и `proteus-reference-module`
+в `~/.proteus/releases/<snapshot-id>/` и атомарно переключает ссылку
+`~/.proteus/current`. Команды в `~/.local/bin` используют выбранную сборку.
 
-После `proteus init coding` проверь provider/key config:
+Поставляемые профили устанавливаются вместе с CLI. `proteus init coding`
+создаёт новую конфигурацию, перезаписывая существующий `config.toml` и
+связанные файлы; рабочий профиль выбирайте явно через `--config`.
 
-```text
-~/.config/Proteus-agent/configs/config.toml
-```
-
-`config.toml` хранит `active_provider`, `providers.*`, рабочий coding profile,
-modules, tools, policy и event log. В синхронизируемых configs пути к секретам
-должны быть переносимыми, например
-`$HOME/.config/Proteus-agent/secrets/anthropic.json`. На новом ПК создай
-локальные secret JSON по тем же относительным к home путям, например:
-
-```json
-{
-  "anthropic_api_key": "...",
-  "base_url": "https://private-provider.example"
-}
-```
-
-Secret-файлы не синхронизируются через git и должны быть заведены на каждом ПК
-отдельно.
-
-`install.sh` хранит пару executable `proteus` +
-`proteus-reference-module` под `~/.proteus/releases/<snapshot-id>/` и атомарно
-переключает symlink `~/.proteus/current`. Wrapper добавляет этот каталог в
-`PATH`, поэтому packaged components находят worker. Native module
-каталога и dylib artifacts в build snapshot нет.
-
-## Проверка
+После настройки подписки ChatGPT:
 
 ```bash
-proteus doctor
-proteus modules list
-proteus tools list
-```
-
-В `tools list` для coding profile должны быть видны основные tools:
-
-```text
-read_file
-read_many_files
-list_dir
-grep
-find_files
-git_status
-git_diff
-search
-apply_patch
-write_file
-shell
-remember_fact
-request_user_input
-```
-
-## Запуск
-
-Из нужной рабочей папки:
-
-```bash
+proteus-reference-module auth openai_codex login
+proteus --config codex-chatgpt modules list
+proteus --config codex-chatgpt tools list
 cd /path/to/project
-proteus
+proteus --config codex-chatgpt "Расскажи о структуре проекта"
 ```
 
-Активный Leptos chat-клиент запускается wrapper-ом `proteus` после
-`./install.sh` или вручную через `proteus server http` плюс `trunk serve` в
-`clients/web`. Config/architecture inspector запускается отдельно из
-`clients/inspector`, когда он нужен. История и event log будут лежать под
-основным config root:
+`proteus` без запроса открывает интерактивный CLI. Сессии и журнал сохраняются
+под настроенным корнем конфигурации; при стандартной раскладке это
+`~/.config/Proteus-agent/sessions/` и
+`~/.config/Proteus-agent/.proteus/events.jsonl`.
 
-```text
-~/.config/Proteus-agent/sessions/...
-~/.config/Proteus-agent/.proteus/events.jsonl
-```
+Для проверки установщика есть `scripts/install-smoke.sh`: он повторяет
+установку во временные каталоги и запускает её проверки. При обычном переносе
+готового приложения этот прогон не требуется.

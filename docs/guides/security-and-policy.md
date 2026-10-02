@@ -87,47 +87,40 @@ workspace, включая canonical symlink check. Подменять отсут
 
 ## App-Server HTTP Boundary
 
-`proteus server http` предназначен для локального web-клиента и dogfood
-запусков. Держите bind только на `127.0.0.1` и не экспонируйте порт в сеть:
+`proteus server http` предоставляет локальный API приложения и проверочных
+стендов. Держите bind только на `127.0.0.1` и не экспонируйте порт в сеть:
 HTTP endpoints умеют отправлять prompts, approvals, typed input, cancel,
 reload-tools, history/resume, inspect topology diagnostics и shutdown.
 
 У прямого запуска `proteus server http` token auth по умолчанию выключен только
 для loopback bind; включить его можно через `--token <token>`. Любой
 non-loopback bind требует непустой token и отклоняется до запуска runtime и
-`bind`, если auth не включён. Установленный wrapper из `install.sh` строже: если
-`PROTEUS_SESSION_TOKEN` не задан, он генерирует ephemeral token на каждый
-запуск. Отключение wrapper token-mode только явное:
-`PROTEUS_NO_SESSION_TOKEN=1`.
+`bind`, если auth не включён. Приложение запускает сервер на свободном
+loopback-порту с отдельным случайным токеном; команды CLI из `install.sh`
+передают аргументы бинарнику напрямую.
 
 Когда token-mode включён, session token требуется для любого HTTP endpoint,
 кроме preflight `OPTIONS` и `GET /health`; правило применяется централизованно
 и не зависит от ручного списка routes. Для SSE допустим query token, потому что
 browser `EventSource` не выставляет произвольные headers; для обычных `fetch`
-requests предпочтителен `X-Proteus-Session` или
-`Authorization: Bearer <token>`. Raw token не печатать в обычные logs и не
+requests используется `Authorization: Bearer <token>`. Raw token не печатать в обычные logs и не
 класть в `localStorage`; текущие clients используют in-memory state или
-`sessionStorage`. Browser clients принимают app-server и взаимные client links
-только как local HTTP(S) origin (`localhost` или loopback IP) без path/query,
-userinfo и fragment. Session credential хранится вместе с точным
-нормализованным app-server origin: смена `server` без нового `token` удаляет
-credential, поэтому token предыдущего endpoint не попадает ни в fetch/SSE, ни
-в ссылку между chat и Inspector. Устаревший origin-less ключ token не читается.
-Автоматический перенос token между browser clients разрешён только на
-packaged sibling origin (`127.0.0.1:1420`/`:1421`); custom UI origin открывается
-без token и требует отдельного pairing.
+`sessionStorage`. Приложение получает адрес и токен сервера из нативной
+оболочки, а встроенные диагностические экраны наследуют это подключение.
+Проверочные браузерные стенды принимают только локальный HTTP(S) origin
+(`localhost` или loopback IP) без path/query, userinfo и fragment.
+Credential хранится с точным нормализованным адресом app-server; смена
+`server` без нового `token` удаляет прежний credential.
 
 Direct CLI и HTTP server boundary fail-closed связывают non-loopback bind с
 обязательным token: например, `--host 0.0.0.0` или `--host ::` без `--token`
 завершаются ошибкой. CORS/`Origin` не заменяют auth; наличие token также не
 превращает app-server в production-ready public service.
 
-CORS для защищённых endpoints должен быть allowlist-ом локальных origins,
-например chat `http://127.0.0.1:1420`, inspector
-`http://127.0.0.1:1421`, соответствующие `localhost` origins и текущий
-dev-server port. Wildcard CORS допустим только для явно публичных endpoints
-вроде `/health`; requests без `Origin` от локальных CLI/curl можно принимать
-при валидном token.
+Допустимые CORS origins задаются явно через `--allow-origin`. По умолчанию
+список пуст; приложение передаёт origin своей оболочки и dev-сервера 1430.
+Запросы без `Origin` от CLI/curl принимаются при выполнении правил auth.
+Wildcard CORS применяется только к публичному `/health`.
 
 ## ToolSafety
 
@@ -475,7 +468,7 @@ workspace boundary или аргументной validation. Если `preview` 
 approval остаётся валидным и должен рендериться через обычные `ToolCall`,
 `reason`, `cwd` и `tool_spec`.
 
-Web/desktop approval-карточка показывает причину, полный рабочий каталог и
+Карточка подтверждения в приложении показывает причину, полный рабочий каталог и
 preview действия. При наличии body исходные параметры находятся в раскрываемом
 блоке; без body параметры видны сразу. Все affected files доступны в карточке.
 Выбор «Разрешение действует» начинается с «Один раз»: «Тот же вызов» соответствует
@@ -506,7 +499,7 @@ shutdown. При shutdown app-server отклоняет все pending approvals
   `AppApprovalRequest` остаётся optional для transport-level запросов, но при
   наличии использует только актуальную execution-owned wire shape.
 - `AppApprovalRequest.seq` — монотонный порядковый номер очереди; `GET
-  /pending` и web-клиент сортируют pending approvals по нему, а не по
+  /pending` и интерфейс приложения сортируют pending approvals по нему, а не по
   случайному UUID.
 - Каждый pending approval привязан watcher-ом к своему запросившему: если
   orchestrator дропает approval future (cancel turn-а, timeout субагента),
@@ -514,7 +507,7 @@ shutdown. При shutdown app-server отклоняет все pending approvals
   Поэтому cancel одного turn-а больше не отклоняет pending approvals других
   конкурентных turn-ов; blanket-deny остаётся только на shutdown.
 - Терминальный transport CLI сериализует конкурентные prompts mutex-ом и
-  печатает `from: subagent '<role>'` для запросов дочерних циклов; web-клиент
+  печатает `from: subagent '<role>'` для запросов дочерних циклов; интерфейс приложения
   показывает бейдж роли на approval-карточке.
 
 Очередь pending user inputs (`request_user_input`) устроена зеркально:

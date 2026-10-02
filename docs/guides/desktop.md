@@ -1,13 +1,21 @@
 # Desktop-приложение
 
-`clients/desktop` — оболочка Tauri 2 для Fedora x86_64. Она встраивает готовые
-Leptos chat и диагностические разделы настроек, запускает поставляемый `proteus server http` и
-завершает его при выходе. Runtime и implementations модулей остаются во внешних
-процессах; desktop не зависит от `proteus-core` и не выбирает slots за профиль.
+`clients/app` — основное приложение Proteus на Tauri 2 и Leptos для Fedora
+x86_64. В одном окне находятся чат, рабочие вкладки, настройки и диагностика.
+Оболочка запускает поставляемый `proteus server http` и завершает его при выходе.
+Core и модули агента работают во внешних процессах; приложение использует
+публичный API и не выбирает слоты за профиль.
+
+Исходники интерфейса лежат в `clients/app/ui`, диагностических экранов —
+в `clients/app/diagnostics`, общих правил подключения — в `clients/app/common`,
+нативной оболочки — в `clients/app/src-tauri`.
+Диагностика уже доступна через расширения в настройках. Сейчас они встраивают
+существующие экраны; полный перенос функций в самостоятельные расширения
+выполняется по частям, согласно [плану](../product/roadmap.md).
 
 ## Использование
 
-Запустите `clients/desktop/build/Proteus/proteus-desktop`. Установка не нужна.
+Запустите `clients/app/build/Proteus/proteus-desktop`. Установка не нужна.
 Папку `Proteus` можно целиком перенести в удобное место; `bin/` и `lib/` должны
 оставаться рядом с файлом запуска. При первом запуске выберите папку проекта и именованный
 профиль, например `codex` или `codex-chatgpt`. Можно указать абсолютный путь к
@@ -81,7 +89,7 @@ resume/replay для старого формата по-прежнему даю�
 открытие прерывает закрытие. Боковая панель, рейка и нижние кнопки движутся
 согласованно, без растягивания текста и покадровой перестройки ширины переписки.
 Переходы между рабочими вкладками, настройками и их разделами сохраняют DOM,
-черновик и прокрутку. Блоки системных модулей, установки и восстановления списка
+черновик и прокрутку. Блоки встроенных расширений, установки и восстановления списка
 плавно раскрываются и сворачиваются.
 
 Backend сам выбирает свободный loopback-порт. Оболочка передаёт сессионный
@@ -135,7 +143,7 @@ configs копируются из пакета только при отсутс�
 пакетов меняется перетаскиванием за ручку с анимацией вставки. Управление пакетами
 находится в разделе расширений. Подробный
 отчёт расхода и контекста находится в «Настройки → Расход и контекст».
-Анализ ходов, сборка и архитектура также открываются отдельными модульными пунктами.
+Анализ ходов, сборка и архитектура также открываются через расширения в настройках.
 Встроенные диагностические экраны сохраняют сессию из адреса даже до окончания подключения чата.
 Дерево и просмотр файла разделяют одну вкладку «Файлы», с регулируемой
 границей и переключением файла/diff. Выбранная сессия, черновик и открытые вкладки
@@ -223,11 +231,11 @@ ResizeObserver резервирует фактическую высоту
 Чат и native-оболочка используют один каталог и dispatcher; после
 переназначения прежнее сочетание перестаёт выполнять эту команду. Закрытие
 меню по Escape обрабатывается до отмены ответа. Настройки приложения доступны
-из чата; Inspector и окно выбора проекта используют тот же набор native-команд.
+из чата; Встроенная диагностика и окно выбора проекта используют команды приложения.
 
 ## Структура клиента
 
-`clients/web/src/app.rs` собирает независимые части клиента: `app/state.rs`
+`clients/app/ui/src/app.rs` собирает независимые части клиента: `app/state.rs`
 владеет состоянием чата, запроса, сессии и представления; `app/connection.rs`
 связывает их с API; `app/commands.rs` обрабатывает действия пользователя;
 `app/shell.rs` собирает экран. Навигация и эффекты живут отдельно. Декодирование
@@ -310,28 +318,28 @@ cargo install trunk --locked
 ./scripts/desktop.sh dev
 ```
 
-Dev-команда собирает backend и оба клиента, поднимает локальную раздачу на
-`127.0.0.1:1430` и запускает Tauri. Изменения Rust/CSS/HTML клиентов пересобираются
+Dev-команда собирает backend, интерфейс и встроенную диагностику, поднимает локальную раздачу на
+`127.0.0.1:1430` и запускает Tauri. Изменения Rust/CSS/HTML интерфейса пересобираются
 и перезагружают окна; изменения самой оболочки отслеживает Tauri. После правок
-backend или process workers перезапустите dev-команду, чтобы обновить бинарники.
+backend или процессных модулей перезапустите dev-команду, чтобы обновить бинарники.
 Эти процессы нужны только разработчику.
 
 Готовое приложение:
 
 ```bash
 ./scripts/desktop.sh build
-./clients/desktop/build/Proteus/proteus-desktop
+./clients/app/build/Proteus/proteus-desktop
 ```
 
-В папку `clients/desktop/build/Proteus` входят оболочка, готовый backend,
-reference worker той же сборки, tracked configs и статические интерфейсы.
-MathJax, highlight.js, Mermaid для сообщений и SVG-renderer карты Inspector
+В папку `clients/app/build/Proteus` входят оболочка, готовый backend,
+`proteus-reference-module` той же сборки, tracked configs и статические интерфейсы.
+MathJax, highlight.js, Mermaid для сообщений и SVG-renderer диагностической карты
 включены локально; при просмотре Markdown CDN не используется.
 На машине пользователя не нужны исходники, Cargo, Trunk или Node.js. Обновление
 приложения — замена этой папки новой сборкой при закрытом приложении;
 запуск ничего не компилирует.
 
-Поставляемый reference worker не получает особых прав. Его каталог добавляется
+Поставляемый reference-модуль не получает особых прав. Его каталог добавляется
 в `PATH` дочернего backend, как в CLI installer; любой другой component command
 из пользовательского профиля проходит прежний process contract.
 
@@ -359,8 +367,8 @@ cp -R configs/skills/interactive-response "${PROTEUS_HOME:-$HOME/.proteus}/skill
 сообщения. Кнопка «Код» раскрывает исходник; copy копирует JSON. Невалидный
 блок остаётся кодом с возможностью повторить отображение. Ошибка отдельного
 блока не останавливает остальные сообщения и Markdown. Каталог и DOM renderer
-находятся в `clients/web/rendering/interactive`, lifecycle-адаптер —
-`clients/web/ui/interactive.js`. Node-проверка каталога также валидирует пример
+находятся в `clients/app/ui/rendering/interactive`, lifecycle-адаптер —
+`clients/app/ui/ui/interactive.js`. Node-проверка каталога также валидирует пример
 поставляемого скилла; browser-сценарий `--markdown-only` проверяет интерактивность,
 stream completion, ошибочные блоки и перезагрузку истории.
 
@@ -388,51 +396,51 @@ stream completion, ошибочные блоки и перезагрузку и�
 Разбор всего документа сохраняется: поздние определения ссылок могут менять
 предыдущие блоки, а HTML вроде `<details>` требует общей санитизации документа.
 
-Зависимости рендеринга находятся в `clients/web/rendering`; перед отдельным
-`trunk build` выполните `npm ci --prefix clients/web/rendering --ignore-scripts`
+Зависимости рендеринга находятся в `clients/app/ui/rendering`; перед отдельным
+`trunk build` выполните `npm ci --prefix clients/app/ui/rendering --ignore-scripts`
 из корня репозитория. Trunk hook собирает локальный `vendor`, desktop-копирование
-переносит его вместе с Web UI. `scripts/desktop.sh` устанавливает зависимости сам.
+переносит его вместе с интерфейс приложения. `scripts/desktop.sh` устанавливает зависимости сам.
 
 ## Проверка
 
 [UI-расширения](ui-extensions.md) доступны во вкладках боковой области.
-Они используют тот же загрузчик и контракт, что browser-клиент; desktop не
-добавляет связь с runtime modules.
+Панели, настройки и диагностические разделы используют общий загрузчик
+и контракт расширений, независимо от модулей агента.
 
-После сборки web-клиента `python3 clients/web/tests/extensions_browser.py
+После сборки интерфейса `python3 clients/app/ui/tests/extensions_browser.py
 --chrome-only` проверяет общую шапку на двух ширинах, меню, fullscreen и
 освобождение подписок. В этом browser-тесте оконный API заменён явным адаптером;
 он не заменяет native smoke. Изменение только `launcher/window-chrome.*`
 не требует повторной компиляции неизменённого WASM, но требует обновить desktop assets.
 
-`python3 clients/web/tests/extensions_browser.py --polish-only` проверяет
+`python3 clients/app/ui/tests/extensions_browser.py --polish-only` проверяет
 живые виджеты, переключатели, сохранение анимаций и настроек модели, меню чатов,
 геометрию настроек и действия native-шапки через тестовый адаптер.
 
-`python3 -B clients/web/tests/extensions_browser.py --markdown-only` проверяет
+`python3 -B clients/app/ui/tests/extensions_browser.py --markdown-only` проверяет
 формулы после блоков кода, подсветку, Mermaid/исходник, details, json-render,
 сохранение отступа под композером после изменения ширины чата, локальные ресурсы,
 возврат из настроек, reload истории и завершение потокового сообщения.
 
-`python3 -B clients/web/tests/extensions_browser.py --typing-only` проверяет
+`python3 -B clients/app/ui/tests/extensions_browser.py --typing-only` проверяет
 короткий текст, длинный код и HTML на реальном потоке от локальной fixture-модели:
 сохранение узлов, раскрытых details и последней дельты после завершения.
 Замер от получения дельты до изменения DOM включает ожидание кадра и отрисовку,
 но не измеряет FPS или задержку показа кадра в native WebKit.
 
-`python3 -B clients/web/tests/extensions_browser.py --scroll-jitter-only`
+`python3 -B clients/app/ui/tests/extensions_browser.py --scroll-jitter-only`
 проверяет положение видимого сообщения в каждом кадре при смене окна
 виртуальной ленты, ограниченное число обновлений окна и отсутствие записей
 позиции без сдвига. Дополнительно проверяются вложенная прокрутка,
 масштабирование, горизонтальный жест, обработанная клавиша и приоритет
 чтения вверх над ожидающим переходом вниз.
-Тот же сценарий выполняется в `clients/web/tests/chat_scroll_webkit.py`
+Тот же сценарий выполняется в `clients/app/ui/tests/chat_scroll_webkit.py`
 после проверки чтения во время ответа; `--wayland --history 3000` использует
 текущий Wayland-сеанс и длинную тестовую историю. Жесты и позиции в этом
 сценарии управляются тестом; он проверяет геометрию кадров, а не физический
 ввод мыши или частоту показа кадров.
 
-`python3 -B clients/web/tests/chat_scroll_webkit.py --wayland --history 3000
+`python3 -B clients/app/ui/tests/chat_scroll_webkit.py --wayland --history 3000
 --native-wheel` дополнительно подаёт настоящее колесо через отдельное
 устройство `ydotoold` в видимое окно niri. Проверяется получение trusted events
 и движение ленты; выводятся размер шага и интервалы `requestAnimationFrame`
@@ -444,7 +452,7 @@ stream completion, ошибочные блоки и перезагрузку и�
 Для длительной проверки WebKitGTK на NVIDIA в текущем Wayland-сеансе:
 
 ```bash
-__NV_DISABLE_EXPLICIT_SYNC=1 python3 -B clients/web/tests/chat_scroll_webkit.py --wayland --history 3000 --gpu-stress
+__NV_DISABLE_EXPLICIT_SYNC=1 python3 -B clients/app/ui/tests/chat_scroll_webkit.py --wayland --history 3000 --gpu-stress
 ```
 
 Этот отдельный GTK fixture не запускает desktop-оболочку, поэтому переменная
@@ -457,24 +465,24 @@ __NV_DISABLE_EXPLICIT_SYNC=1 python3 -B clients/web/tests/chat_scroll_webkit.py 
 Это проверка устойчивости
 графического пути, а не измерение частоты кадров на экране.
 
-`python3 -B clients/web/tests/extensions_browser.py --preferences-only` проверяет
+`python3 -B clients/app/ui/tests/extensions_browser.py --preferences-only` проверяет
 внешний вид, сохранение и отказ хранилища, запись и конфликты сочетаний,
 отправку сообщения, IME, автопрокрутку на реальном потоке, существующие панели
 настроек и native-шапку через тестовый адаптер. Чистая проверка сочетаний:
-`node --test clients/web/tests/shortcut*.test.mjs`.
+`node --test clients/app/ui/tests/shortcut*.test.mjs`.
 
-После `npm run prepare:assets` в `clients/desktop`:
+После `npm run prepare:assets` в `clients/app`:
 
 ```bash
-cargo test --manifest-path clients/desktop/src-tauri/Cargo.toml -- --include-ignored
+cargo test --manifest-path clients/app/src-tauri/Cargo.toml -- --include-ignored
 ```
 
 Packaged-backend test запускает настоящий backend с fake model, проверяет JSON
 readiness, authenticated `/bootstrap` и адресованный `/config`, CORS native origin, cold `/history`, отказ
 без credential, SSE reconnect, завершение и повторное открытие проекта. Отдельно проверяются
 ошибка старта и правило обновления config assets. Для UI применяются Rust unit
-tests web/Inspector и `trunk build`. После release-сборки
-`python3 clients/desktop/scripts/native-smoke.py` переносит готовую папку во
+проверки интерфейса и диагностики и `trunk build`. После release-сборки
+`python3 clients/app/scripts/native-smoke.py` переносит готовую папку во
 временный каталог и открывает сохранённый fake-проект в Xvfb с отдельным D-Bus.
 `SessionStarted` в event log подтверждает весь путь native launcher → WASM →
 authenticated SSE. Нужны `Xvfb` и `dbus-run-session`; личные настройки и открытый
@@ -483,13 +491,13 @@ Proteus не затрагиваются. Xvfb отключает accelerated com
 кликами через `xdotool` меню Proteus в левой панели и закрытие окон. Для готового debug-пакета:
 
 ```bash
-python3 clients/desktop/scripts/native-smoke.py --chrome --package clients/desktop/build/Proteus-debug
+python3 clients/app/scripts/native-smoke.py --chrome --package clients/app/build/Proteus-debug
 ```
 
 В текущем сеансе niri/Wayland запускайте:
 
 ```bash
-python3 clients/desktop/scripts/native-smoke.py --niri
+python3 clients/app/scripts/native-smoke.py --niri
 ```
 
 Этот режим требует `niri`, `ydotool`/`ydotoold` и доступ к `/dev/uinput`,
@@ -508,7 +516,7 @@ python3 clients/desktop/scripts/native-smoke.py --niri
 и `git`. Перенос на другие системы,
 автообновление не входят в эту реализацию.
 
-Селекторы модели и доступа реализованы как модули клиента, выбираемые в
-«Настройки → Модули». Их отключение скрывает только UI и не меняет настройки
+Селекторы модели и доступа реализованы как расширения интерфейса, выбираемые в
+«Настройки → Расширения». Их отключение скрывает только UI и не меняет настройки
 агента. Контракт добавления своих пунктов и диагностических инструментов описан
-в [UI-расширениях](ui-extensions.md#модули-настроек-и-композера).
+в [UI-расширениях](ui-extensions.md#расширения-настроек-и-поля-ввода).

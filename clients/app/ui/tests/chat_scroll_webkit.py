@@ -1,0 +1,376 @@
+#!/usr/bin/env python3
+"""WebKitGTK regression for reading near the bottom of a streaming chat.
+
+Run after ``trunk build`` and ``cargo build -p proteus-core -p proteus-reference-module``.
+Requires Python GI, GTK3, WebKit2 4.1 and Xvfb. Use ``--wayland`` when Xvfb is
+unavailable and a Wayland session is running. The app-server and model fixture
+are local; no account or existing Proteus session is used.
+"""
+
+import atexit
+import argparse
+from functools import partial
+from http.server import ThreadingHTTPServer
+import json
+import os
+from pathlib import Path
+import select
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+
+import extensions_browser as fixture
+from extensions_browser import Assets, ROOT, stop, urlencode
+from scroll_jitter_checks import INPUT_PROBE, PROBE as JITTER_PROBE, validate as validate_jitter
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--wayland', action='store_true')
+    parser.add_argument('--history', type=int, default=240)
+    parser.add_argument('--native-wheel', action='store_true', help='Compare trusted wheel movement with the previous full-surface mask on niri')
+    parser.add_argument('--gpu-stress', action='store_true', help='Sustain 3240 chat/settings RAF frames and check WebKit sync_file FD growth')
+    args = parser.parse_args()
+    assert not (args.native_wheel and args.gpu_stress), 'Run wheel comparison and GPU stress separately'
+    if args.gpu_stress:
+        assert args.wayland, 'GPU stress requires an on-screen Wayland surface'
+    if args.native_wheel:
+        assert args.wayland and all(shutil.which(name) for name in ['niri', 'ydotool', 'ydotoold']), 'Native wheel probe requires Wayland/niri and ydotool'
+    assert args.history >= 240, 'Window-turnover regression needs at least 240 messages'
+    fixture.BOOTSTRAP = fixture.BOOTSTRAP.replace('length: 240', 'length: ' + str(args.history))
+    display = None
+    if '--wayland' in sys.argv:
+        os.environ['GDK_BACKEND'] = 'wayland'
+    else:
+        display = subprocess.Popen(
+            ['Xvfb', '-displayfd', '1', '-screen', '0', '1440x1000x24', '-nolisten', 'tcp'],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        def stop_display():
+            if display.poll() is None:
+                display.terminate()
+                display.wait(timeout=5)
+        atexit.register(stop_display)
+        number = display.stdout.readline().strip()
+        assert number.isdecimal(), 'Xvfb did not start; use --wayland in a Wayland session'
+        os.environ.update(DISPLAY=':' + number, GDK_BACKEND='x11')
+        os.environ.pop('WAYLAND_DISPLAY', None)
+        os.environ['WEBKIT_DISABLE_COMPOSITING_MODE'] = '1'
+    if not args.wayland:
+        os.environ.setdefault('WEBKIT_DISABLE_DMABUF_RENDERER', '1')
+
+    import gi
+    gi.require_version('Gtk', '3.0')
+    gi.require_version('WebKit2', '4.1')
+    from gi.repository import GLib, Gtk, WebKit2
+
+    with tempfile.TemporaryDirectory(prefix='proteus-chat-scroll-') as temporary:
+        folder = Path(temporary)
+        server = ThreadingHTTPServer(
+            ('127.0.0.1', 0), partial(Assets, directory=str(ROOT / 'clients/app/ui/dist')),
+        )
+        server.model_inputs = []
+        server.model_requests = 2  # The fixture's third response streams 32 paragraphs.
+        server.model_gate = threading.Event()
+        server.model_gate.set()
+        server.stream_gate = threading.Event()  # Pause after paragraph 3.
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        web = f'http://127.0.0.1:{server.server_port}'
+        auth = folder / 'auth.json'
+        auth.write_text(json.dumps({
+            'access_token': 'fixture-access', 'refresh_token': 'fixture-refresh',
+            'account_id': 'fixture-account', 'expires_at': 9000000000,
+        }))
+        config = folder / 'fixture.toml'
+        config.write_text('''active_provider = "subscription"
+[providers.subscription]
+provider = "custom-model"
+model = "fixture-model"
+[components.model]
+command = "proteus-reference-module"
+[components.model.exports.model.custom-model]
+[components.model.exports.workflow."coding.single_loop"]
+[components.model.exports.policy.allow_all]
+[modules]
+workflow = "coding.single_loop"
+policy = "allow_all"
+[module_config.model.custom-model]
+implementation = "openai_codex"
+base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/usage')
+                          + '\nauth_file = ' + json.dumps(str(auth))
+                          + '\n[event_log]\npath = ' + json.dumps(str(folder / 'events.jsonl')) + '\n')
+        env = os.environ.copy()
+        env.pop('PROTEUS_CONFIG_PATH', None)
+        env.update(PATH=str(ROOT / 'target/debug') + ':' + env['PATH'],
+                   PROTEUS_CONFIG_HOME=str(folder / 'config'),
+                   XDG_CONFIG_HOME=str(folder / 'settings'),
+                   XDG_DATA_HOME=str(folder / 'data'))
+        backend = None
+        window = None
+        wheel_probe = None
+        with (folder / 'backend.log').open('w+') as log:
+            try:
+                backend = subprocess.Popen([
+                    str(ROOT / 'target/debug/proteus'), '--config', str(config),
+                    '--cwd', str(folder), 'server', 'http', '--port', '0',
+                    '--token', 'scroll-fixture', '--ready-stdout', '--allow-origin', web,
+                ], env=env, stdout=subprocess.PIPE, stderr=log, text=True,
+                    start_new_session=True)
+                origin = None
+                deadline = time.monotonic() + 35
+                while time.monotonic() < deadline and backend.poll() is None:
+                    if select.select([backend.stdout], [], [], 0.1)[0]:
+                        line = backend.stdout.readline()
+                        if line.startswith('{'):
+                            record = json.loads(line)
+                            if record.get('type') == 'http_ready':
+                                origin = record['origin']
+                                break
+                assert origin, 'Fixture app-server did not start: ' + log.read()
+
+                window_title = 'Proteus chat scroll regression — ' + folder.name
+                window = Gtk.Window(title=window_title)
+                window.set_default_size(1440, 1000)
+                view = WebKit2.WebView()
+                # All fixture endpoints are loopback; system proxy settings must
+                # not route this isolated test through the user's remote proxy.
+                view.get_context().get_website_data_manager().set_network_proxy_settings(WebKit2.NetworkProxyMode.NO_PROXY, None)
+                window.add(view)
+                window.show_all()
+                state = {'stage': 0, 'pending': False, 'detached_top': None}
+                errors = []
+                if args.gpu_stress:
+                    from gpu_stress_checks import PROBE as GPU_PROBE, SyncFileMonitor
+                    gpu_monitor = SyncFileMonitor()
+
+                def present_probe_window():
+                    # The frame probe requires an on-screen window. Background
+                    # Wayland surfaces can pause RAF while the shared desktop is
+                    # being used, even though JavaScript polling still works.
+                    if args.wayland and shutil.which('niri'):
+                        native = next((item for item in json.loads(subprocess.check_output(
+                            ['niri', 'msg', '--json', 'windows'])) if item.get('title') == window_title), None)
+                        # The compositor's PID can belong to a different PID
+                        # namespace; use this fixture's unique window title.
+                        if not native:
+                            return False
+                        if not native['is_floating']:
+                            subprocess.run(['niri', 'msg', 'action', 'toggle-window-floating', '--id', str(native['id'])], check=True, capture_output=True)
+                        subprocess.run(['niri', 'msg', 'action', 'focus-window', '--id', str(native['id'])], check=True, capture_output=True)
+                    else:
+                        window.present()
+                    return True
+
+                def fail(message, value=None):
+                    errors.append(message + (': ' + json.dumps(value, ensure_ascii=False) if value is not None else ''))
+                    Gtk.main_quit()
+
+                def load_failed(_view, _stage, uri, error):
+                    fail('Fixture page failed to load: ' + uri + ': ' + str(error))
+                    return True
+
+                view.connect('load-failed', load_failed)
+
+                def evaluate(script, callback):
+                    state['pending'] = True
+
+                    def done(webview, task, unused):
+                        state['pending'] = False
+                        try:
+                            raw = webview.evaluate_javascript_finish(task).to_json(0)
+                            callback(json.loads(raw) if raw else None)
+                        except Exception as error:
+                            fail('WebKit JavaScript failed: ' + str(error))
+
+                    view.evaluate_javascript(script, -1, None, None, None, done, None)
+
+                def handle(value):
+                    nonlocal wheel_probe
+                    state['last'] = value
+                    stage = state['stage']
+                    if stage == 0 and value:
+                        state['stage'] = 1
+                        evaluate('''(() => {
+                            const r = document.querySelector('.results-panel');
+                            // This fixture drives its own gestures. Physical input
+                            // from the shared desktop must not alter the scenario.
+                            for(const type of ['wheel','pointerdown','pointermove','pointerup','keydown'])
+                                window.addEventListener(type,event=>{
+                                    if(event.isTrusted && !window.nativeWheelActive){event.preventDefault();event.stopImmediatePropagation();}
+                                },{capture:true,passive:false});
+                            window.scrollEvents = 0;
+                            r.addEventListener('scroll', () => scrollEvents++);
+                            const draft = document.querySelector('.composer textarea');
+                            draft.value = 'Проверить прокрутку';
+                            draft.dispatchEvent(new Event('input', {bubbles:true}));
+                            // Let the compositor's initial floating/resize and
+                            // the first measured window settle before streaming.
+                            let warmup=12;
+                            const submit=()=>{
+                                if(warmup--){requestAnimationFrame(submit);return;}
+                                document.querySelector('.composer-submit').click();
+                            };
+                            requestAnimationFrame(submit);
+                            return true;
+                        })()''', lambda _: None)
+                    elif stage == 1 and value:
+                        state['stage'] = 2
+                        evaluate('''(() => {
+                            const r = document.querySelector('.results-panel');
+                            r.scrollTop = r.scrollHeight;
+                            return true;
+                        })()''', lambda _: None)
+                    elif stage == 2 and value and value['atBottom'] and value['sticky'] and value['scrollEvents']:
+                        state['stage'] = 3
+                        evaluate('''(() => {
+                            const r = document.querySelector('.results-panel');
+                            window.scrollEvents = 0;
+                            // The upward wheel can arrive while a previous bottom scroll
+                            // event is still queued. Move only one pixel: this remains
+                            // inside the normal 4px bottom tolerance.
+                            r.dispatchEvent(new WheelEvent('wheel', {deltaY:-0.5, bubbles:true}));
+                            r.dispatchEvent(new Event('scroll', {bubbles:true}));
+                            r.scrollTop = r.scrollHeight - r.clientHeight - 1;
+                            const y=r.getBoundingClientRect().top;
+                            window.readingAnchor=[...r.querySelectorAll('[data-transcript-row]')].find(n=>n.getBoundingClientRect().top<=y && n.getBoundingClientRect().bottom>y);
+                            return {id:readingAnchor.dataset.transcriptRow,top:readingAnchor.getBoundingClientRect().top-y,
+                              scrollTop:r.scrollTop,max:r.scrollHeight-r.clientHeight,
+                              rows:[...r.querySelectorAll('[data-transcript-row]')].map(row=>row.dataset.transcriptRow)};
+                        })()''', lambda result: state.update(detached_top=result['top'], detached_probe=result))
+                    elif stage == 3 and value and value['scrollEvents']:
+                        if value['sticky'] or value['anchorTop'] is None or abs(value['anchorTop'] - state['detached_top']) > 1:
+                            fail('Upward reading gesture snapped to bottom', value)
+                            return
+                        state['stage'] = 4
+                        server.stream_gate.set()
+                    elif stage == 4 and value and value['settled']:
+                        if value['sticky'] or value['anchorTop'] is None or abs(value['anchorTop'] - state['detached_top']) > 2:
+                            fail('New streamed content pulled the reader from history', {'before':state['detached_probe'],'after':value})
+                            return
+                        state['stage'] = 5
+                        evaluate('''(() => {
+                            const r = document.querySelector('.results-panel');
+                            r.dispatchEvent(new WheelEvent('wheel', {deltaY:120, bubbles:true}));
+                            r.scrollTop = r.scrollHeight;
+                            return true;
+                        })()''', lambda _: None)
+                    elif stage == 5 and value and value['sticky'] and value['atBottom']:
+                        state['stage'] = 6
+                        present_probe_window()
+                        if args.native_wheel:
+                            from native_wheel_checks import NativeWheelProbe
+                            wheel_probe = NativeWheelProbe(GLib, evaluate, present_probe_window, window_title,
+                                lambda result: (state.update(wheel_result=result), Gtk.main_quit()), fail)
+                            return
+                        evaluate(INPUT_PROBE + '.then(()=>'+JITTER_PROBE+').then(value=>window.scrollJitterResult=value,error=>window.scrollJitterResult={error:String(error)});true', lambda _: None)
+                    elif stage == 6 and value and value['result']:
+                        try:
+                            validate_jitter(value['result'])
+                        except AssertionError as error:
+                            fail(str(error), value)
+                            return
+                        if args.gpu_stress:
+                            state['stage'] = 7
+                            gpu_monitor.sample()
+                            evaluate(GPU_PROBE + '.then(value=>window.gpuStressResult=value,error=>window.gpuStressResult={error:String(error)});true', lambda _: None)
+                        else:
+                            Gtk.main_quit()
+                    elif stage == 7 and value and value['result']:
+                        if value['result'].get('error'):
+                            fail('GPU stress failed', value)
+                            return
+                        gpu_monitor.sample()
+                        try:
+                            gpu_monitor.validate()
+                        except AssertionError as error:
+                            fail(str(error), gpu_monitor.report())
+                            return
+                        print('GPU stress: ' + json.dumps({'frames': value['result'], 'processes': gpu_monitor.report()}), flush=True)
+                        Gtk.main_quit()
+
+                def poll():
+                    if errors or state['pending']:
+                        return not errors
+                    stage = state['stage']
+                    if stage == 0:
+                        if not state.get('presented'):
+                            state['presented'] = present_probe_window()
+                        script = """(() => {
+                            const root=document.querySelector('.results-panel');
+                            window.scrollStartupDetails={hidden:document.hidden,
+                              count:root?.dataset.transcriptCount,
+                              height:root?.clientHeight,
+                              rows:[...document.querySelectorAll('[data-transcript-row]')].map(row=>row.dataset.transcriptRow),
+                              connection:document.querySelector('.connection-badge')?.textContent,
+                              text:document.body.textContent.slice(-1200)};
+                            return !!root?.textContent.includes('Сохранённое сообщение """ + str(args.history - 1) + """')
+                              && document.querySelector('.connection-badge')?.classList.contains('completed');
+                        })()"""
+                    elif stage == 1:
+                        script = "document.querySelector('.results-panel')?.textContent.includes('Абзац 3:') && !!document.querySelector('.composer-stop')"
+                    elif stage == 6:
+                        if args.native_wheel:
+                            return True
+                        script = '({result:window.scrollJitterResult || null,hidden:document.hidden,progress:window.scrollJitterProgress || null})'
+                    elif stage == 7:
+                        script = '({result:window.gpuStressResult || null,hidden:document.hidden})'
+                    else:
+                        script = '''(() => {
+                            const r = document.querySelector('.results-panel');
+                            const max = r.scrollHeight-r.clientHeight;
+                            return {anchorTop:window.readingAnchor?.isConnected ? readingAnchor.getBoundingClientRect().top-r.getBoundingClientRect().top : null,top:r.scrollTop,max,sticky:r.classList.contains('sticky-bottom'),
+                                atBottom:max-r.scrollTop<=1,scrollEvents:scrollEvents,
+                                settled:!document.querySelector('.composer-stop'),
+                                rows:[...r.querySelectorAll('[data-transcript-row]')].map(row=>row.dataset.transcriptRow)};
+                        })()'''
+                    evaluate(script, handle)
+                    return True
+
+                def timeout():
+                    if state['stage'] == 0 and not state['pending']:
+                        evaluate('window.scrollStartupDetails', lambda value: fail('Chat scroll startup timed out', value))
+                        return False
+                    fail('Chat scroll regression timed out at stage ' + str(state['stage']), state.get('last'))
+                    return False
+
+                GLib.timeout_add(100, poll)
+                if args.gpu_stress:
+                    def sample_gpu():
+                        if state['stage'] == 7:
+                            gpu_monitor.sample()
+                            try:
+                                gpu_monitor.validate_growth()
+                            except AssertionError as error:
+                                fail(str(error), gpu_monitor.report())
+                                return False
+                        return not errors
+                    GLib.timeout_add_seconds(1, sample_gpu)
+                # The shared 320-frame probe adds render time to the streaming
+                # scenario; this deadline is a hang guard, not an FPS budget.
+                GLib.timeout_add_seconds(180 if args.gpu_stress else 90, timeout)
+                view.load_uri(web + '/foundation.html?' + urlencode({
+                    'server': origin, 'token': 'scroll-fixture',
+                }))
+                Gtk.main()
+                assert not errors, '\n'.join(errors)
+                assert state['stage'] == (7 if args.gpu_stress else 6), 'Chat scroll regression ended at stage ' + str(state['stage'])
+                print('PASS: trusted native wheel comparison' if args.native_wheel else
+                      'PASS: WebKit near-bottom reading survives queued scroll and streaming; downward return follows; virtual window turnover preserves each frame', flush=True)
+            finally:
+                if wheel_probe is not None:
+                    wheel_probe.stop()
+                server.stream_gate.set()
+                if window is not None:
+                    window.destroy()
+                stop(backend)
+                server.shutdown()
+    if display is not None:
+        stop_display()
+        atexit.unregister(stop_display)
+
+
+if __name__ == '__main__':
+    main()

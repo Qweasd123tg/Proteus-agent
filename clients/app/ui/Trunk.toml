@@ -1,0 +1,11 @@
+[build]
+target = "index.html"
+dist = "dist"
+
+[watch]
+ignore = ["dist", "vendor", "rendering/node_modules"]
+
+[[hooks]]
+stage = "pre_build"
+command = "node"
+command_arguments = ["rendering/build.mjs"]

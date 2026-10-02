@@ -1,130 +1,106 @@
 # Proteus
 
-Proteus — платформа на Rust для сборки agent runtimes из profiles и внешних
-process components. Core владеет нейтральными contracts, authority, lifecycle,
-journal и client boundary; конкретное поведение agent-а задаёт выбранная
-композиция.
+<img src="clients/app/common/assets/proteus-logo.svg" width="112" height="112" alt="Логотип Proteus">
+
+Proteus — конструктор ИИ-агентов на Rust. Агент собирается из модулей,
+подключённых к слотам: можно выбрать алгоритм выполнения задач, модель,
+поиск, память, правила работы с инструментами и обработку истории.
 
 ```text
-Core -> Contract -> Process Component Export
+Агент → слоты → модули
 ```
 
-Core управляет turn lifecycle, canonical history, approvals и wiring. Поиск,
-память, context, policy, patch, compaction, tool exposure, workflow и
-tools подключаются как exports внешних компонентов по strict JSON-RPC
-component protocol v3. Каждый slot имеет собственную contract version.
-`module_id` выбирает реализацию, но не меняет её права:
+Слот задаёт контракт поведения. Модуль реализует этот контракт и запускается
+в отдельном процессе; один модуль может обслуживать несколько слотов.
+Core отвечает за сборку, выполнение запросов, разрешения и сохранение истории.
+Модули можно писать на любом языке, поддерживающем общий протокол обмена.
 
-```text
-authority(module) = authority(slot, invocation_context)
-```
+Поставляются готовые профили и примеры модулей. Один из рабочих примеров —
+сборка с циклом выполнения задач, близким к Codex. Собственные алгоритмы
+и сочетания модулей — основное назначение Proteus.
 
-Native dylib ABI, `plugin.toml`, `abi_stable` и loader удалены. Reference
-реализации в `modules/reference` — тестовые/dogfood образцы, а не стандартный
-или привилегированный пакет.
+Проект находится в активной разработке до стабильного выпуска. Форматы
+конфигурации, API и истории могут меняться. Подробное состояние и ограничения
+собраны в [scope.md](docs/product/scope.md).
 
-Proteus создаётся как конструктор: новый алгоритм должен подключаться узким
-модулем, а понравившиеся части разных агентов — собираться профилем.
-Первый рабочий пример — близкая реконструкция обычного сценария Codex;
-его результаты и расход проверяются отдельно. Proteus позволяет собирать
-и другие агенты, включая собственные сочетания модулей.
-Замысел, состояние и критерии результата: [документация](docs/README.md).
+## Возможности
 
-Собственные wire/config/storage форматы пока не заморожены и меняются атомарно
-без legacy compatibility readers.
+- **Сборка агента из модулей:** выполнение задач, модель, поиск, память,
+  контекст, правила разрешений, изменение файлов и сжатие истории.
+- **Работа с моделями:** OpenAI, совместимые API, Anthropic и подключение
+  подписки ChatGPT через OAuth; для локальных примеров есть `fake`.
+- **Инструменты и обработчики:** единые проверки разрешений, выбор доступных
+  инструментов и упорядоченные обработчики слота `hook`.
+- **История работы:** сохранение сессий, продолжение задач, журнал событий
+  и воспроизведение записанных запусков в поддерживаемых сценариях.
+- **Сотрудничество агентов:** делегирование задач другим локальным экземплярам
+  Proteus, сообщения и адресная отмена.
+- **Основное приложение:** чат, проекты, настройки и диагностика в одном окне.
+- **Расширения интерфейса:** подключаемые вкладки, виджеты и разделы настроек.
+- **CLI и редакторы:** выполнение задач из терминала и подключение
+  по Agent Client Protocol (ACP).
+- **Задачи без модели:** отдельные алгоритмы, например проверка проекта,
+  могут выполняться без обращения к языковой модели.
 
-Tracked named profiles могут явно собираться через `include` из
-`configs/fragments/`. Fragment не активируется автоматически и не является
-standard pack; итоговый profile всё равно содержит точные slot selections.
+## Запуск
 
-## Быстрый Запуск
+### Приложение
 
-Для обычной работы под Fedora доступно desktop-приложение: готовые chat и
-Inspector, автоматический запуск backend и запоминание последнего проекта.
-Сборка готового приложения из репозитория — `./scripts/desktop.sh build`; разработка интерфейса —
-`./scripts/desktop.sh dev`. Готовый запуск —
-`clients/desktop/build/Proteus/proteus-desktop`: без Trunk и ручного сессионного токена.
-Зависимости и установка: [desktop-приложение](docs/guides/desktop.md).
+Приложение на Tauri и Leptos поддерживает Fedora x86_64. Для сборки из исходников
+нужны Rust, Node.js/npm, Trunk и системные библиотеки;
+[подготовка окружения](docs/guides/desktop.md#сборка-и-разработка).
 
-Ниже — отдельный browser/CLI-сценарий разработки.
-
-Для web-клиентов один раз нужны:
+Из корня репозитория:
 
 ```bash
-rustup target add wasm32-unknown-unknown
-cargo install trunk --locked
-npm ci --prefix clients/web/rendering --ignore-scripts
+./scripts/desktop.sh build
+./clients/app/build/Proteus/proteus-desktop
 ```
 
-Установка:
+Полученную папку `clients/app/build/Proteus` можно перенести целиком.
+При первом запуске приложение предлагает выбрать проект и профиль, запускает
+сервер и сохраняет выбранные настройки.
+
+Для разработки интерфейса используется `./scripts/desktop.sh dev`.
+Подробности — в [руководстве по приложению](docs/guides/desktop.md).
+
+### Команды Для Терминала
+
+Для установки CLI и команд авторизации из исходников нужны Rust и Git:
 
 ```bash
 ./install.sh
-proteus init coding
-proteus doctor
 ```
 
-`install.sh` собирает `proteus` и `proteus-reference-module`, размещает их
-одним локальным build snapshot под `~/.proteus/current` и атомарно переключает
-`current`. Wrapper добавляет snapshot directory в `PATH`, поэтому components с
-`command = "proteus-reference-module"` работают без абсолютного
-пути. Альтернативные каталоги задаются через `PROTEUS_BIN_DIR`,
-`PROTEUS_HOME` и `PROTEUS_CONFIG_HOME`.
+Установщик размещает `proteus` и `proteus-reference-module` в
+`~/.proteus/current`, а команды запуска — в `~/.local/bin`.
+Добавьте `~/.local/bin` в `PATH`, если этот каталог ещё не используется.
 
-Для подключения подписки ChatGPT через OAuth, как в OpenCode:
+Выберите поставщика модели и настройте доступ по
+[руководству конфигурации](docs/guides/configuration.md).
+Например, для профиля с подпиской ChatGPT:
 
 ```bash
 proteus-reference-module auth openai_codex login
-proteus --config codex-chatgpt
-```
-
-Installer также публикует launcher `proteus-reference-module` для команд
-авторизации provider-а. `login --device-auth` позволяет войти без локального
-browser callback; `status` показывает локальный вход, `logout` удаляет его.
-Отдельные credentials Proteus не затрагивают вход Codex/OpenCode. Профиль
-`codex-chatgpt` и его peers используют подписочный backend; автоматического
-перехода на API key нет. Настройки и ограничения:
-[ChatGPT subscription](docs/guides/configuration.md#chatgpt-subscription-через-oauth).
-
-`proteus init coding` создаёт config и `prompts/direct-patch.md` с синтаксисом
-выбранного patch module только когда вы явно вызываете init. Уже
-существующий рабочий config перезаписывать не нужно. Затем перейдите в целевой
-репозиторий и запустите:
-
-```bash
 cd /path/to/project
-proteus
+proteus --config codex-chatgpt "Расскажи о структуре этого проекта"
 ```
 
-Wrapper поднимает:
+`proteus` без запроса открывает интерактивный CLI. Приложение запускается
+файлом `proteus-desktop` из собранной папки.
 
-- app-server: `http://127.0.0.1:8787`;
-- chat: `http://127.0.0.1:1420`;
-- Inspector: `http://127.0.0.1:1421`.
+Профили из `configs/` устанавливаются вместе с программой. Для создания новой
+конфигурации можно использовать `proteus init coding`: команда записывает
+`config.toml` и связанные файлы, **перезаписывая существующие**.
+Рабочий профиль лучше выбрать через `--config` или настроить явно.
 
-Порты задаются `PROTEUS_APP_PORT`, `PROTEUS_WEB_PORT` и
-`PROTEUS_INSPECTOR_PORT`; Inspector отключается через
-`PROTEUS_INSPECTOR=0`. App-server предназначен для локального loopback
-dogfood, не для публикации в интернет.
+Авторизация, API-ключи, собственные профили и параметры запуска:
+[configuration.md](docs/guides/configuration.md).
 
-Smoke без внешнего API:
+## Подключение Своего Модуля
 
-```bash
-cargo build -p proteus-core -p proteus-reference-module
-PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config examples/configs/proteus.example.toml doctor
-
-PATH="$PWD/target/debug:$PATH" cargo run -p proteus-core -- --config examples/configs/proteus.process-agent.example.toml "explain this profile"
-```
-
-Полная изолированная проверка установки, не меняющая пользовательские каталоги:
-
-```bash
-./scripts/install-smoke.sh
-```
-
-## Как Подключается Модуль
-
-Выбор и запуск разделены явно:
+Конфигурация выбирает реализацию слота и описывает запуск предоставляющего
+её модуля. Например, фрагмент подключения поиска на Python:
 
 ```toml
 [modules]
@@ -132,165 +108,81 @@ search = "python_rg"
 
 [components.python-search]
 command = "python3"
-args = ["examples/modules/search-process/search.py"]
+args = ["/path/to/search.py"]
 
 [components.python-search.exports.search.python_rg]
 timeout_ms = 60000
-
-[module_config.search.python_rg]
-roots = ["src", "crates"]
 ```
 
-- `modules.<slot>` выбирает `module_id` для `select_one` slot;
-- `components.<component_id>` описывает один executable и общий lifecycle;
-- `components.<id>.exports.<slot>.<module_id>` объявляет точный export;
-- `module_config.<slot>.<module_id>` — непрозрачный объект реализации;
-- `tool` и `context_provider` имеют `ordered_many` composition и потому
-  не выбираются через `[modules]`;
-- выбранный id без точного export-а — ошибка;
-- неизвестные поля, duplicate `slot/module_id`, неверный handshake и старые
-  response shapes — ошибки без fallback;
-- отсутствие необязательного slot означает host-owned structural behavior, а
-  не скрытый модуль с id `none`, `default` или `all_visible`.
+`components` содержит команды запуска, `exports` — доступные реализации
+слотов, а `modules` выбирает используемую реализацию. Внутренние настройки
+алгоритма задаются в `module_config.<slot>.<module_id>`.
 
-Все exports одного запущенного component делят один persistent child process,
-duplex transport, crash/reset и lazy restart. Несколько invocation могут идти
-одновременно; cooperative cancel адресен, а crash, protocol/resource failure
-или истёкший cancel grace завершают всё поколение. Callback authority
-вычисляется заново по активному `slot/contract_version`: соседний export не
-расширяет права вызова. Callback может через host открыть nested invocation
-другого export того же component; lineage/depth/deadline остаются host-owned.
-Process adapters автоматически сохраняют этот parent только при повторном
-входе в тот же broker; вызов другого configured component остаётся новым root.
+Один процесс может предоставлять несколько слотов. Их вызовы управляются
+Core, а разрешённые операции определяются контрактом активного слота
+и условиями вызова.
 
-Полный однопроцессный пример находится в
-`examples/configs/proteus.one-component.example.toml`. Он намеренно объединяет
-несколько behavior slots и capabilities для evidence; обычные profiles
-могут разделять их по желаемым failure domains.
-
-Process boundary пока не sandbox: модуль получает очищенное окружение, но
-работает с обычными OS-правами пользователя. Protocol-visible callbacks
-разрешаются общей authority table по паре `slot/contract_version`, никогда по
-`module_id`.
-
-## Что Реализовано
-
-- component runtime v2 / wire protocol v3 для slots: `workflow`, `search`, `memory`, `context`,
-  `context_provider`, `policy`, `patch`, `compactor`,
-  `tool_exposure`, `tool`, `model`;
-- multi-export persistent stdio component lifecycle, exact-set
-  initialize/manifest handshake,
-  bidirectional host callbacks, cancellation, timeout и lazy restart после
-  смерти child process;
-- единый safety path для tools:
-  `ToolRegistry -> ApprovalPolicy -> ToolSafety -> Tool`;
-- canonical model DTO, durable session journal, resume, HTTP/SSE app-server,
-  CLI, chat и Inspector;
-- reference-модуль с behavior selectors и model implementations, включая
-  deterministic project-check, и
-  отдельный Python workflow/search/compactor examples;
-- conformance, process-module execution и runtime swap regression gates.
-- topology/journal gate: один PID выполняет callback-связанный workflow,
-  переживает адресную отмену и даёт совпадающий canonical workflow replay.
-
-Model implementations (`fake`, `openai`, `openai_compatible`, `openai_codex`, `anthropic`)
-живут в reference-модуль и заменяются внешними `model` exports по
-[общему process contract](docs/architecture/process-module-architecture.md#model-streaming). Root-owned
-`AgentControl` не является slot: он запускает полные peer-экземпляры Proteus
-из top-level `agent_control` config и обслуживает обе model-facing facade.
-Это не dylib-путь и не исключение для reference modules. Подробнее:
-[docs/architecture/subagents.md](docs/architecture/subagents.md).
-
-Marketplace, package manager, live module replacement, WASM runtime и OS
-sandbox в текущий runtime не входят.
+Готовый [пример поиска на Python](examples/modules/search-process/README.md)
+и [полный профиль](examples/configs/proteus.process-search.example.toml)
+показывают подключение внешней программы. Контракты и порядок добавления
+модуля описаны в [modules.md](docs/architecture/modules.md).
 
 ## Полезные Команды
 
+После установки:
+
 ```bash
-# one-shot или REPL
-cargo run -p proteus-core -- "describe the project"
-cargo run -p proteus-core
+# Проверить настройки и команды запуска
+proteus --config codex-chatgpt doctor
 
-# config/catalog/tools без model request
-cargo run -p proteus-core -- --config configs/config.toml doctor
-cargo run -p proteus-core -- --config configs/config.toml doctor --all-sessions
-cargo run -p proteus-core -- --config configs/config.toml modules list
-cargo run -p proteus-core -- --config configs/config.toml tools list
+# Посмотреть доступные модули и инструменты
+proteus --config codex-chatgpt modules list
+proteus --config codex-chatgpt tools list
 
-# точный план до запуска и runtime topology
-cargo run -p proteus-core -- --config configs/config.toml inspect plan
-cargo run -p proteus-core -- --config configs/config.toml inspect topology --format runtime
-cargo run -p proteus-core -- --config configs/config.toml inspect topology --format map
+# Посмотреть выбранную сборку до запуска модулей
+proteus --config codex-chatgpt inspect plan
 
-# protocol handshake отдельного модуля
-cargo run -p proteus-module-protocol --bin proteus-component-conformance -- --component-id python-search --export '{"slot":"search","module_id":"python_rg","contract_version":"v2","module_config":{}}' --probe-export search/python_rg --probe-method search --probe-params '{"text":"","cwd":".","max_results":0,"use_case":"conformance","starts_with":[],"ends_with":[]}' -- python3 examples/modules/search-process/search.py
+# Посмотреть схему подключений
+proteus --config codex-chatgpt inspect topology --format map
+
+# Подключить агент к редактору по ACP
+proteus --config codex-chatgpt server acp
 ```
 
-Prompt/workflow replay и journal semantics описаны в
-[runtime-and-events.md](docs/guides/runtime-and-events.md).
+Для работы непосредственно из исходников можно собрать сервер и модуль:
 
-Глобальные flags ставятся перед командой: `proteus --new-session server stdio`.
-Для редактора с Agent Client Protocol: `proteus --config codex server acp`.
-Сессиями и рабочим каталогом в этом режиме управляет редактор; настройка Zed и
-поддержанные возможности — в [ACP](docs/guides/runtime-and-events.md#acp-для-редакторов).
-Namespaces `init`, `modules`, `tools`, `doctor`, `server`, `inspect`, `eval`,
-`replay` зарезервированы: неверная форма завершается ошибкой до загрузки config
-и не отправляется модели. Обычный prompt с такими словами передавайте одной
-строкой в кавычках, например `proteus "inspect this project"`.
+```bash
+cargo build -p proteus-core -p proteus-reference-module
+PATH="$PWD/target/debug:$PATH" ./target/debug/proteus --config examples/configs/proteus.example.toml "Покажи пример ответа"
+```
 
-`doctor` проверяет сессии выбранного через `--cwd` workspace (по умолчанию —
-текущий каталог). `doctor --all-sessions` проверяет всё хранилище; ошибка старой
-сессии другого проекта не блокирует обычную диагностику текущего workspace.
+Этот пример использует `fake` и не требует доступа к внешней модели.
 
 ## Структура Репозитория
 
-```text
-crates/proteus-contracts/       traits, DTO, canonical model, module helpers
-crates/proteus-module-protocol/ multiplexed component broker, authority, conformance CLI
-crates/proteus-process-host/    persistent child lifecycle и framing
-crates/proteus-core/            runtime, wiring, process adapters, model service, server
-modules/reference/              reference implementations и один process-модуль
-modules/research/               нестабилизированные experiments
-clients/web/                    chat client
-clients/inspector/              config/topology client
-configs/                        packaged named configs и prompts
-examples/                       runnable configs, модули и MCP smoke
-docs/                           reference, testing rules и roadmap
-```
+| Каталог | Содержимое |
+|---|---|
+| `crates/` | Core, контракты модулей, протокол обмена и управление процессами |
+| `modules/reference/` | Поставляемые реализации и `proteus-reference-module` |
+| `modules/research/` | Экспериментальные реализации |
+| `clients/app/` | Основное приложение: интерфейс, диагностика и Tauri-оболочка |
+| `configs/` | Профили, их общие фрагменты и инструкции |
+| `examples/` | Примеры конфигурации, внешних модулей и сервера MCP |
+| `docs/` | Руководства, архитектура и описание проекта |
 
 ## Документация
 
-- [architecture.md](docs/architecture/architecture.md) — границы core и turn flow;
-- [modules.md](docs/architecture/modules.md) — slots, composition и reference inventory;
-- [process-module-architecture.md](docs/architecture/process-module-architecture.md) —
-  protocol, authority и lifecycle компонентов;
-- [configuration.md](docs/guides/configuration.md) — schema, components и exports;
-- [security-and-policy.md](docs/guides/security-and-policy.md) — tools и approvals;
-- [SECURITY.md](SECURITY.md) — reporting и текущая trust boundary;
-- [testing.md](docs/development/testing.md) — выбор проверок по затронутой границе;
-- [scope.md](docs/product/scope.md) — что существует сейчас;
-- [spec.md](docs/product/spec.md) — идея и долговечные границы платформы;
-- [roadmap.md](docs/product/roadmap.md) — ожидаемый результат и условия завершения.
+- [Замысел проекта](docs/product/spec.md), [текущее состояние](docs/product/scope.md)
+  и [план развития](docs/product/roadmap.md).
+- [Настройка моделей и профилей](docs/guides/configuration.md).
+- [Приложение](docs/guides/desktop.md) и
+  [расширения интерфейса](docs/guides/ui-extensions.md).
+- [Слоты и модули](docs/architecture/modules.md),
+  [архитектура](docs/architecture/architecture.md) и
+  [протокол модулей](docs/architecture/process-module-architecture.md).
+- [Инструменты и разрешения](docs/guides/security-and-policy.md).
+- [История, события и подключение к редакторам](docs/guides/runtime-and-events.md).
+- [Разработка и выбор проверок](docs/development/testing.md).
 
-Полный индекс: [docs/README.md](docs/README.md). Правила изменений:
-[AGENTS.md](AGENTS.md).
-
-## Проверка
-
-Выберите набор по [матрице изменений](docs/development/testing.md#evidence-matrix).
-Для общей интеграции Rust:
-
-```bash
-cargo fmt --all --check
-./scripts/test.py full
-git diff --check
-```
-
-Клиенты собираются отдельно через Trunk при изменениях в них.
-`./scripts/install-smoke.sh` нужен для проверки установки; он сам выполняет сборку.
-Правка документации требует проверки содержания, ссылок и `git diff --check`.
-
-Ключевые gates process boundary:
-
-- `crates/proteus-core/tests/module_swap.rs`;
-- `modules/reference/process-module/tests/conformance.rs`.
+Полный [указатель документации](docs/README.md) помогает найти нужную тему.
+Правила работы с кодом — в [AGENTS.md](AGENTS.md).

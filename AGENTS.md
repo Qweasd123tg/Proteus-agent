@@ -10,6 +10,10 @@
 `docs/archive/` и `examples/research/` исключайте из обычного поиска
 контекста; они нужны только по явному запросу истории конкретного решения.
 
+Основной пользовательский клиент — приложение в `clients/app`. Диагностические
+экраны входят в него; дальнейший перенос их функций идёт через расширения
+интерфейса. Браузерные стенды используются для разработки и проверок.
+
 Текущий сценарий — локальная работа владельца с собственными доверенными
 модулями. Sandbox и hardening для недоверенных сторонних модулей не являются
 целью или блокером этого этапа. Не возвращайте их в обзор рисков, roadmap или
@@ -104,8 +108,10 @@ rendering, UI state, tests и provider/module-specific детали.
   `proteus-core` — runtime, wiring, process adapters и app-server;
   `proteus-module-protocol` — component-v3 broker и conformance;
   `proteus-process-host` — lifecycle stdio процессных модулей.
-- `clients/web`, `clients/inspector`, `clients/desktop` — Leptos-клиенты и
-  Tauri-оболочка.
+- `clients/app` — приложение: Tauri-оболочка, `ui` — основной интерфейс,
+  `diagnostics` — встроенные диагностические экраны, `common` — общие правила
+  подключения и сессий. Пользовательские дополнения называются расширениями
+  интерфейса; модули агента реализуют слоты и запускаются во внешних процессах.
 - `modules/reference` — reference implementations; каталог slots и exports
   описан в `docs/architecture/modules.md`. `modules/research` — эксперименты
   вне production path.
@@ -291,6 +297,7 @@ runtime wiring, зависимостей или изменений нескол�
 
 Для архитектурных правок проверьте, что `tests/module_swap.rs` продолжает подтверждать заменяемость slots и canonical model contract.
 
-Web-клиенты (`clients/web`, `clients/inspector`) исключены из root workspace и
-собираются через Trunk: валидируйте их `trunk build` (не `cargo check` — он
-может врать из-за lock), `trunk serve` слушает 1420/1421.
+Пакеты интерфейса и диагностики (`clients/app/ui`, `clients/app/diagnostics`)
+исключены из root workspace и собираются через Trunk: валидируйте их
+`trunk build` (не `cargo check` — он может врать из-за lock). Приложение
+для разработки запускается через `scripts/desktop.sh dev` на порту 1430.

@@ -1,0 +1,14 @@
+{
+  "name": "proteus-app-build",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build --no-bundle -- --locked && node scripts/portable.mjs",
+    "prepare:assets": "node scripts/prepare.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.10.0"
+  }
+}

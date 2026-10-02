@@ -233,7 +233,7 @@ async fn event_stream_flushes_initial_heartbeat() {
     let request = Request::builder()
         .method(Method::GET)
         .uri(session_uri("/events?token=session-secret", &server))
-        .header(ORIGIN, "http://127.0.0.1:1420")
+        .header(ORIGIN, "http://127.0.0.1:1430")
         .body(empty_body())
         .expect("request");
 

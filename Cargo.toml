@@ -1,10 +1,10 @@
 [workspace]
 resolver = "2"
 exclude = [
-    "clients/common",
-    "clients/web",
-    "clients/inspector",
-    "clients/desktop/src-tauri",
+    "clients/app/common",
+    "clients/app/ui",
+    "clients/app/diagnostics",
+    "clients/app/src-tauri",
     "modules/research/tool-output-artifacts",
 ]
 members = [

@@ -464,10 +464,10 @@ attribution/cancellation, а `/remember` — detached top-level context в од�
 приходят отдельными envelope с `thread_id = child_thread_id`. Streaming
 text-дельты peer-а process bridge наблюдает только для partial summary при
 cancel/timeout и не пере-эмитит в root event stream. Дополнительно и
-`TurnProgress`, и web-клиент фильтруют `AssistantTextDelta` по `thread_id`
+`TurnProgress`, и интерфейс приложения фильтруют `AssistantTextDelta` по `thread_id`
 хода — дельты чужих threads в основной текст не подмешиваются.
 
-Web-клиент рендерит работу субагента одной карточкой. При task surface
+Основной интерфейс рендерит работу субагента одной карточкой. При task surface
 `SubagentStarted` прикрепляет активность к бегущей tool-карточке `task`
 (карточка вызова и карточка субагента не дублируются). При collaboration
 surface тот же event прикрепляется к `spawn_agent`, но успешный spawn
@@ -518,7 +518,7 @@ events и `ToolFinished` испускает `ToolOrchestrator`; workflow и UI �
 history `ToolCall` без парного `ToolResult` отдаётся как `interrupted`
 (история пишется в конце хода — «running» там означал бы вечный спиннер у
 клиента), живые бегущие вызовы приходят только из `TurnProgress`-хвоста.
-Симметрично web-клиент на `TurnOutput`/`Error`/`Shutdown` закрывает все ещё
+Симметрично интерфейс приложения на `TurnOutput`/`Error`/`Shutdown` закрывает все ещё
 нетерминальные tool- и subagent-карточки статусом «прервано»: терминальное
 событие после конца хода уже не придёт (пропущенный `ToolFinished`, обрыв
 SSE между `/history` и подпиской).
@@ -599,7 +599,7 @@ runtime truth: фактические totals берутся из `TokenUsage` pr
 оценкой состава prompt. Provider prompt cache telemetry в этой карте означает
 provider-side reuse или creation prompt-prefix/cache entries, а не локальное
 переиспользование ответа; такие строки помечаются `source = "provider"`.
-Web `/context` дополнительно считает cache hit rate как
+Экран контекста приложения дополнительно считает cache hit rate как
 `cached_input_tokens / input_tokens` и показывает состояние provider input
 cache как `cold`, `warming` или `hot`.
 Для live session карта использует последний runtime snapshot; после resume или
@@ -610,7 +610,7 @@ cache как `cold`, `warming` или `hot`.
 `HistoryCompactionFailed` испускаются вокруг host capability
 `compact_history_json`. Completed содержит `HistoryCompactionReport`: было ли
 реальное изменение, сколько сообщений/tokens было до и после, какой threshold
-сработал, источник summary и metadata конкретного compactor-а. Web-клиент
+сработал, источник summary и metadata конкретного compactor-а. Основной интерфейс
 показывает status `сжимает историю`; при `changed = true` добавляет короткую
 system-строку в transcript.
 
@@ -618,7 +618,7 @@ system-строку в transcript.
 
 `crates/proteus-core/src/app_server.rs` отделяет UI-клиенты от `AgentRuntime`. Клиент работает с `AppServerHandle`, подписывается на `AppServerEvent` и отправляет команды через transport. Сейчас реализованы локальный `stdio` transport в `crates/proteus-core/src/app_server/stdio.rs` и HTTP/SSE transport в `crates/proteus-core/src/app_server/http.rs`; DTO лежат в `proteus-contracts::app_protocol` и re-export'ятся через `crates/proteus-core/src/app_server.rs`. Будущие socket/ACP-клиенты должны использовать ту же app-server границу.
 
-Выпадающие списки web-клиента и Inspector используют общий popup с цветами
+Выпадающие списки основного интерфейса и диагностики используют общий popup с цветами
 текущей темы. Локальные переходы интерфейса занимают 160 мс; ширина областей и
 чат не анимируются, `prefers-reduced-motion: reduce` отключает движение.
 Размещение виджетов и независимых колонок расширений с сохранением доступа
@@ -714,7 +714,7 @@ store; stdio остаётся привязанным к одной session пр�
   Подписка сначала получает `PendingRequestsUpdated` и `SessionSnapshot`, затем
   события после сессионного снимка. Runtime-события доставляются через bounded
   broadcast ring. При отставании сервер посылает `EventStreamLagged`, затем новый
-  `SessionSnapshot` и отбрасывает уже включённые в него события. Web заменяет
+  `SessionSnapshot` и отбрасывает уже включённые в него события. Интерфейс приложения заменяет
   локальную историю по снимку в потоке; отдельный `/history` при reconnect
   не выполняется. Завершённый transcript проецируется из проверенного журнала
   при подключении runtime и завершении исполнения, затем кэшируется вместе
@@ -786,7 +786,7 @@ store; stdio остаётся привязанным к одной session пр�
   не отменяет running turns;
 - `POST /new-session` - регистрирует новый пустой runtime и возвращает его
   summary. Optional `source_session_dir` в body явно выбирает live session,
-  от которой берутся workspace и конфигурация; web передаёт свой выбранный чат.
+  от которой берутся workspace и конфигурация; приложение передаёт свой выбранный чат.
   Без этого поля используется стартовая конфигурация и workspace сервера.
   Создание не меняет выбор других окон и не отменяет фоновые turns;
 - `POST /delete-session` - удаляет указанную durable session и отменяет только
@@ -830,13 +830,13 @@ delete или shutdown. Если SSE connection оборвался до дост
 `ApprovalRequested`/`UserInputRequested`, новый клиент восстанавливает карточки
 из начального `PendingRequestsUpdated` или версионного `/pending` без повторного
 запуска turn'а.
-После `/resume` web-клиент открывает новый SSE connection к выбранной session.
+После `/resume` интерфейс приложения открывает новый SSE connection к выбранной session.
 Turns старой session продолжают работать в фоне в том же app-server process;
 sidebar получает `SessionActivityUpdated`, а pending approval/user-input старой
 session можно увидеть и закрыть после переключения обратно. Явная отмена
 остаётся через `/cancel`, а удаление session отменяет только работу этой
 session.
-При переключении web-клиент закрывает старый SSE connection, выполняет
+При переключении интерфейс приложения закрывает старый SSE connection, выполняет
 `/resume`, затем подключает stream и получает историю в `SessionSnapshot`.
 Поздние ответы и события старого выбора отбрасываются по generation окна.
 Накопленные текстовые дельты сбрасываются при смене сессии; отложенный таймер
@@ -878,7 +878,7 @@ runtime и записи settlement. При переполнении клиент
 Shutdown закрывает admission и ждёт завершения runtime; удаление session
 выполняется после этого, чтобы поздний settlement не восстановил удалённые файлы.
 
-Закрытие окна или потеря сети не отменяет работу. Web сохраняет занятость до
+Закрытие окна или потеря сети не отменяет работу. Интерфейс приложения сохраняет занятость до
 состояния сервера; запоздалый HTTP-ответ `/cancel` не снимает её с нового run.
 При перезапуске backend live execution создаётся заново; durable transcript
 восстанавливается из journal, а незавершённый процесс не запускается повторно.
@@ -907,15 +907,15 @@ edit, delete, delivery, follow-up и очистку при отмене. `/pendi
 это последнее значение перед чтением. Проекция не восстанавливает очередь из
 потенциально запоздавших или потерянных `Steering*` events.
 
-В web начальный snapshot stream задаёт `(session_id, stream_id)`. После этого
+В интерфейсе приложения начальный snapshot stream задаёт `(session_id, stream_id)`. После этого
 клиент применяет snapshot из SSE или `/pending`, только если его `seq` больше
 уже применённого. Каждый SSE open меняет локальное поколение чтений: ответы
 от предыдущего подключения отбрасываются даже при совпадающем session path.
 Ответ `/pending` не может самостоятельно сменить stream. Алгоритм находится
-в `proteus-client-common::pending::PendingCursor` и не зависит от Leptos/DOM.
+в `proteus-app-common::pending::PendingCursor` и не зависит от Leptos/DOM.
 
 `ApprovalRequested`/`Resolved`, `UserInputRequested`/`Resolved` и `Steering*`
-сохраняют значение уведомлений о произошедших действиях. Web использует их для
+сохраняют значение уведомлений о произошедших действиях. Интерфейс приложения использует их для
 прочего отображения, но списки pending обновляет только из versioned snapshot;
 поздние ответы команд также не восстанавливают строки очереди.
 
@@ -1293,7 +1293,7 @@ model call упал без ответа, уточнение остаётся п�
 
 Terminal app event публикуется до снятия finalization gate session. Поэтому
 новый `Send` не может стартовать в узком окне между settlement старого turn-а
-и его `TurnOutput`/`Error` и затем быть ошибочно очищен старым событием. Web
+и его `TurnOutput`/`Error` и затем быть ошибочно очищен старым событием. Интерфейс приложения
 показывает server-owned очередь над композером, обновляет текст по
 `SteeringEdited`, удаляет строку по `SteeringRemoved` или
 `SteeringDelivered`, а после reconnect восстанавливает остаток через
@@ -1451,7 +1451,7 @@ logic в visual layer.
 `coding.plan_execute_review` и Python example не поддерживают эти действия и
 явно их отклоняют; другой workflow может реализовать собственные намерения.
 
-Web отправляет каждое действие одним запросом, без предварительного `/mode`.
+Интерфейс приложения отправляет каждое действие одним запросом, без предварительного `/mode`.
 `Уточнить`, `Выполнить` и `Выйти` показываются после подтверждённого успешного
 planning-запуска. Live `AppRun.options` содержит намерение и эффективные права;
 snapshot восстанавливает карточку после переподключения независимо от default
@@ -1472,7 +1472,7 @@ layout sizes сохраняются в browser `localStorage`, Markdown допо
 открытым, а workflow получает typed `ToolResult` с ответами. После обычного
 plan `TurnOutput` UI может открыть
 chooser для execute/revise/dismiss.
-Web transcript держит sticky-bottom только пока пользователь не скроллит вверх:
+История сообщений приложения держит sticky-bottom только пока пользователь не скроллит вверх:
 upward wheel/scroll отключает прилипание, повторное автоприлипание происходит
 только при реальном возврате к нижней границе. Положение читаемого текста
 сохраняется через видимый якорь виртуального окна строк. История остаётся
@@ -1499,7 +1499,7 @@ blanket-resolve остаётся только на shutdown (см.
 использовать эти labels в строке прогресса (`Language`, `Stack`, `Deploy`, ...),
 но не решает сам, какие вопросы задавать. Это остаётся ответственностью
 workflow/model через typed tool-call.
-Web-клиент показывает компактные selectors для `PermissionMode`, model name,
+Основной интерфейс показывает компактные selectors для `PermissionMode`, model name,
 reasoning on/off и `reasoning.effort` в строке composer actions, рядом с
 отправкой запроса. `POST /model` меняет имя модели в текущем provider adapter
 для следующих turns. `POST /reasoning` включает/выключает reasoning config,

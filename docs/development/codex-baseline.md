@@ -472,7 +472,7 @@ deferred tool discovery и AgentControl semantics.
 Item identity и typed phase проходят через `model/v11`, live events и app
 transcript. Responses fixture отдаёт added/delta/done/completed, включая
 позднюю фазу и multipart текст; regression сверяет live ids/text/offsets
-с journal и cold app transcript. Web regression проверяет соседние items
+с journal и cold app transcript. Проверка интерфейса проверяет соседние items
 с одинаковым текстом и перекрытие /history с SSE. Это не полный upstream
 live item lifecycle: остальные типы output items и failure paths этим срезом
 не объявляются эквивалентными.
