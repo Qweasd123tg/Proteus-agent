@@ -313,12 +313,15 @@ Core mechanisms
   model / tools / context / compaction / events / recording
 ```
 
-`Workflow::run` формально может вернуть `WorkflowOutput` без model call. Но его
-текущий contract остаётся agent-shaped: обязательны `AgentTask`, история
-сообщений `Vec<CanonicalMessage>` и terminal `AgentOutput`. Context —
-`WorkflowInvocationContext`: вариант `Execution` не требует conversation и
-допускает пустую history, вариант `Agent` добавляет `AgentWorkflowContext` с
-`TurnId`. Отдельный вызов через `RuntimeRegistry::workflow_execution_context`
+`ExecutionScope` и process lifecycle не требуют chat identity. Модель в
+`ExecutionContext` необязательна. `WorkflowInvocationContext::Execution`
+позволяет вызвать standalone Workflow без conversation и с пустой history;
+вариант `Agent` добавляет `AgentWorkflowContext` с `TurnId`. Операции с history,
+chat events и compaction требуют именно разговорного контекста.
+
+Вход и результат текущего `workflow/v18` остаются agent-shaped: обязательны
+`AgentTask`, аргумент history `Vec<CanonicalMessage>` и terminal `AgentOutput`.
+Отдельный вызов через `RuntimeRegistry::workflow_execution_context`
 использует нижние capabilities/process substrate, но публичный
 `AgentRuntime::run` по-прежнему открывает conversational Turn. Типизированного
 входа, checkpoint и durable settlement произвольной задачи через этот runtime

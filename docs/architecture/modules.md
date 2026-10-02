@@ -184,8 +184,10 @@ handlers и PreToolUse/Stop commands Codex/Claude. Он экспортирует
 
 ### Workflow
 
-Владеет agent loop, но не инфраструктурой. Через callbacks может запросить
-runtime status, context, model completion/stream, compaction, visible/selected tools,
+Определяет порядок действий; разговорный agent loop — одно из применений.
+Контракт допускает standalone и conversational invocation; необходимость модели
+определяет реализация workflow. Через callbacks может запросить runtime status,
+context, model completion/stream, compaction, visible/selected tools,
 tool execution и event emission. Session ids, approvals, tool ownership и
 journal остаются host-owned.
 
