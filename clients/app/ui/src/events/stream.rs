@@ -166,6 +166,7 @@ pub(crate) fn apply_assistant_update(
                 message.version += 1;
             }
             items.push(Message {
+                images: Vec::new(),
                 id,
                 version: 0,
                 text_offset: update.offset,

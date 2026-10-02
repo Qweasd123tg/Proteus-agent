@@ -41,6 +41,7 @@ impl MessageRole {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Message {
+    pub(crate) images: Vec<proteus_contracts::domain::ImageRef>,
     pub(crate) message_id: Option<String>,
     pub(crate) phase: Option<MessagePhase>,
     pub(crate) id: u64,

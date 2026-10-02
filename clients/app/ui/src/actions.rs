@@ -10,6 +10,8 @@ use crate::types::*;
 
 #[derive(Clone, Copy)]
 pub(crate) struct AppActions {
+    pub(crate) attachments: RwSignal<Vec<proteus_contracts::domain::ImageAttachment>>,
+    pub(crate) attachments_loading: RwSignal<bool>,
     pub(crate) set_messages: crate::transcript::TranscriptWriter,
     pub(crate) next_message_id: ReadSignal<u64>,
     pub(crate) set_next_message_id: WriteSignal<u64>,
@@ -220,7 +222,10 @@ impl AppActions {
         forced_mode: Option<PermissionMode>,
     ) {
         let text = text.trim().to_owned();
-        if text.is_empty() || self.is_sending.get() {
+        if self.attachments_loading.get_untracked()
+            || (text.is_empty() && self.attachments.with_untracked(|images| images.is_empty()))
+            || self.is_sending.get()
+        {
             return;
         }
         let Some(session_dir) = self.active_session_dir.get_untracked() else {
@@ -243,10 +248,13 @@ impl AppActions {
         self.set_active_run_id.set(Some(run_id.clone()));
 
         let permission_mode = forced_mode.unwrap_or(self.mode.get_untracked());
+        let images = self.attachments.get_untracked();
+        self.attachments.set(Vec::new());
         spawn_local(async move {
             match post_json(
                 "/send-async",
                 &SendRequest {
+                    images,
                     id: Some(request_id),
                     text,
                     options: proteus_app_common::run_options::RunOptions {

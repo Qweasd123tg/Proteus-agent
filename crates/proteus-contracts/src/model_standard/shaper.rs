@@ -14,6 +14,18 @@ impl RequestShaper {
         mut request: CanonicalModelRequest,
         capabilities: &ModelCapabilities,
     ) -> Result<CanonicalModelRequest> {
+        if request
+            .messages
+            .iter()
+            .flat_map(|m| &m.parts)
+            .any(|part| matches!(part.payload, super::ContentPart::Image { .. }))
+            && !capabilities.supports_image_input
+        {
+            bail!(
+                "model '{}' does not support image input",
+                request.model.model
+            );
+        }
         if !capabilities.supports_tools {
             request.tools.clear();
             request.tool_choice = ToolChoice::None;

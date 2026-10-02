@@ -9,6 +9,7 @@ use super::hosted_tools::OpenAiHostedToolsProfile;
 
 #[derive(Debug, Clone)]
 pub(super) struct OpenAiModelProfile {
+    pub supports_image_input: bool,
     pub supports_parallel_tool_calls: bool,
     pub supports_freeform_tools: bool,
     pub supports_json_schema: bool,
@@ -48,6 +49,12 @@ impl OpenAiModelProfile {
         let hosted_tools = OpenAiHostedToolsProfile::from_provider_config(config, capabilities)?;
 
         Ok(Self {
+            supports_image_input: bool_setting(
+                config,
+                capabilities,
+                "supports_image_input",
+                false,
+            )?,
             supports_parallel_tool_calls: bool_setting(
                 config,
                 capabilities,
@@ -85,6 +92,7 @@ impl OpenAiModelProfile {
     pub fn capabilities(&self, max_input_tokens: Option<u32>) -> ModelCapabilities {
         ModelCapabilities::empty()
             .with_tools(true)
+            .with_image_input(self.supports_image_input)
             .with_parallel_tool_calls(self.supports_parallel_tool_calls)
             .with_freeform_tools(self.supports_freeform_tools)
             .with_json_schema(self.supports_json_schema)

@@ -72,7 +72,12 @@ pub(super) fn AppShell(
     let resize_drag = move |event| resize.drag(event);
     let stop_resize = move |_| resize.stop();
     let is_resizing = move || resize.is_resizing();
-    let draft_is_empty = move || draft.get().trim().is_empty();
+    let attachments = state.request.attachments;
+    let attachments_loading = state.request.attachments_loading;
+    let draft_is_empty = move || {
+        attachments_loading.get()
+            || draft.get().trim().is_empty() && attachments.with(|images| images.is_empty())
+    };
     let new_below_count = move || {
         detach_baseline
             .get()

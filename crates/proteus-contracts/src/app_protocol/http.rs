@@ -11,6 +11,8 @@ pub struct SendRequest {
     pub id: Option<String>,
     pub text: String,
     #[serde(default)]
+    pub images: Vec<crate::domain::ImageAttachment>,
+    #[serde(default)]
     pub options: crate::domain::RunOptions,
     pub session_dir: PathBuf,
 }

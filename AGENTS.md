@@ -66,7 +66,7 @@ Transport и cardinality не смешиваются. Host-defined process contr
 composition(contract) = select_one | ordered_many
 ```
 
-Behavior slots используют `select_one`, кроме typed `hook/v2` chain с
+Behavior slots используют `select_one`, кроме typed `hook/v3` chain с
 явным порядком `modules.hooks`. `ordered_many` допустим только для
 typed chain surface с одинаковой authority всех участников, явным порядком,
 повторной validation и отдельным slot-governance evidence. Module не может
@@ -204,7 +204,7 @@ Reference crates линкуются только внутрь `proteus-reference
 6. Добавить protocol и runtime swap evidence, затем обновить
    `docs/architecture/modules.md` и `docs/guides/configuration.md`.
 
-Model provider implementations проходят общий `model/v11` process contract.
+Model provider implementations проходят общий `model/v12` process contract.
 Core владеет canonical shaping/validation, execution binding и journal, но не HTTP provider adapters. `AgentControl` — отдельный root-owned service для полных Proteus
 peers, а не behavior slot или основание возвращать общий native loader.
 Marketplace, package manager, hot reload и sandbox не входят в текущий process

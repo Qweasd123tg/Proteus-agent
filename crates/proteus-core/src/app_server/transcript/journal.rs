@@ -273,6 +273,7 @@ impl TranscriptProjectionState {
             .filter(|error| !error.is_empty())
             .unwrap_or(fallback);
         self.transcript.push(AppTranscriptMessage {
+            images: Vec::new(),
             message_id: None,
             phase: None,
             role: "system".to_owned(),

@@ -92,6 +92,9 @@ impl CanonicalPart {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[non_exhaustive]
 pub enum ContentPart {
+    Image {
+        image: crate::domain::ImageRef,
+    },
     Text {
         text: String,
     },
@@ -210,14 +213,16 @@ fn default_part_semantics(
         | ContentPart::Reasoning { .. }
         | ContentPart::HostedToolActivity { .. }
         | ContentPart::Citation { .. } => (PartProvenance::Model, PartScope::Conversation),
-        ContentPart::Text { .. } | ContentPart::FileRef { .. } => match role {
-            MessageRole::User => (PartProvenance::User, PartScope::Conversation),
-            MessageRole::Assistant => (PartProvenance::Model, PartScope::Conversation),
-            MessageRole::Tool => (PartProvenance::Tool, PartScope::Conversation),
-            MessageRole::System | MessageRole::Developer => {
-                (PartProvenance::Runtime, PartScope::Conversation)
+        ContentPart::Text { .. } | ContentPart::FileRef { .. } | ContentPart::Image { .. } => {
+            match role {
+                MessageRole::User => (PartProvenance::User, PartScope::Conversation),
+                MessageRole::Assistant => (PartProvenance::Model, PartScope::Conversation),
+                MessageRole::Tool => (PartProvenance::Tool, PartScope::Conversation),
+                MessageRole::System | MessageRole::Developer => {
+                    (PartProvenance::Runtime, PartScope::Conversation)
+                }
             }
-        },
+        }
     }
 }
 

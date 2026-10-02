@@ -107,6 +107,8 @@ impl ChatState {
 
 #[derive(Clone, Copy)]
 pub(super) struct RequestState {
+    pub attachments: RwSignal<Vec<proteus_contracts::domain::ImageAttachment>>,
+    pub attachments_loading: RwSignal<bool>,
     pub draft: ReadSignal<String>,
     pub set_draft: WriteSignal<String>,
     pub queued_prompts: ReadSignal<Vec<QueuedPromptInfo>>,
@@ -139,6 +141,8 @@ impl RequestState {
         let (next_request_id, set_next_request_id) = signal(1);
         Self {
             draft,
+            attachments: RwSignal::new(Vec::new()),
+            attachments_loading: RwSignal::new(false),
             set_draft,
             queued_prompts,
             set_queued_prompts,

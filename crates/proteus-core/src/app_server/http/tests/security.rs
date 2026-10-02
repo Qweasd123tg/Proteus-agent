@@ -17,6 +17,7 @@ fn protected_endpoints_require_session_token_except_health_and_preflight() {
         (Method::GET, "/sessions"),
         (Method::GET, "/sessions/current"),
         (Method::GET, "/history"),
+        (Method::GET, "/image"),
         (Method::GET, "/analysis"),
         (Method::GET, "/context"),
         (Method::POST, "/request"),
@@ -64,6 +65,24 @@ fn protected_endpoints_require_session_token_except_health_and_preflight() {
 
 #[tokio::test]
 async fn read_json_rejects_oversized_body() {
+    let mut bytes = vec![0; crate::domain::MAX_IMAGE_BYTES];
+    bytes[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+    let data = crate::domain::ImageAttachment::from_bytes("board.png".into(), &bytes)
+        .unwrap()
+        .data;
+    let payload = json!({"text":"image input", "images":[{"name":"board.png", "mime_type":"image/png", "data":data}]});
+    let image_request = Request::builder()
+        .method(Method::POST)
+        .uri("/send")
+        .body(Full::new(Bytes::from(
+            serde_json::to_vec(&payload).unwrap(),
+        )))
+        .unwrap();
+    assert_eq!(
+        read_json::<Value, _>(image_request).await.unwrap(),
+        payload,
+        "maximum attachment payload fits the HTTP boundary"
+    );
     let request = Request::builder()
         .method(Method::POST)
         .uri("/send")

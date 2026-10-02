@@ -27,6 +27,7 @@ mod execution_binding;
 mod failed_history;
 mod history;
 mod hooks;
+mod images;
 mod paths;
 mod settings;
 mod steering;
@@ -123,6 +124,7 @@ pub struct RuntimeReloadReport {
 }
 
 struct RuntimeServices {
+    images: images::ImageStore,
     cwd: PathBuf,
     execution_state: RwLock<RuntimeExecutionState>,
     reload_lock: Mutex<()>,

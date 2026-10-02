@@ -73,6 +73,7 @@ mod tests {
             }),
         };
         let delta = AppServerEvent::UserMessageSubmitted {
+            images: Vec::new(),
             text: "hello".into(),
         };
         let mut cursor = SessionCursor::default();

@@ -7,6 +7,7 @@ pub struct AppTranscriptMessage {
     pub phase: Option<MessagePhase>,
     pub role: String,
     pub text: String,
+    pub images: Vec<crate::domain::ImageRef>,
     pub tool: Option<AppTranscriptTool>,
     pub subagent: Option<AppTranscriptSubagent>,
     /// Текст ещё стримится: сообщение — живой прогресс незавершённого хода

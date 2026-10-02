@@ -55,7 +55,11 @@ pub(super) fn text_response(status: StatusCode, body: String) -> HttpResponse {
     response_with_body(status, "text/plain; charset=utf-8", Bytes::from(body))
 }
 
-fn response_with_body(status: StatusCode, content_type: &'static str, body: Bytes) -> HttpResponse {
+pub(super) fn response_with_body(
+    status: StatusCode,
+    content_type: &'static str,
+    body: Bytes,
+) -> HttpResponse {
     let body = Full::new(body).boxed_unsync();
     Response::builder()
         .status(status)

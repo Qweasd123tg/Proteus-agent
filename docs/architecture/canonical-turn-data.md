@@ -55,7 +55,7 @@ item boundaries и phase без provider-specific parsing. Singular legacy shape
 
 - `provenance`: user, model, tool, context builder, compactor или runtime;
 - `scope`: `conversation`, `request` или `trace`;
-- typed payload: текущие `Text`, `Context`, `FileRef`, `ToolCall`,
+- typed payload: текущие `Text`, `Image`, `Context`, `FileRef`, `ToolCall`,
   `ToolResult`, `Patch`, `ReasoningSummary`, `Reasoning`,
   `HostedToolActivity`, `Citation`.
 
@@ -67,6 +67,12 @@ history. `trace` нужен для диагностики, но не отпра�
 Reasoning signatures, tool call ids и исходные provider arguments, уже
 представленные canonical DTO, сохраняются без текстового flattening. Raw
 chain-of-thought не становится обязательной частью journal.
+
+`Image` хранит provider-neutral `ImageRef` на байты, сохранённые host-ом в
+session attachment store. Ссылка входит в conversation history; Base64
+provider payload собирает model adapter при вызове. Cold resume использует
+сохранённые байты, а workflow replay — записанный model outcome без повторной
+отправки изображения. Вход и ограничения описаны в [images.md](../guides/images.md).
 
 `HostedToolActivity` и `Citation` являются canonical response parts для
 provider-side execution и сохраняются в journal/transcript/eval projections,
@@ -309,7 +315,7 @@ recorded/replay outcome и usage, text equality, local/hosted/citation counts и
 
 ### Workflow Replay v0
 
-Replay сохраняет записанный `ExecutionId`: он доступен workflow/v18 и может
+Replay сохраняет записанный `ExecutionId`: он доступен workflow/v19 и может
 участвовать в deterministic ids и terminal metadata.
 
 `proteus --config <profile> replay workflow

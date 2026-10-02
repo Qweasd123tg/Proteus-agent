@@ -5,11 +5,12 @@ use tokio::sync::watch;
 
 use super::{SessionSteering, SteeringQueueState};
 use crate::domain::MessageId;
+use crate::model_standard::ContentPart;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct QueuedMessagesSnapshot {
     pub(crate) revision: u64,
-    pub(crate) messages: Vec<(MessageId, String)>,
+    pub(crate) messages: Vec<(MessageId, String, usize)>,
 }
 
 impl SessionSteering {
@@ -21,7 +22,15 @@ impl SessionSteering {
         let messages = state
             .queued
             .iter()
-            .map(|queued| (queued.message.id, queued.text.clone()))
+            .map(|queued| {
+                let image_count = queued
+                    .message
+                    .parts
+                    .iter()
+                    .filter(|part| matches!(part.payload, ContentPart::Image { .. }))
+                    .count();
+                (queued.message.id, queued.text.clone(), image_count)
+            })
             .collect::<Vec<_>>();
         self.snapshots.send_if_modified(|snapshot| {
             if snapshot.messages == messages {

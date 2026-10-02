@@ -62,6 +62,7 @@ fn transcript_messages(items: Vec<TranscriptMessage>) -> Vec<Message> {
                 }
             }
             messages.push(Message {
+                images: item.images,
                 message_id: item.message_id.map(|id| id.to_string()),
                 phase: item.phase,
                 id: 0,
@@ -77,6 +78,7 @@ fn transcript_messages(items: Vec<TranscriptMessage>) -> Vec<Message> {
             continue;
         }
         messages.push(Message {
+            images: item.images,
             message_id: item.message_id.map(|id| id.to_string()),
             phase: item.phase,
             id: 0,

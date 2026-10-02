@@ -1,3 +1,5 @@
+#[path = "execution_boundary/images.rs"]
+mod images;
 #[path = "support/model.rs"]
 mod test_model;
 

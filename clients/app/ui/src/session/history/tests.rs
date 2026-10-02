@@ -5,6 +5,7 @@ fn transcript_messages_merge_progress_subagent_into_preceding_task_card() {
     // subagent-сообщение сразу за ней — как шлёт turn_progress.
     let messages = transcript_messages(vec![
         TranscriptMessage {
+            images: Vec::new(),
             message_id: None,
             phase: None,
             role: "system".to_owned(),
@@ -21,6 +22,7 @@ fn transcript_messages_merge_progress_subagent_into_preceding_task_card() {
             streaming: false,
         },
         TranscriptMessage {
+            images: Vec::new(),
             message_id: None,
             phase: None,
             role: "system".to_owned(),
@@ -51,6 +53,7 @@ fn transcript_messages_merge_progress_subagent_into_preceding_task_card() {
 fn transcript_messages_merge_background_subagent_into_matching_spawn_card() {
     let messages = transcript_messages(vec![
         TranscriptMessage {
+            images: Vec::new(),
             message_id: None,
             phase: None,
             role: "system".to_owned(),
@@ -71,6 +74,7 @@ fn transcript_messages_merge_background_subagent_into_matching_spawn_card() {
             streaming: false,
         },
         TranscriptMessage {
+            images: Vec::new(),
             message_id: None,
             phase: None,
             role: "assistant".to_owned(),
@@ -80,6 +84,7 @@ fn transcript_messages_merge_background_subagent_into_matching_spawn_card() {
             streaming: true,
         },
         TranscriptMessage {
+            images: Vec::new(),
             message_id: None,
             phase: None,
             role: "system".to_owned(),
@@ -107,6 +112,7 @@ fn transcript_messages_merge_background_subagent_into_matching_spawn_card() {
 fn transcript_messages_merge_background_subagent_into_matching_followup_card() {
     let messages = transcript_messages(vec![
         TranscriptMessage {
+            images: Vec::new(),
             message_id: None,
             phase: None,
             role: "system".to_owned(),
@@ -126,6 +132,7 @@ fn transcript_messages_merge_background_subagent_into_matching_followup_card() {
             streaming: false,
         },
         TranscriptMessage {
+            images: Vec::new(),
             message_id: None,
             phase: None,
             role: "system".to_owned(),
@@ -156,6 +163,7 @@ fn transcript_messages_reconstruct_subagent_from_committed_task_result() {
     // Committed history: карточек субагента нет, но у результата task
     // есть metadata SubagentResult — карточка восстанавливается из неё.
     let messages = transcript_messages(vec![TranscriptMessage {
+        images: Vec::new(),
         message_id: None,
         phase: None,
         role: "system".to_owned(),
@@ -202,6 +210,7 @@ fn transcript_messages_reconstruct_subagent_from_committed_task_result() {
 #[test]
 fn transcript_messages_skip_reconstruction_for_failed_task_without_metadata() {
     let messages = transcript_messages(vec![TranscriptMessage {
+        images: Vec::new(),
         message_id: None,
         phase: None,
         role: "system".to_owned(),
@@ -228,6 +237,7 @@ fn transcript_messages_skip_reconstruction_for_failed_task_without_metadata() {
 #[test]
 fn transcript_messages_restore_tool_activity_cards() {
     let messages = transcript_messages(vec![TranscriptMessage {
+        images: Vec::new(),
         message_id: None,
         phase: None,
         role: "system".to_owned(),
@@ -256,6 +266,7 @@ fn transcript_messages_restore_tool_activity_cards() {
 #[test]
 fn transcript_messages_restore_subagent_activity_cards() {
     let messages = transcript_messages(vec![TranscriptMessage {
+        images: Vec::new(),
         message_id: None,
         phase: None,
         role: "system".to_owned(),

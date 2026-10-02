@@ -132,17 +132,26 @@ impl AppServerHandle {
 
     pub(crate) async fn reserve_user_message(
         &self,
-        text: String,
+        input: impl Into<crate::domain::UserMessageInput>,
         options: crate::domain::RunOptions,
     ) -> Result<UserMessageReservation> {
         let reservation = self
             .runtime
-            .reserve_user_message_with_options(text.clone(), options)
+            .reserve_user_message_with_options(input, options)
             .await?;
-        if matches!(reservation, UserMessageReservation::Start(_)) {
-            let _ = self
-                .events
-                .send(AppServerEvent::UserMessageSubmitted { text });
+        if let UserMessageReservation::Start(reserved) = &reservation {
+            let _ = self.events.send(AppServerEvent::UserMessageSubmitted {
+                text: reserved.text.clone(),
+                images: reserved
+                    .message
+                    .parts
+                    .iter()
+                    .filter_map(|p| match &p.payload {
+                        crate::model_standard::ContentPart::Image { image } => Some(image.clone()),
+                        _ => None,
+                    })
+                    .collect(),
+            });
         }
         Ok(reservation)
     }

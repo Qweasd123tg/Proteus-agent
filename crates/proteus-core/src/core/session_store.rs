@@ -93,6 +93,14 @@ impl SessionStore {
         journal_path(&self.session_dir)
     }
 
+    /// Admission may write image bytes before the first journal record. Create
+    /// the canonical session identity and acquire its writer lease first.
+    pub(crate) async fn prepare_attachments(&self) -> Result<()> {
+        let mut writer = self.writer.lock().await;
+        self.materialize_for_write().await?;
+        initialize_writer_state(&self.session_dir, self.session_id, &mut writer)
+    }
+
     async fn materialize_for_write(&self) -> Result<()> {
         let parent = self.session_dir.parent().ok_or_else(|| {
             anyhow!(

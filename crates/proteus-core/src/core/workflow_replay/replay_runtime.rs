@@ -467,6 +467,9 @@ fn replay_capabilities(
         .collect::<Vec<HostedToolKind>>();
     ModelCapabilities::empty()
         .with_tools(true)
+        // Compare media with the recorded request; replay never encodes or
+        // sends image bytes to a provider, including later steering inputs.
+        .with_image_input(true)
         .with_parallel_tool_calls(true)
         .with_freeform_tools(
             request

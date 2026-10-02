@@ -88,6 +88,7 @@ impl CliAppClient {
         let id = self.request_id("send");
         let value = self
             .request(StdioRequest::Send {
+                images: Vec::new(),
                 id: Some(id),
                 text,
                 options: Default::default(),

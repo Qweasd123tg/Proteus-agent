@@ -24,7 +24,7 @@ pub const PROCESS_MEMORY_RECALL_METHOD: &str = "recall";
 pub const PROCESS_PATCH_CONTRACT_VERSION: &str = "v1";
 pub const PROCESS_PATCH_APPLY_METHOD: &str = "apply";
 
-pub const PROCESS_TOOL_EXPOSURE_CONTRACT_VERSION: &str = "v3";
+pub const PROCESS_TOOL_EXPOSURE_CONTRACT_VERSION: &str = "v4";
 pub const PROCESS_TOOL_EXPOSURE_SELECT_METHOD: &str = "select";
 
 pub const PROCESS_POLICY_CONTRACT_VERSION: &str = "v2";

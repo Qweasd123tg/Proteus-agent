@@ -68,7 +68,10 @@ pub enum AppServerEvent {
     Runtime { envelope: Box<EventEnvelope> },
 
     /// Пользователь отправил текстовое сообщение (echo обратно клиенту).
-    UserMessageSubmitted { text: String },
+    UserMessageSubmitted {
+        text: String,
+        images: Vec<crate::domain::ImageRef>,
+    },
 
     /// Финальный AgentOutput после завершения turn'а.
     TurnOutput { output: Box<AgentOutput> },

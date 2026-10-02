@@ -319,7 +319,7 @@ Core mechanisms
 вариант `Agent` добавляет `AgentWorkflowContext` с `TurnId`. Операции с history,
 chat events и compaction требуют именно разговорного контекста.
 
-Вход и результат текущего `workflow/v18` остаются agent-shaped: обязательны
+Вход и результат текущего `workflow/v19` остаются agent-shaped: обязательны
 `AgentTask`, аргумент history `Vec<CanonicalMessage>` и terminal `AgentOutput`.
 Отдельный вызов через `RuntimeRegistry::workflow_execution_context`
 использует нижние capabilities/process substrate, но публичный
@@ -352,7 +352,7 @@ approval и ошибку инструмента; исходные tools и model
 
 `AppConfig` без `active_provider` собирается без model export. Ошибка тестов
 возвращается с выводом команды; при настроенной модели controller добавляет
-объяснение. `workflow/v18` использует общий `execution_id`, optional
+объяснение. `workflow/v19` использует общий `execution_id`, optional
 `conversation { session_id, thread_id, turn_id }` и optional `model_ref`.
 Самостоятельный workflow может передать пустую history. `AgentTask` и
 `AgentOutput` остаются общими task/result DTO этого slot.
@@ -527,7 +527,7 @@ composition(contract) = select_one | ordered_many
 
 `workflow`, `search`, `memory`, `context`, `policy`, `patch`,
 `compactor` и `tool_exposure` используют `select_one`.
-`tool`, `context_provider` и цепочка обработчиков `hook/v2` используют `ordered_many`.
+`tool`, `context_provider` и цепочка обработчиков `hook/v3` используют `ordered_many`.
 `modules.hooks` задаёт порядок обработчиков. Core определяет точки их вызова
 и проверяет результаты; обработчики используют тот же протокол процессных модулей.
 
@@ -622,7 +622,7 @@ sandbox policy.
 Core владеет provider-neutral `ModelService` и execution-bound `BoundModel`:
 canonical shaping/validation, deadline, attribution и journal. Provider
 HTTP adapters и secrets находятся в `modules/reference/model-pack`; runtime
-вызывает их через тот же `model/v11` contract, что и внешний модуль.
+вызывает их через тот же `model/v12` contract, что и внешний модуль.
 `describe({ model: ModelRef })` возвращает capabilities и hosted tools конкретной
 модели. Host кэширует описание по `(provider, model)` в пределах snapshot и
 проверяет стабильность adapter id. Execution binding собирает hosted tools

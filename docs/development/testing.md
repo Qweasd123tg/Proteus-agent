@@ -165,6 +165,7 @@ facts; совпавший final output не заменяет эти провер
 | Local compaction и совместимость compactors | `codex-compactor`, `context-pack`, module targets `codex_compaction`, `compactor_interop` |
 | Model-free controller | `coding-workflow project_check`, module target `project_check_workflow` |
 | Frozen admission и run intent | `core::runtime::tests::snapshot_atomicity`, `coding-workflow intents` |
+| Изображения: process workflow, cold resume, capability refusal, replay | `proteus-core --test execution_boundary images::`, provider encoding в `model-pack`, сохранение parts в `codex-compactor` |
 | Process peers и их tool surfaces | Core targets `process_agent_control`, `process_agent_pool` |
 
 Storage recovery проверяется отдельно от steady-state append: полный scan
@@ -240,6 +241,7 @@ embedded config, восстановление WASM и permissions, ошибка 
   [ui-extensions.md](../guides/ui-extensions.md#проверка).
 - Desktop Rust/build/native smoke:
   [desktop.md](../guides/desktop.md#проверка).
+- Изображения в реальном UI и WebKitGTK: `python3 clients/app/ui/tests/extensions_browser.py --images-only` после Trunk и сборки backend/reference module. Используется локальный provider fixture; проверка не подтверждает качество живой vision-модели.
 - Изолированная проверка installer: `./scripts/install-smoke.sh`.
   Она сама собирает и устанавливает оба executable во временные каталоги,
   проверяет fake turn, внешний Python component и process peers. Отдельная
@@ -250,7 +252,7 @@ embedded config, восстановление WASM и permissions, ошибка 
 
 ## Ordered Hook Evidence
 
-Для `hook/v2` проверяются strict DTO/response validation, одинаковая authority
+Для `hook/v3` проверяются strict DTO/response validation, одинаковая authority
 без host callbacks, config order и отсутствие duplicate/unknown selection.
 Boundary chain покрывает A→B/B→A, pre-effect failure, actual tool outcome
 при post-effect failure, targeted cancellation и component restart. Config

@@ -26,6 +26,8 @@ use crate::{
     model_standard::{CanonicalMessage, ContentPart, FinishReason, MessageRole},
 };
 
+#[cfg(test)]
+mod image_tests;
 mod request;
 mod response;
 mod sanitize;
@@ -152,6 +154,7 @@ impl Model for AnthropicMessagesClient {
     fn capabilities(&self, _model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
         Ok(ModelCapabilities::empty()
             .with_tools(true)
+            .with_image_input(true)
             .with_parallel_tool_calls(true)
             .with_system_role(true)
             .with_cache_hints(true)

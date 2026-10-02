@@ -1,5 +1,8 @@
-"""Non-Rust model/v11 boundary fixture; all test behavior is export-configured."""
+"""Non-Rust model/v12 boundary fixture; all test behavior is export-configured."""
 import os
+import hashlib
+import json
+import uuid
 import sys
 import threading
 import time
@@ -16,8 +19,8 @@ def initialize(params):
         raise ProtocolError("expected component v3")
     exports = []
     for export in params["exports"]:
-        if (export["slot"], export["contract_version"], export["composition"]) != ("model", "v11", "select_one"):
-            raise ProtocolError("expected model/v11 select_one")
+        if (export["slot"], export["contract_version"], export["composition"]) != ("model", "v12", "select_one"):
+            raise ProtocolError("expected model/v12 select_one")
         settings[export["module_id"]] = export["module_config"]
         if "pid_marker" in export["module_config"]:
             with Path(export["module_config"]["pid_marker"]).open("a") as file:
@@ -61,6 +64,20 @@ def invoke(context, method, params):
     if expected is not None and params != expected:
         raise ProtocolError("per-model canonical shaping changed")
     mode = config.get("mode", "normal")
+    if mode == "image_probe":
+        images = [part["payload"]["Image"]["image"] for message in params["request"]["messages"]
+                  for part in message["parts"] if "Image" in part["payload"]]
+        for image in images:
+            if hashlib.sha256(Path(image["path"]).read_bytes()).hexdigest() != image["id"]:
+                raise ProtocolError("image content changed")
+        response = json.loads(json.dumps(config["terminal"]["response"]))
+        response["messages"][0]["id"] = str(uuid.uuid4())
+        response["messages"][0]["parts"][0]["part_id"] = str(uuid.uuid4())
+        response["messages"][0]["parts"][0]["payload"]["Text"]["text"] = f"Images received: {len(images)}"
+        if "capture_path" in config:
+            with Path(config["capture_path"]).open("a") as file:
+                file.write(json.dumps(params["request"]) + "\n")
+        return {"event_count": 0, "terminal": {"kind": "response", "response": response}}
     marker = Path(config["marker"]) if "marker" in config else None
     marker_lock = threading.Lock()
     marker_terminal = False

@@ -57,13 +57,17 @@ pub(super) fn QueuedPrompts(
                 <div class="composer-queue-list">
                     <For each=move || items.with(|items| items.iter().map(|item| item.message_id.clone()).collect::<Vec<_>>()) key=|id| id.clone() children=move |id| {
                         let current_id = id.clone();
+                        let image_id = id.clone();
                         let text = Memo::new(move |_| items.with(|items| items.iter().find(|item| item.message_id == current_id).map(|item| item.text.clone()).unwrap_or_default()));
+                        let image_count = Memo::new(move |_| items.with(|items| items.iter().find(|item| item.message_id == image_id).map(|item| item.image_count).unwrap_or_default()));
                         let edit_id = id.clone();
                         let delete_id = id.clone();
                         view! {
                             <div class="queued-prompt-row" data-queued-id=id.to_string()>
                                 <QueueIcon />
-                                <span class="queued-prompt-text" title=move || text.get()>{move || text.get()}</span>
+                                <span class="queued-prompt-text" title=move || text.get()>{move || text.get()}
+                                    {move || (image_count.get() > 0).then(|| view! { <small class="queued-image-count">{format!(" Изображений: {}", image_count.get())}</small> })}
+                                </span>
                                 <button type="button" class="queue-icon-button" aria-label="Редактировать сообщение" title="Редактировать сообщение"
                                     disabled=move || busy.get() || editing.get().is_some()
                                     on:click=move |_| { draft.set(text.get_untracked()); editing.set(Some(edit_id.clone())); error.set(None); }><EditIcon /></button>

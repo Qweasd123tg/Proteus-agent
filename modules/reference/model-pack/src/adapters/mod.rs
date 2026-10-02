@@ -9,3 +9,4 @@ mod test_http;
 
 pub use anthropic::*;
 pub use openai::*;
+mod images;

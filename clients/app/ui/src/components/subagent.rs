@@ -189,6 +189,7 @@ fn NestedSubagentToolCard(
             .find(|tool| tool.call_id == call_id)?
             .clone();
         Some(Message {
+            images: Vec::new(),
             message_id: None,
             phase: None,
             id: parent.id,

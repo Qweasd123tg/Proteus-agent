@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-pub const PROCESS_HOOK_CONTRACT_VERSION: &str = "v2";
+pub const PROCESS_HOOK_CONTRACT_VERSION: &str = "v3";
 pub const PROCESS_HOOK_INVOKE_METHOD: &str = "hook.invoke";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

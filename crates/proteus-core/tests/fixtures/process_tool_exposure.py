@@ -10,8 +10,8 @@ settings = {}
 def initialize(params):
     exports = []
     for export in params["exports"]:
-        if (export["slot"], export["contract_version"], export["composition"]) != ("tool_exposure", "v3", "select_one"):
-            raise ProtocolError("expected tool_exposure/v3")
+        if (export["slot"], export["contract_version"], export["composition"]) != ("tool_exposure", "v4", "select_one"):
+            raise ProtocolError("expected tool_exposure/v4")
         settings[export["module_id"]] = export["module_config"]
         item = {key: export[key] for key in ("slot", "module_id", "contract_version", "composition")}
         item["module_features"] = []

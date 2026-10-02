@@ -250,6 +250,10 @@ fn anthropic_content_blocks(message: &CanonicalMessage) -> Result<Vec<Value>> {
                 "thinking": text,
                 "signature": signature.clone().unwrap_or_default(),
             })),
+            ContentPart::Image { image } => blocks.push(json!({
+                "type": "image",
+                "source": { "type": "base64", "media_type": image.mime_type, "data": super::super::images::encoded(image)? }
+            })),
             ContentPart::FileRef { path, content } => blocks.push(json!({
                 "type": "text",
                 "text": format!(

@@ -12,6 +12,8 @@ pub enum StdioRequest {
         id: Option<String>,
         text: String,
         #[serde(default)]
+        images: Vec<crate::domain::ImageAttachment>,
+        #[serde(default)]
         options: RunOptions,
     },
     EditQueuedMessage {

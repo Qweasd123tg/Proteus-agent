@@ -221,7 +221,11 @@ impl AppEventPublisher {
         pending.snapshot.queued_user_messages = queue
             .messages
             .iter()
-            .map(|(id, text)| AppQueuedUserMessage::new(*id, text.clone()))
+            .map(|(id, text, image_count)| AppQueuedUserMessage {
+                message_id: *id,
+                text: text.clone(),
+                image_count: *image_count,
+            })
             .collect();
         true
     }

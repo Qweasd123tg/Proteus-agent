@@ -46,6 +46,7 @@ impl AppPendingRequests {
 pub struct AppQueuedUserMessage {
     pub message_id: MessageId,
     pub text: String,
+    pub image_count: usize,
 }
 
 impl AppQueuedUserMessage {
@@ -53,6 +54,7 @@ impl AppQueuedUserMessage {
         Self {
             message_id,
             text: text.into(),
+            image_count: 0,
         }
     }
 }

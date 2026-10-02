@@ -29,6 +29,14 @@ pub(super) async fn route_get(
 async fn read(state: &HttpAppState, path: &str, query: Option<&str>) -> Result<HttpResponse> {
     let response = match path {
         "/health" => json_response(StatusCode::OK, &json!({ "ok": true })),
+        "/image" => {
+            let server = server_for_query(state, query).await?;
+            let id = super::workspace::query_path(query)?;
+            let runtime = server.runtime.clone();
+            let (bytes, mime) =
+                tokio::task::spawn_blocking(move || runtime.image_bytes(&id)).await??;
+            super::responses::response_with_body(StatusCode::OK, mime, bytes::Bytes::from(bytes))
+        }
         "/bootstrap" => json_response(StatusCode::OK, &bootstrap(state).await),
         "/sessions" => json_response(StatusCode::OK, &session_summaries(state, None).await?),
         "/history" => json_response(StatusCode::OK, &history_json(state, query).await?),

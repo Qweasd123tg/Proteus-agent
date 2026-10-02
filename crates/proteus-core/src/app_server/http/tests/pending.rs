@@ -84,6 +84,7 @@ async fn pending_snapshot_and_subscription_share_revisions_across_resolve_lag_an
     // latest value rather than relying on an unbroken stream of deltas.
     for _ in 0..1100 {
         let _ = server.events.send(AppServerEvent::UserMessageSubmitted {
+            images: Vec::new(),
             text: "runtime event".into(),
         });
     }

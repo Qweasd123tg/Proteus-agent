@@ -6,6 +6,7 @@ use std::sync::{
 };
 fn message(id: u64, tool: Option<ToolActivityStatus>) -> Message {
     Message {
+        images: Vec::new(),
         id,
         message_id: None,
         phase: None,

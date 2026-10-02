@@ -59,18 +59,18 @@ impl AppServerHandle {
     pub(super) async fn dispatch_user_message(
         &self,
         run_id: Option<String>,
-        text: String,
+        input: impl Into<crate::domain::UserMessageInput>,
         options: crate::domain::RunOptions,
         cancellation: CancellationToken,
     ) -> Result<SendDispatch> {
-        self.admit_user_message(run_id, text, options, cancellation, true)
+        self.admit_user_message(run_id, input, options, cancellation, true)
             .await
     }
 
     pub(super) async fn admit_user_message(
         &self,
         run_id: Option<String>,
-        text: String,
+        input: impl Into<crate::domain::UserMessageInput>,
         options: crate::domain::RunOptions,
         cancellation: CancellationToken,
         allow_queue: bool,
@@ -90,7 +90,7 @@ impl AppServerHandle {
         {
             return Err(anyhow!("run id is already active: {run_id}"));
         }
-        let reserved = match self.reserve_user_message(text, options).await? {
+        let reserved = match self.reserve_user_message(input, options).await? {
             UserMessageReservation::Queued(receipt) => return Ok(SendDispatch::Queued(receipt)),
             UserMessageReservation::Start(reserved) => reserved,
         };

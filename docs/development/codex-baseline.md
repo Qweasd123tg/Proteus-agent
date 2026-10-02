@@ -18,7 +18,7 @@ Codex определяются в [roadmap.md](../product/roadmap.md).
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v18`, `compactor/v10`, journal schema v17 и config snapshot v6.
+Действующие версии: `workflow/v19`, `compactor/v11`, journal schema v17 и config snapshot v6.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,
@@ -252,7 +252,7 @@ parser, все формы команд и event lifecycle этим срезом 
 
 ### Продолжение После Модельной Ошибки
 
-`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v18`
+`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v19`
 failure envelope. Core сохраняет их до `TurnSettled(Error)`: следующий turn
 получает завершённые assistant items и tool results с исходными call ids.
 
@@ -267,7 +267,7 @@ model items и tool calls, `core/src/session/turn.rs` — завершённые
 и в [Proteus](../../modules/reference/coding-workflow/src/codex_sampling.rs).
 Codex при этом обновляет context accounting: [preflight следующего turn](https://github.com/openai/codex/blob/67cc3c318dc8b5532db6ade4182b1dc6f3870889/codex-rs/core/src/session/turn.rs#L1032-L1061)
 проверяет сохранённую оценку. Proteus передаёт факты предыдущих запросов через
-`runtime.model_context` общего `workflow/v18`. [Расчёт в модуле](../../modules/reference/coding-workflow/src/model_context.rs)
+`runtime.model_context` общего `workflow/v19`. [Расчёт в модуле](../../modules/reference/coding-workflow/src/model_context.rs)
 повторяет `fill_to_context_window`: при известном raw window usable равен 95%,
 новая last-оценка — `max(usable - cumulative, 0)`, cumulative становится usable.
 Повторное переполнение того же окна может дать нулевую last-оценку: это не
@@ -469,7 +469,7 @@ cargo test -p proteus-reference-module --test conformance
 stream retry, полного compaction lifecycle, filesystem/network permissions,
 deferred tool discovery и AgentControl semantics.
 
-Item identity и typed phase проходят через `model/v11`, live events и app
+Item identity и typed phase проходят через `model/v12`, live events и app
 transcript. Responses fixture отдаёт added/delta/done/completed, включая
 позднюю фазу и multipart текст; regression сверяет live ids/text/offsets
 с journal и cold app transcript. Проверка интерфейса проверяет соседние items

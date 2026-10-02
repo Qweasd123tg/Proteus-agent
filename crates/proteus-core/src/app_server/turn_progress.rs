@@ -17,6 +17,7 @@ pub(super) struct TurnProgress {
     messages: Vec<AppTranscriptMessage>,
     turn_id: Option<crate::domain::TurnId>,
     submitted: Option<String>,
+    submitted_images: Vec<crate::domain::ImageRef>,
     /// Collaboration-дети, запущенные через `spawn_agent`/`followup_task`,
     /// живут дольше родительского turn-а. Их карточки хранятся отдельно, чтобы
     /// TurnFinished/следующий TurnStarted не превращали поздние child events
@@ -39,6 +40,9 @@ impl TurnProgress {
                 self.turn_id = Some(*turn_id);
                 if let Some(text) = self.submitted.take() {
                     self.push_user(text);
+                    if let Some(message) = self.messages.last_mut() {
+                        message.images = std::mem::take(&mut self.submitted_images);
+                    }
                 }
                 self.turn_thread_id = Some(envelope.thread_id);
             }
@@ -71,6 +75,7 @@ impl TurnProgress {
                 ..
             } => {
                 self.messages.push(AppTranscriptMessage {
+                    images: Vec::new(),
                     message_id: None,
                     phase: None,
                     role: "user".to_owned(),
@@ -112,6 +117,7 @@ impl TurnProgress {
                 child_thread_id,
             } => {
                 let message = AppTranscriptMessage {
+                    images: Vec::new(),
                     message_id: None,
                     phase: None,
                     role: "system".to_owned(),
@@ -170,6 +176,12 @@ impl TurnProgress {
 
     pub(super) fn submit(&mut self, text: String) {
         self.submitted = Some(text);
+        self.submitted_images.clear();
+    }
+
+    pub(super) fn submit_input(&mut self, text: String, images: Vec<crate::domain::ImageRef>) {
+        self.submitted = Some(text);
+        self.submitted_images = images;
     }
 
     fn push_user(&mut self, text: String) {
@@ -178,6 +190,7 @@ impl TurnProgress {
 
     fn user_message(text: String) -> AppTranscriptMessage {
         AppTranscriptMessage {
+            images: Vec::new(),
             message_id: None,
             phase: None,
             role: "user".to_owned(),
@@ -192,7 +205,9 @@ impl TurnProgress {
     pub(super) fn snapshot(&self) -> Vec<AppTranscriptMessage> {
         let mut messages = self.messages.clone();
         if let Some(text) = &self.submitted {
-            messages.push(Self::user_message(text.clone()));
+            let mut message = Self::user_message(text.clone());
+            message.images = self.submitted_images.clone();
+            messages.push(message);
         }
         messages.extend(self.background_subagents.clone());
         messages
@@ -230,6 +245,7 @@ impl TurnProgress {
             message.streaming = false;
         }
         self.messages.push(AppTranscriptMessage {
+            images: Vec::new(),
             message_id: Some(message_id),
             phase,
             role: "assistant".to_owned(),
@@ -251,6 +267,7 @@ impl TurnProgress {
             message.streaming = false;
         }
         self.messages.push(AppTranscriptMessage {
+            images: Vec::new(),
             message_id: None,
             phase: None,
             role: "system".to_owned(),

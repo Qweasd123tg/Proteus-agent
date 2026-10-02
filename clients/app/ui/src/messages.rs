@@ -47,6 +47,7 @@ pub(crate) fn push_message(
     set_next_message_id.set(id + 1);
     set_messages.update(|items| {
         items.push(Message {
+            images: Vec::new(),
             message_id: None,
             phase: None,
             id,
@@ -78,6 +79,7 @@ pub(crate) fn push_user_message_once(
             return;
         }
         items.push(Message {
+            images: Vec::new(),
             message_id: None,
             phase: None,
             id,
@@ -113,6 +115,7 @@ pub(crate) fn push_assistant_message_once(
             return;
         }
         items.push(Message {
+            images: Vec::new(),
             message_id: None,
             phase: None,
             id,
@@ -159,6 +162,7 @@ pub(crate) fn push_tool_message(
     set_next_message_id.set(id + 1);
     set_messages.update(|items| {
         items.push(Message {
+            images: Vec::new(),
             message_id: None,
             phase: None,
             id,
@@ -396,6 +400,7 @@ pub(crate) fn push_subagent_message(
             return;
         }
         items.push(Message {
+            images: Vec::new(),
             message_id: None,
             phase: None,
             id,

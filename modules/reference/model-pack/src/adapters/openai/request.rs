@@ -337,7 +337,7 @@ fn to_openai_input(messages: &[CanonicalMessage]) -> Result<Vec<Value>> {
             // annotations do not introduce a separate model-facing item.
             if !matches!(
                 part.payload,
-                ContentPart::Text { .. } | ContentPart::Citation { .. }
+                ContentPart::Text { .. } | ContentPart::Image { .. } | ContentPart::Citation { .. }
             ) {
                 text_message_index = None;
             }
@@ -419,6 +419,15 @@ fn to_openai_input(messages: &[CanonicalMessage]) -> Result<Vec<Value>> {
                 ContentPart::Reasoning { text, signature } => {
                     input.push(openai_reasoning_item(text, signature.as_deref()))
                 }
+                ContentPart::Image { image } => {
+                    let block = json!({ "type": "input_image", "image_url": super::super::images::data_url(image)?, "detail": "auto" });
+                    if let Some(index) = text_message_index {
+                        input[index]["content"].as_array_mut().expect("message content array").push(block);
+                    } else {
+                        text_message_index = Some(input.len());
+                        input.push(json!({ "type":"message", "role":role_to_openai(&message.role), "content":[block] }));
+                    }
+                },
                 ContentPart::FileRef { path, content } => input.push(json!({
                     "type": "message",
                     "role": "user",

@@ -167,6 +167,11 @@ fn user_message_view(message: Memo<Option<Message>>) -> AnyView {
             }
         >
             <div class="user-bubble">
+                <div class="message-images">{move || message.get().map(|m| m.images.into_iter().map(|image| {
+                    let session_dir = image.path.parent().and_then(|p| p.parent()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+                    let url = crate::api::image_url(&session_dir, &image.id);
+                    view! { <a href=url.clone() target="_blank" rel="noopener"><img src=url.clone() alt=image.name loading="lazy"/></a> }
+                }).collect_view())}</div>
                 <CopyButton
                     text=move || current_message_text(message)
                     class="icon-button user-copy"
@@ -305,6 +310,7 @@ mod tests {
     #[test]
     fn render_message_html_formats_markdown_while_streaming() {
         let html = render_message_html(&Message {
+            images: Vec::new(),
             message_id: None,
             phase: None,
             id: 1,
@@ -322,6 +328,7 @@ mod tests {
 
     fn running_tool_message(id: u64) -> Message {
         Message {
+            images: Vec::new(),
             message_id: None,
             phase: None,
             id,

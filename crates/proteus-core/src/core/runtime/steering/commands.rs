@@ -33,8 +33,18 @@ impl SessionSteering {
                 "root steering queue byte budget exceeded (max {MAX_QUEUED_BYTES} bytes)"
             );
             let queued = &mut state.queued[index];
-            queued.message =
-                CanonicalMessage::text(MessageRole::User, text.clone()).with_id(message_id);
+            queued
+                .message
+                .parts
+                .retain(|p| !matches!(p.payload, crate::model_standard::ContentPart::Text { .. }));
+            queued
+                .message
+                .parts
+                .push(crate::model_standard::CanonicalPart::new(
+                    crate::model_standard::PartProvenance::User,
+                    crate::model_standard::PartScope::Conversation,
+                    crate::model_standard::ContentPart::Text { text: text.clone() },
+                ));
             queued.text = text.clone();
             state.queued_bytes = next_bytes;
             text

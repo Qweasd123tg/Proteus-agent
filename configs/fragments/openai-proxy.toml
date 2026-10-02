@@ -16,6 +16,9 @@ base_url_json_key = "base_url"
 max_input_tokens = 400000
 
 [module_config.model.openai.capabilities]
+# OpenAI-compatible transport сам по себе не гарантирует vision у модели.
+# В конкретном профиле включайте только для модели с image input.
+supports_image_input = false
 supports_parallel_tool_calls = true
 supports_freeform_tools = false
 supports_json_schema = true

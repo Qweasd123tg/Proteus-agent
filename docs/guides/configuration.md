@@ -941,7 +941,7 @@ Pi/OpenCode tool handlers (включая изменение args), JSON-stdin P
 `updatedInput` и Stop scripts Codex/Claude Code. Completion review сохраняет
 root turn, имеет общий workflow deadline и лимит 8 продолжений.
 Неподдержанные upstream действия отклоняются явно; это адаптер переноса,
-не загрузчик чужих plugins. Модуль использует тот же `hook/v2`, без отдельной
+не загрузчик чужих plugins. Модуль использует тот же `hook/v3`, без отдельной
 registration или authority surface в Core.
 
 ## Config Builder

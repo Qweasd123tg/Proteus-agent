@@ -50,6 +50,13 @@ fn is_real_user_message(message: &CanonicalMessage) -> bool {
     if message.role != MessageRole::User || is_structured_ephemeral_context_message(message) {
         return false;
     }
+    if message
+        .parts
+        .iter()
+        .any(|part| matches!(part.payload, ContentPart::Image { .. }))
+    {
+        return true;
+    }
     let Some(text) = message_text(message) else {
         return false;
     };
@@ -94,6 +101,13 @@ pub(crate) fn select_recent_user_messages(
             break;
         }
         let Some(text) = message_text(message) else {
+            if message
+                .parts
+                .iter()
+                .any(|part| matches!(part.payload, ContentPart::Image { .. }))
+            {
+                selected.push(message.clone());
+            }
             continue;
         };
         let tokens = crate::budget::estimate_text_tokens(&text);
@@ -103,13 +117,19 @@ pub(crate) fn select_recent_user_messages(
         } else {
             let mut truncated = message.clone();
             truncated.id = new_message_id();
-            truncated.parts = vec![CanonicalPart::new(
+            truncated.parts = message
+                .parts
+                .iter()
+                .filter(|part| matches!(part.payload, ContentPart::Image { .. }))
+                .cloned()
+                .collect();
+            truncated.parts.push(CanonicalPart::new(
                 PartProvenance::Compactor,
                 PartScope::Conversation,
                 ContentPart::Text {
                     text: truncate_to_tokens(&text, remaining),
                 },
-            )];
+            ));
             replacements.push(CompactionUserMessageReplacement {
                 source_message_id: message.id,
                 replacement_message_id: truncated.id,

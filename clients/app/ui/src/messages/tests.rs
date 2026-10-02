@@ -8,6 +8,7 @@ fn finish_active_streaming_assistant_message_marks_message_done() {
     let owner = Owner::new();
     owner.with(|| {
         let (messages, set_messages) = crate::transcript::transcript(vec![Message {
+            images: Vec::new(),
             message_id: None,
             phase: None,
             id: 1,
@@ -36,6 +37,7 @@ fn finish_active_streaming_assistant_message_marks_message_done() {
 
 fn history_message(id: u64, role: MessageRole, text: &str) -> Message {
     Message {
+        images: Vec::new(),
         message_id: None,
         phase: None,
         id,
@@ -77,6 +79,7 @@ fn subagent_activity(child_thread_id: &str, status: SubagentActivityStatus) -> S
 
 fn subagent_message(id: u64, activity: SubagentActivity) -> Message {
     Message {
+        images: Vec::new(),
         message_id: None,
         phase: None,
         id,

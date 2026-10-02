@@ -15,7 +15,7 @@
 вызов получает только права своего слота.
 
 Внешние модули работают через Component Runtime v2 и протокол wire v3. У
-`workflow` действует контракт v18, у `compactor` — v10, у `model` — v11.
+`workflow` действует контракт v19, у `compactor` — v11, у `model` — v12.
 Версии и разрешённые методы остальных слотов перечислены в
 [описании процессной границы](process-module-architecture.md). Один процесс
 может обслуживать несколько одновременных и вложенных вызовов. Загрузки
@@ -46,7 +46,7 @@
 
 | Слот | Правило выбора | Где выбирается | Процессный контракт | Примеры имён |
 |---|---|---|---|---|
-| `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v2` | `hook.instructions`, `hook.output_budget` |
+| `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v3` | `hook.instructions`, `hook.output_budget` |
 | `workflow` | `select_one` | `modules.workflow` | да | `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`, `coding.project_check` |
 | `search` | `select_one` | `modules.search` | да | `rg` |
 | `memory` | `select_one` | `modules.memory` | да | `jsonl`, `sqlite` |
@@ -57,7 +57,7 @@
 | `tool_exposure` | `select_one` | `modules.tool_exposure` | да | `codex_dynamic` |
 | `tool` | `ordered_many` | предоставленные реализации + `tools.enabled` | да | `reference.tools` и узкие варианты |
 | `context_provider` | `ordered_many` | предоставленные реализации + настройки контекста | да | `skills` |
-| `model` | `select_one` | активный профиль модели | да, `model/v11` | `fake`, `openai`, `openai_compatible`, `openai_codex`, `anthropic` |
+| `model` | `select_one` | активный профиль модели | да, `model/v12` | `fake`, `openai`, `openai_compatible`, `openai_codex`, `anthropic` |
 
 `select_one` означает одну выбранную реализацию, `ordered_many` — несколько
 реализаций с заданным порядком. Все перечисленные слоты, включая `model`,
@@ -149,7 +149,7 @@ Core запускает модуль и отправляет ему первое
 
 ### Hooks
 
-`hook/v2` — typed contributions на host-owned точках `turn_started`,
+`hook/v3` — typed contributions на host-owned точках `turn_started`,
 `before_model`, `before_tool`, `after_tool`, `before_stop`, `turn_settled`. Список
 `modules.hooks` задаёт порядок; пустой список отключает hooks. Один export
 не получает host callbacks и не вызывает tools/model/memory. Component
@@ -179,7 +179,7 @@ UI-событие публикуется после принятия. Ошибк
 Внешний [`hook-process`](../../examples/modules/hook-process/README.md)
 предоставляет JS/TS SDK и явные обёртки для переноса отдельных Pi/OpenCode
 handlers и PreToolUse/Stop commands Codex/Claude. Он экспортирует обычный
-`hook/v2` с тем же contract и без дополнительных callbacks. Upstream lifecycle
+`hook/v3` с тем же contract и без дополнительных callbacks. Upstream lifecycle
 или неподдержанные actions не эмулируются; различия описаны рядом с примерами.
 
 ### Workflow
@@ -215,7 +215,7 @@ Plan-фаза ограничивает и выбранные tools, и compariso
 `runtime.permission_mode`; Core не знает их инструкций. Подробности и команды —
 в [runtime-and-events.md](../guides/runtime-and-events.md).
 
-`workflow/v18` возвращает success с `WorkflowOutput` либо error с
+`workflow/v19` возвращает success с `WorkflowOutput` либо error с
 `WorkflowFailure`. Ошибка может явно вернуть выполненную часть истории через
 `WorkflowHistoryUpdate`; Core проверяет её и сохраняет до terminal `Error`.
 `coding.codex_loop` использует этот путь после сбоя model call, включая
@@ -263,7 +263,7 @@ Checkpoint связывает исходный call в history с явно об�
 исполнение без преобразования. Подмена module не требует имени Codex в host.
 
 `coding.project_check` — reference code-heavy controller на том же
-`workflow/v18`. Он детерминированно вызывает `git_status`, определяет project по
+`workflow/v19`. Он детерминированно вызывает `git_status`, определяет project по
 root marker, запускает фиксированную test command и, если модель настроена, обращается к ней только
 один раз для объяснения failed test. Success path не вызывает model, context
 или compactor. Это architecture probe, не default workflow и не special
@@ -338,7 +338,7 @@ context matching и последовательное применение pinned
 включая history, instructions, reasoning, limits и cache. Выбранный module
 определяет summary request и возвращает replacement history. Он может вызвать
 `host.model.complete`. Этот
-callback доступен всему `compactor/v10`, а не только `codex`. Deterministic
+callback доступен всему `compactor/v11`, а не только `codex`. Deterministic
 Python example не использует callback, но имеет ту же authority.
 
 Compactor наследует общий бюджет workflow; export `timeout_ms` может задать
@@ -366,7 +366,7 @@ model history. При `changed = false` сообщения должны совп
 input/output. `metadata` — непрозрачные данные module, не источник этих полей.
 
 Тот же DTO возвращает workflow callback `host.history.compact`; актуальные
-границы — `compactor/v10` и `workflow/v18`, прежние slot versions не принимаются.
+границы — `compactor/v11` и `workflow/v19`, прежние slot versions не принимаются.
 Wire protocol остаётся v3, журнал использует schema v17.
 Workflow replay сохраняет typed поля `HistoryCompactionReport` и весь `metadata`, не подмешивая и не
 удаляя ключи с известными именами. Core помечает внутренний model callback
@@ -380,7 +380,7 @@ compactor origin-ом `compactor` в journal envelope. Workflow replay пров�
 передаёт все policy-visible candidates; это structural behavior, не
 `all_visible` module.
 
-`tool_exposure/v3` принимает strict `request` и `candidates`; конфигурация
+`tool_exposure/v4` принимает strict `request` и `candidates`; конфигурация
 принадлежит export и передаётся только через handshake. Возвращённые specs
 должны точно совпадать с candidates, без дубликатов: менять safety, surface,
 schema, timeout или parallel permission нельзя. Перед фактическим model request
@@ -425,7 +425,7 @@ Core не обращается к provider HTTP и не знает имён мо
 кредиты ChatGPT в этот DTO внутри своего адаптера; API-key implementations
 и fake возвращают `null`. Имена exports и происхождение модуля не меняют contract.
 
-Общий `model/v11` contract: `describe` возвращает неизменяемые adapter id,
+Общий `model/v12` contract: `describe` возвращает неизменяемые adapter id,
 capabilities и hosted tools; `stream` принимает canonical request и флаг
 provider streaming. Дельты доставляются через acknowledged `host.model.emit`,
 полный response/error — отдельным terminal result. Порядок, backpressure и

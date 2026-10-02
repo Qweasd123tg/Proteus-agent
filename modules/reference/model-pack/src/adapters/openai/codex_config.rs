@@ -7,6 +7,7 @@ pub(super) fn validate(config: &Value) -> Result<()> {
         .as_object()
         .context("openai_codex config must be an object")?;
     let capability_keys = [
+        "supports_image_input",
         "supports_parallel_tool_calls",
         "supports_freeform_tools",
         "supports_json_schema",

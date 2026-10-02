@@ -14,6 +14,51 @@ use proteus_contracts::{
 };
 use serde_json::json;
 
+#[test]
+fn recent_user_images_survive_image_only_input_and_text_truncation() {
+    use proteus_contracts::domain::ImageRef;
+    let image = ImageRef {
+        id: "fixture".into(),
+        name: "board.png".into(),
+        mime_type: "image/png".into(),
+        path: "/images/fixture".into(),
+    };
+    let image_only = CanonicalMessage::new(
+        MessageRole::User,
+        vec![ContentPart::Image {
+            image: image.clone(),
+        }],
+    );
+    assert_eq!(
+        crate::history::collect_user_messages(&[image_only.clone()]).len(),
+        1
+    );
+    assert_eq!(
+        select_recent_user_messages(&[image_only.clone()], 100).messages,
+        vec![image_only]
+    );
+    let with_text = CanonicalMessage::new(
+        MessageRole::User,
+        vec![
+            ContentPart::Image {
+                image: image.clone(),
+            },
+            ContentPart::Text {
+                text: "A lengthy question about the photograph".into(),
+            },
+        ],
+    );
+    let selected = select_recent_user_messages(&[with_text], 1);
+    assert_eq!(selected.messages.len(), 1);
+    assert!(
+        selected.messages[0]
+            .parts
+            .iter()
+            .any(|part| matches!(&part.payload, ContentPart::Image {image:kept} if kept == &image))
+    );
+    assert_eq!(selected.replacements.len(), 1);
+}
+
 use crate::{
     budget::{estimate_messages_tokens, resolve_trigger_tokens},
     compaction::compact,

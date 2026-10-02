@@ -36,6 +36,8 @@ mod codex_tests;
 mod errors;
 mod hosted_tools;
 mod http_retry;
+#[cfg(test)]
+mod image_tests;
 mod model_profile;
 mod request;
 mod response;

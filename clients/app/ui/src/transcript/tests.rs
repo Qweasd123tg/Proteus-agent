@@ -6,6 +6,7 @@ use std::sync::{
 
 fn message(id: u64, text: &str) -> Message {
     Message {
+        images: Vec::new(),
         id,
         message_id: Some(format!("item-{id}")),
         version: 0,

@@ -279,6 +279,7 @@ impl RunnerInner {
         leased
             .child
             .send(&StdioRequest::Send {
+                images: Vec::new(),
                 options: Default::default(),
                 id: Some(send_id.clone()),
                 text,

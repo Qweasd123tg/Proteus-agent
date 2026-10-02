@@ -76,7 +76,7 @@ async fn delete_waits_for_settlement_and_closes_admission_on_existing_handles() 
         server
             .dispatch_user_message(
                 Some("late".into()),
-                "must not run".into(),
+                "must not run".to_owned(),
                 Default::default(),
                 CancellationToken::new()
             )

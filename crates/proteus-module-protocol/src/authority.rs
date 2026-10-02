@@ -268,7 +268,7 @@ mod tests {
         assert_eq!(authority.module_methods, [PROCESS_HOOK_INVOKE_METHOD]);
         assert!(authority.host_methods.is_empty());
         assert!(authority.host_features.is_empty());
-        assert!(process_contract_authority("hook", "v3").is_none());
+        assert!(process_contract_authority("hook", "v4").is_none());
     }
 
     #[test]
@@ -294,13 +294,13 @@ mod tests {
             ("search", "v1", "v2"),
             ("context", "v1", "v2"),
             ("context_provider", "v1", "v2"),
-            ("model", "v10", "v11"),
-            ("compactor", "v9", "v10"),
-            ("workflow", "v17", "v18"),
-            ("hook", "v1", "v2"),
+            ("model", "v11", "v12"),
+            ("compactor", "v10", "v11"),
+            ("workflow", "v18", "v19"),
+            ("hook", "v2", "v3"),
             ("tool", "v2", "v3"),
             ("policy", "v1", "v2"),
-            ("tool_exposure", "v2", "v3"),
+            ("tool_exposure", "v3", "v4"),
         ] {
             assert!(process_contract_authority(slot, previous).is_none());
             assert!(process_contract_authority(slot, current).is_some());

@@ -83,6 +83,7 @@ pub(super) fn connect(state: AppState) -> ClientConnection {
         Err(error) => {
             let message = format!("Session token storage failed: {error}");
             set_messages.set(vec![Message {
+                images: Vec::new(),
                 message_id: None,
                 phase: None,
                 id: 1,
@@ -184,6 +185,8 @@ pub(super) fn connect(state: AppState) -> ClientConnection {
     };
     session_actions.initialize();
     let actions = AppActions {
+        attachments: state.request.attachments,
+        attachments_loading: state.request.attachments_loading,
         set_messages,
         next_message_id,
         set_next_message_id,

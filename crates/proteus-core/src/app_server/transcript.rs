@@ -52,10 +52,38 @@ fn append_transcript_message(
         }
     }
     flush_transcript_text(transcript, &role, message, &mut text_parts);
+    let images = message
+        .parts
+        .iter()
+        .filter_map(|p| match &p.payload {
+            ContentPart::Image { image } => Some(image.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if !images.is_empty() {
+        if let Some(item) = transcript
+            .last_mut()
+            .filter(|item| item.message_id == Some(message.id))
+        {
+            item.images = images;
+        } else {
+            transcript.push(AppTranscriptMessage {
+                message_id: Some(message.id),
+                phase: message.phase,
+                role,
+                text: String::new(),
+                images,
+                tool: None,
+                subagent: None,
+                streaming: false,
+            });
+        }
+    }
 }
 
 fn append_transcript_tool_call(transcript: &mut Vec<AppTranscriptMessage>, call: &ToolCall) {
     transcript.push(AppTranscriptMessage {
+        images: Vec::new(),
         message_id: None,
         phase: None,
         role: "system".to_owned(),
@@ -140,6 +168,7 @@ fn append_hosted_tool_activity(
         _ => None,
     };
     transcript.push(AppTranscriptMessage {
+        images: Vec::new(),
         message_id: None,
         phase: None,
         role: "system".to_owned(),
@@ -201,6 +230,7 @@ fn flush_transcript_text(
         return;
     }
     transcript.push(AppTranscriptMessage {
+        images: Vec::new(),
         message_id: Some(message.id),
         phase: message.phase,
         role: role.to_owned(),
@@ -228,6 +258,7 @@ fn append_transcript_tool_result(transcript: &mut Vec<AppTranscriptMessage>, res
     }
 
     transcript.push(AppTranscriptMessage {
+        images: Vec::new(),
         message_id: None,
         phase: None,
         role: "system".to_owned(),
@@ -257,6 +288,27 @@ fn transcript_role(role: &MessageRole) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn image_only_user_message_has_a_durable_transcript_item() {
+        use super::*;
+        let image = crate::domain::ImageRef {
+            id: "image-id".into(),
+            name: "board.png".into(),
+            mime_type: "image/png".into(),
+            path: "/session/images/image-id".into(),
+        };
+        let message = CanonicalMessage::new(
+            MessageRole::User,
+            vec![ContentPart::Image {
+                image: image.clone(),
+            }],
+        );
+        let transcript = transcript_messages(&[message.clone()]);
+        assert_eq!(transcript.len(), 1);
+        assert_eq!(transcript[0].message_id, Some(message.id));
+        assert_eq!(transcript[0].images, vec![image]);
+        assert!(transcript[0].text.is_empty());
+    }
     use serde_json::json;
 
     use super::*;

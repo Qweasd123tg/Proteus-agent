@@ -67,7 +67,7 @@ impl AppActions {
     /// станет сообщение steering или follow-up.
     pub(crate) fn queue_prompt(self, text: String) {
         let text = text.trim().to_owned();
-        if text.is_empty() {
+        if text.is_empty() && self.attachments.with_untracked(|images| images.is_empty()) {
             return;
         }
         let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "steer");
@@ -76,10 +76,13 @@ impl AppActions {
         };
         let generation = self.transcript_generation.get_untracked();
         let submitted_text = text.clone();
+        let images = self.attachments.get_untracked();
+        self.attachments.set(Vec::new());
         spawn_local(async move {
             match post_json(
                 "/send-async",
                 &SendRequest {
+                    images,
                     id: Some(request_id.clone()),
                     text,
                     options: Default::default(),

@@ -56,8 +56,19 @@ impl AgentRuntime {
         text: String,
         cancellation: CancellationToken,
     ) -> Result<ReservedRunCompletion> {
+        self.run_input_completion(text.into(), cancellation).await
+    }
+
+    pub(super) async fn run_input_completion(
+        &self,
+        input: crate::domain::UserMessageInput,
+        cancellation: CancellationToken,
+    ) -> Result<ReservedRunCompletion> {
         let _run_guard = self.session.run_lock.lock().await;
-        let reserved = match self.reserve_user_message(text).await? {
+        let reserved = match self
+            .reserve_user_message_with_options(input, crate::domain::RunOptions::default())
+            .await?
+        {
             UserMessageReservation::Start(reserved) => reserved,
             UserMessageReservation::Queued(_) => {
                 anyhow::bail!("session acquired the run lock with an active root reservation")
@@ -69,6 +80,7 @@ impl AgentRuntime {
     /// Atomically reserves an idle root session or appends to its bounded
     /// steering queue. App-server transports call this before spawning a turn,
     /// eliminating the race between the first and second `Send` commands.
+    #[cfg(test)]
     pub(crate) async fn reserve_user_message(
         &self,
         text: String,
@@ -79,7 +91,7 @@ impl AgentRuntime {
 
     pub(crate) async fn reserve_user_message_with_options(
         &self,
-        text: String,
+        input: impl Into<crate::domain::UserMessageInput>,
         options: crate::domain::RunOptions,
     ) -> Result<UserMessageReservation> {
         if let Some(intent) = &options.intent {
@@ -93,10 +105,20 @@ impl AgentRuntime {
             );
         }
         let snapshot = self.capture_run_snapshot(options.permission_mode).await;
+        let input = input.into();
+        let input = tokio::task::spawn_blocking(move || super::images::ImageStore::prepare(input))
+            .await??;
+        if input.has_images()
+            && let Some(store) = &self.session.session_store
+        {
+            store.prepare_attachments().await?;
+        }
+        let images = self.services.images.clone();
+        let message = tokio::task::spawn_blocking(move || images.admit(input)).await??;
         let mut reservation = self
             .session
             .steering
-            .reserve_with_options(text, options)
+            .reserve_message_with_options(message, options)
             .await?;
         if let UserMessageReservation::Start(reserved) = &mut reservation {
             reserved.snapshot = Some(snapshot);

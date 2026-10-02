@@ -310,7 +310,7 @@ history сохраняют раздельные commentary/final items. Клие
 
 ## Хуки Выполнения
 
-Opt-in `modules.hooks` задаёт упорядоченную цепочку process exports `hook/v2`.
+Opt-in `modules.hooks` задаёт упорядоченную цепочку process exports `hook/v3`.
 Core вызывает её в шести точках: `turn_started`, `before_model`, `before_tool`,
 `after_tool`, `before_stop`, `turn_settled`. Это общая execution boundary: model/tool hooks
 действуют также в host callbacks внешнего workflow и при detached tool calls.
@@ -1038,7 +1038,7 @@ compactions должна завершаться сохранённым conversat
 resume используют сокращённое представление. Runtime атомарно заменяет историю
 этим snapshot-ом и затем дописывает `new_messages`.
 
-`workflow/v18` также позволяет вернуть `WorkflowFailure` с накопленным history
+`workflow/v19` также позволяет вернуть `WorkflowFailure` с накопленным history
 update. Core проверяет и сохраняет его до settlement со статусом `Error`.
 `coding.codex_loop` использует этот путь: если tool завершился, а следующий
 model call упал, новый turn получает прежний call/result и после перезапуска

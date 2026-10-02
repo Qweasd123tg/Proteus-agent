@@ -206,6 +206,18 @@ impl AgentRuntimeBuilder {
 
         Ok(AgentRuntime {
             services: RuntimeServices {
+                images: super::images::ImageStore::new(
+                    session_store
+                        .as_ref()
+                        .map(|s| s.session_dir().join("images"))
+                        .unwrap_or_else(|| {
+                            config_path
+                                .as_deref()
+                                .map(config_store_root)
+                                .unwrap_or_else(|| cwd.clone())
+                                .join("images")
+                        }),
+                ),
                 cwd,
                 execution_state: RwLock::new(RuntimeExecutionState {
                     runtime: RuntimeSnapshot::new(

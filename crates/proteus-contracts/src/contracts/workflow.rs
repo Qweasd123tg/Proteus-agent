@@ -24,7 +24,7 @@ use crate::{
     model_standard::{CanonicalMessage, CanonicalModelRequest, InstructionBlock},
 };
 
-pub const PROCESS_WORKFLOW_CONTRACT_VERSION: &str = "v18";
+pub const PROCESS_WORKFLOW_CONTRACT_VERSION: &str = "v19";
 pub const PROCESS_WORKFLOW_METHOD: &str = "run";
 
 pub const WORKFLOW_HOST_RUNTIME_STATUS_METHOD: &str = "host.runtime.status";
@@ -37,7 +37,7 @@ pub const WORKFLOW_HOST_EXECUTE_TOOL_METHOD: &str = "host.tools.execute";
 pub const WORKFLOW_HOST_EXECUTE_TOOLS_METHOD: &str = "host.tools.execute_batch";
 pub const WORKFLOW_HOST_EMIT_EVENT_METHOD: &str = "host.events.emit";
 
-/// Strict invocation payload for process Workflow contract v18.
+/// Strict invocation payload for process Workflow contract v19.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessWorkflowInput {
@@ -47,7 +47,7 @@ pub struct ProcessWorkflowInput {
     pub runtime: ProcessWorkflowRuntimeInfo,
 }
 
-/// Provider-neutral invocation context visible to every Workflow v18 module.
+/// Provider-neutral invocation context visible to every Workflow v19 module.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessWorkflowRuntimeInfo {
@@ -102,7 +102,7 @@ pub struct WorkflowHistoryInterruption {
     pub after_message_id: MessageId,
 }
 
-/// Strict terminal result envelope for process Workflow contract v18.
+/// Strict terminal result envelope for process Workflow contract v19.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProcessWorkflowResponse {
@@ -416,7 +416,7 @@ mod process_contract_tests {
             value["runtime"].as_object_mut().unwrap().remove(field);
             assert!(
                 serde_json::from_value::<ProcessWorkflowInput>(value).is_err(),
-                "{field} is required in workflow v18"
+                "{field} is required in workflow v19"
             );
         }
     }

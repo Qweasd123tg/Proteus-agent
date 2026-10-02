@@ -10,9 +10,13 @@
 - Slots для workflow, search, memory, context/context providers, policy,
   patch, compactor, tool exposure, tools и model.
 - AssemblyPlan, атомарный runtime snapshot и ExecutionScope.
+- Вход «текст + изображения»: canonical image refs, хранилище вложений,
+  process Workflow/Model, capability validation, OpenAI/Anthropic encoding,
+  прикрепление и миниатюры в приложении, cold history/resume;
+  [границы и использование](../guides/images.md).
 - Standalone process Workflow без conversation и модели; typed top-level
   операции `execute_tool` и `remember` без открытия Turn.
-- Opt-in typed `hook/v2` contributions: явная ordered chain, model instructions/
+- Opt-in typed `hook/v3` contributions: явная ordered chain, model instructions/
   messages, pre-tool block/args, post-tool output и bounded completion review;
   callbacks отсутствуют.
 - Общий tool safety/approval path и execution-bound model/tools/memory.
@@ -40,7 +44,7 @@
   [Контракт и границы](../guides/ui-extensions.md).
 - OpenAI, OpenAI-compatible, ChatGPT subscription OAuth (`openai_codex`),
   Anthropic и fake implementations в reference
-  `model-pack`; Core использует общий `model/v11` process adapter.
+  `model-pack`; Core использует общий `model/v12` process adapter.
 - Doctor, inspect/topology, eval report и атомарная локальная установка.
 
 Reference modules и profiles — поставляемые примеры без особых прав.

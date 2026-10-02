@@ -36,10 +36,15 @@ async fn execute_session_request(
 ) -> StdioOutput {
     let id = request.id();
     let result = match request {
-        StdioRequest::Send { id, text, options } => execute_send(
-            state,
+        StdioRequest::Send {
             id,
             text,
+            images,
+            options,
+        } => execute_send(
+            state,
+            id,
+            crate::domain::UserMessageInput { text, images },
             options,
             server.session_dir_path().expect("addressed session"),
         )
@@ -139,13 +144,13 @@ async fn execute_session_request(
 pub(super) async fn execute_send(
     state: &HttpAppState,
     id: Option<String>,
-    text: String,
+    input: crate::domain::UserMessageInput,
     options: crate::domain::RunOptions,
     session_dir: PathBuf,
 ) -> Result<Value> {
     let cancellation = CancellationToken::new();
     let server = server_for_session(state, session_dir).await?;
-    match spawn_send_run(state, server, id, text, options, cancellation).await? {
+    match spawn_send_run(state, server, id, input, options, cancellation).await? {
         SendDispatch::Started(receiver) => {
             let output = receiver
                 .await
@@ -160,12 +165,12 @@ pub(super) async fn spawn_send_run(
     state: &HttpAppState,
     server: AppServerHandle,
     run_id: Option<String>,
-    text: String,
+    input: crate::domain::UserMessageInput,
     options: crate::domain::RunOptions,
     cancellation: CancellationToken,
 ) -> Result<SendDispatch> {
     let result = server
-        .dispatch_user_message(run_id, text, options, cancellation)
+        .dispatch_user_message(run_id, input, options, cancellation)
         .await;
     state.emit_session_activity_for_server(&server).await;
     result
@@ -174,7 +179,7 @@ pub(super) async fn spawn_send_run(
 pub(super) async fn execute_send_async(
     state: &HttpAppState,
     id: Option<String>,
-    text: String,
+    input: crate::domain::UserMessageInput,
     options: crate::domain::RunOptions,
     session_dir: PathBuf,
 ) -> StdioOutput {
@@ -188,7 +193,7 @@ pub(super) async fn execute_send_async(
         state,
         server,
         Some(run_id.clone()),
-        text,
+        input,
         options,
         cancellation,
     )

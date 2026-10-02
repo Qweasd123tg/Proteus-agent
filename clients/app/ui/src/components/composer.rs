@@ -7,6 +7,7 @@ use super::{
     queued_prompts::QueuedPrompts,
 };
 use crate::{actions::AppActions, types::*};
+mod attachments;
 
 #[component]
 #[allow(clippy::too_many_arguments)]
@@ -62,6 +63,7 @@ where
                 </button>
             </Show>
             <div class="composer-shell">
+                <attachments::ImageAttachments actions />
                 <div class="composer-input">
                     // Зеркало текста задаёт высоту средствами layout, без JS-измерений
                     // на каждом вводе. Пробел сохраняет последнюю пустую строку.

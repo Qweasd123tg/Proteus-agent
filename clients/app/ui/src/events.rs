@@ -166,11 +166,22 @@ fn handle_app_event(
             );
             update_session_labels(&envelope, set_workspace_label, set_session_label);
         }
-        AppServerEvent::UserMessageSubmitted { text } => {
+        AppServerEvent::UserMessageSubmitted { text, images } => {
             flush_stream_delta_buffer(stream_bindings);
             set_streamed_this_turn.set(false);
             set_active_stream_message_id.set(None);
+            let submitted = text.clone();
             push_user_message_once(set_messages, next_message_id, set_next_message_id, text);
+            set_messages.update(|items| {
+                if let Some(message) = items
+                    .iter_mut()
+                    .rev()
+                    .find(|m| m.role == MessageRole::User && m.text == submitted)
+                {
+                    message.images = images;
+                    message.version += 1;
+                }
+            });
         }
         AppServerEvent::SessionSnapshot { snapshot } => {
             let _identity = (&snapshot.session_id, &snapshot.stream_id, snapshot.seq);

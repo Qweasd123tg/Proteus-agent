@@ -20,6 +20,7 @@ default_verbosity = "low"
 prompt_cache = true
 
 [module_config.model.openai_codex.capabilities]
+supports_image_input = true
 supports_parallel_tool_calls = true
 supports_freeform_tools = false
 supports_json_schema = true

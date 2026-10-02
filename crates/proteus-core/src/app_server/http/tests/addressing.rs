@@ -52,7 +52,7 @@ async fn next_message(body: &mut HttpBody) -> String {
                 let output: StdioOutput = serde_json::from_str(json).unwrap();
                 if let StdioOutput::Event { event } = output {
                     match *event {
-                        AppServerEvent::UserMessageSubmitted { text } => return text,
+                        AppServerEvent::UserMessageSubmitted { text, .. } => return text,
                         AppServerEvent::SessionSnapshot { snapshot } => {
                             if let Some(message) =
                                 snapshot.transcript.iter().rev().find(|m| m.role == "user")
@@ -161,11 +161,13 @@ async fn independent_connections_keep_config_pending_and_sse_bound_to_their_sess
     assert_eq!(state.all_servers().await.len(), 2);
     b.events
         .send(AppServerEvent::UserMessageSubmitted {
+            images: Vec::new(),
             text: "B only".into(),
         })
         .unwrap();
     a.events
         .send(AppServerEvent::UserMessageSubmitted {
+            images: Vec::new(),
             text: "A only".into(),
         })
         .unwrap();
@@ -184,11 +186,13 @@ async fn independent_connections_keep_config_pending_and_sse_bound_to_their_sess
     events_b.frame().await.unwrap().unwrap();
     a.events
         .send(AppServerEvent::UserMessageSubmitted {
+            images: Vec::new(),
             text: "A second".into(),
         })
         .unwrap();
     b.events
         .send(AppServerEvent::UserMessageSubmitted {
+            images: Vec::new(),
             text: "B reconnected".into(),
         })
         .unwrap();

@@ -58,6 +58,19 @@ pub(crate) fn event_stream_url(session_dir: &str) -> String {
     url
 }
 
+pub(crate) fn image_url(session_dir: &str, id: &str) -> String {
+    let mut url = format!(
+        "{}/image?session_dir={}&path={}",
+        app_server_origin(),
+        encode_uri_component(session_dir),
+        encode_uri_component(id)
+    );
+    if let Some(token) = current_session_token().as_deref() {
+        url.push_str(&format!("&token={}", encode_uri_component(token)));
+    }
+    url
+}
+
 pub(crate) fn session_path(path: &str, session_dir: &str) -> String {
     let separator = if path.contains('?') { '&' } else { '?' };
     format!(

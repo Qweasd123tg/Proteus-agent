@@ -86,21 +86,24 @@ pub(super) fn install(state: AppState, router: AppRouter) {
             // Первый прогон после монтирования: сессия ещё не резолвнулась.
             None => {}
             Some(previous) if previous == session => {}
-            Some(previous) => match session.as_deref() {
-                // Сессия только что получила dir (новая сессия или /config
-                // после перезагрузки): набранный текст не затираем, а
-                // записываем в черновик этой сессии.
-                Some(dir) if previous.is_none() => {
-                    let current = draft.get_untracked();
-                    if current.trim().is_empty() {
-                        set_draft.set(load_session_draft(dir).unwrap_or_default());
-                    } else {
-                        save_session_draft(dir, &current);
+            Some(previous) => {
+                state.request.attachments.set(Vec::new());
+                match session.as_deref() {
+                    // Сессия только что получила dir (новая сессия или /config
+                    // после перезагрузки): набранный текст не затираем, а
+                    // записываем в черновик этой сессии.
+                    Some(dir) if previous.is_none() => {
+                        let current = draft.get_untracked();
+                        if current.trim().is_empty() {
+                            set_draft.set(load_session_draft(dir).unwrap_or_default());
+                        } else {
+                            save_session_draft(dir, &current);
+                        }
                     }
+                    Some(dir) => set_draft.set(load_session_draft(dir).unwrap_or_default()),
+                    None => set_draft.set(String::new()),
                 }
-                Some(dir) => set_draft.set(load_session_draft(dir).unwrap_or_default()),
-                None => set_draft.set(String::new()),
-            },
+            }
         }
     });
     // Каждое изменение черновика сохраняем под активной сессией.

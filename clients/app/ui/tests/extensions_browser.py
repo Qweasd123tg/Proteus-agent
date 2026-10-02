@@ -5,6 +5,7 @@ Requires Firefox and geckodriver (PATH or GECKODRIVER). Only stdlib Python.
 Run after trunk build and cargo build -p proteus-core -p proteus-reference-module.
 """
 import base64
+from images_checks import run as check_images
 from markdown_checks import run as check_markdown, FIXTURE as MARKDOWN_FIXTURE
 from simplify_checks import run as check_simplify
 from settings_checks import run as check_settings
@@ -106,13 +107,18 @@ class Assets(SimpleHTTPRequestHandler):
             calls={0:('write_file',{'path':'approval-result.txt','content':'approved once'}),2:('exec_command',{'cmd':'printf approval-command','max_output_tokens':100}),4:('write_file',{'path':'denied-result.txt','content':'must not exist'})}
             if count in calls:
                 name,args=calls[count];output=[{'type':'function_call','call_id':f'approval-{count}','name':name,'arguments':json.dumps(args)}]
-        if count >= 2 and '--approval-only' not in sys.argv:
+        if count >= 2 and '--approval-only' not in sys.argv and '--images-only' not in sys.argv:
             chunks = getattr(self.server, 'typing_chunks', None) or [f"Абзац {i}: " + "Продолжение ответа. " * 8 + "\n\n" for i in range(32)]
             output = [{"id":f"ui-answer-{count}","type":"message","role":"assistant","content":[{"type":"output_text","text":''.join(chunks)}]}]
+        if '--images-only' in sys.argv:
+            images = [part for item in self.server.model_inputs[-1].get('input', []) for part in item.get('content', []) if part.get('type') == 'input_image']
+            expected = (ROOT / 'crates/proteus-core/tests/fixtures/pixel.png').read_bytes()
+            assert all(base64.b64decode(part['image_url'].split(',', 1)[1]) == expected for part in images)
+            output = [{"id":f"image-answer-{count}","type":"message","role":"assistant","content":[{"type":"output_text","text":f"Изображений: {len(images)}"}]}]
         self.send_response(200)
         self.send_header('Content-Type', 'text/event-stream')
         self.end_headers()
-        if count >= 2 and '--approval-only' not in sys.argv:
+        if count >= 2 and '--approval-only' not in sys.argv and '--images-only' not in sys.argv:
             def emit(name, data):
                 data['type'] = name
                 self.wfile.write(('event: '+name+'\ndata: '+json.dumps(data)+'\n\n').encode())
@@ -281,6 +287,8 @@ command = "/bin/true"
 [module_config.model.custom-model]
 implementation = "openai_codex"
 base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/usage') + '\nauth_file = ' + json.dumps(str(auth)) + '\n[event_log]\npath = ' + json.dumps(str(folder / 'events.jsonl')) + '\n')
+        if '--images-only' in sys.argv:
+            config.write_text(config.read_text()+'\n[module_config.model.custom-model.capabilities]\nsupports_image_input = true\n')
         if '--approval-only' in sys.argv:
             config.write_text(config.read_text().replace('policy.allow_all','policy.ask_write').replace('policy = "allow_all"','policy = "ask_write"').replace('enabled = ["update_plan"]','enabled = ["update_plan", "write_file", "exec_command"]'))
         with socket.socket() as sock:
@@ -335,6 +343,11 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return js("return document.querySelector('[data-extension-id=agent-info] .extension-panel-content')?.shadowRoot?.textContent.includes('extensions-smoke')")
                 command('/window/rect', {'width': 1440, 'height': 1000})
                 assert js("return matchMedia('(prefers-reduced-motion: reduce)').matches") == bool(reduced_motion), 'Browser did not apply motion preference'
+                if '--images-only' in sys.argv:
+                    command('/url', {'url':web+'/?'+urlencode({'server':origin,'token':'extension-smoke'})})
+                    wait_for(loaded, 'Client missing')
+                    check_images(command, js, wait_for, server, web, origin)
+                    return
                 if '--approval-only' in sys.argv:
                     command('/url', {'url':web+'/?'+urlencode({'server':origin,'token':'extension-smoke'})})
                     wait_for(loaded,'Client missing')

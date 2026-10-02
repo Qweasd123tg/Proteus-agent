@@ -215,8 +215,15 @@ pub(super) fn commands(
     };
 
     let submit_prompt = move || {
+        if actions.attachments_loading.get_untracked() {
+            return;
+        }
         let text = draft.get().trim().to_owned();
-        if text.is_empty() {
+        if text.is_empty()
+            && actions
+                .attachments
+                .with_untracked(|images| images.is_empty())
+        {
             return;
         }
 

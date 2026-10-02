@@ -66,7 +66,7 @@ Exports одного модуля работают в одном процесс�
 отмену без conversation state, модель в `ExecutionContext` необязательна,
 а `WorkflowInvocationContext::Execution` позволяет вызвать workflow без
 conversation. Разговорный контекст добавляется вариантом `Agent`.
-При этом вход и результат `workflow/v18` используют `AgentTask` и `AgentOutput`;
+При этом вход и результат `workflow/v19` используют `AgentTask` и `AgentOutput`;
 произвольные предметные контракты ещё не подключаются.
 
 Основной пользовательский клиент — приложение. Его расширения интерфейса

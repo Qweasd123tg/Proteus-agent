@@ -27,12 +27,14 @@ use crate::{
         new_turn_id,
     },
     model_standard::{
-        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, MessageRole,
-        ModelCapabilities, ModelStreamEvent,
+        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ModelCapabilities,
+        ModelStreamEvent,
     },
 };
 
 mod commands;
+#[cfg(test)]
+use crate::model_standard::MessageRole;
 mod snapshot;
 pub(crate) use snapshot::QueuedMessagesSnapshot;
 mod weave;
@@ -137,6 +139,7 @@ impl SessionSteering {
             .await
     }
 
+    #[cfg(test)]
     pub(crate) async fn reserve_with_options(
         &self,
         text: String,
@@ -144,6 +147,15 @@ impl SessionSteering {
     ) -> Result<UserMessageReservation> {
         validate_message(&text)?;
         let message = CanonicalMessage::text(MessageRole::User, text.clone());
+        self.reserve_message_with_options(message, options).await
+    }
+
+    pub(crate) async fn reserve_message_with_options(
+        &self,
+        message: CanonicalMessage,
+        options: crate::domain::RunOptions,
+    ) -> Result<UserMessageReservation> {
+        let text = message.display_text();
         let _finalization_guard = self.finalization_gate.lock().await;
         let mut state = self.state.lock().expect("steering state lock");
         let Some(active_turn_id) = state.active_turn_id else {

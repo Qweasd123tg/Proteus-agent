@@ -63,7 +63,8 @@ use sse::encode_sse_output;
 type HttpBody = UnsyncBoxBody<Bytes, Infallible>;
 type HttpResponse = Response<HttpBody>;
 
-const MAX_JSON_BODY_BYTES: usize = 2 * 1024 * 1024;
+// 5 MiB of image bytes expand to ~6.7 MiB in Base64, plus text and metadata.
+const MAX_JSON_BODY_BYTES: usize = 8 * 1024 * 1024;
 
 pub async fn run_http_app_server(
     config: AppConfig,
@@ -185,7 +186,10 @@ where
                     execute_send(
                         &state,
                         id,
-                        command.text,
+                        crate::domain::UserMessageInput {
+                            text: command.text,
+                            images: command.images,
+                        },
                         command.options,
                         command.session_dir,
                     )
@@ -201,7 +205,10 @@ where
                 let output = execute_send_async(
                     &state,
                     command.id,
-                    command.text,
+                    crate::domain::UserMessageInput {
+                        text: command.text,
+                        images: command.images,
+                    },
                     command.options,
                     command.session_dir,
                 )

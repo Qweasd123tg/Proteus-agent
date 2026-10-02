@@ -69,6 +69,7 @@ fn snapshot_tail_accepts_only_new_text_and_completion_keeps_its_identity() {
         let prefix = "Привет ";
         crate::session::history::apply_transcript(
             vec![crate::types::TranscriptMessage {
+                images: Vec::new(),
                 message_id: Some("00000000-0000-0000-0000-000000000001".parse().unwrap()),
                 phase: Some(MessagePhase::FinalAnswer),
                 role: "assistant".into(),

@@ -71,7 +71,9 @@ impl SessionView {
         self.seq = self.seq.checked_add(1).expect("session sequence");
         match event {
             AppServerEvent::Runtime { envelope } => self.progress.apply(envelope),
-            AppServerEvent::UserMessageSubmitted { text } => self.progress.submit(text.clone()),
+            AppServerEvent::UserMessageSubmitted { text, images } => {
+                self.progress.submit_input(text.clone(), images.clone())
+            }
             AppServerEvent::ExecutionUpdated { execution } => self.execution = execution.clone(),
             _ => {}
         }

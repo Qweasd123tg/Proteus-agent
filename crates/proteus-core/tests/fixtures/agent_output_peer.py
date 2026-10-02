@@ -65,7 +65,7 @@ for line in sys.stdin:
                             "offset": index * 3, "message_id": identity,
                             "phase": None, "text": f"{index:02};"}}}}
                 else:
-                    event = {"type": "user_message_submitted", "text": "x" * size}
+                    event = {"type": "user_message_submitted", "text": "x" * size, "images": []}
                 emit({"type": "event", "event": event})
         pathlib.Path("produced").touch()
     elif kind in ("approval", "user_input"):

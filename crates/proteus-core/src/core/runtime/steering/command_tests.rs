@@ -17,7 +17,29 @@ async fn queue_edit_validates_size_without_changing_order_or_budget_on_failure()
             .await
             .unwrap(),
     );
-    let third = receipt(queue.reserve("c".into()).await.unwrap());
+    let image = crate::domain::ImageRef {
+        id: "fixture-image".into(),
+        name: "board.png".into(),
+        mime_type: "image/png".into(),
+        path: "/tmp/board.png".into(),
+    };
+    let third = receipt(
+        queue
+            .reserve_message_with_options(
+                CanonicalMessage::new(
+                    MessageRole::User,
+                    vec![
+                        crate::model_standard::ContentPart::Image {
+                            image: image.clone(),
+                        },
+                        crate::model_standard::ContentPart::Text { text: "c".into() },
+                    ],
+                ),
+                Default::default(),
+            )
+            .await
+            .unwrap(),
+    );
     assert!(
         queue
             .update_pending(third.message_id, Some("cc".into()))
@@ -48,7 +70,14 @@ async fn queue_edit_validates_size_without_changing_order_or_budget_on_failure()
         ]
     );
     assert_eq!(snapshots.borrow().revision, 6);
-    assert_eq!(snapshots.borrow().messages, queue.queued_messages().await);
+    assert_eq!(
+        snapshots.borrow().messages,
+        vec![
+            (first.message_id, "short".into(), 0),
+            (third.message_id, "longer".into(), 1)
+        ]
+    );
+    assert!(queue.state.lock().unwrap().queued[1].message.parts.iter().any(|part| matches!(&part.payload, crate::model_standard::ContentPart::Image { image: kept } if kept == &image)));
     assert_eq!(queue.state.lock().unwrap().queued_bytes, 11);
     assert_eq!(queue.queued_count.load(Ordering::Acquire), 2);
     let delivered = queue
@@ -61,7 +90,7 @@ async fn queue_edit_validates_size_without_changing_order_or_budget_on_failure()
     assert_eq!(snapshots.borrow().revision, 7);
     assert_eq!(
         snapshots.borrow().messages,
-        vec![(third.message_id, "longer".into())]
+        vec![(third.message_id, "longer".into(), 1)]
     );
     assert!(queue.update_pending(first.message_id, None).is_err());
     assert!(
