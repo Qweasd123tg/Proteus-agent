@@ -67,8 +67,8 @@ Reference modules и profiles — поставляемые примеры без
 [architecture.md](../architecture/architecture.md),
 [subagents.md](../architecture/subagents.md).
 Это инвентарь ограничений, а не перечень обязательных следующих фич.
-Целевая граница для других предметных областей и сопоставление с текущим
-исполнением — в [execution-runtime.md](../architecture/execution-runtime.md).
+Задел для исполнения вне чата, ограничения и возможное развитие — в
+[execution-runtime.md](../architecture/execution-runtime.md).
 
 ## Статус Примера Codex
 
