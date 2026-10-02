@@ -7,7 +7,7 @@
 .tool-chain-toggle.attention { color:var(--accent-yellow); }
 .tool-chain-items { max-height:480px; overflow:auto; overscroll-behavior:contain; padding:4px 8px 4px 0; }
 .tool-chain-items[hidden] { display:none; }
-.tool-chain-items:not([hidden]) { animation:tool-chain-reveal var(--motion-surface,240ms) var(--motion-ease,ease); }
+.tool-chain-items.revealing:not([hidden]) { animation:tool-chain-reveal var(--motion-surface,240ms) var(--motion-ease,ease); }
 @keyframes tool-chain-reveal { from { opacity:0; } to { opacity:1; } }
 /* Each segment ends at the next status dot, even when a call grows.
    The generic message rail overshoots compact rows and leaves a dangling tail. */

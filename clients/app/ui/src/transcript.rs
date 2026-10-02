@@ -172,16 +172,19 @@ impl Transcript {
         self.with_untracked(Clone::clone)
     }
 
-    /// Чтение по индексу без клонирования текста. Структурная подписка позволяет
-    /// пережить удаление и последующее появление того же локального id.
+    /// Чтение по индексу без клонирования текста. Присутствующая запись будит
+    /// читателя только своими изменениями; структурная подписка нужна лишь
+    /// отсутствующему id, чтобы увидеть его повторное появление.
     pub(crate) fn with_message<T>(self, id: u64, f: impl FnOnce(Option<&Message>) -> T) -> T {
-        self.order.track();
-        self.data.with_value(|data| {
-            let message = data.entries.get(&id).map(|entry| {
+        self.data.with_value(|data| match data.entries.get(&id) {
+            Some(entry) => {
                 entry.changed.track();
-                &data.items[entry.position]
-            });
-            f(message)
+                f(Some(&data.items[entry.position]))
+            }
+            None => {
+                self.order.track();
+                f(None)
+            }
         })
     }
 

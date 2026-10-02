@@ -58,6 +58,44 @@ pub(crate) fn update_runtime_status_and_tools(
     set_context_usage: WriteSignal<Option<ContextUsage>>,
 ) {
     let canonical = &envelope.event;
+    // Text deltas are the hottest events: route them by type, before the
+    // generic JSON projection used by the less frequent lifecycle events.
+    match canonical {
+        Event::AssistantTextDelta {
+            message_id,
+            phase,
+            text,
+            offset,
+        } => {
+            let mut thread = proteus_contracts::domain::ThreadId::encode_buffer();
+            let thread = envelope.thread_id.hyphenated().encode_lower(&mut thread);
+            // Дельты чужих threads (стрим дочернего цикла субагента из стороннего
+            // runner-а) в основной транскрипт не попадают: их «срезала» бы
+            // перезапись финальным текстом родительского хода.
+            if stream_delta_is_foreign(stream_bindings, Some(thread)) {
+                return;
+            }
+            if !stream_bindings.streamed_this_turn.get_untracked() {
+                set_agent_status.set("пишет".to_owned());
+            }
+            queue_assistant_delta(
+                stream_bindings,
+                AssistantTextUpdate {
+                    message_id: message_id.to_string(),
+                    phase: *phase,
+                    text: text.clone(),
+                    offset: *offset,
+                },
+            );
+            return;
+        }
+        // Reasoning streams can be very chatty. The working indicator already
+        // says "думает"; storing every chunk in the transcript makes the
+        // browser clone and re-render a growing string while the user only
+        // needs the final answer. Streaming tool arguments are not rendered.
+        Event::AssistantReasoningDelta { .. } | Event::AssistantToolArgsDelta { .. } => return,
+        _ => {}
+    }
     let envelope = serde_json::to_value(envelope).expect("canonical runtime event JSON");
     let Some(event) = envelope.get("event") else {
         return;
@@ -135,31 +173,6 @@ pub(crate) fn update_runtime_status_and_tools(
         set_agent_status.set("собирает контекст".to_owned());
     } else if event.get("ModelRequestPrepared").is_some() {
         set_agent_status.set("думает".to_owned());
-    } else if let Event::AssistantTextDelta {
-        message_id,
-        phase,
-        text,
-        offset,
-    } = canonical
-    {
-        // Дельты чужих threads (стрим дочернего цикла субагента из стороннего
-        // runner-а) в основной транскрипт не попадают: их «срезала» бы
-        // перезапись финальным текстом родительского хода.
-        if stream_delta_is_foreign(stream_bindings, envelope_thread_id) {
-            return;
-        }
-        if !stream_bindings.streamed_this_turn.get_untracked() {
-            set_agent_status.set("пишет".to_owned());
-        }
-        queue_assistant_delta(
-            stream_bindings,
-            AssistantTextUpdate {
-                message_id: message_id.to_string(),
-                phase: *phase,
-                text: text.clone(),
-                offset: *offset,
-            },
-        );
     } else if let Event::AssistantMessageCompleted {
         message_id,
         phase,
@@ -178,11 +191,6 @@ pub(crate) fn update_runtime_status_and_tools(
                 offset: 0,
             },
         );
-    } else if event.get("AssistantReasoningDelta").is_some() {
-        // Reasoning streams can be very chatty. The working indicator already
-        // says "думает"; storing every chunk in the transcript makes Firefox
-        // clone and re-render a growing string while the user only needs the
-        // final answer.
     } else if let Some(tool_event) = event.get("ToolCallRequested") {
         flush_stream_delta_buffer(stream_bindings);
         finish_active_streaming_assistant_message(

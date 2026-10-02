@@ -415,6 +415,9 @@ async fn borrowed_selector_tracks_replacement_removal_and_reinsertion_without_cl
     tokio::task::yield_now().await;
     write.update_matching(|message| message.id == 2, |message| message.text.push('!'));
     tokio::task::yield_now().await;
+    // A new transcript row (tool call, next answer) must not re-render settled ones.
+    write.update(|items| items.push(message(3, "appended")));
+    tokio::task::yield_now().await;
     assert_eq!(seen.lock().unwrap().len(), 1);
     write.set(vec![message(1, "snapshot")]);
     tokio::task::yield_now().await;

@@ -89,6 +89,9 @@ pub(super) fn ToolChain(
         .map(|state| state.boolean(id, "tool-chain", !compact))
         .unwrap_or_else(|| RwSignal::new(!compact));
     let mounted = RwSignal::new(expanded.get_untracked());
+    // Only a user toggle reveals the list with motion; a virtual row remount of
+    // an already expanded chain must settle in place without a fade.
+    let revealing = RwSignal::new(false);
     Effect::new(move |_| {
         if expanded.get() {
             mounted.set(true);
@@ -111,12 +114,15 @@ pub(super) fn ToolChain(
         <section class="tool-chain" class:expanded=expanded>
             <button type="button" class="tool-chain-toggle" aria-expanded=move || expanded.get().to_string() aria-controls=content_id.clone()
                 class:attention=move || summary.with(|value| value.is_some_and(|value|value.failed+value.waiting>0))
-                on:click=move |_|expanded.update(|value|*value=!*value)>
+                on:click=move |_| {
+                    revealing.set(true);
+                    expanded.update(|value| *value = !*value);
+                }>
                 <TerminalIcon/>
                 <span>{move ||summary.with(|value|value.map(Summary::label).unwrap_or_default())}</span>
                 <ChevronDownIcon/>
             </button>
-            <div class="tool-chain-items" id=content_id hidden=move ||!expanded.get()>
+            <div class="tool-chain-items" class:revealing=revealing id=content_id hidden=move ||!expanded.get()>
                 <Show when=move ||mounted.get()>
                     <For each=move ||group.with(|g|g.as_ref().map(|g|g.ids.clone()).unwrap_or_default()) key=|id|*id
                         children=move |message_id| {

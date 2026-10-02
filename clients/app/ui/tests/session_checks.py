@@ -36,7 +36,7 @@ if(startupFixture){
 const historyFixture = Array.from({length: 240}, (_,i)=>({
   message_id:'00000000-0000-0000-0000-'+i.toString(16).padStart(12,'0'), phase:null, role:i%2?'assistant':'user',
   text:'Сохранённое сообщение '+i+'. '+('Текст истории для проверки прокрутки. ').repeat(8),
-  tool:null, subagent:null, streaming:false
+  images:[], tool:null, subagent:null, streaming:false
 }));
 window.fixtureHistoryReads=0;
 const OriginalEventSource=window.EventSource;

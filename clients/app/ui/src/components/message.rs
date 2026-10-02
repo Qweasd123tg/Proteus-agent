@@ -78,14 +78,16 @@ fn text_message_view(
     id: u64,
     turn_class: &'static str,
 ) -> AnyView {
+    let views = use_context::<super::transcript_state::TranscriptViewState>();
     let blocks = Memo::new(move |previous| {
         messages.with_message(id, |message| {
-            crate::markdown::markdown_blocks(
-                message
-                    .map(|message| message.text.as_str())
-                    .unwrap_or_default(),
-                previous,
-            )
+            let source = message
+                .map(|message| message.text.as_str())
+                .unwrap_or_default();
+            match views {
+                Some(views) => views.markdown(id, source, previous),
+                None => crate::markdown::markdown_blocks(source, previous),
+            }
         })
     });
     let header = messages.select(id, |message| {
