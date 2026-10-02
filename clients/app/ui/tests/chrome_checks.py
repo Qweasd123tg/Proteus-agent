@@ -28,6 +28,10 @@ def run(command, js, wait_for, web, origin):
     assert js("const b=document.querySelector('.topbar [data-panel-toggle=sidebar]').getBoundingClientRect();return b.top>=0&&b.bottom<=40&&b.right<=44"), 'Sidebar toggle did not join the native header'
     js("document.querySelector('.sidebar-search input').focus();document.querySelector('[data-panel-toggle=sidebar]').click()")
     wait_for(lambda: js("return document.activeElement.matches('.topbar [data-panel-toggle=sidebar]')"), 'Sidebar focus did not move to header')
+    wait_for(lambda: js("const brand=document.querySelector('.sidebar-rail-surface .sidebar-brand'),logo=brand.querySelector('img'),rail=brand.closest('.sidebar');const b=brand.getBoundingClientRect(),i=logo.getBoundingClientRect(),r=rail.getBoundingClientRect();return Math.abs(r.width-40)<0.25 && logo.complete && logo.naturalWidth>0 && Math.abs(i.width-28)<0.25 && Math.abs(i.height-28)<0.25 && i.left>=r.left && i.right<=r.right && b.left>=r.left && b.right<=r.right && brand.querySelector('.sidebar-brand-label').getBoundingClientRect().width===0 && brand.querySelector('.sidebar-brand-chevron').getBoundingClientRect().width===0"), 'Collapsed sidebar must show the loaded logo without clipped brand text')
+    js("document.querySelector('.sidebar-rail-surface [data-app-menu]').click()")
+    assert js("return document.querySelector('.desktop-app-menu-panel').matches(':popover-open')"), 'Collapsed logo did not open the Proteus menu'
+    js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
     js("document.querySelector('[data-panel-toggle=sidebar]').click()")
     js("document.querySelector('[data-action=minimize]').click();document.querySelector('[data-action=maximize]').click()")
     wait_for(lambda: js("return chromeCalls.includes('minimize') && document.querySelector('[data-action=maximize]').dataset.uiTooltip==='Восстановить окно'"), 'Native minimize/maximize action failed')

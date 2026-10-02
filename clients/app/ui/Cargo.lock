@@ -1595,22 +1595,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "proteus-contracts"
-version = "0.0.0-dev"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "futures-core",
- "futures-util",
- "jsonschema",
- "serde",
- "serde_json",
- "tokio",
- "uuid",
-]
-
-[[package]]
 name = "proteus-app-ui"
 version = "0.0.0-dev"
 dependencies = [
@@ -1628,6 +1612,22 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "proteus-contracts"
+version = "0.0.0-dev"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "futures-core",
+ "futures-util",
+ "jsonschema",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

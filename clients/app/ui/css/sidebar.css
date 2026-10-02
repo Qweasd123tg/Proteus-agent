@@ -327,7 +327,11 @@ button.session-item.active {
 .sidebar-header-actions button:last-child { order: -1; flex: 1; justify-content: flex-start; gap: 12px; width: auto; padding: 0 8px; font-size: 14px; font-weight: 400; }
 .sidebar-project { display: flex; align-items: center; gap: 10px; min-height: 36px; flex-shrink: 0; padding: 4px 22px; color: var(--text-muted); font-size: 13px; }
 .sidebar-project span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sidebar-rail-surface .sidebar-brand, .sidebar-rail-surface .new-session-label { display: none; }
+.sidebar-rail-surface .sidebar-brand-label,
+.sidebar-rail-surface .sidebar-brand-chevron,
+.sidebar-rail-surface .new-session-label { display: none; }
+.sidebar-rail-surface .sidebar-brand-row { justify-content: center; }
+.sidebar-rail-surface .sidebar-header .sidebar-brand { width: 30px; padding: 0; justify-content: center; }
 .sidebar-rail-surface .sidebar-header-actions button:last-child { flex: none; width: 30px; padding: 0; justify-content: center; }
 
 .sidebar-header .sidebar-brand { width:auto; display:flex; align-items:center; gap:6px; justify-content:flex-start; padding:0 8px; border:0; }
