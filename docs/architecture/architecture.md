@@ -10,21 +10,21 @@
 Core -> Contract -> Module Implementation
 ```
 
-`proteus-core` знает, когда вызвать search, policy или workflow, но не знает
-алгоритм конкретной реализации. DTO и traits принадлежат
-`proteus-contracts`; внешний модуль говорит с host через component
-wire protocol v3. Действующие slot versions приведены в authority table
+`proteus-core` знает, когда вызвать поиск, проверку разрешений или выполнение
+задачи, но не знает алгоритм конкретного модуля. Интерфейсы и форматы данных
+принадлежат `proteus-contracts`; модули обмениваются сообщениями с Core по
+протоколу v3. Версии контрактов слотов и разрешённые операции приведены в таблице
 [process-module-architecture.md](process-module-architecture.md).
 
-Для каждой invocation:
+Для каждого вызова:
 
 ```text
 authority(module) = authority(slot, invocation_context)
 ```
 
-Host выбирает разрешённые module methods, callbacks, config, cancellation и
-failure semantics по `slot/contract_version`. `module_id`, язык модуля и
-нахождение исходников не дают дополнительных прав.
+Core определяет допустимые методы модуля, обращения к Core, конфигурацию,
+правила отмены и обработки ошибок по контракту слота и условиям вызова.
+`module_id`, язык программы и расположение исходников не дают дополнительных прав.
 
 ## Слои
 
@@ -484,32 +484,30 @@ Scope/grants/recorders раздельны; SessionStore сериализует a
 Exports одного component сохраняют shared process failure domain.
 Адресный cancel одной execution не отменяет sibling или Turn.
 
-## Capability, Slot, Module И Profile
+## Слоты, Модули И Профиль
 
-- **Capability** — требуемая семантическая возможность, например workspace
-  search или model inference; это vocabulary, а не универсальный runtime enum.
-- **Slot** — host-defined typed selection/assembly point для capability:
-  contract, cardinality, invocation и authority rules, например `search`.
-- **Module** — отдельная запускаемая программа со своей реализацией. Она
-  может предоставить один или несколько slots через exports.
-- **Component** — техническая запись запуска модуля в config/runtime:
-  executable, persistent process и общий lifecycle/failure domain.
-- **Export** — точная пара `slot/module_id`, опубликованная модулем.
-- **Profile** — config, который выбирает modules, provider, tools и policy.
-- **Reference module** — поставляемый тестовый/dogfood модуль без особых прав.
+Агент собирается из модулей, подключённых к слотам:
 
-Слово «plugin» допустимо как пользовательское название внешнего расширения, но
-не обозначает отдельный runtime origin или API.
+- **Слот** задаёт контракт поведения: данные запроса и ответа, доступные
+  операции, правила отмены и ошибок. Например, `search` отвечает за поиск.
+- **Модуль** — отдельная программа с конкретным алгоритмом. Она работает
+  в своём процессе и может реализовать один или несколько слотов.
+- **Профиль** — конфигурация, которая выбирает реализации слотов, модель,
+  инструменты и разрешения.
 
-Иными словами, capability отвечает «что требуется», slot — «где и по каким
-host rules выбирается реализация», module — «кто это реализует и как
-запускается». Поле `components` описывает запуск модуля. Slot остаётся
-assembly mechanism и не становится identity или runtime primitive одного
-execution.
+В текущей конфигурации `components.<id>` описывает запуск модуля. Записи
+`exports.<slot>.<module_id>` перечисляют предоставляемые им реализации слотов.
+Они делят процесс и его жизненный цикл; разрешённые операции определяются
+отдельно для каждого вызова выбранной реализации. Эти записи описывают
+подключение модуля, а не дополнительные уровни устройства агента.
 
-## Composition
+Слово «возможность» описывает нужное поведение, например поиск или обращение
+к модели. Оно само по себе не означает новый слот, службу или набор прав.
+Поставляемые примеры модулей имеют те же права, что и внешние реализации.
 
-Cardinality является частью contract:
+## Сколько Реализаций Подключается К Слоту
+
+Контракт задаёт выбор одной реализации или нескольких в установленном порядке:
 
 ```text
 composition(contract) = select_one | ordered_many
@@ -517,12 +515,12 @@ composition(contract) = select_one | ordered_many
 
 `workflow`, `search`, `memory`, `context`, `policy`, `patch`,
 `compactor` и `tool_exposure` используют `select_one`.
-`tool`, `context_provider` и typed `hook/v2` chain используют `ordered_many`.
-`modules.hooks` задаёт явный порядок execution contributions; Core владеет
-точками вызова и validation, а handlers проходят тот же process boundary.
+`tool`, `context_provider` и цепочка обработчиков `hook/v2` используют `ordered_many`.
+`modules.hooks` задаёт порядок обработчиков. Core определяет точки их вызова
+и проверяет результаты; обработчики используют тот же протокол процессных модулей.
 
-Модуль не может объявить новый composition mode или произвольный hook.
-Добавление нового slot проходит [slot-governance.md](slot-governance.md).
+Модуль не может изменить правила выбора реализаций или добавить произвольную
+точку вызова. Добавление нового слота проходит [правила проектирования слотов](slot-governance.md).
 
 ## Config И Catalog
 

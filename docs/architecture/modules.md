@@ -1,52 +1,50 @@
 # Модули
 
-Capability описывает, что требуется runtime/controller-у; slot задаёт
-host-defined typed selection/assembly point для этой capability: DTO, методы,
-callbacks, composition, cancellation и failure semantics. Модуль — отдельная
-запускаемая программа со своей реализацией. Он предоставляет один или несколько
-exports слотов; `module_id` выбирает реализацию конкретного slot внутри него.
+Агент собирается из слотов и модулей. Слот задаёт, какое поведение нужно
+агенту и как его вызывать: входные и выходные данные, доступные методы,
+порядок выбора, отмену и обработку ошибок. Модуль — отдельная запускаемая
+программа со своей реализацией. Один модуль может реализовать несколько слотов.
 
 ```text
-Agent -> Slot -> Module export (slot/module_id) -> Process module
+Агент -> слоты -> модули
 ```
 
-Это понятийная зависимость, а не новый universal capability registry. Slot
-остаётся assembly mechanism и не является execution identity или runtime
-primitive; capability не даёт module дополнительных прав в обход slot
-contract.
+Каждый вызов адресован конкретному слоту и реализации. Разрешённые операции
+зависят от контракта слота и условий вызова, а не от имени или языка модуля.
+Несколько слотов одного модуля делят процесс и его жизненный цикл, но каждый
+вызов получает только права своего слота.
 
-```text
-authority(module) = authority(slot, invocation_context)
-```
-
-Все внешние реализации подключаются через exports процессных модулей.
-Component Runtime v2 использует wire protocol v3; `workflow` использует strict
-contract v18, `compactor` — v10, `model` — v11; версии остальных slots приведены
-в authority table
-[process-module-architecture.md](process-module-architecture.md). Runtime допускает
-несколько одновременных и вложенных invocation одного component. Dylib ABI и
-native loader в проекте отсутствуют.
+Внешние модули работают через Component Runtime v2 и протокол wire v3. У
+`workflow` действует контракт v18, у `compactor` — v10, у `model` — v11.
+Версии и разрешённые методы остальных слотов перечислены в
+[описании процессной границы](process-module-architecture.md). Один процесс
+может обслуживать несколько одновременных и вложенных вызовов. Загрузки
+модулей через dylib в проекте нет.
 
 ## Словарь
 
-- **capability** — требуемое typed поведение; не универсальный enum и не
-  origin реализации;
-- **behavior slot** — одна выбранная реализация (`select_one`);
-- **ordered contribution slot** — явно упорядоченный набор
-  (`ordered_many`);
-- **process module** — отдельная executable, предоставляющая один или
-  несколько exports; внутренние алгоритмы и их исходники принадлежат ей;
-- **component** — техническое имя в текущем config и runtime для записи
-  запуска этого модуля, процесса и общего failure domain;
-- **export** — точная пара `slot/module_id`, связывающая slot с реализацией
-  внутри модуля;
-- **module config** — непрозрачный object реализации;
-- **reference module** — tracked dogfood/test implementation без привилегий;
-- **structural absence** — поведение host при отсутствии selection, не module.
+- **Слот** — контракт поведения: например, `search` или `memory`. Обычно
+  выбирается одна реализация (`select_one`); для отдельных слотов допускается
+  несколько в заданном порядке (`ordered_many`).
+- **Модуль** — запускаемая программа, которая предоставляет реализации одного
+  или нескольких слотов. Алгоритмы остаются внутри неё.
+- **`module_id`** — имя реализации конкретного слота, например `rg` для
+  `search`. Это не имя процесса.
+- **`components.<id>`** — запись запуска модуля в текущем конфиге. Она задаёт
+  программу и общий жизненный цикл её реализаций.
+- **`exports.<slot>.<module_id>`** — запись о том, какую реализацию слота
+  предоставляет этот модуль. Для неё задаются параметры вызова.
+- **`module_config.<slot>.<module_id>`** — настройки самой реализации;
+  Core передаёт их модулю, не разбирая содержимое.
+- **Reference-модуль** — поставляемый пример и проверочная реализация без
+  особых прав.
 
-## Матрица Slots
+Если слот не выбран, Core применяет описанное ниже поведение для его
+отсутствия. Это не скрытый модуль.
 
-| Slot | Composition | Selection | Component export | Reference ids |
+## Слоты И Их Выбор
+
+| Слот | Правило выбора | Где выбирается | Процессный контракт | Примеры имён |
 |---|---|---|---|---|
 | `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v2` | `hook.instructions`, `hook.output_budget` |
 | `workflow` | `select_one` | `modules.workflow` | да | `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`, `coding.project_check` |
@@ -57,15 +55,20 @@ native loader в проекте отсутствуют.
 | `patch` | `select_one` | `modules.patch` | да | `direct`, `codex` |
 | `compactor` | `select_one` | `modules.compactor` | да | `codex` |
 | `tool_exposure` | `select_one` | `modules.tool_exposure` | да | `codex_dynamic` |
-| `tool` | `ordered_many` | exports + `tools.enabled` | да | `reference.tools` и узкие selectors |
-| `context_provider` | `ordered_many` | exports + context config | да | `skills` |
-| `model` | `select_one` | active provider profile | да, `model/v11` | `fake`, `openai`, `openai_compatible`, `openai_codex`, `anthropic` |
+| `tool` | `ordered_many` | предоставленные реализации + `tools.enabled` | да | `reference.tools` и узкие варианты |
+| `context_provider` | `ordered_many` | предоставленные реализации + настройки контекста | да | `skills` |
+| `model` | `select_one` | активный профиль модели | да, `model/v11` | `fake`, `openai`, `openai_compatible`, `openai_codex`, `anthropic` |
 
-Все behavior implementations, включая `model`, используют process contract.
-Agent control в матрицу не входит, потому что это
-root-owned application service, а не выбираемый behavior slot.
+`select_one` означает одну выбранную реализацию, `ordered_many` — несколько
+реализаций с заданным порядком. Все перечисленные слоты, включая `model`,
+используют процессный контракт. Управление другими агентами в таблицу не
+входит: им владеет Core, это не выбираемый слот.
 
-## Module Export И Selection
+## Как Подключить Модуль
+
+В примере агент выбирает `sqlite` для слота `memory`. Запись `components`
+указывает, какую программу запустить, `exports` объявляет реализацию слота,
+а `module_config` передаёт ей настройки:
 
 ```toml
 [modules]
@@ -83,28 +86,33 @@ path = ".proteus/memory.sqlite"
 
 Правила:
 
-1. Для `select_one` id в `[modules]` должен точно совпасть с export.
-2. Export identity — пара `slot/module_id`; global duplicate запрещён.
-3. Component id, `command` и хотя бы один export обязательны.
-4. `cwd` относительно workspace; environment очищается.
-5. `env_allowlist` копирует только названные parent variables.
-6. `env` задаёт literal значения и перекрывает allowlist.
-7. Module config находится только в
-   `module_config.<slot>.<module_id>` и обязан быть object.
-8. Unknown config/wire fields отвергаются.
-9. Несколько exports одного component делят process lifecycle, но не authority.
+1. Для слота с `select_one` имя в `[modules]` должно совпадать с объявленной
+   реализацией.
+2. Пара `slot/module_id` должна быть уникальной во всей конфигурации.
+3. В записи `components` обязательны имя, `command` и хотя бы одна
+   объявленная реализация слота.
+4. `cwd` отсчитывается от рабочего каталога проекта. Переменные окружения
+   дочернего процесса очищаются.
+5. `env_allowlist` копирует только перечисленные переменные окружения
+   родительского процесса.
+6. `env` задаёт значения напрямую и имеет приоритет над `env_allowlist`.
+7. Настройки реализации задаются только в
+   `module_config.<slot>.<module_id>` и должны быть объектом.
+8. Неизвестные поля конфигурации и протокола вызывают ошибку.
+9. Реализации нескольких слотов в одном процессе делят его жизненный цикл,
+   но доступные операции определяются отдельно для каждого вызова.
 
-`examples/configs/proteus.one-component.example.toml` показывает допустимый
-пример: десять callback-связанных exports reference-модуля работают в одном
-process. Topology test подтверждает один PID, nested lineage, адресную отмену и
-canonical journal/replay. Модуль с одним export устроен по тем же правилам.
+`examples/configs/proteus.one-component.example.toml` показывает модуль,
+который предоставляет десять связанных реализаций в одном процессе. Проверка
+подтверждает общий процесс, вложенные вызовы, адресную отмену и сохранение
+истории выполнения. Модуль с одной реализацией работает по тем же правилам.
 
-Нет специальных ids `default`, `none`, `process` или `all_visible`.
-Чтобы не выбирать module, поле slot просто не указывается.
+Имена `default`, `none`, `process` и `all_visible` не имеют специального смысла.
+Если слот с `select_one` не нужен, его не указывают в `[modules]`.
 
-## Handshake
+## Подтверждение Подключения
 
-Каждый component запускается persistent stdio host-ом. Первая request:
+Core запускает модуль и отправляет ему первое сообщение `initialize`:
 
 ```json
 {
@@ -128,12 +136,14 @@ canonical journal/replay. Модуль с одним export устроен по 
 }
 ```
 
-Модуль возвращает exact-set manifest. Missing/extra/duplicate export и
-несовпадение component id/slot/id/version/composition завершают build
-snapshot-а ошибкой. Каждый вызов содержит target export; module methods и
-callbacks сверяются с его authority, а не с объединением component. Wire ids
-разделены на host `h:<generation>:<sequence>` и module
-`m:<generation>:<sequence>`; `h:<generation>:0` зарезервирован для handshake.
+Модуль должен подтвердить ровно тот же набор реализаций слотов. Недостающая,
+лишняя или повторная запись, а также несовпадение `component_id`,
+слота, реализации, версии или правила выбора прерывают сборку конфигурации
+с ошибкой. Каждый последующий вызов указывает конкретную пару
+`slot/module_id`; разрешённые методы модуля и обратные вызовы Core проверяются
+для неё отдельно. Идентификаторы сообщений Core начинаются с
+`h:<generation>:<sequence>`, модуля — с `m:<generation>:<sequence>`;
+`h:<generation>:0` закреплён за `initialize`.
 
 ## Slots По Назначению
 
@@ -479,73 +489,76 @@ memory/policy/context/compactor/workflow paths, включая callbacks.
 
 ## Единый Образец Реализации
 
-Общие сведения о границе поддерживаются в одном месте:
+Общие данные и правила взаимодействия имеют одного владельца. Алгоритмы
+разных реализаций остаются самостоятельными, даже если они находятся в одной
+программе или каталоге. Так изменение одного алгоритма не заставляет менять
+соседний, а общие данные не расходятся между сторонами протокола.
 
-- wire DTO, версии и имена методов принадлежат `proteus-contracts`;
-- допущенные contracts, composition и callback authority собраны в
+Правила процессной границы поддерживаются в одном месте:
+
+- форматы данных, версии и имена методов принадлежат `proteus-contracts`;
+- допустимые контракты, правила выбора и разрешённые обратные вызовы собраны в
   `proteus-module-protocol::PROCESS_CONTRACT_AUTHORITIES`;
-- exact export ищется через `ProcessComponentBinding::export`, а его launch
-  settings остаются в host config;
-- ID и версия в catalog manifest берутся из проверенного binding этого export,
-  без повторного определения версии по catalog kind;
-- adapters используют общий `ProcessExportClient`; одинаковый разбор и
-  сериализация host callbacks находятся в `process_adapters::host_rpc`.
+- реализация слота ищется через `ProcessComponentBinding::export`, а параметры
+  запуска остаются в конфигурации Core;
+- имя и версия в каталоге берутся из проверенной записи реализации, без
+  повторного определения версии по типу записи;
+- адаптеры используют общий `ProcessExportClient`; разбор и формирование
+  обратных вызовов находятся в `process_adapters::host_rpc`.
 
 Для общих протокольных правил действует следующий образец:
 
 | Правило | Владелец и источник | Пример использования | Проверка |
 |---|---|---|---|
-| Строка catalog namespace | `proteus_contracts::domain::ModuleKind::as_str` | `slot::MODEL` получает строку от `ModuleKind::Model`; config и topology используют тот же источник | `module_swap`, `config_profiles` |
-| Грамматика wire ID | `proteus_module_protocol::v3::parse_wire_id` | Rust host и модуль импортируют общий parser; `h:1:0` — initialize, `m:1:1` — module callback | `v3::wire_id`, `broker_v3`, conformance модуля |
-| Форма JSON-RPC envelope | `proteus_module_protocol::v3::parse_component_frame` | Rust host и модуль получают `ComponentFrame` с request, notification или response; opaque payload сохраняется | `v3::frame`, `broker_v3`, conformance модуля |
+| Имя слота в каталоге | `proteus_contracts::domain::ModuleKind::as_str` | `slot::MODEL` получает строку от `ModuleKind::Model`; конфигурация и описание связей используют тот же источник | `module_swap`, `config_profiles` |
+| Формат идентификатора сообщения | `proteus_module_protocol::v3::parse_wire_id` | Core и Rust-модуль используют общий разбор; `h:1:0` — `initialize`, `m:1:1` — обратный вызов модуля | `v3::wire_id`, `broker_v3`, проверка модуля |
+| Форма сообщения JSON-RPC | `proteus_module_protocol::v3::parse_component_frame` | Core и Rust-модуль получают `ComponentFrame` с запросом, уведомлением или ответом; содержимое запроса сохраняется без изменений | `v3::frame`, `broker_v3`, проверка модуля |
 
-`ModuleKind` описывает catalog kinds; он не заменяет таблицу process contracts
-или правила selection. Например, `context_provider` имеет process export
-contract, но не является отдельным `ModuleKind`. Проверки ожидаемой стороны,
-актуальной generation, допустимости sequence zero и lineage выполняются
-обработчиком конкретной фазы после общего разбора wire ID.
-Общий разбор envelope проверяет форму кадра, обязательные поля и непустое
-строковое имя метода. Допустимость метода для export и фазы, связь с активным
-invocation, cancellation и settlement проверяются отдельно принимающей стороной.
+`ModuleKind` описывает виды записей каталога, но не все процессные контракты и
+не правила выбора. Например, слот `context_provider` имеет процессный
+контракт, хотя отдельного варианта `ModuleKind` для него нет. Общий разбор
+идентификатора проверяет его форму; принимающая сторона затем проверяет
+направление, принадлежность текущему запуску, допустимость нуля и связь с текущим
+вызовом. Общий разбор сообщения проверяет форму, обязательные поля и непустое
+имя метода. Допустимость метода, состояние вызова, отмену и завершение
+проверяет принимающая сторона.
 
-Module helpers используют канонический DTO напрямую, если передают ту же
-границу с той же семантикой. Например, `context-pack`, `skill-pack`, процессный
-модуль и host adapter используют один `ProcessContextProviderInput`. Отдельный helper
-DTO нужен только для другой границы с собственными данными:
-`ContextBuilderModuleInput` содержит
-implementation config, которого нет в `ProcessContextInput`.
-Повторное объявление одинаковых полей или alias для удалённого типа не нужны.
+Вспомогательный код модуля использует общий тип данных напрямую, если передаёт
+те же данные через ту же границу. Например, `context-pack`, `skill-pack`,
+процессный модуль и адаптер Core используют один `ProcessContextProviderInput`.
+Отдельный тип нужен, когда данные различаются: `ContextBuilderModuleInput`
+содержит настройки реализации, которых нет в `ProcessContextInput`.
+Не следует повторять одинаковые поля или возвращать удалённые имена типов.
 
-Для `PolicyModule` процессный модуль и implementations используют
+Для `PolicyModule` процессный модуль и реализации используют
 `PolicyModuleInvocationContext` и `PolicyModuleVisibilityContext` из
-`proteus-contracts::process_module`. Это внутренняя JSON-схема Rust helpers с
-непрозрачным implementation config; внешние `ProcessPolicyEvaluateInput` и
-`ProcessPolicyVisibilityInput` остаются отдельными wire DTO slot `policy/v2`.
-Общие типы задают данные; разбор конфигурации и решения принадлежат каждой
-policy implementation.
+`proteus-contracts::process_module`. Эти типы описывают внутренний обмен Rust
+и несут настройки реализации; внешние `ProcessPolicyEvaluateInput` и
+`ProcessPolicyVisibilityInput` задают данные протокола слота `policy/v2`.
+Общие типы описывают данные, а разбор настроек и принятие решения остаются за
+каждой реализацией правила.
 
-Критерий чистки — самостоятельность реализации: изменение её алгоритма внутри
-действующего contract не требует правок другой implementation. Pack группирует
-исходники; размещение в одном crate или component не делает разные алгоритмы
-одной ответственностью. Стандартизируются contracts, данные и правила
-взаимодействия, а внутренняя организация implementation остаётся её решением.
+Критерий чистки — самостоятельность реализации: изменение её алгоритма в
+рамках действующего контракта не требует правок другой реализации. Общий
+каталог, библиотека или процесс не делают разные алгоритмы одной
+ответственностью. Стандартизируются контракты, данные и правила обмена;
+внутреннее устройство алгоритма остаётся решением его автора.
 
-Общий helper выделяется, когда у поведения один владелец и одна семантика.
-Повтор небольшого parsing или `build_json` в независимых implementations
-допустим. Перед объединением проверяется, какую общую зависимость оно добавит:
-изменение правил или конфигурации одного module не должно менять поведение
-другого через скрытые флаги или ветки общего helper. Совпадение полей разных
-DTO само по себе также не доказывает принадлежность одной границе.
+Общую вспомогательную функцию выделяют, когда у поведения один владелец и
+одинаковый смысл. Небольшое повторение разбора данных или вызова `build_json`
+в независимых реализациях допустимо. Перед объединением нужно проверить,
+не начнёт ли изменение настроек одного модуля скрыто менять другой. Совпадение
+полей разных типов данных ещё не означает, что они описывают одну границу.
 
-Slot adapter сохраняет runtime dispatch, invocation context, cancellation,
-бюджет и преобразование typed failures. Workflow передаёт имеющийся
-`ModelFailure` в RPC error data, а compactor получает его через
-`ModelFailure::from_error`. Оба используют общую упаковку ответа и RPC ошибки
-из `host_rpc`, сохраняя собственное преобразование typed failure.
-В reference-модуле общий `model_aware_call` упаковывает JSON callbacks этих
-slots и восстанавливает `ModelFailure` из error data. Context callbacks
-используют отдельный путь обычных ошибок: одинаковая форма JSON не даёт
-основания менять error semantics.
+Адаптер слота сохраняет маршрутизацию вызовов, условия текущего вызова,
+отмену, ограничения по времени и различия в ошибках. `workflow` передаёт
+готовый `ModelFailure` в данные ошибки RPC; `compactor` получает его через
+`ModelFailure::from_error`. Оба используют общую упаковку ответа и ошибки из
+`host_rpc`, но по-разному преобразуют ошибку модели. В reference-модуле
+`model_aware_call` упаковывает обратные вызовы этих слотов в JSON и
+восстанавливает `ModelFailure` из данных ошибки. Для обратных вызовов
+`context` используются обычные ошибки; совпадение формата JSON не повод
+изменять их смысл.
 
 В исходниках отдельно держат DTO/contract, подключение и dispatch, сам
 алгоритм и крупные tests. Маленький связный adapter может оставаться одним

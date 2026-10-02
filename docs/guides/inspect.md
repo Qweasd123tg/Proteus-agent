@@ -1,11 +1,11 @@
 # Inspect
 
-`inspect` показывает два связанных read-only представления:
+`inspect` показывает два связанных представления сборки агента:
 
-- `plan` — что config просит собрать до запуска workers;
-- `topology` — catalog/tool graph, полученный из того же плана.
+- `plan` — что конфигурация выбирает до запуска процессов модулей;
+- `topology` — схему доступных и выбранных реализаций слотов и инструментов.
 
-Оба принадлежат Core и не являются отдельными module slots.
+Эти команды принадлежат Core и не являются отдельными слотами.
 
 ## CLI
 
@@ -21,25 +21,32 @@ proteus --config codex inspect topology --format runtime
 proteus --config codex inspect topology --format map
 ```
 
-`inspect plan` показывает точные slot selections, components, exports,
-contract versions, разрешённые host callbacks, requested tools и проверки.
-Статус `blocked` означает, что runtime с таким планом не будет собран. Команда
-не подключает workers и не выполняет handshake; raw config, component args,
-environment и provider secrets в JSON projection не попадают.
+`inspect plan` показывает выбранные реализации слотов, команды запуска
+модулей, версии контрактов, разрешённые методы Core, запрошенные инструменты
+и результаты проверок. Строка «запуск заблокирован» означает, что Core
+не соберёт агента с таким планом. Команда не запускает процессы модулей
+и не проверяет их начальный ответ. Исходная конфигурация, аргументы запуска,
+окружение и секреты поставщика модели в JSON не попадают.
+
+В текстовом плане раздел «запуск модулей» перечисляет команды запуска и
+предоставляемые ими реализации слотов. «Модуль не выбран» означает отсутствие
+выбора для данного слота; поведение в этом случае задаётся его контрактом.
+«Методы Core» — операции, которые выбранная реализация может вызвать у Core.
 
 Форматы:
 
-- plan `text` — короткий человекочитаемый чертёж;
-- plan `json` — полная безопасная diagnostic projection;
-- default/table — компактные slots/modules/tools/warnings;
-- markdown — переносимый отчёт;
-- mermaid — полный diagnostic graph;
-- runtime — короткий фактический turn path;
-- map — человекочитаемая карта wiring.
+- plan `text` — короткое описание сборки на русском языке;
+- plan `json` — полные данные плана с техническими именами полей;
+- default/table — компактные списки слотов, модулей, инструментов и предупреждений;
+- markdown — отчёт, который можно сохранить или передать;
+- mermaid — полная схема в формате Mermaid;
+- runtime — короткий путь выполнения хода;
+- map — текстовая карта подключений.
 
-Команда строит catalog и tool surface, но не отправляет model request.
-Process components/exports валидируются; worker handshake выполняется там, где
-нужна реальная registry/tool сборка.
+`inspect topology` собирает список доступных реализаций и инструментов,
+но не отправляет запросы модели. Описания запуска и подключения к слотам
+проверяются; процессы модулей запускаются там, где требуется получить
+настоящие описания инструментов и проверить начальный ответ модуля.
 
 ## HTTP
 
@@ -57,34 +64,34 @@ App-server публикует:
 При token auth endpoints требуют тот же session token, что и остальные
 app-server routes.
 
-## Snapshot
+## Данные Схемы
 
 `TopologySnapshot` содержит:
 
-- profile, cwd, config path и expanded config files;
-- `module_epoch`;
-- permission mode;
-- active model provider/name/stream;
-- 9 core behavior slots отдельно от ordered-many context providers и tool
-  registry;
-- catalog modules;
-- registered/enabled tools;
-- graph edges;
-- warnings.
+- профиль, рабочий каталог, путь конфигурации и список загруженных файлов;
+- номер сборки `module_epoch`;
+- режим разрешений;
+- выбранного поставщика модели, имя модели и режим потока ответов;
+- основные слоты отдельно от поставщиков контекста и списка инструментов;
+- доступные реализации модулей;
+- зарегистрированные и включённые инструменты;
+- связи между узлами схемы;
+- предупреждения.
 
-Module source:
+Поле источника реализации использует значения:
 
 ```text
 builtin | process | config | unknown
 ```
 
-- `process` — export из `[components.<id>.exports...]`;
-- `builtin` — host-owned структурные contributions; не путь регистрации model implementation;
-- `config` — config-defined runtime contribution;
-- `unknown` — selected id, которого нет в catalog.
+- `process` — реализация из `[components.<id>.exports...]`;
+- `builtin` — записи о встроенных операциях Core; это не способ регистрации
+  встроенной реализации модели;
+- `config` — запись, заданная конфигурацией;
+- `unknown` — выбранное имя, которого нет в списке доступных реализаций.
 
-Отсутствующий slot не создаёт synthetic module с id `none` или `default`.
-`active_module = null` прямо означает отсутствие selection.
+При отсутствии выбора для слота Core не создаёт модуль с именем `none`
+или `default`. Значение `active_module = null` прямо означает отсутствие выбора.
 
 ## Tools
 

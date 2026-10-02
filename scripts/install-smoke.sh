@@ -92,12 +92,12 @@ test -f "${config_home}/configs/config.toml"
 
 run_and_capture doctor "${output_dir}/doctor.txt" "${proteus}" doctor
 require_text "config loaded" "${output_dir}/doctor.txt"
-require_text "process component" "${output_dir}/doctor.txt"
+require_text "процесс модуля" "${output_dir}/doctor.txt"
 
 run_and_capture assembly-plan "${output_dir}/assembly-plan.txt" \
   "${proteus}" inspect plan
-require_text "Assembly plan v3" "${output_dir}/assembly-plan.txt"
-require_text "status: ready" "${output_dir}/assembly-plan.txt"
+require_text "План сборки v3" "${output_dir}/assembly-plan.txt"
+require_text "состояние: готов к запуску" "${output_dir}/assembly-plan.txt"
 require_text "workflow: coding.single_loop" "${output_dir}/assembly-plan.txt"
 
 run_and_capture topology "${output_dir}/topology.txt" \
@@ -114,7 +114,7 @@ cp "${project_dir}/examples/configs/proteus.process-agent.example.toml" "${exter
 
 run_and_capture external-doctor "${output_dir}/external-doctor.txt" \
   "${proteus}" --config "${external_config}" --cwd "${project_dir}" doctor
-require_text "process component python-agent" "${output_dir}/external-doctor.txt"
+require_text "процесс модуля python-agent" "${output_dir}/external-doctor.txt"
 
 run_and_capture external-topology "${output_dir}/external-topology.txt" \
   "${proteus}" --config "${external_config}" --cwd "${project_dir}" \

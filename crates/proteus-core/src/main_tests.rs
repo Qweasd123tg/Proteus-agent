@@ -129,7 +129,7 @@ fn inspect_plan_reports_blocking_selection_without_starting_runtime() {
         .expect("diagnostic plan");
 
     let rendered = render_inspect_plan(&plan, InspectPlanFormat::Text).expect("render plan");
-    assert!(rendered.contains("status: blocked"));
+    assert!(rendered.contains("состояние: запуск заблокирован"));
     assert!(rendered.contains("active module is not registered: search/missing-search"));
     assert!(plan.ensure_valid().is_err());
 }
@@ -212,19 +212,19 @@ fn read_only_cli_paths_do_not_start_unrelated_process_components() {
             entry.level == "ok"
                 && entry
                     .message
-                    .contains("process component search-fixture (1 exports)")
+                    .contains("процесс модуля search-fixture (реализаций слотов: 1)")
         }));
         assert!(findings.entries.iter().any(|entry| {
             entry.level == "ok"
                 && entry
                     .message
-                    .contains("process component compactor-fixture (1 exports)")
+                    .contains("процесс модуля compactor-fixture (реализаций слотов: 1)")
         }));
         assert!(findings.entries.iter().any(|entry| {
             entry.level == "ok"
                 && entry
                     .message
-                    .contains("process component workflow-fixture (1 exports)")
+                    .contains("процесс модуля workflow-fixture (реализаций слотов: 1)")
         }));
     }
 

@@ -1,75 +1,87 @@
-use super::{AssemblyCheckSeverity, AssemblyExportUse, AssemblyPlan};
+use super::{AssemblyCheckSeverity, AssemblyExportUse, AssemblyModuleSource, AssemblyPlan};
 
 /// Человекочитаемый план: только решения, которые полезны перед запуском.
-/// Полная contract authority остаётся доступна в JSON projection.
+/// Полное описание разрешённых операций остаётся доступно в JSON.
 pub fn render_assembly_plan(plan: &AssemblyPlan) -> String {
     let mut lines = Vec::new();
-    lines.push(format!("Assembly plan v{}", plan.schema_version));
+    lines.push(format!("План сборки v{}", plan.schema_version));
     lines.push(format!(
-        "status: {}",
-        if plan.is_valid() { "ready" } else { "blocked" }
+        "состояние: {}",
+        if plan.is_valid() {
+            "готов к запуску"
+        } else {
+            "запуск заблокирован"
+        }
     ));
-    lines.push(format!("profile: {}", plan.profile));
-    lines.push(format!("cwd: {}", plan.cwd.display()));
+    lines.push(format!("профиль: {}", plan.profile));
+    lines.push(format!("рабочий каталог: {}", plan.cwd.display()));
     lines.push(format!(
-        "config: {}",
+        "конфигурация: {}",
         plan.config_path
             .as_deref()
             .map(|path| path.display().to_string())
-            .unwrap_or_else(|| "(defaults)".to_owned())
+            .unwrap_or_else(|| "(по умолчанию)".to_owned())
     ));
     if let Some(model) = &plan.model {
         lines.push(format!(
-            "model: {}/{} (profile {})",
+            "модель: {}/{} (профиль {})",
             model.provider, model.name, model.profile_id
         ));
     } else {
-        lines.push("model: unresolved".to_owned());
+        lines.push("модель: не выбрана".to_owned());
     }
-    lines.push(format!("permission mode: {:?}", plan.permission_mode));
+    lines.push(format!("режим разрешений: {:?}", plan.permission_mode));
 
-    lines.push("slots:".to_owned());
+    lines.push("слоты:".to_owned());
     for slot in plan.slots.iter().filter(|slot| slot.id != "hook") {
         let selection = match (&slot.module_id, &slot.source, &slot.component_id) {
             (Some(module_id), Some(source), Some(component_id)) => {
-                format!("{module_id} [{source:?}, component {component_id}]")
+                format!(
+                    "{module_id} [{}; процесс {component_id}]",
+                    source_label(source)
+                )
             }
-            (Some(module_id), Some(source), None) => format!("{module_id} [{source:?}]"),
+            (Some(module_id), Some(source), None) => {
+                format!("{module_id} [источник: {}]", source_label(source))
+            }
             (Some(module_id), None, _) => module_id.clone(),
-            (None, _, _) => "(host structural behavior)".to_owned(),
+            (None, _, _) => "(модуль не выбран)".to_owned(),
         };
         lines.push(format!("  {}: {selection}", slot.id));
     }
 
-    lines.push(format!("hooks (ordered): {}", plan.hooks.join(" -> ")));
-    lines.push("components:".to_owned());
+    lines.push(format!(
+        "обработчики hook (порядок вызова): {}",
+        plan.hooks.join(" -> ")
+    ));
+    lines.push("запуск модулей:".to_owned());
     if plan.components.is_empty() {
-        lines.push("  (none)".to_owned());
+        lines.push("  (нет)".to_owned());
     } else {
         for component in &plan.components {
             lines.push(format!("  {}: {}", component.id, component.command));
             for export in &component.exports {
                 let use_state = match export.use_state {
-                    AssemblyExportUse::Selected => "selected",
-                    AssemblyExportUse::Included => "included",
-                    AssemblyExportUse::Available => "available",
+                    AssemblyExportUse::Selected => "выбрана",
+                    AssemblyExportUse::Included => "подключена",
+                    AssemblyExportUse::Available => "доступна",
                 };
                 let host_access = if export.host_methods.is_empty() {
-                    "no host callbacks".to_owned()
+                    "методы Core: нет".to_owned()
                 } else {
-                    format!("host callbacks: {}", export.host_methods.join(", "))
+                    format!("методы Core: {}", export.host_methods.join(", "))
                 };
                 lines.push(format!(
-                    "    {}/{} [{}; {}; {}]",
+                    "    {}/{} [{}; контракт {}; {}]",
                     export.slot, export.module_id, use_state, export.contract_version, host_access
                 ));
             }
         }
     }
 
-    lines.push("requested tools:".to_owned());
+    lines.push("запрошенные инструменты:".to_owned());
     if plan.tools.requested.is_empty() {
-        lines.push("  (none)".to_owned());
+        lines.push("  (нет)".to_owned());
     } else {
         lines.extend(
             plan.tools
@@ -79,17 +91,26 @@ pub fn render_assembly_plan(plan: &AssemblyPlan) -> String {
         );
     }
 
-    lines.push("checks:".to_owned());
+    lines.push("проверки:".to_owned());
     if plan.checks.is_empty() {
-        lines.push("  ok".to_owned());
+        lines.push("  ошибок нет".to_owned());
     } else {
         for check in &plan.checks {
             let level = match check.severity {
-                AssemblyCheckSeverity::Warning => "warning",
-                AssemblyCheckSeverity::Error => "error",
+                AssemblyCheckSeverity::Warning => "предупреждение",
+                AssemblyCheckSeverity::Error => "ошибка",
             };
             lines.push(format!("  {level} [{}]: {}", check.code, check.message));
         }
     }
     lines.join("\n")
+}
+
+fn source_label(source: &AssemblyModuleSource) -> &'static str {
+    match source {
+        AssemblyModuleSource::Builtin => "Core",
+        AssemblyModuleSource::Process => "внешняя программа",
+        AssemblyModuleSource::Config => "конфигурация",
+        AssemblyModuleSource::Unknown => "неизвестен",
+    }
 }

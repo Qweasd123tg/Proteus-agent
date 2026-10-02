@@ -271,13 +271,13 @@ pub(crate) fn check_external_commands(
                 &spec.command,
                 spec.cwd.as_deref().unwrap_or(cwd),
                 &format!(
-                    "process component {} ({} exports)",
+                    "процесс модуля {} (реализаций слотов: {})",
                     component_id,
                     component.exports().count()
                 ),
             ),
             Err(error) => findings.error(format!(
-                "process component {component_id} config: {error:#}"
+                "настройки запуска модуля {component_id}: {error:#}"
             )),
         }
     }
