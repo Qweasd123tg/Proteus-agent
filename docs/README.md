@@ -20,6 +20,7 @@
 | Подключить или написать расширение интерфейса | [Расширения интерфейса](guides/ui-extensions.md) |
 | Настроить профиль, модель и инструменты | [Конфигурация](guides/configuration.md) |
 | Разобраться в устройстве и ответственности частей системы | [Архитектура](architecture/architecture.md) |
+| Разобрать целевую границу исполнения вне чата | [Исполнение других предметных задач](architecture/execution-runtime.md) |
 | Понять, как собирается и обновляется агент | [План сборки](architecture/assembly-plan.md), [обновление во время работы](architecture/hot-swap.md) |
 | Добавить модуль или изменить слот | [Слоты и модули](architecture/modules.md), [запуск модулей](architecture/process-module-architecture.md), [правила добавления слота](architecture/slot-governance.md) |
 | Проверить согласованность модулей | [Контракты между наборами модулей](architecture/pack-contracts.md) |

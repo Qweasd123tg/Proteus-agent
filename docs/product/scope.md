@@ -10,6 +10,8 @@
 - Slots для workflow, search, memory, context/context providers, policy,
   patch, compactor, tool exposure, tools и model.
 - AssemblyPlan, атомарный runtime snapshot и ExecutionScope.
+- Standalone process Workflow без conversation и модели; typed top-level
+  операции `execute_tool` и `remember` без открытия Turn.
 - Opt-in typed `hook/v2` contributions: явная ordered chain, model instructions/
   messages, pre-tool block/args, post-tool output и bounded completion review;
   callbacks отсутствуют.
@@ -53,6 +55,8 @@ Reference modules и profiles — поставляемые примеры без
 |---|---|
 | Model | Descriptor запрашивается для конкретного `ModelRef` и сохраняется в runtime snapshot; обновление возможностей требует пересборки snapshot |
 | Workflow | Standalone invocation допускает пустую history, отсутствие conversation и модели; chat events/history checkpoints/compaction требуют разговорного контекста |
+| Исполнение вне чата | `Workflow` сохраняет `AgentTask` с текстом и `cwd`, history и `AgentOutput`; отдельный вызов через registry не даёт публичного admission и durable settlement произвольной задачи в `AgentRuntime` |
+| Предметные контракты | `ModuleKind`, таблица process authority, config и adapters задают известный host набор; подключение нового семейства контрактов без согласованных изменений этих границ пока отсутствует |
 | Replay | Model-free Turn поддержан; context/tool exposure/compaction требуют записанного model request. Прямые model calls workflow отделены от summary exchanges; replay хода с внутренним summary требует записанного changed-compaction checkpoint и следующего direct model request; внутренний алгоритм и typed error branches compactor не воспроизводятся. Root steering и внешние Canceled/Timeout не эмулируются |
 | Collaboration | Spawn принимает только parallel_safe роли с isolation=none; настроенный coder с worktree в эту surface не входит |
 | Peer recovery | Resume зависит от живого process; durable tree, attach и reconnect отсутствуют |
@@ -63,6 +67,8 @@ Reference modules и profiles — поставляемые примеры без
 [architecture.md](../architecture/architecture.md),
 [subagents.md](../architecture/subagents.md).
 Это инвентарь ограничений, а не перечень обязательных следующих фич.
+Целевая граница для других предметных областей и сопоставление с текущим
+исполнением — в [execution-runtime.md](../architecture/execution-runtime.md).
 
 ## Статус Примера Codex
 

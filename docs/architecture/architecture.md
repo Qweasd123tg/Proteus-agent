@@ -3,6 +3,8 @@
 Этот документ описывает текущее состояние. Замысел находится в
 [spec.md](../product/spec.md), критерии завершения — в
 [roadmap.md](../product/roadmap.md).
+Целевая граница исполнения других предметных задач и её отличие от нынешнего
+runtime описаны отдельно в [execution-runtime.md](execution-runtime.md).
 
 ## Инвариант
 
@@ -201,7 +203,7 @@ client user input
   -> persist current user message in history/journal
   -> agent adapter binds ExecutionContext from that scope and snapshot
   -> RuntimeRegistry wraps the ready ExecutionContext in AgentWorkflowContext
-  -> selected Workflow::run(AgentTask, history, AgentWorkflowContext)
+  -> selected Workflow::run(AgentTask, history, WorkflowInvocationContext::Agent)
        -> optional context build
        -> zero or more model/tool steps chosen by Workflow
        -> optional compaction and workflow events
@@ -266,7 +268,7 @@ cancel, invalid response или смерть process классифицирую�
 | Reservation/queue | `crates/proteus-core/src/core/runtime/steering.rs`, `SessionSteering::reserve` | Session lifetime; создаёт domain `TurnId`/`MessageId` |
 | Serialized root chain | `crates/proteus-core/src/core/runtime/turn.rs`, `run_reserved_completion`, `run_reserved_chain` | `AgentRuntime`; один `run_lock`, один или несколько sequential Turns |
 | Durable Turn lifecycle | тот же файл, `run_one_turn`, `run_opened_turn`, `persist_current_user_message` | Один domain Turn: snapshot/open/history/workflow/settlement |
-| Workflow contract | `crates/proteus-contracts/src/contracts/workflow.rs`, `Workflow::run` | Один controller invocation внутри открытого Turn |
+| Workflow contract | `crates/proteus-contracts/src/contracts/workflow.rs`, `Workflow::run` | Один controller invocation; в AppServer path — внутри открытого Turn, standalone — с `WorkflowInvocationContext::Execution` |
 | Process Workflow bridge | `crates/proteus-core/src/process_adapters/workflow.rs`, `ProcessWorkflowAdapter::run` | Один broker root invocation + host callbacks |
 | Generic host callbacks | `crates/proteus-core/src/core/workflow_host.rs`, `WorkflowHostRuntime` | Один cloned current context на Workflow invocation |
 | Tool safety path | `crates/proteus-core/src/core/bound_tools.rs`, `BoundTools`; agent adapter — `core/tool_orchestrator.rs` | Один execution-bound tool call; agent wrapper добавляет presentation/control enrichment |
@@ -278,10 +280,11 @@ cancel, invalid response или смерть process классифицирую�
 |---|---|---|---|
 | Session | `AgentRuntime` через `SessionState` | Несколько turns, до закрытия runtime/session | `SessionId`, root `ThreadId`, `run_lock`, active history, `SessionStore`, steering queue |
 | Turn | `SessionSteering` создаёт id; `AgentRuntime` открывает/settle-ит | Одна conversational operation; follow-up получает новый id | Chat/application lifecycle, history attribution и canonical settlement |
-| Workflow | Selected `Workflow` implementation | Один вызов внутри открытого Turn | Controller policy: ReAct/single loop, Codex loop, plan/execute/review или другой agent algorithm |
-| `ExecutionScope` | private `AgentRuntime` admission; используется Turn и typed top-level operations | Один logical workload; child cancellation view сохраняет id | Distinct `ExecutionId` и cancellation без chat/process identity |
+| Workflow | Selected `Workflow` implementation | Один standalone или conversational вызов | Controller policy: ReAct/single loop, Codex loop, plan/execute/review или другой algorithm; context задаётся `WorkflowInvocationContext` |
+| `ExecutionScope` | private `AgentRuntime` admission для Turn и typed top-level operations; standalone caller создаёт scope своего вызова | Один logical workload; child cancellation view сохраняет id | Distinct `ExecutionId` и cancellation без chat/process identity |
 | `ExecutionContext` | agent binding adapter вызывает generic factory `RuntimeRegistry::execution_context` из одного captured snapshot | Один logical execution | Binding для generic handles: model/search/memory/tools/policy/approval/grants |
-| `AgentWorkflowContext` | `RuntimeRegistry` оборачивает уже bound `ExecutionContext`; `AgentRuntime` добавляет live Turn state | Один Workflow invocation | Chat/application identity, context building, compaction, steering/presentation и один wrapped `ExecutionContext` |
+| `WorkflowInvocationContext` | `RuntimeRegistry` создаёт `Execution` для standalone или оборачивает conversational context в `Agent` | Один Workflow invocation | Выбор доступных execution services и дополнительного conversation state |
+| `AgentWorkflowContext` | `RuntimeRegistry` оборачивает уже bound `ExecutionContext`; `AgentRuntime` добавляет live Turn state | Один conversational Workflow invocation | Chat/application identity, context building, compaction, steering/presentation и один wrapped `ExecutionContext` |
 | `RuntimeSnapshot` | `RuntimeServices` | Immutable assembly/config view, удерживаемый всем ходом | Coherent `ModuleEpoch + AssemblyPlan + RuntimeRegistry + config snapshot`; не computation checkpoint |
 | Model invocation | Workflow инициирует; `BoundModel` исполняет через `ModelService` | Один shaped request/stream/terminal response | Provider-neutral model call, timeout, validation, deltas и текущая Turn attribution |
 | Tool invocation | Workflow инициирует; `BoundTools` владеет safety path, `ToolOrchestrator` — agent enrichment | Один `ToolCall` до `ToolResult` | Registry lookup, policy, approval, child cancellation, invoke и recording без mandatory chat; events/user input/agent control добавляются wrapper-ом |
@@ -311,11 +314,15 @@ Core mechanisms
 ```
 
 `Workflow::run` формально может вернуть `WorkflowOutput` без model call. Но его
-текущий contract остаётся agent-shaped: обязательны `AgentTask`, persistent
-`Vec<CanonicalMessage>`, `AgentWorkflowContext` с `TurnId` и terminal
-`AgentOutput`. Поэтому arbitrary non-chat workload сегодня может использовать
-нижние capabilities/process substrate, но не имеет естественного top-level
-entrypoint через `AgentRuntime`.
+текущий contract остаётся agent-shaped: обязательны `AgentTask`, история
+сообщений `Vec<CanonicalMessage>` и terminal `AgentOutput`. Context —
+`WorkflowInvocationContext`: вариант `Execution` не требует conversation и
+допускает пустую history, вариант `Agent` добавляет `AgentWorkflowContext` с
+`TurnId`. Отдельный вызов через `RuntimeRegistry::workflow_execution_context`
+использует нижние capabilities/process substrate, но публичный
+`AgentRuntime::run` по-прежнему открывает conversational Turn. Типизированного
+входа, checkpoint и durable settlement произвольной задачи через этот runtime
+пока нет; наличие standalone Workflow само по себе их не добавляет.
 
 ### Deterministic Controller Probe
 
