@@ -62,7 +62,10 @@ export function mountExtensionSettings(root, registry, services = {}) {
   builtin.append(node('summary','Встроенные расширения'));
   const builtinContent=node('div');
   builtin.append(builtinContent);
-  root.append(builtin, list, available, source, notice, announcement, reset);
+  // A broken saved selection is repaired right where it is reported.
+  const repair = button('Восстановить встроенные расширения', () => registry.resetCore?.(), signal);
+  repair.dataset.builtinRepair = ''; repair.hidden = true;
+  root.append(builtin, list, available, source, notice, repair, announcement, reset);
   const resetContent=node('div');
   resetContent.append(...[...reset.children].slice(1));reset.append(resetContent);
   mountDisclosureMotion(builtin,builtinContent,signal);
@@ -71,7 +74,8 @@ export function mountExtensionSettings(root, registry, services = {}) {
   const stopBuiltin=mountBuiltinManagement(builtinContent,registry);
   enableReorder(list,registry,signal,announcement);
   const unsubscribe = registry.subscribe(() => {
-    const { records: allRecords, bundled, notice: message, busy, ready } = registry.state();
+    const { records: allRecords, bundled, notice: message, busy, ready, builtinsInvalid } = registry.state();
+    repair.hidden = !builtinsInvalid;
     const records=allRecords.filter(r=>!r.builtin);
     if (optionsId && !records.some(record => record.id === optionsId)) close();
     const focusKey = document.activeElement?.dataset.controlKey;

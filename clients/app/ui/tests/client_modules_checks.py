@@ -11,6 +11,18 @@ def run(command, js, wait_for, web, origin, loaded):
         wait_for(lambda: js('return !!document.querySelector("[data-module-page='+id+'] .client-module-content")?.children.length'), 'Module missing: '+id)
     command('/url', {'url':web+'/?'+urlencode({'server':origin,'token':'extension-smoke'})})
     wait_for(loaded,'Client not connected')
+    # A selection saved before an update removed a page it had turned off
+    # stops at an explicit error, repaired from the button beside it.
+    js("localStorage.setItem('proteus.ui.modules',JSON.stringify({disabled:['removed-page'],slots:{'composer-model':'model-selector','composer-access':'access-selector'}}))")
+    command('/refresh', {})
+    wait_for(loaded,'Client not connected after a broken selection')
+    assert js("return !document.querySelector('.composer-model-menu')"),'A broken selection kept optional modules on'
+    click('.settings-link')
+    wait_for(lambda: js("return !!document.querySelector('[data-builtin-repair]:not([hidden])')"),'Broken selection has no repair action')
+    assert 'removed-page' in js("return document.querySelector('[data-builtin-repair]').previousElementSibling.textContent"), 'Error does not name the missing page'
+    js("document.querySelector('[data-builtin-repair]').click()")
+    wait_for(lambda: js("return document.querySelector('[data-builtin-repair]').hidden && !document.querySelector('[data-builtin-repair]').previousElementSibling.textContent"),'Repair left the error')
+    click('.settings-back')
     wait_for(lambda: js("return !!document.querySelector('.composer-model-menu')"),'Built-in selector not mounted')
     click('.settings-link')
     wait_for(lambda: js("return !!document.querySelector('[data-settings-section=extensions]')"),'Settings navigation missing')
@@ -97,4 +109,4 @@ def run(command, js, wait_for, web, origin, loaded):
     js("returnFrame.contentDocument.querySelector('.analysis-open-chat').click()")
     wait_for(lambda: js("return new URL(location.href).searchParams.get('session_dir')==="+repr(previous_session)+" && !!document.querySelector('.connection-badge.completed') && !!document.querySelector('[data-client-view=chat]:not([hidden])')"),'Cross-session return did not select chat')
     assert js("return !new URL(location.href).searchParams.has('workspace_view')"),'Cross-session return left its transient view parameter'
-    print('PASS: installed diagnostic and selector use declared services; lazy mounting; drafts; disable/dispose; required management; persistent replacement; retained Inspector document across settings navigation and split workspace changes; all four Inspector pages; hidden session changes defer reload until reveal; same-session return identity and cross-session navigation',flush=True)
+    print('PASS: broken saved selection repaired beside its error; installed diagnostic and selector use declared services; lazy mounting; drafts; disable/dispose; required management; persistent replacement; retained Inspector document across settings navigation and split workspace changes; all three Inspector pages; hidden session changes defer reload until reveal; same-session return identity and cross-session navigation',flush=True)

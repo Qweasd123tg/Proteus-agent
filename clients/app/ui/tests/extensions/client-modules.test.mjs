@@ -35,6 +35,23 @@ test('corrupt config reports an error with management available; reserved ids ca
  await registry.start();assert.equal(await registry.install('https://client.test/collision.json'),false);
  assert.equal(registry.state().records.filter(r=>r.id==='appearance').length,1);
 });
+test('only user choices are stored, so built-in pages added or removed by an update keep the selection',()=>{
+ const {registry,data}=fixture();registry.update('chat',{enabled:false});
+ assert.deepEqual(JSON.parse(data.get('proteus.ui.modules')),{disabled:['chat'],slots:{'composer-model':'model-selector','composer-access':'access-selector'}});
+ const shorter=catalog.filter(r=>r.id!=='diagnostic-usage');
+ const fewer=createClientModuleRegistry(createExtensionRegistry({storage:{getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)},catalogUrl:'https://client.test/catalog.json',reservedIds:shorter.map(r=>r.id),readJson:async()=>({})}),undefined,shorter);
+ assert.equal(fewer.state().notice,'');assert.equal(fewer.state().records.find(r=>r.id==='chat').enabled,false);
+ assert.ok(fewer.state().records.find(r=>r.id==='appearance').enabled,'a page missing from storage is on');
+ for(const [stored,message] of [
+  ['{"disabled":["removed-page"],"slots":{"composer-model":null,"composer-access":null}}',/«removed-page» больше нет/],
+  ['{"disabled":["extensions"],"slots":{"composer-model":null,"composer-access":null}}',/нельзя выключить/],
+  ['{"enabled":{"chat":true},"slots":{"composer-model":null,"composer-access":null}}',/Неверный формат/],
+ ]){
+  const broken=fixture(new Map([['proteus.ui.modules',stored]])).registry;
+  assert.match(broken.state().notice,message);assert.equal(broken.state().builtinsInvalid,true);
+  broken.resetCore();assert.equal(broken.state().builtinsInvalid,false);assert.equal(broken.state().notice,'');
+ }
+});
 test('navigation only belongs to settings; unknown surfaces and fields fail explicitly',()=>{
  const value={apiVersion:1,id:'fixture',name:'Fixture',description:'',entry:'./module.js',requires:[],surfaces:['settings'],navigation:{group:'diagnostics',icon:'analysis'}};
  assert.deepEqual(parseManifest(value,'https://client.test/fixture.json').surfaces,['settings']);

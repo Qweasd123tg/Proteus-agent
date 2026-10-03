@@ -13,39 +13,56 @@ export function createClientModuleRegistry(
     ...record,
     manifest: parseManifest(record.manifest, record.manifest.entry),
   }));
-  let configuration = {
+  const defaults = () => ({
     enabled: Object.fromEntries(core.map((r) => [r.id, true])),
     slots: {
       "composer-model": "model-selector",
       "composer-access": "access-selector",
     },
+  });
+  // Only the user's choices are stored, so built-in pages added or removed by
+  // an update leave the rest of the selection intact.
+  const parse = (value) => {
+    if (
+      !value ||
+      typeof value !== "object" ||
+      Object.keys(value).some((k) => !["disabled", "slots"].includes(k)) ||
+      !Array.isArray(value.disabled) ||
+      value.disabled.some((id) => typeof id !== "string") ||
+      new Set(value.disabled).size !== value.disabled.length ||
+      !value.slots ||
+      Object.keys(value.slots).length !== slots.length ||
+      slots.some(
+        (s) => value.slots[s] !== null && typeof value.slots[s] !== "string",
+      )
+    )
+      throw Error("Неверный формат расширений интерфейса");
+    const next = defaults();
+    for (const id of value.disabled) {
+      const record = core.find((r) => r.id === id);
+      if (!record)
+        throw Error(`Выключенного встроенного расширения «${id}» больше нет`);
+      if (record.required)
+        throw Error(`Расширение «${record.manifest.name}» нельзя выключить`);
+      next.enabled[id] = false;
+    }
+    next.slots = { ...value.slots };
+    return next;
   };
+  const serialize = (next) =>
+    JSON.stringify({
+      disabled: core
+        .filter((r) => !r.required && next.enabled[r.id] === false)
+        .map((r) => r.id),
+      slots: next.slots,
+    });
+  let configuration = defaults();
+  let invalid = false;
   try {
     const raw = storage.getItem(key);
-    if (raw !== null) {
-      const value = JSON.parse(raw);
-      if (
-        !value ||
-        Object.keys(value).some((k) => !["enabled", "slots"].includes(k)) ||
-        !value.enabled ||
-        !value.slots ||
-        Object.entries(value.enabled).some(
-          ([id, on]) =>
-            !core.some((r) => r.id === id) || typeof on !== "boolean",
-        ) ||
-        core.some((r) =>
-          // Required modules are not user state: they may be absent but never disabled.
-          r.required ? value.enabled[r.id] === false : !(r.id in value.enabled),
-        ) ||
-        Object.keys(value.slots).length !== slots.length ||
-        slots.some(
-          (s) => value.slots[s] !== null && typeof value.slots[s] !== "string",
-        )
-      )
-        throw Error("Неверный формат расширений интерфейса");
-      configuration = value;
-    }
+    if (raw !== null) configuration = parse(JSON.parse(raw));
   } catch (error) {
+    invalid = true;
     notice = `${error.message}. Восстановите встроенные расширения.`;
     for (const r of core) if (!r.required) configuration.enabled[r.id] = false;
   }
@@ -54,9 +71,10 @@ export function createClientModuleRegistry(
   };
   const save = (next) => {
     try {
-      storage.setItem(key, JSON.stringify(next));
+      storage.setItem(key, serialize(next));
       configuration = next;
       notice = "";
+      invalid = false;
       emit();
       return true;
     } catch {
@@ -80,6 +98,7 @@ export function createClientModuleRegistry(
         ...state,
         records: records(),
         notice: [notice, state.notice].filter(Boolean).join(" "),
+        builtinsInvalid: invalid,
         slots: { ...configuration.slots },
       };
     },
@@ -120,14 +139,7 @@ export function createClientModuleRegistry(
     addBundled: (id) => packages.addBundled(id),
     install: (url) => packages.install(url),
     reset: () => packages.reset(),
-    resetCore: () =>
-      save({
-        enabled: Object.fromEntries(core.map((r) => [r.id, true])),
-        slots: {
-          "composer-model": "model-selector",
-          "composer-access": "access-selector",
-        },
-      }),
+    resetCore: () => save(defaults()),
     dispose() {
       unsubscribe();
       listeners.clear();

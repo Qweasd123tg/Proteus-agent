@@ -42,3 +42,4 @@ label.extension-description { cursor: pointer; }
 .extension-options[hidden] { display: none; }
 .context-usage-report { margin-top: 24px; padding: 20px; background: var(--bg-panel); border: 1px solid var(--border-subtle); border-radius: 16px; }
 .context-usage-report h2 { font-size: 18px; margin: 0 0 8px; }
+[data-builtin-repair] { justify-self: start; align-self: start; }
