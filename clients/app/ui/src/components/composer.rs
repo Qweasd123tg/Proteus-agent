@@ -39,6 +39,9 @@ where
     let dock_ref = NodeRef::<html::Form>::new();
     #[cfg(target_arch = "wasm32")]
     crate::ui_layout::attach_composer(dock_ref);
+    let images = attachments::ImageInput::new(actions);
+    #[cfg(target_arch = "wasm32")]
+    attachments::accept_window_drops(images, dock_ref);
     let submit_label = move || {
         if is_sending.get() {
             "Добавить в очередь"
@@ -49,7 +52,7 @@ where
         }
     };
     view! {
-        <form class="composer" node_ref=dock_ref on:submit=on_submit>
+        <form class="composer" class:dragging-files=move || images.dragging.get() node_ref=dock_ref on:submit=on_submit>
             <QueuedPrompts items=queued_prompts actions />
             <Show when=move || !stick_to_bottom.get() || !prefs.auto_scroll.get()>
                 <button type="button"
@@ -63,7 +66,7 @@ where
                 </button>
             </Show>
             <div class="composer-shell">
-                <attachments::ImageAttachments actions />
+                <attachments::ImageAttachments input=images />
                 <div class="composer-input">
                     // Зеркало текста задаёт высоту средствами layout, без JS-измерений
                     // на каждом вводе. Пробел сохраняет последнюю пустую строку.
@@ -72,6 +75,7 @@ where
                         prop:value=move || draft.get()
                         placeholder=move || if mode.get() == PermissionMode::Plan { "Что нужно спланировать?" } else { "Поручите задачу…" }
                         on:input:target=move |ev| set_draft.set(ev.target().value())
+                        on:paste=move |ev| images.paste(ev)
                         on:keydown=on_keydown />
                 </div>
                 <div class="composer-toolbar">

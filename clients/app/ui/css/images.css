@@ -10,3 +10,6 @@
 .message-images:empty { display:none; }
 .message-images img { display:block; max-width:min(320px,100%); max-height:280px; object-fit:contain; border-radius:12px; }
 .message-images a { min-width:0; max-width:100%; }
+/* A file drag over the chat shows where it lands; the label stays off the hit path. */
+.composer.dragging-files .composer-shell { box-shadow:0 12px 32px rgb(0 0 0 / 18%), inset 0 0 0 1px var(--border-strong); }
+.composer.dragging-files .composer-shell::after { content:"Отпустите, чтобы прикрепить изображения"; position:absolute; inset:0; z-index:2; display:grid; place-items:center; border:1px dashed var(--border-strong); border-radius:inherit; background:color-mix(in srgb, var(--bg-composer) 88%, transparent); color:var(--text-main); font-size:13px; pointer-events:none; }

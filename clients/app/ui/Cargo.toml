@@ -20,7 +20,7 @@ wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = [
     "AbortSignal",
     "Blob", "File", "FileList",
-    "Clipboard",
+    "Clipboard", "ClipboardEvent", "DataTransfer", "DragEvent",
     "Document",
     "DomRect",
     "Element",

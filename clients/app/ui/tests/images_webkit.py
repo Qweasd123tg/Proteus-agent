@@ -16,9 +16,19 @@ SCRIPT = '''
   const input=document.querySelector('.composer-attachments input[type=file]');
   const ready=document.querySelector('[data-extension-id=agent-info] .extension-panel-content')?.shadowRoot?.textContent.includes('extensions-smoke');
   if (!input || !ready || document.querySelector('.composer-stop')) return null;
-  window.imageProbe={stage:'loading'};
+  // The harness answers {paste:true} with a real GTK clipboard paste.
+  // WebKitGTK delivers it empty; this stands in for the desktop shell's
+  // native clipboard read.
+  window.__TAURI__={core:{invoke:async name=>{if(name!=='read_clipboard_image')throw Error(name);window.nativeReads=(window.nativeReads||0)+1;return Uint8Array.from(atob(PNG_DATA),c=>c.charCodeAt(0)).buffer}}};
+  document.querySelector('.composer-input textarea').focus();
+  window.imageProbe={stage:'paste',paste:true};
   (async()=>{
     const wait=async(test,label)=>{for(let n=0;n<160;n++){if(test())return;await new Promise(r=>setTimeout(r,250));}throw Error(label);};
+    await wait(()=>document.querySelector('.attachment-preview img')?.naturalWidth===240,'Native clipboard image was not attached');
+    if (document.querySelector('.composer-input textarea').value) throw Error('Clipboard image also pasted text');
+    delete window.__TAURI__;
+    document.querySelector('.attachment-preview button').click();
+    window.imageProbe={stage:'loading'};
     const bytes=Uint8Array.from(atob(PNG_DATA),c=>c.charCodeAt(0));
     const transfer=new DataTransfer();transfer.items.add(new File([bytes],'native.png',{type:'image/png'}));
     input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));
@@ -47,19 +57,27 @@ def main(url):
             import gi
             gi.require_version('Gtk', '3.0')
             gi.require_version('WebKit2', '4.1')
-            from gi.repository import Gtk, WebKit2, GLib
+            gi.require_version('Gdk', '3.0')
+            gi.require_version('GdkPixbuf', '2.0')
+            from gi.repository import Gdk, GdkPixbuf, Gtk, WebKit2, GLib
             window = Gtk.Window()
             window.set_default_size(1200, 900)
             view = WebKit2.WebView()
             window.add(view)
             window.show_all()
-            results, errors = [], []
+            view.grab_focus()
+            results, errors, pasted = [], [], []
 
             def done(view, task, data):
                 try:
                     raw = view.evaluate_javascript_finish(task).to_json(0)
                     value = json.loads(raw) if raw else None
-                    if value and value.get('error'):
+                    if value and value.get('paste') and not pasted:
+                        pasted.append(True)
+                        clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+                        clipboard.set_image(GdkPixbuf.Pixbuf.new_from_file(str(ROOT / 'crates/proteus-core/tests/fixtures/pixel.png')))
+                        view.execute_editing_command(WebKit2.EDITING_COMMAND_PASTE)
+                    elif value and value.get('error'):
                         errors.append(value['error'])
                         Gtk.main_quit()
                     elif value and value.get('ok'):
@@ -87,7 +105,7 @@ def main(url):
                 window.destroy()
             assert not errors, '\n'.join(errors)
             assert results
-            print('PASS: native WebKitGTK image-only input, File.arrayBuffer and stored preview', flush=True)
+            print('PASS: native WebKitGTK clipboard image paste, image-only input, File.arrayBuffer and stored preview', flush=True)
         finally:
             display.terminate()
             display.wait(timeout=5)

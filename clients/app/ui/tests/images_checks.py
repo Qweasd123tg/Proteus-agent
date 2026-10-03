@@ -9,6 +9,36 @@ ROOT = Path(__file__).resolve().parents[4]
 PNG = ROOT / 'crates/proteus-core/tests/fixtures/pixel.png'
 
 
+def check_paste_and_drop(js, wait_for):
+    """Clipboard images and files dropped over the chat use the picker path."""
+    js("const bytes=Uint8Array.from(atob(" + json.dumps(base64.b64encode(PNG.read_bytes()).decode()) + "),c=>c.charCodeAt(0));"
+       "window.transfer=(name='pasted.png',type='image/png',text='')=>{const t=new DataTransfer();t.items.add(new File([bytes],name,{type}));if(text)t.setData('text/plain',text);return t};"
+       "window.fire=(target,event)=>{document.querySelector(target).dispatchEvent(event);return event.defaultPrevented}")
+    previews = lambda: js('return document.querySelectorAll(".attachment-preview").length')
+    remove = lambda: js("document.querySelector('.attachment-preview button').click()")
+    # Firefox drops files from a synthetic ClipboardEvent init, so the
+    # transfer is attached the way a real paste exposes it.
+    paste = "Object.defineProperty(new ClipboardEvent('paste',{bubbles:true,cancelable:true}),'clipboardData',{value:transfer(%s)})"
+    assert not js("return fire('.composer-input textarea'," + paste % "'cells.png','image/png','A1\\tB1'" + ")"), 'Spreadsheet text paste became an image'
+    assert previews() == 0, 'Text paste attached its image rendition'
+    assert js("return fire('.composer-input textarea'," + paste % "" + ")"), 'Image paste reached the textarea'
+    wait_for(lambda: previews() == 1, 'Pasted image missing')
+    remove()
+    drag = lambda kind, args='': "new DragEvent('%s',{dataTransfer:transfer(%s),bubbles:true,cancelable:true})" % (kind, args)
+    js("fire('.results-panel'," + drag('dragenter') + ")")
+    assert js("return document.querySelector('.composer').classList.contains('dragging-files')"), 'Drag over the chat is not shown'
+    js("fire('.results-panel'," + drag('dragleave') + ")")
+    assert not js("return document.querySelector('.composer').classList.contains('dragging-files')"), 'Drag indicator stayed after leaving'
+    js("fire('.results-panel'," + drag('dragenter') + ")")
+    assert js("return fire('.results-panel'," + drag('drop') + ")"), 'Drop opened the file in the webview'
+    wait_for(lambda: previews() == 1, 'Dropped image missing')
+    assert not js("return document.querySelector('.composer').classList.contains('dragging-files')"), 'Drag indicator stayed after drop'
+    remove()
+    js("fire('.results-panel'," + drag('drop', "'notes.txt','text/plain'") + ")")
+    wait_for(lambda: 'notes.txt: поддерживаются' in js("return document.querySelector('.attachment-error')?.textContent||''"), 'Unsupported drop was not explained')
+    assert previews() == 0, 'Unsupported drop attached a file'
+
+
 def run(command, js, wait_for, server, web, origin):
     def attach():
         element = command('/element', {'using': 'css selector', 'value': '.composer-attachments input[type=file]'})
@@ -27,6 +57,7 @@ def run(command, js, wait_for, server, web, origin):
     attach()
     js("document.querySelector('.attachment-preview button').click()")
     assert js('return !document.querySelector(".attachment-preview")'), 'Removal left an attachment'
+    check_paste_and_drop(js, wait_for)
     attach()
     send('Что на картинке?')
     wait_for(lambda: ready(1), 'Image response missing')
@@ -66,4 +97,4 @@ def run(command, js, wait_for, server, web, origin):
     url = web+'/?'+urlencode({'server': origin, 'token': 'extension-smoke'})
     subprocess.run(['python3', str(Path(__file__).with_name('images_webkit.py')), url], check=True, timeout=90)
     assert server.model_requests >= 5, 'Native WebKit did not invoke the provider'
-    print('PASS: file selection/removal; image+text; image-only queue/edit; authorized preview; cold UI reload; provider history; compact layout; native WebKitGTK', flush=True)
+    print('PASS: file selection/removal; clipboard paste; drop over the chat; image+text; image-only queue/edit; authorized preview; cold UI reload; provider history; compact layout; native WebKitGTK', flush=True)

@@ -69,6 +69,8 @@ pub fn main(
         .inner_size(1440.0, 940.0)
         .min_inner_size(860.0, 600.0)
         .decorations(false)
+        // Files dropped on the chat reach the page as HTML drag events.
+        .disable_drag_drop_handler()
         .initialization_script(bootstrap)
         .initialization_script(CHROME_BOOTSTRAP)
         .on_new_window(move |url, _| {

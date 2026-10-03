@@ -1,4 +1,5 @@
 mod backend;
+mod clipboard;
 mod graphics;
 mod local_transport;
 mod preferences;
@@ -229,6 +230,7 @@ fn main() {
             open_chat,
             open_project,
             open_workspace_folder,
+            clipboard::read_clipboard_image,
             quit_app
         ])
         .setup(|app| setup(app).map_err(Into::into))
