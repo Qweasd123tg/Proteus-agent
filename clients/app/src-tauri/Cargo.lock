@@ -2935,6 +2935,7 @@ name = "proteus-desktop"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "futures-util",
  "gtk",
  "libc",
  "proteus-app-common",
@@ -2947,6 +2948,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tempfile",
  "uuid",
+ "zbus",
 ]
 
 [[package]]

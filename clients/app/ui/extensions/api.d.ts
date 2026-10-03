@@ -202,7 +202,7 @@ export interface AgentWorkspaceReader {
 export type ClientSurface = 'compact' | 'workspace' | 'settings' | 'composer-model' | 'composer-access';
 export interface ClientPreferences {
   fontSize: number; chatWidth: number; animations: boolean;
-  autoScroll: boolean; toolCardsCollapsed: boolean; sendMode: 'enter' | 'ctrl-enter';
+  autoScroll: boolean; toolCardsCollapsed: boolean; notifications: boolean; sendMode: 'enter' | 'ctrl-enter';
 }
 export interface ClientComposerState {
   model: string; models: Array<{name:string;label:string;hidden:boolean}>;

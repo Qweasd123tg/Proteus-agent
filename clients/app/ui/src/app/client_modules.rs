@@ -52,7 +52,7 @@ pub(super) fn install(state: AppState, connection: ClientConnection, router: App
         })
     });
     Effect::new(move |_| {
-        let preferences = json!({"fontSize":prefs.font_size.get(),"chatWidth":state.view.resize.chat_width.get(),"animations":prefs.animations.get(),"autoScroll":prefs.auto_scroll.get(),"sendMode":if prefs.ctrl_enter.get(){"ctrl-enter"}else{"enter"},"toolCardsCollapsed":state.view.tool_cards_collapsed.get()});
+        let preferences = json!({"fontSize":prefs.font_size.get(),"chatWidth":state.view.resize.chat_width.get(),"animations":prefs.animations.get(),"autoScroll":prefs.auto_scroll.get(),"sendMode":if prefs.ctrl_enter.get(){"ctrl-enter"}else{"enter"},"toolCardsCollapsed":state.view.tool_cards_collapsed.get(),"notifications":prefs.notifications.get()});
         let request = state.request;
         let models: Vec<Value> = request
             .model_options
@@ -109,6 +109,7 @@ fn write_preference(
         let storage = match key {
             "animations" => "proteus.animations",
             "autoScroll" => "proteus.autoScroll",
+            "notifications" => "proteus.notifications",
             "toolCardsCollapsed" => crate::ui_preferences::TOOL_CARDS_COLLAPSED_KEY,
             _ => return Err("Неизвестная настройка".into()),
         };
@@ -121,6 +122,7 @@ fn write_preference(
     match key {
         "animations" => prefs.animations.set(next),
         "autoScroll" => prefs.auto_scroll.set(next),
+        "notifications" => prefs.notifications.set(next),
         "sendMode" => prefs.ctrl_enter.set(next),
         "toolCardsCollapsed" => state.view.set_tool_cards_collapsed.set(next),
         _ => unreachable!(),

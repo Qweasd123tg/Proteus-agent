@@ -66,6 +66,8 @@ pub(super) fn AppShell(
     };
     let refresh_sidebar_sessions = move |_| session_actions.load_sidebar_sessions();
     let open_sidebar_session = resume_open;
+    #[cfg(target_arch = "wasm32")]
+    super::notifications::install(sidebar_sessions, prefs.notifications, resume_open);
     let delete_sidebar_session = move |session| session_actions.delete_sidebar_session(session);
     let toggle_sidebar = move |_| resize.toggle_sidebar();
     let begin_sidebar_resize = move |event| resize.begin_sidebar_resize(event);

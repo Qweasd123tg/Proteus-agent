@@ -42,6 +42,7 @@ export function form(root, service, signal) {
     r.append(input);
     controls.push((v) => (input.checked = v[key]));
     input.addEventListener("change", () => set(key, input.checked), { signal });
+    return input;
   }
   function range(key, label, hint, min, max, step) {
     const r = row(label, hint),

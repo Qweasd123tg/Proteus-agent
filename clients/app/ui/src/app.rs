@@ -5,6 +5,7 @@ mod effects;
 mod extension_state;
 pub(crate) mod menus;
 mod navigation;
+mod notifications;
 mod shell;
 mod state;
 

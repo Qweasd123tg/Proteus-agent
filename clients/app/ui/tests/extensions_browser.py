@@ -34,6 +34,7 @@ from usage_checks import run as check_usage
 from architecture_checks import run as check_architecture
 from tools_picker_checks import run as check_tools_picker
 from agent_settings_checks import run as check_agent_settings
+from notifications_checks import run as check_notifications
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -459,6 +460,9 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return
                 if '--session-switch-only' in sys.argv:
                     check_session_switch(command, js, wait_for, server, origin)
+                    return
+                if '--notifications-only' in sys.argv:
+                    check_notifications(command, js, wait_for, server)
                     return
                 check_selects(command, js, wait_for)
                 check_panels(command, js, wait_for)

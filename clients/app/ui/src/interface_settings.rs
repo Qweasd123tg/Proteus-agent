@@ -8,6 +8,7 @@ pub(crate) struct InterfaceSettings {
     pub font_size: RwSignal<i32>,
     pub auto_scroll: RwSignal<bool>,
     pub ctrl_enter: RwSignal<bool>,
+    pub notifications: RwSignal<bool>,
 }
 impl InterfaceSettings {
     pub fn new() -> Self {
@@ -16,6 +17,7 @@ impl InterfaceSettings {
             font_size: RwSignal::new(load_i32_setting("proteus.fontSize", 16).clamp(12, 22)),
             auto_scroll: RwSignal::new(load_bool_setting("proteus.autoScroll", true)),
             ctrl_enter: RwSignal::new(load_bool_setting("proteus.ctrlEnter", false)),
+            notifications: RwSignal::new(load_bool_setting("proteus.notifications", true)),
         }
     }
 }

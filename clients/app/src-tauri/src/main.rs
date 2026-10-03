@@ -2,6 +2,7 @@ mod backend;
 mod clipboard;
 mod graphics;
 mod local_transport;
+mod notifications;
 mod preferences;
 mod windows;
 
@@ -223,6 +224,7 @@ fn main() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .manage(notifications::Notifier::default())
         .invoke_handler(tauri::generate_handler![
             launcher_state,
             choose_workspace,
@@ -231,6 +233,7 @@ fn main() {
             open_project,
             open_workspace_folder,
             clipboard::read_clipboard_image,
+            notifications::notify,
             quit_app
         ])
         .setup(|app| setup(app).map_err(Into::into))
