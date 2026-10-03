@@ -36,6 +36,7 @@ from tools_picker_checks import run as check_tools_picker
 from agent_settings_checks import run as check_agent_settings
 from notifications_checks import run as check_notifications
 from turn_issue_checks import run as check_turn_issue
+from chat_search_checks import run as check_chat_search
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -472,6 +473,12 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return
                 if '--notifications-only' in sys.argv:
                     check_notifications(command, js, wait_for, server)
+                    return
+                if '--chat-search-only' in sys.argv:
+                    def capture(name):
+                        time.sleep(0.3)
+                        Path(f'/tmp/proteus-{name}.png').write_bytes(base64.b64decode(request(url + '/screenshot')['value']))
+                    check_chat_search(command, js, wait_for, server, capture)
                     return
                 if '--turn-issue-only' in sys.argv:
                     def capture(name):

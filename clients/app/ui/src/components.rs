@@ -1,5 +1,6 @@
 mod approval;
 mod chat_results;
+mod chat_search;
 mod client_module;
 mod composer;
 
@@ -23,6 +24,7 @@ mod virtual_transcript;
 
 pub(crate) use approval::{ApprovalCard, UserInputCard};
 pub(crate) use chat_results::ChatResultsView;
+pub(crate) use chat_search::ChatSearch;
 pub(crate) use composer::ComposerView;
 pub(crate) use controls::{PlanActionsCard, ToastStack, WorkingCard};
 pub(crate) use message::MessageView;

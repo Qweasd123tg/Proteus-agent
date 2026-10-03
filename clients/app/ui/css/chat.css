@@ -81,3 +81,38 @@
     font-size: 15px;
     line-height: 1.55;
 }
+
+/* Chat search floats over the top of the chat; matches are painted with the
+   Custom Highlight API, the selected one stronger. */
+.chat-search {
+    position: absolute;
+    top: var(--space-3);
+    right: var(--space-5);
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 4px 4px 4px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-inner);
+    background: var(--bg-popover);
+    box-shadow: var(--shadow-md);
+}
+.chat-search input {
+    width: min(260px, 40vw);
+    min-height: 30px;
+    padding: 4px 10px;
+    border: 0;
+    background: transparent;
+}
+.chat-search input::-webkit-search-cancel-button { display: none; }
+.chat-search-count {
+    min-width: 72px;
+    padding-right: 4px;
+    color: var(--text-muted);
+    font-size: 12px;
+    text-align: right;
+    white-space: nowrap;
+}
+::highlight(chat-search) { background-color: rgb(234 179 8 / 28%); }
+::highlight(chat-search-current) { background-color: rgb(234 179 8 / 70%); color: #111; }

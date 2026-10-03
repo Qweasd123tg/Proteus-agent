@@ -208,6 +208,12 @@ pub(super) fn AppShell(
                                 items=user_messages
                                 on_jump=move |value| commands.jump_to_message.run(value)
                             />
+                            <ChatSearch
+                                messages
+                                results_ref
+                                visible=Signal::derive(move || router.is_chat() && router.chat_visible.get())
+                                on_jump=commands.jump_to_message
+                            />
                 </section>
                 </div>
                 <section class="settings-workspace" data-client-view="settings"
