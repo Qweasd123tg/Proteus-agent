@@ -31,8 +31,10 @@ export function mountVirtualTranscript(root, onRange, onAdjusted, onReadingUp) {
   }
   function currentAnchor(inset = padding()) {
     if (!model.rows.length) return null;
-    const offset = Math.max(0, root.scrollTop - inset);
-    const index = model.at(offset);
+    // A reader inside the top padding keeps that negative offset: clamping it
+    // to the first row would move them down by the padding on restore.
+    const offset = root.scrollTop - inset;
+    const index = model.at(Math.max(0, offset));
     return { id: String(model.rows[index].id), offset: offset - model.prefix(index) };
   }
   function turnoverAnchor() {
@@ -213,7 +215,13 @@ export function mountVirtualTranscript(root, onRange, onAdjusted, onReadingUp) {
   const controller = {
     update(rows, session) {
       anchor = turnoverAnchor();
-      if (sessionKey !== session) { model = new TranscriptHeights(); anchor = null; jump = null; jumpAligned = false; sessionKey = session; }
+      if (sessionKey !== session) {
+        model = new TranscriptHeights(); anchor = null; jump = null; jumpAligned = false; sessionKey = session;
+        // A gesture made in the previous chat must not veto following the new one.
+        clearTimeout(inputTimer);
+        delete root.dataset.transcriptUserScroll;
+        delete root.dataset.transcriptDirection;
+      }
       model.reset(rows);
       viewportRange = null;
       if (jump !== null && !model.positions.has(jump)) jump = null;
