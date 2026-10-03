@@ -1,6 +1,7 @@
 // One draft for all agent settings pages: switching pages keeps unsaved edits
 // and one save applies them together.
 import { buildRequest, changes, draftFromSnapshot } from "./draft.js";
+import { revisionDraft } from "./revisions.js";
 
 const listeners = new Set();
 let state = {
@@ -69,6 +70,11 @@ export const agentSettings = Object.freeze({
   reset() {
     if (!state.snapshot || state.saving) return;
     emit({ draft: draftFromSnapshot(state.snapshot), errors: {}, feedback: null });
+  },
+  /** Puts a recorded profile state into the draft; saving applies it. */
+  restore(revisionState) {
+    if (!state.snapshot || state.saving) return;
+    emit({ draft: revisionDraft(state.snapshot, revisionState), errors: {}, feedback: null });
   },
   async save(service) {
     if (!state.snapshot || state.saving || Object.keys(state.errors).length) return;

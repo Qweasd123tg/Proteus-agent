@@ -9,16 +9,142 @@ use serde_json::Value;
 use crate::{
     core::{
         AppConfig, ModuleCatalogEntrySummary, ModuleSourceTopology, ModuleTopology, ModulesConfig,
-        ProviderProfileConfig, TopologySnapshot,
+        ProviderProfileConfig, SessionConfigSnapshot, TopologySnapshot,
         core_slots::{CoreSlotSelection, core_slot_descriptor_by_id},
     },
     domain::PermissionMode,
 };
 
+use super::{
+    AppServerEvent, AppServerHandle,
+    config_history::{config_history_dir, record_replaced_state},
+    prepare_assembly,
+};
+
 pub use proteus_contracts::app_protocol::config_builder::{
     ConfigBuilderModule, ConfigBuilderModuleSelection, ConfigBuilderProvider, ConfigBuilderSlot,
-    ConfigBuilderSnapshot, ConfigBuilderTool, ConfigBuilderWarning,
+    ConfigBuilderSnapshot, ConfigBuilderState, ConfigBuilderTool, ConfigBuilderWarning,
 };
+
+impl AppServerHandle {
+    pub async fn config_builder_snapshot(&self) -> ConfigBuilderSnapshot {
+        let topology = self.topology_snapshot().await;
+        let config = self.config.read().await.clone();
+        config_builder_snapshot_from_topology(&topology, &config)
+    }
+
+    pub async fn set_config_builder(
+        &self,
+        modules: BTreeMap<String, String>,
+        hooks: Option<Vec<String>>,
+        module_config: BTreeMap<String, BTreeMap<String, Value>>,
+        tools_enabled: Option<Vec<String>>,
+        active_provider: Option<String>,
+        permission_mode: Option<PermissionMode>,
+    ) -> Result<ConfigBuilderSnapshot> {
+        let current_plan = self.runtime.assembly_plan().await;
+        validate_config_builder_modules(&modules, current_plan.catalog_entries())?;
+
+        let mut next_config = self.config.read().await.clone();
+        let replaced_state = config_builder_state(&next_config);
+        if let Some(active_provider) = &active_provider {
+            validate_config_builder_provider(active_provider, &next_config)?;
+        }
+        if let Some(hooks) = hooks {
+            next_config.modules.hooks = hooks;
+        }
+        next_config.modules.validate_hooks()?;
+        let previous_active_provider = next_config.active_provider.clone();
+        for (slot, module_id) in modules {
+            set_module_slot(&mut next_config.modules, &slot, module_id)?;
+        }
+        for (slot, values) in module_config {
+            next_config.module_config.insert(slot, values);
+        }
+        if let Some(tools_enabled) = tools_enabled {
+            next_config.tools.enabled = tools_enabled;
+        }
+        // Смену provider применяем к runtime model_ref только при фактическом
+        // изменении: иначе save builder-а сбрасывал бы model, переключённую
+        // на лету через POST /model.
+        let provider_changed = active_provider
+            .as_ref()
+            .is_some_and(|provider| Some(provider) != previous_active_provider.as_ref());
+        if let Some(active_provider) = active_provider {
+            next_config.active_provider = Some(active_provider);
+        }
+        if let Some(mode) = permission_mode {
+            next_config.permissions.mode = mode;
+        }
+        validate_module_config_toml(&next_config.module_config)?;
+
+        let assembly =
+            prepare_assembly(&next_config, &self.cwd, self.config_path.as_deref()).await?;
+        let (Some(config_path), Some(target_path)) = (
+            self.config_path.as_deref(),
+            config_builder_target_path(self.config_path.as_deref()),
+        ) else {
+            anyhow::bail!("config path is not available; cannot persist config");
+        };
+        // The replaced state is kept before the profile changes, so every
+        // save can be rolled back through this same path.
+        if replaced_state != config_builder_state(&next_config) {
+            record_replaced_state(&config_history_dir(config_path), replaced_state)
+                .await
+                .context("failed to record the replaced profile state")?;
+        }
+        persist_config_builder(&target_path, &next_config).await?;
+
+        let config_snapshot = SessionConfigSnapshot::from_runtime_config(
+            &next_config,
+            assembly.registry(),
+            next_config.permissions.mode,
+        );
+        let model_ref = provider_changed
+            .then(|| {
+                next_config
+                    .active_model_config()
+                    .map(|model| model.model_ref())
+            })
+            .transpose()?;
+        let report = self
+            .runtime
+            .reload_assembly_with_effective_settings(
+                assembly,
+                Some(config_snapshot),
+                model_ref,
+                permission_mode,
+            )
+            .await?;
+        *self.config.write().await = next_config;
+        let _ = self.events.send(AppServerEvent::ModulesReloaded {
+            old_epoch: report.old_epoch,
+            new_epoch: report.new_epoch,
+            tool_names: report.tool_names.clone(),
+        });
+
+        Ok(self.config_builder_snapshot().await)
+    }
+}
+
+/// Builder-managed fields of a profile, shared by the snapshot and history.
+pub(super) fn config_builder_state(config: &AppConfig) -> ConfigBuilderState {
+    ConfigBuilderState {
+        active_provider: config.active_provider.clone(),
+        permission_mode: permission_mode_str(config.permissions.mode),
+        active_modules: config
+            .modules
+            .iter()
+            .map(|(kind, id)| ConfigBuilderModuleSelection {
+                slot: kind.as_str().to_owned(),
+                id: id.to_owned(),
+            })
+            .collect(),
+        hooks: config.modules.hooks.clone(),
+        module_config: config.module_config.clone(),
+        tools_enabled: config.tools.enabled.clone(),
+    }
+}
 
 pub(super) fn config_builder_snapshot_from_topology(
     topology: &TopologySnapshot,
@@ -46,33 +172,27 @@ pub(super) fn config_builder_snapshot_from_topology(
         })
         .collect();
 
+    let state = config_builder_state(config);
     ConfigBuilderSnapshot {
         config_path: topology.config_path.clone(),
         writable: target_path.is_some(),
         target_path: target_path.map(|path| path.display().to_string()),
-        active_provider: config.active_provider.clone(),
+        active_provider: state.active_provider,
         providers: config_builder_providers(config),
-        permission_mode: permission_mode_str(config.permissions.mode),
+        permission_mode: state.permission_mode,
         permission_modes: PERMISSION_MODES
             .iter()
             .map(|&mode| mode.to_owned())
             .collect(),
-        active_modules: config
-            .modules
-            .iter()
-            .map(|(kind, id)| ConfigBuilderModuleSelection {
-                slot: kind.as_str().to_owned(),
-                id: id.to_owned(),
-            })
-            .collect(),
-        hooks: config.modules.hooks.clone(),
+        active_modules: state.active_modules,
+        hooks: state.hooks,
         hook_modules: modules
             .iter()
             .filter(|module| module.slot == "hook")
             .map(config_builder_module)
             .collect(),
-        module_config: config.module_config.clone(),
-        tools_enabled: config.tools.enabled.clone(),
+        module_config: state.module_config,
+        tools_enabled: state.tools_enabled,
         tools: topology
             .tools
             .iter()

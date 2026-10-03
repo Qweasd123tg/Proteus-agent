@@ -73,7 +73,10 @@ const sameJson = (left, right) => JSON.stringify(left) === JSON.stringify(right)
 
 /** Areas that differ from the saved profile; invalid JSON counts as a change. */
 export function changes(snapshot, draft) {
-  const saved = draftFromSnapshot(snapshot);
+  return diffDrafts(draftFromSnapshot(snapshot), draft);
+}
+
+export function diffDrafts(saved, draft) {
   const result = new Set();
   for (const slot of new Set([
     ...Object.keys(saved.modules),

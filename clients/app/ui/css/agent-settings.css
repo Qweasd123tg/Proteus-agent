@@ -30,6 +30,11 @@
 .agent-hook-parameters > summary { cursor:pointer; color:var(--text-muted); font-size:12px; }
 .agent-hook-parameters[open] > summary { margin-bottom:12px; }
 
+.agent-revisions { display:grid; gap:8px; }
+.agent-revision { display:grid; gap:8px; padding:12px 16px; border:1px solid var(--border-subtle); border-radius:16px; background:var(--bg-panel-soft); }
+.agent-revision-changes { display:grid; gap:4px; margin:0; padding:0; list-style:none; color:var(--text-muted); font-size:12px; overflow-wrap:anywhere; }
+.agent-revision-changes strong { color:var(--text-main); font-weight:500; }
+
 .agent-parameters.busy { pointer-events:none; opacity:.7; }
 .agent-parameters-body { display:grid; gap:8px; }
 .agent-parameter { display:grid; grid-template-columns:minmax(120px,220px) minmax(0,1fr) auto; align-items:center; gap:12px; padding:8px 12px; border:1px solid var(--border-subtle); border-radius:12px; background:var(--bg-panel-soft); }

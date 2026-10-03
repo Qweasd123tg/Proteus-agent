@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -26,6 +26,7 @@ pub mod acp;
 mod approval_preview;
 mod approvals;
 mod config_builder;
+mod config_history;
 mod config_summary;
 mod context_map;
 mod control_plane;
@@ -45,13 +46,9 @@ mod user_inputs;
 
 pub use config_builder::{
     ConfigBuilderModule, ConfigBuilderModuleSelection, ConfigBuilderProvider, ConfigBuilderSlot,
-    ConfigBuilderSnapshot, ConfigBuilderTool, ConfigBuilderWarning,
+    ConfigBuilderSnapshot, ConfigBuilderState, ConfigBuilderTool, ConfigBuilderWarning,
 };
-use config_builder::{
-    config_builder_snapshot_from_topology, config_builder_target_path, persist_config_builder,
-    set_module_slot, validate_config_builder_modules, validate_config_builder_provider,
-    validate_module_config_toml,
-};
+pub use config_history::{ConfigHistory, ConfigRevision};
 use context_map::{ContextMapInput, build_context_map_snapshot};
 use path_utils::paths_equal;
 pub(crate) use transcript::journal_transcript_messages;
@@ -218,93 +215,6 @@ impl AppServerHandle {
 
     pub async fn set_reasoning_effort(&self, effort: Option<String>) -> Result<()> {
         self.runtime.set_reasoning_effort(effort).await
-    }
-
-    pub async fn config_builder_snapshot(&self) -> ConfigBuilderSnapshot {
-        let topology = self.topology_snapshot().await;
-        let config = self.config.read().await.clone();
-        config_builder_snapshot_from_topology(&topology, &config)
-    }
-
-    pub async fn set_config_builder(
-        &self,
-        modules: BTreeMap<String, String>,
-        hooks: Option<Vec<String>>,
-        module_config: BTreeMap<String, BTreeMap<String, Value>>,
-        tools_enabled: Option<Vec<String>>,
-        active_provider: Option<String>,
-        permission_mode: Option<PermissionMode>,
-    ) -> Result<ConfigBuilderSnapshot> {
-        let current_plan = self.runtime.assembly_plan().await;
-        validate_config_builder_modules(&modules, current_plan.catalog_entries())?;
-
-        let mut next_config = self.config.read().await.clone();
-        if let Some(active_provider) = &active_provider {
-            validate_config_builder_provider(active_provider, &next_config)?;
-        }
-        if let Some(hooks) = hooks {
-            next_config.modules.hooks = hooks;
-        }
-        next_config.modules.validate_hooks()?;
-        let previous_active_provider = next_config.active_provider.clone();
-        for (slot, module_id) in modules {
-            set_module_slot(&mut next_config.modules, &slot, module_id)?;
-        }
-        for (slot, values) in module_config {
-            next_config.module_config.insert(slot, values);
-        }
-        if let Some(tools_enabled) = tools_enabled {
-            next_config.tools.enabled = tools_enabled;
-        }
-        // Смену provider применяем к runtime model_ref только при фактическом
-        // изменении: иначе save builder-а сбрасывал бы model, переключённую
-        // на лету через POST /model.
-        let provider_changed = active_provider
-            .as_ref()
-            .is_some_and(|provider| Some(provider) != previous_active_provider.as_ref());
-        if let Some(active_provider) = active_provider {
-            next_config.active_provider = Some(active_provider);
-        }
-        if let Some(mode) = permission_mode {
-            next_config.permissions.mode = mode;
-        }
-        validate_module_config_toml(&next_config.module_config)?;
-
-        let assembly =
-            prepare_assembly(&next_config, &self.cwd, self.config_path.as_deref()).await?;
-        let target_path = config_builder_target_path(self.config_path.as_deref())
-            .ok_or_else(|| anyhow!("config path is not available; cannot persist config"))?;
-        persist_config_builder(&target_path, &next_config).await?;
-
-        let config_snapshot = SessionConfigSnapshot::from_runtime_config(
-            &next_config,
-            assembly.registry(),
-            next_config.permissions.mode,
-        );
-        let model_ref = provider_changed
-            .then(|| {
-                next_config
-                    .active_model_config()
-                    .map(|model| model.model_ref())
-            })
-            .transpose()?;
-        let report = self
-            .runtime
-            .reload_assembly_with_effective_settings(
-                assembly,
-                Some(config_snapshot),
-                model_ref,
-                permission_mode,
-            )
-            .await?;
-        *self.config.write().await = next_config;
-        let _ = self.events.send(AppServerEvent::ModulesReloaded {
-            old_epoch: report.old_epoch,
-            new_epoch: report.new_epoch,
-            tool_names: report.tool_names.clone(),
-        });
-
-        Ok(self.config_builder_snapshot().await)
     }
 
     pub async fn topology_snapshot(&self) -> TopologySnapshot {

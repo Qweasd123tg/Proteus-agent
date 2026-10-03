@@ -71,6 +71,8 @@ export interface AgentConfigReader {
  * providers, permission modes, hooks, tools and opaque module_config objects.
  * save() sends the complete selection; the server builds and validates the
  * assembly before it writes the profile and returns the new snapshot.
+ * history() is GET /config/history: states replaced by earlier saves, newest
+ * first. Saving a recorded state through save() rolls the profile back.
  */
 export interface AgentConfigBuilder {
   read(): Promise<Record<string, unknown>>;
@@ -82,6 +84,21 @@ export interface AgentConfigBuilder {
     active_provider: string | null;
     permission_mode: string | null;
   }): Promise<Record<string, unknown>>;
+  history(): Promise<{
+    revisions: Array<{
+      id: string;
+      /** Unix milliseconds of the save that replaced this state. */
+      replaced_at_ms: number;
+      state: {
+        active_provider: string | null;
+        permission_mode: string;
+        active_modules: Array<{ slot: string; id: string }>;
+        hooks: string[];
+        module_config: Record<string, Record<string, Record<string, unknown>>>;
+        tools_enabled: string[];
+      };
+    }>;
+  }>;
 }
 
 /** Optional agent.model.quota.read service; unmodified GET /model/quota.

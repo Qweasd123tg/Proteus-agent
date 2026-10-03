@@ -73,6 +73,7 @@ async fn read(state: &HttpAppState, path: &str, query: Option<&str>) -> Result<H
         "/events"
         | "/config"
         | "/config/builder"
+        | "/config/history"
         | "/model/quota"
         | "/pending"
         | "/sessions/current"
@@ -92,6 +93,7 @@ async fn read(state: &HttpAppState, path: &str, query: Option<&str>) -> Result<H
                 "/config/builder" => {
                     json_response(StatusCode::OK, &server.config_builder_snapshot().await)
                 }
+                "/config/history" => json_response(StatusCode::OK, &server.config_history().await?),
                 "/pending" => json_response(StatusCode::OK, &server.pending_requests().await),
                 "/model/quota" => match server.model_quota().await {
                     Ok(quota) => json_response(StatusCode::OK, &quota),

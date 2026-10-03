@@ -699,7 +699,7 @@ HTTP/SSE transport:
 HTTP app-server владеет реестром живых sessions, а выбранный чат принадлежит
 конкретному клиентскому окну. Глобальной «текущей session» в HTTP API нет.
 Все сессионные GET, включая `/events`, `/config`, `/model/quota`,
-`/config/builder`, `/inspect/*`, `/pending`, `/history`, `/context`, `/usage`
+`/config/builder`, `/config/history`, `/inspect/*`, `/pending`, `/history`, `/context`, `/usage`
 и `/sessions/current`, требуют query `?session_dir=<URL-encoded path>`.
 Ниже пути этих endpoint-ов сокращены; отсутствие адреса является ошибкой,
 а не выбором session по умолчанию. HTTP launch требует настроенного session
@@ -744,6 +744,9 @@ store; stdio остаётся привязанным к одной session пр�
   [model contract](../architecture/process-module-architecture.md#model-streaming).
 - `GET /config/builder` - snapshot selectable modules/tools/providers и
   текущих значений Config Builder;
+- `GET /config/history` - состояния профиля, заменённые сохранениями
+  Config Builder, от новых к старым (`ConfigHistory`); откат — обычный
+  `POST /config/builder` с записанным состоянием;
 - `GET /inspect/plan` - безопасная JSON projection точного `AssemblyPlan`
   текущего module epoch;
 - `GET /inspect/topology` - JSON `TopologySnapshot` для diagnostics UI;
@@ -779,7 +782,8 @@ store; stdio остаётся привязанным к одной session пр�
 - `POST /cancel`, `/approval`, `/user-input`, `/clear`, `/reload-tools`,
   `/config/builder` требуют query `?session_dir=<path>`.
   Cancel и ответы на pending запросы действуют только внутри этой session;
-- `POST /config/builder` - сохраняет выбор Config Builder; настройки отображения
+- `POST /config/builder` - сохраняет выбор Config Builder и перед записью
+  профиля добавляет заменяемое состояние в историю; настройки отображения
   хранятся в клиенте и не имеют backend endpoint;
 - `POST /resume` - обеспечивает наличие live runtime указанного в body
   `session_dir`, возвращая его summary. Не меняет выбор других клиентов и

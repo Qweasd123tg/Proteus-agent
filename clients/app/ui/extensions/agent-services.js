@@ -39,6 +39,7 @@ export function createAgentServices() {
         read: () => read("readConfigBuilder", [], signal),
         save: (request) =>
           read("saveConfigBuilder", [JSON.stringify(request)], signal),
+        history: () => read("readConfigHistory", [], signal),
       }),
     "agent.model.quota.read": reader("readQuota"),
     "agent.usage.read": reader("readUsage"),

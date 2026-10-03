@@ -85,3 +85,33 @@ pub struct ConfigBuilderTool {
     pub runtime_managed: bool,
     pub registered: bool,
 }
+
+/// Builder-managed part of a saved profile: the fields `POST /config/builder`
+/// writes, in the shape of [`ConfigBuilderSnapshot`].
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConfigBuilderState {
+    pub active_provider: Option<String>,
+    pub permission_mode: String,
+    pub active_modules: Vec<ConfigBuilderModuleSelection>,
+    pub hooks: Vec<String>,
+    pub module_config: BTreeMap<String, BTreeMap<String, Value>>,
+    pub tools_enabled: Vec<String>,
+}
+
+/// A builder-managed state that a save replaced.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConfigRevision {
+    pub id: String,
+    /// Unix milliseconds of the save that replaced this state.
+    pub replaced_at_ms: u64,
+    pub state: ConfigBuilderState,
+}
+
+/// `GET /config/history`: replaced states of the profile, newest first.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConfigHistory {
+    pub revisions: Vec<ConfigRevision>,
+}

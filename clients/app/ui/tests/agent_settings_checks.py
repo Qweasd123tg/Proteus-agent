@@ -47,8 +47,23 @@ def run(command, js, wait_for, config, capture):
     page('agent-access')
     assert js("return document.querySelector('[data-agent-mode=plan] input').checked"), 'Other pages missed the saved profile'
     capture('access')
+    # History keeps the replaced state; rolling back is an ordinary save.
+    page('agent-history')
+    wait_for(lambda: js("return document.querySelectorAll('[data-agent-revision]').length===1"), 'Save did not record the replaced state')
+    change = lambda key: js(f"return document.querySelector('[data-agent-revision] [data-change={key}]')?.textContent||''")
+    assert change('mode') == 'Режим прав: Спрашивать разрешение → Только чтение', change('mode')
+    assert change('tools') == 'Инструменты: − update_plan', change('tools')
+    click('[data-agent-revision] button')
+    wait_for(lambda: status() == 'Не сохранено: Инструменты, Режим прав', 'Rollback did not fill the draft: ' + status())
+    assert js("return document.querySelector('[data-agent-revision] button').textContent") == 'В черновике'
+    capture('history')
+    click('[data-module-page=agent-history] [data-agent-save]')
+    wait_for(lambda: status().startswith('Сохранено'), 'Rollback was not saved: ' + status())
+    restored = config.read_text()
+    assert 'mode = "normal"' in restored and 'enabled = ["update_plan"]' in restored, restored
+    wait_for(lambda: js("return [...document.querySelectorAll('[data-agent-revision] button')].map(x=>x.textContent).join('|')") == 'Вернуть как было|Текущее состояние', 'Rollback is not reversible in history')
     page('agent-model')
     wait_for(lambda: js("return !!document.querySelector('[data-agent-provider] input:checked') && !!document.querySelector('[data-agent-parameters=\"model/custom-model\"] [data-parameter=implementation]')"), 'Model parameters missing')
     capture('model')
-    print('PASS: agent pages share one draft, reject invalid parameters and save the profile: '
+    print('PASS: agent pages share one draft, reject invalid parameters, save the profile and roll it back from history: '
           + json.dumps({'saved_bytes': len(saved)}), flush=True)

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildRequest, changes, draftFromSnapshot } from '../../ui/modules/agent/draft.js';
+import { describeChanges, revisionDraft } from '../../ui/modules/agent/revisions.js';
 import { agentSettings } from '../../ui/modules/agent/store.js';
 
 const snapshot = () => ({
@@ -53,6 +54,34 @@ test('changes name the edited areas; formatting alone and invalid JSON are disti
   assert.throws(() => buildRequest(saved, draft), /JSON-объектом/);
 });
 
+test('a recorded state becomes a draft that rolls the profile back through the builder', () => {
+  const saved = snapshot();
+  const state = {
+    active_provider: 'main',
+    permission_mode: 'auto',
+    active_modules: [],
+    hooks: [],
+    module_config: { workflow: { loop: { max_steps: 4 } } },
+    tools_enabled: ['shell'],
+  };
+  const draft = revisionDraft(saved, state);
+  assert.equal(draft.modules.workflow, 'loop', 'the builder cannot clear a slot');
+  assert.deepEqual(buildRequest(saved, draft).module_config, {
+    workflow: { loop: { max_steps: 4 } },
+    model: { openai: {} },
+  });
+  assert.deepEqual(
+    describeChanges(draftFromSnapshot(saved), draft).map(({ key, detail }) => [key, detail]),
+    [
+      ['workflow', 'параметры: max_steps'],
+      ['model', 'параметры: timeout_ms'],
+      ['hook', 'first → нет'],
+      ['tools', '− read_file'],
+      ['mode', 'Спрашивать разрешение → Правки без вопросов'],
+    ],
+  );
+});
+
 test('one shared draft saves through the service and survives a rejected save', async () => {
   const requests = [];
   let reject = false;
@@ -82,4 +111,6 @@ test('one shared draft saves through the service and survives a rejected save', 
   agentSettings.update((draft) => draft.hooks.push('second'));
   agentSettings.reset();
   assert.deepEqual(agentSettings.state().draft.hooks, ['first']);
+  agentSettings.restore({ ...snapshot(), permission_mode: 'plan' });
+  assert.deepEqual([...agentSettings.changes()], ['mode']);
 });

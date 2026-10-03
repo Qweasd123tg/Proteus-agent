@@ -39,6 +39,7 @@ export function mountWebExtensions(
   readWorkspace,
   readConfigBuilder,
   saveConfigBuilder,
+  readConfigHistory,
 ) {
   const release = agent.bind({
     readConfig,
@@ -47,6 +48,7 @@ export function mountWebExtensions(
     readWorkspace,
     readConfigBuilder,
     saveConfigBuilder,
+    readConfigHistory,
   });
   const stop = mountExtensions(root, clientServices, {
     registry,

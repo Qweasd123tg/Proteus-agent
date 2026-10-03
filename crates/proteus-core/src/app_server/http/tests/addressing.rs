@@ -288,6 +288,7 @@ async fn session_routes_reject_missing_unknown_and_ambiguous_addresses() {
         "/context",
         "/sessions/current",
         "/config/builder",
+        "/config/history",
         "/inspect/topology",
         "/inspect/plan",
     ] {

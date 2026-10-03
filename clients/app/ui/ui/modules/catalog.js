@@ -47,6 +47,7 @@ export const builtins = [
   agentPage("agent-search", "Поиск", "Поиск по рабочему проекту.", "./agent/slot.js?slot=search", "search"),
   agentPage("agent-memory", "Память", "Сведения между обращениями.", "./agent/slot.js?slot=memory", "database"),
   agentPage("agent-hooks", "Обработчики", "Порядок и параметры hooks.", "./agent/hooks.js", "link"),
+  agentPage("agent-history", "История изменений", "Заменённые состояния профиля и откат.", "./agent/history.js", "history"),
   module(
     "appearance",
     "Внешний вид",
