@@ -544,6 +544,27 @@ button.status-badge {
     margin-bottom: var(--space-3);
 }
 
+/* Итог хода без полного ответа: ошибка и таймаут красные, обрыв жёлтый,
+   остановка пользователем приглушена. */
+.turn-issue {
+    display: grid;
+    gap: var(--space-2);
+    margin-bottom: var(--space-5);
+    border: 1px solid var(--accent-yellow-border);
+    border-radius: var(--radius-card);
+    background: var(--accent-yellow-soft);
+    padding: var(--space-3) var(--space-4);
+}
+.turn-issue.error { border-color: var(--accent-red-border); background: var(--accent-red-soft); }
+.turn-issue.muted { border-color: var(--border-subtle); background: transparent; padding-block: var(--space-2); }
+.turn-issue.muted .turn-issue-head strong { color: var(--text-muted); font-size: 12px; }
+.turn-issue-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.turn-issue-head strong { font-size: 13px; font-weight: 500; color: var(--accent-yellow); }
+.turn-issue.error .turn-issue-head strong { color: var(--accent-red); }
+.turn-issue-head .icon-button { flex: none; }
+.turn-issue-detail { margin: 0; max-height: 12em; overflow: auto; color: var(--text-main); font-family: var(--font-mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.turn-issue-hint { margin: 0; color: var(--text-muted); font-size: 12px; }
+
 /* Однострочная карточка: бейдж слева, кнопки справа — без пустого «второго
    этажа», который делал карточку наполовину порожней. */
 .plan-actions-card {

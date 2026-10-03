@@ -140,6 +140,7 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventConnection
                         bindings.set_streamed_this_turn,
                         bindings.stream_delta_buffer,
                         bindings.set_agent_status,
+                        bindings.turn_issue,
                         bindings.set_tool_activities,
                         bindings.set_context_usage,
                         &pending,

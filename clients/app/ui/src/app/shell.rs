@@ -178,6 +178,7 @@ pub(super) fn AppShell(
                                 plan_run_id
                                 is_sending
                                 agent_status
+                                turn_issue=state.chat.turn_issue
                                 on_resolve_approval=move |id, approved, cache| commands.resolve_approval.run((id, approved, cache))
                                 on_submit_user_input=move |id, answers| commands.submit_user_input.run((id, answers))
                                 on_revise_plan=move |value| commands.revise_plan.run(value)

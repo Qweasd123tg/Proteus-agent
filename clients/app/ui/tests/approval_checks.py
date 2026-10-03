@@ -54,4 +54,7 @@ def run(command, js, wait_for, folder):
     assert not (folder/'denied-result.txt').exists(), 'Denied write executed'
     js("const chain=[...document.querySelectorAll('.tool-chain')].at(-1);if(!chain.classList.contains('expanded'))chain.querySelector('.tool-chain-toggle').click()")
     wait_for(lambda: js("return !!document.querySelector('.tool-card-summary .status-badge.failed')"), 'Denied call lacks visible status')
-    print('PASS: actual write and command approvals; themed picker -> exact_call/exact_command; reset per request; denial always none with no file effect; preview and raw parameters; visible denial', flush=True)
+    reason = js("return [...document.querySelectorAll('.tool-card-summary')].find(x=>x.querySelector('.status-badge.failed'))?.querySelector('.tool-card-reason')?.textContent||''")
+    print('Denied reason:', reason, flush=True)
+    assert reason.strip(), 'Denied call hides its reason until expanded'
+    print('PASS: actual write and command approvals; themed picker -> exact_call/exact_command; reset per request; denial always none with no file effect; preview and raw parameters; visible denial with its reason', flush=True)

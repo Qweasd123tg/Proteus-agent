@@ -35,6 +35,7 @@ from architecture_checks import run as check_architecture
 from tools_picker_checks import run as check_tools_picker
 from agent_settings_checks import run as check_agent_settings
 from notifications_checks import run as check_notifications
+from turn_issue_checks import run as check_turn_issue
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -99,6 +100,14 @@ class Assets(SimpleHTTPRequestHandler):
         self.server.model_requests = count + 1
         if not self.server.model_gate.wait(timeout=60):
             raise AssertionError('Queue fixture held the model request too long')
+        failure = getattr(self.server, 'model_failure', None)
+        if failure is not None:
+            status, body = failure
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(body).encode())
+            return
         if count == 0:
             output = [{"type":"function_call","call_id":"ui-plan","name":"update_plan","arguments":json.dumps({"plan":[{"step":"Проверить панели","status":"completed"},{"step":"Проверить настройки","status":"completed"}]})}]
         else:
@@ -463,6 +472,12 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return
                 if '--notifications-only' in sys.argv:
                     check_notifications(command, js, wait_for, server)
+                    return
+                if '--turn-issue-only' in sys.argv:
+                    def capture(name):
+                        time.sleep(0.3)
+                        Path(f'/tmp/proteus-{name}.png').write_bytes(base64.b64decode(request(url + '/screenshot')['value']))
+                    check_turn_issue(command, js, wait_for, server, capture)
                     return
                 check_selects(command, js, wait_for)
                 check_panels(command, js, wait_for)

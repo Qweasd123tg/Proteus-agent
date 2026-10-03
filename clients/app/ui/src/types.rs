@@ -7,6 +7,7 @@ mod session;
 mod settings;
 mod subagent;
 mod tool;
+mod turn;
 
 pub(crate) use context::*;
 pub(crate) use control::*;
@@ -17,3 +18,4 @@ pub(crate) use session::*;
 pub(crate) use settings::*;
 pub(crate) use subagent::*;
 pub(crate) use tool::*;
+pub(crate) use turn::*;

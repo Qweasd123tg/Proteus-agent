@@ -40,6 +40,7 @@ pub(crate) struct EventStreamBindings {
     pub(crate) set_streamed_this_turn: WriteSignal<bool>,
     pub(crate) stream_delta_buffer: StoredValue<BufferedStreamDeltas, LocalStorage>,
     pub(crate) set_agent_status: WriteSignal<String>,
+    pub(crate) turn_issue: RwSignal<Option<TurnIssue>>,
     pub(crate) set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     pub(crate) set_context_usage: WriteSignal<Option<ContextUsage>>,
     pub(crate) transcript_generation: ReadSignal<u64>,
@@ -70,6 +71,7 @@ fn handle_app_output(
     set_streamed_this_turn: WriteSignal<bool>,
     stream_delta_buffer: StoredValue<BufferedStreamDeltas, LocalStorage>,
     set_agent_status: WriteSignal<String>,
+    turn_issue: RwSignal<Option<TurnIssue>>,
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     set_context_usage: WriteSignal<Option<ContextUsage>>,
     pending: &PendingControlPlane,
@@ -99,6 +101,7 @@ fn handle_app_output(
                 set_streamed_this_turn,
                 stream_delta_buffer,
                 set_agent_status,
+                turn_issue,
                 set_tool_activities,
                 set_context_usage,
                 pending,
@@ -135,6 +138,7 @@ fn handle_app_event(
     set_streamed_this_turn: WriteSignal<bool>,
     stream_delta_buffer: StoredValue<BufferedStreamDeltas, LocalStorage>,
     set_agent_status: WriteSignal<String>,
+    turn_issue: RwSignal<Option<TurnIssue>>,
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     set_context_usage: WriteSignal<Option<ContextUsage>>,
     pending: &PendingControlPlane,
@@ -153,6 +157,7 @@ fn handle_app_event(
     };
     match event {
         AppServerEvent::Runtime { envelope } => {
+            track_turn_finish(&envelope, stream_bindings, turn_issue);
             update_runtime_status_and_tools(
                 &envelope,
                 set_messages,
@@ -191,6 +196,8 @@ fn handle_app_event(
                 snapshot.root_thread_id.map(|id| id.to_string()).as_deref(),
             );
             set_tool_activities.set(Vec::new());
+            // Another session or a reconnect: live finish reasons are gone.
+            turn_issue.set(None);
             apply_transcript(
                 snapshot.transcript,
                 set_messages,
@@ -204,6 +211,7 @@ fn handle_app_event(
                 set_active_run_id,
                 set_plan_run_id,
                 set_agent_status,
+                turn_issue,
             );
         }
         AppServerEvent::ExecutionUpdated { execution } => {
@@ -213,6 +221,7 @@ fn handle_app_event(
                 set_active_run_id,
                 set_plan_run_id,
                 set_agent_status,
+                turn_issue,
             );
         }
         AppServerEvent::TurnOutput { output } => {
@@ -294,14 +303,41 @@ fn handle_app_event(
     }
 }
 
+/// Only the root turn's last model response decides how its answer ended.
+fn track_turn_finish(
+    envelope: &proteus_contracts::domain::EventEnvelope,
+    stream_bindings: StreamFlushBindings,
+    turn_issue: RwSignal<Option<TurnIssue>>,
+) {
+    use proteus_contracts::domain::Event;
+    let thread = envelope.thread_id.to_string();
+    if self::stream::stream_delta_is_foreign(stream_bindings, Some(&thread)) {
+        return;
+    }
+    match &envelope.event {
+        Event::TurnStarted { .. } => turn_issue.set(None),
+        Event::ModelResponseReceived { finish_reason } => {
+            if let Some(issue) = TurnIssue::from_finish(finish_reason) {
+                turn_issue.set(issue);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn apply_execution(
     execution: proteus_app_common::execution::ExecutionState,
     set_is_sending: WriteSignal<bool>,
     set_active_run_id: WriteSignal<Option<String>>,
     set_plan_run_id: WriteSignal<Option<String>>,
     set_agent_status: WriteSignal<String>,
+    turn_issue: RwSignal<Option<TurnIssue>>,
 ) {
     use proteus_app_common::execution::RunStatus;
+    // A settled failure is in the transcript; a new run starts clean.
+    if execution.active.is_some() {
+        turn_issue.set(None);
+    }
     set_plan_run_id.set(
         execution
             .last

@@ -377,8 +377,11 @@ append-only replacement с lineage и не удаляет исходные recor
 
 App-server строит reconnect/cold transcript из того же journal. Root
 `turn_settled` со статусом `error`, `canceled` или `timeout` проецируется в
-terminal system message `AppServer error: ...`: непустой сохранённый `error`
-имеет приоритет, иначе используется status-specific fallback. Пока turn жив,
+terminal system message `AppServer <status>: ...` (`AppServer error: ...`,
+`AppServer canceled: ...`, `AppServer timeout: ...`): непустой сохранённый
+`error` имеет приоритет, иначе используется status-specific fallback.
+Приложение показывает такую запись как итог хода: ошибку — красной карточкой
+с текстом, таймаут — предупреждением, остановку — приглушённой пометкой. Пока turn жив,
 эта запись не проецируется поверх in-memory progress, поэтому live event и
 durable readback не создают две одинаковые ошибки.
 

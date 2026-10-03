@@ -126,6 +126,17 @@ pub(crate) fn ToolActivityCard(
                         .map(|summary| view! { <span class="tool-card-summary-meta">{summary}</span> }.into_any())
                         .unwrap_or_else(|| ().into_any())
                 }}
+                // Причина отказа видна без раскрытия карточки.
+                {move || {
+                    if expanded.get() {
+                        return ().into_any();
+                    }
+                    current_tool_status(message)
+                        .filter(|status| matches!(status, ToolActivityStatus::Denied | ToolActivityStatus::Failed))
+                        .and_then(|_| failure_reason(&result_text.get()))
+                        .map(|reason| { let title = reason.clone(); view! { <span class="tool-card-reason" title=title>{reason}</span> }.into_any() })
+                        .unwrap_or_else(|| ().into_any())
+                }}
                 // Длительность завершённого вызова; у бегущих время тикает в
                 // бейдже статуса, у восстановленных из истории границ нет.
                 {move || {
@@ -473,6 +484,20 @@ fn hidden_tool_lines_label(hidden_lines: usize) -> String {
     format!("ещё {hidden_lines} {form}")
 }
 
+/// First meaningful line of a failed or denied result, short enough for the row.
+pub(crate) fn failure_reason(result: &str) -> Option<String> {
+    const LIMIT: usize = 140;
+    let line = result
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())?;
+    Some(if line.chars().count() > LIMIT {
+        format!("{}…", line.chars().take(LIMIT).collect::<String>())
+    } else {
+        line.to_owned()
+    })
+}
+
 pub(crate) fn format_elapsed_seconds(seconds: u64) -> String {
     if seconds < 60 {
         format!("{seconds}s")
@@ -509,6 +534,17 @@ pub(crate) fn tool_turn_card_class(status: ToolActivityStatus) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failure_reason_takes_the_first_line_and_shortens_it() {
+        assert_eq!(
+            failure_reason("\n  denied by policy: shell  \ndetails"),
+            Some("denied by policy: shell".into())
+        );
+        assert_eq!(failure_reason("   \n"), None);
+        let long = "x".repeat(200);
+        assert_eq!(failure_reason(&long).unwrap().chars().count(), 141);
+    }
 
     #[test]
     fn format_elapsed_seconds_keeps_short_and_minute_forms_compact() {

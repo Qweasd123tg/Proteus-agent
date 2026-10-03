@@ -260,11 +260,12 @@ impl TranscriptProjectionState {
         if settled.status == TurnSettlementStatus::Success {
             return;
         }
-        let fallback = match settled.status {
+        // The status word lets clients tell a stop by the user from a failure.
+        let (status, fallback) = match settled.status {
             TurnSettlementStatus::Success => return,
-            TurnSettlementStatus::Error => "turn failed",
-            TurnSettlementStatus::Canceled => "turn canceled by client",
-            TurnSettlementStatus::Timeout => "turn timed out",
+            TurnSettlementStatus::Error => ("error", "turn failed"),
+            TurnSettlementStatus::Canceled => ("canceled", "turn canceled by client"),
+            TurnSettlementStatus::Timeout => ("timeout", "turn timed out"),
         };
         let error = settled
             .error
@@ -277,7 +278,7 @@ impl TranscriptProjectionState {
             message_id: None,
             phase: None,
             role: "system".to_owned(),
-            text: format!("AppServer error: {error}"),
+            text: format!("AppServer {status}: {error}"),
             tool: None,
             subagent: None,
             streaming: false,
@@ -543,7 +544,7 @@ mod tests {
         assert_eq!(transcript[0].role, "system");
         assert_eq!(
             transcript[0].text,
-            "AppServer error: turn canceled by client"
+            "AppServer canceled: turn canceled by client"
         );
         assert!(transcript[0].tool.is_none());
     }

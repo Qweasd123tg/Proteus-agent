@@ -20,6 +20,7 @@ enum MessageViewKind {
     Reasoning,
     Assistant,
     System,
+    TurnIssue,
 }
 
 /// Кнопка копирования с короткой обратной связью: после клика подсвечивается
@@ -69,6 +70,10 @@ pub(crate) fn MessageView(
             MessageViewKind::System => {
                 text_message_view(messages, message_id, "task-card assistant-turn role-system")
             }
+            MessageViewKind::TurnIssue => messages
+                .with_message(message_id, |message| message.and_then(|message| TurnIssue::from_transcript(&message.text)))
+                .map(|issue| view! { <super::turn_issue::TurnIssueView issue/> }.into_any())
+                .unwrap_or_else(|| ().into_any()),
         }}
     }
 }
@@ -265,6 +270,9 @@ fn current_message_kind(message: Option<&Message>) -> MessageViewKind {
     match message.role {
         MessageRole::User => MessageViewKind::User,
         MessageRole::Assistant => MessageViewKind::Assistant,
+        MessageRole::System if TurnIssue::from_transcript(&message.text).is_some() => {
+            MessageViewKind::TurnIssue
+        }
         MessageRole::System => MessageViewKind::System,
         MessageRole::Reasoning => MessageViewKind::Reasoning,
     }

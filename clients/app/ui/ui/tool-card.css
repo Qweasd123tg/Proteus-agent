@@ -74,6 +74,16 @@
 }
 
 /* Длительность завершённого вызова прижимается к каретке справа. */
+.tool-card-reason {
+    flex: 1 1 40%;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--accent-red);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .tool-card-duration {
     flex-shrink: 0;
     margin-left: auto;
