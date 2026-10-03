@@ -222,6 +222,6 @@ export interface ClientStateService<State, Writable = State> {
 export type ClientPreferencesService = ClientStateService<ClientPreferences>;
 export type ClientComposerService = ClientStateService<ClientComposerState, Pick<ClientComposerState,'model'|'effort'|'mode'>>;
 export interface ClientDiagnosticsService {
-  mount(view: 'usage'|'analysis'|'configs'|'architecture', root: HTMLElement): () => void;
+  mount(view: 'usage'|'analysis'|'architecture', root: HTMLElement): () => void;
 }
 export interface ClientModulesService { mount(root: HTMLElement): () => void }

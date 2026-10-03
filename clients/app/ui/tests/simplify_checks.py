@@ -21,7 +21,7 @@ def run(command, js, wait_for, web, origin):
         assert js("return document.documentElement.scrollWidth<=Math.max(innerWidth,860)"), 'Settings horizontal overflow'
     command('/window/rect', {'width':1440,'height':1000})
     js("document.querySelector('[data-settings-section=diagnostic-usage]').click()")
-    assert js("return !document.querySelector('a[href=\"/context\"], a[href=\"/resume\"]') && document.querySelectorAll('[data-settings-section^=diagnostic-]').length===4 && document.querySelectorAll('.settings-nav button svg').length===8"), 'Diagnostics, history or settings icons are wrong'
+    assert js("return !document.querySelector('a[href=\"/context\"], a[href=\"/resume\"]') && document.querySelectorAll('[data-settings-section^=diagnostic-]').length===3 && [...document.querySelectorAll('.settings-nav button')].every(b=>b.querySelector('svg'))"), 'Diagnostics, history or settings icons are wrong'
     js("document.querySelector('.settings-back').click()")
     wait_for(lambda: js("return !!document.querySelector('.composer textarea')"), 'Return to chat failed')
     assert js("return document.querySelector('.composer textarea').value==='Сохранённый черновик' && new URL(location.href).searchParams.get('session_dir')===sessionBefore && document.querySelector('.tab-workspace')===workspaceBefore"), 'Settings lost chat, draft or tool tabs'
@@ -41,18 +41,17 @@ def run(command, js, wait_for, web, origin):
 
     command('/url', {'url':web+'/architecture?'+urlencode({'server':origin,'token':'extension-smoke'})})
     wait_for(lambda: js("return !!document.querySelector('[data-node-id=\"slot:workflow\"]')"), 'Inspector architecture missing')
-    js("window.keptGraph=document.querySelector('.graph-viewport');window.inspectorReads=[];window.inspectorFetch=window.fetch;window.fetch=(input,...args)=>{inspectorReads.push(new URL(input.url||input,location.href).pathname);return inspectorFetch(input,...args)};document.querySelector('.inspector-nav-item[href*=\"view=configs\"]').click()")
-    wait_for(lambda: js("return !!document.querySelector('.cfg-tabs')"), 'Builder did not open')
-    js("window.keptBuilder=document.querySelector('.cfg-tabs');document.querySelector('.inspector-nav-item[href*=\"view=analysis\"]').click()")
+    js("window.keptGraph=document.querySelector('.graph-viewport');window.inspectorReads=[];window.inspectorFetch=window.fetch;window.fetch=(input,...args)=>{inspectorReads.push(new URL(input.url||input,location.href).pathname);return inspectorFetch(input,...args)};document.querySelector('.inspector-nav-item[href*=\"view=analysis\"]').click()")
     wait_for(lambda: js("return !!document.querySelector('.turn-analysis')"), 'Turn analysis did not open')
     wait_for(lambda: js("return !!document.querySelector('.analysis-turn-summary')"), 'Real journal did not load')
+    js("window.keptAnalysis=document.querySelector('.turn-analysis')")
     for _ in range(3):
-        js("document.querySelector('.inspector-nav-item[href*=\"view=architecture\"]').click();document.querySelector('.inspector-nav-item[href*=\"view=configs\"]').click()")
-    assert js("return document.querySelector('.cfg-tabs')===keptBuilder && document.querySelector('.graph-viewport')===keptGraph && !inspectorReads.includes('/resume') && !inspectorReads.includes('/new-session')"), 'Inspector reloaded views or resumed session on navigation'
+        js("document.querySelector('.inspector-nav-item[href*=\"view=architecture\"]').click();document.querySelector('.inspector-nav-item[href*=\"view=analysis\"]').click()")
+    assert js("return document.querySelector('.turn-analysis')===keptAnalysis && document.querySelector('.graph-viewport')===keptGraph && !inspectorReads.includes('/resume') && !inspectorReads.includes('/new-session')"), 'Inspector reloaded views or resumed session on navigation'
     js("history.back()")
     wait_for(lambda: js("return document.querySelector('.inspector-nav-item.active').textContent.includes('Архитектура')"), 'Inspector Back failed')
     assert js("return !document.querySelector('.graph-viewport').closest('.inspector-view').hidden && document.querySelectorAll('.inspector-view:not([hidden])').length===1"), 'Hidden Inspector views affect layout'
     Path('/tmp/proteus-app-diagnostics-simplified.png').write_bytes(base64.b64decode(command('/screenshot',None)))
     command('/refresh',{})
     wait_for(lambda: js("return !!document.querySelector('[data-node-id=\"slot:workflow\"]')"), 'Inspector route not restored on reload')
-    print('PASS: Inspector in-app navigation; cached graph/builder; no repeated session initialization; Back and reload',flush=True)
+    print('PASS: Inspector in-app navigation; cached graph/analysis; no repeated session initialization; Back and reload',flush=True)

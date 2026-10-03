@@ -927,8 +927,7 @@ component. Пустой массив (default) отключает contributions.
 отдельного export перекрывает default 5000 ms.
 
 В настройках приложения страница «Агент → Обработчики» включает hooks и
-меняет их порядок кнопками; диагностический раздел «Сборка агента»
-показывает тот же список по одному id на строку. Save других slots сохраняет этот список.
+меняет их порядок кнопками. Save других slots сохраняет этот список.
 `POST /config/builder` принимает отдельное `hooks: string[]`; отсутствие поля
 сохраняет прежний список, пустой массив отключает hooks.
 
@@ -946,9 +945,9 @@ registration или authority surface в Core.
 
 ## Config Builder
 
-Блок «Агент» в настройках приложения и редактор сборки в диагностике меняют
-selection, provider, permission mode, enabled tools, hooks и `module_config`,
-затем сначала строят и проверяют новый `AssemblyPlan`. Только после
+Блок «Агент» в настройках приложения меняет selection, provider, permission
+mode, enabled tools, hooks и `module_config`, затем сначала строит и проверяет
+новый `AssemblyPlan`. Только после
 успешной сборки соответствующего `PreparedAssembly` config сохраняется, а
 runtime snapshot меняется одним обновлением. Он не создаёт components/exports
 из воздуха: selection доступен только для entries текущего catalog. Existing

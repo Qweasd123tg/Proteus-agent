@@ -22,21 +22,6 @@ pub(crate) fn short_path(path: &str) -> String {
     path.rsplit('/').next().unwrap_or(path).to_owned()
 }
 
-/// `/home/user/x` и `/Users/user/x` → `~/x`: полные пути в панелях не влезают
-/// и не несут информации. Полный путь остаётся в `title` соответствующего
-/// элемента.
-pub(crate) fn shorten_home(path: &str) -> String {
-    for prefix in ["/home/", "/Users/"] {
-        if let Some(rest) = path.strip_prefix(prefix)
-            && let Some((_user, tail)) = rest.split_once('/')
-            && !tail.is_empty()
-        {
-            return format!("~/{tail}");
-        }
-    }
-    path.to_owned()
-}
-
 pub(crate) fn short_id(id: impl ToString) -> String {
     let id = id.to_string();
     id.get(..8).unwrap_or(&id).to_owned()

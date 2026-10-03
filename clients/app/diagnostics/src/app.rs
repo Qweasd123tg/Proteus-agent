@@ -10,7 +10,6 @@ use crate::{
         load_session_token,
     },
     architecture::ArchitectureView,
-    configs::ConfigsView,
 };
 
 #[component]
@@ -21,13 +20,11 @@ pub(crate) fn App() -> impl IntoView {
     let report_seen = RwSignal::new(false);
     let is_architecture = move || nav.section.get() == "architecture";
     let analysis_seen = RwSignal::new(false);
-    let configs_seen = RwSignal::new(false);
     let architecture_seen = RwSignal::new(false);
     Effect::new(move |_| match nav.section.get() {
         "analysis" => analysis_seen.set(true),
         "usage" => report_seen.set(true),
-        "architecture" => architecture_seen.set(true),
-        _ => configs_seen.set(true),
+        _ => architecture_seen.set(true),
     });
     let token_error = load_session_token().err();
     let origin = app_server_origin();
@@ -73,7 +70,7 @@ pub(crate) fn App() -> impl IntoView {
         <div class="inspector-shell">
             <a class="skip-link" href="#inspector-content">"Перейти к содержимому"</a>
             <aside class="inspector-sidebar">
-                <a class="inspector-brand" href=move || nav.href("configs") on:click=move |ev| nav.click(ev,"configs") aria-label="Proteus — сборка агента">
+                <a class="inspector-brand" href=move || nav.href("usage") on:click=move |ev| nav.click(ev,"usage") aria-label="Proteus — расход и контекст">
                     <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
                     <span><strong>"proteus"</strong><small>"INSPECTOR"</small></span>
                 </a>
@@ -89,13 +86,6 @@ pub(crate) fn App() -> impl IntoView {
                         href=move || nav.href("analysis") on:click=move |ev| nav.click(ev,"analysis")>
                         <crate::icons::Icon name="inspector"/>
                         <span>"Анализ ходов"</span>
-                    </a>
-                    <a class="inspector-nav-item" class:active=move || !is_architecture() && !is_analysis() && !is_report()
-                        aria-current=move || if !is_architecture() && !is_analysis() && !is_report() { Some("page") } else { None }
-                        href=move || nav.href("configs") on:click=move |ev| nav.click(ev,"configs")>
-                        <crate::icons::Icon name="modules"/>
-                        <span>"Сборка агента"</span>
-                        <span class="nav-indicator" aria-hidden="true"></span>
                     </a>
                     <a class="inspector-nav-item" class:active=is_architecture
                         aria-current=move || if is_architecture() { Some("page") } else { None }
@@ -125,9 +115,6 @@ pub(crate) fn App() -> impl IntoView {
                         <div class="inspector-view" hidden=move || !is_analysis()><crate::analysis::AnalysisView/></div>
                     </Show>
                     <Show when=move || selected_session.get().is_some_and(|value| value.is_ok())>
-                        <Show when=move || configs_seen.get()>
-                            <div class="inspector-view" hidden=move || nav.section.get()!="configs"><ConfigsView/></div>
-                        </Show>
                         <Show when=move || architecture_seen.get()>
                             <div class="inspector-view" hidden=move || !is_architecture()><ArchitectureView/></div>
                         </Show>

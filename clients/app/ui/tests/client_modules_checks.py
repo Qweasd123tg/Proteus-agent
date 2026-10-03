@@ -69,7 +69,7 @@ def run(command, js, wait_for, web, origin, loaded):
     assert js("return document.querySelectorAll('.workspace-group:not([hidden])').length===2 && !document.querySelector('[data-client-workspace]').hidden"),'Settings navigation lost the split workspace layout'
     click('[data-workspace-split]')
     click('.settings-link')
-    for id in ['diagnostic-analysis','diagnostic-configs','diagnostic-architecture']:
+    for id in ['diagnostic-analysis','diagnostic-architecture']:
         page(id)
         wait_for(lambda: js('return !!document.querySelector("[data-module-page='+id+'] iframe")?.contentDocument?.querySelector(".inspector-shell")'), 'Diagnostic not loaded: '+id)
     wait_for(lambda: js("return !!document.querySelector('[data-module-page=diagnostic-architecture] iframe').contentDocument.querySelector('[data-node-id=\"slot:workflow\"]')"),'Embedded architecture did not read real topology')
@@ -87,7 +87,7 @@ def run(command, js, wait_for, web, origin, loaded):
     js("window.hiddenDiagnostics=[...document.querySelectorAll('.diagnostic-frame')].map(frame=>({frame,src:frame.src,document:frame.contentDocument,loads:0}));window.diagnosticSourceObserver=new MutationObserver(records=>{for(const record of records)hiddenDiagnostics.find(item=>item.frame===record.target).loads++});for(const item of hiddenDiagnostics)diagnosticSourceObserver.observe(item.frame,{attributes:true,attributeFilter:['src']})")
     click('[aria-label="Новая сессия"]')
     wait_for(lambda: js("return new URL(location.href).searchParams.get('session_dir')!=="+repr(previous_session)+" && document.querySelector('.connection-badge').classList.contains('completed')"),'Session did not change')
-    assert js("return hiddenDiagnostics.length===4 && hiddenDiagnostics.every(item=>item.frame.isConnected && item.frame.src===item.src && item.frame.contentDocument===item.document && item.loads===0)"),'Changing chat reloaded a hidden diagnostic'
+    assert js("return hiddenDiagnostics.length===3 && hiddenDiagnostics.every(item=>item.frame.isConnected && item.frame.src===item.src && item.frame.contentDocument===item.document && item.loads===0)"),'Changing chat reloaded a hidden diagnostic'
     click('.settings-link');page('diagnostic-usage')
     wait_for(lambda: js("return returnFrame.contentDocument!==returnDocument && !!returnFrame.contentDocument?.querySelector('#analysis-session')?.querySelector('option[value=\""+previous_session+"\"]')"),'Diagnostic did not reload its real session catalog')
     assert js("return hiddenDiagnostics.every(item=>item.frame===returnFrame ? item.loads===1 && new URL(item.frame.src).searchParams.get('session_dir')===new URL(location.href).searchParams.get('session_dir') : item.loads===0 && item.frame.src===item.src && item.frame.contentDocument===item.document)"),'Reveal did not refresh exactly one diagnostic to the latest session'

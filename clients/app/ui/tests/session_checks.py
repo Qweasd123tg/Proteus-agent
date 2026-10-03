@@ -73,7 +73,8 @@ def check_inspector_startup(command, js, wait_for, web, origin):
     valid = js('return sessionStorage.getItem(' + key + ')')
     assert valid, 'Inspector startup fixture has no valid bootstrap target'
     for mode in ['stored', 'url', 'live-bootstrap', 'fresh', 'catalog-error', 'resume-error']:
-        params = {'server': origin, 'token': 'extension-smoke', 'startup_fixture': mode, 'startup_bootstrap': valid}
+        # Architecture needs a selected session, so it exercises reconciliation.
+        params = {'server': origin, 'token': 'extension-smoke', 'startup_fixture': mode, 'startup_bootstrap': valid, 'view': 'architecture'}
         if mode == 'url':
             params['session_dir'] = '/tmp/proteus-unavailable-session-fixture'
         command('/url', {'url': web + '/inspector-foundation.html?' + urlencode(params)})
@@ -83,7 +84,7 @@ def check_inspector_startup(command, js, wait_for, web, origin):
             assert js('return startupCommands.length') == expected, 'Inspector startup error opened a different session'
             assert js("return startupCommands.every(item=>item.path==='/resume')"), 'Inspector startup error created a new session'
             continue
-        wait_for(lambda: js("return !!document.querySelector('.cfg-tabs button')"), 'Stale selection blocked Inspector startup')
+        wait_for(lambda: js("return !!document.querySelector('.graph-viewport')"), 'Stale selection blocked Inspector startup')
         selected = js("return new URL(location.href).searchParams.get('session_dir')")
         assert selected and selected != '/tmp/proteus-unavailable-session-fixture', 'Inspector retained stale URL selection'
         assert js('return sessionStorage.getItem(' + key + ')') == selected, 'Inspector retained stale stored selection'

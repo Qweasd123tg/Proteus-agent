@@ -32,7 +32,6 @@ from scroll_jitter_checks import run as check_scroll_jitter
 from planning_checks import run as check_planning
 from usage_checks import run as check_usage
 from architecture_checks import run as check_architecture
-from tools_picker_checks import run as check_tools_picker
 from agent_settings_checks import run as check_agent_settings
 from notifications_checks import run as check_notifications
 from turn_issue_checks import run as check_turn_issue
@@ -152,10 +151,10 @@ class Assets(SimpleHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split('?', 1)[0]
         inspector = ROOT / 'clients/app/diagnostics/dist'
-        if (path=='/' and 'embedded=true' in self.path) or path in ('/architecture', '/configs', '/inspector.html') or (not (Path(self.directory) / path.lstrip('/')).exists() and (inspector / path.lstrip('/')).is_file()):
+        if (path=='/' and 'embedded=true' in self.path) or path in ('/architecture', '/inspector.html') or (not (Path(self.directory) / path.lstrip('/')).exists() and (inspector / path.lstrip('/')).is_file()):
             original = self.directory
             self.directory = str(inspector)
-            if path=='/' or path in ('/architecture', '/configs', '/inspector.html'):
+            if path=='/' or path in ('/architecture', '/inspector.html'):
                 self.path = '/index.html'
             try:
                 super().do_GET()
@@ -404,7 +403,6 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return
                 if '--inspector-only' in sys.argv:
                     check_architecture(command, js, wait_for, web, origin)
-                    check_tools_picker(command, js, wait_for, web, origin, config, request)
                     return
                 if '--subagents-only' in sys.argv:
                     check_subagent_tabs(command, js, wait_for, web, origin)
@@ -505,7 +503,6 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                 check_live(command, js, wait_for, server)
                 check_session_switch(command, js, wait_for, server, origin)
                 check_planning(command, js, wait_for, server, request, origin, ROOT, config, folder, env, stop)
-                check_tools_picker(command, js, wait_for, web, origin, config, request)
                 stop(backend)
                 js("document.querySelector('[data-extension-id=model-quota] .extension-panel-content').shadowRoot.querySelector('button').click()")
                 wait_for(lambda: js("const root=document.querySelector('[data-extension-id=model-quota] .extension-panel-content').shadowRoot; return root.textContent.includes('Не удалось получить лимиты') && root.querySelectorAll('progress').length === 0"), 'Quota error retained old balances')

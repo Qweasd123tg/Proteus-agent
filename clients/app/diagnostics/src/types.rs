@@ -1,7 +1,5 @@
 pub(crate) use proteus_contracts::app_protocol::{
     config::*,
-    config_builder::*,
-    http::SetConfigBuilderRequest as ConfigBuilderSaveRequest,
     topology::{
         ModuleSourceTopology as TopologyModuleSource, ModuleTopology as TopologyModule,
         SlotTopology as TopologySlot, TopologySnapshot,

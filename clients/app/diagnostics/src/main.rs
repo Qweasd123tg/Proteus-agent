@@ -4,7 +4,6 @@ mod app;
 mod architecture;
 mod architecture_map;
 mod architecture_model;
-mod configs;
 mod context_map;
 mod icons;
 mod session_report;

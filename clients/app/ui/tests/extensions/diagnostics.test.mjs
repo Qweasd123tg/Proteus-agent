@@ -51,23 +51,23 @@ function fixture(t) {
 const flush=async()=>{await Promise.resolve();await Promise.resolve();};
 const session=frame=>new URL(frame.src).searchParams.get('session_dir');
 
-test('four retained diagnostic pages defer hidden session loads and apply only the latest URL on reveal',async t=>{
+test('three retained diagnostic pages defer hidden session loads and apply only the latest URL on reveal',async t=>{
   const f=fixture(t),items=[];
-  for(const [index,view] of ['usage','analysis','configs','architecture'].entries()){
+  for(const [index,view] of ['usage','analysis','architecture'].entries()){
     const item=f.mount(view,index===1);items.push(item);
     assert.equal(item.frame.loads.length,0,'hidden initial page must not load Inspector');
     await f.select(item.page,items);assert.equal(item.frame.loads.length,1);
   }
   f.settings.hidden=true;await flush();f.publish('two');f.publish('three');
-  assert.deepEqual(items.map(item=>item.frame.loads.length),[1,1,1,1]);
+  assert.deepEqual(items.map(item=>item.frame.loads.length),[1,1,1]);
   f.settings.hidden=false;await flush();
-  assert.deepEqual(items.map(item=>item.frame.loads.length),[1,1,1,2]);
-  assert.equal(session(items[3].frame),'three');
+  assert.deepEqual(items.map(item=>item.frame.loads.length),[1,1,2]);
+  assert.equal(session(items[2].frame),'three');
   for(const item of items){await f.select(item.page,items);assert.equal(session(item.frame),'three');assert.equal(item.frame.loads.length,2);}
-  f.publish('four');assert.equal(session(items[3].frame),'four','visible page updates synchronously');
-  assert.deepEqual(items.map(item=>item.frame.loads.length),[2,2,2,3]);
+  f.publish('four');assert.equal(session(items[2].frame),'four','visible page updates synchronously');
+  assert.deepEqual(items.map(item=>item.frame.loads.length),[2,2,3]);
   f.settings.hidden=true;await flush();f.settings.hidden=false;await flush();
-  assert.equal(items[3].frame.loads.length,3,'unchanged connection preserves the existing document');
+  assert.equal(items[2].frame.loads.length,3,'unchanged connection preserves the existing document');
   f.controller.abort();await flush();
   assert.equal(f.subscriptions.size,0);
   assert.equal([...f.observers].filter(observer=>observer.targets.size).length,0);

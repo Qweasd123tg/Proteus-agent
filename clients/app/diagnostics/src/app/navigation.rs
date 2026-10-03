@@ -63,14 +63,13 @@ fn current() -> &'static str {
         Some("analysis") => "analysis",
         Some("usage") => "usage",
         Some("architecture") => "architecture",
-        Some("configs") => "configs",
         _ => match window()
             .and_then(|w| w.location().pathname().ok())
             .as_deref()
         {
             Some("/analysis") => "analysis",
             Some("/architecture") => "architecture",
-            _ => "configs",
+            _ => "usage",
         },
     }
 }

@@ -104,15 +104,6 @@ export const builtins = [
     { group: "diagnostics", icon: "inspector" },
   ),
   module(
-    "diagnostic-configs",
-    "Сборка агента",
-    "Профиль, модули агента и их конфигурация.",
-    ["settings"],
-    "./configs.js",
-    ["client.diagnostics"],
-    { group: "diagnostics", icon: "modules" },
-  ),
-  module(
     "diagnostic-architecture",
     "Архитектура",
     "Связи модулей и конфигурация runtime.",

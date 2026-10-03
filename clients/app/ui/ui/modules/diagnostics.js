@@ -3,7 +3,6 @@ import { logicallyVisible, watchLogicalVisibility } from "./visibility.js";
 const titles = {
   usage: "Расход и контекст",
   analysis: "Анализ ходов",
-  configs: "Сборка агента",
   architecture: "Архитектура",
 };
 export function diagnosticsService(readUrl, subscribe, signal) {
