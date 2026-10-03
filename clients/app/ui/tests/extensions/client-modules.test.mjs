@@ -30,7 +30,7 @@ test('management cannot be disabled or removed; invalid slots and write failures
 });
 test('corrupt config reports an error with management available; reserved ids cannot collide',async()=>{
  const {registry}=fixture(new Map([['proteus.ui.modules','{"slots":{}}']]));
- assert.match(registry.state().notice,/Неверный формат/);assert.equal(registry.selected('composer-model'),undefined);
+ assert.match(registry.state().notice,/неверный формат/);assert.equal(registry.selected('composer-model'),undefined);
  assert.ok(registry.state().records.find(r=>r.id==='extensions').enabled);registry.resetCore();
  await registry.start();assert.equal(await registry.install('https://client.test/collision.json'),false);
  assert.equal(registry.state().records.filter(r=>r.id==='appearance').length,1);
@@ -45,7 +45,7 @@ test('only user choices are stored, so built-in pages added or removed by an upd
  for(const [stored,message] of [
   ['{"disabled":["removed-page"],"slots":{"composer-model":null,"composer-access":null}}',/«removed-page» больше нет/],
   ['{"disabled":["extensions"],"slots":{"composer-model":null,"composer-access":null}}',/нельзя выключить/],
-  ['{"enabled":{"chat":true},"slots":{"composer-model":null,"composer-access":null}}',/Неверный формат/],
+  ['{"enabled":{"chat":true},"slots":{"composer-model":null,"composer-access":null}}',/неверный формат/],
  ]){
   const broken=fixture(new Map([['proteus.ui.modules',stored]])).registry;
   assert.match(broken.state().notice,message);assert.equal(broken.state().builtinsInvalid,true);

@@ -414,7 +414,10 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     check_scroll_jitter(command, js, wait_for, web, origin)
                     return
                 if '--modules-only' in sys.argv:
-                    check_client_modules(command,js,wait_for,web,origin,loaded)
+                    def capture(name):
+                        time.sleep(0.3)
+                        Path(f'/tmp/proteus-{name}.png').write_bytes(base64.b64decode(request(url + '/screenshot')['value']))
+                    check_client_modules(command,js,wait_for,web,origin,loaded,capture)
                     return
                 check_extensions(command, js, wait_for, web, origin, loaded)
                 if '--placement-only' in sys.argv:

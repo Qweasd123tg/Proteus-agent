@@ -1,2 +1,8 @@
 .extension-panel-content { container-type: inline-size; }
-.extension-workspace-status { position: fixed; bottom: 12px; right: 16px; z-index: 40; max-width: min(320px, 80vw); pointer-events: none; }
+/* Status floats under the tab strip, clear of the composer; it takes clicks
+   only when it carries an action. */
+.extension-workspace-status { position: fixed; top: calc(var(--topbar-height) + 56px); right: 16px; z-index: 40; display: grid; justify-items: start; gap: 8px; max-width: min(340px, 80vw); pointer-events: none; }
+.extension-workspace-status:has(.extension-surface-status:not(:empty):not([data-loading=true])) { padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-inner); background: var(--bg-popover); box-shadow: var(--shadow-md); }
+.extension-workspace-status:has([data-builtin-repair]:not([hidden])) { border-color: var(--accent-red-border); }
+.extension-workspace-status:has([data-builtin-repair]:not([hidden])) .extension-surface-status { color: var(--text-main); }
+.extension-workspace-status [data-builtin-repair] { pointer-events: auto; }

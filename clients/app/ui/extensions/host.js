@@ -12,7 +12,11 @@ export function mountExtensions(root, services = {}, options = {}) {
   const all=()=>[...registry.state().records.filter(r=>r.enabled&&hasSurface(r.manifest,'workspace')),...[...owned.values()].map(item=>item.record)];
   const board=options.workspace??createWorkspace(options.target??root,{storage:registry.storage});
   const workspace=board.connect('extensions',{select:id=>update(id,{collapsed:false}),close});
-  const notice=document.createElement('p');notice.className='extension-surface-status';notice.setAttribute('role','status');root.append(notice);
+  const notice=document.createElement('p');notice.className='extension-surface-status';notice.setAttribute('role','status');
+  // The chat is where a broken built-in selection shows: its selectors are gone.
+  const repair=document.createElement('button');repair.type='button';repair.className='btn-primary';repair.textContent='Восстановить встроенные расширения';repair.dataset.builtinRepair='workspace';repair.hidden=true;
+  repair.addEventListener('click',()=>registry.resetCore?.());
+  root.append(notice,repair);
   const widgetError=event=>{notice.textContent=event.detail;};window.addEventListener('proteus-widgets-error',widgetError);
   function reorder(id,before) {
     const records=registry.state().records,current=records.findIndex(record=>record.id===id);
@@ -45,7 +49,7 @@ export function mountExtensions(root, services = {}, options = {}) {
   }
   function render() {
     if(stopped)return;
-    const state=registry.state();notice.textContent=state.notice||(!state.ready?'Загрузка вкладок…':'');
+    const state=registry.state();notice.textContent=state.notice||(!state.ready?'Загрузка вкладок…':'');notice.dataset.loading=String(!state.notice&&!state.ready);repair.hidden=!state.builtinsInvalid;
     for(const [id,card]of cards)if(!state.records.some(r=>r.id===id&&r.enabled&&r===card.record)){release(card.record);card.stop();cards.delete(id);}
     for(const record of state.records.filter(r=>r.enabled&&(hasSurface(r.manifest,'workspace')||hasSurface(r.manifest,'compact'))))if(!cards.has(record.id)){
       const card=createPanel(record,{services,storage:registry.storage,changed:change=>update(record.id,change),createOwned:(key,spec)=>createOwned(record,key,spec),releaseOwned:()=>release(record)});

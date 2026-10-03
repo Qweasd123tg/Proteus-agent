@@ -64,7 +64,7 @@ export function mountExtensionSettings(root, registry, services = {}) {
   builtin.append(builtinContent);
   // A broken saved selection is repaired right where it is reported.
   const repair = button('Восстановить встроенные расширения', () => registry.resetCore?.(), signal);
-  repair.dataset.builtinRepair = ''; repair.hidden = true;
+  repair.dataset.builtinRepair = 'settings'; repair.hidden = true;
   root.append(builtin, list, available, source, notice, repair, announcement, reset);
   const resetContent=node('div');
   resetContent.append(...[...reset.children].slice(1));reset.append(resetContent);

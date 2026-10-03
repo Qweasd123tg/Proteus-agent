@@ -2,7 +2,7 @@
 from urllib.parse import urlencode
 
 
-def run(command, js, wait_for, web, origin, loaded):
+def run(command, js, wait_for, web, origin, loaded, capture=None):
     def click(selector):
         # Built-in controls are intentionally under a closed disclosure.
         js('const target=document.querySelector('+repr(selector)+');const system=target.closest(".builtin-module-settings");if(system&&!system.open)system.querySelector("summary").click();target.click()')
@@ -12,16 +12,28 @@ def run(command, js, wait_for, web, origin, loaded):
     command('/url', {'url':web+'/?'+urlencode({'server':origin,'token':'extension-smoke'})})
     wait_for(loaded,'Client not connected')
     # A selection saved before an update removed a page it had turned off
-    # stops at an explicit error, repaired from the button beside it.
-    js("localStorage.setItem('proteus.ui.modules',JSON.stringify({disabled:['removed-page'],slots:{'composer-model':'model-selector','composer-access':'access-selector'}}))")
-    command('/refresh', {})
-    wait_for(loaded,'Client not connected after a broken selection')
-    assert js("return !document.querySelector('.composer-model-menu')"),'A broken selection kept optional modules on'
+    # stops at an explicit error, repaired from the chat or from settings.
+    def break_selection():
+        js("localStorage.setItem('proteus.ui.modules',JSON.stringify({disabled:['removed-page'],slots:{'composer-model':'model-selector','composer-access':'access-selector'}}))")
+        command('/refresh', {})
+        wait_for(loaded,'Client not connected after a broken selection')
+        assert js("return !document.querySelector('.composer-model-menu')"),'A broken selection kept optional modules on'
+    def repair(where):
+        return "document.querySelector('[data-builtin-repair="+where+"]')"
+    break_selection()
+    wait_for(lambda: js("return !"+repair('workspace')+".hidden"),'Chat shows no repair action')
+    assert 'removed-page' in js("return "+repair('workspace')+".previousElementSibling.textContent"), 'Error does not name the missing page'
+    assert js("const a="+repair('workspace')+".parentElement.getBoundingClientRect(),b=document.querySelector('.composer-shell').getBoundingClientRect();return a.bottom<=b.top||a.top>=b.bottom||a.right<=b.left||a.left>=b.right"),'Error covers the composer'
+    assert js("const b="+repair('workspace')+".getBoundingClientRect();return document.elementFromPoint(b.left+b.width/2,b.top+b.height/2)==="+repair('workspace')),'Repair action is not clickable'
+    if capture:
+        capture('broken-modules')
+    js(repair('workspace')+".click()")
+    wait_for(lambda: js("return !!document.querySelector('.composer-model-menu') && "+repair('workspace')+".hidden && !"+repair('workspace')+".previousElementSibling.textContent"),'Chat repair did not restore the selectors')
+    break_selection()
     click('.settings-link')
-    wait_for(lambda: js("return !!document.querySelector('[data-builtin-repair]:not([hidden])')"),'Broken selection has no repair action')
-    assert 'removed-page' in js("return document.querySelector('[data-builtin-repair]').previousElementSibling.textContent"), 'Error does not name the missing page'
-    js("document.querySelector('[data-builtin-repair]').click()")
-    wait_for(lambda: js("return document.querySelector('[data-builtin-repair]').hidden && !document.querySelector('[data-builtin-repair]').previousElementSibling.textContent"),'Repair left the error')
+    wait_for(lambda: js("return !"+repair('settings')+".hidden"),'Settings show no repair action')
+    js(repair('settings')+".click()")
+    wait_for(lambda: js("return "+repair('settings')+".hidden && "+repair('workspace')+".hidden"),'Settings repair left the error')
     click('.settings-back')
     wait_for(lambda: js("return !!document.querySelector('.composer-model-menu')"),'Built-in selector not mounted')
     click('.settings-link')

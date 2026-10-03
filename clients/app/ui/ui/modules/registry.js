@@ -36,14 +36,14 @@ export function createClientModuleRegistry(
         (s) => value.slots[s] !== null && typeof value.slots[s] !== "string",
       )
     )
-      throw Error("Неверный формат расширений интерфейса");
+      throw Error("неверный формат");
     const next = defaults();
     for (const id of value.disabled) {
       const record = core.find((r) => r.id === id);
       if (!record)
-        throw Error(`Выключенного встроенного расширения «${id}» больше нет`);
+        throw Error(`выключенного встроенного расширения «${id}» больше нет`);
       if (record.required)
-        throw Error(`Расширение «${record.manifest.name}» нельзя выключить`);
+        throw Error(`«${record.manifest.name}» нельзя выключить`);
       next.enabled[id] = false;
     }
     next.slots = { ...value.slots };
@@ -63,7 +63,7 @@ export function createClientModuleRegistry(
     if (raw !== null) configuration = parse(JSON.parse(raw));
   } catch (error) {
     invalid = true;
-    notice = `${error.message}. Восстановите встроенные расширения.`;
+    notice = `Сохранённый выбор встроенных расширений не прочитан (${error.message}), поэтому они выключены, включая выбор модели и прав в поле ввода.`;
     for (const r of core) if (!r.required) configuration.enabled[r.id] = false;
   }
   const emit = () => {
