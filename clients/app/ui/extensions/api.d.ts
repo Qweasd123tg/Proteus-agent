@@ -66,6 +66,24 @@ export interface AgentConfigReader {
   read(): Promise<Record<string, unknown>>;
 }
 
+/** Optional agent.config.builder service; the public GET/POST /config/builder.
+ * read() returns the saved profile snapshot: slots with their implementations,
+ * providers, permission modes, hooks, tools and opaque module_config objects.
+ * save() sends the complete selection; the server builds and validates the
+ * assembly before it writes the profile and returns the new snapshot.
+ */
+export interface AgentConfigBuilder {
+  read(): Promise<Record<string, unknown>>;
+  save(request: {
+    modules: Record<string, string>;
+    hooks: string[];
+    module_config: Record<string, Record<string, Record<string, unknown>>>;
+    tools_enabled: string[];
+    active_provider: string | null;
+    permission_mode: string | null;
+  }): Promise<Record<string, unknown>>;
+}
+
 /** Optional agent.model.quota.read service; unmodified GET /model/quota.
  * null means unsupported, never unlimited. Percentages may exceed 100.
  * Timestamps use Unix seconds. observed_at is provider fetch time, including cache hits.

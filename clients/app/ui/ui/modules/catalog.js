@@ -24,7 +24,29 @@ const module = (
     ...(navigation ? { navigation } : {}),
   },
 });
+// Agent settings edit the saved profile through the public config builder API.
+const agentPage = (id, name, description, entry, icon) =>
+  module(
+    id,
+    name,
+    description,
+    ["settings"],
+    entry,
+    ["agent.config.builder"],
+    { group: "agent", icon },
+    true,
+  );
 export const builtins = [
+  agentPage("agent-model", "Модель", "Модель профиля и параметры её модуля.", "./agent/model.js", "model"),
+  agentPage("agent-workflow", "Рабочий цикл", "Алгоритм шагов агента.", "./agent/slot.js?slot=workflow", "workflow"),
+  agentPage("agent-context", "Контекст", "Сведения, которые получает модель.", "./agent/slot.js?slot=context", "layers"),
+  agentPage("agent-compactor", "Сжатие истории", "Сокращение длинной истории.", "./agent/slot.js?slot=compactor", "compress"),
+  agentPage("agent-tools", "Инструменты", "Разрешённые инструменты и их отбор для модели.", "./agent/tools.js", "wrench"),
+  agentPage("agent-access", "Права и подтверждения", "Режим прав и политика подтверждений.", "./agent/access.js", "shield"),
+  agentPage("agent-patch", "Правки файлов", "Применение изменений к файлам.", "./agent/slot.js?slot=patch", "patch"),
+  agentPage("agent-search", "Поиск", "Поиск по рабочему проекту.", "./agent/slot.js?slot=search", "search"),
+  agentPage("agent-memory", "Память", "Сведения между обращениями.", "./agent/slot.js?slot=memory", "database"),
+  agentPage("agent-hooks", "Обработчики", "Порядок и параметры hooks.", "./agent/hooks.js", "link"),
   module(
     "appearance",
     "Внешний вид",

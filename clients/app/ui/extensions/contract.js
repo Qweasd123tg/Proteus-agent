@@ -33,7 +33,7 @@ export function parseManifest(value, url) {
   if (!Array.isArray(surfaces) || !surfaces.length || surfaces.some(surface => !['compact', 'workspace', 'settings', 'composer-model', 'composer-access'].includes(surface)) || new Set(surfaces).size !== surfaces.length) throw new Error('Некорректные поверхности расширения');
   if (value.navigation !== undefined) {
     object(value.navigation, ['group','icon'], 'Навигация модуля');
-    if (!surfaces.includes('settings') || !['settings','diagnostics'].includes(value.navigation.group) || typeof value.navigation.icon !== 'string' || !/^[a-z][a-z0-9-]*$/.test(value.navigation.icon)) throw new Error('Некорректная навигация модуля');
+    if (!surfaces.includes('settings') || !['agent','settings','diagnostics'].includes(value.navigation.group) || typeof value.navigation.icon !== 'string' || !/^[a-z][a-z0-9-]*$/.test(value.navigation.icon)) throw new Error('Некорректная навигация модуля');
   }
   let settings;
   if (value.settings !== undefined) {

@@ -146,12 +146,22 @@ fn replace_requested_session_dir(session_dir: Option<&str>) -> Result<(), String
 }
 
 pub(crate) async fn post_json<T: Serialize>(path: &str, body: &T) -> Result<StdioOutput, String> {
-    let token = current_session_token();
     let request_body = serde_json::to_string(body).map_err(|error| error.to_string())?;
+    let text = post_text_with_signal(path, &request_body, None).await?;
+    serde_json::from_str(&text).map_err(|error| format!("invalid response JSON: {error}"))
+}
+
+pub(crate) async fn post_text_with_signal(
+    path: &str,
+    request_body: &str,
+    signal: Option<&web_sys::AbortSignal>,
+) -> Result<String, String> {
+    let token = current_session_token();
     let init = RequestInit::new();
     init.set_method("POST");
     init.set_mode(RequestMode::Cors);
-    init.set_body(&JsValue::from_str(&request_body));
+    init.set_signal(signal);
+    init.set_body(&JsValue::from_str(request_body));
 
     let headers = Headers::new().map_err(js_error)?;
     headers
@@ -180,7 +190,7 @@ pub(crate) async fn post_json<T: Serialize>(path: &str, body: &T) -> Result<Stdi
     if !response.ok() {
         return Err(http_error(status, &text));
     }
-    serde_json::from_str(&text).map_err(|error| format!("invalid response JSON: {error}"))
+    Ok(text)
 }
 
 pub(crate) async fn get_json<T: for<'de> Deserialize<'de>>(path: &str) -> Result<T, String> {

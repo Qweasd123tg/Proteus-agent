@@ -33,9 +33,9 @@ export function createClientModuleRegistry(
           ([id, on]) =>
             !core.some((r) => r.id === id) || typeof on !== "boolean",
         ) ||
-        core.some(
-          (r) =>
-            !(r.id in value.enabled) || (r.required && !value.enabled[r.id]),
+        core.some((r) =>
+          // Required modules are not user state: they may be absent but never disabled.
+          r.required ? value.enabled[r.id] === false : !(r.id in value.enabled),
         ) ||
         Object.keys(value.slots).length !== slots.length ||
         slots.some(
@@ -66,7 +66,9 @@ export function createClientModuleRegistry(
     }
   };
   const records = () => [
-    ...core.map((r) => ((r.enabled = configuration.enabled[r.id]), r)),
+    ...core.map(
+      (r) => ((r.enabled = r.required || configuration.enabled[r.id]), r),
+    ),
     ...packages.state().records,
   ];
   const unsubscribe = packages.subscribe(emit);

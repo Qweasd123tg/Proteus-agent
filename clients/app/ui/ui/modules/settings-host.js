@@ -71,7 +71,8 @@ export function mountSettings(root, registry, services, requested) {
       }
     nav.querySelectorAll(".settings-nav-label").forEach((el) => el.remove());
     for (const [group, label] of [
-      ["settings", "Настройки"],
+      ["agent", "Агент"],
+      ["settings", "Интерфейс"],
       ["diagnostics", "Диагностика"],
     ]) {
       const items = pages.filter(
@@ -107,6 +108,10 @@ export function mountSettings(root, registry, services, requested) {
     content.classList.toggle(
       "diagnostic-settings",
       record.manifest.navigation?.group === "diagnostics",
+    );
+    content.classList.toggle(
+      "agent-settings",
+      record.manifest.navigation?.group === "agent",
     );
     if (!mounted.has(selected)) {
       const section = document.createElement("section");

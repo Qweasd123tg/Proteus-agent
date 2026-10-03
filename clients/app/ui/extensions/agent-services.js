@@ -32,6 +32,14 @@ export function createAgentServices() {
     Object.freeze({ read: () => read(name, [], signal) });
   const services = {
     "agent.config.read": reader("readConfig"),
+    // Saving validates and builds the complete assembly on the server before
+    // the profile file and the running agent change.
+    "agent.config.builder": (signal) =>
+      Object.freeze({
+        read: () => read("readConfigBuilder", [], signal),
+        save: (request) =>
+          read("saveConfigBuilder", [JSON.stringify(request)], signal),
+      }),
     "agent.model.quota.read": reader("readQuota"),
     "agent.usage.read": reader("readUsage"),
     "agent.session.read": sessionStateService,

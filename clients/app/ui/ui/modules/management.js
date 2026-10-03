@@ -39,7 +39,12 @@ export function mountBuiltinManagement(root, registry) {
   const unsubscribe = registry.subscribe(() => {
     choicesController?.abort();
     choicesController = new AbortController();
-    for (const record of registry.state().records.filter((r) => r.builtin)) {
+    // Agent settings are part of the host, not optional client features.
+    for (const record of registry
+      .state()
+      .records.filter(
+        (r) => r.builtin && r.manifest.navigation?.group !== "agent",
+      )) {
       let row = rows.get(record.id);
       if (!row) {
         row = document.createElement("div");

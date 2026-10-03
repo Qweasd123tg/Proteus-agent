@@ -24,6 +24,8 @@ mod browser {
             read_quota: &js_sys::Function,
             read_usage: &js_sys::Function,
             read_workspace: &js_sys::Function,
+            read_config_builder: &js_sys::Function,
+            save_config_builder: &js_sys::Function,
         ) -> Result<js_sys::Function, JsValue>;
 
     }
@@ -38,6 +40,21 @@ mod browser {
                     .map_err(|error| js_sys::Error::new(&error).into())
             })
         })
+    }
+
+    /// The JSON body comes from the client service; the server validates it.
+    fn writer(path: String) -> Closure<dyn Fn(String, web_sys::AbortSignal) -> js_sys::Promise> {
+        Closure::<dyn Fn(String, web_sys::AbortSignal) -> js_sys::Promise>::new(
+            move |body: String, signal| {
+                let path = path.clone();
+                wasm_bindgen_futures::future_to_promise(async move {
+                    crate::api::post_text_with_signal(&path, &body, Some(&signal))
+                        .await
+                        .map(JsValue::from)
+                        .map_err(|error| js_sys::Error::new(&error).into())
+                })
+            },
+        )
     }
 
     fn workspace_reader(
@@ -67,21 +84,27 @@ mod browser {
                 return;
             };
             let path = crate::api::session_path("/usage", &session_dir);
+            let builder_path = crate::api::session_path("/config/builder", &session_dir);
             let readers = StoredValue::new_local((
                 reader(crate::api::session_path("/config", &session_dir)),
                 reader(crate::api::session_path("/model/quota", &session_dir)),
                 reader(path),
                 workspace_reader(session_dir),
+                reader(builder_path.clone()),
+                writer(builder_path),
             ));
-            let mounted = readers.with_value(|(config, quota, usage, workspace)| {
-                mount_extensions(
-                    element.as_ref(),
-                    config.as_ref().unchecked_ref(),
-                    quota.as_ref().unchecked_ref(),
-                    usage.as_ref().unchecked_ref(),
-                    workspace.as_ref().unchecked_ref(),
-                )
-            });
+            let mounted =
+                readers.with_value(|(config, quota, usage, workspace, builder, save_builder)| {
+                    mount_extensions(
+                        element.as_ref(),
+                        config.as_ref().unchecked_ref(),
+                        quota.as_ref().unchecked_ref(),
+                        usage.as_ref().unchecked_ref(),
+                        workspace.as_ref().unchecked_ref(),
+                        builder.as_ref().unchecked_ref(),
+                        save_builder.as_ref().unchecked_ref(),
+                    )
+                });
             match mounted {
                 Ok(dispose) => {
                     let dispose = StoredValue::new_local(dispose);

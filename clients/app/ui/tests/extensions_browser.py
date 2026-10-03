@@ -33,6 +33,7 @@ from planning_checks import run as check_planning
 from usage_checks import run as check_usage
 from architecture_checks import run as check_architecture
 from tools_picker_checks import run as check_tools_picker
+from agent_settings_checks import run as check_agent_settings
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -352,6 +353,14 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     command('/url', {'url':web+'/?'+urlencode({'server':origin,'token':'extension-smoke'})})
                     wait_for(loaded,'Client missing')
                     check_approvals(command,js,wait_for,folder)
+                    return
+                if '--agent-settings-only' in sys.argv:
+                    command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
+                    wait_for(loaded, 'Client missing')
+                    def capture(name):
+                        time.sleep(0.5)  # let the page transition settle
+                        Path(f'/tmp/proteus-agent-settings-{name}.png').write_bytes(base64.b64decode(request(url + '/screenshot')['value']))
+                    check_agent_settings(command, js, wait_for, config, capture)
                     return
                 if '--preference-error-only' in sys.argv:
                     command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
