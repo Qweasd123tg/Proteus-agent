@@ -463,7 +463,7 @@ attribution/cancellation, а `/remember` — detached top-level context в од�
 роль, краткое описание, статус, число итераций и
 `child_thread_id`. Эти события приходят в envelope родительского `thread_id`,
 потому что пользовательский turn остаётся родительским. Tool-события
-дочернего Proteus (`ToolCallRequested`, `ApprovalRequested`, `ToolFinished`)
+дочернего Proteus (`ToolCallRequested`, `ToolCallResolved`, `ApprovalRequested`, `ToolFinished`)
 приходят отдельными envelope с `thread_id = child_thread_id`. Streaming
 text-дельты peer-а process bridge наблюдает только для partial summary при
 cancel/timeout и не пере-эмитит в root event stream. Дополнительно и
@@ -497,6 +497,12 @@ stdio на границе app-server turn-а. Если успешный terminal
 принятое сообщение, adapter продолжает ту же logical generation следующим
 peer turn; явный cancel вместо этого закрывает очередь и имеет приоритет.
 `followup_task` для idle terminal record запускает resume по прежнему task id.
+
+Role timeout включает начальную запись stdin и `ClearHistory`; cancel grace
+включает отправку `Cancel`. Прерванный JSONL write завершает peer и лишает его
+resumable binding. Резервации pending, resume и facade Starting принадлежат
+guards до передачи detached execution/monitor: drop ожидающего spawn не
+оставляет вечный занятый слот.
 
 Для reload посреди turn app-server держит `SubagentStarted`/`SubagentFinished`
 и вложенные child tools в `TurnProgress.snapshot()`. `/history` отдаёт это как
@@ -1126,6 +1132,8 @@ runtime восстанавливает cwd из имени parent workspace dire
 workspace. Если таких sessions нет, создаётся новый in-memory session id, но
 каталог на диске появится только после первого turn. `/new-session` остаётся
 явной командой на новый пустой runtime и не auto-resume-ит предыдущую session.
+Глобальный CLI `--new-session` одинаково выбирает новую сессию для HTTP и
+stdio; сочетание с явным `--resume-session` отклоняется.
 Клиент может читать директории из
 `<config-root>/sessions/<encoded-workspace>/`, фильтровать список по
 conversation title/branch/session id и затем перезапускать или переподключать
@@ -1146,7 +1154,10 @@ cancellation token. `run_lock` живёт в
 перезаписывать history. Разные sessions имеют разные `SessionState`, поэтому
 HTTP app-server может вести их turns параллельно без обхода runtime lock.
 Ключи live sessions и locks session store нормализуются через canonical
-session directory. Это убирает ситуации, где один и тот же `journal.jsonl`
+session directory. Для ещё не созданного каталога нормализуется ближайший
+существующий предок и оставшийся путь; опубликованный путь сразу абсолютный
+и не меняется после первой записи. Read-only lookup не создаёт каталоги.
+Это убирает ситуации, где один и тот же `journal.jsonl`
 открыт через разные path spellings и два runtime handles параллельно пишут в
 один journal без общего lock.
 
@@ -1281,7 +1292,8 @@ suffix по-прежнему отклоняется history validator-ом.
 
 Runtime пишет `SteeringQueued` и `SteeringDelivered` в обычные
 `EventEnvelope` с session/thread/turn/seq. `SteeringDelivered.kind` различает
-`steering` и `follow_up`. Доставленный текст сохраняется как user history; если
+`steering` и `follow_up`; `images` содержит canonical image refs для live и
+reconnect проекции. Доставленный ввод сохраняется как user history; если
 provider или workflow падает уже после доставки, runtime всё равно дописывает
 это user message в session store. При наличии валидного failure history update
 оно сохраняется вместе с завершёнными assistant/tool messages; если следующий

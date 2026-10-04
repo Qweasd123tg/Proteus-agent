@@ -162,3 +162,55 @@ fn retry_advice_does_not_override_pinned_local_compactor_backoff() {
     assert!(started.elapsed() >= minimum_backoff);
     assert_eq!(host.requests.lock().unwrap().len(), 2);
 }
+
+#[test]
+fn summary_overflow_cannot_reintroduce_image_payloads_into_replacement() {
+    use proteus_contracts::domain::ImageRef;
+    let messages = (0..8)
+        .map(|index| {
+            CanonicalMessage::new(
+                MessageRole::User,
+                vec![ContentPart::Image {
+                    image: ImageRef {
+                        id: format!("image-{index}"),
+                        name: "board.png".into(),
+                        mime_type: "image/png".into(),
+                        path: format!("/images/{index}").into(),
+                    },
+                }],
+            )
+        })
+        .collect::<Vec<_>>();
+    let active_id = messages.last().unwrap().id;
+    let mut host = TestHost::with_results(vec![
+        failure(ModelFailureKind::ContextWindowExceeded, "too many images"),
+        Ok(CanonicalModelResponse::new(
+            CanonicalMessage::text(MessageRole::Assistant, "Boards described"),
+            vec![],
+            FinishReason::Stop,
+        )),
+    ]);
+    let output = compact_with_host(input(messages, 500), &mut host);
+    assert!(output.changed);
+    let requests = host.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert!(requests[1].messages.len() < requests[0].messages.len());
+    assert!(
+        output
+            .messages
+            .iter()
+            .flat_map(|message| &message.parts)
+            .all(|part| !matches!(part.payload, ContentPart::Image { .. }))
+    );
+    let anchor = output
+        .user_message_replacements
+        .iter()
+        .find(|replacement| replacement.source_message_id == active_id)
+        .unwrap();
+    assert!(
+        output
+            .messages
+            .iter()
+            .any(|message| message.id == anchor.replacement_message_id)
+    );
+}

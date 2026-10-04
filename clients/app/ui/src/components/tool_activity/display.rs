@@ -20,14 +20,18 @@ pub(super) struct ToolStatic {
     name: String,
     args: Value,
     args_preview: String,
+    effective_args: Option<Value>,
     pub(super) display: ToolDisplay,
     pub(super) args_text: String,
+    pub(super) requested_json: String,
+    pub(super) effective_json: String,
 }
 
 impl ToolStatic {
     fn matches(&self, tool: &ToolActivity) -> bool {
         self.call_id == tool.call_id
             && self.name == tool.name
+            && self.effective_args == tool.effective_args
             && self.args == tool.args
             && self.args_preview == tool.args_preview
     }
@@ -36,10 +40,18 @@ impl ToolStatic {
         Self {
             call_id: tool.call_id.clone(),
             name: tool.name.clone(),
+            effective_args: tool.effective_args.clone(),
             args: tool.args.clone(),
             args_preview: tool.args_preview.clone(),
             display: tool_display(tool),
             args_text: tool_activity_args_preview(tool),
+            requested_json: format_json(&tool.args),
+            effective_json: tool
+                .effective_args
+                .as_ref()
+                .filter(|args| **args != tool.args)
+                .map(format_json)
+                .unwrap_or_default(),
         }
     }
 }
@@ -123,7 +135,7 @@ impl PatchOperation {
 
 pub(super) fn tool_display(tool: &ToolActivity) -> ToolDisplay {
     let patch = if tool.name == APPLY_PATCH_TOOL {
-        apply_patch_text_from_args(&tool.args)
+        apply_patch_text_from_args(tool.invocation_args())
             .or_else(|| apply_patch_text_from_args_preview(&tool.args_preview))
     } else {
         None
@@ -133,12 +145,12 @@ pub(super) fn tool_display(tool: &ToolActivity) -> ToolDisplay {
         .map(parse_apply_patch_files)
         .unwrap_or_default();
     let plan_steps = if tool.name == UPDATE_PLAN_TOOL {
-        parse_plan_steps(&tool.args)
+        parse_plan_steps(tool.invocation_args())
     } else {
         Vec::new()
     };
     let args = if patch_files.is_empty() && plan_steps.is_empty() {
-        tool_arg_previews(&tool.args)
+        tool_arg_previews(tool.invocation_args())
     } else {
         Vec::new()
     };
@@ -192,7 +204,7 @@ fn plan_summary(steps: &[PlanStepPreview]) -> String {
 
 pub(super) fn tool_activity_args_preview(tool: &ToolActivity) -> String {
     if tool.name == APPLY_PATCH_TOOL {
-        apply_patch_text_from_args(&tool.args)
+        apply_patch_text_from_args(tool.invocation_args())
             .or_else(|| apply_patch_text_from_args_preview(&tool.args_preview))
             .unwrap_or_else(|| tool.args_preview.clone())
     } else {
@@ -403,6 +415,7 @@ mod tests {
             "patch": "*** Begin Patch\n*** Add File: a.txt\n+hi\n*** End Patch"
         });
         let mut tool = ToolActivity {
+            effective_args: None,
             call_id: "call-1".to_owned(),
             name: APPLY_PATCH_TOOL.to_owned(),
             args: args.clone(),
@@ -483,6 +496,7 @@ mod tests {
         let patch = "*** Begin Patch\n*** Add File: a.txt\n+hi\n*** End Patch";
         let args = serde_json::json!({ "patch": patch });
         let display = tool_display(&ToolActivity {
+            effective_args: None,
             call_id: "call-1".to_owned(),
             name: "apply_patch".to_owned(),
             args: args.clone(),
@@ -509,6 +523,7 @@ mod tests {
             "hidden": null
         });
         let display = tool_display(&ToolActivity {
+            effective_args: None,
             call_id: "call-1".to_owned(),
             name: "read_file".to_owned(),
             args: args.clone(),

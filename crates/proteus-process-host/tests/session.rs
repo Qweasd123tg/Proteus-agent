@@ -78,6 +78,16 @@ fn run_tests() -> Result<()> {
             "terminate_kills_descendants_holding_stdio",
             terminate_kills_descendants_holding_stdio,
         ),
+        #[cfg(target_os = "linux")]
+        (
+            "natural_exit_cleans_descendants_before_reaping",
+            natural_exit_cleans_descendants_before_reaping,
+        ),
+        #[cfg(target_os = "linux")]
+        (
+            "lazy_restart_after_natural_exit_with_descendant_pipes",
+            lazy_restart_after_natural_exit_with_descendant_pipes,
+        ),
         (
             "host_terminate_interrupts_blocked_request",
             host_terminate_interrupts_blocked_request,
@@ -499,6 +509,73 @@ fn terminate_kills_descendants_holding_stdio() -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+fn natural_exit_cleans_descendants_before_reaping() -> Result<()> {
+    let spec = ProcessSpec::new("sh").args([
+        "-c",
+        "sleep 5 & printf '{\"descendant\":%s}\n' \"$!\"; read release; exit 0",
+    ]);
+    let mut transport = ProcessTransport::spawn(&spec, NewlineJsonFraming::default())?;
+    let frame = transport.recv_frame(SHORT_TIMEOUT)?;
+    let descendant = frame["descendant"].as_u64().expect("descendant pid") as u32;
+    let lifecycle = transport.lifecycle();
+    transport.send_frame(json!("release"))?;
+    assert!(lifecycle.wait_for_exit(SHORT_TIMEOUT)?.is_some());
+    let started = Instant::now();
+    transport.terminate()?;
+    assert!(started.elapsed() < Duration::from_secs(1));
+    assert_process_not_running(descendant)?;
+    // Published exit means that cleanup already happened. Repeated calls only
+    // return that status; they cannot signal a potentially reused numeric pid.
+    assert_eq!(lifecycle.terminate()?, lifecycle.terminate()?);
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn lazy_restart_after_natural_exit_with_descendant_pipes() -> Result<()> {
+    let host = ProcessHost::new(mock_spec("newline")?, NewlineJsonFraming::default());
+    let mut session = host.ensure_session()?;
+    let old_pid = session.pid();
+    let descendant = session
+        .request("spawn_descendant", json!({}), SHORT_TIMEOUT)?
+        .as_u64()
+        .expect("descendant pid") as u32;
+    let lifecycle = session.lifecycle();
+    session.notify("exit", json!({}))?;
+    drop(session);
+    assert!(lifecycle.wait_for_exit(SHORT_TIMEOUT)?.is_some());
+
+    let started = Instant::now();
+    let new_pid = host.request("pid", json!({}), SHORT_TIMEOUT)?;
+    assert_ne!(new_pid, json!(old_pid));
+    assert!(started.elapsed() < Duration::from_secs(1));
+    assert_process_not_running(descendant)?;
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn assert_process_not_running(pid: u32) -> Result<()> {
+    let deadline = Instant::now() + SHORT_TIMEOUT;
+    loop {
+        match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Ok(stat)
+                if stat
+                    .rsplit_once(") ")
+                    .is_some_and(|(_, fields)| fields.starts_with('Z')) =>
+            {
+                // Orphans may await their init process's reap, but no longer
+                // own pipes or execute code after group termination.
+                return Ok(());
+            }
+            result if Instant::now() >= deadline => {
+                return Err(anyhow!("descendant {pid} still running: {result:?}"));
+            }
+            _ => thread::sleep(Duration::from_millis(5)),
+        }
+    }
+}
+
 fn host_terminate_interrupts_blocked_request() -> Result<()> {
     let spec = mock_spec("newline")?;
     let host = Arc::new(ProcessHost::new(spec, NewlineJsonFraming::default()));
@@ -913,6 +990,11 @@ fn handle_request<F: Framing, W: Write>(
             std::thread::sleep(Duration::from_secs(60));
         },
         "exit" => std::process::exit(0),
+        #[cfg(unix)]
+        "spawn_descendant" => {
+            let descendant = std::process::Command::new("sleep").arg("5").spawn()?;
+            write_response(framing, writer, id, json!(descendant.id()))
+        }
         other => write_error(framing, writer, id, format!("unknown method: {other}")),
     }
 }
@@ -933,6 +1015,9 @@ fn handle_notification<F: Framing, W: Write>(
     writer: &mut W,
     message: &Value,
 ) -> Result<()> {
+    if message.get("method").and_then(Value::as_str) == Some("exit") {
+        std::process::exit(0);
+    }
     if message.get("method").and_then(Value::as_str) == Some("send_notifications") {
         framing.write_frame(
             writer,

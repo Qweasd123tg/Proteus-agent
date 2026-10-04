@@ -2,7 +2,7 @@ use std::{
     env, fs,
     io::{self, BufReader, Write},
     path::Path,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Result, anyhow, bail};
@@ -36,6 +36,11 @@ fn run_tests() -> Result<()> {
         (
             "persistent_did_open_and_did_change_diagnostics",
             persistent_did_open_and_did_change_diagnostics,
+        ),
+        #[cfg(target_os = "linux")]
+        (
+            "idle_server_exit_reopens_documents_in_new_generation",
+            idle_server_exit_reopens_documents_in_new_generation,
         ),
         (
             "missing_rust_analyzer_is_a_failed_tool_result",
@@ -124,6 +129,54 @@ fn missing_rust_analyzer_is_a_failed_tool_result() -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+fn idle_server_exit_reopens_documents_in_new_generation() -> Result<()> {
+    let workspace = tempfile::tempdir()?;
+    let controls = tempfile::tempdir()?;
+    let trigger = controls.path().join("exit");
+    let pid_file = controls.path().join("pid");
+    fs::write(
+        workspace.path().join("lib.rs"),
+        "fn value() -> u32 { broken }\n",
+    )?;
+    let tool = RustLspDiagnosticsTool::with_process(
+        env::current_exe()?.to_string_lossy(),
+        [
+            "__mock_lsp".to_owned(),
+            trigger.display().to_string(),
+            pid_file.display().to_string(),
+        ],
+        TEST_TIMEOUT,
+        TEST_TIMEOUT,
+    );
+    let first = invoke(&tool, workspace.path(), "lib.rs")?;
+    if !first.ok || first.metadata["document_version"] != 1 {
+        bail!("initial diagnostics failed: {first:?}");
+    }
+    let pid: u32 = fs::read_to_string(&pid_file)?.parse()?;
+    fs::write(&trigger, "exit while idle")?;
+    let deadline = Instant::now() + TEST_TIMEOUT;
+    while Path::new(&format!("/proc/{pid}")).exists() {
+        if Instant::now() >= deadline {
+            bail!("mock LSP did not exit and get reaped during idle");
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    fs::remove_file(trigger)?;
+    fs::write(
+        workspace.path().join("lib.rs"),
+        "fn value() -> u32 { 42 }\n",
+    )?;
+    let replacement = invoke(&tool, workspace.path(), "lib.rs")?;
+    if !replacement.ok || replacement.metadata["document_version"] != 1 {
+        bail!("new generation did not reopen/reset document version: {replacement:?}");
+    }
+    if replacement.output != "No Rust diagnostics for lib.rs." {
+        bail!("unexpected replacement diagnostics: {}", replacement.output);
+    }
+    Ok(())
+}
+
 struct TestToolHost;
 
 impl ToolModuleHost for TestToolHost {
@@ -155,6 +208,15 @@ fn invoke(tool: &RustLspDiagnosticsTool, cwd: &Path, path: &str) -> Result<ToolR
 }
 
 fn run_mock_lsp() -> Result<()> {
+    if let (Some(trigger), Some(pid_file)) = (env::args().nth(2), env::args().nth(3)) {
+        fs::write(pid_file, std::process::id().to_string())?;
+        std::thread::spawn(move || {
+            while !Path::new(&trigger).exists() {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            std::process::exit(0);
+        });
+    }
     let framing = ContentLengthFraming::default();
     let stdin = io::stdin();
     let stdout = io::stdout();

@@ -4,9 +4,8 @@ use super::super::normalize::{
 };
 use super::{ReplayState, mismatch};
 use crate::{
-    contracts::{
-        ExecutionHooks, HookEvent, HookInput, HookResponse, HookStepOutcome, apply_hook_response,
-    },
+    contracts::{ExecutionHooks, HookEvent, HookInput, HookResponse, HookStepOutcome},
+    core::session_journal::apply_recorded_hook_response,
     domain::CallId,
     model_standard::RequestShaper,
 };
@@ -104,7 +103,7 @@ impl ExecutionHooks for ReplayHooks {
             match &step.outcome {
                 HookStepOutcome::Accepted { response } => {
                     let response = rewrite_response(response, &inner.expected_to_actual)?;
-                    event = apply_hook_response(&event, &response)?;
+                    event = apply_recorded_hook_response(&event, &response)?;
                     if let HookEvent::BeforeModel { request, .. } = &mut event {
                         *request =
                             RequestShaper.shape(request.clone(), &self.state.capabilities())?;

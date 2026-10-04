@@ -17,7 +17,6 @@ use proteus_core::core::{
     render_assembly_plan, render_topology_map, render_topology_markdown, render_topology_mermaid,
     render_topology_runtime_mermaid, render_topology_runtime_path, render_topology_table,
 };
-use serde_json::Value;
 use tokio::time::sleep;
 
 mod cli_app;
@@ -191,8 +190,15 @@ async fn main() -> Result<()> {
         .await;
     }
     if let CliCommand::ServerHttp(http_config) = command {
-        return run_http_app_server(config, cwd, config_path, cli.resume_session, http_config)
-            .await;
+        return run_http_app_server(
+            config,
+            cwd,
+            config_path,
+            cli.resume_session,
+            cli.new_session,
+            http_config,
+        )
+        .await;
     }
     if cli.interactive || cli.task.is_empty() {
         let mut client = CliAppClient::launch(
@@ -609,75 +615,6 @@ async fn run_repl(client: &mut CliAppClient) -> Result<()> {
     Ok(())
 }
 
-fn repl_header(config: &Value) -> Result<String> {
-    let profile = config_string(config, &["profile"])?;
-    let model = config_string(config, &["model", "label"])?;
-    let cwd = config_string(config, &["cwd"])?;
-    let modules = config
-        .get("modules")
-        .and_then(Value::as_array)
-        .map(|modules| {
-            modules
-                .iter()
-                .filter_map(|module| {
-                    Some(format!(
-                        "{}={}",
-                        module.get("slot")?.as_str()?,
-                        module.get("id")?.as_str()?
-                    ))
-                })
-                .collect::<Vec<_>>()
-                .join(" ")
-        })
-        .unwrap_or_default();
-    let tools = config
-        .get("tools_enabled")
-        .and_then(Value::as_array)
-        .map(|tools| {
-            tools
-                .iter()
-                .filter_map(Value::as_str)
-                .collect::<Vec<_>>()
-                .join(", ")
-        })
-        .unwrap_or_default();
-    let mut lines = vec![
-        "Proteus REPL".to_owned(),
-        "type a task, /help, or /exit".to_owned(),
-        format!("profile: {profile}"),
-        format!("model: {model}"),
-        format!("cwd: {cwd}"),
-        format!("modules: {modules}"),
-        format!("tools: {tools}"),
-    ];
-    if let Some(session_dir) = config.get("session_dir").and_then(Value::as_str) {
-        lines.push(format!("session: {session_dir}"));
-    }
-    Ok(small_block("Proteus", &lines))
-}
-
-fn small_block(title: &str, lines: &[String]) -> String {
-    let text_width = lines
-        .iter()
-        .map(|line| line.chars().count())
-        .max()
-        .unwrap_or_default()
-        .max(72);
-    let inner_width = text_width + 2;
-    let title = format!(" {title} ");
-    let right = inner_width.saturating_sub(title.chars().count());
-    let mut rendered = format!("╭{}{}╮\n", title, "─".repeat(right));
-    for line in lines {
-        rendered.push_str(&format!(
-            "│ {}{} │\n",
-            line,
-            " ".repeat(text_width.saturating_sub(line.chars().count()))
-        ));
-    }
-    rendered.push_str(&format!("╰{}╯", "─".repeat(inner_width)));
-    rendered
-}
-
 fn assistant_output(rendered: &str) -> String {
     match rendered.split_once('\n') {
         Some((first, rest)) => format!("● {first}\n{rest}"),
@@ -782,82 +719,9 @@ fn composer_width(footer: &str) -> usize {
     footer.chars().count().max(72)
 }
 
-fn initial_footer(config: &Value) -> Result<String> {
-    let model = config_string(config, &["model", "label"])?;
-    Ok(format!(
-        "? for shortcuts    model {model} · Context waiting"
-    ))
-}
-
-fn footer_from_output(config: &Value, output: &AgentOutput) -> Result<String> {
-    let model = footer_model(config, output)?;
-    let context = footer_context(output);
-    let session = output
-        .metadata
-        .get("session_id")
-        .and_then(Value::as_str)
-        .map(short_id)
-        .unwrap_or("unknown");
-    Ok(format!(
-        "? for shortcuts    {model} · {context} · session {session}"
-    ))
-}
-
-fn footer_model(config: &Value, output: &AgentOutput) -> Result<String> {
-    if let Some(model) = output.metadata.get("model") {
-        let provider = model.get("provider").and_then(Value::as_str);
-        let name = model
-            .get("name")
-            .and_then(Value::as_str)
-            .or_else(|| model.get("model").and_then(Value::as_str));
-        if let Some(name) = name {
-            return Ok(match provider {
-                Some(provider) if !provider.is_empty() => format!("model {provider}/{name}"),
-                _ => format!("model {name}"),
-            });
-        }
-    }
-
-    Ok(format!(
-        "model {}",
-        config_string(config, &["model", "label"])?
-    ))
-}
-
-fn config_string<'a>(config: &'a Value, path: &[&str]) -> Result<&'a str> {
-    let mut value = config;
-    for segment in path {
-        value = value
-            .get(*segment)
-            .ok_or_else(|| anyhow::anyhow!("app-server config is missing {segment}"))?;
-    }
-    value.as_str().ok_or_else(|| {
-        anyhow::anyhow!("app-server config field {} is not a string", path.join("."))
-    })
-}
-
-fn footer_context(output: &AgentOutput) -> String {
-    let context = output.metadata.get("context");
-    let tokens = context
-        .and_then(|context| context.get("token_estimate"))
-        .and_then(Value::as_u64)
-        .unwrap_or_default();
-    let chunks = context
-        .and_then(|context| context.get("chunks"))
-        .and_then(Value::as_u64)
-        .unwrap_or_default();
-    let max_tokens = 200_000_u64;
-    let percent = ((tokens as f64 / max_tokens as f64) * 100.0).clamp(0.0, 100.0);
-    let chunk_word = if chunks == 1 { "chunk" } else { "chunks" };
-    format!(
-        "Context {:.0}% · {} in · {} {}",
-        percent, tokens, chunks, chunk_word
-    )
-}
-
-fn short_id(id: &str) -> &str {
-    id.get(..8).unwrap_or(id)
-}
+#[path = "main/repl_render.rs"]
+mod repl_render;
+use repl_render::{footer_from_output, initial_footer, repl_header, small_block};
 
 #[cfg(test)]
 #[path = "main_tests.rs"]

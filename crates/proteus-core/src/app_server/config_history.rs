@@ -151,7 +151,7 @@ mod tests {
         std::fs::create_dir(&profile).unwrap();
         assert_eq!(
             config_history_dir(&profile),
-            dir.path().join("config-history/work/config.toml")
+            dir.path().join("config-history/work/config-builder.toml")
         );
     }
 }

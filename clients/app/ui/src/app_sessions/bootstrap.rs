@@ -33,6 +33,7 @@ impl AppSessionActions {
             self.runtime_settings
                 .set_workspace_label
                 .set(bootstrap.cwd.to_string_lossy().into_owned());
+            let catalog_revision = self.event_stream.catalog.invalidate();
             let catalog = match get_json::<Vec<SessionSummary>>("/sessions").await {
                 Ok(catalog) => catalog,
                 Err(error) => {
@@ -55,7 +56,9 @@ impl AppSessionActions {
                 bootstrap.session_dir,
                 &catalog,
             );
-            self.set_sidebar_sessions.set(catalog);
+            if self.event_stream.catalog.current(catalog_revision) {
+                self.set_sidebar_sessions.set(catalog);
+            }
             let is_new = selected.is_none();
             let result = match selected {
                 Some(session_dir) => resume_session(session_dir).await,

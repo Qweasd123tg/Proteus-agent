@@ -244,10 +244,14 @@ contract.
   обрезает только обнаруженный лишний хвост и отклоняет неожиданно укороченный
   файл.
 - Append считается подтверждённым только после `flush` и `sync_data`. При
-  ошибке или отмене armed rollback возвращает файл к committed offset; перед
+  ошибке armed rollback возвращает файл к committed offset; перед
   следующим append незавершённый recovery повторяется. После cold start
   незавершённая последняя JSONL-строка может быть отброшена, а ошибка в середине
   файла завершает load явно.
+- Принятая операция записи владеет writer lock до commit или rollback внутри
+  blocking worker. Отмена вызывающего прекращает ожидание, но не эту запись:
+  следующая операция, включая `TurnSettled`, ждёт её завершения. Фоновый IO
+  не может дописать record после rollback или освобождения writer lock.
 - History revision меняется только вместе с успешно записанным
   `history_mutated` или `tool_result_recorded` для активного history binding.
 - UI notification и telemetry event публикуются после canonical commit там,

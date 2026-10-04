@@ -13,6 +13,13 @@ use std::sync::Arc;
 
 const MAX_CONTINUATIONS: u32 = 8;
 
+/// Host-owned delivered-input normalization. It observes accepted deliveries;
+/// it never admits queued messages at a completion boundary.
+#[async_trait]
+pub(crate) trait CandidateHistoryNormalizer: Send + Sync {
+    async fn normalize(&self, output: &mut WorkflowOutput) -> Result<()>;
+}
+
 // Workflows can emit candidate finals. Only an accepted final reaches the UI.
 struct ReviewedEvents(Arc<crate::contracts::EventEmitter>);
 #[async_trait]
@@ -39,6 +46,7 @@ pub(super) async fn run(
     task: AgentTask,
     initial_history: Vec<CanonicalMessage>,
     context: AgentWorkflowContext,
+    normalizer: Option<&dyn CandidateHistoryNormalizer>,
 ) -> Result<WorkflowOutput> {
     if !context.execution.hooks.is_active() {
         return workflow.run(task, initial_history, context.into()).await;
@@ -66,9 +74,12 @@ pub(super) async fn run(
                 128,
             ));
         }
-        let output = workflow
+        let mut output = workflow
             .run(task.clone(), history, invocation.into())
             .await?;
+        if let Some(normalizer) = normalizer {
+            normalizer.normalize(&mut output).await?;
+        }
         let progress = WorkflowHistoryUpdate {
             new_messages: output.new_messages.clone(),
             history_replacement: output.history_replacement.clone(),

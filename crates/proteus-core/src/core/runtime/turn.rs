@@ -377,6 +377,7 @@ impl AgentRuntime {
                     Event::SteeringDelivered {
                         message_id: user_message.id,
                         text: task.text.clone(),
+                        images: user_message.image_refs().cloned().collect(),
                         kind,
                         queued_count: self
                             .session
@@ -439,6 +440,7 @@ impl AgentRuntime {
             task.clone(),
             history.clone(),
             workflow_context,
+            Some(checkpoint_recorder.as_ref()),
         );
         let workflow_result = if workflow_timeout_ms == 0 {
             workflow.await

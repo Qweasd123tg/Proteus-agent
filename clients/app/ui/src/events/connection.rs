@@ -146,6 +146,7 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventConnection
                         &pending,
                         bindings.set_sidebar_sessions,
                         bindings.set_sidebar_sessions_status,
+                        bindings.catalog,
                     )
                 }
                 Err(error) => push_message(

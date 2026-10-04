@@ -1,6 +1,6 @@
 use std::{
     fs::OpenOptions as StdOpenOptions,
-    io::ErrorKind,
+    io::{ErrorKind, Write},
     path::{Component, Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -9,19 +9,21 @@ use anyhow::{Context, Result, anyhow, bail};
 use proteus_contracts::domain::{ExecutionId, SessionId, ThreadId, TurnId, new_record_id};
 use ring::digest::{SHA256, digest};
 use serde::{Deserialize, Serialize};
-use tokio::{fs::OpenOptions, io::AsyncWriteExt};
 
 use super::{
     projection::{JournalProjection, JournalValidationState},
     types::{JOURNAL_SCHEMA_VERSION, JournalEntry, JournalKind, JournalRecord},
 };
 
+mod append;
 mod ownership;
+pub(crate) use append::append_record;
 mod recovery;
 mod redaction;
 
 use ownership::SessionWriteOwnership;
 use recovery::{AppendRollback, restore_committed_offset};
+pub(super) use redaction::contains_redacted_sensitive_value;
 use redaction::redact_sensitive_values;
 pub(crate) use redaction::redacted_history;
 
@@ -68,6 +70,8 @@ pub(crate) struct JournalWriterState {
     _ownership: Option<SessionWriteOwnership>,
     #[cfg(test)]
     initial_recovery_scans: usize,
+    #[cfg(test)]
+    append_pause: Option<append::AppendPause>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -97,105 +101,6 @@ impl JournalRecordAttribution {
             turn_id,
         }
     }
-}
-
-pub(crate) async fn append_record(
-    session_dir: &Path,
-    session_id: SessionId,
-    attribution: JournalRecordAttribution,
-    entry: JournalEntry,
-    blob_threshold_bytes: usize,
-    state: &mut JournalWriterState,
-) -> Result<JournalRecord> {
-    initialize_writer_state(session_dir, session_id, state)?;
-    let path = journal_path(session_dir);
-    restore_committed_offset(&path, state.committed_offset)?;
-
-    let kind = entry.kind();
-    let mut payload = entry.payload_value()?;
-    redact_sensitive_values(&mut payload);
-    let payload_bytes = serde_json::to_vec(&payload)?;
-    if payload_bytes.len() > MAX_PAYLOAD_BYTES {
-        bail!(
-            "journal payload is {} bytes, maximum is {} bytes",
-            payload_bytes.len(),
-            MAX_PAYLOAD_BYTES
-        );
-    }
-    let entry = JournalEntry::from_kind_and_payload(kind, payload.clone())
-        .context("redacted journal payload no longer matches its canonical DTO")?;
-    let record = JournalRecord {
-        schema_version: JOURNAL_SCHEMA_VERSION,
-        record_id: new_record_id(),
-        session_seq: state.next_seq,
-        timestamp_ms: unix_timestamp_ms(),
-        session_id,
-        execution_id: attribution.execution_id,
-        thread_id: attribution.thread_id,
-        turn_id: attribution.turn_id,
-        entry,
-    };
-    let mut next_validation = state.validation.clone();
-    next_validation.apply(&record)?;
-
-    let stored_payload = if payload_bytes.len() >= blob_threshold_bytes {
-        write_blob(session_dir, &payload_bytes).await?
-    } else {
-        StoredPayload::Inline { value: payload }
-    };
-    let stored = StoredJournalRecord {
-        schema_version: record.schema_version,
-        record_id: record.record_id,
-        session_seq: record.session_seq,
-        timestamp_ms: record.timestamp_ms,
-        session_id: record.session_id,
-        execution_id: record.execution_id,
-        thread_id: record.thread_id,
-        turn_id: record.turn_id,
-        kind,
-        payload: stored_payload,
-    };
-    let mut line = serde_json::to_vec(&stored)?;
-    line.push(b'\n');
-    let next_committed_offset = state
-        .committed_offset
-        .checked_add(line.len() as u64)
-        .ok_or_else(|| anyhow!("journal offset overflow for {}", path.display()))?;
-    let mut rollback = AppendRollback::new(path.clone(), state.committed_offset);
-    let write_result = async {
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
-            .await
-            .with_context(|| format!("failed to open {}", path.display()))?;
-        file.write_all(&line)
-            .await
-            .with_context(|| format!("failed to append {}", path.display()))?;
-        file.flush()
-            .await
-            .with_context(|| format!("failed to flush {}", path.display()))?;
-        file.sync_data()
-            .await
-            .with_context(|| format!("failed to sync {}", path.display()))?;
-        Ok::<(), anyhow::Error>(())
-    }
-    .await;
-    if let Err(error) = write_result {
-        return match rollback.rollback() {
-            Ok(()) => Err(error),
-            Err(rollback_error) => Err(anyhow!(
-                "{error:#}; journal rollback failed: {rollback_error:#}; next append will retry recovery"
-            )),
-        };
-    }
-    rollback.commit();
-
-    state.next_seq = state.next_seq.saturating_add(1);
-    state.validation = next_validation;
-    state.committed_offset = next_committed_offset;
-    state.usage.apply(&record);
-    Ok(record)
 }
 
 pub(crate) fn initialize_writer_state(
@@ -380,13 +285,13 @@ fn journal_len(path: &Path) -> Result<u64> {
     }
 }
 
-async fn write_blob(session_dir: &Path, bytes: &[u8]) -> Result<StoredPayload> {
+fn write_blob(session_dir: &Path, bytes: &[u8]) -> Result<StoredPayload> {
     let sha256 = sha256_hex(bytes);
     let relative_path = PathBuf::from(BLOBS_DIR).join(format!("{sha256}.json"));
     let path = session_dir.join(&relative_path);
-    tokio::fs::create_dir_all(session_dir.join(BLOBS_DIR)).await?;
-    if tokio::fs::try_exists(&path).await? {
-        let existing = tokio::fs::read(&path).await?;
+    std::fs::create_dir_all(session_dir.join(BLOBS_DIR))?;
+    if path.try_exists()? {
+        let existing = std::fs::read(&path)?;
         if existing != bytes {
             bail!("content-addressed blob collision at {}", path.display());
         }
@@ -394,26 +299,25 @@ async fn write_blob(session_dir: &Path, bytes: &[u8]) -> Result<StoredPayload> {
         let tmp_path = session_dir
             .join(BLOBS_DIR)
             .join(format!(".{sha256}.tmp.{}", new_record_id()));
-        let mut file = OpenOptions::new()
+        let mut file = StdOpenOptions::new()
             .create_new(true)
             .write(true)
             .open(&tmp_path)
-            .await
             .with_context(|| format!("failed to create {}", tmp_path.display()))?;
-        file.write_all(bytes).await?;
-        file.flush().await?;
-        file.sync_data().await?;
-        match tokio::fs::rename(&tmp_path, &path).await {
+        file.write_all(bytes)?;
+        file.flush()?;
+        file.sync_data()?;
+        match std::fs::rename(&tmp_path, &path) {
             Ok(()) => {}
             Err(error) if error.kind() == ErrorKind::AlreadyExists => {
-                let existing = tokio::fs::read(&path).await?;
+                let existing = std::fs::read(&path)?;
                 if existing != bytes {
                     bail!("content-addressed blob collision at {}", path.display());
                 }
-                let _ = tokio::fs::remove_file(&tmp_path).await;
+                let _ = std::fs::remove_file(&tmp_path);
             }
             Err(error) => {
-                let _ = tokio::fs::remove_file(&tmp_path).await;
+                let _ = std::fs::remove_file(&tmp_path);
                 return Err(error)
                     .with_context(|| format!("failed to install blob {}", path.display()));
             }

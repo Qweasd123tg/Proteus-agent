@@ -16,6 +16,7 @@ impl AgentRuntime {
     }
 
     pub async fn set_model_name(&self, model: String) -> Result<()> {
+        let _guard = self.services.reload_lock.lock().await;
         let model = model.trim();
         anyhow::ensure!(!model.is_empty(), "model name must not be empty");
         let admission = self.capture_execution_snapshot().await;
@@ -68,6 +69,7 @@ impl AgentRuntime {
     /// через config builder: `reload_assembly` пересобирает model adapter, но
     /// не трогает runtime override model_ref.
     pub async fn set_model_ref(&self, model_ref: ModelRef) -> Result<()> {
+        let _guard = self.services.reload_lock.lock().await;
         let snapshot = self.snapshot().await;
         let tools = snapshot.registry.tools_for_model(Some(&model_ref))?;
         let mut state = self.services.execution_state.write().await;
@@ -85,6 +87,7 @@ impl AgentRuntime {
     }
 
     pub async fn set_reasoning_enabled(&self, enabled: bool) {
+        let _guard = self.services.reload_lock.lock().await;
         let mut state = self.services.execution_state.write().await;
         let reasoning = &mut state.reasoning;
         if enabled {
@@ -101,6 +104,7 @@ impl AgentRuntime {
     }
 
     pub async fn set_reasoning_effort(&self, effort: Option<String>) -> Result<()> {
+        let _guard = self.services.reload_lock.lock().await;
         let snapshot = self.snapshot().await;
         let catalog = snapshot.registry.model_catalog().await?;
         let mut state = self.services.execution_state.write().await;

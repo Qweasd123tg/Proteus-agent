@@ -64,7 +64,8 @@ pub(super) fn context_map_segments(
         let buffer = trigger_tokens
             .filter(|trigger| *trigger < max)
             .map(|trigger| max - trigger)
-            .unwrap_or(0);
+            .unwrap_or(0)
+            .min(max.saturating_sub(used_tokens));
         let free = max.saturating_sub(used_tokens).saturating_sub(buffer);
         if free > 0 {
             segments.push(ContextMapSegment {

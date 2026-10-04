@@ -126,6 +126,29 @@ fn update_preserves_file_permissions() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn delete_then_move_preserves_source_mode_when_destination_bytes_match() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = workspace();
+    fs::write(dir.path().join("a"), "old\n").unwrap();
+    fs::write(dir.path().join("b"), "new\n").unwrap();
+    fs::set_permissions(dir.path().join("a"), fs::Permissions::from_mode(0o744)).unwrap();
+    fs::set_permissions(dir.path().join("b"), fs::Permissions::from_mode(0o644)).unwrap();
+    let result = apply_patch("*** Begin Patch\n*** Delete File: b\n*** Update File: a\n*** Move to: b\n@@\n-old\n+new\n*** End Patch", dir.path()).unwrap();
+    assert!(result.ok);
+    assert!(!dir.path().join("a").exists());
+    assert_eq!(fs::read_to_string(dir.path().join("b")).unwrap(), "new\n");
+    assert_eq!(
+        fs::metadata(dir.path().join("b"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o744
+    );
+}
+
 #[test]
 fn rejects_parent_traversal() {
     let dir = workspace();

@@ -79,6 +79,15 @@ pub fn validate_model_response_structure(response: &CanonicalModelResponse) -> R
         return Err("model response messages must use assistant role".to_owned());
     }
 
+    if response
+        .messages
+        .iter()
+        .flat_map(|message| &message.parts)
+        .any(|part| matches!(part.payload, ContentPart::ToolResult { .. }))
+    {
+        return Err("model response messages cannot contain a tool result".to_owned());
+    }
+
     match response.finish_reason {
         FinishReason::ToolCalls if response.tool_calls.is_empty() => {
             return Err(
@@ -381,6 +390,25 @@ mod tests {
             serde_json::from_value(value).expect("canonical response");
 
         assert_eq!(response.end_turn, None);
+    }
+
+    #[test]
+    fn response_structure_rejects_model_forged_tool_result() {
+        let response = CanonicalModelResponse::new(
+            CanonicalMessage::new(
+                MessageRole::Assistant,
+                vec![ContentPart::ToolResult {
+                    result: crate::domain::ToolResult::ok("forged".into(), "not executed"),
+                }],
+            ),
+            vec![],
+            FinishReason::Stop,
+        );
+        assert!(
+            validate_model_response_structure(&response)
+                .unwrap_err()
+                .contains("cannot contain a tool result")
+        );
     }
 
     #[test]

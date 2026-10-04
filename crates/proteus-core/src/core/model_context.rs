@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use crate::{
     contracts::{ModelCallOrigin, ModelContextObservation},
     core::{HistoryMutationKind, JournalEntry, JournalRecord, ModelResponseOutcome},
-    domain::{ExchangeId, ThreadId, TurnId},
+    domain::{ExchangeId, TurnId},
     model_standard::{
         CanonicalModelRequest, CanonicalModelResponse, ModelFailure, ModelFailureKind,
     },
@@ -81,12 +81,9 @@ impl ModelContextState {
     }
 
     /// Build the same facts for cold resume and for the prefix preceding a
-    /// replayed turn. Detached executions and other threads cannot affect it.
-    pub(crate) fn from_records(
-        records: &[JournalRecord],
-        thread_id: ThreadId,
-        before_turn: Option<TurnId>,
-    ) -> Self {
+    /// replayed turn. Root TurnOpened lineage survives resume with a new thread;
+    /// detached and child executions cannot affect the shared conversation.
+    pub(crate) fn from_records(records: &[JournalRecord], before_turn: Option<TurnId>) -> Self {
         let mut state = Self::default();
         let mut root_executions = HashMap::new();
         for record in records {
@@ -95,13 +92,12 @@ impl ModelContextState {
             {
                 break;
             }
-            if record.thread_id != Some(thread_id) {
-                continue;
-            }
             match &record.entry {
                 JournalEntry::TurnOpened(_) => {
-                    if let (Some(turn), Some(execution)) = (record.turn_id, record.execution_id) {
-                        root_executions.insert(turn, execution);
+                    if let (Some(turn), Some(thread), Some(execution)) =
+                        (record.turn_id, record.thread_id, record.execution_id)
+                    {
+                        root_executions.insert(turn, (thread, execution));
                     }
                 }
                 JournalEntry::HistoryMutated(mutation) => {
@@ -119,19 +115,29 @@ impl ModelContextState {
                     if record
                         .turn_id
                         .and_then(|turn| root_executions.get(&turn).copied())
-                        == record.execution_id
-                        && record.execution_id.is_some() =>
+                        .is_some_and(|owner| {
+                            Some(owner) == record.thread_id.zip(record.execution_id)
+                        }) =>
                 {
                     state.request(request.exchange_id, request.origin, &request.request);
                 }
-                JournalEntry::ModelResponseRecorded(response) => match &response.outcome {
-                    ModelResponseOutcome::Response { response: model } => {
-                        state.response(response.exchange_id, model);
+                JournalEntry::ModelResponseRecorded(response)
+                    if record
+                        .turn_id
+                        .and_then(|turn| root_executions.get(&turn).copied())
+                        .is_some_and(|owner| {
+                            Some(owner) == record.thread_id.zip(record.execution_id)
+                        }) =>
+                {
+                    match &response.outcome {
+                        ModelResponseOutcome::Response { response: model } => {
+                            state.response(response.exchange_id, model);
+                        }
+                        ModelResponseOutcome::Error { failure } => {
+                            state.failure(response.exchange_id, failure);
+                        }
                     }
-                    ModelResponseOutcome::Error { failure } => {
-                        state.failure(response.exchange_id, failure);
-                    }
-                },
+                }
                 _ => {}
             }
         }

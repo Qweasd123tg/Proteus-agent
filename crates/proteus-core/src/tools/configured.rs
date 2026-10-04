@@ -1,10 +1,10 @@
 use std::{path::Path, process::Stdio, sync::Arc};
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 use async_trait::async_trait;
 use proteus_process_host::ProcessSpec;
 use serde_json::json;
-use tokio::{io::AsyncWriteExt, process::Command};
+use tokio::process::Command;
 
 use crate::{
     contracts::{PatchApplier, SearchBackend, Tool, ToolContext, ToolRegistry, ToolSource},
@@ -75,17 +75,10 @@ impl Tool for ConfiguredProcessTool {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        let mut child = command.spawn()?;
-
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| anyhow!("failed to open process tool stdin"))?;
-        stdin.write_all(call.args.to_string().as_bytes()).await?;
-        drop(stdin);
-
+        let child = command.spawn()?;
         let output = wait_with_bounded_output(
             child,
+            Some(call.args.to_string().into_bytes()),
             DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
             DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
         )
@@ -331,5 +324,39 @@ mod tests {
         assert_eq!(result.output.len(), DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES);
         assert_eq!(result.metadata["stdout_truncated"], true);
         assert_eq!(result.metadata["stdout_original_bytes"], 50_000);
+    }
+
+    #[tokio::test]
+    async fn configured_process_drains_preamble_while_writing_large_input() {
+        let cwd = tempfile::tempdir().unwrap();
+        let tool = ConfiguredProcessTool::new(
+            ToolSpec::new("duplex", "reads large input", json!({}), ToolSafety::RunsCommands),
+            ProcessSpec::new("python3").args(vec![
+                "-c".to_owned(),
+                "import json,sys; sys.stderr.write('x' * 1048576); sys.stderr.flush(); args=json.load(sys.stdin); print(len(args['payload']))".to_owned(),
+            ]),
+        );
+        let call = ToolCall::new(
+            new_call_id(),
+            "duplex",
+            json!({ "payload": "x".repeat(1048576) }),
+        );
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            tool.invoke(
+                &call,
+                ToolContext::new(
+                    cwd.path().to_owned(),
+                    ExecutionAttribution::detached(new_execution_id()),
+                ),
+            ),
+        )
+        .await
+        .expect("stdin and stderr deadlocked")
+        .unwrap();
+        assert!(result.ok);
+        assert_eq!(result.output.trim(), "1048576");
+        assert_eq!(result.metadata["stderr_truncated"], true);
+        assert_eq!(result.metadata["stderr_original_bytes"], 1048576);
     }
 }

@@ -1,5 +1,6 @@
 const SETTINGS_KEY = 'proteus.ui.extensions';
 const subscribers = new WeakMap();
+const externalListeners = new WeakMap();
 
 export function settingsStore(storage) {
   return {
@@ -21,9 +22,25 @@ export function extensionStorage(storage, id) {
     subscribe(callback) {
       if (!listenersById.has(id)) listenersById.set(id, new Set());
       listenersById.get(id).add(callback);
+      if(!externalListeners.has(storage)&&globalThis.addEventListener){
+        const listener=event=>{
+          if(event.storageArea!==storage)return;
+          for(const [namespace,callbacks]of listenersById){
+            if(event.key!==null&&!event.key?.startsWith(`proteus.ui.extension.${namespace}:`))continue;
+            for(const callback of callbacks)callback();
+          }
+        };
+        globalThis.addEventListener('storage',listener);
+        externalListeners.set(storage,listener);
+      }
       return () => {
         const listeners = listenersById.get(id); listeners?.delete(callback);
         if (!listeners?.size) listenersById.delete(id);
+        if(!listenersById.size){
+          const listener=externalListeners.get(storage);
+          if(listener)globalThis.removeEventListener('storage',listener);
+          externalListeners.delete(storage);
+        }
       };
     },
   });

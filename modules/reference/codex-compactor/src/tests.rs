@@ -15,7 +15,7 @@ use proteus_contracts::{
 use serde_json::json;
 
 #[test]
-fn recent_user_images_survive_image_only_input_and_text_truncation() {
+fn compacted_image_users_match_upstream_text_only_reconstruction() {
     use proteus_contracts::domain::ImageRef;
     let image = ImageRef {
         id: "fixture".into(),
@@ -33,30 +33,84 @@ fn recent_user_images_survive_image_only_input_and_text_truncation() {
         crate::history::collect_user_messages(&[image_only.clone()]).len(),
         1
     );
+    let selected = select_recent_user_messages(&[image_only.clone()], 100);
+    assert_eq!(selected.messages.len(), 1);
+    assert!(selected.messages[0].display_text().is_empty());
+    assert_eq!(selected.replacements[0].source_message_id, image_only.id);
     assert_eq!(
-        select_recent_user_messages(&[image_only.clone()], 100).messages,
-        vec![image_only]
+        selected.replacements[0].replacement_message_id,
+        selected.messages[0].id
     );
+    assert!(
+        selected.messages[0]
+            .parts
+            .iter()
+            .all(|part| matches!(part.payload, ContentPart::Text { .. }))
+    );
+    let next_users = crate::history::collect_user_messages(&selected.messages);
+    let next = select_recent_user_messages(&next_users, 100);
+    assert_eq!(
+        next.messages, selected.messages,
+        "empty image-only anchor survives repeated compaction"
+    );
+    assert!(next.replacements.is_empty());
     let with_text = CanonicalMessage::new(
         MessageRole::User,
         vec![
-            ContentPart::Image {
-                image: image.clone(),
-            },
+            ContentPart::Image { image },
             ContentPart::Text {
                 text: "A lengthy question about the photograph".into(),
             },
         ],
     );
-    let selected = select_recent_user_messages(&[with_text], 1);
+    let selected = select_recent_user_messages(&[with_text.clone()], 1);
     assert_eq!(selected.messages.len(), 1);
+    assert!(!selected.messages[0].display_text().is_empty());
     assert!(
         selected.messages[0]
             .parts
             .iter()
-            .any(|part| matches!(&part.payload, ContentPart::Image {image:kept} if kept == &image))
+            .all(|part| matches!(part.payload, ContentPart::Text { .. }))
     );
-    assert_eq!(selected.replacements.len(), 1);
+    assert_eq!(selected.replacements[0].source_message_id, with_text.id);
+}
+
+#[test]
+fn many_image_only_users_leave_no_image_payload_in_replacement() {
+    use proteus_contracts::domain::ImageRef;
+    let users = (0..100)
+        .map(|index| {
+            CanonicalMessage::new(
+                MessageRole::User,
+                vec![ContentPart::Image {
+                    image: ImageRef {
+                        id: format!("image-{index}"),
+                        name: "large.png".into(),
+                        mime_type: "image/png".into(),
+                        path: format!("/images/{index}").into(),
+                    },
+                }],
+            )
+        })
+        .collect::<Vec<_>>();
+    let selected = select_recent_user_messages(&users, 1);
+    assert!(
+        selected
+            .messages
+            .iter()
+            .flat_map(|message| &message.parts)
+            .all(|part| !matches!(part.payload, ContentPart::Image { .. }))
+    );
+    assert_eq!(selected.replacements.len(), users.len());
+    assert_eq!(
+        selected.replacements.last().unwrap().source_message_id,
+        users.last().unwrap().id
+    );
+    assert!(
+        users
+            .iter()
+            .all(|message| matches!(message.parts[0].payload, ContentPart::Image { .. }))
+    );
 }
 
 use crate::{

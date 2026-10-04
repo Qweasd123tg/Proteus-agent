@@ -69,6 +69,10 @@ Codex-family profiles используют reference export `patch/codex` чер
 [provenance и ограничения](../../modules/reference/codex-patch/UPSTREAM.md)
 перечисляют точные upstream files.
 
+Рабочие fragments включают `reject_self_move` и отклоняют перенос файла на
+самого себя до writes. Это согласованное отличие; точное pinned сравнение
+этого случая требует `module_config.patch.codex.reject_self_move = false`.
+
 [Module fixtures](../../modules/reference/codex-patch/src/tests.rs) проверяют
 `@@ context`, EOF anchoring, приоритет exact перед whitespace/Unicode matching,
 несколько chunks, завершающую пустую context line, Add/Move с перезаписью,
@@ -395,6 +399,10 @@ remote execution этим срезом не реализованы. Провер
 того же baseline: точные prompt/prefix, текущие instructions/reasoning/cache,
 summary без tools и output cap, порог 90% известного raw window и сохранение
 последних пользовательских сообщений в пределах 20 000 approximate tokens.
+В replacement остаются только текстовые части исторических user inputs, как в
+`compact.rs` pinned Codex; image-only input сохраняет пустой текстовый anchor.
+Старые изображения доступны через исходный journal/store, а текущие изображения
+при pre-turn compaction входят в обычный запрос после сжатия прошлой истории.
 При типизированном переполнении summary request удаляется старейший item с
 соответствующей парой call/result и сбрасывается retry budget. Переполнение
 запроса из одного summary prompt, отмена и session budget завершаются сразу.

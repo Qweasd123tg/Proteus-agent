@@ -13,6 +13,8 @@ def run(command, js, wait_for):
         return js("return !!document.querySelector('.composer textarea')")
 
     js("document.querySelector('.settings-link').click()")
+    wait_for(lambda: js("return !!document.querySelector('[data-settings-section=extensions]')"), 'Extension settings navigation missing')
+    js("document.querySelector('[data-settings-section=extensions]').click()")
     wait_for(lambda: js("return !!document.querySelector('[data-extension-available=usage], [data-extension-choice=usage]')"), 'Usage package unavailable in saved settings')
     js("document.querySelector('[data-extension-available=usage]')?.click()")
     wait_for(lambda: js("return !!document.querySelector('[aria-label=\"Настроить: Расход\"]')"), 'Usage settings action missing')

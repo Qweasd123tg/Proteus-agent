@@ -100,3 +100,32 @@ async fn multipart_message_and_custom_tool_survive_journal_round_trip() {
         ])
     );
 }
+
+#[tokio::test]
+async fn refusal_reason_and_metadata_survive_cold_history_and_next_request() {
+    for content in [
+        json!([{ "type":"refusal", "refusal":"Cannot comply." }]),
+        json!([{ "type":"output_text", "text":"Explanation" }, { "type":"refusal", "refusal":"Cannot comply." }]),
+    ] {
+        let response = from_openai_response(json!({"status":"completed","output":[{"type":"message","role":"assistant","content":content}]})).unwrap();
+        let message = response.messages[0].clone();
+        assert!(message.display_text().contains("Cannot comply."));
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store = SessionStore::new(root.path(), workspace.path(), new_session_id()).unwrap();
+        store
+            .append_history(new_thread_id(), None, &response.messages)
+            .await
+            .unwrap();
+        let dir = store.session_dir().to_path_buf();
+        drop(store);
+        let restored = SessionStore::open(dir).unwrap().load_messages().unwrap();
+        assert_eq!(restored, [message]);
+        let body = to_openai_request(&CanonicalModelRequest::new(
+            ModelRef::new("openai", "fixture"),
+            restored,
+        ))
+        .unwrap();
+        assert!(body["input"].to_string().contains("Cannot comply."));
+    }
+}

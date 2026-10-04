@@ -20,10 +20,49 @@ pub(super) fn model_messages(
     }
     sets
 }
+
+#[cfg(test)]
+#[path = "hooks_tests.rs"]
+mod tests;
 use anyhow::{Result, bail};
-use proteus_contracts::contracts::{HookEvent, HookStepOutcome, HookTrace, apply_hook_response};
+use proteus_contracts::contracts::{
+    HookEvent, HookResponse, HookStepOutcome, HookTrace, apply_hook_response,
+};
+
+/// Only recorded arguments whose secrets were destroyed bypass argument schema
+/// revalidation. The raw live trace was validated before redaction; the original
+/// spec remains part of the event and accepted chain equality.
+pub(crate) fn apply_recorded_hook_response(
+    event: &HookEvent,
+    response: &HookResponse,
+) -> Result<HookEvent> {
+    if !matches!(response, HookResponse::ToolArguments { args }
+        if super::storage::contains_redacted_sensitive_value(args))
+    {
+        return apply_hook_response(event, response);
+    }
+    let mut event = event.clone();
+    let HookEvent::BeforeTool { spec, .. } = &mut event else {
+        bail!("redacted tool arguments require a before_tool event");
+    };
+    let original_spec = spec.take();
+    let mut accepted = apply_hook_response(&event, response)?;
+    let HookEvent::BeforeTool { spec, .. } = &mut accepted else {
+        unreachable!()
+    };
+    *spec = original_spec;
+    Ok(accepted)
+}
 
 pub(super) fn validate_trace(record: &JournalRecord, trace: &HookTrace) -> Result<()> {
+    validate_trace_inner(record, trace, true)
+}
+
+pub(super) fn validate_raw_trace(record: &JournalRecord, trace: &HookTrace) -> Result<()> {
+    validate_trace_inner(record, trace, false)
+}
+
+fn validate_trace_inner(record: &JournalRecord, trace: &HookTrace, redacted: bool) -> Result<()> {
     let attribution = trace.input.attribution;
     if record.execution_id != Some(attribution.execution_id)
         || record.thread_id != attribution.agent.map(|owner| owner.thread_id)
@@ -79,7 +118,11 @@ pub(super) fn validate_trace(record: &JournalRecord, trace: &HookTrace) -> Resul
                 ) {
                     apply_hook_response(&trace.input.event, response)?;
                 }
-                event = apply_hook_response(&event, response)?;
+                event = if redacted {
+                    apply_recorded_hook_response(&event, response)?
+                } else {
+                    apply_hook_response(&event, response)?
+                };
             }
             HookStepOutcome::Failed { message } => {
                 if message.trim().is_empty() {

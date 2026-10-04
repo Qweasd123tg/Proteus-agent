@@ -20,6 +20,9 @@ pub struct AppTranscriptTool {
     pub call_id: String,
     pub name: String,
     pub args: Value,
+    /// Аргументы после hooks и policy, прошедшие к исполнению. `args`
+    /// сохраняет исходный запрос модели.
+    pub effective_args: Option<Value>,
     pub status: String,
     pub result: Option<String>,
     /// Metadata результата как есть (`ToolResult.metadata`): core не знает

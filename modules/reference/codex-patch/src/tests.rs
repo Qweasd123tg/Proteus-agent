@@ -1,6 +1,51 @@
 use std::fs;
 
-use super::apply_patch;
+use super::CodexPatchConfig;
+
+fn apply_patch(
+    input: &str,
+    workspace: &std::path::Path,
+) -> Result<proteus_contracts::domain::PatchResult, String> {
+    super::apply_patch(input, workspace, &CodexPatchConfig::default())
+}
+
+#[test]
+fn self_move_guard_rejects_normalized_alias_before_any_write() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("f"), "old\n").unwrap();
+    let input = patch(
+        "*** Add File: new\n+created\n*** Update File: f\n*** Move to: ./f\n@@\n-old\n+updated",
+    );
+    let error = super::apply_patch(
+        &input,
+        dir.path(),
+        &CodexPatchConfig {
+            reject_self_move: true,
+        },
+    )
+    .unwrap_err();
+    assert!(error.contains("self-move rejected"), "{error}");
+    assert_eq!(fs::read_to_string(dir.path().join("f")).unwrap(), "old\n");
+    assert!(!dir.path().join("new").exists());
+
+    let result = apply_patch(&input, dir.path()).unwrap();
+    assert!(result.ok);
+    assert!(
+        !dir.path().join("f").exists(),
+        "unconfigured mode follows pinned Codex"
+    );
+}
+
+#[test]
+fn patch_config_rejects_unknown_fields_and_wrong_flag_types() {
+    assert!(
+        serde_json::from_value::<CodexPatchConfig>(serde_json::json!({"unknown":true})).is_err()
+    );
+    assert!(
+        serde_json::from_value::<CodexPatchConfig>(serde_json::json!({"reject_self_move":"true"}))
+            .is_err()
+    );
+}
 
 fn patch(body: &str) -> String {
     format!("*** Begin Patch\n{body}\n*** End Patch")

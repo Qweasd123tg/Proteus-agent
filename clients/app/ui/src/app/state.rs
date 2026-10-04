@@ -109,6 +109,7 @@ impl ChatState {
 
 #[derive(Clone, Copy)]
 pub(super) struct RequestState {
+    pub controls: crate::actions::ControlRequests,
     pub attachments: RwSignal<Vec<proteus_contracts::domain::ImageAttachment>>,
     pub attachments_loading: RwSignal<bool>,
     pub draft: ReadSignal<String>,
@@ -142,6 +143,7 @@ impl RequestState {
         let (effort_options, set_effort_options) = signal(Vec::new());
         let (next_request_id, set_next_request_id) = signal(1);
         Self {
+            controls: crate::actions::ControlRequests::new(),
             draft,
             attachments: RwSignal::new(Vec::new()),
             attachments_loading: RwSignal::new(false),
@@ -168,6 +170,7 @@ impl RequestState {
 
 #[derive(Clone, Copy)]
 pub(super) struct SessionState {
+    pub catalog: crate::session::catalog::SessionCatalog,
     pub transport_status: ReadSignal<TransportStatus>,
     pub set_transport_status: WriteSignal<TransportStatus>,
     pub event_count: ReadSignal<u64>,
@@ -197,6 +200,7 @@ impl SessionState {
         let (sidebar_sessions_status, set_sidebar_sessions_status) =
             signal("сессии не загружены".to_owned());
         Self {
+            catalog: crate::session::catalog::SessionCatalog::new(),
             transport_status,
             set_transport_status,
             event_count,

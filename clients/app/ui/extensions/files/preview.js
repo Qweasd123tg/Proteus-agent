@@ -25,7 +25,7 @@ export function createPreview({root,workspace,signal,onToggleTree}) {
   const tree=node('button','Дерево');tree.type='button';tree.title='Показать или скрыть дерево файлов';tree.setAttribute('aria-pressed','true');
   tree.addEventListener('click',()=>tree.setAttribute('aria-pressed',String(onToggleTree())),{signal});
   toolbar.prepend(filename);toolbar.append(tree);root.append(toolbar,status,code);
-  function save(){const view=current?.views.get(current.mode);if(view){view.top=code.scrollTop;view.left=code.scrollLeft;}}
+  function save(){const view=current?.views.get(current.mode);if(view?.kind==='text'){view.top=code.scrollTop;view.left=code.scrollLeft;}}
   function render(){
     const view=current?.views.get(current.mode);filename.textContent=current?.path.split('/').at(-1)??'Открыть файл';filename.title=current?.path??'';
     for(const [name,button]of buttons){button.setAttribute('aria-pressed',String(name===current?.mode));button.disabled=!current||(name==='file'&&current.deleted);}
@@ -39,22 +39,32 @@ export function createPreview({root,workspace,signal,onToggleTree}) {
   async function show(file){
     const mode=file.mode;
     if(file.views.has(mode)){render();return;}
-    const view={kind:'loading',status:'Чтение…',text:'',top:0,left:0};file.views.set(mode,view);render();
+    const position=file.positions.get(mode);
+    const view={kind:'loading',status:'Чтение…',text:'',top:position?.top??0,left:position?.left??0};file.views.set(mode,view);render();
     try{
       const result=await(mode==='diff'?workspace.diff(file.path):workspace.read(file.path));
-      if(signal.aborted)return;
+      if(signal.aborted||file.views.get(mode)!==view)return;
       view.kind=result.kind;view.text=result.kind==='text'?(mode==='diff'?result.patch:result.text)??'':'';
       view.status=result.kind==='text'?(mode==='diff'&&!view.text?'Нет изменений относительно HEAD.':''):result.kind==='too_large'?'Содержимое слишком большое для предпросмотра.':result.kind==='unavailable'?'Изменения недоступны для этого файла.':'Бинарный файл: текстовый предпросмотр недоступен.';
-    }catch(error){if(signal.aborted)return;view.kind='error';view.status=`Не удалось прочитать файл: ${error.message}`;}
+    }catch(error){if(signal.aborted||file.views.get(mode)!==view)return;view.kind='error';view.status=`Не удалось прочитать файл: ${error.message}`;}
     if(current===file&&file.mode===mode)render();
   }
   function open(path,{mode='file',deleted=false}={}){
     if(signal.aborted)return;save();
-    if(!files.has(path))files.set(path,{path,mode,deleted,views:new Map()});
+    if(!files.has(path))files.set(path,{path,mode,deleted,views:new Map(),positions:new Map()});
     current=files.get(path);
+    current.mode=mode;current.deleted=deleted;
     // Bound retained text while preserving recently viewed files and scroll positions.
     files.delete(path);files.set(path,current);if(files.size>20)files.delete(files.keys().next().value);
     void show(current);
   }
-  return {open};
+  function invalidate(){
+    save();
+    for(const file of files.values()){
+      for(const [mode,view]of file.views)file.positions.set(mode,{top:view.top,left:view.left});
+      file.views.clear();
+    }
+    if(current)void show(current);
+  }
+  return {open,invalidate};
 }

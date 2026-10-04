@@ -49,6 +49,7 @@ command = "proteus-reference-module"
 
 [components.reference-capabilities]
 command = "proteus-reference-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.reference-capabilities.exports.search.rg]
 

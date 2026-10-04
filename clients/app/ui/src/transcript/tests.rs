@@ -268,6 +268,7 @@ async fn child_heavy_tool_events_do_not_clone_cards_or_rescan_chat_and_plan() {
     let (read, write, set_activities) = owner.with(|| {
         let tools = (0..64)
             .map(|id| ToolActivity {
+                effective_args: None,
                 call_id: format!("child-call-{id}"),
                 name: "shell".into(),
                 args: serde_json::json!({}),
@@ -281,6 +282,7 @@ async fn child_heavy_tool_events_do_not_clone_cards_or_rescan_chat_and_plan() {
         let mut child = message(2000, "");
         // Facade tool attached to the child must not invalidate root-tool projections.
         child.tool = Some(ToolActivity {
+            effective_args: None,
             call_id: "spawn".into(),
             name: "spawn_agent".into(),
             args: serde_json::json!({}),

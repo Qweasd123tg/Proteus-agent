@@ -1,5 +1,5 @@
 use proteus_contracts::{
-    domain::{TokenUsageCategory, TokenUsageSnapshot, TokenUsageSource, ToolContent},
+    domain::{TokenUsageCategory, TokenUsageSnapshot, TokenUsageSource},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, ContentPart, MessageRole, TokenUsage,
     },
@@ -78,14 +78,8 @@ fn estimate_request_categories(request: &CanonicalModelRequest) -> Vec<TokenUsag
                 }
                 ContentPart::ToolResult { result } => {
                     bytes.tool_results += result.call_id.as_str().len()
-                        + result.output.len()
-                        + result.error.as_deref().unwrap_or_default().len()
-                        + result.metadata.to_string().len()
-                        + result
-                            .content
-                            .iter()
-                            .map(tool_content_text_len)
-                            .sum::<usize>();
+                        + result.text_or_status().len()
+                        + result.metadata.to_string().len();
                 }
                 ContentPart::Patch { patch } => {
                     bytes.patches += patch.content.len();
@@ -184,15 +178,6 @@ fn estimate_tokens_from_bytes(bytes: usize) -> u32 {
     }
 }
 
-fn tool_content_text_len(content: &ToolContent) -> usize {
-    match content {
-        ToolContent::Text { text } => text.len(),
-        ToolContent::Json { value } => value.to_string().len(),
-        ToolContent::Image { data, .. } | ToolContent::Binary { data, .. } => data.len(),
-        _ => 0,
-    }
-}
-
 /// Реальный usage последнего model-ответа — точка отсчёта для оценки давления
 /// на контекст в следующем compaction-чеке (как inline auto-compact в Codex).
 pub(crate) struct LastModelUsage {
@@ -242,9 +227,7 @@ fn part_text_len(part: &ContentPart) -> usize {
         ContentPart::FileRef { content, .. } => content.as_deref().unwrap_or_default().len(),
         ContentPart::ToolCall { call } => call.name.len() + call.args.to_string().len(),
         ContentPart::ToolResult { result } => {
-            result.output.len()
-                + result.error.as_deref().unwrap_or_default().len()
-                + result.metadata.to_string().len()
+            result.text_or_status().len() + result.metadata.to_string().len()
         }
         ContentPart::Patch { patch } => patch.content.len(),
         ContentPart::ReasoningSummary { text } | ContentPart::Reasoning { text, .. } => text.len(),

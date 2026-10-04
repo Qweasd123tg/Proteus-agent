@@ -190,8 +190,19 @@ fn load_config_dir_value(path: &Path, stack: &mut BTreeSet<PathBuf>) -> Result<V
     files.sort();
 
     let mut merged = Value::Object(Map::new());
-    for file in files {
-        let value = load_config_path_value(&file, stack)?;
+    let overlay = path.join(super::CONFIG_BUILDER_OVERLAY);
+    for file in files.iter().filter(|file| **file != overlay) {
+        let value = load_config_path_value(file, stack)?;
+        merge_config_value(&mut merged, value);
+    }
+    if files.contains(&overlay) {
+        let value = load_config_path_value(&overlay, stack)?;
+        // Builder selections replace these complete managed objects, including
+        // removal of optional slots and active_provider. Other fields still merge.
+        let object = merged.as_object_mut().expect("config merge is an object");
+        for key in ["modules", "module_config", "active_provider"] {
+            object.remove(key);
+        }
         merge_config_value(&mut merged, value);
     }
 

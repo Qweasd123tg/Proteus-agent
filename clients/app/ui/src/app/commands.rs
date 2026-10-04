@@ -227,6 +227,9 @@ pub(super) fn commands(
             return;
         }
 
+        if actions.active_session_dir.get_untracked().is_none() {
+            return;
+        }
         set_stick_to_bottom.set(true);
         set_draft.set(String::new());
         if is_sending.get() {

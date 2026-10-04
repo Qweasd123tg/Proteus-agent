@@ -11,6 +11,8 @@ use crate::{
 
 use super::core_slots::{CORE_SLOT_DESCRIPTORS, CoreSlotSelection, core_slot_descriptor_by_id};
 
+pub(crate) const CONFIG_BUILDER_OVERLAY: &str = "config-builder.toml";
+
 mod loading;
 
 pub use loading::expand_user_path;

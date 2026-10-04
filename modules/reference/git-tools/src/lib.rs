@@ -217,7 +217,7 @@ fn invoke_impl(call: &ToolCallDto, cwd: &Path, command_kind: GitCommand) -> Resu
             {
                 command.arg("--stat");
             } else {
-                let context_lines = optional_usize(&call.args, "context_lines")?
+                let context_lines = optional_nonnegative_usize(&call.args, "context_lines")?
                     .unwrap_or(3)
                     .min(20);
                 command.arg(format!("--unified={context_lines}"));
@@ -301,16 +301,23 @@ fn tool_result(
 }
 
 fn optional_usize(args: &Value, key: &str) -> Result<Option<usize>, String> {
+    let value = optional_nonnegative_usize(args, key)?;
+    if value == Some(0) {
+        return Err(format!("'{key}' must be greater than zero"));
+    }
+    Ok(value)
+}
+
+fn optional_nonnegative_usize(args: &Value, key: &str) -> Result<Option<usize>, String> {
     let Some(value) = args.get(key) else {
         return Ok(None);
     };
     let Some(number) = value.as_u64() else {
-        return Err(format!("'{key}' must be a positive integer"));
+        return Err(format!("'{key}' must be a non-negative integer"));
     };
-    if number == 0 {
-        return Err(format!("'{key}' must be greater than zero"));
-    }
-    Ok(Some(number as usize))
+    usize::try_from(number)
+        .map(Some)
+        .map_err(|_| format!("'{key}' exceeds the platform integer range"))
 }
 
 fn validate_relative_pathspec(path: &str) -> Result<(), String> {
@@ -424,89 +431,4 @@ pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), Process
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const _: () = assert!(TIMEOUT_MS >= 60_000);
-
-    fn invoke(tool_name: &str, cwd: &Path, args: Value) -> Value {
-        let command = if tool_name == "git_status" {
-            GitCommand::Status
-        } else {
-            GitCommand::Diff
-        };
-        let call = ToolCallDto {
-            id: "call_test".to_owned(),
-            name: tool_name.to_owned(),
-            args,
-        };
-        let result = invoke_impl(&call, cwd, command).expect("tool result json");
-        serde_json::from_str(&result).expect("result json")
-    }
-
-    fn git_available() -> bool {
-        Command::new("git")
-            .arg("--version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|status| status.success())
-            .unwrap_or(false)
-    }
-
-    fn git(dir: &Path, args: &[&str]) {
-        let status = Command::new("git")
-            .args(args)
-            .current_dir(dir)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .expect("run git");
-        assert!(status.success(), "git {args:?} failed");
-    }
-
-    #[test]
-    fn git_status_reports_modified_file() {
-        if !git_available() {
-            return;
-        }
-        let dir = tempfile::tempdir().expect("workspace");
-        git(dir.path(), &["init"]);
-        std::fs::write(dir.path().join("notes.txt"), "one\n").expect("write file");
-
-        let result = invoke("git_status", dir.path(), json!({}));
-
-        assert_eq!(result["ok"], true);
-        assert!(result["output"].as_str().unwrap().contains("notes.txt"));
-    }
-
-    #[test]
-    fn git_diff_supports_path_filter() {
-        if !git_available() {
-            return;
-        }
-        let dir = tempfile::tempdir().expect("workspace");
-        git(dir.path(), &["init"]);
-        git(dir.path(), &["config", "user.email", "test@example.com"]);
-        git(dir.path(), &["config", "user.name", "Test"]);
-        std::fs::write(dir.path().join("a.txt"), "one\n").expect("write a");
-        std::fs::write(dir.path().join("b.txt"), "one\n").expect("write b");
-        git(dir.path(), &["add", "."]);
-        git(dir.path(), &["commit", "-m", "initial"]);
-        std::fs::write(dir.path().join("a.txt"), "one\ntwo\n").expect("modify a");
-        std::fs::write(dir.path().join("b.txt"), "one\nthree\n").expect("modify b");
-
-        let result = invoke("git_diff", dir.path(), json!({ "path": "a.txt" }));
-
-        assert_eq!(result["ok"], true);
-        let output = result["output"].as_str().unwrap();
-        assert!(output.contains("a.txt"), "{output}");
-        assert!(!output.contains("b.txt"), "{output}");
-    }
-
-    #[test]
-    fn pathspec_rejects_parent_escape() {
-        let error = validate_relative_pathspec("../outside.txt").expect_err("reject parent");
-        assert!(error.contains("parent traversal"), "{error}");
-    }
-}
+mod tests;

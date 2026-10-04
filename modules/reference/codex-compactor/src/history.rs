@@ -58,7 +58,12 @@ fn is_real_user_message(message: &CanonicalMessage) -> bool {
         return true;
     }
     let Some(text) = message_text(message) else {
-        return false;
+        // Upstream reconstructs image-only users as empty InputText. They
+        // remain real user anchors in later compactions, with no image payload.
+        return message.parts.iter().any(|part| {
+            matches!(&part.payload,
+            ContentPart::Text { text } if text.is_empty())
+        });
     };
     !is_generated_user_message(text.trim_start())
 }
@@ -100,45 +105,49 @@ pub(crate) fn select_recent_user_messages(
         if remaining == 0 {
             break;
         }
-        let Some(text) = message_text(message) else {
-            if message
-                .parts
-                .iter()
-                .any(|part| matches!(part.payload, ContentPart::Image { .. }))
-            {
-                selected.push(message.clone());
-            }
-            continue;
-        };
+        let text = message_text(message).unwrap_or_default();
         let tokens = crate::budget::estimate_text_tokens(&text);
-        if tokens <= remaining {
-            selected.push(message.clone());
-            remaining = remaining.saturating_sub(tokens);
-        } else {
-            let mut truncated = message.clone();
-            truncated.id = new_message_id();
-            truncated.parts = message
-                .parts
-                .iter()
-                .filter(|part| matches!(part.payload, ContentPart::Image { .. }))
-                .cloned()
-                .collect();
-            truncated.parts.push(CanonicalPart::new(
+        let has_images = message
+            .parts
+            .iter()
+            .any(|part| matches!(part.payload, ContentPart::Image { .. }));
+        let empty_text = message.parts.iter().any(|part| {
+            matches!(&part.payload,
+            ContentPart::Text { text } if text.is_empty())
+        });
+        if !has_images && text.is_empty() && !empty_text {
+            continue;
+        }
+        if has_images || tokens > remaining {
+            // Pinned Codex compact.rs::build_compacted_history_with_limit
+            // rebuilds retained users as InputText only. Original image refs
+            // remain in durable source history/store, outside this working
+            // replacement. Even an image-only user keeps an explicit mapping
+            // to its empty textual replacement so the active anchor survives.
+            let mut replacement = message.clone();
+            replacement.id = new_message_id();
+            replacement.parts = vec![CanonicalPart::new(
                 PartProvenance::Compactor,
                 PartScope::Conversation,
                 ContentPart::Text {
                     text: truncate_to_tokens(&text, remaining),
                 },
-            ));
+            )];
             replacements.push(CompactionUserMessageReplacement {
                 source_message_id: message.id,
-                replacement_message_id: truncated.id,
+                replacement_message_id: replacement.id,
             });
-            selected.push(truncated);
+            selected.push(replacement);
+        } else {
+            selected.push(message.clone());
+        }
+        if tokens > remaining {
             break;
         }
+        remaining = remaining.saturating_sub(tokens);
     }
     selected.reverse();
+    replacements.reverse();
     SelectedUserMessages {
         messages: selected,
         replacements,

@@ -264,8 +264,7 @@ fn path_changed(state: &PlannedPath) -> bool {
     match (&state.original, &state.current) {
         (None, None) => false,
         (Some(original), Some(current)) => {
-            original.content != current.content
-                || original.permissions.is_some() != current.permissions.is_some()
+            original.content != current.content || original.permissions != current.permissions
         }
         _ => true,
     }

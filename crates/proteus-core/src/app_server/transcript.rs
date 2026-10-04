@@ -89,6 +89,7 @@ fn append_transcript_tool_call(transcript: &mut Vec<AppTranscriptMessage>, call:
         role: "system".to_owned(),
         text: String::new(),
         tool: Some(AppTranscriptTool {
+            effective_args: None,
             call_id: call.id.clone(),
             name: call.name.clone(),
             args: call.args.clone(),
@@ -174,6 +175,7 @@ fn append_hosted_tool_activity(
         role: "system".to_owned(),
         text: String::new(),
         tool: Some(AppTranscriptTool {
+            effective_args: None,
             call_id: activity.id().to_owned(),
             name: activity.kind().as_str().to_owned(),
             args,
@@ -264,6 +266,7 @@ fn append_transcript_tool_result(transcript: &mut Vec<AppTranscriptMessage>, res
         role: "system".to_owned(),
         text: String::new(),
         tool: Some(AppTranscriptTool {
+            effective_args: None,
             call_id: result.call_id.clone(),
             name: "tool".to_owned(),
             args: Value::Null,

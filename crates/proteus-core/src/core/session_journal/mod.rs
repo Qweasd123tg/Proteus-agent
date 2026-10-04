@@ -1,5 +1,6 @@
 pub(crate) mod history_capture;
 mod hooks;
+pub(crate) use hooks::apply_recorded_hook_response;
 mod projection;
 mod recorder;
 mod storage;

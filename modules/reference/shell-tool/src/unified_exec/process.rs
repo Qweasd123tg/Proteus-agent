@@ -7,9 +7,10 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 use proteus_contracts::domain::EXEC_SHELL;
 
+use super::pty_lifetime::PtyLifetime;
 use super::session::{
     ExecSession, ExecSessionOwner, ProcessControl, ensure_session_janitor, lock, register_session,
     sessions,
@@ -44,9 +45,7 @@ pub(super) fn spawn_session(
 
 struct PtyControl {
     writer: Mutex<Box<dyn Write + Send>>,
-    killer: Mutex<Option<Box<dyn ChildKiller + Send + Sync>>>,
-    #[cfg(unix)]
-    process_group_id: Option<libc::pid_t>,
+    lifetime: Arc<PtyLifetime>,
     // Keep the controlling terminal alive until the session is released.
     _master: Mutex<Box<dyn MasterPty + Send>>,
 }
@@ -63,20 +62,7 @@ impl ProcessControl for PtyControl {
     }
 
     fn kill(&self) {
-        let Some(mut killer) = lock(&self.killer).take() else {
-            return;
-        };
-        #[cfg(unix)]
-        if let Some(pgid) = self.process_group_id {
-            // portable-pty creates a new session/group with setsid(). Its cloned
-            // killer only sends SIGHUP to the leader, which a shell may ignore.
-            // Match pinned Codex: hard-kill the whole group, then also try the
-            // child killer. Taking it above makes termination idempotent.
-            unsafe {
-                let _ = libc::kill(-pgid, libc::SIGKILL);
-            }
-        }
-        let _ = killer.kill();
+        self.lifetime.kill();
     }
 }
 
@@ -110,15 +96,14 @@ fn spawn_pty(
     for (key, value) in EXEC_COMMAND_ENV {
         builder.env(key, value);
     }
-    let mut child = pair
+    let child = pair
         .slave
         .spawn_command(builder)
         .map_err(|error| anyhow!("failed to spawn command in PTY: {error}"))?;
+    let lifetime = Arc::new(PtyLifetime::new(child));
     let control = PtyControl {
         writer: Mutex::new(writer),
-        killer: Mutex::new(Some(child.clone_killer())),
-        #[cfg(unix)]
-        process_group_id: child.process_id().map(|pid| pid as libc::pid_t),
+        lifetime: lifetime.clone(),
         _master: Mutex::new(pair.master),
     };
     drop(pair.slave);
@@ -126,8 +111,29 @@ fn spawn_pty(
     read_output(reader, session.clone());
     let wait_session = session.clone();
     std::thread::spawn(move || {
-        let code = child.wait().ok().map(|status| status.exit_code() as i32);
-        wait_session.mark_exited(code);
+        loop {
+            match lifetime.observe_exit() {
+                Ok(Some(code)) => {
+                    wait_session.mark_exited(Some(code));
+                    break;
+                }
+                Err(_) => {
+                    wait_session.mark_exited(None);
+                    break;
+                }
+                Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+            }
+        }
+        // WNOWAIT retains process identity through the existing output drain
+        // budget. Cancellation/eviction can still stop actual live descendants.
+        loop {
+            let closed = lock(&wait_session.output).closed;
+            if closed || wait_session.drain_expired() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        lifetime.finish();
     });
     Ok(session)
 }

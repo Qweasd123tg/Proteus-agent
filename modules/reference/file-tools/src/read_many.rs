@@ -109,11 +109,10 @@ impl ToolModule for ReadManyFilesTool {
             .unwrap_or(false);
 
         let cwd_path = context.cwd.as_path();
-        let mut sections = Vec::new();
+        let mut output = String::new();
         let mut files = Vec::new();
         let mut remaining = max_bytes_total;
         let mut total_original_bytes = 0usize;
-        let mut total_returned_bytes = 0usize;
         let mut stopped_by_budget = false;
         let mut any_file_truncated = false;
 
@@ -122,6 +121,15 @@ impl ToolModule for ReadManyFilesTool {
                 stopped_by_budget = true;
                 break;
             }
+            let header = format!(
+                "{}== {requested_path} ==\n",
+                if output.is_empty() { "" } else { "\n\n" }
+            );
+            if header.len() > remaining {
+                stopped_by_budget = true;
+                break;
+            }
+            let content_budget = remaining - header.len();
             let absolute = match workspace_path(cwd_path, Path::new(&requested_path)) {
                 Ok(path) => path,
                 Err(e) => return err_result(&call.id, &call.name, e),
@@ -144,7 +152,7 @@ impl ToolModule for ReadManyFilesTool {
                 );
             }
 
-            let limit = remaining.min(max_bytes_per_file);
+            let limit = content_budget.min(max_bytes_per_file);
             let original_bytes = metadata.len().try_into().unwrap_or(usize::MAX);
             let file_read = match read_text_prefix(&absolute, limit, original_bytes) {
                 Ok(read) => read,
@@ -155,9 +163,9 @@ impl ToolModule for ReadManyFilesTool {
             } else {
                 file_read.text
             };
-            let rendered_truncated_by_budget = rendered.len() > remaining;
+            let rendered_truncated_by_budget = rendered.len() > content_budget;
             if rendered_truncated_by_budget {
-                rendered = match utf8_prefix(rendered.as_bytes(), remaining) {
+                rendered = match utf8_prefix(rendered.as_bytes(), content_budget) {
                     Ok(prefix) => prefix,
                     Err(e) => {
                         return err_result(
@@ -175,10 +183,10 @@ impl ToolModule for ReadManyFilesTool {
             let file_truncated = file_read.truncated || rendered_truncated_by_budget;
             any_file_truncated |= file_truncated;
             total_original_bytes += file_read.original_bytes;
-            total_returned_bytes += returned_bytes;
-            remaining = remaining.saturating_sub(returned_bytes);
+            remaining -= header.len() + returned_bytes;
 
-            sections.push(format!("== {requested_path} ==\n{rendered}"));
+            output.push_str(&header);
+            output.push_str(&rendered);
             files.push(json!({
                 "path": requested_path,
                 "original_bytes": file_read.original_bytes,
@@ -191,11 +199,7 @@ impl ToolModule for ReadManyFilesTool {
             }
         }
 
-        let output = if sections.is_empty() {
-            "(no files read)".to_owned()
-        } else {
-            sections.join("\n\n")
-        };
+        let total_returned_bytes = output.len();
         ok_result(
             &call.id,
             &call.name,

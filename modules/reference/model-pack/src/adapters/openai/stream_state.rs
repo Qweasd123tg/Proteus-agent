@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use serde_json::{Value, json};
 
 use super::{
-    response::{from_openai_response_with_ids, item_key, parse_message_phase},
+    response::{item_key, parse_message_phase, parse_output_item},
     stream::{finalize_completed_event, translate_non_message_event},
 };
 use crate::{
@@ -20,7 +20,7 @@ pub(super) struct OpenAiStreamState {
     phases: HashMap<String, Option<MessagePhase>>,
     text_parts: HashMap<String, u64>,
     completed_items: Vec<Value>,
-    streamed_items: BTreeMap<usize, (String, BTreeMap<u64, String>)>,
+    streamed_items: BTreeMap<usize, (String, BTreeMap<u64, (String, bool)>)>,
 }
 
 impl OpenAiStreamState {
@@ -71,15 +71,12 @@ impl OpenAiStreamState {
                     }
                 }
                 if event_type == "response.output_item.done" {
-                    match from_openai_response_with_ids(json!({"output": [item]}), &self.ids) {
-                        Ok(mut response) => {
-                            response.messages[0].id = self.ids[&item_key(item, index)];
-                            return response
-                                .messages
-                                .into_iter()
-                                .map(|message| ModelStreamEvent::MessageCompleted { message })
-                                .collect();
+                    match parse_output_item(item) {
+                        Ok(Some(mut message)) => {
+                            message.id = self.ids[&item_key(item, index)];
+                            return vec![ModelStreamEvent::MessageCompleted { message }];
                         }
+                        Ok(None) => return Vec::new(),
                         Err(error) => {
                             return vec![ModelStreamEvent::Error {
                                 failure: crate::model_standard::ModelFailure::other(
@@ -91,8 +88,11 @@ impl OpenAiStreamState {
                 }
                 Vec::new()
             }
-            "response.output_text.delta" => {
-                let Some(text) = parsed.get("delta").and_then(Value::as_str) else {
+            "response.output_text.delta" | "response.refusal.delta" | "response.refusal.done" => {
+                let refusal = event_type.starts_with("response.refusal.");
+                let done = event_type == "response.refusal.done";
+                let field = if done { "refusal" } else { "delta" };
+                let Some(text) = parsed.get(field).and_then(Value::as_str) else {
                     return Vec::new();
                 };
                 let key = parsed
@@ -110,7 +110,23 @@ impl OpenAiStreamState {
                     .streamed_items
                     .entry(index)
                     .or_insert_with(|| (key.clone(), BTreeMap::new()));
-                parts.entry(part).or_default().push_str(text);
+                let (buffer, is_refusal) = parts.entry(part).or_default();
+                *is_refusal = refusal;
+                let emitted = if done {
+                    let suffix = text
+                        .strip_prefix(buffer.as_str())
+                        .unwrap_or(text)
+                        .to_owned();
+                    *buffer = text.to_owned();
+                    suffix
+                } else {
+                    buffer.push_str(text);
+                    text.to_owned()
+                };
+                if emitted.is_empty() {
+                    return Vec::new();
+                }
+                let text = emitted.as_str();
                 let previous = self.text_parts.insert(key, part);
                 let text = if previous.is_some_and(|previous| previous != part) {
                     format!("\n{text}")
@@ -127,7 +143,9 @@ impl OpenAiStreamState {
                 let streamed_items = self.streamed_items.values().map(|(key, parts)| json!({
                     "id": key, "type": "message", "role": "assistant",
                     "phase": self.phases.get(key).copied().flatten(),
-                    "content": parts.values().map(|text| json!({"type": "output_text", "text": text})).collect::<Vec<_>>(),
+                    "content": parts.values().map(|(text, refusal)| if *refusal {
+                        json!({"type": "refusal", "refusal": text})
+                    } else { json!({"type": "output_text", "text": text}) }).collect::<Vec<_>>(),
                 })).collect::<Vec<_>>();
                 finalize_completed_event(data, &self.completed_items, &streamed_items, &self.ids)
             }

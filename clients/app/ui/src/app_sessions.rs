@@ -10,7 +10,7 @@ use crate::events::{
     EventStreamBindings, close_event_stream, reconnect_event_stream, reset_stream_delta_buffer,
 };
 use crate::session::settings::load_runtime_settings;
-use crate::session::summaries::{apply_active_session_activity, load_sidebar_sessions};
+use crate::session::summaries::apply_active_session_activity;
 use crate::types::*;
 use crate::ui_preferences::{remove_context_usage, remove_session_draft};
 use crate::ui_utils::short_id;
@@ -113,7 +113,9 @@ pub(crate) struct AppSessionActions {
 
 impl AppSessionActions {
     pub(crate) fn load_sidebar_sessions(self) {
-        load_sidebar_sessions(self.set_sidebar_sessions, self.set_sidebar_sessions_status);
+        self.event_stream
+            .catalog
+            .load(self.set_sidebar_sessions, self.set_sidebar_sessions_status);
     }
 
     /// Переподключает event stream, если чат не переключился на другую
@@ -327,6 +329,7 @@ impl AppSessionActions {
         let session_dir = session.session_dir.to_string_lossy().into_owned();
         let deleting_active =
             self.active_session_dir.get().as_deref() == Some(session_dir.as_str());
+        self.event_stream.catalog.invalidate();
         let delete_request_generation = self.transcript.transcript_generation.get_untracked();
         if deleting_active {
             close_event_stream(self.event_source);
@@ -367,6 +370,7 @@ impl AppSessionActions {
                             rollback.label = "not started".to_owned();
                         }
                     });
+                    self.event_stream.catalog.invalidate();
                     self.set_sidebar_sessions.update(|items| {
                         items.retain(|item| item.session_dir != std::path::Path::new(&session_dir));
                     });

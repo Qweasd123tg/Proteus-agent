@@ -29,6 +29,9 @@ impl ImageInput {
             return;
         }
         let Self { actions, error, .. } = self;
+        if actions.attachments_loading.get_untracked() {
+            return;
+        }
         if let Some(file) = files.iter().find(|file| !is_image(file)) {
             error.set(Some(format!(
                 "{}: поддерживаются PNG, JPEG, WebP и GIF.",
@@ -42,14 +45,13 @@ impl ImageInput {
         let generation = actions.transcript_generation.get_untracked();
         leptos::task::spawn_local(async move {
             let result = async {
-                let mut images = actions.attachments.get_untracked();
-                if images.len() + files.len() > MAX_INPUT_IMAGES {
+                if actions.attachments.with_untracked(|images| images.len()) + files.len()
+                    > MAX_INPUT_IMAGES
+                {
                     return Err("Можно прикрепить до 4 изображений.".to_owned());
                 }
-                let mut total = images
-                    .iter()
-                    .map(|image| image.decode().map(|b| b.len()).unwrap_or(0))
-                    .sum::<usize>();
+                let mut total = 0;
+                let mut images = Vec::new();
                 for file in files {
                     total += file.size() as usize;
                     if total > MAX_IMAGE_BYTES {
@@ -69,7 +71,24 @@ impl ImageInput {
             .await;
             if generation == actions.transcript_generation.get_untracked() {
                 match result {
-                    Ok(images) => actions.attachments.set(images),
+                    Ok(images) => {
+                        // The user may remove an existing attachment while file reads are
+                        // pending. Only merge the new files into the current draft.
+                        actions.attachments.update(|current| {
+                            let total = current
+                                .iter()
+                                .chain(&images)
+                                .map(|image| image.decode().map(|bytes| bytes.len()).unwrap_or(0))
+                                .sum::<usize>();
+                            if current.len() + images.len() > MAX_INPUT_IMAGES {
+                                error.set(Some("Можно прикрепить до 4 изображений.".to_owned()));
+                            } else if total > MAX_IMAGE_BYTES {
+                                error.set(Some("Общий размер изображений — до 5 МБ.".to_owned()));
+                            } else {
+                                current.extend(images);
+                            }
+                        });
+                    }
                     Err(message) => error.set(Some(message)),
                 }
             }

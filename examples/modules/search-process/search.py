@@ -121,22 +121,39 @@ def validate_query(params: Any) -> dict[str, Any]:
     return query
 
 
-def safe_search_roots(prefixes: list[str]) -> list[str]:
+def normalize_prefix(prefix: str) -> str:
+    while prefix.startswith("./"):
+        prefix = prefix[2:]
+    return prefix
+
+
+def safe_search_roots(prefixes: list[str], cwd: str) -> list[str]:
     roots: list[str] = []
     for prefix in prefixes:
-        trimmed = prefix.strip().removeprefix("./").rstrip("/")
+        trimmed = normalize_prefix(prefix).rstrip("/")
         if not trimmed or trimmed == ".":
             roots.append(".")
             continue
         path = PurePath(trimmed)
         if path.is_absolute() or ".." in path.parts:
             continue
-        roots.append(str(path))
-    return roots or ["."]
+        # A literal prefix can include several siblings and need not exist.
+        # Only a trailing slash allows narrowing directly to that directory.
+        root = path if prefix.endswith("/") else path.parent
+        while root != PurePath(".") and not (Path(cwd) / root).is_dir():
+            root = root.parent
+        roots.append(str(root))
+    if not roots or "." in roots:
+        return ["."]
+    unique_roots = sorted(set(roots))
+    return [
+        root for root in unique_roots
+        if not any(PurePath(parent) in PurePath(root).parents for parent in unique_roots)
+    ]
 
 
 def path_matches(path: str, starts_with: list[str], ends_with: list[str]) -> bool:
-    starts = not starts_with or any(path.startswith(prefix) for prefix in starts_with)
+    starts = not starts_with or any(path.startswith(normalize_prefix(prefix)) for prefix in starts_with)
     ends = not ends_with or any(path.endswith(suffix) for suffix in ends_with)
     return starts and ends
 
@@ -175,7 +192,7 @@ def search(query: dict[str, Any], context: InvocationContext) -> dict[str, Any]:
         "1M",
         "--",
         text,
-        *safe_search_roots(query["starts_with"]),
+        *safe_search_roots(query["starts_with"], query["cwd"]),
     ]
     chunks: list[dict[str, Any]] = []
     process = subprocess.Popen(

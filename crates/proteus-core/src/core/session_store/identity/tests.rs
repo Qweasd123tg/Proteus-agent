@@ -109,17 +109,15 @@ fn metadata_session_id_must_match_short_directory_name() {
     );
 }
 
-#[tokio::test]
-async fn v4_metadata_round_trips_identity() {
+#[test]
+fn v4_metadata_round_trips_identity() {
     let root = tempfile::tempdir().expect("root");
     let session_id = new_session_id();
     let session_dir = root.path().join(short_session_directory_name(session_id));
     std::fs::create_dir(&session_dir).expect("session dir");
     let workspace = root.path().join("workspace");
 
-    write_metadata(&session_dir, session_id, &workspace)
-        .await
-        .expect("write metadata");
+    write_metadata(&session_dir, session_id, &workspace).expect("write metadata");
     let identity = resolve_session_identity(&session_dir).expect("identity");
 
     assert_eq!(identity.session_id, session_id);

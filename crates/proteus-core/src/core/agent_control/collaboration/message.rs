@@ -133,6 +133,12 @@ impl Tool for FollowupTaskTool {
                 ))
             }
             FollowupRequest::Idle(idle) => {
+                let mut launch = super::reservation::LaunchReservation::new(
+                    self.control.clone(),
+                    session_id,
+                    idle.path.clone(),
+                    Some(idle.generation),
+                );
                 let Some(parent_task) = ctx.task.clone() else {
                     self.control
                         .abort_followup(session_id, &idle.path, idle.generation);
@@ -203,6 +209,7 @@ impl Tool for FollowupTaskTool {
                     idle.generation,
                     handle.clone(),
                 );
+                launch.transfer();
                 if interrupt_requested && let Err(error) = current_host.cancel_agent(&handle).await
                 {
                     return Ok(tool_error(call, "followup_task", format!("{error:#}")));

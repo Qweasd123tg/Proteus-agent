@@ -29,7 +29,6 @@ impl AgentRuntime {
             *self.session.model_context.lock().await =
                 crate::core::model_context::ModelContextState::from_records(
                     &records,
-                    self.session.thread_id,
                     Some(turn_id),
                 );
         }

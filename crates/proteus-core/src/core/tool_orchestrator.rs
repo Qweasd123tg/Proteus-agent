@@ -110,6 +110,12 @@ struct AgentToolExecutionObserver {
 
 #[async_trait]
 impl ToolExecutionObserver for AgentToolExecutionObserver {
+    async fn tool_call_resolved(&self, call: &ToolCall) -> Result<()> {
+        self.ctx
+            .emit(Event::ToolCallResolved { call: call.clone() })
+            .await
+    }
+
     async fn tool_call_requested(&self, call: &ToolCall) -> Result<()> {
         self.ctx
             .emit(Event::ToolCallRequested { call: call.clone() })

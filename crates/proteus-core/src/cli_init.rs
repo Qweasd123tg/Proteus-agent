@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use proteus_core::core::AppConfig;
 
 const CODING_PROFILE_CONFIG: &str =
@@ -84,10 +84,10 @@ impl InitProfile {
     }
 
     /// Файлы, на которые ссылается config profile; кладутся рядом с ним.
-    fn support_files(self) -> Vec<(&'static str, String)> {
-        match self {
+    fn support_files(self, config_dir: &Path) -> Result<Vec<(&'static str, String)>> {
+        Ok(match self {
             Self::Codex => vec![
-                (CODEX_RUNTIME_FILE, CODEX_RUNTIME_CONFIG.to_owned()),
+                (CODEX_RUNTIME_FILE, codex_runtime_for_init(config_dir)?),
                 (
                     CODEX_PEER_RUNTIME_FILE,
                     CODEX_PEER_RUNTIME_CONFIG.to_owned(),
@@ -113,7 +113,7 @@ impl InitProfile {
                 vec![(DIRECT_PATCH_PROMPT_FILE, DIRECT_PATCH_PROMPT.to_owned())]
             }
             Self::Safe => Vec::new(),
-        }
+        })
     }
 }
 
@@ -122,6 +122,24 @@ fn codex_child_config_for_init(role_fragment: &str) -> String {
         "include = [\n  \"{CODEX_PEER_RUNTIME_FILE}\",\n  \"{role_fragment}\",\n]\n\n{}",
         PROVIDER_PROFILE_CONFIG.trim_end()
     )
+}
+
+fn codex_runtime_for_init(config_dir: &Path) -> Result<String> {
+    let root = fs::canonicalize(config_dir)?;
+    let mut doc = CODEX_RUNTIME_CONFIG.parse::<toml_edit::DocumentMut>()?;
+    let roles = doc["agent_control"]["roles"]
+        .as_array_of_tables_mut()
+        .context("generated Codex runtime requires peer roles")?;
+    for role in roles.iter_mut() {
+        let filename = match role["config"].as_str() {
+            Some("codex-explore") => CODEX_EXPLORE_CONFIG_FILE,
+            Some("codex-coder") => CODEX_CODER_CONFIG_FILE,
+            other => bail!("unexpected generated peer config: {other:?}"),
+        };
+        let path = root.join(filename);
+        role["config"] = toml_edit::value(path.to_str().context("peer config path is not UTF-8")?);
+    }
+    Ok(doc.to_string())
 }
 
 pub(crate) fn parse_init_command(task: &[String]) -> Result<Option<InitProfile>> {
@@ -152,7 +170,7 @@ pub(crate) fn run_init(profile: InitProfile, explicit_config: Option<&Path>) -> 
     }
     fs::write(&destination, profile.config_body_for_init())?;
     let config_dir = destination.parent().unwrap_or_else(|| Path::new("."));
-    for (relative, body) in profile.support_files() {
+    for (relative, body) in profile.support_files(config_dir)? {
         let path = config_dir.join(relative);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;

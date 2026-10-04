@@ -135,6 +135,9 @@ impl EvalAccumulator {
                     self.approvals_requested += 1;
                 }
                 ToolCallRecordPhase::Resolved { resolution } => {
+                    if resolution.permits_side_effect() {
+                        self.calls.insert(tool.call.id.clone(), tool.call.clone());
+                    }
                     if resolution.requested_approval() {
                         self.approvals_resolved += 1;
                         match resolution {
@@ -235,7 +238,12 @@ fn record_changed_files(
             }
         }
         "apply_patch" => {
-            if let Some(patch) = call.args.get("patch").and_then(serde_json::Value::as_str) {
+            if let Some(patch) = call
+                .args
+                .get("patch")
+                .or_else(|| call.args.get("input"))
+                .and_then(serde_json::Value::as_str)
+            {
                 for path in patch_paths(patch) {
                     changed_files.insert(path);
                 }
@@ -354,11 +362,55 @@ mod tests {
                 resolution: ToolCallResolution::Approved,
             },
         ] {
+            if matches!(phase, ToolCallRecordPhase::ApprovalRequested { .. }) {
+                use crate::contracts::{
+                    HookEvent, HookInput, HookResponse, HookStep, HookStepOutcome, HookTrace,
+                };
+                let input = HookInput {
+                    attribution,
+                    cwd: workspace.path().into(),
+                    event: HookEvent::BeforeTool {
+                        call: call.clone(),
+                        spec: Some(crate::domain::ToolSpec::new(
+                            "write_file",
+                            "fixture",
+                            json!({"type":"object"}),
+                            crate::domain::ToolSafety::WritesFiles,
+                        )),
+                        blocked: None,
+                    },
+                };
+                let response = HookResponse::ToolArguments {
+                    args: json!({"path":"src/effective.rs"}),
+                };
+                let output =
+                    crate::contracts::apply_hook_response(&input.event, &response).unwrap();
+                store
+                    .append_execution_journal_entry(
+                        attribution,
+                        JournalEntry::HookInvoked(HookTrace {
+                            input,
+                            steps: vec![HookStep {
+                                module_id: "fixture".into(),
+                                outcome: HookStepOutcome::Accepted { response },
+                            }],
+                            output: Some(output),
+                        }),
+                    )
+                    .await
+                    .expect("canonical argument rewrite");
+            }
             store
                 .append_execution_journal_entry(
                     attribution,
                     JournalEntry::ToolCallRecorded(ToolCallRecorded {
-                        call: call.clone(),
+                        call: if !matches!(phase, ToolCallRecordPhase::Requested) {
+                            let mut effective = call.clone();
+                            effective.args = json!({ "path": "src/effective.rs" });
+                            effective
+                        } else {
+                            call.clone()
+                        },
                         phase,
                     }),
                 )
@@ -390,7 +442,7 @@ mod tests {
         let report = read_eval_report(store.session_dir()).expect("report");
 
         assert!(report.succeeded());
-        assert_eq!(report.records, 8);
+        assert_eq!(report.records, 9);
         assert_eq!(report.turns_started, 1);
         assert_eq!(report.turns_finished, 1);
         assert_eq!(report.model_calls, 1);
@@ -400,7 +452,7 @@ mod tests {
         assert_eq!(report.approvals_approved, 1);
         assert_eq!(report.provider_input_tokens, 120);
         assert_eq!(report.provider_output_tokens, 30);
-        assert_eq!(report.changed_files, vec!["src/output.rs"]);
+        assert_eq!(report.changed_files, vec!["src/effective.rs"]);
         assert_eq!(report.journal_path, store.journal_path());
     }
 

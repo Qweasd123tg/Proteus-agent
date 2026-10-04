@@ -3,7 +3,7 @@
 
 use std::{sync::Mutex, time::Duration};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use proteus_contracts::app_protocol::{AppServerEvent, StdioOutput, StdioRequest};
 use tokio::time::{Instant, timeout_at};
 
@@ -161,6 +161,7 @@ pub(super) fn should_forward_child_event(event: &Event) -> bool {
     matches!(
         event,
         Event::ToolCallRequested { .. }
+            | Event::ToolCallResolved { .. }
             | Event::ApprovalRequested { .. }
             | Event::ApprovalResolved { .. }
             | Event::ToolFinished { .. }
@@ -412,6 +413,8 @@ pub(super) async fn cancel_child_turn(
     tracker: &mut TurnTracker,
     cancel_grace: Duration,
 ) -> bool {
+    let deadline = Instant::now() + cancel_grace;
+    child.set_write_budget(Some(deadline), None);
     if !tracker.cancel_sent {
         tracker.cancel_sent = true;
         let cancel = StdioRequest::Cancel {
@@ -423,7 +426,6 @@ pub(super) async fn cancel_child_turn(
         }
     }
 
-    let deadline = Instant::now() + cancel_grace;
     loop {
         let output = match timeout_at(deadline, child.next_output()).await {
             Ok(Ok(Some(output))) => output,
@@ -444,12 +446,15 @@ pub(super) async fn cancel_child_turn(
 
 pub(super) async fn clear_child_history(child: &mut ChildProcess) -> Result<()> {
     let request_id = new_call_id();
-    child
-        .send(&StdioRequest::ClearHistory {
-            id: Some(request_id.clone()),
-        })
-        .await?;
     let deadline = Instant::now() + CONTROL_RESPONSE_TIMEOUT;
+    timeout_at(
+        deadline,
+        child.send(&StdioRequest::ClearHistory {
+            id: Some(request_id.clone()),
+        }),
+    )
+    .await
+    .context("subagent child did not accept history clear in time")??;
     loop {
         match timeout_at(deadline, child.next_output()).await {
             Ok(Ok(Some(StdioOutput::Response { id, ok, error, .. })))

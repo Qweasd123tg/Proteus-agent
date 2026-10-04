@@ -33,6 +33,14 @@ def check_paste_and_drop(js, wait_for):
     assert js("return fire('.results-panel'," + drag('drop') + ")"), 'Drop opened the file in the webview'
     wait_for(lambda: previews() == 1, 'Dropped image missing')
     assert not js("return document.querySelector('.composer').classList.contains('dragging-files')"), 'Drag indicator stayed after drop'
+    # Force the overlap that used to restore an explicitly removed attachment.
+    js("const original=Blob.prototype.arrayBuffer;window.originalImageRead=original;Blob.prototype.arrayBuffer=function(){const read=original.call(this);return this.name==='pending.png'?new Promise(resolve=>window.releaseImageRead=()=>read.then(resolve)):read};fire('.results-panel',"+drag('drop',"'pending.png','image/png'")+")")
+    wait_for(lambda: js("return typeof window.releaseImageRead==='function'"), 'Deferred image read did not start')
+    remove()
+    assert previews() == 0, 'Previous image could not be removed during the next read'
+    js("window.releaseImageRead();Blob.prototype.arrayBuffer=window.originalImageRead")
+    wait_for(lambda: previews() == 1, 'New image was not merged into the current draft')
+    assert js("return document.querySelector('.attachment-preview span').textContent==='pending.png'"), 'Deleted attachment was resurrected by a late read'
     remove()
     js("fire('.results-panel'," + drag('drop', "'notes.txt','text/plain'") + ")")
     wait_for(lambda: 'notes.txt: поддерживаются' in js("return document.querySelector('.attachment-error')?.textContent||''"), 'Unsupported drop was not explained')

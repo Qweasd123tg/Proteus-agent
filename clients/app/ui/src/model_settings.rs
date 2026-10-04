@@ -16,7 +16,13 @@ pub(crate) struct ModelSettings {
 
 impl ModelSettings {
     pub fn apply(self, config: &ConfigSummary) {
-        self.model.set(config.model.as_ref().map(|m| m.name.clone()).unwrap_or_default());
+        self.model.set(
+            config
+                .model
+                .as_ref()
+                .map(|m| m.name.clone())
+                .unwrap_or_default(),
+        );
         self.models.set(
             config
                 .model_options

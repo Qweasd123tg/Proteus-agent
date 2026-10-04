@@ -25,6 +25,7 @@ mod messaging;
 mod outcome;
 mod output;
 mod pool;
+mod reservation;
 #[cfg(test)]
 mod tests;
 mod turn;
@@ -40,7 +41,10 @@ use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use proteus_contracts::app_protocol::StdioRequest;
 use serde_json::{Value, json};
-use tokio::{sync::Semaphore, time::timeout};
+use tokio::{
+    sync::Semaphore,
+    time::{Instant, timeout_at},
+};
 
 use crate::{
     contracts::{
@@ -63,9 +67,7 @@ use outcome::{status_label, truncate_summary};
 use pool::{PooledChild, ProcessPool, ReleaseOutcome, ResumeReservation};
 #[cfg(test)]
 use turn::should_forward_child_event;
-use turn::{
-    ChildEventForwarder, TurnEnd, TurnTracker, cancel_child_turn, clear_child_history, drive_turn,
-};
+use turn::{ChildEventForwarder, TurnEnd, TurnTracker, clear_child_history, drive_turn};
 
 pub(super) struct ProcessAgentControl {
     inner: Arc<RunnerInner>,
@@ -269,78 +271,67 @@ impl RunnerInner {
         mailbox: &ChildMailbox,
         is_resume: bool,
     ) -> Result<TurnEnd> {
-        leased.child.drain_stale_outputs()?;
-        if !is_resume && leased.used {
-            clear_child_history(&mut leased.child).await?;
-        }
-
-        let text = request.prompt.clone();
-        let send_id = new_call_id();
-        leased
-            .child
-            .send(&StdioRequest::Send {
-                images: Vec::new(),
-                options: Default::default(),
-                id: Some(send_id.clone()),
-                text,
-            })
-            .await?;
-        let active_send_id = StdMutex::new(send_id.clone());
-
-        match self
+        let deadline = self
             .roles
             .get(&profile.name)
             .and_then(|role| role.config.timeout_ms)
-        {
-            Some(timeout_ms) => {
-                match timeout(
-                    Duration::from_millis(timeout_ms),
-                    drive_turn(
-                        &mut leased.child,
-                        forwarder,
-                        &send_id,
-                        tracker,
-                        self.cancel_grace,
-                        mailbox,
-                        &active_send_id,
-                    ),
-                )
-                .await
-                {
-                    Ok(end) => end,
-                    Err(_elapsed) => {
-                        let active_send_id = active_send_id
-                            .lock()
-                            .unwrap_or_else(|poisoned| poisoned.into_inner())
-                            .clone();
-                        let clean = cancel_child_turn(
-                            &mut leased.child,
-                            forwarder,
-                            &active_send_id,
-                            tracker,
-                            self.cancel_grace,
-                        )
-                        .await;
-                        if !clean {
-                            leased.child.kill().await;
-                        }
-                        Ok(TurnEnd::Interrupted(AgentLifecycleStatus::TimedOut))
-                    }
-                }
+            .map(|millis| Instant::now() + Duration::from_millis(millis));
+        leased.child.set_write_budget(
+            deadline,
+            Some(forwarder.ctx.execution.scope.cancellation.clone()),
+        );
+        let send_id = new_call_id();
+        let active_send_id = StdMutex::new(send_id.clone());
+        let body = async {
+            leased.child.drain_stale_outputs()?;
+            if !is_resume && leased.used {
+                clear_child_history(&mut leased.child).await?;
             }
-            None => {
-                drive_turn(
-                    &mut leased.child,
-                    forwarder,
-                    &send_id,
-                    tracker,
-                    self.cancel_grace,
-                    mailbox,
-                    &active_send_id,
-                )
+            leased
+                .child
+                .send(&StdioRequest::Send {
+                    images: Vec::new(),
+                    options: Default::default(),
+                    id: Some(send_id.clone()),
+                    text: request.prompt.clone(),
+                })
+                .await?;
+            drive_turn(
+                &mut leased.child,
+                forwarder,
+                &send_id,
+                tracker,
+                self.cancel_grace,
+                mailbox,
+                &active_send_id,
+            )
+            .await
+        };
+        let result = match deadline {
+            Some(deadline) => timeout_at(deadline, body)
                 .await
-            }
+                .unwrap_or_else(|_| Err(anyhow!("subagent role deadline exceeded"))),
+            None => body.await,
+        };
+        let interrupted = if forwarder.ctx.execution.scope.cancellation.is_cancelled() {
+            Some(AgentLifecycleStatus::Cancelled)
+        } else if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            Some(AgentLifecycleStatus::TimedOut)
+        } else {
+            None
+        };
+        if result.is_err() {
+            // Setup or an in-flight write may have stopped midway through a
+            // frame. Invalidate the connection instead of appending Cancel.
+            leased.child.kill().await;
         }
+        leased.child.set_write_budget(None, None);
+        if result.is_err()
+            && let Some(status) = interrupted
+        {
+            return Ok(TurnEnd::Interrupted(status));
+        }
+        result
     }
 
     /// Терминальный исход без запуска turn-а (отмена до аренды процесса).
@@ -541,6 +532,8 @@ impl AgentControl for ProcessAgentControl {
         ctx: AgentWorkflowContext,
     ) -> Result<AgentControlHandle> {
         let prepared = self.inner.prepare(&request, &ctx)?;
+        let mut reservation =
+            reservation::SpawnReservation::new(self.inner.clone(), prepared.resume.clone());
         let child_ctx = child_context(&ctx, prepared.child_thread_id, &prepared.profile.name);
         let spawn_id = new_call_id();
         let mailbox = Arc::new(ChildMailbox::default());
@@ -558,12 +551,10 @@ impl AgentControl for ProcessAgentControl {
                 .unwrap_or(false),
         );
         if let Err(error) = reserve_result {
-            if let Some(resume) = prepared.resume.as_ref() {
-                self.inner.rollback_resume(resume).await?;
-            }
             return Err(error);
         }
 
+        reservation.reserve_pending(spawn_id.clone());
         if let Err(error) = ctx
             .emit(Event::SubagentStarted {
                 role: prepared.profile.name.clone(),
@@ -572,10 +563,6 @@ impl AgentControl for ProcessAgentControl {
             })
             .await
         {
-            self.inner.lock_pending()?.release(&spawn_id);
-            if let Some(resume) = prepared.resume.as_ref() {
-                self.inner.rollback_resume(resume).await?;
-            }
             return Err(error);
         }
 
@@ -600,6 +587,7 @@ impl AgentControl for ProcessAgentControl {
             mailbox,
         ));
         self.inner.lock_pending()?.attach(&spawn_id, join);
+        reservation.transfer();
         Ok(handle)
     }
 

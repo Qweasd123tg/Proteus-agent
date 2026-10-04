@@ -1,6 +1,21 @@
 use super::*;
 
 #[test]
+fn math_placeholders_do_not_overlap_or_replace_user_literals() {
+    let formulas = (0..15)
+        .map(|index| format!("\\(x_{index}\\)"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let source = format!("PROTEUSMATH0END PROTEUSMATHX10END {formulas}");
+    let html = markdown_html(&source);
+    assert!(html.contains("PROTEUSMATH0END PROTEUSMATHX10END"));
+    assert_eq!(html.matches("mathjax-inline").count(), 15);
+    for index in 0..15 {
+        assert!(html.contains(&format!("\\(x_{index}\\)")), "{html}");
+    }
+}
+
+#[test]
 fn markdown_html_preserves_inline_math_for_mathjax() {
     let html = markdown_html("Energy: $E = mc^2$.");
 

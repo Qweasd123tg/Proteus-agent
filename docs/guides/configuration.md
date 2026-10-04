@@ -19,7 +19,9 @@ Proteus принимает TOML и JSON. Schema pre-release и strict: неиз�
 `--config codex` означает named config
 `<config-dir>/codex.config.toml`. Явный путь с `/` или extension
 используется как путь. Config может быть одним файлом или directory; в
-directory файлы `.toml` / `.json` merge-ятся лексикографически.
+directory файлы `.toml` / `.json` merge-ятся лексикографически, затем применяется
+управляемый `config-builder.toml`. Он имеет явный приоритет независимо от имени
+других fragments и заменяет целиком `modules`, `module_config`, `active_provider`.
 
 Directory mode предназначен для одного profile, разложенного на fragments.
 Каталог `configs/` в репозитории содержит альтернативные named profiles
@@ -399,6 +401,9 @@ prompts и named child configs `codex-explore.config.toml` /
 так и в оба child config; локальный OpenAI proxy из tracked
 `codex.config.toml` туда не протекает. Установочные named configs, напротив,
 сами выбирают OpenAI-compatible provider и `gpt-5.6-luna`.
+В generated runtime роли ссылаются на абсолютные пути созданных рядом
+child profiles; запуск parent по явному пути не подхватывает одноимённый
+профиль из глобального config home.
 
 ## Выбор Behavior Modules
 
@@ -460,6 +465,11 @@ Summary использует текущую модель и её инструк�
 и отдельного лимита 4000 токенов. Срез совместимости и ограничения описаны в
 [codex-baseline.md](../development/codex-baseline.md).
 
+Как в pinned Codex, replacement сохраняет только текст исторических user
+сообщений: старые изображения удаляются из рабочего контекста. Исходные image
+refs и файлы остаются в journal/store. Текущий ввод при pre-turn compaction
+добавляется после сжатия и сохраняет свои изображения.
+
 `module_config.compactor.codex.stream_max_retries` задаёт число повторов summary
 после первой попытки: по умолчанию `5`, `0` отключает повторы, значения выше
 `100` ограничиваются сотней, как в выбранном Codex. Это отдельная настройка
@@ -502,7 +512,7 @@ description = "Python ripgrep export"
 | `cwd` | absolute или relative к workspace |
 | `env_allowlist` | parent env names, разрешённые child process |
 | `env` | scoped literal env; перекрывает allowlist |
-| `handshake_timeout_ms` | initialize timeout override |
+| `handshake_timeout_ms` | единый initialize timeout: подготовка, запись и ответ |
 | `description` | fallback observability text для exports |
 | `exports.<slot>.<module_id>` | непустая exact export map, обязательно |
 
@@ -618,6 +628,12 @@ module без знания его алгоритма. При смене patch ex
 в instructions: `prompts/codex-default.md` описывает `codex`,
 `prompts/direct-patch.md` — `direct`. Installer публикует оба prompt assets.
 
+В рабочих Codex fragments задано
+`module_config.patch.codex.reject_self_move = true`: перенос на тот же
+нормализованный путь отклоняется до записи любых hunks. Это явное отличие
+от pinned Codex. У export настройка по умолчанию выключена; для точного
+сравнения используйте `false`. [Граница режима](../../modules/reference/codex-patch/UPSTREAM.md).
+
 ## Instructions
 
 ```toml
@@ -654,6 +670,8 @@ Proteus, не точные копии upstream. Они задают цель, з
 и `${PROTEUS_HOME}/skills` (по умолчанию `~/.proteus/skills`). Project skill
 заменяет user skill с тем же именем. Frontmatter содержит `name` и
 `description`; имя совпадает с именем каталога.
+Для user skills процессу capabilities нужны `HOME` и `PROTEUS_HOME` в
+`env_allowlist`; поставляемые профили задают их явно.
 
 Context provider `skills` передаёт модели только имя, описание и путь.
 Тело загружается tool `skill` по имени. Пишите короткое описание конкретного
@@ -866,6 +884,10 @@ legacy alias, fallback или dual-read. `agent_control` — отдельная 
   `send_message`/`followup_task` через единый process backend;
 - `none` — agent-control tools не регистрируются.
 
+Инструменты выбранной facade управляются runtime: topology и редактор
+профиля показывают их включёнными и не добавляют их в `tools.enabled`.
+Их состав изменяется через `agent_control.surface` и настроенные роли.
+
 Это единственный `none` в schema: enum UI surface, а не module id. Текущий
 активный baseline считает process agent отдельным полным Proteus; старый
 loop-oriented slot удалён, а process pool и обе facade скрыты за единым
@@ -952,6 +974,13 @@ mode, enabled tools, hooks и `module_config`, затем сначала стр�
 runtime snapshot меняется одним обновлением. Он не создаёт components/exports
 из воздуха: selection доступен только для entries текущего catalog. Existing
 `components` и opaque `module_config` сохраняются.
+
+Save сериализует read/prepare/persist/publish по каноническому пути профиля;
+повторное сохранение читает актуальный source, а файл заменяется atomic rename.
+Все fallible проверки runtime проходят до persistence. Выбор модели и reload
+используют один lock, поэтому изменение selection не может сорвать publication
+уже записанного config. Принятый save завершается и при отключении HTTP caller.
+Существующие ходы продолжают работу со своим immutable snapshot.
 
 Перед записью профиля сохранение кладёт заменяемое состояние этих полей в
 `<config store>/config-history/<путь профиля>/`, рядом с sessions, а не в

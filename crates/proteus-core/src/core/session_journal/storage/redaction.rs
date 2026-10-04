@@ -71,7 +71,8 @@ fn is_schema_definition(path: &[PathSegment], key: &str) -> bool {
                     PathPattern::ArrayItem,
                     PathPattern::Key("spec"),
                 ],
-            )
+            ) || hook_spec_path(path, false)
+                || hook_request_tool_path(path, false)
         }
         "output_schema" => {
             path_matches(
@@ -91,16 +92,94 @@ fn is_schema_definition(path: &[PathSegment], key: &str) -> bool {
                     PathPattern::Key("spec"),
                     PathPattern::Key("surface"),
                 ],
+            ) || hook_spec_path(path, true)
+                || hook_request_tool_path(path, true)
+        }
+        "schema" => {
+            path_matches(
+                path,
+                &[
+                    PathPattern::Key("request"),
+                    PathPattern::Key("response_format"),
+                    PathPattern::Key("JsonSchema"),
+                ],
+            ) || hook_event_prefix(path).is_some_and(|suffix| {
+                path_matches(
+                    suffix,
+                    &[
+                        PathPattern::Key("request"),
+                        PathPattern::Key("response_format"),
+                        PathPattern::Key("JsonSchema"),
+                    ],
+                )
+            })
+        }
+        _ => false,
+    }
+}
+
+fn hook_event_prefix(path: &[PathSegment]) -> Option<&[PathSegment]> {
+    if matches!(path.first(), Some(PathSegment::Key(key)) if key == "output") {
+        return Some(&path[1..]);
+    }
+    if path.len() >= 2
+        && path_matches(
+            &path[..2],
+            &[PathPattern::Key("input"), PathPattern::Key("event")],
+        )
+    {
+        return Some(&path[2..]);
+    }
+    None
+}
+
+fn hook_spec_path(path: &[PathSegment], output: bool) -> bool {
+    hook_event_prefix(path).is_some_and(|suffix| {
+        if output {
+            path_matches(
+                suffix,
+                &[PathPattern::Key("spec"), PathPattern::Key("surface")],
+            )
+        } else {
+            path_matches(suffix, &[PathPattern::Key("spec")])
+        }
+    })
+}
+
+fn hook_request_tool_path(path: &[PathSegment], output: bool) -> bool {
+    hook_event_prefix(path).is_some_and(|suffix| {
+        if output {
+            path_matches(
+                suffix,
+                &[
+                    PathPattern::Key("request"),
+                    PathPattern::Key("tools"),
+                    PathPattern::ArrayItem,
+                    PathPattern::Key("surface"),
+                ],
+            )
+        } else {
+            path_matches(
+                suffix,
+                &[
+                    PathPattern::Key("request"),
+                    PathPattern::Key("tools"),
+                    PathPattern::ArrayItem,
+                ],
             )
         }
-        "schema" => path_matches(
-            path,
-            &[
-                PathPattern::Key("request"),
-                PathPattern::Key("response_format"),
-                PathPattern::Key("JsonSchema"),
-            ],
-        ),
+    })
+}
+
+/// Only argument values at canonical sensitive keys lose their schema semantics.
+/// A marker in schema/spec metadata is not evidence of redacted arguments.
+pub(crate) fn contains_redacted_sensitive_value(value: &Value) -> bool {
+    match value {
+        Value::Object(map) => map.iter().any(|(key, nested)| {
+            (is_sensitive_key(key) && nested.as_str() == Some(REDACTED))
+                || contains_redacted_sensitive_value(nested)
+        }),
+        Value::Array(values) => values.iter().any(contains_redacted_sensitive_value),
         _ => false,
     }
 }
@@ -143,6 +222,7 @@ mod tests {
     fn arbitrary_schema_like_metadata_and_tool_args_are_still_redacted() {
         let mut value = json!({
             "metadata": {
+                "input": {"event": {"spec": {"input_schema": {"password":"hook-like-secret"}}}},
                 "request": {
                     "tools": [{
                         "input_schema": { "password": "actual-secret" }
@@ -161,6 +241,10 @@ mod tests {
             REDACTED
         );
         assert_eq!(value["call"]["args"]["access_token"], REDACTED);
+        assert_eq!(
+            value["metadata"]["input"]["event"]["spec"]["input_schema"]["password"],
+            REDACTED
+        );
     }
 
     #[test]

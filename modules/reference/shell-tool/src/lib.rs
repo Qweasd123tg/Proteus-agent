@@ -12,10 +12,8 @@
 //! его дочерние процессы.
 
 use std::{
-    fs,
-    path::{Path, PathBuf},
-    process::{Child, Command, ExitStatus, Stdio},
-    time::{Duration, Instant},
+    process::{Child, Command, Stdio},
+    time::Duration,
 };
 
 #[cfg(unix)]
@@ -30,16 +28,24 @@ use proteus_contracts::{
     },
 };
 use serde_json::{Value, json};
-use tempfile::TempDir;
 
+#[cfg(unix)]
+mod child_status;
 mod execution;
+mod ptyxis;
+mod result;
 mod sandbox;
 mod unified_exec;
 
 #[cfg(test)]
+use execution::BoundedBuffer;
+#[cfg(test)]
 use execution::wait_with_timeout;
-use execution::{BoundedBuffer, ShellOutput, omitted_marker, wait_with_timeout_and_cancel};
+use execution::{omitted_marker, wait_with_timeout_and_cancel};
+use ptyxis::{run_in_ptyxis, should_use_ptyxis};
 use sandbox::{EXEC_COMMAND_ENV, SandboxKind, SandboxPolicy, bwrap_args, resolve_workdir};
+#[cfg(test)]
+use std::time::Instant;
 
 /// Максимум stdout/stderr. Reader продолжает дренировать pipe после лимита,
 /// но сохраняет только head+tail: модель видит и начало вывода, и хвост
@@ -233,294 +239,15 @@ fn invoke_command_with_cancel(
         (output, timed_out, None)
     };
 
-    let stdout = output.stdout.to_text();
-    let stderr = output.stderr.to_text();
-    let status = output.status.code();
-    let success = output.status.success();
-
-    let mut rendered = stdout.clone();
-    if !stderr.is_empty() {
-        if !rendered.is_empty() {
-            rendered.push('\n');
-        }
-        rendered.push_str(&stderr);
-    }
-
-    let error_msg = if timed_out {
-        Some(format!("process timed out after {timeout_ms}ms"))
-    } else if !success {
-        Some(match status {
-            Some(code) => format!("process exited with code {code}"),
-            None => "process terminated by signal".to_owned(),
-        })
-    } else {
-        None
-    };
-
     let metadata = json!({
-        "exit_code": status,
-        "stdout_bytes": output.stdout.original_len,
-        "stderr_bytes": output.stderr.original_len,
-        "stdout_truncated": output.stdout.truncated(),
-        "stderr_truncated": output.stderr.truncated(),
-        "timed_out": timed_out,
-        "timeout_ms": timeout_ms,
         "workdir": resolved.workdir,
         "sandbox": sandbox.as_ref().map(SandboxKind::label),
         "escalated": escalated,
         "external_terminal": external_terminal,
     });
-
-    let result = json!({
-        "call_id": call_id,
-        "ok": success,
-        "output": rendered,
-        "content": [],
-        "error": error_msg,
-        "metadata": metadata
-    });
-    Ok(result.to_string())
-}
-
-fn should_use_ptyxis() -> bool {
-    std::env::var(EXTERNAL_TERMINAL_ENV)
-        .ok()
-        .is_some_and(|value| value.eq_ignore_ascii_case(PTYXIS_TERMINAL))
-}
-
-fn run_in_ptyxis(
-    command: &str,
-    cwd: &str,
-    timeout: Duration,
-    is_cancelled: &mut dyn FnMut() -> std::io::Result<bool>,
-) -> Result<(ShellOutput, bool)> {
-    let capture_dir = tempfile::Builder::new()
-        .prefix("agent-shell-ptyxis-")
-        .tempdir()
-        .with_context(|| "failed to create Ptyxis capture directory")?;
-    let paths = PtyxisCapturePaths::new(capture_dir.path());
-    fs::write(&paths.wrapper, ptyxis_wrapper_script())
-        .with_context(|| format!("failed to write {}", paths.wrapper.display()))?;
-
-    spawn_ptyxis(command, cwd, &paths)?;
-    wait_for_ptyxis_result(capture_dir, paths, timeout, is_cancelled)
-}
-
-struct PtyxisCapturePaths {
-    wrapper: PathBuf,
-    stdout: PathBuf,
-    stderr: PathBuf,
-    status: PathBuf,
-    pid: PathBuf,
-    cancel: PathBuf,
-}
-
-impl PtyxisCapturePaths {
-    fn new(dir: &Path) -> Self {
-        Self {
-            wrapper: dir.join("run.sh"),
-            stdout: dir.join("stdout.log"),
-            stderr: dir.join("stderr.log"),
-            status: dir.join("status"),
-            pid: dir.join("pid"),
-            cancel: dir.join("cancel"),
-        }
-    }
-}
-
-fn ptyxis_wrapper_script() -> &'static str {
-    r#"#!/usr/bin/env bash
-set +e
-command_text="$1"
-stdout_path="$2"
-stderr_path="$3"
-status_path="$4"
-pid_path="$5"
-cancel_path="$6"
-command_pid=""
-finish() {
-    local status="$1"
-    trap - EXIT HUP INT TERM
-    if [ -n "$command_pid" ]; then
-        kill -- "-$command_pid" 2>/dev/null || true
-    fi
-    printf '%s\n' "$status" > "$status_path"
-    exit "$status"
-}
-trap 'finish 130' HUP INT TERM
-printf '[agent] command:\n'
-printf '%s\n\n' "$command_text"
-if [ -e "$cancel_path" ]; then
-    printf '130\n' > "$status_path"
-    exit 130
-fi
-setsid sh -lc "$command_text" > >(tee "$stdout_path") 2> >(tee "$stderr_path" >&2) &
-command_pid=$!
-printf '%s\n' "$command_pid" > "$pid_path"
-wait "$command_pid"
-status=$?
-trap - HUP INT TERM
-printf '%s\n' "$status" > "$status_path"
-printf '\n[agent] command finished with exit code %s; this tab remains open.\n' "$status"
-exec bash --noprofile --norc -i
-"#
-}
-
-fn spawn_ptyxis(command: &str, cwd: &str, paths: &PtyxisCapturePaths) -> Result<()> {
-    let mut launcher = Command::new(PTYXIS_TERMINAL);
-    if let Some(address) = std::env::var_os(EXTERNAL_TERMINAL_DBUS_ADDRESS_ENV) {
-        launcher.env("DBUS_SESSION_BUS_ADDRESS", address);
-    }
-    let mut child = launcher
-        .arg("--tab")
-        .arg("--working-directory")
-        .arg(cwd)
-        .arg("--title")
-        .arg(format!("agent shell · {}", command_summary(command)))
-        .arg("--execute")
-        .arg(ptyxis_execute_command(
-            command,
-            paths,
-            std::env::var("DBUS_SESSION_BUS_ADDRESS").ok().as_deref(),
-        ))
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .with_context(|| "failed to open Ptyxis terminal")?;
-    std::thread::spawn(move || {
-        let _ = child.wait();
-    });
-    Ok(())
-}
-
-fn ptyxis_execute_command(
-    command: &str,
-    paths: &PtyxisCapturePaths,
-    original_dbus: Option<&str>,
-) -> String {
-    let mut execute = match original_dbus {
-        Some(address) => format!("env DBUS_SESSION_BUS_ADDRESS={} ", shell_quote(address)),
-        None => "env -u DBUS_SESSION_BUS_ADDRESS ".to_owned(),
-    };
-    execute.push_str("bash ");
-    let arguments = [
-        paths.wrapper.display().to_string(),
-        command.to_owned(),
-        paths.stdout.display().to_string(),
-        paths.stderr.display().to_string(),
-        paths.status.display().to_string(),
-        paths.pid.display().to_string(),
-        paths.cancel.display().to_string(),
-    ];
-    for argument in &arguments {
-        execute.push_str(&shell_quote(argument));
-        execute.push(' ');
-    }
-    execute.pop();
-    execute
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
-}
-
-fn command_summary(command: &str) -> String {
-    const MAX_TITLE_CHARS: usize = 60;
-    let line = command.lines().next().unwrap_or_default().trim();
-    if line.chars().count() <= MAX_TITLE_CHARS {
-        return line.to_owned();
-    }
-    let mut result = line.chars().take(MAX_TITLE_CHARS - 1).collect::<String>();
-    result.push('…');
-    result
-}
-
-fn wait_for_ptyxis_result(
-    _capture_dir: TempDir,
-    paths: PtyxisCapturePaths,
-    timeout: Duration,
-    is_cancelled: &mut dyn FnMut() -> std::io::Result<bool>,
-) -> Result<(ShellOutput, bool)> {
-    let started = Instant::now();
-    loop {
-        match is_cancelled() {
-            Ok(false) => {}
-            result => {
-                stop_ptyxis_command(&paths);
-                result.context("failed to check shell cancellation")?;
-                anyhow::bail!("shell invocation canceled");
-            }
-        }
-        if let Ok(status_text) = fs::read_to_string(&paths.status) {
-            let code = status_text.trim().parse::<i32>().with_context(|| {
-                format!("failed to parse Ptyxis command status: {status_text:?}")
-            })?;
-            return Ok((read_ptyxis_output(&paths, code)?, false));
-        }
-        if started.elapsed() >= timeout {
-            stop_ptyxis_command(&paths);
-            return Ok((read_ptyxis_output(&paths, 124)?, true));
-        }
-        std::thread::sleep(Duration::from_millis(25));
-    }
-}
-
-fn stop_ptyxis_command(paths: &PtyxisCapturePaths) {
-    let _ = fs::write(&paths.cancel, "");
-    for _ in 0..40 {
-        if paths.pid.exists() || paths.status.exists() {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    kill_ptyxis_command(&paths.pid);
-}
-
-fn read_ptyxis_output(paths: &PtyxisCapturePaths, code: i32) -> Result<ShellOutput> {
-    Ok(ShellOutput {
-        status: exit_status_from_code(code),
-        stdout: read_bounded_file(&paths.stdout)?,
-        stderr: read_bounded_file(&paths.stderr)?,
-    })
-}
-
-fn read_bounded_file(path: &Path) -> Result<BoundedBuffer> {
-    let bytes = match fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(error) => return Err(error.into()),
-    };
-    Ok(BoundedBuffer::from_bytes(&bytes))
-}
-
-#[cfg(unix)]
-fn kill_ptyxis_command(pid_path: &Path) {
-    let Ok(pid_text) = fs::read_to_string(pid_path) else {
-        return;
-    };
-    let Ok(pgid) = pid_text.trim().parse::<i32>() else {
-        return;
-    };
-    unsafe {
-        let _ = libc::kill(-pgid, libc::SIGKILL);
-    }
-}
-
-#[cfg(not(unix))]
-fn kill_ptyxis_command(_pid_path: &Path) {}
-
-#[cfg(unix)]
-fn exit_status_from_code(code: i32) -> ExitStatus {
-    use std::os::unix::process::ExitStatusExt;
-
-    ExitStatus::from_raw(code << 8)
-}
-
-#[cfg(windows)]
-fn exit_status_from_code(code: i32) -> ExitStatus {
-    use std::os::windows::process::ExitStatusExt;
-
-    ExitStatus::from_raw(code as u32)
+    Ok(result::render_output(
+        call_id, output, timed_out, timeout_ms, metadata,
+    ))
 }
 
 fn spawn_shell(
@@ -760,7 +487,7 @@ mod tests {
     fn cancellation_during_output_drain_kills_background_descendant() {
         let dir = tempfile::tempdir().unwrap();
         let cwd = dir.path().to_str().unwrap();
-        let mut child = spawn_shell(
+        let child = spawn_shell(
             "sh -c 'sleep 1; touch late-marker' & printf parent-done",
             cwd,
             cwd,
@@ -768,7 +495,10 @@ mod tests {
         )
         .unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
-        while child.try_wait().unwrap().is_none() {
+        while crate::child_status::observe_exit(child.id())
+            .unwrap()
+            .is_none()
+        {
             assert!(Instant::now() < deadline, "parent shell did not exit");
             std::thread::sleep(Duration::from_millis(5));
         }
@@ -1048,37 +778,5 @@ mod tests {
         // Память ограничена head+tail, середина ушла.
         assert_eq!(buffer.original_len, HEAD_LIMIT_BYTES + 2 * TAIL_LIMIT_BYTES);
         assert_eq!(buffer.head.len() + buffer.tail.len(), OUTPUT_LIMIT_BYTES);
-    }
-
-    #[test]
-    fn ptyxis_command_title_is_single_line_and_bounded() {
-        assert_eq!(command_summary("cargo test\nignored"), "cargo test");
-        let title = command_summary(&"x".repeat(100));
-        assert!(title.ends_with('…'));
-        assert!(title.chars().count() <= 60);
-    }
-
-    #[test]
-    fn ptyxis_wrapper_streams_output_records_status_and_stays_open() {
-        let wrapper = ptyxis_wrapper_script();
-        assert!(wrapper.contains("tee \"$stdout_path\""));
-        assert!(wrapper.contains("tee \"$stderr_path\""));
-        assert!(wrapper.contains("printf '[agent] command:\\n'"));
-        assert!(wrapper.contains("printf '%s\\n\\n' \"$command_text\""));
-        assert!(wrapper.contains("printf '%s\\n' \"$status\""));
-        assert!(wrapper.contains("trap 'finish 130' HUP INT TERM"));
-        assert!(wrapper.contains("exec bash --noprofile --norc -i"));
-    }
-
-    #[test]
-    fn ptyxis_execute_command_restores_desktop_bus_and_quotes_command() {
-        let capture_dir = tempfile::tempdir().expect("capture dir");
-        let paths = PtyxisCapturePaths::new(capture_dir.path());
-        let execute =
-            ptyxis_execute_command("printf '%s' done", &paths, Some("unix:path=/tmp/user bus"));
-        assert!(
-            execute.starts_with("env DBUS_SESSION_BUS_ADDRESS='unix:path=/tmp/user bus' bash ")
-        );
-        assert!(execute.contains("'printf '\"'\"'%s'\"'\"' done'"));
     }
 }

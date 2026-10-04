@@ -165,7 +165,7 @@ fn journal_prefix_excludes_other_threads_detached_and_nested_executions() {
             tool_results: vec![],
         }),
     );
-    let prefix = ModelContextState::from_records(&records, thread_id, Some(next_turn));
+    let prefix = ModelContextState::from_records(&records, Some(next_turn));
     assert_eq!(
         prefix.snapshot(),
         vec![ModelContextObservation::ContextWindowExceeded {
@@ -173,7 +173,7 @@ fn journal_prefix_excludes_other_threads_detached_and_nested_executions() {
         }]
     );
     assert!(
-        ModelContextState::from_records(&records, thread_id, None)
+        ModelContextState::from_records(&records, None)
             .snapshot()
             .is_empty()
     );

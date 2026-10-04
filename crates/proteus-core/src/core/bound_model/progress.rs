@@ -128,6 +128,18 @@ impl CompletedMessageProgress {
             }
             *terminal = accepted.clone();
         }
+        // A provider may omit MessageCompleted entirely, or add a suffix only
+        // at terminal time. Apply identical history-safe invariants without
+        // publishing synthetic/duplicate completion events.
+        let mut terminal = self.clone();
+        for message in &response.messages[self.messages.len()..] {
+            if !terminal.accept(message.clone())? {
+                bail!(
+                    "terminal response reused completed model message {}",
+                    message.id
+                );
+            }
+        }
         Ok(())
     }
 

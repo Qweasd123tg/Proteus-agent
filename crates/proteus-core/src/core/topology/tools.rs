@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::{
     contracts::ToolSource,
-    core::{AppConfig, agent_control::TASK_TOOL},
+    core::{AppConfig, agent_control},
     domain::{ToolSafety, ToolSpec},
 };
 
@@ -53,8 +53,8 @@ fn tool_enabled(config: &AppConfig, source: &ToolSource, name: &str) -> bool {
     config.tools.enabled.iter().any(|enabled| enabled == name) || runtime_managed(source, name)
 }
 
-fn runtime_managed(source: &ToolSource, name: &str) -> bool {
-    name == TASK_TOOL
+fn runtime_managed(source: &ToolSource, _name: &str) -> bool {
+    agent_control::owns_tool_source(source)
         || matches!(
             source,
             ToolSource::ProviderHosted { .. } | ToolSource::Config { .. } | ToolSource::Mcp { .. }
@@ -94,7 +94,11 @@ mod tests {
         config.tools.enabled.push("read_file".to_owned());
         assert!(tool_enabled(&config, &builtin, "read_file"));
         assert!(!runtime_managed(&builtin, "read_file"));
-        assert!(runtime_managed(&builtin, TASK_TOOL));
+        for provider in ["agent-control-task", "agent-control-collaboration"] {
+            let source = ToolSource::builtin(provider);
+            assert!(runtime_managed(&source, "registered_facade_tool"));
+            assert!(tool_enabled(&config, &source, "registered_facade_tool"));
+        }
         assert!(runtime_managed(
             &ToolSource::Config {
                 origin: "config".into()

@@ -14,7 +14,7 @@ use serde_json::Value;
 
 use crate::{
     codex_tools::CodexToolRun,
-    host::{emit_event, ensure_not_cancelled},
+    host::{emit_event, emit_token_usage, ensure_not_cancelled},
     scaffold::TurnScaffold,
 };
 
@@ -59,7 +59,10 @@ pub(crate) fn complete_sampling_request(
             },
         )?;
         let error = match crate::codex_stream::sample(host, input, turn, request, tools) {
-            Ok(response) => return Ok(response),
+            Ok(response) => {
+                emit_token_usage(host, request, response.usage.clone(), "codex_loop")?;
+                return Ok(response);
+            }
             Err(error) => error,
         };
         let advice = match error.model_failure.as_ref().map(|failure| failure.kind) {

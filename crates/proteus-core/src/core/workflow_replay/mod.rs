@@ -217,6 +217,7 @@ pub async fn replay_workflow(
         fixture.opened.task.clone(),
         fixture.initial_history.clone(),
         workflow_context,
+        None,
     )
     .await
     .and_then(|output| {

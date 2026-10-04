@@ -396,3 +396,6 @@ fn completed_tool_calls_validate_surfaces_and_identity_before_acceptance() {
             .is_empty()
     );
 }
+
+#[path = "terminal_suffix.rs"]
+mod terminal_suffix;

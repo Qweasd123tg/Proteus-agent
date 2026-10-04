@@ -70,7 +70,7 @@ pub(crate) fn journal_transcript_messages(
                 match &tool.phase {
                     ToolCallRecordPhase::Requested => state.append_tool_call(&tool.call),
                     ToolCallRecordPhase::Resolved { resolution } => {
-                        state.apply_resolution(&tool.call.id, resolution)
+                        state.apply_resolution(&tool.call, resolution)
                     }
                     ToolCallRecordPhase::ApprovalRequested { .. } => {}
                 }
@@ -232,19 +232,24 @@ impl TranscriptProjectionState {
         }
     }
 
-    fn apply_resolution(&mut self, call_id: &str, resolution: &ToolCallResolution) {
-        if resolution.permits_side_effect() {
-            return;
-        }
+    fn apply_resolution(
+        &mut self,
+        call: &crate::domain::ToolCall,
+        resolution: &ToolCallResolution,
+    ) {
         let Some(tool) = self
             .transcript
             .iter_mut()
             .rev()
             .filter_map(|message| message.tool.as_mut())
-            .find(|tool| tool.call_id == call_id)
+            .find(|tool| tool.call_id == call.id)
         else {
             return;
         };
+        if resolution.permits_side_effect() {
+            tool.effective_args = Some(call.args.clone());
+            return;
+        }
         let reason = match resolution {
             ToolCallResolution::ApprovalDenied { reason }
             | ToolCallResolution::PolicyDenied { reason }

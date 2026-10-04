@@ -18,8 +18,8 @@ mod subagent;
 mod subagent_tab;
 pub(crate) mod tool_activity;
 mod tool_chain;
-mod turn_issue;
 pub(crate) mod transcript_state;
+mod turn_issue;
 mod virtual_transcript;
 
 pub(crate) use approval::{ApprovalCard, UserInputCard};

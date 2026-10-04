@@ -3,6 +3,7 @@
 
 mod control;
 mod message;
+mod reservation;
 mod spec;
 
 #[cfg(test)]
@@ -57,7 +58,7 @@ pub(super) fn register_collaboration_tools(
     // Process runtime service: registry/config rebuilds receive the same
     // bounded session-owned control plane, so live handles are not orphaned.
     let control = CollaborationControl::shared();
-    let source = ToolSource::builtin("agent-control-collaboration");
+    let source = ToolSource::builtin(super::COLLABORATION_SOURCE);
     tools.register_with_source(
         source.clone(),
         SpawnAgentTool::new(roles, timeout_ms, control.clone()),
@@ -150,6 +151,12 @@ impl Tool for SpawnAgentTool {
             Ok(reservation) => reservation,
             Err(error) => return Ok(tool_error(call, "spawn_agent", error.to_string())),
         };
+        let mut launch = reservation::LaunchReservation::new(
+            self.control.clone(),
+            session_id,
+            reservation.path.clone(),
+            None,
+        );
         let request = AgentControlRequest::new(agent_type, message, parent_task)
             .with_description(task_name.to_owned())
             .with_metadata(json!({
@@ -179,6 +186,7 @@ impl Tool for SpawnAgentTool {
             reservation.generation,
             handle.clone(),
         );
+        launch.transfer();
         if interrupt_requested {
             host.cancel_agent(&handle).await?;
         }

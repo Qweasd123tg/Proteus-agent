@@ -5,6 +5,7 @@ use serde_json::Value;
 
 /// Default per-frame safety limit for stdout parsing.
 pub const DEFAULT_MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
+const MAX_HEADER_BYTES: usize = 64 * 1024;
 
 /// A synchronous byte-stream framing for JSON messages.
 pub trait Framing: Clone + Send + 'static {
@@ -129,14 +130,27 @@ fn read_content_length<R: BufRead>(reader: &mut R, max_frame_bytes: usize) -> Re
 
     loop {
         let mut line = Vec::new();
-        let read = reader.read_until(b'\n', &mut line)?;
-        if read == 0 {
-            bail!("child stdout closed before content-length headers were received");
-        }
-
-        header_bytes = header_bytes.saturating_add(read);
-        if header_bytes > 64 * 1024 {
-            bail!("content-length headers exceeded 65536 bytes");
+        loop {
+            let buffer = reader.fill_buf()?;
+            if buffer.is_empty() {
+                if line.is_empty() {
+                    bail!("child stdout closed before content-length headers were received");
+                }
+                break;
+            }
+            let bytes_to_take = buffer
+                .iter()
+                .position(|byte| *byte == b'\n')
+                .map_or(buffer.len(), |position| position + 1);
+            if bytes_to_take > MAX_HEADER_BYTES - header_bytes {
+                bail!("content-length headers exceeded 65536 bytes");
+            }
+            line.extend_from_slice(&buffer[..bytes_to_take]);
+            reader.consume(bytes_to_take);
+            header_bytes += bytes_to_take;
+            if line.last() == Some(&b'\n') {
+                break;
+            }
         }
 
         if line.ends_with(b"\n") {
@@ -215,5 +229,60 @@ mod tests {
         strict
             .read_frame(&mut reader)
             .expect_err("strict limit should reject the same frame");
+    }
+
+    #[test]
+    fn content_length_headers_are_bounded_before_accumulation() {
+        struct CountingReader {
+            consumed: usize,
+            chunk: [u8; 1024],
+        }
+        impl std::io::Read for CountingReader {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                panic!("headers must use the bounded BufRead path")
+            }
+        }
+        impl BufRead for CountingReader {
+            fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+                Ok(&self.chunk)
+            }
+            fn consume(&mut self, bytes: usize) {
+                self.consumed += bytes;
+                assert!(self.consumed <= MAX_HEADER_BYTES, "read past the budget");
+            }
+        }
+        let mut reader = CountingReader {
+            consumed: 0,
+            chunk: [b'x'; 1024],
+        };
+        let error = ContentLengthFraming::default()
+            .read_frame(&mut reader)
+            .expect_err("endless header without newline must fail at the header limit");
+        assert!(error.to_string().contains("headers exceeded 65536 bytes"));
+        assert_eq!(reader.consumed, MAX_HEADER_BYTES);
+    }
+
+    #[test]
+    fn content_length_header_budget_includes_all_lines_and_accepts_exact_limit() {
+        let prefix = "Content-Type: application/json\r\nContent-Length: 2\r\nX: ";
+        let padding = "x".repeat(MAX_HEADER_BYTES - prefix.len() - 4);
+        let input = format!("{prefix}{padding}\r\n\r\n{{}}");
+        let mut reader = BufReader::new(input.as_bytes());
+        assert_eq!(
+            ContentLengthFraming::default()
+                .read_frame(&mut reader)
+                .unwrap(),
+            serde_json::json!({})
+        );
+
+        let input = format!("{prefix}{padding}x\r\n\r\n{{}}");
+        let mut reader = BufReader::new(input.as_bytes());
+        assert!(
+            ContentLengthFraming::default()
+                .read_frame(&mut reader)
+                .unwrap_err()
+                .to_string()
+                .contains("headers exceeded 65536 bytes")
+        );
     }
 }

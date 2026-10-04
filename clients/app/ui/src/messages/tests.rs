@@ -53,6 +53,7 @@ fn history_message(id: u64, role: MessageRole, text: &str) -> Message {
 
 fn tool_activity(call_id: &str, status: ToolActivityStatus) -> ToolActivity {
     ToolActivity {
+        effective_args: None,
         call_id: call_id.to_owned(),
         name: "shell".to_owned(),
         args: Value::Null,

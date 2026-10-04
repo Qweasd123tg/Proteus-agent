@@ -347,6 +347,7 @@ mod tests {
             role: MessageRole::System,
             text: String::new(),
             tool: Some(ToolActivity {
+                effective_args: None,
                 call_id: "call-1".to_owned(),
                 name: "shell".to_owned(),
                 args: serde_json::Value::Null,

@@ -6,6 +6,8 @@
 #[path = "support/model.rs"]
 mod test_model;
 
+#[path = "process_agent_pool/admission.rs"]
+mod admission;
 #[path = "process_agent_pool/collaboration.rs"]
 mod collaboration;
 

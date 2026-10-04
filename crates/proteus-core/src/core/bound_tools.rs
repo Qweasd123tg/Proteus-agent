@@ -406,6 +406,7 @@ impl BoundTools {
     where
         F: FnOnce(&mut ToolContext),
     {
+        observer.tool_call_resolved(call).await?;
         let tool = self
             .registry
             .get(&call.name)
@@ -561,6 +562,9 @@ impl BoundTools {
 #[async_trait]
 pub(crate) trait ToolExecutionObserver: Send + Sync {
     async fn tool_call_requested(&self, call: &ToolCall) -> Result<()>;
+    async fn tool_call_resolved(&self, _call: &ToolCall) -> Result<()> {
+        Ok(())
+    }
     async fn approval_requested(&self, call: &ToolCall, reason: &str) -> Result<()>;
     async fn approval_resolved(&self, call: &ToolCall, approved: bool) -> Result<()>;
     async fn tool_finished(&self, result: &ToolResult) -> Result<()>;

@@ -150,7 +150,6 @@ pub(super) fn load_fixture(
         interrupted_turns: prior_projection.interrupted_turns,
         model_context: crate::core::model_context::ModelContextState::from_records(
             &projection.records,
-            thread_id,
             Some(turn_id),
         )
         .snapshot(),

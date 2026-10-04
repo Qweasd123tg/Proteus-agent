@@ -24,8 +24,10 @@ use crate::model_standard::{ContentPart, MessageRole};
 mod catalog;
 mod checkpoint;
 mod identity;
+mod path_identity;
 mod usage;
 mod workspace_dir;
+mod writer;
 
 pub use catalog::{
     list_session_summaries, list_session_summaries_for_audit, list_workspace_session_summaries,
@@ -34,6 +36,7 @@ use identity::{
     SessionDirectoryKind, ensure_writable_identity, resolve_session_identity,
     short_session_directory_name, validate_new_session_target,
 };
+use path_identity::canonicalize_unmaterialized_path;
 use workspace_dir::workspace_path_from_session_dir;
 pub use workspace_dir::{decode_workspace_path, encode_workspace_path};
 
@@ -49,12 +52,14 @@ pub struct SessionStore {
 impl SessionStore {
     pub fn new(config_dir: &Path, cwd: &Path, session_id: SessionId) -> Result<Self> {
         let workspace = encode_workspace_path(cwd)?;
-        let session_dir = config_dir
-            .join("sessions")
-            .join(workspace)
-            .join(short_session_directory_name(session_id));
+        let session_dir = canonicalize_unmaterialized_path(
+            &config_dir
+                .join("sessions")
+                .join(workspace)
+                .join(short_session_directory_name(session_id)),
+        )?;
         validate_new_session_target(&session_dir, session_id)?;
-        let writer = writer_for_session_dir(&session_dir);
+        let writer = writer_for_session_dir(&session_dir)?;
         Ok(Self {
             session_dir,
             session_id,
@@ -65,9 +70,10 @@ impl SessionStore {
     }
 
     pub fn open(session_dir: PathBuf) -> Result<Self> {
+        let session_dir = canonicalize_unmaterialized_path(&session_dir)?;
         let identity = resolve_session_identity(&session_dir)?;
         workspace_path_from_session_dir(&session_dir)?;
-        let writer = writer_for_session_dir(&session_dir);
+        let writer = writer_for_session_dir(&session_dir)?;
         Ok(Self {
             session_dir,
             session_id: identity.session_id,
@@ -93,47 +99,6 @@ impl SessionStore {
         journal_path(&self.session_dir)
     }
 
-    /// Admission may write image bytes before the first journal record. Create
-    /// the canonical session identity and acquire its writer lease first.
-    pub(crate) async fn prepare_attachments(&self) -> Result<()> {
-        let mut writer = self.writer.lock().await;
-        self.materialize_for_write().await?;
-        initialize_writer_state(&self.session_dir, self.session_id, &mut writer)
-    }
-
-    async fn materialize_for_write(&self) -> Result<()> {
-        let parent = self.session_dir.parent().ok_or_else(|| {
-            anyhow!(
-                "session directory has no parent: {}",
-                self.session_dir.display()
-            )
-        })?;
-        tokio::fs::create_dir_all(parent)
-            .await
-            .with_context(|| format!("failed to create session parent {}", parent.display()))?;
-        let created = match tokio::fs::create_dir(&self.session_dir).await {
-            Ok(()) => true,
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => false,
-            Err(error) => {
-                return Err(error).with_context(|| {
-                    format!(
-                        "failed to create session dir {}",
-                        self.session_dir.display()
-                    )
-                });
-            }
-        };
-        let workspace_path = self.workspace_path()?;
-        ensure_writable_identity(
-            &self.session_dir,
-            self.session_id,
-            self.directory_kind,
-            &workspace_path,
-            created,
-        )
-        .await
-    }
-
     pub fn load_messages(&self) -> Result<Vec<CanonicalMessage>> {
         Ok(self.load_projection()?.history)
     }
@@ -155,27 +120,15 @@ impl SessionStore {
         if messages.is_empty() {
             return Ok(());
         }
-        let mut writer = self.writer.lock().await;
-        self.materialize_for_write().await?;
-        initialize_writer_state(&self.session_dir, self.session_id, &mut writer)?;
-        let previous_revision = writer.history_revision();
-        append_record(
-            &self.session_dir,
-            self.session_id,
-            JournalRecordAttribution::chat(thread_id, turn_id),
-            JournalEntry::HistoryMutated(HistoryMutated {
-                previous_revision,
-                new_revision: previous_revision.saturating_add(1),
-                tool_results: Vec::new(),
-                mutation: HistoryMutationKind::Append,
-                messages: messages.to_vec(),
-                compaction: None,
-            }),
-            self.blob_threshold_bytes,
-            &mut writer,
+        self.mutate_history(
+            thread_id,
+            turn_id,
+            messages.to_vec(),
+            HistoryMutationKind::Append,
+            None,
+            Vec::new(),
         )
-        .await?;
-        Ok(())
+        .await
     }
 
     pub async fn replace_history(
@@ -185,27 +138,15 @@ impl SessionStore {
         messages: &[CanonicalMessage],
         compaction: Option<HistoryCompactionReport>,
     ) -> Result<()> {
-        let mut writer = self.writer.lock().await;
-        self.materialize_for_write().await?;
-        initialize_writer_state(&self.session_dir, self.session_id, &mut writer)?;
-        let previous_revision = writer.history_revision();
-        append_record(
-            &self.session_dir,
-            self.session_id,
-            JournalRecordAttribution::chat(thread_id, turn_id),
-            JournalEntry::HistoryMutated(HistoryMutated {
-                previous_revision,
-                new_revision: previous_revision.saturating_add(1),
-                tool_results: Vec::new(),
-                mutation: HistoryMutationKind::Replace,
-                messages: messages.to_vec(),
-                compaction,
-            }),
-            self.blob_threshold_bytes,
-            &mut writer,
+        self.mutate_history(
+            thread_id,
+            turn_id,
+            messages.to_vec(),
+            HistoryMutationKind::Replace,
+            compaction,
+            Vec::new(),
         )
-        .await?;
-        Ok(())
+        .await
     }
 
     pub async fn append_journal_entry(
@@ -214,17 +155,8 @@ impl SessionStore {
         turn_id: Option<TurnId>,
         entry: JournalEntry,
     ) -> Result<JournalRecord> {
-        let mut writer = self.writer.lock().await;
-        self.materialize_for_write().await?;
-        append_record(
-            &self.session_dir,
-            self.session_id,
-            JournalRecordAttribution::chat(thread_id, turn_id),
-            entry,
-            self.blob_threshold_bytes,
-            &mut writer,
-        )
-        .await
+        self.append_fact(JournalRecordAttribution::chat(thread_id, turn_id), entry)
+            .await
     }
 
     pub async fn append_execution_journal_entry(
@@ -256,15 +188,9 @@ impl SessionStore {
         turn_id: Option<TurnId>,
         entry: JournalEntry,
     ) -> Result<JournalRecord> {
-        let mut writer = self.writer.lock().await;
-        self.materialize_for_write().await?;
-        append_record(
-            &self.session_dir,
-            self.session_id,
+        self.append_fact(
             JournalRecordAttribution::execution(execution_id, thread_id, turn_id),
             entry,
-            self.blob_threshold_bytes,
-            &mut writer,
         )
         .await
     }
@@ -330,40 +256,22 @@ pub fn normalize_session_dir_path(session_path: PathBuf) -> Result<PathBuf> {
 
 pub fn canonicalize_session_dir_path(session_path: PathBuf) -> Result<PathBuf> {
     let session_dir = normalize_session_dir_path(session_path)?;
-    if let Ok(canonical) = std::fs::canonicalize(&session_dir) {
-        return Ok(canonical);
-    }
-    if let (Some(parent), Some(name)) = (session_dir.parent(), session_dir.file_name())
-        && let Ok(canonical_parent) = std::fs::canonicalize(parent)
-    {
-        return Ok(canonical_parent.join(name));
-    }
-    Ok(session_dir)
+    canonicalize_unmaterialized_path(&session_dir)
 }
 
-fn writer_for_session_dir(session_dir: &Path) -> Arc<Mutex<JournalWriterState>> {
+fn writer_for_session_dir(session_dir: &Path) -> Result<Arc<Mutex<JournalWriterState>>> {
     static WRITERS: OnceLock<StdMutex<HashMap<PathBuf, Arc<Mutex<JournalWriterState>>>>> =
         OnceLock::new();
-    let key = canonicalize_journal_path(&journal_path(session_dir));
+    let key = canonicalize_unmaterialized_path(&journal_path(session_dir))?;
     let writers = WRITERS.get_or_init(|| StdMutex::new(HashMap::new()));
     let mut writers = writers.lock().expect("session journal writer map poisoned");
-    writers
+    Ok(writers
         .entry(key)
         .or_insert_with(|| Arc::new(Mutex::new(JournalWriterState::default())))
-        .clone()
+        .clone())
 }
 
-fn canonicalize_journal_path(path: &Path) -> PathBuf {
-    if let Ok(canonical) = std::fs::canonicalize(path) {
-        return canonical;
-    }
-    if let (Some(parent), Some(name)) = (path.parent(), path.file_name())
-        && let Ok(canonical_parent) = std::fs::canonicalize(parent)
-    {
-        return canonical_parent.join(name);
-    }
-    path.to_path_buf()
-}
-
+#[cfg(test)]
+mod cancellation_tests;
 #[cfg(test)]
 mod tests;

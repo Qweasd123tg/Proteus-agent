@@ -16,12 +16,13 @@ pub(crate) use self::stream::{BufferedStreamDeltas, reset_stream_delta_buffer};
 use self::stream::{StreamFlushBindings, flush_stream_delta_buffer, set_stream_turn_thread};
 use crate::actions::handle_command_response;
 use crate::messages::{finalize_running_activity, push_message, push_user_message_once};
+use crate::session::catalog::SessionCatalog;
 use crate::session::history::apply_transcript;
-use crate::session::summaries::load_sidebar_sessions;
 use crate::types::*;
 
 #[derive(Clone, Copy)]
 pub(crate) struct EventStreamBindings {
+    pub(crate) catalog: SessionCatalog,
     pub(crate) set_messages: crate::transcript::TranscriptWriter,
     pub(crate) next_message_id: ReadSignal<u64>,
     pub(crate) set_next_message_id: WriteSignal<u64>,
@@ -77,6 +78,7 @@ fn handle_app_output(
     pending: &PendingControlPlane,
     set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
     set_sidebar_sessions_status: WriteSignal<String>,
+    catalog: SessionCatalog,
 ) {
     match output {
         StdioOutput::Event { event } => {
@@ -107,6 +109,7 @@ fn handle_app_output(
                 pending,
                 set_sidebar_sessions,
                 set_sidebar_sessions_status,
+                catalog,
             );
         }
         StdioOutput::Response { .. } => handle_command_response(
@@ -144,6 +147,7 @@ fn handle_app_event(
     pending: &PendingControlPlane,
     set_sidebar_sessions: WriteSignal<Vec<SessionSummary>>,
     set_sidebar_sessions_status: WriteSignal<String>,
+    catalog: SessionCatalog,
 ) {
     let stream_bindings = StreamFlushBindings {
         set_messages,
@@ -226,7 +230,7 @@ fn handle_app_event(
         }
         AppServerEvent::TurnOutput { output } => {
             let _ = output;
-            load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
+            catalog.load(set_sidebar_sessions, set_sidebar_sessions_status);
         }
         AppServerEvent::PendingRequestsUpdated { snapshot } => pending.apply_stream(*snapshot),
         // These remain occurrence notifications. Only a versioned snapshot
@@ -260,6 +264,7 @@ fn handle_app_event(
             session_dir,
             activity,
         } => {
+            catalog.invalidate();
             let mut found = false;
             set_sidebar_sessions.update(|items| {
                 if let Some(session) = items
@@ -271,7 +276,7 @@ fn handle_app_event(
                 }
             });
             if !found {
-                load_sidebar_sessions(set_sidebar_sessions, set_sidebar_sessions_status);
+                catalog.load(set_sidebar_sessions, set_sidebar_sessions_status);
             }
         }
         AppServerEvent::Error { message } => {

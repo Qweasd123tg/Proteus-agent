@@ -9,6 +9,12 @@ use crate::domain::ToolCall;
 
 use super::AppApprovalPreview;
 
+mod files;
+use files::{ExistingPreview, existing_preview_content};
+
+#[cfg(test)]
+mod tests;
+
 const APPROVAL_PREVIEW_BODY_LIMIT: usize = 20_000;
 
 pub(super) fn approval_preview_for(call: &ToolCall, cwd: &Path) -> Option<AppApprovalPreview> {
@@ -66,22 +72,32 @@ fn approval_preview_for_write_file(call: &ToolCall, cwd: &Path) -> Option<AppApp
     let path = call.args.get("path").and_then(Value::as_str)?;
     let content = call.args.get("content").and_then(Value::as_str)?;
     let target = preview_target_path(cwd, path);
-    let existing_content = target
+    let existing = target
         .as_ref()
-        .and_then(|target| existing_preview_content(cwd, target));
-    let operation = match (&target, &existing_content) {
-        (_, Some(_)) => "overwrite",
-        (Some(_), None) => "create",
-        (None, None) => "write",
+        .map(|target| existing_preview_content(cwd, target))
+        .unwrap_or(ExistingPreview::Skipped("outside_workspace"));
+    let operation = match &existing {
+        ExistingPreview::Text(_) => "overwrite",
+        ExistingPreview::Missing => "create",
+        ExistingPreview::Skipped(_) => "write",
     };
     let summary = match operation {
         "overwrite" => format!("Overwrite {path} ({} bytes)", content.len()),
         "create" => format!("Create {path} ({} bytes)", content.len()),
         _ => format!("Write {path} ({} bytes)", content.len()),
     };
-    let (body, language) = match existing_content {
-        Some(existing) => (simple_line_diff(path, &existing, content), "diff"),
-        None => (content.to_owned(), "text"),
+    let skipped = match &existing {
+        ExistingPreview::Skipped(reason) => Some(*reason),
+        _ => None,
+    };
+    let (body, language) = match existing {
+        ExistingPreview::Text(existing) => (simple_line_diff(path, &existing, content), "diff"),
+        ExistingPreview::Skipped("outside_workspace") => (content.to_owned(), "text"),
+        ExistingPreview::Skipped(reason) => (
+            format!("Existing content was not read: {reason}.\n\nProposed content:\n{content}"),
+            "text",
+        ),
+        ExistingPreview::Missing => (content.to_owned(), "text"),
     };
 
     Some(
@@ -94,6 +110,7 @@ fn approval_preview_for_write_file(call: &ToolCall, cwd: &Path) -> Option<AppApp
                 "target": target.as_ref().map(|target| target.display().to_string()),
                 "workspace_scoped": target.is_some(),
                 "bytes": content.len(),
+                "existing_preview_skipped": skipped,
             })),
     )
 }
@@ -139,19 +156,6 @@ fn safe_preview_relative_path(path: &Path) -> Option<PathBuf> {
     } else {
         Some(safe)
     }
-}
-
-fn existing_preview_content(cwd: &Path, target: &Path) -> Option<String> {
-    let base = std::fs::canonicalize(cwd).ok()?;
-    let metadata = std::fs::symlink_metadata(target).ok()?;
-    if metadata.file_type().is_symlink() {
-        return None;
-    }
-    let canonical_target = std::fs::canonicalize(target).ok()?;
-    if !canonical_target.starts_with(base) {
-        return None;
-    }
-    std::fs::read_to_string(canonical_target).ok()
 }
 
 fn affected_files_from_internal_patch(patch: &str) -> Vec<String> {

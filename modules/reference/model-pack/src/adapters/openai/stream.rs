@@ -160,11 +160,17 @@ fn has_emittable_text_or_tool_call(items: &[Value]) -> bool {
                 .into_iter()
                 .flatten()
                 .any(|content| {
-                    content.get("type").and_then(Value::as_str) == Some("output_text")
-                        && content
-                            .get("text")
-                            .and_then(Value::as_str)
-                            .is_some_and(|text| !text.trim().is_empty())
+                    matches!(
+                        content.get("type").and_then(Value::as_str),
+                        Some("output_text" | "refusal")
+                    ) && content
+                        .get(if content["type"] == "refusal" {
+                            "refusal"
+                        } else {
+                            "text"
+                        })
+                        .and_then(Value::as_str)
+                        .is_some_and(|text| !text.trim().is_empty())
                 }),
             _ => false,
         })

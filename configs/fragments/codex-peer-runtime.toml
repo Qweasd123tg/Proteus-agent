@@ -20,6 +20,7 @@ command = "proteus-reference-module"
 
 [components.reference-capabilities]
 command = "proteus-reference-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.reference-capabilities.exports.search.rg]
 
@@ -38,6 +39,9 @@ surface = "none"
 
 [module_config.compactor.codex]
 # Порог по умолчанию: 90% окна модели; trigger_tokens может задать меньший.
+
+[module_config.patch.codex]
+reject_self_move = true
 
 [module_config.context.codex_context]
 providers = ["project_instructions", "skills", "environment"]

@@ -55,16 +55,26 @@ impl BoundedBuffer {
     }
 
     pub(super) fn to_text(&self) -> String {
-        let head = String::from_utf8_lossy(&self.head);
-        if self.tail.is_empty() {
-            return head.into_owned();
-        }
         let tail_bytes: Vec<u8> = self.tail.iter().copied().collect();
-        let tail = String::from_utf8_lossy(&tail_bytes);
         if !self.truncated() {
-            return format!("{head}{tail}");
+            let mut bytes = self.head.clone();
+            bytes.extend_from_slice(&tail_bytes);
+            return String::from_utf8_lossy(&bytes).into_owned();
         }
-        let omitted = self.original_len - self.head.len() - self.tail.len();
+        // A byte limit may split a valid scalar. Trim only the incomplete
+        // boundary fragments, keeping genuine malformed bytes lossy-visible.
+        let head_end = match std::str::from_utf8(&self.head) {
+            Err(error) if error.error_len().is_none() => error.valid_up_to(),
+            _ => self.head.len(),
+        };
+        let tail_start = tail_bytes
+            .iter()
+            .take(3)
+            .take_while(|byte| **byte & 0xc0 == 0x80)
+            .count();
+        let head = String::from_utf8_lossy(&self.head[..head_end]);
+        let tail = String::from_utf8_lossy(&tail_bytes[tail_start..]);
+        let omitted = self.original_len - head_end - (tail_bytes.len() - tail_start);
         format!(
             "{head}\n{}\n{tail}",
             omitted_marker(omitted, self.original_len)
@@ -123,19 +133,32 @@ pub(super) fn wait_with_timeout_and_cancel(
             }
         }
         if exited.is_none() {
-            exited = child.try_wait()?;
+            #[cfg(unix)]
+            {
+                exited = crate::child_status::observe_exit(child.id())?;
+            }
+            #[cfg(not(unix))]
+            {
+                exited = child.try_wait()?;
+            }
         }
         if let Some(status) = exited
             && stdout_reader.is_finished()
             && stderr_reader.is_finished()
         {
+            // Reap only after inherited pipes have drained. Until now the
+            // process-group number is reserved even if the leader exited.
+            let _ = child.wait()?;
             break (status, false);
         }
         if started.elapsed() >= timeout {
             kill_child_tree(&mut child);
             break (
                 match exited {
-                    Some(status) => status,
+                    Some(status) => {
+                        let _ = child.wait()?;
+                        status
+                    }
                     None => child.wait()?,
                 },
                 true,
@@ -198,3 +221,7 @@ fn kill_child_tree(child: &mut Child) {
 fn kill_child_tree(child: &mut Child) {
     let _ = child.kill();
 }
+
+#[cfg(test)]
+#[path = "execution/tests.rs"]
+mod tests;

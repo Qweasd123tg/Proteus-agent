@@ -979,4 +979,5 @@ async fn app_server_remember_uses_memory_v2_without_a_turn_or_tool() {
     handle.shutdown().await;
 }
 
+mod context_resume;
 mod startup;

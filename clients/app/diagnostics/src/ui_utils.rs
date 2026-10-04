@@ -1,4 +1,5 @@
 use serde_json::Value;
+use wasm_bindgen::JsCast;
 use web_sys::window;
 
 pub(crate) fn compact_json(value: &Value) -> String {
@@ -11,11 +12,16 @@ pub(crate) fn compact_json(value: &Value) -> String {
     }
 }
 
-pub(crate) fn copy_to_clipboard(text: String) {
-    if let Some(window) = window() {
-        let clipboard = window.navigator().clipboard();
-        let _ = clipboard.write_text(&text);
-    }
+pub(crate) async fn copy_to_clipboard(text: String) -> Result<(), String> {
+    let window = window().ok_or("clipboard is unavailable")?;
+    let clipboard = js_sys::Reflect::get(window.navigator().as_ref(), &"clipboard".into())
+        .map_err(|error| format!("{error:?}"))?
+        .dyn_into::<web_sys::Clipboard>()
+        .map_err(|_| "clipboard is unavailable".to_owned())?;
+    wasm_bindgen_futures::JsFuture::from(clipboard.write_text(&text))
+        .await
+        .map_err(|error| format!("{error:?}"))?;
+    Ok(())
 }
 
 pub(crate) fn short_path(path: &str) -> String {

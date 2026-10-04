@@ -79,6 +79,13 @@ window.fetch=async(input,...args)=>{{
     js(f"[...{files}.querySelectorAll('.file')].find(row=>row.querySelector('.label').textContent==='hello world.txt').click();window.heldFile()")
     wait_for(lambda: js(f"return {active()}.querySelector('pre').textContent.includes('<b>Привет</b>')"), 'Late read replaced current file')
     js("window.fetch=window.fileFetch")
+    # Refresh invalidates file/diff data while retaining the existing tab root.
+    js(f"window.refreshFileFetch=window.fetch;window.refreshReads=0;window.fetch=async(input,...args)=>{{const response=await refreshFileFetch(input,...args),url=new URL(input.url||input,location.href);if(url.pathname!=='/workspace/file'||!url.searchParams.get('path').endsWith('hello world.txt'))return response;window.refreshReads++;const body=await response.clone().json();body.text+='\\nREFRESHED CONTENT';return new Response(JSON.stringify(body),{{headers:{{'Content-Type':'application/json'}}}})}};{files}.querySelector('[aria-label=\"Обновить дерево\"]').click()")
+    wait_for(lambda: js(f"return window.refreshReads>0 && {active()}.querySelector('pre')?.textContent.includes('REFRESHED CONTENT')"), 'Refresh kept stale cached file contents')
+    assert js(f"return {active()}===window.docRoot"), 'Refresh remounted the retained file tab'
+    js(f"window.fetch=refreshFileFetch;const input={files}.querySelector('input[type=search]');input.value='hello world';input.dispatchEvent(new Event('input'))")
+    wait_for(lambda: js(f"return [...{files}.querySelectorAll('.file')].filter(row=>!row.hidden).every(row=>row.textContent.includes('hello world'))"), 'Frame-scheduled filtering did not apply')
+    js(f"const input={files}.querySelector('input[type=search]');input.value='';input.dispatchEvent(new Event('input'))")
     js("window.tabCount=document.querySelectorAll('.workspace-tab').length;window.savedFetch=window.fetch;window.toggleFetches=0;window.fetch=(...args)=>{window.toggleFetches++;return window.savedFetch(...args)};for(let i=0;i<20;i++)document.querySelector('[data-workspace-split]').click();window.fetch=window.savedFetch")
     assert js(f"return window.toggleFetches===0 && {active()}===window.docRoot && document.querySelector('.session-workspace')===window.keptChat"), 'Hide/reveal caused requests or remounted content'
     # Closing the Files tab hides its workspace; reopening keeps tree and content.

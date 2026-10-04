@@ -160,6 +160,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn configured_jsonl_backend_remembers_across_reopened_store() {
+        struct Host;
+        impl MemoryModuleHost for Host {
+            fn is_cancelled(&self) -> Result<bool, ProcessModuleError> {
+                Ok(false)
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("memory.jsonl");
+        let fact = MemoryItem::new(
+            "fact",
+            "durable architecture fact",
+            serde_json::json!({"scope":"owner"}),
+        );
+        JsonlMemoryStoreModule::new(path.clone())
+            .remember_json(
+                serde_json::to_string(&fact).unwrap(),
+                "{}".into(),
+                &mut Host,
+            )
+            .unwrap();
+        let result = JsonlMemoryStoreModule::new(path)
+            .recall_json(
+                r#"{"text":"architecture","limit":10}"#.into(),
+                "{}".into(),
+                &mut Host,
+            )
+            .unwrap();
+        let recalled: Vec<MemoryItem> = serde_json::from_str(&result).unwrap();
+        assert_eq!(recalled.len(), 1);
+        assert_eq!(recalled[0].kind, fact.kind);
+        assert_eq!(recalled[0].content, fact.content);
+        assert_eq!(recalled[0].metadata["scope"], "owner");
+    }
+
+    #[test]
     fn jsonl_recall_rejects_malformed_lines() {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = dir.path().join("memory.jsonl");

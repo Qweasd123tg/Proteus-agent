@@ -21,6 +21,7 @@ struct TestHost {
     cancelled: CancellationToken,
     requests: Mutex<Vec<AgentControlRequest>>,
     messages: Mutex<Vec<String>>,
+    spawn_gate: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
 }
 
 impl TestHost {
@@ -31,6 +32,7 @@ impl TestHost {
             cancelled: CancellationToken::new(),
             requests: Mutex::new(Vec::new()),
             messages: Mutex::new(Vec::new()),
+            spawn_gate: Mutex::new(None),
         }
     }
 }
@@ -47,6 +49,11 @@ impl AgentControlToolHost for TestHost {
 
     async fn spawn_agent(&self, request: AgentControlRequest) -> Result<AgentControlHandle> {
         self.requests.lock().unwrap().push(request);
+        let gate = self.spawn_gate.lock().unwrap().take();
+        if let Some((entered, release)) = gate {
+            entered.notify_one();
+            release.notified().await;
+        }
         Ok(AgentControlHandle::new(
             new_call_id(),
             "explore",
@@ -646,4 +653,34 @@ fn collaboration_surface_registers_lifecycle_and_messaging_tools() {
     for name in COLLABORATION_TOOL_NAMES {
         assert!(tools.spec(name).is_ok(), "missing {name}");
     }
+}
+
+#[tokio::test]
+async fn dropped_spawn_clears_the_facade_starting_record() {
+    let control = CollaborationControl::default();
+    let host = Arc::new(TestHost::new(new_session_id()));
+    let entered = Arc::new(tokio::sync::Notify::new());
+    *host.spawn_gate.lock().unwrap() =
+        Some((entered.clone(), Arc::new(tokio::sync::Notify::new())));
+    let spawn = Arc::new(SpawnAgentTool::new(vec![role()], 10000, control.clone()));
+    let request = call(
+        "spawn_agent",
+        json!({"task_name":"scan", "message":"inspect", "agent_type":"explore"}),
+    );
+    let pending = {
+        let spawn = spawn.clone();
+        let ctx = context(host.clone());
+        let request = request.clone();
+        tokio::spawn(async move { spawn.invoke(&request, ctx).await })
+    };
+    entered.notified().await;
+    pending.abort();
+    let _ = pending.await;
+    let next = spawn.invoke(&request, context(host.clone())).await.unwrap();
+    assert!(
+        next.ok,
+        "Starting reservation survived caller cancellation: {}",
+        next.output
+    );
+    host.finished.cancel();
 }

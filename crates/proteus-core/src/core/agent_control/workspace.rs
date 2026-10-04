@@ -57,15 +57,32 @@ pub fn create_worktree(parent_cwd: &Path, name: &str) -> Result<WorkspaceInfo> {
 }
 
 /// Убирает worktree, если ребёнок ничего не изменил: чистый `git status`
-/// и HEAD == base_commit → `git worktree remove` + удаление ветки,
+/// и HEAD ветки и checkout == base_commit → `git worktree remove` + безопасное удаление ветки,
 /// возвращает `true`. Изменения есть — worktree остаётся мержить родителю,
-/// возвращает `false`. Worktree уже исчез с диска — прибирает bookkeeping
-/// и возвращает `true`.
+/// возвращает `false`. При отсутствующем checkout прибирает bookkeeping,
+/// но проверяет сохранённую ветку перед удалением.
 pub fn cleanup_worktree_if_unchanged(info: &WorkspaceInfo) -> Result<bool> {
+    let branch_tip = run_git(
+        &info.repo_root,
+        &[
+            "rev-parse",
+            "--verify",
+            &format!("refs/heads/{}", info.branch),
+        ],
+    )
+    .with_context(|| format!("failed to resolve saved worktree branch {}", info.branch))?;
     if !info.path.exists() {
-        let _ = run_git(&info.repo_root, &["worktree", "prune"]);
-        let _ = run_git(&info.repo_root, &["branch", "-D", &info.branch]);
+        run_git(&info.repo_root, &["worktree", "prune"])
+            .context("failed to prune missing worktree bookkeeping")?;
+        if branch_tip != info.base_commit {
+            return Ok(false);
+        }
+        run_git(&info.repo_root, &["branch", "-d", &info.branch])
+            .context("failed to safely delete missing worktree branch; branch preserved")?;
         return Ok(true);
+    }
+    if branch_tip != info.base_commit {
+        return Ok(false);
     }
 
     let status = run_git(&info.path, &["status", "--porcelain"])
@@ -85,8 +102,8 @@ pub fn cleanup_worktree_if_unchanged(info: &WorkspaceInfo) -> Result<bool> {
         .with_context(|| format!("non-UTF-8 worktree path: {}", info.path.display()))?;
     run_git(&info.repo_root, &["worktree", "remove", path])
         .context("failed to remove git worktree")?;
-    run_git(&info.repo_root, &["branch", "-D", &info.branch])
-        .context("failed to delete worktree branch")?;
+    run_git(&info.repo_root, &["branch", "-d", &info.branch])
+        .context("failed to safely delete worktree branch; branch preserved")?;
     Ok(true)
 }
 
@@ -229,6 +246,32 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn cleanup_preserves_unique_branch_commits_when_checkout_is_missing_or_detached() {
+        for remove_checkout in [true, false] {
+            let repo = init_repo();
+            let info = create_worktree(repo.path(), "keep-result").unwrap();
+            fs::write(info.path.join("result.txt"), "peer result\n").unwrap();
+            git(&info.path, &["add", "."]);
+            git(&info.path, &["commit", "-q", "-m", "unique peer result"]);
+            let tip = run_git(&info.path, &["rev-parse", "HEAD"]).unwrap();
+            if remove_checkout {
+                git(
+                    repo.path(),
+                    &["worktree", "remove", info.path.to_str().unwrap()],
+                );
+            } else {
+                git(&info.path, &["checkout", "--detach", &info.base_commit]);
+            }
+            assert!(!cleanup_worktree_if_unchanged(&info).unwrap());
+            assert_eq!(
+                run_git(repo.path(), &["rev-parse", &info.branch]).unwrap(),
+                tip
+            );
+            assert_eq!(info.path.exists(), !remove_checkout);
+        }
     }
 
     #[test]

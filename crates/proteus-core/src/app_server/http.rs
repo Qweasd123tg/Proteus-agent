@@ -14,7 +14,9 @@ use tokio::{net::TcpListener, sync::broadcast};
 
 use crate::core::AppConfig;
 
-use super::{AgentAppServer, AppServerEvent, AppServerHandle, AppSessionActivity, StdioRequest};
+#[cfg(test)]
+use super::AgentAppServer;
+use super::{AppServerEvent, AppServerHandle, AppSessionActivity, StdioRequest};
 
 mod analysis;
 mod commands;
@@ -71,14 +73,18 @@ pub async fn run_http_app_server(
     cwd: PathBuf,
     config_path: Option<PathBuf>,
     resume_session_dir: Option<PathBuf>,
+    fresh_session: bool,
     http_config: HttpServerConfig,
 ) -> Result<()> {
     http_config.validate()?;
-    let server = if let Some(session_dir) = resume_session_dir {
-        AgentAppServer::launch_resumed(config, cwd, config_path.as_deref(), session_dir).await?
-    } else {
-        AgentAppServer::launch_or_resume_latest(config, cwd, config_path.as_deref()).await?
-    };
+    let server = super::startup::launch_selected(
+        config,
+        cwd,
+        config_path.as_deref(),
+        resume_session_dir,
+        fresh_session,
+    )
+    .await?;
     let (shutdown, mut shutdown_rx) = broadcast::channel(1);
     let security = HttpSecurity::from_config(&http_config);
     if server.session_dir_path().is_none() {

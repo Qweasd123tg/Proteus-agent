@@ -22,7 +22,7 @@ use serde_json::Value;
 use crate::{
     contracts::{
         AgentAddress, AgentControl, AgentControlRequest, AgentWorkflowContext, CancellationToken,
-        ToolRegistry,
+        ToolRegistry, ToolSource,
     },
     domain::ThreadId,
 };
@@ -32,6 +32,14 @@ use history::HistoryNotifier;
 use process::ProcessAgentControl;
 
 pub(crate) use task::{TASK_TOOL, calls_are_parallel_eligible};
+
+const TASK_SOURCE: &str = "agent-control-task";
+const COLLABORATION_SOURCE: &str = "agent-control-collaboration";
+
+pub(crate) fn owns_tool_source(source: &ToolSource) -> bool {
+    matches!(source, ToolSource::Builtin { provider }
+        if provider == TASK_SOURCE || provider == COLLABORATION_SOURCE)
+}
 
 /// Единственная core-facing точка сборки process agent control и его
 /// model-facing facade. Внешние слои не знают process pool, mailbox или

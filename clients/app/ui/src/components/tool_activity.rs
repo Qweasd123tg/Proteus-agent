@@ -80,6 +80,20 @@ pub(crate) fn ToolActivityCard(
                 .unwrap_or_default()
         })
     });
+    let requested_args = Signal::derive(move || {
+        static_tool.with(|tool| {
+            tool.as_ref()
+                .map(|tool| tool.requested_json.clone())
+                .unwrap_or_default()
+        })
+    });
+    let effective_args = Signal::derive(move || {
+        static_tool.with(|tool| {
+            tool.as_ref()
+                .map(|tool| tool.effective_json.clone())
+                .unwrap_or_default()
+        })
+    });
     view! {
         <article class=move || if expanded.get() { "tool-card expanded" } else { "tool-card" }>
             <button
@@ -205,6 +219,16 @@ pub(crate) fn ToolActivityCard(
                                 view! { <ToolPreview text=args_text caption="запрос" state_key=format!("tool-args:{state_prefix}") /> }.into_any()
                             }}
                             <ToolPreview text=result_text caption="ответ" state_key=format!("tool-result:{state_prefix}") />
+                            <details class="tool-full-arguments">
+                                <summary>"Все параметры запроса"</summary>
+                                <pre>{move || requested_args.get()}</pre>
+                            </details>
+                            {move || (!effective_args.get().is_empty()).then(|| view! {
+                                <details class="tool-effective-arguments">
+                                    <summary>"Параметры исполнения после hooks"</summary>
+                                    <pre>{move || effective_args.get()}</pre>
+                                </details>
+                            })}
                         </div>
                     }.into_any()
                 } else {

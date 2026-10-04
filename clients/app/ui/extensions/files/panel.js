@@ -36,7 +36,7 @@ export function mount({ root, compact, services, signal }) {
     if(hadFocus&&target!==activeRow)target?.focus();
   }
   filter.addEventListener('input',()=>{
-    if(!filterFrame)filterFrame=requestAnimationFrame(applyFilter);
+    if(!filterFrame)filterFrame=requestAnimationFrame(()=>applyFilter());
   },{signal});
   signal.addEventListener('abort',()=>cancelAnimationFrame(filterFrame),{once:true});
   const tree=node('div',null,'tree'); tree.setAttribute('role','tree'); tree.setAttribute('aria-label','Файлы проекта');
@@ -221,6 +221,7 @@ export function mount({ root, compact, services, signal }) {
   },{signal});
   function reload() {
     ++generation; pending.clear();
+    preview.invalidate();
     // Keep visible rows while fresh directory responses arrive independently.
     for(const path of listings.keys()) if(path&&!expanded.has(path)) listings.delete(path);
     void load(''); void loadChanges(generation);

@@ -246,6 +246,12 @@ embedded config, восстановление WASM и permissions, ошибка 
   Она сама собирает и устанавливает оба executable во временные каталоги,
   проверяет fake turn, внешний Python component и process peers. Отдельная
   предварительная установка для этого smoke не нужна.
+  `sh scripts/install-smoke-env.sh` выполняет тот же сценарий с подставным
+  внешним `PROTEUS_CONFIG_PATH` и проверяет, что его файл не изменился.
+  Smoke снимает этот override и направляет `init` в явный временный config.
+  Process fixtures привязаны к установленным executable из `current`:
+  shell launchers требуют пользовательский env, который component fixture
+  намеренно не наследует. Launchers проверяются отдельными CLI этапами smoke.
 
 Для docs-only правки этих руководств достаточно проверки содержания и ссылок;
 пересборка клиента или установка не требуется.

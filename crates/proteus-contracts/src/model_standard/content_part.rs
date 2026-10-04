@@ -130,6 +130,13 @@ pub enum ContentPart {
 }
 
 impl CanonicalMessage {
+    pub fn image_refs(&self) -> impl Iterator<Item = &crate::domain::ImageRef> {
+        self.parts.iter().filter_map(|part| match &part.payload {
+            ContentPart::Image { image } => Some(image),
+            _ => None,
+        })
+    }
+
     /// Presentation text preserves ordered text parts without exposing reasoning.
     pub fn display_text(&self) -> String {
         self.parts

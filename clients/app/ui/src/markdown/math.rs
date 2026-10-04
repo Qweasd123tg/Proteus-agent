@@ -109,6 +109,10 @@ fn is_math_line(line: &str) -> bool {
 }
 
 pub(super) fn extract_math_fragments(text: &str) -> (String, Vec<(String, String)>) {
+    let mut prefix = "PROTEUSMATH".to_owned();
+    while text.contains(&prefix) {
+        prefix.push('X');
+    }
     let mut output = String::with_capacity(text.len());
     let mut fragments = Vec::new();
     let mut index = 0;
@@ -167,7 +171,7 @@ pub(super) fn extract_math_fragments(text: &str) -> (String, Vec<(String, String
                 if let Some(relative_end) = find_math_end(&rest[content_start..], end_delimiter) {
                     let content = &rest[content_start..content_start + relative_end];
                     let consumed = content_start + relative_end + end_delimiter.len();
-                    let token = format!("PROTEUSMATH{}", fragments.len());
+                    let token = format!("{prefix}{}END", fragments.len());
                     output.push_str(&token);
                     fragments.push((token, math_html(content, display)));
                     at_line_start = rest[..consumed].ends_with('\n');

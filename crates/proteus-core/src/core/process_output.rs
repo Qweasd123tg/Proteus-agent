@@ -3,7 +3,7 @@ use std::process::ExitStatus;
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use tokio::{
-    io::{AsyncRead, AsyncReadExt},
+    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
     process::Child,
 };
 
@@ -25,28 +25,39 @@ pub(crate) struct BoundedStreamOutput {
 
 pub(crate) async fn wait_with_bounded_output(
     mut child: Child,
+    input: Option<Vec<u8>>,
     max_stdout_bytes: usize,
     max_stderr_bytes: usize,
 ) -> Result<BoundedProcessOutput> {
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
+    let stdin = input.as_ref().and_then(|_| child.stdin.take());
 
-    let stdout_task = tokio::spawn(async move {
+    let stdout_read = async move {
         match stdout {
             Some(stdout) => read_bounded(stdout, max_stdout_bytes).await,
             None => Ok(BoundedStreamOutput::default()),
         }
-    });
-    let stderr_task = tokio::spawn(async move {
+    };
+    let stderr_read = async move {
         match stderr {
             Some(stderr) => read_bounded(stderr, max_stderr_bytes).await,
             None => Ok(BoundedStreamOutput::default()),
         }
-    });
-
-    let status = child.wait().await?;
-    let stdout = stdout_task.await.context("stdout reader task failed")??;
-    let stderr = stderr_task.await.context("stderr reader task failed")??;
+    };
+    let input_write = async move {
+        if let Some(input) = input {
+            let mut stdin = stdin.context("failed to open process tool stdin")?;
+            stdin.write_all(&input).await?;
+            stdin.shutdown().await?;
+        }
+        Ok::<_, anyhow::Error>(())
+    };
+    let wait = async { child.wait().await.context("process wait failed") };
+    // Keep every stream in this invocation future. Cancellation drops their
+    // handles along with the kill-on-drop child, rather than detaching drains.
+    let (status, stdout, stderr, ()) =
+        tokio::try_join!(wait, stdout_read, stderr_read, input_write)?;
 
     Ok(BoundedProcessOutput {
         status,
@@ -135,7 +146,7 @@ mod tests {
             .spawn()
             .expect("spawn child");
 
-        let output = wait_with_bounded_output(child, 1024, 1024)
+        let output = wait_with_bounded_output(child, None, 1024, 1024)
             .await
             .expect("bounded output");
 

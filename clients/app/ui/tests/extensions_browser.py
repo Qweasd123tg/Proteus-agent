@@ -6,6 +6,7 @@ Run after trunk build and cargo build -p proteus-core -p proteus-reference-modul
 """
 import base64
 from images_checks import run as check_images
+from request_races import run as check_request_races
 from markdown_checks import run as check_markdown, FIXTURE as MARKDOWN_FIXTURE
 from simplify_checks import run as check_simplify
 from settings_checks import run as check_settings
@@ -262,6 +263,7 @@ def main():
         folder = Path(temporary)
         server = ThreadingHTTPServer(('127.0.0.1', 0), partial(Assets, directory=str(os.environ.get('PROTEUS_UI_TEST_DIST',ROOT / 'clients/app/ui/dist'))))
         server.model_inputs = []
+        server.model_requests = 0
         server.model_gate = threading.Event()
         server.model_gate.set()
         server.stream_gate = threading.Event()
@@ -358,6 +360,11 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     command('/url', {'url':web+'/?'+urlencode({'server':origin,'token':'extension-smoke'})})
                     wait_for(loaded, 'Client missing')
                     check_images(command, js, wait_for, server, web, origin)
+                    return
+                if '--request-races-only' in sys.argv:
+                    command('/url', {'url':web+'/?'+urlencode({'server':origin,'token':'extension-smoke'})})
+                    wait_for(loaded, 'Client missing')
+                    check_request_races(command, js, wait_for, server)
                     return
                 if '--approval-only' in sys.argv:
                     command('/url', {'url':web+'/?'+urlencode({'server':origin,'token':'extension-smoke'})})

@@ -445,7 +445,7 @@ pub(super) fn from_json_string<T: serde::de::DeserializeOwned>(
     serde_json::from_str(value).map_err(|error| ProcessModuleError::new(error.to_string()))
 }
 
-fn emit_token_usage(
+pub(super) fn emit_token_usage(
     host: &WorkflowModuleHostMut<'_>,
     request: &CanonicalModelRequest,
     actual: Option<TokenUsage>,

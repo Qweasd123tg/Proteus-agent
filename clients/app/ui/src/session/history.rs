@@ -199,6 +199,7 @@ fn transcript_tool_activity(tool: TranscriptTool) -> ToolActivity {
         0
     };
     ToolActivity {
+        effective_args: tool.effective_args.clone(),
         call_id: tool.call_id,
         name: tool.name,
         args: tool.args.clone(),

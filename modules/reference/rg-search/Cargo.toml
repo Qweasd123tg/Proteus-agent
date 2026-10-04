@@ -7,3 +7,7 @@ publish = false
 [dependencies]
 proteus-contracts = { path = "../../../crates/proteus-contracts" }
 serde_json = "1"
+
+[dev-dependencies]
+proteus-module-protocol = { path = "../../../crates/proteus-module-protocol" }
+proteus-process-host = { path = "../../../crates/proteus-process-host" }

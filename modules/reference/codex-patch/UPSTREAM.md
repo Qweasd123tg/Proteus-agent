@@ -27,3 +27,16 @@ Workspace path validation сохраняет существующее огран
 обёртки tool output и optional PreserveLineEndings не представлены этим срезом.
 Proxy-профили сохраняют function tool surface; freeform transport настраивается
 отдельно. Синтаксис module задаётся profile instructions, Core его не выбирает.
+
+## Защита От Переноса На Тот Же Путь
+
+`module_config.patch.codex.reject_self_move = true` — явно выбранное отличие:
+verification отклоняет `Move to`, если нормализованные source и destination
+совпадают. Весь patch проверяется до первой записи, поэтому такой отказ
+сохраняет исходные файлы и не применяет предыдущие hunks.
+
+В поставляемых рабочих Codex fragments защита включена. Значение по умолчанию
+для самого export — `false`: этот режим повторяет закреплённый upstream,
+который сначала пишет destination, затем удаляет source и при self-move
+удаляет обновлённый файл. Для сравнения точной семантики явно отключайте флаг.
+Остальные parser, replacement и failure paths от настройки не меняются.

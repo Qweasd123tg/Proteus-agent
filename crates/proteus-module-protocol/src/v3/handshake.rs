@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use proteus_contracts::contracts::ProcessComponentManifest;
@@ -15,13 +15,29 @@ pub(crate) fn initialize_transport(
     generation: u64,
     timeout: Duration,
 ) -> Result<()> {
+    let started = Instant::now();
     let initialize = binding.initialize()?;
     let params = serde_json::to_value(initialize)?;
-    transport
-        .send_control_frame(initialize_request(generation, params))
+    let dispatch = transport
+        .frame_writer()
+        .queue_control_frame(initialize_request(generation, params))
         .context("failed to write component-v3 initialize request")?;
+    let Some(write_result) = dispatch.wait_timeout(timeout.saturating_sub(started.elapsed()))
+    else {
+        // The independent lifecycle owner interrupts a writer blocked in the
+        // child pipe. A queued Shutdown alone cannot unblock that write.
+        transport.terminate()?;
+        bail!("component-v3 initialize request timed out while writing after {timeout:?}");
+    };
+    write_result.context("failed to write component-v3 initialize request")?;
+    let Some(remaining) = timeout
+        .checked_sub(started.elapsed())
+        .filter(|remaining| !remaining.is_zero())
+    else {
+        bail!("component-v3 initialize request timed out after {timeout:?}");
+    };
     let frame = transport
-        .recv_frame(timeout)
+        .recv_frame(remaining)
         .map_err(anyhow::Error::from)
         .context("component-v3 initialize request failed")?;
     let ComponentFrame::Response { id, result } = parse_component_frame(frame)

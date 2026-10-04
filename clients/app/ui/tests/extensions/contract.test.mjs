@@ -56,6 +56,39 @@ test('two extensions keep independent local data without an agent', () => {
   stop(); a.set('text', 'after disposal'); assert.equal(updates, 2);
 });
 
+test('storage events invalidate matching document subscribers and detach on disposal', () => {
+  const target = new EventTarget();
+  const originalAdd = globalThis.addEventListener, originalRemove = globalThis.removeEventListener;
+  let attached = 0;
+  globalThis.addEventListener = (...args) => { attached++; target.addEventListener(...args); };
+  globalThis.removeEventListener = (...args) => { attached--; target.removeEventListener(...args); };
+  const storage = { getItem:()=>null, setItem(){}, removeItem(){} };
+  let usage = 0, notes = 0;
+  const stopUsage = extensionStorage(storage, 'usage').subscribe(()=>usage++);
+  const stopNotes = extensionStorage(storage, 'notes').subscribe(()=>notes++);
+  function emit(key, area=storage){
+    const event = new Event('storage');
+    Object.defineProperties(event, {key:{value:key}, storageArea:{value:area}});
+    target.dispatchEvent(event);
+  }
+  try {
+    assert.equal(attached, 1);
+    emit('proteus.ui.extension.usage:pricing');
+    assert.deepEqual([usage,notes], [1,0]);
+    emit('other'); emit('proteus.ui.extension.usage:pricing', {});
+    assert.deepEqual([usage,notes], [1,0]);
+    emit(null);
+    assert.deepEqual([usage,notes], [2,1]);
+    stopUsage(); emit('proteus.ui.extension.usage:pricing');
+    assert.deepEqual([usage,notes], [2,1]);
+    stopNotes(); assert.equal(attached,0);
+  } finally {
+    stopUsage(); stopNotes();
+    if(originalAdd) globalThis.addEventListener = originalAdd; else delete globalThis.addEventListener;
+    if(originalRemove) globalThis.removeEventListener = originalRemove; else delete globalThis.removeEventListener;
+  }
+});
+
 test('settings entry resolves independently and rejects malformed capability declarations', () => {
   const parsed = parseManifest({ ...manifest, settings: { entry: './settings.js', requires: [] } }, base);
   assert.equal(parsed.settings.entry, 'https://client.example/extensions/settings.js');

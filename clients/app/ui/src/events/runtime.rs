@@ -213,6 +213,7 @@ pub(crate) fn update_runtime_status_and_tools(
             let args = call.get("args").cloned().unwrap_or(Value::Null);
             let args_preview = format_json(&args);
             let tool = ToolActivity {
+                effective_args: None,
                 call_id: call_id.clone(),
                 name,
                 args,
@@ -243,6 +244,34 @@ pub(crate) fn update_runtime_status_and_tools(
                 if !items.iter().any(|item| item.call_id == call_id) {
                     items.push(tool);
                     trim_tool_activities(items);
+                }
+            });
+        }
+    } else if let Some(call) = event
+        .get("ToolCallResolved")
+        .and_then(|event| event.get("call"))
+    {
+        if let Some(id) = call.get("id").and_then(Value::as_str) {
+            let args = call.get("args").cloned();
+            set_tool_activities.update(|items| {
+                if let Some(tool) = items.iter_mut().find(|tool| tool.call_id == id) {
+                    tool.effective_args = args.clone();
+                }
+            });
+            set_messages.update(|items| {
+                for message in items.iter_mut() {
+                    if let Some(tool) = message.tool.as_mut().filter(|tool| tool.call_id == id) {
+                        tool.effective_args = args.clone();
+                        message.version += 1;
+                    }
+                    if let Some(subagent) = message.subagent.as_mut() {
+                        if let Some(tool) =
+                            subagent.tools.iter_mut().find(|tool| tool.call_id == id)
+                        {
+                            tool.effective_args = args.clone();
+                            message.version += 1;
+                        }
+                    }
                 }
             });
         }

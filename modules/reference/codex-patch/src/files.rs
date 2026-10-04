@@ -14,7 +14,11 @@ fn source(hunk: &Hunk) -> &Path {
     }
 }
 
-pub(super) fn verify(hunks: &[Hunk], workspace: &Path) -> Result<(), String> {
+pub(super) fn verify(
+    hunks: &[Hunk],
+    workspace: &Path,
+    reject_self_move: bool,
+) -> Result<(), String> {
     let mut seen = HashSet::new();
     for hunk in hunks {
         let path = checked_target_path(workspace, source(hunk))?;
@@ -35,7 +39,13 @@ pub(super) fn verify(hunks: &[Hunk], workspace: &Path) -> Result<(), String> {
             } => {
                 updated(&path, chunks)?;
                 if let Some(destination) = move_path {
-                    checked_target_path(workspace, destination)?;
+                    let destination = checked_target_path(workspace, destination)?;
+                    if reject_self_move && destination == path {
+                        return Err(format!(
+                            "invalid patch: self-move rejected for {}",
+                            path.display()
+                        ));
+                    }
                 }
             }
         }

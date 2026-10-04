@@ -73,6 +73,18 @@
     font-size: 11px;
 }
 
+.tool-full-arguments pre, .tool-effective-arguments pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+.tool-full-arguments summary, .tool-effective-arguments summary {
+    cursor: pointer;
+    color: var(--text-muted);
+}
+
 /* Длительность завершённого вызова прижимается к каретке справа. */
 .tool-card-reason {
     flex: 1 1 40%;

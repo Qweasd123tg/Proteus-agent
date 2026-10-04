@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{
-    AgentOutput, AgentTask, CallId, EventId, MessageId, ModelRef, PatchResult, SessionId, ThreadId,
-    ToolCall, ToolResult, TurnId, new_event_id,
+    AgentOutput, AgentTask, CallId, EventId, ImageRef, MessageId, ModelRef, PatchResult, SessionId,
+    ThreadId, ToolCall, ToolResult, TurnId, new_event_id,
 };
 use crate::model_standard::{FinishReason, MessagePhase, TokenUsage};
 
@@ -207,6 +207,7 @@ pub enum Event {
     SteeringDelivered {
         message_id: MessageId,
         text: String,
+        images: Vec<ImageRef>,
         kind: SteeringDeliveryKind,
         queued_count: usize,
     },
@@ -271,6 +272,10 @@ pub enum Event {
         text: String,
     },
     ToolCallRequested {
+        call: ToolCall,
+    },
+    /// Host-owned projection of the invocation admitted after hooks and policy.
+    ToolCallResolved {
         call: ToolCall,
     },
     ApprovalRequested {

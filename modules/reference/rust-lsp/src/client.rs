@@ -6,7 +6,8 @@ use std::{
 
 use anyhow::{Context, Result, anyhow, bail};
 use proteus_process_host::{
-    ContentLengthFraming, ProcessHost, ProcessSession, ProcessSpec, ReceiveFrameError,
+    ContentLengthFraming, ProcessHost, ProcessLifecycle, ProcessSession, ProcessSpec,
+    ReceiveFrameError,
 };
 use serde_json::{Value, json};
 use url::Url;
@@ -33,6 +34,7 @@ pub(crate) struct RustAnalyzerWorkspace {
     diagnostics_timeout: Duration,
     host: ProcessHost<ContentLengthFraming>,
     documents: HashMap<String, i64>,
+    documents_generation: Option<ProcessLifecycle>,
 }
 
 impl RustAnalyzerWorkspace {
@@ -95,6 +97,7 @@ impl RustAnalyzerWorkspace {
             diagnostics_timeout: config.diagnostics_timeout,
             host,
             documents: HashMap::new(),
+            documents_generation: None,
         })
     }
 
@@ -110,8 +113,6 @@ impl RustAnalyzerWorkspace {
         if is_cancelled()? {
             bail!("lsp_diagnostics invocation was canceled");
         }
-        let previous_version = self.documents.get(&document.uri).copied();
-        let document_version = previous_version.unwrap_or(0) + 1;
         let result = (|| {
             let mut session = self.host.ensure_session().with_context(|| {
                 format!(
@@ -119,6 +120,17 @@ impl RustAnalyzerWorkspace {
                     self.command
                 )
             })?;
+            let generation = session.lifecycle();
+            if !self
+                .documents_generation
+                .as_ref()
+                .is_some_and(|previous| previous.same_generation(&generation))
+            {
+                self.documents.clear();
+                self.documents_generation = Some(generation);
+            }
+            let previous_version = self.documents.get(&document.uri).copied();
+            let document_version = previous_version.unwrap_or(0) + 1;
             session.drain_notifications();
             if previous_version.is_some() {
                 session.notify(
@@ -157,12 +169,13 @@ impl RustAnalyzerWorkspace {
         match result {
             Ok(report) => {
                 self.documents
-                    .insert(document.uri.clone(), document_version);
+                    .insert(document.uri.clone(), report.document_version);
                 Ok(report)
             }
             Err(error) => {
                 self.host.reset();
                 self.documents.clear();
+                self.documents_generation = None;
                 Err(error)
             }
         }

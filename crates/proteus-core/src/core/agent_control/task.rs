@@ -39,7 +39,7 @@ pub(super) fn register_task_tool(
         return Ok(());
     }
     tools.register_with_source(
-        ToolSource::builtin("agent-control-task"),
+        ToolSource::builtin(super::TASK_SOURCE),
         TaskTool::new(roles, timeout_ms),
     )
 }

@@ -22,6 +22,7 @@ touch "${bin_dir}/proteus-reference-worker"
 export PROTEUS_BIN_DIR="${bin_dir}"
 export PROTEUS_HOME="${runtime_home}"
 export PROTEUS_CONFIG_HOME="${config_home}"
+unset PROTEUS_CONFIG_PATH
 
 run_and_capture() {
   label=$1
@@ -87,7 +88,8 @@ run_and_capture subscription-doctor "${output_dir}/subscription-doctor.txt" \
   "${proteus}" --config codex-chatgpt doctor
 require_text "openai_codex" "${output_dir}/subscription-doctor.txt"
 
-run_and_capture init "${output_dir}/init.txt" "${proteus}" init safe
+run_and_capture init "${output_dir}/init.txt" \
+  "${proteus}" --config "${config_home}/configs/config.toml" init safe
 test -f "${config_home}/configs/config.toml"
 
 run_and_capture doctor "${output_dir}/doctor.txt" "${proteus}" doctor
@@ -133,14 +135,14 @@ require_text "send_message" "${output_dir}/collaboration-tools.txt"
 require_text "followup_task" "${output_dir}/collaboration-tools.txt"
 
 run_and_capture collaboration-process "${output_dir}/collaboration-process.txt" \
-  env PROTEUS_TEST_BINARY="${proteus}" PROTEUS_TEST_REFERENCE_MODULE="${bin_dir}/proteus-reference-module" cargo test \
+  env PROTEUS_TEST_BINARY="${runtime_home}/current/proteus" PROTEUS_TEST_REFERENCE_MODULE="${runtime_home}/current/proteus-reference-module" cargo test \
   --manifest-path "${project_dir}/Cargo.toml" \
   -p proteus-core --test process_agent_control \
   process_agents_route_bounded_messages_without_cross_delivery -- --exact
 require_text "test result: ok" "${output_dir}/collaboration-process.txt"
 
 run_and_capture process-peer-surfaces "${output_dir}/process-peer-surfaces.txt" \
-  env PROTEUS_TEST_BINARY="${proteus}" PROTEUS_TEST_REFERENCE_MODULE="${bin_dir}/proteus-reference-module" cargo test \
+  env PROTEUS_TEST_BINARY="${runtime_home}/current/proteus" PROTEUS_TEST_REFERENCE_MODULE="${runtime_home}/current/proteus-reference-module" cargo test \
   --manifest-path "${project_dir}/Cargo.toml" \
   -p proteus-core --test process_agent_pool \
   process_peers_derive_distinct_tool_surfaces_from_child_configs -- --exact

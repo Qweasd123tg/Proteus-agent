@@ -5,6 +5,7 @@ pub(crate) struct ToolActivity {
     pub(crate) call_id: String,
     pub(crate) name: String,
     pub(crate) args: Value,
+    pub(crate) effective_args: Option<Value>,
     pub(crate) args_preview: String,
     pub(crate) started_at_ms: u64,
     /// Момент терминального статуса (done/failed/denied) — для duration в
@@ -16,6 +17,9 @@ pub(crate) struct ToolActivity {
 }
 
 impl ToolActivity {
+    pub(crate) fn invocation_args(&self) -> &Value {
+        self.effective_args.as_ref().unwrap_or(&self.args)
+    }
     /// Длительность выполнения в миллисекундах, если известны обе границы.
     pub(crate) fn duration_ms(&self) -> Option<u64> {
         if self.started_at_ms == 0 {

@@ -1,4 +1,4 @@
-use crate::domain::{Event, EventEnvelope, SteeringDeliveryKind, ThreadId, ToolCall};
+use crate::domain::{Event, EventEnvelope, ThreadId, ToolCall};
 
 use super::transcript::{AppTranscriptMessage, AppTranscriptSubagent, AppTranscriptTool};
 
@@ -70,13 +70,14 @@ impl TurnProgress {
             }
             Event::AssistantMessageCompleted { .. } => {}
             Event::SteeringDelivered {
+                message_id,
                 text,
-                kind: SteeringDeliveryKind::Steering,
+                images,
                 ..
             } => {
                 self.messages.push(AppTranscriptMessage {
-                    images: Vec::new(),
-                    message_id: None,
+                    images: images.clone(),
+                    message_id: Some(*message_id),
                     phase: None,
                     role: "user".to_owned(),
                     text: text.clone(),
@@ -85,15 +86,29 @@ impl TurnProgress {
                     streaming: false,
                 });
             }
-            Event::SteeringDelivered {
-                text,
-                kind: SteeringDeliveryKind::FollowUp,
-                ..
-            } => {
-                self.submit(text.clone());
-            }
             Event::ToolCallRequested { call } => {
                 self.append_tool_call(&envelope.thread_id.to_string(), call);
+            }
+            Event::ToolCallResolved { call } => {
+                for message in self
+                    .messages
+                    .iter_mut()
+                    .chain(&mut self.background_subagents)
+                {
+                    if let Some(tool) = message.tool.as_mut().filter(|tool| tool.call_id == call.id)
+                    {
+                        tool.effective_args = Some(call.args.clone());
+                    }
+                    if let Some(subagent) = message.subagent.as_mut() {
+                        if let Some(tool) = subagent
+                            .tools
+                            .iter_mut()
+                            .find(|tool| tool.call_id == call.id)
+                        {
+                            tool.effective_args = Some(call.args.clone());
+                        }
+                    }
+                }
             }
             Event::ApprovalRequested { call_id, .. } => {
                 self.set_tool_status(call_id, "waiting_approval", None, None);
@@ -172,11 +187,6 @@ impl TurnProgress {
 
     pub(super) fn thread_id(&self) -> Option<ThreadId> {
         self.turn_thread_id
-    }
-
-    pub(super) fn submit(&mut self, text: String) {
-        self.submitted = Some(text);
-        self.submitted_images.clear();
     }
 
     pub(super) fn submit_input(&mut self, text: String, images: Vec<crate::domain::ImageRef>) {
@@ -273,6 +283,7 @@ impl TurnProgress {
             role: "system".to_owned(),
             text: String::new(),
             tool: Some(AppTranscriptTool {
+                effective_args: None,
                 call_id: call.id.clone(),
                 name: call.name.clone(),
                 args: call.args.clone(),
@@ -380,6 +391,7 @@ fn append_subagent_tool(
             subagent.tools.remove(index);
         }
         subagent.tools.push(AppTranscriptTool {
+            effective_args: None,
             call_id: call.id.clone(),
             name: call.name.clone(),
             args: if compact {

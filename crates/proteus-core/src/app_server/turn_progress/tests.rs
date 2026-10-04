@@ -2,7 +2,8 @@ use serde_json::json;
 
 use super::*;
 use crate::domain::{
-    EventContext, ThreadId, ToolResult, new_session_id, new_thread_id, new_turn_id,
+    EventContext, SteeringDeliveryKind, ThreadId, ToolResult, new_session_id, new_thread_id,
+    new_turn_id,
 };
 
 fn envelope(thread_id: ThreadId, event: Event) -> EventEnvelope {
@@ -51,6 +52,12 @@ fn accumulates_text_segments_around_tool_calls() {
     );
     apply(
         &mut progress,
+        Event::ToolCallResolved {
+            call: ToolCall::new("call-1", "read_file", json!({ "path": "src/effective.rs" })),
+        },
+    );
+    apply(
+        &mut progress,
         Event::ToolFinished {
             result: ToolResult::ok("call-1".to_owned(), "contents"),
         },
@@ -64,6 +71,11 @@ fn accumulates_text_segments_around_tool_calls() {
     let tool = snapshot[1].tool.as_ref().expect("tool entry");
     assert_eq!(tool.status, "done");
     assert_eq!(tool.result.as_deref(), Some("contents"));
+    assert_eq!(tool.args["path"], "src/lib.rs");
+    assert_eq!(
+        tool.effective_args.as_ref().unwrap()["path"],
+        "src/effective.rs"
+    );
     // Последний текстовый сегмент — живой, клиент достримит в него.
     assert_eq!(snapshot[2].text, "Теперь answer.");
     assert!(snapshot[2].streaming);
@@ -368,6 +380,12 @@ fn steering_user_message_splits_assistant_stream_segments() {
         Event::SteeringDelivered {
             message_id: crate::domain::new_message_id(),
             text: "change direction".to_owned(),
+            images: vec![crate::domain::ImageRef {
+                id: "queued-image".to_owned(),
+                name: "queued.png".to_owned(),
+                mime_type: "image/png".to_owned(),
+                path: "images/queued.png".into(),
+            }],
             kind: SteeringDeliveryKind::Steering,
             queued_count: 0,
         },
@@ -380,7 +398,43 @@ fn steering_user_message_splits_assistant_stream_segments() {
     assert_eq!(snapshot[0].text, "before steering");
     assert_eq!(snapshot[1].role, "user");
     assert_eq!(snapshot[1].text, "change direction");
+    assert_eq!(snapshot[1].images[0].id, "queued-image");
+    assert!(snapshot[1].message_id.is_some());
     assert_eq!(snapshot[2].role, "assistant");
     assert_eq!(snapshot[2].text, "after steering");
     assert!(snapshot[2].streaming);
+}
+
+#[test]
+fn followup_images_are_visible_after_turn_started_before_settlement() {
+    let mut progress = TurnProgress::default();
+    let turn_id = new_turn_id();
+    let message_id = crate::domain::new_message_id();
+    apply(
+        &mut progress,
+        Event::TurnStarted {
+            session_id: new_session_id(),
+            thread_id: root_thread_id(),
+            turn_id,
+        },
+    );
+    apply(
+        &mut progress,
+        Event::SteeringDelivered {
+            message_id,
+            text: String::new(),
+            kind: SteeringDeliveryKind::FollowUp,
+            queued_count: 0,
+            images: vec![crate::domain::ImageRef {
+                id: "followup-image".into(),
+                name: "followup.png".into(),
+                mime_type: "image/png".into(),
+                path: "images/followup.png".into(),
+            }],
+        },
+    );
+    let snapshot = progress.snapshot();
+    assert_eq!(snapshot.len(), 1);
+    assert_eq!(snapshot[0].message_id, Some(message_id));
+    assert_eq!(snapshot[0].images[0].id, "followup-image");
 }

@@ -6,6 +6,7 @@ mod bound_model;
 mod bound_tools;
 mod compaction_host;
 mod config;
+pub(crate) use config::CONFIG_BUILDER_OVERLAY;
 mod config_snapshot;
 mod context_provider;
 pub(crate) mod core_slots;

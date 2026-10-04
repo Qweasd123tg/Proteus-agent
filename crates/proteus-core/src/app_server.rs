@@ -55,6 +55,7 @@ pub(crate) use transcript::journal_transcript_messages;
 use transcript::transcript_messages;
 pub use transcript::{AppTranscriptMessage, AppTranscriptSubagent, AppTranscriptTool};
 use turn_progress::TurnProgress;
+mod startup;
 
 // Публичный app-server façade экспортирует canonical wire types из contracts;
 // их определения не дублируются в core.

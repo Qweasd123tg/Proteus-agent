@@ -101,7 +101,7 @@ pub(super) fn resolve_session_identity(session_dir: &Path) -> Result<ResolvedSes
     })
 }
 
-pub(super) async fn ensure_writable_identity(
+pub(super) fn ensure_writable_identity(
     session_dir: &Path,
     session_id: SessionId,
     directory_kind: SessionDirectoryKind,
@@ -111,7 +111,7 @@ pub(super) async fn ensure_writable_identity(
     match directory_kind {
         SessionDirectoryKind::ShortNumeric => {
             let metadata_path = metadata_path(session_dir);
-            match tokio::fs::read_to_string(&metadata_path).await {
+            match std::fs::read_to_string(&metadata_path) {
                 Ok(content) => {
                     let metadata = parse_metadata(&metadata_path, &content)?;
                     if metadata.session_id != session_id {
@@ -125,13 +125,13 @@ pub(super) async fn ensure_writable_identity(
                     Ok(())
                 }
                 Err(error) if error.kind() == ErrorKind::NotFound => {
-                    if !directory_was_created && directory_has_entries(session_dir).await? {
+                    if !directory_was_created && directory_has_entries(session_dir)? {
                         bail!(
                             "short session directory is missing required metadata and already contains data: {}",
                             session_dir.display()
                         );
                     }
-                    write_metadata(session_dir, session_id, workspace_path).await
+                    write_metadata(session_dir, session_id, workspace_path)
                 }
                 Err(error) => Err(error)
                     .with_context(|| format!("failed to read {}", metadata_path.display())),
@@ -199,18 +199,17 @@ fn parse_metadata(path: &Path, content: &str) -> Result<SessionMetadata> {
     Ok(metadata)
 }
 
-async fn directory_has_entries(session_dir: &Path) -> Result<bool> {
-    let mut entries = tokio::fs::read_dir(session_dir)
-        .await
+fn directory_has_entries(session_dir: &Path) -> Result<bool> {
+    let mut entries = std::fs::read_dir(session_dir)
         .with_context(|| format!("failed to read {}", session_dir.display()))?;
-    Ok(entries.next_entry().await?.is_some())
+    entries
+        .next()
+        .transpose()
+        .map(|entry| entry.is_some())
+        .map_err(Into::into)
 }
 
-async fn write_metadata(
-    session_dir: &Path,
-    session_id: SessionId,
-    workspace_path: &Path,
-) -> Result<()> {
+fn write_metadata(session_dir: &Path, session_id: SessionId, workspace_path: &Path) -> Result<()> {
     let path = metadata_path(session_dir);
     let metadata = SessionMetadata {
         schema_version: SESSION_SCHEMA_VERSION,
@@ -220,9 +219,7 @@ async fn write_metadata(
     };
     let mut content = serde_json::to_vec_pretty(&metadata)?;
     content.push(b'\n');
-    tokio::fs::write(&path, content)
-        .await
-        .with_context(|| format!("failed to write {}", path.display()))
+    std::fs::write(&path, content).with_context(|| format!("failed to write {}", path.display()))
 }
 
 #[cfg(test)]

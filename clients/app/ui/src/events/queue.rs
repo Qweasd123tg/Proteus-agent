@@ -1,5 +1,6 @@
 use super::stream::{StreamFlushBindings, flush_stream_delta_buffer};
-use crate::messages::{finish_active_streaming_assistant_message, push_user_message_once};
+use crate::messages::finish_active_streaming_assistant_message;
+use crate::types::{Message, MessageRole};
 use leptos::prelude::*;
 use serde_json::Value;
 
@@ -19,12 +20,33 @@ pub(super) fn apply(
             stream_bindings.set_active_stream_message_id,
         );
         stream_bindings.set_streamed_this_turn.set(false);
-        push_user_message_once(
-            set_messages,
-            next_message_id,
-            set_next_message_id,
-            delivered.text,
-        );
+        let id = next_message_id.get_untracked();
+        let mut pushed = false;
+        set_messages.update(|items| {
+            if items
+                .iter()
+                .any(|item| item.message_id.as_deref() == Some(&delivered.message_id))
+            {
+                return;
+            }
+            items.push(Message {
+                id,
+                version: 0,
+                text_offset: 0,
+                message_id: Some(delivered.message_id),
+                images: delivered.images,
+                text: delivered.text,
+                phase: None,
+                role: MessageRole::User,
+                tool: None,
+                subagent: None,
+                streaming: false,
+            });
+            pushed = true;
+        });
+        if pushed {
+            set_next_message_id.set(id + 1);
+        }
         set_agent_status.set(
             if delivered.follow_up {
                 "начинает следующий ход"
@@ -43,6 +65,7 @@ pub(super) fn apply(
 struct SteeringDeliveredUpdate {
     message_id: String,
     text: String,
+    images: Vec<proteus_contracts::domain::ImageRef>,
     follow_up: bool,
 }
 
@@ -51,6 +74,7 @@ fn steering_delivered_update(event: &Value) -> Option<SteeringDeliveredUpdate> {
     Some(SteeringDeliveredUpdate {
         message_id: delivered.get("message_id")?.as_str()?.to_owned(),
         text: delivered.get("text")?.as_str()?.to_owned(),
+        images: serde_json::from_value(delivered.get("images")?.clone()).ok()?,
         follow_up: match delivered.get("kind")?.as_str()? {
             "follow_up" => true,
             "steering" => false,
@@ -75,6 +99,12 @@ mod tests {
             contract_domain::Event::SteeringDelivered {
                 message_id,
                 text: "follow up".to_owned(),
+                images: vec![contract_domain::ImageRef {
+                    id: "steering-image".to_owned(),
+                    name: "input.png".to_owned(),
+                    mime_type: "image/png".to_owned(),
+                    path: "images/input.png".into(),
+                }],
                 kind: contract_domain::SteeringDeliveryKind::FollowUp,
                 queued_count: 0,
             },
@@ -86,5 +116,6 @@ mod tests {
         assert_eq!(delivered.message_id, message_id.to_string());
         assert_eq!(delivered.text, "follow up");
         assert!(delivered.follow_up);
+        assert_eq!(delivered.images[0].id, "steering-image");
     }
 }

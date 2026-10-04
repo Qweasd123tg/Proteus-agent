@@ -11,6 +11,7 @@ fn transcript_messages_merge_progress_subagent_into_preceding_task_card() {
             role: "system".to_owned(),
             text: String::new(),
             tool: Some(TranscriptTool {
+                effective_args: None,
                 call_id: "call-task".to_owned(),
                 name: "task".to_owned(),
                 args: serde_json::json!({"agent_type": "explore", "prompt": "look around"}),
@@ -59,6 +60,7 @@ fn transcript_messages_merge_background_subagent_into_matching_spawn_card() {
             role: "system".to_owned(),
             text: String::new(),
             tool: Some(TranscriptTool {
+                effective_args: None,
                 call_id: "call-spawn".to_owned(),
                 name: SPAWN_AGENT_TOOL.to_owned(),
                 args: serde_json::json!({
@@ -118,6 +120,7 @@ fn transcript_messages_merge_background_subagent_into_matching_followup_card() {
             role: "system".to_owned(),
             text: String::new(),
             tool: Some(TranscriptTool {
+                effective_args: None,
                 call_id: "call-followup".to_owned(),
                 name: FOLLOWUP_TASK_TOOL.to_owned(),
                 args: serde_json::json!({
@@ -169,6 +172,7 @@ fn transcript_messages_reconstruct_subagent_from_committed_task_result() {
         role: "system".to_owned(),
         text: String::new(),
         tool: Some(TranscriptTool {
+            effective_args: None,
             call_id: "call-task".to_owned(),
             name: "task".to_owned(),
             args: serde_json::json!({
@@ -216,6 +220,7 @@ fn transcript_messages_skip_reconstruction_for_failed_task_without_metadata() {
         role: "system".to_owned(),
         text: String::new(),
         tool: Some(TranscriptTool {
+            effective_args: None,
             call_id: "call-task".to_owned(),
             name: "task".to_owned(),
             args: serde_json::json!({"agent_type": "explore", "prompt": "look"}),
@@ -243,6 +248,7 @@ fn transcript_messages_restore_tool_activity_cards() {
         role: "system".to_owned(),
         text: String::new(),
         tool: Some(TranscriptTool {
+            effective_args: None,
             call_id: "call-1".to_owned(),
             name: "read_file".to_owned(),
             args: serde_json::json!({"path": "src/lib.rs"}),
@@ -279,6 +285,7 @@ fn transcript_messages_restore_subagent_activity_cards() {
             status: "completed".to_owned(),
             iterations: Some(2),
             tools: vec![TranscriptTool {
+                effective_args: None,
                 call_id: "call-child".to_owned(),
                 name: "read_file".to_owned(),
                 args: serde_json::json!({"path": "src/lib.rs"}),

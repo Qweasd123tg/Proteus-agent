@@ -62,19 +62,19 @@ fn context_map_segments_skip_provider_cache_categories() {
 #[test]
 fn context_cache_status_tracks_cold_warming_and_hot_states() {
     assert_eq!(
-        context_cache_status(100, 0, 0, Some(0)),
+        context_cache_status(100, Some(0), Some(0), Some(0)),
         ContextCacheStatus::Cold
     );
     assert_eq!(
-        context_cache_status(100, 0, 80, Some(0)),
+        context_cache_status(100, Some(0), Some(80), Some(0)),
         ContextCacheStatus::Warming
     );
     assert_eq!(
-        context_cache_status(100, 20, 0, Some(20)),
+        context_cache_status(100, Some(20), Some(0), Some(20)),
         ContextCacheStatus::Warming
     );
     assert_eq!(
-        context_cache_status(100, 75, 0, Some(75)),
+        context_cache_status(100, Some(75), Some(0), Some(75)),
         ContextCacheStatus::Hot
     );
 }
@@ -118,4 +118,48 @@ fn context_cache_view_model_formats_provider_usage() {
     assert_eq!(cache.cache_creation_input_tokens, "0");
     assert_eq!(cache.hit_rate, "75%");
     assert_eq!(cache.hit_percent, 75);
+
+    let mut usage = usage;
+    let actual = usage.actual.as_mut().unwrap();
+    actual.cached_input_tokens = None;
+    actual.cache_creation_input_tokens = None;
+    let cache = context_cache_view_model(Some(&usage));
+    assert_eq!(cache.input_tokens, "2k");
+    assert_eq!(cache.cached_input_tokens, "n/a");
+    assert_eq!(cache.cache_creation_input_tokens, "n/a");
+    assert_eq!(cache.hit_rate, "n/a");
+    assert_eq!(cache.status, "n/a");
+
+    let actual = usage.actual.as_mut().unwrap();
+    actual.cached_input_tokens = Some(0);
+    actual.cache_creation_input_tokens = Some(0);
+    let cache = context_cache_view_model(Some(&usage));
+    assert_eq!(cache.status, "cold");
+    assert_eq!(cache.cached_input_tokens, "0");
+    assert_eq!(cache.hit_rate, "0%");
+
+    let actual = usage.actual.as_mut().unwrap();
+    actual.cached_input_tokens = None;
+    actual.cache_creation_input_tokens = Some(80);
+    let cache = context_cache_view_model(Some(&usage));
+    assert_eq!(cache.status, "warming");
+    assert_eq!(cache.cached_input_tokens, "n/a");
+    assert_eq!(cache.cache_creation_input_tokens, "80");
+    assert_eq!(cache.hit_rate, "n/a");
+}
+
+#[test]
+fn context_reserve_counts_only_its_unoccupied_part() {
+    for (used, reserve) in [(160, 40), (190, 10), (200, 0), (205, 0)] {
+        let segments = context_map_segments(&[], used, Some(200), Some(160));
+        let actual = segments
+            .iter()
+            .find(|segment| segment.label == "резерв автокомпакта")
+            .map_or(0, |segment| segment.tokens);
+        assert_eq!(actual, reserve);
+        assert_eq!(
+            segments.iter().map(|segment| segment.tokens).sum::<u32>(),
+            used.max(200)
+        );
+    }
 }

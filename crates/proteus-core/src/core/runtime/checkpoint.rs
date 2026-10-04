@@ -16,7 +16,7 @@ use crate::{
 
 use super::{
     prepare_failed_history_update,
-    steering::{SteeringModel, weave_deliveries_into_failed_history},
+    steering::{SteeringModel, weave_deliveries_into_failed_history, weave_deliveries_into_output},
 };
 
 /// Per-invocation binding. The same object records tool facts and explicit
@@ -37,6 +37,17 @@ pub(super) struct TurnHistoryRecorder {
 }
 
 impl TurnHistoryRecorder {
+    async fn normalize_progress(
+        &self,
+        history: &mut crate::contracts::WorkflowHistoryUpdate,
+    ) -> Result<std::collections::HashSet<crate::domain::MessageId>> {
+        let deliveries = match &self.steering {
+            Some(model) => model.delivery_records().await,
+            None => Vec::new(),
+        };
+        weave_deliveries_into_failed_history(history, &deliveries)
+    }
+
     pub(super) async fn settle_in_memory_effects(&self) -> Result<()> {
         if self.store.is_some() {
             return Ok(());
@@ -55,13 +66,21 @@ impl TurnHistoryRecorder {
 }
 
 #[async_trait]
-impl WorkflowHistoryRecorder for TurnHistoryRecorder {
-    async fn checkpoint(&self, mut checkpoint: WorkflowHistoryCheckpoint) -> Result<()> {
+impl crate::core::reviewed_workflow::CandidateHistoryNormalizer for TurnHistoryRecorder {
+    async fn normalize(&self, output: &mut crate::contracts::WorkflowOutput) -> Result<()> {
         let deliveries = match &self.steering {
             Some(model) => model.delivery_records().await,
             None => Vec::new(),
         };
-        let allowed = weave_deliveries_into_failed_history(&mut checkpoint.history, &deliveries)?;
+        weave_deliveries_into_output(output, &deliveries)?;
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl WorkflowHistoryRecorder for TurnHistoryRecorder {
+    async fn checkpoint(&self, mut checkpoint: WorkflowHistoryCheckpoint) -> Result<()> {
+        let allowed = self.normalize_progress(&mut checkpoint.history).await?;
         let progress = checkpoint.history;
         let prepared = prepare_failed_history_update(
             &self.initial_history,

@@ -1,3 +1,10 @@
+mod persistence;
+#[cfg(test)]
+mod tests;
+mod transaction;
+pub(super) use persistence::config_builder_target_path;
+use persistence::{persist_config_builder, validate_module_config_toml};
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
@@ -42,10 +49,45 @@ impl AppServerHandle {
         active_provider: Option<String>,
         permission_mode: Option<PermissionMode>,
     ) -> Result<ConfigBuilderSnapshot> {
+        let this = self.clone();
+        tokio::spawn(async move {
+            this.set_config_builder_owned(
+                modules,
+                hooks,
+                module_config,
+                tools_enabled,
+                active_provider,
+                permission_mode,
+            )
+            .await
+        })
+        .await
+        .context("config save task failed")?
+    }
+
+    async fn set_config_builder_owned(
+        &self,
+        modules: BTreeMap<String, String>,
+        hooks: Option<Vec<String>>,
+        module_config: BTreeMap<String, BTreeMap<String, Value>>,
+        tools_enabled: Option<Vec<String>>,
+        active_provider: Option<String>,
+        permission_mode: Option<PermissionMode>,
+    ) -> Result<ConfigBuilderSnapshot> {
+        let config_path = self
+            .config_path
+            .as_deref()
+            .ok_or_else(|| anyhow!("config path is not available; cannot persist config"))?;
+        let path_lock = transaction::path_lock(config_path)?;
+        let _path_guard = path_lock.lock_owned().await;
         let current_plan = self.runtime.assembly_plan().await;
         validate_config_builder_modules(&modules, current_plan.catalog_entries())?;
 
-        let mut next_config = self.config.read().await.clone();
+        let mut next_config = if tokio::fs::try_exists(config_path).await? {
+            AppConfig::load(Some(config_path)).await?
+        } else {
+            self.config.read().await.clone()
+        };
         let replaced_state = config_builder_state(&next_config);
         if let Some(active_provider) = &active_provider {
             validate_config_builder_provider(active_provider, &next_config)?;
@@ -86,15 +128,6 @@ impl AppServerHandle {
         ) else {
             anyhow::bail!("config path is not available; cannot persist config");
         };
-        // The replaced state is kept before the profile changes, so every
-        // save can be rolled back through this same path.
-        if replaced_state != config_builder_state(&next_config) {
-            record_replaced_state(&config_history_dir(config_path), replaced_state)
-                .await
-                .context("failed to record the replaced profile state")?;
-        }
-        persist_config_builder(&target_path, &next_config).await?;
-
         let config_snapshot = SessionConfigSnapshot::from_runtime_config(
             &next_config,
             assembly.registry(),
@@ -109,11 +142,19 @@ impl AppServerHandle {
             .transpose()?;
         let report = self
             .runtime
-            .reload_assembly_with_effective_settings(
+            .reload_assembly_with_commit(
                 assembly,
                 Some(config_snapshot),
                 model_ref,
                 permission_mode,
+                || async {
+                    if replaced_state != config_builder_state(&next_config) {
+                        record_replaced_state(&config_history_dir(config_path), replaced_state)
+                            .await
+                            .context("failed to record the replaced profile state")?;
+                    }
+                    persist_config_builder(&target_path, &next_config).await
+                },
             )
             .await?;
         *self.config.write().await = next_config;
@@ -308,131 +349,6 @@ pub(super) fn set_module_slot(
         anyhow::bail!("unsupported config builder slot: {slot}");
     }
     Ok(())
-}
-
-pub(super) fn config_builder_target_path(config_path: Option<&Path>) -> Option<PathBuf> {
-    let path = config_path?;
-    if path.is_dir() {
-        Some(path.join("config.toml"))
-    } else {
-        Some(path.to_path_buf())
-    }
-}
-
-#[derive(serde::Serialize)]
-struct ModuleConfigToml<'a> {
-    module_config: &'a BTreeMap<String, BTreeMap<String, Value>>,
-}
-
-#[derive(serde::Serialize)]
-struct ProvidersToml<'a> {
-    providers: &'a BTreeMap<String, ProviderProfileConfig>,
-}
-
-pub(super) fn validate_module_config_toml(
-    module_config: &BTreeMap<String, BTreeMap<String, Value>>,
-) -> Result<()> {
-    module_config_toml_document(module_config).map(|_| ())
-}
-
-fn module_config_toml_document(
-    module_config: &BTreeMap<String, BTreeMap<String, Value>>,
-) -> Result<toml_edit::DocumentMut> {
-    let text = toml::to_string_pretty(&ModuleConfigToml { module_config })
-        .context("module_config contains values that cannot be represented as TOML")?;
-    text.parse::<toml_edit::DocumentMut>()
-        .context("serialized module_config TOML could not be parsed")
-}
-
-pub(super) async fn persist_config_builder(path: &Path, config: &AppConfig) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-
-    let mut doc = read_toml_document_or_empty(path).await?;
-
-    if let Some(provider) = &config.active_provider {
-        doc["active_provider"] = toml_edit::value(provider.clone());
-    } else {
-        doc.remove("active_provider");
-    }
-    if doc.get("providers").is_none() {
-        let text = toml::to_string_pretty(&ProvidersToml {
-            providers: &config.providers,
-        })
-        .context("providers cannot be represented as TOML")?;
-        let providers_doc = text
-            .parse::<toml_edit::DocumentMut>()
-            .context("serialized providers TOML could not be parsed")?;
-        doc["providers"] = providers_doc["providers"].clone();
-    }
-
-    if doc
-        .get("permissions")
-        .is_none_or(|item| !item.is_table_like())
-    {
-        doc["permissions"] = toml_edit::table();
-    }
-    doc["permissions"]["mode"] = toml_edit::value(permission_mode_str(config.permissions.mode));
-
-    if doc.get("modules").is_none_or(|item| !item.is_table_like()) {
-        doc["modules"] = toml_edit::table();
-    }
-    for (kind, id) in config.modules.iter() {
-        doc["modules"][kind.as_str()] = toml_edit::value(id.to_owned());
-    }
-
-    doc["modules"]["hooks"] = toml_edit::value(
-        config
-            .modules
-            .hooks
-            .iter()
-            .cloned()
-            .collect::<toml_edit::Array>(),
-    );
-
-    if doc
-        .get("agent_control")
-        .is_none_or(|item| !item.is_table_like())
-    {
-        doc["agent_control"] = toml_edit::table();
-    }
-    doc["agent_control"]["surface"] = toml_edit::value(config.agent_control.surface.as_str());
-
-    let module_config_doc = module_config_toml_document(&config.module_config)?;
-    if let Some(item) = module_config_doc.as_table().get("module_config") {
-        doc["module_config"] = item.clone();
-    } else {
-        doc["module_config"] = toml_edit::table();
-    }
-
-    if doc.get("tools").is_none_or(|item| !item.is_table_like()) {
-        doc["tools"] = toml_edit::table();
-    }
-    doc["tools"]["enabled"] = toml_edit::value(
-        config
-            .tools
-            .enabled
-            .iter()
-            .cloned()
-            .collect::<toml_edit::Array>(),
-    );
-
-    tokio::fs::write(path, doc.to_string()).await?;
-    Ok(())
-}
-
-pub(super) async fn read_toml_document_or_empty(path: &Path) -> Result<toml_edit::DocumentMut> {
-    let existing = match tokio::fs::read_to_string(path).await {
-        Ok(existing) => existing,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(error) => {
-            return Err(error).with_context(|| format!("failed to read config {}", path.display()));
-        }
-    };
-    existing
-        .parse::<toml_edit::DocumentMut>()
-        .map_err(|err| anyhow!("failed to parse config TOML at {}: {err}", path.display()))
 }
 
 #[cfg(test)]

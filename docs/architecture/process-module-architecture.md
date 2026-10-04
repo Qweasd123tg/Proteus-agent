@@ -485,6 +485,14 @@ Child exit наблюдается отдельно от frame queue, а terminat
 read. Один reader маршрутизирует out-of-order terminal responses, callbacks и
 live notifications по host-owned invocation records.
 
+Initialize использует один `handshake_timeout_ms` для подготовки, записи
+кадра и получения ответа; зависшая запись завершает конкретное поколение.
+Лимит Content-Length headers действует во время накопления байтов, включая
+общий бюджет строк. При естественном завершении Unix leader lifecycle
+останавливает принадлежащую ему группу до reaping, чтобы потомки с
+унаследованными pipes не удерживали cleanup. Повторный terminate возвращает
+terminal state без сигналов сохранённому PID.
+
 Ids разделены на host `h:<generation>:<sequence>` и module
 `m:<generation>:<sequence>`. Callback получает parent `InvocationRef`; если
 ему нужен другой export, host открывает nested invocation с тем же root,
@@ -522,6 +530,8 @@ Exports с callback-связями разрешено объединять; comp
   notifications и writer queues ограничены;
 - cooperative cancel адресен, а crash, corruption, resource failure или
   истёкший cancel grace завершают всё поколение с causal terminal causes;
+- обход отменяемого дерева завершается до admission посторонних queued roots,
+  поэтому сброс generation не оставляет устаревшие IDs внутри cancel-loop;
 - synchronous callback-free `invoke_bootstrap` для catalog build закрывается
   после начала обычного async traffic; sync `policy` использует тот же broker
   через callback-free blocking invocation, а не второй runtime.

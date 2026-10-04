@@ -9,10 +9,13 @@ releases_dir="${proteus_home}/releases"
 current_release="${proteus_home}/current"
 config_home="${PROTEUS_CONFIG_HOME:-${HOME}/.config/Proteus-agent}"
 configs_dir="${config_home}/configs"
+build_target="${CARGO_TARGET_DIR:-${project_dir}/target}"
 
 cargo build --release --manifest-path "${project_dir}/Cargo.toml" \
+  --target-dir "${build_target}" \
   -p proteus-core \
   -p proteus-reference-module
+build_target=$(CDPATH= cd -- "${build_target}" && pwd)
 
 mkdir -p "${bin_dir}"
 bin_tmp="${bin_path}.tmp.$$"
@@ -62,8 +65,8 @@ chmod 755 "${module_tmp}"
 # Stage the host and reference module before the `current` symlink makes the
 # build snapshot visible.
 mkdir -p "${release_tmp}"
-cp "${project_dir}/target/release/proteus" "${release_tmp}/proteus"
-cp "${project_dir}/target/release/proteus-reference-module" "${release_tmp}/proteus-reference-module"
+cp "${build_target}/release/proteus" "${release_tmp}/proteus"
+cp "${build_target}/release/proteus-reference-module" "${release_tmp}/proteus-reference-module"
 chmod 755 "${release_tmp}/proteus"
 chmod 755 "${release_tmp}/proteus-reference-module"
 

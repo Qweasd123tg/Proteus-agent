@@ -426,6 +426,7 @@ impl SteeringModel {
                     Event::SteeringDelivered {
                         message_id: queued.message.id,
                         text: queued.text,
+                        images: queued.message.image_refs().cloned().collect(),
                         kind: SteeringDeliveryKind::Steering,
                         queued_count: self.queue.queued_count.load(Ordering::Acquire),
                     },

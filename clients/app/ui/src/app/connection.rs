@@ -51,7 +51,7 @@ pub(super) fn connect(state: AppState) -> ClientConnection {
         model_name,
         set_model_name,
         set_model_options,
-        reasoning_enabled,
+        reasoning_enabled: _,
         set_reasoning_enabled,
         effort,
         set_effort,
@@ -132,6 +132,7 @@ pub(super) fn connect(state: AppState) -> ClientConnection {
 
     let event_source = StoredValue::new_local(None::<EventConnection>);
     let event_stream_bindings = EventStreamBindings {
+        catalog: state.session.catalog,
         set_messages,
         next_message_id,
         set_next_message_id,
@@ -187,6 +188,8 @@ pub(super) fn connect(state: AppState) -> ClientConnection {
     };
     session_actions.initialize();
     let actions = AppActions {
+        controls: state.request.controls,
+        event_count: state.session.event_count,
         attachments: state.request.attachments,
         attachments_loading: state.request.attachments_loading,
         set_messages,
@@ -203,7 +206,6 @@ pub(super) fn connect(state: AppState) -> ClientConnection {
         set_model_name,
         set_model_options,
         set_effort_options,
-        reasoning_enabled,
         set_reasoning_enabled,
         effort,
         set_effort,

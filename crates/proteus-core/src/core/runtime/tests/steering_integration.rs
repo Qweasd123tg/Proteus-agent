@@ -23,6 +23,9 @@ use crate::{
     },
 };
 
+#[path = "steering_review.rs"]
+mod review;
+
 struct TwoRoundSteeringWorkflow {
     first_response_received: Arc<tokio::sync::Notify>,
     continue_second_request: Arc<tokio::sync::Notify>,
@@ -62,7 +65,9 @@ impl Model for ScriptedModel {
     }
 
     fn capabilities(&self, _model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
-        Ok(ModelCapabilities::empty())
+        let mut capabilities = ModelCapabilities::empty();
+        capabilities.supports_image_input = true;
+        Ok(capabilities)
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
@@ -300,8 +305,29 @@ async fn queued_message_is_delivered_before_model_call_after_tool_boundary() {
     });
     workflow.first_response_received.notified().await;
 
+    let queued_image = crate::domain::ImageRef {
+        id: "queued-image".into(),
+        name: "queued.png".into(),
+        mime_type: "image/png".into(),
+        path: cwd.path().join("queued.png"),
+    };
     let receipt = match runtime
-        .reserve_user_message("before edit".to_owned())
+        .session
+        .steering
+        .reserve_message_with_options(
+            CanonicalMessage::new(
+                MessageRole::User,
+                vec![
+                    ContentPart::Image {
+                        image: queued_image.clone(),
+                    },
+                    ContentPart::Text {
+                        text: "before edit".into(),
+                    },
+                ],
+            ),
+            crate::domain::RunOptions::default(),
+        )
         .await
         .expect("queue steering")
     {
@@ -343,6 +369,15 @@ async fn queued_message_is_delivered_before_model_call_after_tool_boundary() {
             .map(message_text_for_test)
             .collect::<Vec<_>>();
         assert_eq!(second_text.last().map(String::as_str), Some("steer now"));
+        assert_eq!(
+            requests[1]
+                .messages
+                .last()
+                .unwrap()
+                .image_refs()
+                .collect::<Vec<_>>(),
+            vec![&queued_image]
+        );
     }
 
     let history = runtime.history().await;
@@ -393,6 +428,10 @@ async fn queued_message_is_delivered_before_model_call_after_tool_boundary() {
         .expect("delivered event");
     assert_eq!(queued.turn_id, Some(initial_turn_id));
     assert_eq!(delivered.turn_id, Some(initial_turn_id));
+    let Event::SteeringDelivered { images, .. } = &delivered.event else {
+        unreachable!()
+    };
+    assert_eq!(images, &vec![queued_image]);
     assert!(queued.seq < delivered.seq);
     assert!(events.iter().any(|event| matches!(&event.event, Event::SteeringEdited { message_id, text, .. } if *message_id == receipt.message_id && text == "steer now")));
     assert!(events.iter().any(|event| matches!(&event.event, Event::SteeringRemoved { message_id, .. } if *message_id == removed.message_id)));

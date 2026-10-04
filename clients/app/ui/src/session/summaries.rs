@@ -1,9 +1,8 @@
 use crate::{
-    api::get_json,
     types::*,
     ui_utils::{compact_text, compact_title},
 };
-use leptos::{prelude::*, task::spawn_local};
+use leptos::prelude::*;
 
 pub(crate) fn sidebar_session_title(session: &SessionSummary) -> String {
     if let Some(preview) = session
@@ -124,30 +123,6 @@ pub(crate) fn sidebar_session_render_key(session: &SessionSummary) -> String {
             .map(|activity| activity.pending_approvals + activity.pending_user_inputs)
             .unwrap_or(0),
     )
-}
-
-pub(crate) fn load_sidebar_sessions(
-    set_sessions: WriteSignal<Vec<SessionSummary>>,
-    set_status: WriteSignal<String>,
-) {
-    set_status.set("загружаю сессии".to_owned());
-    spawn_local(async move {
-        match get_json::<Vec<SessionSummary>>("/sessions").await {
-            Ok(items) => {
-                let count = items.len();
-                set_sessions.set(items);
-                set_status.set(if count == 0 {
-                    "прошлых сессий нет".to_owned()
-                } else {
-                    format!("{count} сессий")
-                });
-            }
-            Err(error) => {
-                set_sessions.set(Vec::new());
-                set_status.set(format!("сессии недоступны: {error}"));
-            }
-        }
-    });
 }
 
 #[cfg(test)]

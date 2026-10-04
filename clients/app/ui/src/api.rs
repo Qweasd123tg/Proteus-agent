@@ -1,3 +1,6 @@
+mod post;
+pub(crate) use post::{post_json, post_json_for_admission, post_text_with_signal};
+
 use std::cell::RefCell;
 
 use proteus_app_common::{
@@ -143,54 +146,6 @@ fn replace_requested_session_dir(session_dir: Option<&str>) -> Result<(), String
         .map_err(js_error)?
         .replace_state_with_url(&JsValue::NULL, "", Some(&format!("{path}{query}{hash}")))
         .map_err(js_error)
-}
-
-pub(crate) async fn post_json<T: Serialize>(path: &str, body: &T) -> Result<StdioOutput, String> {
-    let request_body = serde_json::to_string(body).map_err(|error| error.to_string())?;
-    let text = post_text_with_signal(path, &request_body, None).await?;
-    serde_json::from_str(&text).map_err(|error| format!("invalid response JSON: {error}"))
-}
-
-pub(crate) async fn post_text_with_signal(
-    path: &str,
-    request_body: &str,
-    signal: Option<&web_sys::AbortSignal>,
-) -> Result<String, String> {
-    let token = current_session_token();
-    let init = RequestInit::new();
-    init.set_method("POST");
-    init.set_mode(RequestMode::Cors);
-    init.set_signal(signal);
-    init.set_body(&JsValue::from_str(request_body));
-
-    let headers = Headers::new().map_err(js_error)?;
-    headers
-        .set("content-type", "application/json")
-        .map_err(js_error)?;
-    set_authorization_header(&headers, &token)?;
-    init.set_headers(headers.as_ref());
-
-    let request = Request::new_with_str_and_init(&app_server_url(path), &init).map_err(js_error)?;
-    let response_value = JsFuture::from(
-        window()
-            .ok_or_else(|| "window is unavailable".to_owned())?
-            .fetch_with_request(&request),
-    )
-    .await
-    .map_err(js_error)?;
-    let response = response_value.dyn_into::<Response>().map_err(js_error)?;
-    let status = response.status();
-    let text_value = JsFuture::from(response.text().map_err(js_error)?)
-        .await
-        .map_err(js_error)?;
-    let text = text_value
-        .as_string()
-        .ok_or_else(|| "response body is not text".to_owned())?;
-
-    if !response.ok() {
-        return Err(http_error(status, &text));
-    }
-    Ok(text)
 }
 
 pub(crate) async fn get_json<T: for<'de> Deserialize<'de>>(path: &str) -> Result<T, String> {

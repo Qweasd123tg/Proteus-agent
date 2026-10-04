@@ -7,7 +7,7 @@ use std::{
         mpsc::{self, RecvTimeoutError, SyncSender, TryRecvError, TrySendError},
     },
     thread::{self, JoinHandle},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use serde_json::Value;
@@ -222,6 +222,25 @@ impl FrameDispatch {
     }
 
     pub fn wait(&self) -> std::result::Result<(), SendFrameError> {
+        self.wait_for_completion(None)
+            .expect("unbounded dispatch wait cannot time out")
+    }
+
+    /// Waits for completion within the supplied budget. A timeout does not
+    /// withdraw or interrupt the frame; the protocol owner must cancel the
+    /// dispatch or terminate its generation before releasing the transport.
+    pub fn wait_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Option<std::result::Result<(), SendFrameError>> {
+        self.wait_for_completion(Some(timeout))
+    }
+
+    fn wait_for_completion(
+        &self,
+        timeout: Option<Duration>,
+    ) -> Option<std::result::Result<(), SendFrameError>> {
+        let started = Instant::now();
         let mut result = self
             .completion
             .result
@@ -229,18 +248,28 @@ impl FrameDispatch {
             .expect("frame dispatch mutex poisoned");
         loop {
             if let Some(result) = result.clone() {
-                return result;
+                return Some(result);
             }
             if let Some(reason) = self.lifecycle.stopped_reason() {
-                return Err(self.status.fail(reason));
+                return Some(Err(self.status.fail(reason)));
             }
             if let Some(failure) = self.status.failure_if_any() {
-                return Err(failure);
+                return Some(Err(failure));
             }
+            let wait = match timeout {
+                Some(timeout) => {
+                    let remaining = timeout.checked_sub(started.elapsed())?;
+                    if remaining.is_zero() {
+                        return None;
+                    }
+                    remaining.min(WRITER_POLL_INTERVAL)
+                }
+                None => WRITER_POLL_INTERVAL,
+            };
             let (next, _) = self
                 .completion
                 .ready
-                .wait_timeout(result, WRITER_POLL_INTERVAL)
+                .wait_timeout(result, wait)
                 .expect("frame dispatch mutex poisoned while waiting");
             result = next;
         }

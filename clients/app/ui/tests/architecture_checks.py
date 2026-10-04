@@ -9,6 +9,10 @@ def run(command, js, wait_for, web, origin):
     command('/url', {'url': web + '/architecture?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
     wait_for(lambda: js("return !!document.querySelector('[data-node-id=\"slot:workflow\"]')"), 'Inspector graph did not mount from the real topology API')
     check_selects(command, js, wait_for)
+    js("window.savedClipboardWrite=navigator.clipboard.writeText;navigator.clipboard.writeText=()=>Promise.reject(new Error('fixture clipboard rejection'));document.querySelector('.architecture-page .toolbar-actions button').click()")
+    wait_for(lambda: js("return document.querySelector('.resume-toolbar p').textContent.includes('Не удалось скопировать Mermaid')"), 'Clipboard rejection was reported as success')
+    assert js("return !document.querySelector('.resume-toolbar p').textContent.includes('Mermaid скопирован')"), 'Clipboard promise was not awaited'
+    js("navigator.clipboard.writeText=window.savedClipboardWrite")
     # Real pointer click must select a node without moving it before click lands.
     node = command('/element', {'using': 'css selector', 'value': '[data-node-id="slot:workflow"]'})
     command('/element/' + next(iter(node.values())) + '/click', {})
@@ -63,25 +67,35 @@ def run(command, js, wait_for, web, origin):
     """), 'Graph wheel burst wrote a transform before the animation frame'
     wait_for(lambda: js("const p=window.__graphFrameProbe;return Math.abs(Number(p.stage.style.transform.match(/scale\\(([-\\d.]+)\\)/)[1])-p.expected)<.0001"), 'Graph wheel burst did not apply its accumulated zoom')
     assert js("const p=window.__graphFrameProbe;const result=p.writes+p.observer.takeRecords().length===1;p.observer.disconnect();delete window.__graphFrameProbe;return result"), 'Graph wheel burst wrote more than one transform per frame'
-    assert command('/execute/async', {'script': """
-        const done = arguments[arguments.length - 1];
-        import('/graph/view.js').then(({mountTopologyGraph}) => {
-          const root = document.createElement('div');
-          root.style.width = '400px'; root.style.height = '300px'; document.body.append(root);
-          const source = JSON.stringify({profile: 'test', cwd: '/', config_files: [], module_epoch: 1,
-            permission_mode: 'ask', slots: [], modules: [], tools: [], edges: []});
-          const dispose = mountTopologyGraph(root, source);
-          const stage = root.querySelector('.graph-stage'), viewport = root.querySelector('.graph-viewport');
-          const rect = viewport.getBoundingClientRect(), before = stage.style.transform;
-          viewport.dispatchEvent(new WheelEvent('wheel', {bubbles: true, cancelable: true, deltaY: -1,
-            clientX: rect.left + 50, clientY: rect.top + 50}));
-          dispose();
-          requestAnimationFrame(() => requestAnimationFrame(() => {
-            const result = root.childElementCount === 0 && stage.style.transform === before;
-            root.remove(); done(result);
-          }));
-        }).catch(error => done(String(error)));
-    """, 'args': []}), 'Disposed graph applied a pending transform'
+    disposal_probe = """
+        const done = arguments[arguments.length - 1], forceError = arguments[0];
+        (async () => {
+          let root, dispose, result;
+          try {
+            if (forceError) throw Error('disposal oracle negative control');
+            const {mountTopologyGraph} = await import('/graph/view.js');
+            root = document.createElement('div');
+            root.style.width = '400px'; root.style.height = '300px'; document.body.append(root);
+            const source = JSON.stringify({profile: 'test', cwd: '/', config_files: [], module_epoch: 1,
+              permission_mode: 'ask', slots: [], modules: [], tools: [], edges: []});
+            dispose = mountTopologyGraph(root, source);
+            const stage = root.querySelector('.graph-stage'), viewport = root.querySelector('.graph-viewport');
+            const rect = viewport.getBoundingClientRect(), before = stage.style.transform;
+            viewport.dispatchEvent(new WheelEvent('wheel', {bubbles: true, cancelable: true, deltaY: -1,
+              clientX: rect.left + 50, clientY: rect.top + 50}));
+            dispose();
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            result = root.childElementCount === 0 && stage.style.transform === before;
+          } catch(error) { result = {error: String(error)}; }
+          finally {
+            try { dispose?.(); } catch(error) { result = {error: String(error)}; }
+            root?.remove();
+          }
+          done(result);
+        })();
+    """
+    assert command('/execute/async', {'script': disposal_probe, 'args': [False]}) is True, 'Disposed graph applied a pending transform'
+    assert command('/execute/async', {'script': disposal_probe, 'args': [True]}) is not True, 'Graph disposal oracle accepted a JavaScript error'
     js("document.querySelector('[data-scope=assembly]').click()")
     command('/execute/async', {'script': 'requestAnimationFrame(()=>requestAnimationFrame(()=>arguments[arguments.length-1](null)))', 'args': []})
     Path('/tmp/proteus-architecture-ux.png').write_bytes(base64.b64decode(command('/screenshot', None)))

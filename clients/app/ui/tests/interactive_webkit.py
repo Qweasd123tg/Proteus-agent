@@ -29,7 +29,7 @@ window.probe=()=>{
  check(!code.parentElement.hidden&&code.textContent===SOURCE,'native source toggle');
  const workspace=document.querySelector('.session-workspace'),r=document.querySelector('section');
  workspace.style.setProperty('--chat-max-width','780px');r.scrollTop=r.scrollHeight;
- check(document.querySelector('#last').getBoundingClientRect().bottom<=document.querySelector('form').getBoundingClientRect().top-16 && getComputedStyle(r).maskImage.includes('gradient'),'native composer clearance/fade');
+ check(document.querySelector('#last').getBoundingClientRect().bottom<=document.querySelector('form').getBoundingClientRect().top-16 && getComputedStyle(r).maskImage==='none' && getComputedStyle(document.querySelector('form'),'::before').backgroundImage.includes('gradient'),'native composer clearance/fade');
  return results;
 };
 </script></body></html>'''.replace('SOURCE', json.dumps(SOURCE))

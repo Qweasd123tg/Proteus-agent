@@ -15,8 +15,14 @@ use super::{
 
 impl LoopState {
     pub(super) fn finish(&mut self, id: &str, terminal: InvocationTerminal) {
+        if self.finish_without_admission(id, terminal) {
+            self.admit_queued_roots();
+        }
+    }
+
+    fn finish_without_admission(&mut self, id: &str, terminal: InvocationTerminal) -> bool {
         let Some(mut pending) = self.pending.remove(id) else {
-            return;
+            return false;
         };
         if pending.active {
             if pending.is_root() {
@@ -33,7 +39,7 @@ impl LoopState {
         if let Some(sender) = pending.terminal.take() {
             sender.send(terminal);
         }
-        self.admit_queued_roots();
+        true
     }
 
     fn admit_queued_roots(&mut self) {
@@ -151,7 +157,9 @@ impl LoopState {
                         .is_some_and(|dispatch| dispatch.cancel_before_write())
             };
             if should_finish_without_wire {
-                self.finish(&affected_id, InvocationTerminal::canceled(cause));
+                // Admission can fail and reset the whole generation. Finish
+                // the cancel tree before activating unrelated queued roots.
+                self.finish_without_admission(&affected_id, InvocationTerminal::canceled(cause));
                 continue;
             }
             let send_result = self.worker.as_ref().map(|worker| {
@@ -167,6 +175,7 @@ impl LoopState {
                 break;
             }
         }
+        self.admit_queued_roots();
         Ok(())
     }
 
@@ -287,3 +296,7 @@ fn bounded_failure_reason(reason: String) -> String {
     bounded.push('…');
     bounded
 }
+
+#[cfg(test)]
+#[path = "failure_tests.rs"]
+mod tests;

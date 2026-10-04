@@ -31,6 +31,7 @@ const EXIT_DRAIN_GRACE: Duration = Duration::from_millis(50);
 
 mod output;
 mod process;
+mod pty_lifetime;
 mod session;
 mod spec;
 

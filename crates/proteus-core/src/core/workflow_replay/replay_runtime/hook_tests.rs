@@ -1,7 +1,7 @@
 use super::super::super::fixture::RecordedToolInvocation;
 use super::*;
 use crate::{
-    contracts::{ExecutionAttribution, HookStep, HookTrace},
+    contracts::{ExecutionAttribution, HookStep, HookTrace, apply_hook_response},
     domain::{
         AgentTask, ReasoningConfig, ToolCall, ToolCallResolution, ToolResult, new_execution_id,
         new_message_id,
@@ -26,6 +26,58 @@ fn state(hooks: Vec<HookTrace>, tools: Vec<RecordedToolInvocation>) -> Arc<Repla
         &ReasoningConfig::default(),
         new_message_id(),
     ))
+}
+
+#[tokio::test]
+async fn recorded_hook_replay_preserves_strict_schema_after_sensitive_arguments_redaction() {
+    let call = ToolCall::new(
+        "redacted-call",
+        "fixture",
+        serde_json::json!({"password":"[REDACTED]"}),
+    );
+    let spec = crate::domain::ToolSpec::new(
+        "fixture",
+        "fixture",
+        serde_json::json!({"type":"object", "properties":{"password":{"type":"number","const":12345}},"required":["password"]}),
+        crate::domain::ToolSafety::ReadOnly,
+    );
+    let before = input(HookEvent::BeforeTool {
+        call,
+        spec: Some(spec.clone()),
+        blocked: None,
+    });
+    let response = HookResponse::ToolArguments {
+        args: serde_json::json!({"password":"[REDACTED]"}),
+    };
+    assert!(
+        apply_hook_response(&before.event, &response).is_err(),
+        "live schema remains strict"
+    );
+    let output = apply_recorded_hook_response(&before.event, &response).unwrap();
+    let replay = ReplayHooks::new(
+        state(
+            vec![HookTrace {
+                input: before.clone(),
+                steps: vec![HookStep {
+                    module_id: "rewrite".into(),
+                    outcome: HookStepOutcome::Accepted { response },
+                }],
+                output: Some(output),
+            }],
+            vec![],
+        ),
+        vec!["rewrite".into()],
+    );
+    let HookEvent::BeforeTool {
+        call,
+        spec: Some(recorded_spec),
+        ..
+    } = replay.apply(before).await.unwrap()
+    else {
+        panic!("before tool")
+    };
+    assert_eq!(recorded_spec, spec);
+    assert_eq!(call.args["password"], "[REDACTED]");
 }
 
 #[tokio::test]

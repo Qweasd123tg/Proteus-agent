@@ -208,7 +208,8 @@ impl ProcessLifecycle {
         self.inner.exit.wait().into_result()
     }
 
-    pub(crate) fn same_generation(&self, other: &Self) -> bool {
+    /// Compares owned generation identity, independently of reusable pids.
+    pub fn same_generation(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
 
@@ -228,7 +229,7 @@ fn monitor_child(
     exit: Arc<ExitSignal>,
 ) {
     loop {
-        match child.try_wait() {
+        match observe_child(&mut child) {
             Ok(Some(status)) => {
                 exit.record(LifecycleTerminal::Exited(ProcessExit::from_status(status)));
                 return;
@@ -265,7 +266,12 @@ fn monitor_child(
 
 fn terminate_child(child: &mut Child) -> Result<ExitStatus> {
     #[cfg(unix)]
-    kill_child_process_group(child);
+    {
+        // Validate that the unreaped child still reserves this pid before
+        // addressing its group. No path may signal a cached, reaped pid.
+        let _ = child_exited_without_reaping(child)?;
+        kill_child_process_group(child)?;
+    }
 
     if let Some(status) = child.try_wait()? {
         return Ok(status);
@@ -280,18 +286,61 @@ fn terminate_child(child: &mut Child) -> Result<ExitStatus> {
 }
 
 #[cfg(unix)]
-fn kill_child_process_group(child: &Child) {
-    let Ok(process_group) = i32::try_from(child.id()) else {
-        return;
-    };
+fn observe_child(child: &mut Child) -> Result<Option<ExitStatus>> {
+    if !child_exited_without_reaping(child)? {
+        return Ok(None);
+    }
+    // Retain the zombie leader as the generation's identity lease until its
+    // ordinary descendants have been stopped. try_wait would reap it before
+    // this cleanup and permit its numeric pid/group id to be reused.
+    kill_child_process_group(child)?;
+    Ok(Some(child.wait()?))
+}
+
+#[cfg(not(unix))]
+fn observe_child(child: &mut Child) -> Result<Option<ExitStatus>> {
+    Ok(child.try_wait()?)
+}
+
+#[cfg(unix)]
+fn child_exited_without_reaping(child: &Child) -> Result<bool> {
+    // SAFETY: zeroed siginfo_t is valid storage for waitid's output. WNOWAIT
+    // leaves the direct child unreaped; this monitor is its sole wait owner.
+    loop {
+        let mut status: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        let result = unsafe {
+            libc::waitid(
+                libc::P_PID,
+                child.id() as libc::id_t,
+                &mut status,
+                libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+            )
+        };
+        if result == 0 {
+            return Ok(unsafe { status.si_pid() } != 0);
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error.into());
+        }
+    }
+}
+
+#[cfg(unix)]
+fn kill_child_process_group(child: &Child) -> Result<()> {
+    let process_group = i32::try_from(child.id())?;
     // `ProcessTransport` starts every Unix child in a fresh process group
     // whose id is its pid. Kill the group before reaping its leader so a
     // descendant cannot keep the inherited stdio pipes open while transport
-    // shutdown joins its reader threads. If the group has already gone away
-    // or signalling it fails, `terminate_child` still kills the direct child.
+    // shutdown joins its reader threads. If the group has already gone away,
+    // there is nothing left to terminate.
     // SAFETY: `kill` is called with a negative, validated child pid, which
     // targets only that child generation's dedicated process group.
-    unsafe {
-        let _ = libc::kill(-process_group, libc::SIGKILL);
+    if unsafe { libc::kill(-process_group, libc::SIGKILL) } == -1 {
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::ESRCH) {
+            return Err(error.into());
+        }
     }
+    Ok(())
 }

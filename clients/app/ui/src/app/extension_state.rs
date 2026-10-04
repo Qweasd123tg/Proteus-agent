@@ -22,7 +22,7 @@ pub(super) fn publish(state: AppState) {
                     .rev()
                     .filter_map(|message| message.tool.as_ref())
                     .find(|tool| tool.name == crate::tool_names::UPDATE_PLAN_TOOL)
-                    .map(|tool| parse_plan_steps(&tool.args))
+                    .map(|tool| parse_plan_steps(tool.invocation_args()))
                     .unwrap_or_default()
                     .iter()
                     .map(|step| serde_json::json!({"step": step.step, "status": step.status}))

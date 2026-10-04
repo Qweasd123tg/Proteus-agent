@@ -16,11 +16,15 @@ use tokio::{
 };
 
 use super::output::{ChildOutputs, OutputHealth};
+use crate::contracts::CancellationToken;
+use tokio::time::Instant;
 
 pub(super) struct ChildProcess {
     child: Child,
     stdin: ChildStdin,
     outputs: ChildOutputs,
+    deadline: Option<Instant>,
+    cancellation: Option<CancellationToken>,
 }
 
 impl ChildProcess {
@@ -65,6 +69,8 @@ impl ChildProcess {
             child,
             stdin,
             outputs,
+            deadline: None,
+            cancellation: None,
         })
     }
 
@@ -73,14 +79,37 @@ impl ChildProcess {
         let mut line = serde_json::to_string(request).context("serialize child stdio request")?;
         line.push('\n');
         let health = self.outputs.health();
-        tokio::select! {
+        let deadline = self.deadline;
+        let cancellation = self.cancellation.clone();
+        let result = tokio::select! {
             biased;
+            _ = async {
+                match cancellation { Some(token) => token.cancelled().await, None => std::future::pending().await }
+            } => Err(anyhow!("subagent stdin write cancelled")),
+            _ = async {
+                match deadline { Some(deadline) => tokio::time::sleep_until(deadline).await, None => std::future::pending().await }
+            } => Err(anyhow!("subagent stdin write deadline exceeded")),
             error = health.stopped() => Err(error),
             result = async {
                 self.stdin.write_all(line.as_bytes()).await.context("write to subagent child stdin")?;
                 self.stdin.flush().await.context("flush subagent child stdin")
             } => result,
+        };
+        // A failed or interrupted write may leave a partial JSONL frame.
+        // Such a connection must never be returned to the process pool.
+        if result.is_err() {
+            self.kill().await;
         }
+        result
+    }
+
+    pub(super) fn set_write_budget(
+        &mut self,
+        deadline: Option<Instant>,
+        cancellation: Option<CancellationToken>,
+    ) {
+        self.deadline = deadline;
+        self.cancellation = cancellation;
     }
 
     /// Следующий output ребёнка. `None` — stdout закрыт (ребёнок умер).
@@ -122,6 +151,8 @@ impl ChildProcess {
             child,
             stdin,
             outputs,
+            deadline: None,
+            cancellation: None,
         }
     }
 }

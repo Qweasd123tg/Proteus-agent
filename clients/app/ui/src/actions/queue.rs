@@ -75,7 +75,6 @@ impl AppActions {
             return;
         };
         let generation = self.transcript_generation.get_untracked();
-        let submitted_text = text.clone();
         let images = self.attachments.get_untracked();
         self.attachments.set(Vec::new());
         spawn_local(async move {
@@ -91,32 +90,14 @@ impl AppActions {
             )
             .await
             {
-                Ok(StdioOutput::Response {
-                    ok: true, output, ..
-                }) => {
+                Ok(StdioOutput::Response { ok: true, .. }) => {
                     if !self.is_current_session(&session_dir, generation) {
                         return;
                     }
                     self.set_transport_status.set(TransportStatus::Connected);
-                    let queued = output
-                        .as_ref()
-                        .and_then(|value| value.get("queued"))
-                        .and_then(serde_json::Value::as_bool)
-                        .unwrap_or(false);
-                    // Queue contents arrive through SSE (or /pending on reconnect).
-                    // A delayed acceptance reply must not revive a delivered row.
-                    if !queued {
-                        // Race: предыдущий turn успел завершиться до запроса,
-                        // поэтому runtime зарезервировал полноценный новый.
-                        self.set_is_sending.set(true);
-                        self.set_active_run_id.set(Some(request_id));
-                        push_user_message_once(
-                            self.set_messages,
-                            self.next_message_id,
-                            self.set_next_message_id,
-                            submitted_text,
-                        );
-                    }
+                    // Both queued and immediate-start state arrive through the
+                    // ordered event stream, or /pending after reconnect. An
+                    // acceptance reply cannot supersede a later settlement.
                 }
                 Ok(output) => {
                     if self.is_current_session(&session_dir, generation) {

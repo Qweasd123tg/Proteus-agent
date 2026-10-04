@@ -17,6 +17,7 @@ fn message(id: u64, tool: Option<ToolActivityStatus>) -> Message {
         subagent: None,
         streaming: false,
         tool: tool.map(|status| ToolActivity {
+            effective_args: None,
             call_id: id.to_string(),
             name: "shell".into(),
             args: serde_json::json!({}),

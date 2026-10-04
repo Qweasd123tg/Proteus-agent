@@ -1,5 +1,7 @@
+mod control;
 mod preferences;
 mod queue;
+pub(crate) use control::ControlRequests;
 
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -10,6 +12,8 @@ use crate::types::*;
 
 #[derive(Clone, Copy)]
 pub(crate) struct AppActions {
+    pub(crate) controls: ControlRequests,
+    pub(crate) event_count: ReadSignal<u64>,
     pub(crate) attachments: RwSignal<Vec<proteus_contracts::domain::ImageAttachment>>,
     pub(crate) attachments_loading: RwSignal<bool>,
     pub(crate) set_messages: crate::transcript::TranscriptWriter,
@@ -26,7 +30,6 @@ pub(crate) struct AppActions {
     pub(crate) set_model_name: WriteSignal<String>,
     pub(crate) set_model_options: WriteSignal<Vec<ModelOption>>,
     pub(crate) set_effort_options: WriteSignal<Vec<String>>,
-    pub(crate) reasoning_enabled: ReadSignal<bool>,
     pub(crate) set_reasoning_enabled: WriteSignal<bool>,
     pub(crate) effort: ReadSignal<ReasoningEffort>,
     pub(crate) set_effort: WriteSignal<ReasoningEffort>,
@@ -37,184 +40,6 @@ pub(crate) struct AppActions {
 }
 
 impl AppActions {
-    pub(crate) fn set_permission_mode(self, new_mode: PermissionMode) {
-        let Some(session_dir) = self.active_session_dir.get_untracked() else {
-            return;
-        };
-        let generation = self.transcript_generation.get_untracked();
-        let previous_mode = self.mode.get();
-        self.set_mode.set(new_mode);
-        let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "mode");
-        spawn_local(async move {
-            match post_json(
-                "/mode",
-                &SetPermissionModeRequest {
-                    id: Some(request_id),
-                    mode: new_mode,
-                    session_dir: session_dir.clone().into(),
-                },
-            )
-            .await
-            {
-                Ok(output) => {
-                    if !self.is_current_session(&session_dir, generation) {
-                        return;
-                    }
-                    if !handle_control_response(
-                        output,
-                        self.set_transport_status,
-                        "Mode update failed",
-                    ) {
-                        self.set_mode.set(previous_mode);
-                    }
-                }
-                Err(error) => {
-                    if !self.is_current_session(&session_dir, generation) {
-                        return;
-                    }
-                    self.set_mode.set(previous_mode);
-                    self.set_control_error("Mode update failed", error);
-                }
-            }
-        });
-    }
-
-    pub(crate) fn set_model_name(self, new_model: String) {
-        let new_model = new_model.trim().to_owned();
-        if new_model.is_empty() {
-            return;
-        }
-        if self.model_name.get() == new_model {
-            return;
-        }
-        let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "model");
-        let Some(session_dir) = self.active_session_dir.get_untracked() else {
-            return;
-        };
-        let generation = self.transcript_generation.get_untracked();
-        spawn_local(async move {
-            let requested_model = new_model.clone();
-            match post_json(
-                "/model",
-                &SetModelRequest {
-                    id: Some(request_id),
-                    model: requested_model,
-                    session_dir: session_dir.clone().into(),
-                },
-            )
-            .await
-            {
-                Ok(output) => {
-                    if !self.is_current_session(&session_dir, generation) {
-                        return;
-                    }
-                    let config = match &output {
-                        StdioOutput::Response {
-                            output: Some(data), ..
-                        } => data.get("config").cloned(),
-                        _ => None,
-                    };
-                    if handle_control_response(
-                        output,
-                        self.set_transport_status,
-                        "Model update failed",
-                    ) {
-                        if let Some(config) = config {
-                            let config = match serde_json::from_value::<
-                                proteus_contracts::app_protocol::config::ConfigSummary,
-                            >(config)
-                            {
-                                Ok(config) => config,
-                                Err(error) => {
-                                    self.set_control_error(
-                                        "Model update failed",
-                                        format!("invalid config: {error}"),
-                                    );
-                                    return;
-                                }
-                            };
-                            crate::model_settings::ModelSettings {
-                                model: self.set_model_name,
-                                models: self.set_model_options,
-                                enabled: self.set_reasoning_enabled,
-                                effort: self.set_effort,
-                                efforts: self.set_effort_options,
-                                status: self.set_transport_status,
-                            }
-                            .apply(&config);
-                            self.remember_selection(&session_dir, generation).await;
-                        } else {
-                            self.set_control_error(
-                                "Model update failed",
-                                "missing model settings in response".into(),
-                            );
-                        }
-                    }
-                }
-                Err(error) => {
-                    if self.is_current_session(&session_dir, generation) {
-                        self.set_control_error("Model update failed", error);
-                    }
-                }
-            }
-        });
-    }
-
-    /// Единственная ручка рассуждений: effort «none» выключает их целиком
-    /// (сервер понимает это значение на /effort), любой другой — включает.
-    pub(crate) fn set_reasoning_effort(self, new_effort: ReasoningEffort) {
-        let previous_effort = self.effort.get();
-        let previous_enabled = self.reasoning_enabled.get();
-        if previous_effort == new_effort {
-            return;
-        }
-        let effort_value = new_effort.effort();
-        let enables = new_effort != ReasoningEffort::None;
-        self.set_effort.set(new_effort);
-        self.set_reasoning_enabled.set(enables);
-        let request_id = take_request_id(self.next_request_id, self.set_next_request_id, "effort");
-        let Some(session_dir) = self.active_session_dir.get_untracked() else {
-            return;
-        };
-        let generation = self.transcript_generation.get_untracked();
-        spawn_local(async move {
-            match post_json(
-                "/effort",
-                &SetReasoningEffortRequest {
-                    id: Some(request_id),
-                    effort: effort_value,
-                    session_dir: session_dir.clone().into(),
-                },
-            )
-            .await
-            {
-                Ok(output) => {
-                    if !self.is_current_session(&session_dir, generation) {
-                        return;
-                    }
-                    if !handle_control_response(
-                        output,
-                        self.set_transport_status,
-                        "Effort update failed",
-                    ) {
-                        self.set_effort.set(previous_effort);
-                        self.set_reasoning_enabled.set(previous_enabled);
-                    } else {
-                        self.remember_selection(&session_dir, generation).await;
-                    }
-                }
-                Err(error) => {
-                    if !self.is_current_session(&session_dir, generation) {
-                        return;
-                    }
-                    self.set_effort.set(previous_effort);
-                    self.set_reasoning_enabled.set(previous_enabled);
-                    self.set_control_error("Effort update failed", error);
-                }
-            }
-        });
-    }
-
     pub(crate) fn send_prompt(
         self,
         text: String,
@@ -248,10 +73,11 @@ impl AppActions {
         self.set_active_run_id.set(Some(run_id.clone()));
 
         let permission_mode = forced_mode.unwrap_or(self.mode.get_untracked());
+        let generation = self.transcript_generation.get_untracked();
         let images = self.attachments.get_untracked();
         self.attachments.set(Vec::new());
         spawn_local(async move {
-            match post_json(
+            match crate::api::post_json_for_admission(
                 "/send-async",
                 &SendRequest {
                     images,
@@ -261,7 +87,7 @@ impl AppActions {
                         intent: intent.map(str::to_owned),
                         permission_mode: Some(permission_mode),
                     },
-                    session_dir: session_dir.into(),
+                    session_dir: session_dir.clone().into(),
                 },
             )
             .await
@@ -287,8 +113,37 @@ impl AppActions {
                     if !self.is_active_run(&run_id) {
                         return;
                     }
-                    // Admission may already have happened; reconcile through the subscription.
-                    self.push_error("Send failed", error);
+                    if error.rejected_before_admission {
+                        self.finish_run();
+                    } else {
+                        // A lost response is ambiguous. Check authoritative activity, but
+                        // never overwrite a newer subscription update with this snapshot.
+                        let revision = self.event_count.get_untracked();
+                        if let Ok(config) = crate::api::get_json::<
+                            proteus_contracts::app_protocol::config::ConfigSummary,
+                        >(&crate::api::session_path(
+                            "/config",
+                            &session_dir,
+                        ))
+                        .await
+                        {
+                            if self.is_active_run(&run_id)
+                                && self.event_count.get_untracked() == revision
+                            {
+                                if let Some(activity) = config.activity.as_ref() {
+                                    let state =
+                                        crate::session::summaries::active_session_activity_state(
+                                            Some(activity),
+                                        );
+                                    self.set_is_sending.set(state.is_sending);
+                                    self.set_active_run_id.set(state.active_run_id);
+                                }
+                            }
+                        }
+                    }
+                    if self.is_current_session(&session_dir, generation) {
+                        self.push_error("Send failed", error.message);
+                    }
                 }
             }
         });
@@ -322,30 +177,6 @@ impl AppActions {
     fn set_control_error(self, prefix: &str, error: String) {
         self.set_transport_status
             .set(TransportStatus::Error(format!("{prefix}: {error}")));
-    }
-}
-
-fn handle_control_response(
-    output: StdioOutput,
-    set_transport_status: WriteSignal<TransportStatus>,
-    prefix: &str,
-) -> bool {
-    match output {
-        StdioOutput::Response { ok: true, .. } => {
-            set_transport_status.set(TransportStatus::Connected);
-            true
-        }
-        StdioOutput::Response { error, .. } => {
-            let message = error.unwrap_or_else(|| "request failed".to_owned());
-            set_transport_status.set(TransportStatus::Error(format!("{prefix}: {message}")));
-            false
-        }
-        StdioOutput::Event { .. } => {
-            set_transport_status.set(TransportStatus::Error(format!(
-                "{prefix}: unexpected event response"
-            )));
-            false
-        }
     }
 }
 

@@ -453,6 +453,7 @@ name = "codex-patch"
 version = "0.0.0-dev"
 dependencies = [
  "proteus-contracts",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
@@ -2231,6 +2232,8 @@ name = "rg-search"
 version = "0.0.0-dev"
 dependencies = [
  "proteus-contracts",
+ "proteus-module-protocol",
+ "proteus-process-host",
  "serde_json",
 ]
 

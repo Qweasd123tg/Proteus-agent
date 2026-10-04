@@ -23,10 +23,12 @@ pub(crate) fn ArchitectureView() -> impl IntoView {
     let copy_mermaid = move |_| {
         spawn_local(async move {
             match get_text("/inspect/topology.mmd").await {
-                Ok(text) => {
-                    copy_to_clipboard(text);
-                    set_status.set("Mermaid скопирован".to_owned());
-                }
+                Ok(text) => match copy_to_clipboard(text).await {
+                    Ok(()) => set_status.set("Mermaid скопирован".to_owned()),
+                    Err(error) => {
+                        set_status.set(format!("Не удалось скопировать Mermaid: {error}"))
+                    }
+                },
                 Err(error) => set_status.set(format!("Не удалось экспортировать: {error}")),
             }
         });
