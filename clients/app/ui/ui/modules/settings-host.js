@@ -5,9 +5,8 @@ import { watchViewMotion } from "../view-motion.js";
 import { mountExtensionOptions } from "../../extensions/settings-page.js";
 import { builtinSettingsSurface, mountBuiltinSettings } from "./builtin-settings.js";
 
-const groupOf = (record) => record.builtin &&
-  (!record.manifest.navigation || record.manifest.navigation.group === "settings")
-  ? "builtin" : record.manifest.navigation?.group || "settings";
+const groupOf = (record) => record.manifest.navigation?.group === "agent"
+  ? "agent" : record.builtin ? "builtin" : "settings";
 export function mountSettings(root, registry, services, requested) {
   const controller = new AbortController(),
     signal = controller.signal,
@@ -108,7 +107,6 @@ export function mountSettings(root, registry, services, requested) {
       ["agent", "Агент"],
       ["builtin", "Встроенные"],
       ["settings", "Расширения"],
-      ["diagnostics", "Диагностика"],
     ]) {
       const items = pages.filter(
         (r) => groupOf(r) === group,

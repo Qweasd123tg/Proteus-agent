@@ -18,7 +18,7 @@ def run(command, js, wait_for, config, capture):
 
     click('.settings-link')
     wait_for(lambda: js("return !!document.querySelector('[data-settings-section=agent-workflow]')"), 'Agent settings missing')
-    assert js("return [...document.querySelectorAll('.settings-nav-label')].map(x=>x.textContent).join('|')") == 'Агент|Интерфейс|Диагностика', 'Settings blocks are not Agent / Interface / Diagnostics'
+    assert js("return [...document.querySelectorAll('.settings-nav-label')].map(x=>x.textContent).join('|')") == 'Агент|Встроенные|Расширения', 'Settings blocks are not Agent / Builtins / Extensions'
     assert js("return !document.querySelector('[data-builtin-module^=agent-]')"), 'Agent pages became optional interface modules'
 
     page('agent-workflow')

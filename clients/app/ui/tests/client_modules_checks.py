@@ -39,7 +39,7 @@ def run(command, js, wait_for, web, origin, loaded, capture=None):
     wait_for(lambda: js("return !!document.querySelector('[data-settings-section=extensions]')"),'Settings navigation missing')
     page('extensions')
     assert js("return !document.querySelector('[data-module-page=extensions] [data-builtin-module],.builtin-module-settings')"),'Built-in controls remain inside extension management'
-    assert js("const nav=document.querySelector('.settings-nav');return ['appearance','chat','shortcuts','extensions','model-selector','access-selector'].every(id=>{const button=nav.querySelector('[data-settings-section=\"'+id+'\"]');let heading=button?.previousElementSibling;while(heading&&!heading.classList.contains('settings-nav-label'))heading=heading.previousElementSibling;return button?.parentElement===nav&&heading?.textContent==='Встроенные'})"),'Built-in entries do not form a separate sidebar group'
+    assert js("const nav=document.querySelector('.settings-nav');return ['appearance','chat','shortcuts','extensions','model-selector','access-selector','diagnostic-usage','diagnostic-analysis','diagnostic-architecture'].every(id=>{const button=nav.querySelector('[data-settings-section=\"'+id+'\"]');let heading=button?.previousElementSibling;while(heading&&!heading.classList.contains('settings-nav-label'))heading=heading.previousElementSibling;return button?.parentElement===nav&&heading?.textContent==='Встроенные'})"),'Built-in entries do not form a separate sidebar group'
     page('model-selector')
     click('[data-builtin-module=model-selector] input')
     click('.settings-back')
@@ -52,6 +52,7 @@ def run(command, js, wait_for, web, origin, loaded, capture=None):
     click('.extension-source > summary')
     js("document.querySelector('.extension-install input').value=location.origin+'/fixture/client/extension.json';document.querySelector('.extension-install').requestSubmit()")
     wait_for(lambda: js("return !!document.querySelector('[data-settings-section=client-test]')"),'Installed diagnostic absent from navigation')
+    assert js("let heading=document.querySelector('[data-settings-section=client-test]').previousElementSibling;while(heading&&!heading.classList.contains('settings-nav-label'))heading=heading.previousElementSibling;return heading?.textContent==='Расширения' && ![...document.querySelectorAll('.settings-nav-label')].some(x=>x.textContent==='Диагностика')"),'Diagnostic extension has a separate navigation group'
     assert js("return !document.querySelector('[data-tab-id=client-test]') && !window.clientMounts"),'Settings-only module mounted in workspace'
     page('client-test')
     wait_for(lambda: js("return !!document.querySelector('[data-module-page=client-test] [data-config-read]')"),'Declared agent service unavailable')
