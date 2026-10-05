@@ -9,7 +9,7 @@ def run(command, js, wait_for, web, origin, loaded):
         js("document.querySelector('[data-settings-section=chat]').click()")
         wait_for(lambda: js("return !!document.querySelector('[data-module-page=chat] input')"),'Chat settings missing')
         js("document.querySelector('[data-settings-section=extensions]').click()")
-        wait_for(lambda: js("return !!document.querySelector('.extension-settings [data-extension-choice=notes]')"), 'Extension settings did not load')
+        wait_for(lambda: js("return !!document.querySelector('.settings-extensions-nav [data-extension-choice=notes]')"), 'Extension settings did not load')
         wait_for(lambda: js("return document.querySelector('.settings-link').classList.contains('active')"), 'Settings navigation highlight is stale')
     def chat():
         js("document.querySelector('.settings-back').click()")

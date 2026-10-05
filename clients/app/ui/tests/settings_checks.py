@@ -20,13 +20,14 @@ def run(command, js, wait_for):
     js("window.chatWidth=document.querySelector('.sidebar').getBoundingClientRect().width;const row=document.querySelector('.session-item');window.chatRow={height:row.getBoundingClientRect().height,font:getComputedStyle(row.querySelector('.session-id')).fontSize,radius:getComputedStyle(row).borderRadius}")
     click('.settings-link')
     wait_for(lambda: js("return !!document.querySelector('[data-settings-section=extensions]')"), 'Settings missing')
-    click('[data-settings-section=extensions]')
-    assert js("const row=document.querySelector('[data-settings-section=extensions]');return row.getBoundingClientRect().height===chatRow.height && getComputedStyle(row).fontSize===chatRow.font && getComputedStyle(row).borderRadius===chatRow.radius"), 'Settings/chat navigation geometry differs'
+    assert js("const row=document.querySelector('[data-settings-section=appearance]');return row.getBoundingClientRect().height===chatRow.height && getComputedStyle(row).fontSize===chatRow.font && getComputedStyle(row).borderRadius===chatRow.radius"), 'Settings/chat navigation geometry differs'
     assert js("return !document.querySelector('[aria-label^=\"Выше:\"], [aria-label^=\"Ниже:\"]')"), 'Order arrows remain'
     wait_for(lambda: len(order())>2,'Module list missing')
-    assert js("const side=document.querySelector('.extension-settings-sidebar'),content=document.querySelector('.settings-content');return side && !side.hidden && !side.inert && side.parentElement===document.querySelector('.settings-page') && !!side.querySelector('.extension-list') && !!side.querySelector('.builtin-module-settings') && !!side.querySelector('.extension-install') && !!side.querySelector('.extension-reset') && !content.querySelector('.extension-list')"), 'Extension management did not move into the sidebar'
-    assert js("const n=document.querySelector('.settings-nav').getBoundingClientRect(),s=document.querySelector('.extension-settings-sidebar').getBoundingClientRect(),c=document.querySelector('.settings-content').getBoundingClientRect();return n.right<=s.left+1 && s.right<=c.left+1 && s.width>=260 && c.width>=320"), 'Extension sidebar does not sit between navigation and parameters'
+    assert js("const side=document.querySelector('.extension-settings-sidebar'),content=document.querySelector('.settings-content');return side && !side.hidden && !side.inert && !!side.closest('.settings-nav .settings-extensions-nav') && !!side.querySelector('.extension-list') && !!side.querySelector('.builtin-module-settings') && !!side.querySelector('.extension-install') && !!side.querySelector('.extension-reset') && !content.querySelector('.extension-list') && !document.querySelector('.settings-page > .extension-settings-sidebar')"), 'Extension management is not inside the existing settings navigation'
+    assert js("const nav=document.querySelector('.settings-nav'),n=nav.getBoundingClientRect(),s=document.querySelector('.extension-settings-sidebar').getBoundingClientRect(),c=document.querySelector('.settings-content').getBoundingClientRect();return s.left>=n.left && s.right<=n.right+1 && Math.abs(n.right-c.left)<=1 && c.width>=320 && getComputedStyle(nav.parentElement).gridTemplateColumns.split(' ').length===2"), 'A third settings column remains'
     assert js("return !document.querySelector('.extension-options-content')"), 'Opening the sidebar executed a settings entry'
+    assert js("return document.querySelector('[data-builtin-repair=settings]').getBoundingClientRect().width===0"), 'Hidden repair action is visible in navigation'
+    click('[data-settings-section=extensions]')
     before = order()
     # Move the third row to the top using trusted pointer events, inspect before drop.
     handle = f'[data-reorder="{before[2]}"]'
@@ -51,7 +52,7 @@ def run(command, js, wait_for):
     click('[data-settings-id=usage]')
     wait_for(lambda: js("return !!document.querySelector('.extension-options-content')?.shadowRoot?.querySelector('form')"), 'Settings form not mounted')
     wait_for(lambda: js("return !document.querySelector('.extension-options').getAnimations().some(a=>a.playState==='running')"), 'Options animation did not settle')
-    assert js("const s=document.querySelector('.extension-settings-sidebar').getBoundingClientRect(),l=document.querySelector('.settings-content').getBoundingClientRect(),r=document.querySelector('.extension-options').getBoundingClientRect();return s.right<=r.left+1 && r.left===l.left && r.right<=l.right+1 && r.width>300 && s.width>=260"), 'Module details cover the sidebar'
+    assert js("const n=document.querySelector('.settings-nav').getBoundingClientRect(),l=document.querySelector('.settings-content').getBoundingClientRect(),r=document.querySelector('.extension-options').getBoundingClientRect();return Math.abs(n.right-r.left)<=1 && r.left===l.left && r.right<=l.right+1 && r.width>300"), 'Module details cover the settings navigation'
     js("window.keptOptions=document.querySelector('.extension-options-content');keptOptions.shadowRoot.querySelector('[name=model]').value='draft-model'")
     # A dropdown consumes Escape first, then the pane consumes the next one.
     js("keptOptions.shadowRoot.querySelector('select').click()")
@@ -64,12 +65,12 @@ def run(command, js, wait_for):
     click('[data-settings-id=usage]')
     click('[data-settings-section=diagnostic-usage]')
     wait_for(lambda: js("return document.querySelector('.extension-options').getBoundingClientRect().width===0"), 'Options leaked into another section')
-    wait_for(lambda: js("const s=document.querySelector('.extension-settings-sidebar');return s.hidden && s.inert && s.getBoundingClientRect().width===0"), 'Sidebar leaked into another section')
-    click('[data-settings-section=extensions]')
+    wait_for(lambda: js("const s=document.querySelector('.extension-settings-sidebar');return !s.hidden && !s.inert && s.getBoundingClientRect().width>0 && !s.querySelector('[data-settings-id=usage]').closest('.extension-choice').classList.contains('active')"), 'Changing sections hid the navigation block or left two active items')
+    click('[data-settings-id=usage]')
+    wait_for(lambda: js("return document.querySelector('.settings-page').dataset.settingsModule==='extensions' && document.querySelector('[data-settings-id=usage]').closest('.extension-choice').classList.contains('active')"), 'Choosing a navigation extension did not open its section')
     assert js("return document.querySelector('.extension-options-content')===keptOptions && keptOptions.shadowRoot.querySelector('[name=model]').value==='draft-model'"), 'Hiding settings lost unsaved form'
-    assert js("return !document.querySelector('.extension-settings-sidebar').hidden"), 'Returning did not restore the sidebar'
-    wait_for(lambda: js("return !document.querySelector('.settings-nav').getAnimations({subtree:true}).some(a=>a.playState==='running')"), 'Navigation transition did not settle')
-    Path('/tmp/proteus-settings-three-panes.png').write_bytes(base64.b64decode(command('/screenshot', None)))
+    wait_for(lambda: js("return !document.querySelector('.settings-page').getAnimations({subtree:true}).some(a=>a.playState==='running')"), 'Settings transition did not settle')
+    Path('/tmp/proteus-settings-navigation-extensions.png').write_bytes(base64.b64decode(command('/screenshot', None)))
     for width in [900, 620, 390]:
         command('/window/rect', {'width': width, 'height': 1000})
         assert js("const n=document.querySelector('.settings-nav').getBoundingClientRect(),l=document.querySelector('.settings-content').getBoundingClientRect(),r=document.querySelector('.extension-options').getBoundingClientRect();return n.right<=l.left && r.left===l.left && r.width>0 && r.right<=l.right+1 && getComputedStyle(document.querySelector('.settings-nav')).flexDirection==='column'"), 'Settings switched to mobile layout'
@@ -85,4 +86,4 @@ def run(command, js, wait_for):
     wait_for(lambda: js("return document.querySelectorAll('.extension-list [data-extension-choice]').length>2"), 'Extensions missing after reload')
     assert order() == expected, 'Reload lost drag order'
     click('.settings-back')
-    print('PASS: shared chat/settings geometry; pointer insertion and cancel; persisted order; module detail page; dropdown/pane Escape isolation; drafts; desktop panes at every window width', flush=True)
+    print('PASS: extensions group inside settings navigation; two columns; pointer insertion and cancel; persisted order; extension selection from another section; dropdown/pane Escape isolation; drafts; desktop panes at every window width', flush=True)

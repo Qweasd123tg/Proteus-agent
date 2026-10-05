@@ -1,6 +1,7 @@
 import { node } from './dom.js';
 import { icon } from './icons.js';
 import { watchViewMotion } from '../ui/view-motion.js';
+import { logicallyVisible, watchLogicalVisibility } from '../ui/modules/visibility.js';
 
 // The selected extension's settings occupy the main area beside management.
 export function createSettingsPane(root, signal, onHide) {
@@ -9,9 +10,18 @@ export function createSettingsPane(root, signal, onHide) {
   const hide=node('button');hide.type='button';hide.title='Вернуться к расширениям';hide.setAttribute('aria-label',hide.title);hide.append(icon('arrow-left'));
   header.append(title,hide);pane.append(header,body);
   (root.closest('.settings-content')??root).append(pane);
+  let opened = false;
+  function syncVisibility() {
+    const hidden = !opened || !logicallyVisible(root);
+    if (pane.hidden !== hidden) pane.hidden = hidden;
+    if (pane.inert !== hidden) pane.inert = hidden;
+  }
+  const stopVisibility = watchLogicalVisibility(root, syncVisibility);
+  signal.addEventListener('abort', stopVisibility, { once: true });
   const stopMotion=watchViewMotion(pane,{signal});
-  function collapse(){pane.hidden=true;onHide();}
+  function close(){opened=false;syncVisibility();}
+  function collapse(){close();onHide();}
   hide.addEventListener('click',collapse,{signal});
   document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!pane.hidden&&pane.getBoundingClientRect().width){event.preventDefault();event.stopPropagation();collapse();}},{signal});
-  return {element:pane,body,show(name){title.textContent=name;pane.hidden=false;},hide:collapse,remove(){stopMotion();pane.remove();}};
+  return {element:pane,body,show(name){title.textContent=name;opened=true;syncVisibility();},close,hide:collapse,remove(){stopVisibility();stopMotion();pane.remove();}};
 }

@@ -8,6 +8,7 @@ import { createSettingsLayout } from './settings-layout.js';
 import { enableReorder } from './settings-reorder.js';
 import { mountSettingsEntry } from './settings-entry.js';
 import { mountDisclosureMotion } from '../ui/disclosure-motion.js';
+import { watchLogicalVisibility } from '../ui/modules/visibility.js';
 
 function node(tag, text, className) {
   const element = document.createElement(tag);
@@ -19,7 +20,7 @@ function node(tag, text, className) {
 export function mountExtensionSettings(root, registry, services = {}) {
   const controller = new AbortController();
   const { signal } = controller;
-  const layout = createSettingsLayout(root, signal);
+  const layout = createSettingsLayout(root);
   const management = layout.sidebar;
   let rowsController;
   const rowCache=new Map();
@@ -29,9 +30,10 @@ export function mountExtensionSettings(root, registry, services = {}) {
     updateSelection();
   });
   const options=pane.element, optionsBody=pane.body;
-  function updateSelection(){for(const row of list.children){const selected=row.dataset.extensionChoice===optionsId&&!options.hidden;row.classList.toggle('active',selected);row.querySelector('[data-settings-id]')?.setAttribute('aria-pressed',String(selected));}}
-  function close(){closeOptions?.();closeOptions=undefined;optionsId=undefined;options.hidden=true;updateSelection();}
+  function updateSelection(){const active=!options.hidden&&!root.closest('.settings-section')?.hidden;for(const row of list.children){const selected=row.dataset.extensionChoice===optionsId&&active;row.classList.toggle('active',selected);row.querySelector('[data-settings-id]')?.setAttribute('aria-pressed',String(selected));}}
+  function close(){closeOptions?.();closeOptions=undefined;optionsId=undefined;pane.close();updateSelection();}
   function choose(record){
+    layout.activate();
     if(optionsId!==record.id){
       close();optionsId=record.id;
       const settingsController=new AbortController();
@@ -71,7 +73,7 @@ export function mountExtensionSettings(root, registry, services = {}) {
   // A broken saved selection is repaired right where it is reported.
   const repair = button('Восстановить встроенные расширения', () => registry.resetCore?.(), signal);
   repair.dataset.builtinRepair = 'settings'; repair.hidden = true;
-  management.append(builtin, list, available, source, notice, repair, announcement, reset);
+  management.append(list, available, builtin, source, notice, repair, announcement, reset);
   const resetContent=node('div');
   resetContent.append(...[...reset.children].slice(1));reset.append(resetContent);
   mountDisclosureMotion(builtin,builtinContent,signal);
@@ -79,6 +81,7 @@ export function mountExtensionSettings(root, registry, services = {}) {
   mountDisclosureMotion(reset,resetContent,signal);
   const stopBuiltin=mountBuiltinManagement(builtinContent,registry);
   enableReorder(list,registry,signal,announcement);
+  const stopVisibility = watchLogicalVisibility(root, updateSelection);
   const unsubscribe = registry.subscribe(() => {
     const { records: allRecords, bundled, notice: message, busy, ready, builtinsInvalid } = registry.state();
     repair.hidden = !builtinsInvalid;
@@ -106,7 +109,7 @@ export function mountExtensionSettings(root, registry, services = {}) {
       checkbox.className = 'settings-toggle'; checkbox.disabled = busy; checkbox.dataset.controlKey = record.id;
       checkbox.addEventListener('change', () => registry.update(record.id, { enabled: checkbox.checked }), { signal: rowSignal });
       checkbox.setAttribute('aria-label',`Включить: ${name}`);
-      const select=button('',()=>choose(record),rowSignal);select.className='extension-select';select.dataset.settingsId=record.id;select.setAttribute('aria-label',`Настроить: ${name}`);select.disabled=busy;select.append(text,icon('chevron-right'));label.append(select,checkbox);
+      const select=button('',()=>choose(record),rowSignal);select.className='extension-select';select.dataset.settingsId=record.id;select.setAttribute('aria-label',`Настроить: ${name}`);select.title=record.manifest?.description?`${name} · ${record.manifest.description}`:name;select.disabled=busy;select.append(text);label.append(select,checkbox);
       const grip=button('',()=>{},rowSignal);grip.className='extension-drag-handle';grip.dataset.reorder=record.id;grip.disabled=busy;grip.setAttribute('aria-label',`Переместить: ${name}`);grip.title='Перетащите для изменения порядка · ↑/↓ с клавиатуры';grip.append(icon('grip'));
       row.append(grip,label);
       const actions = node('div', '', 'extension-actions');
@@ -143,5 +146,5 @@ export function mountExtensionSettings(root, registry, services = {}) {
     if (await registry.install(input.value)) input.value = '';
   }, { signal });
   void registry.start();
-  return () => { stopBuiltin(); close(); controller.abort(); rowsController?.abort(); for(const item of rowCache.values())item.controller.abort();rowCache.clear(); unsubscribe(); pane.remove(); layout.remove(); root.replaceChildren(); };
+  return () => { stopBuiltin(); stopVisibility(); close(); controller.abort(); rowsController?.abort(); for(const item of rowCache.values())item.controller.abort();rowCache.clear(); unsubscribe(); pane.remove(); layout.remove(); root.replaceChildren(); };
 }

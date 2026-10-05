@@ -31,6 +31,9 @@ export function mountSettings(root, registry, services, requested) {
     { signal },
   );
   nav.append(back);
+  const extensionsNav = document.createElement("section");
+  extensionsNav.className = "settings-extensions-nav";
+  extensionsNav.setAttribute("aria-label", "Расширения");
   const content = document.createElement("div");
   content.className = "settings-content";
   const header = document.createElement("header");
@@ -52,6 +55,20 @@ export function mountSettings(root, registry, services, requested) {
     }
     render();
   }
+  function ensureMounted(record) {
+    if (!record || mounted.has(record.id)) return;
+    const section = document.createElement("section");
+    section.className = "settings-section";
+    section.dataset.modulePage = record.id;
+    section.hidden = true;
+    content.append(section);
+    const stopMotion = watchViewMotion(section, { signal });
+    // Register before mount: a module may subscribe to the same registry.
+    const item = { record, section, stop: () => {} };
+    mounted.set(record.id, item);
+    const stopModule = mountModule(section, record, registry, services, "settings");
+    item.stop = () => { stopMotion(); stopModule(); };
+  }
   function render() {
     const state = registry.state();
     const pages = state.records.filter(
@@ -69,7 +86,7 @@ export function mountSettings(root, registry, services, requested) {
         button.remove();
         buttons.delete(id);
       }
-    nav.querySelectorAll(".settings-nav-label").forEach((el) => el.remove());
+    nav.querySelectorAll(":scope > .settings-nav-label").forEach((el) => el.remove());
     for (const [group, label] of [
       ["agent", "Агент"],
       ["settings", "Интерфейс"],
@@ -89,17 +106,24 @@ export function mountSettings(root, registry, services, requested) {
           button = document.createElement("button");
           button.type = "button";
           button.dataset.settingsSection = record.id;
-          button.append(
-            icon(record.manifest.navigation?.icon || "modules"),
-            document.createTextNode(record.manifest.name),
-          );
+          if (record.id === "extensions") {
+            button.className = "settings-extensions-heading settings-nav-label";
+            button.append(document.createTextNode(record.manifest.name));
+          } else {
+            button.append(
+              icon(record.manifest.navigation?.icon || "modules"),
+              document.createTextNode(record.manifest.name),
+            );
+          }
           button.addEventListener("click", () => select(record.id), { signal });
           buttons.set(record.id, button);
         }
         button.classList.toggle("active", record.id === selected);
         button.setAttribute("aria-pressed", String(record.id === selected));
-        nav.append(button);
+        if (record.id === "extensions") extensionsNav.prepend(button);
+        else nav.append(button);
       }
+      if (group === "settings") nav.append(extensionsNav);
     }
     const record = pages.find((r) => r.id === selected);
     if (!record) return;
@@ -113,28 +137,10 @@ export function mountSettings(root, registry, services, requested) {
       "agent-settings",
       record.manifest.navigation?.group === "agent",
     );
-    if (!mounted.has(selected)) {
-      const section = document.createElement("section");
-      section.className = "settings-section";
-      section.dataset.modulePage = record.id;
-      section.hidden = true;
-      content.append(section);
-      const stopMotion = watchViewMotion(section, { signal });
-      // Register before mount: a module may subscribe to the same registry.
-      const item = { record, section, stop: () => {} };
-      mounted.set(selected, item);
-      const stopModule = mountModule(
-        section,
-        record,
-        registry,
-        services,
-        "settings",
-      );
-      item.stop = () => {
-        stopMotion();
-        stopModule();
-      };
-    }
+    // Management supplies the persistent navigation block; settings entries
+    // remain lazy until a package is selected.
+    ensureMounted(pages.find((page) => page.id === "extensions"));
+    ensureMounted(record);
     for (const [id, item] of mounted) {
       if (id !== selected && !item.section.hidden)
         item.section.dispatchEvent(new Event("module-hide", { bubbles: true }));

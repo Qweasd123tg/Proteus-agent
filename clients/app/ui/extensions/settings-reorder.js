@@ -38,7 +38,7 @@ export function enableReorder(list, registry, signal, status) {
         if(delta){for(const animation of row.getAnimations())animation.cancel();row.animate([{transform:`translateY(${delta}px)`},{transform:'translateY(0)'}],{duration:160,easing:'ease-out'});}
       }
     }
-    const scroll=list.closest('.extension-settings-sidebar, .settings-content');if(scroll){const r=scroll.getBoundingClientRect();if(event.clientY>r.bottom-48)scroll.scrollTop+=18;else if(event.clientY<r.top+48)scroll.scrollTop-=18;}
+    const scroll=list.closest('.settings-nav, .extension-settings-sidebar, .settings-content');if(scroll){const r=scroll.getBoundingClientRect();if(event.clientY>r.bottom-48)scroll.scrollTop+=18;else if(event.clientY<r.top+48)scroll.scrollTop-=18;}
   },{signal});
   list.addEventListener('pointerup',()=>finish(true),{signal});
   list.addEventListener('pointercancel',()=>finish(false),{signal});
