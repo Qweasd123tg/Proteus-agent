@@ -15,6 +15,7 @@ def initialize(params):
         settings[export["module_id"]] = export["module_config"]
         item = {key: export[key] for key in ("slot", "module_id", "contract_version", "composition")}
         item["module_features"] = []
+        item["config_schema"] = None
         exports.append(item)
     return {"protocol_version":"v3", "component_id":params["component_id"], "exports":exports}
 

@@ -99,7 +99,13 @@ impl LoopState {
             ControlCommand::EnsureInitialized { ack } => {
                 let result = self
                     .ensure_worker()
-                    .map(|pid| (self.generation, pid))
+                    .map(|_| {
+                        self.worker
+                            .as_ref()
+                            .expect("initialized worker")
+                            .manifest
+                            .clone()
+                    })
                     .map_err(|error| error.to_string());
                 let _ = ack.send(result);
             }
@@ -160,22 +166,29 @@ impl LoopState {
                 return Err(error);
             }
         };
-        if let Err(error) = initialize_transport(
+        let manifest = match initialize_transport(
             &mut transport,
             &self.binding,
             self.generation,
             self.options.handshake_timeout,
         ) {
-            let _ = transport.terminate();
-            let reason = format!(
-                "component generation {} failed strict initialization: {error:#}",
-                self.generation
-            );
-            self.protocol_failure(reason.clone());
-            return Err(anyhow::anyhow!(reason));
-        }
+            Ok(manifest) => manifest,
+            Err(error) => {
+                let _ = transport.terminate();
+                let reason = format!(
+                    "component generation {} failed strict initialization: {error:#}",
+                    self.generation
+                );
+                self.protocol_failure(reason.clone());
+                return Err(anyhow::anyhow!(reason));
+            }
+        };
         let pid = transport.pid();
-        self.worker = Some(WorkerGeneration { transport, pid });
+        self.worker = Some(WorkerGeneration {
+            transport,
+            pid,
+            manifest,
+        });
         Ok(pid)
     }
 

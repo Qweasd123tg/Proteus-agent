@@ -27,6 +27,7 @@ def initialize(params):
                 file.write(str(os.getpid()) + "\n")
         exports.append({key: export[key] for key in ("slot", "module_id", "contract_version", "composition")})
         exports[-1]["module_features"] = []
+        exports[-1]["config_schema"] = None
     return {"protocol_version": "v3", "component_id": params["component_id"], "exports": exports}
 
 

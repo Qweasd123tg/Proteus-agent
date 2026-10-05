@@ -37,7 +37,32 @@ impl AppServerHandle {
     pub async fn config_builder_snapshot(&self) -> ConfigBuilderSnapshot {
         let topology = self.topology_snapshot().await;
         let config = self.config.read().await.clone();
-        config_builder_snapshot_from_topology(&topology, &config)
+        let mut snapshot = config_builder_snapshot_from_topology(&topology, &config);
+        let descriptions = self.runtime.config_schemas().await;
+        for module in snapshot
+            .slots
+            .iter_mut()
+            .flat_map(|slot| &mut slot.modules)
+            .chain(snapshot.hook_modules.iter_mut())
+            .chain(snapshot.model_modules.iter_mut())
+        {
+            module.config_schema = descriptions
+                .schemas
+                .get(&(module.slot.clone(), module.id.clone()))
+                .cloned();
+        }
+        snapshot
+            .warnings
+            .extend(
+                descriptions
+                    .errors
+                    .into_iter()
+                    .map(|message| ConfigBuilderWarning {
+                        severity: "warning".into(),
+                        message,
+                    }),
+            );
+        snapshot
     }
 
     pub async fn set_config_builder(
@@ -220,6 +245,11 @@ pub(super) fn config_builder_snapshot_from_topology(
         target_path: target_path.map(|path| path.display().to_string()),
         active_provider: state.active_provider,
         providers: config_builder_providers(config),
+        model_modules: modules
+            .iter()
+            .filter(|module| module.slot == "model")
+            .map(config_builder_module)
+            .collect(),
         permission_mode: state.permission_mode,
         permission_modes: PERMISSION_MODES
             .iter()
@@ -261,6 +291,7 @@ pub(super) fn config_builder_snapshot_from_topology(
 
 fn config_builder_module(module: &ModuleTopology) -> ConfigBuilderModule {
     ConfigBuilderModule {
+        config_schema: None,
         id: module.id.clone(),
         slot: module.slot.clone(),
         active: module.active,

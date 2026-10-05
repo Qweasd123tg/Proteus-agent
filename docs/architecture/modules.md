@@ -44,6 +44,22 @@
 
 ## Слоты И Их Выбор
 
+### Описание Настроек
+
+Каждый process export может вернуть `config_schema` в manifest initialization.
+Это typed `ModuleConfigSchema` из `proteus-contracts`: порядок полей, понятные
+подписи, пояснения, типы значений, defaults и ограничения. Описание принадлежит
+implementation; reference crates держат его рядом с собственной config semantics.
+Core переносит описание в Config Builder, а приложение строит общую форму.
+Особых таблиц параметров для reference module ids в Core и UI нет.
+
+Описание не меняет slot authority, composition, выбор implementation или правила
+сохранения. `null` означает отсутствие формы, пустой `fields` — отсутствие
+настраиваемых параметров. Значения по умолчанию показываются без записи в
+`module_config`; итоговую конфигурацию проверяет сам модуль при сборке.
+Wire shape и правила validation — в
+[process-module-architecture.md](process-module-architecture.md#описание-конфигурации-export).
+
 | Слот | Правило выбора | Где выбирается | Процессный контракт | Примеры имён |
 |---|---|---|---|---|
 | `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v3` | `hook.instructions`, `hook.output_budget` |

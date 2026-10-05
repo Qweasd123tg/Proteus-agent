@@ -50,7 +50,7 @@
 .agent-mode-toggle { font-size:12px; }
 
 /* The bar sticks to the visible bottom edge; its shadow masks rows behind the gap. */
-.settings-content.agent-settings { padding-bottom:0; }
+.settings-content.agent-settings { padding-bottom:0; scroll-padding-bottom:110px; }
 .agent-save-bar { position:sticky; bottom:12px; z-index:1; display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:12px; padding:12px 16px; border:1px solid var(--border-subtle); border-radius:16px; background:var(--bg-panel); box-shadow:var(--shadow-sm), 0 13px 0 0 var(--bg-root); }
 .agent-save-info { display:grid; gap:2px; min-width:0; }
 .agent-save-status { font-size:13px; color:var(--text-main); overflow-wrap:anywhere; }
@@ -65,4 +65,47 @@
   .agent-parameter, .agent-parameter-add { grid-template-columns:minmax(0,1fr) auto; }
   .agent-parameter > :nth-child(2) { grid-column:1 / -1; grid-row:2; }
   .agent-save-bar { flex-wrap:wrap; }
+}
+
+/* Module-owned settings use the same typography and controls as preferences. */
+.agent-fields { display:grid; }
+.agent-field { display:grid; grid-template-columns:minmax(180px,1fr) minmax(140px,240px) 28px; gap:8px 20px; align-items:center; padding:18px 0; border-bottom:1px solid var(--border-subtle); }
+.agent-field .settings-label { gap:5px; min-width:0; }
+.agent-field .settings-label strong { font-size:13px; font-weight:500; }
+.agent-field .settings-hint { line-height:1.5; }
+.agent-field-control { display:grid; gap:5px; min-width:0; }
+.agent-field-input { display:flex; align-items:center; gap:8px; min-width:0; }
+.agent-field-input > input:not([type=checkbox]), .agent-field-input > select, .agent-field-input > textarea { width:100%; min-width:0; }
+.agent-field-input textarea { resize:vertical; line-height:1.5; }
+.agent-field-input .settings-toggle { margin-left:auto; }
+.agent-field-unit, .agent-field-origin { font-size:11px; color:var(--text-faint); }
+.agent-field-origin { text-align:right; }
+.agent-field.overridden .agent-field-origin { color:var(--text-muted); }
+.agent-field-reset { width:28px; min-width:28px; min-height:28px; padding:0; border:0; background:transparent; color:var(--text-muted); font-size:16px; }
+.agent-field-reset:disabled { opacity:.25; }
+.agent-field-reset:not(:disabled):hover { color:var(--text-main); background:var(--bg-panel-hover); }
+.agent-field > .agent-error { grid-column:2 / -1; min-height:0; }
+.agent-field > .agent-error:empty { display:none; }
+.agent-field[data-invalid] .agent-field-input > input, .agent-field[data-invalid] .agent-field-input > select, .agent-field[data-invalid] .agent-field-input > textarea { border-color:var(--accent-red-border); }
+.agent-advanced { margin-top:12px; }
+.agent-advanced > summary, .agent-object > summary { cursor:pointer; color:var(--text-muted); font-size:13px; padding:10px 0; }
+.agent-field-group { grid-template-columns:minmax(0,1fr) 28px; }
+.agent-field-group > .settings-label { grid-column:1 / -1; }
+.agent-field-group > .agent-field-control { grid-column:1; }
+.agent-field-group > .agent-error { grid-column:1 / -1; }
+.agent-object { width:100%; }
+.agent-object > .agent-fields, .agent-array-object { padding-left:16px; border-left:1px solid var(--border-subtle); }
+.agent-array { display:grid; gap:8px; width:100%; }
+.agent-array-items { display:grid; gap:6px; }
+.agent-array-item { display:flex; gap:6px; align-items:start; }
+.agent-array-item > :first-child { min-width:0; flex:1; }
+.agent-array-add { justify-self:start; font-size:12px; }
+.agent-field:has(.agent-array) { align-items:start; }
+.agent-field:has(.agent-array-object) { grid-template-columns:minmax(0,1fr) 28px; }
+.agent-field:has(.agent-array-object) > .settings-label { grid-column:1 / -1; }
+@container (max-width:560px) {
+  .agent-field { grid-template-columns:minmax(0,1fr) 28px; gap:8px; }
+  .agent-field > .settings-label { grid-column:1 / -1; }
+  .agent-field > .agent-error { grid-column:1 / -1; }
+  .agent-field-origin { text-align:left; }
 }

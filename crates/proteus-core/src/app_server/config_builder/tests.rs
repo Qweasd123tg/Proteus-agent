@@ -21,13 +21,25 @@ async fn directory_save_has_explicit_precedence_over_late_fragments() {
 async fn concurrent_saves_publish_the_same_profile_as_disk() {
     let home = tempfile::tempdir().unwrap();
     let source = home.path().join("config.toml");
-    let server = AgentAppServer::launch(
-        crate::test_model::config(),
-        home.path().into(),
-        Some(&source),
-    )
-    .await
-    .unwrap();
+    let initial_config = crate::test_model::config();
+    let server = AgentAppServer::launch(initial_config.clone(), home.path().into(), Some(&source))
+        .await
+        .unwrap();
+    let snapshot = server.config_builder_snapshot().await;
+    let schema = snapshot.model_modules[0]
+        .config_schema
+        .as_ref()
+        .expect("real process model schema");
+    assert!(
+        schema
+            .fields
+            .iter()
+            .any(|field| field.key == "implementation")
+    );
+    assert_eq!(
+        snapshot.module_config, initial_config.module_config,
+        "describing defaults must not materialize configuration"
+    );
     let mut tasks = Vec::new();
     for mode in [
         PermissionMode::Plan,

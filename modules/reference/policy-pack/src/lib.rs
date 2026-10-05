@@ -555,3 +555,5 @@ mod tests {
         }
     }
 }
+mod config_schema;
+pub use config_schema::config_schema;

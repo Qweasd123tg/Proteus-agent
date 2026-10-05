@@ -14,7 +14,7 @@ pub(crate) fn initialize_transport(
     binding: &ProcessComponentBinding,
     generation: u64,
     timeout: Duration,
-) -> Result<()> {
+) -> Result<ProcessComponentManifest> {
     let started = Instant::now();
     let initialize = binding.initialize()?;
     let params = serde_json::to_value(initialize)?;
@@ -56,5 +56,6 @@ pub(crate) fn initialize_transport(
     let manifest: ProcessComponentManifest =
         serde_json::from_value(result.map_err(anyhow::Error::from)?)
             .context("component-v3 initialize returned an invalid manifest")?;
-    validate_manifest(&manifest, binding, COMPONENT_PROTOCOL_V3)
+    validate_manifest(&manifest, binding, COMPONENT_PROTOCOL_V3)?;
+    Ok(manifest)
 }

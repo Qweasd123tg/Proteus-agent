@@ -26,6 +26,46 @@ use serde_json::{Value, json};
 
 const INVOCATION_TIMEOUT: Duration = Duration::from_secs(3);
 
+#[test]
+fn configuration_metadata_is_validated_and_read_without_invocation() -> Result<()> {
+    let schema = json!({"fields":[{
+        "key":"enabled", "title":"Включено", "description":"", "value":{"type":"boolean"},
+        "default":true, "required":false, "advanced":false, "unit":null,
+    }]});
+    let binding = ProcessComponentBinding::new(
+        "metadata",
+        [ProcessExportBinding::new(
+            "search",
+            "custom-search",
+            PROCESS_SEARCH_CONTRACT_VERSION,
+            json!({"schema_fixture":schema}),
+        )?],
+    )?;
+    let broker =
+        ComponentBroker::connect(fixture_spec()?, binding, ComponentBrokerOptions::default())?;
+    let manifest = broker.manifest()?;
+    ensure!(
+        manifest.exports[0].config_schema.as_ref().unwrap().fields[0].default == Some(json!(true))
+    );
+    ensure!(broker.snapshot()?.active_invocations == 0);
+    let mut invalid = schema;
+    invalid["fields"][0]["default"] = json!("true");
+    let binding = ProcessComponentBinding::new(
+        "invalid-metadata",
+        [ProcessExportBinding::new(
+            "search",
+            "custom-search",
+            PROCESS_SEARCH_CONTRACT_VERSION,
+            json!({"schema_fixture":invalid}),
+        )?],
+    )?;
+    ensure!(
+        ComponentBroker::connect(fixture_spec()?, binding, ComponentBrokerOptions::default())
+            .is_err()
+    );
+    Ok(())
+}
+
 // Every scenario owns its broker and fixture child process; the fixture has no
 // mutable cross-process state. Libtest may therefore run these independently.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

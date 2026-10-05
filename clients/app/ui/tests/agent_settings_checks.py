@@ -1,9 +1,11 @@
 """Agent settings: per-slot pages share one draft and save the real profile."""
 import json
+import tomllib
 
 
 def run(command, js, wait_for, config, capture):
     def click(selector):
+        js(f"document.querySelector({json.dumps(selector)}).scrollIntoView({{block:'center',inline:'nearest',behavior:'instant'}})")
         element = command('/element', {'using': 'css selector', 'value': selector})
         command('/element/' + element['element-6066-11e4-a52e-4f735466cecf'] + '/click', {})
 
@@ -65,5 +67,57 @@ def run(command, js, wait_for, config, capture):
     page('agent-model')
     wait_for(lambda: js("return !!document.querySelector('[data-agent-provider] input:checked') && !!document.querySelector('[data-agent-parameters=\"model/custom-model\"] [data-parameter=implementation]')"), 'Model parameters missing')
     capture('model')
-    print('PASS: agent pages share one draft, reject invalid parameters, save the profile and roll it back from history: '
+    model = '[data-agent-parameters="model/custom-model"]'
+    field = lambda key: model + ' [data-parameter="' + key + '"]'
+    assert js(f"return document.querySelector('{field('prompt_cache')} input').checked"), 'Boolean default is not shown'
+    assert js(f"return document.querySelector('{field('implementation')} select').selectedOptions[0].textContent") == 'Подписка ChatGPT'
+    assert status() == 'Изменений нет' or status().startswith('Сохранено'), 'Displaying defaults edited the profile: ' + status()
+    assert js("return document.querySelector('[data-module-page=agent-model] [data-agent-save]').disabled"), 'Displaying defaults enabled saving'
+    click(field('prompt_cache') + ' input')
+    click(model + ' > .agent-parameters-body > .agent-advanced > summary')
+    def enter(selector, value):
+        js(f"const input=document.querySelector('{selector}');input.value={json.dumps(value)};input.dispatchEvent(new Event('input',{{bubbles:true}}))")
+    enter(field('request_max_retries') + ' input', '-1')
+    wait_for(lambda: status() == 'Исправьте отмеченные значения', 'Invalid number was not reported')
+    assert js(f"return document.querySelector('{field('request_max_retries')} .agent-error').textContent") == 'Минимум: 0'
+    assert js("return document.querySelector('[data-module-page=agent-model] [data-agent-save]').disabled")
+    enter(field('request_max_retries') + ' input', '9')
+    click(field('capabilities') + ' > .agent-field-control .agent-object > summary')
+    click(field('capabilities.supports_image_input') + ' input')
+    capture('model-form')
+    click('[data-module-page=agent-model] [data-agent-save]')
+    wait_for(lambda: status().startswith('Сохранено'), 'Typed form did not save: ' + status())
+    values = tomllib.loads(config.read_text())['module_config']['model']['custom-model']
+    assert values['prompt_cache'] is False and values['request_max_retries'] == 9
+    assert values['capabilities'] == {'supports_image_input': True}, 'Nested defaults were materialized'
+    assert 'max_input_tokens' not in values and 'http1_only' not in values, 'Visible defaults were materialized'
+    # Each reset removes only its override, keeping unrelated values.
+    click(field('prompt_cache') + ' > .agent-field-reset')
+    click(model + ' > .agent-parameters-body > .agent-advanced > summary')
+    click(field('request_max_retries') + ' > .agent-field-reset')
+    click(field('capabilities') + ' > .agent-field-reset')
+    assert js(f"return document.querySelector('{field('prompt_cache')} input').checked"), 'Reset did not restore the default'
+    click('[data-module-page=agent-model] [data-agent-save]')
+    wait_for(lambda: status().startswith('Сохранено'), 'Field resets did not save')
+    values = tomllib.loads(config.read_text())['module_config']['model']['custom-model']
+    assert not any(key in values for key in ['prompt_cache', 'request_max_retries', 'capabilities'])
+    assert 'base_url' in values and 'auth_file' in values
+    page('agent-context')
+    # Changing one inherited list item must retain all other default items.
+    click('[data-agent-module=repo_aware] input')
+    context = '[data-agent-parameters="context/repo_aware"]'
+    wait_for(lambda: js(f"return !!document.querySelector('{context} [data-parameter=providers] .agent-array')"), 'Context list form missing')
+    assert js(f"return document.querySelectorAll('{context} [data-parameter=providers] .agent-array-item').length") == 6
+    click(context + ' [data-parameter=providers] .agent-array-item:last-child button')
+    capture('context-form')
+    click('[data-module-page=agent-context] [data-agent-save]')
+    wait_for(lambda: status().startswith('Сохранено'), 'List did not save: ' + status())
+    values = tomllib.loads(config.read_text())['module_config']['context']['repo_aware']
+    assert values == {'providers': ['project_instructions', 'manifest', 'git_status', 'repo_tree', 'memory']}, values
+    # A narrow view retains controls inside the page rather than overflowing it.
+    command('/window/rect', {'width': 900, 'height': 800})
+    wait_for(lambda: js("const c=document.querySelector('.settings-content');return c.scrollWidth<=c.clientWidth+1 && c.getBoundingClientRect().right<=innerWidth+1"), 'Settings form overflows a narrow view')
+    capture('context-narrow')
+    command('/window/rect', {'width': 1440, 'height': 1000})
+    print('PASS: shared draft and history; typed forms, validation, sparse nested/list persistence, field reset and narrow layout: '
           + json.dumps({'saved_bytes': len(saved)}), flush=True)

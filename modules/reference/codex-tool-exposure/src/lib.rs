@@ -16,7 +16,9 @@ use proteus_contracts::{
 use serde_json::{Map, Value, json};
 
 mod config;
+mod config_schema;
 use config::CodexDynamicConfig;
+pub use config_schema::config_schema;
 
 const MODULE_ID: &str = "codex_dynamic";
 const DEFAULT_MAX_HOT_TOOLS: usize = 10;

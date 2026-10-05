@@ -21,7 +21,7 @@ EXPORT = {
     "module_id": MODULE_ID,
     "contract_version": "v2",
     "composition": "select_one",
-    "module_features": [],
+    "module_features": [], "config_schema": None,
 }
 record_path: Path | None = None
 record_lock = threading.Lock()

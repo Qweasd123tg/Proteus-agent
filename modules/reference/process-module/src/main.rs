@@ -1,3 +1,4 @@
+mod config_schema;
 mod dispatch;
 mod exports;
 mod hosts;

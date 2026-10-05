@@ -20,14 +20,14 @@ TOOL_EXPORT = {
     "module_id": TOOL_MODULE_ID,
     "contract_version": "v3",
     "composition": "ordered_many",
-    "module_features": [],
+    "module_features": [], "config_schema": None,
 }
 POLICY_EXPORT = {
     "slot": "policy",
     "module_id": POLICY_MODULE_ID,
     "contract_version": "v2",
     "composition": "select_one",
-    "module_features": [],
+    "module_features": [], "config_schema": None,
 }
 
 

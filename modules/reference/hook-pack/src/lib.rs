@@ -1,4 +1,6 @@
 //! Owner-configured instructions and tool output budgeting contributions.
+mod config_schema;
+pub use config_schema::config_schema;
 use proteus_contracts::{
     contracts::{HookEvent, HookInput, HookResponse},
     model_standard::{InstructionBlock, InstructionKind},

@@ -68,6 +68,9 @@ fn validate_export_manifest(
     binding: &ProcessExportBinding,
     authority: ProcessContractAuthority,
 ) -> Result<()> {
+    if let Some(schema) = &manifest.config_schema {
+        schema.validate().map_err(anyhow::Error::msg)?;
+    }
     if manifest.contract_version != binding.contract_version {
         bail!(
             "process module contract mismatch: expected {:?}, got {:?}",

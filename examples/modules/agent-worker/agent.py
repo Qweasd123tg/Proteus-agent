@@ -468,7 +468,7 @@ def initialize(raw: Any) -> dict[str, Any]:
                 "module_id": MODULE_ID,
                 "contract_version": CONTRACT_VERSION,
                 "composition": "select_one",
-                "module_features": [],
+                "module_features": [], "config_schema": None,
             }
         ],
     }

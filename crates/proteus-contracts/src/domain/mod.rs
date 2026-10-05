@@ -6,6 +6,7 @@
 //! modules.
 
 pub mod compaction;
+pub mod config_schema;
 pub mod context;
 pub mod events;
 pub mod hosted_tool;
@@ -25,6 +26,7 @@ pub mod tool_validation;
 pub mod usage;
 
 pub use compaction::*;
+pub use config_schema::*;
 pub use context::*;
 pub use events::*;
 pub use hosted_tool::*;

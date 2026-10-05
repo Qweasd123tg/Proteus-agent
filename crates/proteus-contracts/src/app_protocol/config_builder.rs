@@ -9,6 +9,7 @@ pub struct ConfigBuilderSnapshot {
     pub writable: bool,
     pub active_provider: Option<String>,
     pub providers: Vec<ConfigBuilderProvider>,
+    pub model_modules: Vec<ConfigBuilderModule>,
     /// Persisted `[permissions] mode` (snake_case) — то, что редактирует
     /// builder. Runtime mode может отличаться после `POST /mode`.
     pub permission_mode: String,
@@ -64,6 +65,7 @@ pub struct ConfigBuilderModule {
     pub api_version: String,
     pub capabilities: Vec<String>,
     pub description: Option<String>,
+    pub config_schema: Option<crate::domain::ModuleConfigSchema>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]

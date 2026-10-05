@@ -2,6 +2,9 @@ use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Result;
 
+mod config_schemas;
+pub(crate) use config_schemas::ConfigSchemas;
+
 use crate::{
     contracts::{
         AgentControl, AgentWorkflowContext, ApprovalPolicy, ContextBuilder, EventEmitter,
@@ -22,6 +25,7 @@ use crate::{
 
 #[derive(Clone)]
 pub struct RuntimeRegistry {
+    config_exports: Vec<crate::process_adapters::ProcessExportConfig>,
     pub hooks: Vec<(String, Arc<dyn crate::contracts::HookHandler>)>,
     pub cwd: PathBuf,
     pub model_config: Option<crate::core::ModelConfig>,
@@ -155,6 +159,7 @@ impl RuntimeRegistry {
             None => Arc::new(NoWorkflow),
         };
         Ok(Self {
+            config_exports: catalog.config_exports.clone(),
             hooks,
             cwd: cwd.to_path_buf(),
             model_config,

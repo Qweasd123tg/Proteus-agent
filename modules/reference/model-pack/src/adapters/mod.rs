@@ -1,5 +1,6 @@
 pub mod anthropic;
 pub mod codex_auth;
+pub mod config_schema;
 mod context_render;
 mod http_retry;
 pub mod openai;

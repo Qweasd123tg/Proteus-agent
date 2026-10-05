@@ -93,6 +93,7 @@ pub(super) struct PendingCallback {
 pub(super) struct WorkerGeneration {
     pub transport: ProcessTransport<NewlineJsonFraming>,
     pub pid: u32,
+    pub manifest: proteus_contracts::contracts::ProcessComponentManifest,
 }
 
 pub(super) struct LoopState {

@@ -64,6 +64,11 @@ fn cancel_tree_defers_admission_failure_and_next_generation_remains_usable() -> 
     state.worker = Some(WorkerGeneration {
         pid: transport.pid(),
         transport,
+        manifest: proteus_contracts::contracts::ProcessComponentManifest {
+            protocol_version: "v3".into(),
+            component_id: binding.component_id.clone(),
+            exports: vec![],
+        },
     });
     let (mut parent, parent_result) = pending(&binding, &options, "h:1:1", None, 1, json!({}))?;
     parent.active = true;
@@ -118,10 +123,11 @@ fn cancel_tree_defers_admission_failure_and_next_generation_remains_usable() -> 
         NewlineJsonFraming::default(),
         options.transport_limits(),
     )?;
-    initialize_transport(&mut transport, &binding, 2, Duration::from_secs(1))?;
+    let manifest = initialize_transport(&mut transport, &binding, 2, Duration::from_secs(1))?;
     state.worker = Some(WorkerGeneration {
         pid: transport.pid(),
         transport,
+        manifest,
     });
     let (replacement, replacement_result) = pending(
         &binding,

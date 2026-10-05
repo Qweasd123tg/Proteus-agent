@@ -19,7 +19,7 @@ EXPORT = {
     "module_id": MODULE_ID,
     "contract_version": "v3",
     "composition": "ordered_many",
-    "module_features": [],
+    "module_features": [], "config_schema": None,
 }
 
 

@@ -302,6 +302,8 @@ implementation = "openai_codex"
 base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/usage') + '\nauth_file = ' + json.dumps(str(auth)) + '\n[event_log]\npath = ' + json.dumps(str(folder / 'events.jsonl')) + '\n')
         if '--images-only' in sys.argv:
             config.write_text(config.read_text()+'\n[module_config.model.custom-model.capabilities]\nsupports_image_input = true\n')
+        if '--agent-settings-only' in sys.argv:
+            config.write_text(config.read_text().replace('[components.model.exports.policy.allow_all]', '[components.model.exports.policy.allow_all]\n[components.model.exports.context.repo_aware]'))
         if '--approval-only' in sys.argv:
             config.write_text(config.read_text().replace('policy.allow_all','policy.ask_write').replace('policy = "allow_all"','policy = "ask_write"').replace('enabled = ["update_plan"]','enabled = ["update_plan", "write_file", "exec_command"]'))
         with socket.socket() as sock:

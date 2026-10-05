@@ -975,6 +975,20 @@ runtime snapshot меняется одним обновлением. Он не �
 из воздуха: selection доступен только для entries текущего catalog. Existing
 `components` и opaque `module_config` сохраняются.
 
+`GET /config/builder` возвращает для каждого модуля nullable `config_schema`.
+Модельные exports находятся в `model_modules`, обработчики — в
+`hook_modules`, остальные выбираемые реализации — в `slots[].modules`.
+Источник — валидированный manifest его process export, а не таблица
+reference module ids в Core или клиенте. Чтение описаний инициализирует
+настроенные components, включая невыбранные, через их обычные shared launchers;
+selection и runtime snapshot при этом не меняются. Ошибка чтения компонента
+попадает в `warnings`; настройки остальных компонентов доступны. Описание
+содержит порядок полей, подписи, типы, defaults, ограничения, единицы и
+признак дополнительных параметров. Оно служит формам интерфейса; проверку
+конфигурации при сборке по-прежнему выполняет implementation.
+Просмотр defaults не добавляет их в `module_config`. Сброс поля удаляет
+переопределение, а неизвестные описанию поля остаются в общем черновике.
+
 Save сериализует read/prepare/persist/publish по каноническому пути профиля;
 повторное сохранение читает актуальный source, а файл заменяется atomic rename.
 Все fallible проверки runtime проходят до persistence. Выбор модели и reload

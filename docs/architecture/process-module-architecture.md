@@ -198,14 +198,16 @@ Composition хранится в общей authority table и подтвержд
         "module_id": "rg",
         "contract_version": "v2",
         "composition": "select_one",
-        "module_features": []
+        "module_features": [],
+        "config_schema": { "fields": [] }
       },
       {
         "slot": "tool",
         "module_id": "reference.tools",
         "contract_version": "v3",
         "composition": "ordered_many",
-        "module_features": []
+        "module_features": [],
+        "config_schema": null
       }
     ]
   }
@@ -217,6 +219,44 @@ Composition хранится в общей authority table и подтвержд
 unoffered feature и unknown fields закрывают snapshot build до первого turn.
 Handshake имеет отдельный timeout. Stdout содержит только compact
 newline-delimited JSON-RPC; stderr дренируется отдельно.
+
+### Описание Конфигурации Export
+
+Поле `config_schema` обязательно в manifest каждого export. `null` явно
+означает, что implementation не предоставляет описание; `{ "fields": [] }`
+означает отсутствие настраиваемых параметров. Другой reader прежнего manifest
+не поддерживается. Формат принадлежит общей process metadata boundary и не
+добавляет module methods или callbacks.
+
+`ModuleConfigSchema.fields` — упорядоченный список `ConfigField`:
+
+```json
+{
+  "fields": [{
+    "key": "enabled",
+    "title": "Включено",
+    "description": "Использовать эту возможность.",
+    "value": { "type": "boolean" },
+    "default": true,
+    "required": false,
+    "advanced": false,
+    "unit": null
+  }]
+}
+```
+
+Все поля `ConfigField` присутствуют; `default: null` означает отсутствие
+явного default. `value.type` принимает `boolean`, `integer` (nullable
+`minimum`/`maximum`), `number`, `string` (флаги `multiline`/`secret`), `enum`
+(`options: [{value, title}]`), `array` (`items`), `object` (`fields`) и `json`.
+Enum сохраняет тип исходного scalar value. Допускается до 16 уровней вложения.
+Пустые/повторные keys, пустые/повторные enum options, неизвестные формы,
+перевёрнутые диапазоны и defaults неверного типа отклоняются при handshake.
+
+Broker сохраняет валидированный manifest текущего поколения; чтение metadata
+не исполняет invocation. Config Builder получает описания через те же launchers
+и brokers; initialization не даёт дополнительных прав и не меняет selection.
+Описание задаёт представление, но не заменяет config validation implementation.
 
 Bootstrap `list` и `invoke` tool export имеют разные бюджеты. По умолчанию list
 ограничен 30 секундами, а invoke наследует `ToolSpec.timeout_ms` конкретного tool

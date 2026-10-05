@@ -63,7 +63,7 @@ impl StartAck {
 
 pub(crate) enum ControlCommand {
     EnsureInitialized {
-        ack: mpsc::Sender<Result<(u64, u32), String>>,
+        ack: mpsc::Sender<Result<proteus_contracts::contracts::ProcessComponentManifest, String>>,
     },
     StartNested(Box<StartRequest>),
     Cancel {
@@ -197,6 +197,11 @@ impl ComponentBroker {
     }
 
     pub fn ensure_initialized(&self) -> Result<()> {
+        self.manifest().map(|_| ())
+    }
+
+    /// Validated metadata of the current process generation; no invocation.
+    pub fn manifest(&self) -> Result<proteus_contracts::contracts::ProcessComponentManifest> {
         let (ack_tx, ack_rx) = mpsc::channel();
         self.inner
             .control_tx
@@ -210,7 +215,6 @@ impl ComponentBroker {
                     .saturating_add(COMMAND_ACK_SLACK),
             )
             .context("component broker did not complete initialization")?
-            .map(|_| ())
             .map_err(anyhow::Error::msg)
     }
 

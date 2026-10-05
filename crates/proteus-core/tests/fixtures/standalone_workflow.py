@@ -14,6 +14,7 @@ def initialize(params):
             raise ProtocolError("expected workflow/v19")
         exports.append({key: export[key] for key in ("slot", "module_id", "contract_version", "composition")})
         exports[-1]["module_features"] = []
+        exports[-1]["config_schema"] = None
     return {"protocol_version": "v3", "component_id": params["component_id"], "exports": exports}
 
 

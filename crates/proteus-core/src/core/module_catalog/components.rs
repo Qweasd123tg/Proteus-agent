@@ -62,6 +62,9 @@ impl ModuleCatalog {
     ) -> Result<()> {
         let slot_name = export.slot().to_owned();
         let module_id = export.module_id().to_owned();
+        if !matches!(slot_name.as_str(), "tool" | "context_provider") {
+            self.config_exports.push(export.clone());
+        }
         match slot_name.as_str() {
             "model" => {
                 ensure_process_id_is_free(self, slot::MODEL, &module_id)?;

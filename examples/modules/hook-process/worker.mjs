@@ -40,7 +40,7 @@ async function initialize(request) {
     await extension.default(hooks.api);
     hooks.seal();
     exports.set(binding.module_id, hooks);
-    manifest.push({ slot: "hook", module_id: binding.module_id, contract_version: "v3", composition: "ordered_many", module_features: [] });
+    manifest.push({ slot: "hook", module_id: binding.module_id, contract_version: "v3", composition: "ordered_many", module_features: [], config_schema: null });
   }
   ready = true;
   send({ id: request.id, result: { protocol_version: "v3", component_id: params.component_id, exports: manifest } });

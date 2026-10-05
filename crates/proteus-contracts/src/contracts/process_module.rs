@@ -104,6 +104,8 @@ pub struct ProcessComponentExportManifest {
     pub contract_version: String,
     pub composition: ProcessModuleComposition,
     pub module_features: Vec<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub config_schema: Option<crate::domain::ModuleConfigSchema>,
 }
 
 /// Манифест, который process component возвращает из `initialize`.
@@ -236,6 +238,14 @@ mod tests {
             .insert("legacy_version".to_owned(), serde_json::json!(0));
         serde_json::from_value::<ProcessComponentInitialize>(unknown)
             .expect_err("unknown handshake fields must be rejected");
+        let mut manifest = serde_json::json!({
+            "slot":"search", "module_id":"python_rg", "contract_version":"v2",
+            "composition":"select_one", "module_features":[], "config_schema":null,
+        });
+        serde_json::from_value::<ProcessComponentExportManifest>(manifest.clone()).unwrap();
+        manifest.as_object_mut().unwrap().remove("config_schema");
+        serde_json::from_value::<ProcessComponentExportManifest>(manifest)
+            .expect_err("schema availability must be explicit");
     }
 
     #[test]

@@ -27,6 +27,25 @@ struct JsonlMemoryConfig {
     path: PathBuf,
 }
 
+pub fn config_schema() -> proteus_contracts::domain::ModuleConfigSchema {
+    use proteus_contracts::domain::{ConfigField, ConfigValueSchema, ModuleConfigSchema};
+    ModuleConfigSchema {
+        fields: vec![
+            ConfigField::new(
+                "path",
+                "Файл памяти",
+                "Путь относительно рабочей папки модуля.",
+                ConfigValueSchema::text(),
+            )
+            .with_default(
+                JsonlMemoryStoreModule::default_path()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+        ],
+    }
+}
+
 impl Default for JsonlMemoryConfig {
     fn default() -> Self {
         Self {

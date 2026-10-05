@@ -56,6 +56,11 @@ impl ModuleExport {
             contract_version: self.binding.contract_version.clone(),
             composition: authority.composition,
             module_features: Vec::new(),
+            config_schema: crate::config_schema::describe(
+                &self.binding.slot,
+                &self.binding.module_id,
+                &self.binding.module_config,
+            ),
         }
     }
 

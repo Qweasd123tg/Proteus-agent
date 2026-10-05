@@ -130,7 +130,7 @@ class Worker:
                     "module_id": export.get("module_id"),
                     "contract_version": export.get("contract_version"),
                     "composition": export.get("composition"),
-                    "module_features": [],
+                    "module_features": [], "config_schema": export.get("module_config", {}).get("schema_fixture"),
                 })
             self.send({
                 "jsonrpc": "2.0",

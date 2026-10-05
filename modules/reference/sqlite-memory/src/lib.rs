@@ -46,6 +46,21 @@ fn default_memory_db_path() -> PathBuf {
     PathBuf::from(".proteus/memory.sqlite")
 }
 
+pub fn config_schema() -> proteus_contracts::domain::ModuleConfigSchema {
+    use proteus_contracts::domain::{ConfigField, ConfigValueSchema, ModuleConfigSchema};
+    ModuleConfigSchema {
+        fields: vec![
+            ConfigField::new(
+                "path",
+                "База памяти",
+                "Путь к SQLite относительно рабочей папки модуля.",
+                ConfigValueSchema::text(),
+            )
+            .with_default(default_memory_db_path().to_string_lossy().into_owned()),
+        ],
+    }
+}
+
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS memory_items (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,

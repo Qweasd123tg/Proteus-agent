@@ -93,6 +93,7 @@ pub struct ModuleCatalog {
     entries: HashMap<(SlotId, String), ModuleEntry>,
     process_tools: Vec<ProcessExportConfig>,
     process_context_providers: Vec<ProcessExportConfig>,
+    pub(crate) config_exports: Vec<ProcessExportConfig>,
 }
 
 impl ModuleCatalog {
@@ -101,6 +102,7 @@ impl ModuleCatalog {
             entries: HashMap::new(),
             process_tools: Vec::new(),
             process_context_providers: Vec::new(),
+            config_exports: Vec::new(),
         }
     }
 
