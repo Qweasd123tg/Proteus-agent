@@ -16,5 +16,9 @@
       "layout": "fill",
       "isolation": "light"
     }
-  ]
+  ],
+  "preview": {
+    "src": "../previews/diagnostic-usage.svg",
+    "alt": "Пример интерфейса: Расход и контекст"
+  }
 }

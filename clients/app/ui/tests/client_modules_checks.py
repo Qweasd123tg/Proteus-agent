@@ -38,7 +38,8 @@ def run(command, js, wait_for, web, origin, loaded, capture=None):
     click('.settings-link')
     wait_for(lambda: js("return !!document.querySelector('[data-settings-section=extensions]')"),'Settings navigation missing')
     page('extensions')
-    assert js("return !document.querySelector('[data-module-page=extensions] [data-builtin-module],.builtin-module-settings')"),'Built-in controls remain inside extension management'
+    assert js("return !document.querySelector('.extension-management [data-builtin-module],.builtin-module-settings')"),'Built-in controls remain inside extension management'
+    assert js("return document.querySelector('[data-extension-toggle=extensions]').checked && document.querySelector('[data-extension-toggle=extensions]').disabled"),'Required management has no visible locked switch'
     assert js("const nav=document.querySelector('.settings-nav');return ['appearance','chat','shortcuts','extensions','model-selector','access-selector'].every(id=>{const button=nav.querySelector('[data-settings-section=\"'+id+'\"]');let heading=button?.previousElementSibling;while(heading&&!heading.classList.contains('settings-nav-label'))heading=heading.previousElementSibling;return button?.parentElement===nav&&heading?.textContent==='Встроенные'})"),'Built-in entries do not form a separate sidebar group'
     assert js("const nav=document.querySelector('.settings-nav');return ['diagnostic-usage','diagnostic-analysis','diagnostic-architecture'].every(id=>{let heading=nav.querySelector('[data-settings-section=\"'+id+'\"]')?.previousElementSibling;while(heading&&!heading.classList.contains('settings-nav-label'))heading=heading.previousElementSibling;return heading?.textContent==='Расширения' && !!document.querySelector('[data-extension-choice=\"'+id+'\"] input:checked')})"),'Diagnostics are not enabled external packages in extension management'
     page('model-selector')
@@ -60,10 +61,27 @@ def run(command, js, wait_for, web, origin, loaded, capture=None):
     js("document.querySelector('[data-custom-module=settings]').value='draft'")
     page('appearance');page('client-test')
     assert js("return clientMounts===1 && document.querySelector('[data-custom-module=settings]').value==='draft'"),'Navigation discarded custom page'
+    wait_for(lambda: js("const image=document.querySelector('[data-extension-details=client-test] img');return image?.complete && image.naturalWidth>0"),'Package preview did not load')
+    assert js("return document.querySelector('[data-extension-details=client-test] .extension-summary').textContent==='Browser fixture' && document.querySelector('[data-extension-toggle=client-test]').checked"),'Package page has no description or own switch'
+    js("window.keptPreview=document.querySelector('[data-extension-details=client-test] img')")
+    if capture:
+        capture('extension-details')
+    click('[data-extension-toggle=client-test]')
+    wait_for(lambda: js("return clientAborts===1 && clientDisposals===1 && !document.querySelector('[data-settings-section=client-test]')"),'Page switch did not stop the package')
+    assert js("return document.querySelector('.settings-page').dataset.settingsModule==='client-test' && keptPreview.isConnected && !document.querySelector('[data-extension-toggle=client-test]').checked && !document.querySelector('[data-module-page=client-test] [data-custom-module]')"),'Disabling lost package information or kept its running view'
+    click('[data-extension-toggle=client-test]')
+    wait_for(lambda: js("return clientMounts===2 && !!document.querySelector('[data-settings-section=client-test]')"),'Package could not be re-enabled on its page')
     page('extensions')
     click('[data-extension-choice=client-test] input')
-    wait_for(lambda: js("return clientAborts===1 && clientDisposals===1 && !document.querySelector('[data-settings-section=client-test]')"),'Disable did not clean custom page')
-    click('[data-extension-choice=client-test] input')
+    wait_for(lambda: js("return clientAborts===2 && clientDisposals===2 && !document.querySelector('[data-settings-section=client-test]')"),'Disable did not clean custom page')
+    click('[data-settings-id=client-test]')
+    assert js("return document.querySelector('[data-extension-details=client-test]') && !document.querySelector('[data-extension-toggle=client-test]').checked && clientMounts===2"),'Disabled package could not open its information without running code'
+    command('/refresh', {})
+    wait_for(loaded,'Client not connected after opening disabled package')
+    wait_for(lambda: js("return !!document.querySelector('[data-extension-details=client-test]')"),'Disabled package URL lost its information page')
+    assert js("return !window.clientMounts && !document.querySelector('[data-extension-toggle=client-test]').checked"),'Reload executed the disabled package'
+    click('[data-extension-toggle=client-test]')
+    wait_for(lambda: js("return window.clientMounts===1 && !!document.querySelector('[data-settings-section=client-test]')"),'Reloaded package could not be enabled from its own page')
     click('[data-select-slot=composer-model][data-module-id=client-test]')
     click('.settings-back')
     wait_for(lambda: js("return !!document.querySelector('[data-custom-module=composer-model]')"),'Alternative selector not mounted')

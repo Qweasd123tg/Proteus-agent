@@ -16,5 +16,9 @@
       "layout": "scroll",
       "isolation": "shadow"
     }
-  ]
+  ],
+  "preview": {
+    "src": "../previews/model-quota.svg",
+    "alt": "Пример интерфейса: Лимиты модели"
+  }
 }

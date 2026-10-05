@@ -2,24 +2,37 @@ import { hasSurface } from './contract.js';
 import { widgetPlacement } from './widgets.js';
 import { mountView } from './view-host.js';
 import { logicallyVisible } from '../ui/modules/visibility.js';
+import { mountExtensionDetails } from './details.js';
 
-// Each enabled package owns an ordinary retained settings section.
-export function mountExtensionOptions(root, record, storage, services = {}) {
+// The host information stays mounted while enabled views retain their own lifecycle.
+export function mountExtensionOptions(root, record, registry, services = {}) {
   const controller = new AbortController(), { signal } = controller;
   root.classList.add('extension-settings-page');
-  if (hasSurface(record.manifest, 'compact')) root.append(widgetPlacement(storage, signal, record.id));
-  const stop = hasSurface(record.manifest, 'settings') ? mountView(root, record, storage, services, 'settings') : undefined;
-  if (!stop && !hasSurface(record.manifest, 'compact')) {
-    const hint = document.createElement('p');
-    hint.className = 'settings-hint';
-    hint.textContent = 'У этого расширения нет дополнительных параметров.';
-    root.append(hint);
-  }
+  const stopDetails = mountExtensionDetails(root, record, registry);
+  const body = document.createElement('div'); body.className = 'extension-settings-body';
+  if (record.source === 'builtin') body.classList.add('builtin-settings-body');
+  root.append(body);
+  let enabled, stopView, bodyController;
+  const unsubscribe = registry.subscribe(() => {
+    const next = !!registry.state().records.find(item => item.id === record.id)?.enabled;
+    if (next === enabled) return;
+    enabled = next; bodyController?.abort(); bodyController = new AbortController();
+    stopView?.(); stopView = undefined; body.replaceChildren();
+    if (enabled && hasSurface(record.manifest, 'compact')) body.append(widgetPlacement(registry.storage, bodyController.signal, record.id));
+    if (enabled && hasSurface(record.manifest, 'settings')) stopView = mountView(body, record, registry.storage, services, 'settings');
+    else if (!enabled || !hasSurface(record.manifest, 'compact')) {
+      const hint = document.createElement('p'); hint.className = 'settings-hint';
+      hint.textContent = !enabled ? 'Расширение выключено. Включите его, чтобы открыть параметры.'
+        : hasSurface(record.manifest, 'composer-model') || hasSurface(record.manifest, 'composer-access')
+        ? 'Выбор модели и прав доступен в поле ввода чата.' : 'У этого расширения нет дополнительных параметров.';
+      body.append(hint);
+    }
+  });
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape' || event.defaultPrevented || !logicallyVisible(root)) return;
     event.preventDefault(); event.stopPropagation();
     document.dispatchEvent(new CustomEvent('proteus-select-settings-module', { detail: 'extensions' }));
     root.closest('.settings-page')?.querySelector('[data-settings-section=extensions]')?.focus();
   }, { signal });
-  return () => { controller.abort(); stop?.(); root.replaceChildren(); root.classList.remove('extension-settings-page'); };
+  return () => { controller.abort(); unsubscribe(); stopView?.(); bodyController?.abort(); stopDetails(); root.replaceChildren(); root.classList.remove('extension-settings-page'); };
 }

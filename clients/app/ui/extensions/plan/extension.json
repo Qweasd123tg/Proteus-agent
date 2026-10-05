@@ -16,5 +16,9 @@
       "layout": "scroll",
       "isolation": "shadow"
     }
-  ]
+  ],
+  "preview": {
+    "src": "../previews/plan.svg",
+    "alt": "Пример интерфейса: План"
+  }
 }

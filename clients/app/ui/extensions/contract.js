@@ -23,12 +23,18 @@ export function resourceUrl(value, base) {
 }
 
 export function parseManifest(value, url) {
-  object(value, ['apiVersion', 'id', 'name', 'description', 'icon', 'views'], 'Манифест');
+  object(value, ['apiVersion', 'id', 'name', 'description', 'icon', 'preview', 'views'], 'Манифест');
   if (value.apiVersion !== API_VERSION) throw new Error(`Неподдерживаемая версия UI API: ${value.apiVersion}`);
   if (typeof value.id !== 'string' || !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(value.id)) throw new Error('Некорректный id расширения');
   if (typeof value.name !== 'string' || !value.name.trim()) throw new Error('Не указано название расширения');
   if (typeof value.description !== 'string') throw new Error('Не указано описание расширения');
   if (value.icon !== undefined && (typeof value.icon !== 'string' || !/^[a-z][a-z0-9-]*$/.test(value.icon))) throw new Error('Некорректный значок расширения');
+  let preview;
+  if (value.preview !== undefined) {
+    object(value.preview, ['src', 'alt'], 'Превью расширения');
+    if (typeof value.preview.alt !== 'string' || !value.preview.alt.trim()) throw new Error('Нужно описание превью');
+    preview = Object.freeze({ src: resourceUrl(value.preview.src, url), alt: value.preview.alt });
+  }
   if (!Array.isArray(value.views) || !value.views.length) throw new Error('Нужен список представлений расширения');
   const declared = new Set();
   const views = value.views.map(view => {
@@ -41,7 +47,7 @@ export function parseManifest(value, url) {
     if (!['shadow', 'light'].includes(view.isolation)) throw new Error('Неизвестная изоляция представления');
     return Object.freeze({ ...view, entry: resourceUrl(view.entry, url), surfaces: Object.freeze([...view.surfaces]), requires: Object.freeze([...view.requires]) });
   });
-  return Object.freeze({ ...value, views: Object.freeze(views) });
+  return Object.freeze({ ...value, ...(preview ? { preview } : {}), views: Object.freeze(views) });
 }
 
 export function parseSettings(value, base) {

@@ -205,7 +205,7 @@ class Assets(SimpleHTTPRequestHandler):
         elif self.path.startswith('/fixture/client/'):
             self.send_response(200)
             if self.path.endswith('extension.json'):
-                data = json.dumps({"apiVersion":2,"id":"client-test","name":"Своя диагностика","description":"Browser fixture","icon":"analysis","views":[{"surfaces":[surface],"entry":"./page.js","requires":["client.composer","agent.config.read"],"layout":"fill" if surface == "settings" else "form","isolation":"light"} for surface in ["settings", "composer-model"]]})
+                data = json.dumps({"apiVersion":2,"id":"client-test","name":"Своя диагностика","description":"Browser fixture","icon":"analysis","preview":{"src":"/extensions/previews/diagnostic-analysis.svg","alt":"Пример анализа ходов"},"views":[{"surfaces":[surface],"entry":"./page.js","requires":["client.composer","agent.config.read"],"layout":"fill" if surface == "settings" else "form","isolation":"light"} for surface in ["settings", "composer-model"]]})
                 self.send_header('Content-Type','application/json')
             else:
                 data = """export async function mount({root,surface,services,signal}) {

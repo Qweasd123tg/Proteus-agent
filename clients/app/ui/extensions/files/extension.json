@@ -16,5 +16,9 @@
       "layout": "fill",
       "isolation": "shadow"
     }
-  ]
+  ],
+  "preview": {
+    "src": "../previews/files.svg",
+    "alt": "Пример интерфейса: Файлы"
+  }
 }

@@ -74,7 +74,7 @@ export function mountSettings(root, registry, services, requested) {
     mounted.set(record.id, item);
     const stopModule = record.source === "builtin"
       ? mountBuiltinSettings(section, record, registry, services)
-      : mountExtensionOptions(section, record, registry.storage, services);
+      : mountExtensionOptions(section, record, registry, services);
     item.stop = () => { stopMotion(); stopModule(); };
   }
   function render() {
@@ -84,9 +84,10 @@ export function mountSettings(root, registry, services, requested) {
     repair.hidden = !state.builtinsInvalid;
     const pages = state.records.filter(
       (r) => r.manifest && !r.error &&
-        (r.source === "builtin" ? !!builtinSettingsSurface(r) : r.enabled),
+        (r.source === "builtin" ? !!builtinSettingsSurface(r) : r.enabled || r.id === selected),
     );
-    if (!pages.some((r) => r.id === selected)) selected = "extensions";
+    if (state.ready && !pages.some((r) => r.id === selected)) selected = "extensions";
+    const navigation = pages.filter(r => r.source === 'builtin' || r.enabled);
     for (const [id, item] of mounted)
       if (!pages.some((r) => r === item.record)) {
         item.stop();
@@ -94,7 +95,7 @@ export function mountSettings(root, registry, services, requested) {
         mounted.delete(id);
       }
     for (const [id, button] of buttons)
-      if (!pages.some((r) => r.id === id)) {
+      if (!navigation.some((r) => r.id === id)) {
         button.remove();
         buttons.delete(id);
       }
@@ -104,7 +105,7 @@ export function mountSettings(root, registry, services, requested) {
       ["builtin", "Встроенные"],
       ["settings", "Расширения"],
     ]) {
-      const items = pages.filter(
+      const items = navigation.filter(
         (r) => groupOf(r) === group,
       );
       if (!items.length) continue;

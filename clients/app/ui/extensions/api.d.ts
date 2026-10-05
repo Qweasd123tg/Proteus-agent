@@ -5,6 +5,8 @@ export interface ExtensionManifest {
   name: string;
   description: string;
   icon?: string;
+  /** Static illustration; resolved relative to the manifest without executing any view. */
+  preview?: { src: string; alt: string };
   views: ExtensionView[];
 }
 

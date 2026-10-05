@@ -20,6 +20,8 @@ test('all shipped packages conform to the same view contract as builtins', async
   for (const record of catalog.panels) {
     const url = new URL(record.url, catalogUrl);
     const value = JSON.parse(await readFile(url, 'utf8'));
+    assert.ok(value.preview, 'Shipped package has no preview: ' + record.id);
+    assert.ok((await readFile(new URL(value.preview.src, url))).length, 'Missing preview asset: ' + record.id);
     const parsed = parseManifest(value, 'https://client.test/' + record.id + '/extension.json');
     assert.equal(parsed.id, record.id);
     assert.equal(builtins.some(builtin => builtin.id === record.id), false);
@@ -32,6 +34,9 @@ test('independent package resolves its entry relative to its manifest', () => {
   assert.ok(Object.isFrozen(parsed));
   assert.deepEqual(parsed.views[0].requires, []);
   assert.equal(viewForSurface(parsed, 'compact'), viewForSurface(parsed, 'workspace'));
+  const preview = parseManifest({ ...manifest, preview: { src: './preview.svg', alt: 'Example interface' } }, 'http://localhost:9090/package/extension.json').preview;
+  assert.equal(preview.src, 'http://localhost:9090/package/preview.svg');
+  assert.ok(Object.isFrozen(preview));
   for (const layout of ['scroll', 'fill', 'form', 'editor']) {
     assert.equal(parseManifest({ ...manifest, views: [{ ...view, layout }] }, base).views[0].layout, layout);
   }
@@ -44,6 +49,7 @@ test('draft contract rejects unsupported versions, shapes and duplicate interfac
     assert.throws(() => parseManifest(invalid, base));
   }
   assert.throws(() => resourceUrl('https://user:password@example.com/plugin.json', base));
+  for (const preview of [null, { src: './preview.svg' }, { src: './preview.svg', alt: '' }, { src: 'javascript:alert(1)', alt: 'Example' }, { src: './preview.svg', alt: 'Example', entry: './code.js' }]) assert.throws(() => parseManifest({ ...manifest, preview }, base));
 });
 
 test('settings preserve explicit order and reject malformed or duplicate panels', () => {

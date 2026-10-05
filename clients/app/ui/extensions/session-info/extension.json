@@ -15,5 +15,9 @@
       "layout": "scroll",
       "isolation": "shadow"
     }
-  ]
+  ],
+  "preview": {
+    "src": "../previews/session-info.svg",
+    "alt": "Пример интерфейса: Сведения о сессии"
+  }
 }

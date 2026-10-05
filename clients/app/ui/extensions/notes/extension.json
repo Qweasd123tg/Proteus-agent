@@ -14,5 +14,9 @@
       "layout": "scroll",
       "isolation": "shadow"
     }
-  ]
+  ],
+  "preview": {
+    "src": "../previews/notes.svg",
+    "alt": "Пример интерфейса: Заметки"
+  }
 }

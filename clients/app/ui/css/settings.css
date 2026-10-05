@@ -48,7 +48,18 @@
 .settings-content .extension-available .extension-choice { border:1px solid var(--border-subtle);border-radius:14px; }
 
 .settings-row + .settings-row { margin-top:12px; }
-.builtin-settings-controls { margin-bottom:24px; flex:none; }
+.extension-details { display:grid; grid-template-columns:minmax(0,1fr) 228px; align-items:center; gap:24px; margin-bottom:24px; padding:20px; border:1px solid var(--border-subtle); border-radius:16px; background:var(--bg-panel-soft); flex:none; }
+.extension-about { min-width:0; }
+.extension-enable-row { margin-bottom:12px; }
+.extension-enable { display:flex; align-items:center; gap:10px; width:fit-content; font-size:13px; cursor:pointer; }
+.extension-summary { color:var(--text-muted); font-size:13px; line-height:1.55; margin:0; overflow-wrap:anywhere; }
+.extension-about > :is(.settings-hint,.module-selection) { margin-top:12px; }
+.extension-details [hidden] { display:none; }
+.extension-preview { display:block; margin:0; overflow:hidden; border:1px solid var(--border-subtle); border-radius:10px; background:var(--bg-root); aspect-ratio:16/9; }
+.extension-preview img { display:block; width:100%; height:100%; object-fit:contain; }
+.extension-preview-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; width:100%; height:100%; padding:12px; color:var(--text-faint); text-align:center; font-size:11px; }
+.extension-preview-empty svg { width:28px; height:28px; }
+.extension-settings-body { min-width:0; }
 .settings-range { display:flex; align-items:center; gap:12px; flex-shrink:0; }
 .settings-range input { width:140px; accent-color:var(--text-main); }
 .settings-range output { min-width:58px; text-align:right; font-variant-numeric:tabular-nums; }
@@ -82,6 +93,8 @@
 
 .settings-content { container-type:inline-size; }
 @container (max-width:480px) {
+  .extension-details { grid-template-columns:minmax(0,1fr) 110px; gap:12px; padding:16px; }
+  .extension-summary { font-size:12px; }
   .settings-row { flex-wrap:wrap; gap:12px; }
   .settings-row > .settings-label { flex-basis:100%; }
   .settings-row > select { flex:1; max-width:100%; }
@@ -94,5 +107,7 @@
 .settings-content[data-view-layout=fill] .settings-toolbar { margin-bottom:16px; }
 .settings-content[data-view-layout=fill] > .settings-section:not([hidden]),
 .settings-content[data-view-layout=fill] :is(.client-module-content,.extension-view-content,.builtin-settings-body) { display:flex; flex:1; min-height:0; }
+.settings-content[data-view-layout=fill] > .extension-settings-page { flex-direction:column; }
+.settings-content[data-view-layout=fill] .extension-settings-body { display:flex; flex-direction:column; flex:1; min-height:260px; }
 .diagnostic-frame { width:100%; height:100%; flex:1; border:0; border-radius:12px; }
 .client-module-slot:empty { display:none; }

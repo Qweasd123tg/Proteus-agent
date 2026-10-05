@@ -4,7 +4,7 @@ import {createExtensionRegistry} from '../../extensions/registry.js';
 import {createClientModuleRegistry} from '../../ui/modules/registry.js';
 import {builtins} from '../../ui/modules/catalog.js';
 import {parseManifest} from '../../extensions/contract.js';
-const catalog=builtins.map(r=>({...r,manifest:{...r.manifest,views:r.manifest.views.map(view=>({...view,entry:'https://client.test/'+r.id+'.js'}))}}));
+const catalog=builtins.map(r=>({...r,manifest:{...r.manifest,...(r.manifest.preview?{preview:{...r.manifest.preview,src:'https://client.test/previews/'+r.id+'.svg'}}:{}),views:r.manifest.views.map(view=>({...view,entry:'https://client.test/'+r.id+'.js'}))}}));
 function fixture(data=new Map()){
  const storage={getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)};
  const packages=createExtensionRegistry({storage,catalogUrl:'https://client.test/catalog.json',reservedIds:catalog.map(r=>r.id),readJson:async url=>({url,value:url.endsWith('catalog.json')?{apiVersion:1,panels:[]}:{apiVersion:2,id:url.includes('collision')?'appearance':'custom',name:'Custom',description:'Diagnostic/model replacement',icon:'analysis',views:['settings','composer-model'].map(surface=>({surfaces:[surface],entry:'./module.js',requires:['client.composer'],layout:'form',isolation:'light'}))}})});

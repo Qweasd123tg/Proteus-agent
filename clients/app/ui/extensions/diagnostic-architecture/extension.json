@@ -16,5 +16,9 @@
       "layout": "fill",
       "isolation": "light"
     }
-  ]
+  ],
+  "preview": {
+    "src": "../previews/diagnostic-architecture.svg",
+    "alt": "Пример интерфейса: Архитектура"
+  }
 }

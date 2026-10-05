@@ -84,7 +84,7 @@ export function mountExtensionSettings(root, registry) {
       selectionButtons(cached.row.querySelector('.extension-actions'),record,registry,rowSignal);
       cached.checkbox.checked=record.enabled;
       for(const control of cached.row.querySelectorAll('button:not([data-select-slot]),input'))control.disabled=busy;
-      cached.row.querySelector('[data-settings-id]').disabled=busy||!record.enabled||!record.manifest||!!record.error;
+      cached.row.querySelector('[data-settings-id]').disabled=busy||!record.manifest||!!record.error;
       if(list.children[index]!==cached.row)list.insertBefore(cached.row,list.children[index]??null);
     });
     const choices = bundled.filter(item => !records.some(record => record.id === item.id));

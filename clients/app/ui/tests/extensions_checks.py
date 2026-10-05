@@ -36,7 +36,7 @@ def run(command, js, wait_for, web, origin, loaded):
     wait_for(lambda: js("return localStorage.getItem('proteus.toolCardsCollapsed') === 'true'"), 'Client preference was not persisted')
     assert js("return window.settingsWrites === 0"), 'Client setting called backend'
     js("window.savedSetItem=Storage.prototype.setItem; Storage.prototype.setItem=function(key,value){if(key==='proteus.toolCardsCollapsed')throw new Error('storage fixture');return window.savedSetItem.call(this,key,value)};document.querySelector('[data-module-page=chat] .builtin-settings-body input').click()")
-    wait_for(lambda: js("return document.querySelector('[data-module-page=chat] .settings-status').textContent.includes('Не сохранено') && document.querySelector('[data-module-page=chat] .builtin-settings-body input').checked"), 'Storage failure was hidden or toggle did not roll back')
+    wait_for(lambda: js("return document.querySelector('[data-module-page=chat] .builtin-settings-body .settings-status').textContent.includes('Не сохранено') && document.querySelector('[data-module-page=chat] .builtin-settings-body input').checked"), 'Storage failure was hidden or toggle did not roll back')
     js("Storage.prototype.setItem=window.savedSetItem;window.fetch=window.savedFetch")
     command('/refresh', {})
     wait_for(lambda: js("return !!document.querySelector('[data-settings-section=chat]')"),'Settings navigation missing')
@@ -76,7 +76,7 @@ def run(command, js, wait_for, web, origin, loaded):
     # Saved web setting must take effect on the next SPA chat mount.
     wait_for(lambda: js("return !document.querySelector('[data-module-page=chat] .builtin-settings-body input').disabled"), 'Chat setting not ready')
     js("document.querySelector('[data-module-page=chat] .builtin-settings-body input').click()")
-    wait_for(lambda: js("return document.querySelector('[data-module-page=chat] .settings-status').textContent === 'Сохранено на этом устройстве'"), 'Chat setting save failed')
+    wait_for(lambda: js("return document.querySelector('[data-module-page=chat] .builtin-settings-body .settings-status').textContent === 'Сохранено на этом устройстве'"), 'Chat setting save failed')
     assert js("return document.querySelector('[data-module-page=chat] .builtin-settings-body input').checked")
     install('/fixture/slow/extension.json')
     wait_for(lambda: js("return !!document.querySelector('[data-extension-choice=slow-test]')"), 'Slow fixture not installed')

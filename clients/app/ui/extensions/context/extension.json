@@ -16,5 +16,9 @@
       "layout": "scroll",
       "isolation": "shadow"
     }
-  ]
+  ],
+  "preview": {
+    "src": "../previews/context.svg",
+    "alt": "Пример интерфейса: Контекст"
+  }
 }

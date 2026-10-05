@@ -16,5 +16,9 @@
       "layout": "fill",
       "isolation": "light"
     }
-  ]
+  ],
+  "preview": {
+    "src": "../previews/diagnostic-analysis.svg",
+    "alt": "Пример интерфейса: Анализ ходов"
+  }
 }

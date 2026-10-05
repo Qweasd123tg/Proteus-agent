@@ -22,6 +22,7 @@ const module = (
     name,
     description,
     ...(icon ? { icon } : {}),
+    ...(settingsGroup === 'builtin' ? { preview: { src: '../../extensions/previews/' + id + '.svg', alt: 'Пример интерфейса: ' + name } } : {}),
     views: [{ surfaces, entry: new URL(entry, import.meta.url).href, requires, layout, isolation: "light" }],
   },
 });

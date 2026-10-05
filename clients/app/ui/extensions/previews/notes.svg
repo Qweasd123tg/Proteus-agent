@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+<rect width="640" height="360" rx="20" fill="#151519"/>
+<rect x="20" y="20" width="600" height="320" rx="14" fill="#202024" stroke="#34343c"/>
+<path d="M20 74H620" stroke="#34343c"/>
+<text x="44" y="55" fill="#eeeef2" font-family="sans-serif" font-size="19">Заметки</text>
+<rect x="42" y="100" width="556" height="44" rx="8" fill="#2d2d34"/>
+<text x="58" y="128" fill="#c5c5cf" font-family="sans-serif" font-size="16">Сохранить важное из разговора</text>
+<rect x="42" y="157" width="556" height="44" rx="8" fill="#2d2d34"/>
+<text x="58" y="185" fill="#c5c5cf" font-family="sans-serif" font-size="16">Идеи и задачи для проекта</text>
+<rect x="42" y="214" width="556" height="44" rx="8" fill="#2d2d34"/>
+<text x="58" y="242" fill="#c5c5cf" font-family="sans-serif" font-size="16">Текст остаётся на устройстве</text>
+<text x="44" y="307" fill="#96939f" font-family="sans-serif" font-size="13">Сохраняется автоматически</text>
+</svg>
