@@ -23,7 +23,8 @@ export function mountExtensionDetails(root, record, registry) {
   required.textContent = 'Обязательная часть приложения'; required.hidden = !record.required;
   const choices = document.createElement('div'); choices.className = 'module-selection';
   const notice = document.createElement('p'); notice.className = 'settings-status'; notice.setAttribute('role', 'status');
-  about.append(row, description, required, choices, notice);
+  row.append(required, choices, notice);
+  about.append(description);
   const preview = document.createElement('figure'); preview.className = 'extension-preview';
   const missing = document.createElement('div'); missing.className = 'extension-preview-empty';
   const message = document.createElement('span'); message.textContent = 'Превью не предоставлено';
@@ -35,7 +36,9 @@ export function mountExtensionDetails(root, record, registry) {
     image.addEventListener('error', () => preview.replaceChildren(missing), { signal });
     preview.append(image);
   } else preview.append(missing);
-  card.append(about, preview); root.append(card);
+  const information = document.createElement('div'); information.className = 'extension-info';
+  information.append(about, preview);
+  card.append(row, information); root.append(card);
   const unsubscribe = registry.subscribe(() => {
     const state = registry.state();
     const current = state.records.find(item => item.id === record.id);
