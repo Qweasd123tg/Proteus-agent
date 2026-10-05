@@ -38,7 +38,7 @@ test('corrupt config reports an error with management available; reserved ids ca
 test('only user choices are stored, so built-in pages added or removed by an update keep the selection',()=>{
  const {registry,data}=fixture();registry.update('chat',{enabled:false});
  assert.deepEqual(JSON.parse(data.get('proteus.ui.modules')),{disabled:['chat'],slots:{'composer-model':'model-selector','composer-access':'access-selector'}});
- const shorter=catalog.filter(r=>r.id!=='diagnostic-usage');
+ const shorter=catalog.filter(r=>r.id!=='shortcuts');
  const fewer=createClientModuleRegistry(createExtensionRegistry({storage:{getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)},catalogUrl:'https://client.test/catalog.json',reservedIds:shorter.map(r=>r.id),readJson:async()=>({})}),undefined,shorter);
  assert.equal(fewer.state().notice,'');assert.equal(fewer.state().records.find(r=>r.id==='chat').enabled,false);
  assert.ok(fewer.state().records.find(r=>r.id==='appearance').enabled,'a page missing from storage is on');

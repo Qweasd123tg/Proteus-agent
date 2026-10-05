@@ -2,6 +2,24 @@
   "apiVersion": 1,
   "panels": [
     {
+      "id": "diagnostic-usage",
+      "url": "./diagnostic-usage/extension.json",
+      "enabled": true,
+      "collapsed": false
+    },
+    {
+      "id": "diagnostic-analysis",
+      "url": "./diagnostic-analysis/extension.json",
+      "enabled": true,
+      "collapsed": false
+    },
+    {
+      "id": "diagnostic-architecture",
+      "url": "./diagnostic-architecture/extension.json",
+      "enabled": true,
+      "collapsed": false
+    },
+    {
       "id": "files",
       "url": "./files/extension.json",
       "enabled": true,

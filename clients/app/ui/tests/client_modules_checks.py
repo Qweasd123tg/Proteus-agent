@@ -39,7 +39,8 @@ def run(command, js, wait_for, web, origin, loaded, capture=None):
     wait_for(lambda: js("return !!document.querySelector('[data-settings-section=extensions]')"),'Settings navigation missing')
     page('extensions')
     assert js("return !document.querySelector('[data-module-page=extensions] [data-builtin-module],.builtin-module-settings')"),'Built-in controls remain inside extension management'
-    assert js("const nav=document.querySelector('.settings-nav');return ['appearance','chat','shortcuts','extensions','model-selector','access-selector','diagnostic-usage','diagnostic-analysis','diagnostic-architecture'].every(id=>{const button=nav.querySelector('[data-settings-section=\"'+id+'\"]');let heading=button?.previousElementSibling;while(heading&&!heading.classList.contains('settings-nav-label'))heading=heading.previousElementSibling;return button?.parentElement===nav&&heading?.textContent==='Встроенные'})"),'Built-in entries do not form a separate sidebar group'
+    assert js("const nav=document.querySelector('.settings-nav');return ['appearance','chat','shortcuts','extensions','model-selector','access-selector'].every(id=>{const button=nav.querySelector('[data-settings-section=\"'+id+'\"]');let heading=button?.previousElementSibling;while(heading&&!heading.classList.contains('settings-nav-label'))heading=heading.previousElementSibling;return button?.parentElement===nav&&heading?.textContent==='Встроенные'})"),'Built-in entries do not form a separate sidebar group'
+    assert js("const nav=document.querySelector('.settings-nav');return ['diagnostic-usage','diagnostic-analysis','diagnostic-architecture'].every(id=>{let heading=nav.querySelector('[data-settings-section=\"'+id+'\"]')?.previousElementSibling;while(heading&&!heading.classList.contains('settings-nav-label'))heading=heading.previousElementSibling;return heading?.textContent==='Расширения' && !!document.querySelector('[data-extension-choice=\"'+id+'\"] input:checked')})"),'Diagnostics are not enabled external packages in extension management'
     page('model-selector')
     click('[data-builtin-module=model-selector] input')
     click('.settings-back')
@@ -99,9 +100,22 @@ def run(command, js, wait_for, web, origin, loaded, capture=None):
         page(id)
         wait_for(lambda: js('return !!document.querySelector("[data-module-page='+id+'] iframe")?.contentDocument?.querySelector(".inspector-shell")'), 'Diagnostic not loaded: '+id)
     wait_for(lambda: js("return !!document.querySelector('[data-module-page=diagnostic-architecture] iframe').contentDocument.querySelector('[data-node-id=\"slot:workflow\"]')"),'Embedded architecture did not read real topology')
-    page('diagnostic-usage');click('[data-builtin-module=diagnostic-usage] input')
-    assert js("return !keptDiagnostic.isConnected && document.querySelector('[data-settings-section=diagnostic-usage]').classList.contains('disabled')"),'Disabled diagnostic retained iframe or lost its management page'
-    click('[data-builtin-module=diagnostic-usage] input')
+    js("window.removedArchitecture=document.querySelector('[data-module-page=diagnostic-architecture] iframe')")
+    page('extensions');click('[data-extension-choice=diagnostic-architecture] .extension-actions button')
+    assert js("return !removedArchitecture.isConnected && !document.querySelector('[data-settings-section=diagnostic-architecture]') && !!document.querySelector('[data-extension-available=diagnostic-architecture]')"),'Diagnostic package could not be removed'
+    click('[data-extension-available=diagnostic-architecture]')
+    page('diagnostic-architecture')
+    wait_for(lambda: js("return !!document.querySelector('[data-module-page=diagnostic-architecture] iframe')?.contentDocument?.querySelector('.inspector-shell')"),'Diagnostic package could not be added again')
+    page('extensions');click('[data-extension-choice=diagnostic-usage] input')
+    assert js("return !keptDiagnostic.isConnected && !document.querySelector('[data-settings-section=diagnostic-usage]')"),'Disabled diagnostic retained iframe or navigation entry'
+    command('/refresh', {})
+    wait_for(loaded,'Client not connected after disabling diagnostic')
+    click('.settings-link');page('extensions')
+    assert js("return !document.querySelector('[data-settings-section=diagnostic-usage]') && !document.querySelector('[data-extension-choice=diagnostic-usage] input').checked"),'Disabled external diagnostic was restored on restart'
+    click('[data-extension-choice=diagnostic-usage] input')
+    for id in ['diagnostic-analysis','diagnostic-architecture']:
+        page(id)
+        wait_for(lambda: js('return !!document.querySelector("[data-module-page='+id+'] iframe")?.contentDocument?.querySelector(".inspector-shell")'), 'Diagnostic not loaded after restart: '+id)
     click('.settings-back')
     wait_for(lambda: js("return !!document.querySelector('.composer-model-menu')"),'Built-in selector not restored')
     click('.settings-link');page('diagnostic-usage')
@@ -123,4 +137,4 @@ def run(command, js, wait_for, web, origin, loaded, capture=None):
     js("returnFrame.contentDocument.querySelector('.analysis-open-chat').click()")
     wait_for(lambda: js("return new URL(location.href).searchParams.get('session_dir')==="+repr(previous_session)+" && !!document.querySelector('.connection-badge.completed') && !!document.querySelector('[data-client-view=chat]:not([hidden])')"),'Cross-session return did not select chat')
     assert js("return !new URL(location.href).searchParams.has('workspace_view')"),'Cross-session return left its transient view parameter'
-    print('PASS: broken saved selection repaired beside its error; installed diagnostic and selector use declared services; lazy mounting; drafts; disable/dispose; required management; persistent replacement; retained Inspector document across settings navigation and split workspace changes; all three Inspector pages; hidden session changes defer reload until reveal; same-session return identity and cross-session navigation',flush=True)
+    print('PASS: diagnostics are external managed packages; remove/add and disable/restart; broken saved selection repaired beside its error; installed diagnostic and selector use declared services; lazy mounting; drafts; disable/dispose; required management; persistent replacement; retained Inspector document across settings navigation and split workspace changes; all three Inspector pages; hidden session changes defer reload until reveal; same-session return identity and cross-session navigation',flush=True)
