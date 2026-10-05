@@ -1,9 +1,29 @@
 {
-  "apiVersion": 1,
+  "apiVersion": 2,
   "id": "usage",
   "name": "Расход",
   "description": "Токены, запросы и оценка стоимости текущего чата",
-  "entry": "./panel.js",
-  "requires": ["agent.usage.read"],
-  "settings": { "entry": "./settings.js", "requires": [] }
+  "views": [
+    {
+      "surfaces": [
+        "compact",
+        "workspace"
+      ],
+      "entry": "./panel.js",
+      "requires": [
+        "agent.usage.read"
+      ],
+      "layout": "scroll",
+      "isolation": "shadow"
+    },
+    {
+      "surfaces": [
+        "settings"
+      ],
+      "entry": "./settings.js",
+      "requires": [],
+      "layout": "form",
+      "isolation": "shadow"
+    }
+  ]
 }

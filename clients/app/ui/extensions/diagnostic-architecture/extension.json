@@ -1,10 +1,20 @@
 {
-  "apiVersion": 1,
+  "apiVersion": 2,
   "id": "diagnostic-architecture",
   "name": "Архитектура",
   "description": "Связи модулей и конфигурация runtime.",
-  "surfaces": ["settings"],
-  "entry": "./panel.js",
-  "requires": ["client.diagnostics"],
-  "navigation": { "group": "diagnostics", "icon": "inspector" }
+  "icon": "inspector",
+  "views": [
+    {
+      "surfaces": [
+        "settings"
+      ],
+      "entry": "./panel.js",
+      "requires": [
+        "client.diagnostics"
+      ],
+      "layout": "fill",
+      "isolation": "light"
+    }
+  ]
 }

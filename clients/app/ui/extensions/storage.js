@@ -1,3 +1,5 @@
+import { SETTINGS_VERSION } from './contract.js';
+
 const SETTINGS_KEY = 'proteus.ui.extensions';
 const subscribers = new WeakMap();
 const externalListeners = new WeakMap();
@@ -5,7 +7,7 @@ const externalListeners = new WeakMap();
 export function settingsStore(storage) {
   return {
     read() { return storage.getItem(SETTINGS_KEY); },
-    write(panels) { storage.setItem(SETTINGS_KEY, JSON.stringify({ apiVersion: 1, panels })); },
+    write(panels) { storage.setItem(SETTINGS_KEY, JSON.stringify({ apiVersion: SETTINGS_VERSION, panels })); },
   };
 }
 

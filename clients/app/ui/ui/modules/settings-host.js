@@ -1,12 +1,10 @@
-import { hasSurface } from "../../extensions/contract.js";
+import { viewForSurface } from "../../extensions/contract.js";
 import { icon } from "../../extensions/icons.js";
-import { mountModule } from "./host.js";
 import { watchViewMotion } from "../view-motion.js";
 import { mountExtensionOptions } from "../../extensions/settings-page.js";
 import { builtinSettingsSurface, mountBuiltinSettings } from "./builtin-settings.js";
 
-const groupOf = (record) => record.manifest.navigation?.group === "agent"
-  ? "agent" : record.builtin ? "builtin" : "settings";
+const groupOf = (record) => record.source === "builtin" ? record.settingsGroup : "settings";
 export function mountSettings(root, registry, services, requested) {
   const controller = new AbortController(),
     signal = controller.signal,
@@ -74,10 +72,8 @@ export function mountSettings(root, registry, services, requested) {
     // Register before mount: a module may subscribe to the same registry.
     const item = { record, section, stop: () => {} };
     mounted.set(record.id, item);
-    const stopModule = record.builtin && groupOf(record) !== "agent"
+    const stopModule = record.source === "builtin"
       ? mountBuiltinSettings(section, record, registry, services)
-      : hasSurface(record.manifest, "settings")
-      ? mountModule(section, record, registry, services, "settings")
       : mountExtensionOptions(section, record, registry.storage, services);
     item.stop = () => { stopMotion(); stopModule(); };
   }
@@ -88,7 +84,7 @@ export function mountSettings(root, registry, services, requested) {
     repair.hidden = !state.builtinsInvalid;
     const pages = state.records.filter(
       (r) => r.manifest && !r.error &&
-        (r.builtin ? !!builtinSettingsSurface(r) : r.enabled),
+        (r.source === "builtin" ? !!builtinSettingsSurface(r) : r.enabled),
     );
     if (!pages.some((r) => r.id === selected)) selected = "extensions";
     for (const [id, item] of mounted)
@@ -123,7 +119,7 @@ export function mountSettings(root, registry, services, requested) {
           button.type = "button";
           button.dataset.settingsSection = record.id;
           button.append(
-            icon(record.manifest.navigation?.icon || "modules"),
+            icon(record.manifest.icon || "modules"),
             document.createTextNode(record.manifest.name),
           );
           button.addEventListener("click", () => select(record.id), { signal });
@@ -139,14 +135,7 @@ export function mountSettings(root, registry, services, requested) {
     if (!record) return;
     title.textContent = record.manifest.name;
     root.dataset.settingsModule = selected;
-    content.classList.toggle(
-      "diagnostic-settings",
-      record.manifest.navigation?.group === "diagnostics",
-    );
-    content.classList.toggle(
-      "agent-settings",
-      record.manifest.navigation?.group === "agent",
-    );
+    content.dataset.viewLayout = viewForSurface(record.manifest, "settings")?.layout || "form";
     ensureMounted(record);
     for (const [id, item] of mounted) {
       if (id !== selected && !item.section.hidden)

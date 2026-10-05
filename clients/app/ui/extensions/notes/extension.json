@@ -1,8 +1,18 @@
 {
-  "apiVersion": 1,
+  "apiVersion": 2,
   "id": "notes",
   "name": "Заметки",
   "description": "Личные заметки в этом клиенте",
-  "entry": "./panel.js",
-  "requires": []
+  "views": [
+    {
+      "surfaces": [
+        "compact",
+        "workspace"
+      ],
+      "entry": "./panel.js",
+      "requires": [],
+      "layout": "scroll",
+      "isolation": "shadow"
+    }
+  ]
 }

@@ -47,7 +47,7 @@ export function mountExtensionSettings(root, registry) {
   enableReorder(list,registry,signal,announcement);
   const unsubscribe = registry.subscribe(() => {
     const { records: allRecords, bundled, notice: message, busy, ready } = registry.state();
-    const records=allRecords.filter(r=>!r.builtin);
+    const records=allRecords.filter(r=>r.source==='package');
     const focusKey = document.activeElement?.dataset.controlKey;
     rowsController?.abort(); rowsController = new AbortController();
     const rowSignal = rowsController.signal;

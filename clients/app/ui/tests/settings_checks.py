@@ -22,11 +22,12 @@ def run(command, js, wait_for):
     wait_for(lambda: js("return !!document.querySelector('[data-settings-section=extensions]')"), 'Settings missing')
     click('[data-settings-section=extensions]')
     wait_for(lambda: len(order()) > 2, 'Extension management missing')
+    js("document.querySelector('[data-extension-available=diagnostic-usage]')?.click()")
     assert js("const nav=document.querySelector('.settings-nav'),manager=document.querySelector('.extension-management');return manager.closest('.settings-content') && !nav.querySelector('.extension-list,input,select,[data-reorder],.extension-install') && !document.querySelector('.extension-settings-sidebar,.extension-options,.settings-extensions-nav')"), 'Management controls leaked into navigation'
     assert js("return !document.querySelector('[data-module-page=extensions] [data-builtin-module],.builtin-module-settings')"), 'Built-ins remain inside extension management'
     assert js("const nav=document.querySelector('.settings-nav');return [...document.querySelectorAll('[data-extension-choice]')].every(row=>{const expected=row.querySelector('input').checked&&!row.querySelector('[data-settings-id]').disabled,button=nav.querySelector('[data-settings-section=\"'+CSS.escape(row.dataset.extensionChoice)+'\"]');return !!button===expected && (!button||button.parentElement===nav)})"), 'Navigation includes a disabled or broken package, or misses an enabled one'
     assert js("const a=document.querySelector('[data-settings-section=appearance]'),b=document.querySelector('[data-settings-section=usage]');return b.getBoundingClientRect().height===chatRow.height && getComputedStyle(b).fontSize===getComputedStyle(a).fontSize && getComputedStyle(b).borderRadius===chatRow.radius"), 'Extension entry differs from ordinary settings'
-    assert js("return !document.querySelector('.extension-options-content') && document.querySelector('[data-builtin-repair=settings]').getBoundingClientRect().width===0"), 'Management executed settings or exposed a hidden repair action'
+    assert js("return !document.querySelector('[data-module-page=usage] .extension-view-content') && document.querySelector('[data-builtin-repair=settings]').getBoundingClientRect().width===0"), 'Management executed settings or exposed a hidden repair action'
     before = order()
     handle = f'[data-reorder="{before[2]}"]'
     js(f"document.querySelector('{handle}').scrollIntoView({{block:'center'}})")
@@ -47,8 +48,8 @@ def run(command, js, wait_for):
     pointer([{'type': 'pointerUp', 'button': 0}])
     assert order() == expected and js("return !document.querySelector('.extension-drag-ghost') && escapedToApp===0 && localStorage.getItem('proteus.ui.extensions')===orderSaved"), 'Escape did not cancel drag'
     click('[data-settings-section=usage]')
-    wait_for(lambda: js("return !!document.querySelector('[data-module-page=usage] .extension-options-content')?.shadowRoot?.querySelector('form')"), 'Ordinary extension page did not mount')
-    js("window.keptOptions=document.querySelector('[data-module-page=usage] .extension-options-content');keptOptions.shadowRoot.querySelector('[name=model]').value='draft-model'")
+    wait_for(lambda: js("return !!document.querySelector('[data-module-page=usage] .extension-view-content')?.shadowRoot?.querySelector('form')"), 'Ordinary extension page did not mount')
+    js("window.keptOptions=document.querySelector('[data-module-page=usage] .extension-view-content');keptOptions.shadowRoot.querySelector('[name=model]').value='draft-model'")
     js("keptOptions.shadowRoot.querySelector('select').click()")
     command('/actions', {'actions': [{'type': 'key', 'id': 'settings-key', 'actions': [{'type': 'keyDown', 'value': '\ue00c'}, {'type': 'keyUp', 'value': '\ue00c'}]}]})
     assert js("return !keptOptions.shadowRoot.querySelector('.select-picker')?.matches(':popover-open') && document.querySelector('.settings-page').dataset.settingsModule==='usage' && escapedToApp===0"), 'Dropdown Escape reached the settings host or agent'
@@ -60,7 +61,7 @@ def run(command, js, wait_for):
     click('[data-settings-section=diagnostic-usage]')
     wait_for(lambda: js("return document.querySelector('[data-module-page=usage]').getBoundingClientRect().width===0"), 'Extension parameters leaked into another page')
     click('[data-settings-section=usage]')
-    assert js("return document.querySelector('[data-module-page=usage] .extension-options-content')===keptOptions && keptOptions.shadowRoot.querySelector('[name=model]').value==='draft-model'"), 'Another extension or section discarded the draft'
+    assert js("return document.querySelector('[data-module-page=usage] .extension-view-content')===keptOptions && keptOptions.shadowRoot.querySelector('[name=model]').value==='draft-model'"), 'Another extension or section discarded the draft'
     wait_for(lambda: js("return !document.querySelector('.settings-page').getAnimations({subtree:true}).some(a=>a.playState==='running')"), 'Settings transition did not settle')
     Path('/tmp/proteus-settings-active-extensions.png').write_bytes(base64.b64decode(command('/screenshot', None)))
     click('[data-settings-section=extensions]')

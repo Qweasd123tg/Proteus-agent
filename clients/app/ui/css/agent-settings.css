@@ -50,7 +50,7 @@
 .agent-mode-toggle { font-size:12px; }
 
 /* The bar sticks to the visible bottom edge; its shadow masks rows behind the gap. */
-.settings-content.agent-settings { padding-bottom:0; scroll-padding-bottom:110px; }
+.settings-content[data-view-layout=editor] { padding-bottom:0; scroll-padding-bottom:110px; }
 .agent-save-bar { position:sticky; bottom:12px; z-index:1; display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:12px; padding:12px 16px; border:1px solid var(--border-subtle); border-radius:16px; background:var(--bg-panel); box-shadow:var(--shadow-sm), 0 13px 0 0 var(--bg-root); }
 .agent-save-info { display:grid; gap:2px; min-width:0; }
 .agent-save-status { font-size:13px; color:var(--text-main); overflow-wrap:anywhere; }
@@ -59,7 +59,7 @@
 .agent-save-target { color:var(--text-faint); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .agent-save-actions { display:flex; gap:8px; flex:none; }
 .agent-save-actions button[hidden] { display:none; }
-.agent-settings > .settings-section > .client-module-content > .settings-section-description { margin-bottom:20px; }
+.settings-content[data-view-layout=editor] .settings-section-description { margin-bottom:20px; }
 
 @container (max-width:560px) {
   .agent-parameter, .agent-parameter-add { grid-template-columns:minmax(0,1fr) auto; }

@@ -6,22 +6,23 @@ const module = (
   surfaces,
   entry,
   requires,
-  navigation,
+  icon,
   required = false,
+  settingsGroup = "builtin",
+  layout = "form",
 ) => ({
   id,
-  builtin: true,
+  source: "builtin",
+  settingsGroup,
   required,
   enabled: true,
   manifest: {
-    apiVersion: 1,
+    apiVersion: 2,
     id,
     name,
     description,
-    surfaces,
-    entry: new URL(entry, import.meta.url).href,
-    requires,
-    ...(navigation ? { navigation } : {}),
+    ...(icon ? { icon } : {}),
+    views: [{ surfaces, entry: new URL(entry, import.meta.url).href, requires, layout, isolation: "light" }],
   },
 });
 // Agent settings edit the saved profile through the public config builder API.
@@ -33,8 +34,10 @@ const agentPage = (id, name, description, entry, icon) =>
     ["settings"],
     entry,
     ["agent.config.builder"],
-    { group: "agent", icon },
+    icon,
     true,
+    "agent",
+    "editor",
   );
 export const builtins = [
   agentPage("agent-model", "Модель", "Модель профиля и параметры её модуля.", "./agent/model.js", "model"),
@@ -55,7 +58,7 @@ export const builtins = [
     ["settings"],
     "./appearance.js",
     ["client.preferences"],
-    { group: "settings", icon: "settings" },
+    "settings",
   ),
   module(
     "chat",
@@ -64,7 +67,7 @@ export const builtins = [
     ["settings"],
     "./chat.js",
     ["client.preferences"],
-    { group: "settings", icon: "chat" },
+    "chat",
   ),
   module(
     "shortcuts",
@@ -73,7 +76,7 @@ export const builtins = [
     ["settings"],
     "./shortcuts.js",
     [],
-    { group: "settings", icon: "keyboard" },
+    "keyboard",
   ),
   module(
     "extensions",
@@ -82,7 +85,7 @@ export const builtins = [
     ["settings"],
     "./manager.js",
     ["client.modules"],
-    { group: "settings", icon: "modules" },
+    "modules",
     true,
   ),
   module(

@@ -1,11 +1,20 @@
 {
-  "apiVersion": 1,
+  "apiVersion": 2,
   "id": "files",
   "name": "Файлы",
   "description": "Дерево проекта и просмотр текстовых файлов",
-  "presentation": "panel",
-  "entry": "./panel.js",
-  "requires": [
-    "agent.workspace.read"
+  "views": [
+    {
+      "surfaces": [
+        "compact",
+        "workspace"
+      ],
+      "entry": "./panel.js",
+      "requires": [
+        "agent.workspace.read"
+      ],
+      "layout": "fill",
+      "isolation": "shadow"
+    }
   ]
 }

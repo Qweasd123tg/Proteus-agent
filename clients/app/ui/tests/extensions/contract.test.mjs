@@ -1,24 +1,46 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseManifest, parseSettings, resourceUrl, hasSurface } from '../../extensions/contract.js';
+import { parseManifest, parseSettings, resourceUrl, hasSurface, viewForSurface } from '../../extensions/contract.js';
 import { extensionStorage } from '../../extensions/storage.js';
+import { readFile } from 'node:fs/promises';
 
 const base = 'https://client.example/extensions/catalog.json';
-const manifest = { apiVersion: 1, id: 'test.panel', name: 'Test', description: 'Test', entry: './panel.js', requires: [] };
+const view = { surfaces: ['compact', 'workspace'], entry: './panel.js', requires: [], layout: 'scroll', isolation: 'shadow' };
+const manifest = { apiVersion: 2, id: 'test.panel', name: 'Test', description: 'Test', views: [view] };
+
+test('all shipped packages conform to the same view contract as builtins', async () => {
+  const { builtins } = await import('../../ui/modules/catalog.js');
+  for (const record of builtins) {
+    assert.equal(record.source, 'builtin');
+    const manifest = { ...record.manifest, views: record.manifest.views.map(view => ({ ...view, entry: 'https://client.test/' + new URL(view.entry).pathname.split('/').pop() + new URL(view.entry).search })) };
+    parseManifest(manifest, 'https://client.test/catalog.js');
+  }
+  const catalogUrl = new URL('../../extensions/catalog.json', import.meta.url);
+  const catalog = JSON.parse(await readFile(catalogUrl, 'utf8'));
+  for (const record of catalog.panels) {
+    const url = new URL(record.url, catalogUrl);
+    const value = JSON.parse(await readFile(url, 'utf8'));
+    const parsed = parseManifest(value, 'https://client.test/' + record.id + '/extension.json');
+    assert.equal(parsed.id, record.id);
+    assert.equal(builtins.some(builtin => builtin.id === record.id), false);
+  }
+});
 
 test('independent package resolves its entry relative to its manifest', () => {
   const parsed = parseManifest(manifest, 'http://localhost:9090/package/extension.json');
-  assert.equal(parsed.entry, 'http://localhost:9090/package/panel.js');
+  assert.equal(parsed.views[0].entry, 'http://localhost:9090/package/panel.js');
   assert.ok(Object.isFrozen(parsed));
-  assert.deepEqual(parsed.requires, []);
-  assert.equal(parsed.presentation, undefined);
-  for (const presentation of ['widget', 'panel']) {
-    assert.equal(parseManifest({ ...manifest, presentation }, base).presentation, presentation);
+  assert.deepEqual(parsed.views[0].requires, []);
+  assert.equal(viewForSurface(parsed, 'compact'), viewForSurface(parsed, 'workspace'));
+  for (const layout of ['scroll', 'fill', 'form', 'editor']) {
+    assert.equal(parseManifest({ ...manifest, views: [{ ...view, layout }] }, base).views[0].layout, layout);
   }
 });
 
 test('draft contract rejects unsupported versions, shapes and duplicate interfaces', () => {
-  for (const invalid of [null, { ...manifest, apiVersion: 2 }, { ...manifest, backend: {} }, { ...manifest, id: '../a' }, { ...manifest, requires: ['a', 'a'] }, { ...manifest, entry: 'javascript:alert(1)' }, ...[null, '', 'sidebar', 'Panel', false, 1, [], {}].map(presentation => ({ ...manifest, presentation }))]) {
+  for (const invalid of [null, { ...manifest, apiVersion: 1 }, { ...manifest, backend: {} }, { ...manifest, id: '../a' }, ...[
+    { requires: ['a', 'a'] }, { entry: 'javascript:alert(1)' }, { layout: 'diagnostics' }, { isolation: 'unknown' }, { navigation: {} }, { requires: null },
+  ].map(change => ({ ...manifest, views: [{ ...view, ...change }] })), ...['entry','requires','settings','presentation','surfaces','navigation'].map(field => ({ ...manifest, [field]: manifest[field] }))]) {
     assert.throws(() => parseManifest(invalid, base));
   }
   assert.throws(() => resourceUrl('https://user:password@example.com/plugin.json', base));
@@ -89,17 +111,21 @@ test('storage events invalidate matching document subscribers and detach on disp
   }
 });
 
-test('settings entry resolves independently and rejects malformed capability declarations', () => {
-  const parsed = parseManifest({ ...manifest, settings: { entry: './settings.js', requires: [] } }, base);
-  assert.equal(parsed.settings.entry, 'https://client.example/extensions/settings.js');
-  for (const settings of [null, { entry: './s.js' }, { entry: './s.js', requires: ['a', 'a'] }, { entry: './s.js', requires: [], extra: true }]) assert.throws(() => parseManifest({ ...manifest, settings }, base));
+test('each view resolves independently; settings declare their own services and layout', () => {
+  const parsed = parseManifest({ ...manifest, views: [view, { ...view, surfaces: ['settings'], entry: './settings.js', requires: ['config.read'], layout: 'form' }] }, base);
+  const settings = viewForSurface(parsed, 'settings');
+  assert.equal(settings.entry, 'https://client.example/extensions/settings.js');
+  assert.deepEqual(settings.requires, ['config.read']);
+  assert.deepEqual(viewForSurface(parsed, 'workspace').requires, []);
+  assert.ok(Object.isFrozen(settings) && Object.isFrozen(settings.surfaces));
+  assert.throws(() => parseManifest({ ...manifest, views: [view, { ...view, surfaces: ['workspace'] }] }, base));
 });
 
-test('extension surfaces reject unknown, empty or duplicate values and support compact-only mounting', () => {
-  assert.deepEqual(parseManifest(manifest, base).surfaces, ['compact', 'workspace']);
-  const compact = parseManifest({...manifest, surfaces:['compact']}, base);
+test('views reject unknown, empty or duplicate surfaces and explicit old shapes', () => {
+  const compact = parseManifest({...manifest, views:[{...view,surfaces:['compact']}]}, base);
   assert.equal(hasSurface(compact,'workspace'),false);
   assert.equal(hasSurface(compact,'compact'),true);
-  assert.ok(Object.isFrozen(compact.surfaces));
-  for(const surfaces of [[], ['compact','compact'], ['tabs'], null, 'compact', [false]])assert.throws(()=>parseManifest({...manifest,surfaces},base));
+  assert.ok(Object.isFrozen(compact.views));
+  for(const surfaces of [[], ['compact','compact'], ['tabs'], null, 'compact', [false], ['settings','composer-model']])assert.throws(()=>parseManifest({...manifest,views:[{...view,surfaces}]},base));
+  for(const views of [[],null,'views'])assert.throws(()=>parseManifest({...manifest,views},base));
 });

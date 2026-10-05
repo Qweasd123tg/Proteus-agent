@@ -13,7 +13,7 @@ function fixture(saved = null) {
       calls.push(url); signal.throwIfAborted();
       if(url.endsWith('/catalog.json')) return {url,value:{apiVersion:1,panels:[panel('one'),panel('two')]}};
       const id = new URL(url).pathname.split('/')[1];
-      return {url,value:{apiVersion:1,id,name:id,description:id,entry:'./panel.js',requires:[]}};
+      return {url,value:{apiVersion:2,id,name:id,description:id,views:[{surfaces:['compact','workspace'],entry:'./panel.js',requires:[],layout:'scroll',isolation:'shadow'}]}};
     },
   });
   return {registry,calls,data};

@@ -34,8 +34,8 @@ export function createExtensionRegistry(options = {}) {
       const manifest = parseManifest(response.value, response.url);
       if (options.reservedIds?.includes(manifest.id)) throw new Error('Идентификатор занят встроенным модулем');
       if (manifest.id !== record.id) throw new Error(`id манифеста изменился: ${manifest.id}`);
-      return { ...record, manifest };
-    } catch (error) { return { ...record, error: `Манифест: ${error.message}` }; }
+      return { ...record, source: 'package', manifest };
+    } catch (error) { return { ...record, source: 'package', error: `Манифест: ${error.message}` }; }
   }
   async function initialize(defaults = false) {
     if (busy) return;
@@ -100,7 +100,7 @@ export function createExtensionRegistry(options = {}) {
         if (controller.signal.aborted) return false;
         if (options.reservedIds?.includes(manifest.id)) throw new Error('Это имя занято встроенным модулем');
         if (records.some(record => record.id === manifest.id)) throw new Error(`Расширение ${manifest.id} уже добавлено`);
-        records.push({ id: manifest.id, url, manifest, enabled: true, collapsed: false, location: 'right' });
+        records.push({ id: manifest.id, source: 'package', url, manifest, enabled: true, collapsed: false, location: 'right' });
         save(); return true;
       } catch (error) { notice = `Не удалось добавить расширение: ${error.message}`; return false; }
       finally { busy = false; emit(); }

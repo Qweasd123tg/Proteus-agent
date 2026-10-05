@@ -10,9 +10,9 @@ import {mountSettings} from '/ui/modules/settings-host.js';
 import {mountExtensionSettings} from '/extensions/settings.js';
 const frame=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
 try {
- const manifest={name:'Работает',description:'Пакет',surfaces:['compact','workspace'],requires:[],entry:new URL('/unused.js',location.href).href};
- const records=[{id:'extensions',builtin:true,required:true,enabled:true,manifest:{name:'Расширения',surfaces:['settings'],requires:['client.modules'],entry:new URL('/ui/modules/manager.js',location.href).href}},
- {id:'active',enabled:true,manifest},{id:'off',enabled:false,manifest:{...manifest,name:'Выключен'}},{id:'broken',enabled:true,error:'Манифест не загружен'}];
+ const manifest={name:'Работает',description:'Пакет',views:[{surfaces:['compact','workspace'],requires:[],entry:new URL('/unused.js',location.href).href,layout:'scroll',isolation:'shadow'}]};
+ const records=[{id:'extensions',source:'builtin',settingsGroup:'builtin',required:true,enabled:true,manifest:{name:'Расширения',views:[{surfaces:['settings'],requires:['client.modules'],entry:new URL('/ui/modules/manager.js',location.href).href,layout:'form',isolation:'light'}]}},
+ {id:'active',source:'package',enabled:true,manifest},{id:'off',source:'package',enabled:false,manifest:{...manifest,name:'Выключен'}},{id:'broken',source:'package',enabled:true,error:'Манифест не загружен'}];
  const values=new Map(),listeners=new Set(),storage={getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value)};
  const registry={storage,state:()=>({records,bundled:[],ready:true,busy:false,notice:''}),start:()=>Promise.resolve(),subscribe(fn){listeners.add(fn);fn();return()=>listeners.delete(fn);},update(id,change){Object.assign(records.find(record=>record.id===id),change);for(const fn of listeners)fn();}};
  const services={'client.modules':signal=>({mount:root=>mountExtensionSettings(root,registry)})};

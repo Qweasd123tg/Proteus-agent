@@ -11,7 +11,8 @@ export function createClientModuleRegistry(
   let notice = "";
   const core = catalog.map((record) => ({
     ...record,
-    manifest: parseManifest(record.manifest, record.manifest.entry),
+    source: 'builtin',
+    manifest: parseManifest(record.manifest, import.meta.url),
   }));
   const defaults = () => ({
     enabled: Object.fromEntries(core.map((r) => [r.id, true])),

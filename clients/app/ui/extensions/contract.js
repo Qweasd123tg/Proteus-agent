@@ -1,4 +1,6 @@
-export const API_VERSION = 1;
+export const API_VERSION = 2;
+export const SETTINGS_VERSION = 1;
+export const SURFACES = ['compact', 'workspace', 'settings', 'composer-model', 'composer-access'];
 
 function object(value, fields, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label}: ожидается объект`);
@@ -21,33 +23,30 @@ export function resourceUrl(value, base) {
 }
 
 export function parseManifest(value, url) {
-  object(value, ['apiVersion', 'id', 'name', 'description', 'entry', 'requires', 'settings', 'presentation', 'surfaces', 'navigation'], 'Манифест');
+  object(value, ['apiVersion', 'id', 'name', 'description', 'icon', 'views'], 'Манифест');
   if (value.apiVersion !== API_VERSION) throw new Error(`Неподдерживаемая версия UI API: ${value.apiVersion}`);
   if (typeof value.id !== 'string' || !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(value.id)) throw new Error('Некорректный id расширения');
   if (typeof value.name !== 'string' || !value.name.trim()) throw new Error('Не указано название расширения');
   if (typeof value.description !== 'string') throw new Error('Не указано описание расширения');
-  if (!Array.isArray(value.requires) || value.requires.some(item => typeof item !== 'string' || !item)) throw new Error('requires должен быть списком интерфейсов');
-  if (new Set(value.requires).size !== value.requires.length) throw new Error('Повтор интерфейса в requires');
-  if (value.presentation !== undefined && !['widget', 'panel'].includes(value.presentation)) throw new Error('Неизвестное представление расширения');
-  const surfaces = value.surfaces === undefined ? ['compact', 'workspace'] : value.surfaces;
-  if (!Array.isArray(surfaces) || !surfaces.length || surfaces.some(surface => !['compact', 'workspace', 'settings', 'composer-model', 'composer-access'].includes(surface)) || new Set(surfaces).size !== surfaces.length) throw new Error('Некорректные поверхности расширения');
-  if (value.navigation !== undefined) {
-    object(value.navigation, ['group','icon'], 'Навигация модуля');
-    if (!surfaces.includes('settings') || !['agent','settings','diagnostics'].includes(value.navigation.group) || typeof value.navigation.icon !== 'string' || !/^[a-z][a-z0-9-]*$/.test(value.navigation.icon)) throw new Error('Некорректная навигация модуля');
-  }
-  let settings;
-  if (value.settings !== undefined) {
-    object(value.settings, ['entry', 'requires'], 'Настройки пакета');
-    const required = value.settings.requires;
-    if (!Array.isArray(required) || required.some(item => typeof item !== 'string' || !item) || new Set(required).size !== required.length) throw new Error('Некорректные интерфейсы настроек');
-    settings = Object.freeze({ entry: resourceUrl(value.settings.entry, url), requires: Object.freeze([...required]) });
-  }
-  return Object.freeze({ ...value, surfaces: Object.freeze([...surfaces]), ...(settings ? { settings } : {}), requires: Object.freeze([...value.requires]), entry: resourceUrl(value.entry, url) });
+  if (value.icon !== undefined && (typeof value.icon !== 'string' || !/^[a-z][a-z0-9-]*$/.test(value.icon))) throw new Error('Некорректный значок расширения');
+  if (!Array.isArray(value.views) || !value.views.length) throw new Error('Нужен список представлений расширения');
+  const declared = new Set();
+  const views = value.views.map(view => {
+    object(view, ['surfaces', 'entry', 'requires', 'layout', 'isolation'], 'Представление');
+    if (!Array.isArray(view.surfaces) || !view.surfaces.length || view.surfaces.some(surface => !SURFACES.includes(surface) || declared.has(surface)) || new Set(view.surfaces).size !== view.surfaces.length) throw new Error('Неизвестная или повторная поверхность');
+    if (view.surfaces.length > 1 && view.surfaces.some(surface => !['compact', 'workspace'].includes(surface))) throw new Error('Общий экземпляр допустим только для compact и workspace');
+    for (const surface of view.surfaces) declared.add(surface);
+    if (!Array.isArray(view.requires) || view.requires.some(name => typeof name !== 'string' || !name) || new Set(view.requires).size !== view.requires.length) throw new Error('Некорректные интерфейсы представления');
+    if (!['scroll', 'fill', 'form', 'editor'].includes(view.layout)) throw new Error('Неизвестный layout представления');
+    if (!['shadow', 'light'].includes(view.isolation)) throw new Error('Неизвестная изоляция представления');
+    return Object.freeze({ ...view, entry: resourceUrl(view.entry, url), surfaces: Object.freeze([...view.surfaces]), requires: Object.freeze([...view.requires]) });
+  });
+  return Object.freeze({ ...value, views: Object.freeze(views) });
 }
 
 export function parseSettings(value, base) {
   object(value, ['apiVersion', 'panels'], 'Настройки расширений');
-  if (value.apiVersion !== API_VERSION || !Array.isArray(value.panels)) throw new Error('Неподдерживаемый формат настроек расширений');
+  if (value.apiVersion !== SETTINGS_VERSION || !Array.isArray(value.panels)) throw new Error('Неподдерживаемый формат настроек расширений');
   const ids = new Set();
   return value.panels.map(panel => {
     object(panel, ['id', 'url', 'enabled', 'collapsed', 'location'], 'Панель');
@@ -59,10 +58,13 @@ export function parseSettings(value, base) {
   });
 }
 
-export function missingServices(manifest, services) {
-  return manifest.requires.filter(name => !Object.hasOwn(services, name));
+export function missingServices(view, services) {
+  return view.requires.filter(name => !Object.hasOwn(services, name));
 }
 
+export function viewForSurface(manifest, surface) {
+  return manifest?.views?.find(view => view.surfaces.includes(surface));
+}
 export function hasSurface(manifest, surface) {
-  return (manifest?.surfaces ?? ['compact', 'workspace']).includes(surface);
+  return !!viewForSurface(manifest, surface);
 }

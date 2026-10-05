@@ -18,11 +18,11 @@ def run(command, js, wait_for):
     wait_for(lambda: js("return !!document.querySelector('[data-extension-available=usage], [data-extension-choice=usage]')"), 'Usage package unavailable in saved settings')
     js("document.querySelector('[data-extension-available=usage]')?.click()")
     wait_for(lambda: js("return !!document.querySelector('[aria-label=\"Настроить: Расход\"]')"), 'Usage settings action missing')
-    assert js("return !document.querySelector('.extension-options-content')"), 'Settings entry executed before opening'
+    assert js("return !document.querySelector('[data-module-page=usage] .extension-view-content')"), 'Settings entry executed before opening'
     js("document.querySelector('[data-settings-section=usage]').click()")
-    wait_for(lambda: js("return !!document.querySelector('.extension-options-content')?.shadowRoot?.querySelector('form')"), 'Separate settings entry did not mount')
-    js("const root=document.querySelector('.extension-options-content').shadowRoot;for(const [name,value] of Object.entries({provider:'',model:'fixture-model',input:1,cached:.1,write:1,output:2,threshold:0,input_multiplier:1,output_multiplier:1}))root.querySelector(`[name=${name}]`).value=value;root.querySelector('form').requestSubmit()")
-    wait_for(lambda: js("return document.querySelector('.extension-options-content').shadowRoot.textContent.includes('Тариф сохранён')"), 'Custom rate failed to persist')
+    wait_for(lambda: js("return !!document.querySelector('[data-module-page=usage] .extension-view-content')?.shadowRoot?.querySelector('form')"), 'Separate settings entry did not mount')
+    js("const root=document.querySelector('[data-module-page=usage] .extension-view-content').shadowRoot;for(const [name,value] of Object.entries({provider:'',model:'fixture-model',input:1,cached:.1,write:1,output:2,threshold:0,input_multiplier:1,output_multiplier:1}))root.querySelector(`[name=${name}]`).value=value;root.querySelector('form').requestSubmit()")
+    wait_for(lambda: js("return document.querySelector('[data-module-page=usage] .extension-view-content').shadowRoot.textContent.includes('Тариф сохранён')"), 'Custom rate failed to persist')
     js("document.querySelector('.settings-back').click()")
     wait_for(chat_loaded, 'Chat did not return')
     js("document.querySelector('.workspace-add').click();document.querySelector('.workspace-picker [data-open-tab=usage]').click()")

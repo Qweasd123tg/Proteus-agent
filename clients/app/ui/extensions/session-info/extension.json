@@ -1,13 +1,19 @@
 {
-  "apiVersion": 1,
+  "apiVersion": 2,
   "id": "session-info",
   "name": "Сведения о сессии",
   "description": "Активность, события и ожидающие ответы в сессии",
-  "entry": "./panel.js",
-  "requires": [
-    "agent.session.read"
-  ],
-  "surfaces": [
-    "compact"
+  "views": [
+    {
+      "surfaces": [
+        "compact"
+      ],
+      "entry": "./panel.js",
+      "requires": [
+        "agent.session.read"
+      ],
+      "layout": "scroll",
+      "isolation": "shadow"
+    }
   ]
 }

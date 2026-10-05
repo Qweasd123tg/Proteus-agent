@@ -52,6 +52,7 @@ def run(command, js, wait_for, web, origin, loaded):
     install('/fixture/extension.json')
     wait_for(lambda: js("return !!document.querySelector('[data-extension-choice=external-test]')"), 'External manifest not installed')
     wait_for(lambda: js('return window.externalMounted === 1'), 'Enabled extension did not mount')
+    wait_for(lambda: js('return window.externalCompactMounted === 1'), 'Separate compact view did not mount')
     chat()
     wait_for(quota_loaded, 'Quota did not reach panel')
     wait_for(lambda: js('return window.externalMounted === 1'), 'External panel did not mount')
@@ -63,11 +64,13 @@ def run(command, js, wait_for, web, origin, loaded):
     assert js('return !window.externalAborted && !window.externalDisposed')
     js("document.querySelector('.workspace-add').click();document.querySelector('.workspace-picker [data-open-tab=external-test]').click()")
     assert js('return window.externalMounted === 1'), 'Expand remounted a live panel'
+    assert js('return window.externalCompactMounted === 1'), 'Expand remounted the separate compact view'
     settings()
     assert js('return !window.externalAborted && !window.externalDisposed'), 'Navigation disposed a live dock'
     js("document.querySelector('[data-extension-choice=external-test] input').click()")
     chat()
     assert js('return window.externalMounted === 1 && window.externalAborted === 1 && window.externalDisposed === 1'), 'Disable did not stop exactly once'
+    assert js('return window.externalCompactAborted === 1 && window.externalCompactDisposed === 1'), 'Disable did not stop the separate compact view exactly once'
     settings()
     js("document.querySelector('[data-extension-choice=external-test] input').click()")
     # Saved web setting must take effect on the next SPA chat mount.

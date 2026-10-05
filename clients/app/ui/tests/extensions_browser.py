@@ -205,7 +205,7 @@ class Assets(SimpleHTTPRequestHandler):
         elif self.path.startswith('/fixture/client/'):
             self.send_response(200)
             if self.path.endswith('extension.json'):
-                data = json.dumps({"apiVersion":1,"id":"client-test","name":"Своя диагностика","description":"Browser fixture","entry":"./page.js","requires":["client.composer","agent.config.read"],"surfaces":["settings","composer-model"],"navigation":{"group":"diagnostics","icon":"analysis"}})
+                data = json.dumps({"apiVersion":2,"id":"client-test","name":"Своя диагностика","description":"Browser fixture","icon":"analysis","views":[{"surfaces":[surface],"entry":"./page.js","requires":["client.composer","agent.config.read"],"layout":"fill" if surface == "settings" else "form","isolation":"light"} for surface in ["settings", "composer-model"]]})
                 self.send_header('Content-Type','application/json')
             else:
                 data = """export async function mount({root,surface,services,signal}) {
@@ -221,7 +221,7 @@ class Assets(SimpleHTTPRequestHandler):
             self.send_response(200)
             if self.path.endswith('extension.json'):
                 slow = '/slow/' in self.path
-                data = json.dumps({"apiVersion": 1, "id": 'slow-test' if slow else 'external-test', "name": 'Медленная панель' if slow else 'Внешняя панель', "description": "Browser fixture", "entry": "./panel.js", "requires": []})
+                data = json.dumps({"apiVersion": 2, "id": 'slow-test' if slow else 'external-test', "name": 'Медленная панель' if slow else 'Внешняя панель', "description": "Browser fixture", "views": [{"surfaces": surfaces, "entry": "./panel.js", "requires": [], "layout": "scroll", "isolation": "shadow"} for surfaces in ([["compact", "workspace"]] if slow else [["workspace"], ["compact"]])]})
                 self.send_header('Content-Type', 'application/json')
             elif '/slow/' in self.path:
                 data = '''export async function mount({root}) {
@@ -232,7 +232,13 @@ class Assets(SimpleHTTPRequestHandler):
                 }'''
                 self.send_header('Content-Type', 'text/javascript')
             else:
-                data = '''export function mount({root, signal}) {
+                data = '''export function mount({root, compact, surface, signal}) {
+                  if (surface === 'compact') {
+                    window.externalCompactMounted = (window.externalCompactMounted || 0) + 1;
+                    compact.textContent = 'Ext';
+                    signal.addEventListener('abort', () => window.externalCompactAborted = (window.externalCompactAborted || 0) + 1);
+                    return () => window.externalCompactDisposed = (window.externalCompactDisposed || 0) + 1;
+                  }
                   const p = document.createElement('p'); p.textContent = 'External package'; root.append(p);
                   window.externalMounted = (window.externalMounted || 0) + 1;
                   signal.addEventListener('abort', () => window.externalAborted = (window.externalAborted || 0) + 1);

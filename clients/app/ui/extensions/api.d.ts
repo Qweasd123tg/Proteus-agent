@@ -1,17 +1,32 @@
-/** Client extension contract v1. Independent of agent process-module contracts. */
+/** Client extension contract v2. Independent of agent process-module contracts. */
 export interface ExtensionManifest {
-  apiVersion: 1;
+  apiVersion: 2;
   id: string;
   name: string;
   description: string;
+  icon?: string;
+  views: ExtensionView[];
+}
+
+export interface ExtensionView {
+  /** Only compact and workspace may share one view instance. */
+  surfaces: ClientSurface[];
   entry: string;
   requires: string[];
-   surfaces?: ClientSurface[];
-  navigation?: { group: 'settings' | 'diagnostics'; icon: string };
-  /** Panels fill their tab; widgets scroll inside the same tab workspace. */
-  presentation?: 'widget' | 'panel';
-  /** Independent entry; loaded only by the explicit Configure action. */
-  settings?: { entry: string; requires: string[] };
+  layout: 'scroll' | 'fill' | 'form' | 'editor';
+  isolation: 'shadow' | 'light';
+}
+
+/** Source and menu placement belong to the host, never to the manifest. */
+export interface ExtensionRecord {
+  id: string;
+  source: 'builtin' | 'package';
+  enabled: boolean;
+  manifest?: ExtensionManifest;
+  error?: string;
+  /** Builtins only; installed packages always appear under Extensions. */
+  settingsGroup?: 'agent' | 'builtin';
+  required?: boolean;
 }
 
 export interface ExtensionStorage {
@@ -33,9 +48,11 @@ export interface ExtensionPane {
 }
 
 export interface ExtensionContext {
-  /** Extension-owned root (detached without workspace surface); inherited design tokens, no Leptos or Tauri dependency. */
+  /** View-owned root; isolation follows the view descriptor. No Leptos or Tauri dependency. */
   root: ShadowRoot | HTMLElement;
-  surface?: ClientSurface;
+  surface: ClientSurface;
+  /** A combined workspace/compact view mounts once and declares both here. */
+  surfaces: readonly ClientSurface[];
   /** Compact content inside the host's interactive button; absent for a settings entry. */
   compact?: ShadowRoot;
   /** Live detail text shown with the compact icon's hover label; host owns presentation. */

@@ -1,6 +1,6 @@
 import { hasSurface } from '../../extensions/contract.js';
 import { mountBuiltinControl } from './management.js';
-import { mountModule } from './host.js';
+import { mountView } from '../../extensions/view-host.js';
 
 export function builtinSettingsSurface(record) {
   return ['settings', 'composer-model', 'composer-access'].find(surface => hasSurface(record.manifest, surface));
@@ -8,6 +8,7 @@ export function builtinSettingsSurface(record) {
 
 // Host controls remain available while an optional built-in module is off.
 export function mountBuiltinSettings(root, record, registry, services) {
+  if (record.required) return mountView(root, record, registry.storage, services, 'settings');
   root.classList.add('builtin-settings-page');
   const controls = document.createElement('div'), body = document.createElement('div');
   controls.className = 'builtin-settings-controls';
@@ -21,7 +22,7 @@ export function mountBuiltinSettings(root, record, registry, services) {
     if (next === enabled) return;
     enabled = next;
     stopModule?.(); stopModule = undefined; body.replaceChildren();
-    if (enabled && hasSurface(record.manifest, 'settings')) stopModule = mountModule(body, record, registry, services, 'settings');
+    if (enabled && hasSurface(record.manifest, 'settings')) stopModule = mountView(body, record, registry.storage, services, 'settings');
     else {
       const hint = document.createElement('p');
       hint.className = 'settings-hint';

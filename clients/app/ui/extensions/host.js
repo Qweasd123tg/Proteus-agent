@@ -42,7 +42,7 @@ export function mountExtensions(root, services = {}, options = {}) {
     if(stopped||owner!==clientOwner&&!cards.has(owner.id))throw new Error('Расширение закрыто');
     if(!/^[a-z0-9][a-z0-9.-]*$/.test(key)||typeof title!=='string'||!title.trim()||!['left','right'].includes(location)||(onClose!==undefined&&typeof onClose!=='function'))throw new Error('Некорректная вкладка');
     const id=`${owner.id}:${key}`;if(owned.has(id))return owned.get(id).handle;
-    const record={id,location,owned:true,enabled:true,collapsed:true,manifest:{name:title,presentation:'panel'}};
+    const record={id,location,owned:true,enabled:true,collapsed:true,manifest:{name:title}};
     const card=createPanel(record,{surfaceOnly:true,lightContent:owner===clientOwner,changed:change=>update(id,change)});
     const handle=Object.freeze({root:card.root,signal:card.signal,show(){if(owned.get(id)?.record===record)update(id,{collapsed:false});},hide(){if(owned.get(id)?.record===record)update(id,{collapsed:true});},close(){if(owned.get(id)?.record===record)close(id);}});
     owned.set(id,{owner,record,card,handle,onClose});render();return handle;

@@ -5,6 +5,11 @@ from pathlib import Path
 
 def open_report(js, wait_for):
     js("window.reportChatBefore=new URL(location.href).searchParams.get('session_dir');document.querySelector('.settings-link').click()")
+    wait_for(lambda: js("return !!document.querySelector('[data-settings-section=extensions]')"), 'Settings did not mount')
+    if not js("return !!document.querySelector('[data-settings-section=diagnostic-usage]')"):
+        js("document.querySelector('[data-settings-section=extensions]').click()")
+        wait_for(lambda: js("return !!document.querySelector('[data-extension-available=diagnostic-usage]')"), 'External diagnostic package unavailable')
+        js("document.querySelector('[data-extension-available=diagnostic-usage]').click()")
     wait_for(lambda: js("return !!document.querySelector('[data-settings-section=diagnostic-usage]')"), 'Settings did not mount')
     js("document.querySelector('[data-settings-section=diagnostic-usage]').click()")
     wait_for(lambda: js("return !!document.querySelector('.diagnostic-frame')"),'Diagnostic module missing')
