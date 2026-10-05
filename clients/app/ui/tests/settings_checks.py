@@ -24,6 +24,9 @@ def run(command, js, wait_for):
     assert js("const row=document.querySelector('[data-settings-section=extensions]');return row.getBoundingClientRect().height===chatRow.height && getComputedStyle(row).fontSize===chatRow.font && getComputedStyle(row).borderRadius===chatRow.radius"), 'Settings/chat navigation geometry differs'
     assert js("return !document.querySelector('[aria-label^=\"Выше:\"], [aria-label^=\"Ниже:\"]')"), 'Order arrows remain'
     wait_for(lambda: len(order())>2,'Module list missing')
+    assert js("const side=document.querySelector('.extension-settings-sidebar'),content=document.querySelector('.settings-content');return side && !side.hidden && !side.inert && side.parentElement===document.querySelector('.settings-page') && !!side.querySelector('.extension-list') && !!side.querySelector('.builtin-module-settings') && !!side.querySelector('.extension-install') && !!side.querySelector('.extension-reset') && !content.querySelector('.extension-list')"), 'Extension management did not move into the sidebar'
+    assert js("const n=document.querySelector('.settings-nav').getBoundingClientRect(),s=document.querySelector('.extension-settings-sidebar').getBoundingClientRect(),c=document.querySelector('.settings-content').getBoundingClientRect();return n.right<=s.left+1 && s.right<=c.left+1 && s.width>=260 && c.width>=320"), 'Extension sidebar does not sit between navigation and parameters'
+    assert js("return !document.querySelector('.extension-options-content')"), 'Opening the sidebar executed a settings entry'
     before = order()
     # Move the third row to the top using trusted pointer events, inspect before drop.
     handle = f'[data-reorder="{before[2]}"]'
@@ -48,7 +51,7 @@ def run(command, js, wait_for):
     click('[data-settings-id=usage]')
     wait_for(lambda: js("return !!document.querySelector('.extension-options-content')?.shadowRoot?.querySelector('form')"), 'Settings form not mounted')
     wait_for(lambda: js("return !document.querySelector('.extension-options').getAnimations().some(a=>a.playState==='running')"), 'Options animation did not settle')
-    assert js("const n=document.querySelector('.settings-nav').getBoundingClientRect(),l=document.querySelector('.settings-content').getBoundingClientRect(),r=document.querySelector('.extension-options').getBoundingClientRect();return n.right<=l.left && r.left===l.left && r.right<=l.right+1 && r.width>300"), 'Module details escaped the Settings screen'
+    assert js("const s=document.querySelector('.extension-settings-sidebar').getBoundingClientRect(),l=document.querySelector('.settings-content').getBoundingClientRect(),r=document.querySelector('.extension-options').getBoundingClientRect();return s.right<=r.left+1 && r.left===l.left && r.right<=l.right+1 && r.width>300 && s.width>=260"), 'Module details cover the sidebar'
     js("window.keptOptions=document.querySelector('.extension-options-content');keptOptions.shadowRoot.querySelector('[name=model]').value='draft-model'")
     # A dropdown consumes Escape first, then the pane consumes the next one.
     js("keptOptions.shadowRoot.querySelector('select').click()")
@@ -61,8 +64,10 @@ def run(command, js, wait_for):
     click('[data-settings-id=usage]')
     click('[data-settings-section=diagnostic-usage]')
     wait_for(lambda: js("return document.querySelector('.extension-options').getBoundingClientRect().width===0"), 'Options leaked into another section')
+    wait_for(lambda: js("const s=document.querySelector('.extension-settings-sidebar');return s.hidden && s.inert && s.getBoundingClientRect().width===0"), 'Sidebar leaked into another section')
     click('[data-settings-section=extensions]')
     assert js("return document.querySelector('.extension-options-content')===keptOptions && keptOptions.shadowRoot.querySelector('[name=model]').value==='draft-model'"), 'Hiding settings lost unsaved form'
+    assert js("return !document.querySelector('.extension-settings-sidebar').hidden"), 'Returning did not restore the sidebar'
     wait_for(lambda: js("return !document.querySelector('.settings-nav').getAnimations({subtree:true}).some(a=>a.playState==='running')"), 'Navigation transition did not settle')
     Path('/tmp/proteus-settings-three-panes.png').write_bytes(base64.b64decode(command('/screenshot', None)))
     for width in [900, 620, 390]:

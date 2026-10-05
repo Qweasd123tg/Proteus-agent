@@ -4,6 +4,7 @@ import { widgetPlacement } from './widgets.js';
 import { button } from './panel.js';
 import { icon } from './icons.js';
 import { createSettingsPane } from './settings-pane.js';
+import { createSettingsLayout } from './settings-layout.js';
 import { enableReorder } from './settings-reorder.js';
 import { mountSettingsEntry } from './settings-entry.js';
 import { mountDisclosureMotion } from '../ui/disclosure-motion.js';
@@ -18,6 +19,8 @@ function node(tag, text, className) {
 export function mountExtensionSettings(root, registry, services = {}) {
   const controller = new AbortController();
   const { signal } = controller;
+  const layout = createSettingsLayout(root, signal);
+  const management = layout.sidebar;
   let rowsController;
   const rowCache=new Map();
   let closeOptions, optionsId;
@@ -35,6 +38,9 @@ export function mountExtensionSettings(root, registry, services = {}) {
       const specific=node('div','','extension-specific-settings');
       optionsBody.replaceChildren(...(hasSurface(record.manifest,'compact')?[widgetPlacement(registry.storage,settingsController.signal,record.id)]:[]),specific);
       const stop=record.manifest?.settings?mountSettingsEntry(specific,record,registry.storage,services):undefined;
+      if (!record.manifest?.settings && !hasSurface(record.manifest, 'compact')) {
+        specific.append(node('p', 'У этого расширения нет дополнительных параметров.', 'settings-hint'));
+      }
       closeOptions=()=>{settingsController.abort();stop?.();optionsBody.replaceChildren();};
     }
     pane.show(record.manifest?.name??record.id);updateSelection();
@@ -65,7 +71,7 @@ export function mountExtensionSettings(root, registry, services = {}) {
   // A broken saved selection is repaired right where it is reported.
   const repair = button('Восстановить встроенные расширения', () => registry.resetCore?.(), signal);
   repair.dataset.builtinRepair = 'settings'; repair.hidden = true;
-  root.append(builtin, list, available, source, notice, repair, announcement, reset);
+  management.append(builtin, list, available, source, notice, repair, announcement, reset);
   const resetContent=node('div');
   resetContent.append(...[...reset.children].slice(1));reset.append(resetContent);
   mountDisclosureMotion(builtin,builtinContent,signal);
@@ -130,12 +136,12 @@ export function mountExtensionSettings(root, registry, services = {}) {
       row.append(add); available.append(row);
     }
     updateSelection();
-    if (focusKey) [...root.querySelectorAll('[data-control-key]')].find(item => item.dataset.controlKey === focusKey)?.focus();
+    if (focusKey) [...management.querySelectorAll('[data-control-key]')].find(item => item.dataset.controlKey === focusKey)?.focus();
   });
   form.addEventListener('submit', async event => {
     event.preventDefault();
     if (await registry.install(input.value)) input.value = '';
   }, { signal });
   void registry.start();
-  return () => { stopBuiltin(); close(); controller.abort(); rowsController?.abort(); for(const item of rowCache.values())item.controller.abort();rowCache.clear(); unsubscribe(); pane.remove(); root.replaceChildren(); };
+  return () => { stopBuiltin(); close(); controller.abort(); rowsController?.abort(); for(const item of rowCache.values())item.controller.abort();rowCache.clear(); unsubscribe(); pane.remove(); layout.remove(); root.replaceChildren(); };
 }

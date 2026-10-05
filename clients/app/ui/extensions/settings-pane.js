@@ -2,7 +2,7 @@ import { node } from './dom.js';
 import { icon } from './icons.js';
 import { watchViewMotion } from '../ui/view-motion.js';
 
-// Extension options are a detail page inside Settings, not another sidebar.
+// The selected extension's settings occupy the main area beside management.
 export function createSettingsPane(root, signal, onHide) {
   const pane=node('section',null,'extension-options');pane.hidden=true;pane.setAttribute('aria-label','Настройки расширения');
   const header=node('header',null,'extension-options-header'), title=node('h3'), body=node('div',null,'extension-options-body');
