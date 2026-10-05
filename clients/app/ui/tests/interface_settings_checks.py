@@ -14,7 +14,7 @@ def run(command, js, wait_for, server):
             click('.settings-link')
         wait_for(lambda: js("return !!document.querySelector('[data-settings-section="+section+"]')"),'Settings navigation missing')
         click('[data-settings-section='+section+']')
-        wait_for(lambda: js("return !!document.querySelector('[data-module-page="+section+"] input')"),'Module not mounted')
+        wait_for(lambda: js("return !!document.querySelector('[data-module-page="+section+"] .client-module-content input')"),'Module not mounted')
 
     def key(code, **modifiers):
         args = dict(code=code, key={'Escape':'Escape','Enter':'Enter'}.get(code,code), bubbles=True, cancelable=True, **modifiers)

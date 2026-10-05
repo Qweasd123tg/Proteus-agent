@@ -1,4 +1,4 @@
-import {mountBuiltinManagement, selectionButtons} from '../ui/modules/management.js';
+import {selectionButtons} from '../ui/modules/management.js';
 import { button } from './panel.js';
 import { icon } from './icons.js';
 import { enableReorder } from './settings-reorder.js';
@@ -39,24 +39,14 @@ export function mountExtensionSettings(root, registry) {
   reset.append(node('p', 'Состав и порядок панелей заменятся поставляемым списком. Заметки сохранятся.', 'settings-hint'));
   const restore = button('Восстановить', () => { reset.open = false; void registry.reset(); }, signal);
   reset.append(restore);
-  const builtin=node('details','','builtin-module-settings');
-  builtin.append(node('summary','Встроенные расширения'));
-  const builtinContent=node('div');
-  builtin.append(builtinContent);
-  // A broken saved selection is repaired right where it is reported.
-  const repair = button('Восстановить встроенные расширения', () => registry.resetCore?.(), signal);
-  repair.dataset.builtinRepair = 'settings'; repair.hidden = true;
-  root.append(builtin, list, available, source, notice, repair, announcement, reset);
+  root.append(list, available, source, notice, announcement, reset);
   const resetContent=node('div');
   resetContent.append(...[...reset.children].slice(1));reset.append(resetContent);
-  mountDisclosureMotion(builtin,builtinContent,signal);
   mountDisclosureMotion(source,form,signal);
   mountDisclosureMotion(reset,resetContent,signal);
-  const stopBuiltin=mountBuiltinManagement(builtinContent,registry);
   enableReorder(list,registry,signal,announcement);
   const unsubscribe = registry.subscribe(() => {
-    const { records: allRecords, bundled, notice: message, busy, ready, builtinsInvalid } = registry.state();
-    repair.hidden = !builtinsInvalid;
+    const { records: allRecords, bundled, notice: message, busy, ready } = registry.state();
     const records=allRecords.filter(r=>!r.builtin);
     const focusKey = document.activeElement?.dataset.controlKey;
     rowsController?.abort(); rowsController = new AbortController();
@@ -117,5 +107,5 @@ export function mountExtensionSettings(root, registry) {
     if (await registry.install(input.value)) input.value = '';
   }, { signal });
   void registry.start();
-  return () => { stopBuiltin(); controller.abort(); rowsController?.abort(); for(const item of rowCache.values())item.controller.abort();rowCache.clear(); unsubscribe(); root.replaceChildren(); root.classList.remove('extension-management'); };
+  return () => { controller.abort(); rowsController?.abort(); for(const item of rowCache.values())item.controller.abort();rowCache.clear(); unsubscribe(); root.replaceChildren(); root.classList.remove('extension-management'); };
 }

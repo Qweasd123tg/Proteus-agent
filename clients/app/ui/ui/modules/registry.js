@@ -97,6 +97,7 @@ export function createClientModuleRegistry(
       return {
         ...state,
         records: records(),
+        builtinNotice: notice,
         notice: [notice, state.notice].filter(Boolean).join(" "),
         builtinsInvalid: invalid,
         slots: { ...configuration.slots },

@@ -3,6 +3,11 @@ import { icon } from "../../extensions/icons.js";
 import { mountModule } from "./host.js";
 import { watchViewMotion } from "../view-motion.js";
 import { mountExtensionOptions } from "../../extensions/settings-page.js";
+import { builtinSettingsSurface, mountBuiltinSettings } from "./builtin-settings.js";
+
+const groupOf = (record) => record.builtin &&
+  (!record.manifest.navigation || record.manifest.navigation.group === "settings")
+  ? "builtin" : record.manifest.navigation?.group || "settings";
 export function mountSettings(root, registry, services, requested) {
   const controller = new AbortController(),
     signal = controller.signal,
@@ -37,7 +42,13 @@ export function mountSettings(root, registry, services, requested) {
   const header = document.createElement("header");
   header.className = "settings-toolbar";
   const title = document.createElement("h1");
-  header.append(title);
+  const problem = document.createElement('p');
+  problem.className = 'settings-status'; problem.setAttribute('role', 'status');
+  const repair = document.createElement('button');
+  repair.type = 'button'; repair.textContent = 'Восстановить встроенные расширения';
+  repair.dataset.builtinRepair = 'settings'; repair.hidden = true;
+  repair.addEventListener('click', () => registry.resetCore?.(), { signal });
+  header.append(title, problem, repair);
   content.append(header);
   root.append(nav, content);
   let selected =
@@ -64,16 +75,21 @@ export function mountSettings(root, registry, services, requested) {
     // Register before mount: a module may subscribe to the same registry.
     const item = { record, section, stop: () => {} };
     mounted.set(record.id, item);
-    const stopModule = hasSurface(record.manifest, "settings")
+    const stopModule = record.builtin && groupOf(record) !== "agent"
+      ? mountBuiltinSettings(section, record, registry, services)
+      : hasSurface(record.manifest, "settings")
       ? mountModule(section, record, registry, services, "settings")
       : mountExtensionOptions(section, record, registry.storage, services);
     item.stop = () => { stopMotion(); stopModule(); };
   }
   function render() {
     const state = registry.state();
+    problem.textContent = state.builtinNotice || '';
+    problem.hidden = !state.builtinNotice;
+    repair.hidden = !state.builtinsInvalid;
     const pages = state.records.filter(
-      (r) => r.enabled && r.manifest && !r.error &&
-        (!r.builtin || hasSurface(r.manifest, "settings")),
+      (r) => r.manifest && !r.error &&
+        (r.builtin ? !!builtinSettingsSurface(r) : r.enabled),
     );
     if (!pages.some((r) => r.id === selected)) selected = "extensions";
     for (const [id, item] of mounted)
@@ -90,11 +106,12 @@ export function mountSettings(root, registry, services, requested) {
     nav.querySelectorAll(":scope > .settings-nav-label").forEach((el) => el.remove());
     for (const [group, label] of [
       ["agent", "Агент"],
-      ["settings", "Интерфейс"],
+      ["builtin", "Встроенные"],
+      ["settings", "Расширения"],
       ["diagnostics", "Диагностика"],
     ]) {
       const items = pages.filter(
-        (r) => (r.manifest.navigation?.group || "settings") === group,
+        (r) => groupOf(r) === group,
       );
       if (!items.length) continue;
       const heading = document.createElement("span");
@@ -115,6 +132,7 @@ export function mountSettings(root, registry, services, requested) {
           buttons.set(record.id, button);
         }
         button.classList.toggle("active", record.id === selected);
+        button.classList.toggle("disabled", !record.enabled);
         button.setAttribute("aria-pressed", String(record.id === selected));
         nav.append(button);
       }

@@ -13,7 +13,7 @@ def run(command, js, wait_for):
         click('.settings-link')
         wait_for(lambda: js("return !!document.querySelector('[data-settings-section=appearance]')"), 'Settings absent')
         click(f'[data-settings-section={section}]')
-        wait_for(lambda: js('return !!document.querySelector("[data-module-page='+section+'] input")'), 'Settings module pending')
+        wait_for(lambda: js('return !!document.querySelector("[data-module-page='+section+'] .client-module-content input")'), 'Settings module pending')
 
     # One live compact instance follows its placement, including across SPA mounts.
     wait_for(lambda: js("return !!document.querySelector('[data-widget-id=model-quota] span')?.shadowRoot?.querySelector('svg')"), 'Compact quota did not render')

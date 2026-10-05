@@ -86,12 +86,12 @@ def run(command, js, wait_for):
     frames()
     assert js("return document.querySelector('.session-workspace')===motionChat && document.querySelector('.composer textarea')===motionComposer && motionComposer.value==='Черновик при смене экранов' && localStorage.getItem('proteus.workspace.layout')===motionLayout"), 'Screen animation reset workspace, draft or retained roots'
 
-    # The real system-module disclosure must grow and collapse, including reversal.
+    # The installation disclosure must grow and collapse, including reversal.
     click('.settings-link');click('[data-settings-section=extensions]')
-    wait_for(lambda: js("return !!document.querySelector('.builtin-module-settings')"), 'System module disclosure missing')
-    details = '.builtin-module-settings'
-    summary = '.builtin-module-settings > summary'
-    closed_height = js("return document.querySelector('.builtin-module-settings').getBoundingClientRect().height")
+    wait_for(lambda: js("return !!document.querySelector('.extension-source')"), 'Extension source disclosure missing')
+    details = '.extension-source'
+    summary = '.extension-source > summary'
+    closed_height = js("return document.querySelector('.extension-source').getBoundingClientRect().height")
     opening = sample(details, click_action(summary))
     full_height = opening['samples'][-1]['height']
     assert full_height > closed_height + 50, 'Disclosure did not expose its controls'
@@ -104,7 +104,7 @@ def run(command, js, wait_for):
     reversal = sample(details, click_action(summary),
                       middle='(v,n)=>n===2' if reduced else 'v=>v.height>'+str(closed_height+1)+'&&v.height<'+str(full_height-1),
                       interrupt=click_action(summary))
-    assert reversal['interrupted'] and js("return document.querySelector('.builtin-module-settings').open"), 'Disclosure reversal ended closed'
+    assert reversal['interrupted'] and js("return document.querySelector('.extension-source').open"), 'Disclosure reversal ended closed'
     assert abs(reversal['samples'][-1]['height']-full_height)<2, 'Interrupted disclosure clipped its controls'
     click('.settings-back');frames()
 

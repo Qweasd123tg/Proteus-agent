@@ -4,11 +4,10 @@ from urllib.parse import urlencode
 
 def run(command, js, wait_for, web, origin, loaded, capture=None):
     def click(selector):
-        # Built-in controls are intentionally under a closed disclosure.
-        js('const target=document.querySelector('+repr(selector)+');const system=target.closest(".builtin-module-settings");if(system&&!system.open)system.querySelector("summary").click();target.click()')
+        js('document.querySelector('+repr(selector)+').click()')
     def page(id):
         click('[data-settings-section='+id+']')
-        wait_for(lambda: js('return !!document.querySelector("[data-module-page='+id+'] .client-module-content")?.children.length'), 'Module missing: '+id)
+        wait_for(lambda: js('const page=document.querySelector("[data-module-page='+id+']");return !!page?.querySelector(".client-module-content")?.children.length || !!page?.querySelector("[data-select-slot]") || page?.querySelector("[data-builtin-module] input")?.checked===false'), 'Module missing: '+id)
     command('/url', {'url':web+'/?'+urlencode({'server':origin,'token':'extension-smoke'})})
     wait_for(loaded,'Client not connected')
     # A selection saved before an update removed a page it had turned off
@@ -39,15 +38,17 @@ def run(command, js, wait_for, web, origin, loaded, capture=None):
     click('.settings-link')
     wait_for(lambda: js("return !!document.querySelector('[data-settings-section=extensions]')"),'Settings navigation missing')
     page('extensions')
-    assert js("const system=document.querySelector('details.builtin-module-settings');return system && !system.open && system.querySelector('summary').textContent==='Встроенные расширения' && !!system.querySelector('[data-builtin-module]') && [...document.querySelectorAll('[data-extension-choice]')].every(row=>!system.contains(row))"),'System modules are not separate or are expanded by default'
-    assert js("return document.querySelector('[data-builtin-module=extensions] input').disabled"),'Management can disable itself'
+    assert js("return !document.querySelector('[data-module-page=extensions] [data-builtin-module],.builtin-module-settings')"),'Built-in controls remain inside extension management'
+    assert js("const nav=document.querySelector('.settings-nav');return ['appearance','chat','shortcuts','extensions','model-selector','access-selector'].every(id=>{const button=nav.querySelector('[data-settings-section=\"'+id+'\"]');let heading=button?.previousElementSibling;while(heading&&!heading.classList.contains('settings-nav-label'))heading=heading.previousElementSibling;return button?.parentElement===nav&&heading?.textContent==='Встроенные'})"),'Built-in entries do not form a separate sidebar group'
+    page('model-selector')
     click('[data-builtin-module=model-selector] input')
     click('.settings-back')
     wait_for(lambda: js("return !!document.querySelector('.composer textarea')"),'Chat missing')
     assert js("return !document.querySelector('.composer-model-menu') && !!document.querySelector('.composer-access-menu')"),'Disabled module still mounted'
-    click('.settings-link');page('extensions')
-    assert js("return !document.querySelector('.builtin-module-settings').open"),'Leaving settings retained an open system disclosure'
+    click('.settings-link');page('model-selector')
+    assert js("return document.querySelector('[data-settings-section=model-selector]').classList.contains('disabled')"),'Disabled builtin is not available for re-enabling'
     click('[data-builtin-module=model-selector] input')
+    page('extensions')
     click('.extension-source > summary')
     js("document.querySelector('.extension-install input').value=location.origin+'/fixture/client/extension.json';document.querySelector('.extension-install').requestSubmit()")
     wait_for(lambda: js("return !!document.querySelector('[data-settings-section=client-test]')"),'Installed diagnostic absent from navigation')
@@ -67,7 +68,7 @@ def run(command, js, wait_for, web, origin, loaded, capture=None):
     assert js("return !document.querySelector('.composer-model-menu')"),'Two implementations selected at once'
     command('/refresh',{})
     wait_for(lambda: js("return !!document.querySelector('[data-client-slot=composer-model] [data-config-read] [data-custom-module=composer-model]')"),'Selection or declared service not restored')
-    click('.settings-link');page('extensions')
+    click('.settings-link');page('model-selector')
     click('[data-select-slot=composer-model][data-module-id=model-selector]')
     js("document.dispatchEvent(new KeyboardEvent('keydown',{key:'I',code:'KeyI',ctrlKey:true,shiftKey:true,bubbles:true,cancelable:true}))")
     wait_for(lambda: js("return document.querySelector('[data-settings-section=diagnostic-usage]')?.classList.contains('active') && !document.querySelector('[data-client-view=settings]').hidden"), 'Diagnostic shortcut did not select embedded settings')
@@ -97,8 +98,8 @@ def run(command, js, wait_for, web, origin, loaded, capture=None):
         page(id)
         wait_for(lambda: js('return !!document.querySelector("[data-module-page='+id+'] iframe")?.contentDocument?.querySelector(".inspector-shell")'), 'Diagnostic not loaded: '+id)
     wait_for(lambda: js("return !!document.querySelector('[data-module-page=diagnostic-architecture] iframe').contentDocument.querySelector('[data-node-id=\"slot:workflow\"]')"),'Embedded architecture did not read real topology')
-    page('extensions');click('[data-builtin-module=diagnostic-usage] input')
-    assert js("return !keptDiagnostic.isConnected && !document.querySelector('[data-settings-section=diagnostic-usage]')"),'Disabled diagnostic retained iframe'
+    page('diagnostic-usage');click('[data-builtin-module=diagnostic-usage] input')
+    assert js("return !keptDiagnostic.isConnected && document.querySelector('[data-settings-section=diagnostic-usage]').classList.contains('disabled')"),'Disabled diagnostic retained iframe or lost its management page'
     click('[data-builtin-module=diagnostic-usage] input')
     click('.settings-back')
     wait_for(lambda: js("return !!document.querySelector('.composer-model-menu')"),'Built-in selector not restored')

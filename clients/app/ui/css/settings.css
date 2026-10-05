@@ -5,12 +5,14 @@
 .settings-nav > a, .settings-nav > button { display:flex; align-items:center; justify-content:flex-start; flex:none; gap:10px; min-height:var(--nav-row-height); padding:6px var(--nav-row-inset); border:0; border-radius:var(--radius-inner); text-align:left; text-decoration:none; font-size:var(--nav-row-font); line-height:var(--nav-row-line); font-weight:400; color:var(--text-main); background:transparent; }
 .settings-nav > a:hover, .settings-nav > button:hover { background:var(--bg-panel-hover); }
 .settings-nav > button.active { background:var(--bg-panel-soft); }
+.settings-nav > button.disabled { color:var(--text-muted); }
 .settings-nav > a svg, .settings-nav > button svg { width:18px; height:18px; flex:none; color:var(--text-muted); }
 .settings-nav .settings-back { margin-bottom:8px; }
 .settings-nav-label { padding:14px var(--nav-row-inset) 6px; color:var(--text-faint); font-size:12px; }
 .settings-content { min-width:0; overflow-y:auto; padding:56px max(32px,calc((100% - 900px)/2)) 64px; }
 .settings-toolbar { margin-bottom:32px; }
 .settings-toolbar h1 { color:var(--text-main); font-size:25px; font-weight:500; letter-spacing:-.6px; }
+.settings-toolbar > [hidden] { display:none; }
 .settings-section { margin-top:0; }
 .settings-section h2 { font-size:14px; font-weight:500; margin-bottom:16px; }
 .settings-section-description { color:var(--text-muted); font-size:13px; margin-bottom:24px; }
@@ -46,6 +48,9 @@
 .settings-content .extension-available .extension-choice { border:1px solid var(--border-subtle);border-radius:14px; }
 
 .settings-row + .settings-row { margin-top:12px; }
+.builtin-settings-controls { margin-bottom:24px; flex:none; }
+.diagnostic-settings > .builtin-settings-page { flex-direction:column; }
+.diagnostic-settings .builtin-settings-body { display:flex; flex:1; min-height:0; }
 .settings-range { display:flex; align-items:center; gap:12px; flex-shrink:0; }
 .settings-range input { width:140px; accent-color:var(--text-main); }
 .settings-range output { min-width:58px; text-align:right; font-variant-numeric:tabular-nums; }
@@ -85,12 +90,6 @@
   .settings-range { flex-direction:row; width:100%; }
   .settings-range input[type=range] { flex:1; }
 }
-.builtin-module-settings { margin-bottom:28px; }
-.builtin-module-settings > summary { padding:14px 16px; border:1px solid var(--border-subtle); border-radius:12px; background:var(--bg-panel-soft); cursor:pointer; }
-.builtin-module-settings > summary:hover { background:var(--bg-panel-hover); }
-.builtin-module-settings > div { padding-top:20px; }
-.builtin-module-list { display:grid; gap:8px; margin-bottom:12px; }
-.builtin-module-list .settings-row { margin:0; }
 .settings-toggle:disabled { cursor:default; }
 .module-selection { display:flex; gap:6px; }
 .diagnostic-settings { display:flex; flex-direction:column; padding:20px; }
