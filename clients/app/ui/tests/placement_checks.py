@@ -17,7 +17,7 @@ def run(command, js, wait_for):
         click('[data-settings-section=extensions]')
 
     def place(id, value):
-        click(f'[data-settings-id={id}]')
+        click(f'[data-settings-section={id}]')
         js(f"const s=document.querySelector('[data-widget-placement={id}]');s.value={json.dumps(value)};s.dispatchEvent(new Event('change',{{bubbles:true}}))")
 
     wait_for(lambda: js("return !!document.querySelector('[data-widget-id=model-quota] span')?.shadowRoot?.querySelector('svg') && !!document.querySelector('[data-widget-id=context]')"), 'Live widgets missing')
@@ -35,11 +35,11 @@ def run(command, js, wait_for):
     click('.settings-back')
     assert js("return !document.querySelector('[data-widget-id=context]') && document.querySelector('[data-extension-id=context]')===contextPanel && !!document.querySelector('[data-widget-id=model-quota]')"), 'Hiding disposed extension or hid others'
     settings()
-    click('[data-settings-id=context]')
+    click('[data-settings-section=context]')
     assert js("return document.querySelector('[data-widget-placement=context]').value==='hidden'"), 'Reopening settings lost selection'
     js("window.placementSet=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(k==='proteus.ui.widget.context.position')throw new Error('storage fixture');return window.placementSet.call(this,k,v)}")
     place('context','header')
-    assert js("return document.querySelector('[data-widget-placement=context]').value==='hidden' && document.querySelector('.extension-widget-placement [role=status]').textContent.includes('Не удалось')"), 'Failed write did not roll back'
+    assert js("return document.querySelector('[data-widget-placement=context]').value==='hidden' && document.querySelector('[data-module-page=context] .extension-widget-placement [role=status]').textContent.includes('Не удалось')"), 'Failed write did not roll back'
     js("Storage.prototype.setItem=window.placementSet")
     place('context','composer')
     place('notes','header')
@@ -47,12 +47,18 @@ def run(command, js, wait_for):
     assert js("return document.querySelector('[data-widget-id=context]')===contextWidget"), 'Showing widget recreated root'
     command('/refresh', {})
     wait_for(lambda: js("return !!document.querySelector('[data-widget-slot=header] [data-widget-id=notes]') && !!document.querySelector('[data-widget-slot=header] [data-widget-id=model-quota]') && !!document.querySelector('[data-widget-slot=composer] [data-widget-id=context]')"), 'Independent placements lost on reload')
+    # Returning from Settings restores the selected quota tab; composer widgets
+    # belong to chat, so select that surface before sending pointer gestures.
+    click('.brand')
+    wait_for(lambda: js("return !document.querySelector('[data-client-view=chat]').hidden"), 'Chat did not reveal composer widgets')
 
     # Pointer drag must move the actual live root across the two host surfaces.
     def point(selector):
         return js(f"const r=document.querySelector({json.dumps(selector)}).getBoundingClientRect();return [Math.round(r.x+r.width/2),Math.round(r.y+r.height/2)]")
 
     def drag_widget(id, destination, cancel=False):
+        js(f"document.querySelector('[data-widget-id={id}]').scrollIntoView({{inline:'center',block:'nearest'}})")
+        wait_for(lambda: js(f"const widget=document.querySelector('[data-widget-id={id}]'),r=widget.getBoundingClientRect();return r.width>0 && document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('[data-widget-id]')===widget"), 'Widget is not ready for a pointer drag')
         start=point(f'[data-widget-id={id}]')
         command('/actions',{'actions':[{'type':'pointer','id':'widget-drag','parameters':{'pointerType':'mouse'},'actions':[{'type':'pointerMove','origin':'viewport','x':start[0],'y':start[1]},{'type':'pointerDown','button':0},{'type':'pointerMove','duration':100,'origin':'viewport','x':start[0]+8,'y':start[1]}]}]})
         assert js("return document.querySelector('[data-widget-slot=header]').classList.contains('widget-drop-target')"), 'Empty header drop target missing'

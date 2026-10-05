@@ -64,7 +64,7 @@ export function moduleServices(registry) {
       Object.freeze({
         mount(root) {
           signal.throwIfAborted();
-          return mountExtensionSettings(root, registry, services);
+          return mountExtensionSettings(root, registry);
         },
       }),
     "client.diagnostics": (signal) =>

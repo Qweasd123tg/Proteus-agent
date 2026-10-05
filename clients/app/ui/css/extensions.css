@@ -38,8 +38,8 @@ label.extension-description { cursor: pointer; }
 .extension-reset p { margin: 12px 0; }
 
 .extension-panel:has([aria-expanded=false]) .extension-panel-header { margin-bottom: 0; }
-.extension-options { margin: 20px 0; padding: 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-card); }
-.extension-options[hidden] { display: none; }
+.extension-management [hidden] { display:none; }
+.extension-settings-page { display:grid; gap:24px; }
 .context-usage-report { margin-top: 24px; padding: 20px; background: var(--bg-panel); border: 1px solid var(--border-subtle); border-radius: 16px; }
 .context-usage-report h2 { font-size: 18px; margin: 0 0 8px; }
 [data-builtin-repair] { justify-self: start; align-self: start; }

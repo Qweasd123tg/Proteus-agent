@@ -2,6 +2,7 @@ import { hasSurface } from "../../extensions/contract.js";
 import { icon } from "../../extensions/icons.js";
 import { mountModule } from "./host.js";
 import { watchViewMotion } from "../view-motion.js";
+import { mountExtensionOptions } from "../../extensions/settings-page.js";
 export function mountSettings(root, registry, services, requested) {
   const controller = new AbortController(),
     signal = controller.signal,
@@ -31,9 +32,6 @@ export function mountSettings(root, registry, services, requested) {
     { signal },
   );
   nav.append(back);
-  const extensionsNav = document.createElement("section");
-  extensionsNav.className = "settings-extensions-nav";
-  extensionsNav.setAttribute("aria-label", "Расширения");
   const content = document.createElement("div");
   content.className = "settings-content";
   const header = document.createElement("header");
@@ -66,13 +64,16 @@ export function mountSettings(root, registry, services, requested) {
     // Register before mount: a module may subscribe to the same registry.
     const item = { record, section, stop: () => {} };
     mounted.set(record.id, item);
-    const stopModule = mountModule(section, record, registry, services, "settings");
+    const stopModule = hasSurface(record.manifest, "settings")
+      ? mountModule(section, record, registry, services, "settings")
+      : mountExtensionOptions(section, record, registry.storage, services);
     item.stop = () => { stopMotion(); stopModule(); };
   }
   function render() {
     const state = registry.state();
     const pages = state.records.filter(
-      (r) => r.enabled && r.manifest && hasSurface(r.manifest, "settings"),
+      (r) => r.enabled && r.manifest && !r.error &&
+        (!r.builtin || hasSurface(r.manifest, "settings")),
     );
     if (!pages.some((r) => r.id === selected)) selected = "extensions";
     for (const [id, item] of mounted)
@@ -106,24 +107,17 @@ export function mountSettings(root, registry, services, requested) {
           button = document.createElement("button");
           button.type = "button";
           button.dataset.settingsSection = record.id;
-          if (record.id === "extensions") {
-            button.className = "settings-extensions-heading settings-nav-label";
-            button.append(document.createTextNode(record.manifest.name));
-          } else {
-            button.append(
-              icon(record.manifest.navigation?.icon || "modules"),
-              document.createTextNode(record.manifest.name),
-            );
-          }
+          button.append(
+            icon(record.manifest.navigation?.icon || "modules"),
+            document.createTextNode(record.manifest.name),
+          );
           button.addEventListener("click", () => select(record.id), { signal });
           buttons.set(record.id, button);
         }
         button.classList.toggle("active", record.id === selected);
         button.setAttribute("aria-pressed", String(record.id === selected));
-        if (record.id === "extensions") extensionsNav.prepend(button);
-        else nav.append(button);
+        nav.append(button);
       }
-      if (group === "settings") nav.append(extensionsNav);
     }
     const record = pages.find((r) => r.id === selected);
     if (!record) return;
@@ -137,9 +131,6 @@ export function mountSettings(root, registry, services, requested) {
       "agent-settings",
       record.manifest.navigation?.group === "agent",
     );
-    // Management supplies the persistent navigation block; settings entries
-    // remain lazy until a package is selected.
-    ensureMounted(pages.find((page) => page.id === "extensions"));
     ensureMounted(record);
     for (const [id, item] of mounted) {
       if (id !== selected && !item.section.hidden)
