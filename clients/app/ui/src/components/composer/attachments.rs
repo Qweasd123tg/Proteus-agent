@@ -214,13 +214,13 @@ pub(super) fn accept_window_drops(input: ImageInput, composer: NodeRef<html::For
     });
 }
 
+/// The picker sits in the toolbar corner; previews stay above the text.
 #[component]
-pub(super) fn ImageAttachments(input: ImageInput) -> impl IntoView {
+pub(super) fn AttachButton(input: ImageInput) -> impl IntoView {
     let picker = NodeRef::<html::Input>::new();
-    let actions = input.actions;
-    let loading = actions.attachments_loading;
+    let loading = input.actions.attachments_loading;
     view! {
-        <div class="composer-attachments">
+        <span class="composer-attach">
             <input type="file" node_ref=picker accept=IMAGE_TYPES.join(",") multiple hidden
                 on:change=move |event| {
                     let target = event.target().unwrap().unchecked_into::<web_sys::HtmlInputElement>();
@@ -228,8 +228,17 @@ pub(super) fn ImageAttachments(input: ImageInput) -> impl IntoView {
                     target.set_value("");
                     input.add(files);
                 } />
-            <button type="button" class="icon-button attach-image" title="Прикрепить изображения · можно вставить Ctrl+V или перетащить · до 4 файлов, суммарно до 5 МБ" aria-label="Прикрепить изображения" disabled=move || loading.get()
+            <button type="button" class="attach-image" title="Прикрепить изображения · можно вставить Ctrl+V или перетащить · до 4 файлов, суммарно до 5 МБ" aria-label="Прикрепить изображения" disabled=move || loading.get()
                 on:click=move |_| { if let Some(picker) = picker.get() { picker.click(); } }><super::super::icons::PlusIcon/></button>
+        </span>
+    }
+}
+
+#[component]
+pub(super) fn ImageAttachments(input: ImageInput) -> impl IntoView {
+    let actions = input.actions;
+    view! {
+        <div class="composer-attachments">
             <div class="attachment-previews">
                 <For each={move || actions.attachments.get().into_iter().enumerate().collect::<Vec<_>>()} key=preview_key children={move |(index, image)| {
                     let url = format!("data:{};base64,{}", image.mime_type, image.data);

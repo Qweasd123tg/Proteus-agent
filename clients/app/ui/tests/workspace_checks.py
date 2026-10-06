@@ -105,8 +105,8 @@ def run(command, js, wait_for):
     assert js("return !document.querySelector('.workspace-picker [data-open-tab=\"client:settings\"]')"),'Visited settings leaked into the tab picker'
     js("document.querySelector('.workspace-picker').hidePopover()")
     # Persistent slot placement uses the same roots and opens a bounded menu up top.
-    grip='[data-control-id=composer-model] .module-drag-handle'
-    click(grip)
+    grip='[data-control-id=composer-model] summary'
+    js("const r=document.querySelector('[data-control-id=composer-model]').getBoundingClientRect();document.querySelector('[data-control-id=composer-model]').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:r.x+8,clientY:r.y+8}))")
     js("[...document.querySelectorAll('.module-placement-menu button')].find(b=>b.textContent==='В верхней панели').click()")
     assert js("return document.querySelector('[data-module-zone=header] .composer-model-menu')===keptModel"),'Moving model replaced module'
     click('.composer-model-menu summary')
@@ -117,9 +117,10 @@ def run(command, js, wait_for):
     start=point(grip);end=point('[data-module-zone=composer-start]')
     pointer([move(start),{'type':'pointerDown','button':0},move(end),{'type':'pointerUp','button':0}])
     assert js("return document.querySelector('[data-module-zone=composer-start] .composer-model-menu')===keptModel"),'Control pointer transfer failed'
-    js("document.querySelector('[data-control-id=composer-model] .module-drag-handle').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',altKey:true,bubbles:true}))")
+    js("document.querySelector('[data-control-id=composer-model] summary').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',altKey:true,bubbles:true}))")
     assert js("const zone=document.querySelector('[data-module-zone=composer-start]');return zone.firstElementChild.dataset.controlId==='composer-model' && JSON.parse(localStorage.getItem('proteus.client.controls.layout')).filter(x=>x.zone==='composer-start')[0].id==='composer-model'"),'Keyboard control reorder did not apply or persist'
-    click(grip);js("[...document.querySelectorAll('.module-placement-menu button')].find(b=>b.textContent==='В верхней панели').click()")
+    js("const r=document.querySelector('[data-control-id=composer-model]').getBoundingClientRect();document.querySelector('[data-control-id=composer-model]').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:r.x+8,clientY:r.y+8}))")
+    js("[...document.querySelectorAll('.module-placement-menu button')].find(b=>b.textContent==='В верхней панели').click()")
     # Tooltips reflect a live rebinding, and omit disabled bindings.
     pointer([move([2, 2])])
     js("document.querySelector('[data-workspace-split]').focus()")

@@ -80,6 +80,7 @@ where
                 </div>
                 <div class="composer-toolbar">
                     <div class="composer-options">
+                        <attachments::AttachButton input=images />
                         <div class="module-dock" data-module-zone="composer-start"><ClientModuleSlot surface="composer-access"/></div>
                         <div class="widget-slot" data-widget-slot="composer"></div>
                     </div>

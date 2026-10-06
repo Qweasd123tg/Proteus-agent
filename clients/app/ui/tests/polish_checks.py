@@ -76,13 +76,13 @@ def run(command, js, wait_for):
     wait_for(lambda: js("return [...document.querySelectorAll('.composer-model-menu .menu-option-title')].some(x=>x.textContent==='Fixture 2')"), 'Second fixture model absent')
     js("[...document.querySelectorAll('.composer-model-menu .menu-option-row')].find(b=>b.textContent.includes('Fixture 2')).click()")
     wait_for(lambda: js("return JSON.parse(localStorage.getItem('proteus.model.last-selection')||'null')?.model==='fixture-model-2'"), 'Manual model not remembered')
-    js("[...document.querySelectorAll('.composer-model-menu .menu-option')].find(b=>b.querySelector('.menu-option-title')?.textContent==='высокий').click()")
+    js("[...document.querySelectorAll('.composer-model-menu .menu-option')].find(b=>b.querySelector('.menu-option-title')?.textContent==='high').click()")
     wait_for(lambda: js("return JSON.parse(localStorage.getItem('proteus.model.last-selection')||'null')?.effort==='high'"), 'Effort not remembered')
     command('/refresh', {})
     wait_for(lambda: js("return document.querySelector('.connection-badge')?.classList.contains('completed')"), 'Model reload not connected')
     click('[aria-label="Новая сессия"]')
     wait_for(lambda: js("return new URL(location.href).searchParams.get('session_dir')!==sessionStorage.getItem('polish.originalSession') && document.querySelector('.connection-badge')?.classList.contains('completed') && document.querySelector('.composer-model-menu summary')?.dataset.uiTooltip==='fixture-model-2'"), 'New chat lost selected model')
-    assert js("return document.querySelector('.composer-menu-meta')?.textContent.includes('высокий') || [...document.querySelectorAll('.composer-model-menu .menu-option.active')].some(b=>b.querySelector('.menu-option-title')?.textContent==='высокий')"), 'New chat lost effort'
+    assert js("return document.querySelector('.composer-menu-meta')?.textContent.includes('High') || [...document.querySelectorAll('.composer-model-menu .menu-option.active')].some(b=>b.querySelector('.menu-option-title')?.textContent==='high')"), 'New chat lost effort'
     click('.composer-model-menu summary')
     js("[...document.querySelectorAll('.composer-model-menu .menu-option-row')].find(b=>b.querySelector('.menu-option-title').textContent==='Fixture').click()")
     wait_for(lambda: js("return JSON.parse(localStorage.getItem('proteus.model.last-selection')||'null')?.model==='fixture-model'"), 'Second model selection did not save')

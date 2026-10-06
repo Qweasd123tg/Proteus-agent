@@ -61,7 +61,7 @@ export function mountControlPlacement(target) {
       details.open = false;
     dock.insertBefore(row, before);
     remember();
-    row.querySelector(".module-drag-handle").focus({ preventScroll: true });
+    row.querySelector("summary,button")?.focus({ preventScroll: true });
   }
   function choices(row, anchor, event) {
     event?.preventDefault();
@@ -85,24 +85,13 @@ export function mountControlPlacement(target) {
     const row = document.createElement("div");
     row.className = "client-module-movable";
     row.dataset.controlId = id;
-    const handle = document.createElement("button");
-    handle.type = "button";
-    handle.className = "module-drag-handle";
-    handle.textContent = "⠿";
-    const label =
-      id === "composer-model"
-        ? "Модель и рассуждение"
-        : id === "composer-access"
-          ? "Режим доступа"
-          : id;
-    handle.title = `Переместить: ${label}`;
-    handle.setAttribute("aria-label", handle.title);
-    handle.addEventListener("click", () => choices(row, handle), { signal });
-    row.addEventListener("contextmenu", (e) => choices(row, handle, e), {
+    // The control itself is the drag handle, like a widget icon: a click
+    // still opens it, a held drag moves it, right click offers the zones.
+    row.addEventListener("contextmenu", (e) => choices(row, row, e), {
       signal,
     });
     root.before(row);
-    row.append(handle, root);
+    row.append(root);
     items.push({ root, row, origin });
   }
   for (const entry of layout) {
@@ -116,7 +105,7 @@ export function mountControlPlacement(target) {
   for (const dock of docks)
     enableHorizontalReorder(dock, {
       itemSelector: ".client-module-movable",
-      handleSelector: ".module-drag-handle",
+      handleSelector: ".client-module-movable",
       id: (row) => row.dataset.controlId,
       lists: () => docks,
       signal,

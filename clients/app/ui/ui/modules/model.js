@@ -1,15 +1,4 @@
 import { menu, section, option } from "./menu.js";
-// Provider effort ids read as words; an unknown id is shown as is.
-const effortNames = {
-  auto: "авто",
-  none: "выкл",
-  minimal: "минимум",
-  low: "низкий",
-  medium: "средний",
-  high: "высокий",
-  xhigh: "максимум",
-};
-const effortName = (effort) => effortNames[effort] ?? effort;
 export function mount({ root, services, signal }) {
   const service = services["client.composer"],
     ui = menu(root, "model", "Модель и рассуждение", null, signal);
@@ -32,7 +21,7 @@ export function mount({ root, services, signal }) {
     ui.name.textContent = name.length > 32 ? name.slice(0, 31) + "…" : name;
     ui.summary.title = state.model;
     ui.meta.hidden = !state.reasoning;
-    ui.meta.textContent = state.reasoning ? effortName(state.effort) : "";
+    ui.meta.textContent = state.reasoning ? state.effortLabel : "";
     ui.panel.replaceChildren();
     const models = section(ui.panel, "Модель");
     if (!state.models.length) option(models, state.model || "Из профиля", true);
@@ -47,7 +36,7 @@ export function mount({ root, services, signal }) {
       const efforts = section(ui.panel, "Рассуждение");
       efforts.classList.remove("stacked");
       for (const effort of state.efforts) {
-        const button = option(efforts, effortName(effort), state.effort === effort, () =>
+        const button = option(efforts, effort, state.effort === effort, () =>
           service.set("effort", effort),
         );
         button.classList.remove("menu-option-row", "choice-row");

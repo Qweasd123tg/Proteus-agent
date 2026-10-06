@@ -13,7 +13,7 @@ PNG = base64.b64encode((ROOT / 'crates/proteus-core/tests/fixtures/pixel.png').r
 SCRIPT = '''
 (() => {
   if (window.imageProbe) return window.imageProbe;
-  const input=document.querySelector('.composer-attachments input[type=file]');
+  const input=document.querySelector('.composer-attach input[type=file]');
   const ready=document.querySelector('[data-extension-id=agent-info] .extension-panel-content')?.shadowRoot?.textContent.includes('extensions-smoke');
   if (!input || !ready || document.querySelector('.composer-stop')) return null;
   // The harness answers {paste:true} with a real GTK clipboard paste.

@@ -17,7 +17,7 @@ export function createPanel(record,{services,storage,changed,surfaceOnly=false,l
   const error=document.createElement('p');error.className='extension-error';error.setAttribute('role','status');
   const retry=button('Повторить',()=>mount(),signal);retry.hidden=true;element.append(body,error,retry);
   const workspace=surfaceOnly||!!workspaceView;
-  const compact=button('',()=>{if(workspace)changed({collapsed:false});},signal);compact.className='extension-widget';compact.dataset.widgetId=record.id;if(record.widget)compact.dataset.widgetDefault=record.widget;compact.title=record.manifest?.name??record.id;compact.setAttribute('aria-label',compact.title);
+  const compact=button('',()=>{if(workspace)changed({collapsed:false});},signal);compact.className='extension-widget';compact.dataset.widgetId=record.id;compact.dataset.widgetName=record.manifest?.name??record.id;if(record.widget)compact.dataset.widgetDefault=record.widget;compact.title=record.manifest?.name??record.id;compact.setAttribute('aria-label',compact.title);
   const compactSurface=document.createElement('span');compact.append(compactSurface);const compactRoot=compactSurface.attachShadow({mode:'open'});
   const hover=Object.freeze({set(text){if(typeof text!=='string')throw new Error('Подсказка должна быть текстом');compact.dataset.uiTooltipDetails=text;}});
   hover.set(record.manifest?.description??'');

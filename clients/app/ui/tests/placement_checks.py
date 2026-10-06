@@ -88,6 +88,9 @@ def run(command, js, wait_for):
     assert js("return document.querySelector('.extension-widget-menu').textContent.includes('Открыть вкладку')"), 'Workspace context action missing'
     js("document.querySelector('.extension-widget-menu button:last-child').click()")
     assert js("return !document.querySelector('[data-widget-id=context]') && localStorage.getItem('proteus.ui.widget.context.position')==='hidden'"), 'Context hide did not persist'
+    assert js("const n=document.querySelector('.extension-widget-notice');return n?.matches(':popover-open') && n.textContent.includes('Заполнение контекста') && n.textContent.includes('настройках')"), 'Hiding did not say where the icon went'
+    js("[...document.querySelectorAll('.extension-widget-notice button')].find(b=>b.textContent==='Вернуть').click()")
+    assert js("return !!document.querySelector('[data-widget-slot=header] [data-widget-id=context]') && localStorage.getItem('proteus.ui.widget.context.position')==='header' && !document.querySelector('.extension-widget-notice').matches(':popover-open')"), 'Undo did not restore the previous zone'
     js("localStorage.setItem('proteus.ui.widget.context.position','composer');window.dispatchEvent(new Event('proteus-widgets-position'))")
 
     # Host detail updates remain visible as text while the tooltip is open.

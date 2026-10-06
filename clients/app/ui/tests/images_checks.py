@@ -49,7 +49,7 @@ def check_paste_and_drop(js, wait_for):
 
 def run(command, js, wait_for, server, web, origin):
     def attach():
-        element = command('/element', {'using': 'css selector', 'value': '.composer-attachments input[type=file]'})
+        element = command('/element', {'using': 'css selector', 'value': '.composer-attach input[type=file]'})
         key = next(iter(element.values()))
         command('/element/'+key+'/value', {'text': str(PNG)})
         wait_for(lambda: js('return document.querySelectorAll(".attachment-preview").length===1'), 'Image preview missing')

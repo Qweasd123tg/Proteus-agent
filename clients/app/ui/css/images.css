@@ -1,5 +1,9 @@
-.composer-attachments { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:4px 8px; }
-.composer-attachments:has(.attachment-previews:empty) { padding-bottom:0; }
+.composer-attachments { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:10px 10px 0; }
+.composer-attachments:not(:has(.attachment-preview, .attachment-error)) { display:none; }
+.composer-attach { display:contents; }
+.attach-image { flex:none; display:grid; place-items:center; width:34px; height:34px; min-height:34px; padding:0; border:0; border-radius:50%; background:transparent; color:var(--text-muted); }
+.attach-image:hover:not(:disabled) { background:var(--bg-panel-hover); color:var(--text-main); }
+.attach-image svg { width:18px; height:18px; }
 .attachment-previews { display:flex; gap:8px; flex:1; min-width:0; flex-wrap:wrap; }
 .attachment-preview { display:flex; align-items:center; gap:6px; max-width:200px; padding:4px; border:1px solid var(--border-subtle); border-radius:10px; }
 .attachment-preview img { width:44px; height:44px; object-fit:cover; border-radius:6px; }
