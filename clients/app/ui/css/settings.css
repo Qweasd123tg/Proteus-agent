@@ -24,10 +24,12 @@
 .settings-label { display:grid; min-width:0; gap:4px; }
 .settings-label strong { font-size:13px; font-weight:500; }
 .settings-hint { max-width:640px; color:var(--text-muted); font-size:12px; line-height:1.5; }
-.settings-toggle { appearance:none; width:32px; height:19px; flex:0 0 32px; padding:2px; border:1px solid var(--border-strong); border-radius:999px; background:var(--bg-panel-soft); cursor:pointer; }
-.settings-toggle::before { content:''; display:block; width:13px; height:13px; border-radius:50%; background:var(--text-muted); transition:transform .12s; }
+.settings-toggle { appearance:none; -webkit-appearance:none; position:relative; width:34px; height:20px; flex:0 0 34px; margin:0; padding:0; border:1px solid var(--border-strong); border-radius:999px; background:var(--bg-panel-hover); cursor:pointer; }
+.settings-toggle::before { content:''; position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:var(--text-muted); box-shadow:0 1px 2px rgb(0 0 0 / 35%); transition:transform .12s; }
+.settings-toggle:hover:not(:disabled) { border-color:var(--text-faint); }
+.settings-toggle:focus-visible { outline:2px solid var(--text-muted); outline-offset:2px; }
 .settings-toggle:checked { background:var(--text-main); border-color:var(--text-main); }
-.settings-toggle:checked::before { background:var(--bg-root); transform:translateX(13px); }
+.settings-toggle:checked::before { background:var(--bg-root); box-shadow:none; transform:translateX(14px); }
 .settings-toggle:disabled { opacity:.4; cursor:wait; }
 .settings-status { min-height:18px; padding-top:8px; color:var(--text-muted); font-size:12px; overflow-wrap:anywhere; }
 .settings-content .extension-list { gap:0; border:1px solid var(--border-subtle); border-radius:16px; overflow:hidden; }
@@ -62,7 +64,7 @@
 .extension-preview-empty svg { width:28px; height:28px; }
 .extension-settings-body { min-width:0; }
 .settings-range { display:flex; align-items:center; gap:12px; flex-shrink:0; }
-.settings-range input { width:140px; accent-color:var(--text-main); }
+.settings-range input { width:150px; }
 .settings-range output { min-width:58px; text-align:right; font-variant-numeric:tabular-nums; }
 .settings-row > select { width:auto; flex:0 1 210px; min-width:160px; max-width:45%; }
 .settings-row > .settings-label { flex:1; }
@@ -84,12 +86,6 @@
     .shortcut-row { align-items:flex-start; flex-direction:column; }
 }
 
-/* Range controls do not inherit text-field padding or browser-specific tracks. */
-.settings-range input[type=range] { appearance:none; -webkit-appearance:none; width:140px; height:24px; margin:0; padding:0; border:0; background:transparent; cursor:pointer; box-shadow:none; }
-.settings-range input[type=range]::-webkit-slider-runnable-track { height:4px; border-radius:2px; background:var(--text-muted); }
-.settings-range input[type=range]::-webkit-slider-thumb { appearance:none; -webkit-appearance:none; width:16px; height:16px; margin-top:-6px; border:0; border-radius:50%; background:var(--text-main); }
-.settings-range input[type=range]::-moz-range-track { height:4px; border:0; border-radius:2px; background:var(--text-muted); }
-.settings-range input[type=range]::-moz-range-thumb { width:16px; height:16px; border:0; border-radius:50%; background:var(--text-main); }
 :is(.results-panel, .transcript-row) > .task-card, :is(.results-panel, .transcript-row) > .assistant-turn { margin-bottom:12px; }
 
 .settings-content { container-type:inline-size; }

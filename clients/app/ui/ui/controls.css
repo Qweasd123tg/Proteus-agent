@@ -1,0 +1,86 @@
+/* One look for range and radio controls in every engine. Native widgets
+   follow the platform theme (GTK in WebKitGTK) and clash with the app.
+   Shared by both clients and the extension Shadow DOM theme. A range shows
+   its filled part when the owner sets --range-fill to the thumb centre. */
+input[type=range] {
+    --range-fill: 0px;
+    appearance: none;
+    -webkit-appearance: none;
+    height: 20px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    cursor: pointer;
+}
+input[type=range]:focus { box-shadow: none; }
+input[type=range]:focus-visible { outline: none; }
+input[type=range]:disabled { opacity: .45; cursor: default; }
+input[type=range]::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(to right, var(--text-main, #e6e6e6) 0 var(--range-fill), var(--border-strong, #484848) var(--range-fill) 100%);
+}
+input[type=range]::-moz-range-track { height: 4px; border: 0; border-radius: 999px; background: var(--border-strong, #484848); }
+input[type=range]::-moz-range-progress { height: 4px; border-radius: 999px; background: var(--text-main, #e6e6e6); }
+input[type=range]::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    margin-top: -6px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--text-main, #e6e6e6);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 45%);
+    transition: box-shadow .16s, transform .16s;
+}
+input[type=range]::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--text-main, #e6e6e6);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 45%);
+    transition: box-shadow .16s, transform .16s;
+}
+input[type=range]:hover:not(:disabled)::-webkit-slider-thumb { box-shadow: 0 1px 3px rgb(0 0 0 / 45%), 0 0 0 5px rgb(255 255 255 / 8%); }
+input[type=range]:hover:not(:disabled)::-moz-range-thumb { box-shadow: 0 1px 3px rgb(0 0 0 / 45%), 0 0 0 5px rgb(255 255 255 / 8%); }
+input[type=range]:active:not(:disabled)::-webkit-slider-thumb { transform: scale(1.15); }
+input[type=range]:active:not(:disabled)::-moz-range-thumb { transform: scale(1.15); }
+input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--bg-root, #202020), 0 0 0 5px var(--text-muted, #aaa); }
+input[type=range]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--bg-root, #202020), 0 0 0 5px var(--text-muted, #aaa); }
+
+input[type=radio] {
+    appearance: none;
+    -webkit-appearance: none;
+    flex: none;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    padding: 0;
+    border: 1.5px solid var(--text-faint, #808080);
+    border-radius: 50%;
+    background: transparent;
+    box-shadow: none;
+    cursor: pointer;
+    transition: border-color .16s, background-color .16s;
+}
+input[type=radio]:hover:not(:disabled) { border-color: var(--text-muted, #aaa); }
+input[type=radio]:checked {
+    border-color: var(--text-main, #e6e6e6);
+    background: radial-gradient(circle, var(--text-main, #e6e6e6) 0 3.5px, transparent 4px);
+}
+input[type=radio]:focus { box-shadow: none; }
+input[type=radio]:focus-visible { outline: 2px solid var(--text-muted, #aaa); outline-offset: 2px; }
+input[type=radio]:disabled { opacity: .45; cursor: default; }
+
+@media (prefers-reduced-motion: reduce) {
+    input[type=range]::-webkit-slider-thumb { transition: none; }
+    input[type=range]::-moz-range-thumb { transition: none; }
+    input[type=radio] { transition: none; }
+}
+@media (forced-colors: active) {
+    input[type=range], input[type=radio] { appearance: auto; -webkit-appearance: auto; }
+}

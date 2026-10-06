@@ -11,7 +11,7 @@
 .agent-choice { cursor:pointer; }
 .agent-choice:hover { background:var(--bg-panel-hover); }
 .agent-choice.active { border-color:var(--border-strong); background:var(--bg-panel-hover); }
-.agent-choice input[type=radio] { flex:none; width:16px; height:16px; margin:3px 0 0; padding:0; border:0; accent-color:var(--text-main); }
+.agent-choice input[type=radio] { margin:3px 0 0; }
 .agent-choice-text { display:grid; gap:4px; min-width:0; flex:1; }
 .agent-choice-text strong, .agent-choice-text code { font-size:13px; font-weight:500; overflow-wrap:anywhere; }
 .agent-choice-meta { display:flex; flex-wrap:wrap; gap:6px; margin-top:2px; }

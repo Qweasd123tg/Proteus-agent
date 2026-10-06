@@ -55,13 +55,25 @@ export function form(root, service, signal) {
     input.setAttribute("aria-label", label);
     wrap.append(input, output);
     r.append(wrap);
+    // The track fills up to the thumb centre (16px thumb).
+    const fill = () =>
+      input.style.setProperty(
+        "--range-fill",
+        `calc(8px + (100% - 16px) * ${(input.value - min) / (max - min)})`,
+      );
     controls.push((v) => {
       input.value = v[key];
       output.textContent = `${v[key]} px`;
+      fill();
     });
-    input.addEventListener("input", () => set(key, Number(input.value)), {
-      signal,
-    });
+    input.addEventListener(
+      "input",
+      () => {
+        fill();
+        set(key, Number(input.value));
+      },
+      { signal },
+    );
   }
   function select(key, label, hint, options) {
     const r = row(label, hint),
