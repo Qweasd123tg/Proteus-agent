@@ -50,4 +50,4 @@ window.probe=()=>{if(window.motionFailure)throw Error(window.motionFailure);if(!
 </script></body></html>'''
 
 if __name__ == '__main__':
-    harness.main(label='WebKitGTK settings disclosures')
+    harness.main(label='WebKitGTK settings disclosures', count=2)

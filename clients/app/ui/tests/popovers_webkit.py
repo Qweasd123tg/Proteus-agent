@@ -92,7 +92,7 @@ class Assets(SimpleHTTPRequestHandler):
         self.wfile.write(PAGE.encode())
 
 
-def main(label='WebKitGTK project/session menus; long select descriptions, bottom-edge geometry and Shadow DOM theme'):
+def main(label='WebKitGTK project/session menus; long select descriptions, bottom-edge geometry and Shadow DOM theme', count=4):
     server = ThreadingHTTPServer(('127.0.0.1', 0), partial(Assets, directory=str(ROOT)))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     with tempfile.TemporaryFile(mode='w+') as log:
@@ -140,7 +140,7 @@ def main(label='WebKitGTK project/session menus; long select descriptions, botto
             finally:
                 window.destroy()
             assert not errors, '\n'.join(errors)
-            assert len(results) == 4, results
+            assert len(results) == count, results
             print('PASS: '+label+':', json.dumps(results))
         finally:
             display.terminate()

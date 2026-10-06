@@ -146,7 +146,9 @@ async function snapshotCost(){
   first.dispatchEvent(new PointerEvent('pointerover',{bubbles:true,pointerType:'mouse'}));
   await until(()=>tooltip.matches(':popover-open'),'External hide prevents same-anchor hover');
   await enter(tooltip,'external reopened tooltip');hideTooltip();
-  const tooltipExit=await exit(tooltip,'tooltip');
+  // A tooltip leaves at once: a fading bubble overlaps the next one and flickers.
+  assert(!tooltip.matches(':popover-open')&&tooltip.inert&&getComputedStyle(tooltip).display==='none'&&!document.querySelector('.ui-popover-exit'),'Tooltip left exit pixels');
+  const tooltipExit=0;
   second.focus();await until(()=>tooltip.matches(':popover-open'),'Replacement tooltip did not open');
   await enter(tooltip,'replacement tooltip');
   assert(tooltip.textContent==='Второй','Tooltip retained old anchor text');hideTooltip();

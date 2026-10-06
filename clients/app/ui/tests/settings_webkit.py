@@ -2,7 +2,7 @@
 """Native engine regression for settings controls and hover-stable tabs."""
 import popovers_webkit as harness
 harness.PAGE = '''<!doctype html><html><head><meta charset="utf-8">
-<link rel="stylesheet" href="/css/tokens.css"><link rel="stylesheet" href="/css/settings.css">
+<link rel="stylesheet" href="/css/tokens.css"><link rel="stylesheet" href="/css/settings.css"><link rel="stylesheet" href="/ui/controls.css">
 <link rel="stylesheet" href="/css/extension-columns.css"></head><body>
 <div class="settings-content" style="width:900px;padding:0" id="wide"></div>
 <div class="settings-content" style="width:320px;padding:0" id="narrow"></div>

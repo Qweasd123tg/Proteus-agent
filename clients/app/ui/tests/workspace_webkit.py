@@ -25,26 +25,26 @@ frame.addEventListener('load',async()=>{
   const checks=[],check=(ok,name,detail)=>{if(!ok)throw Error(name+(detail?': '+JSON.stringify(detail):''));checks.push({name});};
   const documentBefore=frame.contentDocument;documentBefore.querySelector('input').value='retained';
   await settled();
-  board.reveal('tools');document.querySelector('.workspace-group .workspace-transfer').click();
-  await settled();
+  // New tabs open beside the chat; bring 'other' next to it so the chat column has a neighbour tab.
+  board.reveal('other');document.querySelector('.workspace-group[data-group="1"] .workspace-transfer').click();
+  board.reveal('client:chat');await settled();
   check(document.querySelectorAll('.workspace-group:not([hidden])').length===2 && tools.getBoundingClientRect().left>chat.getBoundingClientRect().right && chat.getBoundingClientRect().height>500,'native split geometry');
   const nested=chat.querySelector('.nested');chat.scrollTop=220;nested.scrollTop=130;
   await frames();
   const before=chat.getBoundingClientRect();
   if(chat.scrollTop!==220||nested.scrollTop!==130)throw Error('scroll fixture did not overflow');
   board.reveal('other');await frames(1);
-  const exit=chat.getBoundingClientRect(), scrollDuringExit={root:chat.scrollTop,nested:nested.scrollTop};
-  const stableExit=chat.hidden && chat.inert && getComputedStyle(chat).position==='absolute' && ['left','top','width','height'].every(key=>Math.abs(exit[key]-before[key])<1);
-  if(!stableExit)throw Error('in-place split exit moved: '+JSON.stringify({before,exit,hidden:chat.hidden,inert:chat.inert,position:getComputedStyle(chat).position}));
+  const scrollDuringExit={root:chat.scrollTop,nested:nested.scrollTop};
+  // Switching is instant: no faded copy of the previous tab stays painted.
+  if(!(chat.hidden && chat.inert && getComputedStyle(chat).display==='none' && other.getBoundingClientRect().width>0))throw Error('tab switch left the previous tab painted: '+JSON.stringify({before,hidden:chat.hidden,inert:chat.inert,display:getComputedStyle(chat).display}));
   board.reveal('client:chat');await settled();
   const rapidScroll=chat.scrollTop===220&&nested.scrollTop===130;const scrollAfterRapid={root:chat.scrollTop,nested:nested.scrollTop};
   chat.scrollTop=220;nested.scrollTop=130;await frames();
   board.reveal('other');await settled();
-  if(getComputedStyle(chat).display!=='none')throw Error('closed chat retained painted geometry');
   board.reveal('client:chat');await settled();
   const retainedScroll=chat.scrollTop===220&&nested.scrollTop===130;const scrollAfter={root:chat.scrollTop,nested:nested.scrollTop};
   document.querySelector('.workspace-group[data-group="1"] .workspace-transfer').click();
-  check(rapidScroll && retainedScroll && frame.contentDocument===documentBefore && documentBefore.querySelector('input').value==='retained' && chat.querySelector('textarea').value==='draft','native in-place exit, root/nested scroll and document lifetime',{rapidScroll,retainedScroll,scrollDuringExit,scrollAfterRapid,scrollAfter,documentRetained:frame.contentDocument===documentBefore,input:documentBefore.querySelector('input').value,draft:chat.querySelector('textarea').value});
+  check(rapidScroll && retainedScroll && frame.contentDocument===documentBefore && documentBefore.querySelector('input').value==='retained' && chat.querySelector('textarea').value==='draft','native instant switch, root/nested scroll and document lifetime',{rapidScroll,retainedScroll,scrollDuringExit,scrollAfterRapid,scrollAfter,documentRetained:frame.contentDocument===documentBefore,input:documentBefore.querySelector('input').value,draft:chat.querySelector('textarea').value});
   const handle=document.querySelector('.workspace-resize');handle.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));
   const ratio=board.element.style.getPropertyValue('--workspace-ratio');
   document.querySelector('#target').style.display='none';source.update(records);
@@ -57,4 +57,4 @@ frame.addEventListener('load',async()=>{
 });
 </script></body></html>'''
 if __name__=='__main__':
-    harness.main(label='WebKitGTK split tabs, in-place exit, scroll/iframe lifetime, divider and merge')
+    harness.main(label='WebKitGTK split tabs, instant switch, scroll/iframe lifetime, divider and merge')
