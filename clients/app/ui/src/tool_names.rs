@@ -26,3 +26,31 @@ pub(crate) const SPAWN_AGENT_TOOL: &str = "spawn_agent";
 /// Возобновление terminal collaboration-агента. Как и `spawn_agent`, новый
 /// дочерний turn может пережить завершение вызвавшего parent turn-а.
 pub(crate) const FOLLOWUP_TASK_TOOL: &str = "followup_task";
+
+/// Подписи вызовов в ленте: действие и аргумент, который показывается как его
+/// предмет («Команда `ls -la`», «Чтение README.md»). Технические имя и
+/// аргументы остаются в подсказке и подробностях. Неизвестный инструмент
+/// показывается своим именем, а предмет выбирается общими правилами.
+pub(crate) fn tool_label(name: &str) -> Option<(&'static str, &'static str)> {
+    Some(match name {
+        "exec_command" => ("Команда", "cmd"),
+        "shell" => ("Команда", "command"),
+        "write_stdin" => ("Ввод в команду", "chars"),
+        "read_file" => ("Чтение", "path"),
+        "read_many_files" => ("Чтение", "paths"),
+        "write_file" => ("Запись", "path"),
+        "edit_file" => ("Правка", "path"),
+        "list_dir" => ("Список файлов", "path"),
+        "find_files" => ("Поиск файлов", "pattern"),
+        "grep" => ("Поиск", "pattern"),
+        "git_status" => ("Статус git", ""),
+        "git_diff" => ("Изменения git", "path"),
+        "git_log" => ("История git", ""),
+        "web_search" => ("Поиск в сети", "query"),
+        "request_permissions" => ("Запрос прав", "justification"),
+        "view_image" => ("Изображение", "path"),
+        APPLY_PATCH_TOOL => ("Правка", ""),
+        UPDATE_PLAN_TOOL => ("План", ""),
+        _ => return None,
+    })
+}

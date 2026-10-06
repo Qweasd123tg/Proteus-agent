@@ -1,5 +1,5 @@
 //! Consecutive tool calls have one stable row; text and approvals stay outside it.
-use super::{MessageView, ToolCardsCollapsed, icons::*};
+use super::{MessageView, ToolCardsCollapsed, icons::*, tool_activity::tool_activity_headline};
 use crate::{
     transcript::Transcript,
     types::{Message, MessageRole, ToolActivityStatus},
@@ -59,8 +59,9 @@ impl Summary {
         summary
     }
 
+    /// Counters that need attention; the calls themselves are named separately.
     fn label(self) -> String {
-        let mut text = format!("Инструменты · {}", self.count);
+        let mut text = String::new();
         if self.waiting > 0 {
             text.push_str(&format!(" · ждут разрешения: {}", self.waiting));
         }
@@ -75,6 +76,18 @@ impl Summary {
         }
         text
     }
+}
+
+/// «3 действия»: a chain of several calls names their count before the list.
+fn action_count_label(count: usize) -> String {
+    let form = match (count % 10, count % 100) {
+        (1, 11) => "действий",
+        (1, _) => "действие",
+        (2..=4, 12..=14) => "действий",
+        (2..=4, _) => "действия",
+        _ => "действий",
+    };
+    format!("{count} {form}")
 }
 
 #[component]
@@ -109,6 +122,19 @@ pub(super) fn ToolChain(
                 .map(|group| messages.with_tool_statuses(&group.ids, Summary::from_statuses))
         })
     });
+    // The closed chain still says what was done: the calls in order.
+    let preview = Memo::new(move |_| {
+        let ids = group.with(|group| group.as_ref().map(|group| group.ids.clone()).unwrap_or_default());
+        ids.iter()
+            .filter_map(|id| {
+                messages.with_message(*id, |message| {
+                    message
+                        .and_then(|message| message.tool.as_ref())
+                        .map(|tool| tool_activity_headline(tool).text())
+                })
+            })
+            .collect::<Vec<_>>()
+    });
     let content_id = format!("tool-chain-{id}");
     view! {
         <section class="tool-chain" class:expanded=expanded>
@@ -119,7 +145,15 @@ pub(super) fn ToolChain(
                     expanded.update(|value| *value = !*value);
                 }>
                 <TerminalIcon/>
-                <span>{move ||summary.with(|value|value.map(Summary::label).unwrap_or_default())}</span>
+                {move || {
+                    let calls = preview.get();
+                    (calls.len() > 1).then(|| view! { <span class="tool-chain-count">{action_count_label(calls.len())}</span> })
+                }}
+                {move || {
+                    let state = summary.with(|value| value.map(Summary::label).unwrap_or_default());
+                    (!state.is_empty()).then(|| view! { <span class="tool-chain-state">{state.trim_start_matches(" · ").to_owned()}</span> })
+                }}
+                <span class="tool-chain-preview">{move || preview.with(|calls| calls.join(" · "))}</span>
                 <ChevronDownIcon/>
             </button>
             <div class="tool-chain-items" class:revealing=revealing id=content_id hidden=move ||!expanded.get()>

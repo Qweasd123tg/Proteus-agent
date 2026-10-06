@@ -1,13 +1,14 @@
 use serde_json::Value;
 use std::sync::Arc;
 
+use super::headline::{ToolHeadline, tool_headline};
 use crate::tool_names::{APPLY_PATCH_TOOL, UPDATE_PLAN_TOOL};
 use crate::types::ToolActivity;
 use crate::ui_utils::{compact_text, format_json};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct ToolDisplay {
-    pub(super) summary: Option<String>,
+    pub(super) headline: ToolHeadline,
     pub(super) args: Vec<ToolArgPreview>,
     pub(super) patch_files: Vec<PatchFilePreview>,
     pub(super) plan_steps: Vec<PlanStepPreview>,
@@ -28,6 +29,10 @@ pub(super) struct ToolStatic {
 }
 
 impl ToolStatic {
+    pub(super) fn name(&self) -> &str {
+        &self.name
+    }
+
     fn matches(&self, tool: &ToolActivity) -> bool {
         self.call_id == tool.call_id
             && self.name == tool.name
@@ -133,6 +138,11 @@ impl PatchOperation {
     }
 }
 
+/// Headline without the argument list, for compact rows outside the card.
+pub(crate) fn tool_activity_headline(tool: &ToolActivity) -> ToolHeadline {
+    tool_display(tool).headline
+}
+
 pub(super) fn tool_display(tool: &ToolActivity) -> ToolDisplay {
     let patch = if tool.name == APPLY_PATCH_TOOL {
         apply_patch_text_from_args(tool.invocation_args())
@@ -149,21 +159,21 @@ pub(super) fn tool_display(tool: &ToolActivity) -> ToolDisplay {
     } else {
         Vec::new()
     };
+    let mut headline = tool_headline(&tool.name, tool.invocation_args());
+    if !patch_files.is_empty() {
+        headline.subject = Some(patch_subject(&patch_files));
+        headline.meta = Some(patch_stats(&patch_files));
+    } else if !plan_steps.is_empty() {
+        headline.subject = Some(plan_summary(&plan_steps));
+    }
     let args = if patch_files.is_empty() && plan_steps.is_empty() {
-        tool_arg_previews(tool.invocation_args())
+        tool_arg_previews(tool.invocation_args(), headline.subject_key.as_deref())
     } else {
         Vec::new()
     };
-    let summary = if !patch_files.is_empty() {
-        Some(apply_patch_summary(&patch_files))
-    } else if !plan_steps.is_empty() {
-        Some(plan_summary(&plan_steps))
-    } else {
-        generic_tool_summary(&args)
-    };
 
     ToolDisplay {
-        summary,
+        headline,
         args,
         patch_files,
         plan_steps,
@@ -199,7 +209,7 @@ fn plan_summary(steps: &[PlanStepPreview]) -> String {
         .find(|step| step.status == "in_progress")
         .map(|step| format!(" · {}", step.step))
         .unwrap_or_default();
-    format!("план {}/{}{}", completed, steps.len(), current)
+    format!("{}/{}{}", completed, steps.len(), current)
 }
 
 pub(super) fn tool_activity_args_preview(tool: &ToolActivity) -> String {
@@ -323,35 +333,27 @@ impl PatchFilePreviewBuilder {
     }
 }
 
-fn apply_patch_summary(files: &[PatchFilePreview]) -> String {
+fn patch_subject(files: &[PatchFilePreview]) -> String {
+    match files {
+        [only] => only.path.clone(),
+        [first, rest @ ..] => format!("{} +{}", first.path, rest.len()),
+        [] => String::new(),
+    }
+}
+
+fn patch_stats(files: &[PatchFilePreview]) -> String {
     let additions = files.iter().map(|file| file.additions).sum::<usize>();
     let deletions = files.iter().map(|file| file.deletions).sum::<usize>();
-    format!(
-        "отредактировано {} · +{} -{}",
-        file_count_label(files.len()),
-        additions,
-        deletions
-    )
+    format!("+{additions} −{deletions}")
 }
 
-fn file_count_label(count: usize) -> String {
-    let form = match (count % 10, count % 100) {
-        (1, 11) => "файлов",
-        (1, _) => "файл",
-        (2..=4, 12..=14) => "файлов",
-        (2..=4, _) => "файла",
-        _ => "файлов",
-    };
-    format!("{count} {form}")
-}
-
-fn tool_arg_previews(args: &Value) -> Vec<ToolArgPreview> {
+fn tool_arg_previews(args: &Value, subject_key: Option<&str>) -> Vec<ToolArgPreview> {
     let Some(map) = args.as_object() else {
         return Vec::new();
     };
 
     map.iter()
-        .filter(|(_, value)| !value.is_null())
+        .filter(|(key, value)| !value.is_null() && Some(key.as_str()) != subject_key)
         .take(6)
         .map(|(key, value)| ToolArgPreview {
             key: key.clone(),
@@ -381,19 +383,6 @@ fn tool_arg_value_preview(value: &Value) -> String {
         }
         Value::Null => "null".to_owned(),
     }
-}
-
-fn generic_tool_summary(args: &[ToolArgPreview]) -> Option<String> {
-    if args.is_empty() {
-        return None;
-    }
-    Some(
-        args.iter()
-            .take(3)
-            .map(|arg| format!("{}={}", arg.key, compact_text(&arg.value, 48)))
-            .collect::<Vec<_>>()
-            .join(" · "),
-    )
 }
 
 fn item_count_label(count: usize) -> String {
@@ -427,8 +416,8 @@ mod tests {
         };
         let first = tool_static_projection(None, Some(&tool));
         assert_eq!(
-            first.as_ref().unwrap().display.summary.as_deref(),
-            Some("отредактировано 1 файл · +1 -0")
+            first.as_ref().unwrap().display.headline.meta.as_deref(),
+            Some("+1 −0")
         );
 
         tool.status = ToolActivityStatus::Done;
@@ -443,8 +432,12 @@ mod tests {
         let third = tool_static_projection(Some(&second), Some(&tool));
         assert!(tool_static_changed(Some(&second), Some(&third)));
         assert_eq!(
-            third.as_ref().unwrap().display.summary.as_deref(),
-            Some("отредактировано 1 файл · +2 -0")
+            third.as_ref().unwrap().display.headline.text(),
+            "Правка b.txt"
+        );
+        assert_eq!(
+            third.as_ref().unwrap().display.headline.meta.as_deref(),
+            Some("+2 −0")
         );
     }
 
@@ -507,10 +500,8 @@ mod tests {
             result_preview: None,
         });
 
-        assert_eq!(
-            display.summary.as_deref(),
-            Some("отредактировано 1 файл · +1 -0")
-        );
+        assert_eq!(display.headline.text(), "Правка a.txt");
+        assert_eq!(display.headline.meta.as_deref(), Some("+1 −0"));
         assert!(display.args.is_empty());
         assert_eq!(display.patch_files.len(), 1);
     }
@@ -534,10 +525,13 @@ mod tests {
             result_preview: None,
         });
 
-        assert_eq!(display.args.len(), 2);
+        assert_eq!(display.headline.text(), "Чтение src/lib.rs");
         assert_eq!(
-            display.summary.as_deref(),
-            Some("limit=20 · path=src/lib.rs")
+            display.args,
+            vec![ToolArgPreview {
+                key: "limit".to_owned(),
+                value: "20".to_owned()
+            }]
         );
     }
 }

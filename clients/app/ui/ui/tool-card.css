@@ -56,21 +56,33 @@
     white-space: nowrap;
 }
 
-.tool-card-summary-meta {
-    flex: 1;
+/* «Команда ls -la»: действие приглушено, предмет читается первым. */
+.tool-card-summary .tool-card-label {
+    flex: none;
+    max-width: 40%;
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+.tool-card-subject {
+    flex: 0 1 auto;
     min-width: 0;
     overflow: hidden;
-    color: var(--text-muted);
+    padding: 0;
+    background: none;
+    color: var(--text-main);
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 12px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.tool-card-identity {
-    color: var(--text-faint);
+.tool-card-summary-meta {
+    flex: none;
+    color: var(--text-muted);
     font-family: var(--font-mono);
     font-size: 11px;
+    white-space: nowrap;
 }
 
 .tool-full-arguments pre, .tool-effective-arguments pre {
@@ -82,7 +94,8 @@
 
 .tool-full-arguments summary, .tool-effective-arguments summary {
     cursor: pointer;
-    color: var(--text-muted);
+    color: var(--text-faint);
+    font-size: 12px;
 }
 
 /* Длительность завершённого вызова прижимается к каретке справа. */

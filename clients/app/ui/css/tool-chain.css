@@ -2,10 +2,14 @@
 .tool-chain-toggle { display:flex; align-items:center; justify-content:flex-start; gap:8px; width:100%; min-height:32px; padding:4px 0; border:0; border-radius:8px; color:var(--text-muted); background:transparent; text-align:left; font:inherit; font-size:13px; transition:color var(--motion-fast,120ms); }
 .tool-chain-toggle:hover { color:var(--text-main); background:transparent; }
 .tool-chain-toggle span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tool-chain-toggle > svg:first-child { flex:none; }
+.tool-chain-count, .tool-chain-state { flex:none; }
+.tool-chain-count { color:var(--text-main); }
+.tool-chain-preview { flex:0 1 auto; min-width:0; }
 .tool-chain-toggle > svg:last-child { width:14px;height:14px;transition:transform var(--motion-fast,120ms);transform:rotate(-90deg); }
 .tool-chain.expanded > .tool-chain-toggle > svg:last-child { transform:rotate(0); }
-.tool-chain-toggle.attention { color:var(--accent-yellow); }
-.tool-chain-items { max-height:480px; overflow:auto; overscroll-behavior:contain; padding:4px 8px 4px 0; }
+.tool-chain-toggle.attention > svg:first-child, .tool-chain-toggle.attention .tool-chain-state { color:var(--accent-yellow); }
+.tool-chain-items { padding:4px 8px 4px 0; }
 .tool-chain-items[hidden] { display:none; }
 .tool-chain-items.revealing:not([hidden]) { animation:tool-chain-reveal var(--motion-surface,240ms) var(--motion-ease,ease); }
 @keyframes tool-chain-reveal { from { opacity:0; } to { opacity:1; } }

@@ -3,12 +3,13 @@ use leptos::prelude::*;
 use super::transcript_state::{TranscriptRowId, TranscriptViewState};
 use crate::markdown::highlight_preview;
 use crate::types::*;
-use crate::ui_utils::short_id;
 
 mod display;
+mod headline;
 #[cfg(target_arch = "wasm32")]
 pub(crate) use display::parse_plan_steps;
 pub(crate) use display::tool_args_preview;
+pub(super) use display::tool_activity_headline;
 use display::{
     PatchFilePreview, PlanStepPreview, ToolArgPreview, tool_static_changed, tool_static_projection,
 };
@@ -118,27 +119,17 @@ pub(crate) fn ToolActivityCard(
                         </span>
                     }.into_any()
                 }}
-                <strong>{move || {
-                    message
-                        .with(|message| {
-                            message
-                                .as_ref()
-                                .and_then(|message| message.tool.as_ref())
-                                .map(|tool| tool.name.clone())
-                        })
-                        .unwrap_or_else(|| "tool".to_owned())
-                }}</strong>
-                // Сводку в строке показываем только пока карточка свёрнута —
-                // в раскрытом виде те же файлы/аргументы есть ниже, дубль не нужен.
                 {move || {
-                    if expanded.get() {
-                        return ().into_any();
+                    let (headline, name) = static_tool.with(|tool| {
+                        tool.as_ref()
+                            .map(|tool| (tool.display.headline.clone(), tool.name().to_owned()))
+                            .unwrap_or_default()
+                    });
+                    view! {
+                        <strong class="tool-card-label" title=name>{headline.label}</strong>
+                        {headline.subject.map(|subject| view! { <code class="tool-card-subject">{subject}</code> })}
+                        {headline.meta.map(|meta| view! { <span class="tool-card-summary-meta">{meta}</span> })}
                     }
-                    static_tool
-                        .with(|tool| tool.as_ref().and_then(|tool| tool.display.summary.clone()))
-                        .filter(|summary| !summary.trim().is_empty())
-                        .map(|summary| view! { <span class="tool-card-summary-meta">{summary}</span> }.into_any())
-                        .unwrap_or_else(|| ().into_any())
                 }}
                 // Причина отказа видна без раскрытия карточки.
                 {move || {
@@ -187,17 +178,6 @@ pub(crate) fn ToolActivityCard(
                     let has_plan = !plan_steps.is_empty();
                     view! {
                         <div class="tool-card-details">
-                            <code class="tool-card-identity">{move || {
-                                message
-                                    .with(|message| {
-                                        message
-                                            .as_ref()
-                                            .and_then(|message| message.tool.as_ref())
-                                            .map(|tool| short_id(&tool.call_id).to_owned())
-                                    })
-                                    .unwrap_or_default()
-                            }}</code>
-
                             {if has_patch_files {
                                 view! { <ToolFileList files=patch_files state_prefix=state_prefix.clone() /> }.into_any()
                             } else {
@@ -220,7 +200,7 @@ pub(crate) fn ToolActivityCard(
                             }}
                             <ToolPreview text=result_text caption="ответ" state_key=format!("tool-result:{state_prefix}") />
                             <details class="tool-full-arguments">
-                                <summary>"Все параметры запроса"</summary>
+                                <summary>"JSON вызова"</summary>
                                 <pre>{move || requested_args.get()}</pre>
                             </details>
                             {move || (!effective_args.get().is_empty()).then(|| view! {
