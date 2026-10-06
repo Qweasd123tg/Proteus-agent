@@ -28,7 +28,7 @@ try {
  check(section.hidden&&section.getBoundingClientRect().width===0&&select.isConnected,'switching to management hides the whole parameters section');
  button.click();await frame();const retained=section.querySelector('select')===select&&select.value==='header';registry.update('active',{enabled:false});await frame();
  const stopped=retained&&!select.isConnected&&!nav.querySelector('[data-settings-section=active]');
- const toggle=section.querySelector('[data-extension-toggle=active]');
+ const toggle=document.querySelector('.settings-toolbar [data-extension-toggle=active]');
  const information=section.isConnected&&!section.hidden&&!toggle.checked&&!!section.querySelector('.extension-summary,.extension-preview');
  toggle.click();await frame();
  check(stopped&&information&&toggle.checked&&!!nav.querySelector('[data-settings-section=active]')&&!!section.querySelector('select'),'own switch stops the view, retains information and enables the package again');

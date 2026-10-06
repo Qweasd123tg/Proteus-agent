@@ -39,15 +39,30 @@ export function mountSettings(root, registry, services, requested) {
   const header = document.createElement("header");
   header.className = "settings-toolbar";
   const title = document.createElement("h1");
+  // The selected page's own switch shares the title row; required parts have none.
+  const titleRow = document.createElement("div");
+  titleRow.className = "settings-title-row";
+  const pageSwitch = document.createElement("label");
+  pageSwitch.className = "settings-page-switch";
+  const toggle = document.createElement("input");
+  toggle.type = "checkbox";
+  toggle.className = "settings-toggle";
+  pageSwitch.append(toggle);
+  titleRow.append(title, pageSwitch);
   const problem = document.createElement('p');
   problem.className = 'settings-status'; problem.setAttribute('role', 'status');
   const repair = document.createElement('button');
   repair.type = 'button'; repair.textContent = 'Восстановить встроенные расширения';
   repair.dataset.builtinRepair = 'settings'; repair.hidden = true;
   repair.addEventListener('click', () => registry.resetCore?.(), { signal });
-  header.append(title, problem, repair);
+  header.append(titleRow, problem, repair);
   content.append(header);
   root.append(nav, content);
+  toggle.addEventListener(
+    "change",
+    () => registry.update(selected, { enabled: toggle.checked }),
+    { signal },
+  );
   let selected =
     requested ||
     new URL(location.href).searchParams.get("settings_module") ||
@@ -135,6 +150,13 @@ export function mountSettings(root, registry, services, requested) {
     const record = pages.find((r) => r.id === selected);
     if (!record) return;
     title.textContent = record.manifest.name;
+    pageSwitch.hidden = !!record.required;
+    if (record.source === "builtin") pageSwitch.dataset.builtinModule = record.id;
+    else delete pageSwitch.dataset.builtinModule;
+    toggle.dataset.extensionToggle = record.id;
+    toggle.setAttribute("aria-label", "Включить: " + record.manifest.name);
+    toggle.checked = !!record.enabled;
+    toggle.disabled = !!record.required || (record.source === "package" && (state.busy || !state.ready));
     root.dataset.settingsModule = selected;
     content.dataset.viewLayout = viewForSurface(record.manifest, "settings")?.layout || "form";
     ensureMounted(record);
