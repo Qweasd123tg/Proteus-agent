@@ -6,16 +6,16 @@ pub(crate) use proteus_contracts::{
     contracts::{ApprovalCacheScope, UserInputRequest as UserInputRequestInfo},
 };
 pub(crate) trait ApprovalCacheLabel {
-    fn label(self) -> &'static str;
+    fn button_label(self) -> &'static str;
     fn description(self) -> &'static str;
 }
 impl ApprovalCacheLabel for ApprovalCacheScope {
-    fn label(self) -> &'static str {
+    fn button_label(self) -> &'static str {
         match self {
-            Self::None => "Один раз",
-            Self::ExactCall => "Тот же вызов",
-            Self::ExactCommand => "Та же команда",
-            Self::WorkspaceWrite => "Запись в проекте",
+            Self::None => "Разрешить",
+            Self::ExactCall => "Разрешать этот вызов",
+            Self::ExactCommand => "Разрешать эту команду",
+            Self::WorkspaceWrite => "Разрешать запись в проекте",
         }
     }
     fn description(self) -> &'static str {

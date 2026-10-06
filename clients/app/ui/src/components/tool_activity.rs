@@ -10,6 +10,7 @@ mod headline;
 pub(crate) use display::parse_plan_steps;
 pub(crate) use display::tool_args_preview;
 pub(super) use display::tool_activity_headline;
+pub(super) use headline::tool_headline;
 use display::{
     PatchFilePreview, PlanStepPreview, ToolArgPreview, tool_static_changed, tool_static_projection,
 };

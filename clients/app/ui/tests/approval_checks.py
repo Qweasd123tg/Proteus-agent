@@ -1,4 +1,4 @@
-"""Approval scope picker keeps canonical responses and actual tool effects."""
+"""Approval buttons keep canonical responses and actual tool effects."""
 import base64
 from pathlib import Path
 
@@ -11,44 +11,37 @@ def run(command, js, wait_for, folder):
         wait_for(lambda: js("return document.querySelector('.composer-submit')?.disabled===false"), 'Submit not ready')
         js("document.querySelector('.composer-submit').click()")
         try:
-            wait_for(lambda: js("return !!document.querySelector('.approval-card select')"), 'Approval missing')
+            wait_for(lambda: js("return !!document.querySelector('.approval-card [data-approval-scope]')"), 'Approval missing')
         except AssertionError as error:
             raise AssertionError(js("return document.body.innerText")) from error
 
-    def choose(value):
-        # Click through the production themed picker so input/change reaches Leptos.
-        js("document.querySelector('.approval-card select').click()")
-        wait_for(lambda: js("return !!document.querySelector('.select-picker')?.matches(':popover-open')"), 'Approval picker missing')
-        index = js("return [...document.querySelector('.approval-card select').options].findIndex(o=>o.value==="+repr(value)+")")
-        js("document.querySelectorAll('.select-picker [role=option]')["+str(index)+"].click()")
-        wait_for(lambda: js("return document.querySelector('.approval-card select').value==="+repr(value)), 'Approval scope did not update')
+    def scopes():
+        return js("return [...document.querySelectorAll('.approval-card [data-approval-scope]')].map(b=>b.dataset.approvalScope)")
 
     def settle():
         wait_for(lambda: js("return !document.querySelector('.approval-card') && !document.querySelector('.composer-stop')"), 'Approval did not settle')
 
     send('Запиши тестовый файл')
-    assert js("return document.querySelector('.approval-card select').value==='none' && document.querySelector('.approval-card .approval-cwd').textContent && document.querySelector('.approval-preview').textContent.includes('approved once') && !document.querySelector('.approval-arguments').open"), 'Approval hides action or silently grants repeat access'
-    choose('workspace_write')
-    assert js("return document.querySelector('.approval-scope p').textContent.includes('инструмента')"), 'Broad scope explanation absent'
-    choose('exact')
+    assert js("return !document.querySelector('.approval-card select') && document.querySelector('.approval-card .approval-cwd').textContent && document.querySelector('.approval-subject').textContent.includes('approval-result.txt') && document.querySelector('.approval-preview').textContent.includes('approved once') && !document.querySelector('.approval-arguments').open"), 'Approval hides the action or preselects repeat access'
+    assert scopes() == ['exact', 'workspace_write', 'none'], scopes()
+    assert js("return document.querySelector('[data-approval-scope=workspace_write]').dataset.uiTooltip.includes('инструмента')"), 'Broad scope explanation absent'
     js("document.querySelector('.approval-arguments summary').click()")
     assert js("return document.querySelector('.approval-arguments').open && document.querySelector('.approval-arguments').textContent.includes('approved once')"), 'Raw parameters unavailable'
     Path('/tmp/proteus-approval-refined.png').write_bytes(base64.b64decode(command('/screenshot', None)))
-    js("document.querySelector('.approval-card .btn-primary').click()")
+    js("document.querySelector('[data-approval-scope=exact]').click()")
     settle()
     assert js("return approvalReplies.at(-1).approved && approvalReplies.at(-1).cache==='exact_call'"), 'Write exact scope changed on the wire'
     assert (folder/'approval-result.txt').read_text() == 'approved once'
 
     send('Выполни тестовую команду')
-    assert js("return document.querySelector('.approval-card select').options.length===2 && document.querySelector('.approval-card select').value==='none' && !document.querySelector('.approval-preview') && document.querySelector('.approval-card .tool-preview').textContent.includes('printf approval-command')"), 'Command inherited previous approval scope, broad option or lost preview'
-    choose('exact')
-    js("document.querySelector('.approval-card .btn-primary').click()")
+    assert scopes() == ['exact', 'none'], scopes()
+    assert js("return !document.querySelector('.approval-preview') && document.querySelector('.approval-subject').textContent==='printf approval-command' && document.querySelector('[data-approval-scope=exact]').textContent.includes('команду')"), 'Command lost its headline or offered a broad option'
+    js("document.querySelector('[data-approval-scope=exact]').click()")
     settle()
     assert js("return approvalReplies.at(-1).approved && approvalReplies.at(-1).cache==='exact_command'"), 'Command scope changed on the wire'
 
     send('Отклони тестовую запись')
-    choose('workspace_write')
-    js("document.querySelector('.approval-card .danger').click()")
+    js("document.querySelector('.approval-card [data-approval-decision=deny]').click()")
     settle()
     assert js("return !approvalReplies.at(-1).approved && approvalReplies.at(-1).cache==='none'"), 'Denial retained a broad permission'
     assert not (folder/'denied-result.txt').exists(), 'Denied write executed'
@@ -57,4 +50,4 @@ def run(command, js, wait_for, folder):
     reason = js("return [...document.querySelectorAll('.tool-card-summary')].find(x=>x.querySelector('.status-badge.failed'))?.querySelector('.tool-card-reason')?.textContent||''")
     print('Denied reason:', reason, flush=True)
     assert reason.strip(), 'Denied call hides its reason until expanded'
-    print('PASS: actual write and command approvals; themed picker -> exact_call/exact_command; reset per request; denial always none with no file effect; preview and raw parameters; visible denial with its reason', flush=True)
+    print('PASS: actual write and command approvals; explicit repeat buttons -> exact_call/exact_command; no preselected scope; denial always none with no file effect; action headline, preview and raw parameters; visible denial with its reason', flush=True)

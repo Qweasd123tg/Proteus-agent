@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use leptos::prelude::*;
 use serde_json::Value;
 
-use super::{ToolPreview, tool_args_preview};
+use super::{ToolPreview, tool_args_preview, tool_activity::tool_headline};
 use crate::types::*;
 
 #[component]
@@ -11,46 +11,52 @@ pub(crate) fn ApprovalCard<F>(request: ApprovalRequestInfo, on_resolve: F) -> im
 where
     F: Fn(String, bool, ApprovalCacheScope) + Copy + 'static,
 {
-    let (cache, set_cache) = signal(ApprovalCacheScope::None);
-    let approve_id = request.approval_id.clone();
-    let deny_id = request.approval_id.clone();
+    let approval_id = request.approval_id.clone();
     let args_preview = tool_args_preview(&request.call.name, &request.call.args);
     let exact_scope = if approval_is_command(&request) {
         ApprovalCacheScope::ExactCommand
     } else {
         ApprovalCacheScope::ExactCall
     };
-    let allows_workspace_write_cache = approval_allows_workspace_write_cache(&request);
+    // Repeated permissions are explicit buttons, never a preselected default.
+    let mut repeat_scopes = vec![exact_scope];
+    if approval_allows_workspace_write_cache(&request) {
+        repeat_scopes.push(ApprovalCacheScope::WorkspaceWrite);
+    }
     let tool_description = request
         .tool_spec
         .as_ref()
-        .map(|spec| spec.description.as_str())
-        .unwrap_or(&request.reason)
-        .to_owned();
-    let has_preview_body = request
-        .preview
-        .as_ref()
-        .and_then(|preview| preview.body.as_ref())
-        .is_some_and(|body| !body.trim().is_empty());
-    let cache_id = format!("approval-scope-{}", request.approval_id);
+        .map(|spec| spec.description.clone())
+        .unwrap_or_default();
+    let headline = tool_headline(&request.call.name, &request.call.args);
+    let has_subject = headline.subject.is_some();
     let origin_label = request
         .origin
         .as_ref()
         .and_then(|origin| origin.label.clone());
+    let resolve = move |approved: bool, scope: ApprovalCacheScope| {
+        let id = approval_id.clone();
+        move |_| on_resolve(id.clone(), approved, scope)
+    };
 
     view! {
         <article class="control-card approval-card">
             <header class="approval-heading">
                 <div class="control-card-header">
                     <span class="status-badge attention">"Требуется разрешение"</span>
-                    <strong title=tool_description>{request.call.name}</strong>
                     {origin_label.map(|label| view! { <span class="status-badge subagent">{format!("субагент: {label}")}</span> })}
                 </div>
-                <code class="approval-cwd">{request.cwd.to_string_lossy().into_owned()}</code>
+                <div class="approval-action">
+                    <span class="approval-action-label" title=format!("{}\n{}", request.call.name, tool_description)>{headline.label}</span>
+                    {headline.subject.map(|subject| view! { <code class="approval-subject">{subject}</code> })}
+                </div>
+                <p class="approval-context">
+                    <code class="approval-cwd">{request.cwd.to_string_lossy().into_owned()}</code>
+                    {(!request.reason.trim().is_empty()).then(|| view! { <span class="approval-reason">{request.reason.clone()}</span> })}
+                </p>
             </header>
-            <p>{request.reason}</p>
             {approval_preview(request.preview.clone())}
-            {if has_preview_body {
+            {if has_subject || request.preview.is_some() {
                 view! {
                     <details class="approval-arguments">
                         <summary>"Параметры вызова"</summary>
@@ -60,45 +66,46 @@ where
             } else {
                 view! { <ToolPreview text=Signal::derive(move || args_preview.clone()) caption="параметры вызова" /> }.into_any()
             }}
-            <div class="approval-scope">
-                <label for=cache_id.clone()>"Разрешение действует"</label>
-                <select id=cache_id prop:value=move || match cache.get() {
-                    ApprovalCacheScope::None => "none",
-                    ApprovalCacheScope::ExactCall | ApprovalCacheScope::ExactCommand => "exact",
-                    ApprovalCacheScope::WorkspaceWrite => "workspace_write",
-                } on:change:target=move |event| {
-                    let scope = match event.target().value().as_str() {
-                        "exact" => exact_scope,
-                        "workspace_write" if allows_workspace_write_cache => ApprovalCacheScope::WorkspaceWrite,
-                        _ => ApprovalCacheScope::None,
-                    };
-                    set_cache.set(scope);
-                }>
-                    <option value="none" data-description=ApprovalCacheScope::None.description()>{ApprovalCacheScope::None.label()}</option>
-                    <option value="exact" data-description=exact_scope.description()>{exact_scope.label()}</option>
-                    {allows_workspace_write_cache.then(|| view! {
-                        <option value="workspace_write" data-description=ApprovalCacheScope::WorkspaceWrite.description()>{ApprovalCacheScope::WorkspaceWrite.label()}</option>
-                    })}
-                </select>
-                <p>{move || cache.get().description()}</p>
-            </div>
-            <div class="control-actions">
+            <div class="control-actions approval-actions">
                 <button
                     type="button"
                     class="secondary danger"
-                    on:click=move |_| on_resolve(deny_id.clone(), false, ApprovalCacheScope::None)
+                    data-approval-decision="deny"
+                    on:click=resolve(false, ApprovalCacheScope::None)
                 >
                     "Отклонить"
                 </button>
+                <span class="approval-actions-spacer"></span>
+                {repeat_scopes.into_iter().map(|scope| view! {
+                    <button
+                        type="button"
+                        class="secondary"
+                        data-approval-scope=scope_key(scope)
+                        title=scope.description()
+                        on:click=resolve(true, scope)
+                    >
+                        {scope.button_label()}
+                    </button>
+                }).collect_view()}
                 <button
                     type="button"
                     class="btn-primary"
-                    on:click=move |_| on_resolve(approve_id.clone(), true, cache.get())
+                    data-approval-scope="none"
+                    title=ApprovalCacheScope::None.description()
+                    on:click=resolve(true, ApprovalCacheScope::None)
                 >
                     "Разрешить"
                 </button>
             </div>
         </article>
+    }
+}
+
+fn scope_key(scope: ApprovalCacheScope) -> &'static str {
+    match scope {
+        ApprovalCacheScope::None => "none",
+        ApprovalCacheScope::ExactCall | ApprovalCacheScope::ExactCommand => "exact",
+        ApprovalCacheScope::WorkspaceWrite => "workspace_write",
     }
 }
 
