@@ -1,9 +1,11 @@
 """Shared header and workspace geometry with a long transcript."""
 import base64
 from pathlib import Path
+from workspace_groups import merge_groups
 
 
 def run(command, js, wait_for):
+    merge_groups(js, wait_for)
     for menu in ['access', 'model', 'access']:
         js(f"document.querySelector('.composer-{menu}-menu summary').click()")
         wait_for(lambda: js(f"return document.querySelectorAll('.composer-menu[open]').length===1 && document.querySelector('.composer-{menu}-menu').open"), 'Composer menus overlap')
