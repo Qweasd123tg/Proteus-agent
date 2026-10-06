@@ -192,7 +192,8 @@ impl SessionState {
     fn new() -> Self {
         let (transport_status, set_transport_status) = signal(TransportStatus::Connecting);
         let (event_count, set_event_count) = signal(0);
-        let (workspace_label, set_workspace_label) = signal("waiting for session".to_owned());
+        // Empty until the session reports its workspace.
+        let (workspace_label, set_workspace_label) = signal(String::new());
         let (_session_label, set_session_label) = signal("not started".to_owned());
         let (active_session_dir, set_active_session_dir) = signal(None);
         let (context_usage, set_context_usage) = signal(None);

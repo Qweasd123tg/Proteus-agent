@@ -12,6 +12,7 @@ use crate::session::summaries::{
     sidebar_session_title,
 };
 use crate::types::*;
+use proteus_contracts::app_protocol::AppSessionActivityStatus;
 use crate::ui_utils::relative_time_from_now;
 pub(crate) use footer::SidebarFooter;
 use header::SidebarHeader;
@@ -22,15 +23,17 @@ const SIDEBAR_RAIL_LIMIT: usize = 10;
 /// Класс индикатора сессии в свёрнутой рейке: спиннер у работающих,
 /// «?» у ждущих человека, точка у остальных.
 fn rail_session_class(session: &SessionSummary) -> &'static str {
-    match session.activity.as_ref().map(|a| a.status.as_str()) {
-        Some("waiting_input" | "waiting_approval") => "sidebar-rail-session waiting",
-        Some("running") => "sidebar-rail-session running",
-        _ => "sidebar-rail-session",
+    match session.activity.as_ref().map(|a| a.status) {
+        Some(AppSessionActivityStatus::WaitingInput | AppSessionActivityStatus::WaitingApproval) => {
+            "sidebar-rail-session waiting"
+        }
+        Some(AppSessionActivityStatus::Running) => "sidebar-rail-session running",
+        Some(AppSessionActivityStatus::Idle) | None => "sidebar-rail-session",
     }
 }
 
 fn rail_sessions(workspace: &str, sessions: &[SessionSummary]) -> Vec<SessionSummary> {
-    if workspace == "waiting for session" {
+    if workspace.is_empty() {
         return Vec::new();
     }
     sessions
@@ -42,7 +45,7 @@ fn rail_sessions(workspace: &str, sessions: &[SessionSummary]) -> Vec<SessionSum
 }
 
 fn rail_sessions_total(workspace: &str, sessions: &[SessionSummary]) -> usize {
-    if workspace == "waiting for session" {
+    if workspace.is_empty() {
         return 0;
     }
     sessions
@@ -108,7 +111,7 @@ where
                 .iter()
                 .filter(|session| {
                     let entry = preferences.entry(&session.session_dir.to_string_lossy());
-                    workspace != "waiting for session"
+                    !workspace.is_empty()
                         && session.workspace_path == std::path::Path::new(&workspace)
                         && entry.archived == archived
                         && (session_matches_query(session, &query)
@@ -135,14 +138,7 @@ where
                 <input
                     type="text"
                     aria-label="Найти чат"
-                    placeholder=move || {
-                        let workspace = workspace_label.get();
-                        if workspace == "waiting for session" {
-                            sidebar_sessions_status.get()
-                        } else {
-                            "Найти чат".to_owned()
-                        }
-                    }
+                    placeholder="Найти чат"
                     prop:value=move || query.get()
                     on:input:target=move |ev| set_query.set(ev.target().value())
                 />
@@ -157,6 +153,10 @@ where
             </div>
             <Show when=move || preferences.archived.get()><button class="sidebar-archive-back" on:click=move |_|preferences.archived.set(false)>"← Архив · вернуться к чатам"</button></Show>
             <p class="sidebar-preferences-error" role="status">{move || preferences.error.get()}</p>
+            // Loading or connection problems while no session names the project.
+            <p class="sidebar-sessions-status" role="status" hidden=move || !workspace_label.with(String::is_empty)>
+                {move || sidebar_sessions_status.get()}
+            </p>
             <div class="sessions-list">
                 <ul class="session-list">
                     <For

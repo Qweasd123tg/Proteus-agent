@@ -134,8 +134,10 @@ where
             }}
 
             {move || {
+                // An open approval or question card already says what the run waits for.
                 if is_sending.get()
                     && pending_user_inputs.with(|items| items.is_empty())
+                    && pending_approvals.with(|items| items.is_empty())
                 {
                     view! { <WorkingCard status=agent_status /> }.into_any()
                 } else {

@@ -8,6 +8,7 @@ pub(super) fn install(state: AppState, router: AppRouter) {
         is_sending,
         tool_activities,
         pending_user_inputs,
+        pending_approvals,
         messages,
         ..
     } = state.chat;
@@ -43,6 +44,8 @@ pub(super) fn install(state: AppState, router: AppRouter) {
         let _ = (
             messages.with(|_| ()),
             pending_user_inputs.with(|items| items.len()),
+            // A new approval card appears below the transcript.
+            pending_approvals.with(|items| items.len()),
             queued_prompts.with(|items| items.len()),
             is_sending.get(),
             // Возврат к сохранённой вкладке: восстанавливаем прилипание к низу.

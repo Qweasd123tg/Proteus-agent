@@ -49,7 +49,7 @@ impl AppActions {
         let text = text.trim().to_owned();
         if self.attachments_loading.get_untracked()
             || (text.is_empty() && self.attachments.with_untracked(|images| images.is_empty()))
-            || self.is_sending.get()
+            || self.is_sending.get_untracked()
         {
             return;
         }
@@ -171,7 +171,7 @@ impl AppActions {
     }
 
     fn is_active_run(self, run_id: &str) -> bool {
-        self.active_run_id.get().as_deref() == Some(run_id)
+        self.active_run_id.get_untracked().as_deref() == Some(run_id)
     }
 
     fn set_control_error(self, prefix: &str, error: String) {
@@ -227,7 +227,7 @@ pub(crate) fn cancel_active_run(
     set_next_message_id: WriteSignal<u64>,
     set_transport_status: WriteSignal<TransportStatus>,
 ) {
-    let Some(target_id) = active_run_id.get() else {
+    let Some(target_id) = active_run_id.get_untracked() else {
         return;
     };
     let Some(session_dir) = active_session_dir.get_untracked() else {
@@ -315,7 +315,7 @@ pub(crate) fn take_request_id(
     set_next_request_id: WriteSignal<u64>,
     prefix: &str,
 ) -> String {
-    let id = next_request_id.get();
+    let id = next_request_id.get_untracked();
     set_next_request_id.set(id + 1);
     format!("{prefix}-{}-{id}", boot_nonce())
 }

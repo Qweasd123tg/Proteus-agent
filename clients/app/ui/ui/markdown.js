@@ -108,9 +108,9 @@ collect(document.body);
 document.addEventListener('click',async event=>{
   const button=event.target.closest('.code-copy,.code-wrap');if(!button)return;
   const block=button.closest('.code-block');if(!block)return;
-  if(button.matches('.code-wrap')){block.classList.toggle('wrap');button.classList.toggle('active');return;}
+  if(button.matches('.code-wrap')){const wrap=block.classList.toggle('wrap');button.classList.toggle('active',wrap);button.setAttribute('aria-pressed',String(wrap));return;}
   try{
     await navigator.clipboard.writeText(block.querySelector('pre code')?.textContent||'');
-    button.textContent='copied';setTimeout(()=>{if(button.isConnected)button.textContent='copy';},1200);
+    button.textContent='Скопировано';button.classList.add('active');setTimeout(()=>{if(button.isConnected){button.textContent='Копировать';button.classList.remove('active');}},1200);
   }catch{button.textContent='Ошибка копирования';}
 });

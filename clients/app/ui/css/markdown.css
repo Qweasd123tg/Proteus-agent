@@ -280,24 +280,19 @@
 
 .code-lang {
     overflow: hidden;
-    border: 1px solid var(--accent-blue-border);
-    border-radius: var(--radius-chip);
-    background: var(--accent-blue-soft);
-    color: var(--accent-blue);
+    color: var(--text-faint);
     font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.04em;
-    padding: 1px 7px;
+    font-size: 11px;
     text-overflow: ellipsis;
-    text-transform: uppercase;
     white-space: nowrap;
 }
 
+/* Quiet text actions: they appear fully on hover or focus. */
 .code-actions {
     display: flex;
     flex-shrink: 0;
     gap: var(--space-1);
-    opacity: 0.78;
+    opacity: 0.6;
     transition: opacity 0.12s;
 }
 
@@ -307,49 +302,31 @@
 }
 
 .code-actions button {
-    min-height: 20px;
-    border: 1px solid rgb(255 255 255 / 8%);
+    min-height: 22px;
+    border: 0;
     border-radius: var(--radius-small);
-    background: rgb(255 255 255 / 4%);
+    background: transparent;
     color: var(--text-muted);
     cursor: pointer;
-    font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 11px;
     padding: 0 6px;
     transition:
         background 0.12s,
-        color 0.12s,
-        border-color 0.12s;
+        color 0.12s;
 }
 
-.code-actions .code-wrap {
-    color: var(--accent-yellow);
+.code-actions button:hover {
+    background: rgb(255 255 255 / 6%);
+    color: var(--text-main);
 }
 
-.code-actions .code-copy {
-    color: var(--accent-green);
-}
-
-.code-actions button:hover,
 .code-actions button.active {
-    border-color: currentcolor;
-    background: rgb(255 255 255 / 8%);
     color: var(--text-main);
 }
 
 .code-actions button:focus-visible {
     outline: 2px solid var(--accent-blue);
     outline-offset: 2px;
-}
-
-.code-actions .code-wrap.active {
-    background: var(--accent-blue-soft);
-    color: var(--accent-blue);
-}
-
-.code-actions .code-copy.active {
-    background: var(--accent-green-soft);
-    color: var(--accent-green);
 }
 
 .code-block pre {

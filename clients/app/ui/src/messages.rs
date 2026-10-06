@@ -43,7 +43,7 @@ pub(crate) fn push_message(
     role: MessageRole,
     text: impl Into<String>,
 ) {
-    let id = next_message_id.get();
+    let id = next_message_id.get_untracked();
     set_next_message_id.set(id + 1);
     set_messages.update(|items| {
         items.push(Message {
@@ -69,7 +69,7 @@ pub(crate) fn push_user_message_once(
     text: impl Into<String>,
 ) {
     let text = text.into();
-    let id = next_message_id.get();
+    let id = next_message_id.get_untracked();
     let mut pushed = false;
     set_messages.update(|items| {
         if items
@@ -105,7 +105,7 @@ pub(crate) fn push_assistant_message_once(
     text: impl Into<String>,
 ) {
     let text = text.into();
-    let id = next_message_id.get();
+    let id = next_message_id.get_untracked();
     let mut pushed = false;
     set_messages.update(|items| {
         if items
@@ -158,7 +158,7 @@ pub(crate) fn push_tool_message(
     set_next_message_id: WriteSignal<u64>,
     tool: ToolActivity,
 ) {
-    let id = next_message_id.get();
+    let id = next_message_id.get_untracked();
     set_next_message_id.set(id + 1);
     set_messages.update(|items| {
         items.push(Message {
@@ -182,7 +182,7 @@ pub(crate) fn finish_active_streaming_assistant_message(
     active_stream_message_id: ReadSignal<Option<u64>>,
     set_active_stream_message_id: WriteSignal<Option<u64>>,
 ) {
-    if let Some(message_id) = active_stream_message_id.get() {
+    if let Some(message_id) = active_stream_message_id.get_untracked() {
         set_messages.update(|items| {
             if let Some(message) = items.iter_mut().find(|message| message.id == message_id) {
                 message.streaming = false;
@@ -201,7 +201,7 @@ pub(crate) fn finish_streaming_assistant_message(
     set_active_stream_message_id: WriteSignal<Option<u64>>,
     final_text: String,
 ) {
-    if let Some(message_id) = active_stream_message_id.get() {
+    if let Some(message_id) = active_stream_message_id.get_untracked() {
         set_messages.update(|items| {
             if let Some(message) = items.iter_mut().find(|message| message.id == message_id) {
                 // A turn output is not allowed to replace another canonical item.
@@ -376,7 +376,7 @@ pub(crate) fn push_subagent_message(
     set_next_message_id: WriteSignal<u64>,
     activity: SubagentActivity,
 ) {
-    let id = next_message_id.get();
+    let id = next_message_id.get_untracked();
     let mut pushed = false;
     set_messages.update(|items| {
         if items.iter().any(|message| {

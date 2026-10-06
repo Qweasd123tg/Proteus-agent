@@ -88,8 +88,8 @@ fn enhance_code_blocks(html: &str) -> String {
             "<div class=\"code-block\"><div class=\"code-block-head\">\
 <span class=\"code-lang\">{lang}</span>\
 <span class=\"code-actions\">\
-<button class=\"code-wrap\" type=\"button\" title=\"Перенос строк\">wrap</button>\
-<button class=\"code-copy\" type=\"button\" title=\"Скопировать код\">copy</button>\
+<button class=\"code-wrap\" type=\"button\" aria-pressed=\"false\">Перенос</button>\
+<button class=\"code-copy\" type=\"button\">Копировать</button>\
 </span></div>{block}</div>"
         ));
         rest = &after[close + CLOSE.len()..];

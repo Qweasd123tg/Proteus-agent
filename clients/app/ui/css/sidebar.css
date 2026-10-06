@@ -342,5 +342,7 @@ button.session-item.active {
 .sidebar-archive-back { margin:0 10px 8px;font-size:12px;justify-content:flex-start; }
 .sidebar-preferences-error { color:var(--accent-red);padding:0 12px;font-size:12px;overflow-wrap:anywhere; }
 .sidebar-preferences-error:empty { display:none; }
+.sidebar-sessions-status { color:var(--text-faint);padding:0 22px;font-size:12px;overflow-wrap:anywhere; }
+.sidebar-sessions-status:empty,.sidebar-sessions-status[hidden] { display:none; }
 .session-title-line > svg { margin-left:auto;color:var(--text-muted); }
 button[data-delete-session] { display:none; }
