@@ -68,18 +68,13 @@ def run(command, js, wait_for):
         click('[data-animation-toggle]')
     click('.settings-back')
     frames()
+    # Screens swap at once: a crossfade overlaps two pages and flickers.
     enter = sample(settings, click_action('.settings-link'))
-    opacity_motion(enter, 'Settings entry')
+    assert not any(0 < v['opacity'] < 1 or v['running'] for v in enter['samples']), 'Settings entry animated instead of swapping'
     assert js("return !document.querySelector('[data-client-view=settings]').hidden && document.querySelector('[data-client-workspace]').hidden && document.querySelector('[data-client-workspace]').inert"), 'Settings entry left the previous screen interactive'
     leave = sample(settings, click_action('.settings-back'))
-    opacity_motion(leave, 'Settings exit')
-    assert all(s['hidden'] and s['inert'] for s in leave['samples']), 'Leaving screen accepts interaction during its visual exit'
-    # Reverse a live exit. A previous completion must never hide a reopened screen.
-    sample(settings, click_action('.settings-link'))
-    reverse = sample(settings, click_action('.settings-back'),
-                     middle='(v,n)=>n===2' if reduced else 'v=>v.running&&v.opacity>0&&v.opacity<1',
-                     interrupt=click_action('.settings-link'))
-    assert reverse['interrupted'] and js("return !document.querySelector('[data-client-view=settings]').hidden && !document.querySelector('[data-client-view=settings]').inert"), 'Reopening lost to an old exit completion'
+    assert all(s['hidden'] and s['inert'] and s['display'] == 'none' for s in leave['samples']), 'Leaving screen stayed painted or interactive'
+    click('.settings-link')
     frames()
     assert js("const b=document.querySelector('.settings-back'),r=b.getBoundingClientRect();return b.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))"), 'Reopened screen is obscured by an outgoing surface'
     click('.settings-back')
@@ -125,17 +120,9 @@ def run(command, js, wait_for):
     wait_for(lambda: js("return document.querySelector('[data-tab-id=files]')?.classList.contains('active')"), 'Reopened menu cannot select a tab')
     click('.brand')
 
-    # Turn motion off from its actual setting during screen entry. It must settle.
+    # The motion preference still applies live from its setting.
     click('.settings-link');click('[data-settings-section=appearance]')
-    click('.settings-back');frames()
-    off = sample(settings, click_action('.settings-link'),
-                 middle='(v,n)=>n===2' if reduced else 'v=>v.running',
-                 interrupt=click_action('[data-animation-toggle]'))
-    assert off['interrupted'] and js("return document.documentElement.dataset.animations==='off'"), 'Motion preference was not applied'
-    checkpoint=off['afterInterrupt']
-    assert not checkpoint['running'] and not checkpoint['hidden'] and not checkpoint['inert'] and checkpoint['opacity']==1, 'Turning motion off left a half-finished screen after two frames'
-    off_exit=sample(settings, click_action('.settings-back'))
-    assert not any(0<v['opacity']<1 or v['running'] for v in off_exit['samples']), 'Disabled motion still animates screen exit'
-    assert js("return document.querySelector('[data-client-view=settings]').hidden && !document.querySelector('[data-client-workspace]').hidden && !document.querySelector('[data-client-workspace]').inert"), 'Disabled motion did not settle screen ownership'
-    click('.settings-link');click('[data-animation-toggle]');click('.settings-back')
-    print('PASS: rendered entry/exit, interrupted screen/disclosure/popover reopening, immediate inertness, retained draft/layout, mid-flight motion-off; reduced='+str(reduced),flush=True)
+    click('[data-animation-toggle]')
+    assert js("return document.documentElement.dataset.animations==='off'"), 'Motion preference was not applied'
+    click('[data-animation-toggle]');click('.settings-back')
+    print('PASS: instant screen swap, interrupted disclosure/popover reopening, immediate inertness, retained draft/layout, live motion preference; reduced='+str(reduced),flush=True)

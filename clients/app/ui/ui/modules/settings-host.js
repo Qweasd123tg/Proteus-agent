@@ -1,6 +1,5 @@
 import { viewForSurface } from "../../extensions/contract.js";
 import { icon } from "../../extensions/icons.js";
-import { watchViewMotion } from "../view-motion.js";
 import { mountExtensionOptions } from "../../extensions/settings-page.js";
 import { builtinSettingsSurface, mountBuiltinSettings } from "./builtin-settings.js";
 
@@ -83,14 +82,13 @@ export function mountSettings(root, registry, services, requested) {
     section.dataset.modulePage = record.id;
     section.hidden = true;
     content.append(section);
-    const stopMotion = watchViewMotion(section, { signal });
     // Register before mount: a module may subscribe to the same registry.
     const item = { record, section, stop: () => {} };
     mounted.set(record.id, item);
     const stopModule = record.source === "builtin"
       ? mountBuiltinSettings(section, record, registry, services)
       : mountExtensionOptions(section, record, registry, services);
-    item.stop = () => { stopMotion(); stopModule(); };
+    item.stop = stopModule;
   }
   function render() {
     const state = registry.state();

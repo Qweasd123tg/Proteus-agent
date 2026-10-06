@@ -22,7 +22,7 @@ const css = `
 `;
 const styled = new WeakSet();
 
-export function popoverMotion(element, { onClose, onExit, anchor, quick = false } = {}) {
+export function popoverMotion(element, { onClose, onExit, anchor, quick = false, exit = true } = {}) {
   const root = element.getRootNode();
   if (!styled.has(root)) {
     const style = document.createElement('style');
@@ -62,7 +62,7 @@ export function popoverMotion(element, { onClose, onExit, anchor, quick = false 
     if (event.newState !== 'closed') return;
     // Firefox accepts allow-discrete but does not retain display on popover
     // dismissal. Keep only the noninteractive visual surface until fade ends.
-    if (motionAllowed()) {
+    if (exit && motionAllowed()) {
       if (needsExitSnapshot(element)) {
         snapshot = exitSnapshot(element);
         element.dataset.popoverSnapshot = '';

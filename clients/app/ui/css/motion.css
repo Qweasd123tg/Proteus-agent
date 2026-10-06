@@ -7,7 +7,4 @@
 .settings-toggle::before { transition:transform var(--motion-fast) var(--motion-ease),background var(--motion-fast); }
 .settings-nav :is(button,a),.workspace-tab,.workspace-tab-close,.menu-option,.extension-choice,.extension-widget { transition:background var(--motion-fast),color var(--motion-fast),opacity var(--motion-fast); }
 .animation-setting { margin-top:12px; }
-/* Keep a closing retained view at its last rectangle without occupying layout. */
-html body [data-view-exit][hidden] { display:var(--view-display)!important; z-index:20; pointer-events:none!important; }
-html body [data-view-exit=""][hidden] { position:fixed!important; inset:auto!important; left:var(--view-left)!important; top:var(--view-top)!important; width:var(--view-width)!important; height:var(--view-height)!important; margin:0!important; overflow:hidden; }
 @media(prefers-reduced-motion:reduce) { .workspace-tab,.workspace-tab-close { transition:none!important; } }

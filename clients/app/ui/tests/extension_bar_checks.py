@@ -62,6 +62,15 @@ def run(command, js, wait_for):
     pointer([move(*point(control))])
     wait_for(lambda: js("return document.querySelector('.ui-tooltip')?.matches(':popover-open')"), 'Themed hover tooltip missing')
     assert js("const t=document.querySelector('.ui-tooltip'),r=t.getBoundingClientRect(),c=document.querySelector('.topbar [data-workspace-split]');return !c.hasAttribute('title') && t.textContent.includes(c.getAttribute('aria-label')) && t.textContent.includes('Ctrl + Shift + B') && r.height<70 && r.width<=280 && r.left>=8 && r.top>=8 && r.right<=innerWidth-8 && r.bottom<=innerHeight-8"), 'Tooltip retained native title or overflowed viewport'
+    # A scroll elsewhere (streaming chat, a label scrolling its own text) keeps the
+    # bubble; moving to a neighbouring control swaps it at once, without the delay.
+    js("const s=document.querySelector('.results-panel')||document.querySelector('.workspace-tabs');s.dispatchEvent(new Event('scroll'))")
+    assert js("return document.querySelector('.ui-tooltip').matches(':popover-open')"), 'Unrelated scroll hid the tooltip'
+    js("window.splitTooltip=document.querySelector('.ui-tooltip').textContent")
+    pointer([move(*point('.composer-model-menu summary'))])
+    assert js("const t=document.querySelector('.ui-tooltip');return t.matches(':popover-open') && t.textContent!==window.splitTooltip"), 'Neighbouring control reopened the tooltip with a delay'
+    pointer([move(*point(control))])
+    wait_for(lambda: js("return document.querySelector('.ui-tooltip').textContent===window.splitTooltip"), 'Tooltip did not return to the workspace control')
     js("window.tooltipEscape=0;window.watchTooltipEscape=e=>{if(e.key==='Escape')window.tooltipEscape++};window.addEventListener('keydown',watchTooltipEscape);document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
     assert js("return !document.querySelector('.ui-tooltip').matches(':popover-open') && window.tooltipEscape===0"), 'Tooltip Escape reached global cancellation'
     js("window.removeEventListener('keydown',watchTooltipEscape)")

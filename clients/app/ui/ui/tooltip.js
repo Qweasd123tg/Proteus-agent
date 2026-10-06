@@ -5,7 +5,7 @@ import { popoverMotion } from './popover-motion.js';
 // The original text remains available as data-ui-tooltip; aria labels survive.
 const selector = '[data-ui-tooltip],[data-ui-tooltip-details],[title],[data-shortcut]';
 const roots = new WeakSet(), removals = new WeakMap(), labels = new WeakMap();
-let bubble, motion, anchor, timer, rendered, serial = 0;
+let bubble, motion, anchor, timer, rendered, serial = 0, hiddenAt = -Infinity;
 
 function content(element) {
   const binding = snapshot().bindings[element.dataset.shortcut];
@@ -95,7 +95,7 @@ function clearAnchor() {
 
 export function hideTooltip() {
   clearAnchor();
-  if (bubble?.matches(':popover-open')) bubble.hidePopover();
+  if (bubble?.matches(':popover-open')) { bubble.hidePopover(); hiddenAt = performance.now(); }
 }
 
 function target(event) {
@@ -127,9 +127,23 @@ function position() {
   bubble.style.top = `${Math.max(top + 8, Math.min(y, top + height - size.height - 8))}px`;
 }
 
+function describe(element) {
+  const ids = new Set((element.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean));
+  ids.add(bubble.id); element.setAttribute('aria-describedby', [...ids].join(' '));
+}
+
 function show(element, delay) {
   if (!element || element === anchor) return;
+  // Moving along a row of buttons swaps the text in place instead of
+  // closing and reopening the bubble, and a just-closed one returns at once.
+  if (bubble?.matches(':popover-open') && content(element).some(Boolean)) {
+    clearAnchor();
+    anchor = element;
+    render(); position(); describe(element);
+    return;
+  }
   hideTooltip();
+  if (performance.now() - hiddenAt < 400) delay = 0;
   anchor = element;
   timer = setTimeout(() => {
     if (!element.isConnected || !content(element).some(Boolean)) { hideTooltip(); return; }
@@ -138,21 +152,26 @@ function show(element, delay) {
       bubble.className = 'ui-tooltip'; bubble.id = `proteus-tooltip-${++serial}`;
       bubble.setAttribute('popover', 'manual'); bubble.setAttribute('role', 'tooltip');
       document.body.append(bubble);
-      motion = popoverMotion(bubble, {quick: true, anchor: () => anchor, onClose: clearAnchor});
+      motion = popoverMotion(bubble, {quick: true, exit: false, anchor: () => anchor, onClose: clearAnchor});
     }
     render();
     motion.show(position);
-    const ids = new Set((element.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean));
-    ids.add(bubble.id); element.setAttribute('aria-describedby', [...ids].join(' '));
+    describe(element);
   }, delay);
 }
 
 document.addEventListener('pointerover', event => {
-  if (event.pointerType !== 'touch' && !event.buttons) show(target(event), 450);
+  if (event.pointerType === 'touch' || event.buttons) return;
+  const element = target(event);
+  if (element) show(element, 450);
+  else if (anchor && !event.composedPath().includes(anchor)) hideTooltip();
 }, true);
 document.addEventListener('focusin', event => show(target(event), 150), true);
 document.addEventListener('pointerout', event => {
-  if (anchor && event.composedPath().includes(anchor) && !anchor.contains(event.relatedTarget)) hideTooltip();
+  if (!anchor || !event.composedPath().includes(anchor) || anchor.contains(event.relatedTarget)) return;
+  // Entering a neighbouring target swaps the bubble in pointerover.
+  if (event.relatedTarget instanceof Element && event.relatedTarget.closest(selector)) return;
+  hideTooltip();
 }, true);
 document.addEventListener('focusout', hideTooltip, true);
 for (const type of ['pointerdown', 'click', 'dragstart']) document.addEventListener(type, hideTooltip, true);
@@ -161,7 +180,12 @@ document.addEventListener('keydown', event => {
   if (event.key !== 'Escape' || !bubble?.matches(':popover-open')) return;
   event.preventDefault(); event.stopPropagation(); hideTooltip();
 }, true);
-window.addEventListener('scroll', hideTooltip, true);
+// Only a scroll that moves the anchor hides it: a label scrolling its own
+// text or a streaming transcript elsewhere leaves the bubble in place.
+window.addEventListener('scroll', event => {
+  const scrolled = event.target;
+  if (anchor && (scrolled === document || scrolled !== anchor && scrolled.contains?.(anchor))) hideTooltip();
+}, true);
 window.addEventListener('resize', hideTooltip);
 window.addEventListener('blur', hideTooltip);
 window.visualViewport?.addEventListener('resize', hideTooltip);

@@ -11,7 +11,6 @@ import {
   chatTab,
 } from "../ui/workspace/state.mjs";
 import { createGroup, createTab } from "../ui/workspace/group.js";
-import { watchViewMotion } from "../ui/view-motion.js";
 import { popoverMotion } from "../ui/popover-motion.js";
 import { tabMotion } from "../ui/workspace/tab-motion.js";
 
@@ -36,8 +35,7 @@ export function createWorkspace(target, { storage } = {}) {
   const sources = new Map(),
     tabs = new Map(),
     scrolls = new WeakMap(),
-    visibility = new WeakMap(),
-    viewMotion = new Map();
+    visibility = new WeakMap();
   let records = [],
     layout,
     drag,
@@ -196,18 +194,6 @@ export function createWorkspace(target, { storage } = {}) {
   function render() {
     const finishTabMotion = animateTabs();
     records = [...sources.values()].flatMap((s) => s.records);
-    const animated = records.filter((r) => r.element && r.element.dataset.clientView !== "settings");
-    for (const [root, stop] of viewMotion)
-      if (!animated.some((r) => r.element === root)) {
-        stop();
-        viewMotion.delete(root);
-      }
-    for (const r of animated)
-      if (!viewMotion.has(r.element))
-        viewMotion.set(
-          r.element,
-          watchViewMotion(r.element, { signal, inPlace: true }),
-        );
     const available = new Set(
       records.filter((r) => !r.collapsed).map((r) => r.id),
     );
@@ -514,8 +500,6 @@ export function createWorkspace(target, { storage } = {}) {
     stop() {
       cancelAnimationFrame(resizeFrame);
       pickerMotion.dispose();
-      for (const stop of viewMotion.values()) stop();
-      viewMotion.clear();
       controller.abort();
       resizeObserver.disconnect();
       element.remove();
