@@ -11,8 +11,8 @@
 .composer-options:has(.extension-widgets:not([hidden])) .composer-access-menu { flex-shrink:2; }
 .composer-options:has(.extension-widgets:not([hidden])) .composer-menu-trigger { gap:4px; }
 .composer-options:has(.extension-widgets:not([hidden])) .composer-menu-trigger span { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.extension-widget-placement { display:grid;align-items:center;gap:10px;margin-bottom:20px;font-size:13px;color:var(--text-muted); }
-.extension-widget-placement select { width:100%;max-width:none; }
+.extension-widget-placement { margin-bottom:20px; cursor:default; }
+.extension-widget-placement [role=status] { color:var(--accent-red); font-size:12px; }
 .extension-widget-placement [role=status]:empty { display:none; }
 .extension-widget, .workspace-tab-name { touch-action:pan-y; user-select:none; -webkit-user-select:none; cursor:grab; }
 .extension-widget:active, .workspace-tab-name:active { cursor:grabbing; }

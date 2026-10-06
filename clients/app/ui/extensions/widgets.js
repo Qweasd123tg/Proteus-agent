@@ -64,7 +64,11 @@ export function createWidgets(storage, reorder, {open,hasWorkspace}) {
 }
 
 export function widgetPlacement(storage,signal,id,fallback) {
-  const label=document.createElement('label');label.className='extension-widget-placement';label.textContent='Расположение виджета';
+  // One settings row like the other parameters: text on the left, choice on the right.
+  const label=document.createElement('label');label.className='settings-row extension-widget-placement';
+  const text=document.createElement('span');text.className='settings-label';
+  const title=document.createElement('strong');title.textContent='Расположение виджета';
+  const hint=document.createElement('span');hint.className='settings-hint';hint.textContent='Где показывать иконку. Её также можно перетащить или скрыть через ПКМ.';
   const select=document.createElement('select');select.setAttribute('aria-label','Расположение виджета');select.dataset.widgetPlacement=id;
   for(const [value,text]of [['composer','Под полем ввода'],['header','В верхней панели'],['hidden','Скрыть']]){const option=document.createElement('option');option.value=value;option.textContent=text;select.append(option);}
   const status=document.createElement('span');status.setAttribute('role','status');
@@ -75,7 +79,7 @@ export function widgetPlacement(storage,signal,id,fallback) {
     try{storage.setItem(key(id),select.value);saved=select.value;status.textContent='';window.dispatchEvent(new Event('proteus-widgets-position'));}
     catch{select.value=saved;status.textContent='Не удалось сохранить расположение';}
   },{signal});
-  label.append(select,status);return label;
+  text.append(title,hint,status);label.append(text,select);return label;
 }
 import { enableHorizontalReorder } from './horizontal-reorder.js';
 
