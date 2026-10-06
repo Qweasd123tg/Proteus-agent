@@ -326,7 +326,7 @@ mod tests {
 
         assert_eq!(
             header.summary(),
-            "map the crate · 3 вызова · 2 итерации · 2.3s"
+            "map the crate · 3 вызова · 2 итерации · 2,3 с"
         );
     }
 }

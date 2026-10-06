@@ -505,17 +505,17 @@ pub(crate) fn failure_reason(result: &str) -> Option<String> {
 
 pub(crate) fn format_elapsed_seconds(seconds: u64) -> String {
     if seconds < 60 {
-        format!("{seconds}s")
+        format!("{seconds} с")
     } else {
-        format!("{}m {:02}s", seconds / 60, seconds % 60)
+        format!("{} мин {:02} с", seconds / 60, seconds % 60)
     }
 }
 
-/// Человекочитаемая длительность: короткие вызовы — с десятыми («0.4s»),
-/// длинные — как elapsed-таймер («12s», «1m 05s»).
+/// Человекочитаемая длительность: короткие вызовы — с десятыми («0,4 с»),
+/// длинные — как elapsed-таймер («12 с», «1 мин 05 с»).
 pub(crate) fn format_duration_ms(duration_ms: u64) -> String {
     if duration_ms < 10_000 {
-        format!("{:.1}s", duration_ms as f64 / 1000.0)
+        format!("{:.1} с", duration_ms as f64 / 1000.0).replace('.', ",")
     } else {
         format_elapsed_seconds(duration_ms / 1000)
     }
@@ -553,16 +553,16 @@ mod tests {
 
     #[test]
     fn format_elapsed_seconds_keeps_short_and_minute_forms_compact() {
-        assert_eq!(format_elapsed_seconds(9), "9s");
-        assert_eq!(format_elapsed_seconds(65), "1m 05s");
+        assert_eq!(format_elapsed_seconds(9), "9 с");
+        assert_eq!(format_elapsed_seconds(65), "1 мин 05 с");
     }
 
     #[test]
     fn format_duration_ms_shows_decimals_only_for_short_calls() {
-        assert_eq!(format_duration_ms(400), "0.4s");
-        assert_eq!(format_duration_ms(2_340), "2.3s");
-        assert_eq!(format_duration_ms(12_000), "12s");
-        assert_eq!(format_duration_ms(65_000), "1m 05s");
+        assert_eq!(format_duration_ms(400), "0,4 с");
+        assert_eq!(format_duration_ms(2_340), "2,3 с");
+        assert_eq!(format_duration_ms(12_000), "12 с");
+        assert_eq!(format_duration_ms(65_000), "1 мин 05 с");
     }
 
     #[test]
