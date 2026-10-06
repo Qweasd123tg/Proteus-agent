@@ -10,7 +10,7 @@ use wasm_bindgen::JsValue;
 use super::EventStreamBindings;
 use crate::{
     api::{get_json, session_path},
-    types::PendingControlPlaneInfo,
+    types::{AgentStatus, PendingControlPlaneInfo},
 };
 
 #[derive(Clone)]
@@ -96,11 +96,11 @@ impl PendingControlPlane {
     fn apply(&self, snapshot: PendingControlPlaneInfo) {
         self.bindings.set_agent_status.update(|status| {
             if !snapshot.approvals.is_empty() {
-                *status = "ждёт доступ".to_owned();
+                *status = AgentStatus::WaitingApproval { subagent: false };
             } else if !snapshot.user_inputs.is_empty() {
-                *status = "ждёт ответ".to_owned();
-            } else if matches!(status.as_str(), "ждёт доступ" | "ждёт ответ") {
-                *status = "продолжает".to_owned();
+                *status = AgentStatus::WaitingAnswer;
+            } else if status.is_waiting() {
+                *status = AgentStatus::Continuing { subagent: false };
             }
         });
         self.bindings.set_pending_approvals.set(snapshot.approvals);

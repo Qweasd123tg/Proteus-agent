@@ -46,8 +46,8 @@ pub(super) struct ChatState {
     pub set_active_stream_message_id: WriteSignal<Option<u64>>,
     pub streamed_this_turn: ReadSignal<bool>,
     pub set_streamed_this_turn: WriteSignal<bool>,
-    pub agent_status: ReadSignal<String>,
-    pub set_agent_status: WriteSignal<String>,
+    pub agent_status: ReadSignal<AgentStatus>,
+    pub set_agent_status: WriteSignal<AgentStatus>,
     pub turn_issue: RwSignal<Option<TurnIssue>>,
     pub tool_activities: ReadSignal<Vec<ToolActivity>>,
     pub set_tool_activities: WriteSignal<Vec<ToolActivity>>,
@@ -70,7 +70,7 @@ impl ChatState {
         let (active_run_id, set_active_run_id) = signal(None);
         let (active_stream_message_id, set_active_stream_message_id) = signal(None);
         let (streamed_this_turn, set_streamed_this_turn) = signal(false);
-        let (agent_status, set_agent_status) = signal("ожидает".to_owned());
+        let (agent_status, set_agent_status) = signal(AgentStatus::Idle);
         let (tool_activities, set_tool_activities) = signal(Vec::new());
         let (transcript_generation, set_transcript_generation) = signal(0);
         let (pending_approvals, set_pending_approvals) = signal(Vec::new());

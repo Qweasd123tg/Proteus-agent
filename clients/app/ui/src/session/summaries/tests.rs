@@ -50,7 +50,7 @@ fn active_session_activity_restores_running_run_state() {
         ActiveSessionActivityState {
             is_sending: true,
             active_run_id: Some("run-1".to_owned()),
-            agent_status: "работает".to_owned(),
+            agent_status: AgentStatus::Running,
         }
     );
 }
@@ -70,7 +70,7 @@ fn active_session_activity_idle_clears_run_state() {
         ActiveSessionActivityState {
             is_sending: false,
             active_run_id: None,
-            agent_status: "ожидает".to_owned(),
+            agent_status: AgentStatus::Idle,
         }
     );
 }

@@ -3,6 +3,7 @@ use crate::{
     ui_utils::{compact_text, compact_title},
 };
 use leptos::prelude::*;
+use proteus_contracts::app_protocol::AppSessionActivityStatus;
 
 pub(crate) fn sidebar_session_title(session: &SessionSummary) -> String {
     if let Some(preview) = session
@@ -29,14 +30,16 @@ pub(crate) fn sidebar_session_preview(session: &SessionSummary) -> Option<String
 pub(crate) fn sidebar_session_activity_label(
     activity: Option<&SessionActivityInfo>,
 ) -> Option<String> {
-    let activity = activity?;
-    match activity.status.as_str() {
-        "waiting_input" => Some("ждёт ответ".to_owned()),
-        "waiting_approval" => Some("ждёт доступ".to_owned()),
-        "running" => Some("работает".to_owned()),
-        "idle" => None,
-        other if !other.trim().is_empty() => Some(other.replace('_', " ")),
-        _ => None,
+    let status = activity_agent_status(activity?.status);
+    (status != AgentStatus::Idle).then(|| status.label())
+}
+
+fn activity_agent_status(status: AppSessionActivityStatus) -> AgentStatus {
+    match status {
+        AppSessionActivityStatus::WaitingInput => AgentStatus::WaitingAnswer,
+        AppSessionActivityStatus::WaitingApproval => AgentStatus::WaitingApproval { subagent: false },
+        AppSessionActivityStatus::Running => AgentStatus::Running,
+        AppSessionActivityStatus::Idle => AgentStatus::Idle,
     }
 }
 
@@ -44,7 +47,7 @@ pub(crate) fn sidebar_session_activity_label(
 pub(crate) struct ActiveSessionActivityState {
     pub(crate) is_sending: bool,
     pub(crate) active_run_id: Option<String>,
-    pub(crate) agent_status: String,
+    pub(crate) agent_status: AgentStatus,
 }
 
 pub(crate) fn active_session_activity_state(
@@ -54,20 +57,10 @@ pub(crate) fn active_session_activity_state(
     let active_run_id = activity
         .and_then(|activity| activity.running_run_ids.first())
         .cloned();
-    let agent_status = match activity.map(|activity| activity.status.as_str()) {
-        Some("waiting_input") => "ждёт ответ",
-        Some("waiting_approval") => "ждёт доступ",
-        Some("running") => "работает",
-        Some("idle") | None => "ожидает",
-        Some(other) if !other.trim().is_empty() => other,
-        Some(_) => "ожидает",
-    }
-    .replace('_', " ");
-
     ActiveSessionActivityState {
         is_sending,
         active_run_id,
-        agent_status,
+        agent_status: activity.map_or(AgentStatus::Idle, |activity| activity_agent_status(activity.status)),
     }
 }
 
@@ -75,7 +68,7 @@ pub(crate) fn apply_active_session_activity(
     activity: Option<&SessionActivityInfo>,
     set_is_sending: WriteSignal<bool>,
     set_active_run_id: WriteSignal<Option<String>>,
-    set_agent_status: WriteSignal<String>,
+    set_agent_status: WriteSignal<AgentStatus>,
 ) {
     let state = active_session_activity_state(activity);
     set_is_sending.set(state.is_sending);
@@ -87,20 +80,18 @@ pub(super) fn session_activity_is_busy(activity: &SessionActivityInfo) -> bool {
     activity.running_runs > 0
         || activity.pending_approvals > 0
         || activity.pending_user_inputs > 0
-        || matches!(
-            activity.status.as_str(),
-            "running" | "waiting_approval" | "waiting_input"
-        )
+        || activity.status != AppSessionActivityStatus::Idle
 }
 
 pub(crate) fn sidebar_session_activity_dot_class(
     activity: Option<&SessionActivityInfo>,
 ) -> &'static str {
-    match activity.map(|activity| activity.status.as_str()) {
-        Some("waiting_input" | "waiting_approval") => "session-status-dot warning",
-        Some("running") => "session-status-dot running",
-        Some("idle") | None => "session-status-dot",
-        Some(_) => "session-status-dot running",
+    match activity.map(|activity| activity.status) {
+        Some(AppSessionActivityStatus::WaitingInput | AppSessionActivityStatus::WaitingApproval) => {
+            "session-status-dot warning"
+        }
+        Some(AppSessionActivityStatus::Running) => "session-status-dot running",
+        Some(AppSessionActivityStatus::Idle) | None => "session-status-dot",
     }
 }
 

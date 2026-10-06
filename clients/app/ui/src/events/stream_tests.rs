@@ -192,3 +192,16 @@ fn frame_coalesces_unicode_deltas_and_completion_invalidates_it() {
         assert!(!items[0].streaming);
     });
 }
+
+#[test]
+fn reasoning_topic_follows_completed_heading_lines() {
+    Owner::new().with(|| {
+        let (_, b) = bindings();
+        assert_eq!(reasoning_topic(b, "**Изучаю"), None);
+        assert_eq!(reasoning_topic(b, " проект**\n\nСначала"), Some("Изучаю проект".into()));
+        assert_eq!(reasoning_topic(b, " посмотрю **README** и"), None);
+        assert_eq!(reasoning_topic(b, "\n\n**Правлю конфиг**"), Some("Правлю конфиг".into()));
+        reset_reasoning_topic(b);
+        assert_eq!(reasoning_topic(b, "**Правлю конфиг**"), Some("Правлю конфиг".into()));
+    });
+}

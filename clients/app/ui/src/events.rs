@@ -40,7 +40,7 @@ pub(crate) struct EventStreamBindings {
     pub(crate) streamed_this_turn: ReadSignal<bool>,
     pub(crate) set_streamed_this_turn: WriteSignal<bool>,
     pub(crate) stream_delta_buffer: StoredValue<BufferedStreamDeltas, LocalStorage>,
-    pub(crate) set_agent_status: WriteSignal<String>,
+    pub(crate) set_agent_status: WriteSignal<AgentStatus>,
     pub(crate) turn_issue: RwSignal<Option<TurnIssue>>,
     pub(crate) set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     pub(crate) set_context_usage: WriteSignal<Option<ContextUsage>>,
@@ -71,7 +71,7 @@ fn handle_app_output(
     streamed_this_turn: ReadSignal<bool>,
     set_streamed_this_turn: WriteSignal<bool>,
     stream_delta_buffer: StoredValue<BufferedStreamDeltas, LocalStorage>,
-    set_agent_status: WriteSignal<String>,
+    set_agent_status: WriteSignal<AgentStatus>,
     turn_issue: RwSignal<Option<TurnIssue>>,
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     set_context_usage: WriteSignal<Option<ContextUsage>>,
@@ -140,7 +140,7 @@ fn handle_app_event(
     streamed_this_turn: ReadSignal<bool>,
     set_streamed_this_turn: WriteSignal<bool>,
     stream_delta_buffer: StoredValue<BufferedStreamDeltas, LocalStorage>,
-    set_agent_status: WriteSignal<String>,
+    set_agent_status: WriteSignal<AgentStatus>,
     turn_issue: RwSignal<Option<TurnIssue>>,
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     set_context_usage: WriteSignal<Option<ContextUsage>>,
@@ -255,10 +255,11 @@ fn handle_app_event(
             new_epoch,
             tool_names,
         } => {
-            set_agent_status.set(format!(
-                "модули обновлены: epoch {old_epoch} → {new_epoch}, tools {}",
-                tool_names.len()
-            ));
+            set_agent_status.set(AgentStatus::ModulesReloaded {
+                old_epoch,
+                new_epoch,
+                tools: tool_names.len(),
+            });
         }
         AppServerEvent::SessionActivityUpdated {
             session_dir,
@@ -294,7 +295,7 @@ fn handle_app_event(
             flush_stream_delta_buffer(stream_bindings);
             set_is_sending.set(false);
             set_active_run_id.set(None);
-            set_agent_status.set("остановлено".to_owned());
+            set_agent_status.set(AgentStatus::Stopped);
             set_transport_status.set(TransportStatus::Shutdown);
             finalize_running_activity(set_tool_activities, set_messages, crate::ui_utils::now_ms());
             push_message(
@@ -335,7 +336,7 @@ fn apply_execution(
     set_is_sending: WriteSignal<bool>,
     set_active_run_id: WriteSignal<Option<String>>,
     set_plan_run_id: WriteSignal<Option<String>>,
-    set_agent_status: WriteSignal<String>,
+    set_agent_status: WriteSignal<AgentStatus>,
     turn_issue: RwSignal<Option<TurnIssue>>,
 ) {
     use proteus_app_common::execution::RunStatus;
@@ -364,18 +365,17 @@ fn apply_execution(
         .or(execution.last.as_ref())
         .map(|r| r.status)
     {
-        Some(RunStatus::CancelRequested) => "отменяется",
-        Some(RunStatus::Running) => "работает",
-        Some(RunStatus::Canceled) => "отменено",
-        Some(RunStatus::Timeout) => "таймаут",
-        Some(RunStatus::Error) => "ошибка",
-        _ => "ожидает",
+        Some(RunStatus::CancelRequested) => AgentStatus::CancelRequested,
+        Some(RunStatus::Running) => AgentStatus::Running,
+        Some(RunStatus::Canceled) => AgentStatus::Canceled,
+        Some(RunStatus::Timeout) => AgentStatus::Timeout,
+        Some(RunStatus::Error) => AgentStatus::Error,
+        _ => AgentStatus::Idle,
     };
     set_agent_status.update(|current| {
-        if status == "работает" && (current == "ждёт доступ" || current == "ждёт ответ")
-        {
+        if status == AgentStatus::Running && current.is_waiting() {
             return;
         }
-        *current = status.to_owned();
+        *current = status;
     });
 }

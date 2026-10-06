@@ -17,6 +17,50 @@ pub(crate) struct BufferedStreamDeltas {
     /// транскрипту: без фильтра они доклеивались бы в сообщение ассистента и
     /// «срезались» при перезаписи финальным текстом хода.
     turn_thread_id: Option<String>,
+    /// Tail of the current reasoning summary. Its text is not rendered; the
+    /// latest `**heading**` line names what the model is thinking about.
+    reasoning_tail: String,
+    reasoning_topic: Option<String>,
+}
+
+const REASONING_TAIL_BYTES: usize = 512;
+const REASONING_TOPIC_CHARS: usize = 80;
+
+/// A new reasoning request starts without a topic.
+pub(crate) fn reset_reasoning_topic(bindings: StreamFlushBindings) {
+    bindings.stream_delta_buffer.update_value(|buffer| {
+        buffer.reasoning_tail.clear();
+        buffer.reasoning_topic = None;
+    });
+}
+
+/// Returns the topic when a reasoning delta completes a new heading line.
+pub(crate) fn reasoning_topic(bindings: StreamFlushBindings, delta: &str) -> Option<String> {
+    let mut topic = None;
+    bindings.stream_delta_buffer.update_value(|buffer| {
+        buffer.reasoning_tail.push_str(delta);
+        if buffer.reasoning_tail.len() > REASONING_TAIL_BYTES {
+            let mut cut = buffer.reasoning_tail.len() - REASONING_TAIL_BYTES;
+            while !buffer.reasoning_tail.is_char_boundary(cut) {
+                cut += 1;
+            }
+            buffer.reasoning_tail.drain(..cut);
+        }
+        let latest = latest_reasoning_heading(&buffer.reasoning_tail);
+        if latest.is_some() && latest != buffer.reasoning_topic {
+            buffer.reasoning_topic = latest.clone();
+            topic = latest;
+        }
+    });
+    topic
+}
+
+fn latest_reasoning_heading(text: &str) -> Option<String> {
+    text.lines().rev().find_map(|line| {
+        let heading = line.trim().strip_prefix("**")?.strip_suffix("**")?.trim();
+        (!heading.is_empty() && !heading.contains("**") && heading.chars().count() <= REASONING_TOPIC_CHARS)
+            .then(|| heading.to_owned())
+    })
 }
 
 /// Drop deltas from the previous transcript and invalidate its pending frame callback.
@@ -26,6 +70,8 @@ pub(crate) fn reset_stream_delta_buffer(buffer: StoredValue<BufferedStreamDeltas
         buffer.flush_scheduled = false;
         buffer.flush_epoch = buffer.flush_epoch.wrapping_add(1);
         buffer.turn_thread_id = None;
+        buffer.reasoning_tail.clear();
+        buffer.reasoning_topic = None;
     });
 }
 

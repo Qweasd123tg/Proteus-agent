@@ -67,7 +67,7 @@ impl ToolActivityStatus {
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Running => "выполняется",
-            Self::WaitingApproval => "ждёт доступ",
+            Self::WaitingApproval => "ждёт разрешения",
             Self::Approved => "разрешено",
             Self::Denied => "отклонено",
             Self::Done => "готово",

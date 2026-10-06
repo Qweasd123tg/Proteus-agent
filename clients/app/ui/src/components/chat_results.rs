@@ -22,7 +22,7 @@ pub(crate) fn ChatResultsView<A, I, R, E, X>(
     queued_prompts: ReadSignal<Vec<QueuedPromptInfo>>,
     plan_run_id: ReadSignal<Option<String>>,
     is_sending: ReadSignal<bool>,
-    agent_status: ReadSignal<String>,
+    agent_status: ReadSignal<AgentStatus>,
     turn_issue: RwSignal<Option<TurnIssue>>,
     on_resolve_approval: A,
     on_submit_user_input: I,

@@ -1,3 +1,4 @@
+mod agent_status;
 mod context;
 mod control;
 mod message;
@@ -9,6 +10,7 @@ mod subagent;
 mod tool;
 mod turn;
 
+pub(crate) use agent_status::*;
 pub(crate) use context::*;
 pub(crate) use control::*;
 pub(crate) use message::*;

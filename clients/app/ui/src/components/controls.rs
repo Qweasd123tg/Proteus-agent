@@ -81,13 +81,15 @@ where
 }
 
 #[component]
-pub(crate) fn WorkingCard(status: ReadSignal<String>) -> impl IntoView {
+pub(crate) fn WorkingCard(status: ReadSignal<AgentStatus>) -> impl IntoView {
+    // Waiting for the user is not progress: no spinner, attention colour.
+    let waiting = Memo::new(move |_| status.with(AgentStatus::is_waiting));
     view! {
         <article class="task-card running working-card">
             <div class="task-card-header">
-                <span class="status-badge running">
-                    <span class="spinner-dot"></span>
-                    {move || status.get()}
+                <span class=move || if waiting.get() { "status-badge attention" } else { "status-badge running" }>
+                    {move || (!waiting.get()).then(|| view! { <span class="spinner-dot"></span> })}
+                    {move || status.with(AgentStatus::label)}
                 </span>
             </div>
         </article>

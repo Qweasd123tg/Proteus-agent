@@ -4,7 +4,8 @@ use serde_json::Value;
 
 use super::stream::{
     StreamFlushBindings, complete_assistant_message, flush_stream_delta_buffer,
-    queue_assistant_delta, set_stream_turn_thread, stream_delta_is_foreign,
+    queue_assistant_delta, reasoning_topic, reset_reasoning_topic, set_stream_turn_thread,
+    stream_delta_is_foreign,
 };
 use crate::messages::{
     finish_active_streaming_assistant_message, finish_streaming_assistant_message,
@@ -21,6 +22,16 @@ pub(crate) fn event_updates_visible_count(event: &AppServerEvent) -> bool {
         AppServerEvent::Runtime { envelope }
             if matches!(envelope.event, proteus_contracts::domain::Event::AssistantTextDelta { .. } | proteus_contracts::domain::Event::AssistantReasoningDelta { .. })
     )
+}
+
+/// Parallel calls keep running while another one waits for the user; their
+/// progress must not replace the waiting status.
+fn set_status_unless_waiting(set_agent_status: WriteSignal<AgentStatus>, status: AgentStatus) {
+    set_agent_status.update(|current| {
+        if !current.is_waiting() {
+            *current = status;
+        }
+    });
 }
 
 pub(crate) fn update_session_labels(
@@ -52,7 +63,7 @@ pub(crate) fn update_runtime_status_and_tools(
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
     stream_bindings: StreamFlushBindings,
-    set_agent_status: WriteSignal<String>,
+    set_agent_status: WriteSignal<AgentStatus>,
     set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     active_session_dir: ReadSignal<Option<String>>,
     set_context_usage: WriteSignal<Option<ContextUsage>>,
@@ -76,7 +87,7 @@ pub(crate) fn update_runtime_status_and_tools(
                 return;
             }
             if !stream_bindings.streamed_this_turn.get_untracked() {
-                set_agent_status.set("пишет".to_owned());
+                set_agent_status.set(AgentStatus::Writing);
             }
             queue_assistant_delta(
                 stream_bindings,
@@ -93,7 +104,13 @@ pub(crate) fn update_runtime_status_and_tools(
         // says "думает"; storing every chunk in the transcript makes the
         // browser clone and re-render a growing string while the user only
         // needs the final answer. Streaming tool arguments are not rendered.
-        Event::AssistantReasoningDelta { .. } | Event::AssistantToolArgsDelta { .. } => return,
+        Event::AssistantReasoningDelta { text } => {
+            if let Some(topic) = reasoning_topic(stream_bindings, text) {
+                set_status_unless_waiting(set_agent_status, AgentStatus::Thinking(Some(topic)));
+            }
+            return;
+        }
+        Event::AssistantToolArgsDelta { .. } => return,
         _ => {}
     }
     let envelope = serde_json::to_value(envelope).expect("canonical runtime event JSON");
@@ -129,11 +146,11 @@ pub(crate) fn update_runtime_status_and_tools(
         stream_bindings.set_active_stream_message_id.set(None);
         set_stream_turn_thread(stream_bindings, envelope_thread_id);
         finish_streaming_reasoning(set_messages);
-        set_agent_status.set("начинает".to_owned());
+        set_agent_status.set(AgentStatus::Starting);
     } else if event.get("TaskReceived").is_some() {
-        set_agent_status.set("готовит задачу".to_owned());
+        set_agent_status.set(AgentStatus::PreparingTask);
     } else if event.get("HistoryCompactionStarted").is_some() {
-        set_agent_status.set("сжимает историю".to_owned());
+        set_agent_status.set(AgentStatus::CompactingHistory);
     } else if let Some(compaction_event) = event.get("HistoryCompactionCompleted") {
         let Some(report) = compaction_event.get("report") else {
             return;
@@ -142,10 +159,11 @@ pub(crate) fn update_runtime_status_and_tools(
             .get("changed")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        // A check that left the history as is says nothing to the user.
         set_agent_status.set(if changed {
-            "история сжата".to_owned()
+            AgentStatus::HistoryCompacted
         } else {
-            "история без сжатия".to_owned()
+            AgentStatus::Continuing { subagent: false }
         });
         if changed {
             push_message(
@@ -157,7 +175,7 @@ pub(crate) fn update_runtime_status_and_tools(
             );
         }
     } else if let Some(failed_event) = event.get("HistoryCompactionFailed") {
-        set_agent_status.set("сжатие не удалось".to_owned());
+        set_agent_status.set(AgentStatus::CompactionFailed);
         let message = failed_event
             .get("message")
             .and_then(Value::as_str)
@@ -170,9 +188,10 @@ pub(crate) fn update_runtime_status_and_tools(
             format!("Сжатие истории не удалось: {}", compact_text(message, 500)),
         );
     } else if event.get("ContextBuilt").is_some() {
-        set_agent_status.set("собирает контекст".to_owned());
+        set_agent_status.set(AgentStatus::BuildingContext);
     } else if event.get("ModelRequestPrepared").is_some() {
-        set_agent_status.set("думает".to_owned());
+        reset_reasoning_topic(stream_bindings);
+        set_agent_status.set(AgentStatus::Thinking(None));
     } else if let Event::AssistantMessageCompleted {
         message_id,
         phase,
@@ -227,11 +246,7 @@ pub(crate) fn update_runtime_status_and_tools(
             // общую ленту; рейка активности показывает его в обоих случаях.
             let nested = envelope_thread_id
                 .is_some_and(|thread_id| push_subagent_tool(set_messages, thread_id, tool.clone()));
-            set_agent_status.set(if nested {
-                "субагент запускает tool".to_owned()
-            } else {
-                "запускает tool".to_owned()
-            });
+            set_status_unless_waiting(set_agent_status, AgentStatus::RunningTool { subagent: nested });
             if !nested {
                 push_tool_message(
                     set_messages,
@@ -285,24 +300,16 @@ pub(crate) fn update_runtime_status_and_tools(
                 None,
                 crate::ui_utils::now_ms(),
             );
-            set_agent_status.set(if nested {
-                "субагент ждёт доступ".to_owned()
-            } else {
-                "ждёт доступ".to_owned()
-            });
+            set_agent_status.set(AgentStatus::WaitingApproval { subagent: nested });
         } else {
-            set_agent_status.set("ждёт доступ".to_owned());
+            set_agent_status.set(AgentStatus::WaitingApproval { subagent: false });
         }
     } else if let Some(approval_event) = event.get("ApprovalResolved") {
         let approved = approval_event
             .get("approved")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        set_agent_status.set(if approved {
-            "доступ разрешён".to_owned()
-        } else {
-            "доступ отклонён".to_owned()
-        });
+        set_agent_status.set(AgentStatus::ApprovalResolved(approved));
         if let Some(call_id) = approval_event.get("call_id").and_then(Value::as_str) {
             update_tool_status(
                 set_tool_activities,
@@ -336,15 +343,10 @@ pub(crate) fn update_runtime_status_and_tools(
                 Some(preview),
                 crate::ui_utils::now_ms(),
             );
-            // Между tool-вызовами ребёнок думает — «tool завершён» звучал бы
-            // как конец работы субагента, хотя цикл продолжается.
-            set_agent_status.set(if nested {
-                "субагент работает".to_owned()
-            } else {
-                "tool завершён".to_owned()
-            });
+            // A finished call is not the end of the turn: the loop continues.
+            set_status_unless_waiting(set_agent_status, AgentStatus::Continuing { subagent: nested });
         } else {
-            set_agent_status.set("tool завершён".to_owned());
+            set_status_unless_waiting(set_agent_status, AgentStatus::Continuing { subagent: false });
         }
     } else if let Some(subagent_event) = event.get("SubagentStarted") {
         flush_stream_delta_buffer(stream_bindings);
@@ -356,16 +358,15 @@ pub(crate) fn update_runtime_status_and_tools(
         finish_streaming_reasoning(set_messages);
         if let Some(activity) = subagent_started_activity(subagent_event, crate::ui_utils::now_ms())
         {
-            set_agent_status.set(format!("субагент {} работает", activity.role));
+            set_agent_status.set(AgentStatus::SubagentStarted(activity.role.clone()));
             push_subagent_message(set_messages, next_message_id, set_next_message_id, activity);
         }
     } else if let Some(subagent_event) = event.get("SubagentFinished") {
         if let Some(finished) = subagent_finished_update(subagent_event) {
-            set_agent_status.set(format!(
-                "субагент {}: {}",
-                finished.role,
-                finished.status.label()
-            ));
+            set_agent_status.set(AgentStatus::SubagentFinished {
+                role: finished.role.clone(),
+                status: finished.status.label(),
+            });
             finish_subagent_message(
                 set_messages,
                 &finished.child_thread_id,
@@ -394,9 +395,9 @@ pub(crate) fn update_runtime_status_and_tools(
             stream_bindings.set_streamed_this_turn.set(false);
         }
         finish_streaming_reasoning(set_messages);
-        set_agent_status.set("ожидает".to_owned());
+        set_agent_status.set(AgentStatus::Idle);
     } else if event.get("Error").is_some() {
-        set_agent_status.set("ошибка".to_owned());
+        set_agent_status.set(AgentStatus::Error);
     }
 }
 

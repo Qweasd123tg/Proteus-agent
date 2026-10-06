@@ -100,7 +100,7 @@ pub(crate) struct AppSessionActions {
     pub(crate) set_active_run_id: WriteSignal<Option<String>>,
     pub(crate) set_active_stream_message_id: WriteSignal<Option<u64>>,
     pub(crate) set_streamed_this_turn: WriteSignal<bool>,
-    pub(crate) set_agent_status: WriteSignal<String>,
+    pub(crate) set_agent_status: WriteSignal<AgentStatus>,
     pub(crate) set_tool_activities: WriteSignal<Vec<ToolActivity>>,
     pub(crate) set_queued_prompts: WriteSignal<Vec<QueuedPromptInfo>>,
     pub(crate) set_pending_approvals: WriteSignal<Vec<ApprovalRequestInfo>>,
@@ -437,7 +437,7 @@ impl AppSessionActions {
         self.set_pending_user_inputs.set(Vec::new());
         self.set_is_sending.set(false);
         self.set_active_run_id.set(None);
-        self.set_agent_status.set("ожидает".to_owned());
+        self.set_agent_status.set(AgentStatus::Idle);
         self.set_stick_to_bottom.set(true);
     }
 

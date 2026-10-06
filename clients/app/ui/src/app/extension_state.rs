@@ -39,7 +39,7 @@ pub(super) fn publish(state: AppState) {
                 "model": state.request.model_name.get(),
                 "mode": state.request.mode.get().label(),
                 "reasoning": if state.request.reasoning_enabled.get() { state.request.effort.get().label() } else { "выкл".to_owned() },
-                "status": state.chat.agent_status.get(),
+                "status": state.chat.agent_status.get().label(),
                 "events": state.session.event_count.get(),
                 "tools": state.chat.tool_activities.with(Vec::len),
                 "pending": state.chat.pending_approvals.with(Vec::len) + state.chat.pending_user_inputs.with(Vec::len),

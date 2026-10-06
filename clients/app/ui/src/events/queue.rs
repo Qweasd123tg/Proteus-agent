@@ -1,12 +1,12 @@
 use super::stream::{StreamFlushBindings, flush_stream_delta_buffer};
 use crate::messages::finish_active_streaming_assistant_message;
-use crate::types::{Message, MessageRole};
+use crate::types::{AgentStatus, Message, MessageRole};
 use leptos::prelude::*;
 use serde_json::Value;
 
 pub(super) fn apply(
     event: &Value,
-    set_agent_status: WriteSignal<String>,
+    set_agent_status: WriteSignal<AgentStatus>,
     set_messages: crate::transcript::TranscriptWriter,
     next_message_id: ReadSignal<u64>,
     set_next_message_id: WriteSignal<u64>,
@@ -47,14 +47,7 @@ pub(super) fn apply(
         if pushed {
             set_next_message_id.set(id + 1);
         }
-        set_agent_status.set(
-            if delivered.follow_up {
-                "начинает следующий ход"
-            } else {
-                "учитывает уточнение"
-            }
-            .to_owned(),
-        );
+        set_agent_status.set(AgentStatus::FollowUp(delivered.follow_up));
         return true;
     }
 
