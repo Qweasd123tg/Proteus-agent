@@ -15,9 +15,12 @@ impl PermissionModeLabel for PermissionMode {
 
     fn description(self) -> &'static str {
         match self {
-            Self::Plan => "только чтение",
-            Self::Normal => "спрашивать перед записью",
-            Self::Auto => "писать без запросов",
+            Self::Plan => "Только чтение: агент изучает проект и предлагает план.",
+            Self::Normal => {
+                "Решает политика подтверждений профиля; спорные действия ждут вашего ответа."
+            }
+            // Auto relaxes file writes only; commands and network stay denied.
+            Self::Auto => "Файлы читаются и меняются без подтверждения; команды и сеть запрещены.",
         }
     }
 

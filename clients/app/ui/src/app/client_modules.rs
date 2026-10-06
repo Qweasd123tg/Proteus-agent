@@ -61,8 +61,8 @@ pub(super) fn install(state: AppState, connection: ClientConnection, router: App
             .map(|m| json!({"name":m.name,"label":m.label,"hidden":m.hidden}))
             .collect();
         let modes = [
-            (PermissionMode::Normal, "С подтверждениями"),
-            (PermissionMode::Auto, "Без подтверждений"),
+            (PermissionMode::Normal, "По правилам"),
+            (PermissionMode::Auto, "Правки без вопросов"),
             (PermissionMode::Plan, "Планирование"),
         ]
         .map(|(m, label)| json!({"value":m.label(),"label":label,"description":m.description()}));

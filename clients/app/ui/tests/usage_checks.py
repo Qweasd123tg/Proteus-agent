@@ -3,6 +3,7 @@ import base64
 import time
 from pathlib import Path
 from analysis_checks import run as check_analysis, check_selection, open_report
+from workspace_groups import merge_groups
 
 
 def run(command, js, wait_for):
@@ -17,7 +18,7 @@ def run(command, js, wait_for):
     js("document.querySelector('[data-settings-section=extensions]').click()")
     wait_for(lambda: js("return !!document.querySelector('[data-extension-available=usage], [data-extension-choice=usage]')"), 'Usage package unavailable in saved settings')
     js("document.querySelector('[data-extension-available=usage]')?.click()")
-    wait_for(lambda: js("return !!document.querySelector('[aria-label=\"Настроить: Расход\"]')"), 'Usage settings action missing')
+    wait_for(lambda: js("return !!document.querySelector('[aria-label=\"Настроить: Расход чата\"]')"), 'Usage settings action missing')
     assert js("return !document.querySelector('[data-module-page=usage] .extension-view-content')"), 'Settings entry executed before opening'
     js("document.querySelector('[data-settings-section=usage]').click()")
     wait_for(lambda: js("return !!document.querySelector('[data-module-page=usage] .extension-view-content')?.shadowRoot?.querySelector('form')"), 'Separate settings entry did not mount')
@@ -25,6 +26,7 @@ def run(command, js, wait_for):
     wait_for(lambda: js("return document.querySelector('[data-module-page=usage] .extension-view-content').shadowRoot.textContent.includes('Тариф сохранён')"), 'Custom rate failed to persist')
     js("document.querySelector('.settings-back').click()")
     wait_for(chat_loaded, 'Chat did not return')
+    merge_groups(js, wait_for)
     js("document.querySelector('.workspace-add').click();document.querySelector('.workspace-picker [data-open-tab=usage]').click()")
     wait_for(lambda: js("const root=" + shadow() + ";return root?.querySelector('.usage-headline > strong')?.textContent==='280'"), 'Usage totals do not match two real provider requests')
     assert js("const root=" + shadow() + ";return root.querySelector('.cost-total').textContent.includes('$0.000252')"), 'Cost double-counted cache or reasoning'

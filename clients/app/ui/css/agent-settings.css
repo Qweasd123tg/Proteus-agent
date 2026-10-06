@@ -20,6 +20,9 @@
 
 .agent-tool { align-items:center; justify-content:space-between; cursor:pointer; }
 .agent-tool.unavailable { opacity:.7; }
+.agent-tool-description.folded { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+.agent-tool-more { justify-self:start; min-height:0; padding:0; border:0; background:none; color:var(--text-faint); font-size:12px; }
+.agent-tool-more:hover { background:none; color:var(--text-main); }
 .agent-tool[hidden] { display:none; }
 .agent-search { width:min(320px,50%); }
 

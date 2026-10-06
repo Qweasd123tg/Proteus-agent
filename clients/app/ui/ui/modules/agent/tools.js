@@ -1,6 +1,10 @@
 import { agentSettings } from "./store.js";
 import { el, mountAgentPage } from "./page.js";
 import { slotSection } from "./choices.js";
+import { safetyText } from "./labels.js";
+
+// Descriptions are written for the model; long ones start folded.
+const FOLDED_DESCRIPTION = 160;
 
 export function mount(context) {
   mountAgentPage(
@@ -41,10 +45,24 @@ export function mount(context) {
         );
         const text = el("span", "agent-choice-text");
         const meta = el("span", "agent-choice-meta");
-        for (const value of [tool.safety, tool.source]) if (value) meta.append(el("span", "agent-chip", value));
+        if (tool.safety) meta.append(el("span", "agent-chip", safetyText[tool.safety] ?? tool.safety));
         if (tool.runtime_managed) meta.append(el("span", "agent-chip", "управляется runtime"));
         if (!tool.registered) meta.append(el("span", "agent-chip warning", "не зарегистрирован"));
-        text.append(el("code", "", tool.name), el("span", "settings-hint", tool.description || "Описание не задано"), meta);
+        const name = el("code", "", tool.name);
+        if (tool.source) name.title = `Источник: ${tool.source}`;
+        const description = el("span", "settings-hint agent-tool-description", tool.description || "Описание не задано");
+        text.append(name, description);
+        if ((tool.description || "").length > FOLDED_DESCRIPTION) {
+          description.classList.add("folded");
+          const more = el("button", "agent-tool-more", "Подробнее");
+          more.type = "button";
+          more.addEventListener("click", (event) => {
+            event.preventDefault();
+            more.textContent = description.classList.toggle("folded") ? "Подробнее" : "Свернуть";
+          }, { signal: view.signal });
+          text.append(more);
+        }
+        text.append(meta);
         item.classList.toggle("unavailable", !tool.registered);
         item.append(text, input);
         list.append(item);

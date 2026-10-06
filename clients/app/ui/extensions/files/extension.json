@@ -3,6 +3,7 @@
   "id": "files",
   "name": "Файлы",
   "description": "Дерево проекта и просмотр текстовых файлов",
+  "icon": "folder",
   "views": [
     {
       "surfaces": [

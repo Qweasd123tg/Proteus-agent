@@ -3,6 +3,7 @@
   "id": "model-quota",
   "name": "Лимиты модели",
   "description": "Остаток квоты, окна лимитов и время сброса текущего провайдера",
+  "icon": "history",
   "views": [
     {
       "surfaces": [

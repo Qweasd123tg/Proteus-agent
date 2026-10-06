@@ -3,6 +3,7 @@
   "id": "plan",
   "name": "План",
   "description": "Текущий план задачи и прогресс выполнения",
+  "icon": "plan",
   "views": [
     {
       "surfaces": [

@@ -3,6 +3,7 @@
   "id": "session-info",
   "name": "Сведения о сессии",
   "description": "Активность, события и ожидающие ответы в сессии",
+  "icon": "info",
   "views": [
     {
       "surfaces": [

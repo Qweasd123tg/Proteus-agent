@@ -27,7 +27,7 @@ export function createPanel(record,{services,storage,changed,surfaceOnly=false,l
     let failed=false;
     releaseOwned?.();stopViews();body.replaceChildren();
     error.textContent=record.error??'';retry.hidden=true;
-    compactRoot.replaceChildren(icon('modules'));
+    compactRoot.replaceChildren(icon(record.manifest?.icon||'modules'));
     if(surfaceOnly){panelRoot=createViewRoot(body,lightContent?'light':'shadow','extension-panel-content').root;return;}
     if(record.error)return;
     // Combined compact/workspace views share one instance, while separate

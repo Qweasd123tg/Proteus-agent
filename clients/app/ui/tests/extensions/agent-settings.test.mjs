@@ -77,7 +77,7 @@ test('a recorded state becomes a draft that rolls the profile back through the b
       ['model', 'параметры: timeout_ms'],
       ['hook', 'first → нет'],
       ['tools', '− read_file'],
-      ['mode', 'Спрашивать разрешение → Правки без вопросов'],
+      ['mode', 'По правилам → Правки без вопросов'],
     ],
   );
 });

@@ -48,16 +48,14 @@
 .settings-content .extension-available .extension-choice { border:1px solid var(--border-subtle);border-radius:14px; }
 
 .settings-row + .settings-row { margin-top:12px; }
-.extension-details { display:grid; gap:20px; margin-bottom:24px; flex:none; }
-.extension-info { display:grid; grid-template-columns:minmax(0,1fr) 228px; align-items:start; gap:24px; }
-.extension-about { min-width:0; }
-.extension-enable-row { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
-.extension-enable-row > .settings-hint { margin:0; }
-.extension-enable-row > .settings-status { flex-basis:100%; }
-.extension-enable { display:flex; align-items:center; gap:10px; width:fit-content; font-size:13px; cursor:pointer; }
-.extension-summary { color:var(--text-muted); font-size:13px; line-height:1.55; margin:0; overflow-wrap:anywhere; }
+/* Description and switch share one line under the page title. */
+.extension-details { display:grid; gap:16px; margin-bottom:24px; flex:none; }
+.extension-enable-row { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }
+.extension-enable { display:flex; flex:none; align-items:center; gap:10px; width:fit-content; color:var(--text-muted); font-size:13px; cursor:pointer; }
+.extension-summary { flex:1; min-width:0; color:var(--text-muted); font-size:13px; line-height:1.55; margin:0; overflow-wrap:anywhere; }
+.module-selection { display:flex; flex-wrap:wrap; gap:8px; }
 .extension-details [hidden] { display:none; }
-.extension-preview { display:block; margin:0; overflow:hidden; border:1px solid var(--border-subtle); border-radius:10px; background:var(--bg-root); aspect-ratio:16/9; }
+.extension-preview { display:block; width:min(100%, 360px); margin:0; overflow:hidden; border:1px solid var(--border-subtle); border-radius:10px; background:var(--bg-root); aspect-ratio:16/9; }
 .extension-preview img { display:block; width:100%; height:100%; object-fit:contain; }
 .extension-preview-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; width:100%; height:100%; padding:12px; color:var(--text-faint); text-align:center; font-size:11px; }
 .extension-preview-empty svg { width:28px; height:28px; }
@@ -95,7 +93,6 @@
 
 .settings-content { container-type:inline-size; }
 @container (max-width:480px) {
-  .extension-info { grid-template-columns:minmax(0,1fr) 110px; gap:12px; }
   .extension-summary { font-size:12px; }
   .settings-row { flex-wrap:wrap; gap:12px; }
   .settings-row > .settings-label { flex-basis:100%; }

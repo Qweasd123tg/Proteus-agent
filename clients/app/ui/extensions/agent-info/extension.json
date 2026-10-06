@@ -3,6 +3,7 @@
   "id": "agent-info",
   "name": "Сборка агента",
   "description": "Профиль и инструменты подключённого агента",
+  "icon": "workflow",
   "views": [
     {
       "surfaces": [

@@ -1,8 +1,9 @@
 {
   "apiVersion": 2,
   "id": "context",
-  "name": "Контекст",
+  "name": "Заполнение контекста",
   "description": "Заполнение контекста и порог автокомпакта",
+  "icon": "layers",
   "views": [
     {
       "surfaces": [

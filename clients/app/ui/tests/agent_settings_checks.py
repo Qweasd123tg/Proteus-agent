@@ -53,7 +53,7 @@ def run(command, js, wait_for, config, capture):
     page('agent-history')
     wait_for(lambda: js("return document.querySelectorAll('[data-agent-revision]').length===1"), 'Save did not record the replaced state')
     change = lambda key: js(f"return document.querySelector('[data-agent-revision] [data-change={key}]')?.textContent||''")
-    assert change('mode') == 'Режим прав: Спрашивать разрешение → Только чтение', change('mode')
+    assert change('mode') == 'Режим прав: По правилам → Только чтение', change('mode')
     assert change('tools') == 'Инструменты: − update_plan', change('tools')
     click('[data-agent-revision] button')
     wait_for(lambda: status() == 'Не сохранено: Инструменты, Режим прав', 'Rollback did not fill the draft: ' + status())

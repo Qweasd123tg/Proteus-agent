@@ -21,8 +21,17 @@ const changeText = {
 
 export const changeLabel = (key) => changeText[key] ?? key;
 
+// Tool safety classes as the user reads them; unknown classes keep their name.
+export const safetyText = {
+  ReadOnly: "только чтение",
+  WritesFiles: "меняет файлы",
+  RunsCommands: "запускает команды",
+  Network: "сеть",
+  Dangerous: "опасный",
+};
+
 export const permissionText = {
   plan: ["Только чтение", "Доступны только инструменты чтения."],
-  normal: ["Спрашивать разрешение", "Решения принимает политика подтверждений; спорные действия ждут вашего ответа."],
+  normal: ["По правилам", "Решения принимает политика подтверждений; спорные действия ждут вашего ответа."],
   auto: ["Правки без вопросов", "Чтение и изменение файлов без подтверждения; команды и сеть запрещены."],
 };

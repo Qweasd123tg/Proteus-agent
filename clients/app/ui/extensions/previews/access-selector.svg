@@ -4,7 +4,7 @@
 <path d="M20 74H620" stroke="#34343c"/>
 <text x="44" y="55" fill="#eeeef2" font-family="sans-serif" font-size="19">Режим доступа</text>
 <rect x="42" y="100" width="556" height="44" rx="8" fill="#2d2d34"/>
-<text x="58" y="128" fill="#c5c5cf" font-family="sans-serif" font-size="16">Спрашивать разрешение</text>
+<text x="58" y="128" fill="#c5c5cf" font-family="sans-serif" font-size="16">По правилам</text>
 <text x="550" y="128" fill="#a5a1bd" font-family="sans-serif" font-size="19">✓</text>
 <rect x="42" y="157" width="556" height="44" rx="8" fill="#2d2d34"/>
 <text x="58" y="185" fill="#c5c5cf" font-family="sans-serif" font-size="16">Только чтение</text>

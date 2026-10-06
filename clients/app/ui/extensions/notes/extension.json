@@ -3,6 +3,7 @@
   "id": "notes",
   "name": "Заметки",
   "description": "Личные заметки в этом клиенте",
+  "icon": "notes",
   "views": [
     {
       "surfaces": [
