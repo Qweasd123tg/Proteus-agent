@@ -10,7 +10,8 @@ export function mount({ root, services, signal }) {
     previous = state.mode;
     const selected = state.modes.find((m) => m.value === state.mode);
     ui.name.textContent = selected?.label || state.mode;
-    ui.summary.title = selected?.description || "";
+    ui.summary.title = selected?.label || state.mode;
+    ui.summary.dataset.uiTooltipDetails = selected?.description || "";
     ui.panel.replaceChildren();
     const list = section(ui.panel, "Режим доступа");
     for (const mode of state.modes)

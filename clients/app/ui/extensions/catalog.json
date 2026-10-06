@@ -45,13 +45,15 @@
       "url": "./session-info/extension.json",
       "enabled": true,
       "collapsed": true,
-      "location": "right"
+      "location": "right",
+      "widget": "header"
     },
     {
       "id": "agent-info",
       "url": "./agent-info/extension.json",
       "enabled": true,
-      "collapsed": true
+      "collapsed": true,
+      "widget": "header"
     },
     {
       "id": "notes",
@@ -69,7 +71,8 @@
       "id": "usage",
       "url": "./usage/extension.json",
       "enabled": true,
-      "collapsed": true
+      "collapsed": true,
+      "widget": "header"
     }
   ]
 }

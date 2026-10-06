@@ -27,8 +27,9 @@ def run(command, js, wait_for):
     expected = [before[2], before[0], before[1], *before[3:]]
     assert order() == expected, 'Widget drop did not insert'
     assert js("return keptWidgets.every(b=>b.isConnected) && keptPanels.every(p=>p.isConnected) && document.querySelector('.workspace-tab.active')?.dataset.tabId===tabActive"), 'Widget drag remounted roots or triggered click'
-    saved = js("return JSON.parse(localStorage.getItem('proteus.ui.extensions')).panels.filter(p=>p.enabled).map(p=>p.id)")
-    assert saved == expected, 'Widget order not persisted'
+    # Settings also list enabled packages without a composer widget.
+    saved = [id for id in js("return JSON.parse(localStorage.getItem('proteus.ui.extensions')).panels.filter(p=>p.enabled).map(p=>p.id)") if id in expected]
+    assert saved == expected, 'Widget order not persisted: ' + str(saved)
 
     # Cancel a preview and check that it restores both DOM and saved order.
     js("document.querySelector('[data-widget-slot=composer] .extension-widgets').scrollLeft=0;window.savedOrder=localStorage.getItem('proteus.ui.extensions')")
@@ -56,10 +57,11 @@ def run(command, js, wait_for):
     assert order() == widget_expected, 'Reload lost widget order'
 
     # Hover/focus use one styled, bounded tooltip and preserve existing descriptions.
+    # The widget click above opened its tab beside the chat, so the control merges.
     control = '.topbar [data-workspace-split]'
     pointer([move(*point(control))])
     wait_for(lambda: js("return document.querySelector('.ui-tooltip')?.matches(':popover-open')"), 'Themed hover tooltip missing')
-    assert js("const t=document.querySelector('.ui-tooltip'),r=t.getBoundingClientRect(),c=document.querySelector('.topbar [data-workspace-split]');return !c.hasAttribute('title') && t.textContent.includes('Разделить область') && t.textContent.includes('Ctrl + Shift + B') && r.height<70 && r.width<=280 && r.left>=8 && r.top>=8 && r.right<=innerWidth-8 && r.bottom<=innerHeight-8"), 'Tooltip retained native title or overflowed viewport'
+    assert js("const t=document.querySelector('.ui-tooltip'),r=t.getBoundingClientRect(),c=document.querySelector('.topbar [data-workspace-split]');return !c.hasAttribute('title') && t.textContent.includes(c.getAttribute('aria-label')) && t.textContent.includes('Ctrl + Shift + B') && r.height<70 && r.width<=280 && r.left>=8 && r.top>=8 && r.right<=innerWidth-8 && r.bottom<=innerHeight-8"), 'Tooltip retained native title or overflowed viewport'
     js("window.tooltipEscape=0;window.watchTooltipEscape=e=>{if(e.key==='Escape')window.tooltipEscape++};window.addEventListener('keydown',watchTooltipEscape);document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
     assert js("return !document.querySelector('.ui-tooltip').matches(':popover-open') && window.tooltipEscape===0"), 'Tooltip Escape reached global cancellation'
     js("window.removeEventListener('keydown',watchTooltipEscape)")

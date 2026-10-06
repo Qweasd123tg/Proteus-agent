@@ -1,7 +1,8 @@
 export const layoutKey = "proteus.workspace.layout";
+export const chatTab = "client:chat";
 export function initialLayout() {
   return {
-    groups: [{ ids: ["client:chat"], active: "client:chat" }],
+    groups: [{ ids: [chatTab], active: chatTab }],
     focused: 0,
     ratio: 0.5,
   };

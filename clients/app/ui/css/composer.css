@@ -132,10 +132,12 @@
 .topnav > .module-dock { max-width:min(50vw,480px); flex-wrap:nowrap; }
 .composer-options { flex:1 1 auto; max-width:none; flex-wrap:wrap; }
 .composer-actions { flex:1 1 auto; }
+/* A narrow column keeps one toolbar row: the access mode shows only its
+   icon (the name stays in the tooltip) and wrapping happens only if needed. */
 @container (max-width:650px) {
   .composer { padding:0 12px 12px; }
   .composer-toolbar { flex-wrap:wrap; }
-  .composer-options { flex-basis:100%; }
+  .composer-access-menu .composer-menu-model { display:none; }
 }
 
 .client-module-movable:has(.client-module-slot:empty) { display:none; }

@@ -11,7 +11,7 @@ export function mountExtensions(root, services = {}, options = {}) {
   const clientOwner={id:'client'};
   const all=()=>[...registry.state().records.filter(r=>r.enabled&&hasSurface(r.manifest,'workspace')),...[...owned.values()].map(item=>item.record)];
   const board=options.workspace??createWorkspace(options.target??root,{storage:registry.storage});
-  const workspace=board.connect('extensions',{select:id=>update(id,{collapsed:false}),close});
+  const workspace=board.connect('extensions',{select:id=>update(id,{collapsed:false},false),close});
   const notice=document.createElement('p');notice.className='extension-surface-status';notice.setAttribute('role','status');
   // The chat is where a broken built-in selection shows: its selectors are gone.
   const repair=document.createElement('button');repair.type='button';repair.className='btn-primary';repair.textContent='Восстановить встроенные расширения';repair.dataset.builtinRepair='workspace';repair.hidden=true;
@@ -25,9 +25,11 @@ export function mountExtensions(root, services = {}, options = {}) {
     if(target<0)return;
     registry.move(id,target-current-(current<target?1:0));
   }
-  function update(id,change) {
+  // Widgets and chat rows open their tab beside the chat; the board's own
+  // picker has already chosen the group.
+  function update(id,change,beside=true) {
     const item=owned.get(id); if(item)Object.assign(item.record,change);else registry.update(id,change);
-    render();if(change.collapsed===false)workspace.reveal(id);
+    render();if(change.collapsed===false)workspace.reveal(id,{beside});
   }
   function close(id) {
     const item=owned.get(id);

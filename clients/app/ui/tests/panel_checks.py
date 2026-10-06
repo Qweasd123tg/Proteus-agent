@@ -19,6 +19,10 @@ def run(command, js, wait_for):
         return "document.querySelector('.workspace-tab-content > .extension-panel:not([hidden]) .extension-panel-content').shadowRoot"
 
     command('/window/rect', {'width': 1440, 'height': 1000})
+    # Earlier checks open widget tabs beside the chat; these checks start in one group.
+    if js("return document.querySelectorAll('.workspace-group:not([hidden])').length===2"):
+        js("document.querySelector('.topbar [data-workspace-split]').click()")
+        wait_for(lambda: js("return document.querySelectorAll('.workspace-group:not([hidden])').length===1"), 'Groups did not merge')
     assert js("return [...document.querySelectorAll('[aria-label=\"Новая сессия\"],.project-new')].every(b=>b.querySelector('use')?.getAttribute('href').endsWith('#plus'))"), 'New session retained the pencil icon'
     assert js("return document.querySelectorAll('.topbar [data-panel-toggle=sidebar]').length===1 && !document.querySelector('.sidebar [data-panel-toggle]')"), 'Sidebar toggle is duplicated or outside header'
     js("document.querySelector('.sidebar-search input').focus();document.querySelector('[data-panel-toggle=sidebar]').click()")

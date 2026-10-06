@@ -1,9 +1,10 @@
-const positions=['composer','header','hidden'];
+import { WIDGET_POSITIONS as positions } from './contract.js';
 const key=id=>`proteus.ui.widget.${id}.position`;
-function position(storage,id){
+// The catalog may suggest where a bundled widget starts; the user's choice wins.
+function position(storage,id,fallback='composer'){
   const saved=storage.getItem(key(id));
   if(saved!==null&&!positions.includes(saved))throw new Error('Неизвестное расположение виджета');
-  return saved??'composer';
+  return saved??fallback;
 }
 
 // Move the existing compact roots, keeping each extension runtime alive.
@@ -45,7 +46,7 @@ export function createWidgets(storage, reorder, {open,hasWorkspace}) {
     for(const {strip} of strips.values())for(const child of [...strip.children])if(!wanted.has(child))child.remove();
     const offsets=new Map();
     for(const button of buttons){
-      let p;try{p=position(storage,button.dataset.widgetId);}catch{p='composer';}
+      let p;try{p=position(storage,button.dataset.widgetId,button.dataset.widgetDefault);}catch{p='composer';}
       if(p==='hidden'){button.remove();continue;}
       const strip=strips.get(p).strip,index=offsets.get(p)??0;
       if(strip.children[index]!==button)strip.insertBefore(button,strip.children[index]??null);
@@ -62,13 +63,13 @@ export function createWidgets(storage, reorder, {open,hasWorkspace}) {
   };
 }
 
-export function widgetPlacement(storage,signal,id) {
+export function widgetPlacement(storage,signal,id,fallback) {
   const label=document.createElement('label');label.className='extension-widget-placement';label.textContent='Расположение виджета';
   const select=document.createElement('select');select.setAttribute('aria-label','Расположение виджета');select.dataset.widgetPlacement=id;
   for(const [value,text]of [['composer','Под полем ввода'],['header','В верхней панели'],['hidden','Скрыть']]){const option=document.createElement('option');option.value=value;option.textContent=text;select.append(option);}
   const status=document.createElement('span');status.setAttribute('role','status');
   let saved='composer';
-  try{saved=position(storage,id);}catch(error){status.textContent=error.message;}
+  try{saved=position(storage,id,fallback);}catch(error){status.textContent=error.message;}
   select.value=saved;
   select.addEventListener('change',()=>{
     try{storage.setItem(key(id),select.value);saved=select.value;status.textContent='';window.dispatchEvent(new Event('proteus-widgets-position'));}

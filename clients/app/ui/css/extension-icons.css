@@ -5,7 +5,7 @@
 .extension-widgets { display:flex;align-items:center;gap:3px;min-width:0;overflow-x:auto;scrollbar-width:none; }
 .extension-widgets[hidden] { display:none; }
 .extension-widgets::-webkit-scrollbar { display:none; }
-.extension-widget { width:28px;height:30px;min-height:30px;padding:0;flex:none;border-radius:8px;color:var(--text-muted); }
+.extension-widget { width:auto;min-width:28px;height:30px;min-height:30px;padding:0;flex:none;border-radius:8px;color:var(--text-muted); }
 .extension-widget:hover { background:var(--bg-panel-hover);color:var(--text-main); }
 .extension-widget > span { display:grid;place-items:center;pointer-events:none; }
 .composer-options:has(.extension-widgets:not([hidden])) .composer-access-menu { flex-shrink:2; }

@@ -83,7 +83,8 @@ export function mount({ root, compact, services, signal }) {
         .filter(({window}) => window.duration_seconds === 604800)
         .sort((a,b) => b.window.used_percent - a.window.used_percent)[0];
       const left = weekly ? remaining(weekly.window.used_percent) : null;
-      updateRing(left, weekly ? `Неделя: ${percent(left)} осталось · ${weekly.bucket.name || weekly.bucket.id} · ${resetLabel(weekly.window.resets_at)}` : 'Недельный лимит: нет данных');
+      // Like the context ring, the fill shows what is used up.
+      updateRing(weekly ? 100 - left : null, weekly ? `Неделя: использовано ${percent(100 - left)}, осталось ${percent(left)} · ${weekly.bucket.name || weekly.bucket.id} · ${resetLabel(weekly.window.resets_at)}` : 'Недельный лимит: нет данных');
       status.textContent = snapshot === null ? '' : `Данные на ${timestamp(snapshot.observed_at)}`;
     } catch (error) {
       if (signal.aborted) return;

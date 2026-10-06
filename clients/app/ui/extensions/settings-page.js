@@ -18,7 +18,7 @@ export function mountExtensionOptions(root, record, registry, services = {}) {
     if (next === enabled) return;
     enabled = next; bodyController?.abort(); bodyController = new AbortController();
     stopView?.(); stopView = undefined; body.replaceChildren();
-    if (enabled && hasSurface(record.manifest, 'compact')) body.append(widgetPlacement(registry.storage, bodyController.signal, record.id));
+    if (enabled && hasSurface(record.manifest, 'compact')) body.append(widgetPlacement(registry.storage, bodyController.signal, record.id, record.widget));
     if (enabled && hasSurface(record.manifest, 'settings')) stopView = mountView(body, record, registry.storage, services, 'settings');
     else if (!enabled || !hasSurface(record.manifest, 'compact')) {
       const hint = document.createElement('p'); hint.className = 'settings-hint';

@@ -8,11 +8,14 @@ import {
   moveTab,
   closeTab,
   mergeGroups,
+  chatTab,
 } from "../ui/workspace/state.mjs";
 import { createGroup, createTab } from "../ui/workspace/group.js";
 import { watchViewMotion } from "../ui/view-motion.js";
 import { popoverMotion } from "../ui/popover-motion.js";
 import { tabMotion } from "../ui/workspace/tab-motion.js";
+
+const MIN_SPLIT_WIDTH = 760;
 
 // The board owns placement; providers own content and its lifetime.
 export function createWorkspace(target, { storage } = {}) {
@@ -94,6 +97,20 @@ export function createWorkspace(target, { storage } = {}) {
   function record(id) {
     return records.find((r) => r.id === id);
   }
+  function activeId(index) {
+    const ids = visibleIds(index), active = layout.groups[index]?.active;
+    return ids.includes(active) ? active : ids[0] || "";
+  }
+  // A tab opened from a widget or a chat row must not cover the chat: it goes
+  // to the other group, splitting the board when two columns fit.
+  function placement(id, index = layout.focused) {
+    if (id === chatTab || activeId(index) !== chatTab) return index;
+    if (layout.groups.length === 1) {
+      if (element.clientWidth < MIN_SPLIT_WIDTH) return index;
+      layout.groups.push({ ids: [], active: "" });
+    }
+    return 1 - index;
+  }
   function owner(id) {
     return [...sources.values()].find((s) =>
       s.records.some((r) => r.id === id),
@@ -101,13 +118,17 @@ export function createWorkspace(target, { storage } = {}) {
   }
   function choose(id, index = pickerGroup) {
     picker.hidePopover();
-    if (groupOf(layout, id) < 0) moveTab(layout, id, index);
+    // A closed tab keeps its old group; the picker opens it where it was asked.
+    if (groupOf(layout, id) < 0 || record(id)?.collapsed) moveTab(layout, id, index);
     owner(id)?.select?.(id);
     reveal(id);
   }
-  function reveal(id) {
+  function reveal(id, { beside = false } = {}) {
     if (!record(id)) return;
-    if (groupOf(layout, id) < 0) moveTab(layout, id, layout.focused);
+    const current = groupOf(layout, id);
+    if (current < 0) moveTab(layout, id, placement(id));
+    else if (beside && placement(id, current) !== current)
+      moveTab(layout, id, 1 - current);
     const index = groupOf(layout, id);
     if (layout.groups[index].active !== id)
       layout.groups[index].previous = layout.groups[index].active;
@@ -192,7 +213,7 @@ export function createWorkspace(target, { storage } = {}) {
     );
     for (const r of records)
       if (!r.collapsed && groupOf(layout, r.id) < 0)
-        layout.groups[0].ids.push(r.id);
+        layout.groups[placement(r.id)].ids.push(r.id);
     for (const [id, tab] of tabs)
       if (!available.has(id)) {
         tab.remove();

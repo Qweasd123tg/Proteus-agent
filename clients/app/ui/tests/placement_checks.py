@@ -21,6 +21,8 @@ def run(command, js, wait_for):
         js(f"const s=document.querySelector('[data-widget-placement={id}]');s.value={json.dumps(value)};s.dispatchEvent(new Event('change',{{bubbles:true}}))")
 
     wait_for(lambda: js("return !!document.querySelector('[data-widget-id=model-quota] span')?.shadowRoot?.querySelector('svg') && !!document.querySelector('[data-widget-id=context]')"), 'Live widgets missing')
+    wait_for(lambda: js("return !!document.querySelector('[data-widget-slot=header] [data-widget-id=agent-info]')"), 'Catalog default did not start the agent widget in the header')
+    assert js("return localStorage.getItem('proteus.ui.widget.agent-info.position')===null"), 'Catalog default was written as a user choice'
     js("window.quotaWidget=document.querySelector('[data-widget-id=model-quota]');window.contextWidget=document.querySelector('[data-widget-id=context]');window.quotaPanel=document.querySelector('[data-extension-id=model-quota]');window.contextPanel=document.querySelector('[data-extension-id=context]')")
     settings()
     assert js("return !document.querySelector('.extension-settings > .extension-widget-placement')"), 'Global placement remains'
@@ -70,7 +72,7 @@ def run(command, js, wait_for):
         assert js("return !document.querySelector('.ui-drag-preview') && !document.querySelector('.widget-drop-target')"), 'Drag preview survived drop'
 
     # Empty the destination through host placement, then fill it with a pointer drag.
-    js("for(const id of ['model-quota','notes'])localStorage.setItem(`proteus.ui.widget.${id}.position`,'composer');window.dispatchEvent(new Event('proteus-widgets-position'));window.crossZoneWidget=document.querySelector('[data-widget-id=context]');window.crossZoneRoot=crossZoneWidget.querySelector('span').shadowRoot")
+    js("for(const id of ['model-quota','notes','agent-info','session-info','usage'])localStorage.setItem(`proteus.ui.widget.${id}.position`,'composer');window.dispatchEvent(new Event('proteus-widgets-position'));window.crossZoneWidget=document.querySelector('[data-widget-id=context]');window.crossZoneRoot=crossZoneWidget.querySelector('span').shadowRoot")
     drag_widget('context','header',cancel=True)
     assert js("return document.querySelector('[data-widget-slot=composer] [data-widget-id=context]')===crossZoneWidget && localStorage.getItem('proteus.ui.widget.context.position')==='composer'"), 'Escape changed placement'
     drag_widget('context','header')

@@ -16,7 +16,7 @@
 .workspace-tab.active { background:var(--bg-panel-soft); color:var(--text-main); }
 .workspace-tab:hover,.workspace-tab:focus-within { background:var(--bg-panel-hover); color:var(--text-main); }
 .workspace-tab > button,.workspace-tab > button:is(:hover,:active) { background:transparent; color:inherit; }
-.workspace-tab-name { flex:1; min-width:0; padding:0 8px; min-height:32px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; border:0; font-size:12px; }
+.workspace-tab-name { flex:1; min-width:0; padding:0 8px; min-height:32px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; border:0; font-size:12px; text-align:left; }
 .workspace-tab-close { flex:none; width:26px; min-height:26px; padding:0; }
 .workspace-tab-close svg { width:14px; height:14px; }
 .workspace-tab-content { flex:1; min-height:0; min-width:0; display:flex; overflow:hidden; }
@@ -31,8 +31,10 @@
 .workspace-empty button { justify-content:flex-start; background:var(--bg-panel-soft); min-height:42px; flex:none; }
 .workspace-picker { margin:0; position:fixed; inset:auto; max-height:calc(100dvh - 16px); overflow:auto; width:min(360px,calc(100vw - 16px)); }
 .workspace-picker:popover-open { display:flex; flex-direction:column; gap:2px; }
-.workspace-resize { flex:0 0 6px; position:relative; background:var(--border-subtle); cursor:col-resize; touch-action:none; }
-.workspace-resize:hover,.workspace-resize:focus-visible,.resizing > .workspace-resize { background:var(--text-faint); }
+/* A 6px grip drawn as a thin line: the columns read as one surface. */
+.workspace-resize { flex:0 0 6px; position:relative; background:transparent; cursor:col-resize; touch-action:none; }
+.workspace-resize::before { content:''; position:absolute; inset:0 2.5px; background:var(--border-subtle); transition:inset var(--motion-fast,120ms),background-color var(--motion-fast,120ms); }
+.workspace-resize:hover::before,.workspace-resize:focus-visible::before,.resizing > .workspace-resize::before { inset:0 1.5px; background:var(--text-faint); }
 .tab-workspace.resizing iframe { pointer-events:none; }
 .workspace-group .workspace-tabbar { padding:5px 6px; }
 @container (max-width:650px) {
