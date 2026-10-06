@@ -10,6 +10,7 @@ from request_races import run as check_request_races
 from markdown_checks import run as check_markdown, FIXTURE as MARKDOWN_FIXTURE
 from simplify_checks import run as check_simplify
 from settings_checks import run as check_settings
+from preview_checks import run as check_preview
 from interface_settings_checks import run as check_interface_settings
 from client_modules_checks import run as check_client_modules
 from extensions_checks import run as check_extensions
@@ -469,6 +470,7 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return
                 if '--settings-only' in sys.argv:
                     check_settings(command, js, wait_for)
+                    check_preview(command, js, wait_for)
                     return
                 if '--usage-shell-only' in sys.argv:
                     check_usage(command, js, wait_for)
@@ -504,6 +506,7 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     return
                 check_selects(command, js, wait_for)
                 check_panels(command, js, wait_for)
+                check_preview(command, js, wait_for)
                 if '--shell-only' in sys.argv:
                     check_layout(command, js, wait_for)
                     print('PASS: shell navigation, widget placement, menus, focus, scrolling and responsive layout', flush=True)

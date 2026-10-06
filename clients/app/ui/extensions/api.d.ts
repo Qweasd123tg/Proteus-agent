@@ -69,7 +69,8 @@ export interface ExtensionContext {
   /** Only declared interfaces; each interface defines its own data contract. */
   services: Readonly<Record<string, unknown>>;
   storage: ExtensionStorage;
-  /** Aborts on disable, removal, retry, mount failure, session change or client unmount. Collapse, moving and SPA navigation preserve the instance. */
+  /** Aborts on disable, removal, retry, mount failure, session change, demo close or client unmount. Collapse, moving and SPA navigation preserve the instance.
+   * A demo ("Попробовать" on a disabled package) passes demo services with fictional data and in-memory storage. */
   signal: AbortSignal;
 }
 
