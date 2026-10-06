@@ -265,8 +265,11 @@ fn handle_app_event(
             session_dir,
             activity,
         } => {
-            catalog.invalidate();
+            let dropped_load = catalog.supersede();
             let mut found = false;
+            // A summary without a preview predates the first message: once the
+            // session is active the catalog has its title.
+            let mut untitled = false;
             set_sidebar_sessions.update(|items| {
                 if let Some(session) = items
                     .iter_mut()
@@ -274,9 +277,10 @@ fn handle_app_event(
                 {
                     session.activity = Some(activity.clone());
                     found = true;
+                    untitled = session.preview.is_none();
                 }
             });
-            if !found {
+            if !found || dropped_load || untitled {
                 catalog.load(set_sidebar_sessions, set_sidebar_sessions_status);
             }
         }
