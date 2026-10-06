@@ -51,14 +51,15 @@ def run(command, js, wait_for):
                         more=row.querySelector('.session-more'), status=row.querySelector('.session-title-line>span'), pin=row.querySelector('.session-title-line>svg');
                   const box=el=>{{const r=el.getBoundingClientRect();return {{width:r.width,left:r.left,right:r.right,client:el.clientWidth,scroll:el.scrollWidth}}}};
                   const style=getComputedStyle(text);
-                  return {{width:{width},pinned:{json.dumps(pinned)},history:box(history),list:box(list),item:box(row.parentElement),row:box(row),button:box(button),text:box(text),more:box(more),status:box(status),pin:pin?box(pin):null,overflowX:getComputedStyle(history).overflowX,textOverflow:style.textOverflow,whiteSpace:style.whiteSpace,textOverflowX:style.overflowX}};
+                  return {{width:{width},pinned:{json.dumps(pinned)},history:box(history),list:box(list),item:box(row.parentElement),row:box(row),button:box(button),text:box(text),more:box(more),status:box(status),pin:pin?box(pin):null,overflowX:getComputedStyle(history).overflowX,textOverflow:style.textOverflow,maskImage:style.maskImage,whiteSpace:style.whiteSpace,textOverflowX:style.overflowX}};
                 """)
                 print('Sidebar long-title geometry: ' + json.dumps(geometry, ensure_ascii=False), flush=True)
                 assert geometry['history']['scroll'] <= geometry['history']['client'] + 1, 'Chat title creates horizontal history overflow'
                 assert geometry['list']['scroll'] <= geometry['list']['client'] + 1, 'Chat title expands the list grid'
                 assert geometry['row']['right'] <= geometry['history']['right'] + 1, 'Chat row escapes the sidebar'
                 assert geometry['text']['scroll'] > geometry['text']['client'], 'Long title was not constrained'
-                assert geometry['textOverflow'] == 'ellipsis' and geometry['whiteSpace'] == 'nowrap' and geometry['textOverflowX'] == 'hidden', 'Title does not use single-line ellipsis'
+                faded = geometry['textOverflow'] == 'clip' and geometry['maskImage'] not in ('', 'none')
+                assert (geometry['textOverflow'] == 'ellipsis' or faded) and geometry['whiteSpace'] == 'nowrap' and geometry['textOverflowX'] == 'hidden', 'Title is not truncated to one line with an ellipsis or fade'
                 assert geometry['text']['right'] <= geometry['more']['left'] + 1, 'Title overlaps the actions button'
                 assert geometry['status']['width'] > 0 and geometry['status']['right'] <= geometry['text']['left'] + 1, 'Title hides the status dot'
                 if pinned:

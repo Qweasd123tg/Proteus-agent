@@ -8,8 +8,10 @@ export function applyMotion() {
     enabled = localStorage.getItem(key) !== "false";
   } catch {}
   document.documentElement.dataset.animations = enabled ? "on" : "off";
+  // The label fade is driven by scroll position, not time.
   if (!motionAllowed())
-    for (const animation of document.getAnimations()) animation.cancel();
+    for (const animation of document.getAnimations())
+      if (animation.animationName !== "text-fade") animation.cancel();
   window.dispatchEvent(new Event("proteus-motion-change"));
 }
 applyMotion();

@@ -1,0 +1,23 @@
+/* Single-line labels fade at the cut edge instead of showing an ellipsis.
+   The scroll timeline is active only while the label overflows, so short
+   labels keep no mask and their focus rings stay intact. text-overflow.js
+   applies the animation to the rules that truncate with an ellipsis. */
+@property --text-fade-start { syntax: '<length>'; inherits: false; initial-value: 0px; }
+@property --text-fade-end { syntax: '<length>'; inherits: false; initial-value: 0px; }
+
+:root { --text-fade-size: 28px; }
+
+@keyframes text-fade {
+    0% {
+        --text-fade-start: 0px;
+        --text-fade-end: var(--text-fade-size);
+        mask-image: linear-gradient(to right, transparent, #000 var(--text-fade-start), #000 calc(100% - var(--text-fade-end)), transparent);
+    }
+    8% { --text-fade-start: var(--text-fade-size); }
+    92% { --text-fade-end: var(--text-fade-size); }
+    100% {
+        --text-fade-start: var(--text-fade-size);
+        --text-fade-end: 0px;
+        mask-image: linear-gradient(to right, transparent, #000 var(--text-fade-start), #000 calc(100% - var(--text-fade-end)), transparent);
+    }
+}
