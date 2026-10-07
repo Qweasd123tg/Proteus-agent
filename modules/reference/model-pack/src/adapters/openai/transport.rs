@@ -18,6 +18,13 @@ use crate::{
     },
 };
 
+pub(super) fn metadata_request_error(operation: &str, error: reqwest::Error) -> anyhow::Error {
+    // Metadata failures cross the worker boundary as a message, not an error
+    // chain. Keep the transport cause, but never its URL or response payload.
+    let cause = anyhow::Error::new(error.without_url());
+    anyhow::anyhow!("ChatGPT {operation} request failed: {cause:#}")
+}
+
 impl OpenAiResponsesClient {
     pub(super) fn from_codex_config(mut config: Value) -> Result<Self> {
         super::codex_config::validate(&config)?;

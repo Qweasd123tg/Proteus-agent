@@ -55,7 +55,9 @@ impl OpenAiResponsesClient {
                     .headers(access.headers.clone())
                     .send()
                     .await
-                    .context("ChatGPT model catalog request failed")?;
+                    .map_err(|error| {
+                        super::transport::metadata_request_error("model catalog", error)
+                    })?;
                 if response.status() == reqwest::StatusCode::UNAUTHORIZED && attempt == 0 {
                     access = auth.access(Some(access.token)).await?;
                     continue;

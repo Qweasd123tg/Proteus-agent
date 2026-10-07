@@ -139,3 +139,100 @@ async fn subscription_catalog_crosses_real_worker_and_updates_app_selection() {
     remote.await.unwrap();
     server.shutdown().await;
 }
+
+#[tokio::test]
+async fn subscription_metadata_reports_proxy_failure_without_credentials_or_response_body() {
+    use proteus_core::app_server::AgentAppServer;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let cwd = tempfile::tempdir().unwrap();
+    let auth_file = cwd.path().join("chatgpt.json");
+    std::fs::write(
+        &auth_file,
+        json!({"access_token": "private-access-token", "refresh_token": "private-refresh-token",
+            "account_id": "private-account", "expires_at": u64::MAX / 2})
+        .to_string(),
+    )
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let proxy = format!(
+        "http://private-proxy-user:private-proxy-password@{}",
+        listener.local_addr().unwrap()
+    );
+    let remote = tokio::spawn(async move {
+        for _ in 0..2 {
+            let (mut socket, _) =
+                tokio::time::timeout(std::time::Duration::from_secs(10), listener.accept())
+                    .await
+                    .unwrap()
+                    .unwrap();
+            let mut bytes = Vec::new();
+            loop {
+                let mut chunk = [0; 4096];
+                let n = socket.read(&mut chunk).await.unwrap();
+                assert!(n > 0);
+                bytes.extend_from_slice(&chunk[..n]);
+                if bytes.windows(4).any(|part| part == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let request = String::from_utf8(bytes).unwrap().to_lowercase();
+            assert!(request.starts_with("connect metadata.fixture.invalid:443 http/1.1"));
+            assert!(request.contains("proxy-authorization: basic "));
+            let body = "private-proxy-response-body";
+            socket
+                .write_all(
+                    format!(
+                        "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=fixture\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+        }
+    });
+    let config: AppConfig = serde_json::from_value(json!({
+        "active_provider": "subscription",
+        "providers": {"subscription": {"provider": "arbitrary-export", "model": "configured-model"}},
+        "components": {"models": {
+            "command": env!("CARGO_BIN_EXE_proteus-reference-module"),
+            "env": {"HTTPS_PROXY": proxy, "https_proxy": proxy, "NO_PROXY": "", "no_proxy": ""},
+            "exports": {"model": {"arbitrary-export": {}}}
+        }},
+        "module_config": {"model": {"arbitrary-export": {
+            "implementation": "openai_codex", "auth_file": auth_file,
+            "base_url": "https://metadata.fixture.invalid",
+            "quota_url": "https://metadata.fixture.invalid/wham/usage"
+        }}}
+    }))
+    .unwrap();
+    let server = AgentAppServer::launch(config, cwd.path().to_path_buf(), None)
+        .await
+        .unwrap();
+    let summary = server.config_summary().await;
+    let catalog_error = summary["model_catalog_error"].as_str().unwrap();
+    let quota_error = format!("{:#}", server.model_quota().await.unwrap_err());
+    remote.await.unwrap();
+    server.shutdown().await;
+
+    for (error, operation) in [(catalog_error, "model catalog"), (&quota_error, "quota")] {
+        assert!(
+            error.contains(&format!("ChatGPT {operation} request failed")),
+            "{error}"
+        );
+        assert!(error.contains("proxy authorization required"), "{error}");
+        for private in [
+            "https://metadata.fixture.invalid",
+            "proxy-authorization",
+            "private-access-token",
+            "private-refresh-token",
+            "private-account",
+            "private-proxy-user",
+            "private-proxy-password",
+            "private-proxy-response-body",
+        ] {
+            assert!(!error.contains(private), "{error}");
+        }
+    }
+}
