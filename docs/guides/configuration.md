@@ -681,6 +681,65 @@ Proteus, не точные копии upstream. Они задают цель, з
 Для user skills процессу capabilities нужны `HOME` и `PROTEUS_HOME` в
 `env_allowlist`; поставляемые профили задают их явно.
 
+Отключение отдельных навыков хранится в профиле, а не в настройках приложения:
+
+```toml
+[addons]
+disabled_skills = ["review", "team.tools:deploy"]
+disabled_mcp_servers = ["team.tools:database"]
+```
+
+Отключённый skill отсутствует в доступном модели списке и не загружается
+инструментом `skill`. Каталог управления сохраняет его описание и состояние.
+Core не читает `SKILL.md`: любой `context_provider/v3` может предоставить
+typed skill catalog, либо вернуть `null`, если не поддерживает эту возможность.
+Одинаковые host-owned `SkillRuntimeSettings` передаются context provider и
+`tool/v4`; в reference skill-pack один фильтр используется для списка и загрузки.
+`name` ограничен 64 ASCII-символами без `--`, `description` — 1024 символами;
+дополнительные поля Agent Skills не предоставляют новых прав tools.
+
+### Локальные Agent Plugins
+
+```toml
+[[addons.plugins]]
+path = "/home/user/agent-plugins/team-tools"
+enabled = true
+```
+
+Поддерживается локальный каталог [Agent Plugins 1.0](https://agent-plugins.org/specification):
+обязательный `plugin.json` с `$schema`, непосредственные подкаталоги `skills/`
+с `SKILL.md` и необязательный `mcp.json`. Относительный `path` отсчитывается
+от рабочего каталога агента. Навык пакета вызывается по `plugin-name:skill-name`,
+MCP-сервер получает имя `plugin-name:server-name`; навыки проекта и пользователя
+сохраняют прежний выбор по имени. Отключение пакета выключает все его contributions.
+Индивидуальное отключение MCP работает через `addons.disabled_mcp_servers` для
+серверов любого происхождения.
+
+Загрузчик выбирает локальные правила по точному `$schema`; сеть для загрузки схем
+не используется. Неизвестные поля корневого manifest сообщаются и игнорируются
+по правилам стандарта; прочая ошибка manifest отклоняет пакет. Ошибка `skills/`
+или `mcp.json` не блокирует независимые части; неверный skill или MCP entry
+пропускается с диагностикой. Неизвестные client extension namespaces игнорируются:
+hooks, process exports и панели интерфейса из пакета не исполняются.
+
+MCP импортируется только для `type = "stdio"`; валидные `streamable-http` и
+`sse` entries отмечаются как неподдержанные, без смены transport. Пути пакета
+не могут разрешаться за пределами его root. `command` остаётся одним executable
+token, аргументы передаются отдельно; его `./`-путь разрешается от пакета.
+По умолчанию `cwd` — root пакета. `${PLUGIN_ROOT}` и `${PLUGIN_DATA}` разворачиваются
+однократно в `args`, `env`, `cwd`, но не в `command`. Persistent data находятся в
+`.proteus/plugin-data/<hash canonical package root>` рабочего каталога и сохраняются
+при reload, выключении и обновлении пакета. Installer, registry и автоматическое
+скачивание пакетов здесь не реализованы.
+
+`GET /addons?session_dir=…` возвращает настройки, provider-owned skill catalogs,
+состояния обнаружения MCP и диагностику пакетов. `POST /addons?session_dir=…`
+заменяет `{ addons, mcp_servers }`, проверяет новую сборку и сохраняет её тем же
+atomic profile path, что Config Builder. Новые exports он не создаёт. Оба endpoint
+используют обычные session addressing и token/origin checks. Эти операции
+не открывают Turn и не требуют модели. Каталог может запускать настроенный
+context provider, но не вызывает skills или tools.
+
 Context provider `skills` передаёт модели только имя, описание и путь.
 Тело загружается tool `skill` по имени. Пишите короткое описание конкретного
 сценария: например, «создание и проверка миграции БД», а не «любая работа
@@ -751,6 +810,7 @@ tools и удерживает следующие до завершения. Зн
 ```toml
 [[tools.mcp_servers]]
 name = "local_echo"
+enabled = true
 command = "sh"
 args = ["examples/mcp/echo_server.sh"]
 safety = "RunsCommands"
@@ -768,6 +828,13 @@ MCP client использует официальный Rust SDK `rmcp` 3.3.0 п�
 `initialize`; по умолчанию используется `2025-11-25`. Неизвестная SDK версия
 в config или ответе сервера отклоняется. Сервер обязан объявить capability
 `tools`.
+
+`enabled = false` исключает сервер из запуска и discovery. Необязательный `cwd`
+задаёт рабочий каталог процесса; относительный путь отсчитывается от workspace.
+Неудачный start/handshake/list изолируется на этом сервере: его tools не
+регистрируются, остальные подключения работают, ошибка видна в `/addons`.
+Name collision остаётся блокирующей ошибкой сборки. Список `tools` в MCP status
+отражает discovery при подготовке epoch, а не непрерывную проверку live health.
 
 Текущий MCP scope — stdio tool discovery/invocation. HTTP, OAuth, resources,
 prompts, subscriptions, sampling и elicitation не включаются автоматически
@@ -974,6 +1041,24 @@ root turn, имеет общий workflow deadline и лимит 8 продол�
 registration или authority surface в Core.
 
 ## Config Builder
+
+App-server автоматически перечитывает профиль через обычный reader: includes,
+directory overlay, instructions и fixed metadata подключённых Agent Plugins.
+Semantic polling выполняется каждые 300 ms; для внешней правки нужны два одинаковых
+чтения и успешная подготовка сборки. Открытые сессии одного профиля подхватывают
+и ручные правки файла, и сохранение из другой сессии. Изменения относятся ко всему
+профилю, включая component launch/config, но не заменяют код worker-а на месте.
+Текущий ход сохраняет snapshot; следующий использует новый epoch. При ошибке
+остаётся последняя проверенная сборка, `ProfileReloadStatus` сообщает ошибку или
+восстановление; сообщение также доступно в `/addons.reload_error` и warnings
+Config Builder. Комментарий или переформатирование без изменения значения не
+пересобирают runtime.
+
+Временные model/reasoning/mode overrides сессии сохраняются при правке других
+частей профиля; изменение соответствующего default применяется ко всем открытым
+сессиям. Приложение обновляет селекторы и shared settings draft по server events,
+сохраняя несохранённые изменения в отредактированных областях. Новые страницы
+skills/MCP/packages ещё не добавлены; доступен общий сервис `agent.addons`.
 
 Блок «Агент» в настройках приложения меняет selection, provider, permission
 mode, enabled tools, hooks и `module_config`, затем сначала строит и проверяет

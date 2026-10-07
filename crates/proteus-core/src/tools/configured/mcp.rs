@@ -113,11 +113,39 @@ pub(super) fn register_discovered_mcp_tools(
     registry: &mut ToolRegistry,
     mcp_servers: &[ConfiguredMcpServerConfig],
     cwd: &Path,
-) -> Result<()> {
+) -> Result<Vec<proteus_contracts::app_protocol::addons::AppMcpServerState>> {
+    use proteus_contracts::app_protocol::addons::AppMcpServerState;
+    let mut states = Vec::new();
+    let mut names = std::collections::BTreeSet::new();
     for server in mcp_servers {
-        let host = configured_mcp_server_host(server, cwd)?;
-        let discovered = discovery::mcp_tools_from_list(server, host.list_tools()?)?;
+        if !names.insert(&server.name) {
+            bail!("duplicate MCP server name: {}", server.name);
+        }
+        let mut state = AppMcpServerState {
+            name: server.name.clone(),
+            enabled: server.enabled,
+            tools: vec![],
+            error: None,
+        };
+        if !server.enabled {
+            states.push(state);
+            continue;
+        }
+        let discovered = (|| {
+            let host = configured_mcp_server_host(server, cwd)?;
+            let tools = discovery::mcp_tools_from_list(server, host.list_tools()?)?;
+            Ok::<_, anyhow::Error>((host, tools))
+        })();
+        let (host, discovered) = match discovered {
+            Ok(value) => value,
+            Err(error) => {
+                state.error = Some(format!("{error:#}"));
+                states.push(state);
+                continue;
+            }
+        };
         for discovered_tool in discovered {
+            state.tools.push(discovered_tool.spec.name.clone());
             registry.register_with_source(
                 ToolSource::Mcp {
                     server: server.name.clone(),
@@ -129,8 +157,9 @@ pub(super) fn register_discovered_mcp_tools(
                 ),
             )?;
         }
+        states.push(state);
     }
-    Ok(())
+    Ok(states)
 }
 
 fn configured_mcp_server_host(
@@ -141,7 +170,11 @@ fn configured_mcp_server_host(
         server.command.clone(),
         server.args.clone(),
         server.environment.clone(),
-        cwd,
+        &server
+            .cwd
+            .as_ref()
+            .map(|path| cwd.join(crate::core::expand_user_path(path)))
+            .unwrap_or_else(|| cwd.to_path_buf()),
     );
     Ok(Arc::new(McpStdioHost::new(
         spec,
@@ -204,6 +237,8 @@ mod tests {
     fn mcp_discovery_times_out_when_server_is_silent() {
         let cwd = tempfile::tempdir().expect("temp dir");
         let server = ConfiguredMcpServerConfig {
+            enabled: true,
+            cwd: None,
             max_response_bytes: None,
             name: "silent".to_owned(),
             command: "sh".to_owned(),

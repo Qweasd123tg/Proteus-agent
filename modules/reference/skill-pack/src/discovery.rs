@@ -5,16 +5,18 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use proteus_contracts::domain::SkillRuntimeSettings;
 use serde::Deserialize;
 
 const MAX_SKILL_FILE_BYTES: u64 = 256 * 1024;
 const MAX_SKILLS: usize = 128;
-const MAX_DESCRIPTION_BYTES: usize = 4 * 1024;
+const MAX_DESCRIPTION_CHARACTERS: usize = 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SkillSource {
     User,
     Project,
+    Plugin,
 }
 
 impl SkillSource {
@@ -22,12 +24,15 @@ impl SkillSource {
         match self {
             Self::User => "user",
             Self::Project => "project",
+            Self::Plugin => "plugin",
         }
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SkillDocument {
+    pub(crate) id: String,
+    pub(crate) enabled: bool,
     pub(crate) name: String,
     pub(crate) description: String,
     pub(crate) body: String,
@@ -39,12 +44,71 @@ pub(crate) struct SkillDocument {
 struct SkillFrontmatter {
     name: String,
     description: String,
+    #[serde(rename = "license")]
+    _license: Option<String>,
+    compatibility: Option<String>,
+    #[serde(rename = "metadata")]
+    _metadata: Option<BTreeMap<String, String>>,
+    #[serde(rename = "allowed-tools")]
+    _allowed_tools: Option<String>,
 }
 
-pub(crate) fn discover_skills(cwd: &Path) -> Result<Vec<SkillDocument>, String> {
+pub(crate) fn discover_skills(
+    cwd: &Path,
+    settings: &SkillRuntimeSettings,
+) -> Result<(Vec<SkillDocument>, Vec<String>), String> {
     let project_root = workspace_root(cwd).join(".proteus/skills");
     let user_root = user_skills_root();
-    discover_from_roots(user_root.as_deref(), &project_root)
+    let mut skills = discover_from_roots(user_root.as_deref(), &project_root)?;
+    let mut warnings = Vec::new();
+    for package in &settings.packages {
+        let root = package.root.join("skills");
+        let entries = match fs::read_dir(&root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                warnings.push(format!("{}: {error}", root.display()));
+                continue;
+            }
+        };
+        for entry in entries {
+            let result = (|| {
+                let directory = entry.map_err(|error| error.to_string())?.path();
+                let path = directory.join("SKILL.md");
+                if !directory.is_dir() || !path.is_file() {
+                    return Ok(None);
+                }
+                let path = path.canonicalize().map_err(|error| error.to_string())?;
+                if !path.starts_with(&package.root) {
+                    return Err(format!(
+                        "plugin skill escapes package root: {}",
+                        path.display()
+                    ));
+                }
+                let name = directory
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .ok_or_else(|| "skill directory name is not UTF-8".to_string())?;
+                let mut skill = parse_skill_file(&path, name, SkillSource::Plugin)?;
+                skill.id = format!("{}:{}", package.id, skill.name);
+                skill.enabled = package.enabled;
+                Ok(Some(skill))
+            })();
+            match result {
+                Ok(Some(skill)) => skills.push(skill),
+                Ok(None) => {}
+                Err(error) => warnings.push(error),
+            }
+        }
+    }
+    if skills.len() > MAX_SKILLS {
+        return Err(format!("skill discovery exceeds {MAX_SKILLS} skills"));
+    }
+    for skill in &mut skills {
+        skill.enabled &= !settings.disabled.contains(&skill.id);
+    }
+    skills.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok((skills, warnings))
 }
 
 fn user_skills_root() -> Option<PathBuf> {
@@ -174,6 +238,13 @@ fn parse_skill_file(
     let frontmatter: SkillFrontmatter = serde_yaml::from_str(yaml)
         .map_err(|error| format!("invalid YAML frontmatter in {}: {error}", path.display()))?;
     validate_name(&frontmatter.name)?;
+    if frontmatter
+        .compatibility
+        .as_ref()
+        .is_some_and(|value| value.is_empty() || value.chars().count() > 500)
+    {
+        return Err("invalid skill compatibility field".into());
+    }
     if frontmatter.name != directory_name {
         return Err(format!(
             "skill name '{}' must match directory '{}': {}",
@@ -189,18 +260,16 @@ fn parse_skill_file(
             path.display()
         ));
     }
-    if description.len() > MAX_DESCRIPTION_BYTES {
+    if description.chars().count() > MAX_DESCRIPTION_CHARACTERS {
         return Err(format!(
-            "skill description exceeds {MAX_DESCRIPTION_BYTES} bytes: {}",
+            "skill description exceeds {MAX_DESCRIPTION_CHARACTERS} characters: {}",
             path.display()
         ));
     }
     let body = body.trim().to_owned();
-    if body.is_empty() {
-        return Err(format!("skill body must not be empty: {}", path.display()));
-    }
-
     Ok(SkillDocument {
+        id: frontmatter.name.clone(),
+        enabled: true,
         name: frontmatter.name,
         description,
         body,
@@ -235,7 +304,7 @@ fn split_frontmatter(content: &str) -> Result<(&str, &str), &'static str> {
 }
 
 fn validate_name(name: &str) -> Result<(), String> {
-    if name.is_empty() || name.len() > 64 {
+    if name.is_empty() || name.len() > 64 || name.contains("--") {
         return Err("skill name must contain 1..=64 ASCII characters".to_owned());
     }
     let bytes = name.as_bytes();

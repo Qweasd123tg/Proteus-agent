@@ -121,6 +121,9 @@ fn connect_event_stream(bindings: EventStreamBindings) -> Option<EventConnection
                     {
                         return;
                     }
+                    if matches!(&output,StdioOutput::Event {event} if matches!(event.as_ref(),AppServerEvent::ModulesReloaded {..})) {
+                        bindings.refresh_configuration.run(());
+                    }
                     handle_app_output(
                         output,
                         output_messages,

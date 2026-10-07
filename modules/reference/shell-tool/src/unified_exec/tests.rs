@@ -25,6 +25,7 @@ impl ToolModuleHost for TestToolHost {
 
 fn invocation_context(cwd: &std::path::Path) -> ToolModuleInvocationContext {
     ToolModuleInvocationContext {
+        skills: Default::default(),
         cwd: cwd.to_path_buf(),
         attribution: ExecutionAttribution::for_turn(
             new_execution_id(),
@@ -251,6 +252,7 @@ fn detached_exec_session_is_owned_by_execution_without_chat_identity() {
     let dir = tempfile::tempdir().expect("workspace");
     let execution_id = new_execution_id();
     let context = ToolModuleInvocationContext {
+        skills: Default::default(),
         cwd: dir.path().to_path_buf(),
         attribution: ExecutionAttribution::detached(execution_id),
         config: json!({}),
@@ -264,6 +266,7 @@ fn detached_exec_session_is_owned_by_execution_without_chat_identity() {
         .expect("session id");
 
     let foreign_context = ToolModuleInvocationContext {
+        skills: Default::default(),
         cwd: dir.path().to_path_buf(),
         attribution: ExecutionAttribution::detached(new_execution_id()),
         config: json!({}),

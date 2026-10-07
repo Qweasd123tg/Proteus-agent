@@ -22,6 +22,7 @@ use crate::types::*;
 
 #[derive(Clone, Copy)]
 pub(crate) struct EventStreamBindings {
+    pub(crate) refresh_configuration: Callback<()>,
     pub(crate) catalog: SessionCatalog,
     pub(crate) set_messages: crate::transcript::TranscriptWriter,
     pub(crate) next_message_id: ReadSignal<u64>,
@@ -255,11 +256,16 @@ fn handle_app_event(
             new_epoch,
             tool_names,
         } => {
+            notify_configuration_changed(None);
             set_agent_status.set(AgentStatus::ModulesReloaded {
                 old_epoch,
                 new_epoch,
                 tools: tool_names.len(),
             });
+        }
+        AppServerEvent::ProfileReloadStatus {error} => {
+            if let Some(error) = &error { web_sys::console::warn_1(&JsValue::from_str(error)); }
+            notify_configuration_changed(error.as_deref());
         }
         AppServerEvent::SessionActivityUpdated {
             session_dir,
@@ -311,6 +317,20 @@ fn handle_app_event(
             );
         }
     }
+}
+
+fn notify_configuration_changed(error: Option<&str>) {
+    #[cfg(target_arch="wasm32")]
+    {
+        #[wasm_bindgen::prelude::wasm_bindgen(raw_module="/extensions/web-adapter.js")]
+        extern "C" {
+            #[wasm_bindgen::prelude::wasm_bindgen(js_name=notifyConfigurationChanged)]
+            fn notify(error: Option<String>);
+        }
+        notify(error.map(str::to_owned));
+    }
+    #[cfg(not(target_arch="wasm32"))]
+    let _ = error;
 }
 
 /// Only the root turn's last model response decides how its answer ended.

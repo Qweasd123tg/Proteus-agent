@@ -1,4 +1,5 @@
 mod agent_control;
+pub(crate) mod agent_plugins;
 mod approval;
 mod assembly;
 mod bound_memory;

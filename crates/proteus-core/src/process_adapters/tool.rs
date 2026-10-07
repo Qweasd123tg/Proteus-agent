@@ -17,6 +17,7 @@ const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 pub fn build_process_tools(
     configs: &[ProcessExportConfig],
     workspace: &Path,
+    skills: &crate::domain::SkillRuntimeSettings,
 ) -> Result<HashMap<String, Arc<dyn Tool>>> {
     let mut tools = HashMap::new();
     for config in configs.iter().cloned() {
@@ -55,6 +56,7 @@ pub fn build_process_tools(
             let tool: Arc<dyn Tool> = Arc::new(ProcessTool {
                 spec,
                 client: invocation_client,
+                skills: skills.clone(),
             });
             if tools.insert(name.clone(), tool).is_some() {
                 bail!("duplicate process tool name: {name}");
@@ -67,6 +69,7 @@ pub fn build_process_tools(
 struct ProcessTool {
     spec: ToolSpec,
     client: Arc<ProcessExportClient>,
+    skills: crate::domain::SkillRuntimeSettings,
 }
 
 #[async_trait]
@@ -80,6 +83,7 @@ impl Tool for ProcessTool {
             call: call.clone(),
             cwd: ctx.cwd,
             attribution: ctx.attribution,
+            skills: self.skills.clone(),
         };
         let cancellation = ctx.cancellation;
         let response: ProcessToolInvokeResponse = self

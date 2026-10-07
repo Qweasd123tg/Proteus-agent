@@ -14,19 +14,23 @@ use crate::{
     core::{
         AgentRuntime, AppConfig, AssemblyPlan, ChannelApprovalTransport, ChannelUserInputTransport,
         FanoutEventSink, JsonlEventStore, ModuleCatalog, PreparedAssembly, ReservedRunCompletion,
-        RuntimeReloadReport, SessionConfigSnapshot, SessionStore, TopologyBuildInput,
-        TopologySnapshot, UserMessageReservation, build_topology_snapshot, config_store_root,
-        delete_workspace_session, list_session_summaries, list_workspace_session_summaries,
-        normalize_session_dir_path,
+        SessionStore, TopologyBuildInput, TopologySnapshot, UserMessageReservation,
+        build_topology_snapshot, config_store_root, delete_workspace_session,
+        list_session_summaries, list_workspace_session_summaries, normalize_session_dir_path,
     },
     domain::{AgentOutput, PermissionMode, SessionId, new_thread_id},
 };
 
 pub mod acp;
+mod addons;
 mod approval_preview;
 mod approvals;
 mod config_builder;
 mod config_history;
+mod handle;
+mod profile;
+mod profile_watch;
+pub use handle::{AppServerHandle, AppServerState};
 mod config_summary;
 mod context_map;
 mod control_plane;
@@ -66,21 +70,6 @@ pub use proteus_contracts::app_protocol::{
     AppPendingRequests, AppQueuedUserMessage, AppRememberResult, AppServerEvent,
     AppSessionActivity, AppSessionSummary, AppUserInputRequestId, StdioOutput, StdioRequest,
 };
-
-use approvals::PendingApprovalResponders;
-use user_inputs::PendingUserInputResponders;
-
-#[derive(Clone)]
-pub struct AppServerHandle {
-    runtime: Arc<AgentRuntime>,
-    config: Arc<RwLock<AppConfig>>,
-    config_path: Option<PathBuf>,
-    cwd: PathBuf,
-    events: AppEventPublisher,
-    pending_approvals: PendingApprovalResponders,
-    pending_user_inputs: PendingUserInputResponders,
-    runs: Arc<Mutex<runs::RunRegistry>>,
-}
 
 impl AppServerHandle {
     pub fn subscribe(&self) -> broadcast::Receiver<AppServerEvent> {
@@ -325,27 +314,6 @@ impl AppServerHandle {
         let config = self.config.read().await;
         crate::core::event_log_path(&config.event_log.path, self.config_path.as_deref(), cwd)
     }
-
-    pub async fn reload_tools(&self) -> Result<RuntimeReloadReport> {
-        let config = reload_tools_config(self.config_path.as_deref(), &self.config).await?;
-        let assembly = prepare_assembly(&config, &self.cwd, self.config_path.as_deref()).await?;
-        let config_snapshot = SessionConfigSnapshot::from_runtime_config(
-            &config,
-            assembly.registry(),
-            config.permissions.mode,
-        );
-        let report = self
-            .runtime
-            .reload_assembly(assembly, Some(config_snapshot))
-            .await?;
-        *self.config.write().await = config;
-        let _ = self.events.send(AppServerEvent::ModulesReloaded {
-            old_epoch: report.old_epoch,
-            new_epoch: report.new_epoch,
-            tool_names: report.tool_names.clone(),
-        });
-        Ok(report)
-    }
 }
 
 pub struct AgentAppServer;
@@ -461,16 +429,22 @@ impl AgentAppServer {
             approval_timeout,
         );
 
-        Ok(AppServerHandle {
-            runtime,
-            config: config_snapshot,
-            config_path: config_path_snapshot,
-            cwd: cwd_snapshot,
-            events,
-            pending_approvals,
-            pending_user_inputs,
-            runs: Arc::new(Mutex::new(runs::RunRegistry::default())),
-        })
+        let handle = AppServerHandle {
+            inner: Arc::new(AppServerState {
+                runtime,
+                config: config_snapshot,
+                config_path: config_path_snapshot,
+                cwd: cwd_snapshot,
+                events,
+                pending_approvals,
+                pending_user_inputs,
+                runs: Arc::new(Mutex::new(runs::RunRegistry::default())),
+                profile_stop: CancellationToken::new(),
+                profile_error: Mutex::new(None),
+            }),
+        };
+        profile_watch::start(&handle).await;
+        Ok(handle)
     }
 }
 

@@ -15,6 +15,7 @@ pub(crate) const CONFIG_BUILDER_OVERLAY: &str = "config-builder.toml";
 
 mod loading;
 
+pub use crate::domain::{ConfiguredMcpServerConfig, ProcessEnvironmentConfig};
 pub use loading::expand_user_path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +39,8 @@ pub struct AppConfig {
     pub components: BTreeMap<String, crate::process_adapters::ProcessComponentConfig>,
     #[serde(default)]
     pub tools: ToolsConfig,
+    #[serde(default)]
+    pub addons: crate::domain::AddonConfig,
     #[serde(default)]
     pub agent_control: AgentControlConfig,
     #[serde(default)]
@@ -65,6 +68,7 @@ impl Default for AppConfig {
             module_config: BTreeMap::new(),
             components: BTreeMap::new(),
             tools: ToolsConfig::default(),
+            addons: crate::domain::AddonConfig::default(),
             agent_control: AgentControlConfig::default(),
             permissions: PermissionsConfig::default(),
             app_server: AppServerConfig::default(),
@@ -519,46 +523,6 @@ pub enum ConfiguredToolExecutorConfig {
     },
 }
 
-/// Explicit environment passed to a cleared child process.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ProcessEnvironmentConfig {
-    /// Names copied from the current process. Prefer this for scoped secrets so
-    /// their values do not live in the config file.
-    #[serde(default)]
-    pub env_allowlist: Vec<String>,
-    /// Literal values passed only to this child. They override allowlisted
-    /// parent values with the same name.
-    #[serde(default)]
-    pub env: BTreeMap<String, String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConfiguredMcpServerConfig {
-    pub name: String,
-    pub command: String,
-    #[serde(default)]
-    pub args: Vec<String>,
-    #[serde(flatten)]
-    pub environment: ProcessEnvironmentConfig,
-    #[serde(default = "default_mcp_protocol_version")]
-    pub protocol_version: String,
-    #[serde(default = "default_mcp_discovered_tool_safety")]
-    pub safety: crate::domain::ToolSafety,
-    /// Explicit server permission; readOnlyHint can also opt an individual tool in.
-    #[serde(default)]
-    pub supports_parallel_tool_calls: bool,
-    #[serde(default)]
-    pub timeout_ms: Option<u64>,
-    /// Максимальный размер одной JSON-строки ответа сервера в байтах.
-    /// По умолчанию — общий `DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES` (20 000);
-    /// серверы с крупными payload-ами (browser snapshots и т.п.) могут
-    /// поднять лимит per-server.
-    #[serde(default)]
-    pub max_response_bytes: Option<usize>,
-    #[serde(default)]
-    pub metadata: serde_json::Value,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PermissionsConfig {
     #[serde(default)]
@@ -654,10 +618,6 @@ fn default_tool_input_schema() -> serde_json::Value {
 
 fn default_mcp_protocol_version() -> String {
     rmcp::model::ProtocolVersion::default().to_string()
-}
-
-fn default_mcp_discovered_tool_safety() -> crate::domain::ToolSafety {
-    crate::domain::ToolSafety::RunsCommands
 }
 
 fn default_event_log_path() -> PathBuf {

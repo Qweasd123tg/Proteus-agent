@@ -6,8 +6,8 @@ use std::path::Path;
 
 use discovery::{SkillDocument, discover_skills};
 use proteus_contracts::{
-    contracts::ProcessContextProviderInput,
-    domain::ContextChunk,
+    contracts::{ProcessContextProviderRequest, ProcessSkillCatalogInput},
+    domain::{ContextChunk, SkillCatalog, SkillDescriptor, SkillRuntimeSettings},
     process_module::{
         ContextProviderModule, ContextProviderModuleObject, ModuleRegistry, ProcessModuleError,
         ToolModule, ToolModuleHostMut, ToolModuleInvocationContext, ToolModuleObject,
@@ -24,7 +24,8 @@ pub struct SkillTool;
 
 impl ContextProviderModule for SkillsContextProvider {
     fn provide_json(&self, input_json: String) -> Result<String, ProcessModuleError> {
-        let input: ProcessContextProviderInput = match serde_json::from_str(input_json.as_str()) {
+        let request: ProcessContextProviderRequest = match serde_json::from_str(input_json.as_str())
+        {
             Ok(input) => input,
             Err(error) => {
                 return Err(ProcessModuleError::new(format!(
@@ -32,14 +33,18 @@ impl ContextProviderModule for SkillsContextProvider {
                 )));
             }
         };
+        let input = request.input;
         if input.provider_id != PROVIDER_ID {
             return Err(ProcessModuleError::new(format!(
                 "skill-pack received unexpected provider id '{}'",
                 input.provider_id
             )));
         }
-        let skills = match discover_skills(&input.task.cwd) {
-            Ok(skills) => skills,
+        let skills = match discover_skills(&input.task.cwd, &request.skills) {
+            Ok((skills, _)) => skills
+                .into_iter()
+                .filter(|skill| skill.enabled)
+                .collect::<Vec<_>>(),
             Err(error) => return Err(ProcessModuleError::new(error)),
         };
         let chunks = vec![available_skills_chunk(&skills)];
@@ -49,6 +54,28 @@ impl ContextProviderModule for SkillsContextProvider {
                 "failed to serialize skills context: {error}"
             ))),
         }
+    }
+
+    fn skill_catalog(
+        &self,
+        input: ProcessSkillCatalogInput,
+    ) -> Result<Option<SkillCatalog>, ProcessModuleError> {
+        let (skills, warnings) =
+            discover_skills(&input.cwd, &input.skills).map_err(ProcessModuleError::new)?;
+        Ok(Some(SkillCatalog {
+            skills: skills
+                .into_iter()
+                .map(|skill| SkillDescriptor {
+                    id: skill.id,
+                    name: skill.name,
+                    description: skill.description,
+                    path: skill.path,
+                    source: skill.source.as_str().into(),
+                    enabled: skill.enabled,
+                })
+                .collect(),
+            warnings,
+        }))
     }
 }
 
@@ -107,7 +134,7 @@ impl ToolModule for SkillTool {
                 )));
             }
         };
-        let result = invoke_skill(&call, &context.cwd);
+        let result = invoke_skill(&call, &context.cwd, &context.skills);
         Ok(String::from(result.to_string()))
     }
 }
@@ -126,7 +153,7 @@ struct SkillArgs {
     name: String,
 }
 
-fn invoke_skill(call: &ToolCallDto, cwd: &Path) -> Value {
+fn invoke_skill(call: &ToolCallDto, cwd: &Path, settings: &SkillRuntimeSettings) -> Value {
     if call.name != TOOL_NAME {
         return tool_error(&call.id, format!("unexpected tool name '{}'", call.name));
     }
@@ -134,11 +161,14 @@ fn invoke_skill(call: &ToolCallDto, cwd: &Path) -> Value {
         Ok(args) => args,
         Err(error) => return tool_error(&call.id, format!("invalid skill arguments: {error}")),
     };
-    let skills = match discover_skills(cwd) {
-        Ok(skills) => skills,
+    let skills = match discover_skills(cwd, settings) {
+        Ok((skills, _)) => skills,
         Err(error) => return tool_error(&call.id, error),
     };
-    let Some(skill) = skills.into_iter().find(|skill| skill.name == args.name) else {
+    let Some(skill) = skills
+        .into_iter()
+        .find(|skill| skill.id == args.name && skill.enabled)
+    else {
         return tool_error(
             &call.id,
             format!("skill '{}' is not available in this workspace", args.name),
@@ -176,7 +206,7 @@ fn available_skills_chunk(skills: &[SkillDocument]) -> ContextChunk {
     for skill in skills {
         content.push_str("<skill>\n");
         content.push_str("<name>");
-        content.push_str(&escape_xml(&skill.name));
+        content.push_str(&escape_xml(&skill.id));
         content.push_str("</name>\n<description>");
         content.push_str(&escape_xml(&normalize_whitespace(&skill.description)));
         content.push_str("</description>\n<location>");
@@ -224,6 +254,8 @@ mod tests {
     #[test]
     fn available_skills_context_escapes_frontmatter_text() {
         let skill = SkillDocument {
+            id: "review".into(),
+            enabled: true,
             name: "review".to_owned(),
             description: "Check <diff> & tests".to_owned(),
             body: "Body".to_owned(),
@@ -255,7 +287,7 @@ mod tests {
             args: json!({ "name": "review" }),
         };
 
-        let result = invoke_skill(&call, workspace.path());
+        let result = invoke_skill(&call, workspace.path(), &Default::default());
 
         assert_eq!(result["ok"], true);
         assert_eq!(result["output"], "Inspect the diff.");
@@ -271,7 +303,7 @@ mod tests {
             args: json!({ "name": "missing" }),
         };
 
-        let result = invoke_skill(&call, workspace.path());
+        let result = invoke_skill(&call, workspace.path(), &Default::default());
 
         assert_eq!(result["ok"], false);
         assert!(result["error"].as_str().unwrap().contains("not available"));

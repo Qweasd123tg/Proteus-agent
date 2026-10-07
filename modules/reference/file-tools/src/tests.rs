@@ -26,6 +26,7 @@ fn invoke<T: ToolModule>(tool: &T, cwd: &std::path::Path, args: Value) -> Value 
         "args": args
     });
     let context = ToolModuleInvocationContext {
+        skills: Default::default(),
         cwd: cwd.to_path_buf(),
         attribution: ExecutionAttribution::detached(new_execution_id()),
         config: json!({}),

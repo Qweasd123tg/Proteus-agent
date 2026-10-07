@@ -369,6 +369,7 @@ fn aggregate_tool_module_lists_and_invokes_real_tools() {
 
     let call = ToolCall::new(new_call_id(), "read_file", json!({"path": "sample.txt"}));
     let input = ProcessToolInvokeInput {
+        skills: Default::default(),
         call: call.clone(),
         cwd: workspace.path().to_path_buf(),
         attribution: proteus_contracts::contracts::ExecutionAttribution::detached(
@@ -511,11 +512,16 @@ fn policy_exposure_provider_and_compactor_execute_in_worker() {
     let chunks: ProcessContextChunksResponse = invoke(
         &provider,
         PROCESS_CONTEXT_PROVIDER_METHOD,
-        serde_json::to_value(ProcessContextProviderInput {
-            provider_id: "skills".to_owned(),
-            task: AgentTask::new("list skills", workspace.path().to_path_buf()),
-            metadata: Value::Null,
-        })
+        serde_json::to_value(
+            proteus_contracts::contracts::ProcessContextProviderRequest {
+                input: ProcessContextProviderInput {
+                    provider_id: "skills".to_owned(),
+                    task: AgentTask::new("list skills", workspace.path().to_path_buf()),
+                    metadata: Value::Null,
+                },
+                skills: Default::default(),
+            },
+        )
         .expect("provider input"),
     );
     assert_eq!(chunks.result.len(), 1);

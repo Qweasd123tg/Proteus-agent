@@ -63,6 +63,7 @@ pub type ProcessModuleResult<T> = Result<T, ProcessModuleError>;
 pub struct ToolModuleInvocationContext {
     pub cwd: PathBuf,
     pub attribution: ExecutionAttribution,
+    pub skills: crate::domain::SkillRuntimeSettings,
     #[serde(default)]
     pub config: serde_json::Value,
 }
@@ -164,6 +165,12 @@ pub type MemoryModuleObject = Box<dyn MemoryModule>;
 
 pub trait ContextProviderModule: Send + Sync + 'static {
     fn provide_json(&self, input_json: String) -> ProcessModuleResult<String>;
+    fn skill_catalog(
+        &self,
+        _input: crate::contracts::ProcessSkillCatalogInput,
+    ) -> ProcessModuleResult<Option<crate::domain::SkillCatalog>> {
+        Ok(None)
+    }
 }
 
 pub type ContextProviderModuleObject = Box<dyn ContextProviderModule>;

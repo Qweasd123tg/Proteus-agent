@@ -3,6 +3,7 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
 use tokio::sync::{Mutex, mpsc, oneshot};
 
+use super::approvals::PendingApprovalResponders;
 use super::*;
 use crate::{
     app_server::approval_preview::approval_preview_for,

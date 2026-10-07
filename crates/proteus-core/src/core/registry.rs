@@ -42,6 +42,9 @@ pub struct RuntimeRegistry {
     pub tool_exposure: Arc<dyn ToolExposure>,
     pub agent_control: Option<Arc<dyn AgentControl>>,
     pub workflow: Arc<dyn Workflow>,
+    pub(crate) context_providers: Vec<(String, Arc<dyn crate::core::RepoAwareContextProvider>)>,
+    pub(crate) mcp_servers: Vec<proteus_contracts::app_protocol::addons::AppMcpServerState>,
+    pub(crate) plugins: Vec<proteus_contracts::app_protocol::addons::AppAgentPluginState>,
 }
 
 impl RuntimeRegistry {
@@ -89,7 +92,8 @@ impl RuntimeRegistry {
         plan.ensure_valid()?;
         let config = plan.config();
         let cwd = plan.cwd();
-        let context_providers = catalog.build_context_providers(cwd)?;
+        let addons = crate::core::agent_plugins::resolve(&config.addons, cwd);
+        let context_providers = catalog.build_context_providers(cwd, &addons.skills)?;
         let build_ctx = ModuleBuildContext {
             config,
             cwd,
@@ -136,8 +140,14 @@ impl RuntimeRegistry {
             };
         let agent_control_runtime = AgentControlRuntime::from_config(&config.agent_control)?;
         let agent_control = agent_control_runtime.service();
-        let mut tools =
-            catalog.build_tools(&build_ctx, search.clone(), patch.clone(), memory.clone())?;
+        let (mut tools, mcp_servers) = catalog.build_tools(
+            &build_ctx,
+            search.clone(),
+            patch.clone(),
+            memory.clone(),
+            &addons.skills,
+            &addons.servers,
+        )?;
         agent_control_runtime.register_tools(&mut tools, config.runtime.workflow_timeout_ms)?;
         if let (Some(service), Some(config)) = (&model_service, &model_config) {
             crate::core::register_provider_hosted_tools(
@@ -176,6 +186,9 @@ impl RuntimeRegistry {
             tool_exposure,
             agent_control,
             workflow,
+            context_providers,
+            mcp_servers,
+            plugins: addons.plugins,
         })
     }
 

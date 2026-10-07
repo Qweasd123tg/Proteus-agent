@@ -145,6 +145,25 @@ pub(super) async fn persist_config_builder(path: &Path, config: &AppConfig) -> R
             .collect::<toml_edit::Array>(),
     );
 
+    #[derive(serde::Serialize)]
+    struct AddonsToml<'a> {
+        addons: &'a crate::domain::AddonConfig,
+        tools: McpToolsToml<'a>,
+    }
+    #[derive(serde::Serialize)]
+    struct McpToolsToml<'a> {
+        mcp_servers: &'a [crate::domain::ConfiguredMcpServerConfig],
+    }
+    let managed = toml::to_string_pretty(&AddonsToml {
+        addons: &config.addons,
+        tools: McpToolsToml {
+            mcp_servers: &config.tools.mcp_servers,
+        },
+    })
+    .context("addon settings cannot be represented as TOML")?
+    .parse::<toml_edit::DocumentMut>()?;
+    doc["addons"] = managed["addons"].clone();
+    doc["tools"]["mcp_servers"] = managed["tools"]["mcp_servers"].clone();
     atomic_write(path, doc.to_string().as_bytes()).await?;
     Ok(())
 }

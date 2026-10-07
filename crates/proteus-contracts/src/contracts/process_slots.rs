@@ -37,10 +37,11 @@ pub const CONTEXT_HOST_SEARCH_METHOD: &str = "host.search.query";
 pub const CONTEXT_HOST_RECALL_MEMORY_METHOD: &str = "host.memory.recall";
 pub const CONTEXT_HOST_PROVIDER_METHOD: &str = "host.context.provide";
 
-pub const PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION: &str = "v2";
+pub const PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION: &str = "v3";
 pub const PROCESS_CONTEXT_PROVIDER_METHOD: &str = "provide";
+pub const PROCESS_CONTEXT_PROVIDER_CATALOG_METHOD: &str = "catalog";
 
-pub const PROCESS_TOOL_CONTRACT_VERSION: &str = "v3";
+pub const PROCESS_TOOL_CONTRACT_VERSION: &str = "v4";
 pub const PROCESS_TOOL_LIST_METHOD: &str = "list";
 pub const PROCESS_TOOL_INVOKE_METHOD: &str = "invoke";
 
@@ -135,7 +136,24 @@ pub struct ProcessToolInvokeInput {
     pub call: ToolCall,
     pub cwd: PathBuf,
     pub attribution: ExecutionAttribution,
+    pub skills: crate::domain::SkillRuntimeSettings,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessContextProviderRequest {
+    pub input: ProcessContextProviderInput,
+    pub skills: crate::domain::SkillRuntimeSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessSkillCatalogInput {
+    pub cwd: PathBuf,
+    pub skills: crate::domain::SkillRuntimeSettings,
+}
+
+pub type ProcessSkillCatalogResponse = ProcessModuleResponse<Option<crate::domain::SkillCatalog>>;
 
 pub type ProcessMemoryRememberResponse = ProcessModuleResponse<()>;
 pub type ProcessMemoryRecallResponse = ProcessModuleResponse<Vec<MemoryItem>>;
@@ -181,6 +199,7 @@ mod tests {
             call: ToolCall::new(new_call_id(), "probe", serde_json::json!({})),
             cwd: PathBuf::from("/workspace"),
             attribution: ExecutionAttribution::detached(new_execution_id()),
+            skills: Default::default(),
         };
         let value = serde_json::to_value(&input).expect("tool input");
         serde_json::from_value::<ProcessToolInvokeInput>(value.clone())

@@ -5,6 +5,8 @@
 //! contracts and in core stubs, adapters, configured tools, or external
 //! modules.
 
+pub mod addons;
+pub use addons::*;
 pub mod compaction;
 pub mod config_schema;
 pub mod context;

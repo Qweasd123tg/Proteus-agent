@@ -340,20 +340,27 @@ where
                 Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
             }
         }
+        (Method::POST, "/addons") => {
+            let result = async {
+                let server = sessions::server_for_query(&state, query.as_deref()).await?;
+                let update =
+                    read_json::<proteus_contracts::app_protocol::addons::AppAddonsUpdate, _>(
+                        request,
+                    )
+                    .await?;
+                server.set_addons(update).await
+            }
+            .await;
+            match result {
+                Ok(snapshot) => json_response(StatusCode::OK, &snapshot),
+                Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
+            }
+        }
         (Method::POST, "/config/builder") => {
             let result = async {
                 let server = sessions::server_for_query(&state, query.as_deref()).await?;
                 let command = read_json::<SetConfigBuilderRequest, _>(request).await?;
-                server
-                    .set_config_builder(
-                        command.modules,
-                        command.hooks,
-                        command.module_config,
-                        command.tools_enabled,
-                        command.active_provider,
-                        command.permission_mode,
-                    )
-                    .await
+                server.set_profile_config(command).await
             }
             .await;
             match result {

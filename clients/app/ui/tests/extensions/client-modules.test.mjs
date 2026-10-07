@@ -87,3 +87,21 @@ test('a stored package cannot duplicate a builtin record',async()=>{
  assert.equal(registry.state().records.filter(r=>r.id==='appearance').length,1);
  assert.match(registry.state().notice,/идентификатор встроенного/);
 });
+
+test('addon services forward settings and dispose configuration notifications',async()=>{
+  const {createAgentServices}=await import('../../extensions/agent-services.js');
+  const bridge=createAgentServices(),controller=new AbortController();
+  const settings={addons:{disabled_skills:['review'],disabled_mcp_servers:[],plugins:[]},mcp_servers:[]};
+  let received,notifications=0;
+  bridge.bind({readAddons:async()=>JSON.stringify({settings}),saveAddons:async(request,signal)=>{
+    assert.equal(signal,controller.signal); received=JSON.parse(request); return JSON.stringify({settings:received});
+  }});
+  const service=bridge.services['agent.addons'](controller.signal);
+  service.subscribe(()=>notifications++);
+  assert.deepEqual((await service.read()).settings,settings);
+  assert.deepEqual((await service.save(settings)).settings,settings);
+  assert.equal(notifications,1,'subscription immediately invalidates a possibly retained snapshot');
+  bridge.configurationChanged(null);assert.equal(notifications,2);
+  controller.abort();bridge.configurationChanged('invalid config');assert.equal(notifications,2);
+  await assert.rejects(service.read());
+});

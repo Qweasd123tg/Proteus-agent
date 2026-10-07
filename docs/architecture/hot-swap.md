@@ -1,7 +1,7 @@
 # Hot-Swap И Runtime Snapshots
 
-Текущая реализация поддерживает snapshot-based `reload_tools`, а не полный
-live reload process components.
+Текущая реализация поддерживает snapshot-based перечитывание профиля, включая
+автоподхват внешних правок в app-server, а не мутацию работающих process components.
 
 ```text
 AppConfig + Process components/exports + MCP discovery
@@ -39,18 +39,20 @@ context не делает новый lookup из mutable published registry на
 
 `StdioRequest::ReloadTools` и `POST /reload-tools`:
 
-1. перечитывают `tools.*` из config path;
+1. перечитывают профиль из config path;
 2. заново строят и проверяют `AssemblyPlan`;
 3. из него собирают catalog/registry snapshot;
 4. выполняют MCP discovery;
 5. публикуют новый epoch;
 6. испускают `ModulesReloaded { old_epoch, new_epoch, tool_names }`.
 
-`modules.*`, `components`, provider и opaque module config именно этим
-endpoint не переключаются. Config Builder отдельно умеет атомарно применить
-поддержанные selection/provider/module-config поля через тот же
-`PreparedAssembly`; он не создаёт новые component definitions. Для ручного
-изменения launch topology app-server restart остаётся честной границей.
+Автоподхват, явный reload и Config Builder используют общую publication:
+`modules.*`, `components`, provider, opaque module config и addons проходят новый
+`PreparedAssembly`. Launch topology можно изменить в файле без перезапуска
+сессии: новый epoch получает новые launchers, текущий ход удерживает старые.
+Config Builder меняет только свои managed fields, не создавая component definitions.
+Подробности debounce, ошибок и session overrides — в
+[конфигурации](../guides/configuration.md#config-builder).
 
 ## Process Lifecycle
 
@@ -68,7 +70,7 @@ invocation любого export той же session abstraction может lazily
 Текущий flow:
 
 1. config добавляет `[[tools.mcp_servers]]`;
-2. пользователь явно вызывает reload;
+2. app-server обнаруживает правку или пользователь явно вызывает reload;
 3. новый snapshot выполняет MCP initialize + `tools/list`;
 4. tools регистрируются с source `mcp:<server>` и safety floor
    `RunsCommands`;

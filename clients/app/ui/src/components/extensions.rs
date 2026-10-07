@@ -27,6 +27,8 @@ mod browser {
             read_config_builder: &js_sys::Function,
             save_config_builder: &js_sys::Function,
             read_config_history: &js_sys::Function,
+            read_addons: &js_sys::Function,
+            save_addons: &js_sys::Function,
         ) -> Result<js_sys::Function, JsValue>;
 
     }
@@ -87,6 +89,7 @@ mod browser {
             let path = crate::api::session_path("/usage", &session_dir);
             let builder_path = crate::api::session_path("/config/builder", &session_dir);
             let history_path = crate::api::session_path("/config/history", &session_dir);
+            let addons_path = crate::api::session_path("/addons", &session_dir);
             let readers = StoredValue::new_local((
                 reader(crate::api::session_path("/config", &session_dir)),
                 reader(crate::api::session_path("/model/quota", &session_dir)),
@@ -95,9 +98,11 @@ mod browser {
                 reader(builder_path.clone()),
                 writer(builder_path),
                 reader(history_path),
+                reader(addons_path.clone()),
+                writer(addons_path),
             ));
             let mounted = readers.with_value(
-                |(config, quota, usage, workspace, builder, save, history)| {
+                |(config, quota, usage, workspace, builder, save, history, addons, save_addons)| {
                     mount_extensions(
                         element.as_ref(),
                         config.as_ref().unchecked_ref(),
@@ -107,6 +112,8 @@ mod browser {
                         builder.as_ref().unchecked_ref(),
                         save.as_ref().unchecked_ref(),
                         history.as_ref().unchecked_ref(),
+                        addons.as_ref().unchecked_ref(),
+                        save_addons.as_ref().unchecked_ref(),
                     )
                 },
             );

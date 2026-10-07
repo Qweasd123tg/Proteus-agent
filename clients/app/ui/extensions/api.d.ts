@@ -95,6 +95,7 @@ export interface AgentConfigReader {
  * first. Saving a recorded state through save() rolls the profile back.
  */
 export interface AgentConfigBuilder {
+  subscribe(callback: (reloadError: string | null) => void): () => void;
   read(): Promise<Record<string, unknown>>;
   save(request: {
     modules: Record<string, string>;
@@ -103,6 +104,7 @@ export interface AgentConfigBuilder {
     tools_enabled: string[];
     active_provider: string | null;
     permission_mode: string | null;
+    addon_settings?: AgentAddonsSettings;
   }): Promise<Record<string, unknown>>;
   history(): Promise<{
     revisions: Array<{
@@ -110,6 +112,7 @@ export interface AgentConfigBuilder {
       /** Unix milliseconds of the save that replaced this state. */
       replaced_at_ms: number;
       state: {
+        addon_settings: AgentAddonsSettings;
         active_provider: string | null;
         permission_mode: string;
         active_modules: Array<{ slot: string; id: string }>;
@@ -119,6 +122,35 @@ export interface AgentConfigBuilder {
       };
     }>;
   }>;
+}
+
+export interface AgentAddonsSettings {
+  addons: { disabled_skills: string[]; disabled_mcp_servers: string[]; plugins: Array<{path: string; enabled: boolean}> };
+  mcp_servers: Array<{
+    name: string; command: string; enabled: boolean; cwd: string | null; args: string[];
+    env_allowlist: string[]; env: Record<string,string>; protocol_version: string;
+    safety: string; supports_parallel_tool_calls: boolean; timeout_ms: number | null;
+    max_response_bytes: number | null; metadata?: unknown;
+  }>;
+}
+/** Session-scoped GET/POST /addons. Save replaces settings, not runtime exports.
+ * A missing catalog means this provider does not support skill management.
+ * MCP tools describe discovery at assembly preparation, not live health.
+ */
+export interface AgentAddonsService {
+  subscribe(callback: (reloadError: string | null) => void): () => void;
+  read(): Promise<AgentAddonsSnapshot>;
+  save(settings: AgentAddonsSettings): Promise<AgentAddonsSnapshot>;
+}
+export interface AgentAddonsSnapshot {
+  reload_error: string | null;
+  writable: boolean; settings: AgentAddonsSettings;
+  catalogs: Array<{provider: string; error: string | null; catalog: null | {
+    skills: Array<{id:string; name:string; description:string; path:string; source:string; enabled:boolean}>;
+    warnings: string[];
+  }}>;
+  mcp_servers: Array<{name:string; enabled:boolean; tools:string[]; error:string|null}>;
+  plugins: Array<{path:string; name:string|null; version:string|null; description:string|null; enabled:boolean; warnings:string[]; error:string|null}>;
 }
 
 /** Optional agent.model.quota.read service; unmodified GET /model/quota.

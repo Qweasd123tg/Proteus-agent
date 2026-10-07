@@ -121,6 +121,7 @@ Dev/test сохраняют line tables для backtraces без тяжёлой 
 | Ordered hooks, actual effect и следующий живой turn после interruption, replay Success/Error | [`proteus-core --test hook_runtime`](../../crates/proteus-core/tests/hook_runtime.rs) |
 | JS/TS hook SDK, перенос handlers, multiplexing и targeted cancel | `node --test examples/modules/hook-process/tests/*.test.mjs`; настоящие slot/journal/replay — `hook_runtime::js_ports` и `hook_runtime::review` |
 | Model process, catalog/quota и cancellation | `proteus-core --test model_process`, `proteus-reference-module --test model_exports` |
+| Skills/MCP/Agent Plugins management и автоподхват профиля | `proteus-core --lib app_server::http::tests::addons`, `app_server::profile_watch`, `core::agent_plugins`; загрузка и фильтрация — `skill-pack` |
 | Execution attribution и операции без chat identity | `proteus-core --test execution_boundary`, `core::runtime::tests::execution`, `core::bound_model`, `core::bound_tools` |
 | Один process с callback-связанными exports и journal/replay | `proteus-reference-module --test topology_journal` |
 | Patch transaction через заменяемые реализации | `proteus-reference-module --test patch_transaction` |

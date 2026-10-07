@@ -169,18 +169,16 @@ pub(super) fn config_files(config_path: Option<&Path>) -> Vec<PathBuf> {
 impl super::AppServerHandle {
     pub async fn config_summary(&self) -> Value {
         use proteus_contracts::app_protocol::config::*;
-        let mode = self.permission_mode().await;
-        let model_ref = self.runtime.model_ref().await;
-        let reasoning = self.runtime.reasoning().await;
-        let module_epoch = self.runtime.module_epoch().await;
-        let config = self.config.read().await.clone();
+        let (snapshot, model_ref, reasoning, mode) = self.runtime.configuration_view().await;
+        let module_epoch = snapshot.epoch;
+        let config = snapshot.assembly_plan.config().clone();
         let selection = super::model_selection::selection_summary(
             &config,
             &model_ref,
             &reasoning,
-            self.runtime.model_catalog().await,
+            snapshot.registry.model_catalog().await,
         );
-        let tools = self.runtime.tool_entries().await;
+        let tools = snapshot.registry.tools.entries();
         let summary = ConfigSummary {
             display_text: render_config_summary(
                 &config,

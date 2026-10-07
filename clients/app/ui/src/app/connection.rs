@@ -101,6 +101,7 @@ pub(super) fn connect(state: AppState) -> ClientConnection {
         }
     };
     let runtime_settings = RuntimeSettingsBindings {
+        request_revision: StoredValue::new_local(0),
         on_selection_error: Callback::new(move |text| {
             let id = state.view.next_toast_id.get_untracked();
             state.view.set_next_toast_id.set(id + 1);
@@ -132,6 +133,11 @@ pub(super) fn connect(state: AppState) -> ClientConnection {
 
     let event_source = StoredValue::new_local(None::<EventConnection>);
     let event_stream_bindings = EventStreamBindings {
+        refresh_configuration: Callback::new(move |_| {
+            if let Some(session) = active_session_dir.get_untracked() {
+                runtime_settings.load(session,transcript_generation.get_untracked());
+            }
+        }),
         catalog: state.session.catalog,
         set_messages,
         next_message_id,

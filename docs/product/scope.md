@@ -46,6 +46,11 @@
   Anthropic и fake implementations в reference
   `model-pack`; Core использует общий `model/v12` process adapter.
 - Doctor, inspect/topology, eval report и атомарная локальная установка.
+- Управление доступностью skills и MCP через `/addons`, локальная загрузка
+  Agent Plugins 1.0 (skills и stdio MCP), общий сервис расширений `agent.addons`.
+  Отдельные страницы управления этими дополнениями пока не добавлены.
+- App-server подхватывает внешние изменения профиля во всех открытых сессиях:
+  проверенная сборка публикуется новым epoch, действующий ход сохраняет старый.
 
 Reference modules и profiles — поставляемые примеры без особых прав.
 

@@ -5,13 +5,13 @@ use proteus_contracts::{
         PROCESS_POLICY_EVALUATE_METHOD, PROCESS_POLICY_VISIBILITY_METHOD,
         PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD, ProcessCompactionResponse,
         ProcessComponentExportInitialize, ProcessComponentExportManifest,
-        ProcessContextChunksResponse, ProcessContextInput, ProcessContextProviderInput,
-        ProcessContextResponse, ProcessMemoryRecallInput, ProcessMemoryRecallResponse,
-        ProcessMemoryRememberInput, ProcessMemoryRememberResponse, ProcessPatchInput,
-        ProcessPatchResponse, ProcessPolicyEvaluateInput, ProcessPolicyResponse,
-        ProcessPolicyVisibilityInput, ProcessSearchResponse, ProcessToolExposureInput,
-        ProcessToolExposureResponse, ProcessToolInvokeInput, ProcessToolInvokeResponse,
-        ProcessToolListResponse, ProcessWorkflowInput, ProcessWorkflowResponse, WorkflowOutput,
+        ProcessContextChunksResponse, ProcessContextInput, ProcessContextResponse,
+        ProcessMemoryRecallInput, ProcessMemoryRecallResponse, ProcessMemoryRememberInput,
+        ProcessMemoryRememberResponse, ProcessPatchInput, ProcessPatchResponse,
+        ProcessPolicyEvaluateInput, ProcessPolicyResponse, ProcessPolicyVisibilityInput,
+        ProcessSearchResponse, ProcessToolExposureInput, ProcessToolExposureResponse,
+        ProcessToolInvokeInput, ProcessToolInvokeResponse, ProcessToolListResponse,
+        ProcessWorkflowInput, ProcessWorkflowResponse, WorkflowOutput,
     },
     domain::ToolSpec,
     process_module::{
@@ -89,7 +89,7 @@ impl ModuleExport {
             "policy" => self.policy(method, params),
             "tool_exposure" => self.tool_exposure(params),
             "context" => self.context(params, bridge),
-            "context_provider" => self.context_provider(params),
+            "context_provider" => self.context_provider(method, params),
             "compactor" => self.compactor(params, bridge),
             "workflow" => self.workflow(params, bridge),
             slot => bail!("reference-module does not dispatch slot {slot:?}"),
@@ -141,6 +141,7 @@ impl ModuleExport {
                 let context_json = serde_json::to_string(&ToolModuleInvocationContext {
                     cwd: input.cwd,
                     attribution: input.attribution,
+                    skills: input.skills,
                     config: self.binding.module_config.clone(),
                 })?;
                 let mut host = ToolHostBridge(bridge.clone());
@@ -324,13 +325,21 @@ impl ModuleExport {
         )?))
     }
 
-    fn context_provider(&self, params: Value) -> Result<Value> {
-        let input: ProcessContextProviderInput = decode(params)?;
+    fn context_provider(&self, method: &str, params: Value) -> Result<Value> {
         let provider = self
             .modules
             .context_providers
             .get(&self.binding.module_id)
             .ok_or_else(|| anyhow!("context provider module was not registered"))?;
+        if method == proteus_contracts::contracts::PROCESS_CONTEXT_PROVIDER_CATALOG_METHOD {
+            let input = decode(params)?;
+            return encode(
+                proteus_contracts::contracts::ProcessSkillCatalogResponse::new(
+                    provider.skill_catalog(input)?,
+                ),
+            );
+        }
+        let input: proteus_contracts::contracts::ProcessContextProviderRequest = decode(params)?;
         let output = provider.provide_json(serde_json::to_string(&input)?)?;
         encode(ProcessContextChunksResponse::new(serde_json::from_str(
             output.as_str(),

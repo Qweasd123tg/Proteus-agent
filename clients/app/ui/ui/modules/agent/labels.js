@@ -14,6 +14,7 @@ const changeText = {
   ...Object.fromEntries(Object.entries(slotText).map(([id, [title]]) => [id, title])),
   model: "Параметры модели",
   hook: "Обработчики",
+  addons: "Дополнения агента",
   tools: "Инструменты",
   provider: "Модель",
   mode: "Режим прав",

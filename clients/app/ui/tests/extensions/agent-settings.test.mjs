@@ -5,6 +5,7 @@ import { describeChanges, revisionDraft } from '../../ui/modules/agent/revisions
 import { agentSettings } from '../../ui/modules/agent/store.js';
 
 const snapshot = () => ({
+  addon_settings: {addons: {disabled_skills: [], disabled_mcp_servers: [], plugins: []}, mcp_servers: []},
   writable: true,
   target_path: '/tmp/profile/config.toml',
   active_provider: 'main',
@@ -26,6 +27,7 @@ test('saved profile round-trips without inventing parameters for untouched modul
   const draft = draftFromSnapshot(saved);
   assert.equal(changes(saved, draft).size, 0);
   assert.deepEqual(buildRequest(saved, draft), {
+    addon_settings: saved.addon_settings,
     modules: { workflow: 'loop' },
     hooks: ['first'],
     module_config: saved.module_config,
@@ -57,6 +59,7 @@ test('changes name the edited areas; formatting alone and invalid JSON are disti
 test('a recorded state becomes a draft that rolls the profile back through the builder', () => {
   const saved = snapshot();
   const state = {
+    addon_settings: {addons: {disabled_skills: ['review'], disabled_mcp_servers: [], plugins: []}, mcp_servers: []},
     active_provider: 'main',
     permission_mode: 'auto',
     active_modules: [],
@@ -76,10 +79,12 @@ test('a recorded state becomes a draft that rolls the profile back through the b
       ['workflow', 'параметры: max_steps'],
       ['model', 'параметры: timeout_ms'],
       ['hook', 'first → нет'],
+      ['addons', 'skills, MCP или пакеты дополнений'],
       ['tools', '− read_file'],
       ['mode', 'По правилам → Правки без вопросов'],
     ],
   );
+  assert.deepEqual(buildRequest(saved,draft).addon_settings,state.addon_settings);
 });
 
 test('one shared draft saves through the service and survives a rejected save', async () => {
@@ -113,4 +118,17 @@ test('one shared draft saves through the service and survives a rejected save', 
   assert.deepEqual(agentSettings.state().draft.hooks, ['first']);
   agentSettings.restore({ ...snapshot(), permission_mode: 'plan' });
   assert.deepEqual([...agentSettings.changes()], ['mode']);
+});
+
+test('external refresh rebases unsaved parameters without undoing untouched settings',async()=>{
+  const saved=snapshot();
+  await agentSettings.load({read:async()=>saved},true);
+  agentSettings.update(draft=>draft.texts.workflow.loop='{"max_steps":3}');
+  const external={...snapshot(),permission_mode:'plan',hooks:['second']};
+  await agentSettings.refresh({read:async()=>external});
+  const request=buildRequest(external,agentSettings.state().draft);
+  assert.equal(request.module_config.workflow.loop.max_steps,3);
+  assert.equal(request.permission_mode,'plan');
+  assert.deepEqual(request.hooks,['second']);
+  assert.match(agentSettings.state().feedback.text,/несохранённые/);
 });

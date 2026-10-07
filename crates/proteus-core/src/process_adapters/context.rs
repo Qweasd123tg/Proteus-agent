@@ -139,13 +139,19 @@ impl AsyncHostRequestDispatcher for ContextDispatcher {
 pub struct ProcessContextProvider {
     provider_id: String,
     client: Arc<ProcessExportClient>,
+    skills: crate::domain::SkillRuntimeSettings,
 }
 
 impl ProcessContextProvider {
-    pub fn new(config: ProcessExportConfig, workspace: &Path) -> Result<Self> {
+    pub fn new(
+        config: ProcessExportConfig,
+        workspace: &Path,
+        skills: crate::domain::SkillRuntimeSettings,
+    ) -> Result<Self> {
         let provider_id = config.module_id().to_owned();
         Ok(Self {
             provider_id,
+            skills,
             client: Arc::new(ProcessExportClient::connect(
                 "context_provider",
                 PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION,
@@ -160,15 +166,38 @@ impl ProcessContextProvider {
 #[async_trait]
 impl RepoAwareContextProvider for ProcessContextProvider {
     async fn provide(&self, input: &ContextBuildInput) -> Result<Vec<ContextChunk>> {
-        let request = ProcessContextProviderInput {
-            provider_id: self.provider_id.clone(),
-            task: input.task.clone(),
-            metadata: Value::Null,
+        let request = crate::contracts::ProcessContextProviderRequest {
+            input: ProcessContextProviderInput {
+                provider_id: self.provider_id.clone(),
+                task: input.task.clone(),
+                metadata: Value::Null,
+            },
+            skills: self.skills.clone(),
         };
         let response: ProcessContextChunksResponse = self
             .client
             .invoke(PROCESS_CONTEXT_PROVIDER_METHOD, &request)
             .await?;
+        Ok(response.result)
+    }
+
+    async fn skill_catalog(&self, cwd: &Path) -> Result<Option<crate::domain::SkillCatalog>> {
+        let mut response: crate::contracts::ProcessSkillCatalogResponse = self
+            .client
+            .invoke(
+                crate::contracts::PROCESS_CONTEXT_PROVIDER_CATALOG_METHOD,
+                &crate::contracts::ProcessSkillCatalogInput {
+                    cwd: cwd.to_path_buf(),
+                    skills: self.skills.clone(),
+                },
+            )
+            .await?;
+        if let Some(catalog) = &mut response.result {
+            catalog.validate().map_err(anyhow::Error::msg)?;
+            for skill in &mut catalog.skills {
+                skill.enabled &= !self.skills.disabled.contains(&skill.id);
+            }
+        }
         Ok(response.result)
     }
 }

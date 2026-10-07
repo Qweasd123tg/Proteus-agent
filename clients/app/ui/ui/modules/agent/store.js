@@ -1,6 +1,6 @@
 // One draft for all agent settings pages: switching pages keeps unsaved edits
 // and one save applies them together.
-import { buildRequest, changes, draftFromSnapshot } from "./draft.js";
+import { buildRequest, changes, draftFromSnapshot, rebaseDraft } from "./draft.js";
 import { revisionDraft } from "./revisions.js";
 
 const listeners = new Set();
@@ -13,6 +13,7 @@ let state = {
   feedback: null,
 };
 let loading;
+let refreshRevision = 0, pendingRefresh;
 
 function emit(next) {
   state = { ...state, ...next };
@@ -33,18 +34,19 @@ export const agentSettings = Object.freeze({
   load(service, force = false) {
     if (loading) return loading;
     if (state.snapshot && !force) return Promise.resolve(state);
+    const revision = ++refreshRevision;
     emit({ loading: true, feedback: null });
     loading = service
       .read()
       .then(
-        (snapshot) =>
+        (snapshot) => revision === refreshRevision &&
           emit({
             snapshot,
             draft: draftFromSnapshot(snapshot),
             errors: {},
             loading: false,
           }),
-        (error) =>
+        (error) => revision === refreshRevision &&
           emit({
             loading: false,
             feedback: { kind: "error", text: `Не удалось загрузить профиль: ${error.message}` },
@@ -58,6 +60,24 @@ export const agentSettings = Object.freeze({
     const draft = structuredClone(state.draft);
     change(draft);
     emit({ draft, feedback: null });
+  },
+  async refresh(service, error = null) {
+    if (state.saving) { pendingRefresh = service; return; }
+    const revision = ++refreshRevision;
+    try {
+      const snapshot = await service.read();
+      if (revision !== refreshRevision) return;
+      if (state.saving) { pendingRefresh = service; return; }
+      error ??= snapshot.warnings?.find(warning => warning.severity === "error")?.message ?? null;
+      if (!error && !state.loading && JSON.stringify(state.snapshot) === JSON.stringify(snapshot)) return;
+      const dirty = state.snapshot && state.draft && changes(state.snapshot,state.draft).size > 0;
+      const draft = dirty ? rebaseDraft(state.snapshot,snapshot,state.draft) : draftFromSnapshot(snapshot);
+      emit({ snapshot, draft, loading: false, errors: dirty ? state.errors : {}, feedback: error
+        ? {kind:"error", text:`Профиль не обновлён: ${error}`}
+        : dirty ? {kind:"warning",text:"Профиль изменён извне · ваши несохранённые изменения сохранены"} : null });
+    } catch (error) {
+      if (revision===refreshRevision) emit({feedback:{kind:"error",text:`Не удалось обновить профиль: ${error.message}`}});
+    }
   },
   setError(key, message) {
     const errors = { ...state.errors };
@@ -86,6 +106,7 @@ export const agentSettings = Object.freeze({
       return;
     }
     emit({ saving: true, feedback: null });
+    ++refreshRevision;
     try {
       const snapshot = await service.save(request);
       emit({
@@ -101,5 +122,6 @@ export const agentSettings = Object.freeze({
         feedback: { kind: "error", text: `Не сохранено: ${error.message}` },
       });
     }
+    if (pendingRefresh) { const service = pendingRefresh; pendingRefresh = undefined; await agentSettings.refresh(service); }
   },
 });

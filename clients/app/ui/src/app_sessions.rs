@@ -18,6 +18,7 @@ use bootstrap::create_session;
 
 #[derive(Clone, Copy)]
 pub(crate) struct RuntimeSettingsBindings {
+    pub(crate) request_revision: StoredValue<u64, LocalStorage>,
     pub(crate) on_selection_error: Callback<String>,
     pub(crate) set_mode: WriteSignal<PermissionMode>,
     pub(crate) set_model_name: WriteSignal<String>,
@@ -50,7 +51,11 @@ impl RuntimeSettingsBindings {
     }
 
     pub(crate) fn load(self, session_dir: String, expected_generation: u64) {
+        let revision = self.request_revision.get_value().wrapping_add(1);
+        self.request_revision.set_value(revision);
         load_runtime_settings(
+            self.request_revision,
+            revision,
             session_dir,
             self.active_session_dir,
             self.transcript_generation,

@@ -17,7 +17,7 @@ MODULE_ID = "project-check-fixture-tools"
 EXPORT = {
     "slot": "tool",
     "module_id": MODULE_ID,
-    "contract_version": "v3",
+    "contract_version": "v4",
     "composition": "ordered_many",
     "module_features": [], "config_schema": None,
 }
@@ -37,7 +37,7 @@ def initialize(params):
         )
         for export in exports
     }
-    expected_exports = {("tool", MODULE_ID, "v3", "ordered_many")}
+    expected_exports = {("tool", MODULE_ID, "v4", "ordered_many")}
     if actual != expected_exports:
         raise ProtocolError(f"unexpected project-check exports: {exports!r}")
     return {

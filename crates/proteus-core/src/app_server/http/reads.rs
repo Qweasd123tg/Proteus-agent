@@ -29,6 +29,10 @@ pub(super) async fn route_get(
 async fn read(state: &HttpAppState, path: &str, query: Option<&str>) -> Result<HttpResponse> {
     let response = match path {
         "/health" => json_response(StatusCode::OK, &json!({ "ok": true })),
+        "/addons" => {
+            let server = server_for_query(state, query).await?;
+            json_response(StatusCode::OK, &server.addons_snapshot().await)
+        }
         "/image" => {
             let server = server_for_query(state, query).await?;
             let id = super::workspace::query_path(query)?;

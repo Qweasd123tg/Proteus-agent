@@ -504,7 +504,7 @@ entry панелей; представление `settings` загружаетс
 host может создать собственный реестр или передать общий через `options.registry`.
 
 `web-adapter.js` связывает конкретную витрину с её HTTP transport и предоставляет
-интерфейсы `agent.config.read`, `agent.config.builder`, `agent.model.quota.read`,
+интерфейсы `agent.config.read`, `agent.config.builder`, `agent.addons`, `agent.model.quota.read`,
 `agent.usage.read`, `agent.session.read` и `agent.workspace.read`:
 
 ```javascript
@@ -532,6 +532,18 @@ credential через этот интерфейс. Другой клиент м�
 UI: сервер строит и проверяет полную сборку до записи профиля, а
 не дающий прав модулям агента канал. Пакет запрашивает интерфейс в `requires`
 явно; его наличие у поставляемых страниц агента не даёт им особых прав.
+
+`agent.addons` предоставляет `read()` и `save({ addons, mcp_servers })` через
+session-scoped `GET/POST /addons`. Ответ содержит provider-owned skill catalogs,
+описания локальных Agent Plugins, состояния MCP discovery и `reload_error`.
+`agent.addons` и `agent.config.builder` поддерживают `subscribe(callback)`:
+server publication или изменение ошибки внешнего профиля вызывает callback с
+`null` либо текстом ошибки. Это уведомление об invalidation, не polling и не
+второй источник configuration state; свежие данные читаются через `read()`.
+Подписка снимается при отмене mount. Страницы shared settings перечитываются
+при подписке и последующих уведомлениях; удержанный store не подменяет профиль
+другой сессии. Несохранённые отредактированные области rebase-ятся поверх
+нового профиля. Конкретные страницы skills/MCP/packages ещё не входят в клиент.
 
 `agent.session.read` возвращает копию проекции клиента через `read()` и
 `subscribe(callback)` с немедленным первым уведомлением. Изменения transcript,

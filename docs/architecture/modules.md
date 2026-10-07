@@ -71,8 +71,8 @@ Wire shape и правила validation — в
 | `patch` | `select_one` | `modules.patch` | да | `direct`, `codex` |
 | `compactor` | `select_one` | `modules.compactor` | да | `codex` |
 | `tool_exposure` | `select_one` | `modules.tool_exposure` | да | `codex_dynamic` |
-| `tool` | `ordered_many` | предоставленные реализации + `tools.enabled` | да | `reference.tools` и узкие варианты |
-| `context_provider` | `ordered_many` | предоставленные реализации + настройки контекста | да | `skills` |
+| `tool` | `ordered_many` | предоставленные реализации + `tools.enabled` | да, `tool/v4` | `reference.tools` и узкие варианты |
+| `context_provider` | `ordered_many` | предоставленные реализации + настройки контекста | да, `context_provider/v3` | `skills` |
 | `model` | `select_one` | активный профиль модели | да, `model/v12` | `fake`, `openai`, `openai_compatible`, `openai_codex`, `anthropic` |
 
 `select_one` означает одну выбранную реализацию, `ordered_many` — несколько
@@ -425,8 +425,16 @@ host-owned `ExecutionAttribution`: обязательный `ExecutionId` и opt
 
 Для узкого профиля тот же модуль принимает selectors `file_tools`,
 `git_tools`, `shell_tools`, `plan_tool`, `skill_tool`, `rust_lsp` и
-`policy_tools`. Они используют тот же `tool/v3` contract; selector не
+`policy_tools`. Они используют тот же `tool/v4` contract; selector не
 меняет authority.
+
+Host-owned `SkillRuntimeSettings` поступают каждому tool invocation и context
+provider из immutable сборки. `context_provider/v3` добавляет read-only метод
+`catalog` с `cwd` и settings: результат — `null` либо валидированный `SkillCatalog`.
+Чтение не требует conversation/model, не добавляет callbacks и не меняет
+composition. Discovery и загрузка навыка принадлежат implementation; Core только
+передаёт selection и проецирует metadata для управления. Локальный Agent Plugin
+предоставляет входы существующим skills/MCP границам, не новый slot или loader ABI.
 
 ### Model
 

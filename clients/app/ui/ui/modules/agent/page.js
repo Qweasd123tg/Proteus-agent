@@ -90,4 +90,6 @@ export function mountAgentPage({ root, services, signal }, intro, build) {
     bar.sync(state);
   }, signal);
   agentSettings.load(service);
+  const unsubscribe = service.subscribe((error) => agentSettings.refresh(service,error));
+  signal.addEventListener("abort",unsubscribe,{once:true});
 }

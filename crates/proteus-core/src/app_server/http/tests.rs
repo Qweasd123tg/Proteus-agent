@@ -266,6 +266,7 @@ async fn wait_for_transcript_text(
     server.transcript().await.expect("transcript")
 }
 
+mod addons;
 mod addressing;
 mod commands;
 mod config;

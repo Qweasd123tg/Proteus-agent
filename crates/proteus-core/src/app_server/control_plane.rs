@@ -67,6 +67,7 @@ impl AppServerHandle {
     }
 
     pub async fn shutdown(&self) {
+        self.profile_stop.cancel();
         self.close_runs().await;
         approvals::deny_pending_approvals(
             self.pending_approvals.clone(),

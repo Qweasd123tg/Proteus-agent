@@ -46,6 +46,7 @@ export function describeChanges(before, after) {
     const parts = [];
     if (key === "mode") parts.push(`${mode(before.mode)} → ${mode(after.mode)}`);
     else if (key === "provider") parts.push(`${before.provider || "—"} → ${after.provider || "—"}`);
+    else if (key === "addons") parts.push("skills, MCP или пакеты дополнений");
     else if (key === "tools") {
       const was = new Set(before.tools);
       const now = new Set(after.tools);

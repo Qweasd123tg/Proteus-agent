@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[5] / "examples/modules")
 from component_runtime import PROTOCOL_VERSION, ProtocolError, run_component
 
 EXPORT = {
-    "slot": "tool", "module_id": "stream-tools", "contract_version": "v3",
+    "slot": "tool", "module_id": "stream-tools", "contract_version": "v4",
     "composition": "ordered_many", "module_features": [], "config_schema": None,
 }
 LOCK = threading.Lock()

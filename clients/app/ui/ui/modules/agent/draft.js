@@ -14,6 +14,7 @@ export function draftFromSnapshot(snapshot) {
   for (const slot of snapshot.slots ?? [])
     for (const module of slot.modules) put(slot.id, module.id);
   return {
+    addon_settings: structuredClone(snapshot.addon_settings),
     modules: Object.fromEntries(
       (snapshot.active_modules ?? []).map((m) => [m.slot, m.id]),
     ),
@@ -60,6 +61,7 @@ export function moduleConfig(draft, baseline) {
 
 export function buildRequest(snapshot, draft) {
   return {
+    addon_settings: draft.addon_settings,
     modules: { ...draft.modules },
     hooks: [...draft.hooks],
     module_config: moduleConfig(draft, snapshot.module_config),
@@ -98,8 +100,26 @@ export function diffDrafts(saved, draft) {
     }
   }
   if (!sameJson(saved.hooks, draft.hooks)) result.add("hook");
+  if (!sameJson(saved.addon_settings, draft.addon_settings)) result.add("addons");
   if (!sameJson(saved.tools, [...draft.tools].sort())) result.add("tools");
   if (saved.provider !== draft.provider) result.add("provider");
   if (saved.mode !== draft.mode) result.add("mode");
   return result;
+}
+
+/** Rebase only edited areas; external changes to untouched areas stay visible. */
+export function rebaseDraft(before, after, draft) {
+  const saved = draftFromSnapshot(before), next = draftFromSnapshot(after);
+  for (const key of ["hooks","tools","provider","mode","addon_settings"])
+    if (!sameJson(saved[key],draft[key])) next[key] = structuredClone(draft[key]);
+  for (const key of new Set([...Object.keys(saved.modules),...Object.keys(draft.modules)]))
+    if (saved.modules[key] !== draft.modules[key]) next.modules[key] = draft.modules[key];
+  for (const [slot,modules] of Object.entries(draft.texts))
+    for (const [module,text] of Object.entries(modules)) {
+      const original = parseParameters(moduleText(saved,slot,module)), edited = parseParameters(text);
+      if (edited.error || !sameJson(original.value,edited.value)) {
+        next.texts[slot] ??= {}; next.texts[slot][module] = text;
+      }
+    }
+  return next;
 }

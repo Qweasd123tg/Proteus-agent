@@ -22,6 +22,7 @@ impl AgentRuntime {
             config_snapshot,
             model_ref,
             permission_mode,
+            None,
             || async { Ok(()) },
         )
         .await
@@ -33,6 +34,7 @@ impl AgentRuntime {
         config_snapshot: Option<SessionConfigSnapshot>,
         model_ref: Option<ModelRef>,
         permission_mode: Option<PermissionMode>,
+        reasoning: Option<ReasoningConfig>,
         commit: F,
     ) -> Result<RuntimeReloadReport>
     where
@@ -76,6 +78,9 @@ impl AgentRuntime {
         state.model_ref = model_ref;
         if let Some(permission_mode) = permission_mode {
             state.permission_mode = permission_mode;
+        }
+        if let Some(reasoning) = reasoning {
+            state.reasoning = reasoning;
         }
         Ok(RuntimeReloadReport {
             old_epoch: old_epoch.as_u64(),

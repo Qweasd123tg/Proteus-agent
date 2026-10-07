@@ -173,7 +173,7 @@ Composition хранится в общей authority table и подтвержд
       {
         "slot": "tool",
         "module_id": "reference.tools",
-        "contract_version": "v3",
+        "contract_version": "v4",
         "composition": "ordered_many",
         "module_config": {},
         "host_features": []
@@ -204,7 +204,7 @@ Composition хранится в общей authority table и подтвержд
       {
         "slot": "tool",
         "module_id": "reference.tools",
-        "contract_version": "v3",
+        "contract_version": "v4",
         "composition": "ordered_many",
         "module_features": [],
         "config_schema": null
@@ -632,12 +632,23 @@ ToolRegistry
   -> invoke
 ```
 
-Component не задаёт execution/chat ownership. В `tool/v3` host передаёт
+Component не задаёт execution/chat ownership. В `tool/v4` host передаёт
 `ExecutionAttribution` из активного execution binding: `ExecutionId` обязателен,
 а `SessionId`/`ThreadId`/`TurnId` существуют только как optional agent
 projection. Detached execution проходит wire без fake chat identities.
 Наличие tool и workflow exports в одном manifest не даёт workflow прямой
 command-execution authority.
+
+Дополнительно `invoke` получает mandatory `skills: SkillRuntimeSettings`:
+`{ "disabled": [], "packages": [] }` допустим для сборки без навыков. Настройки
+захватываются adapter-ом из той же immutable сборки, а не из mutable UI state.
+`context_provider/v3` принимает `provide` как `{ input: ProcessContextProviderInput,
+skills: SkillRuntimeSettings }`. Callback `host.context.provide` у `context/v2`
+не меняет форму: host связывает provider request с собственными settings.
+Новый `catalog` принимает `{ cwd, skills }`, возвращает `{ result: null }` либо
+`{ result: { skills: [SkillDescriptor], warnings: [] } }`. Descriptor содержит
+`id`, `name`, `description`, `path`, `source`, `enabled`; пустые/повторные identity
+отклоняются. Каталог не предоставляет новых callbacks или execution authority.
 
 ## Structural Absence
 

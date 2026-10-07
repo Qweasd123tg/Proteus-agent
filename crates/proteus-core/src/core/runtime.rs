@@ -20,6 +20,7 @@ use crate::{
     model_standard::CanonicalMessage,
 };
 
+mod addons;
 mod builder;
 mod checkpoint;
 mod execution;

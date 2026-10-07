@@ -8,6 +8,8 @@ use proteus_contracts::app_protocol::config::ConfigSummary;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn load_runtime_settings(
+    request_revision: StoredValue<u64, LocalStorage>,
+    expected_revision: u64,
     session_dir: String,
     active_session_dir: ReadSignal<Option<String>>,
     transcript_generation: ReadSignal<u64>,
@@ -26,7 +28,8 @@ pub(crate) fn load_runtime_settings(
 ) {
     spawn_local(async move {
         let result = get_json::<ConfigSummary>(&session_path("/config", &session_dir)).await;
-        if transcript_generation.get_untracked() != expected_generation
+        if request_revision.get_value() != expected_revision
+            || transcript_generation.get_untracked() != expected_generation
             || active_session_dir.get_untracked().as_deref() != Some(session_dir.as_str())
         {
             return;

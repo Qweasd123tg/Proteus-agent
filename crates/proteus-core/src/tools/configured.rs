@@ -123,8 +123,8 @@ pub fn register_configured_tools(
     cwd: &Path,
     search: Arc<dyn SearchBackend>,
     patch: Arc<dyn PatchApplier>,
-) -> Result<()> {
-    register_discovered_mcp_tools(registry, mcp_servers, cwd)?;
+) -> Result<Vec<proteus_contracts::app_protocol::addons::AppMcpServerState>> {
+    let states = register_discovered_mcp_tools(registry, mcp_servers, cwd)?;
 
     for configured in configured_tools {
         let source = configured_tool_source(configured);
@@ -171,7 +171,7 @@ pub fn register_configured_tools(
             }
         }
     }
-    Ok(())
+    Ok(states)
 }
 
 fn configured_tool_source(configured: &ConfiguredToolConfig) -> ToolSource {

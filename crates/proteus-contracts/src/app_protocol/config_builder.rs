@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigBuilderSnapshot {
+    pub addon_settings: super::addons::AppAddonsUpdate,
     pub config_path: Option<String>,
     pub target_path: Option<String>,
     pub writable: bool,
@@ -93,6 +94,7 @@ pub struct ConfigBuilderTool {
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigBuilderState {
+    pub addon_settings: super::addons::AppAddonsUpdate,
     pub active_provider: Option<String>,
     pub permission_mode: String,
     pub active_modules: Vec<ConfigBuilderModuleSelection>,

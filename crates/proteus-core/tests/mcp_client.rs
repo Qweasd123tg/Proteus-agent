@@ -37,6 +37,8 @@ impl Fixture {
         config.tools.enabled.clear();
         config.agent_control.surface = proteus_core::core::AgentControlSurface::None;
         config.tools.mcp_servers.push(ConfiguredMcpServerConfig {
+            enabled: true,
+            cwd: None,
             name: "fixture".into(),
             command: "python3".into(),
             args: vec![server_path().display().to_string()],
@@ -392,21 +394,39 @@ async fn timeout_and_bounded_response_invalidate_the_generation_without_replay()
     );
 }
 
-#[test]
-fn malformed_or_unsupported_initialize_is_rejected_during_discovery() {
+#[tokio::test]
+async fn malformed_or_unsupported_initialize_is_reported_without_registering_tools() {
     for mode in ["malformed", "wrong_version"] {
         let fixture = Fixture::with_init_mode(1_000, None, mode);
-        let error = match fixture.registry() {
-            Ok(_) => panic!("invalid initialize result must reject MCP server"),
-            Err(error) => error,
-        };
-        let rendered = format!("{error:#}").to_lowercase();
+        let mut config = fixture.config.clone();
+        config.active_provider = None;
+        config.providers.clear();
+        let server = proteus_core::app_server::AgentAppServer::launch(
+            config,
+            fixture.dir.path().to_owned(),
+            None,
+        )
+        .await
+        .unwrap();
+        let snapshot = server.addons_snapshot().await;
+        let state = snapshot
+            .mcp_servers
+            .iter()
+            .find(|server| server.name == "fixture")
+            .unwrap();
+        assert!(state.tools.is_empty());
+        let error = state
+            .error
+            .as_ref()
+            .expect("invalid handshake must be reported");
+        let rendered = error.to_lowercase();
         assert!(
             rendered.contains("initialize")
                 || rendered.contains("protocol")
                 || rendered.contains("deserialize"),
-            "{mode}: {error:#}"
+            "{mode}: {error}"
         );
+        server.shutdown().await;
     }
 }
 

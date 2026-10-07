@@ -32,6 +32,7 @@ use crate::{
     domain::{AgentOutput, EventEnvelope},
 };
 
+pub mod addons;
 pub mod analysis;
 pub mod config;
 pub mod config_builder;
@@ -103,6 +104,8 @@ pub enum AppServerEvent {
         new_epoch: u64,
         tool_names: Vec<String>,
     },
+    /// External profile validation failed or recovered; never a turn terminal.
+    ProfileReloadStatus { error: Option<String> },
 
     /// App-server обновил control-plane состояние session. Это событие не
     /// несёт transcript/runtime deltas и может приходить для фоновой session,

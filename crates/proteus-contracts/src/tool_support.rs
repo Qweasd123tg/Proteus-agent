@@ -248,6 +248,7 @@ mod tests {
     #[test]
     fn invocation_context_is_required_and_strict() {
         let context = ToolModuleInvocationContext {
+            skills: Default::default(),
             cwd: PathBuf::from("/workspace"),
             attribution: ExecutionAttribution::detached(new_execution_id()),
             config: json!({}),

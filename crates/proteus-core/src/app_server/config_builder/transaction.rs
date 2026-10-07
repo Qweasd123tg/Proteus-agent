@@ -5,7 +5,7 @@ use std::{
 };
 use tokio::sync::Mutex;
 
-pub(super) fn path_lock(path: &Path) -> Result<Arc<Mutex<()>>> {
+pub(in crate::app_server) fn path_lock(path: &Path) -> Result<Arc<Mutex<()>>> {
     static LOCKS: OnceLock<StdMutex<HashMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
     let absolute = std::path::absolute(path)?;
     let key = absolute

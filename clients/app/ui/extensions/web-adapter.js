@@ -21,6 +21,7 @@ const registry = createClientModuleRegistry(
   createExtensionRegistry({ reservedIds: builtins.map((r) => r.id) }),
 );
 const agent = createAgentServices();
+export const notifyConfigurationChanged = (error = null) => agent.configurationChanged(error);
 const clientServices = Object.assign(moduleServices(registry), agent.services);
 export function mountClientSettings(root) {
   return mountSettings(root, registry, clientServices, readRequestedModule());
@@ -40,6 +41,8 @@ export function mountWebExtensions(
   readConfigBuilder,
   saveConfigBuilder,
   readConfigHistory,
+  readAddons,
+  saveAddons,
 ) {
   const release = agent.bind({
     readConfig,
@@ -49,6 +52,8 @@ export function mountWebExtensions(
     readConfigBuilder,
     saveConfigBuilder,
     readConfigHistory,
+    readAddons,
+    saveAddons,
   });
   const stop = mountExtensions(root, clientServices, {
     registry,

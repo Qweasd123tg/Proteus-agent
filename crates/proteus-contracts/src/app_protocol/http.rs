@@ -78,6 +78,8 @@ pub struct SetReasoningEnabledRequest {
 #[derive(Debug, Clone, Default, serde::Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SetConfigBuilderRequest {
+    #[serde(default)]
+    pub addon_settings: Option<super::addons::AppAddonsUpdate>,
     /// None preserves the ordered hook selection; Some replaces it.
     #[serde(default)]
     pub hooks: Option<Vec<String>>,

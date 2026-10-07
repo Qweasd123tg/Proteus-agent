@@ -155,7 +155,12 @@ async fn worker_scenario() -> Result<()> {
             .invoke(
                 &provider_ref,
                 PROCESS_CONTEXT_PROVIDER_METHOD,
-                serde_json::to_value(input)?,
+                serde_json::to_value(
+                    proteus_contracts::contracts::ProcessContextProviderRequest {
+                        input,
+                        skills: Default::default(),
+                    },
+                )?,
                 TEST_TIMEOUT,
             )
             .await?;
@@ -170,6 +175,7 @@ async fn worker_scenario() -> Result<()> {
                 .any(|chunk| chunk.content.contains("<name>installed</name>"))
         );
         let input = ProcessToolInvokeInput {
+            skills: Default::default(),
             call: ToolCall::new(new_call_id(), "skill", json!({"name":"installed"})),
             cwd: cwd.clone(),
             attribution: ExecutionAttribution::detached(new_execution_id()),

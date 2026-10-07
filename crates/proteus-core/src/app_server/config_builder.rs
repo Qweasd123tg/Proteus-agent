@@ -4,6 +4,7 @@ mod tests;
 mod transaction;
 pub(super) use persistence::config_builder_target_path;
 use persistence::{persist_config_builder, validate_module_config_toml};
+pub(super) use transaction::path_lock;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -16,14 +17,14 @@ use serde_json::Value;
 use crate::{
     core::{
         AppConfig, ModuleCatalogEntrySummary, ModuleSourceTopology, ModuleTopology, ModulesConfig,
-        ProviderProfileConfig, SessionConfigSnapshot, TopologySnapshot,
+        ProviderProfileConfig, TopologySnapshot,
         core_slots::{CoreSlotSelection, core_slot_descriptor_by_id},
     },
     domain::PermissionMode,
 };
 
 use super::{
-    AppServerEvent, AppServerHandle,
+    AppServerHandle,
     config_history::{config_history_dir, record_replaced_state},
     prepare_assembly,
 };
@@ -38,6 +39,12 @@ impl AppServerHandle {
         let topology = self.topology_snapshot().await;
         let config = self.config.read().await.clone();
         let mut snapshot = config_builder_snapshot_from_topology(&topology, &config);
+        if let Some(message) = self.profile_error.lock().await.clone() {
+            snapshot.warnings.push(ConfigBuilderWarning {
+                severity: "error".into(),
+                message,
+            });
+        }
         let descriptions = self.runtime.config_schemas().await;
         for module in snapshot
             .slots
@@ -74,31 +81,43 @@ impl AppServerHandle {
         active_provider: Option<String>,
         permission_mode: Option<PermissionMode>,
     ) -> Result<ConfigBuilderSnapshot> {
-        let this = self.clone();
-        tokio::spawn(async move {
-            this.set_config_builder_owned(
+        self.set_profile_config(
+            proteus_contracts::app_protocol::http::SetConfigBuilderRequest {
                 modules,
                 hooks,
                 module_config,
                 tools_enabled,
                 active_provider,
                 permission_mode,
-            )
-            .await
-        })
+                addon_settings: None,
+            },
+        )
         .await
-        .context("config save task failed")?
+    }
+
+    pub async fn set_profile_config(
+        &self,
+        request: proteus_contracts::app_protocol::http::SetConfigBuilderRequest,
+    ) -> Result<ConfigBuilderSnapshot> {
+        let this = self.clone();
+        tokio::spawn(async move { this.set_config_builder_owned(request).await })
+            .await
+            .context("config save task failed")?
     }
 
     async fn set_config_builder_owned(
         &self,
-        modules: BTreeMap<String, String>,
-        hooks: Option<Vec<String>>,
-        module_config: BTreeMap<String, BTreeMap<String, Value>>,
-        tools_enabled: Option<Vec<String>>,
-        active_provider: Option<String>,
-        permission_mode: Option<PermissionMode>,
+        request: proteus_contracts::app_protocol::http::SetConfigBuilderRequest,
     ) -> Result<ConfigBuilderSnapshot> {
+        let proteus_contracts::app_protocol::http::SetConfigBuilderRequest {
+            modules,
+            hooks,
+            module_config,
+            tools_enabled,
+            active_provider,
+            permission_mode,
+            addon_settings,
+        } = request;
         let config_path = self
             .config_path
             .as_deref()
@@ -114,6 +133,30 @@ impl AppServerHandle {
             self.config.read().await.clone()
         };
         let replaced_state = config_builder_state(&next_config);
+        if let Some(update) = addon_settings {
+            if update
+                .addons
+                .disabled_skills
+                .iter()
+                .any(|id| id.trim().is_empty())
+            {
+                anyhow::bail!("disabled skill id must not be empty");
+            }
+            let resolved = crate::core::agent_plugins::resolve(&update.addons, &self.cwd);
+            if let Some(plugin) = resolved
+                .plugins
+                .iter()
+                .find(|plugin| plugin.error.is_some())
+            {
+                anyhow::bail!(
+                    "invalid Agent Plugin {}: {}",
+                    plugin.path.display(),
+                    plugin.error.as_ref().unwrap()
+                );
+            }
+            next_config.addons = update.addons;
+            next_config.tools.mcp_servers = update.mcp_servers;
+        }
         if let Some(active_provider) = &active_provider {
             validate_config_builder_provider(active_provider, &next_config)?;
         }
@@ -121,7 +164,6 @@ impl AppServerHandle {
             next_config.modules.hooks = hooks;
         }
         next_config.modules.validate_hooks()?;
-        let previous_active_provider = next_config.active_provider.clone();
         for (slot, module_id) in modules {
             set_module_slot(&mut next_config.modules, &slot, module_id)?;
         }
@@ -131,12 +173,6 @@ impl AppServerHandle {
         if let Some(tools_enabled) = tools_enabled {
             next_config.tools.enabled = tools_enabled;
         }
-        // Смену provider применяем к runtime model_ref только при фактическом
-        // изменении: иначе save builder-а сбрасывал бы model, переключённую
-        // на лету через POST /model.
-        let provider_changed = active_provider
-            .as_ref()
-            .is_some_and(|provider| Some(provider) != previous_active_provider.as_ref());
         if let Some(active_provider) = active_provider {
             next_config.active_provider = Some(active_provider);
         }
@@ -153,41 +189,15 @@ impl AppServerHandle {
         ) else {
             anyhow::bail!("config path is not available; cannot persist config");
         };
-        let config_snapshot = SessionConfigSnapshot::from_runtime_config(
-            &next_config,
-            assembly.registry(),
-            next_config.permissions.mode,
-        );
-        let model_ref = provider_changed
-            .then(|| {
-                next_config
-                    .active_model_config()
-                    .map(|model| model.model_ref())
-            })
-            .transpose()?;
-        let report = self
-            .runtime
-            .reload_assembly_with_commit(
-                assembly,
-                Some(config_snapshot),
-                model_ref,
-                permission_mode,
-                || async {
-                    if replaced_state != config_builder_state(&next_config) {
-                        record_replaced_state(&config_history_dir(config_path), replaced_state)
-                            .await
-                            .context("failed to record the replaced profile state")?;
-                    }
-                    persist_config_builder(&target_path, &next_config).await
-                },
-            )
-            .await?;
-        *self.config.write().await = next_config;
-        let _ = self.events.send(AppServerEvent::ModulesReloaded {
-            old_epoch: report.old_epoch,
-            new_epoch: report.new_epoch,
-            tool_names: report.tool_names.clone(),
-        });
+        self.publish_profile(next_config.clone(), assembly, permission_mode, || async {
+            if replaced_state != config_builder_state(&next_config) {
+                record_replaced_state(&config_history_dir(config_path), replaced_state)
+                    .await
+                    .context("failed to record the replaced profile state")?;
+            }
+            persist_config_builder(&target_path, &next_config).await
+        })
+        .await?;
 
         Ok(self.config_builder_snapshot().await)
     }
@@ -196,6 +206,10 @@ impl AppServerHandle {
 /// Builder-managed fields of a profile, shared by the snapshot and history.
 pub(super) fn config_builder_state(config: &AppConfig) -> ConfigBuilderState {
     ConfigBuilderState {
+        addon_settings: proteus_contracts::app_protocol::addons::AppAddonsUpdate {
+            addons: config.addons.clone(),
+            mcp_servers: config.tools.mcp_servers.clone(),
+        },
         active_provider: config.active_provider.clone(),
         permission_mode: permission_mode_str(config.permissions.mode),
         active_modules: config
@@ -240,6 +254,7 @@ pub(super) fn config_builder_snapshot_from_topology(
 
     let state = config_builder_state(config);
     ConfigBuilderSnapshot {
+        addon_settings: state.addon_settings,
         config_path: topology.config_path.clone(),
         writable: target_path.is_some(),
         target_path: target_path.map(|path| path.display().to_string()),

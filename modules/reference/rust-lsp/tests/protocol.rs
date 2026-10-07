@@ -192,6 +192,7 @@ fn invoke(tool: &RustLspDiagnosticsTool, cwd: &Path, path: &str) -> Result<ToolR
         "args": { "path": path }
     });
     let context = ToolModuleInvocationContext {
+        skills: Default::default(),
         cwd: cwd.to_path_buf(),
         attribution: ExecutionAttribution::detached(new_execution_id()),
         config: json!({}),

@@ -1,6 +1,22 @@
 use super::*;
 
 impl AgentRuntime {
+    pub(crate) async fn configuration_view(
+        &self,
+    ) -> (
+        super::RuntimeSnapshot,
+        Option<crate::domain::ModelRef>,
+        crate::domain::ReasoningConfig,
+        crate::domain::PermissionMode,
+    ) {
+        let state = self.capture_execution_snapshot().await;
+        (
+            state.runtime,
+            state.model_ref,
+            state.reasoning,
+            state.permission_mode,
+        )
+    }
     pub(crate) async fn config_schemas(&self) -> crate::core::registry::ConfigSchemas {
         self.snapshot().await.registry.config_schemas().await
     }

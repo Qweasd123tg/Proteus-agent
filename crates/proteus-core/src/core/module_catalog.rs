@@ -237,6 +237,7 @@ impl ModuleCatalog {
     pub(crate) fn build_context_providers(
         &self,
         cwd: &Path,
+        skills: &crate::domain::SkillRuntimeSettings,
     ) -> Result<Vec<(String, Arc<dyn RepoAwareContextProvider>)>> {
         self.process_context_providers
             .iter()
@@ -244,7 +245,7 @@ impl ModuleCatalog {
             .map(|config| {
                 let id = config.module_id().to_owned();
                 let provider: Arc<dyn RepoAwareContextProvider> =
-                    Arc::new(ProcessContextProvider::new(config, cwd)?);
+                    Arc::new(ProcessContextProvider::new(config, cwd, skills.clone())?);
                 Ok((id, provider))
             })
             .collect()
@@ -374,7 +375,8 @@ impl ModuleCatalog {
         config: &AppConfig,
         cwd: &Path,
     ) -> Result<ToolRegistry> {
-        let context_providers = self.build_context_providers(cwd)?;
+        let addons = crate::core::agent_plugins::resolve(&config.addons, cwd);
+        let context_providers = self.build_context_providers(cwd, &addons.skills)?;
         let ctx = ModuleBuildContext {
             config,
             cwd,
@@ -385,7 +387,10 @@ impl ModuleCatalog {
             Arc::new(NullSearch),
             Arc::new(NullPatchApplier),
             Arc::new(NoMemory),
+            &addons.skills,
+            &addons.servers,
         )
+        .map(|(tools, _)| tools)
     }
 
     pub(crate) fn build_tools(
@@ -394,11 +399,16 @@ impl ModuleCatalog {
         search: Arc<dyn SearchBackend>,
         patch: Arc<dyn PatchApplier>,
         memory: Arc<dyn MemoryStore>,
-    ) -> Result<ToolRegistry> {
+        skills: &crate::domain::SkillRuntimeSettings,
+        plugin_servers: &[crate::domain::ConfiguredMcpServerConfig],
+    ) -> Result<(
+        ToolRegistry,
+        Vec<proteus_contracts::app_protocol::addons::AppMcpServerState>,
+    )> {
         let mut tools = ToolRegistry::new();
 
         let process_tools_by_name =
-            crate::process_adapters::build_process_tools(&self.process_tools, ctx.cwd)?;
+            crate::process_adapters::build_process_tools(&self.process_tools, ctx.cwd, skills)?;
         let builtin_names = ctx
             .config
             .tools
@@ -426,10 +436,19 @@ impl ModuleCatalog {
         let builtin_tools =
             BuiltinToolProvider::new(builtin_names, search.clone(), patch.clone(), memory.clone());
         register_provider_tools(&mut tools, &builtin_tools)?;
-        register_configured_tools(
+        let mut mcp_servers = ctx.config.tools.mcp_servers.clone();
+        mcp_servers.extend_from_slice(plugin_servers);
+        for server in &mut mcp_servers {
+            server.enabled &= !ctx
+                .config
+                .addons
+                .disabled_mcp_servers
+                .contains(&server.name);
+        }
+        let states = register_configured_tools(
             &mut tools,
             &ctx.config.tools.configured,
-            &ctx.config.tools.mcp_servers,
+            &mcp_servers,
             ctx.cwd,
             search.clone(),
             patch.clone(),
@@ -454,7 +473,7 @@ impl ModuleCatalog {
             )?;
         }
 
-        Ok(tools)
+        Ok((tools, states))
     }
 }
 
