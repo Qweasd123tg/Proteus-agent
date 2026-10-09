@@ -802,6 +802,17 @@ Popover timeline проверяет неподвижную геометрию и
 отмену анимации, повторное открытие и cleanup. Это DOM/style evidence; оно не
 заменяет визуальную проверку мигания кадров на конкретном GPU.
 
+Прозрачность меню анимируется через зарегистрированное число
+`--popover-alpha` (`opacity: var(--popover-alpha)`), а не через transition
+самого `opacity`. Покадровый захват экрана через wlr-screencopy в WebKitGTK 2.54
+на Wayland/NVIDIA показал: в конце compositor-анимации `opacity` Skia
+compositor иногда один кадр показывает ранний полупрозрачный кадр той же
+анимации. Меню после открытия на мгновение бледнеет, а после закрытия
+коротко появляется снова. Проблема воспроизводится и без
+`__NV_DISABLE_EXPLICIT_SYNC` и с `will-change: opacity`. Её нет при отключённой
+`UseSkiaForComposition` и при fade через custom property на главном потоке.
+Exit-snapshot анимирует то же свойство.
+
 Проверки страниц расширений и селекторов: `node --test clients/app/ui/tests/extensions/*.test.mjs`,
 `python3 -B clients/app/ui/tests/extensions_browser.py --modules-only`.
 Регрессия геометрии селектора, ползунка и закрытия вкладок в native engine:

@@ -3,22 +3,29 @@ import { exitSnapshot, needsExitSnapshot } from './popover-exit.js';
 
 // display keeps only the exiting pixels alive. The native popover state and
 // interaction end immediately, including light dismissal and external hide().
+// Opacity follows a registered number instead of transitioning itself: WebKitGTK
+// with Skia composition re-presents an earlier frame of a finished compositor
+// opacity animation, so menus blinked at the end of open/close. A main-thread
+// custom property fade keeps the same timing without that compositor path.
 const css = `
 [data-popover-motion] {
-  opacity:0;
-  transition:opacity var(--motion-exit,140ms) var(--motion-ease,ease),
+  --popover-alpha:0;
+  opacity:var(--popover-alpha);
+  transition:--popover-alpha var(--motion-exit,140ms) var(--motion-ease,ease),
     display var(--motion-exit,140ms) allow-discrete,
     overlay var(--motion-exit,140ms) allow-discrete;
 }
-[data-popover-motion]:popover-open { opacity:1; transition-duration:var(--popover-enter,var(--motion-surface,240ms)); }
+[data-popover-motion]:popover-open { --popover-alpha:1; transition-duration:var(--popover-enter,var(--motion-surface,240ms)); }
 [data-popover-motion]:not(:popover-open) { pointer-events:none!important; }
 [data-popover-exiting] { display:var(--popover-display,block)!important; z-index:2147483000!important; }
 [data-popover-motion]:not(:popover-open):not([data-popover-exiting]) { transition:none!important; }
 [data-popover-snapshot]:not(:popover-open) { display:none!important; transition:none!important; }
-@starting-style { [data-popover-motion]:popover-open { opacity:0; } }
+@starting-style { [data-popover-motion]:popover-open { --popover-alpha:0; } }
 [data-popover-motion="off"] { transition:none!important; }
-[data-popover-measuring] { opacity:var(--popover-start-opacity,0)!important; visibility:hidden!important; transition:none!important; }
+[data-popover-measuring] { --popover-alpha:var(--popover-start-opacity,0)!important; visibility:hidden!important; transition:none!important; }
 `;
+export const alphaProperty = '--popover-alpha';
+try { CSS.registerProperty({ name: alphaProperty, syntax: '<number>', inherits: false, initialValue: '1' }); } catch {}
 const styled = new WeakSet();
 
 export function popoverMotion(element, { onClose, onExit, anchor, quick = false, exit = true } = {}) {

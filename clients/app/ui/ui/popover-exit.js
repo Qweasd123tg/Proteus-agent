@@ -1,3 +1,4 @@
+import { alphaProperty } from "./popover-motion.js";
 // A closed popover leaves the top layer in current Firefox/WebKit. Containment
 // would change its fixed-position origin, so only its inert pixels fade on body.
 // Menus need their actual per-node paint and layout, including Shadow DOM theme
@@ -129,10 +130,11 @@ export function exitSnapshot(source) {
     translate: "none",
     rotate: "none",
     scale: "none",
-    opacity,
+    opacity: `var(${alphaProperty})`,
     pointerEvents: "none",
     zIndex: "2147483000",
   });
+  copy.style.setProperty(alphaProperty, opacity);
   document.body.append(copy);
   copies.forEach((node, index) => {
     if (scroll[index][1]) node.scrollTop = scroll[index][1];
@@ -140,8 +142,8 @@ export function exitSnapshot(source) {
   });
   const animation = copy.animate(
     [
-      { opacity },
-      { opacity: 0 },
+      { [alphaProperty]: opacity },
+      { [alphaProperty]: 0 },
     ],
     { duration, easing, fill: "forwards" },
   );
