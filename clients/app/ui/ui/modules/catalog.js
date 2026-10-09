@@ -20,11 +20,10 @@ const module = (
   required,
   enabled: true,
   manifest: {
-    apiVersion: 3,
+    apiVersion: 4,
     id,
     name,
     description,
-    ...(settingsGroup === 'builtin' ? { preview: { src: '../../extensions/previews/' + id + '.svg', alt: 'Пример интерфейса: ' + name } } : {}),
     views: [{ surfaces, entry: new URL(entry, import.meta.url).href, requires, layout, isolation: "light" }],
   },
 });

@@ -1,5 +1,6 @@
 {
-  "apiVersion": 3,
+  "apiVersion": 4,
+  "preview": { "entry": "./demo.js" },
   "id": "usage",
   "name": "Расход чата",
   "description": "Токены, запросы и оценка стоимости текущего чата",
@@ -26,9 +27,5 @@
       "layout": "form",
       "isolation": "shadow"
     }
-  ],
-  "preview": {
-    "src": "../previews/usage.svg",
-    "alt": "Пример интерфейса: Расход"
-  }
+  ]
 }

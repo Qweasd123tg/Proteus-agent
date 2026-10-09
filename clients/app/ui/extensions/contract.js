@@ -1,4 +1,4 @@
-export const API_VERSION = 3;
+export const API_VERSION = 4;
 export const SETTINGS_VERSION = 1;
 export const SURFACES = ['compact', 'workspace', 'settings', 'composer-model', 'composer-access'];
 
@@ -35,9 +35,8 @@ export function parseManifest(value, url) {
   }
   let preview;
   if (value.preview !== undefined) {
-    object(value.preview, ['src', 'alt'], 'Превью расширения');
-    if (typeof value.preview.alt !== 'string' || !value.preview.alt.trim()) throw new Error('Нужно описание превью');
-    preview = Object.freeze({ src: resourceUrl(value.preview.src, url), alt: value.preview.alt });
+    object(value.preview, ['entry'], 'Превью расширения');
+    preview = Object.freeze({ entry: resourceUrl(value.preview.entry, url) });
   }
   if (!Array.isArray(value.views) || !value.views.length) throw new Error('Нужен список представлений расширения');
   const declared = new Set();

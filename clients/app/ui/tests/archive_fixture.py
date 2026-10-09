@@ -27,7 +27,7 @@ def post(handler):
             with zipfile.ZipFile(BytesIO(base64.b64decode(args['archive']))) as archive:
                 files = {name: archive.read(name) for name in archive.namelist()}
             manifest = json.loads(files['extension.json'])
-            assert manifest['apiVersion'] == 3 and manifest['id'] not in args['excludedIds'], 'Already installed or invalid manifest'
+            assert manifest['apiVersion'] == 4 and manifest['id'] not in args['excludedIds'], 'Already installed or invalid manifest'
             key = str(uuid4())
             handler.server.extension_packages[key] = files
             result = {'id': manifest['id'], 'key': key, 'url': f'http://127.0.0.1:{handler.server.server_port}/fixture-packages/{key}/extension.json'}
@@ -68,7 +68,11 @@ def get(handler, root):
                 files['lib/' + entry] = response.read()
             files[entry] = ("export {mount} from './lib/" + entry + "';").encode()
         manifest['icon'] = {'src': './assets/icon.svg'}
-        manifest['preview'] = {'src': './assets/icon.svg', 'alt': 'Archive fixture'}
+        if manifest.get('preview'):
+            entry = manifest['preview']['entry'].removeprefix('./')
+            with urlopen(base + folder + entry) as response:
+                files['lib/' + entry] = response.read()
+            files[entry] = ("export {createServices} from './lib/" + entry + "';").encode()
         files['assets/icon.svg'] = (root / 'clients/app/ui/extensions/notes/assets/icon.svg').read_bytes()
         files['extension.json'] = json.dumps(manifest).encode()
         output = BytesIO()

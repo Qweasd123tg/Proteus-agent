@@ -1,11 +1,10 @@
-import { icon, extensionIcon } from './icons.js';
 import { selectionButtons } from '../ui/modules/management.js';
 import { canPreview, mountLivePreview } from './live-preview.js';
+import { observeVisibility } from './visibility.js';
 
 // Package information is host-rendered and remains usable while its views are off.
-// The switch lives in the page title row (settings-host). The preview stands in
-// for the views only while they are off; an enabled page shows the real thing.
-// "Попробовать" runs the views on demo services only on that explicit request.
+// A visible page always previews the package with demo services, independently
+// of its enabled state. Hidden pages release demos, not retained real settings.
 export function mountExtensionDetails(root, record, registry) {
   const controller = new AbortController(), { signal } = controller;
   let choicesController, stopDemo;
@@ -15,46 +14,31 @@ export function mountExtensionDetails(root, record, registry) {
   description.textContent = record.manifest.description || 'Описание не предоставлено';
   const choices = document.createElement('div'); choices.className = 'module-selection';
   const notice = document.createElement('p'); notice.className = 'settings-status'; notice.setAttribute('role', 'status');
-  const preview = document.createElement('figure'); preview.className = 'extension-preview';
-  const missing = document.createElement('div'); missing.className = 'extension-preview-empty';
-  const message = document.createElement('span'); message.textContent = 'Превью не предоставлено';
-  missing.append(extensionIcon(record.manifest), message);
-  if (record.manifest.preview) {
-    const image = document.createElement('img');
-    image.src = record.manifest.preview.src; image.alt = record.manifest.preview.alt;
-    image.decoding = 'async';
-    image.addEventListener('error', () => preview.replaceChildren(missing), { signal });
-    preview.append(image);
-  } else preview.append(missing);
+  const previewable = canPreview(record);
+  const preview = document.createElement('div');
+  if (!previewable) {
+    preview.className = 'settings-hint';
+    preview.textContent = 'Расширение не предоставляет живое превью.';
+  }
+  preview.hidden = previewable;
   const demo = document.createElement('div'); demo.className = 'extension-demo-host';
-  function closeDemo(focus) {
+  function closeDemo() {
     if (!stopDemo) return;
-    stopDemo(); stopDemo = undefined; preview.classList.remove('demo-open');
-    if (focus) preview.querySelector('[data-preview-try]')?.focus({ preventScroll: true });
+    stopDemo(); stopDemo = undefined;
   }
-  if (canPreview(record)) {
-    const tryButton = document.createElement('button');
-    tryButton.type = 'button'; tryButton.className = 'extension-preview-try'; tryButton.dataset.previewTry = record.id;
-    tryButton.append(icon('play'), document.createTextNode('Попробовать'));
-    tryButton.title = 'Открыть расширение на вымышленных данных; ничего не сохраняется';
-    tryButton.addEventListener('click', () => {
-      closeDemo(false); preview.classList.add('demo-open');
-      stopDemo = mountLivePreview(demo, record, () => closeDemo(true));
-    }, { signal });
-    preview.append(tryButton);
-  }
-  root.addEventListener('module-hide', () => closeDemo(false), { signal });
+  root.addEventListener('module-hide', closeDemo, { signal });
   card.append(description, choices, notice, preview, demo); root.append(card);
+  observeVisibility(root, visible => {
+    if (!visible) closeDemo();
+    else if (previewable && !stopDemo) stopDemo = mountLivePreview(demo, record);
+  }, signal);
   const unsubscribe = registry.subscribe(() => {
     const state = registry.state();
-    const current = state.records.find(item => item.id === record.id);
-    preview.hidden = !!current?.enabled;
-    if (current?.enabled) closeDemo(false);
     choicesController?.abort(); choicesController = new AbortController();
     choices.replaceChildren(); selectionButtons(choices, record, registry, choicesController.signal);
     choices.hidden = !choices.childElementCount;
     notice.textContent = record.source === 'package' ? state.notice || '' : '';
     notice.hidden = !notice.textContent;
   });
-  return () => { closeDemo(false); controller.abort(); choicesController?.abort(); unsubscribe(); card.remove(); };
+  return () => { closeDemo(); controller.abort(); choicesController?.abort(); unsubscribe(); card.remove(); };
 }

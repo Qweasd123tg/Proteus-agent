@@ -1,5 +1,5 @@
 {
-  "apiVersion": 3,
+  "apiVersion": 4,
   "id": "diagnostic-analysis",
   "name": "Анализ ходов",
   "description": "Ходы агента, инструменты, ошибки и сообщения.",
@@ -16,9 +16,5 @@
       "layout": "fill",
       "isolation": "light"
     }
-  ],
-  "preview": {
-    "src": "../previews/diagnostic-analysis.svg",
-    "alt": "Пример интерфейса: Анализ ходов"
-  }
+  ]
 }

@@ -218,15 +218,23 @@ class Assets(SimpleHTTPRequestHandler):
         elif self.path.startswith('/fixture/client/'):
             self.send_response(200)
             if self.path.endswith('extension.json'):
-                data = json.dumps({"apiVersion":3,"id":"client-test","name":"Своя диагностика","description":"Browser fixture","icon":{"src":"/extensions/notes/assets/icon.svg"},"preview":{"src":"/extensions/previews/diagnostic-analysis.svg","alt":"Пример анализа ходов"},"views":[{"surfaces":[surface],"entry":"./page.js","requires":["client.composer","agent.config.read"],"layout":"fill" if surface == "settings" else "form","isolation":"light"} for surface in ["settings", "composer-model"]]})
+                data = json.dumps({"apiVersion":4,"id":"client-test","name":"Своя диагностика","description":"Browser fixture","icon":{"src":"/extensions/notes/assets/icon.svg"},"preview":{"entry":"./demo.js"},"views":[{"surfaces":[surface],"entry":"./page.js","requires":["client.composer","agent.config.read"],"layout":"fill" if surface == "settings" else "form","isolation":"light"} for surface in ["settings", "composer-model"]]})
                 self.send_header('Content-Type','application/json')
+            elif self.path.endswith('demo.js'):
+                data = """export function createServices({signal}) {return {
+                  'client.composer':view=>({read(){signal.throwIfAborted();view.throwIfAborted();return {model:'package-demo'}}}),
+                  'agent.config.read':view=>({async read(){signal.throwIfAborted();view.throwIfAborted();return {profile:'package-demo',registered_tools:[]}}})
+                }}"""
+                self.send_header('Content-Type','text/javascript')
             else:
                 data = """export async function mount({root,surface,services,signal}) {
-                  window.clientMounts=(window.clientMounts||0)+1;
-                  signal.addEventListener('abort',()=>window.clientAborts=(window.clientAborts||0)+1);
-                  const input=document.createElement('input');input.dataset.customModule=surface;input.value=services['client.composer'].read().model;root.append(input);
-                  await services['agent.config.read'].read();root.dataset.configRead='true';
-                  return()=>window.clientDisposals=(window.clientDisposals||0)+1;
+                  const demo=!!(root.host??root).closest('[data-extension-demo]');
+                  const prefix=demo?'clientDemo':'client';
+                  window[prefix+'Mounts']=(window[prefix+'Mounts']||0)+1;
+                  signal.addEventListener('abort',()=>window[prefix+'Aborts']=(window[prefix+'Aborts']||0)+1);
+                  const input=document.createElement('input');input.dataset[demo?'customDemo':'customModule']=surface;input.value=services['client.composer'].read().model;root.append(input);
+                  await services['agent.config.read'].read();root.dataset[demo?'demoConfigRead':'configRead']='true';
+                  return()=>window[prefix+'Disposals']=(window[prefix+'Disposals']||0)+1;
                 }"""
                 self.send_header('Content-Type','text/javascript')
             self.end_headers();self.wfile.write(data.encode())
@@ -234,7 +242,7 @@ class Assets(SimpleHTTPRequestHandler):
             self.send_response(200)
             if self.path.endswith('extension.json'):
                 slow = '/slow/' in self.path
-                data = json.dumps({"apiVersion": 3, "id": 'slow-test' if slow else 'external-test', "name": 'Медленная панель' if slow else 'Внешняя панель', "description": "Browser fixture", "views": [{"surfaces": surfaces, "entry": "./panel.js", "requires": [], "layout": "scroll", "isolation": "shadow"} for surfaces in ([["compact", "workspace"]] if slow else [["workspace"], ["compact"]])]})
+                data = json.dumps({"apiVersion": 4, "id": 'slow-test' if slow else 'external-test', "name": 'Медленная панель' if slow else 'Внешняя панель', "description": "Browser fixture", "views": [{"surfaces": surfaces, "entry": "./panel.js", "requires": [], "layout": "scroll", "isolation": "shadow"} for surfaces in ([["compact", "workspace"]] if slow else [["workspace"], ["compact"]])]})
                 self.send_header('Content-Type', 'application/json')
             elif '/slow/' in self.path:
                 data = '''export async function mount({root}) {

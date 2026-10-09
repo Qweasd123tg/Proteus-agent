@@ -2,6 +2,7 @@ import { createExtensionRegistry } from '/extensions/registry.js';
 import { mountExtensionSettings } from '/extensions/settings.js';
 import { createViewRuntime } from '/extensions/runtime.js';
 import { extensionIcon } from '/extensions/icons.js';
+import { loadPreviewServices } from '/extensions/preview-services.js';
 
 const invoke = window.__TAURI__.core.invoke;
 const assert = (value, message) => { if (!value) throw Error(message); };
@@ -31,6 +32,9 @@ try {
   }
   const record = registry.state().records.find(r => r.id === 'archive-smoke');
   assert(record?.manifest && record.packageKey, 'Installed record/manifest lost after cold startup: ' + registry.state().notice);
+  const previewSignal = new AbortController();
+  assert(Object.keys(await loadPreviewServices(record.manifest.preview, previewSignal.signal)).length === 0, 'Package preview relative import failed');
+  previewSignal.abort();
   const picture = extensionIcon(record.manifest);document.body.append(picture);
   await wait(() => picture.complete && picture.naturalWidth > 0);
   const host = document.querySelector('#view'), root = host.attachShadow({mode:'open'});

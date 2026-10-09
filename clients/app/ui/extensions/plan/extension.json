@@ -1,5 +1,6 @@
 {
-  "apiVersion": 3,
+  "apiVersion": 4,
+  "preview": { "entry": "./demo.js" },
   "id": "plan",
   "name": "План",
   "description": "Текущий план задачи и прогресс выполнения",
@@ -17,9 +18,5 @@
       "layout": "scroll",
       "isolation": "shadow"
     }
-  ],
-  "preview": {
-    "src": "../previews/plan.svg",
-    "alt": "Пример интерфейса: План"
-  }
+  ]
 }

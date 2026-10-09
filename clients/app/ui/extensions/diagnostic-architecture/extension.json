@@ -1,5 +1,5 @@
 {
-  "apiVersion": 3,
+  "apiVersion": 4,
   "id": "diagnostic-architecture",
   "name": "Архитектура",
   "description": "Связи модулей и конфигурация runtime.",
@@ -16,9 +16,5 @@
       "layout": "fill",
       "isolation": "light"
     }
-  ],
-  "preview": {
-    "src": "../previews/diagnostic-architecture.svg",
-    "alt": "Пример интерфейса: Архитектура"
-  }
+  ]
 }

@@ -7,7 +7,7 @@ import {parseManifest} from '../../extensions/contract.js';
 const catalog=builtins.map(r=>({...r,manifest:{...r.manifest,...(r.manifest.preview?{preview:{...r.manifest.preview,src:'https://client.test/previews/'+r.id+'.svg'}}:{}),views:r.manifest.views.map(view=>({...view,entry:'https://client.test/'+r.id+'.js'}))}}));
 function fixture(data=new Map()){
  const storage={getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)};
- const packages=createExtensionRegistry({storage,catalogUrl:'https://client.test/catalog.json',reservedIds:catalog.map(r=>r.id),packages:{available:true,async install(file){return {id:file.id,key:'11111111-1111-4111-8111-111111111111',url:`https://client.test/${file.id}.json`}},async remove(){}},readJson:async url=>({url,value:url.endsWith('catalog.json')?{apiVersion:1,panels:[]}:{apiVersion:3,id:url.includes('appearance')?'appearance':'custom',name:'Custom',description:'Diagnostic/model replacement',icon:{src:'./icon.svg'},views:['settings','composer-model'].map(surface=>({surfaces:[surface],entry:'./module.js',requires:['client.composer'],layout:'form',isolation:'light'}))}})});
+ const packages=createExtensionRegistry({storage,catalogUrl:'https://client.test/catalog.json',reservedIds:catalog.map(r=>r.id),packages:{available:true,async install(file){return {id:file.id,key:'11111111-1111-4111-8111-111111111111',url:`https://client.test/${file.id}.json`}},async remove(){}},readJson:async url=>({url,value:url.endsWith('catalog.json')?{apiVersion:1,panels:[]}:{apiVersion:4,id:url.includes('appearance')?'appearance':'custom',name:'Custom',description:'Diagnostic/model replacement',icon:{src:'./icon.svg'},views:['settings','composer-model'].map(surface=>({surfaces:[surface],entry:'./module.js',requires:['client.composer'],layout:'form',isolation:'light'}))}})});
  const registry=createClientModuleRegistry(packages,storage,catalog);return {registry,storage,data};
 }
 test('installed settings/model module uses the same selection contract and survives restart',async()=>{
@@ -53,7 +53,7 @@ test('only user choices are stored, so built-in pages added or removed by an upd
  }
 });
 test('package manifests cannot choose their source or settings group',()=>{
- const value={apiVersion:3,id:'fixture',name:'Fixture',description:'',views:[{surfaces:['settings'],entry:'./module.js',requires:[],layout:'fill',isolation:'light'}]};
+ const value={apiVersion:4,id:'fixture',name:'Fixture',description:'',views:[{surfaces:['settings'],entry:'./module.js',requires:[],layout:'fill',isolation:'light'}]};
  assert.ok(parseManifest(value,'https://client.test/fixture.json'));
  for(const change of [{source:'builtin'},{builtin:true},{settingsGroup:'agent'},{navigation:{group:'agent',icon:'analysis'}}])assert.throws(()=>parseManifest({...value,...change},'https://client.test/fixture.json'));
 });

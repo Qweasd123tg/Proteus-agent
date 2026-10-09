@@ -15,11 +15,12 @@ test('every shipped ZIP contains its manifests, artwork and bundled JavaScript h
     const checked = spawnSync('python3', ['-c', `import json, sys, zipfile
 with zipfile.ZipFile(sys.argv[1]) as archive:
     manifest = json.loads(archive.read('extension.json'))
-    assert manifest['apiVersion'] == 3
-    for field in ('icon', 'preview'):
-        assert archive.read(manifest[field]['src'].removeprefix('./'))
-    for view in manifest['views']:
-        source = archive.read(view['entry'].removeprefix('./')).decode()
+    assert manifest['apiVersion'] == 4
+    assert archive.read(manifest['icon']['src'].removeprefix('./'))
+    entries = [view['entry'] for view in manifest['views']]
+    if 'preview' in manifest: entries.append(manifest['preview']['entry'])
+    for entry in entries:
+        source = archive.read(entry.removeprefix('./')).decode()
         assert "from '../" not in source and "from './" not in source
         assert 'proteus-icons.svg' not in source and 'svg.append(use)' not in source
 `, file], { encoding: 'utf8' });

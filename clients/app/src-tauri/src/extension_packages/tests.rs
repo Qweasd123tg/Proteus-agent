@@ -6,8 +6,8 @@ use std::{
 };
 
 fn manifest() -> Value {
-    json!({"apiVersion":3,"id":"archive-notes","name":"Archive notes","description":"",
-        "icon":{"src":"assets/icon.svg"},"preview":{"src":"assets/preview.svg","alt":"Notes"},
+    json!({"apiVersion":4,"id":"archive-notes","name":"Archive notes","description":"",
+        "icon":{"src":"assets/icon.svg"},"preview":{"entry":"demo.js"},
         "views":[{"surfaces":["compact","workspace"],"entry":"panel.js","requires":[],"layout":"scroll","isolation":"shadow"}]})
 }
 
@@ -24,8 +24,8 @@ fn zip(manifest: Value, extra: &[(&str, &[u8])]) -> Vec<u8> {
             b"<svg xmlns='http://www.w3.org/2000/svg'/>".to_vec(),
         ),
         (
-            "assets/preview.svg",
-            b"<svg xmlns='http://www.w3.org/2000/svg'/>".to_vec(),
+            "demo.js",
+            b"export function createServices() {return {}}".to_vec(),
         ),
         ("assets/style.css", b"p {color: red}".to_vec()),
     ]
@@ -48,6 +48,7 @@ fn install_cold_read_assets_remove_and_reinstall_use_distinct_module_urls() {
     let cold = PackageStore::new(directory.path().to_owned());
     for (path, mime) in [
         ("panel.js", "text/javascript"),
+        ("demo.js", "text/javascript"),
         ("lib/view.mjs", "text/javascript"),
         ("assets/icon.svg", "image/svg+xml"),
         ("assets/style.css", "text/css"),
@@ -77,7 +78,11 @@ fn malformed_or_incomplete_archives_and_reserved_ids_never_publish_files() {
         json!({"icon":"analysis"}),
         json!({"icon":null}),
         json!({"icon":{"src":"assets/missing.svg"}}),
-        json!({"preview":{"src":"https://example.test/preview.svg","alt":"Preview"}}),
+        json!({"preview":{"entry":"https://example.test/demo.js"}}),
+        json!({"preview":{"entry":"missing.js"}}),
+        json!({"preview":{"entry":"assets/icon.svg"}}),
+        json!({"preview":null}),
+        json!({"preview":{"entry":"demo.js","unknown":true}}),
     ] {
         let mut value = manifest();
         value

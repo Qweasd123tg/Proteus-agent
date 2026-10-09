@@ -15,14 +15,16 @@ use tauri::{WebviewUrl, WebviewWindowBuilder, http::Response};
 
 #[tauri::command]
 fn smoke_fixture() -> String {
-    let manifest = serde_json::json!({"apiVersion":3,"id":"archive-smoke","name":"Archive smoke","description":"Native fixture",
-        "icon":{"src":"assets/icon.svg"},"preview":{"src":"assets/icon.svg","alt":"Fixture"},
+    let manifest = serde_json::json!({"apiVersion":4,"id":"archive-smoke","name":"Archive smoke","description":"Native fixture",
+        "icon":{"src":"assets/icon.svg"},"preview":{"entry":"demo.js"},
         "views":[{"surfaces":["workspace"],"entry":"panel.js","requires":[],"layout":"scroll","isolation":"shadow"}]});
     let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
     let options = zip::write::SimpleFileOptions::default();
     for (name, bytes) in [
         ("extension.json", serde_json::to_vec(&manifest).unwrap()),
         ("panel.js", b"export {mount} from './lib/view.mjs'".to_vec()),
+        ("demo.js", b"export {createServices} from './lib/demo.mjs'".to_vec()),
+        ("lib/demo.mjs", b"export function createServices() {return {}}".to_vec()),
         ("lib/view.mjs", br#"export async function mount({root,signal}) {
           const css=document.createElement('link');css.rel='stylesheet';css.href=new URL('../assets/style.css',import.meta.url);root.append(css);
           const text=document.createElement('p');text.textContent=await (await fetch(new URL('../assets/text.txt',import.meta.url),{signal})).text();root.append(text);

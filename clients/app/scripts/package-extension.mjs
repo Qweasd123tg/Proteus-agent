@@ -22,16 +22,17 @@ export async function packageExtension(id, destination) {
   try {
     mkdirSync(path.join(temporary, 'assets'));
     if (existsSync(path.join(source, 'assets'))) cpSync(path.join(source, 'assets'), path.join(temporary, 'assets'), { recursive: true });
-    for (const field of ['icon', 'preview']) {
-      if (!manifest[field]) continue;
-      const asset = path.resolve(source, manifest[field].src);
-      const name = field + path.extname(asset);
+    if (manifest.icon) {
+      const asset = path.resolve(source, manifest.icon.src);
+      const name = 'icon' + path.extname(asset);
       cpSync(asset, path.join(temporary, 'assets', name));
-      manifest[field].src = './assets/' + name;
+      manifest.icon.src = './assets/' + name;
     }
     const sprite = readFileSync(path.join(app, 'common/assets/proteus-icons.svg'), 'utf8');
     const drawings = Object.fromEntries([...sprite.matchAll(/<symbol id="([^"]+)"[^>]*>([\s\S]*?)<\/symbol>/g)].map(match => [match[1], match[2]]));
-    for (const entry of new Set(manifest.views.map(view => view.entry))) {
+    const entries = manifest.views.map(view => view.entry);
+    if (manifest.preview) entries.push(manifest.preview.entry);
+    for (const entry of new Set(entries)) {
       if (!/^\.\/[^/]+\.(?:m?js)$/.test(entry)) throw Error('Экспорт примеров требует entry в корне пакета');
       await build({
         entryPoints: [path.resolve(source, entry)], outfile: path.resolve(temporary, entry),

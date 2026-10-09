@@ -62,25 +62,29 @@ def run(command, js, wait_for, web, origin, loaded, capture=None):
     js("document.querySelector('[data-custom-module=settings]').value='draft'")
     page('appearance');page('client-test')
     assert js("return clientMounts===1 && document.querySelector('[data-custom-module=settings]').value==='draft'"),'Navigation discarded custom page'
-    wait_for(lambda: js("const image=document.querySelector('[data-extension-details=client-test] img');return image?.complete && image.naturalWidth>0"),'Package preview did not load')
+    wait_for(lambda: js("return !!document.querySelector('[data-extension-demo=client-test] [data-demo-config-read]')"),'Automatic package preview did not load')
+    assert js("return document.querySelector('[data-custom-demo=settings]').value==='package-demo' && clientDemoMounts===2 && clientDemoAborts===1 && clientDemoDisposals===1"),'Preview did not use package fixtures or stop when hidden'
     assert js("return document.querySelector('[data-extension-details=client-test] .extension-summary').textContent==='Browser fixture' && document.querySelector('[data-extension-toggle=client-test]').checked"),'Package page has no description or own switch'
-    js("window.keptPreview=document.querySelector('[data-extension-details=client-test] img')")
+    js("window.keptPreview=document.querySelector('[data-extension-demo=client-test]')")
     if capture:
         capture('extension-details')
     click('[data-extension-toggle=client-test]')
     wait_for(lambda: js("return clientAborts===1 && clientDisposals===1 && !document.querySelector('[data-settings-section=client-test]')"),'Page switch did not stop the package')
     assert js("return document.querySelector('.settings-page').dataset.settingsModule==='client-test' && keptPreview.isConnected && !document.querySelector('[data-extension-toggle=client-test]').checked && !document.querySelector('[data-module-page=client-test] [data-custom-module]')"),'Disabling lost package information or kept its running view'
+    assert js("return clientDemoMounts===2 && clientDemoAborts===1 && clientDemoDisposals===1"),'Disabling restarted or disposed the preview'
     click('[data-extension-toggle=client-test]')
     wait_for(lambda: js("return clientMounts===2 && !!document.querySelector('[data-settings-section=client-test]')"),'Package could not be re-enabled on its page')
     page('extensions')
     click('[data-extension-choice=client-test] input')
     wait_for(lambda: js("return clientAborts===2 && clientDisposals===2 && !document.querySelector('[data-settings-section=client-test]')"),'Disable did not clean custom page')
     click('[data-settings-id=client-test]')
-    assert js("return document.querySelector('[data-extension-details=client-test]') && !document.querySelector('[data-extension-toggle=client-test]').checked && clientMounts===2"),'Disabled package could not open its information without running code'
+    wait_for(lambda: js("return clientDemoMounts===3 && !!document.querySelector('[data-demo-config-read]')"),'Disabled package did not restart its preview')
+    assert js("return document.querySelector('[data-extension-details=client-test]') && !document.querySelector('[data-extension-toggle=client-test]').checked && clientMounts===2"),'Disabled package ran a real view'
     command('/refresh', {})
     wait_for(loaded,'Client not connected after opening disabled package')
     wait_for(lambda: js("return !!document.querySelector('[data-extension-details=client-test]')"),'Disabled package URL lost its information page')
-    assert js("return !window.clientMounts && !document.querySelector('[data-extension-toggle=client-test]').checked"),'Reload executed the disabled package'
+    wait_for(lambda: js("return clientDemoMounts===1 && !!document.querySelector('[data-demo-config-read]')"),'Reload did not automatically preview the disabled package')
+    assert js("return !window.clientMounts && !document.querySelector('[data-extension-toggle=client-test]').checked"),'Reload executed a real view of the disabled package'
     click('[data-extension-toggle=client-test]')
     wait_for(lambda: js("return window.clientMounts===1 && !!document.querySelector('[data-settings-section=client-test]')"),'Reloaded package could not be enabled from its own page')
     click('[data-select-slot=composer-model][data-module-id=client-test]')

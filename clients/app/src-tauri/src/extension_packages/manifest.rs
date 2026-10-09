@@ -1,4 +1,4 @@
-//! Installation validation for the client-owned UI API v3, not agent contracts.
+//! Installation validation for the client-owned UI API v4, not agent contracts.
 use anyhow::{Result, bail, ensure};
 use serde::Deserialize;
 use std::{
@@ -29,8 +29,7 @@ struct Icon {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Preview {
-    src: String,
-    alt: String,
+    entry: String,
 }
 
 #[derive(Deserialize)]
@@ -77,7 +76,7 @@ pub(super) fn resource_path(value: &str) -> Result<PathBuf> {
 impl Manifest {
     pub(super) fn validate(&self, files: &BTreeSet<PathBuf>) -> Result<()> {
         ensure!(
-            self.api_version == 3,
+            self.api_version == 4,
             "Неподдерживаемая версия UI API: {}",
             self.api_version
         );
@@ -106,9 +105,19 @@ impl Manifest {
         if let Some(icon) = &self.icon {
             check_file(&icon.src)?;
         }
+        let check_entry = |value: &str| -> Result<()> {
+            check_file(value)?;
+            ensure!(
+                matches!(
+                    resource_path(value)?.extension().and_then(|s| s.to_str()),
+                    Some("js" | "mjs")
+                ),
+                "Entry должен быть модулем JavaScript (.js или .mjs)"
+            );
+            Ok(())
+        };
         if let Some(preview) = &self.preview {
-            ensure!(!preview.alt.trim().is_empty(), "Нужно описание превью");
-            check_file(&preview.src)?;
+            check_entry(&preview.entry)?;
         }
         ensure!(
             !self.views.is_empty(),
@@ -157,16 +166,7 @@ impl Manifest {
                 ["shadow", "light"].contains(&view.isolation.as_str()),
                 "Неизвестная изоляция представления"
             );
-            check_file(&view.entry)?;
-            ensure!(
-                matches!(
-                    resource_path(&view.entry)?
-                        .extension()
-                        .and_then(|s| s.to_str()),
-                    Some("js" | "mjs")
-                ),
-                "Entry должен быть модулем JavaScript (.js или .mjs)"
-            );
+            check_entry(&view.entry)?;
         }
         Ok(())
     }

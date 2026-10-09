@@ -15,7 +15,7 @@ function fixture(saved = null, options = {}) {
       calls.push(url); signal.throwIfAborted();
       if(url.endsWith('/catalog.json')) return {url,value:{apiVersion:1,panels:[panel('one'),panel('two')]}};
       const id = new URL(url).pathname.split('/')[1];
-      return {url,value:{apiVersion:3,id,name:id,description:id,views:[{surfaces:['compact','workspace'],entry:'./panel.js',requires:[],layout:'scroll',isolation:'shadow'}]}};
+      return {url,value:{apiVersion:4,id,name:id,description:id,views:[{surfaces:['compact','workspace'],entry:'./panel.js',requires:[],layout:'scroll',isolation:'shadow'}]}};
     },
     ...options,
   });

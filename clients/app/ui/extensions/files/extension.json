@@ -1,5 +1,6 @@
 {
-  "apiVersion": 3,
+  "apiVersion": 4,
+  "preview": { "entry": "./demo.js" },
   "id": "files",
   "name": "Файлы",
   "description": "Дерево проекта и просмотр текстовых файлов",
@@ -17,9 +18,5 @@
       "layout": "fill",
       "isolation": "shadow"
     }
-  ],
-  "preview": {
-    "src": "../previews/files.svg",
-    "alt": "Пример интерфейса: Файлы"
-  }
+  ]
 }

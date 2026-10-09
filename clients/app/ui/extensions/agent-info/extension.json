@@ -1,5 +1,6 @@
 {
-  "apiVersion": 3,
+  "apiVersion": 4,
+  "preview": { "entry": "./demo.js" },
   "id": "agent-info",
   "name": "Сборка агента",
   "description": "Профиль и инструменты подключённого агента",
@@ -17,9 +18,5 @@
       "layout": "scroll",
       "isolation": "shadow"
     }
-  ],
-  "preview": {
-    "src": "../previews/agent-info.svg",
-    "alt": "Пример интерфейса: Сборка агента"
-  }
+  ]
 }
