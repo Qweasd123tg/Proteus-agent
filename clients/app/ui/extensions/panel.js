@@ -1,6 +1,6 @@
 import { createViewRuntime } from './runtime.js';
 import { extensionStorage } from './storage.js';
-import { icon } from './icons.js';
+import { extensionIcon } from './icons.js';
 import { viewForSurface } from './contract.js';
 import { createViewRoot } from './view-root.js';
 
@@ -27,7 +27,7 @@ export function createPanel(record,{services,storage,changed,surfaceOnly=false,l
     let failed=false;
     releaseOwned?.();stopViews();body.replaceChildren();
     error.textContent=record.error??'';retry.hidden=true;
-    compactRoot.replaceChildren(icon(record.manifest?.icon||'modules'));
+    compactRoot.replaceChildren(extensionIcon(record.manifest));
     if(surfaceOnly){panelRoot=createViewRoot(body,lightContent?'light':'shadow','extension-panel-content').root;return;}
     if(record.error)return;
     // Combined compact/workspace views share one instance, while separate

@@ -1,12 +1,13 @@
-/** Client extension contract v2. Independent of agent process-module contracts. */
+/** Client extension contract v4. Independent of agent process-module contracts. */
 export interface ExtensionManifest {
-  apiVersion: 2;
+  apiVersion: 4;
   id: string;
   name: string;
   description: string;
-  icon?: string;
-  /** Static illustration; resolved relative to the manifest without executing any view. */
-  preview?: { src: string; alt: string };
+  /** Package-owned image; resolved relative to extension.json. */
+  icon?: { src: string };
+  /** Package-owned demo fixtures/services; entry exports createServices({signal}). */
+  preview?: { entry: string };
   views: ExtensionView[];
 }
 
@@ -26,8 +27,12 @@ export interface ExtensionRecord {
   enabled: boolean;
   manifest?: ExtensionManifest;
   error?: string;
+  /** Device-owned installed ZIP directory; absent for catalog/builtin records. */
+  packageKey?: string;
   /** Builtins only; installed packages always appear under Extensions. */
   settingsGroup?: 'agent' | 'builtin';
+  /** Host-owned chrome artwork, not a field of a package manifest. */
+  chromeIcon?: string;
   required?: boolean;
 }
 
@@ -69,8 +74,8 @@ export interface ExtensionContext {
   /** Only declared interfaces; each interface defines its own data contract. */
   services: Readonly<Record<string, unknown>>;
   storage: ExtensionStorage;
-  /** Aborts on disable, removal, retry, mount failure, session change, demo close or client unmount. Collapse, moving and SPA navigation preserve the instance.
-   * A demo ("Попробовать" on a disabled package) passes demo services with fictional data and in-memory storage. */
+  /** Aborts on disable, removal, retry, mount failure, session change, preview hide or client unmount. Collapse, moving and SPA navigation preserve the real instance.
+   * A visible package settings page automatically previews its views on demo services with fictional data and in-memory storage, regardless of enabled state. */
   signal: AbortSignal;
 }
 
@@ -78,6 +83,11 @@ export interface ExtensionContext {
  * Bind DOM listeners and fetch to signal, including while mounting asynchronously.
  */
 export type Mount = (context: ExtensionContext) => void | (() => void) | Promise<void | (() => void)>;
+
+/** No real host services are supplied to this factory. Bind timers/work to signal.
+ * Each returned factory gets its view's own signal. Only that view's requires are exposed. */
+export type CreatePreviewServices = (context: { signal: AbortSignal }) =>
+  Record<string, (signal: AbortSignal) => unknown> | Promise<Record<string, (signal: AbortSignal) => unknown>>;
 
 /** The current web client exposes this optional interface under agent.config.read.
  * Result is the unmodified JSON response of the public Proteus GET /config API.

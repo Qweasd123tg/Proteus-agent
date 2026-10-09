@@ -25,6 +25,7 @@ pub mod acp;
 mod addons;
 mod approval_preview;
 mod approvals;
+mod commands;
 mod config_builder;
 mod config_history;
 mod handle;
@@ -443,6 +444,7 @@ impl AgentAppServer {
                 profile_error: Mutex::new(None),
             }),
         };
+        handle.command_catalog().await?;
         profile_watch::start(&handle).await;
         Ok(handle)
     }

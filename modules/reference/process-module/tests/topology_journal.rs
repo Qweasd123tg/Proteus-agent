@@ -106,7 +106,14 @@ fn assert_separate_slot_authority(config: &AppConfig) {
     assert!(!context.allows_host_method(WORKFLOW_HOST_COMPLETE_MODEL_METHOD));
     assert!(compactor.allows_host_method(COMPACTOR_HOST_COMPLETE_MODEL_METHOD));
     assert!(!compactor.allows_host_method(WORKFLOW_HOST_EXECUTE_TOOL_METHOD));
-    assert!(tool.host_methods.is_empty());
+    assert_eq!(
+        tool.host_methods,
+        &[
+            proteus_contracts::contracts::TOOL_HOST_READ_CONVERSATION_METHOD,
+            proteus_contracts::contracts::TOOL_HOST_CONVERSATION_SNAPSHOT_METHOD
+        ]
+    );
+    assert!(!tool.allows_host_method(WORKFLOW_HOST_COMPLETE_MODEL_METHOD));
 }
 
 struct BlockingUserInput {

@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[5] / "examples/modules")
 from component_runtime import PROTOCOL_VERSION, ProtocolError, run_component
 
 EXPORT = {
-    "slot": "tool", "module_id": "stream-tools", "contract_version": "v4",
+    "slot": "tool", "module_id": "stream-tools", "contract_version": "v5",
     "composition": "ordered_many", "module_features": [], "config_schema": None,
 }
 LOCK = threading.Lock()
@@ -39,9 +39,9 @@ def invoke(context, method, params):
     if context.export != {"slot": "tool", "module_id": "stream-tools"}:
         raise ProtocolError("unexpected export")
     if method == "list":
-        return {"result": [spec("parallel_probe", "RunsCommands", True),
-                           spec("exclusive_probe", "WritesFiles", False),
-                           spec("serial_read_probe", "ReadOnly", False)]}
+        return {"result": [{"spec": value, "model_visible": True, "user_command": None} for value in [
+            spec("parallel_probe", "RunsCommands", True), spec("exclusive_probe", "WritesFiles", False),
+            spec("serial_read_probe", "ReadOnly", False)]]}
     if method != "invoke":
         raise ProtocolError("unexpected method")
     call = params["call"]

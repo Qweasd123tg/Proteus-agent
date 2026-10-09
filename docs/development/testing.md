@@ -45,7 +45,7 @@ CI отключён; проверки выполняются локально. M
 |---|---|
 | Документация, комментарии | Содержание, локальные ссылки, `git diff --check` |
 | Скрипты сборки приложения | `node --test clients/app/scripts/build.test.mjs`, затронутый реальный build; повторный запуск проверяет пропуск этапов |
-| Prompt/config без schema change | Загрузка затронутого профиля; init/install только при изменении упаковки |
+| Prompt/config без schema change | Загрузка профиля; при подключении готового модуля — один целевой invocation; init/install только при изменении упаковки |
 | Чистка tests | Изменённые test targets и сохранённые behavior checks |
 | Локальный helper | Затронутый test target |
 | Общий DTO/contract | Producers/consumers и полный Rust gate; затронутые клиенты отдельно |
@@ -60,6 +60,13 @@ CI отключён; проверки выполняются локально. M
 | Интерфейс приложения и диагностика | Затронутые Rust/Node tests и `trunk build`; browser smoke при UX change |
 | UI extensions | Contract/lifecycle tests; реальный browser/agent API при изменении интеграции |
 | Desktop launch/package | Backend lifecycle, portable build и native smoke; при изменении графического запуска — Linux/NVIDIA default и явный override переменных окружения до GTK, native Wayland с аппаратным ускорением |
+
+Для небольшой правки профиля используйте уже собранный актуальный executable.
+Подключение существующего модуля не является изменением runtime wiring:
+Cargo tests, пересборка reference-модуля, полный gate и portable build для
+такой правки не нужны. Расширяйте проверку только ради конкретной неразрешённой
+проблемы; долгую сборку или расширение задачи сначала обсуждайте с владельцем.
+Несвязанные ошибки сообщайте отдельно, не исследуя и не исправляя без запроса.
 
 Полный Rust gate нужен для общих contracts, runtime wiring, зависимостей,
 изменений взаимодействующих crates, интеграции и release:
@@ -259,7 +266,38 @@ embedded config, восстановление WASM и permissions, ошибка 
 
 ## Ordered Hook Evidence
 
-Для `hook/v3` проверяются strict DTO/response validation, одинаковая authority
+Самостоятельный DCP Node component проверяется `npm test` в
+`modules/reference/dcp`. Runner перед `full`, общим core integration scope и
+целевыми `hook_runtime`/`module_swap`/`context_profile_swap` выполняет locked
+`npm ci --ignore-scripts` и build,
+передаёт свежий путь через `PROTEUS_TEST_DCP_MODULE`; сборок внутри Rust tests нет.
+`hook_runtime` связывает реальные hook/tool exports и scripted process model:
+outgoing context отличается, cold history сохраняет оригиналы, replay `Success`
+и `Error` не вызывает model/DCP и не меняет package-owned state. Live-model
+dogfood/eval проверяется отдельно: scripted evidence не доказывает полезность
+или качество summary на повседневных задачах.
+
+## Slash-команды
+
+`proteus-core --lib app_server::http::tests::slash` проверяет общий каталог,
+prompt expansion и настоящую process-команду: allow/deny approval, idle admission,
+cancel и cold journal без Turn/model call. `hook_runtime` проверяет DCP management
+и replay без повторного изменения package state; `npm test` — оригинальные
+stats/context/decompress handlers и восстановление view после restart.
+User-only tool не попадает в model catalog и отклоняется model-request validation.
+
+После Trunk и свежей debug-сборки backend/reference module:
+
+```bash
+python3 clients/app/ui/tests/extensions_browser.py --commands-only
+```
+
+Сценарий проверяет общий backend catalog, keyboard completion, служебные и DCP
+команды без LLM, сохранение ошибочного черновика, обычный prompt Turn и `//`.
+
+## Typed Hook Boundary
+
+Для `hook/v4` проверяются strict DTO/response validation, одинаковая authority
 без host callbacks, config order и отсутствие duplicate/unknown selection.
 Boundary chain покрывает A→B/B→A, pre-effect failure, actual tool outcome
 при post-effect failure, targeted cancellation и component restart. Config

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { observeVisibility } from '../../extensions/visibility.js';
-import { logicallyVisible } from '../../ui/modules/visibility.js';
+import { logicallyVisible } from '../../ui/visibility.js';
 
 test('diagnostic iframe follows hidden host tab across its document boundary', () => {
   const host = { nodeType: 1, hidden: true };

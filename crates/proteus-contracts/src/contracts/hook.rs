@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-pub const PROCESS_HOOK_CONTRACT_VERSION: &str = "v3";
+pub const PROCESS_HOOK_CONTRACT_VERSION: &str = "v4";
 pub const PROCESS_HOOK_INVOKE_METHOD: &str = "hook.invoke";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -18,6 +18,9 @@ pub struct HookInput {
     pub event: HookEvent,
     pub attribution: ExecutionAttribution,
     pub cwd: PathBuf,
+    /// Read-only facts for BeforeModel. Never changed by a hook response.
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub conversation: Option<super::ConversationSnapshot>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]

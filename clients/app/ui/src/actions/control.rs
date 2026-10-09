@@ -28,22 +28,22 @@ impl ControlRequests {
         }
     }
 
-    fn is_pending(self) -> bool {
+    pub(super) fn is_pending(self) -> bool {
         self.queue.with_value(|queue| queue.running.get())
     }
 
-    fn begin(self) -> u64 {
+    pub(super) fn begin(self) -> u64 {
         self.revision.update(|revision| {
             *revision = revision.checked_add(1).expect("control revision overflow")
         });
         self.revision.get_untracked()
     }
 
-    fn current(self, revision: u64) -> bool {
+    pub(super) fn current(self, revision: u64) -> bool {
         self.revision.get_untracked() == revision
     }
 
-    fn enqueue(self, job: impl Future<Output = ()> + 'static) {
+    pub(super) fn enqueue(self, job: impl Future<Output = ()> + 'static) {
         let start = self.queue.with_value(|queue| {
             queue.jobs.borrow_mut().push_back(Box::pin(job));
             !queue.running.replace(true)

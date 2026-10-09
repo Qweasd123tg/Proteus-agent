@@ -1,5 +1,6 @@
 mod backend;
 mod clipboard;
+mod extension_packages;
 mod graphics;
 mod local_transport;
 mod notifications;
@@ -214,6 +215,7 @@ fn main() {
         graphics::configure_before_threads();
     }
     tauri::Builder::default()
+        .register_uri_scheme_protocol("proteus-extension", extension_packages::serve)
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             let label = if app.get_webview_window("main").is_some() {
                 "main"
@@ -234,6 +236,8 @@ fn main() {
             open_workspace_folder,
             clipboard::read_clipboard_image,
             notifications::notify,
+            extension_packages::install_ui_extension,
+            extension_packages::remove_ui_extension,
             quit_app
         ])
         .setup(|app| setup(app).map_err(Into::into))

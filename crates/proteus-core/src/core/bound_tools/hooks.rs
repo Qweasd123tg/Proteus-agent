@@ -9,6 +9,7 @@ use std::path::Path;
 impl BoundTools {
     fn hook_input(&self, cwd: &Path, event: HookEvent) -> HookInput {
         HookInput {
+            conversation: None,
             event,
             attribution: self.binding.attribution,
             cwd: cwd.to_path_buf(),

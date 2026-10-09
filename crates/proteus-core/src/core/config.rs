@@ -13,7 +13,9 @@ use super::core_slots::{CORE_SLOT_DESCRIPTORS, CoreSlotSelection, core_slot_desc
 
 pub(crate) const CONFIG_BUILDER_OVERLAY: &str = "config-builder.toml";
 
+mod commands;
 mod loading;
+pub use commands::PromptCommandConfig;
 
 pub use crate::domain::{ConfiguredMcpServerConfig, ProcessEnvironmentConfig};
 pub use loading::expand_user_path;
@@ -21,6 +23,8 @@ pub use loading::expand_user_path;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AppConfig {
+    #[serde(default)]
+    pub commands: BTreeMap<String, PromptCommandConfig>,
     #[serde(default)]
     pub profile: ProfileConfig,
     #[serde(default)]
@@ -57,6 +61,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         let active_provider = "fake".to_owned();
         Self {
+            commands: BTreeMap::new(),
             profile: ProfileConfig::default(),
             providers: BTreeMap::from([(
                 active_provider.clone(),

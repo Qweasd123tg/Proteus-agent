@@ -1,5 +1,6 @@
 """Browser regressions for settings/panel separation and extension lifetimes."""
 from urllib.parse import urlencode
+from archive_fixture import install as install_archive
 
 
 def run(command, js, wait_for, web, origin, loaded):
@@ -20,7 +21,8 @@ def run(command, js, wait_for, web, origin, loaded):
     def install(path):
         js("document.querySelector('[data-settings-section=extensions]').click()")
         wait_for(lambda: js("return !!document.querySelector('.extension-install')"),'Module manager missing')
-        js("document.querySelector('.extension-source').open=true; document.querySelector('.extension-install input').value=location.origin+" + repr(path) + "; document.querySelector('.extension-install').requestSubmit()")
+        js("document.querySelector('.extension-source').open=true")
+        install_archive(js, path)
     def quota_loaded():
         return js("return document.querySelector('[data-extension-id=model-quota] .extension-panel-content')?.shadowRoot?.textContent.includes('73% осталось')")
 
@@ -49,7 +51,7 @@ def run(command, js, wait_for, web, origin, loaded):
     wait_for(lambda: js("return !!document.querySelector('[data-extension-available=model-quota]')"), 'New bundled package unavailable in existing settings')
     js("document.querySelector('[data-extension-available=model-quota]').click(); document.querySelector('[data-extension-choice=notes] input').click(); document.querySelector('[data-reorder=notes]').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true}))")
     # The live workspace mounts newly enabled extensions; opening Settings itself does not remount them.
-    install('/fixture/extension.json')
+    install('/fixture/package.zip')
     wait_for(lambda: js("return !!document.querySelector('[data-extension-choice=external-test]')"), 'External manifest not installed')
     wait_for(lambda: js('return window.externalMounted === 1'), 'Enabled extension did not mount')
     wait_for(lambda: js('return window.externalCompactMounted === 1'), 'Separate compact view did not mount')
@@ -78,8 +80,9 @@ def run(command, js, wait_for, web, origin, loaded):
     js("document.querySelector('[data-module-page=chat] .builtin-settings-body input').click()")
     wait_for(lambda: js("return document.querySelector('[data-module-page=chat] .builtin-settings-body .settings-status').textContent === 'Сохранено на этом устройстве'"), 'Chat setting save failed')
     assert js("return document.querySelector('[data-module-page=chat] .builtin-settings-body input').checked")
-    install('/fixture/slow/extension.json')
+    install('/fixture/slow/package.zip')
     wait_for(lambda: js("return !!document.querySelector('[data-extension-choice=slow-test]')"), 'Slow fixture not installed')
+    assert js("return JSON.parse(localStorage.getItem('proteus.ui.extensions')).panels.find(r=>r.id==='slow-test').packageKey"), 'ZIP package key not persisted'
     chat()
     wait_for(lambda: js('return window.externalMounted === 2 && window.slowMounts === 1'), 'Return did not mount new panels')
     # Collapse while async mount is pending keeps that same instance.

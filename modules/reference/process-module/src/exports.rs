@@ -121,7 +121,11 @@ impl ModuleExport {
                     .iter()
                     .map(|tool| {
                         let json = tool.spec_json();
-                        serde_json::from_str::<ToolSpec>(json.as_str()).map_err(Into::into)
+                        Ok(proteus_contracts::contracts::ProcessToolDefinition {
+                            spec: serde_json::from_str::<ToolSpec>(json.as_str())?,
+                            model_visible: tool.model_visible(),
+                            user_command: tool.user_command(),
+                        })
                     })
                     .collect::<Result<Vec<_>>>()?;
                 encode(ProcessToolListResponse::new(specs))

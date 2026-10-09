@@ -34,6 +34,7 @@ use crate::{
 
 pub mod addons;
 pub mod analysis;
+pub mod commands;
 pub mod config;
 pub mod config_builder;
 pub mod http;

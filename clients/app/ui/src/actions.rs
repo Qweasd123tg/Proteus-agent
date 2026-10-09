@@ -1,6 +1,7 @@
 mod control;
 mod preferences;
 mod queue;
+mod slash;
 pub(crate) use control::ControlRequests;
 
 use leptos::prelude::*;

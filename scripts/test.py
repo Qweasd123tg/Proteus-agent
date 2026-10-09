@@ -74,6 +74,18 @@ def main(args):
         raise SystemExit("Select -p PACKAGE, or use full for the complete workspace gate.")
     env = test_env()
     start = time.monotonic()
+    packages = selected_packages(args)
+    if full or ("--lib" not in args and (
+            ("proteus-core" in packages
+             and ("--test" not in args or "hook_runtime" in args or "module_swap" in args))
+            or (REFERENCE_MODULE in packages
+                and ("--test" not in args or "context_profile_swap" in args)))):
+        # Prepare the independent JS process fixture before Rust tests, never
+        # install/build another implementation from inside a test invocation.
+        dcp = ROOT / "modules/reference/dcp"
+        for command in (["npm", "ci", "--ignore-scripts"], ["npm", "run", "build"]):
+            subprocess.run(command, cwd=dcp, env=env, check=True)
+        env["PROTEUS_TEST_DCP_MODULE"] = str(dcp / "dist/worker.js")
     if full:
         # Exact same selection/features/profile for compilation and execution.
         build_args = args[:args.index("--")] if "--" in args else args

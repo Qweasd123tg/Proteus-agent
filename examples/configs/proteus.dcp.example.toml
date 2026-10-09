@@ -1,0 +1,38 @@
+# Механизм DCP поверх экспериментального профиля; не OpenCode parity runtime.
+include = "../../configs/opencode.config.toml"
+
+# Instructions paths разрешаются относительно выбранного верхнего профиля.
+[[instructions]]
+kind = "System"
+file = "../../configs/prompts/direct-patch.md"
+priority = 90
+
+[[instructions]]
+kind = "System"
+file = "../../configs/prompts/opencode-default.md"
+priority = 100
+
+[profile]
+name = "dcp-experimental"
+
+[modules]
+hooks = ["hook.dcp"]
+
+[components.dcp]
+command = "node"
+# Замените абсолютным путём вашей сборки; install.sh DCP не устанавливает.
+args = ["/absolute/path/to/Agent/modules/reference/dcp/dist/worker.js"]
+env_allowlist = ["HOME", "XDG_DATA_HOME"]
+
+[components.dcp.exports.hook."hook.dcp"]
+[components.dcp.exports.tool."dcp.tools"]
+
+[module_config.hook."hook.dcp"]
+compress = { mode = "range", protectTags = true }
+
+[module_config.tool."dcp.tools"]
+compress = { mode = "range", protectTags = true }
+
+[tools]
+# Include заменяет массив целиком: сохраняем инструменты исходной сборки.
+enabled = ["skill", "read_file", "read_many_files", "list_dir", "grep", "find_files", "lsp_diagnostics", "edit_file", "write_file", "shell", "update_plan", "request_user_input", "compress", "dcp"]

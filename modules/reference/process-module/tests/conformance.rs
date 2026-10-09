@@ -239,6 +239,7 @@ fn all_reference_exports_share_a_component_and_route_over_one_broker() {
             }
         };
         let input = HookInput {
+            conversation: None,
             event,
             attribution: ExecutionAttribution::detached(new_execution_id()),
             cwd: workspace.path().into(),
@@ -344,13 +345,18 @@ fn aggregate_tool_module_lists_and_invokes_real_tools() {
         ("write_file", false),
         ("request_permissions", false),
     ] {
-        let spec = listed.result.iter().find(|spec| spec.name == name).unwrap();
+        let spec = &listed
+            .result
+            .iter()
+            .find(|tool| tool.spec.name == name)
+            .unwrap()
+            .spec;
         assert_eq!(spec.supports_parallel_tool_calls, parallel, "{name}");
     }
     let names = listed
         .result
         .iter()
-        .map(|spec| spec.name.as_str())
+        .map(|definition| definition.spec.name.as_str())
         .collect::<std::collections::BTreeSet<_>>();
     for expected in [
         "read_file",

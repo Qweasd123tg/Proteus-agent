@@ -5,6 +5,7 @@ Requires Firefox and geckodriver (PATH or GECKODRIVER). Only stdlib Python.
 Run after trunk build and cargo build -p proteus-core -p proteus-reference-module.
 """
 import base64
+import archive_fixture
 from images_checks import run as check_images
 from request_races import run as check_request_races
 from markdown_checks import run as check_markdown, FIXTURE as MARKDOWN_FIXTURE
@@ -38,6 +39,7 @@ from agent_settings_checks import run as check_agent_settings
 from notifications_checks import run as check_notifications
 from turn_issue_checks import run as check_turn_issue
 from chat_search_checks import run as check_chat_search
+from commands_checks import run as check_commands
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -94,6 +96,8 @@ class Assets(SimpleHTTPRequestHandler):
         pass
 
     def do_POST(self):
+        if archive_fixture.post(self):
+            return
         if self.path != '/responses':
             self.send_error(404); return
         assert self.headers.get('Authorization') == 'Bearer fixture-access'
@@ -114,6 +118,8 @@ class Assets(SimpleHTTPRequestHandler):
             output = [{"type":"function_call","call_id":"ui-plan","name":"update_plan","arguments":json.dumps({"plan":[{"step":"Проверить панели","status":"completed"},{"step":"Проверить настройки","status":"completed"}]})}]
         else:
             output = [{"id":"ui-answer","type":"message","role":"assistant","content":[{"type":"output_text","text":"Проверка интерфейса завершена.\n\n- Панели раскрываются одним изменением ширины.\n- Расширения настраиваются в отдельном разделе.\n- Поле ввода оставляет место для последних сообщений.\n\n```rust\nfn main() {\n    println!(\"Proteus UI fixture\");\n}\n```"}]}]
+        if '--commands-only' in sys.argv:
+            output = [{"id":"ui-command-answer","type":"message","role":"assistant","content":[{"type":"output_text","text":"Prompt command completed."}]}]
         if count == 1 and '--markdown-only' in sys.argv:
             output[0]['content'][0]['text'] += MARKDOWN_FIXTURE
         if '--approval-only' in sys.argv:
@@ -152,6 +158,15 @@ class Assets(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split('?', 1)[0]
+        if archive_fixture.get(self, ROOT):
+            return
+        if path in ('/', '/index.html', '/settings', '/context', '/sessions') and 'embedded=true' not in self.path:
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html')
+            self.end_headers()
+            html = (Path(self.directory) / 'index.html').read_text().replace('<head>', '<head>'+archive_fixture.BOOTSTRAP)
+            self.wfile.write(html.encode())
+            return
         inspector = ROOT / 'clients/app/diagnostics/dist'
         if (path=='/' and 'embedded=true' in self.path) or path in ('/architecture', '/inspector.html') or (not (Path(self.directory) / path.lstrip('/')).exists() and (inspector / path.lstrip('/')).is_file()):
             original = self.directory
@@ -206,15 +221,23 @@ class Assets(SimpleHTTPRequestHandler):
         elif self.path.startswith('/fixture/client/'):
             self.send_response(200)
             if self.path.endswith('extension.json'):
-                data = json.dumps({"apiVersion":2,"id":"client-test","name":"Своя диагностика","description":"Browser fixture","icon":"analysis","preview":{"src":"/extensions/previews/diagnostic-analysis.svg","alt":"Пример анализа ходов"},"views":[{"surfaces":[surface],"entry":"./page.js","requires":["client.composer","agent.config.read"],"layout":"fill" if surface == "settings" else "form","isolation":"light"} for surface in ["settings", "composer-model"]]})
+                data = json.dumps({"apiVersion":4,"id":"client-test","name":"Своя диагностика","description":"Browser fixture","icon":{"src":"/extensions/notes/assets/icon.svg"},"preview":{"entry":"./demo.js"},"views":[{"surfaces":[surface],"entry":"./page.js","requires":["client.composer","agent.config.read"],"layout":"fill" if surface == "settings" else "form","isolation":"light"} for surface in ["settings", "composer-model"]]})
                 self.send_header('Content-Type','application/json')
+            elif self.path.endswith('demo.js'):
+                data = """export function createServices({signal}) {return {
+                  'client.composer':view=>({read(){signal.throwIfAborted();view.throwIfAborted();return {model:'package-demo'}}}),
+                  'agent.config.read':view=>({async read(){signal.throwIfAborted();view.throwIfAborted();return {profile:'package-demo',registered_tools:[]}}})
+                }}"""
+                self.send_header('Content-Type','text/javascript')
             else:
                 data = """export async function mount({root,surface,services,signal}) {
-                  window.clientMounts=(window.clientMounts||0)+1;
-                  signal.addEventListener('abort',()=>window.clientAborts=(window.clientAborts||0)+1);
-                  const input=document.createElement('input');input.dataset.customModule=surface;input.value=services['client.composer'].read().model;root.append(input);
-                  await services['agent.config.read'].read();root.dataset.configRead='true';
-                  return()=>window.clientDisposals=(window.clientDisposals||0)+1;
+                  const demo=!!(root.host??root).closest('[data-extension-demo]');
+                  const prefix=demo?'clientDemo':'client';
+                  window[prefix+'Mounts']=(window[prefix+'Mounts']||0)+1;
+                  signal.addEventListener('abort',()=>window[prefix+'Aborts']=(window[prefix+'Aborts']||0)+1);
+                  const input=document.createElement('input');input.dataset[demo?'customDemo':'customModule']=surface;input.value=services['client.composer'].read().model;root.append(input);
+                  await services['agent.config.read'].read();root.dataset[demo?'demoConfigRead':'configRead']='true';
+                  return()=>window[prefix+'Disposals']=(window[prefix+'Disposals']||0)+1;
                 }"""
                 self.send_header('Content-Type','text/javascript')
             self.end_headers();self.wfile.write(data.encode())
@@ -222,7 +245,7 @@ class Assets(SimpleHTTPRequestHandler):
             self.send_response(200)
             if self.path.endswith('extension.json'):
                 slow = '/slow/' in self.path
-                data = json.dumps({"apiVersion": 2, "id": 'slow-test' if slow else 'external-test', "name": 'Медленная панель' if slow else 'Внешняя панель', "description": "Browser fixture", "views": [{"surfaces": surfaces, "entry": "./panel.js", "requires": [], "layout": "scroll", "isolation": "shadow"} for surfaces in ([["compact", "workspace"]] if slow else [["workspace"], ["compact"]])]})
+                data = json.dumps({"apiVersion": 4, "id": 'slow-test' if slow else 'external-test', "name": 'Медленная панель' if slow else 'Внешняя панель', "description": "Browser fixture", "views": [{"surfaces": surfaces, "entry": "./panel.js", "requires": [], "layout": "scroll", "isolation": "shadow"} for surfaces in ([["compact", "workspace"]] if slow else [["workspace"], ["compact"]])]})
                 self.send_header('Content-Type', 'application/json')
             elif '/slow/' in self.path:
                 data = '''export async function mount({root}) {
@@ -270,6 +293,7 @@ def main():
         folder = Path(temporary)
         server = ThreadingHTTPServer(('127.0.0.1', 0), partial(Assets, directory=str(os.environ.get('PROTEUS_UI_TEST_DIST',ROOT / 'clients/app/ui/dist'))))
         server.model_inputs = []
+        server.extension_packages = {}
         server.model_requests = 0
         server.model_gate = threading.Event()
         server.model_gate.set()
@@ -309,6 +333,20 @@ implementation = "openai_codex"
 base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/usage') + '\nauth_file = ' + json.dumps(str(auth)) + '\n[event_log]\npath = ' + json.dumps(str(folder / 'events.jsonl')) + '\n')
         if '--images-only' in sys.argv:
             config.write_text(config.read_text()+'\n[module_config.model.custom-model.capabilities]\nsupports_image_input = true\n')
+        if '--commands-only' in sys.argv:
+            config.write_text(config.read_text().replace('enabled = ["update_plan"]', 'enabled = ["update_plan", "dcp"]') + '''
+[commands.review]
+description = "Review a target"
+prompt = "Review $ARGUMENTS carefully"
+[commands.echo]
+description = "Forward arguments"
+prompt = "$ARGUMENTS"
+[components.dcp]
+command = "node"
+args = [''' + json.dumps(str(ROOT / 'modules/reference/dcp/dist/worker.js')) + ''']
+[components.dcp.exports.tool."dcp.tools"]
+[module_config.tool."dcp.tools"]
+state_dir = ''' + json.dumps(str(folder / 'dcp-state')) + '\n')
         if '--agent-settings-only' in sys.argv:
             config.write_text(config.read_text().replace('[components.model.exports.policy.allow_all]', '[components.model.exports.policy.allow_all]\n[components.model.exports.context.repo_aware]'))
         if '--approval-only' in sys.argv:
@@ -369,6 +407,11 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     command('/url', {'url':web+'/?'+urlencode({'server':origin,'token':'extension-smoke'})})
                     wait_for(loaded, 'Client missing')
                     check_images(command, js, wait_for, server, web, origin)
+                    return
+                if '--commands-only' in sys.argv:
+                    command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
+                    wait_for(loaded, 'Client missing')
+                    check_commands(command, js, wait_for, server)
                     return
                 if '--request-races-only' in sys.argv:
                     command('/url', {'url':web+'/?'+urlencode({'server':origin,'token':'extension-smoke'})})

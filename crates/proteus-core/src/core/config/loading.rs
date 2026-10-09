@@ -61,6 +61,7 @@ impl AppConfig {
         config.selected_model_config()?;
         config.validate_module_config_slots()?;
         config.modules.validate_hooks()?;
+        config.validate_commands()?;
         Ok(config)
     }
 

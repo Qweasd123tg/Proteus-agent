@@ -70,12 +70,29 @@ pub struct ToolModuleInvocationContext {
 
 pub trait ToolModuleHost: Send + Sync {
     fn is_cancelled(&self) -> ProcessModuleResult<bool>;
+    /// Read only the invocation-bound conversation, never an arbitrary session.
+    fn read_conversation_json(&self) -> ProcessModuleResult<String> {
+        Err(ProcessModuleError::new(
+            "tool invocation has no conversation reader",
+        ))
+    }
+    fn conversation_snapshot_json(&self) -> ProcessModuleResult<String> {
+        Err(ProcessModuleError::new(
+            "tool invocation has no bound session conversation",
+        ))
+    }
 }
 
 pub type ToolModuleHostMut<'a> = dyn ToolModuleHost + 'a;
 
 pub trait ToolModule: Send + Sync + 'static {
     fn spec_json(&self) -> String;
+    fn model_visible(&self) -> bool {
+        true
+    }
+    fn user_command(&self) -> Option<crate::contracts::ToolUserCommand> {
+        None
+    }
 
     fn invoke_json(
         &self,

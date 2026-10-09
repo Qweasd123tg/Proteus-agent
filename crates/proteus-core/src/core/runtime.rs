@@ -23,6 +23,8 @@ use crate::{
 mod addons;
 mod builder;
 mod checkpoint;
+mod commands;
+mod conversation;
 mod execution;
 mod execution_binding;
 mod failed_history;

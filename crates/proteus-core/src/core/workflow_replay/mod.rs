@@ -67,11 +67,11 @@ pub async fn replay_workflow(
         .snapshot
         .tools
         .iter()
-        .map(|tool| tool.spec.clone())
+        .map(|tool| (tool.spec.clone(), tool.model_visible))
         .collect::<Vec<_>>();
     let registered_tool_names = specs
         .iter()
-        .map(|tool| tool.name.clone())
+        .map(|(tool, _)| tool.name.clone())
         .collect::<HashSet<_>>();
     let state = Arc::new(ReplayState::new(
         fixture.exchanges.clone(),
@@ -210,6 +210,7 @@ pub async fn replay_workflow(
             },
             attribution: hook_attribution,
             cwd: fixture.opened.task.cwd.clone(),
+            conversation: None,
         })
         .await;
     let replay_result = crate::core::reviewed_workflow::run(
@@ -311,6 +312,7 @@ pub async fn replay_workflow(
             },
             attribution: hook_attribution,
             cwd: fixture.opened.task.cwd.clone(),
+            conversation: None,
         })
         .await;
     checkpoint_recorder.finish();

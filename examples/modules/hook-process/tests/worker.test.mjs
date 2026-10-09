@@ -35,11 +35,11 @@ test("real TS worker multiplexes exports, redirects logs and cancels only the ad
     replies.set(id, resolve);
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
   });
-  const binding = (id) => ({ slot: "hook", module_id: id, contract_version: "v3", composition: "ordered_many", module_config: { entry, settings: { tag: id } }, host_features: [] });
+   const binding = (id) => ({ slot: "hook", module_id: id, contract_version: "v4", composition: "ordered_many", module_config: { entry, settings: { tag: id } }, host_features: [] });
   const invocation = (id, module, name) => ({
     export: { slot: "hook", module_id: module },
     lineage: { root_invocation_id: id, parent_invocation_id: null, depth: 0 },
-    params: { cwd: directory, attribution: { execution_id: "e", agent: null },
+    params: { cwd: directory, attribution: { execution_id: "e", agent: null }, conversation: null,
       event: { event: "before_tool", call: { id: "c", name, args: {} }, spec: null, blocked: null } },
   });
   try {

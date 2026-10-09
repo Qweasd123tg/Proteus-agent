@@ -1,4 +1,4 @@
-/** Shared artwork for host chrome and the bundled example panels. */
+/** Host chrome artwork; packages provide their own manifest images. */
 const sheet = new URL('../assets/proteus-icons.svg', import.meta.url);
 export function icon(name) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -8,4 +8,16 @@ export function icon(name) {
   use.setAttribute('href', `${sheet}#${name}`);
   svg.append(use);
   return svg;
+}
+
+/** Package artwork is a file, not a name in the host sprite. */
+export function extensionIcon(manifest) {
+  if (!manifest?.icon) return icon('modules');
+  const image = document.createElement('img');
+  image.src = manifest.icon.src;
+  image.alt = ''; image.setAttribute('aria-hidden', 'true');
+  image.width = image.height = 18;
+  image.style.cssText = 'display:block;flex:none;pointer-events:none;object-fit:contain';
+  image.addEventListener('error', () => image.replaceWith(icon('modules')), { once: true });
+  return image;
 }

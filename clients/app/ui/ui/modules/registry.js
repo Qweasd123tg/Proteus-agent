@@ -136,10 +136,10 @@ export function createClientModuleRegistry(
     },
     move: (id, step) => packages.move(id, step),
     remove: (id) => {
-      if (!core.some((r) => r.id === id)) packages.remove(id);
+      if (!core.some((r) => r.id === id)) return packages.remove(id);
     },
     addBundled: (id) => packages.addBundled(id),
-    install: (url) => packages.install(url),
+    install: (file) => packages.install(file),
     reset: () => packages.reset(),
     resetCore: () => save(defaults()),
     dispose() {

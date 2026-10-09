@@ -507,32 +507,8 @@ fn resolve_permission_mode(cli: &Cli, configured: PermissionMode) -> Result<Perm
     Ok(selected.into_iter().next().unwrap_or(configured))
 }
 
-/// Реализует slash-команду `/remember KIND TEXT` в REPL.
-///
-/// Парсинг: первое слово — `kind` (`preference` или `fact`). Остальное —
-/// `content`. Если первое слово не валидный kind, всё идёт как `fact`
-/// content. Это удобный shortcut: `/remember project uses pnpm` просто
-/// работает как fact.
-async fn handle_remember(client: &mut CliAppClient, rest: &str) -> Result<String> {
-    let trimmed = rest.trim();
-    if trimmed.is_empty() {
-        bail!("usage: /remember [preference|fact] <content>");
-    }
-    let (kind, content) = match trimmed.split_once(char::is_whitespace) {
-        Some((first, rest_content)) if matches!(first, "preference" | "fact") => {
-            (first.to_owned(), rest_content.trim().to_owned())
-        }
-        _ => ("fact".to_owned(), trimmed.to_owned()),
-    };
-    if content.is_empty() {
-        bail!("/remember: content is empty");
-    }
-    let result = client.remember(kind, content).await?;
-    Ok(format!("stored ({}): {}", result.kind, result.content))
-}
-
 async fn run_repl(client: &mut CliAppClient) -> Result<()> {
-    let config = client.config_summary().await?;
+    let mut config = client.config_summary().await?;
     println!("{}", repl_header(&config)?);
     let tty_composer = io::stdin().is_terminal() && io::stdout().is_terminal();
     let mut footer = initial_footer(&config)?;
@@ -555,55 +531,32 @@ async fn run_repl(client: &mut CliAppClient) -> Result<()> {
             continue;
         }
 
-        match input {
-            "/exit" | "/quit" => break,
-            "/clear" | "/reset" => {
-                client.clear_history().await?;
-                println!("{}", small_block("state", &["history cleared".to_owned()]));
-                continue;
-            }
-            "/history" => {
-                let history = client.history_summary().await?;
-                println!(
-                    "{}",
-                    small_block("history", &[format!("messages: {}", history.messages)])
-                );
-                continue;
-            }
-            "/help" => {
-                println!(
-                    "{}",
-                    small_block(
-                        "help",
-                        &[
-                            "/help            show this help".to_owned(),
-                            "/history         show in-memory history size".to_owned(),
-                            "/clear, /reset   clear in-memory history".to_owned(),
-                            "/remember KIND TEXT  store KIND=preference|fact (KIND=fact if omitted)"
-                                .to_owned(),
-                            "/exit, /quit     leave the REPL".to_owned(),
-                            "examples: read_file Cargo.toml | summarize project".to_owned(),
-                        ],
-                    )
-                );
-                continue;
-            }
-            _ => {}
+        if matches!(input, "/exit" | "/quit") {
+            break;
         }
-
-        if let Some(rest) = input.strip_prefix("/remember ").map(str::trim) {
-            match handle_remember(client, rest).await {
-                Ok(message) => {
-                    println!("{}", small_block("memory", &[message]));
+        let prompt = if input.starts_with('/') && !input.starts_with("//") {
+            match client.execute_command(input.to_owned()).await {
+                Ok(proteus_contracts::app_protocol::commands::CommandOutput::Display { text }) => {
+                    println!("{text}");
+                    config = client.config_summary().await?;
+                    footer = initial_footer(&config)?;
+                    continue;
+                }
+                Ok(proteus_contracts::app_protocol::commands::CommandOutput::Prompt { text }) => {
+                    text
                 }
                 Err(error) => {
                     eprintln!("error: {error:#}");
+                    continue;
                 }
             }
-            continue;
-        }
-
-        match run_with_spinner(client, input.to_owned(), tty_composer).await {
+        } else {
+            input
+                .strip_prefix("//")
+                .map(|rest| format!("/{rest}"))
+                .unwrap_or_else(|| input.to_owned())
+        };
+        match run_with_spinner(client, prompt, tty_composer).await {
             Ok(output) => {
                 print_assistant_output(&output.text, tty_composer).await?;
                 footer = footer_from_output(&config, &output)?;
@@ -721,7 +674,7 @@ fn composer_width(footer: &str) -> usize {
 
 #[path = "main/repl_render.rs"]
 mod repl_render;
-use repl_render::{footer_from_output, initial_footer, repl_header, small_block};
+use repl_render::{footer_from_output, initial_footer, repl_header};
 
 #[cfg(test)]
 #[path = "main_tests.rs"]

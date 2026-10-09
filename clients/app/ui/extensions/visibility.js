@@ -1,4 +1,4 @@
-import { watchLogicalVisibility } from '../ui/modules/visibility.js';
+import { watchLogicalVisibility } from '../ui/visibility.js';
 
 // Panels stay mounted when their tab is hidden. Follow the existing logical
 // visibility contract and also pause work when the entire document is hidden.

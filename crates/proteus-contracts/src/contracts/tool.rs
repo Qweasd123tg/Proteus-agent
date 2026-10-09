@@ -29,6 +29,9 @@ pub struct ToolContext {
     /// Runtime-bound capability для facade-tool `task`. Dylib tools её не
     /// получают через свой ABI и не могут вызывать subagent slot напрямую.
     pub agent_control: Option<Arc<dyn AgentControlToolHost>>,
+    /// Read-only canonical history; absent for detached/non-conversation work.
+    pub conversation: Option<Arc<dyn super::ConversationReader>>,
+    pub conversation_session_id: Option<crate::domain::SessionId>,
 }
 
 impl ToolContext {
@@ -40,6 +43,8 @@ impl ToolContext {
             user_input: None,
             task: None,
             agent_control: None,
+            conversation: None,
+            conversation_session_id: None,
         }
     }
 }
@@ -141,6 +146,12 @@ fn cancel_state(state: &Arc<CancellationState>) {
 #[async_trait]
 pub trait Tool: Send + Sync {
     fn spec(&self) -> ToolSpec;
+    fn model_visible(&self) -> bool {
+        true
+    }
+    fn user_command(&self) -> Option<super::ToolUserCommand> {
+        None
+    }
     async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult>;
 }
 
@@ -328,12 +339,48 @@ impl ToolRegistry {
         }
         crate::domain::tool_validation::validate_tool_input_schema(&spec)
             .map_err(anyhow::Error::msg)?;
+        if let Some(command) = tool.user_command() {
+            super::validate_command_name(&command.name)?;
+            anyhow::ensure!(
+                !self.tools.values().any(|entry| entry
+                    .tool
+                    .user_command()
+                    .is_some_and(|other| other.name == command.name)),
+                "duplicate user command: /{}",
+                command.name
+            );
+            if let Some(error) = crate::domain::validate_tool_call_args(
+                &ToolCall::new(
+                    "command-validation",
+                    &spec.name,
+                    serde_json::json!({"arguments":""}),
+                ),
+                &spec,
+            ) {
+                return Err(anyhow!("invalid command tool: {error}"));
+            }
+        }
         self.tools.insert(spec.name, ToolEntry { source, tool });
         Ok(())
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
         self.tools.get(name).map(|entry| entry.tool.clone())
+    }
+
+    pub fn user_commands(&self) -> Vec<(super::ToolUserCommand, String)> {
+        let mut commands = self
+            .tools
+            .values()
+            .filter_map(|entry| {
+                entry
+                    .tool
+                    .user_command()
+                    .map(|command| (command, entry.tool.spec().name))
+            })
+            .collect::<Vec<_>>();
+        commands.sort_by(|a, b| a.0.name.cmp(&b.0.name));
+        commands
     }
 
     pub fn entry(&self, name: &str) -> Option<ToolEntry> {

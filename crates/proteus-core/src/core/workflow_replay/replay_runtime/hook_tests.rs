@@ -10,6 +10,7 @@ use crate::{
 
 fn input(event: HookEvent) -> HookInput {
     HookInput {
+        conversation: None,
         event,
         attribution: ExecutionAttribution::detached(new_execution_id()),
         cwd: ".".into(),

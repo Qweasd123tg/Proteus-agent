@@ -1,9 +1,9 @@
 {
-  "apiVersion": 2,
+  "apiVersion": 4,
   "id": "diagnostic-analysis",
   "name": "Анализ ходов",
   "description": "Ходы агента, инструменты, ошибки и сообщения.",
-  "icon": "inspector",
+  "icon": { "src": "./assets/icon.svg" },
   "views": [
     {
       "surfaces": [
@@ -16,9 +16,5 @@
       "layout": "fill",
       "isolation": "light"
     }
-  ],
-  "preview": {
-    "src": "../previews/diagnostic-analysis.svg",
-    "alt": "Пример интерфейса: Анализ ходов"
-  }
+  ]
 }

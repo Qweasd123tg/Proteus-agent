@@ -14,6 +14,7 @@ pub(super) struct RunRegistry {
     active: Option<RunningRun>,
     last: Option<AppRun>,
     closed: bool,
+    command_active: bool,
 }
 
 pub(super) struct RunningRun {
@@ -79,6 +80,9 @@ impl AppServerHandle {
         let mut runs = self.runs.lock().await;
         if runs.closed {
             return Err(anyhow!("session is shutting down"));
+        }
+        if runs.command_active {
+            return Err(anyhow!("session has an active command"));
         }
         if !allow_queue && runs.active.is_some() {
             return Err(anyhow!("session already has an active run"));
@@ -163,6 +167,63 @@ impl AppServerHandle {
         run.cancellation.cancel();
         runs.publish(self);
         Ok(())
+    }
+
+    pub(super) async fn run_module_command(
+        &self,
+        id: Option<String>,
+        name: String,
+        args: String,
+    ) -> Result<crate::domain::ToolResult> {
+        let id = id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let cancellation = CancellationToken::new();
+        let (settled_tx, settled) = watch::channel(false);
+        let mut runs = self.runs.lock().await;
+        anyhow::ensure!(
+            !runs.closed && runs.active.is_none(),
+            "commands require an idle session"
+        );
+        runs.command_active = true;
+        runs.active = Some(RunningRun {
+            info: AppRun {
+                run_id: id.clone(),
+                options: Default::default(),
+                status: AppRunStatus::Running,
+                error: None,
+            },
+            cancellation: cancellation.clone(),
+            settled,
+        });
+        runs.publish(self);
+        drop(runs);
+        // Independent of the response consumer: disconnect cannot abandon admission.
+        let server = self.clone();
+        let task = tokio::spawn(async move {
+            let result = server
+                .runtime
+                .execute_user_command(&name, &args, cancellation.clone())
+                .await;
+            let mut runs = server.runs.lock().await;
+            runs.active = None;
+            runs.command_active = false;
+            runs.last = Some(AppRun {
+                run_id: id,
+                options: Default::default(),
+                status: if cancellation.is_cancelled() {
+                    AppRunStatus::Canceled
+                } else if result.as_ref().is_ok_and(|r| r.ok) {
+                    AppRunStatus::Success
+                } else {
+                    AppRunStatus::Error
+                },
+                error: result.as_ref().err().map(|e| format!("{e:#}")),
+            });
+            runs.publish(&server);
+            drop(runs);
+            settled_tx.send_replace(true);
+            result
+        });
+        task.await?
     }
 
     pub(super) async fn close_runs(&self) {

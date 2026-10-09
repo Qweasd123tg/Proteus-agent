@@ -10,6 +10,7 @@ fn trace(schema: serde_json::Value, args: serde_json::Value) -> HookTrace {
     let mut spec = ToolSpec::new("fixture", "fixture", schema, ToolSafety::ReadOnly);
     spec.metadata = json!({"password": "spec-secret"});
     let input = HookInput {
+        conversation: None,
         event: HookEvent::BeforeTool {
             call: ToolCall::new("fixture-call", "fixture", args.clone()),
             spec: Some(spec),

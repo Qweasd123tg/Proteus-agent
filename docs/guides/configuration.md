@@ -246,6 +246,25 @@ proteus-reference-module auth openai_codex logout
 модели и лимиты определяются аккаунтом. Фрагмент `fragments/openai-chatgpt.toml` задаёт explicit
 model export, capabilities и консервативный порог контекста 200000 tokens.
 
+В root-профиле `codex-chatgpt` включён самостоятельный
+[DCP component](../../modules/reference/dcp/README.md): `hook.dcp`, model tool
+`compress` и пользовательская команда `/dcp`. Для запуска нужен Node.js 22+,
+собранный модуль и executable `proteus-dcp` в `PATH`; portable и `install.sh`
+не устанавливают его автоматически. После сборки в корне checkout можно
+подключить entry:
+
+```bash
+mkdir -p "$HOME/.local/bin"
+ln -s "$PWD/modules/reference/dcp/dist/worker.js" "$HOME/.local/bin/proteus-dcp"
+```
+
+Не заменяйте существующий launcher без проверки его назначения. При переносе
+checkout обновите ссылку; при переносе модуля сохраняйте его dependencies.
+Сборки, включающие `codex-chatgpt` через `include`, наследуют DCP. Самостоятельные
+`codex`, `codex-chatgpt-explore` и `codex-chatgpt-coder` его не включают.
+Workflow, model и обычный `codex` compactor не заменены: DCP меняет только
+outgoing view, а параметры hook/tool exports в профиле одинаковы.
+
 Экспериментальный `context-search-chatgpt` включает этот же profile и меняет
 только context selection на `repo_aware`. Запуск:
 
@@ -261,7 +280,7 @@ proteus --config context-search-chatgpt
 chunk и иначе оформляет project instructions. Поиск может добавить шум и
 увеличить первый запрос. Он не видит историю прочитанных файлов и не удаляет
 из контекста уже известные модели фрагменты. Выбор обычного `codex-chatgpt`
-возвращает исходную сборку.
+возвращает `codex_context` той же root-сборки с DCP.
 
 `openai_codex` сам запрашивает `GET /backend-api/codex/models` с ChatGPT OAuth.
 Интерфейс приложения показывает все возвращённые модели, включая entries с отметкой «скрытая»,
@@ -694,7 +713,7 @@ disabled_mcp_servers = ["team.tools:database"]
 Core не читает `SKILL.md`: любой `context_provider/v3` может предоставить
 typed skill catalog, либо вернуть `null`, если не поддерживает эту возможность.
 Одинаковые host-owned `SkillRuntimeSettings` передаются context provider и
-`tool/v4`; в reference skill-pack один фильтр используется для списка и загрузки.
+`tool/v5`; в reference skill-pack один фильтр используется для списка и загрузки.
 `name` ограничен 64 ASCII-символами без `--`, `description` — 1024 символами;
 дополнительные поля Agent Skills не предоставляют новых прав tools.
 
@@ -1037,8 +1056,44 @@ Pi/OpenCode tool handlers (включая изменение args), JSON-stdin P
 `updatedInput` и Stop scripts Codex/Claude Code. Completion review сохраняет
 root turn, имеет общий workflow deadline и лимит 8 продолжений.
 Неподдержанные upstream действия отклоняются явно; это адаптер переноса,
-не загрузчик чужих plugins. Модуль использует тот же `hook/v3`, без отдельной
+не загрузчик чужих plugins. Модуль использует тот же `hook/v4`, без отдельной
 registration или authority surface в Core.
+
+### DCP Context Pruning
+
+[`proteus.dcp.example.toml`](../../examples/configs/proteus.dcp.example.toml)
+подключает самостоятельный Node component с `hook.dcp` и tool export `dcp.tools`.
+Сборка, настройки, происхождение и лицензия описаны в
+[`modules/reference/dcp/README.md`](../../modules/reference/dcp/README.md).
+Выбор включает `hook.dcp` в `modules.hooks` и `compress`, `dcp` в `tools.enabled`;
+opaque config двух exports должен совпадать. Пример не устанавливает executable
+автоматически: нужен абсолютный путь к подготовленному `dist/worker.js`.
+
+DCP заменяет только outgoing model context, не cold history; выбранный
+`compactor` остаётся независимым. `/dcp stats`, `/dcp context` и
+`/dcp decompress [NUMBER]` принадлежат тому же component; управление не
+предоставляется модели. Это механизм из DCP 3.2.0, не вся оболочка OpenCode
+с её commands/TUI/RPC и не объявление parity экспериментального профиля.
+
+### Prompt-команды
+
+Profile может добавить текстовые команды в общий каталог CLI/приложения:
+
+```toml
+[commands.review]
+description = "Проверить изменения"
+prompt = "Review $ARGUMENTS carefully"
+```
+
+`/review src/main.rs` готовит текст `Review src/main.rs carefully`, который клиент
+отправляет обычным ходом агента. `$ARGUMENTS` — буквальная подстановка остатка
+строки, не shell expansion. Команда не запускает tools сама и не выдаёт новых прав.
+Имена проверяются; пустой prompt или результат expansion, дубли с host/module
+командами, зарезервированные `exit`/`quit` и неизвестные поля дают ошибку.
+Module-команды объявляются реализацией tool через `tool/v5`,
+а не этим блоком; отключение tool убирает его команду из каталога.
+
+Полный список текущей сборки — `/help`; [семантика и API](runtime-and-events.md#slash-команды).
 
 ## Config Builder
 

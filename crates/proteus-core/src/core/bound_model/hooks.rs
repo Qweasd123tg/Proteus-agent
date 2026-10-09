@@ -13,6 +13,14 @@ impl BoundModel {
         }
         let mut request = self.service.prepare_request(request)?;
         self.binding.bind_request(&mut request)?;
+        let conversation = if self.hooks.is_active() {
+            match &self.binding.conversation {
+                Some(reader) => Some(reader.read().await?),
+                None => None,
+            }
+        } else {
+            None
+        };
         let event = self
             .hooks
             .apply(crate::contracts::HookInput {
@@ -22,6 +30,7 @@ impl BoundModel {
                 },
                 attribution: self.hook_attribution,
                 cwd: self.hook_cwd.clone(),
+                conversation,
             })
             .await?;
         let crate::contracts::HookEvent::BeforeModel {

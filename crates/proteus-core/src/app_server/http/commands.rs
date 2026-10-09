@@ -36,6 +36,14 @@ async fn execute_session_request(
 ) -> StdioOutput {
     let id = request.id();
     let result = match request {
+        StdioRequest::CommandCatalog { .. } => server
+            .command_catalog()
+            .await
+            .and_then(|v| Ok(Some(serde_json::to_value(v)?))),
+        StdioRequest::ExecuteCommand { id, text } => server
+            .execute_command(id, &text)
+            .await
+            .and_then(|v| Ok(Some(serde_json::to_value(v)?))),
         StdioRequest::Send {
             id,
             text,

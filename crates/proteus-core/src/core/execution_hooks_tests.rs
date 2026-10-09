@@ -90,6 +90,7 @@ fn chain(
 }
 fn input(event: HookEvent) -> HookInput {
     HookInput {
+        conversation: None,
         event,
         attribution: crate::contracts::ExecutionAttribution::detached(new_execution_id()),
         cwd: "/tmp".into(),

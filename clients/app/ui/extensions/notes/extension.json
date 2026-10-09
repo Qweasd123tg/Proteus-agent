@@ -1,9 +1,10 @@
 {
-  "apiVersion": 2,
+  "apiVersion": 4,
+  "preview": { "entry": "./demo.js" },
   "id": "notes",
   "name": "Заметки",
   "description": "Личные заметки в этом клиенте",
-  "icon": "notes",
+  "icon": { "src": "./assets/icon.svg" },
   "views": [
     {
       "surfaces": [
@@ -15,9 +16,5 @@
       "layout": "scroll",
       "isolation": "shadow"
     }
-  ],
-  "preview": {
-    "src": "../previews/notes.svg",
-    "alt": "Пример интерфейса: Заметки"
-  }
+  ]
 }

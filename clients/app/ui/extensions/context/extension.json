@@ -1,9 +1,10 @@
 {
-  "apiVersion": 2,
+  "apiVersion": 4,
+  "preview": { "entry": "./demo.js" },
   "id": "context",
   "name": "Заполнение контекста",
   "description": "Заполнение контекста и порог автокомпакта",
-  "icon": "layers",
+  "icon": { "src": "./assets/icon.svg" },
   "views": [
     {
       "surfaces": [
@@ -17,9 +18,5 @@
       "layout": "scroll",
       "isolation": "shadow"
     }
-  ],
-  "preview": {
-    "src": "../previews/context.svg",
-    "alt": "Пример интерфейса: Контекст"
-  }
+  ]
 }

@@ -8,6 +8,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum StdioRequest {
+    CommandCatalog {
+        id: Option<String>,
+    },
+    ExecuteCommand {
+        id: Option<String>,
+        text: String,
+    },
     Send {
         id: Option<String>,
         text: String,
@@ -85,6 +92,7 @@ pub enum StdioRequest {
 impl StdioRequest {
     pub fn id(&self) -> Option<String> {
         match self {
+            Self::CommandCatalog { id } | Self::ExecuteCommand { id, .. } => id.clone(),
             Self::Send { id, .. }
             | Self::EditQueuedMessage { id, .. }
             | Self::DeleteQueuedMessage { id, .. }

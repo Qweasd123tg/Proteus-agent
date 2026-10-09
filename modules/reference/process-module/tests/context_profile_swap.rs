@@ -33,6 +33,11 @@ async fn context_search_profile_prefetches_code_and_preserves_workflow_replay() 
     )
     .unwrap();
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    let dcp_module = PathBuf::from(
+        std::env::var_os("PROTEUS_TEST_DCP_MODULE")
+            .expect("scripts/test.py must prepare PROTEUS_TEST_DCP_MODULE"),
+    );
+    assert!(dcp_module.is_file(), "prepared DCP module must exist");
     for (profile, prefetch) in [("codex-chatgpt", false), ("context-search-chatgpt", true)] {
         let store_root = tempfile::tempdir().unwrap();
         let config_path = store_root.path().join("config.json");
@@ -42,8 +47,24 @@ async fn context_search_profile_prefetches_code_and_preserves_workflow_replay() 
                 .unwrap();
         for component in config.components.values_mut() {
             let mut value = serde_json::to_value(&*component).unwrap();
-            value["command"] = json!(env!("CARGO_BIN_EXE_proteus-reference-module"));
+            if value["command"] == "proteus-reference-module" {
+                value["command"] = json!(env!("CARGO_BIN_EXE_proteus-reference-module"));
+            } else if value["command"] == "proteus-dcp" {
+                value["command"] = json!("node");
+                value["args"] = json!([dcp_module]);
+            }
             *component = serde_json::from_value(value).unwrap();
+        }
+        // The independent DCP component stays real and uses only fixture state.
+        let dcp_state = store_root.path().join("dcp-state");
+        for (slot, id) in [("hook", "hook.dcp"), ("tool", "dcp.tools")] {
+            let settings = config
+                .module_config
+                .get_mut(slot)
+                .unwrap()
+                .get_mut(id)
+                .unwrap();
+            settings["state_dir"] = json!(dcp_state);
         }
         // Preserve the provider capabilities; only HTTP inference is stubbed.
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

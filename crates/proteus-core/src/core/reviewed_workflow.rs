@@ -125,6 +125,7 @@ pub(super) async fn run(
                     context.turn_id,
                 ),
                 cwd: task.cwd.clone(),
+                conversation: None,
             })
             .await?;
         let HookEvent::BeforeStop {

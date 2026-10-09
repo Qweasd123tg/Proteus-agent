@@ -173,7 +173,7 @@ Composition хранится в общей authority table и подтвержд
       {
         "slot": "tool",
         "module_id": "reference.tools",
-        "contract_version": "v4",
+        "contract_version": "v5",
         "composition": "ordered_many",
         "module_config": {},
         "host_features": []
@@ -204,7 +204,7 @@ Composition хранится в общей authority table и подтвержд
       {
         "slot": "tool",
         "module_id": "reference.tools",
-        "contract_version": "v4",
+        "contract_version": "v5",
         "composition": "ordered_many",
         "module_features": [],
         "config_schema": null
@@ -353,14 +353,14 @@ Rust host и модуль используют один
 
 | Slot | Contract | Module methods | Host callbacks |
 |---|---|---|---|
-| hook | v3 | `hook.invoke` | — |
+| hook | v4 | `hook.invoke` | — |
 | search | v2 | `search` | — |
 | memory | v2 | `remember`, `recall` | — |
 | patch | v1 | `apply` | — |
 | tool exposure | v4 | `select` | — |
 | policy | v2 | `evaluate`, `evaluate_visibility` | — |
 | context provider | v2 | `provide` | — |
-| tool | v3 | `list`, `invoke` | — |
+| tool | v5 | `list`, `invoke` | `host.conversation.read`, `host.conversation.snapshot` (только чтение, conversation-bound invocation) |
 | context | v2 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
 | model | v12 | `describe`, `catalog`, `quota`, `stream` | `host.model.emit` (acknowledged canonical events) |
 | compactor | v11 | `compact` | `host.model.complete` |
@@ -370,10 +370,37 @@ Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
 DTO, adapter, protocol/conformance и swap evidence в одном commit.
 
+`tool/v5` возвращает из `list` definitions
+`{ spec: ToolSpec, model_visible: boolean, user_command: ToolUserCommand | null }`.
+Все поля обязательны, включая явный nullable `user_command`; bare ToolSpec и
+старые versions не принимаются. `ToolUserCommand` содержит `name`, `description`
+и подсказку `arguments`. Root name начинается с lowercase буквы и содержит только
+`a-z`, `0-9`, `-`; дубли отклоняются. Tool должен принимать object
+`{ arguments: string }`; registry проверяет этот binding. Команда появляется
+только у enabled tool. `model_visible: false` исключает tool из model catalog;
+повторная validation отклоняет попытку передать его модели, включая hook edits.
+Invocation shape и ToolSpec provider boundary не меняются. Новый slot не нужен:
+пользовательская команда проходит обычный tool execution path.
+
+Оба read-only callbacks принимают пустой object без session/thread selectors:
+
+- `host.conversation.read` возвращает snapshot текущего разговора и id
+  единственного checkpointed assistant message с активным call id. Workflow может
+  изменить execution args явным binding; source identity определяется call id.
+- `host.conversation.snapshot` возвращает `{ session_id, conversation }` из
+  активного invocation binding, без требования assistant call. Это подходит
+  разговорной пользовательской операции вне Turn, но не делает conversation
+  обязательной для обычного detached tool.
+
+History writes и model callback отсутствуют. Без bound conversation/session,
+до требуемого checkpoint, при неоднозначной source identity или отмене — явная
+ошибка. Обычные detached tools работают без history/model; одинаковые callback
+права действуют для всех implementations, не объединяются с правами других exports.
+
 `ToolSpec` содержит обязательный boolean `supports_parallel_tool_calls`,
 независимый от `safety`. Он проходит через tool list, policy, tool exposure,
-canonical model request, workflow/compactor, journal schema v17 и config
-snapshot v6. Rust
+canonical model request, workflow/compactor, journal schema v18 и config
+snapshot v7. Rust
 constructor задаёт `false`, модуль обязан передать поле в JSON явно. Selector
 сохраняет зарегистрированное значение; несовпадение отклоняется. Старые
 версии этих contracts и ToolSpec без поля не принимаются. Wire остаётся v3;
@@ -632,7 +659,7 @@ ToolRegistry
   -> invoke
 ```
 
-Component не задаёт execution/chat ownership. В `tool/v4` host передаёт
+Component не задаёт execution/chat ownership. В `tool/v5` host передаёт
 `ExecutionAttribution` из активного execution binding: `ExecutionId` обязателен,
 а `SessionId`/`ThreadId`/`TurnId` существуют только как optional agent
 projection. Detached execution проходит wire без fake chat identities.
@@ -678,7 +705,7 @@ single-export components:
 - `examples/modules/agent-worker/agent.py`.
 
 JS/TS [`hook-process`](../../examples/modules/hook-process/README.md) использует
-тот же wire v3 с несколькими `hook/v3` exports, concurrent invocations и
+тот же wire v3 с несколькими `hook/v4` exports, concurrent invocations и
 адресной отменой через `AbortSignal`. SDK и porting helpers находятся внутри
 внешнего component; в Core нет language- или origin-specific пути исполнения.
 
@@ -794,11 +821,11 @@ event; это причина, а не команда Core повторить з�
 без завершения, сохраняя остальные
 ошибки данных и deadline отдельными. Codex workflow принимает решение о повторе
 с подтверждённой историей; compactor сохраняет свою политику повторов.
-Действуют `model/v12`, `workflow/v19`, `compactor/v11` и journal schema v17,
+Действуют `model/v12`, `workflow/v19`, `compactor/v11` и journal schema v18,
 без readers старых форм.
 Передача `ToolCall` в существующем `CanonicalMessage` не меняет wire/storage DTO.
 
-Journal schema v17 записывает `ModelMessageRecorded { exchange_id, message }`
+Journal schema v18 записывает `ModelMessageRecorded { exchange_id, message }`
 до доставки completed item и сохраняет полный `ModelFailure`; workflow replay
 воспроизводит последовательность completed items и возвращает тот же
 `kind`, текст и `completed_messages`. Ветвление workflow по типу ошибки прямого
@@ -863,10 +890,14 @@ invocation authority и проверяемого lifecycle — без второ
 
 ## Typed Hook Chain
 
-`hook/v3` имеет `composition=ordered_many`; host выбирает exact exports
+`hook/v4` имеет `composition=ordered_many`; host выбирает exact exports
 по `modules.hooks` в порядке config snapshot. Wire input содержит typed event,
-execution attribution и cwd; cancellation token остаётся host-only. Методы
-`host.*` не разрешены. События: turn-start/end (best-effort notifications),
+execution attribution и cwd; cancellation token остаётся host-only.
+Input также содержит обязательный nullable `conversation`: для
+conversation-bound before-model это read-only canonical history и model-context
+observations, для остальных событий/standalone — `null`. Handler меняет только
+event, не snapshot; история и доступ к модели не требуются общим операциям.
+Методы `host.*` не разрешены. События: turn-start/end (best-effort notifications),
 before-model (messages/instructions), before-tool (block/args), after-tool (output),
 before-stop (bounded continuation того же root turn).
 Каждый mutating response валидируется до следующего handler. Идентичность,
@@ -880,7 +911,7 @@ execution state в единственном shared mutable поле. Reload ме
 
 ### Completion Review И Workflow Continuation
 
-`hook/v3` добавляет `tool_arguments { args }` к before-tool и
+`hook/v4` включает `tool_arguments { args }` к before-tool и
 `continue_turn { reason }` к `before_stop`. Tool identity неизменна, изменённые
 args валидируются после каждого export до policy/approval; journal хранит
 исходный Requested и effective call в успешном trace/approval/resolution.

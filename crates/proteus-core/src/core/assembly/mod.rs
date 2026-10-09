@@ -110,6 +110,9 @@ impl AssemblyPlan {
         if let Err(error) = config.modules.validate_hooks() {
             checks.push(AssemblyCheck::error("invalid_hooks", error.to_string()));
         }
+        if let Err(error) = config.validate_commands() {
+            checks.push(AssemblyCheck::error("invalid_commands", error.to_string()));
+        }
         for id in &config.modules.hooks {
             if !known.contains_key(&("hook".to_owned(), id.clone())) {
                 checks.push(AssemblyCheck::error(

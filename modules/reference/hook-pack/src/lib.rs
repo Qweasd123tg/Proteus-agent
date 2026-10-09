@@ -114,6 +114,7 @@ mod tests {
     fn budget_preserves_utf8_and_strict_byte_limit() {
         let id = new_call_id();
         let input = HookInput {
+            conversation: None,
             event: HookEvent::AfterTool {
                 call: ToolCall::new(id.clone(), "read", serde_json::json!({})),
                 result: ToolResult::ok(id, "абвгдеёж"),
