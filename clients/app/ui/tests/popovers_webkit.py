@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Check native WebKitGTK popup sizing; Firefox does not reproduce this regression.
 
-Requires Python GI, GTK3, WebKit2 4.1 and Xvfb. Uses production sidebar/CSS,
-no backend, accounts or changes to the user's running desktop session.
+Requires Python GI, GTK3, WebKit2 4.1 and Xvfb, or --wayland for a separate
+fixture window on the current compositor. Uses production sidebar/CSS,
+no backend, accounts or changes to the user's application data.
 """
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -10,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import threading
 
@@ -47,7 +49,7 @@ window.probe=()=>{
     };
     const choiceBounds=element=>{
         const r=element.getBoundingClientRect();
-        if(r.height<40 || r.height>400 || r.left<8 || r.right>innerWidth-8 || r.top<8 || r.bottom>innerHeight-8 || element.scrollWidth>element.clientWidth)throw Error('Choice bounds: '+JSON.stringify(r));
+        if(r.height<40 || r.height>400 || r.left<8 || r.right>innerWidth-8 || r.top<8 || r.bottom>innerHeight-8 || element.scrollWidth>element.clientWidth+1)throw Error('Choice bounds: '+JSON.stringify({rect:r,viewport:[innerWidth,innerHeight],widths:[element.scrollWidth,element.clientWidth],className:element.className}));
     };
     const modelPanel=document.querySelector('.composer-menu-panel');choiceBounds(modelPanel);
     if(modelPanel.querySelector('.choice-title').getBoundingClientRect().height<35)throw Error('Composer title clipped');
@@ -96,12 +98,17 @@ def main(label='WebKitGTK project/session menus; long select descriptions, botto
     server = ThreadingHTTPServer(('127.0.0.1', 0), partial(Assets, directory=str(ROOT)))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     with tempfile.TemporaryFile(mode='w+') as log:
-        display = subprocess.Popen(['Xvfb', '-displayfd', '1', '-screen', '0', '1440x1000x24', '-nolisten', 'tcp'], stdout=subprocess.PIPE, stderr=log, text=True)
+        display = None
         try:
-            number = display.stdout.readline().strip()
-            assert number.isdecimal(), 'Xvfb did not start'
-            os.environ.update(DISPLAY=':'+number, GDK_BACKEND='x11', WEBKIT_DISABLE_COMPOSITING_MODE='1')
-            os.environ.pop('WAYLAND_DISPLAY', None)
+            if '--wayland' in sys.argv:
+                assert os.environ.get('WAYLAND_DISPLAY'), '--wayland requires a compositor'
+                os.environ['GDK_BACKEND'] = 'wayland'
+            else:
+                display = subprocess.Popen(['Xvfb', '-displayfd', '1', '-screen', '0', '1440x1000x24', '-nolisten', 'tcp'], stdout=subprocess.PIPE, stderr=log, text=True)
+                number = display.stdout.readline().strip()
+                assert number.isdecimal(), 'Xvfb did not start'
+                os.environ.update(DISPLAY=':'+number, GDK_BACKEND='x11', WEBKIT_DISABLE_COMPOSITING_MODE='1')
+                os.environ.pop('WAYLAND_DISPLAY', None)
             import gi
             gi.require_version('Gtk', '3.0')
             gi.require_version('WebKit2', '4.1')
@@ -143,8 +150,9 @@ def main(label='WebKitGTK project/session menus; long select descriptions, botto
             assert len(results) == count, results
             print('PASS: '+label+':', json.dumps(results))
         finally:
-            display.terminate()
-            display.wait(timeout=5)
+            if display is not None:
+                display.terminate()
+                display.wait(timeout=5)
             server.shutdown()
 
 

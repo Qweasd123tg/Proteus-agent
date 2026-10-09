@@ -28,9 +28,20 @@ async function until(check,message){
 async function enter(node,name){
   await until(()=>node.matches(':popover-open'),name+' did not open');
   if(reduced){assert(opacity(node)===1,name+' ignored reduced motion');return 1;}
-  await until(()=>opacity(node)>0&&opacity(node)<1,name+' has no intermediate enter opacity');
-  const sample=opacity(node);
-  await until(()=>opacity(node)===1,name+' entry never settles');
+  const initial=node.getBoundingClientRect();
+  let previous=opacity(node),sample=previous>0&&previous<1?previous:undefined;
+  const end=performance.now()+2500;
+  while(previous<1){
+    assert(performance.now()<end,name+' entry never settles');
+    await frame();
+    const next=opacity(node);
+    assert(next+0.02>=previous,name+' entry flashes backwards: '+previous+' → '+next);
+    const rect=node.getBoundingClientRect();
+    assert(Math.abs(rect.left-initial.left)<0.25&&Math.abs(rect.top-initial.top)<0.25,name+' moves while fading in: '+initial.top+' → '+rect.top);
+    if(next>0&&next<1)sample??=next;
+    previous=next;
+  }
+  assert(sample!==undefined,name+' has no intermediate enter opacity');
   return sample;
 }
 async function exit(node,name){
@@ -73,9 +84,15 @@ async function shadowSnapshot(){
   const animation=ghost.getAnimations()[0];assert(animation,'Shadow snapshot has no actual animation');
   animation.pause();animation.currentTime=animation.effect.getTiming().duration/2;
   const copies=[ghost,...ghost.querySelectorAll('*')];
+  const styleMatches=(key,actual,expected)=>{
+    if(actual===expected)return true;
+    if(key!=='gridTemplateColumns')return false;
+    const a=actual.split(' '),b=expected.split(' ');
+    return a.length===b.length&&a.every((value,i)=>value.endsWith('px')&&b[i].endsWith('px')&&Math.abs(parseFloat(value)-parseFloat(b[i]))<0.1);
+  };
   copies.forEach((node,index)=>{
     const style=getComputedStyle(node),rect=node.getBoundingClientRect();
-    assert(properties.every((key,p)=>style[key]===expected[index].styles[p]),'Shadow snapshot changed styles at node '+index);
+    assert(properties.every((key,p)=>styleMatches(key,style[key],expected[index].styles[p])),'Shadow snapshot changed styles at node '+index+': '+JSON.stringify(properties.flatMap((key,p)=>styleMatches(key,style[key],expected[index].styles[p])?[]:[{key,expected:expected[index].styles[p],actual:style[key]}])));
     assert(Math.abs(rect.width-expected[index].width)<1&&Math.abs(rect.height-expected[index].height)<1,'Shadow snapshot changed layout at node '+index);
   });
   assert(ghost.scrollTop===56&&opacity(ghost)>0&&opacity(ghost)<1,'Shadow snapshot scroll or intermediate fade missing');

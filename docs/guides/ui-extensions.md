@@ -792,6 +792,16 @@ entry, проверяет одинаковую стоимость в боков�
 чата и подсказок в WebKitGTK 4.1 — движке Linux desktop. Проверяет также
 размещение у нижнего края окна; требует Python GI, GTK3, WebKit2 и Xvfb.
 
+`--wayland` у `popovers_webkit.py` и `popover_motion_checks.py` запускает
+отдельное тестовое окно в текущем Wayland-сеансе вместо Xvfb. На NVIDIA задайте
+`__NV_DISABLE_EXPLICIT_SYNC=1` до запуска GTK: эти fixtures не проходят через
+native startup приложения. Режим сохраняет аппаратный renderer и не использует
+личные настройки или backend агента.
+
+Popover timeline проверяет неподвижную геометрию и монотонное появление меню,
+отмену анимации, повторное открытие и cleanup. Это DOM/style evidence; оно не
+заменяет визуальную проверку мигания кадров на конкретном GPU.
+
 Проверки страниц расширений и селекторов: `node --test clients/app/ui/tests/extensions/*.test.mjs`,
 `python3 -B clients/app/ui/tests/extensions_browser.py --modules-only`.
 Регрессия геометрии селектора, ползунка и закрытия вкладок в native engine:

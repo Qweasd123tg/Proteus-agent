@@ -61,8 +61,7 @@ export function exitSnapshot(source) {
     return null;
   const rect = source.getBoundingClientRect(),
     style = getComputedStyle(source);
-  const opacity = style.opacity,
-    sourceY = parseFloat(style.translate.split(" ")[1]) || 0;
+  const opacity = style.opacity;
   const rawDuration = style.getPropertyValue("--motion-exit").trim() || "140ms";
   const duration =
     parseFloat(rawDuration) * (rawDuration.endsWith("ms") ? 1 : 1000);
@@ -141,8 +140,8 @@ export function exitSnapshot(source) {
   });
   const animation = copy.animate(
     [
-      { opacity, translate: "0 0" },
-      { opacity: 0, translate: "0 -4px" },
+      { opacity },
+      { opacity: 0 },
     ],
     { duration, easing, fill: "forwards" },
   );
@@ -152,7 +151,6 @@ export function exitSnapshot(source) {
       const current = getComputedStyle(copy);
       return {
         opacity: current.opacity,
-        translate: `0 ${sourceY + (parseFloat(current.translate.split(" ")[1]) || 0)}px`,
       };
     },
     stop() {

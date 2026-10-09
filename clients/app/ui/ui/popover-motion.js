@@ -5,20 +5,19 @@ import { exitSnapshot, needsExitSnapshot } from './popover-exit.js';
 // interaction end immediately, including light dismissal and external hide().
 const css = `
 [data-popover-motion] {
-  opacity:0; translate:0 -4px;
+  opacity:0;
   transition:opacity var(--motion-exit,140ms) var(--motion-ease,ease),
-    translate var(--motion-exit,140ms) var(--motion-ease,ease),
     display var(--motion-exit,140ms) allow-discrete,
     overlay var(--motion-exit,140ms) allow-discrete;
 }
-[data-popover-motion]:popover-open { opacity:1; translate:0 0; transition-duration:var(--popover-enter,var(--motion-surface,240ms)); }
+[data-popover-motion]:popover-open { opacity:1; transition-duration:var(--popover-enter,var(--motion-surface,240ms)); }
 [data-popover-motion]:not(:popover-open) { pointer-events:none!important; }
 [data-popover-exiting] { display:var(--popover-display,block)!important; z-index:2147483000!important; }
 [data-popover-motion]:not(:popover-open):not([data-popover-exiting]) { transition:none!important; }
 [data-popover-snapshot]:not(:popover-open) { display:none!important; transition:none!important; }
-@starting-style { [data-popover-motion]:popover-open { opacity:0; translate:0 -4px; } }
+@starting-style { [data-popover-motion]:popover-open { opacity:0; } }
 [data-popover-motion="off"] { transition:none!important; }
-[data-popover-measuring] { opacity:var(--popover-start-opacity,0)!important; visibility:hidden!important; translate:var(--popover-start-translate,0 -4px)!important; transition:none!important; }
+[data-popover-measuring] { opacity:var(--popover-start-opacity,0)!important; visibility:hidden!important; transition:none!important; }
 `;
 const styled = new WeakSet();
 
@@ -94,7 +93,6 @@ export function popoverMotion(element, { onClose, onExit, anchor, quick = false,
       const resume = (snapshot || element.hasAttribute('data-popover-exiting')) && target === previousAnchor;
       const style = snapshot?.current() || getComputedStyle(element);
       element.style.setProperty('--popover-start-opacity', resume ? style.opacity : '0');
-      element.style.setProperty('--popover-start-translate', resume ? style.translate : '0 -4px');
       previousAnchor = target;
       snapshot?.stop();
       snapshot = undefined;
@@ -112,7 +110,7 @@ export function popoverMotion(element, { onClose, onExit, anchor, quick = false,
       controller.abort(); ++revision; snapshot?.stop(); snapshot = undefined;
       if (element.matches(':popover-open')) element.hidePopover();
       for (const key of ['popoverMotion', 'popoverMeasuring', 'popoverExiting', 'popoverSnapshot']) delete element.dataset[key];
-      for (const key of ['--popover-start-opacity', '--popover-start-translate', '--popover-display', '--popover-enter']) element.style.removeProperty(key);
+      for (const key of ['--popover-start-opacity', '--popover-display', '--popover-enter']) element.style.removeProperty(key);
       element.inert = initialInert;
     },
   };

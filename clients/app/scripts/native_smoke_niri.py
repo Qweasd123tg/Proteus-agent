@@ -58,6 +58,20 @@ def exercise_windows(application, project, input_env):
         assert current[0]["id"] == main["id"], "Diagnostic shortcut replaced the main window"
 
     assert_main_retained()
+    # Canceling project selection must not exit the chat, and reopening must work.
+    for cycle in range(2):
+        action("focus-window", main)
+        wait_for(application, lambda: any(window["id"] == main["id"]
+                                         and window["is_focused"] for window in windows(project, pid)))
+        time.sleep(0.3)
+        subprocess.run(["ydotool", "key", "29:1", "42:1", "24:1", "24:0", "42:0", "29:0"],
+                       env=input_env, check=True)
+        chooser = wait_for(application, lambda: next((window for window in windows(project, pid)
+                                                      if window["id"] != main["id"]), None))
+        action("close-window", chooser)
+        wait_for(application, lambda: len(windows(project, pid)) == 1)
+        assert_main_retained()
+        print(f"PASS: project chooser cancel/reopen cycle {cycle + 1} preserves the chat", flush=True)
     for cycle in range(3):
         action("focus-window", main)
         wait_for(application, lambda: any(window["id"] == main["id"]

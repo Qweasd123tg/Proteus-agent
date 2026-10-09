@@ -113,7 +113,7 @@ async fn start_agent(app: AppHandle, preferences: Preferences) -> Result<(), Str
     }
     windows::main(&app, &connection, None).map_err(display_error)?;
     if let Some(window) = app.get_webview_window("launcher") {
-        window.hide().map_err(|e| e.to_string())?;
+        window.destroy().map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -182,7 +182,25 @@ fn setup(app: &mut tauri::App) -> Result<()> {
         error: Mutex::new(install_error),
         stopping: AtomicBool::new(false),
     });
-    windows::launcher(app.handle())?;
+    match launcher_state(app.state()) {
+        Ok(selection) if selection.auto_start => {
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = start_agent(handle.clone(), selection.preferences).await {
+                    *handle.state::<DesktopState>().error.lock().unwrap() = Some(error);
+                    let _ = windows::launcher(&handle);
+                }
+            });
+        }
+        selection => {
+            // launcher_state consumes the error; retain it for the chooser page.
+            *app.state::<DesktopState>().error.lock().unwrap() = match selection {
+                Ok(selection) => selection.error,
+                Err(error) => Some(error),
+            };
+            windows::launcher(app.handle())?;
+        }
+    }
     let handle = app.handle().clone();
     std::thread::spawn(move || {
         loop {
@@ -251,8 +269,7 @@ fn main() {
                             .try_lock()
                             .is_ok_and(|backend| backend.is_some()) =>
                     {
-                        api.prevent_close();
-                        let _ = window.hide();
+                        // Closing the chooser releases its webview; the chat stays open.
                     }
                     _ => {
                         api.prevent_close();
