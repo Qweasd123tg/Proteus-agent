@@ -1,7 +1,7 @@
 import { hasSurface } from './contract.js';
 import { widgetPlacement } from './widgets.js';
 import { mountView } from './view-host.js';
-import { logicallyVisible } from '../ui/modules/visibility.js';
+import { logicallyVisible } from '../ui/visibility.js';
 import { mountExtensionDetails } from './details.js';
 
 // The host information stays mounted while enabled views retain their own lifecycle.

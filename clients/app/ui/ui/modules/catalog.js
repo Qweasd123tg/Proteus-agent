@@ -1,3 +1,5 @@
+import { slotText } from "./agent/labels.js";
+
 // The composition root supplies modules; origin does not grant extra services.
 const module = (
   id,
@@ -27,11 +29,10 @@ const module = (
   },
 });
 // Agent settings edit the saved profile through the public config builder API.
-const agentPage = (id, name, description, entry, icon) =>
+const agentPage = (id, text, entry, icon) =>
   module(
     id,
-    name,
-    description,
+    ...text,
     ["settings"],
     entry,
     ["agent.config.builder"],
@@ -41,17 +42,17 @@ const agentPage = (id, name, description, entry, icon) =>
     "editor",
   );
 export const builtins = [
-  agentPage("agent-model", "Модель", "Модель профиля и параметры её модуля.", "./agent/model.js", "model"),
-  agentPage("agent-workflow", "Рабочий цикл", "Алгоритм шагов агента.", "./agent/slot.js?slot=workflow", "workflow"),
-  agentPage("agent-context", "Контекст", "Сведения, которые получает модель.", "./agent/slot.js?slot=context", "layers"),
-  agentPage("agent-compactor", "Сжатие истории", "Сокращение длинной истории.", "./agent/slot.js?slot=compactor", "compress"),
-  agentPage("agent-tools", "Инструменты", "Разрешённые инструменты и их отбор для модели.", "./agent/tools.js", "wrench"),
-  agentPage("agent-access", "Права и подтверждения", "Режим прав и политика подтверждений.", "./agent/access.js", "shield"),
-  agentPage("agent-patch", "Правки файлов", "Применение изменений к файлам.", "./agent/slot.js?slot=patch", "patch"),
-  agentPage("agent-search", "Поиск", "Поиск по рабочему проекту.", "./agent/slot.js?slot=search", "search"),
-  agentPage("agent-memory", "Память", "Сведения между обращениями.", "./agent/slot.js?slot=memory", "database"),
-  agentPage("agent-hooks", "Обработчики", "Порядок и параметры hooks.", "./agent/hooks.js", "link"),
-  agentPage("agent-history", "История изменений", "Заменённые состояния профиля и откат.", "./agent/history.js", "history"),
+  agentPage("agent-model", slotText.model, "./agent/model.js", "model"),
+  agentPage("agent-workflow", slotText.workflow, "./agent/slot.js?slot=workflow", "workflow"),
+  agentPage("agent-context", slotText.context, "./agent/slot.js?slot=context", "layers"),
+  agentPage("agent-compactor", slotText.compactor, "./agent/slot.js?slot=compactor", "compress"),
+  agentPage("agent-tools", slotText.tool, "./agent/tools.js", "wrench"),
+  agentPage("agent-access", slotText.policy, "./agent/access.js", "shield"),
+  agentPage("agent-patch", slotText.patch, "./agent/slot.js?slot=patch", "patch"),
+  agentPage("agent-search", slotText.search, "./agent/slot.js?slot=search", "search"),
+  agentPage("agent-memory", slotText.memory, "./agent/slot.js?slot=memory", "database"),
+  agentPage("agent-hooks", slotText.hook, "./agent/hooks.js", "link"),
+  agentPage("agent-history", ["History", "Заменённые состояния профиля и откат."], "./agent/history.js", "history"),
   module(
     "appearance",
     "Внешний вид",

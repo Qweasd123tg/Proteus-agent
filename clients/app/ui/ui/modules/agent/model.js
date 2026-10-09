@@ -1,6 +1,7 @@
 import { agentSettings } from "./store.js";
 import { el, mountAgentPage } from "./page.js";
 import { parametersEditor } from "./editor.js";
+import { slotText } from "./labels.js";
 
 export function mount(context) {
   mountAgentPage(
@@ -8,7 +9,7 @@ export function mount(context) {
     "Модель профиля по умолчанию. Модель и уровень рассуждения текущего чата можно сменить в поле ввода.",
     (body, snapshot, view) => {
       const section = el("section", "agent-block");
-      section.append(el("h2", "", "Модель"));
+      section.append(el("h2", "", slotText.model[0]));
       const list = el("div", "agent-choices");
       list.setAttribute("role", "radiogroup");
       const inputs = new Map();

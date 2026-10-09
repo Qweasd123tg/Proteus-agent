@@ -1,4 +1,4 @@
-import { logicallyVisible, watchLogicalVisibility } from "./visibility.js";
+import { logicallyVisible, watchLogicalVisibility } from "../visibility.js";
 
 const titles = {
   usage: "Расход и контекст",

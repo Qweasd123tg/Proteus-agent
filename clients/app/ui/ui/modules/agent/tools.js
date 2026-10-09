@@ -1,7 +1,7 @@
 import { agentSettings } from "./store.js";
 import { el, mountAgentPage } from "./page.js";
 import { slotSection } from "./choices.js";
-import { safetyText } from "./labels.js";
+import { safetyText, slotText } from "./labels.js";
 
 // Descriptions are written for the model; long ones start folded.
 const FOLDED_DESCRIPTION = 160;
@@ -13,7 +13,7 @@ export function mount(context) {
     (body, snapshot, view) => {
       const section = el("section", "agent-block");
       const head = el("div", "agent-block-head");
-      const title = el("h2", "", "Инструменты");
+      const title = el("h2", "", slotText.tool[0]);
       const count = el("span", "agent-count");
       title.append(count);
       const search = el("input", "agent-search");

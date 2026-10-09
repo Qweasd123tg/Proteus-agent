@@ -6,7 +6,7 @@ pub(crate) fn watch(root: NodeRef<html::Section>) -> RwSignal<bool> {
     #[cfg(target_arch = "wasm32")]
     Effect::new(move |_| {
         use wasm_bindgen::{JsCast, closure::Closure, prelude::*};
-        #[wasm_bindgen(raw_module = "/ui/modules/visibility.js")]
+        #[wasm_bindgen(raw_module = "/ui/visibility.js")]
         extern "C" {
             #[wasm_bindgen(js_name = watchLogicalVisibility)]
             fn mount(root: &web_sys::Element, changed: &js_sys::Function) -> js_sys::Function;

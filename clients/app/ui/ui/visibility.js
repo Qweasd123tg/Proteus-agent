@@ -1,3 +1,4 @@
+// Shared DOM visibility, independent of extension registries and client services.
 function ancestors(root) {
   const nodes = [];
   for (let node = root; node;) {
