@@ -45,7 +45,7 @@ CI отключён; проверки выполняются локально. M
 |---|---|
 | Документация, комментарии | Содержание, локальные ссылки, `git diff --check` |
 | Скрипты сборки приложения | `node --test clients/app/scripts/build.test.mjs`, затронутый реальный build; повторный запуск проверяет пропуск этапов |
-| Prompt/config без schema change | Загрузка затронутого профиля; init/install только при изменении упаковки |
+| Prompt/config без schema change | Загрузка профиля; при подключении готового модуля — один целевой invocation; init/install только при изменении упаковки |
 | Чистка tests | Изменённые test targets и сохранённые behavior checks |
 | Локальный helper | Затронутый test target |
 | Общий DTO/contract | Producers/consumers и полный Rust gate; затронутые клиенты отдельно |
@@ -60,6 +60,13 @@ CI отключён; проверки выполняются локально. M
 | Интерфейс приложения и диагностика | Затронутые Rust/Node tests и `trunk build`; browser smoke при UX change |
 | UI extensions | Contract/lifecycle tests; реальный browser/agent API при изменении интеграции |
 | Desktop launch/package | Backend lifecycle, portable build и native smoke; при изменении графического запуска — Linux/NVIDIA default и явный override переменных окружения до GTK, native Wayland с аппаратным ускорением |
+
+Для небольшой правки профиля используйте уже собранный актуальный executable.
+Подключение существующего модуля не является изменением runtime wiring:
+Cargo tests, пересборка reference-модуля, полный gate и portable build для
+такой правки не нужны. Расширяйте проверку только ради конкретной неразрешённой
+проблемы; долгую сборку или расширение задачи сначала обсуждайте с владельцем.
+Несвязанные ошибки сообщайте отдельно, не исследуя и не исправляя без запроса.
 
 Полный Rust gate нужен для общих contracts, runtime wiring, зависимостей,
 изменений взаимодействующих crates, интеграции и release:
