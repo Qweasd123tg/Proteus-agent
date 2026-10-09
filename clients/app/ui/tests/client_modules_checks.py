@@ -1,5 +1,6 @@
 """Actual registry installation, service wiring, teardown and embedded diagnostics."""
 from urllib.parse import urlencode
+from archive_fixture import install as install_archive
 
 
 def run(command, js, wait_for, web, origin, loaded, capture=None):
@@ -52,7 +53,7 @@ def run(command, js, wait_for, web, origin, loaded, capture=None):
     click('[data-builtin-module=model-selector] input')
     page('extensions')
     click('.extension-source > summary')
-    js("document.querySelector('.extension-install input').value=location.origin+'/fixture/client/extension.json';document.querySelector('.extension-install').requestSubmit()")
+    install_archive(js, '/fixture/client/package.zip')
     wait_for(lambda: js("return !!document.querySelector('[data-settings-section=client-test]')"),'Installed diagnostic absent from navigation')
     assert js("let heading=document.querySelector('[data-settings-section=client-test]').previousElementSibling;while(heading&&!heading.classList.contains('settings-nav-label'))heading=heading.previousElementSibling;return heading?.textContent==='Расширения' && ![...document.querySelectorAll('.settings-nav-label')].some(x=>x.textContent==='Диагностика')"),'Diagnostic extension has a separate navigation group'
     assert js("return !document.querySelector('[data-tab-id=client-test]') && !window.clientMounts"),'Settings-only module mounted in workspace'

@@ -1,5 +1,5 @@
 import { viewForSurface } from "../../extensions/contract.js";
-import { icon } from "../../extensions/icons.js";
+import { icon, extensionIcon } from "../../extensions/icons.js";
 import { mountExtensionOptions } from "../../extensions/settings-page.js";
 import { builtinSettingsSurface, mountBuiltinSettings } from "./builtin-settings.js";
 
@@ -133,7 +133,7 @@ export function mountSettings(root, registry, services, requested) {
           button.type = "button";
           button.dataset.settingsSection = record.id;
           button.append(
-            icon(record.manifest.icon || "modules"),
+            record.source === "builtin" ? icon(record.chromeIcon || "modules") : extensionIcon(record.manifest),
             document.createTextNode(record.manifest.name),
           );
           button.addEventListener("click", () => select(record.id), { signal });

@@ -26,14 +26,14 @@ export function mountExtensionSettings(root, registry) {
   const announcement = node('span', '', 'extension-reorder-status');announcement.setAttribute('role','status');
   notice.setAttribute('role', 'status');
   const source = node('details', '', 'extension-source');
-  source.append(node('summary', 'Добавить по ссылке'));
+  source.append(node('summary', 'Установить из ZIP'));
   const form = node('form', '', 'extension-install');
   const input = node('input');
-  input.type = 'url'; input.required = true;
-  input.placeholder = 'https://example.com/extension.json';
-  input.setAttribute('aria-label', 'URL манифеста расширения');
-  const submit = node('button', 'Добавить'); submit.type = 'submit';
-  form.append(input, submit); source.append(form);
+  input.type = 'file'; input.required = true; input.accept = '.zip,application/zip';
+  input.setAttribute('aria-label', 'ZIP-пакет расширения');
+  const submit = node('button', 'Установить'); submit.type = 'submit';
+  const installHint = node('p', 'Выберите ZIP или перетащите его сюда. extension.json и все ресурсы должны быть внутри архива.', 'settings-hint');
+  form.append(input, submit, installHint); source.append(form);
   const reset = node('details', '', 'extension-reset');
   reset.append(node('summary', 'Восстановить стандартный список'));
   reset.append(node('p', 'Состав и порядок панелей заменятся поставляемым списком. Заметки сохранятся.', 'settings-hint'));
@@ -46,13 +46,14 @@ export function mountExtensionSettings(root, registry) {
   mountDisclosureMotion(reset,resetContent,signal);
   enableReorder(list,registry,signal,announcement);
   const unsubscribe = registry.subscribe(() => {
-    const { records: allRecords, bundled, notice: message, busy, ready } = registry.state();
+    const { records: allRecords, bundled, notice: message, busy, ready, archiveAvailable } = registry.state();
     const records=allRecords.filter(r=>r.source==='package');
     const focusKey = document.activeElement?.dataset.controlKey;
     rowsController?.abort(); rowsController = new AbortController();
     const rowSignal = rowsController.signal;
     notice.textContent = message || (!ready && busy ? 'Загрузка расширений…' : '');
-    submit.disabled = busy || !ready; restore.disabled = busy;
+    submit.disabled = input.disabled = busy || !ready || !archiveAvailable; restore.disabled = busy;
+    installHint.textContent = archiveAvailable ? 'Выберите ZIP или перетащите его сюда. extension.json и все ресурсы должны быть внутри архива.' : 'Установка ZIP доступна в настольном приложении Proteus.';
     available.replaceChildren();
     list.querySelector('.settings-hint')?.parentElement===list&&list.querySelector('.settings-hint').remove();
     for(const [id,item] of rowCache)if(!records.includes(item.record)){item.controller.abort();item.row.remove();rowCache.delete(id);}
@@ -104,7 +105,12 @@ export function mountExtensionSettings(root, registry) {
   });
   form.addEventListener('submit', async event => {
     event.preventDefault();
-    if (await registry.install(input.value)) input.value = '';
+    if (await registry.install(input.files[0])) input.value = '';
+  }, { signal });
+  form.addEventListener('dragover', event => { if (!submit.disabled) event.preventDefault(); }, { signal });
+  form.addEventListener('drop', async event => {
+    event.preventDefault(); event.stopPropagation();
+    if (!submit.disabled && await registry.install(event.dataTransfer.files[0])) input.value = '';
   }, { signal });
   void registry.start();
   return () => { controller.abort(); rowsController?.abort(); for(const item of rowCache.values())item.controller.abort();rowCache.clear(); unsubscribe(); root.replaceChildren(); root.classList.remove('extension-management'); };

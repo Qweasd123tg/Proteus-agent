@@ -1,9 +1,9 @@
 {
-  "apiVersion": 2,
+  "apiVersion": 3,
   "id": "files",
   "name": "Файлы",
   "description": "Дерево проекта и просмотр текстовых файлов",
-  "icon": "folder",
+  "icon": { "src": "./assets/icon.svg" },
   "views": [
     {
       "surfaces": [

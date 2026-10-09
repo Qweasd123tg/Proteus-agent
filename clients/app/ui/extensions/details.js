@@ -1,4 +1,4 @@
-import { icon } from './icons.js';
+import { icon, extensionIcon } from './icons.js';
 import { selectionButtons } from '../ui/modules/management.js';
 import { canPreview, mountLivePreview } from './live-preview.js';
 
@@ -18,7 +18,7 @@ export function mountExtensionDetails(root, record, registry) {
   const preview = document.createElement('figure'); preview.className = 'extension-preview';
   const missing = document.createElement('div'); missing.className = 'extension-preview-empty';
   const message = document.createElement('span'); message.textContent = 'Превью не предоставлено';
-  missing.append(icon(record.manifest.icon || 'modules'), message);
+  missing.append(extensionIcon(record.manifest), message);
   if (record.manifest.preview) {
     const image = document.createElement('img');
     image.src = record.manifest.preview.src; image.alt = record.manifest.preview.alt;

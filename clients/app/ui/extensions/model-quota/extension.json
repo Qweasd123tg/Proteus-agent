@@ -1,9 +1,9 @@
 {
-  "apiVersion": 2,
+  "apiVersion": 3,
   "id": "model-quota",
   "name": "Лимиты модели",
   "description": "Остаток квоты, окна лимитов и время сброса текущего провайдера",
-  "icon": "history",
+  "icon": { "src": "./assets/icon.svg" },
   "views": [
     {
       "surfaces": [

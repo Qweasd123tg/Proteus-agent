@@ -1,9 +1,9 @@
 {
-  "apiVersion": 2,
+  "apiVersion": 3,
   "id": "usage",
   "name": "Расход чата",
   "description": "Токены, запросы и оценка стоимости текущего чата",
-  "icon": "analysis",
+  "icon": { "src": "./assets/icon.svg" },
   "views": [
     {
       "surfaces": [

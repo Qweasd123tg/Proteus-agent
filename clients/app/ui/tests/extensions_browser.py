@@ -5,6 +5,7 @@ Requires Firefox and geckodriver (PATH or GECKODRIVER). Only stdlib Python.
 Run after trunk build and cargo build -p proteus-core -p proteus-reference-module.
 """
 import base64
+import archive_fixture
 from images_checks import run as check_images
 from request_races import run as check_request_races
 from markdown_checks import run as check_markdown, FIXTURE as MARKDOWN_FIXTURE
@@ -94,6 +95,8 @@ class Assets(SimpleHTTPRequestHandler):
         pass
 
     def do_POST(self):
+        if archive_fixture.post(self):
+            return
         if self.path != '/responses':
             self.send_error(404); return
         assert self.headers.get('Authorization') == 'Bearer fixture-access'
@@ -152,6 +155,15 @@ class Assets(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split('?', 1)[0]
+        if archive_fixture.get(self, ROOT):
+            return
+        if path in ('/', '/index.html', '/settings', '/context', '/sessions') and 'embedded=true' not in self.path:
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html')
+            self.end_headers()
+            html = (Path(self.directory) / 'index.html').read_text().replace('<head>', '<head>'+archive_fixture.BOOTSTRAP)
+            self.wfile.write(html.encode())
+            return
         inspector = ROOT / 'clients/app/diagnostics/dist'
         if (path=='/' and 'embedded=true' in self.path) or path in ('/architecture', '/inspector.html') or (not (Path(self.directory) / path.lstrip('/')).exists() and (inspector / path.lstrip('/')).is_file()):
             original = self.directory
@@ -206,7 +218,7 @@ class Assets(SimpleHTTPRequestHandler):
         elif self.path.startswith('/fixture/client/'):
             self.send_response(200)
             if self.path.endswith('extension.json'):
-                data = json.dumps({"apiVersion":2,"id":"client-test","name":"Своя диагностика","description":"Browser fixture","icon":"analysis","preview":{"src":"/extensions/previews/diagnostic-analysis.svg","alt":"Пример анализа ходов"},"views":[{"surfaces":[surface],"entry":"./page.js","requires":["client.composer","agent.config.read"],"layout":"fill" if surface == "settings" else "form","isolation":"light"} for surface in ["settings", "composer-model"]]})
+                data = json.dumps({"apiVersion":3,"id":"client-test","name":"Своя диагностика","description":"Browser fixture","icon":{"src":"/extensions/notes/assets/icon.svg"},"preview":{"src":"/extensions/previews/diagnostic-analysis.svg","alt":"Пример анализа ходов"},"views":[{"surfaces":[surface],"entry":"./page.js","requires":["client.composer","agent.config.read"],"layout":"fill" if surface == "settings" else "form","isolation":"light"} for surface in ["settings", "composer-model"]]})
                 self.send_header('Content-Type','application/json')
             else:
                 data = """export async function mount({root,surface,services,signal}) {
@@ -222,7 +234,7 @@ class Assets(SimpleHTTPRequestHandler):
             self.send_response(200)
             if self.path.endswith('extension.json'):
                 slow = '/slow/' in self.path
-                data = json.dumps({"apiVersion": 2, "id": 'slow-test' if slow else 'external-test', "name": 'Медленная панель' if slow else 'Внешняя панель', "description": "Browser fixture", "views": [{"surfaces": surfaces, "entry": "./panel.js", "requires": [], "layout": "scroll", "isolation": "shadow"} for surfaces in ([["compact", "workspace"]] if slow else [["workspace"], ["compact"]])]})
+                data = json.dumps({"apiVersion": 3, "id": 'slow-test' if slow else 'external-test', "name": 'Медленная панель' if slow else 'Внешняя панель', "description": "Browser fixture", "views": [{"surfaces": surfaces, "entry": "./panel.js", "requires": [], "layout": "scroll", "isolation": "shadow"} for surfaces in ([["compact", "workspace"]] if slow else [["workspace"], ["compact"]])]})
                 self.send_header('Content-Type', 'application/json')
             elif '/slow/' in self.path:
                 data = '''export async function mount({root}) {
@@ -270,6 +282,7 @@ def main():
         folder = Path(temporary)
         server = ThreadingHTTPServer(('127.0.0.1', 0), partial(Assets, directory=str(os.environ.get('PROTEUS_UI_TEST_DIST',ROOT / 'clients/app/ui/dist'))))
         server.model_inputs = []
+        server.extension_packages = {}
         server.model_requests = 0
         server.model_gate = threading.Event()
         server.model_gate.set()

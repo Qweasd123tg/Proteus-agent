@@ -1,9 +1,9 @@
 {
-  "apiVersion": 2,
+  "apiVersion": 3,
   "id": "notes",
   "name": "Заметки",
   "description": "Личные заметки в этом клиенте",
-  "icon": "notes",
+  "icon": { "src": "./assets/icon.svg" },
   "views": [
     {
       "surfaces": [

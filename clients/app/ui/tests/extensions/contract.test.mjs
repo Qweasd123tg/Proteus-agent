@@ -6,7 +6,7 @@ import { readFile } from 'node:fs/promises';
 
 const base = 'https://client.example/extensions/catalog.json';
 const view = { surfaces: ['compact', 'workspace'], entry: './panel.js', requires: [], layout: 'scroll', isolation: 'shadow' };
-const manifest = { apiVersion: 2, id: 'test.panel', name: 'Test', description: 'Test', views: [view] };
+const manifest = { apiVersion: 3, id: 'test.panel', name: 'Test', description: 'Test', views: [view] };
 
 test('all shipped packages conform to the same view contract as builtins', async () => {
   const { builtins } = await import('../../ui/modules/catalog.js');
@@ -21,6 +21,7 @@ test('all shipped packages conform to the same view contract as builtins', async
     const url = new URL(record.url, catalogUrl);
     const value = JSON.parse(await readFile(url, 'utf8'));
     assert.ok(value.preview, 'Shipped package has no preview: ' + record.id);
+    assert.ok((await readFile(new URL(value.icon.src, url))).length, 'Missing package icon: ' + record.id);
     assert.ok((await readFile(new URL(value.preview.src, url))).length, 'Missing preview asset: ' + record.id);
     const parsed = parseManifest(value, 'https://client.test/' + record.id + '/extension.json');
     assert.equal(parsed.id, record.id);
@@ -37,6 +38,11 @@ test('independent package resolves its entry relative to its manifest', () => {
   const preview = parseManifest({ ...manifest, preview: { src: './preview.svg', alt: 'Example interface' } }, 'http://localhost:9090/package/extension.json').preview;
   assert.equal(preview.src, 'http://localhost:9090/package/preview.svg');
   assert.ok(Object.isFrozen(preview));
+  const archiveBase = 'proteus-extension://localhost/11111111-1111-4111-8111-111111111111/extension.json';
+  const fromZip = parseManifest({ ...manifest, icon: { src: './assets/icon.svg' } }, archiveBase);
+  assert.equal(fromZip.icon.src, new URL('./assets/icon.svg', archiveBase).href);
+  assert.equal(fromZip.views[0].entry, new URL('./panel.js', archiveBase).href);
+  assert.ok(Object.isFrozen(fromZip.icon));
   for (const layout of ['scroll', 'fill', 'form', 'editor']) {
     assert.equal(parseManifest({ ...manifest, views: [{ ...view, layout }] }, base).views[0].layout, layout);
   }
@@ -49,6 +55,7 @@ test('draft contract rejects unsupported versions, shapes and duplicate interfac
     assert.throws(() => parseManifest(invalid, base));
   }
   assert.throws(() => resourceUrl('https://user:password@example.com/plugin.json', base));
+  for (const icon of ['analysis', null, {}, { src: './icon.svg', name: 'analysis' }]) assert.throws(() => parseManifest({ ...manifest, icon }, base));
   for (const preview of [null, { src: './preview.svg' }, { src: './preview.svg', alt: '' }, { src: 'javascript:alert(1)', alt: 'Example' }, { src: './preview.svg', alt: 'Example', entry: './code.js' }]) assert.throws(() => parseManifest({ ...manifest, preview }, base));
 });
 

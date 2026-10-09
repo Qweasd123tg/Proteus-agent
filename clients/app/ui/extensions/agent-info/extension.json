@@ -1,9 +1,9 @@
 {
-  "apiVersion": 2,
+  "apiVersion": 3,
   "id": "agent-info",
   "name": "Сборка агента",
   "description": "Профиль и инструменты подключённого агента",
-  "icon": "workflow",
+  "icon": { "src": "./assets/icon.svg" },
   "views": [
     {
       "surfaces": [

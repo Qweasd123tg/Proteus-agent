@@ -32,8 +32,9 @@ label.extension-description { cursor: pointer; }
 .extension-source summary::-webkit-details-marker, .extension-reset summary::-webkit-details-marker { display: none; }
 .extension-source summary::after, .extension-reset summary::after { content: '+'; margin-left: 12px; }
 .extension-source[open] summary::after, .extension-reset[open] summary::after { content: '−'; }
-.extension-install { display: flex; align-items: center; gap: 8px; margin: 12px 0; }
-.extension-install input { flex: 1; font-size: 12px; background: var(--bg-panel); }
+.extension-install { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; padding: 12px; border: 1px dashed var(--border-strong); border-radius: var(--radius-inner); }
+.extension-install input { flex: 1; min-width: 0; font-size: 12px; background: var(--bg-panel); }
+.extension-install .settings-hint { flex-basis: 100%; margin: 4px 0 0; }
 .extension-install button, .extension-reset button { border-color: var(--border-strong); }
 .extension-reset p { margin: 12px 0; }
 

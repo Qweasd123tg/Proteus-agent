@@ -1,9 +1,9 @@
 {
-  "apiVersion": 2,
+  "apiVersion": 3,
   "id": "diagnostic-usage",
   "name": "Расход и контекст",
   "description": "Расход токенов, запросы и снимок контекста.",
-  "icon": "analysis",
+  "icon": { "src": "./assets/icon.svg" },
   "views": [
     {
       "surfaces": [

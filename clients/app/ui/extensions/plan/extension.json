@@ -1,9 +1,9 @@
 {
-  "apiVersion": 2,
+  "apiVersion": 3,
   "id": "plan",
   "name": "План",
   "description": "Текущий план задачи и прогресс выполнения",
-  "icon": "plan",
+  "icon": { "src": "./assets/icon.svg" },
   "views": [
     {
       "surfaces": [

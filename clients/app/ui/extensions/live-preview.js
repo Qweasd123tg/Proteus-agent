@@ -2,7 +2,7 @@ import { viewForSurface } from './contract.js';
 import { createViewRuntime } from './runtime.js';
 import { extensionStorage } from './storage.js';
 import { createViewRoot } from './view-root.js';
-import { icon } from './icons.js';
+import { extensionIcon } from './icons.js';
 import { createDemoServices, demoServiceNames } from './demo-services.js';
 
 const SINGLE = ['settings', 'composer-model', 'composer-access'];
@@ -64,7 +64,7 @@ export function mountLivePreview(container, record, onClose) {
   const stopViews = () => { for (const runtime of runtimes) runtime.stop(); runtimes = []; };
   function start() {
     stopViews(); body.replaceChildren(); error.hidden = true;
-    if (compactRoot) compactRoot.replaceChildren(icon(record.manifest.icon || 'modules'));
+    if (compactRoot) compactRoot.replaceChildren(extensionIcon(record.manifest));
     if (compact && !workspace) {
       const hint = document.createElement('p'); hint.className = 'settings-hint';
       hint.textContent = 'У расширения только виджет: наведите на иконку выше, чтобы увидеть подробности.';

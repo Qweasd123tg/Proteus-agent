@@ -1,9 +1,9 @@
 {
-  "apiVersion": 2,
+  "apiVersion": 3,
   "id": "diagnostic-architecture",
   "name": "Архитектура",
   "description": "Связи модулей и конфигурация runtime.",
-  "icon": "inspector",
+  "icon": { "src": "./assets/icon.svg" },
   "views": [
     {
       "surfaces": [

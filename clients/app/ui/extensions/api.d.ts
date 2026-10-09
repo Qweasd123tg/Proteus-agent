@@ -1,10 +1,11 @@
-/** Client extension contract v2. Independent of agent process-module contracts. */
+/** Client extension contract v3. Independent of agent process-module contracts. */
 export interface ExtensionManifest {
-  apiVersion: 2;
+  apiVersion: 3;
   id: string;
   name: string;
   description: string;
-  icon?: string;
+  /** Package-owned image; resolved relative to extension.json. */
+  icon?: { src: string };
   /** Static illustration; resolved relative to the manifest without executing any view. */
   preview?: { src: string; alt: string };
   views: ExtensionView[];
@@ -26,8 +27,12 @@ export interface ExtensionRecord {
   enabled: boolean;
   manifest?: ExtensionManifest;
   error?: string;
+  /** Device-owned installed ZIP directory; absent for catalog/builtin records. */
+  packageKey?: string;
   /** Builtins only; installed packages always appear under Extensions. */
   settingsGroup?: 'agent' | 'builtin';
+  /** Host-owned chrome artwork, not a field of a package manifest. */
+  chromeIcon?: string;
   required?: boolean;
 }
 
