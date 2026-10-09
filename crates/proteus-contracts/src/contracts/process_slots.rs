@@ -40,7 +40,7 @@ pub const CONTEXT_HOST_PROVIDER_METHOD: &str = "host.context.provide";
 pub const PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION: &str = "v2";
 pub const PROCESS_CONTEXT_PROVIDER_METHOD: &str = "provide";
 
-pub const PROCESS_TOOL_CONTRACT_VERSION: &str = "v3";
+pub const PROCESS_TOOL_CONTRACT_VERSION: &str = "v4";
 pub const PROCESS_TOOL_LIST_METHOD: &str = "list";
 pub const PROCESS_TOOL_INVOKE_METHOD: &str = "invoke";
 

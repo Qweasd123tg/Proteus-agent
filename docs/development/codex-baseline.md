@@ -18,7 +18,7 @@ Codex определяются в [roadmap.md](../product/roadmap.md).
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v19`, `compactor/v11`, journal schema v17 и config snapshot v6.
+Действующие версии: `workflow/v19`, `compactor/v11`, journal schema v18 и config snapshot v6.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,

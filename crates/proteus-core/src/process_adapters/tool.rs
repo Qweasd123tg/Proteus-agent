@@ -2,7 +2,6 @@ use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::{Result, bail};
 use async_trait::async_trait;
-use proteus_module_protocol::v3::NoAsyncHostRequests;
 
 use crate::contracts::{
     PROCESS_TOOL_CONTRACT_VERSION, PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD,
@@ -87,10 +86,16 @@ impl Tool for ProcessTool {
             .invoke_with_dispatcher_and_cancel_check(
                 PROCESS_TOOL_INVOKE_METHOD,
                 &request,
-                Arc::new(NoAsyncHostRequests),
+                Arc::new(host::ToolHost {
+                    conversation: ctx.conversation,
+                    call: call.clone(),
+                    cancellation: cancellation.clone(),
+                }),
                 || cancellation.is_cancelled(),
             )
             .await?;
         Ok(response.result)
     }
 }
+
+mod host;

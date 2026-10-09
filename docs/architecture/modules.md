@@ -62,7 +62,7 @@ Wire shape и правила validation — в
 
 | Слот | Правило выбора | Где выбирается | Процессный контракт | Примеры имён |
 |---|---|---|---|---|
-| `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v3` | `hook.instructions`, `hook.output_budget` |
+| `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v4` | `hook.instructions`, `hook.output_budget`, `hook.dcp` |
 | `workflow` | `select_one` | `modules.workflow` | да | `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`, `coding.project_check` |
 | `search` | `select_one` | `modules.search` | да | `rg` |
 | `memory` | `select_one` | `modules.memory` | да | `jsonl`, `sqlite` |
@@ -165,7 +165,7 @@ Core запускает модуль и отправляет ему первое
 
 ### Hooks
 
-`hook/v3` — typed contributions на host-owned точках `turn_started`,
+`hook/v4` — typed contributions на host-owned точках `turn_started`,
 `before_model`, `before_tool`, `after_tool`, `before_stop`, `turn_settled`. Список
 `modules.hooks` задаёт порядок; пустой список отключает hooks. Один export
 не получает host callbacks и не вызывает tools/model/memory. Component
@@ -195,8 +195,16 @@ UI-событие публикуется после принятия. Ошибк
 Внешний [`hook-process`](../../examples/modules/hook-process/README.md)
 предоставляет JS/TS SDK и явные обёртки для переноса отдельных Pi/OpenCode
 handlers и PreToolUse/Stop commands Codex/Claude. Он экспортирует обычный
-`hook/v3` с тем же contract и без дополнительных callbacks. Upstream lifecycle
+`hook/v4` с тем же contract и без дополнительных callbacks. Upstream lifecycle
 или неподдержанные actions не эмулируются; различия описаны рядом с примерами.
+
+[`DCP`](../../modules/reference/dcp/README.md) — независимый Node component
+с exports `hook/hook.dcp` и `tool/dcp.tools` (tool `compress`). Алгоритмы и prompts
+из pinned upstream DCP 3.2.0 применяются к model context view, не переписывают
+canonical history. Hook получает immutable conversation snapshot в input;
+tool читает invocation-bound snapshot через `host.conversation.read`. Общий
+process lifecycle и внутренние blocks не объединяют authority exports. Это
+механизм с явными platform adaptations, не OpenCode shell/TUI/RPC и не compactor.
 
 ### Workflow
 
@@ -383,7 +391,7 @@ input/output. `metadata` — непрозрачные данные module, не 
 
 Тот же DTO возвращает workflow callback `host.history.compact`; актуальные
 границы — `compactor/v11` и `workflow/v19`, прежние slot versions не принимаются.
-Wire protocol остаётся v3, журнал использует schema v17.
+Wire protocol остаётся v3, журнал использует schema v18.
 Workflow replay сохраняет typed поля `HistoryCompactionReport` и весь `metadata`, не подмешивая и не
 удаляя ключи с известными именами. Core помечает внутренний model callback
 compactor origin-ом `compactor` в journal envelope. Workflow replay проверяет
@@ -425,7 +433,7 @@ host-owned `ExecutionAttribution`: обязательный `ExecutionId` и opt
 
 Для узкого профиля тот же модуль принимает selectors `file_tools`,
 `git_tools`, `shell_tools`, `plan_tool`, `skill_tool`, `rust_lsp` и
-`policy_tools`. Они используют тот же `tool/v3` contract; selector не
+`policy_tools`. Они используют тот же `tool/v4` contract; selector не
 меняет authority.
 
 ### Model

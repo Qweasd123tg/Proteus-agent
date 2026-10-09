@@ -210,6 +210,7 @@ pub async fn replay_workflow(
             },
             attribution: hook_attribution,
             cwd: fixture.opened.task.cwd.clone(),
+            conversation: None,
         })
         .await;
     let replay_result = crate::core::reviewed_workflow::run(
@@ -311,6 +312,7 @@ pub async fn replay_workflow(
             },
             attribution: hook_attribution,
             cwd: fixture.opened.task.cwd.clone(),
+            conversation: None,
         })
         .await;
     checkpoint_recorder.finish();

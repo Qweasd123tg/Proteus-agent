@@ -1,6 +1,6 @@
 # Перенос Скриптовых Хуков
 
-Внешний JS/TS component для текущего `hook/v3`, без npm dependencies.
+Внешний JS/TS component для текущего `hook/v4`, без npm dependencies.
 Нужен Node.js **22.18+**: `.mjs` работает как JavaScript, `.ts` — через
 встроенный type stripping. TypeScript syntax с необходимой генерацией кода
 (например, `enum`) требует предварительной сборки в JS. Внешние dependencies

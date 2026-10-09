@@ -962,8 +962,22 @@ Pi/OpenCode tool handlers (включая изменение args), JSON-stdin P
 `updatedInput` и Stop scripts Codex/Claude Code. Completion review сохраняет
 root turn, имеет общий workflow deadline и лимит 8 продолжений.
 Неподдержанные upstream действия отклоняются явно; это адаптер переноса,
-не загрузчик чужих plugins. Модуль использует тот же `hook/v3`, без отдельной
+не загрузчик чужих plugins. Модуль использует тот же `hook/v4`, без отдельной
 registration или authority surface в Core.
+
+### DCP Context Pruning
+
+[`proteus.dcp.example.toml`](../../examples/configs/proteus.dcp.example.toml)
+подключает самостоятельный Node component с `hook.dcp` и tool export `dcp.tools`.
+Сборка, настройки, происхождение и лицензия описаны в
+[`modules/reference/dcp/README.md`](../../modules/reference/dcp/README.md).
+Выбор включает `hook.dcp` в `modules.hooks` и `compress` в `tools.enabled`;
+opaque config двух exports должен совпадать. Пример не устанавливает executable
+автоматически: нужен абсолютный путь к подготовленному `dist/worker.js`.
+
+DCP заменяет только outgoing model context, не cold history; выбранный
+`compactor` остаётся независимым. Это механизм из DCP 3.2.0, не OpenCode
+commands/TUI/RPC и не объявление parity всего экспериментального профиля.
 
 ## Config Builder
 

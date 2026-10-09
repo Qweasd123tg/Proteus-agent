@@ -258,7 +258,17 @@ embedded config, восстановление WASM и permissions, ошибка 
 
 ## Ordered Hook Evidence
 
-Для `hook/v3` проверяются strict DTO/response validation, одинаковая authority
+Самостоятельный DCP Node component проверяется `npm test` в
+`modules/reference/dcp`. Runner перед `full`, core integration tests и
+`hook_runtime`/`module_swap` выполняет locked `npm ci --ignore-scripts` и build,
+передаёт свежий путь через `PROTEUS_TEST_DCP_MODULE`; сборок внутри Rust tests нет.
+`hook_runtime` связывает реальные hook/tool exports и scripted process model:
+outgoing context отличается, cold history сохраняет оригиналы, replay `Success`
+и `Error` не вызывает model/DCP и не меняет package-owned state. Live-model
+dogfood/eval проверяется отдельно: scripted evidence не доказывает полезность
+или качество summary на повседневных задачах.
+
+Для `hook/v4` проверяются strict DTO/response validation, одинаковая authority
 без host callbacks, config order и отсутствие duplicate/unknown selection.
 Boundary chain покрывает A→B/B→A, pre-effect failure, actual tool outcome
 при post-effect failure, targeted cancellation и component restart. Config

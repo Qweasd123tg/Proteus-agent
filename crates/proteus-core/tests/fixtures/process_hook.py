@@ -7,7 +7,7 @@ for line in sys.stdin:
     if 'id' not in request:
         continue
     if request['method'] == 'initialize':
-        result = dict(protocol_version='v3', component_id=component_id, exports=[dict(slot='hook', module_id=module_id, contract_version='v3', composition='ordered_many', module_features=[], config_schema=None)])
+        result = dict(protocol_version='v3', component_id=component_id, exports=[dict(slot='hook', module_id=module_id, contract_version='v4', composition='ordered_many', module_features=[], config_schema=None)])
     else:
         event = request['params']['params']['event']['event']
         if mode == 'after_wait' and event == 'after_tool':

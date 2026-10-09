@@ -1,3 +1,5 @@
+#[path = "hook_runtime/dcp.rs"]
+mod dcp;
 #[path = "hook_runtime/js_ports.rs"]
 mod js_ports;
 #[path = "hook_runtime/review.rs"]

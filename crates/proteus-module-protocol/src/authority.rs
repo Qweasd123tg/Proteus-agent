@@ -12,12 +12,13 @@ use proteus_contracts::contracts::{
     PROCESS_SEARCH_CONTRACT_VERSION, PROCESS_SEARCH_METHOD, PROCESS_TOOL_CONTRACT_VERSION,
     PROCESS_TOOL_EXPOSURE_CONTRACT_VERSION, PROCESS_TOOL_EXPOSURE_SELECT_METHOD,
     PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD, PROCESS_WORKFLOW_CONTRACT_VERSION,
-    PROCESS_WORKFLOW_METHOD, ProcessModuleComposition, WORKFLOW_HOST_BUILD_CONTEXT_METHOD,
-    WORKFLOW_HOST_COMPACT_HISTORY_METHOD, WORKFLOW_HOST_COMPLETE_MODEL_METHOD,
-    WORKFLOW_HOST_EMIT_EVENT_METHOD, WORKFLOW_HOST_EXECUTE_TOOL_METHOD,
-    WORKFLOW_HOST_EXECUTE_TOOLS_METHOD, WORKFLOW_HOST_NEXT_MODEL_STREAM_METHOD,
-    WORKFLOW_HOST_RUNTIME_STATUS_METHOD, WORKFLOW_HOST_SELECT_TOOLS_METHOD,
-    WORKFLOW_HOST_START_MODEL_STREAM_METHOD, WORKFLOW_HOST_VISIBLE_TOOLS_METHOD,
+    PROCESS_WORKFLOW_METHOD, ProcessModuleComposition, TOOL_HOST_READ_CONVERSATION_METHOD,
+    WORKFLOW_HOST_BUILD_CONTEXT_METHOD, WORKFLOW_HOST_COMPACT_HISTORY_METHOD,
+    WORKFLOW_HOST_COMPLETE_MODEL_METHOD, WORKFLOW_HOST_EMIT_EVENT_METHOD,
+    WORKFLOW_HOST_EXECUTE_TOOL_METHOD, WORKFLOW_HOST_EXECUTE_TOOLS_METHOD,
+    WORKFLOW_HOST_NEXT_MODEL_STREAM_METHOD, WORKFLOW_HOST_RUNTIME_STATUS_METHOD,
+    WORKFLOW_HOST_SELECT_TOOLS_METHOD, WORKFLOW_HOST_START_MODEL_STREAM_METHOD,
+    WORKFLOW_HOST_VISIBLE_TOOLS_METHOD,
 };
 
 const NO_HOST_METHODS: &[&str] = &[];
@@ -182,7 +183,7 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         contract_version: PROCESS_TOOL_CONTRACT_VERSION,
         composition: ProcessModuleComposition::OrderedMany,
         module_methods: TOOL_METHODS,
-        host_methods: NO_HOST_METHODS,
+        host_methods: &[TOOL_HOST_READ_CONVERSATION_METHOD],
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
     },
@@ -268,7 +269,7 @@ mod tests {
         assert_eq!(authority.module_methods, [PROCESS_HOOK_INVOKE_METHOD]);
         assert!(authority.host_methods.is_empty());
         assert!(authority.host_features.is_empty());
-        assert!(process_contract_authority("hook", "v4").is_none());
+        assert!(process_contract_authority("hook", "v3").is_none());
     }
 
     #[test]
@@ -297,8 +298,8 @@ mod tests {
             ("model", "v11", "v12"),
             ("compactor", "v10", "v11"),
             ("workflow", "v18", "v19"),
-            ("hook", "v2", "v3"),
-            ("tool", "v2", "v3"),
+            ("hook", "v3", "v4"),
+            ("tool", "v3", "v4"),
             ("policy", "v1", "v2"),
             ("tool_exposure", "v3", "v4"),
         ] {

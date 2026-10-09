@@ -39,6 +39,7 @@ const RESERVED_ATTRIBUTION_KEYS: [&str; 3] = ["session_id", "thread_id", "turn_i
 #[derive(Clone)]
 pub struct ModelExecutionBinding {
     scope: ExecutionScope,
+    conversation: Option<Arc<dyn crate::contracts::ConversationReader>>,
     recorder: Arc<dyn ExecutionRecorder>,
     turn: Option<ModelTurnAttribution>,
 }
@@ -59,6 +60,7 @@ impl ModelExecutionBinding {
     pub fn with_recorder(scope: ExecutionScope, recorder: Arc<dyn ExecutionRecorder>) -> Self {
         Self {
             scope,
+            conversation: None,
             recorder,
             turn: None,
         }
@@ -74,6 +76,7 @@ impl ModelExecutionBinding {
     ) -> Self {
         Self {
             scope,
+            conversation: None,
             recorder,
             turn: Some(ModelTurnAttribution {
                 events,
@@ -86,6 +89,14 @@ impl ModelExecutionBinding {
 
     pub fn scope(&self) -> &ExecutionScope {
         &self.scope
+    }
+
+    pub(crate) fn with_conversation(
+        mut self,
+        reader: Arc<dyn crate::contracts::ConversationReader>,
+    ) -> Self {
+        self.conversation = Some(reader);
+        self
     }
 
     pub fn recorder(&self) -> Arc<dyn ExecutionRecorder> {

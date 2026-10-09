@@ -13,6 +13,8 @@ slot действует один contract и один authority surface.
 Crates в `reference/` — ordinary libraries, слинкованные в
 `proteus-reference-module`. Единственная host boundary — process protocol;
 native ABI и per-crate manifests отсутствуют.
+[`reference/dcp`](reference/dcp/README.md) — отдельный Node executable с
+hook/tool exports, без линковки в Rust reference-module и дополнительных прав.
 
 Новые модули создаются как отдельные executable по
 [`docs/architecture/process-module-architecture.md`](../docs/architecture/process-module-architecture.md).

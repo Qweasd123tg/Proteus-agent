@@ -30,6 +30,7 @@ impl AgentRuntime {
                     context.turn_id,
                 ),
                 cwd: task.cwd.clone(),
+                conversation: None,
             })
             .await
         {
@@ -69,6 +70,7 @@ impl AgentRuntime {
                 },
                 attribution,
                 cwd: self.services.cwd.clone(),
+                conversation: None,
             })
             .await
         {

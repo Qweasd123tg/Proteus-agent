@@ -51,7 +51,7 @@ export function createHooks(settings = {}) {
     api,
     seal() { sealed = true; },
     async invoke(input, signal) {
-      object(input, ["event", "attribution", "cwd"], [], "HookInput");
+      object(input, ["event", "attribution", "cwd", "conversation"], [], "HookInput");
       if (!events.has(input.event?.event)) throw new Error("unsupported canonical hook event");
       nonblank(input.cwd, "cwd");
       let event = structuredClone(input.event);
@@ -59,6 +59,7 @@ export function createHooks(settings = {}) {
       const ctx = Object.freeze({
         cwd: input.cwd, attribution: frozenCopy(input.attribution),
         config: api.config, signal,
+        conversation: frozenCopy(input.conversation),
       });
       for (const registration of registrations) {
         if (registration.event !== event.event ||

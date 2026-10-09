@@ -16,9 +16,13 @@
   [границы и использование](../guides/images.md).
 - Standalone process Workflow без conversation и модели; typed top-level
   операции `execute_tool` и `remember` без открытия Turn.
-- Opt-in typed `hook/v3` contributions: явная ordered chain, model instructions/
+- Opt-in typed `hook/v4` contributions: явная ordered chain, model instructions/
   messages, pre-tool block/args, post-tool output и bounded completion review;
   callbacks отсутствуют.
+- Самостоятельный DCP Node component с model-driven `compress` и hook context
+  view, package-owned durable state; исходная история сохраняется. Это перенос
+  механизма DCP 3.2.0 с явными adaptations, без OpenCode commands/TUI/RPC;
+  [подключение](../../modules/reference/dcp/README.md).
 - Общий tool safety/approval path и execution-bound model/tools/memory.
 - Canonical journal, history/resume, prompt replay и workflow replay
   в поддержанной границе.

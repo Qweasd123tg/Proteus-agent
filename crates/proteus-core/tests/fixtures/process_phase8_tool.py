@@ -18,7 +18,7 @@ POLICY_MODULE_ID = "phase8-allow-all"
 TOOL_EXPORT = {
     "slot": "tool",
     "module_id": TOOL_MODULE_ID,
-    "contract_version": "v3",
+    "contract_version": "v4",
     "composition": "ordered_many",
     "module_features": [], "config_schema": None,
 }
@@ -34,7 +34,7 @@ POLICY_EXPORT = {
 def initialize(params):
     exports = params.get("exports")
     expected = {
-        ("tool", TOOL_MODULE_ID, "v3", "ordered_many"),
+        ("tool", TOOL_MODULE_ID, "v4", "ordered_many"),
         ("policy", POLICY_MODULE_ID, "v2", "select_one"),
     }
     actual = {

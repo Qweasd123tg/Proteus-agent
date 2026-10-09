@@ -239,6 +239,7 @@ fn all_reference_exports_share_a_component_and_route_over_one_broker() {
             }
         };
         let input = HookInput {
+            conversation: None,
             event,
             attribution: ExecutionAttribution::detached(new_execution_id()),
             cwd: workspace.path().into(),

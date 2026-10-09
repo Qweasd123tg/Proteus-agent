@@ -8,7 +8,7 @@ const attribution = { execution_id: "execution", agent: { session_id: "session",
 const call = { id: "call", name: "read_file", args: { path: "file" }, surface: "function", raw_arguments: null };
 const before = { event: "before_tool", call, spec: null, blocked: null };
 const after = { event: "after_tool", call, result: { call_id: "call", ok: true, output: "original", content: [], error: null, metadata: null } };
-const invoke = (hooks, event, signal = new AbortController().signal) => hooks.invoke({ event, attribution, cwd: process.cwd() }, signal);
+const invoke = (hooks, event, signal = new AbortController().signal) => hooks.invoke({ event, attribution, cwd: process.cwd(), conversation: null }, signal);
 
 test("Pi veto and exact tool filters preserve the handler body", async () => {
   const hooks = createHooks();

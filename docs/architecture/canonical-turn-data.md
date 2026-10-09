@@ -1,6 +1,6 @@
 # Canonical Turn Data
 
-Текущий формат — journal schema v17, config snapshot v6 и session metadata v4. Resume history,
+Текущий формат — journal schema v18, config snapshot v6 и session metadata v4. Resume history,
 transcript, eval, prompt replay и workflow replay читают canonical journal.
 
 Canonical context parts сохраняют обязательный `ContextChunk.render_mode`:

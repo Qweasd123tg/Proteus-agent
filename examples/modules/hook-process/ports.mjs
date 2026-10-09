@@ -33,7 +33,7 @@ export function piToolResult(handler) {
     object(answer, [], ["content", "details", "isError"], "ported Pi tool_result result");
     if ((Object.hasOwn(answer, "details") && !isDeepStrictEqual(answer.details, details)) ||
         (Object.hasOwn(answer, "isError") && answer.isError !== isError)) {
-      throw new Error("hook/v3 cannot change tool status or metadata");
+      throw new Error("hook/v4 cannot change tool status or metadata");
     }
     if (answer.content === undefined) return;
     if (!Array.isArray(answer.content)) throw new Error("content must be an array");

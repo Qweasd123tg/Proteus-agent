@@ -310,11 +310,18 @@ history сохраняют раздельные commentary/final items. Клие
 
 ## Хуки Выполнения
 
-Opt-in `modules.hooks` задаёт упорядоченную цепочку process exports `hook/v3`.
+Opt-in `modules.hooks` задаёт упорядоченную цепочку process exports `hook/v4`.
 Core вызывает её в шести точках: `turn_started`, `before_model`, `before_tool`,
 `after_tool`, `before_stop`, `turn_settled`. Это общая execution boundary: model/tool hooks
 действуют также в host callbacks внешнего workflow и при detached tool calls.
 Отдельный workflow не обязан повторять их wiring.
+
+`HookInput.conversation` — обязательный nullable read-only snapshot: у
+conversation-bound `before_model` он содержит canonical history и context
+observations, у остальных events и standalone операций — `null`. Hook response
+меняет только разрешённые поля event. Journal schema v18 записывает snapshot
+как часть trace; replay использует записанный transformed outcome как oracle,
+не вызывает handlers и не воспроизводит их package-owned storage effects.
 
 `before_model` разрешает заменить только messages/instructions запроса, сохраняя
 model, tools, attribution и параметры. После каждого вклада проверяются
@@ -363,7 +370,7 @@ Workflow replay применяет записанные responses и failures б
 Если runtime запущен с config path, рядом с config root создаётся дерево
 `sessions/<workspace>/<session>/` (подробно про layout, resume и lifecycle —
 раздел «Session Store» ниже). Source of truth — `journal.jsonl`, где одна
-строка является строгим record schema v17 с `record_id`, монотонным
+строка является строгим record schema v18 с `record_id`, монотонным
 `session_seq`, timestamp, mandatory session id, optional execution/thread/turn
 ids, `kind` и payload. `TurnOpened`, model и tool facts требуют
 `ExecutionId`; history/settlement остаются chat facts без execution owner.
@@ -980,7 +987,7 @@ journal. ОС освобождает владение при закрытии pr
 смешивает histories.
 
 Reader принимает только basename из 10 ASCII-цифр с обязательным
-`session.json` schema v4 и journal schema v17. UUID-basename directories,
+`session.json` schema v4 и journal schema v18. UUID-basename directories,
 прежние session/journal schemas и неизвестные wire/storage формы
 отвергаются явно: pre-release cutover не содержит legacy decoder или dual-read.
 Обычный каталог и автоматический выбор последней session пропускают

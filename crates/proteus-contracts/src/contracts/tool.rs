@@ -29,6 +29,8 @@ pub struct ToolContext {
     /// Runtime-bound capability для facade-tool `task`. Dylib tools её не
     /// получают через свой ABI и не могут вызывать subagent slot напрямую.
     pub agent_control: Option<Arc<dyn AgentControlToolHost>>,
+    /// Read-only canonical history; absent for detached/non-conversation work.
+    pub conversation: Option<Arc<dyn super::ConversationReader>>,
 }
 
 impl ToolContext {
@@ -40,6 +42,7 @@ impl ToolContext {
             user_input: None,
             task: None,
             agent_control: None,
+            conversation: None,
         }
     }
 }

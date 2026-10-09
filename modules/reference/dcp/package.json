@@ -1,0 +1,22 @@
+{
+  "name": "proteus-dcp-module",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@tarquinen/opencode-dcp": "3.2.0"
+  },
+  "overrides": {
+    "solid-js": "1.9.17",
+    "seroval": "1.6.9",
+    "@babel/core": "^7.29.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12"
+  }
+}

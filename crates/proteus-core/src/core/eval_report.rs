@@ -367,6 +367,7 @@ mod tests {
                     HookEvent, HookInput, HookResponse, HookStep, HookStepOutcome, HookTrace,
                 };
                 let input = HookInput {
+                    conversation: None,
                     attribution,
                     cwd: workspace.path().into(),
                     event: HookEvent::BeforeTool {

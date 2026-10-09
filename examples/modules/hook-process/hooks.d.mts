@@ -1,5 +1,6 @@
 export interface HookContext {
   readonly cwd: string;
+  readonly conversation: null | { readonly messages: readonly unknown[]; readonly model_context: readonly unknown[] };
   readonly attribution: {
     readonly execution_id: string;
     readonly agent: null | { readonly session_id: string; readonly thread_id: string; readonly turn_id: string };
@@ -60,5 +61,5 @@ export interface Hooks {
 export function createHooks(settings?: Record<string, unknown>): {
   api: Hooks;
   seal(): void;
-  invoke(input: { event: HookEvents[keyof HookEvents]; cwd: string; attribution: HookContext["attribution"] }, signal: AbortSignal): Promise<{ result: HookResponse }>;
+  invoke(input: { event: HookEvents[keyof HookEvents]; cwd: string; attribution: HookContext["attribution"]; conversation: HookContext["conversation"] }, signal: AbortSignal): Promise<{ result: HookResponse }>;
 };

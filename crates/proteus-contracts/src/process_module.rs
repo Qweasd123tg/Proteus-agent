@@ -69,6 +69,12 @@ pub struct ToolModuleInvocationContext {
 
 pub trait ToolModuleHost: Send + Sync {
     fn is_cancelled(&self) -> ProcessModuleResult<bool>;
+    /// Read only the invocation-bound conversation, never an arbitrary session.
+    fn read_conversation_json(&self) -> ProcessModuleResult<String> {
+        Err(ProcessModuleError::new(
+            "tool invocation has no conversation reader",
+        ))
+    }
 }
 
 pub type ToolModuleHostMut<'a> = dyn ToolModuleHost + 'a;

@@ -424,6 +424,7 @@ impl BoundTools {
             user_input: None,
             task: None,
             agent_control: None,
+            conversation: None,
         };
         enrich(&mut tool_ctx);
         // Binding-owned fields remain authoritative after optional enrichment.
