@@ -67,11 +67,11 @@ pub async fn replay_workflow(
         .snapshot
         .tools
         .iter()
-        .map(|tool| tool.spec.clone())
+        .map(|tool| (tool.spec.clone(), tool.model_visible))
         .collect::<Vec<_>>();
     let registered_tool_names = specs
         .iter()
-        .map(|tool| tool.name.clone())
+        .map(|(tool, _)| tool.name.clone())
         .collect::<HashSet<_>>();
     let state = Arc::new(ReplayState::new(
         fixture.exchanges.clone(),

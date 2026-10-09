@@ -231,6 +231,14 @@ pub(super) fn commands(
             return;
         }
         set_stick_to_bottom.set(true);
+        if text.starts_with('/') && !text.starts_with("//") {
+            actions.execute_slash(text, draft, set_draft);
+            return;
+        }
+        let text = text
+            .strip_prefix("//")
+            .map(|rest| format!("/{rest}"))
+            .unwrap_or(text);
         set_draft.set(String::new());
         if is_sending.get() {
             actions.queue_prompt(text);

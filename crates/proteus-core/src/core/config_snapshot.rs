@@ -31,28 +31,39 @@ pub struct SessionConfigSnapshot {
 pub type SessionConfigModules = ModulesConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SessionConfigTool {
     pub source: String,
     pub spec: ToolSpec,
+    pub model_visible: bool,
+}
+
+impl SessionConfigTool {
+    pub(crate) fn capture(registry: &crate::contracts::ToolRegistry) -> Vec<Self> {
+        registry
+            .entries()
+            .into_iter()
+            .map(|(source, spec)| Self {
+                source: source.label(),
+                model_visible: registry
+                    .get(&spec.name)
+                    .expect("registry entry has a registered tool")
+                    .model_visible(),
+                spec,
+            })
+            .collect()
+    }
 }
 
 impl SessionConfigSnapshot {
-    pub const SCHEMA_VERSION: u32 = 6;
+    pub const SCHEMA_VERSION: u32 = 7;
 
     pub fn from_runtime_config(
         config: &AppConfig,
         registry: &RuntimeRegistry,
         permission_mode_default: PermissionMode,
     ) -> Self {
-        let tools = registry
-            .tools
-            .entries()
-            .into_iter()
-            .map(|(source, spec)| SessionConfigTool {
-                source: source.label(),
-                spec,
-            })
-            .collect();
+        let tools = SessionConfigTool::capture(&registry.tools);
         Self {
             schema_version: Self::SCHEMA_VERSION,
             ts: unix_timestamp_ms(),

@@ -22,6 +22,7 @@ use crate::{
 
 mod builder;
 mod checkpoint;
+mod commands;
 mod conversation;
 mod execution;
 mod execution_binding;

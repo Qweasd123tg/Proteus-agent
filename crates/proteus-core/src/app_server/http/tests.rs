@@ -275,6 +275,7 @@ mod pending;
 mod security;
 mod session_reads;
 mod sessions;
+mod slash;
 mod sse;
 mod turns;
 

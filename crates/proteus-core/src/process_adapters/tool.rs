@@ -34,7 +34,8 @@ pub fn build_process_tools(
                 client.module_id()
             );
         }
-        for spec in response.result {
+        for definition in response.result {
+            let spec = definition.spec;
             let name = spec.name.clone();
             // The bootstrap/list deadline is not the invocation budget. Each
             // listed tool supplies its own execution timeout through ToolSpec;
@@ -53,6 +54,8 @@ pub fn build_process_tools(
             )?);
             let tool: Arc<dyn Tool> = Arc::new(ProcessTool {
                 spec,
+                model_visible: definition.model_visible,
+                user_command: definition.user_command,
                 client: invocation_client,
             });
             if tools.insert(name.clone(), tool).is_some() {
@@ -65,6 +68,8 @@ pub fn build_process_tools(
 
 struct ProcessTool {
     spec: ToolSpec,
+    model_visible: bool,
+    user_command: Option<crate::contracts::ToolUserCommand>,
     client: Arc<ProcessExportClient>,
 }
 
@@ -72,6 +77,12 @@ struct ProcessTool {
 impl Tool for ProcessTool {
     fn spec(&self) -> ToolSpec {
         self.spec.clone()
+    }
+    fn model_visible(&self) -> bool {
+        self.model_visible
+    }
+    fn user_command(&self) -> Option<crate::contracts::ToolUserCommand> {
+        self.user_command.clone()
     }
 
     async fn invoke(&self, call: &ToolCall, ctx: ToolContext) -> Result<ToolResult> {
@@ -88,6 +99,7 @@ impl Tool for ProcessTool {
                 &request,
                 Arc::new(host::ToolHost {
                     conversation: ctx.conversation,
+                    session_id: ctx.conversation_session_id,
                     call: call.clone(),
                     cancellation: cancellation.clone(),
                 }),

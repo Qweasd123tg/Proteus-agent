@@ -44,7 +44,8 @@ async function initialize(frame) {
   for (const binding of input.exports) {
     object(binding, ["slot", "module_id", "contract_version", "composition", "module_config", "host_features"], "binding");
     const expected = binding.slot === "hook" ? "hook.dcp" : binding.slot === "tool" ? "dcp.tools" : null;
-    if (!expected || binding.module_id !== expected || binding.contract_version !== "v4" || binding.composition !== "ordered_many" ||
+    const version = binding.slot === "hook" ? "v4" : "v5";
+    if (!expected || binding.module_id !== expected || binding.contract_version !== version || binding.composition !== "ordered_many" ||
       !Array.isArray(binding.host_features) || binding.host_features.length || exports.has(binding.slot)) throw new Error("unsupported DCP export");
     const settings = configuration(binding.module_config);
     const normalized = JSON.stringify(settings);
@@ -52,20 +53,20 @@ async function initialize(frame) {
     canonical = normalized;
     module ??= createDcp(binding.module_config);
     exports.set(binding.slot, { id: expected, module });
-    manifest.push({ slot: binding.slot, module_id: expected, contract_version: "v4", composition: "ordered_many", module_features: [], config_schema: configSchema });
+    manifest.push({ slot: binding.slot, module_id: expected, contract_version: version, composition: "ordered_many", module_features: [], config_schema: configSchema });
   }
   ready = true;
   send({ id: frame.id, result: { protocol_version: "v3", component_id: input.component_id, exports: manifest } });
 }
 
-function callback(invocation, signal) {
+function callback(invocation, signal, method) {
   signal.throwIfAborted();
   const id = `m:${generation}:${++sequence}`;
   return new Promise((resolve, reject) => {
     const canceled = () => { pending.delete(id); canceledCallbacks.add(id); reject(signal.reason); };
     signal.addEventListener("abort", canceled, { once: true });
     pending.set(id, { resolve, reject, cleanup: () => signal.removeEventListener("abort", canceled) });
-    send({ id, method: "host.conversation.read", params: { invocation_id: invocation, params: {} } });
+    send({ id, method, params: { invocation_id: invocation, params: {} } });
   });
 }
 
@@ -96,8 +97,8 @@ function invoke(frame) {
   active.set(frame.id, { controller, lineage });
   Promise.resolve().then(async () => ({ result: hook
     ? await target.module.hook(envelope.params, controller.signal)
-    : frame.method === "list" ? [target.module.spec]
-      : await target.module.invoke(envelope.params, () => callback(frame.id, controller.signal), controller.signal) })).then(
+    : frame.method === "list" ? target.module.tools
+      : await target.module.invoke(envelope.params, (method) => callback(frame.id, controller.signal, method), controller.signal) })).then(
     (result) => send({ id: frame.id, result }),
     (error) => send({ id: frame.id, error: { code: controller.signal.aborted ? -32800 : -32000, message: String(error.message ?? error) } }),
   ).finally(() => active.delete(frame.id));

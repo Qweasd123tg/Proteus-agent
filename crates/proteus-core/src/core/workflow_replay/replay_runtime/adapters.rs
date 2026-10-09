@@ -109,12 +109,17 @@ impl ToolExposure for ReplayToolExposure {
 
 struct ReplayTool {
     spec: ToolSpec,
+    model_visible: bool,
     state: Arc<ReplayState>,
 }
 
 impl ReplayTool {
-    fn new(spec: ToolSpec, state: Arc<ReplayState>) -> Self {
-        Self { spec, state }
+    fn new(spec: ToolSpec, model_visible: bool, state: Arc<ReplayState>) -> Self {
+        Self {
+            spec,
+            model_visible,
+            state,
+        }
     }
 }
 
@@ -122,6 +127,10 @@ impl ReplayTool {
 impl Tool for ReplayTool {
     fn spec(&self) -> ToolSpec {
         self.spec.clone()
+    }
+
+    fn model_visible(&self) -> bool {
+        self.model_visible
     }
 
     async fn invoke(&self, call: &ToolCall, _ctx: ToolContext) -> Result<ToolResult> {
@@ -189,15 +198,15 @@ impl ToolExecutionRecorder for ReplayState {
 
 pub(in crate::core::workflow_replay) fn register_replay_tools(
     state: Arc<ReplayState>,
-    specs: impl IntoIterator<Item = ToolSpec>,
+    specs: impl IntoIterator<Item = (ToolSpec, bool)>,
 ) -> Result<crate::contracts::ToolRegistry> {
     let mut registry = crate::contracts::ToolRegistry::new();
-    for spec in specs {
+    for (spec, model_visible) in specs {
         registry.register_with_source(
             ToolSource::Dynamic {
                 origin: "workflow_replay".to_owned(),
             },
-            ReplayTool::new(spec, state.clone()),
+            ReplayTool::new(spec, model_visible, state.clone()),
         )?;
     }
     Ok(registry)

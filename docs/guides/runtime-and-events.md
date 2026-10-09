@@ -195,27 +195,61 @@ ACP stream не восстанавливается слепым повторен
 Правила протокола: [session setup](https://agentclientprotocol.com/protocol/v1/session-setup),
 [prompt/cancel](https://agentclientprotocol.com/protocol/v1/prompt-turn).
 
-## REPL Commands
+## Slash-команды
+
+CLI REPL и приложение используют общий каталог выбранной сборки. В приложении
+`/` открывает подсказки; стрелки выбирают команду, Tab дополняет имя, Escape
+закрывает список. Enter дополняет неполное имя, а полную команду отправляет.
+`//текст` отправляет буквальное `/текст` агенту. Неизвестная команда даёт ошибку,
+а не превращается в запрос модели.
 
 ```text
 /help
+/status
 /history
 /clear
-/reset
+/usage
 /remember [preference|fact] <content>
-/exit
-/quit
+/model [MODEL]
+/mode [normal|plan|auto]
 ```
 
-`/history` отправляет typed `history_summary` и показывает длину in-memory
-history. `/clear` и `/reset` отправляют `clear_history`, очищают live history
-projection и, если подключён `SessionStore`, append-ят canonical empty
-replacement в journal. `/remember` отправляет typed `remember` и запускает
+Это host-owned служебные команды: они используют существующие backend операции,
+без Workflow и model call. `/help` показывает актуальный каталог, `/status` —
+config summary, `/history` — длину live history, `/usage` — расход. `/model` и
+`/mode` без аргумента показывают состояние, с аргументом меняют его.
+`/clear` очищает live history projection и, если подключён `SessionStore`,
+append-ит canonical empty replacement в journal. `/remember` запускает
 отдельную top-level execution на стороне app-server,
 атомарно bind-ит выбранный `MemoryStore` через `BoundMemory` и минует Workflow —
 это explicit direct-user operation для ручных preferences/facts; первое слово
 интерпретируется как kind (`preference` или `fact`), остаток идёт как content.
 Если первое слово не распознано — всё считается `fact`.
+
+Каталог также содержит команды enabled tools и profile prompt-команды:
+
+- **Tool**: module-owned команда вызывает зарегистрированный tool с
+  `{"arguments":"остаток строки"}` через обычные policy, approval, safety,
+  cancellation и execution recorder. Она не создаёт chat Turn и требует idle
+  session в app-server. На время исполнения обычный Send и вторая module-команда
+  отклоняются; остановка использует тот же active run. Регистрация команды не
+  даёт новых host прав и не делает tool доступным модели.
+- **Prompt**: конфигурация разворачивает `$ARGUMENTS` в текст; CLI/приложение
+  отправляют результат обычным Send с текущими model/mode. Это один обычный ход,
+  не скрытый дополнительный model call. [Настройка](configuration.md#prompt-команды).
+
+`command_catalog` и `execute_command { text }` доступны через stdio и
+`POST /request` с выбранной session. Ответ исполнения — typed `display { text }`
+либо `prompt { text }`. Сам `Send` не разбирает slash: API caller может передать
+любой буквальный текст. `/exit` и `/quit` остаются локальными командами CLI,
+не backend-командами; их имена зарезервированы и не могут быть profile/tool
+командами. Алиаса `/reset` нет. Пустой результат prompt expansion отклоняется
+до отправки и сохраняет черновик.
+
+В приложении вывод `display` показывается как локальное служебное сообщение,
+не записывается в разговор и не отправляется модели; tool effects сохраняются
+отдельно в canonical journal. Ошибка сохраняет черновик. Slash-команды пока
+текстовые: прикреплённые изображения нужно отправить отдельно, они не теряются.
 
 ## Event Log
 

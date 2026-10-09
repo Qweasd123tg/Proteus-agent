@@ -10,6 +10,14 @@ use crate::{
 };
 
 pub const TOOL_HOST_READ_CONVERSATION_METHOD: &str = "host.conversation.read";
+pub const TOOL_HOST_CONVERSATION_SNAPSHOT_METHOD: &str = "host.conversation.snapshot";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SessionConversationSnapshot {
+    pub session_id: crate::domain::SessionId,
+    pub conversation: ConversationSnapshot,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]

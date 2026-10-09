@@ -19,7 +19,7 @@ npm test
 `npm ci` на целевой машине: tokenizer загружает собственный WASM из зависимостей.
 Автоустановки в `install.sh` и portable-приложении нет.
 
-Добавьте `hook.dcp` в явную цепочку `modules.hooks` и `compress` в
+Добавьте `hook.dcp` в явную цепочку `modules.hooks` и `compress`, `dcp` в
 `tools.enabled`, сохранив остальные нужные инструменты. Настройки
 `module_config.hook."hook.dcp"` и `module_config.tool."dcp.tools"` должны быть
 одинаковыми; разные параметры одного состояния отклоняются при initialize.
@@ -42,12 +42,34 @@ canonical messages остаются в journal/history: меняется тол�
 Обычный compactor выбранного профиля остаётся отдельным механизмом и может
 создать настоящий history checkpoint.
 
+### Пользовательское Управление
+
+Enabled tool `dcp` объявляет `/dcp` в общем каталоге команд, но имеет
+`model_visible: false`: модель видит только `compress`.
+
+```text
+/dcp stats
+/dcp context
+/dcp decompress
+/dcp decompress 1
+```
+
+`stats` показывает статистику, `context` — оценку контекста, `decompress` без
+аргумента — активные блоки, с номером — восстановление исходного view.
+Используются оригинальные upstream handlers, включая сообщения об отсутствующем
+или неактивном блоке; результат показывается пользователю, не вставляется в
+разговор. Изменяется package-owned prune state, не canonical history.
+Команда работает без LLM/Turn через обычные tool policy/approval/cancellation;
+app-server требует idle session. Остальные upstream команды не предоставляются.
+
 ## Адаптация К Proteus
 
 Это перенос механизма DCP, **не совместимость со всей оболочкой OpenCode**:
 
-- `hook/v4` получает read-only snapshot текущего разговора; `tool/v4` читает
-  его через `host.conversation.read` с invocation-bound source message id.
+- `hook/v4` получает read-only snapshot текущего разговора; `tool/v5` читает
+  его через `host.conversation.read` с invocation-bound source message id,
+  а пользовательское управление — через `host.conversation.snapshot`
+  с bound session id, без требования assistant call.
   Произвольного чтения чужих sessions и записи истории нет.
 - Canonical ToolCall/ToolResult проецируются в upstream tool parts, затем
   восстанавливаются без потери identity существующих сообщений. Изменённые
@@ -56,8 +78,8 @@ canonical messages остаются в journal/history: меняется тол�
   счётчики OpenCode; доступный предел — shaped `max_input_tokens` текущего request.
 - Вызов проходит обычные ToolRegistry, policy, approval и safety. Настройка
   `compress.permission` не принимается: разрешения принадлежат сборке Proteus.
-- OpenCode commands, TUI notifications, management RPC, manual mode, prompt
-  override files и расширение результатов subagents не предоставляются.
+- Полный каталог OpenCode commands, TUI notifications, management RPC, manual
+  mode, prompt override files и расширение результатов subagents не предоставляются.
   Неподдержанные config keys отклоняются, реального OpenCode client нет.
 - Platform adapters заменяют только logging, bundled prompt loading, notifications
   и persistence. Bundler открывает upstream defaults/merge без вызова его
@@ -100,6 +122,6 @@ Overrides обновляют только неиспользуемое здес�
 (`solid-js`, `seroval`, `@babel/core`), не DCP algorithms/version.
 
 `npm test` проверяет protected content, оба modes, fresh-state persistence,
-ошибки, отмену и wire multiplexing. `scripts/test.py full` готовит свежую
+управление blocks, ошибки, отмену и wire multiplexing. `scripts/test.py full` готовит свежую
 Node-сборку до Rust tests; `hook_runtime` дополнительно проверяет actual
 model requests, cold history и replay `Success`/`Error` без повторных effects.

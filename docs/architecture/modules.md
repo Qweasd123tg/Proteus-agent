@@ -71,7 +71,7 @@ Wire shape и правила validation — в
 | `patch` | `select_one` | `modules.patch` | да | `direct`, `codex` |
 | `compactor` | `select_one` | `modules.compactor` | да | `codex` |
 | `tool_exposure` | `select_one` | `modules.tool_exposure` | да | `codex_dynamic` |
-| `tool` | `ordered_many` | предоставленные реализации + `tools.enabled` | да | `reference.tools` и узкие варианты |
+| `tool` | `ordered_many` | предоставленные реализации + `tools.enabled` | да, `tool/v5` | `reference.tools` и узкие варианты |
 | `context_provider` | `ordered_many` | предоставленные реализации + настройки контекста | да | `skills` |
 | `model` | `select_one` | активный профиль модели | да, `model/v12` | `fake`, `openai`, `openai_compatible`, `openai_codex`, `anthropic` |
 
@@ -79,6 +79,14 @@ Wire shape и правила validation — в
 реализаций с заданным порядком. Все перечисленные слоты, включая `model`,
 используют процессный контракт. Управление другими агентами в таблицу не
 входит: им владеет Core, это не выбираемый слот.
+
+Пользовательские slash-команды модуля — contributions существующего `tool/v5`,
+не новый slot. `list` возвращает tool definitions с явным `model_visible` и
+nullable `user_command`; `tools.enabled` выбирает и эту поверхность.
+User-only tools не видны модели, но вызываются пользователем через ту же registry,
+policy/approval/safety/cancellation. Команда не получает authority соседнего hook
+или workflow export. [DTO и callbacks](process-module-architecture.md#authority-table),
+[каталог и исполнение](../guides/runtime-and-events.md#slash-команды).
 
 ## Как Подключить Модуль
 
@@ -433,7 +441,7 @@ host-owned `ExecutionAttribution`: обязательный `ExecutionId` и opt
 
 Для узкого профиля тот же модуль принимает selectors `file_tools`,
 `git_tools`, `shell_tools`, `plan_tool`, `skill_tool`, `rust_lsp` и
-`policy_tools`. Они используют тот же `tool/v4` contract; selector не
+`policy_tools`. Они используют тот же `tool/v5` contract; selector не
 меняет authority.
 
 ### Model

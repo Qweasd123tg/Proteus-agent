@@ -971,13 +971,35 @@ registration или authority surface в Core.
 подключает самостоятельный Node component с `hook.dcp` и tool export `dcp.tools`.
 Сборка, настройки, происхождение и лицензия описаны в
 [`modules/reference/dcp/README.md`](../../modules/reference/dcp/README.md).
-Выбор включает `hook.dcp` в `modules.hooks` и `compress` в `tools.enabled`;
+Выбор включает `hook.dcp` в `modules.hooks` и `compress`, `dcp` в `tools.enabled`;
 opaque config двух exports должен совпадать. Пример не устанавливает executable
 автоматически: нужен абсолютный путь к подготовленному `dist/worker.js`.
 
 DCP заменяет только outgoing model context, не cold history; выбранный
-`compactor` остаётся независимым. Это механизм из DCP 3.2.0, не OpenCode
-commands/TUI/RPC и не объявление parity всего экспериментального профиля.
+`compactor` остаётся независимым. `/dcp stats`, `/dcp context` и
+`/dcp decompress [NUMBER]` принадлежат тому же component; управление не
+предоставляется модели. Это механизм из DCP 3.2.0, не вся оболочка OpenCode
+с её commands/TUI/RPC и не объявление parity экспериментального профиля.
+
+### Prompt-команды
+
+Profile может добавить текстовые команды в общий каталог CLI/приложения:
+
+```toml
+[commands.review]
+description = "Проверить изменения"
+prompt = "Review $ARGUMENTS carefully"
+```
+
+`/review src/main.rs` готовит текст `Review src/main.rs carefully`, который клиент
+отправляет обычным ходом агента. `$ARGUMENTS` — буквальная подстановка остатка
+строки, не shell expansion. Команда не запускает tools сама и не выдаёт новых прав.
+Имена проверяются; пустой prompt или результат expansion, дубли с host/module
+командами, зарезервированные `exit`/`quit` и неизвестные поля дают ошибку.
+Module-команды объявляются реализацией tool через `tool/v5`,
+а не этим блоком; отключение tool убирает его команду из каталога.
+
+Полный список текущей сборки — `/help`; [семантика и API](runtime-and-events.md#slash-команды).
 
 ## Config Builder
 

@@ -93,6 +93,24 @@ pub async fn run_stdio_app_server(
         let id = request.id();
 
         match request {
+            StdioRequest::CommandCatalog { .. } => {
+                let result = server
+                    .command_catalog()
+                    .await
+                    .and_then(|v| Ok(Some(serde_json::to_value(v)?)));
+                send_stdio_response(&output_tx, id, result).await;
+            }
+            StdioRequest::ExecuteCommand { text, .. } => {
+                let server = server.clone();
+                let tx = output_tx.clone();
+                tokio::spawn(async move {
+                    let result = server
+                        .execute_command(id.clone(), &text)
+                        .await
+                        .and_then(|v| Ok(Some(serde_json::to_value(v)?)));
+                    send_stdio_response(&tx, id, result).await;
+                });
+            }
             StdioRequest::Send {
                 id,
                 text,

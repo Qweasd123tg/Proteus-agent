@@ -8,6 +8,7 @@ use super::{
 };
 use crate::{actions::AppActions, types::*};
 mod attachments;
+mod commands;
 
 #[component]
 #[allow(clippy::too_many_arguments)]
@@ -40,6 +41,8 @@ where
     #[cfg(target_arch = "wasm32")]
     crate::ui_layout::attach_composer(dock_ref);
     let images = attachments::ImageInput::new(actions);
+    let suggestions =
+        commands::Suggestions::new(draft, set_draft, actions.active_session_dir, composer_ref);
     #[cfg(target_arch = "wasm32")]
     attachments::accept_window_drops(images, dock_ref);
     let submit_label = move || {
@@ -66,17 +69,20 @@ where
                 </button>
             </Show>
             <div class="composer-shell">
+                <commands::CommandSuggestions suggestions />
                 <attachments::ImageAttachments input=images />
                 <div class="composer-input">
                     // Зеркало текста задаёт высоту средствами layout, без JS-измерений
                     // на каждом вводе. Пробел сохраняет последнюю пустую строку.
                     <div class="composer-measure" aria-hidden="true">{move || format!("{} ", draft.get())}</div>
                     <textarea node_ref=composer_ref rows="1" aria-label="Сообщение агенту"
+                        aria-autocomplete="list" aria-controls="slash-command-list"
+                        aria-expanded=move || !suggestions.matches.get().is_empty()
                         prop:value=move || draft.get()
                         placeholder=move || if mode.get() == PermissionMode::Plan { "Что нужно спланировать?" } else { "Поручите задачу…" }
                         on:input:target=move |ev| set_draft.set(ev.target().value())
                         on:paste=move |ev| images.paste(ev)
-                        on:keydown=on_keydown />
+                        on:keydown=move |event| { if !suggestions.keydown(&event) { on_keydown(event); } } />
                 </div>
                 <div class="composer-toolbar">
                     <div class="composer-options">

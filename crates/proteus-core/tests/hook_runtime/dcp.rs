@@ -1,6 +1,9 @@
 use super::*;
 use proteus_contracts::{
-    contracts::{ProcessModelDescriptor, TOOL_HOST_READ_CONVERSATION_METHOD},
+    contracts::{
+        CancellationToken, ProcessModelDescriptor, TOOL_HOST_CONVERSATION_SNAPSHOT_METHOD,
+        TOOL_HOST_READ_CONVERSATION_METHOD,
+    },
     model_standard::{ContentPart, ModelCapabilities},
 };
 
@@ -32,7 +35,7 @@ async fn dcp_process_preserves_history_changes_only_outgoing_context_and_replays
         let capture = workspace.path().join("requests.jsonl");
         let mut config = config().await;
         config.modules.hooks = vec!["hook.dcp".into()];
-        config.tools.enabled = vec!["compress".into()];
+        config.tools.enabled = vec!["compress".into(), "dcp".into()];
         config.components.insert("dcp".into(), serde_json::from_value(json!({
             "command":"node", "args":[worker], "exports":{"hook":{"hook.dcp":{}},"tool":{"dcp.tools":{}}}
         })).unwrap());
@@ -76,6 +79,12 @@ async fn dcp_process_preserves_history_changes_only_outgoing_context_and_replays
             })
             .collect::<Vec<_>>();
         assert_eq!(requests.len(), 3);
+        assert!(
+            requests
+                .iter()
+                .all(|r| r.tools.iter().all(|tool| tool.name != "dcp")),
+            "management tool must stay out of model requests"
+        );
         let texts = |messages: &[proteus_contracts::model_standard::CanonicalMessage]| {
             messages
                 .iter()
@@ -122,10 +131,35 @@ async fn dcp_process_preserves_history_changes_only_outgoing_context_and_replays
             3,
             "replay must not call the provider"
         );
+        let raw = store.load_messages().unwrap();
+        let stats = runtime
+            .execute_user_command("dcp", "stats", CancellationToken::new())
+            .await
+            .unwrap();
+        assert!(stats.ok && stats.output.contains("DCP"), "{stats:?}");
+        let restored = runtime
+            .execute_user_command("dcp", "decompress 1", CancellationToken::new())
+            .await
+            .unwrap();
+        assert!(restored.ok, "{restored:?}");
+        assert_eq!(
+            store.load_messages().unwrap(),
+            raw,
+            "management commands cannot rewrite history"
+        );
+        let after = records(&runtime);
+        assert!(after.iter().any(|r| matches!(&r.entry, JournalEntry::ToolResultRecorded(t) if t.result.output == restored.output && r.turn_id.is_none())));
+        let decompressed = std::fs::read(&persisted[0]).unwrap();
+        assert_ne!(decompressed, before);
+        assert_replay(&runtime, &config).await;
+        assert_eq!(std::fs::read(&persisted[0]).unwrap(), decompressed);
     }
     let authority = proteus_module_protocol::current_process_contract_authority("tool").unwrap();
     assert_eq!(
         authority.host_methods,
-        &[TOOL_HOST_READ_CONVERSATION_METHOD]
+        &[
+            TOOL_HOST_READ_CONVERSATION_METHOD,
+            TOOL_HOST_CONVERSATION_SNAPSHOT_METHOD
+        ]
     );
 }

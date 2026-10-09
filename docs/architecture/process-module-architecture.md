@@ -360,7 +360,7 @@ Rust host и модуль используют один
 | tool exposure | v4 | `select` | — |
 | policy | v2 | `evaluate`, `evaluate_visibility` | — |
 | context provider | v2 | `provide` | — |
-| tool | v4 | `list`, `invoke` | `host.conversation.read` (только чтение, conversation-bound invocation) |
+| tool | v5 | `list`, `invoke` | `host.conversation.read`, `host.conversation.snapshot` (только чтение, conversation-bound invocation) |
 | context | v2 | `build` | `host.search.query`, `host.memory.recall`, `host.context.provide` |
 | model | v12 | `describe`, `catalog`, `quota`, `stream` | `host.model.emit` (acknowledged canonical events) |
 | compactor | v11 | `compact` | `host.model.complete` |
@@ -370,19 +370,37 @@ Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
 DTO, adapter, protocol/conformance и swap evidence в одном commit.
 
-`tool/v4` добавляет только read-only `host.conversation.read` с пустым object
-input. Ответ содержит canonical snapshot текущего разговора и id единственного
-checkpointed assistant message с активным call id. Workflow может изменить
-execution args явным binding; source identity определяется canonical call id.
-Нет session/thread selectors, history writes или model callback. Без conversation,
-до checkpoint, при неоднозначной identity или после отмены callback возвращает
-явную ошибку. Обычные detached tools работают без history/model; одинаковый
-callback contract действует для всех implementations.
+`tool/v5` возвращает из `list` definitions
+`{ spec: ToolSpec, model_visible: boolean, user_command: ToolUserCommand | null }`.
+Все поля обязательны, включая явный nullable `user_command`; bare ToolSpec и
+старые versions не принимаются. `ToolUserCommand` содержит `name`, `description`
+и подсказку `arguments`. Root name начинается с lowercase буквы и содержит только
+`a-z`, `0-9`, `-`; дубли отклоняются. Tool должен принимать object
+`{ arguments: string }`; registry проверяет этот binding. Команда появляется
+только у enabled tool. `model_visible: false` исключает tool из model catalog;
+повторная validation отклоняет попытку передать его модели, включая hook edits.
+Invocation shape и ToolSpec provider boundary не меняются. Новый slot не нужен:
+пользовательская команда проходит обычный tool execution path.
+
+Оба read-only callbacks принимают пустой object без session/thread selectors:
+
+- `host.conversation.read` возвращает snapshot текущего разговора и id
+  единственного checkpointed assistant message с активным call id. Workflow может
+  изменить execution args явным binding; source identity определяется call id.
+- `host.conversation.snapshot` возвращает `{ session_id, conversation }` из
+  активного invocation binding, без требования assistant call. Это подходит
+  разговорной пользовательской операции вне Turn, но не делает conversation
+  обязательной для обычного detached tool.
+
+History writes и model callback отсутствуют. Без bound conversation/session,
+до требуемого checkpoint, при неоднозначной source identity или отмене — явная
+ошибка. Обычные detached tools работают без history/model; одинаковые callback
+права действуют для всех implementations, не объединяются с правами других exports.
 
 `ToolSpec` содержит обязательный boolean `supports_parallel_tool_calls`,
 независимый от `safety`. Он проходит через tool list, policy, tool exposure,
 canonical model request, workflow/compactor, journal schema v18 и config
-snapshot v6. Rust
+snapshot v7. Rust
 constructor задаёт `false`, модуль обязан передать поле в JSON явно. Selector
 сохраняет зарегистрированное значение; несовпадение отклоняется. Старые
 версии этих contracts и ToolSpec без поля не принимаются. Wire остаётся v3;
@@ -641,7 +659,7 @@ ToolRegistry
   -> invoke
 ```
 
-Component не задаёт execution/chat ownership. В `tool/v4` host передаёт
+Component не задаёт execution/chat ownership. В `tool/v5` host передаёт
 `ExecutionAttribution` из активного execution binding: `ExecutionId` обязателен,
 а `SessionId`/`ThreadId`/`TurnId` существуют только как optional agent
 projection. Detached execution проходит wire без fake chat identities.

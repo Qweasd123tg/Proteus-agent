@@ -8,9 +8,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow, bail};
 use proteus_contracts::{
-    app_protocol::{
-        AppHistorySummary, AppRememberResult, AppServerEvent, StdioOutput, StdioRequest,
-    },
+    app_protocol::{AppServerEvent, StdioOutput, StdioRequest},
     contracts::{ApprovalCacheScope, UserInputAnswer, UserInputRequest, UserInputResponse},
     domain::{AgentOutput, PermissionMode},
 };
@@ -98,44 +96,23 @@ impl CliAppClient {
         serde_json::from_value(value).context("decode app-server AgentOutput")
     }
 
-    pub(crate) async fn clear_history(&mut self) -> Result<()> {
-        let id = self.request_id("clear");
-        self.request(StdioRequest::ClearHistory { id: Some(id) })
-            .await?;
-        Ok(())
-    }
-
-    pub(crate) async fn history_summary(&mut self) -> Result<AppHistorySummary> {
-        let id = self.request_id("history");
-        let value = self
-            .request(StdioRequest::HistorySummary { id: Some(id) })
-            .await?
-            .ok_or_else(|| anyhow!("app-server history response has no output"))?;
-        serde_json::from_value(value).context("decode app-server history summary")
-    }
-
-    pub(crate) async fn remember(
-        &mut self,
-        kind: String,
-        content: String,
-    ) -> Result<AppRememberResult> {
-        let id = self.request_id("remember");
-        let value = self
-            .request(StdioRequest::Remember {
-                id: Some(id),
-                kind,
-                content,
-            })
-            .await?
-            .ok_or_else(|| anyhow!("app-server remember response has no output"))?;
-        serde_json::from_value(value).context("decode app-server remember result")
-    }
-
     pub(crate) async fn config_summary(&mut self) -> Result<Value> {
         let id = self.request_id("config");
         self.request(StdioRequest::ConfigSummary { id: Some(id) })
             .await?
             .ok_or_else(|| anyhow!("app-server config response has no output"))
+    }
+
+    pub(crate) async fn execute_command(
+        &mut self,
+        text: String,
+    ) -> Result<proteus_contracts::app_protocol::commands::CommandOutput> {
+        let id = self.request_id("command");
+        let value = self
+            .request(StdioRequest::ExecuteCommand { id: Some(id), text })
+            .await?
+            .ok_or_else(|| anyhow!("command response has no output"))?;
+        serde_json::from_value(value).context("decode command output")
     }
 
     pub(crate) async fn shutdown(mut self) -> Result<()> {

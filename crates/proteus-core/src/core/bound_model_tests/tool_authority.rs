@@ -17,6 +17,9 @@ impl Tool for ProbeTool {
     fn spec(&self) -> ToolSpec {
         self.0.clone()
     }
+    fn model_visible(&self) -> bool {
+        self.0.name != "user_only"
+    }
     async fn invoke(&self, _: &ToolCall, _: ToolContext) -> Result<ToolResult> {
         panic!("must not execute")
     }
@@ -54,6 +57,13 @@ async fn model_request_cannot_redefine_or_expose_policy_hidden_tools() {
     });
     let mut registry = ToolRegistry::new();
     registry.register(ProbeTool(local.clone())).unwrap();
+    let user_only = ToolSpec::new(
+        "user_only",
+        "User operation",
+        json!({"type":"object"}),
+        ToolSafety::ReadOnly,
+    );
+    registry.register(ProbeTool(user_only.clone())).unwrap();
     let owned = ToolSpec::new(
         "custom_discovery",
         "workflow discovery",
@@ -68,6 +78,19 @@ async fn model_request_cannot_redefine_or_expose_policy_hidden_tools() {
         Arc::new(HeadlessApprovalTransport),
         Arc::default(),
         ToolExecutionBinding::detached(ExecutionScope::fresh(CancellationToken::new())),
+    );
+    assert!(
+        !tools
+            .visible_specs(&cwd)
+            .iter()
+            .any(|tool| tool.name == "user_only")
+    );
+    assert!(
+        tools
+            .validate_model_tools(&[user_only], &cwd)
+            .unwrap_err()
+            .to_string()
+            .contains("user-only")
     );
     tools.validate_model_tools(&[owned.clone()], &cwd).unwrap();
     let mut shadow = owned.clone();

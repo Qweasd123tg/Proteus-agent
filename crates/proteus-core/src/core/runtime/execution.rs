@@ -82,17 +82,7 @@ impl AgentRuntime {
         let mut config_snapshot = state.runtime.config_snapshot.clone();
         if let Some(config) = &mut config_snapshot {
             config.model = state.model_ref.clone();
-            config.tools = state
-                .runtime
-                .registry
-                .tools
-                .entries()
-                .into_iter()
-                .map(|(source, spec)| crate::core::SessionConfigTool {
-                    source: source.label(),
-                    spec,
-                })
-                .collect();
+            config.tools = crate::core::SessionConfigTool::capture(&state.runtime.registry.tools);
             config.reasoning = state.reasoning.clone();
             config.permission_mode_default = permission_mode;
         }
@@ -105,7 +95,7 @@ impl AgentRuntime {
         }
     }
 
-    fn bind_detached_tools(&self, admission: &ExecutionAdmission) -> BoundTools {
+    pub(super) fn bind_detached_tools(&self, admission: &ExecutionAdmission) -> BoundTools {
         let recorder: Arc<dyn ToolExecutionRecorder> = match &self.session.session_store {
             Some(store) => Arc::new(SessionToolExecutionRecorder::new(store.clone())),
             None => Arc::new(NoopToolExecutionRecorder),

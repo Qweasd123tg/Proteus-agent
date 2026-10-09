@@ -1,6 +1,6 @@
 # Canonical Turn Data
 
-Текущий формат — journal schema v18, config snapshot v6 и session metadata v4. Resume history,
+Текущий формат — journal schema v18, config snapshot v7 и session metadata v4. Resume history,
 transcript, eval, prompt replay и workflow replay читают canonical journal.
 
 Canonical context parts сохраняют обязательный `ContextChunk.render_mode`:
@@ -8,6 +8,11 @@ Canonical context parts сохраняют обязательный `ContextChun
 `ToolSpec.supports_parallel_tool_calls` независимо от `safety`. При replay
 эти поля переносятся без переинтерпретации metadata. Reader принимает только
 текущую journal schema; миграций и автоматического выбора старой формы нет.
+
+Config snapshot сохраняет для каждого registered tool его `source`, `spec` и
+обязательный `model_visible`. Workflow replay восстанавливает эту видимость:
+user-only команды не попадают в model context и не требуют запуска исходного
+tool component. Старый snapshot без этого поля не читается.
 
 ## Решение
 

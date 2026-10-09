@@ -24,13 +24,17 @@ test("wire v3 multiplexes current hook/tool exports and cancellation tolerates a
   });
   const write = (frame) => child.stdin.write(JSON.stringify({ jsonrpc: "2.0", ...frame }) + "\n");
   const send = (id, method, params) => new Promise((resolve) => { waiters.set(id, resolve); write({ id, method, params }); });
-  const binding = (slot, module_id) => ({ slot, module_id, contract_version: "v4", composition: "ordered_many", module_config: { state_dir: directory }, host_features: [] });
+  const binding = (slot, module_id) => ({ slot, module_id, contract_version: slot === "hook" ? "v4" : "v5", composition: "ordered_many", module_config: { state_dir: directory }, host_features: [] });
   const envelope = (id, slot, module_id, params) => ({ export: { slot, module_id }, lineage: { root_invocation_id: id, parent_invocation_id: null, depth: 0 }, params });
   const list = (id) => send(id, "list", envelope(id, "tool", "dcp.tools", null));
   t.after(async () => { child.stdin.end(); await closed; lines.close(); await rm(directory, { recursive: true }); });
   const initialized = await send("h:7:0", "initialize", { protocol_version: "v3", component_id: "dcp", exports: [binding("hook", "hook.dcp"), binding("tool", "dcp.tools")] });
   assert.equal(initialized.result.exports.length, 2, errors);
-  assert.equal((await list("h:7:1")).result.result[0].name, "compress");
+   const tools = (await list("h:7:1")).result.result;
+   assert.equal(tools[0].spec.name, "compress");
+   assert.equal(tools[0].model_visible, true);
+   assert.deepEqual(tools[1].user_command.name, "dcp");
+   assert.equal(tools[1].model_visible, false);
   const nextCallback = new Promise((resolve) => { onCallback = resolve; });
   const slow = send("h:7:2", "invoke", envelope("h:7:2", "tool", "dcp.tools", {
     cwd: directory, attribution: { execution_id: "e", agent: { session_id: "s", thread_id: "t", turn_id: "u" } },
@@ -39,11 +43,11 @@ test("wire v3 multiplexes current hook/tool exports and cancellation tolerates a
   const callback = await nextCallback;
   assert.equal(callback.method, "host.conversation.read");
   assert.deepEqual(callback.params, { invocation_id: "h:7:2", params: {} });
-  assert.equal((await list("h:7:3")).result.result[0].name, "compress");
+   assert.equal((await list("h:7:3")).result.result[0].spec.name, "compress");
   write({ method: "$/cancelRequest", params: { invocation_id: "h:7:2", cause: "timeout" } });
   assert.equal((await slow).error.code, -32800);
   write({ id: callback.id, result: {} });
-  assert.equal((await list("h:7:4")).result.result[0].name, "compress");
+   assert.equal((await list("h:7:4")).result.result[0].spec.name, "compress");
   assert.match((await list("h:6:5")).error.message, /generation/);
   const detached = await send("h:7:5", "hook.invoke", envelope("h:7:5", "hook", "hook.dcp", {
     cwd: directory, attribution: { execution_id: "detached", agent: null }, conversation: null,

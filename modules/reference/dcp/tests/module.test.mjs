@@ -60,6 +60,39 @@ test("message mode uses original upstream selection", async (t) => {
   assert.doesNotMatch(contents((await module.hook(input(f, module.spec), signal())).messages), /long obsolete investigation/);
 });
 
+test("user-only DCP commands report and restore persisted blocks without a model turn", async (t) => {
+  const directory = await temporary(t);
+  const module = createDcp({ state_dir: directory });
+  const f = fixture();
+  await module.hook(input(f, module.spec), signal());
+  await module.invoke(toolInput(f, { topic: "old", content: [{ startId: ref("1"), endId: ref("2"), summary: "Research complete." }] }),
+    async () => ({ conversation: f.conversation, message_id: f.messages.at(-1).id }), signal());
+  const original = structuredClone(f.messages);
+  const management = async (args, instance = module) => instance.invoke({ cwd: process.cwd(),
+    attribution: { execution_id: randomUUID(), agent: null },
+    call: { ...f.call, name: "dcp", args: { arguments: args } } }, async (method) => {
+      assert.equal(method, "host.conversation.snapshot");
+      return { session_id: f.attribution.agent.session_id, conversation: f.conversation };
+    }, signal());
+  assert.deepEqual(module.tools.map((t) => [t.spec.name, t.model_visible, t.user_command?.name]),
+    [["compress", true, undefined], ["dcp", false, "dcp"]]);
+  const file = join(directory, `${f.attribution.agent.session_id}.json`);
+  const before = await readFile(file, "utf8");
+  assert.match((await management("stats")).output, /DCP Statistics/);
+  assert.match((await management("context")).output, /Current context/);
+  assert.match((await management("decompress")).output, /1/);
+  assert.match((await management("decompress 999")).output, /does not exist/);
+  assert.equal(await readFile(file, "utf8"), before, "read-only commands must not publish state");
+  await assert.rejects(management("unknown"), /unsupported/);
+  await assert.rejects(management("stats extra"), /arguments/);
+  const restored = await management("decompress 1");
+  assert.match(restored.output, /restored|Restored/);
+  const fresh = createDcp({ state_dir: directory });
+  assert.match(contents((await fresh.hook(input(f, fresh.spec), signal())).messages), /long obsolete investigation/);
+  assert.match((await management("decompress 1", fresh)).output, /not active/);
+  assert.deepEqual(f.messages, original);
+});
+
 test("invalid ranges and cancellation do not publish compression state", async (t) => {
   const directory = await temporary(t);
   const module = createDcp({ state_dir: directory });

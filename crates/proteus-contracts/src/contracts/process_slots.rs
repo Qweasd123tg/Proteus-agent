@@ -40,7 +40,7 @@ pub const CONTEXT_HOST_PROVIDER_METHOD: &str = "host.context.provide";
 pub const PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION: &str = "v2";
 pub const PROCESS_CONTEXT_PROVIDER_METHOD: &str = "provide";
 
-pub const PROCESS_TOOL_CONTRACT_VERSION: &str = "v4";
+pub const PROCESS_TOOL_CONTRACT_VERSION: &str = "v5";
 pub const PROCESS_TOOL_LIST_METHOD: &str = "list";
 pub const PROCESS_TOOL_INVOKE_METHOD: &str = "invoke";
 
@@ -144,7 +144,16 @@ pub type ProcessToolExposureResponse = ProcessModuleResponse<super::ToolExposure
 pub type ProcessPolicyResponse = ProcessModuleResponse<PolicyDecision>;
 pub type ProcessContextResponse = ProcessModuleResponse<ContextBundle>;
 pub type ProcessContextChunksResponse = ProcessModuleResponse<Vec<ContextChunk>>;
-pub type ProcessToolListResponse = ProcessModuleResponse<Vec<ToolSpec>>;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessToolDefinition {
+    pub spec: ToolSpec,
+    pub model_visible: bool,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub user_command: Option<super::ToolUserCommand>,
+}
+
+pub type ProcessToolListResponse = ProcessModuleResponse<Vec<ProcessToolDefinition>>;
 pub type ProcessToolInvokeResponse = ProcessModuleResponse<ToolResult>;
 
 #[cfg(test)]
@@ -173,6 +182,37 @@ mod tests {
         value["input"]["unexpected_field"] = serde_json::json!({});
         serde_json::from_value::<ProcessToolExposureInput>(value)
             .expect_err("nested input must be strict");
+
+        let definition = ProcessToolDefinition {
+            spec: ToolSpec::new(
+                "probe",
+                "Probe",
+                serde_json::json!({}),
+                crate::domain::ToolSafety::ReadOnly,
+            ),
+            model_visible: false,
+            user_command: Some(super::super::ToolUserCommand {
+                name: "probe".into(),
+                description: "Probe".into(),
+                arguments: "[ARGS]".into(),
+            }),
+        };
+        let value = serde_json::to_value(&definition).unwrap();
+        serde_json::from_value::<ProcessToolDefinition>(value.clone()).unwrap();
+        for field in ["model_visible", "user_command"] {
+            let mut missing = value.clone();
+            missing.as_object_mut().unwrap().remove(field);
+            serde_json::from_value::<ProcessToolDefinition>(missing)
+                .expect_err("tool definition fields are required");
+        }
+        serde_json::from_value::<ProcessToolDefinition>(
+            serde_json::to_value(&definition.spec).unwrap(),
+        )
+        .expect_err("bare specs are not tool definitions");
+        let mut unknown = value;
+        unknown["user_command"]["legacy"] = serde_json::json!(true);
+        serde_json::from_value::<ProcessToolDefinition>(unknown)
+            .expect_err("command definitions are strict");
     }
 
     #[test]

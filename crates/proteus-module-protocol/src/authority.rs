@@ -183,7 +183,10 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         contract_version: PROCESS_TOOL_CONTRACT_VERSION,
         composition: ProcessModuleComposition::OrderedMany,
         module_methods: TOOL_METHODS,
-        host_methods: &[TOOL_HOST_READ_CONVERSATION_METHOD],
+        host_methods: &[
+            TOOL_HOST_READ_CONVERSATION_METHOD,
+            proteus_contracts::contracts::TOOL_HOST_CONVERSATION_SNAPSHOT_METHOD,
+        ],
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
     },
@@ -299,7 +302,7 @@ mod tests {
             ("compactor", "v10", "v11"),
             ("workflow", "v18", "v19"),
             ("hook", "v3", "v4"),
-            ("tool", "v3", "v4"),
+            ("tool", "v4", "v5"),
             ("policy", "v1", "v2"),
             ("tool_exposure", "v3", "v4"),
         ] {

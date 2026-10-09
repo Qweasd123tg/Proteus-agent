@@ -25,6 +25,7 @@ use crate::{
 pub mod acp;
 mod approval_preview;
 mod approvals;
+mod commands;
 mod config_builder;
 mod config_history;
 mod config_summary;
@@ -461,7 +462,7 @@ impl AgentAppServer {
             approval_timeout,
         );
 
-        Ok(AppServerHandle {
+        let server = AppServerHandle {
             runtime,
             config: config_snapshot,
             config_path: config_path_snapshot,
@@ -470,7 +471,9 @@ impl AgentAppServer {
             pending_approvals,
             pending_user_inputs,
             runs: Arc::new(Mutex::new(runs::RunRegistry::default())),
-        })
+        };
+        server.command_catalog().await?;
+        Ok(server)
     }
 }
 

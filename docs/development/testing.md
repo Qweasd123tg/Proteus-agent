@@ -268,6 +268,26 @@ outgoing context отличается, cold history сохраняет ориг�
 dogfood/eval проверяется отдельно: scripted evidence не доказывает полезность
 или качество summary на повседневных задачах.
 
+## Slash-команды
+
+`proteus-core --lib app_server::http::tests::slash` проверяет общий каталог,
+prompt expansion и настоящую process-команду: allow/deny approval, idle admission,
+cancel и cold journal без Turn/model call. `hook_runtime` проверяет DCP management
+и replay без повторного изменения package state; `npm test` — оригинальные
+stats/context/decompress handlers и восстановление view после restart.
+User-only tool не попадает в model catalog и отклоняется model-request validation.
+
+После Trunk и свежей debug-сборки backend/reference module:
+
+```bash
+python3 clients/app/ui/tests/extensions_browser.py --commands-only
+```
+
+Сценарий проверяет общий backend catalog, keyboard completion, служебные и DCP
+команды без LLM, сохранение ошибочного черновика, обычный prompt Turn и `//`.
+
+## Typed Hook Boundary
+
 Для `hook/v4` проверяются strict DTO/response validation, одинаковая authority
 без host callbacks, config order и отсутствие duplicate/unknown selection.
 Boundary chain покрывает A→B/B→A, pre-effect failure, actual tool outcome

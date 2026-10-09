@@ -145,6 +145,13 @@ impl BoundTools {
             .specs()
             .into_iter()
             .filter(|spec| {
+                if !self
+                    .registry
+                    .get(&spec.name)
+                    .is_some_and(|tool| tool.model_visible())
+                {
+                    return false;
+                }
                 visibility_decision_allows(
                     spec,
                     self.policy
@@ -180,6 +187,13 @@ impl BoundTools {
                 tool.clone()
             } else {
                 let registered = self.registry.spec(&tool.name)?;
+                anyhow::ensure!(
+                    self.registry
+                        .get(&tool.name)
+                        .is_some_and(|tool| tool.model_visible()),
+                    "model request contains user-only tool '{}'",
+                    tool.name
+                );
                 anyhow::ensure!(
                     registered == *tool,
                     "model request changed registered tool '{}'",
@@ -425,6 +439,7 @@ impl BoundTools {
             task: None,
             agent_control: None,
             conversation: None,
+            conversation_session_id: None,
         };
         enrich(&mut tool_ctx);
         // Binding-owned fields remain authoritative after optional enrichment.
@@ -571,7 +586,7 @@ pub(crate) trait ToolExecutionObserver: Send + Sync {
     async fn tool_finished(&self, result: &ToolResult) -> Result<()>;
 }
 
-struct NoopToolExecutionObserver;
+pub(crate) struct NoopToolExecutionObserver;
 
 #[async_trait]
 impl ToolExecutionObserver for NoopToolExecutionObserver {

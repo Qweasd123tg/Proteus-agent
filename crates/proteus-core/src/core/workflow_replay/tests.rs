@@ -414,6 +414,7 @@ fn snapshot(spec: &ToolSpec) -> SessionConfigSnapshot {
         tools: vec![SessionConfigTool {
             source: "test".to_owned(),
             spec: spec.clone(),
+            model_visible: true,
         }],
         permission_mode_default: PermissionMode::Normal,
     }

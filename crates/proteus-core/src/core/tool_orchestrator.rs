@@ -83,6 +83,7 @@ fn enrich_agent_tool_context(
     )));
     tool_ctx.task = Some(task.clone());
     tool_ctx.conversation = ctx.conversation.clone();
+    tool_ctx.conversation_session_id = Some(ctx.session_id);
     tool_ctx.agent_control =
         crate::core::agent_control::bind_tool_host(ctx, tool_ctx.cancellation.clone());
 }

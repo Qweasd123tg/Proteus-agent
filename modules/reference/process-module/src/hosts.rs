@@ -81,6 +81,16 @@ impl proteus_contracts::process_module::ModelModuleHost for ModelHostBridge {
 }
 
 impl ToolModuleHost for ToolHostBridge {
+    fn conversation_snapshot_json(&self) -> Result<String, ProcessModuleError> {
+        let value = self
+            .0
+            .call(
+                proteus_contracts::contracts::TOOL_HOST_CONVERSATION_SNAPSHOT_METHOD,
+                serde_json::json!({}),
+            )
+            .map_err(|error| ProcessModuleError::new(format!("{error:#}")))?;
+        serde_json::to_string(&value).map_err(|error| ProcessModuleError::new(error.to_string()))
+    }
     fn is_cancelled(&self) -> Result<bool, ProcessModuleError> {
         Ok(self.0.is_cancelled())
     }

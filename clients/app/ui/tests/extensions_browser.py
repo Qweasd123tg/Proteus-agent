@@ -39,6 +39,7 @@ from agent_settings_checks import run as check_agent_settings
 from notifications_checks import run as check_notifications
 from turn_issue_checks import run as check_turn_issue
 from chat_search_checks import run as check_chat_search
+from commands_checks import run as check_commands
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -117,6 +118,8 @@ class Assets(SimpleHTTPRequestHandler):
             output = [{"type":"function_call","call_id":"ui-plan","name":"update_plan","arguments":json.dumps({"plan":[{"step":"Проверить панели","status":"completed"},{"step":"Проверить настройки","status":"completed"}]})}]
         else:
             output = [{"id":"ui-answer","type":"message","role":"assistant","content":[{"type":"output_text","text":"Проверка интерфейса завершена.\n\n- Панели раскрываются одним изменением ширины.\n- Расширения настраиваются в отдельном разделе.\n- Поле ввода оставляет место для последних сообщений.\n\n```rust\nfn main() {\n    println!(\"Proteus UI fixture\");\n}\n```"}]}]
+        if '--commands-only' in sys.argv:
+            output = [{"id":"ui-command-answer","type":"message","role":"assistant","content":[{"type":"output_text","text":"Prompt command completed."}]}]
         if count == 1 and '--markdown-only' in sys.argv:
             output[0]['content'][0]['text'] += MARKDOWN_FIXTURE
         if '--approval-only' in sys.argv:
@@ -330,6 +333,20 @@ implementation = "openai_codex"
 base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/usage') + '\nauth_file = ' + json.dumps(str(auth)) + '\n[event_log]\npath = ' + json.dumps(str(folder / 'events.jsonl')) + '\n')
         if '--images-only' in sys.argv:
             config.write_text(config.read_text()+'\n[module_config.model.custom-model.capabilities]\nsupports_image_input = true\n')
+        if '--commands-only' in sys.argv:
+            config.write_text(config.read_text().replace('enabled = ["update_plan"]', 'enabled = ["update_plan", "dcp"]') + '''
+[commands.review]
+description = "Review a target"
+prompt = "Review $ARGUMENTS carefully"
+[commands.echo]
+description = "Forward arguments"
+prompt = "$ARGUMENTS"
+[components.dcp]
+command = "node"
+args = [''' + json.dumps(str(ROOT / 'modules/reference/dcp/dist/worker.js')) + ''']
+[components.dcp.exports.tool."dcp.tools"]
+[module_config.tool."dcp.tools"]
+state_dir = ''' + json.dumps(str(folder / 'dcp-state')) + '\n')
         if '--agent-settings-only' in sys.argv:
             config.write_text(config.read_text().replace('[components.model.exports.policy.allow_all]', '[components.model.exports.policy.allow_all]\n[components.model.exports.context.repo_aware]'))
         if '--approval-only' in sys.argv:
@@ -390,6 +407,11 @@ base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/us
                     command('/url', {'url':web+'/?'+urlencode({'server':origin,'token':'extension-smoke'})})
                     wait_for(loaded, 'Client missing')
                     check_images(command, js, wait_for, server, web, origin)
+                    return
+                if '--commands-only' in sys.argv:
+                    command('/url', {'url': web + '/?' + urlencode({'server': origin, 'token': 'extension-smoke'})})
+                    wait_for(loaded, 'Client missing')
+                    check_commands(command, js, wait_for, server)
                     return
                 if '--request-races-only' in sys.argv:
                     command('/url', {'url':web+'/?'+urlencode({'server':origin,'token':'extension-smoke'})})

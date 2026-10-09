@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { readFile, mkdir, writeFile, rename, unlink } from "node:fs/promises";
+import { readFile, readdir, mkdir, writeFile, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { serializePruneMessagesState } from "../../node_modules/@tarquinen/opencode-dcp/lib/state/utils.ts";
@@ -58,4 +58,19 @@ export async function loadSessionState(session) {
 }
 export async function loadManualModeSetting(session) { return (await loadSessionState(session))?.manualMode; }
 export async function saveManualModeSetting() { throw new Error("OpenCode manual mode is unsupported"); }
-export async function loadAllSessionStats() { throw new Error("OpenCode stats command is unsupported"); }
+export async function loadAllSessionStats() {
+  const result = {totalTokens: 0, totalTools: 0, totalMessages: 0, sessionCount: 0};
+  let files;
+  try { files = await readdir(scope().directory); }
+  catch (error) { if (error.code === "ENOENT") return result; throw error; }
+  for (const name of files.filter((name) => name.endsWith(".json"))) {
+    const state = await loadSessionState(name.slice(0, -5));
+    if (state?.stats.totalPruneTokens) {
+      result.totalTokens += state.stats.totalPruneTokens;
+      result.totalTools += Object.keys(state.prune.tools).length;
+      result.totalMessages += Object.keys(state.prune.messages.byMessageId).length;
+      result.sessionCount++;
+    }
+  }
+  return result;
+}

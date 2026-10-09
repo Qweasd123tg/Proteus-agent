@@ -11,6 +11,7 @@ import { project } from "./messages.mjs";
 import { PromptStore } from "./platform/prompts.mjs";
 import { Logger } from "./platform/logger.mjs";
 import { transaction, saveSessionState } from "./platform/persistence.mjs";
+import { command, commandSpec, executeDcpCommand } from "./commands.mjs";
 
 export function createDcp(settings = {}) {
   const { config, directory } = configuration(settings);
@@ -58,6 +59,8 @@ export function createDcp(settings = {}) {
 
   return {
     spec,
+    tools: [{spec, model_visible: true, user_command: null},
+      {spec: commandSpec, model_visible: false, user_command: command}],
     async hook(input, signal) {
       const event = input.event;
       if (event.event !== "before_model" || !input.attribution.agent) return { action: "continue" };
@@ -88,10 +91,25 @@ export function createDcp(settings = {}) {
       });
     },
     async invoke(input, readConversation, signal) {
+      if (input.call.name === "dcp") {
+        const args = input.call.args;
+        if (!args || Object.keys(args).length !== 1 || typeof args.arguments !== "string") throw new Error("invalid DCP command arguments");
+        const snapshot = await readConversation("host.conversation.snapshot");
+        signal.throwIfAborted();
+        return serial(snapshot.session_id, signal, async (state) => {
+          const {client, raw} = await load(state, snapshot.conversation, snapshot.session_id);
+          syncCompressionBlocks(state, logger, raw);
+          syncToolCache(state, config, logger, raw);
+          buildToolIdList(state, raw);
+          const output = await executeDcpCommand(args.arguments, {client, state, logger, sessionId: snapshot.session_id, messages: raw});
+          signal.throwIfAborted();
+          return {call_id: input.call.id, ok: true, output, content: [], error: null, metadata: null};
+        });
+      }
       if (input.call.name !== "compress") throw new Error("unknown DCP tool");
       if (!input.attribution.agent) throw new Error("compress requires an agent conversation");
       const args = schema.parse(input.call.args);
-      const snapshot = await readConversation();
+      const snapshot = await readConversation("host.conversation.read");
       signal.throwIfAborted();
       const session = input.attribution.agent.session_id;
       return serial(session, signal, async (state) => {

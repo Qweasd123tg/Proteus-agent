@@ -35,4 +35,4 @@ compress = { mode = "range", protectTags = true }
 
 [tools]
 # Include заменяет массив целиком: сохраняем инструменты исходной сборки.
-enabled = ["skill", "read_file", "read_many_files", "list_dir", "grep", "find_files", "lsp_diagnostics", "edit_file", "write_file", "shell", "update_plan", "request_user_input", "compress"]
+enabled = ["skill", "read_file", "read_many_files", "list_dir", "grep", "find_files", "lsp_diagnostics", "edit_file", "write_file", "shell", "update_plan", "request_user_input", "compress", "dcp"]
