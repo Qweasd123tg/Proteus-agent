@@ -246,6 +246,25 @@ proteus-reference-module auth openai_codex logout
 модели и лимиты определяются аккаунтом. Фрагмент `fragments/openai-chatgpt.toml` задаёт explicit
 model export, capabilities и консервативный порог контекста 200000 tokens.
 
+В root-профиле `codex-chatgpt` включён самостоятельный
+[DCP component](../../modules/reference/dcp/README.md): `hook.dcp`, model tool
+`compress` и пользовательская команда `/dcp`. Для запуска нужен Node.js 22+,
+собранный модуль и executable `proteus-dcp` в `PATH`; portable и `install.sh`
+не устанавливают его автоматически. После сборки в корне checkout можно
+подключить entry:
+
+```bash
+mkdir -p "$HOME/.local/bin"
+ln -s "$PWD/modules/reference/dcp/dist/worker.js" "$HOME/.local/bin/proteus-dcp"
+```
+
+Не заменяйте существующий launcher без проверки его назначения. При переносе
+checkout обновите ссылку; при переносе модуля сохраняйте его dependencies.
+Сборки, включающие `codex-chatgpt` через `include`, наследуют DCP. Самостоятельные
+`codex`, `codex-chatgpt-explore` и `codex-chatgpt-coder` его не включают.
+Workflow, model и обычный `codex` compactor не заменены: DCP меняет только
+outgoing view, а параметры hook/tool exports в профиле одинаковы.
+
 Экспериментальный `context-search-chatgpt` включает этот же profile и меняет
 только context selection на `repo_aware`. Запуск:
 
@@ -261,7 +280,7 @@ proteus --config context-search-chatgpt
 chunk и иначе оформляет project instructions. Поиск может добавить шум и
 увеличить первый запрос. Он не видит историю прочитанных файлов и не удаляет
 из контекста уже известные модели фрагменты. Выбор обычного `codex-chatgpt`
-возвращает исходную сборку.
+возвращает `codex_context` той же root-сборки с DCP.
 
 `openai_codex` сам запрашивает `GET /backend-api/codex/models` с ChatGPT OAuth.
 Интерфейс приложения показывает все возвращённые модели, включая entries с отметкой «скрытая»,

@@ -41,7 +41,7 @@ compactor = "codex"
 policy = "codex_policy"
 search = "rg"
 patch = "codex"
-hooks = []
+hooks = ["hook.dcp"]
 
 [module_config.context.codex_context]
 max_bytes_per_file = 12000
@@ -117,4 +117,19 @@ ask_before = [
 stream_max_retries = 5
 
 [tools]
-enabled = ["apply_patch", "exec_command", "find_files", "git_diff", "git_status", "grep", "list_dir", "lsp_diagnostics", "read_file", "read_many_files", "remember_fact", "request_permissions", "request_user_input", "search", "shell", "skill", "update_plan", "write_file", "write_stdin"]
+enabled = ["apply_patch", "exec_command", "find_files", "git_diff", "git_status", "grep", "list_dir", "lsp_diagnostics", "read_file", "read_many_files", "remember_fact", "request_permissions", "request_user_input", "search", "shell", "skill", "update_plan", "write_file", "write_stdin", "compress", "dcp"]
+
+# Самостоятельный Node component; proteus-dcp должен быть доступен в PATH.
+[components.dcp]
+command = "proteus-dcp"
+env_allowlist = ["HOME", "XDG_DATA_HOME"]
+
+[components.dcp.exports.hook."hook.dcp"]
+[components.dcp.exports.tool."dcp.tools"]
+
+# Оба exports делят prune state и требуют одинаковых настроек.
+[module_config.hook."hook.dcp"]
+compress = { mode = "range", protectTags = true }
+
+[module_config.tool."dcp.tools"]
+compress = { mode = "range", protectTags = true }
